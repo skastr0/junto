@@ -241,7 +241,6 @@ export const commitCommands = (
   edit: (canvas: Canvas) => ReadonlyArray<Command>,
   options: { readonly remember?: boolean } = {},
 ): void => {
-  if (state$.settings.station.role.peek() === "remote") return;
   if (!canvasMutationAdmissionOpen) return;
   const name = state$.canvasName.peek();
   if (abandonedNames.has(name)) return;

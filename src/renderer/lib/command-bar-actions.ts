@@ -16,7 +16,6 @@ import {
   ShoppingBag,
   type LucideIcon,
 } from "lucide-react";
-import { isCommandCenterAuthoring } from "./canvas-boot";
 import { factoryPause$, toggleFactoryPause } from "./factory-pause";
 import { clearSelection, state$ } from "./state";
 import { openSettings } from "./settings-state";
@@ -118,14 +117,13 @@ const cycleEdgeFilter = (): void => {
 
 export const buildCommandBarActions = (): ReadonlyArray<CommandBarAction> => {
   const canvasName = state$.canvasName.peek();
-  const authoring = isCommandCenterAuthoring(state$.settings.station.role.peek());
   const pauseState = factoryPause$.state.peek();
   const playing = Boolean(pauseState?.playing);
   const edgeFilter = state$.edgeFilter.peek();
   const selectedNodeId = state$.selectedNodeId.peek();
   const actions: CommandBarAction[] = [];
 
-  if (authoring && pauseState) {
+  if (pauseState) {
     actions.push({
       id: "factory-pause",
       label: playing ? "Pause canvas" : "Play canvas",
@@ -137,15 +135,13 @@ export const buildCommandBarActions = (): ReadonlyArray<CommandBarAction> => {
     });
   }
 
-  if (authoring) {
-    actions.push({
-      id: "add-item",
-      label: "Add canvas item",
-      detail: "Open the node palette",
-      icon: Plus,
-      run: () => state$.nodePaletteOpen.set(true),
-    });
-  }
+  actions.push({
+    id: "add-item",
+    label: "Add canvas item",
+    detail: "Open the node palette",
+    icon: Plus,
+    run: () => state$.nodePaletteOpen.set(true),
+  });
 
   actions.push({
     id: "open-feed",
@@ -178,7 +174,7 @@ export const buildCommandBarActions = (): ReadonlyArray<CommandBarAction> => {
   actions.push({
     id: "open-settings",
     label: "Open settings",
-    detail: "Station, terminal, and theme settings",
+    detail: "Terminal, theme and agent settings",
     icon: Settings2,
     run: () => openSettings(),
   });
@@ -203,20 +199,18 @@ export const buildCommandBarActions = (): ReadonlyArray<CommandBarAction> => {
     });
   }
 
-  if (authoring) {
-    actions.push({
-      id: "edge-filter",
-      label:
-        edgeFilter === ""
-          ? "Edge filter / show blocks"
-          : edgeFilter === "blocks"
-            ? "Edge filter / show relates"
-            : "Edge filter / clear",
-      detail: "Cycle edge filter: off, blocks, relates",
-      icon: Layers,
-      run: cycleEdgeFilter,
-    });
-  }
+  actions.push({
+    id: "edge-filter",
+    label:
+      edgeFilter === ""
+        ? "Edge filter / show blocks"
+        : edgeFilter === "blocks"
+          ? "Edge filter / show relates"
+          : "Edge filter / clear",
+    detail: "Cycle edge filter: off, blocks, relates",
+    icon: Layers,
+    run: cycleEdgeFilter,
+  });
 
   actions.push({
     id: "fit-view",

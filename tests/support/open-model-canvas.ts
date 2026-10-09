@@ -8,14 +8,11 @@ export const openModelCanvas = (name: string, nodes: ReadonlyArray<Node>, wires:
   const runtime = globalThis as unknown as { window?: unknown };
   const previous = runtime.window;
   runtime.window = { setTimeout: globalThis.setTimeout, confirm: () => true, junto: { modelCommand: async () => ({ seq: 0 }) } };
-  const role = state$.settings.station.role.peek();
-  state$.settings.station.role.set("command-center");
   state$.canvasName.set(name);
   authoring.forget(name);
   const release = modelStore.adopt({ canvas: asCanvasName(name), seq: 0, nodes, wires });
   return async () => {
     await authoring.idle(); release(); authoring.forget(name);
-    state$.settings.station.role.set(role);
     if (previous === undefined) delete runtime.window;
     else runtime.window = previous;
   };

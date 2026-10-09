@@ -1,27 +1,14 @@
-import type { StationRoleSetting } from "@shared/settings";
-
 export type CanvasBootAction =
   | { readonly kind: "open"; readonly name: string }
-  | { readonly kind: "seed" }
-  | { readonly kind: "wait-projection" };
+  | { readonly kind: "seed" };
 
 /**
- * Remote consumes Command Center projection and must never seed or create.
- * Command Center still seeds an empty authorial install.
+ * What the window shows first: the first canvas this machine holds, its own
+ * or a copy of one another machine edits. With none, it starts an empty one.
  */
 export const nextCanvasBootAction = (
-  role: StationRoleSetting,
   names: ReadonlyArray<string>,
 ): CanvasBootAction => {
   const first = names[0];
-  if (first !== undefined) return { kind: "open", name: first };
-  if (role === "command-center") return { kind: "seed" };
-  return { kind: "wait-projection" };
+  return first === undefined ? { kind: "seed" } : { kind: "open", name: first };
 };
-
-export const isCommandCenterAuthoring = (role: StationRoleSetting): boolean =>
-  role === "command-center";
-
-/** Command Fleet is Command Center chrome. A Remote must not open it. */
-export const isCommandCenterFleetUi = (role: StationRoleSetting): boolean =>
-  role === "command-center";

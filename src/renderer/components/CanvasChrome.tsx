@@ -1,5 +1,4 @@
 import { use$ } from "@legendapp/state/react";
-import { isCommandCenterAuthoring } from "../lib/canvas-boot";
 import { clearGraphFilters, state$ } from "../lib/state";
 import { modelStore } from "../lib/use-model";
 
@@ -7,13 +6,13 @@ import { modelStore } from "../lib/use-model";
 // CanvasReadout removed — pure noise.
 // UsageHud (station usage rail) lives in the station TopBar — left of the canvas switcher.
 
-function CanvasEmpty({ hasNodes, authoring }: { readonly hasNodes: boolean; readonly authoring: boolean }) {
+function CanvasEmpty({ hasNodes }: { readonly hasNodes: boolean }) {
   if (hasNodes) return null;
   return (
     <div className="field-empty pointer-events-none absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2">
       <div className="field-empty__reticle" aria-hidden><span /><span /><span /><span /></div>
-      <div className="field-empty__title">{authoring ? "empty canvas" : "no projected canvas"}</div>
-      <div className="field-empty__copy">{authoring ? <>Right-click or click Add item<br />to create your first node.</> : <>This Remote shows Command Center canvases only.<br />Wait for a projection, or author on Command Center.</>}</div>
+      <div className="field-empty__title">empty canvas</div>
+      <div className="field-empty__copy">Right-click or click Add item<br />to create your first node.</div>
     </div>
   );
 }
@@ -31,12 +30,11 @@ export function CanvasChrome() {
     const canvas = state$.canvasName.get();
     return modelStore.canvas$(canvas).nodeIds.get().some((id) => modelStore.node$(canvas, id).peek()?.kind !== "region");
   });
-  const authoring = isCommandCenterAuthoring(use$(state$.settings.station.role));
 
   return (
     <>
       <FilterTray />
-      <CanvasEmpty hasNodes={hasNodes} authoring={authoring} />
+      <CanvasEmpty hasNodes={hasNodes} />
     </>
   );
 }

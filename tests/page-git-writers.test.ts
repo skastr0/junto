@@ -11,7 +11,6 @@ const loadedGit = (): NodeOf<"git"> => ({ kind: "git", id: asNodeId("target"), x
 let release: (() => void) | undefined;
 const open = (node: Node) => {
   state$.canvasName.set(name);
-  state$.settings.station.role.set("command-center");
   state$.error.set("");
   release = modelStore.adopt({ canvas: asCanvasName(name), seq: 21, nodes: [node], wires: [] });
   return node;

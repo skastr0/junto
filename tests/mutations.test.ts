@@ -136,8 +136,6 @@ describe("renderer graph mutations", () => {
     dock$.registry.set(initialWorkbenchState());
     dock$.chatById.set({});
     dock$.opErrorByRef.set({});
-    state$.settings.station.hostId.set("local");
-    state$.settings.station.role.set("");
     clearGraphFilters();
     load([]);
   });
@@ -590,18 +588,6 @@ describe("renderer graph mutations", () => {
     await flushPendingCanvasSave();
     expect(state$.docEpoch.peek()).toBe(afterCommit + 2);
     expect(docNow().nodes[0]).toMatchObject({ label: "EDITED" });
-  });
-
-  it("refuses authorial commits on a Remote station", () => {
-    state$.canvasName.set("mutation-test");
-    load(base());
-    const before = docNow();
-    const epoch = state$.docEpoch.peek();
-    state$.settings.station.role.set("remote");
-    editText("source", "REMOTE MUST NOT WRITE");
-    syncPositions(new Map([["source", { x: 99, y: 99 }]]));
-    expect(docNow()).toEqual(before);
-    expect(state$.docEpoch.peek()).toBe(epoch);
   });
 
   it("persists region geometry changes without rebuilding the graph", () => {

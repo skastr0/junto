@@ -16,12 +16,11 @@ const ICON = 12;
 export function OverseerToggleKey({ nodeId }: { readonly nodeId: string }) {
   const canvasName = use$(state$.canvasName);
   const node = useRtsNodes(canvasName, [nodeId])[0];
-  const stationRole = use$(state$.settings.station.role);
   const granted = node?.kind === "agent" && node.overseer;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  if (node?.kind !== "agent" || stationRole === "remote") return null;
+  if (node?.kind !== "agent") return null;
 
   const toggle = () => {
     if (busy || !canvasName) return;

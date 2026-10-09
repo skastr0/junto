@@ -16,7 +16,6 @@ const seed = (node: Node): string => {
 
 beforeEach(() => {
   state$.settings.set(EMPTY_SETTINGS);
-  state$.settings.station.role.set("command-center");
   state$.canvasName.set("Workshop");
 });
 
@@ -45,9 +44,7 @@ describe("OverseerToggleKey", () => {
     expect(html).not.toContain("var(--color-crimson)");
   });
 
-  it("hides on non-agent nodes and Remote stations", () => {
+  it("hides on a node that is not a seat", () => {
     expect(renderToStaticMarkup(<OverseerToggleKey nodeId={seed(note("note"))} />)).toBe("");
-    state$.settings.station.role.set("remote");
-    expect(renderToStaticMarkup(<OverseerToggleKey nodeId={seed(managed())} />)).toBe("");
   });
 });

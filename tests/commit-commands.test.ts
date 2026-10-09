@@ -69,15 +69,4 @@ describe("one act, said as commands, on typed rows", () => {
     expect(state$.saveState.peek()).toBe("error");
   });
 
-  it("does nothing on a Remote station", () => {
-    open(note("a", "one"));
-    const role = state$.settings.station.role.peek();
-    state$.settings.station.role.set("remote");
-    try {
-      commitCommands(() => [retext("a", "from a remote")]);
-      expect(textOf("a")).toBe("one");
-    } finally {
-      state$.settings.station.role.set(role);
-    }
-  });
 });

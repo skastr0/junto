@@ -17,7 +17,6 @@ const loaded = (): NodeOf<"region"> => region("works", { x: 900, y: 30, width: 5
 let release: (() => void) | undefined;
 const open = (node: Node = loaded()) => {
   state$.canvasName.set(name);
-  state$.settings.station.role.set("command-center");
   state$.error.set("");
   release = modelStore.adopt({ canvas: asCanvasName(name), seq: 21, nodes: [node], wires: [] });
   return node;

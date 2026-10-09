@@ -46,7 +46,6 @@ import { canvasZoomRequest$ } from "../lib/canvas-zoom";
 import { useMenuDismiss } from "../lib/menu-dismiss";
 import { claimFocus, recentGestureKind } from "../lib/focus-ownership";
 import { isEditableEventTarget, toggleInSelection } from "../lib/multi-select-gesture";
-import { isCommandCenterAuthoring } from "../lib/canvas-boot";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
 import { addNode, deleteNodes } from "../lib/mutations";
 import { addEdge, canConnect, connectAllToTarget, connectMesh, deleteEdges, disconnectWithin, meshPlanOn, wireIdsWithin } from "../lib/edge-mutations";
@@ -66,6 +65,7 @@ import { heldBy } from "../lib/model-edits";
 import { modelStore, nodeAt, titleAt, useCanvas } from "../lib/use-model";
 import { useCanvasWorkItems, workAttentionStore } from "../lib/use-work-sink";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
+import { thisMachineName } from "../lib/machines";
 import { resolveAuthoredPageHost } from "../lib/page-authoring";
 import "../styles/factory-grammar.css";
 import "../styles/canvas-lod.css";
@@ -759,16 +759,14 @@ const makeAddActions = (
   },
   addCron: () => {
     const position = positionFor({ width: 240, height: 96 });
-    const stationHost = state$.settings.station.hostId.peek() || "local";
-    const node = newCron(onTop(position), stationHost);
+    const node = newCron(onTop(position), thisMachineName());
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
   },
   addRelay: () => {
     const position = positionFor({ width: 220, height: 96 });
-    const stationHost = state$.settings.station.hostId.peek() || "local";
-    const node = newRelay(onTop(position), stationHost);
+    const node = newRelay(onTop(position), thisMachineName());
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
@@ -844,7 +842,7 @@ const makeAddActions = (
     );
     const node = newPage(onTop(position), seed?.url?.trim() || "https://example.com", {
       ...(seed?.profile ? { profile: seed.profile } : {}),
-      host: resolveAuthoredPageHost(seed?.host, state$.settings.station.hostId.peek()),
+      host: resolveAuthoredPageHost(seed?.host, thisMachineName()),
     });
     addNode(node);
     dismiss();
@@ -972,11 +970,8 @@ function CanvasFieldTools() {
     [open],
   );
 
-  const authoring = isCommandCenterAuthoring(use$(state$.settings.station.role));
-
   return (
     <div className="rts-field-tools" aria-label="Canvas field tools">
-      {authoring ? (
       <div className="node-deck-host node-deck-host--docked" data-canvas-menu-surface>
         <button
           type="button"
@@ -989,7 +984,6 @@ function CanvasFieldTools() {
         </button>
         {open ? <ModeDeckFocus actions={actions} agentPosition={agentPosition} onClose={dismiss} /> : null}
       </div>
-      ) : null}
       <button
         type="button"
         className="rts-field-tools__fit"
@@ -1055,7 +1049,6 @@ const MultiMenuRow = ({ entry }: { readonly entry: MultiMenuEntry }) => (
 function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor; readonly onClose: () => void }) {
   const rf = useReactFlow<FlowNode, FlowEdge>();
   useMenuDismiss(true, onClose);
-  const authoring = isCommandCenterAuthoring(use$(state$.settings.station.role));
   const selectionKey = useStore((store) => store.nodes.filter((node) => node.selected).map((node) => node.id).join(" "));
   const openedWith = useRef(selectionKey);
   useEffect(() => {
@@ -1102,7 +1095,6 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
     onClose();
   };
   const broadcastEntry = (kind: AgentBroadcastKind, icon: ReactNode): MultiMenuEntry | null => {
-    if (!authoring) return null;
     const prompt = AGENT_BROADCAST_PROMPTS[kind];
     return {
       key: kind,
@@ -1144,7 +1136,7 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
       disabled: reachable === 0,
       onSelect: () => setComposing(true),
     },
-    authoring ? {
+    {
       key: "connect",
       label: "connect",
       detail: meshAdds === 0 && agentIds.length > 1 ? `${agents}, all connected` : agents,
@@ -1152,7 +1144,7 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
       icon: <Link2 size={14} />,
       disabled: meshAdds === 0,
       onSelect: runOnAgents(connectMesh),
-    } : null,
+    },
     {
       key: "open",
       label: "open",
@@ -1161,7 +1153,7 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
       icon: <LayoutGrid size={14} />,
       onSelect: runOnAgents((ids) => openTerminalGrid(ids)),
     },
-    authoring ? {
+    {
       key: "disconnect",
       label: "disconnect",
       detail: `${innerEdges} edge${innerEdges === 1 ? "" : "s"}`,
@@ -1169,10 +1161,10 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
       icon: <Unlink size={14} />,
       disabled: innerEdges === 0,
       onSelect: runOnAgents(disconnectWithin),
-    } : null,
+    },
     broadcastEntry("stop", <OctagonX size={14} />),
     broadcastEntry("check", <Activity size={14} />),
-    authoring && agentIds.length === 1 ? {
+    agentIds.length === 1 ? {
       key: "profile",
       label: "save as profile",
       detail: "1 agent, reusable",
@@ -1182,14 +1174,14 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
         if (ids[0]) openSaveProfile(ids[0]);
       }),
     } : null,
-    authoring ? {
+    {
       key: "squad",
       label: "save as squad",
       detail: `${agents}, reusable`,
       ariaLabel: `Save ${agents} as a squad`,
       icon: <Users size={14} />,
       onSelect: runOnAgents((ids) => openSaveSquad(ids)),
-    } : null,
+    },
   ];
   const agentRows = agentActions.filter((entry): entry is MultiMenuEntry => entry !== null);
 
@@ -1567,7 +1559,6 @@ function CanvasPerformanceBoundary({ children }: { readonly children: ReactNode 
 
 function CanvasGraph() {
   const { nodes, edges, onNodesChange, onEdgesChange, interactions, rf } = useCanvasGraph();
-  const authoring = isCommandCenterAuthoring(use$(state$.settings.station.role));
   // Focus-zone presence (any kind) — the canvas delete/Escape keys must not
   // act through an open focus surface.
   const hasFocusSurfaces = use$(() =>
@@ -1652,7 +1643,6 @@ function CanvasGraph() {
   }, []);
   const onPaneContextMenu = useCallback((event: React.MouseEvent | MouseEvent) => {
     event.preventDefault();
-    if (!isCommandCenterAuthoring(state$.settings.station.role.peek())) return;
     openContextMenu({ x: event.clientX, y: event.clientY });
   }, [openContextMenu]);
   // Region → add menu (empty-space read). Multi-selection on a selected node →
@@ -1846,8 +1836,6 @@ function CanvasGraph() {
       onDragOver={onDragOver}
       onDrop={onDrop}
       onMoveStart={closeMenus}
-      nodesDraggable={authoring}
-      nodesConnectable={authoring}
       connectionMode={ConnectionMode.Loose}
       connectionRadius={42}
       panOnScroll

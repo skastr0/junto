@@ -10,7 +10,6 @@ const place = { x: 90, y: 140, width: 360, height: 200, z: 3, color: "4" as cons
 let release: (() => void) | undefined;
 const open = (node: Node) => {
   state$.canvasName.set(name);
-  state$.settings.station.role.set("command-center");
   state$.error.set("");
   release = modelStore.adopt({ canvas: asCanvasName(name), seq: 21, nodes: [node], wires: [] });
   return node;

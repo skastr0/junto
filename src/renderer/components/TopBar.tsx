@@ -16,7 +16,6 @@ import {
   HELP_MAP_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
-import { isCommandCenterAuthoring } from "../lib/canvas-boot";
 import { state$ } from "../lib/state";
 import { openOperatorModal } from "../lib/operator-modal";
 import { retrySave } from "../lib/mutations";
@@ -39,7 +38,6 @@ function CanvasPicker({
   canvases,
   canvasName,
   busy,
-  authoring,
   onOpen,
   onCreate,
   onDelete,
@@ -47,7 +45,6 @@ function CanvasPicker({
   readonly canvases: ReadonlyArray<CanvasSummary>;
   readonly canvasName: string;
   readonly busy: boolean;
-  readonly authoring: boolean;
   readonly onOpen: (name: string) => void;
   readonly onCreate: (name: string) => void;
   readonly onDelete: (name: string) => void;
@@ -99,22 +96,18 @@ function CanvasPicker({
           title={busy ? "Opening canvas…" : "Switch canvas"}
           value={canvasName}
           uppercase
-          emptyLabel={authoring ? "no canvases" : "no projected canvases"}
+          emptyLabel="no canvases"
           placeholder="select canvas"
           options={canvases.map((canvas) => ({ value: canvas.name, label: canvas.name }))}
           onChange={onOpen}
         />
         {busy ? <span className="station-context__loading" role="status" aria-live="polite">opening</span> : null}
-        {authoring ? (
-          <>
         <button type="button" className="station-canvas__action" disabled={busy} title="New canvas" aria-label="New canvas" onClick={() => createOpen$.set(true)}>
           <Plus size={14} />
         </button>
         <button type="button" className="station-canvas__action station-canvas__action--danger" disabled={busy || !canvasName} title="Delete canvas" aria-label="Delete canvas" onClick={openDelete}>
           <Trash2 size={14} />
         </button>
-          </>
-        ) : null}
       </div>
       {createOpen ? (
         <Dialog
@@ -275,7 +268,6 @@ export function TopBar({
   const canvases = use$(state$.canvases);
   const canvasName = use$(state$.canvasName);
   const canvasLoading = use$(state$.canvasLoading);
-  const authoring = isCommandCenterAuthoring(use$(state$.settings.station.role));
   const logsExplorer = use$(state$.settings.advanced.logsExplorer);
   const observabilityOpen = use$(state$.observabilityOpen);
   const [helpAnchor, setHelpAnchor] = useState<HTMLElement | null>(null);
@@ -287,7 +279,7 @@ export function TopBar({
           its own edge when that is not enough, so the actions (the inbox,
           pause, Settings) are never pushed out of the window. */}
       <div className="station-left">
-        <CanvasPicker canvases={canvases} canvasName={canvasName} busy={canvasLoading} authoring={authoring} onOpen={onOpen} onCreate={onCreate} onDelete={onDelete} />
+        <CanvasPicker canvases={canvases} canvasName={canvasName} busy={canvasLoading} onOpen={onOpen} onCreate={onCreate} onDelete={onDelete} />
         <CommandBarTrigger canvasName={canvasName} />
         <SaveStatus />
         <CountedSurface id="command-groups">
@@ -317,8 +309,8 @@ export function TopBar({
             <ScrollText size={15} />
           </button>
         ) : null}
-        {FLEET_UI_ENABLED && authoring ? (
-          <button type="button" className="station-icon-button" aria-label="Open fleet manager" title="Fleet"
+        {FLEET_UI_ENABLED ? (
+          <button type="button" className="station-icon-button" aria-label="Open machines" title="Machines"
             style={{ borderColor: "var(--color-stroke)", color: HUE.steel }}
             onPointerEnter={prefetchFleetChunk}
             onFocus={prefetchFleetChunk}
