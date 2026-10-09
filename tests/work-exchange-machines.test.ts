@@ -161,6 +161,12 @@ const frameFrom = async (from: Machine): Promise<RowsFrame> => {
   ) as RowsFrame;
 };
 
+/** One row at a sequence its writer never used, with a hash that matches its content. */
+const fresh = (fact: RowsFrame["facts"][number], seq: string): unknown => {
+  const { contentSha256: _hash, originAt, ...semantic } = { ...fact, id: { ...fact.id, seq } };
+  return { ...semantic, originAt, contentSha256: workRecordContentSha256(semantic as never) };
+};
+
 const refused = async (on: Machine, peer: InstallationId, frame: unknown): Promise<void> => {
   const before = await counts(on);
   await expect(on.runtime.runPromise(on.exchange.receive(peer, frame))).rejects.toBeInstanceOf(ExchangeClosed);
@@ -345,32 +351,64 @@ describe("what a machine refuses, writing nothing", () => {
     await refused(mini, EDITOR, { ...frame, canvasName: "another-canvas", facts: [] });
   });
 
-  it("refuses a receipt that points at another canvas, even with a matching hash", async () => {
+  it("refuses a receipt that points at another canvas: a fresh row with a matching hash, where the honest one is taken", async () => {
     const frame = await frameFrom(mini);
-    const taken = frame.facts.find((fact) => fact.body.operation === "delivery.accepted")!;
-    const body = taken.body as { receipt: { actor: object; deliveredItem: { sink: object } } };
-    const elsewhere = { canvasName: "private", nodeId: "peer" };
-    const { contentSha256: _hash, originAt, ...semantic } = {
-      ...taken,
-      body: {
-        ...body,
-        receipt: { ...body.receipt, actor: { ...body.receipt.actor, canvasName: "private" }, deliveredItem: { ...body.receipt.deliveredItem, sink: elsewhere } },
-      },
+    const base = frame.facts.find((fact) => fact.body.operation === "delivery.accepted")!;
+    type Receipt = { receipt: { deliveryId: string; actor: object; deliveredItem: { itemId: string; sink: object } } };
+    const receiptAt = (seq: string, mailId: string, forge: (body: Receipt) => Receipt) => {
+      const deliveryId = mailboxMessageDeliveryId("factory", "peer", mailId);
+      const honest = base.body as unknown as Receipt;
+      const body = forge({ ...honest, receipt: { ...honest.receipt, deliveryId, deliveredItem: { ...honest.receipt.deliveredItem, itemId: mailId } } });
+      return fresh({ ...base, item: { ...base.item, itemId: deliveryId }, body } as never, seq);
     };
-    const rehashed = { ...semantic, originAt, contentSha256: workRecordContentSha256(semantic as never) };
     await link(editor, mini);
     await settle();
-    await refused(editor, MINI, { ...frame, facts: [rehashed] });
+
+    const honest = receiptAt("1001", "live-to-the-mini", (body) => body);
+    await editor.runtime.runPromise(editor.exchange.receive(MINI, { ...frame, facts: [honest], through: "1001" }));
+    expect(
+      (await editor.runtime.runPromise(editor.repository.mailbox("factory", "peer"))).find((message) => message.messageId === "live-to-the-mini")?.metadata,
+    ).toMatchObject({ deliveredAt: Date.parse(at) });
+
+    const elsewhere = { canvasName: "private", nodeId: "peer" };
+    const forged = receiptAt("1002", "held-for-the-mini-again", (body) => ({
+      ...body,
+      receipt: { ...body.receipt, actor: { ...body.receipt.actor, canvasName: "private" }, deliveredItem: { ...body.receipt.deliveredItem, sink: elsewhere } },
+    }));
+    await refused(editor, MINI, { ...frame, facts: [forged], through: "1002" });
   });
 
-  it("refuses mail written under another seat's identity", async () => {
+  it("refuses mail written under another seat's identity: a fresh row with a matching hash, where the honest one is taken", async () => {
     const frame = await frameFrom(mini);
-    const sent = frame.facts.find((fact) => fact.body.operation === "message.append" && fact.item.sink.nodeId === "lead")!;
-    const body = sent.body as { sentBy: object };
-    const { contentSha256: _hash, originAt, ...semantic } = { ...sent, body: { ...body, sentBy: { ...actor("peer"), seatId: actor("peer-two").seatId } } };
+    const base = frame.facts.find((fact) => fact.body.operation === "message.append" && fact.item.sink.nodeId === "lead")!;
+    type Mail = { message: { messageId: string }; sentBy: object };
+    const mailAt = (seq: string, messageId: string, sentBy: object) => {
+      const body = base.body as unknown as Mail;
+      return fresh({ ...base, item: { ...base.item, itemId: messageId }, body: { ...body, message: { ...body.message, messageId }, sentBy } } as never, seq);
+    };
     await link(editor, mini);
     await settle();
-    await refused(editor, MINI, { ...frame, facts: [{ ...semantic, originAt, contentSha256: workRecordContentSha256(semantic as never) }] });
+
+    await editor.runtime.runPromise(
+      editor.exchange.receive(MINI, { ...frame, facts: [mailAt("1003", "fresh-from-the-mini", actor("peer"))], through: "1003" }),
+    );
+    expect(await inbox(editor, "lead")).toContain("fresh-from-the-mini");
+
+    // The mini's own node, under the identity of a seat that lives on the editing machine.
+    await refused(editor, MINI, {
+      ...frame,
+      facts: [mailAt("1004", "forged-from-the-mini", { ...actor("peer"), seatId: actor("lead").seatId })],
+      through: "1004",
+    });
+    // The same, and from another canvas.
+    await link(editor, mini);
+    await settle();
+    await refused(editor, MINI, {
+      ...frame,
+      facts: [mailAt("1005", "forged-from-elsewhere", { ...actor("peer"), seatId: actor("lead").seatId, canvasName: "private" })],
+      through: "1005",
+    });
+    expect(await inbox(editor, "lead")).not.toContain("forged-from-the-mini");
   });
 
   it("refuses a frame it does not know and a kind of row that never crosses", async () => {
