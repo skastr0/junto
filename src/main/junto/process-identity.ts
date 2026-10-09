@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Socket } from "node:net";
 import { resolveSystemPs } from "./platform-executables";
+import { readSingleProcessEpochSnapshot } from "./process-epoch";
 
 // Process-bind identity for local agent tooling (work + browser control).
 //
@@ -107,23 +108,16 @@ const samePrincipal = (a: ProcessPrincipal, b: ProcessPrincipal): boolean =>
   a.canvasName === b.canvasName &&
   a.nodeId === b.nodeId;
 
-/** Stable process start identity for epoch checks (cross-platform via `ps`). */
+/**
+ * Stable process start identity for epoch checks. The same single-pid
+ * observation the process-epoch capture just took: `startKey` is that row's
+ * `lstart`, not a second `ps`. A later turn reads again, so pid reuse still
+ * fails the comparison.
+ */
 export const readProcessStartKey = (pid: number): string | undefined => {
   if (!Number.isInteger(pid) || pid <= 0) return undefined;
-  const ps = resolveSystemPs();
-  if (ps === undefined) return undefined;
-  try {
-    // lstart is stable for the life of the process on macOS/Linux ps.
-    const result = spawnSync(ps, ["-p", String(pid), "-o", "lstart="], {
-      encoding: "utf8",
-      timeout: 500,
-    });
-    if (result.status !== 0) return undefined;
-    const raw = (result.stdout ?? "").trim();
-    return raw.length > 0 ? raw : undefined;
-  } catch {
-    return undefined;
-  }
+  const startKey = readSingleProcessEpochSnapshot(pid)?.find((row) => row.pid === pid)?.startKey;
+  return startKey === undefined || startKey.length === 0 ? undefined : startKey;
 };
 
 export const processAlive = (pid: number): boolean => {

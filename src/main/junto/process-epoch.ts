@@ -229,6 +229,32 @@ export const readFullProcessEpochSnapshotAsync = async (
 };
 
 /**
+ * One successful system read, remembered until the next microtask. Seat
+ * admission captures the epoch and then binds identity for that same pid;
+ * both need `lstart`, and a second `ps` was the duplicate. The memo dies
+ * before the next turn, so a later pid-reuse check reads again. A caller-supplied
+ * runner is never memoized.
+ */
+type SharedSinglePidObservation = {
+  readonly pid: number;
+  readonly rows: readonly ProcessEpochRow[];
+};
+
+let sharedSinglePid: SharedSinglePidObservation | undefined;
+
+const rememberSharedSinglePid = (
+  pid: number,
+  rows: readonly ProcessEpochRow[],
+): void => {
+  if (rows.length !== 1 || rows[0]?.pid !== pid) return;
+  const observation: SharedSinglePidObservation = { pid, rows };
+  sharedSinglePid = observation;
+  queueMicrotask(() => {
+    if (sharedSinglePid === observation) sharedSinglePid = undefined;
+  });
+};
+
+/**
  * Answer one pid's epoch question with a single-pid `ps`, so the cost is the
  * asked-about process rather than the machine's whole process table.
  *
@@ -253,6 +279,9 @@ export const readSingleProcessEpochSnapshot = (
   runPs: ProcessEpochPsRunner = systemPsRunner,
 ): readonly ProcessEpochRow[] | undefined => {
   if (!Number.isSafeInteger(pid) || pid < 1) return undefined;
+  if (runPs === systemPsRunner && sharedSinglePid?.pid === pid) {
+    return sharedSinglePid.rows;
+  }
   const ps = resolveSystemPs();
   if (ps === undefined) return undefined;
   let result: ProcessEpochPsResult;
@@ -278,7 +307,9 @@ export const readSingleProcessEpochSnapshot = (
   if (rows === undefined) return undefined;
   if (rows.length === 0) return [];
   // A single-pid query that answered about anything else is incoherent.
-  return rows.length === 1 && rows[0]!.pid === pid ? rows : undefined;
+  if (rows.length !== 1 || rows[0]!.pid !== pid) return undefined;
+  if (runPs === systemPsRunner) rememberSharedSinglePid(pid, rows);
+  return rows;
 };
 
 const systemReader: ProcessEpochReader = {
