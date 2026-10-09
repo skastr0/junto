@@ -1094,12 +1094,6 @@ const dispatchOp = (
     const work = yield* WorkService;
     const pausePlane = yield* PausePlane;
 
-    if (["msg.prompt", "msg.sent", "seat.wait", "seat.read", "tasks.wait", "verdict.post"].includes(op)) {
-      yield* work.crewAdmission.pipe(Effect.mapError((error) =>
-        mapWorkCode(error.code, error.message, error.details),
-      ));
-    }
-
     if (op === "ping") {
       return {
         pong: true,

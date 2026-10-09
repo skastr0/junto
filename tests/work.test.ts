@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Context, Layer, ManagedRuntime, Schema } from "effect";
+import { Effect, Context, Layer, ManagedRuntime } from "effect";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Message } from "../src/shared/work-model";
 import type { Canvas, Node, Wire } from "../src/shared/model";
@@ -11,21 +11,6 @@ import type { ActorRef } from "../src/shared/work-protocol";
 import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
 import { ModelStoresLive, readSeeded, seedCanvas } from "./support/seed-canvas";
 import { seat, taskBoard, wire } from "./support/model-nodes";
-import { InstallationId } from "../src/shared/installation-id";
-import { HostId } from "../src/shared/remote-hosts";
-import {
-  ConfigureRequest,
-  LogicalSequence,
-  PairRequest,
-  ProjectRequest,
-  STATION_API_PROTOCOL,
-  StationHostId,
-} from "../src/shared/station-api";
-
-const installationId = Schema.decodeUnknownSync(InstallationId);
-const remoteHostId = Schema.decodeUnknownSync(HostId);
-const stationHostId = Schema.decodeUnknownSync(StationHostId);
-const logicalSequence = Schema.decodeUnknownSync(LogicalSequence);
 
 /**
  * The shared test database holds many canvases, so every seat carries a
@@ -68,25 +53,12 @@ import {
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import {
-  StationRepository,
-  StationRepositoryLive,
-  stationProjectionContentSha256,
-} from "../src/main/junto/station/repository";
-import {
-  StationFleetTargetRepository,
-  StationFleetTargetRepositoryLive,
-} from "../src/main/junto/station/fleet-target-repository";
-import {
-  StationLivePeerRegistryLive,
-} from "../src/main/junto/station/session-registry";
+import { StationRepositoryLive } from "../src/main/junto/station/repository";
+import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
 import {
   makeSettingsLive,
   SettingsService,
 } from "../src/main/junto/settings/service";
-import {
-  compileStationPortfolioBody,
-} from "../src/main/junto/station/portfolio";
 import {
   makeContentServiceLive,
 } from "../src/main/junto/content/service";
@@ -120,7 +92,7 @@ const makeWorkRuntime = (databasePath: string) => {
   return ManagedRuntime.make(((
     Layer.provideMerge(
       WorkLive,
-      Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive) as never) as never)
+      canvasesLive as never) as never)
     )
   );
 };
@@ -229,50 +201,4 @@ describe("WorkService — mail", () => {
     expect(missing.ok).toBe(false);
     if (!missing.ok) expect(missing.message).toContain("not found in mailbox");
   });
-
-  it("refuses mail from a seat homed on another installation", async () => {
-    const name = "work-cross-home-actor";
-    const remoteHost = remoteHostId("remote-actor");
-    const remoteInstallation = installationId("remote-actor-installation");
-    const fleetTargets = await workRuntime.runPromise(
-      StationFleetTargetRepository
-    );
-    await workRuntime.runPromise(
-      fleetTargets.bind(
-        {
-          hostId: remoteHost,
-          stationInstallationId: remoteInstallation,
-        },
-        "2026-07-28T00:00:00.000Z"
-      )
-    );
-    await write(
-      name,
-      [agentNode("remote-sender", name, remoteHost), agentNode("recipient", name)],
-      [wire("message", "remote-sender", "recipient", "messages")],
-    );
-    const remoteActor = await actorOf(name, "remote-sender");
-
-    const result = await workRuntime.runPromise(
-      work.workMessageAppend(
-        name,
-        "recipient",
-        null,
-        mail("cross-home-message", "forged locally", "agent"),
-        remoteActor
-      )
-    );
-    expect(result).toMatchObject({ ok: false, code: "wrong_home" });
-    if (!result.ok) {
-      expect(result.message).toContain(
-        "must originate on the installation that owns actor"
-      );
-    }
-    const messages = await workRuntime.runPromise(repository.mailbox(name, "recipient"));
-    expect(
-      messages
-    ).toEqual([]);
-  });
-
-
 });

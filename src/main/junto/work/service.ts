@@ -57,9 +57,6 @@ import type { ContentPart } from "@shared/content";
 import type {
   InstallationId as InstallationIdValue,
 } from "@shared/installation-id";
-import type {
-  StationConfiguration as StationConfigurationValue,
-} from "@shared/station-api";
 import { resolveSpec } from "@shared/physics";
 import {
   WorkError,
@@ -118,18 +115,11 @@ import { operatorActorRef } from "@shared/work-reference";
 import type {
   ActorRef,
   IntentFactBasis as IntentFactBasisValue,
-  WorkAction as WorkActionValue,
   WorkItemRef,
 } from "@shared/work-protocol";
 import { IntentFactBasis } from "@shared/work-protocol";
 import { ulid } from "ulid";
-import {
-  StationFleetTargetRepository,
-} from "../station/fleet-target-repository";
 import { StationRepository } from "../station/repository";
-import {
-  StationLivePeerRegistry,
-} from "../station/session-registry";
 import { ContentService } from "../content/service";
 import type { ContentOwner } from "../content/manifest";
 import {
@@ -165,7 +155,6 @@ import {
   WorkRepository,
   WorkRepositoryError,
   createCanvasTaskDependencyScopeCapability,
-  createCurrentProjectedTaskDependencyScopeCapability,
   type PendingCommand,
   type ReviewGateWithin,
   type ReviewReceiptRecord,
@@ -334,7 +323,6 @@ const asResult = <T>(
 
 type StationContext = {
   readonly localInstallationId: InstallationIdValue;
-  readonly configuration: StationConfigurationValue;
 };
 
 /** One board a task has been through, as shown by tasks.show. */
@@ -420,17 +408,6 @@ const sinkRef = (
   nodeId: string,
 ): WorkItemRef["sink"] => ({ canvasName, nodeId });
 
-const workItem = (
-  kind: WorkItemRef["kind"],
-  itemId: string,
-  canvasName: string,
-  nodeId: string,
-): WorkItemRef => ({
-  kind,
-  itemId,
-  sink: sinkRef(canvasName, nodeId),
-});
-
 const sameActor = (left: ActorRef, right: ActorRef): boolean =>
   left.seatId === right.seatId &&
   left.canvasName === right.canvasName &&
@@ -456,8 +433,6 @@ export interface WorkServiceId {
 }
 
 export interface WorkServiceShape {
-    /** Crew operations are local to a configured Command Center in this release. */
-    readonly crewAdmission: Effect.Effect<void, WorkServiceError>;
     readonly workVerdictPost: (
       canvas: string,
       target: string,
@@ -757,8 +732,6 @@ export const WorkLive = Layer.effect(
     const modelRecords = yield* ModelRecords;
     const crew = yield* CrewRepository;
     const stations = yield* StationRepository;
-    const fleetTargets = yield* StationFleetTargetRepository;
-    const livePeers = yield* StationLivePeerRegistry;
     // S2: ContentService is a hard WorkLive dependency (both CC + Remote graphs
     // compose it — runtime.ts / remote-runtime.ts). Hard yield*, never
     // serviceOption: a missing ContentService must fail layer build, not soft-
@@ -769,51 +742,17 @@ export const WorkLive = Layer.effect(
     const contentService = yield* ContentService;
     const ids = defaultIds();
 
-    const stationContext: Effect.Effect<
-      StationContext,
-      WorkServiceError
-    > = Effect.all({
-      localInstallationId: stations.installationId,
-      configured: stations.configuration,
-    }).pipe(
-      Effect.mapError(toWorkServiceError),
-      Effect.flatMap(({ localInstallationId, configured }) =>
-        configured === undefined
-          ? Effect.fail(
-            new WorkServiceError({
-              code: "invalid",
-              message:
-                "station role is not configured; choose Command Center or Remote before mutating work",
-            }),
-          )
-          : Effect.succeed({
-            localInstallationId,
-            configuration: configured.configuration,
-          })
-      ),
-    );
-
-    const crewAdmission: Effect.Effect<void, WorkServiceError> = stationContext.pipe(
-      Effect.flatMap((context) => context.configuration.role === "command-center"
-        ? Effect.void
-        : Effect.fail(new WorkServiceError({
-            code: "scope_error",
-            message: "this command requires a configured Command Center",
-            details: { reason: "crew-command-center-only", retryable: false },
-          }))),
-      Effect.mapError((error) => error.code === "scope_error" ? error : new WorkServiceError({
-        code: "scope_error",
-        message: error.message,
-        details: { reason: "crew-command-center-only", retryable: false },
-      })),
-    );
+    const stationContext: Effect.Effect<StationContext, WorkServiceError> =
+      stations.installationId.pipe(
+        Effect.mapError(toWorkServiceError),
+        Effect.map((localInstallationId) => ({ localInstallationId })),
+      );
 
     const readTopology = Effect.fn("WorkService.readTopology")(function* (canvasName: string) {
       return yield* withSqlRead(sql, Effect.gen(function* () {
         const topology = yield* model.canvas(canvasName);
-        const projection = yield* stations.projection;
         return { topology, actorRefs: yield* modelActors.read(canvasName),
-          intentWitness: { canvasName, seq: topology.seq, generation: projection?.generation ?? String(topology.seq), contentSha256: projection?.contentSha256 ?? "" } };
+          intentWitness: { canvasName, seq: topology.seq } };
       })).pipe(Effect.mapError(toWorkServiceError));
     });
 
@@ -844,64 +783,21 @@ export const WorkLive = Layer.effect(
       };
     });
 
-    const intentBasis = (context: StationContext, witness: { canvasName: string; seq: number; generation: string; contentSha256: string }): IntentFactBasisValue =>
-      Schema.decodeUnknownSync(IntentFactBasis, { onExcessProperty: "error" })(context.configuration.role === "command-center"
-        ? { kind: "canvas", canvasName: witness.canvasName, seq: witness.seq }
-        : { kind: "projected-intent", generation: witness.generation, contentSha256: witness.contentSha256 });
+    const intentBasis = (witness: { canvasName: string; seq: number }): IntentFactBasisValue =>
+      Schema.decodeUnknownSync(IntentFactBasis, { onExcessProperty: "error" })(
+        { kind: "canvas", canvasName: witness.canvasName, seq: witness.seq });
 
     const taskDependencyScopeCapability = (
-      context: StationContext,
       canvasName: string,
       nodeId: string,
       basis: IntentFactBasisValue,
     ): Effect.Effect<TaskDependencyScopeCapability, WorkServiceError> =>
       Effect.gen(function* () {
-        let capability: TaskDependencyScopeCapability;
-        if (context.configuration.role === "command-center") {
-          const header = yield* modelRecords.getCanvas(canvasName).pipe(Effect.mapError(toWorkServiceError));
-          if (basis.kind !== "canvas" || basis.canvasName !== canvasName || basis.seq !== header?.seq) return yield* new WorkServiceError({ code: "invalid", message: "task topology changed after its canvas read" });
-          const [nodes, wires] = yield* Effect.all([modelRecords.listNodes(canvasName), modelRecords.listWires(canvasName)]).pipe(Effect.mapError(toWorkServiceError));
-          const canvas: Canvas = { name: asCanvasName(canvasName), seq: header!.seq, nodes: new Map(nodes.map((node) => [node.id, node])), wires: new Map(wires.map((wire) => [wire.id, wire])) };
-          capability = yield* Effect.try({ try: () => createCanvasTaskDependencyScopeCapability({ canvas, authoringSink: sinkRef(canvasName, nodeId) }), catch: toWorkServiceError });
-        } else {
-          const projection = yield* stations.projection.pipe(
-            Effect.mapError(toWorkServiceError),
-          );
-          if (projection === undefined) {
-            return yield* new WorkServiceError({
-              code: "invalid",
-              message:
-                "Task topology authority requires an installed Remote projection",
-            });
-          }
-          if (
-            basis.kind !== "projected-intent" ||
-            String(basis.generation) !== String(projection.generation) ||
-            String(basis.contentSha256) !== String(projection.contentSha256)
-          ) {
-            return yield* new WorkServiceError({
-              code: "invalid",
-              message:
-                "Task topology material changed after the projected canvas read",
-            });
-          }
-          capability = yield* Effect.try({
-            try: () =>
-              createCurrentProjectedTaskDependencyScopeCapability({
-                rawBody: projection.body,
-                generation: projection.generation,
-                contentSha256: projection.contentSha256,
-                authoringSink: sinkRef(canvasName, nodeId),
-              }),
-            catch: (error) =>
-              new WorkServiceError({
-                code: "invalid",
-                message:
-                  `Task topology authority is unavailable: ${error instanceof Error ? error.message : String(error)}`,
-              }),
-          });
-        }
-        return capability;
+        const header = yield* modelRecords.getCanvas(canvasName).pipe(Effect.mapError(toWorkServiceError));
+        if (basis.kind !== "canvas" || basis.canvasName !== canvasName || basis.seq !== header?.seq) return yield* new WorkServiceError({ code: "invalid", message: "task topology changed after its canvas read" });
+        const [nodes, wires] = yield* Effect.all([modelRecords.listNodes(canvasName), modelRecords.listWires(canvasName)]).pipe(Effect.mapError(toWorkServiceError));
+        const canvas: Canvas = { name: asCanvasName(canvasName), seq: header!.seq, nodes: new Map(nodes.map((node) => [node.id, node])), wires: new Map(wires.map((wire) => [wire.id, wire])) };
+        return yield* Effect.try({ try: () => createCanvasTaskDependencyScopeCapability({ canvas, authoringSink: sinkRef(canvasName, nodeId) }), catch: toWorkServiceError });
       });
 
     const runPolicy = <A>(thunk: () => A): Effect.Effect<A, WorkServiceError> =>
@@ -1218,184 +1114,6 @@ export const WorkLive = Layer.effect(
         : Effect.succeed(actorNode);
     };
 
-    const homeForNode = (
-      node: Node,
-      context: StationContext,
-    ): Effect.Effect<InstallationIdValue, WorkServiceError> => {
-      const hostId = ("host" in node ? node.host : "local");
-      if (hostId === context.configuration.hostId) {
-        return Effect.succeed(context.localInstallationId);
-      }
-      if (context.configuration.role === "remote") {
-        return Effect.succeed(
-          context.configuration.commandCenterInstallationId,
-        );
-      }
-      return fleetTargets.get(hostId).pipe(
-        Effect.mapError(toWorkServiceError),
-        Effect.flatMap((target) =>
-          target === undefined
-            ? Effect.fail(
-              new WorkServiceError({
-                code: "invalid",
-                message:
-                  `host ${JSON.stringify(hostId)} has no enrolled Station installation`,
-              }),
-            )
-            : Effect.succeed(target.stationInstallationId)
-        ),
-      );
-    };
-
-    /**
-     * Station protocol 1 has no Task approval action. Keep approval-admission
-     * creation at Command Center instead of emitting a Task that its Remote
-     * home can persist but can never admit. This is containment, not a codec
-     * fallback: the existing Station protocol stays unchanged.
-     */
-    const requireTaskAdmissionHomeSupport = (
-      topology: Canvas,
-      node: Node,
-      task: Task,
-      home: InstallationIdValue,
-      context: StationContext,
-    ): Effect.Effect<void, WorkServiceError> => {
-      const admission = effectiveTaskAdmission(task, boardContractOf(topology, node.id));
-      if (admission !== "approval") return Effect.void;
-
-      const remoteHomed = context.configuration.role === "remote"
-        ? home === context.localInstallationId
-        : home !== context.localInstallationId;
-      return remoteHomed
-        ? Effect.fail(
-          new WorkServiceError({
-            code: "wrong_home",
-            message:
-              "approval Task creation cannot target a Remote home because " +
-              "Station protocol 1 cannot carry Task approval; move the Tasks node " +
-              "to Command Center before creating the Task",
-            details: {
-              target: node.id,
-              retryable: false,
-              next_step:
-                "move the Tasks node to Command Center before creating the Task",
-            },
-          }),
-        )
-        : Effect.void;
-    };
-
-    const requireLocalActor = (
-      read: { readonly topology: Canvas; readonly actorRefs: ReadonlyArray<ActorRef> },
-      actor: ActorRef,
-      targetNodeId: string,
-      op:
-        | "tasks.create"
-        | "msg.send"
-        | "msg.read"
-        | "msg.reply"
-        | "msg.react"
-        | "artifact.publish",
-      context: StationContext,
-      admin?: OverseerWorkAdmin,
-    ): Effect.Effect<Node, WorkServiceError> =>
-      requireActor(read, actor, targetNodeId, op, admin).pipe(
-        Effect.flatMap((actorNode) =>
-          admin !== undefined
-            ? Effect.succeed(actorNode)
-            : homeForNode(actorNode, context).pipe(
-              Effect.flatMap((actorHome) =>
-                actorHome === context.localInstallationId
-                  ? Effect.succeed(actorNode)
-                  : Effect.fail(
-                    new WorkServiceError({
-                      code: "wrong_home",
-                      message:
-                        `${op} must originate on the installation that owns ` +
-                        `actor ${JSON.stringify(actor.nodeId)}`,
-                      details: {
-                        caller: actor.nodeId,
-                        retryable: false,
-                        next_step:
-                          "run this op from the installation that owns the actor",
-                      },
-                    }),
-                  )
-              ),
-            )
-        ),
-      );
-
-    const requireRoutableRemote = (
-      targetInstallationId: InstallationIdValue,
-      context: StationContext,
-    ): Effect.Effect<void, WorkServiceError> => {
-      if (targetInstallationId === context.localInstallationId) {
-        return Effect.fail(
-          new WorkServiceError({
-            code: "invalid",
-            message: "remote command target must differ from this installation",
-          }),
-        );
-      }
-      if (context.configuration.role === "remote") {
-        return targetInstallationId ===
-            context.configuration.commandCenterInstallationId
-          ? Effect.void
-          : Effect.fail(
-            new WorkServiceError({
-              code: "invalid",
-              message: "a Remote may enqueue work only to its Command Center",
-            }),
-          );
-      }
-      return fleetTargets.list.pipe(
-        Effect.mapError(toWorkServiceError),
-        Effect.flatMap((targets) =>
-          targets.some(
-            (target) =>
-              target.stationInstallationId === targetInstallationId,
-          )
-            ? Effect.void
-            : Effect.fail(
-              new WorkServiceError({
-                code: "invalid",
-                message:
-                  `Station installation ${JSON.stringify(targetInstallationId)} is not an active fleet target`,
-              }),
-            )
-        ),
-      );
-    };
-
-    const enqueue = <T>(
-      context: StationContext,
-      targetInstallationId: InstallationIdValue,
-      item: WorkItemRef,
-      action: Exclude<
-        WorkActionValue,
-        { readonly operation: "task.claim" }
-      >,
-      value: T,
-      admin?: OverseerWorkAdmin,
-    ): Effect.Effect<WorkMutationOutcome<T>, WorkServiceError> =>
-      beforeCommit(admin).pipe(
-        Effect.flatMap(() => requireRoutableRemote(targetInstallationId, context)),
-        Effect.flatMap(() =>
-          repository.enqueueRemoteCommand({
-            sink: item.sink,
-            targetInstallationId,
-            item,
-            action,
-          })
-        ),
-        Effect.mapError(toWorkServiceError),
-        Effect.as({
-          value,
-          disposition: "queued" as const,
-        }),
-      );
-
     const beforeCommit = (
       admin?: OverseerWorkAdmin,
     ): Effect.Effect<ActorRef | undefined, WorkServiceError> =>
@@ -1577,12 +1295,10 @@ export const WorkLive = Layer.effect(
       readTasks: (canvas, nodeId, kind = "task") => repository.taskLane(canvas, nodeId, kind).pipe(Effect.mapError(toWorkServiceError)),
       readMailbox: (canvas, nodeId) => repository.mailbox(canvas, nodeId).pipe(Effect.mapError(toWorkServiceError)),
       readMailMessage: (canvas, nodeId, messageId) => repository.mailMessage(canvas, nodeId, messageId).pipe(Effect.mapError(toWorkServiceError)),
-      crewAdmission,
       workVerdictPost: (canvas, target, input, reviewer) =>
         asResult(
           Effect.gen(function* () {
-            yield* crewAdmission;
-            const { context, read, plan } = yield* planWorkVerdict(canvas, target, input, reviewer);
+            const { read, plan } = yield* planWorkVerdict(canvas, target, input, reviewer);
             const result: WorkVerdictPostResult = {
               verdictId: plan.verdict.verdictId,
               subject: plan.verdict.subject,
@@ -1616,7 +1332,7 @@ export const WorkLive = Layer.effect(
                 : undefined;
               const moved = yield* repository.sendTaskBack({
                 sink: sinkRef(canvas, target),
-                basis: intentBasis(context, read.intentWitness),
+                basis: intentBasis(read.intentWitness),
                 taskId: subject.taskId,
                 ...(message === undefined ? {} : { message }),
                 visits: policy.task.visits ?? [],
@@ -1631,7 +1347,7 @@ export const WorkLive = Layer.effect(
               });
             }
             const posted = yield* repository.postReviewVerdict(plan.verdict, {
-              basis: intentBasis(context, read.intentWitness),
+              basis: intentBasis(read.intentWitness),
               canvasName: canvas,
             }).pipe(Effect.mapError(toWorkServiceError));
             if ("rejected" in posted) {
@@ -1653,12 +1369,9 @@ export const WorkLive = Layer.effect(
       workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria, rules, options, admin) =>
         asResult(
           Effect.gen(function* () {
-            const [context, read] = yield* Effect.all([
-              stationContext,
-              readTopology(canvas),
-            ]);
+            const read = yield* readTopology(canvas);
             if (admin !== undefined) yield* requireLiveOverseer(admin);
-            const node = yield* requireNode(read.topology, nodeId);
+            yield* requireNode(read.topology, nodeId);
             const policyWork = yield* policyRows(canvas, nodeId, dependsOn ?? []);
             const policy = yield* runPolicy(() =>
               workTaskCreate(policyWork, read.topology,
@@ -1675,17 +1388,8 @@ export const WorkLive = Layer.effect(
                 options,
               )
             );
-            const home = yield* homeForNode(node, context);
-            yield* requireTaskAdmissionHomeSupport(
-              read.topology,
-              node,
-              policy.task,
-              home,
-              context,
-            );
-            const basis = intentBasis(context, read.intentWitness);
+            const basis = intentBasis(read.intentWitness);
             const dependencyScope = yield* taskDependencyScopeCapability(
-              context,
               canvas,
               nodeId,
               basis,
@@ -1696,22 +1400,13 @@ export const WorkLive = Layer.effect(
               nodeId,
               recordId: policy.task.id,
             });
-            const outcome = home === context.localInstallationId
-              ? yield* local(
+            const outcome = yield* local(
                 repository.createTask({
                   sink: sinkRef(canvas, nodeId),
                   basis,
                   dependencyScope,
                   task,
                 }),
-                admin,
-              )
-              : yield* enqueue(
-                context,
-                home,
-                workItem("task", task.id, canvas, nodeId),
-                { operation: "task.create", task },
-                task,
                 admin,
               );
             return yield* complete(outcome);
@@ -1721,8 +1416,7 @@ export const WorkLive = Layer.effect(
       workTaskDescribe: (canvas, nodeId, taskId, brief) =>
         asResult(
           Effect.gen(function* () {
-            const [context, read, home] = yield* Effect.all([
-              stationContext,
+            const [read] = yield* Effect.all([
               readTopology(canvas),
               itemHome("task", canvas, nodeId, taskId),
             ]);
@@ -1737,21 +1431,13 @@ export const WorkLive = Layer.effect(
               )
             );
             const message = policy.task.history[0]!;
-            const outcome = home === context.localInstallationId
-              ? yield* local(
+            const outcome = yield* local(
                 repository.describeTask({
                   sink: sinkRef(canvas, nodeId),
-                  basis: intentBasis(context, read.intentWitness),
+                  basis: intentBasis(read.intentWitness),
                   taskId,
                   message,
                 }),
-              )
-              : yield* enqueue(
-                context,
-                home,
-                workItem("task", taskId, canvas, nodeId),
-                { operation: "task.describe", taskId, message },
-                policy.task,
               );
             return yield* complete(outcome);
           }),
@@ -1766,8 +1452,7 @@ export const WorkLive = Layer.effect(
               itemHome("task", canvas, nodeId, taskId),
             ]);
             const before = yield* readItem(canvas, nodeId, taskId);
-            const localReceiptAuthor = context.configuration.role === "command-center" &&
-              (completionEvidence?.git?.commits.length ?? 0) > 0
+            const localReceiptAuthor = (completionEvidence?.git?.commits.length ?? 0) > 0
               ? receiptAuthor
               : undefined;
             if (localReceiptAuthor !== undefined) {
@@ -1780,10 +1465,6 @@ export const WorkLive = Layer.effect(
                   details: { reason: "receipt-author-mismatch", retryable: false },
                 });
               }
-            }
-            if (state === "completed" && before !== undefined && context.configuration.role !== "command-center") {
-              const review = yield* reviewForTask(read, canvas, nodeId, before, home);
-              if (review.gate.armed.length > 0) yield* crewAdmission;
             }
             // Finish-criteria gate is home-local only. Off-home callers enqueue
             // a command; the executor re-runs the gate against its SQLite shelf.
@@ -1817,7 +1498,7 @@ export const WorkLive = Layer.effect(
               )
             );
             let reviewGate: ReviewGateWithin | undefined;
-            if (state === "completed" && before !== undefined && context.configuration.role === "command-center") {
+            if (state === "completed" && before !== undefined) {
               const candidate = {
                 ...before,
                 completionEvidence: policy.task.completionEvidence,
@@ -1881,7 +1562,7 @@ export const WorkLive = Layer.effect(
               const moved = yield* local(
                 repository.sendTaskOn({
                   sink: sinkRef(canvas, nodeId),
-                  basis: intentBasis(context, read.intentWitness),
+                  basis: intentBasis(read.intentWitness),
                   taskId,
                   ...(message === undefined ? {} : { message }),
                   ...(completionEvidence !== undefined
@@ -1904,7 +1585,7 @@ export const WorkLive = Layer.effect(
               const returned = yield* local(
                 repository.sendTaskBack({
                   sink: sinkRef(canvas, nodeId),
-                  basis: intentBasis(context, read.intentWitness),
+                  basis: intentBasis(read.intentWitness),
                   taskId,
                   ...(message === undefined ? {} : { message }),
                   visits: policy.task.visits ?? [],
@@ -1934,20 +1615,10 @@ export const WorkLive = Layer.effect(
               Object.keys(taskPatch).length > 0
                 ? { taskPatch }
                 : {};
-            const action = {
-              operation: "task.transition" as const,
-              taskId,
-              state,
-              ...(message === undefined ? {} : { message }),
-              ...(completionEvidence !== undefined
-                ? { completionEvidence }
-                : {}),
-            };
-            const outcome = home === context.localInstallationId
-              ? yield* local(
+            const outcome = yield* local(
                 repository.transitionTask({
                   sink: sinkRef(canvas, nodeId),
-                  basis: intentBasis(context, read.intentWitness),
+                  basis: intentBasis(read.intentWitness),
                   taskId,
                   state,
                   ...(message === undefined ? {} : { message }),
@@ -1958,13 +1629,6 @@ export const WorkLive = Layer.effect(
                   ...(reviewGate === undefined ? {} : { reviewGate }),
                   ...(localReceiptAuthor === undefined ? {} : { receiptAuthor: localReceiptAuthor }),
                 }),
-              )
-              : yield* enqueue(
-                context,
-                home,
-                workItem("task", taskId, canvas, nodeId),
-                action,
-                policy.task,
               );
             return yield* complete(outcome);
           }),
@@ -1978,15 +1642,7 @@ export const WorkLive = Layer.effect(
               readTopology(canvas),
               itemHome("task", canvas, nodeId, taskId),
             ]);
-            if (admin !== undefined) {
-              yield* requireLiveOverseer(admin);
-            } else if (context.configuration.role !== "command-center") {
-              return yield* new WorkServiceError({
-                code: "invalid",
-                message:
-                  "only the Command Center operator may approve tasks",
-              });
-            }
+            if (admin !== undefined) yield* requireLiveOverseer(admin);
             // Local-only: protocol 1 has no promote action to enqueue.
             if (home !== context.localInstallationId) {
               return yield* new WorkServiceError({
@@ -2062,7 +1718,7 @@ export const WorkLive = Layer.effect(
             const outcome = yield* local(
               repository.promoteTask({
                 sink: sinkRef(canvas, nodeId),
-                basis: intentBasis(context, read.intentWitness),
+                basis: intentBasis(read.intentWitness),
                 taskId,
                 ...(message === undefined ? {} : { message }),
               }),
@@ -2361,7 +2017,7 @@ export const WorkLive = Layer.effect(
             const outcome = yield* local(
               repository.recordCheckResults({
                 sink: sinkRef(canvas, nodeId),
-                basis: intentBasis(context, read.intentWitness),
+                basis: intentBasis(read.intentWitness),
                 taskId,
                 results: stamped,
               }),
@@ -2373,19 +2029,11 @@ export const WorkLive = Layer.effect(
       workTaskRespond: (canvas, nodeId, taskId, responseText, disposition, admin) =>
         asResult(
           Effect.gen(function* () {
-            const [context, read, home] = yield* Effect.all([
-              stationContext,
+            const [read] = yield* Effect.all([
               readTopology(canvas),
               itemHome("task", canvas, nodeId, taskId),
             ]);
-            if (admin !== undefined) {
-              yield* requireLiveOverseer(admin);
-            } else if (context.configuration.role !== "command-center") {
-              return yield* new WorkServiceError({
-                code: "invalid",
-                message: "only the configured Command Center operator may respond to a task",
-              });
-            }
+            if (admin !== undefined) yield* requireLiveOverseer(admin);
             const policyWork = yield* policyRows(canvas, nodeId, taskId === null ? [] : [taskId]);
             const policy = yield* runPolicy(() =>
               workTaskRespond(policyWork, read.topology,
@@ -2398,29 +2046,14 @@ export const WorkLive = Layer.effect(
               )
             );
             const message = policy.task.history.at(-1)!;
-            const action = {
-              operation: "task.transition" as const,
-              taskId,
-              state: disposition,
-              message,
-            };
-            const outcome = home === context.localInstallationId
-              ? yield* local(
+            const outcome = yield* local(
                 repository.transitionTask({
                   sink: sinkRef(canvas, nodeId),
-                  basis: intentBasis(context, read.intentWitness),
+                  basis: intentBasis(read.intentWitness),
                   taskId,
                   state: disposition,
                   message,
                 }),
-                admin,
-              )
-              : yield* enqueue(
-                context,
-                home,
-                workItem("task", taskId, canvas, nodeId),
-                action,
-                policy.task,
                 admin,
               );
             return yield* complete(outcome);
@@ -2435,14 +2068,13 @@ export const WorkLive = Layer.effect(
               readTopology(canvas),
               itemHome("task", canvas, nodeId, taskId),
             ]);
-            const actorNode = yield* requireActor(
+            yield* requireActor(
               read,
               actor,
               nodeId,
               "tasks.claim",
               admin,
             );
-            const actorHome = yield* homeForNode(actorNode, context);
             if (sourceHome !== context.localInstallationId) {
               return yield* new WorkServiceError({
                 code: "wrong_home",
@@ -2494,32 +2126,6 @@ export const WorkLive = Layer.effect(
                 },
               });
             }
-            if (actorHome !== context.localInstallationId) {
-              const pendingClaims = yield* repository.pendingCommands.pipe(
-                Effect.mapError(toWorkServiceError),
-              );
-              const existingClaim = pendingClaims.some(
-                ({ command, resolution }) =>
-                  resolution === undefined &&
-                  command.operation === "task.claim" &&
-                  command.body.operation === "task.claim" &&
-                  command.item.kind === "task" &&
-                  command.item.sink.canvasName === canvas &&
-                  command.item.sink.nodeId === nodeId &&
-                  command.item.itemId === taskId &&
-                  command.body.actor.seatId === actor.seatId,
-              );
-              if (existingClaim) {
-                return yield* complete({
-                  value: sourceTask,
-                  disposition: "queued",
-                  message:
-                    "Task " +
-                    JSON.stringify(taskId) +
-                    " already has your claim queued; continue when it is delivered.",
-                });
-              }
-            }
             // Admission for every first-claim arm: seats never claim at a Me
             // board; waiting and Approval tasks are not claimable yet.
             if (sourceTask.state === "submitted") {
@@ -2569,7 +2175,7 @@ export const WorkLive = Layer.effect(
                 });
               }
             }
-            // Claim-ready gate for every first-claim arm (local + remote reserve).
+            // Claim-ready gate for every first claim.
             // dependsOn may resolve to other task sinks in the same region.
             if (
               sourceTask.state === "submitted" &&
@@ -2627,76 +2233,22 @@ export const WorkLive = Layer.effect(
                 });
               }
             }
-            const basis = intentBasis(context, read.intentWitness);
+            const basis = intentBasis(read.intentWitness);
             const dependencyScope = yield* taskDependencyScopeCapability(
-              context,
               canvas,
               nodeId,
               basis,
             );
-            let outcome: WorkMutationOutcome<Task>;
-            if (actorHome === context.localInstallationId) {
-              outcome = yield* local(
-                repository.claimLocalTask({
-                  sink: sinkRef(canvas, nodeId),
-                  basis,
-                  dependencyScope,
-                  taskId,
-                  actor,
-                }),
-                admin,
-              );
-            } else {
-              if (context.configuration.role !== "command-center") {
-                return yield* new WorkServiceError({
-                  code: "invalid",
-                  message:
-                    "a Remote cannot relay a task claim to another installation",
-                });
-              }
-              const hostId = ("host" in actorNode ? actorNode.host : "local");
-              const target = yield* fleetTargets.get(hostId).pipe(
-                Effect.mapError(toWorkServiceError),
-              );
-              if (
-                target === undefined ||
-                target.stationInstallationId !== actorHome
-              ) {
-                return yield* new WorkServiceError({
-                  code: "invalid",
-                  message:
-                    `actor host ${JSON.stringify(hostId)} has no exact enrolled Station target`,
-                });
-              }
-              const witness = yield* livePeers
-                .require(hostId, actorHome)
-                .pipe(Effect.mapError(toWorkServiceError));
-              yield* livePeers.withSession(
-                witness,
-                Effect.gen(function* () {
-                  const live = yield* beforeCommit(admin);
-                  if (admin !== undefined && live === undefined) {
-                    return yield* new WorkServiceError({
-                      code: "invalid",
-                      message: "administrative task claim lost its live overseer origin",
-                    });
-                  }
-                  return yield* repository.reserveRemoteTaskClaim({
-                    sink: sinkRef(canvas, nodeId),
-                    basis,
-                    dependencyScope,
-                    taskId,
-                    actor,
-                    targetInstallationId: actorHome,
-                    ...(live === undefined ? {} : { authorizedBy: live }),
-                  }).pipe(Effect.mapError(toWorkServiceError));
-                }),
-              ).pipe(Effect.mapError(toWorkServiceError));
-              outcome = {
-                value: sourceTask,
-                disposition: "queued",
-              };
-            }
+            const outcome = yield* local(
+              repository.claimLocalTask({
+                sink: sinkRef(canvas, nodeId),
+                basis,
+                dependencyScope,
+                taskId,
+                actor,
+              }),
+              admin,
+            );
             return yield* complete(outcome);
           }),
         ),
@@ -2704,8 +2256,7 @@ export const WorkLive = Layer.effect(
       workTaskComment: (canvas, nodeId, taskId, message, admin) =>
         asResult(
           Effect.gen(function* () {
-            const [context, read, home] = yield* Effect.all([
-              stationContext,
+            const [read] = yield* Effect.all([
               readTopology(canvas),
               itemHome("task", canvas, nodeId, taskId),
             ]);
@@ -2713,13 +2264,6 @@ export const WorkLive = Layer.effect(
               admin === undefined
                 ? undefined
                 : yield* requireLiveOverseer(admin);
-            if (overseer === undefined && context.configuration.role !== "command-center") {
-              return yield* new WorkServiceError({
-                code: "invalid",
-                message:
-                  "only the Command Center operator may comment on a task",
-              });
-            }
             const targetNode = yield* requireNode(read.topology, nodeId);
             const targetSpec = resolveSpec({
               isGroup: false,
@@ -2747,33 +2291,14 @@ export const WorkLive = Layer.effect(
             });
             const sentBy = overseer ?? operatorActorRef(canvas);
             const destination = { kind: "task" as const, itemId: taskId };
-            const outcome = home === context.localInstallationId
-              ? yield* local(
+            const outcome = yield* local(
                 repository.appendMessage({
                   sink: sinkRef(canvas, nodeId),
-                  basis: intentBasis(context, read.intentWitness),
+                  basis: intentBasis(read.intentWitness),
                   message: materializedMessage,
                   sentBy,
                   destination,
                 }),
-                admin,
-              )
-              : yield* enqueue(
-                context,
-                home,
-                workItem(
-                  "message",
-                  materializedMessage.messageId,
-                  canvas,
-                  nodeId,
-                ),
-                {
-                  operation: "message.append",
-                  message: materializedMessage,
-                  sentBy,
-                  destination,
-                },
-                materializedMessage,
                 admin,
               );
             if (outcome.disposition === "applied") {
@@ -2811,7 +2336,7 @@ export const WorkLive = Layer.effect(
                 const delivered = yield* local(
                   repository.appendMessage({
                     sink: sinkRef(canvas, ownerRef.nodeId),
-                    basis: intentBasis(context, read.intentWitness),
+                    basis: intentBasis(read.intentWitness),
                     message: copy,
                     sentBy,
                     destination: { kind: "mailbox" },
@@ -2840,16 +2365,12 @@ export const WorkLive = Layer.effect(
       ) =>
         asResult(
           Effect.gen(function* () {
-            const [context, read] = yield* Effect.all([
-              stationContext,
-              readTopology(canvas),
-            ]);
-            yield* requireLocalActor(
+            const read = yield* readTopology(canvas);
+            yield* requireActor(
               read,
               sentBy,
               nodeId,
               "msg.send",
-              context,
               admin,
             );
             const targetNode = yield* requireNode(read.topology, nodeId);
@@ -2887,45 +2408,15 @@ export const WorkLive = Layer.effect(
                     kind: "task" as const,
                     itemId: taskId,
                   };
-            const home = taskId === null
-              ? context.configuration.role === "command-center"
-                ? context.localInstallationId
-                : context.configuration.commandCenterInstallationId
-              : isRequestSink
-                ? yield* itemHome(
-                  "request",
-                  canvas,
-                  nodeId,
-                  taskId,
-                )
-                : yield* itemHome("task", canvas, nodeId, taskId);
-            const outcome = home === context.localInstallationId
-              ? yield* local(
+            if (taskId !== null) yield* itemHome(isRequestSink ? "request" : "task", canvas, nodeId, taskId);
+            const outcome = yield* local(
                 repository.appendMessage({
                   sink: sinkRef(canvas, nodeId),
-                  basis: intentBasis(context, read.intentWitness),
+                  basis: intentBasis(read.intentWitness),
                   message: materializedMessage,
                   sentBy,
                   destination,
                 }),
-                admin,
-              )
-              : yield* enqueue(
-                context,
-                home,
-                workItem(
-                  "message",
-                  materializedMessage.messageId,
-                  canvas,
-                  nodeId,
-                ),
-                {
-                  operation: "message.append",
-                  message: materializedMessage,
-                  sentBy,
-                  destination,
-                },
-                materializedMessage,
                 admin,
               );
             if (outcome.disposition === "applied" && taskId === null) {
@@ -2980,7 +2471,7 @@ export const WorkLive = Layer.effect(
                 const delivered = yield* local(
                   repository.appendMessage({
                     sink: sinkRef(canvas, ownerRef.nodeId),
-                    basis: intentBasis(context, read.intentWitness),
+                    basis: intentBasis(read.intentWitness),
                     message: copy,
                     sentBy,
                     destination: { kind: "mailbox" },
@@ -3002,19 +2493,7 @@ export const WorkLive = Layer.effect(
       workSystemMailboxNotify: (canvas, nodeId, message) =>
         asResult(
           Effect.gen(function* () {
-            const [context, read] = yield* Effect.all([
-              stationContext,
-              readTopology(canvas),
-            ]);
-            if (context.configuration.role !== "command-center") {
-              return yield* Effect.fail(
-                new WorkServiceError({
-                  code: "invalid",
-                  message:
-                    "system mailbox notify is Command Center-homed only",
-                }),
-              );
-            }
+            const read = yield* readTopology(canvas);
             const targetNode = yield* requireNode(read.topology, nodeId);
             const targetSpec = resolveSpec({
               isGroup: false,
@@ -3052,7 +2531,7 @@ export const WorkLive = Layer.effect(
             const outcome = yield* local(
               repository.appendMessage({
                 sink: sinkRef(canvas, nodeId),
-                basis: intentBasis(context, read.intentWitness),
+                basis: intentBasis(read.intentWitness),
                 message: materializedMessage,
                 sentBy,
                 destination: { kind: "mailbox" },
@@ -3072,16 +2551,12 @@ export const WorkLive = Layer.effect(
       workMessageMarkRead: (canvas, nodeId, messageId, reader, admin) =>
         asResult(
           Effect.gen(function* () {
-            const [context, read] = yield* Effect.all([
-              stationContext,
-              readTopology(canvas),
-            ]);
-            yield* requireLocalActor(
+            const read = yield* readTopology(canvas);
+            yield* requireActor(
               read,
               reader,
               nodeId,
               "msg.read",
-              context,
               admin,
             );
             if (reader.nodeId !== nodeId || reader.canvasName !== canvas) {
@@ -3127,7 +2602,7 @@ export const WorkLive = Layer.effect(
             const outcome = yield* repository
               .acceptDelivery({
                 sink,
-                basis: intentBasis(context, read.intentWitness),
+                basis: intentBasis(read.intentWitness),
                 receipt: {
                   deliveryId,
                   deliveredItem: {
@@ -3181,16 +2656,12 @@ export const WorkLive = Layer.effect(
       workMessageReact: (canvas, nodeId, messageId, reaction, reactor, admin) =>
         asResult(
           Effect.gen(function* () {
-            const [context, read] = yield* Effect.all([
-              stationContext,
-              readTopology(canvas),
-            ]);
-            yield* requireLocalActor(
+            const read = yield* readTopology(canvas);
+            yield* requireActor(
               read,
               reactor,
               nodeId,
               "msg.react",
-              context,
               admin,
             );
             if (reactor.nodeId !== nodeId || reactor.canvasName !== canvas) {
@@ -3239,7 +2710,7 @@ export const WorkLive = Layer.effect(
             const outcome = yield* repository
               .acceptDelivery({
                 sink,
-                basis: intentBasis(context, read.intentWitness),
+                basis: intentBasis(read.intentWitness),
                 receipt: {
                   deliveryId,
                   deliveredItem: {
@@ -3306,18 +2777,14 @@ export const WorkLive = Layer.effect(
       ) =>
         asResult(
           Effect.gen(function* () {
-            const [context, read] = yield* Effect.all([
-              stationContext,
-              readTopology(canvas),
-            ]);
-            const raiserNode = yield* requireLocalActor(
+            const read = yield* readTopology(canvas);
+            yield* requireActor(
               read,
               raisedBy,
               nodeId,
               // A request is filed into the Requests node's thread; seats no
               // longer escalate through it (agent signals replaced that).
               "msg.send",
-              context,
               admin,
             );
             const policyWork = yield* policyRows(canvas, nodeId, []);
@@ -3332,27 +2799,13 @@ export const WorkLive = Layer.effect(
                 reason,
               )
             );
-            const home = yield* homeForNode(raiserNode, context);
-            const outcome = home === context.localInstallationId
-              ? yield* local(
+            const outcome = yield* local(
                 repository.createRequest({
                   sink: sinkRef(canvas, nodeId),
-                  basis: intentBasis(context, read.intentWitness),
+                  basis: intentBasis(read.intentWitness),
                   request: policy.task,
                   raisedBy,
                 }),
-                admin,
-              )
-              : yield* enqueue(
-                context,
-                home,
-                workItem("request", policy.task.id, canvas, nodeId),
-                {
-                  operation: "request.create",
-                  request: policy.task,
-                  raisedBy,
-                },
-                policy.task,
                 admin,
               );
             return yield* complete(outcome);
@@ -3368,8 +2821,7 @@ export const WorkLive = Layer.effect(
       ) =>
         asResult(
           Effect.gen(function* () {
-            const [context, read, home] = yield* Effect.all([
-              stationContext,
+            const [read] = yield* Effect.all([
               readTopology(canvas),
               itemHome("request", canvas, nodeId, taskId),
             ]);
@@ -3403,30 +2855,15 @@ export const WorkLive = Layer.effect(
                 policy.task.history.length > before.history.length
                 ? policy.task.history.at(-1)
                 : undefined;
-            const action = {
-              operation: "request.resolve" as const,
-              requestId: taskId,
-              response: policy.task.response!,
-              disposition,
-              ...(message === undefined ? {} : { message }),
-            };
-            const outcome = home === context.localInstallationId
-              ? yield* local(
+            const outcome = yield* local(
                 repository.resolveRequest({
                   sink: sinkRef(canvas, nodeId),
-                  basis: intentBasis(context, read.intentWitness),
+                  basis: intentBasis(read.intentWitness),
                   requestId: taskId,
                   response: policy.task.response!,
                   disposition,
                   ...(message === undefined ? {} : { message }),
                 }),
-              )
-              : yield* enqueue(
-                context,
-                home,
-                workItem("request", taskId, canvas, nodeId),
-                action,
-                policy.task,
               );
             const completed = yield* complete(outcome);
             if (
@@ -3471,17 +2908,13 @@ export const WorkLive = Layer.effect(
       ) =>
         asResult(
           Effect.gen(function* () {
-            const [context, read] = yield* Effect.all([
-              stationContext,
-              readTopology(canvas),
-            ]);
+            const read = yield* readTopology(canvas);
             if (admin === undefined) {
-              yield* requireLocalActor(
+              yield* requireActor(
                 read,
                 publishedBy,
                 nodeId,
                 "artifact.publish",
-                context,
               );
             } else {
               const live = yield* requireLiveOverseer(admin);
@@ -3526,35 +2959,14 @@ export const WorkLive = Layer.effect(
               Effect.map((parts) => ({ ...policy.artifact, parts })),
             );
             const origin = yield* readTopology(publishedBy.canvasName);
-            const publisherNode = yield* requireNode(origin.topology, publishedBy.nodeId);
-            const publisherHome = yield* homeForNode(publisherNode, context);
-            const action = {
-              operation: "artifact.publish" as const,
-              artifact: materializedArtifact,
-              publishedBy,
-            };
-            const outcome =
-              publisherHome === context.localInstallationId
-                ? yield* local(
+            yield* requireNode(origin.topology, publishedBy.nodeId);
+            const outcome = yield* local(
                   repository.publishArtifact({
                     sink: sinkRef(canvas, nodeId),
-                    basis: intentBasis(context, read.intentWitness),
+                    basis: intentBasis(read.intentWitness),
                     artifact: materializedArtifact,
                     publishedBy,
                   }),
-                  admin,
-                )
-                : yield* enqueue(
-                  context,
-                  publisherHome,
-                  workItem(
-                    "artifact",
-                    materializedArtifact.artifactId,
-                    canvas,
-                    nodeId,
-                  ),
-                  action,
-                  materializedArtifact,
                   admin,
                 );
             return yield* complete(outcome);
@@ -3640,10 +3052,7 @@ export const WorkLive = Layer.effect(
       workBoardCreateTopic: (canvas, nodeId, title, body, author, notify) =>
         asResult(
           Effect.gen(function* () {
-            const [context, read] = yield* Effect.all([
-              stationContext,
-              readTopology(canvas),
-            ]);
+            const read = yield* readTopology(canvas);
             const node = read.topology.nodes.get(asNodeId(nodeId));
             if (node?.kind !== "board") {
               return yield* Effect.fail(
@@ -3693,18 +3102,11 @@ export const WorkLive = Layer.effect(
               ...(parts.length > 0 ? { parts } : {}),
               ...(seedPost ? { posts: [seedPost] } : {}),
             };
-            // Multi-reader bulletin: always Command Center-homed.
-            const home =
-              context.configuration.role === "command-center"
-                ? context.localInstallationId
-                : context.configuration.commandCenterInstallationId;
-            const outcome =
-              home === context.localInstallationId
-                ? yield* local(
+            const outcome = yield* local(
                   repository
                     .createBoardTopic({
                       sink: sinkRef(canvas, nodeId),
-                      basis: intentBasis(context, read.intentWitness),
+                      basis: intentBasis(read.intentWitness),
                       topic,
                       createdBy: author,
                     })
@@ -3713,17 +3115,6 @@ export const WorkLive = Layer.effect(
                         value: { topic: result.value, notify },
                       })),
                     ),
-                )
-                : yield* enqueue(
-                  context,
-                  home,
-                  workItem("topic", topic.topicId, canvas, nodeId),
-                  {
-                    operation: "board.topic.create",
-                    topic,
-                    createdBy: author,
-                  },
-                  { topic, notify },
                 );
             return yield* complete(outcome);
           }),
@@ -3732,10 +3123,7 @@ export const WorkLive = Layer.effect(
       workBoardPost: (canvas, nodeId, topicId, text, author, tags) =>
         asResult(
           Effect.gen(function* () {
-            const [context, read] = yield* Effect.all([
-              stationContext,
-              readTopology(canvas),
-            ]);
+            const read = yield* readTopology(canvas);
             if (
               read.topology.nodes.get(asNodeId(nodeId))?.kind !== "board"
             ) {
@@ -3772,17 +3160,11 @@ export const WorkLive = Layer.effect(
                 ? { tags: cleanTags.map((t) => t.trim()) }
                 : {}),
             };
-            const home =
-              context.configuration.role === "command-center"
-                ? context.localInstallationId
-                : context.configuration.commandCenterInstallationId;
-            const outcome =
-              home === context.localInstallationId
-                ? yield* local(
+            const outcome = yield* local(
                   repository
                     .appendBoardPost({
                       sink: sinkRef(canvas, nodeId),
-                      basis: intentBasis(context, read.intentWitness),
+                      basis: intentBasis(read.intentWitness),
                       post,
                       createdBy: author,
                     })
@@ -3791,17 +3173,6 @@ export const WorkLive = Layer.effect(
                         value: { post: result.value },
                       })),
                     ),
-                )
-                : yield* enqueue(
-                  context,
-                  home,
-                  workItem("post", post.postId, canvas, nodeId),
-                  {
-                    operation: "board.post.append",
-                    post,
-                    createdBy: author,
-                  },
-                  { post },
                 );
             return yield* complete(outcome);
           }),
@@ -3908,10 +3279,7 @@ export const WorkLive = Layer.effect(
       workPadPatch: (canvas, nodeId, patches, author, admin) =>
         asResult(
           Effect.gen(function* () {
-            const [context, read] = yield* Effect.all([
-              stationContext,
-              readTopology(canvas),
-            ]);
+            const read = yield* readTopology(canvas);
             const overseer =
               admin === undefined
                 ? undefined
@@ -3946,22 +3314,16 @@ export const WorkLive = Layer.effect(
               canvas,
               nodeId,
             );
-            const home =
-              context.configuration.role === "command-center"
-                ? context.localInstallationId
-                : context.configuration.commandCenterInstallationId;
             const patchId = ids.id();
             const current = yield* repository
               .readPad(canvas, nodeId)
               .pipe(Effect.mapError(toWorkServiceError));
             const addedMentions = addedPadMentions(current, materialized);
-            const outcome =
-              home === context.localInstallationId
-                ? yield* local(
+            const outcome = yield* local(
                   repository
                     .applyPadPatch({
                       sink: sinkRef(canvas, nodeId),
-                      basis: intentBasis(context, read.intentWitness),
+                      basis: intentBasis(read.intentWitness),
                       patchId,
                       patches: materialized,
                       author,
@@ -3977,28 +3339,8 @@ export const WorkLive = Layer.effect(
                       })),
                     ),
                   admin,
-                )
-                : yield* enqueue(
-                  context,
-                  home,
-                  workItem("pad", patchId, canvas, nodeId),
-                  {
-                    operation: "pad.patch",
-                    patchId,
-                    patches: [...materialized],
-                    author,
-                  },
-                  {
-                    revision: current.revision,
-                    pad: current,
-                    digest: padToDigest(current),
-                  },
-                  admin,
                 );
-            if (
-              home === context.localInstallationId &&
-              addedMentions.length > 0
-            ) {
+            if (addedMentions.length > 0) {
               const actors = resolvePadInboundActors(read.topology, nodeId);
               const notifyIds = new Set(
                 tagNotifyNodeIds(
