@@ -19,6 +19,7 @@ import {
   harnessesSeatsLack,
   machineActions,
   machineCondition,
+  machineCopyStepLines,
   machineFigureState,
   machineForm,
   machineHarnesses,
@@ -151,7 +152,7 @@ function MachineDetail({
   const summary = machineSummary(item, read, copy, placed);
   // "This machine" only ever means the one the window runs on.
   const where = machineNamed(item);
-  const steps = machineStepLines(copy);
+  const steps = [...machineCopyStepLines(copy), ...machineStepLines(copy)];
   const harnesses = machineHarnesses(read);
   const lacking = harnessesSeatsLack(read, placed.harnesses);
   const missingSecrets = machineMissingSecrets(read);

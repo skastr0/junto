@@ -113,6 +113,7 @@ export class SshTransport extends Context.Service<SshTransport,
       input: Stream.Stream<Uint8Array, E, R>,
       timeoutMs: number,
       onStderr?: (bytes: Uint8Array) => void,
+      onInputBytes?: (bytes: number) => void,
     ) => Effect.Effect<SshCommandResult, SshError | SshTransferExitError | E, R>;
     readonly connect: <A, E, R>(
       program: ScopedStreamProgram,
@@ -178,6 +179,7 @@ interface InputEnd {
 type InputMessage = InputChunk | InputBarrier | InputEnd;
 
 interface InternalLease extends SshLease {
+  readonly writeConfirmed: (bytes: Uint8Array) => Effect.Effect<void, SshError>;
   readonly isRunning: Effect.Effect<boolean, SshError>;
   readonly scope: Scope.Closeable;
 }
@@ -520,6 +522,13 @@ export const SshTransportLayer = Layer.effect(
               yield* offer({ _tag: "Chunk", bytes: Uint8Array.from(bytes) });
             }),
           );
+        const writeConfirmed = (bytes: Uint8Array): Effect.Effect<void, SshError> => write(bytes).pipe(
+          Effect.andThen(inputLock.withPermits(1)(Effect.gen(function* () {
+            const flushed = yield* Deferred.make<void, SshError>();
+            yield* offer({ _tag: "Barrier", afterPriorWrite: Deferred.succeed(flushed, undefined).pipe(Effect.asVoid) });
+            yield* Effect.raceFirst(Deferred.await(flushed), inputUnavailable);
+          }))),
+        );
         const writeSensitive = (
           bytes: Uint8Array,
         ): Effect.Effect<void, SshError> =>
@@ -594,6 +603,7 @@ export const SshTransportLayer = Layer.effect(
 
         return {
           write,
+          writeConfirmed,
           writeSensitive,
           closeInput,
           stdout: process.stdout.pipe(
@@ -721,6 +731,7 @@ export const SshTransportLayer = Layer.effect(
       input,
       timeoutMs,
       onStderr,
+      onInputBytes,
     ) =>
       Effect.try({
         try: () => compiler.stream(program),
@@ -776,7 +787,11 @@ export const SshTransportLayer = Layer.effect(
                     }),
                     Stream.flattenIterable,
                   ),
-                  Sink.forEach(lease.write),
+                  Sink.forEach(chunk => onInputBytes === undefined ? lease.write(chunk) : lease.writeConfirmed(chunk).pipe(
+                    Effect.tap(() => Effect.sync(() => {
+                      try { onInputBytes(chunk.byteLength); } catch { /* observer detached */ }
+                    })),
+                  )),
                 ).pipe(
                   Effect.andThen(lease.closeInput),
                   // If the remote command exits first, interrupt the local

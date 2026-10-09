@@ -303,6 +303,7 @@ describe("SshTransport", () => {
     const releases: Command.StandardCommand[] = [];
     const received: Uint8Array[] = [];
     const observed: string[] = [];
+    const copied: number[] = [];
     const input = Sink.forEach((chunk: Uint8Array) =>
       Effect.sync(() => {
         received.push(Uint8Array.from(chunk));
@@ -331,6 +332,11 @@ describe("SshTransport", () => {
           Stream.make(encoder.encode("first"), encoder.encode("second")),
           1_000,
           bytes => { observed.push(new TextDecoder().decode(bytes)); bytes.fill(0); throw new Error("observer closed"); },
+          bytes => {
+            copied.push(bytes);
+            expect(received.reduce((sum, chunk) => sum + chunk.byteLength, 0)).toBe(copied.reduce((sum, count) => sum + count, 0));
+            throw new Error("progress observer closed");
+          },
         );
       }).pipe(Effect.provide(layer)),
     );
@@ -338,6 +344,7 @@ describe("SshTransport", () => {
     expect(result.stdout).toContain("STATION_READY");
     expect(result.stderr).toBe("install-progress\n");
     expect(observed).toEqual(["install-progress\n"]);
+    expect(copied).toEqual([5, 6]);
     expect(
       Buffer.concat(received.map((chunk) => Buffer.from(chunk))).toString(
         "utf8",

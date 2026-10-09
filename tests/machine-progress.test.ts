@@ -13,6 +13,14 @@ const step = {
 };
 
 describe("a step of a machine command in flight", () => {
+  it("admits copy counts and refuses invalid totals or invented completion", () => {
+    const event = { event: "machine-copy", copiedBytes: 25, totalBytes: 69, state: "copying" };
+    expect(Result.isSuccess(decodeMachineCommandProgress({ id: "send-01", event }))).toBe(true);
+    for (const bad of [{ copiedBytes: -1 }, { copiedBytes: 70 }, { totalBytes: 0 }, { copiedBytes: 0.5 }, { state: "copied" }, { token: "secret" }]) {
+      expect(Result.isFailure(decodeMachineCommandProgress({ id: "send-01", event: { ...event, ...bad } }))).toBe(true);
+    }
+    expect(Result.isSuccess(decodeMachineCommandProgress({ id: "send-01", event: { ...event, copiedBytes: 69, state: "copied" } }))).toBe(true);
+  });
   it("decodes with the id of the command it belongs to", () => {
     const decoded = decodeMachineCommandProgress(step);
     expect(Result.isSuccess(decoded)).toBe(true);

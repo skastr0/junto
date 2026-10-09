@@ -5,7 +5,7 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
-import { Effect, Schema } from "effect";
+import { Clock, Effect, Schema } from "effect";
 import * as NodeStream from "@effect/platform-node/NodeStream";
 import { MachineInstallError, MachineInstallResult, MachineInstallEvent, type MachineSendInput } from "@shared/machine-install";
 import { SshTransport, type SshTarget } from "../ssh";
@@ -14,6 +14,8 @@ import { SshExitError, SshTimeoutError } from "../ssh/domain";
 import { receiveMachineBundle } from "../ssh/machine-commands";
 import { machinePreflight } from "../ssh/machine-preflight";
 import { inspectMachineBundle } from "./bundle";
+import { makeCopyProgress } from "./copy-progress";
+import type { MachineSendEvent } from "@shared/machine-progress";
 
 const exec = promisify(execFile);
 const installError = (cause:unknown) => {
@@ -33,7 +35,7 @@ const Failure = Schema.Struct({ ok: Schema.Literal(false), command: Schema.Liter
 export const sendMachine = (
   target:SshTarget,
   input:Omit<MachineSendInput,"sshTarget">,
-  onTransition?: (event: MachineInstallEvent) => void,
+  onTransition?: (event: MachineSendEvent) => void,
 ) => Effect.scoped(Effect.gen(function* () {
   const scratch=yield* Effect.acquireRelease(
     Effect.tryPromise({try:()=>mkdtemp(join(tmpdir(),"junto-send-")),catch:installError}),
@@ -64,6 +66,11 @@ export const sendMachine = (
   }).pipe(Effect.mapError(installError));
   const checks = yield* ssh.run(preflight).pipe(Effect.mapError(installError));
   if (checks.stdout !== "ready\n") return yield* Effect.fail(installError(new Error(checks.stdout.trim().slice(0, 4096) || "Cannot check this machine before sending Junto")));
+  const clock = yield* Clock.Clock;
+  const copy = makeCopyProgress(archiveBytes, clock.currentTimeMillisUnsafe(), event => onTransition?.(event));
+  yield* Effect.forkScoped(Effect.forever(Effect.sleep("1 second").pipe(
+    Effect.andThen(Effect.sync(() => copy.check(clock.currentTimeMillisUnsafe()))),
+  )));
   const decodeEvent = Schema.decodeUnknownResult(MachineInstallEvent, { onExcessProperty: "error" });
   const decoder = new TextDecoder();
   let pending = "";
@@ -100,7 +107,8 @@ export const sendMachine = (
     }
     return new MachineInstallError({ message: cause instanceof Error ? cause.message : String(cause), retryable: false, disposition: "uncertain", transitions });
   };
-  const result=yield* ssh.transfer(program,NodeStream.fromReadable({evaluate:()=>createReadStream(archive),onError:installError}),20*60_000,observe).pipe(Effect.mapError(transferError));
+  const result=yield* ssh.transfer(program,NodeStream.fromReadable({evaluate:()=>createReadStream(archive),onError:installError}),20*60_000,observe,
+    bytes => copy.advance(bytes, clock.currentTimeMillisUnsafe())).pipe(Effect.mapError(transferError));
   const response=yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Success))(result.stdout.trim(), { onExcessProperty: "error" }).pipe(Effect.mapError(transferError));
   return response.data;
 }));

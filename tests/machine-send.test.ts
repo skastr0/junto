@@ -99,14 +99,14 @@ it("sends only install selections and retains nonretryable transfer uncertainty"
     connect: () => Effect.die("unexpected link"),
     forward: () => Effect.die("unexpected forwarding"),
     warm: () => Effect.void, teardown: () => Effect.void,
-    transfer: (program, input, timeout, onStderr) => Effect.gen(function* () {
+    transfer: (program, input, timeout, onStderr, onInputBytes) => Effect.gen(function* () {
       expect(timeout).toBe(20 * 60_000);
       const compiler = createSshProgramCompiler({ controlDir: "/tmp/junto-send-test", envExecutable: "/usr/bin/env", sshExecutable: "/usr/bin/ssh", environment: {} });
       const compiled = compiler.stream(program);
       expect(compiled.connection).toBe("dedicated");
       if (!Command.isStandardCommand(compiled.command)) throw new Error("expected argv command");
       remoteText = compiled.command.args.at(-1)!;
-      yield* Stream.runForEach(input, bytes => Effect.sync(() => { copiedBytes += bytes.byteLength; }));
+      yield* Stream.runForEach(input, bytes => Effect.sync(() => { copiedBytes += bytes.byteLength; onInputBytes?.(bytes.byteLength); }));
       const event = { event: "machine-install", juntoHome: "/home/user/probe", installRoot: "/home/user/probe/install", step: "verified" };
       const encoder = new TextEncoder();
       const first = JSON.stringify(event);
@@ -123,7 +123,11 @@ it("sends only install selections and retains nonretryable transfer uncertainty"
   expect(remoteText).toContain("installation-one");
   expect(remoteText).not.toContain("operator-pin");
   expect(error.disposition).toBe("uncertain"); expect(error.retryable).toBe(false);
-  expect(observed).toHaveLength(5);
-  expect(observed.every(event => JSON.stringify(event).includes('"step":"verified"'))).toBe(true);
+  const installs = observed.filter(event => JSON.stringify(event).includes('"event":"machine-install"'));
+  expect(installs).toHaveLength(5);
+  expect(installs.every(event => JSON.stringify(event).includes('"step":"verified"'))).toBe(true);
+  expect(observed.filter(event => JSON.stringify(event).includes('"event":"machine-copy"'))).toMatchObject([
+    { copiedBytes: 0, state: "copying" }, { copiedBytes, totalBytes: copiedBytes, state: "copied" },
+  ]);
   expect(JSON.stringify(observed)).not.toContain("secretValue");
 });

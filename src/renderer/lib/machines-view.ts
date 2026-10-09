@@ -7,6 +7,7 @@ import type {
 import { resolveMachineForm, type MachineFigureState, type MachineForm } from "@shared/machine-figure";
 import type { MachineInstallError, MachineInstallTransition } from "@shared/machine-install";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
+import { MACHINE_COPY_STALL_MS, type MachineCopyProgress } from "@shared/machine-progress";
 
 // What the Machines window says about one machine, worked out from what the
 // owner commands answered. Pure: no window, no store, so every state the
@@ -35,6 +36,7 @@ export type MachineCopy =
       /** The command's id; its progress steps carry the same one. */
       readonly id: string;
       readonly steps: ReadonlyArray<MachineInstallStep>;
+      readonly transfer?: MachineCopyProgress;
     }
   | {
       readonly kind: "failed";
@@ -45,6 +47,7 @@ export type MachineCopy =
       readonly message: string;
       /** The steps that were confirmed. One that is not here may still have happened. */
       readonly steps: ReadonlyArray<MachineInstallStep>;
+      readonly transfer?: MachineCopyProgress;
       /** Where the owner said the install left the machine. Absent: it did not say. */
       readonly disposition?: MachineInstallDisposition;
       /** The install finished, and what failed came after it. */
@@ -157,7 +160,7 @@ export const MACHINE_INSTALL_STEP_LABEL: Readonly<Record<MachineInstallStep, str
  * the machine was left as it was; otherwise a step nobody confirmed is
  * `unconfirmed`, because no word of a step is not word that it did not happen.
  */
-export type MachineStepPhase = "done" | "now" | "ahead" | "not-reached" | "unconfirmed";
+export type MachineStepPhase = "done" | "now" | "ahead" | "not-reached" | "unconfirmed" | "copying" | "stalled";
 
 export const MACHINE_STEP_PHASE_WORD: Readonly<Record<MachineStepPhase, string>> = {
   done: "Done",
@@ -165,12 +168,24 @@ export const MACHINE_STEP_PHASE_WORD: Readonly<Record<MachineStepPhase, string>>
   ahead: "Waiting",
   "not-reached": "Not reached",
   unconfirmed: "Not confirmed",
+  copying: "Copying",
+  stalled: `No progress for ${MACHINE_COPY_STALL_MS / 1000} seconds`,
 };
 
 export type MachineStepLine = {
-  readonly step: MachineInstallStep;
+  readonly step: MachineInstallStep | "copy";
   readonly label: string;
   readonly phase: MachineStepPhase;
+};
+
+export const machineCopyStepLines = (copy: MachineCopy | undefined): ReadonlyArray<MachineStepLine> => {
+  const transfer = copy?.transfer;
+  if (!transfer || (copy.kind === "failed" && copy.installed)) return [];
+  const scale = transfer.totalBytes >= 1_000_000 ? 1_000_000 : transfer.totalBytes >= 1_000 ? 1_000 : 1;
+  const unit = scale === 1_000_000 ? "MB" : scale === 1_000 ? "KB" : "bytes";
+  const amount = `${Math.round(transfer.copiedBytes / scale)} of ${Math.round(transfer.totalBytes / scale)} ${unit}`;
+  return [{ step: "copy", label: transfer.state === "copied" ? `Copy, ${amount}` : amount,
+    phase: transfer.state === "copied" ? "done" : copy.kind === "failed" ? "unconfirmed" : transfer.state === "stalled" ? "stalled" : "copying" }];
 };
 
 /** The steps of a send or an update, each with how it stands. None once the install itself finished. */

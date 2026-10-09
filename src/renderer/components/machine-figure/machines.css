@@ -185,8 +185,22 @@
 }
 
 .machine-steps [data-step-phase="done"],
-.machine-steps [data-step-phase="now"] {
+.machine-steps [data-step-phase="now"],
+.machine-steps [data-step-phase="copying"],
+.machine-steps [data-step-phase="stalled"] {
   color: var(--color-ink);
+}
+
+.machine-steps [data-step="copy"] {
+  grid-column: 1 / -1;
+}
+
+.machine-steps [data-step="copy"] i {
+  display: none;
+}
+
+.machine-steps [data-step-phase="stalled"] small {
+  color: var(--color-amber);
 }
 
 .machine-steps [data-step-phase="done"] i {

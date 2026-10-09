@@ -15,13 +15,16 @@ export const dispatchMachineIpcCommand = (
     error: { type: "validation", message: "invalid machine command", details: { retryable: false } },
   });
   const request = decoded.success;
-  const transitions: MachineCommandProgress["event"][] = [];
+  const transitions: Extract<MachineCommandProgress["event"], { event: "machine-install" }>[] = [];
   let active = true;
   const observer = (event: MachineCommandProgress["event"]) => {
-    if (!active || transitions.length >= 5 || (request.op !== "machine.send" && request.op !== "machine.update")) return;
+    if (!active || (request.op !== "machine.send" && request.op !== "machine.update")) return;
     const progress = decodeMachineCommandProgress({ id: request.id, event });
     if (Result.isFailure(progress)) return;
-    transitions.push(progress.success.event);
+    if (progress.success.event.event === "machine-install") {
+      if (transitions.length >= 5) return;
+      transitions.push(progress.success.event);
+    }
     try { notify(progress.success); } catch { /* Closing a window does not cancel the owner operation. */ }
   };
   return actions.dispatch(request, observer).pipe(

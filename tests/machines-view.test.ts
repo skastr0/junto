@@ -10,6 +10,7 @@ import {
   harnessesSeatsLack,
   machineActions,
   machineCondition,
+  machineCopyStepLines,
   machineFigureState,
   machineForm,
   machineHarnesses,
@@ -23,6 +24,15 @@ import {
   type MachineListItem,
   type MachineRead,
 } from "../src/renderer/lib/machines-view";
+
+it("shows copied bytes and the owner's stated no-progress interval", () => {
+  const copy: MachineCopy = { kind: "running", op: "update", id: "copy-1", steps: [], transfer: {
+    event: "machine-copy", copiedBytes: 25_000_000, totalBytes: 69_162_835, state: "copying",
+  } };
+  expect(machineCopyStepLines(copy)).toEqual([{ step: "copy", label: "25 of 69 MB", phase: "copying" }]);
+  expect(machineCopyStepLines({ ...copy, transfer: { ...copy.transfer!, state: "stalled" } })[0].phase).toBe("stalled");
+  expect(machineCopyStepLines({ ...copy, transfer: { ...copy.transfer!, copiedBytes: copy.transfer!.totalBytes, state: "copied" } })[0]).toMatchObject({ phase: "done", label: "Copy, 69 of 69 MB" });
+});
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 
 const BUILD = "a".repeat(64);

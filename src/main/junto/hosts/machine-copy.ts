@@ -1,6 +1,7 @@
 import { Effect, Schema, Stream } from "effect";
 import { MachineBuild, MachineConfigured, MachinePeerPin, type MachineCopyInput } from "@shared/machine-control";
-import { MachineInstallError, MachineInstallResult, MachineSetupError, type MachineInstallEvent } from "@shared/machine-install";
+import { MachineInstallError, MachineInstallResult, MachineSetupError } from "@shared/machine-install";
+import type { MachineSendEvent } from "@shared/machine-progress";
 import type { InstallationId } from "@shared/installation-id";
 import type { RemoteHost } from "@shared/remote-hosts";
 import { OperatorErrorBody } from "@shared/operator-control";
@@ -40,7 +41,7 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
       }
       return Effect.fail(cause);
     }));
-  return (host: RemoteHost, input: MachineCopyInput, mode: "send" | "update", onTransition?: (event: MachineInstallEvent) => void) => Effect.gen(function* () {
+  return (host: RemoteHost, input: MachineCopyInput, mode: "send" | "update", onTransition?: (event: MachineSendEvent) => void) => Effect.gen(function* () {
     const pin = yield* machines.peer(host.id);
     if (mode === "update" && pin === undefined) return yield* Effect.fail(staged(new Error("Set up this machine before updating Junto")));
     const target = yield* parseHostSshRoute(host).pipe(Effect.mapError(staged));

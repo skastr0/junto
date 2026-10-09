@@ -5,7 +5,8 @@ import {
   type OperatorRequestEnvelope, type OperatorResponseEnvelope,
 } from "@shared/operator-control";
 import { MachineBuild, MachinePeerStatus, type MachineOwnStatus, type MachineHarnesses, type MachineCopyInput } from "@shared/machine-control";
-import { MachineInstallError, MachineSetupError, type MachineInstallResult, type MachineInstallEvent } from "@shared/machine-install";
+import { MachineInstallError, MachineSetupError, type MachineInstallResult } from "@shared/machine-install";
+import type { MachineSendEvent } from "@shared/machine-progress";
 import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
 import { MachineRepository } from "../machines/repository";
 import { StateTransactionOperation } from "../state/service";
@@ -17,11 +18,11 @@ export interface MachineOwnerOptions {
   readonly ownHarnesses: Effect.Effect<MachineHarnesses, unknown>;
   readonly peerStatus: (name: string) => Effect.Effect<MachinePeerStatus, unknown>;
   readonly peerBuild: (name: string) => Effect.Effect<string | undefined, unknown>;
-  readonly copy: (host: RemoteHost, input: MachineCopyInput, mode: "send" | "update", onTransition?: (event: MachineInstallEvent) => void) => Effect.Effect<MachineInstallResult, unknown>;
+  readonly copy: (host: RemoteHost, input: MachineCopyInput, mode: "send" | "update", onTransition?: (event: MachineSendEvent) => void) => Effect.Effect<MachineInstallResult, unknown>;
   readonly disconnect: (name: string) => Effect.Effect<void, unknown>;
 }
 export interface MachineOwnerActions {
-  readonly dispatch: (request: OperatorRequestEnvelope, onTransition?: (event: MachineInstallEvent) => void) => Effect.Effect<OperatorResponseEnvelope>;
+  readonly dispatch: (request: OperatorRequestEnvelope, onTransition?: (event: MachineSendEvent) => void) => Effect.Effect<OperatorResponseEnvelope>;
 }
 export class MachineOwnerControl extends Context.Service<MachineOwnerControl, MachineOwnerActions>()("@junto/MachineOwnerControl") {}
 
@@ -49,7 +50,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
     }
     return { ...status, installationId: pin.installationId };
   });
-  const run = (request: OperatorRequestEnvelope, onTransition?: (event: MachineInstallEvent) => void): Effect.Effect<unknown, unknown> => Effect.gen(function* () {
+  const run = (request: OperatorRequestEnvelope, onTransition?: (event: MachineSendEvent) => void): Effect.Effect<unknown, unknown> => Effect.gen(function* () {
     switch (request.op) {
       case "machine.list": {
         const listed = yield* hosts.list;
@@ -118,7 +119,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
     }
   });
   return {
-    dispatch: (request: OperatorRequestEnvelope, onTransition?: (event: MachineInstallEvent) => void) =>
+    dispatch: (request: OperatorRequestEnvelope, onTransition?: (event: MachineSendEvent) => void) =>
       (request.op === "machine.list" || request.op === "machine.status" || request.op === "machine.harnesses"
         ? run(request, onTransition) : mutationLock.withPermits(1)(run(request, onTransition))).pipe(
       Effect.map(data => {
