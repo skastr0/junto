@@ -31,7 +31,12 @@ import {
 
 export type AuthzVisibility = "connected" | "region" | "none";
 
-export const nodeKind = (node: Node | undefined): string | undefined => node?.kind;
+/**
+ * The kind a node is for work. A peer is an agent seat that lives on another
+ * machine: the same kind, and the law leaves it one thing to be asked, mail.
+ */
+export const nodeKind = (node: Node | undefined): string | undefined =>
+  node?.kind === "peer" ? "agent" : node?.kind;
 
 export const nodeTitle = titleOf;
 

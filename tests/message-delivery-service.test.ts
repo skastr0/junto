@@ -1,4 +1,5 @@
 import { canvasOf, seat } from "./support/model-nodes";
+import { asNodeId } from "../src/shared/model";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "../src/shared/work-model";
 import { mailExtensionMetadata, type MailExtension, type MailKind } from "../src/shared/crew";
@@ -155,6 +156,29 @@ describe("mail delivery", () => {
       await settle();
       expect(away.writes).toEqual([]);
       expect(away.wakes).toEqual([]);
+    });
+
+    it("is not typed into a peer, the seat as a copy of the canvas holds it", async () => {
+      const copy = canvasOf(
+        [{
+          kind: "peer", id: asNodeId(nodeId), x: 0, y: 0, width: 100, height: 80, z: 0,
+          label: "Claude Code" as never, host: OTHER_MACHINE as never, seatId: SENDER as never,
+        }],
+        [],
+        "crew",
+      );
+      const away = rig({ canvas: copy, live: true, wake: () => true });
+      away.append(mail("01A", "for the other machine"));
+      // Mail for another machine is no fault here: nothing is reported as one.
+      const faults = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      expect(await away.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+      expect(faults).not.toHaveBeenCalled();
+      faults.mockRestore();
+      await away.service.onBooted();
+      await settle();
+      expect(away.writes).toEqual([]);
+      expect(away.wakes).toEqual([]);
+      expect(away.messages[0]!.metadata?.deliveredAt).toBeUndefined();
     });
 
     it("is typed once the seat is on this machine", async () => {

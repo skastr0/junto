@@ -170,6 +170,8 @@ export class MessageDeliveryService {
    * `elsewhere` is a seat another machine types into.
    */
   private targetHere(node: Node): ReturnType<typeof deliveryTargetOf> | "elsewhere" {
+    // A peer is a seat of another machine, as a copy of a canvas holds it.
+    if (node.kind === "peer") return "elsewhere";
     const target = deliveryTargetOf(node);
     if (target === undefined || node.kind !== "agent") return undefined;
     return isThisMachine(node.host, this.thisMachine()) ? target : "elsewhere";
