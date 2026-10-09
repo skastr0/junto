@@ -79,8 +79,6 @@ const ALLOWED_PATTERNS = [/^tests\/station(?:[.-][\w.-]*)?\.test\.tsx?$/];
  */
 const ALLOWED_DIRS = [
   "tests/fixtures/state-v1/",
-  "tests/fixtures/state-v3/",
-  "tests/fixtures/state-v5/",
   // The remote station is unhooked and inert, to be rebuilt separately; its
   // code keeps the old shapes it was written against and nothing reaches it.
   "src/main/junto/station/",
