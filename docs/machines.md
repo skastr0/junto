@@ -355,6 +355,18 @@ together, from one commit of main. `remote-verify` holds the receipts:
 Then run B on the same two machines. No review gate before a run;
 `remote-security` reads the link after the first receipt.
 
+**No Python, anywhere. Operator's order, not open to argument.** A seat is
+its generation credential: one token per occupant generation, issued by main,
+in `JUNTO_WORK_TOKEN` (`docs/cli-harness-identity-qualification.md`). Reading
+a socket's peer process through `scripts/unix-peer-pid.py` was a residue of
+the older model, and the machines work had carried it to every machine. It
+goes everywhere: the script, the readers in `process-identity.ts`, their
+callers, the packaging entries and the install preflight. Owner sockets are
+owner-only files and the account is their boundary; `junto` refuses owner
+and machine commands when a seat's token is in its environment. Owners:
+`remote-cut` the desktop app, `remote-core` the core, `remote-send` the
+bundle and preflight, `remote-security` the review and the doctrine's words.
+
 **First real link, `d83193aed`.** Run A passed without a window: a core on
 this Mac sent Junto to the Mac mini, the mini started it under launchd, the
 link opened and status came back over it. Two installations, one build, the
