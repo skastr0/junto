@@ -17,7 +17,8 @@ export type MachineHarnessSignIn = typeof MachineHarnessSignIn.Type;
 export const MachineOwnStatus = Schema.Struct({
   build: MachineBuild,
   form: MachineForm,
-  keychain: MachineKeychainStatus,
+  // Older builds do not report this fact; absence means unknown.
+  keychain: Schema.optionalKey(MachineKeychainStatus),
   installationId: InstallationId,
   machineName: MachineName,
   juntoHome: MachineAbsolutePath,
@@ -35,13 +36,13 @@ export type MachinePeerIdentity = typeof MachinePeerIdentity.Type;
 export const MachineConfigured = MachinePeerIdentity;
 export const MachinePeerPin = Schema.Struct({ ...MachinePeerIdentity.fields, boundAt: Schema.String });
 export type MachinePeerPin = typeof MachinePeerPin.Type;
-export const MachineHarness = Schema.Struct({ harness: HarnessId, installed: Schema.Boolean, signIn: MachineHarnessSignIn }).pipe(
-  Schema.check(Schema.makeFilter(row => row.installed ? row.signIn !== "not-installed" : row.signIn === "not-installed")),
+export const MachineHarness = Schema.Struct({ harness: HarnessId, installed: Schema.Boolean, signIn: Schema.optionalKey(MachineHarnessSignIn) }).pipe(
+  Schema.check(Schema.makeFilter(row => row.signIn === undefined || (row.installed ? row.signIn !== "not-installed" : row.signIn === "not-installed"))),
 );
 export type MachineHarness = typeof MachineHarness.Type;
 export const MachineHarnesses = Schema.Struct({
   machineName: MachineName, reachable: Schema.Boolean,
-  // Unreachable and build-mismatched peers cannot report their execution context.
+  // Older, unreachable and build-mismatched peers may not report this fact.
   keychain: Schema.optionalKey(MachineKeychainStatus),
   harnesses: Schema.Array(MachineHarness).pipe(Schema.check(Schema.isMaxLength(32))),
 });

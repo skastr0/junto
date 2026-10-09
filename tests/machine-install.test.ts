@@ -45,7 +45,7 @@ vi.mock("../src/main/junto/hosts/install-service", () => ({
   }),
 }));
 
-import { installMachine, machineServiceLabel } from "../src/main/junto/hosts/install";
+import { installMachine, machineServiceLabel, readInstalledMachineStatus } from "../src/main/junto/hosts/install";
 import { uninstallMachine } from "../src/main/junto/hosts/uninstall";
 import { machineBundleFiles } from "../src/main/junto/hosts/bundle";
 import { writeMachineServiceFile } from "../src/main/junto/hosts/install-paths";
@@ -144,6 +144,23 @@ await release();`;
     expect(second.transitions[1]).toEqual({ step: "quiescent", build: first.build, pid: 71, startKey: "incumbent", service: "unloaded" });
     expect(selectedAtReceipt).toContain(first.build);
     expect(fixture.stopSelections).toEqual([`builds/${"a".repeat(64)}-${process.platform}-${process.arch}`]);
+  });
+
+  it("updates a 3363 incumbent whose status predates keychain metadata", async () => {
+    const first = await install(await makeBundle("a".repeat(64)));
+    // The field set is the installed 3363 receipt; identity and paths belong to this fixture.
+    const oldStatus = { build: first.build, form: "mac-mini", installationId: first.installationId, machineName: "mini", juntoHome: fixture.home, pid: 71, ready: true };
+    await writeFile(join(fixture.home, ".status.json"), JSON.stringify({ ok: true, command: "machine status", data: oldStatus }));
+    expect(await readInstalledMachineStatus(first.directory, fixture.home)).toEqual(oldStatus);
+    const second = await install(await makeBundle("b".repeat(64)));
+    expect(second.disposition).toBe("ready");
+    expect(second.installationId).toBe(first.installationId);
+    expect(second.build).toBe("b".repeat(64));
+    expect(second.transitions.map(event => event.step)).toEqual(["verified", "quiescent", "selected", "started", "ready"]);
+    expect(second.transitions[1]).toEqual({ step: "quiescent", build: first.build, pid: 71, startKey: "incumbent", service: "unloaded" });
+    expect(fixture.stopSelections).toEqual([`builds/${first.build}-${process.platform}-${process.arch}`]);
+    expect(fixture.starts).toBe(2);
+    expect((await readInstalledMachineStatus(second.directory, fixture.home)).keychain).toBe("available");
   });
 
   it("installs into private directories under a permissive ambient umask", async () => {
