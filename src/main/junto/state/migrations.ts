@@ -14,6 +14,7 @@ import {
   AGENT_SIGNALS_STATE_SCHEMA_SQL,
 } from "../signals/state-schema";
 import { SQUADS_STATE_SCHEMA_SQL } from "../squads/state-schema";
+import { WORK_EXCHANGE_STATE_SCHEMA_SQL } from "../work/exchange/state-schema";
 import {
   migrateOneMachineLog,
   ONE_MACHINE_LOG_REMOVED_TABLES,
@@ -255,7 +256,16 @@ export const STATE_SCHEMA_V15_IDENTITY = {
     "a76f3cd89bf0f4de0164cc4aede76294a66dabe265da3bc1f802eb196ea3e073",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 15;
+/**
+ * Version 16 adds the row exchange cursors: how far this machine is caught up
+ * on each writer's facts for each canvas. Expand only.
+ */
+export const STATE_SCHEMA_V16_IDENTITY = {
+  actualSchemaSha256:
+    "548d828a1b391a1038b601ef62695681bb0c007071f02f92ff7257bef098197c",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 16;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -263,7 +273,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 15;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V15_IDENTITY;
+  STATE_SCHEMA_V16_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -428,6 +438,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     replacesTables: ["work_events", "work_facts"],
     retiresColumns: { work_facts: [...ONE_MACHINE_LOG_RETIRED_FACT_COLUMNS] },
     migrate: migrateOneMachineLog,
+  },
+  {
+    fromVersion: 15,
+    toVersion: 16,
+    name: "add row exchange cursors",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V15_IDENTITY,
+    migrate: (database) => {
+      database.exec(WORK_EXCHANGE_STATE_SCHEMA_SQL);
+    },
   },
 ];
 

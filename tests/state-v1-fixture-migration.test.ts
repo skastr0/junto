@@ -17,7 +17,6 @@ import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   CURRENT_STATE_SCHEMA_VERSION,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
@@ -25,14 +24,13 @@ import {
   STATE_SCHEMA_V15_IDENTITY,
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
 import {
   ONE_MACHINE_LOG_REMOVED_TABLES,
   ONE_MACHINE_LOG_RETIRED_FACT_COLUMNS,
 } from "../src/main/junto/work/migrate-one-machine-log";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
-import { STATE_SCHEMA_V14_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V14_SQL, STATE_SCHEMA_V15_SQL } from "./fixtures/state-v1/schema";
 
 const fixtures = [
   { fileName: "command-center-v1.db", sha256: "ba3fd2b90591bd83f3706b153799c0f325ab47bc10b273be5fdcccd9155a2615" },
@@ -84,6 +82,13 @@ const versionFourteenPlan = {
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 14),
 };
 
+const versionFifteenPlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 15,
+  currentSchemaSql: STATE_SCHEMA_V15_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 15),
+};
+
 /** What step 14 -> 15 must leave of one version-14 fact row. */
 const survivingFact = (row: Row): Row => {
   const kept = Object.fromEntries(
@@ -95,11 +100,9 @@ const survivingFact = (row: Row): Row => {
 };
 
 describe("state migration 14 -> 15 (the work log of one machine)", () => {
-  it("freezes the version-fourteen witness the step starts from and names the head", () => {
+  it("freezes the witnesses the step starts from and ends at", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V14_SQL)).toEqual(STATE_SCHEMA_V14_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(15);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V15_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(expectedStateSchemaIdentity(STATE_SCHEMA_SQL));
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V15_SQL)).toEqual(STATE_SCHEMA_V15_IDENTITY);
   });
 
   it.each(fixtures)("keeps every fact of $fileName and drops only the dead tables", async ({ fileName, sha256 }) => {
@@ -115,7 +118,7 @@ describe("state migration 14 -> 15 (the work log of one machine)", () => {
       expect(facts.length).toBeGreaterThan(0);
       for (const table of ONE_MACHINE_LOG_REMOVED_TABLES) expect(tablesBefore).toContain(table);
 
-      const result = migrateStateSchema(database);
+      const result = migrateStateSchema(database, versionFifteenPlan);
       expect(result).toMatchObject({ previousVersion: 14, schemaVersion: 15 });
       expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V15_IDENTITY);
       expect(database.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
@@ -143,7 +146,7 @@ describe("state migration 14 -> 15 (the work log of one machine)", () => {
       expect(
         database.prepare("SELECT count(*) AS n FROM sqlite_schema WHERE name = 'work_fact_authorial_basis_resolves'").get(),
       ).toEqual({ n: 0 });
-      expect(migrateStateSchema(database)).toMatchObject({ previousVersion: 15, initialized: false });
+      expect(migrateStateSchema(database, versionFifteenPlan)).toMatchObject({ previousVersion: 15, initialized: false });
     } finally {
       database.close();
     }

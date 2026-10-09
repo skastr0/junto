@@ -100,6 +100,7 @@ export const WORK_PLANE_TABLE_ROLES: ReadonlyMap<string, WorkPlaneTableRole> =
     // per-principal read positions
     ["work_pad_read_cursors", "cursor"],
     ["work_board_read_cursors", "cursor"],
+    ["work_exchange_cursors", "cursor"],
     // trigger-maintained
     ["work_canvas_revisions", "derived"],
   ]);

@@ -1,6 +1,7 @@
 /**
- * The frozen state schemas, version 1 through version 14, built only from
- * frozen text so no later schema change can move a historical witness.
+ * The frozen state schemas, version 1 through version 15, built only from
+ * frozen text and frozen steps so no later schema change can move a
+ * historical witness.
  * Version 14 is its frozen fragments. Each earlier version is the next one
  * with that step undone: a later fragment left out, the mail trigger of
  * version 13 put back, the canvas and work tables of version 12 put back, and
@@ -12,6 +13,8 @@ import {
   STATE_SCHEMA_V14_FRAGMENTS,
 } from "./v14-fragments";
 import { WORK_STATE_SCHEMA_HEAD_BASIS_SQL } from "./work-head-schema";
+import { DatabaseSync } from "node:sqlite";
+import { migrateOneMachineLog } from "../../../src/main/junto/work/migrate-one-machine-log";
 import { CANVAS_AUTHORITY_SCHEMA_SQL } from "./canvas-schema";
 import { ENTITIES_STATE_SCHEMA_SQL } from "../domain-cutover/entities-schema";
 
@@ -44,6 +47,34 @@ const withoutProposalStorage = (sql: string): string => {
 };
 
 export const STATE_SCHEMA_V14_SQL = withoutProposalStorage(STATE_SCHEMA_FRAGMENTS.join("\n"));
+
+/**
+ * A later version is the earlier one with that step's own migration run on
+ * it. A step never follows the head, so the result is frozen with the step.
+ */
+const stepped = (
+  sql: string,
+  migrate: (database: DatabaseSync) => void,
+): string => {
+  const database = new DatabaseSync(":memory:");
+  try {
+    database.exec("PRAGMA foreign_keys = OFF");
+    database.exec(sql);
+    migrate(database);
+    return (
+      database
+        .prepare("SELECT sql FROM sqlite_schema WHERE sql IS NOT NULL AND name NOT GLOB 'sqlite_*' ORDER BY rowid")
+        .all()
+        .map((row) => `${String(row.sql)};`)
+        .join("\n")
+    );
+  } finally {
+    database.close();
+  }
+};
+
+// Version 15 dropped the tables that carried tasks between machines (14 -> 15).
+export const STATE_SCHEMA_V15_SQL = stepped(STATE_SCHEMA_V14_SQL, migrateOneMachineLog);
 
 // Version 14 dropped this trigger (13 -> 14), so version 13 is version 14 with it.
 const MAIL_HOME_TRIGGER_V13_SQL = `
