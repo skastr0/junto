@@ -1,0 +1,134 @@
+import { createHash, randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { cp, mkdir, readFile, readdir, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+import { Effect, Schema } from "effect";
+import { MachineInstallError, type MachineBundleManifest, type MachineInstallInput, type MachineInstallResult } from "@shared/machine-install";
+import { MachineOwnStatus } from "@shared/machine-control";
+import { readSingleProcessEpochSnapshot } from "../process-epoch";
+import { inspectMachineBundle } from "./bundle";
+import { checkMachineTree, ensureMachineDirectory, machineHomePath, optionalMetadata, ownedMachineFile } from "./install-paths";
+import { machineService } from "./install-service";
+
+const exec = promisify(execFile);
+const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+const StatusResponse = Schema.Struct({ ok: Schema.Literal(true), command: Schema.Literal("machine status"), data: MachineOwnStatus });
+
+export const machineServiceLabel = (installRoot: string, juntoHome: string): string =>
+  `dev.junto.machine.${createHash("sha256").update(`${installRoot}\0${juntoHome}`).digest("hex").slice(0,16)}`;
+
+const ownStatus = async (directory: string, home: string): Promise<MachineOwnStatus> => {
+  const result = await exec(join(directory, "bin/junto"), ["machine", "status", "{}"], {
+    env: { ...process.env, JUNTO_HOME: home }, timeout: 2_000, maxBuffer: 64 * 1024,
+  });
+  return Schema.decodeUnknownSync(Schema.fromJsonString(StatusResponse), { onExcessProperty: "error" })(result.stdout.trim()).data;
+};
+
+const verifyGeneration = async (path: string, admitted: MachineBundleManifest): Promise<void> => {
+  await checkMachineTree(path);
+  const installed = await inspectMachineBundle(path);
+  if (JSON.stringify(installed) !== JSON.stringify(admitted)) throw new Error("installed bundle differs from the bundle this machine sent");
+};
+
+export const installMachine = (input: MachineInstallInput): Effect.Effect<MachineInstallResult, MachineInstallError> => {
+  let disposition: "staged" | "activated" | "uncertain" = "staged";
+  return Effect.tryPromise({ try: async () => {
+    const juntoHome = await machineHomePath(input.juntoHome ?? homedir(), true);
+    const installRoot = await machineHomePath(input.installRoot ?? join(homedir(), ".junto/machine"));
+    const manifest = await inspectMachineBundle(input.bundle);
+    if (manifest.target !== `${process.platform}-${process.arch}`) throw new Error(`bundle ${manifest.target} does not match this machine`);
+    const label = machineServiceLabel(installRoot, juntoHome);
+    await ensureMachineDirectory(installRoot);
+    const lock = join(installRoot, ".install-lock");
+    // A failed acquire never cleans another installer's lock.
+    await mkdir(lock, { mode: 0o700 });
+    try {
+      const marker = join(installRoot, "owner.json");
+      const expected = JSON.stringify({ serviceLabel: label, juntoHome });
+      if (await ownedMachineFile(marker)) {
+        if (await readFile(marker, "utf8") !== expected) throw new Error("install directory belongs to another machine home");
+      } else {
+        if ((await readdir(installRoot)).some(name => name !== ".install-lock")) throw new Error("install directory contains files not owned by this installation");
+        await writeFile(marker, expected, { mode: 0o600, flag: "wx" });
+      }
+      await ensureMachineDirectory(juntoHome, true);
+      await ensureMachineDirectory(join(installRoot, "logs"));
+      for (const name of ["stdout.log", "stderr.log"]) await ownedMachineFile(join(installRoot, "logs", name));
+      await ensureMachineDirectory(join(installRoot, "builds"));
+      const current = join(installRoot, "current");
+      const pointer = await optionalMetadata(current);
+      let previous: string | undefined;
+      if (pointer !== undefined) {
+        if (!pointer.isSymbolicLink() || pointer.uid !== process.getuid!()) throw new Error("current must be an owned build selection link");
+        previous = await readlink(current);
+        if (!/^builds\/[0-9a-f]{64}-(?:darwin-arm64|linux-x64)$/.test(previous)) throw new Error("current selects an invalid build directory");
+        await checkMachineTree(join(installRoot, previous));
+      }
+      const generation = join("builds", manifest.build + "-" + manifest.target);
+      const directory = join(installRoot, generation);
+      if (await optionalMetadata(directory) === undefined) {
+        const stage = join(installRoot, `incoming-${randomUUID()}`);
+        try {
+          await cp(input.bundle, stage, { recursive: true, dereference: false, errorOnExist: true, force: false });
+          await verifyGeneration(stage, manifest);
+          await rename(stage, directory);
+        } finally { await rm(stage, { recursive: true, force: true }); }
+      }
+      // Also verifies an idempotent resend and a previously staged generation.
+      await verifyGeneration(directory, manifest);
+      const service = await machineService(installRoot, juntoHome, label);
+      const before = await service.observe();
+      let installationId = input.expectedInstallationId;
+      if (before.pid > 0) {
+        if (previous === undefined) throw new Error("running service has no admitted build selection");
+        const incumbent = await ownStatus(join(installRoot, previous), juntoHome);
+        if (incumbent.pid !== before.pid || incumbent.juntoHome !== juntoHome) throw new Error("running core does not match this install");
+        if (installationId !== undefined && incumbent.installationId !== installationId) throw new Error("running core installation identity changed");
+        installationId = incumbent.installationId;
+        if (previous === generation && incumbent.build === manifest.build && incumbent.ready) {
+          return { build: manifest.build, juntoHome, installRoot, directory, serviceLabel: label, provider: service.provider, updated: false, disposition: "ready", installationId, machineName: incumbent.machineName, pid: incumbent.pid };
+        }
+      }
+      if (before.loaded) {
+        const epoch = before.pid > 0 ? readSingleProcessEpochSnapshot(before.pid)?.[0] : undefined;
+        if (before.pid > 0 && epoch === undefined) throw new Error("cannot establish the incumbent process identity");
+        disposition = "uncertain";
+        await service.stop();
+        const deadline = Date.now() + 30_000;
+        while (epoch !== undefined) {
+          const rows = readSingleProcessEpochSnapshot(epoch.pid);
+          if (rows !== undefined && !rows.some(row => row.startKey === epoch.startKey)) break;
+          if (Date.now() >= deadline) throw new Error("incumbent process exit is unconfirmed; inspect machine status before recovering forward");
+          await sleep(100);
+        }
+        const stopped = await service.observe();
+        if (stopped.pid !== 0 || (service.provider === "launchd" && stopped.loaded)) throw new Error("service did not become quiescent");
+      }
+      const updated = previous !== generation;
+      if (updated) {
+        const next = join(installRoot, `current-${randomUUID()}`);
+        try { await symlink(generation, next); await rename(next, current); }
+        finally { await rm(next, { force: true }); }
+      }
+      // The candidate can open state from here; errors never roll back or retry.
+      disposition = "activated";
+      await service.start();
+      const deadline = Date.now() + 30_000;
+      let detail = "core has not reported ready";
+      while (Date.now() < deadline) {
+        try {
+          const status = await ownStatus(directory, juntoHome);
+          const observed = await service.observe();
+          if (status.build !== manifest.build || status.juntoHome !== juntoHome || status.pid !== observed.pid) throw new Error("core build, home, or service process does not match the candidate");
+          if (installationId !== undefined && status.installationId !== installationId) throw new Error("candidate installation identity changed");
+          if (status.ready) return { build: manifest.build, juntoHome, installRoot, directory, serviceLabel: label, provider: service.provider, updated, disposition: "ready", installationId: status.installationId, machineName: status.machineName, pid: status.pid };
+        } catch (cause) { detail = cause instanceof Error ? cause.message : String(cause); }
+        await sleep(200);
+      }
+      disposition = "uncertain";
+      throw new Error(`candidate readiness unconfirmed: ${detail}; inspect machine status and recover forward`);
+    } finally { await rm(lock, { recursive: true, force: true }); }
+  }, catch: cause => new MachineInstallError({ message: cause instanceof Error ? cause.message : String(cause), retryable: disposition === "staged", disposition }) });
+};

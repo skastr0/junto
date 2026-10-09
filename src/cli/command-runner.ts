@@ -6,6 +6,7 @@ import { ARTIFACTS_ENABLED, BOARD_ENABLED, PAD_ENABLED, SHEET_ENABLED, TASKS_ENA
 
 type Entry = { readonly name: string; readonly enabled?: boolean; readonly load: () => Promise<Command.Command.Any> };
 const commands: readonly Entry[] = [
+  { name: "machine", load: async () => (await import("./commands/machine")).machineCommand },
   { name: "ping", load: async () => (await import("./commands/seat-discovery")).pingCommand },
   { name: "doctor", load: async () => (await import("./commands/seat-discovery")).doctorCommand },
   { name: "capabilities", load: async () => (await import("./commands/seat-discovery")).capabilitiesCommand },
