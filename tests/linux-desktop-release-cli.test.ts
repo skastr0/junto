@@ -11,9 +11,8 @@ import {
   verifyLinuxDesktopReleaseFile,
 } from "../scripts/linux-desktop-release";
 import { linuxDesktopArchiveName, canonicalLinuxDesktopReleaseDescriptor } from "../src/shared/linux-desktop-release";
-import { loadEmbeddedLinuxDesktopReleaseTrust, type LinuxDesktopReleaseTrust } from "../src/shared/linux-desktop-release-crypto";
+import { linuxDesktopReleaseKeyFingerprint, linuxDesktopReleaseKeyringSha256, loadEmbeddedLinuxDesktopReleaseTrust, type LinuxDesktopReleaseTrust } from "../src/shared/linux-desktop-release-crypto";
 import { fingerprintLinuxDesktopFile, readLinuxDesktopReleaseJson, verifyLinuxDesktopReleaseFiles } from "../src/shared/linux-desktop-release-files";
-import { releaseKeyringSha256, releasePublicKeyFingerprint } from "../scripts/linux-release-bundle";
 
 const stdin = (...chunks: (string | Uint8Array)[]): AsyncIterable<string | Uint8Array> => ({
   async *[Symbol.asyncIterator]() { yield* chunks; },
@@ -33,7 +32,7 @@ const fixture = async () => {
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
   const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
   const publicKeyPem = publicKey.export({ type: "spki", format: "pem" }).toString();
-  const fingerprintSha256 = releasePublicKeyFingerprint(publicKeyPem);
+  const fingerprintSha256 = linuxDesktopReleaseKeyFingerprint(publicKeyPem);
   const embedded = loadEmbeddedLinuxDesktopReleaseTrust();
   const keyring = {
     ...embedded.keyring,
@@ -52,7 +51,7 @@ const fixture = async () => {
     policy: {
       ...embedded.policy,
       trustedKeyringRevision: 1,
-      trustedKeyringSha256: releaseKeyringSha256(keyring),
+      trustedKeyringSha256: linuxDesktopReleaseKeyringSha256(keyring),
       trustedKeyId: "synthetic-desktop-key",
       trustedKeyFingerprintSha256: fingerprintSha256,
     },
@@ -198,7 +197,7 @@ describe("Linux desktop local release CLI", () => {
       { ...input.trust.keyring.keys[0]!, signingEndsAt: "2026-09-09T00:00:00.000Z" },
     ]) {
       const keyring = { ...input.trust.keyring, keys: [key] };
-      const trust = { keyring, policy: { ...input.trust.policy, trustedKeyringSha256: releaseKeyringSha256(keyring) } };
+      const trust = { keyring, policy: { ...input.trust.policy, trustedKeyringSha256: linuxDesktopReleaseKeyringSha256(keyring) } };
       await expect(signLinuxDesktopReleaseFile(sign, { trust, now: input.now, stdin: keyInput })).rejects.toThrow(/authorization window/);
     }
     expect(reads).toBe(0);

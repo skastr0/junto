@@ -178,17 +178,9 @@ const decodeKey = (input: unknown): LinuxDesktopReleaseKey => {
   });
 };
 
-/** The canonical keyring bytes intentionally match the existing public trust pin. */
-export const decodeLinuxDesktopReleaseTrust = (
-  input: unknown,
-): LinuxDesktopReleaseTrust => {
-  const value = exact(
-    input,
-    ["keyring", "policy"],
-    "Linux desktop release trust",
-  );
+const decodeKeyring = (input: unknown): LinuxDesktopReleaseKeyring => {
   const rawKeyring = exact(
-    value.keyring,
+    input,
     ["schema", "revision", "keys"],
     "release keyring",
   );
@@ -206,11 +198,38 @@ export const decodeLinuxDesktopReleaseTrust = (
       (!ids.has(key.supersededBy) || key.supersededBy === key.keyId)
     )
   ) throw new Error("invalid release key rotation");
-  const keyring = Object.freeze({
+  return Object.freeze({
     schema: "junto/linux-release-keyring/v1" as const,
     revision: revision(rawKeyring.revision),
     keys: Object.freeze(keys),
   });
+};
+
+/** The canonical keyring bytes intentionally match the existing public trust pin. */
+const keyringSha256 = (keyring: LinuxDesktopReleaseKeyring): string =>
+  createHash("sha256").update(`${JSON.stringify(keyring, null, 2)}\n`).digest(
+    "hex",
+  );
+
+/** The fingerprint a keyring records for one release public key. */
+export const linuxDesktopReleaseKeyFingerprint = (
+  publicKeyPem: string,
+): string => fingerprint(createPublicKey(publicKeyPem));
+
+/** The digest a trust policy pins for one keyring. */
+export const linuxDesktopReleaseKeyringSha256 = (keyring: unknown): string =>
+  keyringSha256(decodeKeyring(keyring));
+
+export const decodeLinuxDesktopReleaseTrust = (
+  input: unknown,
+): LinuxDesktopReleaseTrust => {
+  const value = exact(
+    input,
+    ["keyring", "policy"],
+    "Linux desktop release trust",
+  );
+  const keyring = decodeKeyring(value.keyring);
+  const keys = keyring.keys;
   const rawPolicy = exact(value.policy, [
     "schema",
     "state",
@@ -233,9 +252,7 @@ export const decodeLinuxDesktopReleaseTrust = (
   });
   if (
     keyring.revision !== policy.trustedKeyringRevision ||
-    createHash("sha256").update(`${JSON.stringify(keyring, null, 2)}\n`).digest(
-        "hex",
-      ) !== policy.trustedKeyringSha256
+    keyringSha256(keyring) !== policy.trustedKeyringSha256
   ) {
     throw new Error(
       "release keyring does not match independently pinned trust",

@@ -11,7 +11,6 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { linuxUserlandRuntimeArchiveName } from "./linux-release-bundle";
 
 export const LINUX_CI_TARGET = Object.freeze({
   runner: "ubuntu-24.04",
@@ -34,6 +33,14 @@ export const LINUX_CI_REQUIRED_GATES = Object.freeze([
   "packaged-pty-smoke",
   "packaged-runtime-smoke",
 ] as const);
+
+const SEMVER = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
+
+/** The runtime archive the Linux package job builds beside the desktop package. */
+const linuxUserlandRuntimeArchiveName = (version: string): string => {
+  if (!SEMVER.test(version)) throw new Error("invalid release version");
+  return `junto-runtime-${version}-linux-x64.tar.gz`;
+};
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const packagePath = path.join(packageRoot, "package.json");
