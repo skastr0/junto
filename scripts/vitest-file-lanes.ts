@@ -27,6 +27,8 @@ const ISOLATE_HINTS = [
   /LocalSessionHost/,
   /createAppProcessPlane/,
   /node:sqlite/,
+  // A complete core owns SQLite, routing caches, and monotonic shutdown state.
+  /\bstartCore\b/,
   /makeStateEngineLive/,
   /StateEngineLive/,
   /vi\.stubEnv\(/,
