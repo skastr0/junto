@@ -27,6 +27,13 @@ const table = (name: string, fields: string): string => `
   CREATE INDEX IF NOT EXISTS ${name}_canvas_order ON ${name}(canvas_name, z_index, id);
 `;
 
+/**
+ * The one machine that may change a canvas, by installation id. Every other
+ * machine holds a copy and changes nothing. Added by state migration 17 -> 18.
+ */
+export const CANVAS_EDITOR_COLUMN_SQL = `editor_installation_id TEXT
+      CHECK (editor_installation_id IS NULL OR length(editor_installation_id) BETWEEN 1 AND 128)`;
+
 /** Closed kind-to-table map. Table identifiers never come from a caller. */
 export const KIND_TABLES = {
   agent: "seats",
@@ -73,7 +80,8 @@ export const MODEL_STATE_SCHEMA_SQL = `
     canvas_id TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    seq INTEGER NOT NULL DEFAULT 0 CHECK (seq >= 0)
+    seq INTEGER NOT NULL DEFAULT 0 CHECK (seq >= 0),
+    ${CANVAS_EDITOR_COLUMN_SQL}
   ) STRICT, WITHOUT ROWID;
 
   ${table(

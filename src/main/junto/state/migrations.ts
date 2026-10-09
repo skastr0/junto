@@ -6,7 +6,7 @@ import {
 import { STATE_SCHEMA_SQL } from "./schema";
 import { migrateCanvasKinds } from "../model/migrate";
 import { migrateWorkFactBasis } from "../model/migrate-work-basis";
-import { PEERS_STATE_SCHEMA_SQL } from "../model/state-schema";
+import { CANVAS_EDITOR_COLUMN_SQL, PEERS_STATE_SCHEMA_SQL } from "../model/state-schema";
 import { APP_TEXTS_STATE_SCHEMA_SQL } from "../references/state-schema";
 import {
   AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL,
@@ -275,7 +275,16 @@ export const STATE_SCHEMA_V17_IDENTITY = {
     "e97f1a02b6e7caad55dfa952f76c78a1aaabb68b2519c0375a4ea064161dd062",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 17;
+/**
+ * Version 18 names, on each canvas, the machine that may change it. Every
+ * canvas already held is this machine's. Expand only.
+ */
+export const STATE_SCHEMA_V18_IDENTITY = {
+  actualSchemaSha256:
+    "3370750f0a2e8f37a68757a9107c03c6617778841845382f368ec1cacee6feb8",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 18;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -283,7 +292,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 17;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V17_IDENTITY;
+  STATE_SCHEMA_V18_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -467,6 +476,22 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V16_IDENTITY,
     migrate: (database) => {
       database.exec(PEERS_STATE_SCHEMA_SQL);
+    },
+  },
+  {
+    fromVersion: 17,
+    toVersion: 18,
+    name: "name the machine that edits each canvas",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V17_IDENTITY,
+    migrate: (database) => {
+      database.exec(`ALTER TABLE canvases ADD COLUMN ${CANVAS_EDITOR_COLUMN_SQL}`);
+      database.exec(`
+        UPDATE canvases
+        SET editor_installation_id = (
+          SELECT installation_id FROM station_installation WHERE singleton = 1
+        )
+      `);
     },
   },
 ];

@@ -1,5 +1,5 @@
 /**
- * The frozen state schemas, version 1 through version 16, built only from
+ * The frozen state schemas, version 1 through version 17, built only from
  * frozen text and frozen steps so no later schema change can move a
  * historical witness.
  * Version 14 is its frozen fragments. Each earlier version is the next one
@@ -16,6 +16,7 @@ import { WORK_STATE_SCHEMA_HEAD_BASIS_SQL } from "./work-head-schema";
 import { DatabaseSync } from "node:sqlite";
 import { migrateOneMachineLog } from "../../../src/main/junto/work/migrate-one-machine-log";
 import { WORK_EXCHANGE_STATE_SCHEMA_SQL } from "../../../src/main/junto/work/exchange/state-schema";
+import { PEERS_STATE_SCHEMA_SQL } from "../../../src/main/junto/model/state-schema";
 import { CANVAS_AUTHORITY_SCHEMA_SQL } from "./canvas-schema";
 import { ENTITIES_STATE_SCHEMA_SQL } from "../domain-cutover/entities-schema";
 
@@ -80,6 +81,11 @@ export const STATE_SCHEMA_V15_SQL = stepped(STATE_SCHEMA_V14_SQL, migrateOneMach
 // Version 16 added the row exchange cursors (15 -> 16).
 export const STATE_SCHEMA_V16_SQL = stepped(STATE_SCHEMA_V15_SQL, (database) => {
   database.exec(WORK_EXCHANGE_STATE_SCHEMA_SQL);
+});
+
+// Version 17 added peers (16 -> 17).
+export const STATE_SCHEMA_V17_SQL = stepped(STATE_SCHEMA_V16_SQL, (database) => {
+  database.exec(PEERS_STATE_SCHEMA_SQL);
 });
 
 // Version 14 dropped this trigger (13 -> 14), so version 13 is version 14 with it.

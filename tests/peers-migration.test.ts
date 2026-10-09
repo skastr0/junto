@@ -14,7 +14,6 @@ import { Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { nodeFromRow, nodeToRow } from "../src/main/junto/model/rows";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V16_IDENTITY,
@@ -22,9 +21,8 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import { Node } from "../src/shared/model";
-import { STATE_SCHEMA_V16_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V16_SQL, STATE_SCHEMA_V17_SQL } from "./fixtures/state-v1/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -61,6 +59,13 @@ const versionSixteenPlan = {
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 16),
 };
 
+const versionSeventeenPlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 17,
+  currentSchemaSql: STATE_SCHEMA_V17_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 17),
+};
+
 const peer = Schema.decodeUnknownSync(Node)({
   kind: "peer",
   id: "lead",
@@ -75,10 +80,9 @@ const peer = Schema.decodeUnknownSync(Node)({
 });
 
 describe("state migration 16 -> 17 (peers)", () => {
-  it("freezes the version-sixteen witness the step starts from and names the head", () => {
+  it("freezes the witnesses the step starts from and ends at", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V16_SQL)).toEqual(STATE_SCHEMA_V16_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V17_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(expectedStateSchemaIdentity(STATE_SCHEMA_SQL));
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V17_SQL)).toEqual(STATE_SCHEMA_V17_IDENTITY);
   });
 
   it.each(["command-center-v1.db", "remote-v1.db"])(
@@ -90,7 +94,7 @@ describe("state migration 16 -> 17 (peers)", () => {
         const before = snapshot(database);
         expect(before).not.toHaveProperty("peers");
 
-        const result = migrateStateSchema(database);
+        const result = migrateStateSchema(database, versionSeventeenPlan);
         expect(result).toMatchObject({ previousVersion: 16, schemaVersion: 17 });
         expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V17_IDENTITY);
         const { peers, ...rest } = snapshot(database);
@@ -106,7 +110,7 @@ describe("state migration 16 -> 17 (peers)", () => {
   it("stores a peer in its own table and reads it back as a peer, with nothing to start it from", async () => {
     const database = await openCopy("command-center-v1.db");
     try {
-      migrateStateSchema(database);
+      migrateStateSchema(database, versionSeventeenPlan);
       const canvas = String(database.prepare("SELECT canvas_name FROM canvases LIMIT 1").get()!.canvas_name);
       const row = { ...nodeToRow(canvas, peer), created_at: "2026-10-09T00:00:00.000Z", updated_at: "2026-10-09T00:00:00.000Z" };
       const columns = Object.keys(row);

@@ -89,6 +89,19 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
           failure("getCanvas"),
         ),
       );
+      const canvasEditors = SqlSchema.findAll({
+        Request: Schema.String,
+        Result: Schema.Struct({ editor_installation_id: Schema.NullOr(Schema.String) }),
+        execute: (canvas) =>
+          sql`SELECT editor_installation_id FROM canvases WHERE canvas_name=${canvas}`,
+      });
+      /** The installation id of the one machine that may change a canvas. */
+      const canvasEditor = Effect.fn("ModelRecords.canvasEditor")((canvas: string) =>
+        canvasEditors(canvas).pipe(
+          Effect.map((rows) => rows[0]?.editor_installation_id ?? undefined),
+          failure("canvasEditor"),
+        ),
+      );
       const canvasNames = SqlSchema.findAll({
         Request: Schema.Void,
         Result: CanvasNameRow,
@@ -287,7 +300,8 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
         id: string,
       ) => {
         const at = new Date().toISOString();
-        return sql`INSERT INTO canvases(canvas_name,canvas_id,created_at,updated_at) VALUES (${canvas},${id},${at},${at})`.pipe(
+        return sql`INSERT INTO canvases(canvas_name,canvas_id,created_at,updated_at,editor_installation_id)
+          VALUES (${canvas},${id},${at},${at},(SELECT installation_id FROM station_installation WHERE singleton = 1))`.pipe(
           Effect.asVoid,
           failure("createCanvas"),
         );
@@ -315,6 +329,7 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
       return {
         requireSeatHost,
         getCanvas,
+        canvasEditor,
         listCanvases,
         listCanvasSummaries: () => listCanvasSummaries(undefined).pipe(failure("listCanvasSummaries")),
         kindOf,
