@@ -74,6 +74,33 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
 12. **Harnesses are the operator's.** Junto reports which harness CLIs exist on
     each machine. It installs none and logs in to none.
 
+## The link
+
+The one interface three seats build against.
+
+- A link joins two running cores. One side runs `ssh <machine> <junto> link`.
+  That command only relays its input and output to the core's owner-only
+  socket on that machine, the way the phone relay does. It never opens the
+  database.
+- Hello first, both ways: build, installation id, machine name. A build
+  mismatch closes the link and names the machine to update.
+- After hello, framed messages on named channels, each frame bounded. The
+  first channels:
+  - `rows`: the row exchange (rules 4 to 6).
+  - `seats`: start, stop and attach for seats on that machine, and their
+    terminal bytes.
+  - `status`: reachable or not, harness CLIs present, secrets missing.
+- The same code runs at both ends. Nothing above the transport knows which end
+  opened the link.
+- Terminal bytes ride the link. If running shows that hurts typing,
+  `remote-seats` says so and we add a second session, never a second protocol.
+- A machine is known by the short name the operator gives it, the `host` on a
+  seat. The machine list maps that name to its SSH target. Its installation id
+  is learned at the first hello and may not change afterwards.
+- Owners: `remote-send` the SSH side and the relay command; `remote-core` the
+  socket and the channels inside the core; `remote-work` the `rows` channel;
+  `remote-seats` the `seats` channel; `remote-send` the `status` channel.
+
 ## Not carried
 
 Tasks, board, pad, sheet, requests, artifacts, cron and relay are off. They get
