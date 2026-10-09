@@ -302,8 +302,23 @@ typecheck and the whole unit suite green on a clean export of that commit
 (8,485 passed, none failed). From here every landing typechecks and adds no
 failure.
 
-## Test machine
+## Test machines
 
 The Mac mini: `ssh mac-mini`, macOS on Apple Silicon, with the Claude Code,
 Codex, Grok, Pi and Amp CLIs installed. It has no Junto on it. Install under
 the home directory only.
+
+Linux: sandboxes on Boat, which the operator opened to us for testing. They
+are native machines, so they replace the emulated one for anything that
+needs a real Linux.
+
+- Create with `boat new --no-env --json` and a `--ttl`, so a sandbox never
+  carries the operator's stored secrets and a forgotten one stops itself.
+  `--type small` unless a build needs more.
+- Touch only a sandbox you created. Record its id in your receipt.
+- Delete it when the run ends. Time is billed while it runs.
+- Use only: `new`, `list`, `info`, `ssh`, `exec`, `scp`, `stop`, `resume`,
+  `delete`, `usage`. No sharing, public URLs, keys, webhooks, billing or
+  organization commands.
+- What the CLI prints can contain sign-in links. They never go into mail, a
+  commit, a log or a receipt.
