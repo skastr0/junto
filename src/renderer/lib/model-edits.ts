@@ -90,6 +90,7 @@ export const renamed = (canvas: Canvas, id: string, name: string): Commands => {
     case "file":
     case "link":
     case "page":
+    case "peer":
       return NONE;
   }
 };

@@ -11,7 +11,6 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V15_IDENTITY,
@@ -19,8 +18,7 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
-import { STATE_SCHEMA_V15_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V15_SQL, STATE_SCHEMA_V16_SQL } from "./fixtures/state-v1/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -57,11 +55,17 @@ const versionFifteenPlan = {
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 15),
 };
 
+const versionSixteenPlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 16,
+  currentSchemaSql: STATE_SCHEMA_V16_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 16),
+};
+
 describe("state migration 15 -> 16 (row exchange cursors)", () => {
-  it("freezes the version-fifteen witness the step starts from and names the head", () => {
+  it("freezes the witnesses the step starts from and ends at", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V15_SQL)).toEqual(STATE_SCHEMA_V15_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V16_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(expectedStateSchemaIdentity(STATE_SCHEMA_SQL));
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V16_SQL)).toEqual(STATE_SCHEMA_V16_IDENTITY);
   });
 
   it.each(["command-center-v1.db", "remote-v1.db"])(
@@ -74,7 +78,7 @@ describe("state migration 15 -> 16 (row exchange cursors)", () => {
         expect((before.work_facts as unknown[]).length).toBeGreaterThan(0);
         expect(before).not.toHaveProperty("work_exchange_cursors");
 
-        const result = migrateStateSchema(database);
+        const result = migrateStateSchema(database, versionSixteenPlan);
         expect(result).toMatchObject({ previousVersion: 15, schemaVersion: 16 });
         expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V16_IDENTITY);
         const { work_exchange_cursors: cursors, ...rest } = snapshot(database);

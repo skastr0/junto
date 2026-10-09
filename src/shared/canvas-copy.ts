@@ -8,39 +8,25 @@
  * that machine's seats. This module is the cut, and nothing else.
  */
 import { Schema } from "effect";
-import { ActorSeatId } from "./actor-seat";
+import type { ActorSeatId } from "./actor-seat";
 import { InstallationId } from "./installation-id";
 import {
   CanvasName,
   NodeId,
-  OneLine,
+  Peer,
   Region,
   Seat,
   Seq,
   Terminal,
   Wire,
-  placement,
   regionStack,
   type Node,
 } from "./model";
-import { HostId } from "./remote-hosts";
+import type { HostId } from "./remote-hosts";
 import type { SeatGuidance } from "./seat-guidance";
 
 /** The word a row may not use for a machine: it would mean a different one on every copy. */
 export const UNNAMED_MACHINE = "local";
-
-/**
- * A seat that lives on another machine, as this machine holds it: who it is
- * and where it sits. It can be addressed. It has nothing to be started from.
- */
-export const Peer = Schema.Struct({
-  kind: Schema.Literal("peer"),
-  ...placement,
-  label: OneLine,
-  host: HostId,
-  seatId: ActorSeatId,
-});
-export type Peer = typeof Peer.Type;
 
 const CopiedGuidance = Schema.Struct({
   nodeId: NodeId,

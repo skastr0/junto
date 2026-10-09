@@ -6,6 +6,7 @@ import {
 import { STATE_SCHEMA_SQL } from "./schema";
 import { migrateCanvasKinds } from "../model/migrate";
 import { migrateWorkFactBasis } from "../model/migrate-work-basis";
+import { PEERS_STATE_SCHEMA_SQL } from "../model/state-schema";
 import { APP_TEXTS_STATE_SCHEMA_SQL } from "../references/state-schema";
 import {
   AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL,
@@ -265,7 +266,16 @@ export const STATE_SCHEMA_V16_IDENTITY = {
     "548d828a1b391a1038b601ef62695681bb0c007071f02f92ff7257bef098197c",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 16;
+/**
+ * Version 17 adds peers: the seats of other machines, as a machine holding a
+ * copy of a canvas sees them. Expand only.
+ */
+export const STATE_SCHEMA_V17_IDENTITY = {
+  actualSchemaSha256:
+    "e97f1a02b6e7caad55dfa952f76c78a1aaabb68b2519c0375a4ea064161dd062",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 17;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -273,7 +283,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 16;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V16_IDENTITY;
+  STATE_SCHEMA_V17_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -447,6 +457,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V15_IDENTITY,
     migrate: (database) => {
       database.exec(WORK_EXCHANGE_STATE_SCHEMA_SQL);
+    },
+  },
+  {
+    fromVersion: 16,
+    toVersion: 17,
+    name: "add peers",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V16_IDENTITY,
+    migrate: (database) => {
+      database.exec(PEERS_STATE_SCHEMA_SQL);
     },
   },
 ];

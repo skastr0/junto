@@ -47,6 +47,8 @@ export const nodeToRow = (canvas: string, node: Node): SqlValues => {
     color: node.color ?? null,
   };
   switch (node.kind) {
+    case "peer":
+      return { ...base, label: node.label, host: node.host, seat_id: node.seatId };
     case "agent":
       return {
         ...base,
@@ -152,6 +154,9 @@ export const nodeFromRow = (kind: NodeKind, row: SqlRow): Node => {
   const label = optional(row, "label");
   let fields: object;
   switch (kind) {
+    case "peer":
+      fields = { label: row.label, host: row.host, seatId: row.seat_id };
+      break;
     case "agent":
       fields = {
         agentKey: row.agent_key,

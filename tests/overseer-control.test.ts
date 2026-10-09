@@ -144,9 +144,16 @@ describe("overseer command contract", () => {
     ]) {
       fails(decodeOverseerArgs("node.create", { node }));
     }
-    // Every model kind has a draft, and only those.
+    // Every kind an author can place has a draft, and only those. A peer is
+    // never placed: it exists only in a copy of a canvas held by another machine.
     const document = JSON.stringify(Schema.toJsonSchemaDocument(OverseerArgsSchemas["node.create"]));
-    for (const kind of NODE_KINDS) expect(document).toContain(`"${kind}"`);
+    for (const kind of NODE_KINDS) {
+      if (kind === "peer") expect(document).not.toContain('"peer"');
+      else expect(document).toContain(`"${kind}"`);
+    }
+    fails(decodeOverseerArgs("node.create", {
+      node: { kind: "peer", label: "lead", host: "macbook", seatId: `seat_${"a".repeat(64)}`, x: 0, y: 0, width: 240, height: 100 },
+    }));
     expect(document).not.toContain("ether");
   });
 

@@ -30,6 +30,7 @@ const table = (name: string, fields: string): string => `
 /** Closed kind-to-table map. Table identifiers never come from a caller. */
 export const KIND_TABLES = {
   agent: "seats",
+  peer: "peers",
   region: "regions",
   terminal: "terminals",
   page: "pages",
@@ -48,6 +49,23 @@ export const KIND_TABLES = {
   link: "link_cards",
   git: "git_repositories",
 } as const;
+
+/**
+ * Seats that live on other machines, held only in a copy of a canvas: who and
+ * where, and nothing to start one from. Added by state migration 16 -> 17.
+ */
+export const PEERS_STATE_SCHEMA_SQL = table(
+  "peers",
+  `
+    label TEXT NOT NULL,
+    host TEXT NOT NULL,
+    seat_id TEXT NOT NULL
+      CHECK (
+        length(seat_id) = 69
+        AND substr(seat_id, 1, 5) = 'seat_'
+        AND substr(seat_id, 6) NOT GLOB '*[^a-f0-9]*'
+      )`,
+);
 
 export const MODEL_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS canvases (
@@ -174,4 +192,6 @@ export const MODEL_STATE_SCHEMA_SQL = `
   ) STRICT, WITHOUT ROWID;
   CREATE INDEX IF NOT EXISTS wires_from ON wires(canvas_name, from_id, id);
   CREATE INDEX IF NOT EXISTS wires_to ON wires(canvas_name, to_id, id);
+
+  ${PEERS_STATE_SCHEMA_SQL}
 `;

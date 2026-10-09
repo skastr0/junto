@@ -8,7 +8,7 @@ import {
   type LegacyNodeRow,
   type LegacyWireRow,
 } from "@shared/model/from-legacy-row";
-import { KIND_TABLES, MODEL_STATE_SCHEMA_SQL } from "./state-schema";
+import { KINDS_V13_STATE_SCHEMA_SQL } from "./migrate-kinds-schema";
 import {
   nodeFromRow,
   nodeToRow,
@@ -16,6 +16,28 @@ import {
   wireToRow,
   type SqlValues,
 } from "./rows";
+
+/** The kind tables this step creates and fills. Its own list: it never follows the head. */
+const KIND_TABLES = {
+  agent: "seats",
+  region: "regions",
+  terminal: "terminals",
+  page: "pages",
+  task: "task_boards",
+  requests: "request_boards",
+  artifacts: "artifact_boards",
+  board: "boards",
+  pad: "pads",
+  sheet: "sheets",
+  cron: "crons",
+  relay: "relays",
+  watcher: "watchers",
+  note: "notes",
+  label: "labels",
+  file: "file_cards",
+  link: "link_cards",
+  git: "git_repositories",
+} as const;
 
 const insert = (
   database: StateSchemaMigrationDatabase,
@@ -61,7 +83,7 @@ export const migrateCanvasKinds = (
     throw new Error(
       "canvas change sequence cannot represent installed authority",
     );
-  database.exec(MODEL_STATE_SCHEMA_SQL);
+  database.exec(KINDS_V13_STATE_SCHEMA_SQL);
   database
     .prepare(
       `INSERT INTO canvases(canvas_name,canvas_id,created_at,updated_at,seq)
@@ -82,6 +104,7 @@ export const migrateCanvasKinds = (
     }
     if (downgraded)
       recordSystemLog(`Junto migrated stored object ${JSON.stringify(downgraded)}`, "warn");
+    if (node.kind === "peer") throw new Error("a stored canvas never holds a peer");
     const table = KIND_TABLES[node.kind];
     insert(database, table, {
       ...nodeToRow(old.canvas_name, node),

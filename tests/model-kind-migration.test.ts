@@ -162,7 +162,8 @@ describe("kind storage copy-forward", () => {
         database.prepare("SELECT count(*) AS n FROM canvases").get()!.n,
       ).toBe(1);
       let total = 0;
-      for (const table of Object.values(KIND_TABLES)) {
+      // A peer exists only in a copy of a canvas; step 12 -> 13 has no table for one.
+      for (const table of Object.values(KIND_TABLES).filter((name) => name !== "peers")) {
         const rows = database
           .prepare(`SELECT id,x,y,width,height,z_index,color FROM ${table}`)
           .all();

@@ -87,6 +87,8 @@ export const titleOf = (node: Node): string => {
   switch (node.kind) {
     case "agent":
       return compact(node.label) ?? node.agentKey;
+    case "peer":
+      return compact(node.label) ?? node.host;
     case "region":
       return regionName(node);
     case "task":

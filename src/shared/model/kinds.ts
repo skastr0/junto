@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { HarnessId } from "../managed-terminal-templates";
 import { TasksContract } from "../work-model";
+import { ActorSeatId } from "../actor-seat";
 import { HostId, placement } from "./base";
 import { Region } from "./region";
 
@@ -78,6 +79,21 @@ export const Seat = Schema.Struct({
   onRemove: TerminalOnRemove,
 });
 export type Seat = typeof Seat.Type;
+
+/**
+ * A seat that lives on another machine, as a machine holding a copy of the
+ * canvas sees it: who it is and where it sits. It can be addressed, by mail
+ * and by a wire. It has nothing to be started from, and the machine that
+ * edits the canvas never holds one: it holds every seat in full.
+ */
+export const Peer = Schema.Struct({
+  kind: Schema.Literal("peer"),
+  ...placement,
+  label: OneLine,
+  host: HostId,
+  seatId: ActorSeatId,
+});
+export type Peer = typeof Peer.Type;
 
 /** A plain terminal the operator opened. It has no harness and no mailbox. */
 export const Terminal = Schema.Struct({
@@ -248,6 +264,7 @@ export type GitCard = typeof GitCard.Type;
  */
 export const Node = Schema.Union([
   Seat,
+  Peer,
   Terminal,
   Page,
   TaskBoard,
@@ -272,6 +289,7 @@ export type NodeKind = Node["kind"];
 
 export const NODE_KINDS = [
   "agent",
+  "peer",
   "terminal",
   "page",
   "task",
