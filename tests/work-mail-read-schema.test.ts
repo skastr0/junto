@@ -19,6 +19,7 @@ import { Message } from "../src/shared/work-model";
 import { ContentRef } from "../src/shared/content";
 import { seedCanvasRows } from "./support/seed-canvas";
 import { seat } from "./support/model-nodes";
+import { THIS_MACHINE } from "./support/machines";
 
 const root = join(tmpdir(), `junto-mail-read-schema-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
@@ -57,21 +58,18 @@ const seed = () =>
   sql.withTransaction(
     Effect.gen(function* () {
       yield* sql.unsafe(
-        `INSERT INTO station_known_installations(installation_id, registered_at)
+        `INSERT INTO known_installations(installation_id, registered_at)
        VALUES (?, ?)`,
         [cc, observedAt],
       );
       yield* sql.unsafe(
-        `INSERT INTO station_installation(singleton, installation_id, created_at)
+        `INSERT INTO installation(singleton, installation_id, created_at)
        VALUES (1, ?, ?)`,
         [cc, observedAt],
       );
       yield* sql.unsafe(
-        `INSERT INTO station_configuration(
-         singleton, role, host_id, agent_host_id,
-         command_center_installation_id, supervised_preferred, configured_at
-       ) VALUES (1, 'command-center', 'local', NULL, NULL, 1, ?)`,
-        [observedAt],
+        `INSERT INTO machine_configuration(singleton, machine_name, supervised_preferred, configured_at) VALUES (1, ?, 1, ?)`,
+        [THIS_MACHINE, observedAt],
       );
       yield* seedCanvasRows({ seq: 1, canvases: new Map([["factory", { nodes: factoryNodes }]]) });
     }),

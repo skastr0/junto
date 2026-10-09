@@ -32,6 +32,7 @@ import {
 import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
 import { seedCanvasRows } from "./support/seed-canvas";
 import { canvasOf, requests, seat as seatNode, taskBoard } from "./support/model-nodes";
+import { THIS_MACHINE } from "./support/machines";
 
 const canvasName = "factory";
 const otherCanvasName = "other-factory";
@@ -73,7 +74,6 @@ const factoryCanvas = { ...canvasOf(factoryNodes, [], canvasName), seq: 1 };
 const openRepository = async (
   local: InstallationIdValue,
   peers: ReadonlyArray<InstallationIdValue> = [],
-  role: "command-center" | "remote" = "command-center",
 ) => {
   const root = join(
     tmpdir(),
@@ -94,7 +94,7 @@ const openRepository = async (
         for (const known of new Set([local, ...peers])) {
           yield* sql.unsafe(
             `
-            INSERT INTO station_known_installations(
+            INSERT INTO known_installations(
               installation_id,
               registered_at
             ) VALUES (?, ?)
@@ -104,7 +104,7 @@ const openRepository = async (
         }
         yield* sql.unsafe(
           `
-          INSERT INTO station_installation(
+          INSERT INTO installation(
             singleton,
             installation_id,
             created_at
@@ -114,19 +114,14 @@ const openRepository = async (
         );
         yield* sql.unsafe(
           `
-          INSERT INTO station_configuration(
+          INSERT INTO machine_configuration(
             singleton,
-            role,
-            host_id,
-            agent_host_id,
-            command_center_installation_id,
+            machine_name,
             supervised_preferred,
             configured_at
-          ) VALUES (1, ?, ?, ?, ?, 1, ?)
+          ) VALUES (1, ?, 1, ?)
         `,
-          role === "command-center"
-            ? [role, "local", null, null, atMinute(0)]
-            : [role, "remote", "remote", peers[0], atMinute(0)],
+        [THIS_MACHINE, atMinute(0)],
         );
         yield* seedCanvasRows({
           seq: 1,

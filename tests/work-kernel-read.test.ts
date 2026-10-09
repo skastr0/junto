@@ -14,6 +14,7 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { createCanvasTaskDependencyScopeCapability, WorkRevisionsLive, WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { readLiveCanvas } from "../src/main/junto/overseer/live/composition";
 import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
+import { THIS_MACHINE } from "./support/machines";
 
 it("reads kernel lanes and compact watch counts without decoding mail, board posts or artifacts", async () => {
   const root = await mkdtemp(join(tmpdir(), "junto-kernel-read-"));
@@ -22,9 +23,9 @@ it("reads kernel lanes and compact watch counts without decoding mail, board pos
   try {
     const sql = await runtime.runPromise(SqlClient.SqlClient);
     await runtime.runPromise(sql.withTransaction(Effect.gen(function* () {
-      yield* sql`INSERT INTO station_known_installations VALUES ('board-home','2026-10-07')`;
-      yield* sql`INSERT INTO station_installation VALUES (1,'board-home','2026-10-07')`;
-      yield* sql`INSERT INTO station_configuration(singleton,role,host_id,agent_host_id,command_center_installation_id,supervised_preferred,configured_at) VALUES (1,'command-center','local',NULL,NULL,1,'2026-10-07')`;
+      yield* sql`INSERT INTO known_installations VALUES ('board-home','2026-10-07')`;
+      yield* sql`INSERT INTO installation VALUES (1,'board-home','2026-10-07')`;
+      yield* sql`INSERT INTO machine_configuration(singleton, machine_name, supervised_preferred, configured_at) VALUES (1, ${THIS_MACHINE}, 1, '2026-10-07')`;
     })));
     const model = await runtime.runPromise(ModelService);
     const command = Schema.decodeUnknownSync(Command);
@@ -35,7 +36,7 @@ it("reads kernel lanes and compact watch counts without decoding mail, board pos
     { kind: "requests", id: "asks", x: 0, y: 0, width: 200, height: 100, z: 2 },
     { kind: "artifacts", id: "artifacts", x: 0, y: 0, width: 200, height: 100, z: 3 },
     { kind: "agent", id: "seat", x: 0, y: 0, width: 200, height: 100, z: 4,
-      agentKey: "local:claude", label: "Seat", host: "local", overseer: false,
+      agentKey: "local:claude", label: "Seat", host: THIS_MACHINE, overseer: false,
       bindingId: "seat-binding", harness: "claude", onRemove: "detach" }], wires: [] }), "operator"));
     const repo = await runtime.runPromise(WorkRepository);
     const sink = { canvasName: "factory", nodeId: "board" };

@@ -130,7 +130,7 @@ describe("work mutation seam — classification", () => {
       ["-- comment\nDELETE FROM work_requests WHERE a = ?", "work_requests"],
       // reads and non-work writes are not the seam's business
       ["SELECT * FROM work_tasks", null],
-      ["INSERT INTO station_known_installations(a) VALUES (?)", null],
+      ["INSERT INTO known_installations(a) VALUES (?)", null],
       ["INSERT INTO other_table SELECT * FROM work_tasks", null],
     ];
     for (const [sql, table] of cases) {
@@ -196,7 +196,7 @@ describe("work mutation seam — the seam is the only route", () => {
       "test.journalled",
       Effect.gen(function* () {
         yield* sql.unsafe(
-          `INSERT INTO station_known_installations(installation_id, registered_at)
+          `INSERT INTO known_installations(installation_id, registered_at)
          VALUES (?, ?)`,
           [HOME, NOW] as never,
         );
@@ -248,7 +248,7 @@ describe("work mutation seam — the seam is the only route", () => {
       "test.reads",
       Effect.gen(function* () {
         yield* sql.unsafe(
-          `INSERT INTO station_known_installations(installation_id, registered_at)
+          `INSERT INTO known_installations(installation_id, registered_at)
          VALUES (?, ?)`,
           ["seam-unrelated", NOW] as never,
         );

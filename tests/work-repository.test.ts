@@ -22,6 +22,7 @@ import { seedCanvasRows } from "./support/seed-canvas";
 import { seat } from "./support/model-nodes";
 import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
 import { mailboxMessageDeliveryId, mailboxMessageReadId } from "../src/main/junto/work/mailbox-receipts";
+import { THIS_MACHINE } from "./support/machines";
 
 const root = join(tmpdir(), `junto-work-v2-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
@@ -89,7 +90,7 @@ const seedInstallations = (
       for (const installation of installations) {
         yield* client.unsafe(
           `
-          INSERT INTO station_known_installations(
+          INSERT INTO known_installations(
             installation_id,
             registered_at
           ) VALUES (?, ?)
@@ -99,7 +100,7 @@ const seedInstallations = (
       }
       yield* client.unsafe(
         `
-        INSERT INTO station_installation(
+        INSERT INTO installation(
           singleton,
           installation_id,
           created_at
@@ -109,17 +110,9 @@ const seedInstallations = (
       );
       yield* client.unsafe(
         `
-        INSERT INTO station_configuration(
-          singleton,
-          role,
-          host_id,
-          agent_host_id,
-          command_center_installation_id,
-          supervised_preferred,
-          configured_at
-        ) VALUES (1, 'command-center', 'local', NULL, NULL, 1, ?)
+        INSERT INTO machine_configuration(singleton, machine_name, supervised_preferred, configured_at) VALUES (1, ?, 1, ?)
       `,
-        [observedAt],
+        [THIS_MACHINE, observedAt],
       );
       // Head-only relational authority: only the current generation "1" exists.
       // The stale generation "0" survives solely as literal basis values whose

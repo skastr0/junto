@@ -231,7 +231,7 @@ describe("inline media migration", () => {
       sql.withTransaction(
         Effect.gen(function* () {
           yield* sql`
-            INSERT INTO station_known_installations(
+            INSERT INTO known_installations(
               installation_id, registered_at
             ) VALUES ('home1', ${now})
           `;

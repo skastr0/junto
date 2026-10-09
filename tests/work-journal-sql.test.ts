@@ -33,7 +33,7 @@ test("SQL journal sequences retain zero, bigint precision and rollback", async (
           unjournaledWorkMutationEffect(
             "test.fixture-seed",
             Effect.gen(function* () {
-              yield* sql`INSERT INTO station_known_installations(installation_id, registered_at) VALUES (${home}, ${receivedAt})`;
+              yield* sql`INSERT INTO known_installations(installation_id, registered_at) VALUES (${home}, ${receivedAt})`;
               yield* sql`INSERT INTO work_event_sequences VALUES (${home}, ${home}, '0')`;
               expect(yield* journal.allocateSequence(home, home)).toBe("1");
               yield* sql`UPDATE work_event_sequences SET last_seq = '9007199254740993'

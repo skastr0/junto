@@ -11,6 +11,7 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { makeSeatObservation } from "../src/main/junto/work/seat-observation";
 import { seedCanvasRows } from "./support/seed-canvas";
 import { canvasOf, seat, wire } from "./support/model-nodes";
+import { THIS_MACHINE } from "./support/machines";
 
 it("a mailbox commit wakes a seat waiter once even when it immediately subscribes again", async () => {
   const root = await mkdtemp(join(tmpdir(), "junto-mail-waiter-"));
@@ -23,9 +24,9 @@ it("a mailbox commit wakes a seat waiter once even when it immediately subscribe
     const wires = [wire("mail", "caller", "peer", "messages")];
     const canvas = { ...canvasOf(nodes, wires, "mail-wait-reentrancy"), seq: 1 };
     await runtime.runPromise(sql.withTransaction(Effect.gen(function* () {
-      yield* sql`INSERT INTO station_known_installations VALUES ('mail-home','2026-10-07')`;
-      yield* sql`INSERT INTO station_installation VALUES (1,'mail-home','2026-10-07')`;
-      yield* sql`INSERT INTO station_configuration(singleton,role,host_id,agent_host_id,command_center_installation_id,supervised_preferred,configured_at) VALUES (1,'command-center','local',NULL,NULL,1,'2026-10-07')`;
+      yield* sql`INSERT INTO known_installations VALUES ('mail-home','2026-10-07')`;
+      yield* sql`INSERT INTO installation VALUES (1,'mail-home','2026-10-07')`;
+      yield* sql`INSERT INTO machine_configuration(singleton, machine_name, supervised_preferred, configured_at) VALUES (1, ${THIS_MACHINE}, 1, '2026-10-07')`;
       yield* seedCanvasRows({ seq: 1, canvases: new Map([[canvas.name, { nodes, wires }]]) });
     })));
     const seatListeners = new Set<(event: AgentSeatStateEvent) => void>();

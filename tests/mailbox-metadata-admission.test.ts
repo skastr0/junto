@@ -32,6 +32,7 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import { seedCanvasRows } from "./support/seed-canvas";
 import { note } from "./support/model-nodes";
+import { THIS_MACHINE } from "./support/machines";
 
 const root = join(tmpdir(), `junto-mailbox-admission-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
@@ -64,7 +65,7 @@ const seedInstallations = () =>
     Effect.gen(function* () {
       yield* sql.unsafe(
         `
-        INSERT INTO station_known_installations(
+        INSERT INTO known_installations(
           installation_id,
           registered_at
         ) VALUES (?, ?)
@@ -73,7 +74,7 @@ const seedInstallations = () =>
       );
       yield* sql.unsafe(
         `
-        INSERT INTO station_installation(
+        INSERT INTO installation(
           singleton,
           installation_id,
           created_at
@@ -83,17 +84,9 @@ const seedInstallations = () =>
       );
       yield* sql.unsafe(
         `
-        INSERT INTO station_configuration(
-          singleton,
-          role,
-          host_id,
-          agent_host_id,
-          command_center_installation_id,
-          supervised_preferred,
-          configured_at
-        ) VALUES (1, 'command-center', 'local', NULL, NULL, 1, ?)
+        INSERT INTO machine_configuration(singleton, machine_name, supervised_preferred, configured_at) VALUES (1, ?, 1, ?)
       `,
-        [observedAt],
+        [THIS_MACHINE, observedAt],
       );
       yield* seedCanvasRows({ seq: 1, canvases: new Map([["factory", { nodes: factoryNodes }]]) });
     }),

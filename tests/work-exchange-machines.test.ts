@@ -70,8 +70,8 @@ const boot = async (self: InstallationId, canvases: ReadonlyArray<string> = ["fa
       const sql = yield* SqlClient.SqlClient;
       yield* sql.withTransaction(
         Effect.gen(function* () {
-          yield* sql`INSERT INTO station_known_installations(installation_id, registered_at) VALUES (${self}, ${at})`;
-          yield* sql`INSERT INTO station_installation(singleton, installation_id, created_at) VALUES (1, ${self}, ${at})`;
+          yield* sql`INSERT INTO known_installations(installation_id, registered_at) VALUES (${self}, ${at})`;
+          yield* sql`INSERT INTO installation(singleton, installation_id, created_at) VALUES (1, ${self}, ${at})`;
           yield* seedCanvasRows({
             seq: 1,
             canvases: new Map(canvases.map((name) => [name, { nodes: Object.keys(homes).map((nodeId, index) => seat(nodeId, { y: index * 120 })) }])),
@@ -145,7 +145,7 @@ const counts = (on: Machine) =>
       const sql = yield* SqlClient.SqlClient;
       const rows = yield* sql.unsafe<{ facts: number; mail: number; cursors: number; known: number }>(
         `SELECT (SELECT count(*) FROM work_facts) AS facts, (SELECT count(*) FROM work_messages) AS mail,
-          (SELECT count(*) FROM work_exchange_cursors) AS cursors, (SELECT count(*) FROM station_known_installations) AS known`,
+          (SELECT count(*) FROM work_exchange_cursors) AS cursors, (SELECT count(*) FROM known_installations) AS known`,
       );
       return rows[0]!;
     }),

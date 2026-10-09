@@ -48,10 +48,11 @@ const run = (
           (opened) => Effect.sync(() => opened.close()),
         );
         db.exec(MODEL_STATE_SCHEMA_SQL);
-        db.exec(`CREATE TABLE station_installation(singleton INTEGER PRIMARY KEY,installation_id TEXT);
-          CREATE TABLE station_configuration(singleton INTEGER PRIMARY KEY,role TEXT,host_id TEXT);
-          CREATE TABLE station_fleet_targets(host_id TEXT,retired_at TEXT);
-          INSERT INTO station_installation VALUES(1,'${SELF}');`);
+        db.exec(`CREATE TABLE installation(singleton INTEGER PRIMARY KEY,installation_id TEXT);
+          CREATE TABLE machine_configuration(singleton INTEGER PRIMARY KEY,machine_name TEXT);
+          CREATE TABLE machine_peers(machine_name TEXT,installation_id TEXT,retired_at TEXT);
+          INSERT INTO installation VALUES(1,'${SELF}');
+          INSERT INTO machine_configuration VALUES(1,'mini');`);
         const sql = yield* makeSqliteClient(db);
         installSqlCommitCallbacks(sql);
         yield* Effect.gen(function* () {

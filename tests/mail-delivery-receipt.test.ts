@@ -19,6 +19,7 @@ import { MessageDeliveryService } from "../src/main/junto/work/message-delivery"
 import { mailboxMessageDeliveryId } from "../src/main/junto/work/mailbox-receipts";
 import { canvasReceiptBasis, recordDeliveryReceiptRefusal, stampMailboxDeliveryReceipt } from "../src/main/junto/work/delivery-receipts";
 import { observabilityRing } from "../src/main/junto/observability/ring";
+import { THIS_MACHINE } from "./support/machines";
 
 it("a delivered mail commits its receipt against the live canvas sequence and survives replay", async () => {
   const root = await mkdtemp(join(tmpdir(), "junto-mail-receipt-"));
@@ -28,9 +29,9 @@ it("a delivered mail commits its receipt against the live canvas sequence and su
   try {
     const sql = await runtime.runPromise(SqlClient.SqlClient);
     await runtime.runPromise(sql.withTransaction(Effect.gen(function* () {
-      yield* sql`INSERT INTO station_known_installations VALUES ('receipt-home','2026-10-07')`;
-      yield* sql`INSERT INTO station_installation VALUES (1,'receipt-home','2026-10-07')`;
-      yield* sql`INSERT INTO station_configuration(singleton,role,host_id,agent_host_id,command_center_installation_id,supervised_preferred,configured_at) VALUES (1,'command-center','local',NULL,NULL,1,'2026-10-07')`;
+      yield* sql`INSERT INTO known_installations VALUES ('receipt-home','2026-10-07')`;
+      yield* sql`INSERT INTO installation VALUES (1,'receipt-home','2026-10-07')`;
+      yield* sql`INSERT INTO machine_configuration(singleton, machine_name, supervised_preferred, configured_at) VALUES (1, ${THIS_MACHINE}, 1, '2026-10-07')`;
     })));
     const model = await runtime.runPromise(ModelService);
     let repo = await runtime.runPromise(WorkRepository);
@@ -39,7 +40,7 @@ it("a delivered mail commits its receipt against the live canvas sequence and su
     await runtime.runPromise(model.command(command({ _tag: "CreateCanvas", canvas: "factory" }), "operator"));
     await runtime.runPromise(model.command(command({ _tag: "Add", canvas: "factory", nodes: ["sender", "inbox"].map((id) => ({
       kind: "agent", id, x: 0, y: 0, width: 200, height: 100, z: 0, label: id,
-      agentKey: `local:${id}`, bindingId: `binding-${id}`, host: "local", harness: "claude", overseer: false, onRemove: "detach",
+      agentKey: `local:${id}`, bindingId: `binding-${id}`, host: THIS_MACHINE, harness: "claude", overseer: false, onRemove: "detach",
     })), wires: [] }), "operator"));
     const actors = await runtime.runPromise(refs.read("factory"));
     await runtime.runPromise(repo.appendMessage({

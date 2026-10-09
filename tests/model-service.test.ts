@@ -11,6 +11,7 @@ import { MODEL_STATE_SCHEMA_SQL } from "../src/main/junto/model/state-schema";
 import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
 import { installSqlCommitCallbacks } from "../src/main/junto/state/sql-commit";
 import { SEED_CANVAS_NAME } from "../src/shared/seed";
+import { THIS_MACHINE } from "./support/machines";
 
 const at = "2026-10-07T00:00:00Z";
 const node = (id: string, kind = "note", fields: object = {}) => ({
@@ -27,7 +28,7 @@ const node = (id: string, kind = "note", fields: object = {}) => ({
 const seat = node("seat", "agent", {
   agentKey: "local:seat",
   label: "Seat",
-  host: "local",
+  host: THIS_MACHINE,
   overseer: false,
   bindingId: "binding",
   harness: "codex",
@@ -49,11 +50,11 @@ const run = (
           (db) => Effect.sync(() => db.close()),
         );
         db.exec(MODEL_STATE_SCHEMA_SQL);
-        db.exec(`CREATE TABLE station_installation(singleton INTEGER PRIMARY KEY,installation_id TEXT);
-          CREATE TABLE station_configuration(singleton INTEGER PRIMARY KEY,role TEXT,host_id TEXT);
-          CREATE TABLE station_fleet_targets(host_id TEXT,retired_at TEXT);
-          INSERT INTO station_installation VALUES(1,'local-installation');
-          INSERT INTO station_configuration VALUES(1,'command-center','local');`);
+        db.exec(`CREATE TABLE installation(singleton INTEGER PRIMARY KEY,installation_id TEXT);
+          CREATE TABLE machine_configuration(singleton INTEGER PRIMARY KEY,machine_name TEXT);
+          CREATE TABLE machine_peers(machine_name TEXT,installation_id TEXT,retired_at TEXT);
+          INSERT INTO installation VALUES(1,'local-installation');
+          INSERT INTO machine_configuration VALUES(1,'${THIS_MACHINE}');`);
         db.prepare(
           "INSERT INTO canvases(canvas_name,canvas_id,created_at,updated_at) VALUES ('factory','c',?,?)",
         ).run(at, at);
@@ -426,7 +427,7 @@ it("allows overseer seat presentation changes directly and inside a batch", () =
     }
     expect((yield* model.open("factory")).nodes[0]).toMatchObject({
       label: "Renamed again", x: 20, y: 30, width: 300, height: 120, color: "2",
-      overseer: true, host: "local", harness: "codex", bindingId: "binding",
+      overseer: true, host: THIS_MACHINE, harness: "codex", bindingId: "binding",
     });
     expect((yield* model.open("factory")).seq).toBe(6);
   })),
@@ -443,7 +444,7 @@ it("refuses overseer occupant changes and rolls back presentation steps before t
         _tag: "Edit", canvas: "factory", id: "seat", change: { kind: "agent", ...change },
       })),
       { _tag: "Remove", canvas: "factory", nodes: ["seat"], wires: [] },
-      { _tag: "Reseat", canvas: "factory", id: "seat", agentKey: "local:other", bindingId: "fresh-binding", harness: "claude", host: "local" },
+      { _tag: "Reseat", canvas: "factory", id: "seat", agentKey: "local:other", bindingId: "fresh-binding", harness: "claude", host: THIS_MACHINE },
     ];
     for (const step of prohibited) {
       for (const input of [step, { _tag: "Batch", canvas: "factory", steps: [
@@ -493,7 +494,7 @@ it("refuses protected-seat edits, runtime commands, duplicate bindings and dupli
             _tag: "Add",
             nodes: [
               node("terminal", "terminal", {
-                host: "local",
+                host: THIS_MACHINE,
                 bindingId: "binding",
                 onRemove: "detach",
               }),
@@ -657,7 +658,7 @@ it("reseats a node without changing its wires and clears its old session and lau
   yield* model.command(decode({ _tag: "Add", canvas: "factory", nodes: [seat, { ...seat, id: "peer", bindingId: "peer-binding" }], wires: [{ id: "mail", from: "seat", to: "peer", verb: "messages" }] }), "operator");
   yield* model.command(decode({ _tag: "RecordSession", canvas: "factory", id: "seat", sessionId: "old-session" }), "runtime");
   const wires = (yield* model.open("factory")).wires;
-  const reseat = { _tag: "Reseat", canvas: "factory", id: "seat", agentKey: "local:new-agent", bindingId: "new-binding", harness: "claude", host: "local" };
+  const reseat = { _tag: "Reseat", canvas: "factory", id: "seat", agentKey: "local:new-agent", bindingId: "new-binding", harness: "claude", host: THIS_MACHINE };
   yield* model.command(decode(reseat), "operator");
   const changed = (yield* model.open("factory")).nodes.find(({ id }) => id === "seat");
   expect(changed).toMatchObject({ id: "seat", agentKey: "local:new-agent", bindingId: "new-binding", harness: "claude" });
@@ -736,7 +737,7 @@ it("reseating revokes authority on every alias atomically and a refused batch re
     events.push(event);
     grantedAtEvent.push(db.prepare("SELECT count(*) AS count FROM seats WHERE overseer=1").get()!.count);
   });
-  const reseat = { _tag: "Reseat", canvas: "factory", id: "seat", agentKey: "local:replacement", bindingId: "replacement-binding", harness: "claude", host: "local" };
+  const reseat = { _tag: "Reseat", canvas: "factory", id: "seat", agentKey: "local:replacement", bindingId: "replacement-binding", harness: "claude", host: THIS_MACHINE };
   const refused = yield* model.command(decode({ _tag: "Batch", canvas: "factory", steps: [reseat, { _tag: "Move", canvas: "factory", moves: [{ id: "missing", x: 0, y: 0 }] }] }), "operator").pipe(Effect.result);
   expect(refused._tag).toBe("Failure");
   expect(events).toHaveLength(0);

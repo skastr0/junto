@@ -12,6 +12,7 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { ActorRef, IntentFactBasis } from "../src/shared/work-protocol";
 import { seedCanvasRows } from "./support/seed-canvas";
 import { artifacts, board, canvasOf, note, seat, taskBoard } from "./support/model-nodes";
+import { THIS_MACHINE } from "./support/machines";
 
 it("removes mailbox rows in the owning transaction and preserves immutable records", async () => {
   const root = join(tmpdir(), `junto-work-removal-${randomUUID()}`);
@@ -22,9 +23,9 @@ it("removes mailbox rows in the owning transaction and preserves immutable recor
       const repo = yield* WorkRepository;
       const tasks = taskBoard("tasks");
       yield* sql.withTransaction(Effect.gen(function* () {
-        yield* sql`INSERT INTO station_known_installations VALUES ('local-installation','2026-10-07')`;
-        yield* sql`INSERT INTO station_installation VALUES (1,'local-installation','2026-10-07')`;
-        yield* sql`INSERT INTO station_configuration(singleton,role,host_id,agent_host_id,command_center_installation_id,supervised_preferred,configured_at) VALUES (1,'command-center','local',NULL,NULL,1,'2026-10-07')`;
+        yield* sql`INSERT INTO known_installations VALUES ('local-installation','2026-10-07')`;
+        yield* sql`INSERT INTO installation VALUES (1,'local-installation','2026-10-07')`;
+        yield* sql`INSERT INTO machine_configuration(singleton, machine_name, supervised_preferred, configured_at) VALUES (1, ${THIS_MACHINE}, 1, '2026-10-07')`;
         yield* seedCanvasRows({ seq: 1, canvases: new Map([["factory", {
           nodes: [...["sender", "inbox", "other"].map((id) => seat(id)), note("empty-note"), board("board"), tasks, artifacts("artifacts")],
         }]]) });

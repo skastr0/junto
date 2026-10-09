@@ -23,6 +23,7 @@ import {
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
 import { WorkService } from "../src/main/junto/work/service";
+import { THIS_MACHINE } from "./support/machines";
 
 // The kernel service against the real model and work stores: it holds every
 // canvas the model lists, follows canvases that come and go, and reads a
@@ -88,9 +89,9 @@ it("holds the model's canvases and follows their work", async () => {
     await run(
       sql.withTransaction(
         Effect.gen(function* () {
-          yield* sql`INSERT INTO station_known_installations VALUES ('board-home','2026-10-07')`;
-          yield* sql`INSERT INTO station_installation VALUES (1,'board-home','2026-10-07')`;
-          yield* sql`INSERT INTO station_configuration(singleton,role,host_id,agent_host_id,command_center_installation_id,supervised_preferred,configured_at) VALUES (1,'command-center','local',NULL,NULL,1,'2026-10-07')`;
+          yield* sql`INSERT INTO known_installations VALUES ('board-home','2026-10-07')`;
+          yield* sql`INSERT INTO installation VALUES (1,'board-home','2026-10-07')`;
+          yield* sql`INSERT INTO machine_configuration(singleton, machine_name, supervised_preferred, configured_at) VALUES (1, ${THIS_MACHINE}, 1, '2026-10-07')`;
         }),
       ),
     );
@@ -103,7 +104,7 @@ it("holds the model's canvases and follows their work", async () => {
       canvas: "factory",
       nodes: [
         { kind: "task", id: "tasks", x: 0, y: 0, width: 200, height: 100, z: 0 },
-        { kind: "relay", id: "relay", x: 300, y: 0, width: 200, height: 100, z: 1, host: "local" },
+        { kind: "relay", id: "relay", x: 300, y: 0, width: 200, height: 100, z: 1, host: THIS_MACHINE },
       ],
       wires: [{ id: "w1", from: "tasks", to: "relay", verb: "announces" }],
     });

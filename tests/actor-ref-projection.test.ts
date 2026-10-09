@@ -12,27 +12,33 @@ import { ModelDependents } from "../src/main/junto/model/dependents";
 import { ModelService } from "../src/main/junto/model/service";
 import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { StationFleetTargetRepositoryLive, StationFleetTargetRepository } from "../src/main/junto/station/fleet-target-repository";
-import { makeStationRepositoryLive } from "../src/main/junto/station/repository";
 import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
+import { THIS_MACHINE } from "./support/machines";
 
-it("compiles aliases and host identity from native seats and refuses unresolved placement atomically", async () => {
+const at = "2026-07-27T12:00:00.000Z";
+
+it("compiles aliases and machine identity from native seats and refuses unresolved placement atomically", async () => {
   const root = await mkdtemp(join(tmpdir(), "junto-native-actor-refs-"));
   const installation = Schema.decodeUnknownSync(InstallationId);
   const local = installation("installation-command");
   const remote = installation("installation-remote");
   const runtime = ManagedRuntime.make(Layer.provideMerge(
     Layer.provide(ModelLive, ModelDependents.empty),
-    Layer.provideMerge(Layer.mergeAll(StationFleetTargetRepositoryLive, makeStationRepositoryLive({ makeInstallationId: () => local })), makeStateEngineLive(join(root, "junto.db"))),
+    makeStateEngineLive(join(root, "junto.db")),
   ));
   const decode = Schema.decodeUnknownSync(Command);
   try {
-    const { model, refs, fleet, sql } = await runtime.runPromise(Effect.gen(function* () {
-      return { model: yield* ModelService, refs: yield* ModelActorRefs, fleet: yield* StationFleetTargetRepository, sql: yield* SqlClient.SqlClient };
+    const { model, refs, sql } = await runtime.runPromise(Effect.gen(function* () {
+      return { model: yield* ModelService, refs: yield* ModelActorRefs, sql: yield* SqlClient.SqlClient };
     }));
-    await runtime.runPromise(sql.withTransaction(sql`INSERT INTO station_configuration(singleton,role,host_id,agent_host_id,command_center_installation_id,supervised_preferred,configured_at) VALUES (1,'command-center','local',NULL,NULL,0,'2026-07-27T12:00:00.000Z')`));
-    await runtime.runPromise(fleet.bind({ hostId: "remote-a", stationInstallationId: remote }));
-    const localSeat = modelSeat({ id: "local-agent", key: "local:codex", label: "Local", bindingId: "binding-local" });
+    // This machine and its name, and one other machine it has pinned.
+    await runtime.runPromise(sql.withTransaction(Effect.gen(function* () {
+      yield* sql`INSERT INTO known_installations(installation_id,registered_at) VALUES (${local},${at}),(${remote},${at})`;
+      yield* sql`INSERT INTO installation(singleton,installation_id,created_at) VALUES (1,${local},${at})`;
+      yield* sql`INSERT INTO machine_configuration(singleton,machine_name,supervised_preferred,configured_at) VALUES (1,${THIS_MACHINE},0,${at})`;
+      yield* sql`INSERT INTO machine_peers(machine_name,installation_id,bound_at) VALUES ('remote-a',${remote},${at})`;
+    })));
+    const localSeat = modelSeat({ id: "local-agent", key: "local:codex", label: "Local", host: THIS_MACHINE, bindingId: "binding-local" });
     const remoteSeat = modelSeat({ id: "remote-agent", key: "remote-a:codex", label: "Remote", host: "remote-a", bindingId: "binding-remote" });
     for (const [canvas, nodes] of [["alpha", [localSeat, remoteSeat]], ["zeta", [{ ...localSeat, id: "local-alias" }]]] as const) {
       await runtime.runPromise(model.command(decode({ _tag: "CreateCanvas", canvas }), "operator"));
@@ -50,15 +56,12 @@ it("compiles aliases and host identity from native seats and refuses unresolved 
     expect(refused).toMatchObject({ _tag: "Failure", failure: { _tag: "ModelRefused", rule: expect.stringContaining("unresolved host") } });
     expect(await runtime.runPromise(model.open("alpha"))).toEqual(before);
     expect(await runtime.runPromise(refs.read())).toEqual(all);
-    const nextRemote = installation("installation-remote-next");
-    await runtime.runPromise(sql.withTransaction(Effect.gen(function* () {
-      yield* sql`INSERT INTO station_known_installations(installation_id,registered_at) VALUES (${nextRemote},'2026-07-27T12:00:00.000Z')`;
-      yield* sql`UPDATE station_fleet_targets SET station_installation_id=${nextRemote} WHERE host_id='remote-a'`;
-    })));
-    // Host rebinding is independent of canvas seq; references must not cache it.
+    // Where a machine is pinned is read each time, never kept with the canvas:
+    // a retired machine's seats stop resolving, and resolve again when it is back.
+    await runtime.runPromise(sql.withTransaction(sql`UPDATE machine_peers SET retired_at=${at} WHERE machine_name='remote-a'`));
     expect(await runtime.runPromise(model.open("alpha"))).toEqual(before);
-    const rebound = await runtime.runPromise(refs.read("alpha"));
-    expect(rebound[0]).toEqual(alpha[0]);
-    expect(rebound[1]).toEqual({ ...alpha[1], seatId: deriveActorSeatId(nextRemote, "binding-remote") });
+    expect(await runtime.runPromise(Effect.result(refs.read("alpha")))).toMatchObject({ _tag: "Failure" });
+    await runtime.runPromise(sql.withTransaction(sql`UPDATE machine_peers SET retired_at=NULL WHERE machine_name='remote-a'`));
+    expect(await runtime.runPromise(refs.read("alpha"))).toEqual(alpha);
   } finally { await runtime.dispose(); await rm(root, { recursive: true, force: true }); }
 });
