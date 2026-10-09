@@ -40,7 +40,10 @@ import {
 } from "./junto/adapters/exec";
 import { appMenuTemplate } from "./junto/app-menu";
 import { appProcessPlane } from "./junto/app-process-plane";
-import { AppRuntime } from "./runtime";
+import { AppRuntime, setMachineControlReadiness } from "./runtime";
+import { MachineCoreStatus } from "./core-runtime";
+import { MachineOwnerControl } from "./junto/hosts/machine-owner";
+import { MachineLink, type MachineLinkListener } from "./junto/link/service";
 import { AgentSignalRepository } from "./junto/signals/repository";
 import { raisedHands } from "./junto/signals/raised-hands";
 import { SeatGuidanceRepository } from "./junto/seat-guidance/repository";
@@ -389,6 +392,7 @@ let overseerLiveShutdown: Promise<void> | undefined;
 let unregisterOverseerLiveIpc: (() => void) | undefined;
 let canvasControl: CanvasControlServer | undefined;
 let operatorControl: OperatorControlServer | undefined;
+let machineLinkListener: MachineLinkListener | undefined;
 type HermesPlaneService = Context.Service.Shape<typeof HermesPlane>;
 let hermesPlaneService: HermesPlaneService | undefined;
 type KernelServiceShape = Context.Service.Shape<typeof KernelService>;
@@ -1460,6 +1464,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       if (!operatorControlEnabledAtLaunch) {
         return operatorRefusal(request, "forbidden", "operator commands need Junto launched with --junto-operator-control");
       }
+      if (request.op.startsWith("machine.")) {
+        return AppRuntime.runPromise(Effect.flatMap(MachineOwnerControl, actions => actions.dispatch(request)));
+      }
       return coordinator.dispatch(request);
     };
     let operatorControlStart: Promise<void> | undefined;
@@ -1476,6 +1483,17 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         throw error;
       }));
 
+    try {
+      const [link, machineStatus] = await AppRuntime.runPromise(Effect.all([MachineLink, MachineCoreStatus]));
+      await AppRuntime.runPromise(link.setChannels({ status: machineStatus.handler }));
+      machineLinkListener = await AppRuntime.runPromise(link.listen(termControlHome));
+      if (shutdownAdmissionClosed) machineLinkListener.beginShutdown();
+    } catch (error) {
+      console.error("[machines] link control failed to start", error);
+      exitAfterDetach(1, "machine-link-startup-failure");
+      return;
+    }
+
     if (operatorControlEnabledAtLaunch) {
       try {
         await ensureOperatorControl();
@@ -1485,6 +1503,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         return;
       }
     }
+    setMachineControlReadiness(() => !shutdownAdmissionClosed && machineLinkListener?.ready() === true &&
+      (!operatorControlEnabledAtLaunch || operatorControl?.ready() === true));
     if (companion !== undefined) {
       void wireCompanionChanges(companion.changes)
         .then(() => companion.reconcile())
@@ -1845,6 +1865,8 @@ const beginShutdownAdmission = (reason: string): void => {
   shutdownReason = reason;
   if (shutdownAdmissionClosed) return;
   shutdownAdmissionClosed = true;
+  setMachineControlReadiness(() => false);
+  machineLinkListener?.beginShutdown();
   operatorFleetReady = false;
   // Close kernel scheduling at the same synchronous, one-way admission cut.
   // No product teardown may strand work claimed by a later kernel cycle.
@@ -2101,6 +2123,9 @@ const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
   lap("dispose: overseer live");
   await requireCleanOperatorControlShutdown();
   lap("dispose: operator control");
+  await machineLinkListener?.close();
+  machineLinkListener = undefined;
+  lap("dispose: machine links");
   await requireCleanTermPlaneShutdown(reason);
   lap("dispose: terminal plane");
   await requireCleanCanvasControlShutdown();

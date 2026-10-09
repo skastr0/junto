@@ -1,6 +1,5 @@
 import { join } from "node:path";
 import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
-import { SqlClient } from "effect/unstable/sql";
 import {
   MachinePeerStatus,
   type MachineHarnesses,
@@ -68,13 +67,9 @@ export const machineCoreStatusLayer = (options: MachineCoreOptions) => Layer.eff
   return { own, harnesses, handler };
 }));
 
-/** One StateEngine reference feeds identity, registry, link and owner commands. */
-export const makeMachineCoreLayer = (options: MachineCoreOptions) => {
-  const state = makeStateEngineLive(join(options.home, ".junto", "state", "junto.db"));
-  const identity = Layer.provideMerge(MachineRepositoryLive, state);
-  const registry = Layer.provideMerge(HostRegistryRows.layer, identity);
-  const hosts = Layer.provideMerge(HostsServiceLive, Layer.mergeAll(registry, SshTransportLive));
-  const links = Layer.provideMerge(machineLinkLayer(options.build), hosts);
+/** Both entries add these services to their one owning runtime. */
+export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
+  const links = machineLinkLayer(options.build);
   const status = Layer.provideMerge(machineCoreStatusLayer(options), links);
   const owner = Layer.effect(MachineOwnerControl, Effect.gen(function* () {
     const link = yield* MachineLink;
@@ -103,6 +98,15 @@ export const makeMachineCoreLayer = (options: MachineCoreOptions) => {
     });
   }));
   return Layer.provideMerge(owner, status);
+};
+
+/** One StateEngine reference feeds identity, registry, link and owner commands. */
+export const makeMachineCoreLayer = (options: MachineCoreOptions) => {
+  const state = makeStateEngineLive(join(options.home, ".junto", "state", "junto.db"));
+  const identity = Layer.provideMerge(MachineRepositoryLive, state);
+  const registry = Layer.provideMerge(HostRegistryRows.layer, identity);
+  const hosts = Layer.provideMerge(HostsServiceLive, Layer.mergeAll(registry, SshTransportLive));
+  return Layer.provideMerge(makeMachineServicesLayer(options), hosts);
 };
 
 export const makeCoreRuntime = (options: MachineCoreOptions) => ManagedRuntime.make(makeMachineCoreLayer(options));

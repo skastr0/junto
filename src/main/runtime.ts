@@ -1,9 +1,13 @@
 import { CanvasControlQueries } from "./junto/canvas-control/queries";
 import { installCoreRunner } from "./core-runner";
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { app } from "electron";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { ObservabilityLoggerLive } from "./junto/observability";
+import { resolveJuntoHome } from "@shared/junto-home";
+import { makeMachineServicesLayer } from "./core-runtime";
+import { runningBuildIdentity } from "./junto/build-identity";
 import productMetadata from "../../package.json";
 import type { DoctorReport, ServiceCheck } from "@shared/contracts";
 import { linuxDesktopInstallStorageDoctor } from "./junto/update/linux-install";
@@ -43,6 +47,7 @@ import { SnapshotsLive, SnapshotsService } from "./junto/snapshots";
 import { UsageLive } from "./junto/usage/live";
 import { UsageService } from "./junto/usage/usage-service";
 import { HostsService, HostsServiceLive } from "./junto/hosts";
+import { HostRegistryRows } from "./junto/hosts/registry";
 import { SshTransportLive } from "./junto/ssh";
 import { primeHostsSnapshot } from "./junto/hosts/snapshot";
 import { StateEngineLive } from "./junto/state/engine";
@@ -95,7 +100,7 @@ const HostsWithSshLive = Layer.provideMerge(
   HostsServiceLive,
   Layer.mergeAll(
     SshTransportLive,
-    StateRepositoriesLive,
+    Layer.provideMerge(HostRegistryRows.layer, StateRepositoriesLive),
   ),
 );
 
@@ -176,20 +181,32 @@ const BaseWithActorSeatOccupyLive = Layer.provideMerge(
 
 const KernelWithWorkLive = Layer.provideMerge(KernelLive, WorkLive);
 
-export const RootLayer = Layer.provideMerge(
+const ProductRootLayer = Layer.provideMerge(
   Layer.mergeAll(KernelWithWorkLive, CanvasControlQueries.layer),
   BaseWithActorSeatOccupyLive,
 );
 
+let machineControlReady = (): boolean => false;
+export const setMachineControlReadiness = (ready: () => boolean): void => {
+  machineControlReady = ready;
+};
+
+const MachineServicesLive = Layer.unwrap(Effect.sync(() => {
+  const root = app.isPackaged ? join(process.resourcesPath, "machines") : join(app.getAppPath(), "dist", "machines");
+  return makeMachineServicesLayer({
+    home: resolveJuntoHome(), build: runningBuildIdentity(), ready: () => machineControlReady(),
+    bundles: Object.fromEntries(["darwin-arm64", "linux-x64"].flatMap(target => {
+      const path = join(root, target);
+      return existsSync(join(path, "manifest.json")) ? [[target, path]] : [];
+    })),
+  });
+}));
+
+export const RootLayer = Layer.provideMerge(MachineServicesLive, ProductRootLayer);
+
 // The product owns one warm runtime and disposes it on shutdown.
 const AppLayer = Layer.mergeAll(RootLayer, ObservabilityLoggerLive);
-export const AppRuntime = ManagedRuntime.make(
-  AppLayer as Layer.Layer<
-    Layer.Success<typeof AppLayer>,
-    Layer.Error<typeof AppLayer>,
-    never
-  >,
-);
+export const AppRuntime = ManagedRuntime.make(AppLayer);
 installCoreRunner(AppRuntime);
 
 export const buildDoctorReport = Effect.gen(function* () {
