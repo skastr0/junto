@@ -27,7 +27,6 @@ import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { SettingsLive } from "../src/main/junto/settings/service";
 import { nameThisMachine } from "./support/name-this-machine";
 import { PausePlane } from "../src/main/junto/pause-plane";
-import { makeProcessIdentityMap } from "../src/main/junto/process-identity";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 import { ReferencesRepository, ReferencesRepositoryLive } from "../src/main/junto/references/repository";
 import { ReferencesFollowCanvasLive } from "../src/main/junto/references/follow-canvas";
@@ -89,14 +88,10 @@ let token = "";
 const start = async (withStore = true) => {
   runtime = makeRuntime(root, withStore);
   await runtime.runPromise(nameThisMachine);
-  const processMap = makeProcessIdentityMap();
-  processMap.bind(process.pid, { agentKey: "local:agent" });
   server = await startWorkControlServer({
     version: "test",
     workHome: process.env.JUNTO_WORK_HOME!,
     home: root,
-    processMap,
-    readPeerPid: () => process.pid,
     run: (effect) => runtime.runPromise(effect),
     authoringGate: createMainAuthoringGate(),
   });

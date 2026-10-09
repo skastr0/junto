@@ -47,10 +47,6 @@ import {
 } from "../src/main/junto/settings/service";
 import { PausePlane, PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import {
-  makeProcessIdentityMap,
-  type ProcessIdentityMap,
-} from "../src/main/junto/process-identity";
-import {
   makeSeatCredentialRegistry,
   mintSeatCredential,
   type SeatCredentialRegistry,
@@ -108,7 +104,6 @@ const makeWorkTestRuntime = (root: string) => {
 const runtimes: Array<ReturnType<typeof makeWorkTestRuntime>> = [];
 const authoringGates: MainAuthoringGate[] = [];
 /** Peer PID for transport tests — must be a live process (epoch-checked). */
-const TEST_PEER_PID = process.pid;
 
 const authorialBasis = async (
   runtime: ReturnType<typeof makeWorkTestRuntime>,
@@ -211,7 +206,6 @@ const startTestServer = async (options: {
   readonly onOverseer?: WorkControlServerOptions["onOverseer"];
   readonly onOverseerLive?: WorkControlServerOptions["onOverseerLive"];
   readonly validateOverseerLive?: WorkControlServerOptions["validateOverseerLive"];
-  readonly processMap?: ProcessIdentityMap;
   readonly credentials?: SeatCredentialRegistry;
   readonly decorateRun?: (
     base: WorkControlServerOptions["run"],
@@ -219,7 +213,6 @@ const startTestServer = async (options: {
 } = {}): Promise<{
   readonly server: WorkControlServer;
   readonly authoringGate: MainAuthoringGate;
-  readonly processMap: ProcessIdentityMap;
 }> => {
   const root = await mkdtemp(join(tmpdir(), "junto-work-ctl-"));
   roots.push(root);
@@ -235,11 +228,7 @@ const startTestServer = async (options: {
   const baseRun: WorkControlServerOptions["run"] = (effect) =>
     runtime.runPromise(effect);
 
-  const processMap = options.processMap ?? makeProcessIdentityMap();
   const credentials = options.credentials ?? makeSeatCredentialRegistry();
-  processMap.bind(TEST_PEER_PID, {
-    agentKey: "local:agent",
-  });
 
   const authoringGate = createMainAuthoringGate();
   authoringGates.push(authoringGate);
@@ -248,8 +237,6 @@ const startTestServer = async (options: {
     workHome,
     home: root,
     credentials,
-    processMap,
-    readPeerPid: () => TEST_PEER_PID,
     run: options.decorateRun?.(baseRun) ?? baseRun,
     authoringGate,
     onPreamble: options.onPreamble,
@@ -259,7 +246,7 @@ const startTestServer = async (options: {
     validateOverseerLive: options.validateOverseerLive,
   }, options.runtime);
   servers.push(server);
-  return { server, authoringGate, processMap };
+  return { server, authoringGate };
 };
 
 beforeEach(async () => {
@@ -314,12 +301,12 @@ describe("work control transport", () => {
     expect(bridge).not.toHaveBeenCalled();
   });
 
-  it.runIf(LIVE_OVERSEER_ENABLED)("binds the private Live protocol to the native occupant and fences uncorrelated or stale mutations", async () => {
+  it.runIf(LIVE_OVERSEER_ENABLED)("binds the private Live protocol to the native seat generation and fences uncorrelated or stale mutations", async () => {
     const assertCurrent = vi.fn();
     const validate = vi.fn<NonNullable<WorkControlServerOptions["validateOverseerLive"]>>(async () => ({ assertCurrent, assertCurrentWithin: Effect.void }));
     const bridge = vi.fn<NonNullable<WorkControlServerOptions["onOverseerLive"]>>(async () => ({ type: "idle" }));
     const execute = vi.fn<NonNullable<WorkControlServerOptions["onOverseer"]>>(async (request) => ({ ok: true, operation: request.operation, data: {} }));
-    const { server, processMap } = await startTestServer({ onOverseer: execute, onOverseerLive: bridge, validateOverseerLive: validate });
+    const { server } = await startTestServer({ onOverseer: execute, onOverseerLive: bridge, validateOverseerLive: validate });
     const request = { token: token(), op: "overseer.live", args: { type: "next" } };
     expect(await call(server.socketPath, request)).toMatchObject({ ok: false, error: { type: "AuthError" } });
     expect(bridge).not.toHaveBeenCalled();
@@ -329,8 +316,8 @@ describe("work control transport", () => {
     });
     await setOverseer(runtime, true);
     expect(await call(server.socketPath, request)).toMatchObject({ ok: true, data: { type: "idle" } });
-    expect(bridge.mock.calls[0]?.[1]).toMatchObject({ canvasName: "work-cli", nodeId: "agent", bindingId: "bind-agent", peerPid: TEST_PEER_PID,
-      processGeneration: `${TEST_PEER_PID}:${processMap.snapshot()[0]!.startKey}` });
+    expect(bridge.mock.calls[0]?.[1]).toMatchObject({ canvasName: "work-cli", nodeId: "agent", bindingId: "bind-agent",
+      generationId: (server.credentials.lookup(request.token) as { generationId: string }).generationId });
     const mutation = { token: token(), op: "overseer", args: { operation: "node.move", args: { nodeId: "orphan", x: 1, y: 2 } } };
     expect(await call(server.socketPath, mutation)).toMatchObject({ ok: false, error: { type: "AuthError" } });
     for (const op of ["msg.send", "content.materialize", "signal.raise"]) {
@@ -343,7 +330,7 @@ describe("work control transport", () => {
     assertCurrent.mockImplementation(() => { throw new Error("request superseded"); });
     expect(await call(server.socketPath, correlated)).toMatchObject({ ok: false });
     expect(execute).toHaveBeenCalledTimes(1);
-    processMap.unbind(TEST_PEER_PID);
+    expect(server.credentials.revoke(request.token, "seat-closed")).toBe(true);
     expect(await call(server.socketPath, request)).toMatchObject({ ok: false, error: { type: "AuthError" } });
   });
   it("bounds overseer correlation ids by encoded bytes before any dispatch", async () => {

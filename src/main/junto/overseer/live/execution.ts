@@ -6,8 +6,8 @@ export interface OverseerHostIdentity {
   readonly canvasName: string;
   readonly nodeId: string;
   readonly bindingId: string;
-  readonly peerPid: number;
-  readonly processGeneration: string;
+  /** The occupant generation the presented seat credential names. */
+  readonly generationId: string;
 }
 
 export interface OverseerLiveExecutionConstraint {

@@ -29,8 +29,6 @@ import {
 } from "../src/main/junto/work/control";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 
-const PEER_PID = 71_003;
-
 const PRINCIPAL: ProcessPrincipal = Object.freeze({
   agentKey: "local:revocation-agent",
   bindingId: "binding-revocation-agent",
@@ -206,8 +204,6 @@ const startRig = async (options: {
     home: root,
     workHome,
     credentials: credentials.registry,
-    processMap: makeProcessIdentityMap(),
-    readPeerPid: () => PEER_PID,
     run: (effect) => runtime.runPromise(effect),
     authoringGate: createMainAuthoringGate(),
   });

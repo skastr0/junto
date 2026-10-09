@@ -226,12 +226,8 @@ import { resolveCallerAcrossCanvases } from "./caller-resolve";
 import { closingFence } from "../term/closing-fence";
 import { injectionSupervisor } from "../term/injection-supervisor";
 import {
-  getProcessIdentityMap,
   OFFBOARDED_SESSION_MESSAGE,
-  type PeerPidReader,
-  type ProcessIdentityMap,
   type ProcessPrincipal,
-  readUnixPeerPid,
 } from "../process-identity";
 import {
   getSeatCredentialRegistry,
@@ -2675,10 +2671,6 @@ export interface WorkControlServerOptions {
   readonly workHome?: string;
   /** Seat credential registry (defaults to the shared main-process registry). */
   readonly credentials?: SeatCredentialRegistry;
-  /** Retained for the overseer.live root-process proof only. */
-  readonly processMap?: ProcessIdentityMap;
-  /** Test seam for peer PID (defaults to Unix LOCAL_PEERPID / SO_PEERCRED). */
-  readonly readPeerPid?: PeerPidReader;
   /** Test seam; production uses the process-global main authoring authority. */
   readonly authoringGate?: MainAuthoringGate;
   /** Main-process delivery for the seat-local, ephemeral preamble surface. */
@@ -3043,8 +3035,6 @@ export const startWorkControlServer = async (
 
   const socketPath = workControlSocketPath(workHome);
   const credentials = options.credentials ?? getSeatCredentialRegistry();
-  const processMap = options.processMap ?? getProcessIdentityMap();
-  const readPeerPid = options.readPeerPid ?? readUnixPeerPid;
   const authoringGate = options.authoringGate ?? mainAuthoringGate;
 
   const shutdownGraceMs = boundedRuntimeValue(
@@ -3153,16 +3143,6 @@ export const startWorkControlServer = async (
     admittedClients.add(socket);
     let buffer = Buffer.alloc(0);
     let closed = false;
-    // Peer PID is stable for the life of the connection — read once, and only
-    // for the overseer.live root-process proof. Ordinary admission never
-    // touches process observation.
-    let cachedPeerPid: number | undefined | null = null;
-    const readPeerOnce = (): number | undefined => {
-      if (cachedPeerPid === null) {
-        cachedPeerPid = readPeerPid(socket);
-      }
-      return cachedPeerPid === null ? undefined : cachedPeerPid;
-    };
 
     const handleLine = async (line: string): Promise<void> => {
       let raw: unknown;
@@ -3319,26 +3299,17 @@ export const startWorkControlServer = async (
           const controllerIdentity = (): OverseerHostIdentity | undefined => {
             const node = callerResolved.caller.node;
             if (!nativeController || node.kind !== "agent") return undefined;
-            // This protocol belongs to the actual managed host, not arbitrary
-            // descendants which happen to inherit its ordinary Work identity.
-            // The peer read runs only here, once per connection: descendants
-            // share the seat credential, so only the kernel peer proves which
-            // process connected.
-            const peerPid = readPeerOnce();
-            if (peerPid === undefined) return undefined;
-            const binding = processMap.snapshot().find((entry) =>
-              entry.pid === peerPid && samePrincipalAnchors(entry.principal, admission.principal));
-            if (binding === undefined) return undefined;
+            // The caller is the seat its generation credential names. A
+            // descendant holding the seat's credential is the seat.
             return {
               canvasName: caller.canvasName, nodeId: caller.nodeId,
-              bindingId: node.bindingId, peerPid,
-              processGeneration: `${binding.pid}:${binding.startKey}`,
+              bindingId: node.bindingId, generationId: admission.generationId,
             };
           };
           if (req.op === "overseer.live") {
             const identity = controllerIdentity();
             if (identity === undefined) return Result.fail<WorkErrorBody>({
-              type: "AuthError", message: "the Live controller protocol requires the current native Overseer process",
+              type: "AuthError", message: "the Live controller protocol belongs to the native Overseer seat",
             });
             const decoded = decodeOverseerHostRequest(req.args);
             if (Result.isFailure(decoded)) return Result.fail<WorkErrorBody>({

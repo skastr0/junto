@@ -15,14 +15,14 @@ const serve = async (root: string) => {
     { WorkLive }, { WorkRepositoryLive }, { CrewRepositoryLive }, { AgentSignalRepositoryLive },
     { MachineRepositoryLive, MachineRepository },
     { SettingsLive, SettingsService }, { makeContentServiceLive }, { PausePlaneAllPlaying },
-    { startWorkControlServer }, { makeSeatCredentialRegistry, mintSeatCredential }, { makeProcessIdentityMap }] = await Promise.all([
+    { startWorkControlServer }, { makeSeatCredentialRegistry, mintSeatCredential }] = await Promise.all([
     import("../src/main/junto/state/engine"), import("../src/main/junto/install-ops/engine"),
     import("../src/main/junto/model/layer"), import("../src/main/junto/work/service"),
     import("../src/main/junto/work/repository"), import("../src/main/junto/work/crew-repository"),
     import("../src/main/junto/signals/repository"), import("../src/main/junto/machines/repository"),
     import("../src/main/junto/settings/service"), import("../src/main/junto/content/service"),
     import("../src/main/junto/pause-plane"), import("../src/main/junto/work/control"),
-    import("../src/main/junto/work/seat-credentials"), import("../src/main/junto/process-identity"),
+    import("../src/main/junto/work/seat-credentials"),
   ]);
   const [{ ModelService }, { WorkModelDependentsLive }, { Command }] = await Promise.all([
     import("../src/main/junto/model/service"), import("../src/main/junto/work/model-dependents"), import("../src/shared/model"),
@@ -47,18 +47,14 @@ const serve = async (root: string) => {
   const credentials = makeSeatCredentialRegistry();
   const mint = mintSeatCredential();
   if (!credentials.publish(mint, { agentKey: "local:qualification", bindingId: "qualification", canvasName: "cli-performance", nodeId: "agent" })) throw new Error("credential publish failed");
-  let processObservations = 0;
-  const observed = (): never => { processObservations++; throw new Error("ordinary CLI attempted process observation"); };
-  const processMap = makeProcessIdentityMap({ readParentPid: observed, readProcessStartKey: observed, processAlive: observed });
   const server = await startWorkControlServer({ home: root, workHome: join(root, "work"), version: "qualification",
-    credentials, processMap: new Proxy(processMap, { get(target, key) { return key === "snapshot" || key === "resolve" ? observed : Reflect.get(target, key); } }),
-    readPeerPid: observed, run: (effect) => runtime.runPromise(effect),
+    credentials, run: (effect) => runtime.runPromise(effect),
   });
   let last = performance.now(), maxGap = 0, beats = 0;
   const heartbeat = setInterval(() => { const now = performance.now(); maxGap = Math.max(maxGap, now - last); last = now; beats++; }, 1);
   process.on("message", async (message: { type: string }) => {
     if (message.type === "reset") { last = performance.now(); maxGap = 0; beats = 0; process.send?.({ type: "reset" }); }
-    if (message.type === "sample") process.send?.({ type: "sample", max_gap_ms: maxGap, heartbeat_count: beats, process_observations: processObservations });
+    if (message.type === "sample") process.send?.({ type: "sample", max_gap_ms: maxGap, heartbeat_count: beats });
     if (message.type === "shutdown") {
       clearInterval(heartbeat); credentials.revoke(mint.credential, "seat-closed");
       await server.close(); await runtime.dispose(); process.exit(0);
@@ -117,7 +113,6 @@ const qualify = async (output: string, beforePath: string, afterPath: string) =>
         p95_ms: rows[Math.ceil(n * .95) - 1], max_ms: rows[n - 1], ...heartbeat };
       delete result.type;
       groups.push(result); process.stdout.write(JSON.stringify(result) + "\n");
-      if (heartbeat.process_observations !== 0) throw new Error("ordinary identity observed a process");
     };
     // Warm both executables and the runtime before controlled comparisons.
     await cli(before, ["ping"]); await cli(after, ["ping"]);

@@ -77,7 +77,7 @@ interface Session {
 const pocOperations = new Set<string>(OVERSEER_HOST_OPERATIONS);
 const identityEqual = (left: OverseerHostIdentity, right: OverseerHostIdentity | undefined): boolean =>
   right !== undefined && left.canvasName === right.canvasName && left.nodeId === right.nodeId &&
-  left.bindingId === right.bindingId && left.peerPid === right.peerPid && left.processGeneration === right.processGeneration;
+  left.bindingId === right.bindingId && left.generationId === right.generationId;
 const pending = (request: LiveRequestRecord): boolean => ["queued", "interpreting", "running", "waiting-approval"].includes(request.status);
 const object = (value: unknown): LiveJsonObject => value !== null && typeof value === "object" && !Array.isArray(value)
   ? JSON.parse(JSON.stringify(value)) as LiveJsonObject : {};
@@ -327,8 +327,8 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
       detach = options.subscribeAuthorityChanges((next) => {
         if (!identityEqual(identity, next)) revoke(held, "Overseer grant or occupant changed. Controller actions stopped.");
       }, identity);
-      controlledGenerations.add(identity.processGeneration);
-      await run(repository.createSession({ sessionId: id, seatNodeRef: formatNodeRef(identity), occupantGeneration: identity.processGeneration, authorityEpoch }));
+      controlledGenerations.add(identity.generationId);
+      await run(repository.createSession({ sessionId: id, seatNodeRef: formatNodeRef(identity), occupantGeneration: identity.generationId, authorityEpoch }));
       await verifyIdentity(session);
     }
     session.attention = structuredClone(input.attention);
@@ -527,7 +527,7 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
     await initialization;
     if (!pocOperations.has(request.operation)) throw new Error("This Live proof of concept supports canvas editing and inspection only.");
     const session = current;
-    const controlled = controlledGenerations.has(identity.processGeneration);
+    const controlled = controlledGenerations.has(identity.generationId);
     if (!request.live && !(controlled && isOverseerMutation(request.operation))) return { assertCurrent: () => {}, assertCurrentWithin: Effect.void };
     if (!request.live) throw new Error("Live controller mutations require current request correlation");
     if (!session || request.live.sessionId !== session.id || !identityEqual(session.identity, identity)) throw new Error("Live operation session or occupant is stale");
@@ -559,7 +559,7 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
     }
     if (live.expectedRevision !== undefined && expectedRevision !== undefined && live.expectedRevision !== expectedRevision) throw new Error("Live operation target revision is stale");
     const correlation = { sessionId: session.id, requestId: active.record.requestId, intentRevision: active.record.intentRevision,
-      occupantGeneration: session.identity.processGeneration, authorityEpoch: session.authorityEpoch };
+      occupantGeneration: session.identity.generationId, authorityEpoch: session.authorityEpoch };
     const assertIntentCurrent = (): void => {
       requireAuthority(session);
       if (session !== current || active.abort.signal.aborted || session.requests.get(live.requestId) !== active ||

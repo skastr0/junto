@@ -34,7 +34,6 @@ import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { SettingsLive, SettingsService } from "../src/main/junto/settings/service";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
-import { makeProcessIdentityMap } from "../src/main/junto/process-identity";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 import {
   makeSeatSessionRepositoryLive,
@@ -97,14 +96,10 @@ beforeEach(async () => {
   );
   await runtime.runPromise(Effect.flatMap(MachineRepository, machine => machine.configureName("workbench")));
   await writeSession("s1");
-  const processMap = makeProcessIdentityMap();
-  processMap.bind(process.pid, { agentKey: "local:agent" });
   server = await startWorkControlServer({
     version: "test",
     workHome,
     home: root,
-    processMap,
-    readPeerPid: () => process.pid,
     run: (effect) => runtime.runPromise(effect),
     authoringGate: createMainAuthoringGate(),
   });

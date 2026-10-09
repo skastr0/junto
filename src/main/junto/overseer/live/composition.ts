@@ -4,12 +4,12 @@ import { SqlClient } from "effect/unstable/sql";
 import { asNodeId, type Canvas, type Seat } from "@shared/model";
 import { ModelActorRefs } from "../../model/actor-refs";
 import { ModelService } from "../../model/service";
-import { getProcessIdentityMap } from "../../process-identity";
 import { SettingsService } from "../../settings/service";
 import { StateEngine } from "../../state/service";
 import { withSqlRead } from "../../state/sql-read";
 import { MachineRepository } from "../../machines/repository";
 import { WorkRevisions, WorkRepository } from "../../work/repository";
+import { getSeatCredentialRegistry } from "../../work/seat-credentials";
 import { admitOverseer } from "../admission";
 import type { OverseerHostIdentity } from "./execution";
 import { buildLiveContext, type LiveCanvasRead } from "./context";
@@ -72,7 +72,7 @@ export const composeOverseerLive = async (run: LiveRun) => {
     return { sql: yield* SqlClient.SqlClient, settings: yield* SettingsService, model: yield* ModelService,
       work: yield* WorkRepository, workRevisions: yield* WorkRevisions };
   }));
-  const processMap = getProcessIdentityMap();
+  const credentials = getSeatCredentialRegistry();
   const revisions = new Map<string, string>();
   const resolveOccupant = async (canvasName: string, nodeId: string): Promise<OverseerHostIdentity | undefined> => {
     try {
@@ -80,17 +80,12 @@ export const composeOverseerLive = async (run: LiveRun) => {
       if (!isThisMachine(authority.hostId, authority.configuration.name)) return undefined;
       const node = voiceSeatOf((await run(model.canvas(canvasName))).nodes.get(asNodeId(nodeId)));
       if (node === undefined) return undefined;
-      const matches = processMap.snapshot().filter((entry) => {
-        const alive = processMap.resolve(entry.pid);
-        return alive !== undefined &&
-          (alive.bindingId === authority.bindingId || alive.agentKey === node.agentKey) &&
-          (alive.canvasName === undefined || alive.canvasName === canvasName) &&
-          (alive.nodeId === undefined || alive.nodeId === nodeId);
-      });
+      const matches = credentials.liveGenerations().filter(({ principal }) =>
+        (principal.bindingId === authority.bindingId || principal.agentKey === node.agentKey) &&
+        (principal.canvasName === undefined || principal.canvasName === canvasName) &&
+        (principal.nodeId === undefined || principal.nodeId === nodeId));
       if (matches.length !== 1) return undefined;
-      const entry = matches[0]!;
-      return { canvasName, nodeId, bindingId: authority.bindingId, peerPid: entry.pid,
-        processGeneration: `${entry.pid}:${entry.startKey}` };
+      return { canvasName, nodeId, bindingId: authority.bindingId, generationId: matches[0]!.generationId };
     } catch { return undefined; }
   };
   const service = createLiveSessionService({
@@ -129,12 +124,14 @@ export const composeOverseerLive = async (run: LiveRun) => {
         if (event._tag === "Removed" && event.canvas === seat.canvasName) listener(undefined);
       });
       const unsubscribeCanvas = () => { unsubscribeNodes(); unsubscribeCanvases(); };
-      const unsubscribeProcess = processMap.subscribe((principal) => {
-        // Lifecycle events are unbinds. Latch them synchronously, even if a later
-        // bind occupies the same seat before an asynchronous re-admission runs.
-        if (principal.canvasName === seat.canvasName && principal.nodeId === seat.nodeId) listener(undefined);
+      const unsubscribeGeneration = credentials.subscribe((event) => {
+        // A revoked or suspended generation ends authority. Latch it
+        // synchronously, even if a later generation occupies the same seat
+        // before an asynchronous re-admission runs.
+        if (event.type === "revoked" && event.principal.canvasName === seat.canvasName &&
+          event.principal.nodeId === seat.nodeId) listener(undefined);
       });
-      return () => { unsubscribeCanvas(); unsubscribeProcess(); };
+      return () => { unsubscribeCanvas(); unsubscribeGeneration(); };
     },
   });
   let refresh: ReturnType<typeof setTimeout> | undefined;

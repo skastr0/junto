@@ -56,7 +56,6 @@ import {
 import { MachineRepository, MachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
-import { makeProcessIdentityMap } from "../src/main/junto/process-identity";
 import {
   SettingsLive,
   SettingsService,
@@ -477,10 +476,7 @@ export const runWorkCliAcceptance = async () => {
       }),
     );
   }
-  // Ordinary admission is the generation credential. The process map remains
-  // only for the overseer live root-process proof.
-  const processMap = makeProcessIdentityMap();
-  processMap.bind(process.pid, { agentKey: "local:default" });
+  // Admission is the generation credential.
   const credentials = makeSeatCredentialRegistry();
   const mint = mintSeatCredential();
   if (!credentials.publish(mint, { agentKey: "local:default" })) {
@@ -497,7 +493,6 @@ export const runWorkCliAcceptance = async () => {
       workHome,
       home: root,
       credentials,
-      processMap,
       run: (effect) => runtime.runPromise(effect),
     });
 

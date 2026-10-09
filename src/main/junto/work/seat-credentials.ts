@@ -95,6 +95,11 @@ export interface SeatCredentialRegistry {
   readonly revoke: (credential: string, reason: SeatCredentialRevokeReason) => boolean;
   readonly revokePrincipal: (match: ProcessPrincipal) => number;
   readonly subscribe: (listener: (event: SeatCredentialEvent) => void) => () => void;
+  /** Every live generation and the seat it names. Never the credential value. */
+  readonly liveGenerations: () => ReadonlyArray<{
+    readonly principal: ProcessPrincipal;
+    readonly generationId: string;
+  }>;
   readonly size: () => number;
   readonly tombstoneSize: () => number;
 }
@@ -245,6 +250,11 @@ export const makeSeatCredentialRegistry = (
         listeners.delete(listener);
       };
     },
+    liveGenerations: () =>
+      [...live.values()].map((record) => ({
+        principal: record.principal,
+        generationId: record.generationId,
+      })),
     size: () => live.size,
     tombstoneSize: () => tombstones.size,
   };

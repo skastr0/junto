@@ -14,7 +14,6 @@ import {
 } from "../src/main/junto/work/service";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import {
-  makeProcessIdentityMap,
   type ProcessPrincipal,
 } from "../src/main/junto/process-identity";
 import {
@@ -30,8 +29,6 @@ import { injectionSupervisor } from "../src/main/junto/term/injection-supervisor
 // principal.bindingId would leave every such seat not onboarded, and nudged,
 // however often it ran `junto onboard`.
 
-const PEER_PID = 73_003;
-const ANCHOR_PID = 73_002;
 const SEAT_BINDING = "binding-proof-seat";
 
 /** Exactly the production principal shape for a managed agent seat. */
@@ -93,12 +90,6 @@ const startRig = async (): Promise<Rig> => {
   const root = await mkdtemp(join(tmpdir(), "junto-work-proof-"));
   const workHome = join(root, "work");
   mkdirSync(workHome, { recursive: true });
-  const map = makeProcessIdentityMap({
-    processAlive: () => true,
-    readProcessStartKey: (pid) => `generation:${pid}`,
-    readParentPid: (pid) => (pid === PEER_PID ? ANCHOR_PID : undefined),
-  });
-  expect(map.bind(ANCHOR_PID, PRINCIPAL)).toBe(true);
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(
       Layer.succeed(WorkService, workService),
@@ -109,8 +100,6 @@ const startRig = async (): Promise<Rig> => {
     version: "proof-test",
     home: root,
     workHome,
-    processMap: map,
-    readPeerPid: () => PEER_PID,
     run: (effect) => runtime.runPromise(effect),
     authoringGate: createMainAuthoringGate(),
   });

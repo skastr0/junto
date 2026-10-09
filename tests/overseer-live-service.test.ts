@@ -34,7 +34,7 @@ import { defaultSettings } from "../src/shared/settings";
 
 const identity: OverseerHostIdentity = {
   canvasName: "factory", nodeId: "controller", bindingId: "live-controller",
-  peerPid: 4242, processGeneration: "4242:started",
+  generationId: "generation-started",
 };
 const attention = (nodeId = "first"): LiveAttention => ({ canvasName: "factory", selectedNodeIds: [nodeId] });
 const nodes = (): ReadonlyArray<Node> => [

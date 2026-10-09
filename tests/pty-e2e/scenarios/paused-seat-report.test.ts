@@ -14,7 +14,6 @@ import { encodeWorkFrame } from "../../../src/shared/work-control";
 import { ProtoHarness } from "../proto-harness";
 import { startWorkControlServer, type WorkControlServer } from "../../../src/main/junto/work/control";
 import { createMainAuthoringGate } from "../../../src/main/junto/main-authoring-gate";
-import { makeProcessIdentityMap } from "../../../src/main/junto/process-identity";
 import { publishSeatCredential } from "../../helpers/seat-credential";
 import { seat, wire } from "../../support/model-nodes";
 
@@ -65,14 +64,10 @@ describe("PROTO-8 — paused seat reports paused:true + next_step", () => {
     await harness.start();
     await harness.nameThisMachine();
     await harness.seed("work-cli", [seat("agent"), seat("peer")], [wire("e1", "agent", "peer", "messages")]);
-    const processMap = makeProcessIdentityMap();
-    processMap.bind(process.pid, { agentKey: "local:agent" });
     server = await startWorkControlServer({
       version: "test",
       workHome,
       home: root,
-      processMap,
-      readPeerPid: () => process.pid,
       run: (effect) => harness.runtime.runPromise(effect as never),
       authoringGate: createMainAuthoringGate(),
     });
