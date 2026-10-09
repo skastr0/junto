@@ -129,6 +129,60 @@ export class ModelService extends Context.Service<ModelService>()(
           Effect.mapError((cause) => modelError("canvas", cause)),
         );
       });
+      /**
+       * Take a copy of a canvas another machine edits. A copy replaces what
+       * this machine holds of that canvas when it is newer; the same or an
+       * older copy changes nothing. Refused for a canvas this machine edits,
+       * and for a copy whose editing machine is not the one already recorded.
+       */
+      const installCopy = Effect.fn("ModelService.installCopy")(function* (input: {
+        readonly canvas: CanvasName;
+        readonly canvasId: string;
+        readonly seq: number;
+        readonly editor: string;
+        readonly nodes: ReadonlyArray<Node>;
+        readonly wires: ReadonlyArray<Wire>;
+      }) {
+        return yield* sql
+          .withTransaction(
+            Effect.gen(function* () {
+              if (input.editor === (yield* records.thisInstallation())) {
+                return yield* refused("A machine holds no copy of a canvas it edits.");
+              }
+              const header = yield* records.getCanvas(input.canvas);
+              if (header !== undefined) {
+                if ((yield* records.canvasEditor(input.canvas)) !== input.editor) {
+                  return yield* refused("A copy does not change which machine edits a canvas.");
+                }
+                if (header.seq >= input.seq) return { installed: false as const, seq: header.seq };
+              }
+              // A seat's machine keeps the session it recorded for its own seat.
+              const sessions = new Map<string, string>();
+              if (header !== undefined) {
+                for (const node of yield* records.listNodes(input.canvas)) {
+                  if (node.kind === "agent" && node.sessionId !== undefined) sessions.set(node.id, node.sessionId);
+                }
+              }
+              const nodes = input.nodes.map((node): Node => {
+                if (node.kind !== "agent") return node;
+                const { sessionId: _sent, ...seat } = node;
+                const kept = sessions.get(node.id);
+                return kept === undefined ? seat : { ...seat, sessionId: kept };
+              });
+              yield* records.replaceCanvas({ ...input, nodes });
+              const replaced = canvasFromOpened({ canvas: input.canvas, seq: input.seq, nodes, wires: input.wires });
+              yield* stage(input.canvas, replaced);
+              yield* afterSqlCommit(sql, () => {
+                held.set(input.canvas, replaced);
+                const event: CanvasesChanged = { _tag: "Replaced", canvas: input.canvas };
+                notify(canvasListeners, event, replaced);
+                PubSub.publishUnsafe(canvasChanges, event);
+              });
+              return { installed: true as const, seq: input.seq };
+            }),
+          )
+          .pipe(Effect.mapError((cause) => modelError("installCopy", cause)));
+      });
       const open = Effect.fn("ModelService.open")(function* (name: string) {
         const current = yield* canvas(name);
         return {
@@ -628,6 +682,7 @@ export class ModelService extends Context.Service<ModelService>()(
         canvas,
         open,
         command,
+        installCopy,
         listCanvases: records.listCanvases,
         listCanvasSummaries: records.listCanvasSummaries,
         ensureSeed,

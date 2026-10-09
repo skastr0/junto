@@ -45,6 +45,7 @@ export type CopiedReference = typeof CopiedReference.Type;
 
 export const CanvasCopy = Schema.Struct({
   canvasName: CanvasName,
+  canvasId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
   /** The editing machine's count for this canvas. A copy replaces an older one. */
   seq: Seq,
   editor: InstallationId,
@@ -67,6 +68,7 @@ export const decodeCanvasCopy = Schema.decodeUnknownResult(CanvasCopy, { onExces
 /** A canvas as the machine that edits it holds it. */
 export type CanvasCopySource = {
   readonly canvasName: CanvasName;
+  readonly canvasId: string;
   readonly seq: number;
   readonly editor: InstallationId;
   readonly nodes: ReadonlyArray<Node>;
@@ -165,8 +167,11 @@ export const exportCanvasCopy = (
   const regions: Region[] = [];
   for (const node of source.nodes) {
     if (node.kind === "agent") {
-      if (node.host === target.machineName) seats.push(node);
-      else {
+      if (node.host === target.machineName) {
+        // The session a seat runs is its machine's own record, never the editing machine's.
+        const { sessionId: _session, ...seat } = node;
+        seats.push(seat);
+      } else {
         peers.push({
           kind: "peer",
           id: node.id,
@@ -198,6 +203,7 @@ export const exportCanvasCopy = (
     ok: true,
     copy: {
       canvasName: source.canvasName,
+      canvasId: source.canvasId,
       seq: source.seq,
       editor: source.editor,
       target: target.installationId,

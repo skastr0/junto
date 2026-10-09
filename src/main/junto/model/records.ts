@@ -337,6 +337,37 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
           return yield* new ModelNotFound({ what: "canvas", id: canvas });
         return rows[0].seq;
       }, failure("advanceSeq"));
+      /**
+       * Put a copy of a canvas in place of whatever this machine holds of it:
+       * every node and wire goes, the copy's come in, and the canvas takes
+       * the copy's count and editing machine. The caller owns the transaction.
+       */
+      const replaceCanvas = Effect.fn("ModelRecords.replaceCanvas")(function* (input: {
+        readonly canvas: string;
+        readonly canvasId: string;
+        readonly seq: number;
+        readonly editor: string;
+        readonly nodes: ReadonlyArray<Node>;
+        readonly wires: ReadonlyArray<Wire>;
+      }) {
+        const at = new Date().toISOString();
+        yield* sql`DELETE FROM wires WHERE canvas_name=${input.canvas}`;
+        for (const table of Object.values(KIND_TABLES))
+          yield* sql.unsafe(`DELETE FROM ${table} WHERE canvas_name=?`, [input.canvas]);
+        yield* sql`INSERT INTO canvases(canvas_name,canvas_id,created_at,updated_at,seq,editor_installation_id)
+          VALUES (${input.canvas},${input.canvasId},${at},${at},${input.seq},${input.editor})
+          ON CONFLICT(canvas_name) DO UPDATE SET seq=excluded.seq, updated_at=excluded.updated_at`;
+        for (const node of input.nodes)
+          yield* insert(KIND_TABLES[node.kind], { ...nodeToRow(input.canvas, node), created_at: at, updated_at: at });
+        for (const wire of input.wires)
+          yield* insert("wires", { ...wireToRow(input.canvas, wire), created_at: at, updated_at: at });
+      }, failure("replaceCanvas"));
+      const thisInstallation = Effect.fn("ModelRecords.thisInstallation")(() =>
+        sql<{ installation_id: string }>`SELECT installation_id FROM station_installation WHERE singleton = 1`.pipe(
+          Effect.map((rows) => rows[0]?.installation_id),
+          failure("thisInstallation"),
+        ),
+      );
       const removeCanvas = Effect.fn("ModelRecords.removeCanvas")(function* (
         canvas: string,
       ) {
@@ -371,6 +402,8 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
         removeWire,
         removeNode,
         createCanvas,
+        replaceCanvas,
+        thisInstallation,
         advanceSeq,
         removeCanvas,
       };

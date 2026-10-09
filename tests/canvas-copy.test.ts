@@ -70,6 +70,7 @@ const wires: ReadonlyArray<Wire> = [
 
 const source: CanvasCopySource = {
   canvasName: asCanvasName("factory"),
+  canvasId: "canvas-factory",
   seq: 41,
   editor: EDITOR,
   nodes,
@@ -97,7 +98,7 @@ const cut = (): CanvasCopy => {
 describe("a canvas cut for one machine", () => {
   it("is one snapshot stamped with its canvas, count, editor and target, and decodes as written", () => {
     const copy = cut();
-    expect(copy).toMatchObject({ canvasName: "factory", seq: 41, editor: EDITOR, target: MINI, playing: true });
+    expect(copy).toMatchObject({ canvasName: "factory", canvasId: "canvas-factory", seq: 41, editor: EDITOR, target: MINI, playing: true });
     expect(Result.isSuccess(decodeCanvasCopy(JSON.parse(JSON.stringify(copy))))).toBe(true);
   });
 
