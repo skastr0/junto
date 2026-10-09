@@ -75,14 +75,7 @@ describe("settings state architecture", () => {
   });
 
   it("does not expose local Remote configuration or station-role onboarding", async () => {
-    const [gate, panel, app, service] = await Promise.all([
-      readFile(
-        new URL(
-          "../src/renderer/components/StationRoleGate.tsx",
-          import.meta.url,
-        ),
-        "utf8",
-      ),
+    const [panel, app, service] = await Promise.all([
       readFile(
         new URL(
           "../src/renderer/components/SettingsPanel.tsx",
@@ -100,10 +93,6 @@ describe("settings state architecture", () => {
       ),
     ]);
     // First-run role UI is retired; main auto-establishes Command Center.
-    expect(gate).toContain("retired for v1");
-    expect(gate).not.toContain("Look for a Command Center");
-    expect(gate).not.toContain('pick("remote")');
-    expect(gate).not.toContain("Continue as Remote");
     expect(app).not.toContain("StationRoleGate");
     expect(service).toContain("ensureDefaultCommandCenter");
     expect(service).toContain('role: "command-center"');

@@ -9,8 +9,7 @@
 #   scripts/install-app.sh --supervised    also (re)load LaunchAgent (crash-only KeepAlive)
 #
 # Station preference (settings.station.supervisedPreferred):
-#   Product intent only — this script never opens Junto's SQLite state.
-#   StationRoleGate sets supervisedPreferred=true when role=remote. The install
+#   Product intent only — this script never opens Junto's SQLite state. The install
 #   surface for that preference is --supervised (or bun run app:install:supervised).
 #   Settings doctor metadata reports preferred vs LaunchAgent-loaded so Remote
 #   deploy (later) can decide to pass --supervised. No third binary.

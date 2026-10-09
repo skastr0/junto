@@ -21,5 +21,3 @@ export type {
 // PTY lane, fleet lane) without touching this module.
 export { ActivityFeed, ActivityFeedNull, nullActivityFeed } from "./activity-feed";
 export type { ActivityFeedService, OccupancyClue } from "./activity-feed";
-export { HostLiveness, HostLivenessNull, nullHostLiveness } from "./host-liveness";
-export type { HostLivenessService } from "./host-liveness";

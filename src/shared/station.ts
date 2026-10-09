@@ -42,8 +42,8 @@ export const isValidStationHostId = (value: string): boolean =>
 // ---------------------------------------------------------------------------
 // Supervised runtime preference vs LaunchAgent install (Remote 24×7 foundation)
 //
-// Product surface: settings.station.supervisedPreferred (StationRoleGate sets
-// true for Remote). Install surface: `bun run app:install:supervised` /
+// Product surface: settings.station.supervisedPreferred. Install surface:
+// `bun run app:install:supervised` /
 // install-app.sh --supervised → install-launchd.sh. Doctor reports the gap;
 // full Remote deploy of the agent is later work — not this module.
 // ---------------------------------------------------------------------------
