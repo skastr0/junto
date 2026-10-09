@@ -214,14 +214,9 @@ describe("providers settings schema", () => {
       browser: current.browser,
       advanced: current.advanced,
       audio: current.audio,
-      fleet: current.fleet,
       harnesses: current.harnesses,
     };
-    const restored = decodeStoredSettings(1, legacyPreferences, {
-      role: "",
-      hostId: "local",
-      supervisedPreferred: false,
-    });
+    const restored = decodeStoredSettings(1, legacyPreferences, current.machine);
     expect(restored.providers).toEqual({ enabledSources: [] });
     expect(() =>
       Schema.decodeUnknownSync(Settings, { onExcessProperty: "error" })(restored),

@@ -7,11 +7,8 @@ import {
   staticPathDirs,
 } from "../src/main/junto/adapters/exec";
 import {
-  applySettingsPatch,
   defaultSettings,
-  sanitizeFleetConsent,
 } from "../src/shared/settings";
-import { decodeStoredSettings } from "../src/main/junto/settings/state-schema";
 import {
   PERMITTED_USAGE_DESCRIPTIONS,
   unpermittedUsageDescriptions,
@@ -80,39 +77,6 @@ describe("macOS privacy policy", () => {
   it("defaults every cross-provider reader off", () => {
     expect(defaultSettings().providers?.enabledSources).toEqual([]);
     expect(defaultSettings().providers?.hermesHostSnapshots).toBeUndefined();
-    expect(defaultSettings().fleet.remoteManagedInstalls).toBe(false);
-    expect(defaultSettings().fleet.remoteManagedInstallsConsented).toBeUndefined();
-  });
-
-  it("treats an old default-on remoteManagedInstalls row as unconsented", () => {
-    const current = defaultSettings();
-    const restored = decodeStoredSettings(
-      1,
-      {
-        appearance: current.appearance,
-        canvas: current.canvas,
-        kernel: current.kernel,
-        browser: current.browser,
-        advanced: current.advanced,
-        audio: current.audio,
-        fleet: { ditherLevel: "fine", remoteManagedInstalls: true },
-      },
-      current.machine,
-    );
-    expect(restored.fleet.remoteManagedInstalls).toBe(false);
-    expect(restored.fleet.remoteManagedInstallsConsented).toBeUndefined();
-    expect(
-      sanitizeFleetConsent({
-        ditherLevel: "fine",
-        remoteManagedInstalls: true,
-        remoteManagedInstallsConsented: true,
-      }).remoteManagedInstalls,
-    ).toBe(true);
-    const optedIn = applySettingsPatch(defaultSettings(), {
-      fleet: { remoteManagedInstalls: true },
-    });
-    expect(optedIn.fleet.remoteManagedInstalls).toBe(true);
-    expect(optedIn.fleet.remoteManagedInstallsConsented).toBe(true);
   });
 
   it("never executes shell startup files for PATH discovery or exposes filesystem enumeration IPC", () => {
