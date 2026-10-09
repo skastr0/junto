@@ -82,7 +82,11 @@ export class MachineInstallError extends Schema.TaggedError<MachineInstallError>
 }) {}
 
 export const MachineSendInput = Schema.Struct({
-  sshTarget: Schema.String.pipe(Schema.check(Schema.isPattern(/^(?!-)[A-Za-z0-9._:@%\[\]-]+$/))),
+  sshPort: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isBetween({ minimum: 1, maximum: 65535 })))),
+  sshIdentityFile: Schema.optionalKey(MachineAbsolutePath),
+  sshKnownHostsFile: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(1024)), Schema.check(Schema.isPattern(/^\/[A-Za-z0-9._/@+-]+$/)))),
+  sshHostKeyAlias: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(255)), Schema.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/)))),
+  sshTarget: Schema.String.pipe(Schema.check(Schema.isPattern(/^(?!-)[A-Za-z0-9._:@%+\[\]-]+$/))),
   bundle: MachineAbsolutePath,
   juntoHome: Schema.optionalKey(MachineAbsolutePath),
   installRoot: Schema.optionalKey(MachineAbsolutePath),

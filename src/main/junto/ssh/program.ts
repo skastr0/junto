@@ -293,12 +293,21 @@ export const createSshProgramCompiler = (policy: SshExecutionPolicy) => {
     target: SshTarget,
   ): {
     readonly endpoint: SshEndpoint;
+    readonly isolated: boolean;
     readonly options: ReadonlyArray<string>;
   } => {
     const route = inspectSshTarget(target);
     return {
       endpoint: route.endpoint,
+      isolated: route.knownHostsFile !== undefined || route.hostKeyAlias !== undefined,
       options: [
+        ...(route.port === undefined ? [] : ["-p", String(route.port)]),
+        ...(route.knownHostsFile === undefined ? [] : [
+          "-o", "StrictHostKeyChecking=yes",
+          "-o", `UserKnownHostsFile=${route.knownHostsFile}`,
+          "-o", "GlobalKnownHostsFile=/dev/null",
+        ]),
+        ...(route.hostKeyAlias === undefined ? [] : ["-o", `HostKeyAlias=${route.hostKeyAlias}`]),
         ...(route.identityFile === undefined
           ? []
           : [
@@ -324,7 +333,7 @@ export const createSshProgramCompiler = (policy: SshExecutionPolicy) => {
       ...BASE_OPTIONS,
       ...route.options,
       "-o", "ClearAllForwardings=yes",
-      ...(connection === "shared" ? sharedOptions : dedicatedOptions),
+      ...(connection === "shared" && !route.isolated ? sharedOptions : dedicatedOptions),
       route.endpoint,
       invocationText(invocation),
     ]);
@@ -359,7 +368,7 @@ export const createSshProgramCompiler = (policy: SshExecutionPolicy) => {
       return {
         endpoint: route.endpoint,
         readinessTimeoutMs: payload.readinessTimeoutMs,
-        connection: payload.connection,
+        connection: route.knownHostsFile !== undefined || route.hostKeyAlias !== undefined ? "dedicated" : payload.connection,
         command: normal(
           payload.target,
           { _tag: "Argv", command: payload.command },

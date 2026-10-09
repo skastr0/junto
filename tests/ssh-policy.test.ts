@@ -24,6 +24,7 @@ import {
   createSshProgramCompiler,
   dedicatedStream,
   oneShot,
+  sharedStream,
   unixForward,
 } from "../src/main/junto/ssh/program";
 import {
@@ -247,6 +248,32 @@ describe("SSH policy surface", () => {
     expect(args).toContain("IdentitiesOnly=yes");
     expect(args).toContain("StrictHostKeyChecking=accept-new");
     expect(args.at(-2)).toBe("user@203.0.113.8");
+  });
+
+  it("uses the supplied strict host pin and port without reusing a different policy's master", async () => {
+    const target = await runPromise(parseSshRoute({
+      endpoint: "user@203.0.113.8", port: 19049,
+      identityFile: "/Users/operator/.ssh/provider_ed25519",
+      knownHostsFile: "/Users/operator/.ssh/sandbox_known_hosts/one",
+      hostKeyAlias: "sandbox-one",
+    }));
+    const remote = await runPromise(makeRemoteCommand("/usr/bin/true"));
+    const compiler = createSshProgramCompiler({ controlDir: "/tmp/junto-ssh-policy-test", envExecutable: "/usr/bin/env", sshExecutable: "/usr/bin/ssh", environment: {} });
+    const stream = compiler.stream(sharedStream(target, remote));
+    expect(stream.connection).toBe("dedicated");
+    for (const compiled of [compiler.oneShot(oneShot(target, remote)).command, stream.command]) {
+      const args = sshArgs(standard(compiled));
+      expect(args[args.indexOf("-p") + 1]).toBe("19049");
+      expect(args).toContain("StrictHostKeyChecking=yes");
+      expect(args).toContain("UserKnownHostsFile=/Users/operator/.ssh/sandbox_known_hosts/one");
+      expect(args).toContain("GlobalKnownHostsFile=/dev/null");
+      expect(args).toContain("HostKeyAlias=sandbox-one");
+      expect(args).toContain("IdentitiesOnly=yes");
+      expect(args).toContain("ControlMaster=no");
+      expect(args).toContain("ControlPath=none");
+      expect(args).toContain("ForwardAgent=no");
+      expect(args).not.toContain("StrictHostKeyChecking=accept-new");
+    }
   });
 
   it("renders Hermes operations through shared one-shots and isolated ACP streams", async () => {

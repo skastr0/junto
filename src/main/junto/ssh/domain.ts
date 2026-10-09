@@ -29,6 +29,18 @@ export const SshIdentityFile = Schema.String.pipe(
 );
 export type SshIdentityFile = typeof SshIdentityFile.Type;
 
+export const SshPort = Schema.Number.pipe(
+  Schema.check(Schema.isInt()), Schema.check(Schema.isBetween({ minimum: 1, maximum: 65535 })),
+);
+export const SshKnownHostsFile = Schema.String.pipe(
+  Schema.check(Schema.isMaxLength(1024)),
+  Schema.check(Schema.isPattern(/^\/[A-Za-z0-9._/@+-]+$/)),
+);
+export const SshHostKeyAlias = Schema.String.pipe(
+  Schema.check(Schema.isMaxLength(255)),
+  Schema.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/)),
+);
+
 export const SshHostKeyPolicy = Schema.Literals(["system", "accept-new"]);
 export type SshHostKeyPolicy = typeof SshHostKeyPolicy.Type;
 
@@ -43,6 +55,9 @@ export type SshTarget = SshEndpoint | SshRoute;
 interface SshRouteDetails {
   readonly endpoint: SshEndpoint;
   readonly identityFile?: SshIdentityFile;
+  readonly port?: number;
+  readonly knownHostsFile?: string;
+  readonly hostKeyAlias?: string;
   readonly hostKeyPolicy: SshHostKeyPolicy;
 }
 
@@ -133,6 +148,9 @@ export const parseSshEndpoint = (input: unknown): Effect.Effect<SshEndpoint, Ssh
 export const parseSshRoute = (input: {
   readonly endpoint: unknown;
   readonly identityFile?: unknown;
+  readonly port?: unknown;
+  readonly knownHostsFile?: unknown;
+  readonly hostKeyAlias?: unknown;
   readonly hostKeyPolicy?: unknown;
 }): Effect.Effect<SshRoute, SshInputError> =>
   Effect.gen(function* () {
@@ -162,12 +180,27 @@ export const parseSshRoute = (input: {
                 }),
             ),
           );
+    const port = input.port === undefined ? undefined : yield* Schema.decodeUnknownEffect(SshPort)(input.port).pipe(
+      Effect.mapError(() => new SshInputError({ message: "SSH port must be an integer from 1 through 65535" })),
+    );
+    const knownHostsFile = input.knownHostsFile === undefined ? undefined : yield* Schema.decodeUnknownEffect(SshKnownHostsFile)(input.knownHostsFile).pipe(
+      Effect.mapError(() => new SshInputError({ message: "SSH known-hosts file must be an absolute path without OpenSSH expansion tokens" })),
+    );
+    const hostKeyAlias = input.hostKeyAlias === undefined ? undefined : yield* Schema.decodeUnknownEffect(SshHostKeyAlias)(input.hostKeyAlias).pipe(
+      Effect.mapError(() => new SshInputError({ message: "SSH host-key alias must be a bounded literal name" })),
+    );
+    if (knownHostsFile !== undefined && hostKeyPolicy !== "system") {
+      return yield* Effect.fail(new SshInputError({ message: "a pinned known-hosts file requires strict host-key checking" }));
+    }
     const route = Object.freeze({
       [SshRouteTypeId]: SshRouteTypeId,
     }) as SshRoute;
     sshRoutes.set(route, {
       endpoint,
       ...(identityFile === undefined ? {} : { identityFile }),
+      ...(port === undefined ? {} : { port }),
+      ...(knownHostsFile === undefined ? {} : { knownHostsFile }),
+      ...(hostKeyAlias === undefined ? {} : { hostKeyAlias }),
       hostKeyPolicy,
     });
     return route;
@@ -176,10 +209,16 @@ export const parseSshRoute = (input: {
 export const parseHostSshRoute = (host: {
   readonly sshEndpoint?: unknown;
   readonly sshIdentityFile?: unknown;
+  readonly sshPort?: unknown;
+  readonly sshKnownHostsFile?: unknown;
+  readonly sshHostKeyAlias?: unknown;
   readonly sshHostKeyPolicy?: unknown;
 }): Effect.Effect<SshRoute, SshInputError> =>
   parseSshRoute({
     endpoint: host.sshEndpoint,
+    ...(host.sshPort === undefined ? {} : { port: host.sshPort }),
+    ...(host.sshKnownHostsFile === undefined ? {} : { knownHostsFile: host.sshKnownHostsFile }),
+    ...(host.sshHostKeyAlias === undefined ? {} : { hostKeyAlias: host.sshHostKeyAlias }),
     ...(host.sshIdentityFile === undefined
       ? {}
       : { identityFile: host.sshIdentityFile }),

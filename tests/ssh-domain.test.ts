@@ -2,6 +2,7 @@ import { Effect, Result } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   parseSshEndpoint,
+  parseSshRoute,
   parseRemoteUnixSocketPath,
   remoteHermesCli,
   remoteUname,
@@ -23,6 +24,18 @@ describe("SSH domain", () => {
 
     expect(valid).toBe("ops@remote-a");
     expect(Result.isFailure(invalid)).toBe(true);
+  });
+
+  it("rejects invalid ports, expandable pin paths and relaxed checking of pinned keys", async () => {
+    for (const route of [
+      { port: 0 }, { port: 65536 }, { port: 22.5 }, { port: "22" },
+      { knownHostsFile: "/tmp/%h" }, { knownHostsFile: "/tmp/a b" },
+      { knownHostsFile: "/tmp/pinned", hostKeyPolicy: "accept-new" },
+      { hostKeyAlias: "-oIgnored" }, { hostKeyAlias: "${HOST}" },
+    ]) {
+      const result = await Effect.runPromise(Effect.result(parseSshRoute({ endpoint: "user@target", ...route })));
+      expect(Result.isFailure(result)).toBe(true);
+    }
   });
 
   it("rejects NUL-bearing remote arguments before policy compilation", async () => {
