@@ -5,7 +5,7 @@
 **Scope:** durable product state, canvas history, work-plane residency, Station
 coordination, scheduling, backup, and process ownership
 
-**Protocol:** [junto-protocol.md](junto-protocol.md)
+**Machines:** [machines.md](machines.md)
 
 Junto has one storage architecture:
 

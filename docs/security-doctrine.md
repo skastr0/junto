@@ -17,10 +17,9 @@ Stations. Those exceptions remain boundary codecs or retained inert data; they
 do not justify duplicate internal domains, dual writes, dormant fallback
 stores, or retired file paths.
 
-The exact multi-installation contract is
-[`junto-protocol.md`](junto-protocol.md). That document may refine protocol
-mechanics, but it cannot weaken the trust boundaries or forbidden residue
-defined here.
+The contract for one canvas across machines is
+[`machines.md`](machines.md). That document may refine mechanics, but it
+cannot weaken the trust boundaries or forbidden residue defined here.
 
 The exact Linux host boundary is
 [`linux-host-preparation.md`](linux-host-preparation.md). Linux installation,

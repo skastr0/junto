@@ -33,12 +33,9 @@ intent. If a review, backlog item, test, or older architecture note conflicts
 with it, the conflict is migration work. Newly emitted traffic has no legacy
 codec or namespace.
 
-[`docs/junto-protocol.md`](docs/junto-protocol.md) is the canonical
-multi-installation contract: identity, complete intent projection, sink/item
-authority, synchronous CC-home task claims, offline Remote execution, logical
-event convergence, the closed Station operations, and transport adapters.
-Protocol 1 remains prerelease. The closed operations are `pair`, `configure`,
-`project`, `report`, `status`, and `overseer`. `overseer` is not an RPC tunnel.
+[`docs/machines.md`](docs/machines.md) is the contract for one canvas across
+machines. It replaces the Remote station design; the Station protocol and its
+document are gone.
 
 **Normative direction:** the app is its model: typed rows changed by
 commands, followed by events. Capability-bound tools are the agent API. **Sole
