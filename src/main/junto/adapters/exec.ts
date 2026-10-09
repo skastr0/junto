@@ -1,4 +1,5 @@
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync, statSync, type Dirent } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { ACCESS_CANCELLED_ERROR } from "../access-signal";
@@ -412,18 +413,22 @@ export const staticPathDirs = (home: string): ReadonlyArray<string> => [
 // Symlinked dirs sort first because they name the manager's active choice;
 // numbered versions then run newest-name first (numeric-aware so v22 sorts
 // before v9); leftover plain dirs like `old`/`backup` come last.
+const versionDirs = (root: string, entries: ReadonlyArray<Dirent>): ReadonlyArray<string> => {
+  const rank = (entry: Dirent) =>
+    entry.isSymbolicLink() ? 0 : /\d/.test(entry.name) ? 1 : 2;
+  return entries
+    .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+    .sort((left, right) => {
+      const rankDiff = rank(left) - rank(right);
+      if (rankDiff !== 0) return rankDiff;
+      return right.name.localeCompare(left.name, undefined, { numeric: true });
+    })
+    .map((entry) => join(root, entry.name));
+};
+
 const readVersionDirs = (root: string): ReadonlyArray<string> => {
   try {
-    const rank = (entry: { isSymbolicLink(): boolean; name: string }) =>
-      entry.isSymbolicLink() ? 0 : /\d/.test(entry.name) ? 1 : 2;
-    return readdirSync(root, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
-      .sort((left, right) => {
-        const rankDiff = rank(left) - rank(right);
-        if (rankDiff !== 0) return rankDiff;
-        return right.name.localeCompare(left.name, undefined, { numeric: true });
-      })
-      .map((entry) => join(root, entry.name));
+    return versionDirs(root, readdirSync(root, { withFileTypes: true }));
   } catch {
     return [];
   }
@@ -460,22 +465,51 @@ const expandVersionRoot = (
  * TCC-protected folders. A real binary here outranks the same manager's shim
  * dir in staticPathDirs, so a stale shim cannot shadow it.
  */
+const versionRootSpecs = (home: string): ReadonlyArray<readonly [string, ReadonlyArray<string>]> => [
+  [join(home, ".nvm", "versions", "node"), ["*", "bin"]],
+  [join(home, ".pyenv", "versions"), ["*", "bin"]],
+  [join(home, ".rbenv", "versions"), ["*", "bin"]],
+  [join(home, ".local", "share", "mise", "installs"), ["*", "*", "bin"]],
+  [join(home, ".asdf", "installs"), ["*", "*", "bin"]],
+  [
+    join(home, ".local", "share", "fnm", "node-versions"),
+    ["*", "installation", "bin"],
+  ],
+  [join(home, ".volta", "tools", "image", "node"), ["*", "bin"]],
+];
+
 export const enumeratedToolDirs = (home: string): ReadonlyArray<string> => {
-  const specs: ReadonlyArray<readonly [string, ReadonlyArray<string>]> = [
-    [join(home, ".nvm", "versions", "node"), ["*", "bin"]],
-    [join(home, ".pyenv", "versions"), ["*", "bin"]],
-    [join(home, ".rbenv", "versions"), ["*", "bin"]],
-    [join(home, ".local", "share", "mise", "installs"), ["*", "*", "bin"]],
-    [join(home, ".asdf", "installs"), ["*", "*", "bin"]],
-    [
-      join(home, ".local", "share", "fnm", "node-versions"),
-      ["*", "installation", "bin"],
-    ],
-    [join(home, ".volta", "tools", "image", "node"), ["*", "bin"]],
-  ];
-  return specs.flatMap(([root, tail]) =>
+  return versionRootSpecs(home).flatMap(([root, tail]) =>
     expandVersionRoot(root, tail).filter(isDirectory),
   );
+};
+
+/** Same roots and precedence as launch resolution, without blocking main. */
+export const enumeratedToolDirsAsync = async (home: string): Promise<ReadonlyArray<string>> => {
+  const roots = await Promise.all(versionRootSpecs(home).map(async ([root, tail]) => {
+    let dirs: ReadonlyArray<string> = [root];
+    for (const segment of tail) {
+      if (segment !== "*") {
+        dirs = dirs.map((dir) => join(dir, segment));
+        continue;
+      }
+      dirs = (await Promise.all(dirs.map(async (dir) => {
+        try {
+          return versionDirs(dir, await readdir(dir, { withFileTypes: true }));
+        } catch {
+          return [];
+        }
+      }))).flat();
+    }
+    return (await Promise.all(dirs.map(async (dir) => {
+      try {
+        return (await stat(dir)).isDirectory() ? [dir] : [];
+      } catch {
+        return [];
+      }
+    }))).flat();
+  }));
+  return roots.flat();
 };
 
 // Pure PATH merge, extracted so the ordering/dedup contract is unit-testable.

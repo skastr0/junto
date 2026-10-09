@@ -1,13 +1,14 @@
 /**
  * Local harness CLI install probe for the agent palette.
  *
- * Fail-soft and pure: never throws, never mutates PATH. A missing binary
- * means the harness is hidden from authoring — spawn would only show
+ * Fail-soft: an unavailable install never throws or mutates PATH. A missing
+ * binary means the harness is hidden from authoring — spawn would only show
  * "not installed" after a broken process start.
  */
 
 import { execFile, spawnSync } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
+import { access, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
@@ -25,6 +26,7 @@ import type { ManagedTerminalFlagsResult } from "@shared/ipc";
 import {
   configuredToolDirectories,
   enumeratedToolDirs,
+  enumeratedToolDirsAsync,
 } from "../../adapters/exec";
 import { juntoCliPathPrefixes } from "./seat-env";
 
@@ -73,8 +75,9 @@ export const knownHarnessInstallDirs = (home: string): ReadonlyArray<string> => 
  * enumerated version-manager install roots and known home install dirs.
  * No shell is run to build this path.
  */
-export const harnessSearchPath = (
-  options: HarnessExecutableResolution = {},
+const mergeHarnessSearchPath = (
+  options: HarnessExecutableResolution,
+  enumeratedDirs: ReadonlyArray<string>,
 ): string => {
   const home = options.home ?? homedir();
   const sep = options.pathSep ?? delimiter;
@@ -91,7 +94,7 @@ export const harnessSearchPath = (
     const trimmed = dir.trim();
     if (trimmed) segments.push(trimmed);
   }
-  for (const dir of enumeratedToolDirs(home)) segments.push(dir);
+  for (const dir of enumeratedDirs) segments.push(dir);
   for (const dir of knownHarnessInstallDirs(home)) segments.push(dir);
   const seen = new Set<string>();
   const merged: string[] = [];
@@ -102,6 +105,10 @@ export const harnessSearchPath = (
   }
   return merged.join(sep);
 };
+
+export const harnessSearchPath = (
+  options: HarnessExecutableResolution = {},
+): string => mergeHarnessSearchPath(options, enumeratedToolDirs(options.home ?? homedir()));
 
 // A `*/shims` entry is a version-manager trampoline, not a binary: it passes
 // X_OK while exiting "No version is set for shim" until its manager's
@@ -287,24 +294,110 @@ export const harnessBinaryInstalled = (
   ...options, extraDirs: [...juntoCliPathPrefixes(), ...(options?.extraDirs ?? configuredToolDirectories())],
 } : options) !== undefined;
 
-const probeOne = (template: ManagedTerminalTemplate): HarnessInstallProbe => {
+const probeOne = (template: ManagedTerminalTemplate, installed: boolean): HarnessInstallProbe => {
   const binary = template.argvSpec.binary;
   return {
     harness: template.harness,
     displayName: template.displayName,
     binary,
-    installed: harnessBinaryInstalled(template.harness, binary),
+    installed,
     mailTransport: template.mailTransport,
     isolation: template.isolation,
   };
 };
 
-/**
- * Feature-enabled harnesses only, with install status.
- * Palette should list `installed === true` rows.
- */
-export const probeManagedHarnessInstalls = (): readonly HarnessInstallProbe[] =>
-  allTemplates().map(probeOne);
+// Discovery is advisory, never admission or launch authority. Cache both
+// positive and negative results; the next request after a minute notices new
+// installs, removals, chmods and version-manager aliases. Changed environment
+// or configured tool dirs invalidate immediately. One pending scan also serves
+// a simultaneous doctor/capabilities/palette burst.
+const INSTALL_DISCOVERY_CACHE_MS = 60_000;
+let installDiscovery: {
+  key: string;
+  at?: number;
+  pending: Promise<readonly HarnessInstallProbe[]>;
+} | undefined;
+
+const shimRunsLiveAsync = async (candidate: string, pathEnv: string): Promise<boolean> => {
+  const cached = shimLivenessCache.get(candidate);
+  if (cached !== undefined && Date.now() - cached.at < SHIM_LIVENESS_CACHE_MS) return cached.live;
+  let live = false;
+  try {
+    await execFileAsync(candidate, ["--version"], {
+      env: { ...process.env, PATH: pathEnv },
+      timeout: SHIM_LIVENESS_TIMEOUT_MS,
+    });
+    live = true;
+  } catch {
+    live = false;
+  }
+  shimLivenessCache.set(candidate, { live, at: Date.now() });
+  return live;
+};
+
+const discoverManagedHarnessInstalls = async (
+  templates: readonly ManagedTerminalTemplate[],
+  options: HarnessExecutableResolution,
+  cliDirs: ReadonlyArray<string>,
+): Promise<readonly HarnessInstallProbe[]> => {
+  const home = options.home ?? homedir();
+  const sep = options.pathSep ?? delimiter;
+  const enumeratedDirs = await enumeratedToolDirsAsync(home);
+  const searchPath = mergeHarnessSearchPath(options, enumeratedDirs);
+  const overseerPath = mergeHarnessSearchPath({ ...options, extraDirs: [...cliDirs, ...(options.extraDirs ?? [])] }, enumeratedDirs);
+  const dirs = [...new Set([...searchPath.split(sep), ...overseerPath.split(sep)])];
+  // Read each candidate directory once for all harnesses. Only names actually
+  // present pay an executable check, and a shim still has to run successfully.
+  const entries = new Map(await Promise.all(dirs.map(async (dir) => {
+    try { return [dir, new Set(await readdir(dir))] as const; }
+    catch { return [dir, new Set<string>()] as const; }
+  })));
+  return Promise.all(templates.map(async (template) => {
+    const pathEnv = template.harness === "junto-overseer" ? overseerPath : searchPath;
+    for (const dir of pathEnv.split(sep)) {
+      if (!entries.get(dir)?.has(template.argvSpec.binary)) continue;
+      const candidate = join(dir, template.argvSpec.binary);
+      try { await access(candidate, constants.X_OK); }
+      catch { continue; }
+      if (SHIM_ROOT.test(dir) && !await shimRunsLiveAsync(candidate, pathEnv)) continue;
+      return probeOne(template, true);
+    }
+    return probeOne(template, false);
+  }));
+};
+
+/** Feature-enabled harnesses, discovered asynchronously and remembered for one minute. */
+export const probeManagedHarnessInstalls = (
+  options: HarnessExecutableResolution = {},
+): Promise<readonly HarnessInstallProbe[]> => {
+  const resolved = {
+    home: options.home ?? homedir(),
+    pathEnv: options.pathEnv ?? process.env.PATH ?? process.env.Path ?? "",
+    pathSep: options.pathSep ?? delimiter,
+    extraDirs: [...(options.extraDirs ?? configuredToolDirectories())],
+  };
+  const templates = allTemplates();
+  // Presence is checked asynchronously in the shared directory inventory.
+  const cliDirs = [join(process.cwd(), "dist"), ...(typeof process.resourcesPath === "string"
+    ? [join(process.resourcesPath, "bin")] : [])];
+  const key = JSON.stringify([resolved, cliDirs, process.cwd(), templates.map((template) => template.harness)]);
+  if (installDiscovery?.key === key && (installDiscovery.at === undefined
+    || Date.now() - installDiscovery.at < INSTALL_DISCOVERY_CACHE_MS)) {
+    return installDiscovery.pending;
+  }
+  const pending = discoverManagedHarnessInstalls(templates, resolved, cliDirs);
+  const entry: NonNullable<typeof installDiscovery> = { key, pending };
+  installDiscovery = entry;
+  pending.then(() => { entry.at = Date.now(); }, () => {
+    if (installDiscovery === entry) installDiscovery = undefined;
+  });
+  return pending;
+};
+
+export const resetManagedHarnessInstallCacheForTests = (): void => {
+  installDiscovery = undefined;
+  shimLivenessCache.clear();
+};
 
 /** Single harness probe (enabled + installed). Disabled harness → not installed. */
 export const isManagedHarnessInstalled = (harness: HarnessId): boolean => {

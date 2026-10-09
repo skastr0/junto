@@ -1124,7 +1124,7 @@ const dispatchOp = (
         version,
         socket: "up",
         commands,
-        harnesses: probeManagedHarnessInstalls(),
+        harnesses: yield* Effect.promise(() => probeManagedHarnessInstalls()),
       };
     }
 
@@ -1168,7 +1168,7 @@ const dispatchOp = (
       const overseer = self.kind === "agent" && self.overseer === true;
       return {
         node: summarizeNode(self),
-        harnesses: probeManagedHarnessInstalls(),
+        harnesses: yield* Effect.promise(() => probeManagedHarnessInstalls()),
         // Additive: derived factory role of the credentialed seat.
         role: factoryRoleOfNode(self),
         tools: overseer

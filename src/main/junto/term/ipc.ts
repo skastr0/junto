@@ -273,7 +273,7 @@ export const registerTerminalIpc = (
   ipcMain.handle(IPC_CHANNELS.managedTerminalHarnesses, async (event) => {
     assertTrusted(event);
     const { probeManagedHarnessInstalls } = await import("./templates/harness-install");
-    return { harnesses: probeManagedHarnessInstalls() };
+    return { harnesses: await probeManagedHarnessInstalls() };
   });
 
   ipcMain.handle(
