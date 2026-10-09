@@ -48,6 +48,7 @@ import {
   type AppProcessLease,
 } from "../src/main/junto/app-process-plane";
 import {
+  captureProcessGroupEpoch,
   setProcessEpochReaderForTests,
   type ProcessEpochRow,
 } from "../src/main/junto/process-epoch";
@@ -103,6 +104,10 @@ const spawnGroupLease = (
     child: child.asChild(),
     process: owned,
     mode,
+    // The real spawn returns the group epoch with every group-mode result.
+    ...(mode === "group" && child.pid !== undefined
+      ? { groupEpoch: captureProcessGroupEpoch(child.pid) }
+      : {}),
   });
   const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
   const lease = plane.spawnGroup({
