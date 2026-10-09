@@ -183,7 +183,8 @@ database must still open.
 | `remote-cut` | everything on the cut list outside those three areas, with its tests and documents |
 | `remote-seats` | a seat on another machine: its terminal, state, folder, secrets, onboard and mail delivery |
 | `remote-window` | the Machines window, the machine picker on seats and regions, unreachable and missing-harness states, and the copy |
-| `remote-verify` | the two-machine rig and the acceptance run |
+| `remote-verify` | the exercise scripts, the stand-in harness and the acceptance run |
+| `remote-security` | independent review of the security model; the security doctrine |
 
 ## How we work
 
@@ -240,11 +241,12 @@ git show --stat --oneline HEAD
 | Slice | Owner | State |
 |---|---|---|
 | Review and contract | `remote-lead` | done: `959ec0e98`, `83b1badb7` |
-| Baseline and the two-machine rig | `remote-verify` | baseline taken at `0e6e55434`; rig in design |
+| Baseline and the exercise | `remote-verify` | baseline at `0e6e55434`; boot exercise passes on the Mac mini and Linux: `db140e741` |
 | Delete the old protocol, then roles, then the split | `remote-core` | entry points cut: `d47e566d2`; frozen protocol, roles and the Node boot next |
 | Work plane cut, then the row exchange | `remote-work` | mail unpinned: `f4fc8e8da`; exchange design approved; slice 1 in progress |
 | SSH review, then send to the Mac mini | `remote-send` | review done; host deployment protocol cut: `883d4746b`, `82927347b`, `0c921a99a` |
 | Leaf cuts, stale documents, the guide | `remote-cut` | `915e9c33a`, `3a50b10f6`, `17dfa2337`, `d7846fa98`, `945f73bd7`; operator contract and CLI next |
+| Security review and the doctrine | `remote-security` | briefed |
 | A seat on another machine | `remote-seats` | not staffed; when the mini runs Junto |
 | The Machines window | `remote-window` | not staffed; when the mini runs Junto |
 
