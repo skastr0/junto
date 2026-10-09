@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
-import { assessSupervisedRuntime } from "../src/shared/station";
+import { assessSupervisedRuntime } from "../src/shared/supervised-runtime";
 import {
   newSeat,
   newPage,
@@ -45,24 +45,21 @@ describe("node host assignment", () => {
 describe("supervised runtime assessment", () => {
   it("aligns when preferred and LaunchAgent loaded", () => {
     const result = assessSupervisedRuntime({
-      role: "remote",
-      hostId: "remote-a",
+      machineName: THIS_MACHINE,
       supervisedPreferred: true,
       supervisedInstalled: "installed",
     });
     expect(result.aligned).toBe(true);
     expect(result.status).toBe("ok");
-    expect(result.metadata.role).toBe("remote");
-    expect(result.metadata.hostId).toBe("remote-a");
+    expect(result.machineName).toBe(THIS_MACHINE);
     expect(result.metadata.supervisedPreferred).toBe("true");
     expect(result.metadata.supervisedInstalled).toBe("installed");
     expect(result.metadata.supervisedAligned).toBe("true");
   });
 
-  it("warns when Remote prefers supervised but agent is absent", () => {
+  it("warns when supervision is preferred but the agent is absent", () => {
     const result = assessSupervisedRuntime({
-      role: "remote",
-      hostId: "remote-a",
+      machineName: THIS_MACHINE,
       supervisedPreferred: true,
       supervisedInstalled: "absent",
     });
@@ -74,8 +71,7 @@ describe("supervised runtime assessment", () => {
 
   it("treats unsupervised preference with absent agent as aligned", () => {
     const result = assessSupervisedRuntime({
-      role: "command-center",
-      hostId: "local",
+      machineName: THIS_MACHINE,
       supervisedPreferred: false,
       supervisedInstalled: "absent",
     });
@@ -85,24 +81,12 @@ describe("supervised runtime assessment", () => {
 
   it("warns when preferred but install state is unknown", () => {
     const result = assessSupervisedRuntime({
-      role: "remote",
-      hostId: "local",
+      machineName: THIS_MACHINE,
       supervisedPreferred: true,
       supervisedInstalled: "unknown",
     });
     expect(result.aligned).toBe(false);
     expect(result.status).toBe("warning");
     expect(result.metadata.supervisedInstalled).toBe("unknown");
-  });
-
-  it("maps empty role to unset in metadata", () => {
-    const result = assessSupervisedRuntime({
-      role: "",
-      hostId: "local",
-      supervisedPreferred: false,
-      supervisedInstalled: "absent",
-    });
-    expect(result.role).toBe("unset");
-    expect(result.metadata.role).toBe("unset");
   });
 });
