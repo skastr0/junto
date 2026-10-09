@@ -30,8 +30,8 @@ What nobody ran is listed at the end.
 5. **Station identity cannot be pruned. Station protocol can.** The
    single-machine app depends on installation identity, the configured role and
    several station tables. It depends on none of the protocol.
-6. **The carrying cost is about 100,000 lines**: roughly 12% of source, 17% of
-   test lines, 36% of script lines and 45% of the docs.
+6. **The carrying cost is about 90,000 lines**: roughly 12% of source, 17% of
+   test lines, a quarter of script lines and a third of the docs.
 
 ## 1. Footprint
 
@@ -52,8 +52,8 @@ because the shipping app needs it.
 | Remote entries and status (`junto-remote.ts`, `remote-runtime.ts`, readiness, status store) | 5 | 1,344 | |
 | **Source, feature only** | | **about 45,000** | 12% of 362,664 |
 | Tests, core station, fleet, hosts, ssh, deploy, box | 123 | 34,455 | 16.7% of test lines, 912 cases *(audit)* |
-| Scripts, linux, remote, station, host | 22 | 13,159 | 36% of script lines |
-| Docs, station, fleet, remote, linux | 15 | 4,784 | 45% of doc lines, plus about 450 lines of the security doctrine |
+| Scripts, Remote only | 10 | 9,355 | 26% of 36,067 script lines. Another 12 Linux desktop packaging and smoke scripts (3,804) share the name match and are not this feature |
+| Docs, Remote only | 9 | 3,649 | 34% of the 10,639 lines under `docs/` before this review. One file, `junto-protocol.md`, is 2,282 of them. Another 6 Linux documents (1,135) are desktop or mixed. About 450 lines of the security doctrine are not counted |
 
 Not counted above, and entangled: about 2,900 of the 12,240 lines in
 `src/main/junto/work/repository.ts` exist only for multi-home convergence
