@@ -1,5 +1,5 @@
 import type { IpcMain } from "electron";
-import { Effect, Result } from "effect";
+import { Effect, Option, Result } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
 import type {
   DiscoveredPeer,
@@ -11,6 +11,9 @@ import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
 import { endpointHostToken, type TailscalePeer } from "@shared/tailscale-peers";
 import { AppRuntime } from "../../runtime";
 import { HostsService } from "./service";
+import { MachineOwnerControl } from "./machine-owner";
+import { dispatchMachineIpcCommand } from "./machine-ipc-command";
+import { OPERATOR_PROTOCOL_VERSION, type OperatorResponseEnvelope } from "@shared/operator-control";
 import { tailscalePeerCache } from "./tailscale-peers";
 import {
   HOST_OPERATION_ADMISSIONS,
@@ -102,6 +105,19 @@ export const registerHostsIpc = (
   ipcMain: IpcMain,
   operations: HostOperationGate = hostOperationGate,
 ): void => {
+
+  ipcMain.handle(IPC_CHANNELS.machineCommand, (event, input: unknown) =>
+    AppRuntime.runPromise(Effect.gen(function* () {
+      const actions = yield* Effect.serviceOption(MachineOwnerControl);
+      if (Option.isNone(actions)) return {
+        protocol: OPERATOR_PROTOCOL_VERSION, ok: false,
+        error: { type: "runtime_down", message: "Machine control is not ready", details: { retryable: false } },
+      } satisfies OperatorResponseEnvelope;
+      return yield* dispatchMachineIpcCommand(actions.value, input, progress => {
+        if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.machineProgress, progress);
+      });
+    })),
+  );
 
   ipcMain.handle(IPC_CHANNELS.hostsList, () =>
     surfaceShutdownRefusal(
