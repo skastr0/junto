@@ -25,7 +25,7 @@ it("a delivered mail commits its receipt against the live canvas sequence and su
   const root = await mkdtemp(join(tmpdir(), "junto-mail-receipt-"));
   const modelLive = Layer.provideMerge(Layer.provide(ModelLive, ModelDependents.empty), makeStateEngineLive(join(root, "junto.db")));
   let runtime = ManagedRuntime.make(Layer.provideMerge(WorkRepositoryLive, modelLive));
-  const delivery = new MessageDeliveryService();
+  const delivery = new MessageDeliveryService(() => THIS_MACHINE);
   try {
     const sql = await runtime.runPromise(SqlClient.SqlClient);
     await runtime.runPromise(sql.withTransaction(Effect.gen(function* () {
@@ -94,7 +94,7 @@ it("a delivered mail commits its receipt against the live canvas sequence and su
     await runtime.dispose();
     runtime = ManagedRuntime.make(Layer.provideMerge(WorkRepositoryLive, modelLive));
     repo = await runtime.runPromise(WorkRepository);
-    const restarted = new MessageDeliveryService();
+    const restarted = new MessageDeliveryService(() => THIS_MACHINE);
     const wakes: string[] = [];
     restarted.configure({ store: configuration.store, transport: {
       seatLive: () => false,

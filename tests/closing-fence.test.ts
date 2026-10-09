@@ -13,6 +13,7 @@ import { MessageDeliveryService, type MessageDeliveryStore } from "../src/main/j
 import type { Message } from "../src/shared/work-model";
 import { mailExtensionMetadata, type MailExtension } from "../src/shared/crew";
 import { buildOnboardNudge } from "../src/shared/managed-terminal-injection";
+import { THIS_MACHINE } from "./support/machines";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -208,7 +209,7 @@ describe("mail that arrives between the offboard and the exit", () => {
         return true;
       },
     };
-    const service = new MessageDeliveryService();
+    const service = new MessageDeliveryService(() => THIS_MACHINE);
     service.configure({
       store,
       transport: {

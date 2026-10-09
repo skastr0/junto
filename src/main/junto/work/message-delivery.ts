@@ -30,9 +30,15 @@
  * every caller that asks, and a delivered message is remembered until its
  * receipt reaches the mailbox. The durable receipt (`deliveredAt`) is the
  * only delivery fact.
+ *
+ * Mail is typed on the machine its seat runs on. A seat on another machine
+ * is not written to, woken or retried here; its mail stays in the mailbox
+ * for that machine.
  */
 
-import { asNodeId, type Canvas } from "@shared/model";
+import { asNodeId, type Canvas, type Node } from "@shared/model";
+import { isThisMachine } from "@shared/machine-identity";
+import { thisMachineName } from "../term/machine-name";
 import type { Message } from "@shared/work-model";
 import { readMailExtension } from "@shared/crew";
 import {
@@ -156,6 +162,19 @@ const onboardedOf = (
 };
 
 export class MessageDeliveryService {
+  /** This machine's name, read at each decision. */
+  constructor(private readonly thisMachine: () => string = thisMachineName) {}
+
+  /**
+   * The seat mail is typed into here: an agent seat on this machine.
+   * `elsewhere` is a seat another machine types into.
+   */
+  private targetHere(node: Node): ReturnType<typeof deliveryTargetOf> | "elsewhere" {
+    const target = deliveryTargetOf(node);
+    if (target === undefined || node.kind !== "agent") return undefined;
+    return isThisMachine(node.host, this.thisMachine()) ? target : "elsewhere";
+  }
+
   private transport: MessageDeliveryTransport | undefined;
   private store: MessageDeliveryStore | undefined;
   private suspended = false;
@@ -311,7 +330,11 @@ export class MessageDeliveryService {
     if (!doc) return waiting("model unavailable");
     const node = doc?.nodes.get(asNodeId(nodeId));
     const message = await store.readMessage(canvas, nodeId, messageId);
-    const target = node === undefined ? undefined : deliveryTargetOf(node);
+    const target = node === undefined ? undefined : this.targetHere(node);
+    if (target === "elsewhere") {
+      this.waiting.delete(key);
+      return waiting("the seat runs on another machine");
+    }
     if (!node || !message || !target) {
       // No seat to write into: the node is gone or holds no agent seat.
       // Said in the log: the mail starts no seat from here, and a silent
@@ -525,6 +548,13 @@ export class MessageDeliveryService {
     const generation = this.lifecycleGeneration;
     const store = this.store;
     if (!this.active(generation) || !store) return;
+    try {
+      this.thisMachine();
+    } catch (error) {
+      // Which seats are this machine's is not known yet: nothing can be indexed.
+      console.error(`[delivery] boot scan skipped: ${String(error)}`);
+      return;
+    }
     let names: ReadonlyArray<string>;
     try {
       names = await store.listCanvasNames();
@@ -537,7 +567,8 @@ export class MessageDeliveryService {
       if (!doc) continue;
       const pending: Array<{ nodeId: string; message: Message }> = [];
       for (const node of doc.nodes.values()) {
-        if (!deliveryTargetOf(node)) continue;
+        const target = this.targetHere(node);
+        if (target === undefined || target === "elsewhere") continue;
         for (const message of await store.listMail(canvas, node.id)) {
           if (isPendingDelivery(message)) pending.push({ nodeId: node.id, message });
         }
@@ -574,8 +605,8 @@ export class MessageDeliveryService {
     const flight = (async (): Promise<MailDeliveryState> => {
       const doc = await store.readModel(pending.canvas, "attempt");
       const node = doc?.nodes.get(asNodeId(pending.actorNodeId));
-      const target = node === undefined ? undefined : deliveryTargetOf(node);
-      if (!target) {
+      const target = node === undefined ? undefined : this.targetHere(node);
+      if (target === undefined || target === "elsewhere") {
         this.responses.delete(key);
         return "waiting";
       }

@@ -7,6 +7,7 @@ import {
   MessageDeliveryService,
   type MessageDeliveryStore,
 } from "../src/main/junto/work/message-delivery";
+import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 
 const canvas = "crew";
 const nodeId = "agent-b";
@@ -42,6 +43,8 @@ const crew = canvasOf(
  */
 const rig = (
   options: {
+    /** The canvas the store holds; the crew canvas unless the test says so. */
+    canvas?: typeof crew;
     live?: boolean;
     writeOk?: () => boolean;
     /** Why the seat's input box is not available, if it is not. */
@@ -64,7 +67,7 @@ const rig = (
     listCanvasNames: async () => [canvas],
     readModel: async () => {
       await new Promise((resolve) => setTimeout(resolve, 1));
-      return crew;
+      return options.canvas ?? crew;
     },
     readMessage: async (_canvas, _nodeId, messageId) => messages.find((message) => message.messageId === messageId),
     listMail: async () => messages,
@@ -77,7 +80,7 @@ const rig = (
       return true;
     },
   };
-  const service = new MessageDeliveryService();
+  const service = new MessageDeliveryService(() => THIS_MACHINE);
   service.configure({
     store,
     transport: {
@@ -126,6 +129,45 @@ const settle = async (): Promise<void> => {
 };
 
 describe("mail delivery", () => {
+  describe("to a seat on another machine", () => {
+    /** The same seat, placed on a machine this one is not; its terminal would even answer as live here. */
+    const elsewhere = canvasOf(
+      [seat(nodeId, { width: 100, height: 80, label: "Claude Code", host: OTHER_MACHINE as never, agentKey: "local:claude", bindingId: bindingId as never })],
+      [],
+      "crew",
+    );
+
+    it("is not typed, and does not start the seat or stamp a receipt", async () => {
+      const away = rig({ canvas: elsewhere, live: true, wake: () => true });
+      away.append(mail("01A", "for the other machine"));
+      expect(await away.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+      await settle();
+      expect(away.writes).toEqual([]);
+      expect(away.wakes).toEqual([]);
+      expect(away.messages[0]!.metadata?.deliveredAt).toBeUndefined();
+    });
+
+    it("is left alone by the boot scan and by a seat coming up here", async () => {
+      const away = rig({ canvas: elsewhere, live: true, wake: () => true });
+      away.append(mail("01A", "for the other machine"));
+      await away.service.onBooted();
+      away.service.onSeatLive(bindingId);
+      await settle();
+      expect(away.writes).toEqual([]);
+      expect(away.wakes).toEqual([]);
+    });
+
+    it("is typed once the seat is on this machine", async () => {
+      const away = rig({ canvas: elsewhere, live: true });
+      away.append(mail("01A", "for whoever runs the seat"));
+      expect(await away.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+      const here = rig({ live: true });
+      here.append(mail("01A", "for whoever runs the seat"));
+      expect(await here.service.deliver(canvas, nodeId, "01A")).toBe("delivered");
+      expect(here.writes).toHaveLength(1);
+    });
+  });
+
   it("mail to a seat whose cold session was just ended is not typed into it: it wakes the fresh one", async () => {
     let cold = true;
     const cuts: Array<[string, string, string]> = [];

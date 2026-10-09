@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { canvasOf, note, seat } from "./support/model-nodes";
 import type { Message } from "../src/shared/work-model";
 import { MessageDeliveryService, type MessageDeliveryStore, type MessageDeliveryTransport } from "../src/main/junto/work/message-delivery";
+import { THIS_MACHINE } from "./support/machines";
 
 const canvas = "cold";
 const nodeId = "never-started";
@@ -34,7 +35,7 @@ const context = (reason: string) => {
   expect(logs()).toContain(reason); expect(logs()).not.toContain("private body");
 };
 beforeEach(() => {
-  service = new MessageDeliveryService();
+  service = new MessageDeliveryService(() => THIS_MACHINE);
   errors = vi.spyOn(console, "error").mockImplementation(() => {});
   information = vi.spyOn(console, "info").mockImplementation(() => {});
 });
