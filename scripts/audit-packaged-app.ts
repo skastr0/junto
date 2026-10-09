@@ -29,7 +29,7 @@ import rawRuntimePolicy from "./macos-runtime-policy.json";
 import { auditRetiredStateRuntimeBundle } from "./audit-retired-state-signatures";
 import { validateRawAsarArchive } from "./package-runtime-provenance";
 import { MACHINE_PAYLOAD_MACHO_PATHS } from "./machine-payloads.mjs";
-import { inspectMachineBundle } from "../src/main/junto/hosts/bundle";
+import { checkMachinePackage, sourceMachinePackage, type MachinePackageExpectation } from "./machine-package";
 
 export const FUSE_NAMES = [
   "RunAsNode",
@@ -868,7 +868,7 @@ const auditMachOObjects = async (
 ): Promise<PackageAuditReceipt["machO"]> => {
   const actualPaths = await enumerateMachOPaths(appPath);
   validateMachOInventory(actualPaths, policy);
-  await auditMachinePayloads(appPath);
+  await auditMachinePayloads(appPath, await sourceMachinePackage());
   const runtimePaths = actualPaths.filter(entry => !MACHINE_PAYLOAD_MACHO_PATHS.includes(entry));
   const entries = new Map(policy.machO.map((entry) => [entry.path, entry]));
   let maxMinOS: string | undefined;
@@ -918,20 +918,14 @@ const auditMachOObjects = async (
 };
 
 /** Delivery payloads retain their own modes, checksums and target requirements. */
-export const auditMachinePayloads = async (appPath: string): Promise<void> => {
+export const auditMachinePayloads = async (appPath: string, expected: MachinePackageExpectation = {}): Promise<void> => {
   const root = path.join(appPath, "Contents/Resources/machines");
   try { await lstat(root); }
   catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+    if (error instanceof Error && "code" in error && error.code === "ENOENT" && !expected.required) return;
     throw error;
   }
-  const metadata = await lstat(root);
-  if (!metadata.isDirectory() || metadata.isSymbolicLink()) throw new Error("machine payload root must be a directory");
-  for (const entry of await readdir(root)) {
-    if (entry !== "darwin-arm64" && entry !== "linux-x64") throw new Error(`unexpected machine payload: ${entry}`);
-    const manifest = await inspectMachineBundle(path.join(root, entry));
-    if (manifest.target !== entry) throw new Error("machine payload target does not match its directory");
-  }
+  await checkMachinePackage(root, expected);
 };
 
 export const auditPackagedApp = async (
@@ -1033,7 +1027,7 @@ export const auditSourcePackagedApp = async (requestedPath: string) => {
   const fuses = validateFuseWire(await getCurrentFuseWire(appPath));
   const objects = await enumerateMachOPaths(appPath);
   validateMachOInventory(objects);
-  await auditMachinePayloads(appPath);
+  await auditMachinePayloads(appPath, await sourceMachinePackage());
   for (const relative of objects.filter(entry => !MACHINE_PAYLOAD_MACHO_PATHS.includes(entry))) {
     validateMachOMinimumSystemVersions(
       readMachOMinimumSystemVersions(path.join(appPath, relative)),

@@ -143,6 +143,10 @@ if [[ "$COMPILE_ONLY" -eq 1 ]]; then
   exit 0
 fi
 
+if [[ "$TARGET" == "mac" ]] && "$BUN_EXECUTABLE" -e 'import {resolveBuildFeatures} from "./scripts/build-features"; process.exit(resolveBuildFeatures().features.fleetUi === false ? 1 : 0)'; then
+  bash "$SCRIPT_DIR/build-machine-payloads.sh"
+fi
+
 args=()
 [[ "$VERIFY" -eq 1 ]] && args+=(--verify)
 [[ "$NOTARIZE" -eq 1 ]] && args+=(--notarize)

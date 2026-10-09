@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import ts from "typescript";
@@ -22,6 +22,16 @@ import { MACHINE_PAYLOAD_MACHO_PATHS, isMachinePayloadPath } from "../scripts/ma
 import { machineBundleFiles } from "../src/main/junto/hosts/bundle";
 
 const manifestPaths = MACOS_RUNTIME_POLICY.machO.map((entry) => entry.path);
+
+const writePayload = async (app: string, target: "darwin-arm64" | "linux-x64", build = "a".repeat(64), appVersion = "0.7.0") => {
+  const bundle = path.join(app, "Contents/Resources/machines", target);
+  await mkdir(path.join(bundle, "bin"), { recursive: true });
+  await mkdir(path.join(bundle, "core"), { recursive: true });
+  for (const file of ["bin/node", "bin/junto", "core/junto.cjs"]) await writeFile(path.join(bundle, file), "payload");
+  for (const file of ["bin/node", "bin/junto"]) await chmod(path.join(bundle, file), 0o755);
+  await writeFile(path.join(bundle, "manifest.json"), JSON.stringify({ build, target, node: "26.10.0", appVersion, files: await machineBundleFiles(bundle) }));
+  return bundle;
+};
 
 const runtimeBundleAuditObjectKeys = (source: string): ReadonlyArray<string> => {
   const file = ts.createSourceFile(
@@ -86,15 +96,41 @@ describe("macOS packaged runtime policy", () => {
   it("checks machine payload bytes independently of the desktop runtime signatures", async () => {
     const app = await mkdtemp(path.join(tmpdir(), "junto-payload-audit-"));
     try {
-      const bundle = path.join(app, "Contents/Resources/machines/linux-x64");
-      await mkdir(path.join(bundle, "bin"), { recursive: true });
-      await mkdir(path.join(bundle, "core"));
-      for (const file of ["bin/node", "bin/junto", "core/junto.cjs"]) await writeFile(path.join(bundle, file), "payload");
-      for (const file of ["bin/node", "bin/junto"]) await chmod(path.join(bundle, file), 0o755);
-      await writeFile(path.join(bundle, "manifest.json"), JSON.stringify({ build: "a".repeat(64), target: "linux-x64", node: "26.10.0", appVersion: "1", files: await machineBundleFiles(bundle) }));
+      await writePayload(app, "darwin-arm64");
+      const bundle = await writePayload(app, "linux-x64");
       await expect(auditMachinePayloads(app)).resolves.toBeUndefined();
       await writeFile(path.join(bundle, "core/junto.cjs"), "changed payload");
       await expect(auditMachinePayloads(app)).rejects.toThrow(/files do not match/);
+    } finally { await rm(app, { recursive: true, force: true }); }
+  });
+
+  it("requires both native targets from the desktop's build and version", async () => {
+    const app = await mkdtemp(path.join(tmpdir(), "junto-payload-cohort-"));
+    try {
+      await expect(auditMachinePayloads(app)).resolves.toBeUndefined();
+      await expect(auditMachinePayloads(app, { required: true })).rejects.toThrow();
+      await writePayload(app, "darwin-arm64");
+      await expect(auditMachinePayloads(app)).rejects.toThrow(/exactly darwin-arm64 and linux-x64/);
+      await writePayload(app, "linux-x64", "b".repeat(64));
+      await expect(auditMachinePayloads(app)).rejects.toThrow(/share one build and version/);
+      await writePayload(app, "linux-x64", "a".repeat(64), "0.6.0");
+      await expect(auditMachinePayloads(app)).rejects.toThrow(/share one build and version/);
+      await writePayload(app, "linux-x64");
+      await expect(auditMachinePayloads(app, { build: "a".repeat(64), appVersion: "0.7.0", required: true })).resolves.toBeUndefined();
+      await expect(auditMachinePayloads(app, { build: "b".repeat(64) })).rejects.toThrow(/desktop build/);
+      await expect(auditMachinePayloads(app, { appVersion: "0.6.0" })).rejects.toThrow(/desktop version/);
+      await mkdir(path.join(app, "Contents/Resources/machines/extra"));
+      await expect(auditMachinePayloads(app)).rejects.toThrow(/exactly darwin-arm64 and linux-x64/);
+    } finally { await rm(app, { recursive: true, force: true }); }
+  });
+
+  it("refuses a linked payload root", async () => {
+    const app = await mkdtemp(path.join(tmpdir(), "junto-payload-link-"));
+    try {
+      await mkdir(path.join(app, "Contents/Resources"), { recursive: true });
+      await mkdir(path.join(app, "payloads"));
+      await symlink(path.join(app, "payloads"), path.join(app, "Contents/Resources/machines"));
+      await expect(auditMachinePayloads(app)).rejects.toThrow(/root must be a directory/);
     } finally { await rm(app, { recursive: true, force: true }); }
   });
 

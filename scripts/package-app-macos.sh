@@ -33,6 +33,9 @@ if [[ -z "$BUN_EXECUTABLE" || ! -x "$BUN_EXECUTABLE" ]]; then
 fi
 # Packaging never admits Plus, including previously compiled preview output.
 "$BUN_EXECUTABLE" "$SCRIPT_DIR/lint-overlay.ts" --bundle
+if "$BUN_EXECUTABLE" -e 'import {resolveBuildFeatures} from "./scripts/build-features"; process.exit(resolveBuildFeatures().features.fleetUi === false ? 1 : 0)'; then
+  bash "$SCRIPT_DIR/build-machine-payloads.sh" --check
+fi
 if [[ -L "$RELEASE_DIR" || ( -e "$RELEASE_DIR" && ! -d "$RELEASE_DIR" ) ]]; then
   err "release must be a non-symlink directory"
   exit 1
