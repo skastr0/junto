@@ -1,7 +1,7 @@
 /**
  * PERF-P1 — continuous canvas attention must not use interpolating CSS.
  *
- * Factory motion is a 90 ms discrete clock (html[data-mark-frame]) plus
+ * Factory motion is a slow discrete clock (html[data-mark-frame]) plus
  * static rings. Interpolating infinite keyframes keep Chromium presenting
  * every vsync and are forbidden on the canvas attention path.
  */

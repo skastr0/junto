@@ -104,7 +104,7 @@ const comet = (ctx: Ctx, p: RingPalette, color: string, head: number, span: numb
 
 const TOP = -Math.PI / 2;
 
-/** Work: one lap per 16 frames (1.44 s), clockwise. */
+/** Work: one lap per 16 frames, clockwise. */
 const work = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
   track(ctx, p, color);
   comet(ctx, p, color, TOP + (frame / 16) * TAU, Math.PI * 0.75);

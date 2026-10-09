@@ -4,7 +4,7 @@
 
    Pings: blocked and needs-you seats send a ring outward, stepped on the
    attention clock's html[data-mark-frame] (no CSS animation, so the window
-   idles between ticks). Blocked pings twice per 2.88 s cycle, needs-you
+   idles between ticks). Blocked pings twice per 32-step cycle, needs-you
    once. With no stamp (motion paused, reduced motion, a moving camera) the
    ping is not drawn; the rim still says it. */
 

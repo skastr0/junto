@@ -447,7 +447,7 @@ export function ActivityMarkGallery() {
               An agent is a seat: its portrait held by a living ring, the name, one line. The ring circles while it
               works, runs backwards when stuck, snakes when thrashing, sends a ring out when it wants you, beats
               heavy when blocked, and sweeps closed and rests when done. The band outside says who waits on whom.
-              One shared 90 ms clock, only on screen.
+              One shared clock, a step a second, only on screen.
             </p>
           </div>
           <div className="flex gap-2">

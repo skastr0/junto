@@ -3,7 +3,7 @@
  * theme into one canvas, served to the page as a single data URL.
  *
  * A mark on screen is one element whose background points into this atlas.
- * Animation is a background-position step keyed off the shared 90 ms clock
+ * Animation is a background-position step keyed off the shared slow clock
  * (`html[data-mark-frame]`, see attention-clock.ts), so a tick costs one
  * style match and one small blit per visible looping mark: no per-mark DOM
  * subtree, no interpolating CSS, no per-mark timers. Anything not looping is
@@ -19,7 +19,7 @@
 import type { ThemeMode } from "@shared/theme";
 import type { ThreadHealthTone, ThreadHealthValue } from "@shared/thread-health";
 import type { AgentSignalKind } from "@shared/agent-signals";
-import { ATTENTION_CLOCK_FRAMES, ATTENTION_CLOCK_TICK_MS } from "./attention-clock";
+import { ATTENTION_CLOCK_FRAMES } from "./attention-clock";
 import { themeFor } from "./theme";
 import type { ActivityGlyph, ActivityTone } from "./activity";
 import {
@@ -46,6 +46,8 @@ const BOX = 20;
 const SCALE = 5.2;
 const CELL = Math.round(BOX * SCALE);
 export const MARK_ATLAS_COLS = ATTENTION_CLOCK_FRAMES;
+/** The done draw-in is a one-shot: it plays at its own pace, not the clock's. */
+const LAND_FRAME_MS = 90;
 
 const LOOP_ROWS: ReadonlyArray<readonly [LoopRing, ActivityTone]> = [
   ["work", "cyan"],
@@ -372,7 +374,7 @@ export const markAtlasCss = (): string =>
     // Done draws itself once from its land row, then hands over to its loop:
     // the animation has no fill, so when it ends the loop's own rules resume.
     `@keyframes juntoMarkLand{from{background-position:0 calc(var(--mark-lrow) * var(--mark-u) * -1)}to{background-position:calc(var(--mark-u) * -${String(LAND_FRAMES)}) calc(var(--mark-lrow) * var(--mark-u) * -1)}}`,
-    `.junto-mark[data-mark-land]{animation:juntoMarkLand ${String(LAND_FRAMES * ATTENTION_CLOCK_TICK_MS)}ms steps(${String(LAND_FRAMES)}, end) 1}`,
+    `.junto-mark[data-mark-land]{animation:juntoMarkLand ${String(LAND_FRAMES * LAND_FRAME_MS)}ms steps(${String(LAND_FRAMES)}, end) 1}`,
     `html[data-surface-motion="paused"] .junto-mark[data-mark-land]{animation:none}`,
     `@media (prefers-reduced-motion: reduce){.junto-mark[data-mark-land]{animation:none}}`,
     // Overseer crest: top of the ring, rimmed in ground so it cuts the ring.

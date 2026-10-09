@@ -52,7 +52,7 @@ describe("attention clock", () => {
     expect(attentionFrame$.peek()).toBe(0);
   });
 
-  it("stamps frame 0 immediately and advances on the 90 ms tick", () => {
+  it("stamps frame 0 immediately and advances on the tick", () => {
     vi.useFakeTimers();
     const dataset = installDom();
     const release = retainAttentionClock();

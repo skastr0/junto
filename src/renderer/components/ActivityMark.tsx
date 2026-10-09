@@ -200,7 +200,7 @@ const hubTone = (ring: string, tone: ActivityTone): ActivityTone => {
  * (activity-atlas.ts): the ring carries control state (bent by a trouble
  * reading), a ::after band carries the waiting glow, the good halo and the
  * declared-signal flag. Standalone it has a hub; at seat size a portrait sits
- * in the ring. Loops step on the shared 90 ms clock only while visible and
+ * in the ring. Loops step on the shared slow clock only while visible and
  * motion is live; done draws itself once and then glints until read; only
  * resting and stopped rings are still. No visible text: the label is the
  * accessible name.

@@ -1,10 +1,15 @@
 /**
- * Crew attention clock — discrete 90 ms phases, no CSS interpolation.
+ * Crew attention clock — discrete one-second phases, no CSS interpolation.
  *
  * Chromium samples interpolating CSS animations every vsync, which keeps the
  * GPU helper and WindowServer presenting the whole window. This clock stamps
  * `html[data-mark-frame]` so ActivityMark sprites step through precomposed
  * atlas frames (activity-atlas.ts). Between ticks the compositor can idle.
+ *
+ * Every tick presents the window once, whether one mark loops or thirty, so
+ * the period is the resting cost. At 90 ms that was a fixed 7 to 8 GPU points
+ * and 4 to 5 window points; a ring only has to say which state a seat is in,
+ * so it steps once a second, like a clock hand.
  *
  * Refcounted: runs only while at least one looping ActivityMark is on screen,
  * at every level-of-detail tier: a seat moves wherever it is drawn. Pauses
@@ -14,8 +19,8 @@
 import { observable } from "@legendapp/state";
 import { surfaceMotionLive$ } from "./surface-motion";
 
-export const ATTENTION_CLOCK_TICK_MS = 90;
-/** Frames per cycle: 32 x 90 ms = 2.88 s, the period every loop is drawn to. */
+export const ATTENTION_CLOCK_TICK_MS = 1000;
+/** Frames per cycle: 32 one-second steps, the period every loop is drawn to. */
 export const ATTENTION_CLOCK_FRAMES = 32;
 
 const ATTR_FRAME = "markFrame";

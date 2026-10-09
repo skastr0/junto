@@ -1813,7 +1813,7 @@ html[data-surface-motion="paused"] *::after {
   transform: scale(1);
 }
 
-/* --- ActivityMark: sprite atlas + discrete 90 ms clock ----------------------
+/* --- ActivityMark: sprite atlas + discrete slow clock -----------------------
    Structure, frame rules and the atlas image are generated with the atlas
    (src/renderer/lib/activity-atlas.ts), so frame count and geometry have one
    source. The clock (attention-clock.ts) stamps html[data-mark-frame]. */
