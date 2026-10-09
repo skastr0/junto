@@ -210,17 +210,24 @@ git show --stat --oneline HEAD
 |---|---|---|
 | Review and contract | `remote-lead` | done: `959ec0e98`, `83b1badb7` |
 | Baseline and the two-machine rig | `remote-verify` | baseline taken at `0e6e55434`; rig in design |
-| Delete the old protocol, then roles, then the split | `remote-core` | in progress |
-| Work plane cut, then the row exchange | `remote-work` | in progress |
-| SSH review, then send to the Mac mini | `remote-send` | in progress |
-| Leaf cuts, stale documents, the guide | `remote-cut` | in progress: `915e9c33a`, `3a50b10f6` |
+| Delete the old protocol, then roles, then the split | `remote-core` | entry points cut: `d47e566d2`; frozen protocol, roles and the Node boot next |
+| Work plane cut, then the row exchange | `remote-work` | mail unpinned: `f4fc8e8da`; exchange design approved; slice 1 in progress |
+| SSH review, then send to the Mac mini | `remote-send` | review done; host deployment protocol cut: `883d4746b`, `82927347b`, `0c921a99a` |
+| Leaf cuts, stale documents, the guide | `remote-cut` | `915e9c33a`, `3a50b10f6`, `17dfa2337`, `d7846fa98`, `945f73bd7`; operator contract and CLI next |
 | A seat on another machine | `remote-seats` | not staffed; when the mini runs Junto |
 | The Machines window | `remote-window` | not staffed; when the mini runs Junto |
 
+**Cut window.** Open since `945f73bd7`: owned cuts land as checkpoints while
+typecheck is red at seams, then the seams are closed. It ends when
+`remote-verify` reports typecheck and the unit suite green at one hash. Main is
+44,633 deleted lines past the baseline at `0c921a99a`.
+
 **Baseline** (`0e6e55434`): typecheck clean; unit suite 9,204 passed, 3 failed,
 59 skipped. A landing adds no failure beyond those three:
-`effect-runpromise-boundary` (being fixed by `remote-core`) and two cases in
-`packaged-runtime-smoke` (being attributed).
+`effect-runpromise-boundary` (fixed in `d47e566d2`) and two cases in
+`packaged-runtime-smoke` (a stale mock, fixed in `363554a12`). Three more reds
+in the ship gate predated us and were fixed in `ef851266b`. Each fix has its
+owner's agreement.
 
 **Found by running:** the old windowless entry cannot boot. It exits at once
 because an Electron import reaches it through `term/ensure-managed-seat.ts`.
