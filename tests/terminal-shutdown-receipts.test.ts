@@ -1,3 +1,4 @@
+import { makeThisMachine } from "../src/shared/remote-hosts";
 import {
   existsSync,
   mkdtempSync,
@@ -13,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { IDisposable, IPty } from "node-pty";
 import { Effect, Scope } from "effect";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { createAppProcessPlane } from "../src/main/junto/app-process-plane";
 import { setHostsSnapshot, hostsSnapshot } from "../src/main/junto/hosts/snapshot";
 import { TermControlClient } from "../src/main/junto/term/control-client";
@@ -33,6 +34,9 @@ import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-proces
 
 const cleanups: Array<() => Promise<void> | void> = [];
 const initialHosts = hostsSnapshot();
+const namedHosts = [makeThisMachine("workbench")];
+
+beforeEach(() => setHostsSnapshot(namedHosts));
 
 afterEach(async () => {
   while (cleanups.length > 0) await cleanups.pop()?.();
@@ -111,7 +115,7 @@ describe("terminal shutdown receipts", () => {
 
     const created = await plane.router.create({
       bindingId: "sealed-owned",
-      hostId: "local",
+      hostId: "workbench",
       launch: { kind: "shell", argv: ["/bin/sh", "-l"] },
     });
     expect(created).toMatchObject({ status: "running", backend: "pty" });
@@ -131,7 +135,7 @@ describe("terminal shutdown receipts", () => {
   it("cuts every plane admission synchronously and shares one clean drain", async () => {
     const host = localHost();
     const plane = new TermPlane(host);
-    await plane.router.create({ bindingId: "before", hostId: "local" });
+    await plane.router.create({ bindingId: "before", hostId: "workbench" });
 
     plane.beginShutdown("test");
     const first = plane.drainOnQuit("ignored-reentrant-reason");
@@ -139,7 +143,7 @@ describe("terminal shutdown receipts", () => {
 
     expect(first).toBe(second);
     await expect(
-      plane.router.create({ bindingId: "late", hostId: "local" }),
+      plane.router.create({ bindingId: "late", hostId: "workbench" }),
     ).rejects.toThrow(/stopping/);
     await expect(plane.start()).rejects.toThrow(/stopping/);
 
@@ -176,7 +180,7 @@ describe("terminal shutdown receipts", () => {
       lateExitGraceMs: 5,
     });
     const plane = new TermPlane(host);
-    await plane.router.create({ bindingId: "stuck", hostId: "local" });
+    await plane.router.create({ bindingId: "stuck", hostId: "workbench" });
 
     const receipt = await plane.drainOnQuit("test-stuck");
 
@@ -198,11 +202,11 @@ describe("terminal shutdown receipts", () => {
     const host = localHost();
     const router = new TerminalRouter(host, { shutdownDeadlineMs: 20 });
     setHostsSnapshot([
-      ...initialHosts,
+      ...namedHosts,
       {
         id: "studio",
         label: "Studio",
-        kind: "remote",
+        isThisMachine: false,
         sshEndpoint: "studio.local",
         capabilities: ["terminal"],
       },

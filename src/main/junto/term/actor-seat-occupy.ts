@@ -1,5 +1,6 @@
 /** Seat admission selects the process implementation for its machine. */
 import { Context, Effect, Layer } from "effect";
+import { isThisMachine } from "@shared/machine-name";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import {
@@ -47,7 +48,7 @@ export class ActorSeatOccupy extends Context.Service<
 export type ActorSeatOccupyDeps = {
   readonly local: LocalSessionHost;
   /** Resolve this installation's durable identity at the time of each call. */
-  readonly localHostId: () => Effect.Effect<string | undefined, Error>;
+  readonly localHostId: () => Effect.Effect<string, Error>;
   /** The process client on the selected machine. */
   readonly clientForOccupy: (
     hostId: string,
@@ -59,23 +60,16 @@ export type ActorSeatOccupyDeps = {
 const asClientError = (cause: unknown): Error =>
   cause instanceof Error ? cause : new Error(String(cause));
 
-const normalizeTargetHostId = (hostId: string | undefined): string =>
-  hostId?.trim() || "local";
-
-const normalizeDurableHostId = (
-  hostId: string | undefined,
-): string | undefined => {
-  const normalized = hostId?.trim();
-  return normalized ? normalized : undefined;
-};
+const normalizeTargetHostId = (hostId: string | undefined, machineName: string): string =>
+  hostId?.trim() || machineName;
 
 const howFor = (
   deps: ActorSeatOccupyDeps,
   targetHostId: string,
+  machineName: string,
 ): Effect.Effect<Context.Service.Shape<typeof TerminalSeatProcess>, Error> =>
   Effect.gen(function* () {
-    const localHostId = normalizeDurableHostId(yield* deps.localHostId());
-    if (targetHostId === "local" || targetHostId === localHostId) {
+    if (isThisMachine(targetHostId, machineName)) {
       return makeLocalSeatProcess(deps.local, deps.seatEnvironment);
     }
     const client = yield* Effect.tryPromise({
@@ -88,10 +82,11 @@ const howFor = (
 const provideHow = <A, E>(
   deps: ActorSeatOccupyDeps,
   targetHostId: string,
+  machineName: string,
   program: Effect.Effect<A, E, TerminalSeatProcess>,
 ): Effect.Effect<A, E | Error> =>
   Effect.gen(function* () {
-    const implementation = yield* howFor(deps, targetHostId);
+    const implementation = yield* howFor(deps, targetHostId, machineName);
     return yield* program.pipe(
       Effect.provide(
         Layer.succeed(TerminalSeatProcess, implementation),
@@ -138,11 +133,11 @@ export const makeActorSeatOccupy = (
 ): Context.Service.Shape<typeof ActorSeatOccupy> =>
   ActorSeatOccupy.of({
     occupy: (spec) => {
-      const targetHostId = normalizeTargetHostId(spec.hostId);
       return Effect.gen(function* () {
-        const localHostId = normalizeDurableHostId(yield* deps.localHostId());
+        const localHostId = yield* deps.localHostId();
+        const targetHostId = normalizeTargetHostId(spec.hostId, localHostId);
         const isLocal =
-          targetHostId === "local" || targetHostId === localHostId;
+          isThisMachine(targetHostId, localHostId);
         const implementation = isLocal
           ? makeLocalSeatProcess(deps.local, deps.seatEnvironment)
           : makeRemoteSeatProcess(
@@ -159,8 +154,10 @@ export const makeActorSeatOccupy = (
         );
       });
     },
-    occupancy: (bindingId, hostId) => {
-      const targetHostId = normalizeTargetHostId(hostId);
-      return provideHow(deps, targetHostId, occupancyProgram(bindingId));
-    },
+    occupancy: (bindingId, hostId) =>
+      Effect.gen(function* () {
+        const machineName = yield* deps.localHostId();
+        const targetHostId = normalizeTargetHostId(hostId, machineName);
+        return yield* provideHow(deps, targetHostId, machineName, occupancyProgram(bindingId));
+      }),
   });

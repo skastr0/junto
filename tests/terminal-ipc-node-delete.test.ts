@@ -30,13 +30,14 @@ const harness = (options: {
     },
   };
   const router = Object.assign(new EventEmitter(), {
+    thisMachineName: () => "workbench",
     isLocalHostId: (hostId: string | undefined | null) =>
       hostId === undefined || hostId === null || hostId.trim() === "" ||
-      hostId === "local" || hostId === "cc-local",
+      hostId === "workbench",
     create: vi.fn(async (input: unknown) => ({
       bindingId: (input as { bindingId: string }).bindingId,
       epoch: "created",
-      hostId: "local",
+      hostId: "workbench",
       status: "running",
       cwd: "/tmp",
       cols: 80,
@@ -137,7 +138,7 @@ describe("terminal IPC node-delete admission", () => {
 
   it("forwards the selected Amp launch to provisioning on an operator open", async () => {
     const runtime = harness();
-    const base = agentNode("amp-low", "local", "amp", "local:amp-low");
+    const base = agentNode("amp-low", "workbench", "amp", "local:amp-low");
     const launch = { kind: "harness" as const, argv: ["amp", "--no-ide", "-m", "low"], cwd: "/work" };
     const node = Schema.decodeUnknownSync(Node)({ ...base, launch });
     const provision = vi.spyOn(ampSeatThread, "ensureProvisionedSessionId").mockResolvedValue({

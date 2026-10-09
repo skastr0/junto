@@ -193,10 +193,8 @@ export class TerminalNodeDeleteService {
     );
     const requestedHost = typeof input.hostId === "string" && input.hostId.trim()
       ? safeField(input.hostId, "hostId", MAX_HOST_BYTES)
-      : "local";
-    const hostId = this.router.isLocalHostId(requestedHost)
-      ? "local"
-      : requestedHost;
+      : this.router.thisMachineName();
+    const hostId = requestedHost;
     return Object.freeze({
       bindingId,
       hostId,

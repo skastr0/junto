@@ -5,9 +5,10 @@ import type { TerminalRouter } from "../src/main/junto/term/router";
 const makeRouter = (
   deleteBinding: (bindingId: string, hostId?: string) => Promise<boolean>,
 ): TerminalRouter => ({
+  thisMachineName: () => "workbench",
   isLocalHostId: (hostId: string | undefined | null) =>
     hostId === undefined || hostId === null || hostId.trim() === "" ||
-    hostId === "local" || hostId === "cc-local",
+    hostId === "workbench",
   deleteBinding,
 }) as unknown as TerminalRouter;
 
@@ -20,34 +21,34 @@ describe("terminal node-delete fence", () => {
       }),
     );
     const service = new TerminalNodeDeleteService(makeRouter(deleteBinding));
-    const admittedBeforeDelete = service.admitCreate("binding-a", "cc-local");
+    const admittedBeforeDelete = service.admitCreate("binding-a", "workbench");
 
     const begin = service.beginNodeDelete([
-      { bindingId: "binding-a", hostId: "local" },
+      { bindingId: "binding-a", hostId: "workbench" },
     ]);
 
-    expect(service.isLocked("binding-a", "cc-local")).toBe(true);
+    expect(service.isLocked("binding-a", "workbench")).toBe(true);
     expect(() => service.assertCreate(admittedBeforeDelete)).toThrow(
       /revoked by node deletion/u,
     );
-    expect(() => service.admitCreate("binding-a", "local")).toThrow(
+    expect(() => service.admitCreate("binding-a", "workbench")).toThrow(
       /deletion is in progress/u,
     );
-    expect(deleteBinding).toHaveBeenCalledWith("binding-a", "local");
+    expect(deleteBinding).toHaveBeenCalledWith("binding-a", "workbench");
 
     finishStop(true);
     const lease = await begin;
     expect(lease).toMatchObject({ ok: true });
     if (!lease.ok) throw new Error(lease.error);
-    expect(service.isLocked("binding-a", "local")).toBe(true);
+    expect(service.isLocked("binding-a", "workbench")).toBe(true);
     expect(service.finishNodeDelete(lease.leaseId, "committed")).toEqual({
       ok: true,
     });
-    expect(service.isLocked("binding-a", "local")).toBe(false);
+    expect(service.isLocked("binding-a", "workbench")).toBe(false);
     expect(() => service.assertCreate(admittedBeforeDelete)).toThrow(
       /revoked by node deletion/u,
     );
-    const admittedAfterDelete = service.admitCreate("binding-a", "local");
+    const admittedAfterDelete = service.admitCreate("binding-a", "workbench");
     expect(() => service.assertCreate(admittedAfterDelete)).not.toThrow();
   });
 
@@ -56,7 +57,7 @@ describe("terminal node-delete fence", () => {
     const service = new TerminalNodeDeleteService(makeRouter(deleteBinding));
 
     const result = await service.beginNodeDelete([
-      { bindingId: "binding-dirty", hostId: "local" },
+      { bindingId: "binding-dirty", hostId: "workbench" },
     ]);
 
     expect(result).toEqual({
@@ -64,8 +65,8 @@ describe("terminal node-delete fence", () => {
       error:
         "terminal binding-dirty did not produce an exact clean teardown receipt",
     });
-    expect(service.isLocked("binding-dirty", "local")).toBe(false);
-    const admitted = service.admitCreate("binding-dirty", "local");
+    expect(service.isLocked("binding-dirty", "workbench")).toBe(false);
+    const admitted = service.admitCreate("binding-dirty", "workbench");
     expect(() => service.assertCreate(admitted)).not.toThrow();
   });
 
@@ -81,29 +82,29 @@ describe("terminal node-delete fence", () => {
     const service = new TerminalNodeDeleteService(makeRouter(deleteBinding));
 
     const begin = service.beginNodeDelete([
-      { bindingId: "fast-dirty", hostId: "local" },
-      { bindingId: "slow-clean", hostId: "local" },
+      { bindingId: "fast-dirty", hostId: "workbench" },
+      { bindingId: "slow-clean", hostId: "workbench" },
     ]);
     await Promise.resolve();
     await Promise.resolve();
-    expect(service.isLocked("fast-dirty", "local")).toBe(true);
-    expect(service.isLocked("slow-clean", "local")).toBe(true);
+    expect(service.isLocked("fast-dirty", "workbench")).toBe(true);
+    expect(service.isLocked("slow-clean", "workbench")).toBe(true);
 
     finishSlow(true);
     await expect(begin).resolves.toMatchObject({ ok: false });
-    expect(service.isLocked("fast-dirty", "local")).toBe(false);
-    expect(service.isLocked("slow-clean", "local")).toBe(false);
+    expect(service.isLocked("fast-dirty", "workbench")).toBe(false);
+    expect(service.isLocked("slow-clean", "workbench")).toBe(false);
   });
 
-  it("deduplicates local host aliases but refuses a Remote teardown receipt", async () => {
+  it("deduplicates the same machine but refuses another machine's teardown receipt", async () => {
     const deleteBinding = vi.fn(async (_bindingId: string, hostId?: string) =>
-      hostId === "local"
+      hostId === "workbench"
     );
     const service = new TerminalNodeDeleteService(makeRouter(deleteBinding));
 
     const local = await service.beginNodeDelete([
-      { bindingId: "same", hostId: "local" },
-      { bindingId: "same", hostId: "cc-local" },
+      { bindingId: "same", hostId: "workbench" },
+      { bindingId: "same", hostId: "workbench" },
     ]);
     expect(local.ok).toBe(true);
     expect(deleteBinding).toHaveBeenCalledTimes(1);

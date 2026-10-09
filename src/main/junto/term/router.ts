@@ -7,6 +7,8 @@
  */
 
 import { EventEmitter } from "node:events";
+import { isThisMachine } from "@shared/machine-name";
+import { thisMachineName } from "./machine-name";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -359,15 +361,16 @@ export class TerminalRouter extends EventEmitter {
     }
   }
 
+  thisMachineName(): string { return thisMachineName(); }
+
   isLocalHostId(hostId: string | undefined | null): boolean {
-    if (hostId === undefined || hostId === null || hostId.trim() === "") return true;
-    const host = findHostById(hostId.trim());
-    return host !== undefined && isLocalHost(host);
+    const name = thisMachineName();
+    return isThisMachine(hostId?.trim() || name, name);
   }
 
   /** Resolve the target host and take the session-admission cut for it. */
   private admitSessionHost(input: { readonly hostId?: string }): string {
-    const hostId = input.hostId?.trim() || "local";
+    const hostId = input.hostId?.trim() || thisMachineName();
     this.assertSessionAdmission(hostId);
     return hostId;
   }
@@ -395,7 +398,7 @@ export class TerminalRouter extends EventEmitter {
       !nodeId ||
       this.local.get(open.bindingId.trim()) !== undefined
     ) {
-      return this.local.create({ ...open, hostId: "local" });
+      return this.local.create({ ...open, hostId });
     }
     // A resolution that cannot run at all starts the terminal with nothing;
     // only a required source refuses it.
@@ -413,7 +416,7 @@ export class TerminalRouter extends EventEmitter {
     if (refusal !== undefined) {
       throw new Error(`This terminal was not started. ${refusal}`);
     }
-    return this.local.create({ ...open, hostId: "local", regionEnvironment });
+    return this.local.create({ ...open, hostId, regionEnvironment });
   }
 
   private async createRemote(
@@ -440,7 +443,6 @@ export class TerminalRouter extends EventEmitter {
       nodeId: input.nodeId,
       label: input.label,
     });
-    // Remote station stamps its own hostId as "local"; rewrite for CC consumers.
     return { ...summary, hostId };
   }
 
@@ -460,7 +462,7 @@ export class TerminalRouter extends EventEmitter {
 
   async listAll(): Promise<readonly TerminalSessionSummary[]> {
     const out: TerminalSessionSummary[] = [...this.local.list()];
-    const seen = new Set<string>(["local"]);
+    const seen = new Set<string>([thisMachineName()]);
     const candidates = [...hostsWithCapability(TERMINAL_HOST_CAPABILITY)];
     for (const host of candidates) {
       if (isLocalHost(host) || seen.has(host.id)) continue;
@@ -543,7 +545,7 @@ export class TerminalRouter extends EventEmitter {
     ref: { canvasName?: string; nodeId?: string } | null,
     hostId?: string,
   ): Promise<void> {
-    const normalizedHostId = hostId?.trim() || "local";
+    const normalizedHostId = hostId?.trim() || thisMachineName();
     this.assertSessionAdmission(normalizedHostId);
     if (!hostId || this.isLocalHostId(hostId)) {
       this.local.bindCanvas(bindingId, ref);
@@ -563,7 +565,7 @@ export class TerminalRouter extends EventEmitter {
     if (this.quiescing) {
       return { ok: false, message: "terminal router is stopping" };
     }
-    const hostId = input.hostId?.trim() || "local";
+    const hostId = input.hostId?.trim() || thisMachineName();
     if (this.maintenanceCuts.has(hostId)) {
       return {
         ok: false,
@@ -753,7 +755,7 @@ export class TerminalRouter extends EventEmitter {
       throw new Error("terminal route maintenance unavailable");
     }
     const host = findHostById(hostId);
-    if (!host || host.kind !== "remote" || !host.sshEndpoint) {
+    if (!host || host.isThisMachine || !host.sshEndpoint) {
       throw new Error("terminal route maintenance requires a remote host");
     }
     const cut: HostMaintenanceCut = {
@@ -776,7 +778,7 @@ export class TerminalRouter extends EventEmitter {
     }
     const current = findHostById(cut.hostId);
     if (
-      current?.kind !== "remote" ||
+      current?.isThisMachine !== false ||
       current.sshEndpoint !== cut.endpoint ||
       this.generation !== cut.generation
     ) {
@@ -1031,7 +1033,7 @@ export class TerminalRouter extends EventEmitter {
     }
     this.assertRouteAdmission(hostId, maintenanceCut);
     const host = findHostById(hostId);
-    if (!host || host.kind !== "remote" || !host.sshEndpoint) {
+    if (!host || host.isThisMachine || !host.sshEndpoint) {
       const stale = this.remotes.get(hostId);
       if (stale) await this.closeRemoteEntry(hostId, stale);
       throw new Error(`host ${hostId} is not a remote SSH endpoint`);
@@ -1064,7 +1066,7 @@ export class TerminalRouter extends EventEmitter {
     const dialing = this.connectRemote(hostId, endpoint, generation, () =>
       this.routeAdmissionOpen(hostId, maintenanceCut) &&
       this.connecting.get(hostId)?.promise === promise &&
-      findHostById(hostId)?.kind === "remote" &&
+      findHostById(hostId)?.isThisMachine === false &&
       findHostById(hostId)?.sshEndpoint === endpoint &&
       generation === this.generation,
     );
@@ -1120,7 +1122,7 @@ export class TerminalRouter extends EventEmitter {
         Effect.gen(function* () {
           const ssh = yield* SshTransport;
           const host = findHostById(hostId);
-          if (!host || host.kind !== "remote" || host.sshEndpoint !== endpoint) {
+          if (!host || host.isThisMachine || host.sshEndpoint !== endpoint) {
             return yield* Effect.fail(
               new Error(`host ${hostId} SSH route changed before dial`),
             );
@@ -1224,7 +1226,7 @@ export class TerminalRouter extends EventEmitter {
     }
     const host = findHostById(hostId);
     if (
-      host?.kind === "remote" &&
+      host?.isThisMachine === false &&
       host.sshEndpoint === entry.endpoint &&
       entry.generation === this.generation &&
       !this.quiescing &&

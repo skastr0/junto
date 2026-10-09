@@ -1,7 +1,8 @@
+import { makeThisMachine } from "../src/shared/remote-hosts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { Effect } from "effect";
 import type { Canvas, Node } from "../src/shared/model";
 import { canvasOf, seat } from "./support/model-nodes";
@@ -41,11 +42,15 @@ import {
 import { setProcessEpochReaderForTests } from "../src/main/junto/process-epoch";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
+const initialHosts = hostsSnapshot();
+const namedHosts = [makeThisMachine("workbench")];
 const cleanups: Array<() => Promise<void> | void> = [];
 const submitted: ManagedPromptOutcome = {
   status: "submitted", bindingGeneration: 0,
   writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
 };
+
+beforeEach(() => setHostsSnapshot(namedHosts));
 
 afterEach(async () => {
   while (cleanups.length > 0) {
@@ -54,6 +59,7 @@ afterEach(async () => {
   setProcessEpochReaderForTests(undefined);
   setProcessIdentityMapForTests(undefined);
   vi.useRealTimers();
+  setHostsSnapshot(initialHosts);
 });
 
 const bootServer = async () => {
@@ -193,7 +199,7 @@ const live = (
     managedPromptOverride ?? (async () => true);
   const router = {
     isLocalHostId: (hostId: string | undefined | null) =>
-      hostId === undefined || hostId === null || hostId.trim() === "" || hostId === "local",
+      hostId === undefined || hostId === null || hostId.trim() === "" || hostId === "workbench",
     attach: vi.fn(async () => ({ ok: false, message: "no attach in test" })),
     release: vi.fn(async () => undefined),
     write: vi.fn(async () => false),
@@ -203,7 +209,7 @@ const live = (
     kill: async () => true,
     create: async (input: { bindingId: string }) => ({
       bindingId: input.bindingId,
-      hostId: "local",
+      hostId: "workbench",
       status: "running",
       epoch: "e1",
       detached: true,
@@ -298,7 +304,7 @@ describe("overseer remote agent.prompt", () => {
 });
 
 describe("router managedPrompt transport", () => {
-  const initialHosts = hostsSnapshot();
+  const routerInitialHosts = hostsSnapshot();
   const localHosts: LocalSessionHost[] = [];
   const routers: TerminalRouter[] = [];
 
@@ -314,11 +320,11 @@ describe("router managedPrompt transport", () => {
     const router = new TerminalRouter(local);
     routers.push(router);
     setHostsSnapshot([
-      ...initialHosts,
+      ...namedHosts,
       {
         id: "studio",
         label: "Studio",
-        kind: "remote",
+        isThisMachine: false,
         sshEndpoint: "studio.example",
         capabilities: ["terminal"],
       },
@@ -353,7 +359,7 @@ describe("router managedPrompt transport", () => {
     for (const host of localHosts.splice(0)) {
       await host.shutdownAll("test");
     }
-    setHostsSnapshot(initialHosts);
+    setHostsSnapshot(routerInitialHosts);
   });
 
   // Entry-dependent routing needs the fleet dial path enabled.

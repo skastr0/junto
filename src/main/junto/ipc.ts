@@ -1880,7 +1880,7 @@ export const registerJuntoIpc = (): void => {
                     } : undefined;
                     if (
                       surface === undefined ||
-                      surface.hostId !== "local"
+                      !termPlane.router.isLocalHostId(surface.hostId)
                     ) {
                       return {
                         ok: false as const,
@@ -1948,7 +1948,7 @@ export const registerJuntoIpc = (): void => {
             const sessionId = node.sessionId?.trim();
             return {
               bindingId: node.bindingId,
-              local: node.host === "local",
+              local: termPlane.router.isLocalHostId(node.host),
               ...(sessionId ? { sessionId } : {}),
             };
           }),

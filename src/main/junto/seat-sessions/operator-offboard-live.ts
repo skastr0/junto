@@ -9,6 +9,8 @@
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { thisMachineName } from "../term/machine-name";
+import { isThisMachine } from "@shared/machine-name";
 import { Effect } from "effect";
 import type { Canvas, Node } from "@shared/model";
 import type { OffboardBy, OffboardRules, OffboardRulesPatch } from "@shared/seat-offboard";
@@ -113,7 +115,7 @@ const seatOf = (
     ...(title ? { title } : {}),
     bindingId: surface.bindingId,
     harness: surface.harness,
-    local: surface.hostId === "local",
+    local: isThisMachine(surface.hostId, thisMachineName()),
     ...(sessionId ? { sessionId } : {}),
     running,
     ...(state ? { state } : {}),

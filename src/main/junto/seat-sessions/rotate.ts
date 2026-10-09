@@ -16,6 +16,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { Effect, Schema } from "effect";
+import { isThisMachine } from "@shared/machine-name";
 import { Command } from "@shared/model";
 import { SqlClient } from "effect/unstable/sql";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
@@ -148,11 +149,11 @@ export const offboardAndRotate = async (
 ): Promise<SeatRotateResult> => {
   // Imported at call time: this module is reached from app composition, and
   // the runtime graph imports the terminal plane and canvases in turn.
-  const [{ AppRuntime }, { ModelService }, { StationRepository }, { SeatSessionRepository }, { mainAuthoringGate }] =
+  const [{ AppRuntime }, { ModelService }, { MachineRepository }, { SeatSessionRepository }, { mainAuthoringGate }] =
     await Promise.all([
       import("../../runtime"),
       import("../model/service"),
-      import("../station/repository"),
+      import("../machines/repository"),
       import("./repository"),
       import("../main-authoring-gate"),
     ]);
@@ -173,17 +174,15 @@ export const offboardAndRotate = async (
               if (canvasName !== undefined && name !== canvasName) continue;
               const node = (yield* model.canvas(name)).nodes.get(id as never);
               if (node?.kind !== "agent") continue;
-              const stations = yield* StationRepository;
-              const configuration = yield* stations.configuration.pipe(Effect.orElseSucceed(() => undefined));
+              const machines = yield* MachineRepository;
+              const machineName = yield* machines.machineName;
               const sessionId = node.sessionId?.trim();
               return {
                 canvasName: name,
                 bindingId: node.bindingId,
                 harness: node.harness,
                 ...(sessionId ? { sessionId } : {}),
-                local:
-                  configuration?.configuration.role === "command-center" &&
-                  configuration.configuration.hostId === node.host,
+                local: isThisMachine(node.host, machineName),
               } satisfies RotatingSeat;
             }
             return undefined;

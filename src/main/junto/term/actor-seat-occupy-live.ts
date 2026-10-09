@@ -1,5 +1,5 @@
 import { Effect, Layer } from "effect";
-import { StationRepository } from "../station/repository";
+import { MachineRepository } from "../machines/repository";
 import { ActorSeatOccupy, makeActorSeatOccupy } from "./actor-seat-occupy";
 import { termPlane } from "./plane";
 import { liveSeatEnvironment } from "../region-env/live";
@@ -8,11 +8,10 @@ import { liveSeatEnvironment } from "../region-env/live";
 export const ActorSeatOccupyLive = Layer.effect(
   ActorSeatOccupy,
   Effect.gen(function* () {
-    const installation = yield* StationRepository;
+    const installation = yield* MachineRepository;
     return makeActorSeatOccupy({
       local: termPlane.host,
-      localHostId: () => installation.configuration.pipe(
-        Effect.map((record) => record?.configuration.hostId ?? "local"),
+      localHostId: () => installation.machineName.pipe(
         Effect.mapError((cause) => new Error(cause.message)),
       ),
       clientForOccupy: async (hostId) => {

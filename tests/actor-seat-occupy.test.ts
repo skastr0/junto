@@ -1,3 +1,5 @@
+import { makeThisMachine } from "../src/shared/remote-hosts";
+import { hostsSnapshot, setHostsSnapshot } from "../src/main/junto/hosts/snapshot";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -28,6 +30,7 @@ import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-proces
 import type { FakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 import { installHermeticHarnessBins } from "./helpers/hermetic-harness-bins";
 
+const initialHosts = hostsSnapshot();
 const hosts: LocalSessionHost[] = [];
 const syntheticEpochs = new Map<number, string>();
 let restoreHarnessBins: () => void = () => undefined;
@@ -77,13 +80,14 @@ const remoteSummary = (
       >
     >,
 ): TerminalSessionSummary => ({
-  hostId: "local",
+  hostId: "cc-self",
   detached: false,
   createdAt: 1,
   ...over,
 });
 
 beforeEach(() => {
+  setHostsSnapshot([makeThisMachine("cc-self")]);
   syntheticEpochs.clear();
   // Seat launches resolve their harness against the operator's install dirs and
   // fail closed when it is missing; keep that independent of the host machine.
@@ -104,6 +108,7 @@ afterEach(async () => {
     await host.shutdownAll("test_cleanup");
   }
   restoreHarnessBins();
+  setHostsSnapshot(initialHosts);
   setProcessEpochReaderForTests(undefined);
   setProcessIdentityMapForTests(undefined);
 });

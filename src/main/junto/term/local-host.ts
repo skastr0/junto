@@ -5,6 +5,7 @@
  * Product law: app quit stops all local sessions (no LaunchAgent survive-quit).
  */
 
+import { thisMachineName } from "./machine-name";
 import { EventEmitter } from "node:events";
 import { existsSync, statSync } from "node:fs";
 import * as os from "node:os";
@@ -1170,7 +1171,7 @@ export class LocalSessionHost extends EventEmitter {
     const rec: SessionRec = {
       bindingId,
       epoch,
-      hostId: input.hostId?.trim() || "local",
+      hostId: input.hostId?.trim() || thisMachineName(),
       phase: SessionPhase.Opening({ surface: "native" }),
       lease: undefined,
       exitWitness: undefined,

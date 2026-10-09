@@ -75,7 +75,7 @@ export const registerTerminalIpc = (
     if (
       target === undefined ||
       target.length === 0 ||
-      target === "local" ||
+      router.isLocalHostId(target) ||
       target === "*" ||
       target === "all"
     ) {
@@ -328,7 +328,7 @@ export const registerTerminalIpc = (
 
   ipcMain.handle(IPC_CHANNELS.terminalAttach, async (event, input: AttachInput) => {
     const sender = assertTrusted(event);
-    const hostId = input.hostId?.trim() || "local";
+    const hostId = input.hostId?.trim() || router.thisMachineName();
     await ensureHostAvailable(hostId);
     if (input.mode === "control" && input.takeover) {
       const priorLeaseId = controlByBinding.get(input.bindingId);

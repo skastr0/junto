@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { makeThisMachine } from "../src/shared/remote-hosts";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { Effect, Scope } from "effect";
 import { hostsSnapshot, setHostsSnapshot } from "../src/main/junto/hosts/snapshot";
 import { LocalSessionHost } from "../src/main/junto/term/local-host";
@@ -6,13 +7,14 @@ import { TerminalRouter } from "../src/main/junto/term/router";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 const initialHosts = hostsSnapshot();
+const namedHosts = [makeThisMachine("workbench")];
 const routers: TerminalRouter[] = [];
 const localHosts: LocalSessionHost[] = [];
 
 const remoteHost = (sshEndpoint = "studio.example") => ({
   id: "studio",
   label: "Studio",
-  kind: "remote" as const,
+  isThisMachine: false as const,
   sshEndpoint,
   capabilities: ["terminal" as const],
 });
@@ -30,7 +32,7 @@ const makeRouter = (
   const router = new TerminalRouter(local, runtime);
   localHosts.push(local);
   routers.push(router);
-  setHostsSnapshot([...initialHosts, remoteHost()]);
+  setHostsSnapshot([...namedHosts, remoteHost()]);
   return router;
 };
 
@@ -71,7 +73,7 @@ const remoteClient = (
   close: vi.fn(),
   create: vi.fn(async ({ bindingId }: { bindingId: string }) => ({
     bindingId,
-    hostId: "local",
+    hostId: "workbench",
     epoch: "remote-epoch",
     status: "running",
   })),
@@ -116,6 +118,8 @@ const replaceConnectRemote = (
   return connect;
 };
 
+beforeEach(() => setHostsSnapshot(namedHosts));
+
 afterEach(async () => {
   for (const router of routers.splice(0)) router.beginShutdown();
   for (const host of localHosts.splice(0)) await host.shutdownAll("test");
@@ -130,7 +134,7 @@ describe("TerminalRouter listAll occupancy", () => {
     client.list.mockResolvedValue([
       {
         bindingId: "seat-1",
-        hostId: "local",
+        hostId: "workbench",
         epoch: "remote-epoch",
         status: "running",
       },
@@ -261,7 +265,7 @@ describe("TerminalRouter host maintenance", () => {
     installRemoteEntry(router, client);
     const acquired = await router.acquireRemoteHostMaintenance("studio");
     if (!acquired.acquired) return;
-    setHostsSnapshot([...initialHosts, remoteHost("replacement.example")]);
+    setHostsSnapshot([...namedHosts, remoteHost("replacement.example")]);
     const connect = replaceConnectRemote(router, async () => {
       throw new Error("replacement dial");
     });
@@ -311,7 +315,7 @@ describe("TerminalRouter host maintenance", () => {
     const router = new TerminalRouter(local);
     localHosts.push(local);
     routers.push(router);
-    setHostsSnapshot([...initialHosts, remoteHost()]);
+    setHostsSnapshot([...namedHosts, remoteHost()]);
     const client = remoteClient();
     installRemoteEntry(router, client);
     const acquired = await router.acquireRemoteHostMaintenance("studio");

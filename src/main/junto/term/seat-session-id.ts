@@ -14,10 +14,11 @@
 
 import { Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import { isThisMachine } from "@shared/machine-name";
 import { Command } from "@shared/model";
 import { coreRunner } from "../../core-runner";
 import { ModelService } from "../model/service";
-import { StationRepository } from "../station/repository";
+import { MachineRepository } from "../machines/repository";
 
 type SeatSessionIdInput = {
   readonly canvasName: string;
@@ -53,18 +54,15 @@ const persistSeatSessionId = (input: SeatSessionIdInput) => Effect.gen(function*
       yield* record(input.canvasName, target.id);
       return;
     }
-    const stations = yield* StationRepository;
-    const configuration = yield* stations.configuration;
-    if (configuration?.configuration.role !== "command-center")
-      return yield* Effect.fail(new Error("captured session persistence requires Command Center authoring"));
-    const localHost = configuration.configuration.hostId;
+    const machines = yield* MachineRepository;
+    const machineName = yield* machines.machineName;
     if (!capture.isCurrent()) return yield* Effect.fail(new Error("session capture generation changed"));
-    if (target.bindingId !== capture.bindingId || target.harness !== capture.harness || target.host !== localHost)
+    if (target.bindingId !== capture.bindingId || target.harness !== capture.harness || !isThisMachine(target.host, machineName))
       return yield* Effect.fail(new Error("session capture target changed or belongs to another installation"));
     const aliases: { canvas: string; id: string }[] = [];
     for (const name of yield* model.listCanvases()) {
       for (const node of (yield* model.canvas(name)).nodes.values()) {
-        if (node.kind !== "agent" || node.harness !== capture.harness || node.host !== localHost) continue;
+        if (node.kind !== "agent" || node.harness !== capture.harness || !isThisMachine(node.host, machineName)) continue;
         const existing = node.sessionId?.trim();
         if (existing === input.sessionId && node.bindingId !== capture.bindingId)
           return yield* Effect.fail(new Error("captured harness session already belongs to another seat"));

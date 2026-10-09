@@ -1,3 +1,4 @@
+import { makeThisMachine } from "../src/shared/remote-hosts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect, Scope } from "effect";
 import { LocalSessionHost } from "../src/main/junto/term/local-host";
@@ -12,9 +13,11 @@ import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-proces
 
 const hosts: LocalSessionHost[] = [];
 const initialHosts = hostsSnapshot();
+const namedHosts = [makeThisMachine("workbench")];
 const syntheticEpochs = new Map<number, string>();
 
 beforeEach(() => {
+  setHostsSnapshot(namedHosts);
   syntheticEpochs.clear();
   setProcessEpochReaderForTests({
     snapshot: () => [...syntheticEpochs].map(([pid, startKey]) => ({
@@ -56,39 +59,39 @@ describe("TerminalRouter local path", () => {
 
     const created = await router.create({
       bindingId: "r1",
-      hostId: "local",
+      hostId: "workbench",
       launch: { kind: "shell" },
       cols: 80,
       rows: 24,
     });
     expect(created.bindingId).toBe("r1");
-    expect(created.hostId).toBe("local");
+    expect(created.hostId).toBe("workbench");
     expect(created.status).toBe("running");
 
-    const listed = await router.list("local");
+    const listed = await router.list("workbench");
     expect(listed.some((s) => s.bindingId === "r1")).toBe(true);
 
-    const got = await router.get("r1", "local");
+    const got = await router.get("r1", "workbench");
     expect(got?.status).toBe("running");
 
     const attach = await router.attach({
       bindingId: "r1",
       mode: "control",
       takeover: true,
-      hostId: "local",
+      hostId: "workbench",
     });
     expect(attach.ok).toBe(true);
     if (!attach.ok) return;
 
-    expect(await router.write(attach.lease, "x", "local")).toBe(true);
-    expect(await router.resize(attach.lease, 100, 40, "local")).toBe(true);
-    await router.release(attach.lease, "local");
+    expect(await router.write(attach.lease, "x", "workbench")).toBe(true);
+    expect(await router.resize(attach.lease, 100, 40, "workbench")).toBe(true);
+    await router.release(attach.lease, "workbench");
 
-    expect(await router.kill("r1", "local")).toBe(true);
+    expect(await router.kill("r1", "workbench")).toBe(true);
     expect(router.runningCount()).toBe(0);
   });
 
-  it("only absent, empty, and an explicit local registry host are local", () => {
+  it("uses the hydrated name for default routing and refuses relative local", () => {
     const local = new LocalSessionHost(fakeAuthority(), {
       killGraceMs: 5,
       shutdownGraceMs: 5,
@@ -96,7 +99,8 @@ describe("TerminalRouter local path", () => {
     });
     hosts.push(local);
     const router = new TerminalRouter(local);
-    expect(router.isLocalHostId("local")).toBe(true);
+    expect(router.isLocalHostId("workbench")).toBe(true);
+    expect(router.isLocalHostId("local")).toBe(false);
     expect(router.isLocalHostId(undefined)).toBe(true);
     expect(router.isLocalHostId("")).toBe(true);
     expect(router.isLocalHostId("missing-host")).toBe(false);
@@ -137,8 +141,8 @@ describe("TerminalRouter local path", () => {
     hosts.push(local);
     const router = new TerminalRouter(local);
     setHostsSnapshot([
-      ...initialHosts,
-      { id: "studio", label: "Studio", kind: "remote", sshEndpoint: "studio-new", capabilities: ["terminal"] },
+      ...namedHosts,
+      { id: "studio", label: "Studio", isThisMachine: false, sshEndpoint: "studio-new", capabilities: ["terminal"] },
     ]);
     const close = vi.fn();
     (router as unknown as { remotes: Map<string, unknown> }).remotes.set("studio", {
@@ -166,8 +170,8 @@ describe("TerminalRouter local path", () => {
     hosts.push(local);
     const router = new TerminalRouter(local);
     setHostsSnapshot([
-      ...initialHosts,
-      { id: "studio", label: "Studio", kind: "remote", sshEndpoint: "studio-a", capabilities: ["terminal"] },
+      ...namedHosts,
+      { id: "studio", label: "Studio", isThisMachine: false, sshEndpoint: "studio-a", capabilities: ["terminal"] },
     ]);
     const gates = new Map<string, () => void>();
     const cleanup: string[] = [];
@@ -188,8 +192,8 @@ describe("TerminalRouter local path", () => {
     const creatingA = router.create({ bindingId: "remote-a", hostId: "studio" });
     await Promise.resolve();
     setHostsSnapshot([
-      ...initialHosts,
-      { id: "studio", label: "Studio", kind: "remote", sshEndpoint: "studio-b", capabilities: ["terminal"] },
+      ...namedHosts,
+      { id: "studio", label: "Studio", isThisMachine: false, sshEndpoint: "studio-b", capabilities: ["terminal"] },
     ]);
     const creatingB = router.create({ bindingId: "remote-b", hostId: "studio" });
     await Promise.resolve();
@@ -217,7 +221,7 @@ describe("TerminalRouter local path", () => {
     });
     hosts.push(local);
     const router = new TerminalRouter(local);
-    await router.create({ bindingId: "q1", hostId: "local" });
+    await router.create({ bindingId: "q1", hostId: "workbench" });
     await expect(router.shutdownAllLocal("test")).resolves.toEqual({
       clean: true,
       stragglers: [],

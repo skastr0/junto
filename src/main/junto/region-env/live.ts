@@ -1,6 +1,6 @@
 /**
  * Region environment bound to this installation: the real stores
- * (`./sources.ts`), the saved canvases, this station's host id and the seats
+ * (`./sources.ts`), the saved canvases, this machine's name and the seats
  * running in this process.
  *
  * The app runtime is imported lazily: it composes the seat launch, which
@@ -9,7 +9,6 @@
 import { Effect } from "effect";
 import type { Canvas } from "@shared/model";
 import type { RegionEnvironmentReport } from "@shared/region-environment";
-import { DEFAULT_STATION_HOST_ID } from "@shared/station";
 import { termPlane } from "../term/plane";
 import type { SeatEnvironmentResolver } from "../term/seat-process";
 import {
@@ -46,21 +45,10 @@ const readDoc = async (canvasName: string): Promise<Canvas | undefined> => {
 };
 
 const hostId = async (): Promise<string> => {
-  try {
-    const [{ AppRuntime }, { StationRepository }] = await Promise.all([
-      import("../../runtime"),
-      import("../station/repository"),
-    ]);
-    const record = await AppRuntime.runPromise(
-      Effect.gen(function* () {
-        const station = yield* StationRepository;
-        return yield* station.configuration;
-      }),
-    );
-    return record?.configuration.hostId?.trim() || DEFAULT_STATION_HOST_ID;
-  } catch {
-    return DEFAULT_STATION_HOST_ID;
-  }
+  const [{ coreRunner }, { MachineRepository }] = await Promise.all([
+    import("../../core-runner"), import("../machines/repository"),
+  ]);
+  return coreRunner.runPromise(Effect.flatMap(MachineRepository, (machine) => machine.machineName));
 };
 
 let service: RegionEnvironmentService | undefined;
