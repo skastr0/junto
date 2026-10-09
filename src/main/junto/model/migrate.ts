@@ -18,7 +18,7 @@ import {
 } from "./rows";
 
 /** The kind tables this step creates and fills. Its own list: it never follows the head. */
-const KIND_TABLES = {
+export const KIND_TABLES_V13 = {
   agent: "seats",
   region: "regions",
   terminal: "terminals",
@@ -105,7 +105,7 @@ export const migrateCanvasKinds = (
     if (downgraded)
       recordSystemLog(`Junto migrated stored object ${JSON.stringify(downgraded)}`, "warn");
     if (node.kind === "peer") throw new Error("a stored canvas never holds a peer");
-    const table = KIND_TABLES[node.kind];
+    const table = KIND_TABLES_V13[node.kind];
     insert(database, table, {
       ...nodeToRow(old.canvas_name, node),
       created_at: old.created_at ?? old.updated_at,
@@ -140,7 +140,7 @@ export const migrateCanvasKinds = (
     if (!isDeepStrictEqual(wireFromRow(copied), wire))
       throw new Error(`kind migration changed connection ${wire.id}`);
   }
-  const total = Object.values(KIND_TABLES).reduce(
+  const total = Object.values(KIND_TABLES_V13).reduce(
     (count, table) =>
       count +
       Number(database.prepare(`SELECT count(*) AS n FROM ${table}`).get()!.n),

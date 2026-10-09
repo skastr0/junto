@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { KIND_TABLES } from "../src/main/junto/model/state-schema";
+import { KIND_TABLES_V13 } from "../src/main/junto/model/migrate";
 import { convertLegacyRow, type LegacyNodeRow } from "../src/shared/model/from-legacy-row";
 import { fileSha256 } from "./preview-snapshot";
 
@@ -61,7 +61,8 @@ export const checkPreview = (home: string) => {
     }
     const canvases = before.prepare("SELECT canvas_name FROM canvas_documents ORDER BY canvas_name").all().map(({ canvas_name }) => {
       const canvas = String(canvas_name);
-      const kinds = Object.entries(KIND_TABLES).map(([kind, table]) => {
+      // The check is of step 12 -> 13, so it walks the tables that step creates.
+      const kinds = Object.entries(KIND_TABLES_V13).map(([kind, table]) => {
         const actual = Number(after.prepare(`SELECT count(*) AS n FROM ${identifier(table)} WHERE canvas_name=?`).get(canvas)?.n);
         const count = expected.get(canvas)?.get(kind) ?? 0;
         if (actual !== count) failures.push(`${canvas}/${kind}: ${count} expected, ${actual} actual`);

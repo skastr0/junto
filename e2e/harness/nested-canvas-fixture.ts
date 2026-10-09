@@ -560,7 +560,9 @@ export const loadFactoryShapeCanvas = (input: {
     const name = input.canvasName ?? "factory";
     const canvas = database.prepare("SELECT canvas_name FROM canvases WHERE canvas_name = ?").get(name);
     if (!canvas) throw new Error(`no canvas named ${name} in ${input.dbPath}`);
-    const shapes = Object.entries(KIND_TABLES).map(([kind, table]) =>
+    // A peer exists only in a copy held by another machine, and a database
+    // older than its table has none.
+    const shapes = Object.entries(KIND_TABLES).filter(([kind]) => kind !== "peer").map(([kind, table]) =>
       `SELECT canvas_name, id, z_index, x, y, width, height,
               ${kind === "region" ? "color" : "NULL"} AS color, '${kind}' AS kind FROM ${table}`,
     ).join(" UNION ALL ");
