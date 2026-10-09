@@ -402,12 +402,6 @@ const initializeSettings = (
     }),
   );
 
-const readPairing = (sql: SqlClient.SqlClient) => SqlSchema.findOneOption({
-  Request: Schema.Void,
-  Result: Schema.Struct({ paired: Schema.Number }),
-  execute: () => sql`SELECT 1 AS paired FROM station_pairing WHERE singleton = 1`,
-})(undefined);
-
 /**
  * v1 is single-machine: every unset, unpaired installation becomes the local
  * Command Center. Remote pairing remains possible only via Station API (not
@@ -418,7 +412,6 @@ const ensureDefaultCommandCenter = (
   configuration: StationConfigurationService,
 ): Effect.Effect<void, SettingsError> =>
   transaction(sql, "settings.ensure-command-center", Effect.gen(function* () {
-      if ((yield* readPairing(sql))._tag === "Some") return;
       if ((yield* configuration.read) !== undefined) return;
       const hostId = yield* Schema.decodeUnknownEffect(StationHostId)(DEFAULT_STATION_HOST_ID);
       yield* configuration.write(
@@ -740,14 +733,6 @@ export const makeSettingsService = (
           if (Result.isFailure(configuration)) {
             return yield* new SettingsError({
               message: "Command Center topology is invalid",
-              code: "validation",
-            });
-          }
-          const pairing = yield* readPairing(sql);
-          if (pairing._tag === "Some") {
-            return yield* new SettingsError({
-              message:
-                "A paired installation cannot become Command Center; pairing is immutable Remote intent",
               code: "validation",
             });
           }

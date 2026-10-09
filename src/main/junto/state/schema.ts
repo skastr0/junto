@@ -1,7 +1,5 @@
 import { BROWSER_PROFILES_STATE_SCHEMA_SQL } from "../browser/state-schema";
-import { BOX_STATE_SCHEMA_SQL } from "../box/state-schema";
 import { MODEL_STATE_SCHEMA_SQL } from "../model/state-schema";
-import { WORK_STATE_SCHEMA_CANVAS_BASIS_SQL } from "../model/work-basis-schema";
 import { HOSTS_STATE_SCHEMA_SQL } from "../hosts/state-schema";
 import { KERNEL_STATE_SCHEMA_SQL } from "../kernel/state-schema";
 import {
@@ -18,17 +16,7 @@ import {
   CONTENT_INLINE_MEDIA_MIGRATION_SCHEMA_SQL,
   CONTENT_STATE_SCHEMA_SQL,
 } from "../content/state-schema";
-import {
-  WORK_BOARD_STATE_SCHEMA_WITH_TAGS_SQL,
-  WORK_CANVAS_REVISIONS_SQL,
-  WORK_PAD_STATE_SCHEMA_SQL,
-  WORK_PAD_READ_CURSORS_SQL,
-  WORK_PROJECTION_REVISION_TRIGGERS_SQL,
-  WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
-  WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
-  WORK_TASK_FINISH_STATE_SCHEMA_SQL,
-  withoutProposalStorage,
-} from "../work/state-schema";
+import { WORK_STATE_SCHEMA_SQL } from "../work/state-schema";
 import { OPENAI_CREDENTIAL_BINDINGS_SQL, PROVIDER_CREDENTIAL_BINDINGS_SQL } from "../credentials/state-schema";
 import { OVERSEER_LIVE_STATE_SCHEMA_SQL } from "../overseer/live/state-schema";
 import { CREW_STATE_SCHEMA_SQL } from "../work/crew-schema";
@@ -72,17 +60,14 @@ export const STATE_SCHEMA_IDENTITY_SQL = `
 `;
 
 /**
- * The current durable schema, composed directly: relational canvas
- * authority, head-basis fact resolution, review verdicts, the Live journal,
- * and credential bindings. Version 1 was the product-rename baseline; each
- * later change is a forward step in `migrations.ts`.
+ * The current durable schema, one fragment per owner. Version 1 was the
+ * baseline; each later change is a forward step in `migrations.ts`.
  */
 export const STATE_SCHEMA_FRAGMENTS = [
   STATE_SCHEMA_IDENTITY_SQL,
   MODEL_STATE_SCHEMA_SQL,
   BROWSER_PROFILES_STATE_SCHEMA_SQL,
   HOSTS_STATE_SCHEMA_SQL,
-  BOX_STATE_SCHEMA_SQL,
   KERNEL_STATE_SCHEMA_SQL,
   FACTORY_PAUSE_STATE_SCHEMA_SQL,
   SETTINGS_STATE_SCHEMA_SQL,
@@ -90,19 +75,11 @@ export const STATE_SCHEMA_FRAGMENTS = [
   STATION_STATE_SCHEMA_SQL,
   STATION_STATUS_STATE_SCHEMA_SQL,
   USAGE_STATE_SCHEMA_SQL,
-  WORK_STATE_SCHEMA_CANVAS_BASIS_SQL,
+  WORK_STATE_SCHEMA_SQL,
   LICENSE_STATE_V1_SCHEMA_SQL,
   LICENSE_STATE_V2_SCHEMA_SQL,
-  WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
-  WORK_TASK_FINISH_STATE_SCHEMA_SQL,
-  WORK_BOARD_STATE_SCHEMA_WITH_TAGS_SQL,
-  WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
   CONTENT_STATE_SCHEMA_SQL,
   CONTENT_INLINE_MEDIA_MIGRATION_SCHEMA_SQL,
-  WORK_PAD_STATE_SCHEMA_SQL,
-  WORK_PAD_READ_CURSORS_SQL,
-  WORK_CANVAS_REVISIONS_SQL,
-  WORK_PROJECTION_REVISION_TRIGGERS_SQL,
   PROVIDER_CREDENTIAL_BINDINGS_SQL,
   OPENAI_CREDENTIAL_BINDINGS_SQL,
   OVERSEER_LIVE_STATE_SCHEMA_SQL,
@@ -123,9 +100,6 @@ export const STATE_SCHEMA_FRAGMENTS = [
 
 /**
  * Fresh-install and final-verification target for the current version.
- * Historical DDL belongs in forward migrations, never in compatibility
- * branches inside these fragments.
+ * Historical DDL belongs in forward migrations, never in these fragments.
  */
-export const STATE_SCHEMA_SQL = withoutProposalStorage(
-  STATE_SCHEMA_FRAGMENTS.join("\n"),
-);
+export const STATE_SCHEMA_SQL = STATE_SCHEMA_FRAGMENTS.join("\n");

@@ -502,7 +502,6 @@ describe("work mutation sink attribution", () => {
     // repository supports, then check their sink attribution independently.
     const dynamic: ReadonlyArray<readonly [string, ReadonlyArray<string>]> = [
       ["${table}", ["work_tasks", "work_requests"]],
-      ["${pendingTable}", ["work_pending_commands"]],
       [
         "${table}",
         [

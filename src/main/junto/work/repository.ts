@@ -3605,7 +3605,7 @@ const recentOpsForSeat = Effect.fn("work.recentOpsForSeat")(function* (
       WITH fact_rows AS (
         SELECT
           fact_event.operation,
-          coalesce(command_event.origin_at, fact_event.origin_at) AS origin_at,
+          fact_event.origin_at AS origin_at,
           fact_event.origin_at AS applied_at,
           fact_event.received_at AS observed_at,
           fact_event.item_node_id AS target_node_id,
@@ -3620,12 +3620,6 @@ const recentOpsForSeat = Effect.fn("work.recentOpsForSeat")(function* (
           ON fact.event_home = fact_event.event_home
           AND fact.entity_home = fact_event.entity_home
           AND fact.seq = fact_event.seq
-        LEFT JOIN work_events AS command_event
-          ON fact.basis_kind = 'command'
-          AND command_event.record_type = 'command'
-          AND command_event.event_home = fact.basis_command_event_home
-          AND command_event.entity_home = fact.basis_command_entity_home
-          AND command_event.seq = fact.basis_command_seq
         WHERE fact_event.record_type = 'fact'
           AND fact_event.item_canvas_name = ?
           AND fact_event.operation IN (

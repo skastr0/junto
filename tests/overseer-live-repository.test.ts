@@ -276,7 +276,7 @@ describe("durable Live journal", () => {
       before = Object.fromEntries(tables
         .filter((row) => !retired.has(String(row.name)))
         .map((row) => [String(row.name), baseline.prepare(`SELECT * FROM "${String(row.name).replaceAll('"', '""')}"`).all()]));
-      for (const table of ["work_events", "work_commands", "work_facts", "work_dispositions"]) expect(before[table]!.length).toBeGreaterThan(0);
+      for (const table of ["work_events", "work_facts"]) expect(before[table]!.length).toBeGreaterThan(0);
     } finally { baseline.close(); }
     const { runtime, state, sql } = await open(path);
     expect(state.info.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
@@ -284,10 +284,11 @@ describe("durable Live journal", () => {
       return Object.fromEntries(yield* Effect.forEach(Object.keys(before), (table) =>
         sql`SELECT * FROM ${sql(table)}`.pipe(Effect.map((rows) => [table, rows]))));
     })));
-    // The canvas cut restates what a fact rests on: every stored fact is
-    // marked historical. Everything else in a kept row is untouched.
+    // Every stored fact is marked historical, and the log keeps only the
+    // events of facts. Everything else in a kept row is untouched.
     const withoutBasis = (tables: Record<string, unknown[]>) => ({
       ...tables,
+      work_events: tables.work_events!.filter((row) => (row as { record_type: string }).record_type === "fact"),
       work_facts: tables.work_facts!.map((row) =>
         Object.fromEntries(Object.entries(row as object).filter(([column]) => !column.startsWith("basis_")))),
     });

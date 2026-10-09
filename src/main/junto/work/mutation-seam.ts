@@ -20,7 +20,7 @@ import { Context, Effect } from "effect";
  *   {@link unjournaledWorkMutationEffect} window.
  *
  * The journal append needs no marker call: writing a record row into
- * `work_events` / `work_facts` / `work_commands` / `work_dispositions` IS the
+ * `work_events` / `work_facts` IS the
  * marker. That cannot be forged — those tables
  * carry the strictest CHECK constraints and immutability triggers in the
  * schema (`work/state-schema.ts`), so "append a record" means minting a real,
@@ -70,8 +70,6 @@ export const WORK_PLANE_TABLE_ROLES: ReadonlyMap<string, WorkPlaneTableRole> =
     // the journal
     ["work_events", "journal"],
     ["work_facts", "journal"],
-    ["work_commands", "journal"],
-    ["work_dispositions", "journal"],
     // journal identity allocation
     ["work_event_sequences", "allocation"],
     // the materialized world
@@ -99,7 +97,6 @@ export const WORK_PLANE_TABLE_ROLES: ReadonlyMap<string, WorkPlaneTableRole> =
     ["work_pad_inks", "projection"],
     ["work_pad_pins", "projection"],
     ["work_pad_posts", "projection"],
-    ["work_pending_commands", "projection"],
     // per-principal read positions
     ["work_pad_read_cursors", "cursor"],
     ["work_board_read_cursors", "cursor"],

@@ -14,6 +14,11 @@ import {
   AGENT_SIGNALS_STATE_SCHEMA_SQL,
 } from "../signals/state-schema";
 import { SQUADS_STATE_SCHEMA_SQL } from "../squads/state-schema";
+import {
+  migrateOneMachineLog,
+  ONE_MACHINE_LOG_REMOVED_TABLES,
+  ONE_MACHINE_LOG_RETIRED_FACT_COLUMNS,
+} from "../work/migrate-one-machine-log";
 import { COMPANION_DEVICES_STATE_SCHEMA_SQL } from "../companion/state-schema";
 import { SEAT_GUIDANCE_STATE_SCHEMA_SQL } from "../seat-guidance/state-schema";
 import { AGENT_PROFILES_STATE_SCHEMA_SQL } from "../profiles/state-schema";
@@ -241,7 +246,16 @@ export const STATE_SCHEMA_V14_IDENTITY = {
     "d6b5aa2a9f73723d6cfe7cc6f6b527415ef883a82473f6e438a0910828eca276",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 14;
+/**
+ * Version 15 drops the tables that carried tasks between machines and
+ * rebuilds the work log without its links to them. Every fact survives.
+ */
+export const STATE_SCHEMA_V15_IDENTITY = {
+  actualSchemaSha256:
+    "a76f3cd89bf0f4de0164cc4aede76294a66dabe265da3bc1f802eb196ea3e073",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 15;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -249,7 +263,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 14;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V14_IDENTITY;
+  STATE_SCHEMA_V15_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -403,6 +417,17 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     migrate: (database) => {
       database.exec("DROP TRIGGER work_messages_require_cc_home");
     },
+  },
+  {
+    fromVersion: 14,
+    toVersion: 15,
+    name: "keep the work log of one machine",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V14_IDENTITY,
+    removesTables: [...ONE_MACHINE_LOG_REMOVED_TABLES],
+    replacesTables: ["work_events", "work_facts"],
+    retiresColumns: { work_facts: [...ONE_MACHINE_LOG_RETIRED_FACT_COLUMNS] },
+    migrate: migrateOneMachineLog,
   },
 ];
 

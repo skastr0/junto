@@ -95,19 +95,12 @@ export const WorkJournalLive: Layer.Layer<
         yield* sql`
         INSERT INTO work_facts(event_home, entity_home, seq, predecessor_event_home,
           predecessor_entity_home, predecessor_seq, basis_kind, basis_canvas_name,
-          basis_canvas_seq, basis_projected_generation, basis_projected_content_sha256,
-          basis_command_event_home, basis_command_entity_home, basis_command_seq, basis_command_sha256, result_json)
+          basis_canvas_seq, result_json)
         VALUES (${eventHome}, ${entityHome}, ${record.id.seq}, ${record.predecessor?.route.eventHome ?? null},
           ${record.predecessor?.route.entityHome ?? null}, ${record.predecessor?.seq ?? null}, ${record.basis.kind},
           ${record.basis.kind === "canvas" ? record.basis.canvasName : null},
-          ${record.basis.kind === "canvas" ? record.basis.seq : null},
-          ${record.basis.kind === "projected-intent" ? record.basis.generation : null},
-          ${record.basis.kind === "projected-intent" ? record.basis.contentSha256 : null},
-          ${record.basis.kind === "command" ? record.basis.command.route.eventHome : null},
-          ${record.basis.kind === "command" ? record.basis.command.route.entityHome : null},
-          ${record.basis.kind === "command" ? record.basis.command.seq : null},
-          ${record.basis.kind === "command" ? record.basis.commandSha256 : null}, ${canonicalJson(record.body)})
-      `;
+          ${record.basis.kind === "canvas" ? record.basis.seq : null}, ${canonicalJson(record.body)})
+        `;
       },
     );
     return WorkJournal.of({

@@ -12,7 +12,6 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V13_IDENTITY,
@@ -20,7 +19,6 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import { STATE_SCHEMA_V13_SQL, STATE_SCHEMA_V14_SQL } from "./fixtures/state-v1/schema";
 
 const TRIGGER = "work_messages_require_cc_home";
@@ -81,6 +79,13 @@ const insertForeignHomedMail = (database: DatabaseSync): void => {
   }
 };
 
+const versionFourteenPlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 14,
+  currentSchemaSql: STATE_SCHEMA_V14_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 14),
+};
+
 const versionThirteenPlan = {
   ...STATE_SCHEMA_MIGRATION_PLAN,
   currentVersion: 13,
@@ -92,7 +97,6 @@ describe("state migration 13 -> 14 (mail is not pinned to one machine)", () => {
   it("freezes the version-thirteen witness the step starts from and names the head", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V13_SQL)).toEqual(STATE_SCHEMA_V13_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V14_SQL)).toEqual(STATE_SCHEMA_V14_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(expectedStateSchemaIdentity(STATE_SCHEMA_SQL));
   });
 
   it.each(["command-center-v1.db", "remote-v1.db"])(
@@ -108,7 +112,7 @@ describe("state migration 13 -> 14 (mail is not pinned to one machine)", () => {
         expect(triggerCount(database)).toBe(1);
         expect(() => insertForeignHomedMail(database)).toThrow(/work mailbox messages must be Command Center-homed/u);
 
-        const result = migrateStateSchema(database);
+        const result = migrateStateSchema(database, versionFourteenPlan);
         expect(result).toMatchObject({ previousVersion: 13, schemaVersion: 14 });
         expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V14_IDENTITY);
         expect(snapshot(database)).toEqual(before);

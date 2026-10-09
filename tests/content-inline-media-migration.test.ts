@@ -248,17 +248,9 @@ describe("inline media migration", () => {
               'msg-1', 'main', 'node-1', 'message.append', ${sha}, ${now}, ${now})
           `;
           yield* sql`
-            INSERT INTO station_projection_versions(
-              generation, content_sha256, source_canvas_generation,
-              source_intent_sha256, body, created_at, received_at
-            ) VALUES ('1', ${sha}, '1', ${sha}, '{}', ${now}, ${now})
-          `;
-          yield* sql`
             INSERT INTO work_facts(
-              event_home, entity_home, seq, result_json,
-              basis_kind, basis_projected_generation,
-              basis_projected_content_sha256
-            ) VALUES ('home1', 'home1', '1', ${factBody}, 'projected-intent', '1', ${sha})
+              event_home, entity_home, seq, result_json, basis_kind
+            ) VALUES ('home1', 'home1', '1', ${factBody}, 'historical')
           `;
         }),
       ),

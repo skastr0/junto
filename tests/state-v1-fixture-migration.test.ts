@@ -1,473 +1,173 @@
+/**
+ * State migration 14 -> 15 drops the tables that carried tasks between
+ * machines and rebuilds the work log without its links to them. Proven on both
+ * shipped version-1 databases, brought to version 14 by the real steps, with
+ * rows in the log and in the tables that go: every fact survives with its
+ * identity, hash and body, every other table is untouched, and the engine
+ * opens the result.
+ */
 import { createHash } from "node:crypto";
-import {
-  copyFile,
-  mkdtemp,
-  readFile,
-  rm,
-} from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  DatabaseSync,
-  type SQLOutputValue,
-} from "node:sqlite";
-import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import {
-  makeSchedulerRepositoryLive,
-} from "../src/main/junto/scheduler/repository";
-import {
-  makeStateEngineLive,
-  StateEngine,
-} from "../src/main/junto/state/engine";
-import { withSqlRead } from "../src/main/junto/state/sql-read";
-import {
+  CURRENT_STATE_SCHEMA_IDENTITY,
   CURRENT_STATE_SCHEMA_VERSION,
-  STATE_SCHEMA_V1_IDENTITY,
+  STATE_SCHEMA_MIGRATION_PLAN,
+  STATE_SCHEMA_MIGRATIONS,
+  STATE_SCHEMA_V14_IDENTITY,
+  STATE_SCHEMA_V15_IDENTITY,
+  migrateStateSchema,
 } from "../src/main/junto/state/migrations";
+import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
+import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
 import {
-  verifyRecordedStateSchemaIdentity,
-} from "../src/main/junto/state/schema-identity";
-import {
-  StationFleetTargetRepositoryLive,
-  StationFleetTargetRepository,
-} from "../src/main/junto/station/fleet-target-repository";
-import {
-  decodeStationPortfolioBody,
-} from "../src/main/junto/station/portfolio";
-import {
-  makeStationRepositoryLive,
-  StationRepository,
-} from "../src/main/junto/station/repository";
-import {
-  WorkRepositoryLive,
-} from "../src/main/junto/work/repository";
-import { ModelLive } from "../src/main/junto/model/layer";
-import { ModelDependents } from "../src/main/junto/model/dependents";
-import { ModelService } from "../src/main/junto/model/service";
-import { InstallationId } from "../src/shared/installation-id";
+  ONE_MACHINE_LOG_REMOVED_TABLES,
+  ONE_MACHINE_LOG_RETIRED_FACT_COLUMNS,
+} from "../src/main/junto/work/migrate-one-machine-log";
+import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { STATE_SCHEMA_V14_SQL } from "./fixtures/state-v1/schema";
 
-const COMMAND_CENTER_ID = Schema.decodeUnknownSync(InstallationId)(
-  "command-center-v1",
-);
-const REMOTE_ID = Schema.decodeUnknownSync(InstallationId)("remote-v1");
+const fixtures = [
+  { fileName: "command-center-v1.db", sha256: "ba3fd2b90591bd83f3706b153799c0f325ab47bc10b273be5fdcccd9155a2615" },
+  { fileName: "remote-v1.db", sha256: "2d9e0be7c9571292ad872e45b415efa8fbdfa91198ab0a178f1ae31d12c6588a" },
+] as const;
 
-type FixtureCase = {
-  readonly role: "command-center" | "remote";
-  readonly fileName: string;
-  readonly sha256: string;
-  readonly preservedTables: ReadonlyArray<string>;
+type Row = Readonly<Record<string, SQLOutputValue>>;
+
+let dir: string | undefined;
+afterEach(async () => {
+  if (dir) await rm(dir, { recursive: true, force: true });
+  dir = undefined;
+});
+
+const copyOf = async (fileName: string): Promise<string> => {
+  const source = fileURLToPath(new URL(`./fixtures/state-v1/${fileName}`, import.meta.url));
+  dir = await mkdtemp(join(tmpdir(), "junto-one-machine-log-"));
+  const path = join(dir, "junto.db");
+  await copyFile(source, path);
+  return path;
 };
 
-const cases: ReadonlyArray<FixtureCase> = [
-  {
-    role: "command-center",
-    fileName: "command-center-v1.db",
-    sha256:
-      "ba3fd2b90591bd83f3706b153799c0f325ab47bc10b273be5fdcccd9155a2615",
-    preservedTables: [
-      "canvas_documents",
-      "canvas_edges",
-      "canvas_nodes",
-      "canvas_portfolio_head",
-      "host_registry",
-      "host_registry_state",
-      "station_known_installations",
-      "station_installation",
-      "station_configuration",
-      "station_fleet_targets",
-      "station_peer_ack_cursors",
-      "work_canvas_revisions",
-      "work_event_sequences",
-      "work_events",
-      "work_facts",
-      "work_tasks",
-      "work_task_messages",
-      "work_task_transitions",
-    ],
-  },
-  {
-    role: "remote",
-    fileName: "remote-v1.db",
-    sha256:
-      "2d9e0be7c9571292ad872e45b415efa8fbdfa91198ab0a178f1ae31d12c6588a",
-    preservedTables: [
-      "host_registry",
-      "host_registry_state",
-      "station_known_installations",
-      "station_installation",
-      "station_pairing",
-      "station_configuration",
-      "station_projection_versions",
-      "station_projection_head",
-      "station_received_cursors",
-      "station_peer_ack_cursors",
-      "work_canvas_revisions",
-      "work_event_sequences",
-      "work_events",
-      "work_commands",
-      "work_facts",
-      "work_dispositions",
-      "work_tasks",
-      "work_task_messages",
-      "work_task_transitions",
-      "scheduler_interval_state",
-      "scheduler_interval_firings",
-    ],
-  },
-];
-
-type PreservedTable = {
-  readonly columns: ReadonlyArray<string>;
-  readonly rows: ReadonlyArray<
-    Readonly<Record<string, SQLOutputValue>>
-  >;
+const open = (path: string): DatabaseSync => {
+  const database = new DatabaseSync(path, { open: true, readOnly: false, allowExtension: false, enableForeignKeyConstraints: true });
+  database.exec("PRAGMA foreign_keys = ON");
+  return database;
 };
 
-type PreservationWitness = Readonly<Record<string, PreservedTable>>;
-
-const fixturePath = (fileName: string): string =>
-  fileURLToPath(
-    new URL(`./fixtures/state-v1/${fileName}`, import.meta.url),
-  );
-
-const fileSha256 = async (path: string): Promise<string> =>
-  createHash("sha256").update(await readFile(path)).digest("hex");
-
-const quotedIdentifier = (identifier: string): string =>
-  `"${identifier.replaceAll('"', '""')}"`;
-
-const readTable = (
-  database: DatabaseSync,
-  table: string,
-  columns?: ReadonlyArray<string>,
-): PreservedTable => {
-  const admittedColumns =
-    columns ??
-    (
-      database
-        .prepare(
-          `
-            SELECT name
-            FROM pragma_table_info(?)
-            ORDER BY cid
-          `,
-        )
-        .all(table) as unknown as ReadonlyArray<{
-          readonly name: SQLOutputValue;
-        }>
-    ).map(({ name }) => String(name));
-  if (admittedColumns.length === 0) {
-    throw new Error(`fixture table ${table} is missing`);
-  }
-  const projection = admittedColumns.map(quotedIdentifier).join(", ");
-  return {
-    columns: admittedColumns,
-    rows: database
-      .prepare(
-        `SELECT ${projection}
-           FROM ${quotedIdentifier(table)}
-          ORDER BY ${projection}`,
-      )
-      .all() as unknown as ReadonlyArray<
-        Readonly<Record<string, SQLOutputValue>>
-      >,
-  };
-};
-
-const capturePreservationWitness = (
-  database: DatabaseSync,
-  tables: ReadonlyArray<string>,
-): PreservationWitness => {
-  const nonEmptyTables = (
+const tableNames = (database: DatabaseSync): string[] =>
+  (
     database
       .prepare(
-        `
-          SELECT name
-          FROM sqlite_schema
-          WHERE type = 'table'
-            AND name NOT LIKE 'sqlite_%'
-            AND name <> 'state_schema_identity'
-          ORDER BY name
-        `,
+        `SELECT name FROM sqlite_schema
+          WHERE type = 'table' AND name NOT GLOB 'sqlite_*' AND name <> 'state_schema_identity'
+          ORDER BY name`,
       )
-      .all() as unknown as ReadonlyArray<{
-        readonly name: SQLOutputValue;
-      }>
-  )
-    .map(({ name }) => String(name))
-    .filter((table) => readTable(database, table).rows.length > 0);
-  expect([...tables].sort()).toEqual(nonEmptyTables);
-  return Object.fromEntries(
-    tables.map((table) => [table, readTable(database, table)]),
-  );
+      .all() as unknown as ReadonlyArray<{ readonly name: SQLOutputValue }>
+  ).map(({ name }) => String(name));
+
+const rowsOf = (database: DatabaseSync, table: string): Row[] =>
+  (database.prepare(`SELECT * FROM "${table}"`).all() as unknown as Row[])
+    .map((row) => ({ ...row }))
+    .sort((left, right) => JSON.stringify(left) < JSON.stringify(right) ? -1 : 1);
+
+const versionFourteenPlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 14,
+  currentSchemaSql: STATE_SCHEMA_V14_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 14),
 };
 
-const readPreservedColumns = (
-  database: DatabaseSync,
-  baseline: PreservationWitness,
-): PreservationWitness =>
-  Object.fromEntries(
-    Object.entries(baseline).map(([table, witness]) => [
-      table,
-      readTable(database, table, witness.columns),
-    ]),
+/** What step 14 -> 15 must leave of one version-14 fact row. */
+const survivingFact = (row: Row): Row => {
+  const kept = Object.fromEntries(
+    Object.entries(row).filter(([column]) => !(ONE_MACHINE_LOG_RETIRED_FACT_COLUMNS as ReadonlyArray<string>).includes(column)),
   );
-
-const openReadOnly = (path: string): DatabaseSync =>
-  new DatabaseSync(path, {
-    open: true,
-    readOnly: true,
-    allowExtension: false,
-    enableForeignKeyConstraints: true,
-  });
-
-const expectHealthyVersionOne = (database: DatabaseSync): void => {
-  expect(database.prepare("PRAGMA user_version").get()).toEqual({
-    user_version: 1,
-  });
-  expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(
-    STATE_SCHEMA_V1_IDENTITY,
-  );
-  expect(database.prepare("PRAGMA quick_check").get()).toEqual({
-    quick_check: "ok",
-  });
-  expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
-  expect(
-    database
-      .prepare(
-        `
-          SELECT name
-          FROM sqlite_schema
-          WHERE type = 'table'
-            AND name = 'license_activation'
-        `,
-      )
-      .get(),
-  ).toEqual({ name: "license_activation" });
+  return row.basis_kind === "canvas"
+    ? kept
+    : { ...kept, basis_kind: "historical", basis_canvas_name: null, basis_canvas_seq: null };
 };
 
-const makeFixtureRuntime = (path: string) => {
-  const state = makeStateEngineLive(path);
-  const repositories = Layer.provideMerge(
-    Layer.mergeAll(
-      WorkRepositoryLive,
-      makeStationRepositoryLive({
-        now: () => "2026-07-28T13:00:00.000Z",
-      }),
-      StationFleetTargetRepositoryLive,
-      makeSchedulerRepositoryLive({
-        now: (epochMilliseconds) =>
-          new Date(epochMilliseconds).toISOString(),
-      }),
-    ),
-    state,
-  );
-  return ManagedRuntime.make(
-    Layer.provideMerge(Layer.provide(ModelLive, ModelDependents.empty), repositories),
-  );
-};
-
-const assertCommandCenterRepositories = async (
-  runtime: ReturnType<typeof makeFixtureRuntime>,
-): Promise<void> => {
-  const { model, fleet, station } = await runtime.runPromise(
-    Effect.gen(function* () {
-      return {
-        model: yield* ModelService,
-        fleet: yield* StationFleetTargetRepository,
-        station: yield* StationRepository,
-      };
-    }),
-  );
-  const status = await runtime.runPromise(station.statusFacts);
-  const targets = await runtime.runPromise(fleet.list);
-
-  const factory = await runtime.runPromise(model.open("factory"));
-  expect(factory).toMatchObject({ canvas: "factory", seq: 9, nodes: expect.any(Array) });
-  expect(factory.nodes).toHaveLength(2);
-  expect(factory.nodes.some((node) => node.kind === "agent")).toBe(true);
-  expect(status).toMatchObject({
-    installationId: COMMAND_CENTER_ID,
-    configuration: {
-      role: "command-center",
-      hostId: "local",
-      supervisedPreferred: true,
-    },
-    peerAcknowledgedThrough: [
-      {
-        peerInstallationId: REMOTE_ID,
-        acknowledgement: {
-          eventHome: COMMAND_CENTER_ID,
-          entityHome: COMMAND_CENTER_ID,
-          through: "2",
-        },
-      },
-    ],
+describe("state migration 14 -> 15 (the work log of one machine)", () => {
+  it("freezes the version-fourteen witness the step starts from and names the head", () => {
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V14_SQL)).toEqual(STATE_SCHEMA_V14_IDENTITY);
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(15);
+    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V15_IDENTITY);
+    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(expectedStateSchemaIdentity(STATE_SCHEMA_SQL));
   });
-  expect(status.pairing).toBeUndefined();
-  expect(status.projection).toBeUndefined();
-  expect(targets).toEqual([
-    {
-      hostId: "studio",
-      stationInstallationId: REMOTE_ID,
-      boundAt: "2026-07-28T12:00:00.000Z",
-    },
-  ]);
-};
 
-const assertRemoteRepositories = async (
-  runtime: ReturnType<typeof makeFixtureRuntime>,
-): Promise<void> => {
-  const { sql, station } = await runtime.runPromise(
-    Effect.gen(function* () {
-      return {
-        sql: yield* SqlClient.SqlClient,
-        station: yield* StationRepository,
-      };
-    }),
-  );
-  const status = await runtime.runPromise(station.statusFacts);
-  const projection = await runtime.runPromise(station.projection);
-  const durableRemoteWitness = await runtime.runPromise(
-    withSqlRead(sql, Effect.gen(function* () {
-      return {
-        authorialRows: {
-          blobTables: Number((yield* sql<{ count: number }>`
-            SELECT COUNT(*) AS count
-            FROM sqlite_schema
-            WHERE type = 'table'
-              AND name IN (
-                'canvas_generations',
-                'canvas_generation_documents',
-                'canvas_head'
-              )
-          `)[0]?.count ?? -1),
-          retiredTables: Number((yield* sql<{ count: number }>`SELECT COUNT(*) AS count FROM sqlite_schema
-            WHERE name IN ('canvas_documents','canvas_portfolio_head','canvas_nodes','canvas_edges','canvas_entities')`)[0]?.count ?? -1),
-        },
-      };
-    })),
-  );
+  it.each(fixtures)("keeps every fact of $fileName and drops only the dead tables", async ({ fileName, sha256 }) => {
+    const path = await copyOf(fileName);
+    expect(createHash("sha256").update(await readFile(path)).digest("hex")).toBe(sha256);
+    const database = open(path);
+    try {
+      migrateStateSchema(database, versionFourteenPlan);
+      expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 14 });
+      const tablesBefore = tableNames(database);
+      const before = new Map(tablesBefore.map((table) => [table, rowsOf(database, table)]));
+      const facts = before.get("work_facts")!;
+      expect(facts.length).toBeGreaterThan(0);
+      for (const table of ONE_MACHINE_LOG_REMOVED_TABLES) expect(tablesBefore).toContain(table);
 
-  expect(status).toMatchObject({
-    installationId: REMOTE_ID,
-    pairing: {
-      commandCenterInstallationId: COMMAND_CENTER_ID,
-      stationLabel: "Studio Mini",
-      appVersion: "0.1.0-v1",
-    },
-    configuration: {
-      role: "remote",
-      hostId: "studio",
-      agentHostId: "studio",
-      commandCenterInstallationId: COMMAND_CENTER_ID,
-      supervisedPreferred: true,
-    },
-    projection: {
-      generation: "3",
-    },
-    receivedThrough: [
-      {
-        eventHome: COMMAND_CENTER_ID,
-        entityHome: REMOTE_ID,
-        through: "1",
-      },
-    ],
-    peerAcknowledgedThrough: [
-      {
-        peerInstallationId: COMMAND_CENTER_ID,
-        acknowledgement: {
-          eventHome: REMOTE_ID,
-          entityHome: REMOTE_ID,
-          through: "2",
-        },
-      },
-    ],
-  });
-  expect(projection).toMatchObject({
-    scope: "full",
-    generation: "3",
-    sourceCanvasGeneration: "9",
-  });
-  if (projection === undefined) {
-    throw new Error("Remote fixture projection is missing");
-  }
-  const decoded = decodeStationPortfolioBody(projection.body);
-  expect(decoded.documents.get("factory")?.nodes.map(({ id }) => id)).toContain(
-    "agent",
-  );
-  expect(durableRemoteWitness).toEqual({
-    authorialRows: {
-      blobTables: 0,
-      retiredTables: 0,
-    },
-  });
-};
+      const result = migrateStateSchema(database);
+      expect(result).toMatchObject({ previousVersion: 14, schemaVersion: 15 });
+      expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V15_IDENTITY);
+      expect(database.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
+      expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 
-describe("state schema v1 baseline fixtures", () => {
-  it.each(cases)(
-    "opens the copied $role fixture at the current baseline without changing rows",
-    async (fixture) => {
-      const sourcePath = fixturePath(fixture.fileName);
-      expect(await fileSha256(sourcePath)).toBe(fixture.sha256);
+      const removed = new Set<string>(ONE_MACHINE_LOG_REMOVED_TABLES);
+      expect(tableNames(database)).toEqual(tablesBefore.filter((table) => !removed.has(table)));
 
-      const source = openReadOnly(sourcePath);
-      let baseline: PreservationWitness;
-      try {
-        expectHealthyVersionOne(source);
-        baseline = capturePreservationWitness(source, fixture.preservedTables);
-      } finally {
-        source.close();
+      expect(rowsOf(database, "work_facts")).toEqual(
+        facts.map(survivingFact).sort((left, right) => JSON.stringify(left) < JSON.stringify(right) ? -1 : 1),
+      );
+      const factKeys = new Set(facts.map((row) => `${row.event_home}\u0000${row.entity_home}\u0000${row.seq}`));
+      expect(rowsOf(database, "work_events")).toEqual(
+        before
+          .get("work_events")!
+          .filter((row) => factKeys.has(`${row.event_home}\u0000${row.entity_home}\u0000${row.seq}`)),
+      );
+      for (const table of tablesBefore) {
+        if (removed.has(table) || table === "work_facts" || table === "work_events") continue;
+        expect(rowsOf(database, table), table).toEqual(before.get(table));
       }
 
-      const root = await mkdtemp(join(tmpdir(), `junto-${fixture.role}-v1-`));
-      const openedPath = join(root, fixture.fileName);
-      await copyFile(sourcePath, openedPath);
-      const runtime = makeFixtureRuntime(openedPath);
-      try {
-        const state = await runtime.runPromise(StateEngine);
-        expect(state.info.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
-        if (fixture.role === "command-center") {
-          await assertCommandCenterRepositories(runtime);
-        } else {
-          await assertRemoteRepositories(runtime);
-        }
-      } finally {
-        await runtime.dispose();
-      }
+      // The schema no longer refuses a fact minted at another canvas seq: the
+      // check stays where a fact is minted.
+      expect(
+        database.prepare("SELECT count(*) AS n FROM sqlite_schema WHERE name = 'work_fact_authorial_basis_resolves'").get(),
+      ).toEqual({ n: 0 });
+      expect(migrateStateSchema(database)).toMatchObject({ previousVersion: 15, initialized: false });
+    } finally {
+      database.close();
+    }
+  });
 
-      try {
-        const opened = openReadOnly(openedPath);
-        try {
-          expect(opened.prepare("PRAGMA user_version").get()).toEqual({
-            user_version: CURRENT_STATE_SCHEMA_VERSION,
-          });
-          const retired = new Set(["canvas_documents", "canvas_nodes", "canvas_edges", "canvas_portfolio_head"]);
-          const preserved = Object.fromEntries(Object.entries(baseline).filter(([table]) => !retired.has(table)));
-          const facts = preserved.work_facts;
-          if (facts) preserved.work_facts = {
-            ...facts, columns: facts.columns.filter((key) => !key.startsWith("basis_authorial_")), rows: facts.rows.map((row) => Object.fromEntries(Object.entries(row).filter(([key]) => !key.startsWith("basis_authorial_")).map(([key, value]) =>
-              [key, key === "basis_kind" ? "historical" : key.startsWith("basis_") ? null : value],
-            ))),
-          };
-          expect(readPreservedColumns(opened, preserved)).toEqual(preserved);
-          for (const table of retired) expect(opened.prepare("SELECT name FROM sqlite_schema WHERE name=?").get(table)).toBeUndefined();
-          expect(opened.prepare("PRAGMA quick_check").get()).toEqual({
-            quick_check: "ok",
-          });
-          expect(opened.prepare("PRAGMA foreign_key_check").all()).toEqual(
-            [],
-          );
-        } finally {
-          opened.close();
-        }
-        expect(await fileSha256(sourcePath)).toBe(fixture.sha256);
-      } finally {
-        await rm(root, { recursive: true, force: true });
-      }
-    },
-  );
+  it.each(fixtures)("opens $fileName through the engine and reads its work", async ({ fileName }) => {
+    const path = await copyOf(fileName);
+    const runtime = ManagedRuntime.make(Layer.provideMerge(WorkRepositoryLive, makeStateEngineLive(path)));
+    try {
+      const counts = await runtime.runPromise(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          const repository = yield* WorkRepository;
+          const version = yield* sql.unsafe<{ user_version: number }>("PRAGMA user_version");
+          const facts = yield* sql.unsafe<{ n: number }>("SELECT count(*) AS n FROM work_facts");
+          const work = yield* repository.kernelWork("factory");
+          return { version: version[0]!.user_version, facts: facts[0]!.n, tasks: work.tasks.size };
+        }),
+      );
+      expect(counts.version).toBe(CURRENT_STATE_SCHEMA_VERSION);
+      expect(counts.facts).toBeGreaterThan(0);
+      expect(counts.tasks).toBeGreaterThanOrEqual(0);
+    } finally {
+      await runtime.dispose();
+    }
+  });
 });

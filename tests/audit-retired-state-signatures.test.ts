@@ -80,8 +80,6 @@ describe("retired product-state signature boundary", () => {
         "state_schema_identity",
         "canvas_portfolio_head",
         "work_events",
-        "station_projection_versions",
-        "station_projection_head",
         "settings_preferences",
       ].join("\0"),
     );

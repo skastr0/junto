@@ -70,12 +70,12 @@ choice.
 Junto writes no canvas file: there is no JSON Canvas export or import, and no
 digest or SVG file beside a canvas.
 
-**SQLite evolution law:** Version 1 is the baseline Junto schema, selected by
-`CURRENT_STATE_SCHEMA_VERSION = 1` and declared in `src/main/junto/state/migrations.ts`.
-`PRAGMA user_version` selects a contiguous forward-only migration chain, and
-`state_schema_identity` proves the exact shape expected at each step. Every
-subsequent schema edit must increment the current version, append an atomic
-`N → N+1` migration (starting with `1 → 2`), and prove existing rows survive.
+**SQLite evolution law:** Version 1 is the baseline Junto schema, and
+`CURRENT_STATE_SCHEMA_VERSION` in `src/main/junto/state/migrations.ts` names
+the head. `PRAGMA user_version` selects a contiguous forward-only migration
+chain, and `state_schema_identity` proves the exact shape expected at each
+step. Every schema edit must increment the current version, append an atomic
+`N → N+1` migration, and prove existing rows survive.
 Shipped migration history is immutable: never edit, delete, reorder, or renumber
 a released step.
 
@@ -88,18 +88,15 @@ Routine migrations are **expand → preserve → deprecate**:
 - stop using the old representation only after the new one is verified, while
   retaining the old bytes in the schema.
 
-Physical retirement is not a startup migration. It requires a separate
-reviewed compaction, a verified coherent backup, replacement-parity proof,
-fleet compatibility evidence, and explicit operator approval. Never ask an
-installed system to delete `junto.db`; never add a downgrade, old-schema
-runtime reader, dual write, or file-store compatibility path.
-
-**One approved exception, October 2026.** The operator approved a single
-migration that creates the per-kind tables of the model, copies every stored
-canvas across, and drops the old canvas tables (`canvas_documents`,
-`canvas_nodes`, `canvas_edges`, `canvas_entities`, `canvas_portfolio_head`)
-and the station projection tables in the same step. No `ether_json` column
-survives it. The rule above holds for every migration after that one.
+Dropping a table or rebuilding one is a consolidate step, and it needs the
+operator's approval for that work. The step names every table it drops and
+every table it rebuilds, copies each kept row, and proves on the shipped
+fixtures and on a disposable copy of an installed database that no kept row
+changed. Two steps have done this: `12 → 13` replaced the canvas tables, and
+`14 → 15` dropped the tables that carried tasks between machines and rebuilt
+the work log without its links to them. Never ask an installed system to
+delete `junto.db`; never add a downgrade, an old-schema runtime reader, a dual
+write, or a file-store compatibility path.
 
 **Station skew law:** app release, local SQLite schema, and Station protocol
 are distinct facts. Only the one Station protocol integer selects wire
@@ -517,11 +514,10 @@ Two kinds of migration exist and they never mix:
 
 Backfill laws (each one broke, or nearly broke, a real release):
 
-- **Immutable logs are immutable to migrations too.** `work_events`,
-  `work_facts`, `work_commands`, and `work_dispositions` are never UPDATEd or
-  DELETEd — not even to "modernize" old payloads. History is served as written;
-  decode paths admit historical shapes (decode-admits-history). Backfills
-  rewrite material projections only.
+- **The work log is immutable to backfills.** `work_events` and `work_facts`
+  are never UPDATEd or DELETEd, not even to "modernize" old payloads. History
+  is served as written; decode paths admit historical shapes. Backfills
+  rewrite materialized rows only.
 - **A backfill never gates boot.** Failure = log it, leave the marker pending,
   retry next boot. The app always opens; a half-done backfill is a deferred
   walk, not a startup error.
