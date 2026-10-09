@@ -98,7 +98,12 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
 10. **Install without privileges.** Sending Junto to a machine is a copy over
     SSH into the user's home directory plus a per-user service. No admin
     account, no logged-in screen, no `/Applications`, no Electron on a machine
-    without a window. Update is the same copy.
+    without a window. Update is the same copy. The owner reports copied and
+    total archive bytes during the transfer; the window shows them before
+    the installation steps. After 30 seconds without another byte accepted
+    by SSH's input, it says there is no progress and resumes when bytes move.
+    That status never retries or interrupts the operation, and copied bytes
+    do not prove that the receiving machine installed or started Junto.
 11. **Seat control addresses the machine.** Start, stop and attach go to the
     seat's machine directly.
 12. **Harnesses are the operator's.** Junto reports which harness CLIs exist on
@@ -360,6 +365,16 @@ together, from one commit of main. `remote-verify` holds the receipts:
 
 Then run B on the same two machines. No review gate before a run;
 `remote-security` reads the link after the first receipt.
+
+**Run C with the stand-in harness, `88e9a5465`.** A seat placed on the Mac
+mini in the Preview started there from this Mac's window, in its own folder
+on the mini. Its `junto onboard` on the mini returned the guidance, soul and
+instructions written here, and its only grant, `msg.send`. It mailed a seat
+on this Mac and that seat mailed it; each inbox holds the other's message.
+Receipt: `preview-88e9a5465/live/receipt-c-standin.json`. Linux was sent,
+updated and uninstalled on the same build. Known wrong: the mini's sender
+was told `waiting` though its mail arrived. Next: the same with a real
+harness installed on the mini, then run D.
 
 **Receipts so far, all on real machines, build `98eb6c150`** (under
 `~/junto-receipts/resume-20261009/`): the Preview app builds with both
