@@ -11,9 +11,10 @@ changes.
 Junto shares the authority of the OS account it runs in. A seat with an
 unrestricted shell can reach that account's files, credentials and other
 local mechanisms outside Junto. Owner-only sockets and files exclude other
-users; they do not isolate processes belonging to their owner. Seat tokens,
-edge checks and process ancestry checks attribute Junto calls and prevent
-confused use. They are not a sandbox or proof that a human made a request.
+users; they do not isolate processes belonging to their owner. Seat credentials
+attribute Junto calls, and edges limit those calls. The CLI refuses owner and
+machine commands from a seat environment to prevent confused use. These checks
+are not a sandbox or proof that a human made a request.
 
 The operator, chosen accounts and attached agents are trusted participants.
 Agents are fallible: hostile pages, repositories, messages and tool output can
@@ -50,7 +51,7 @@ a filesystem sandbox against the account that owns the files.
 | Caller | Admission and allowed authority |
 |---|---|
 | Ordinary seat | A live generation credential resolves to its seat. The local copy's edges grant operations on connected targets; caller-supplied ids cannot replace that principal. |
-| Owner command | An explicitly enabled owner-only control socket, with registered seat/terminal process trees refused and an indeterminate ancestry walk denied. Closed commands invoke the same services as the window. |
+| Owner command | An owner-only control socket, mode 0600 in a 0700 directory, admits the OS account. The CLI refuses owner and machine commands whenever `JUNTO_WORK_TOKEN` is present, including an empty or malformed value. Closed commands invoke the same services as the window. |
 | App window | The committed trusted renderer identity and origin, validated before privileged IPC dispatch. Arbitrary pages do not receive its bridge. |
 | Overseer seat | A live human-granted overseer flag and a closed operation set, attributed to the real seat. It does not become the operator. |
 | Another machine | The bound link peer plus authorization for the particular canvas, channel, operation and resource. A successful hello grants no general execution authority. |
@@ -58,6 +59,23 @@ a filesystem sandbox against the account that owns the files.
 
 The window calls the same closed owner commands for machine operations. It
 adds no authority of its own and cannot bypass their validation or admission.
+
+Main mints one credential per occupant generation and injects it as
+`JUNTO_WORK_TOKEN` at spawn. The CLI reads it itself. Work and native
+overseer calls resolve that credential through the same live registry before
+checking their own allowed operations. A seat's descendants holding its
+credential are that seat, including for the native overseer protocol. The
+credential survives named session resume within its generation and is revoked
+when the generation ends. Calls before publication or with a missing,
+unknown, suspended or revoked credential fail closed. Missing environment
+forwarding receives a clear diagnosis, never a credential-file or process
+inspection fallback. Credentials are not command arguments or log content.
+
+The CLI's owner-command refusal is a guard against accidental use, not server
+authentication. A same-account process can omit the variable or speak directly
+to the owner socket and exercise the account's authority. Neither the absence
+of the variable nor access to that socket proves a human is calling. The link
+socket has the same account boundary and additionally requires its pinned hello.
 
 Ordinary edge-scoped calls compare the caller's and target's machine names.
 On the same machine, the existing edge, role and port checks apply. Across
@@ -79,7 +97,8 @@ Every closed administrative request rechecks the live grant. Timeout after a
 mutation may mean it completed; Junto never automatically replays the mutation.
 
 The agent-run exercise uses disposable cores and homes. Its external controller
-can use their owner commands while their own managed seats remain refused.
+can use their owner commands from an environment without a seat credential;
+their managed seats' CLI calls to owner and machine commands remain refused.
 The exercise does not need a bypass of the operator's running Junto.
 
 ## What crosses machines
@@ -152,8 +171,9 @@ never create or revive a pin.
 
 SSH authenticates a host and an account. The incoming installation id is an
 assertion authorized by that account, not cryptographic proof of a particular
-installation. A local relay cannot infer the original SSH caller from its Unix
-peer PID. Junto adds no signing or SSH key system for this first version.
+installation. The local relay only transports bytes; it does not independently
+authenticate the originating installation. Junto adds no signing or SSH key
+system for this first version.
 Before another machine may open links, the authentication model is reviewed;
 a link-only key with a forced command bound to its opener is the candidate.
 
@@ -312,7 +332,9 @@ Boundary checks cover legitimate use and refusal: wrong peer or canvas,
 forged author, changed duplicate, stale intent, revoked generation, malformed
 or oversized input, interrupted update and uncertain completion. The two-machine
 exercise runs from disposable homes without touching the operator's active
-state or keys, and proves that its managed seats cannot use its owner socket.
+state or keys, and proves that its managed seats' CLI refuses owner and machine
+commands before connecting or changing an installation. This establishes the
+client guard, not isolation of same-account processes from the owner socket.
 Tests do not weaken production admission to obtain a pass.
 
 A release claim is limited to the code and packaged behavior actually exercised.
