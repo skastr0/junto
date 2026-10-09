@@ -25,6 +25,10 @@ import type { AgentSignal } from "../../src/shared/agent-signals";
 import {
   WorkRepositoryLive,
 } from "../../src/main/junto/work/repository";
+import {
+  StationRepository,
+  StationRepositoryLive,
+} from "../../src/main/junto/station/repository";
 export interface Sandbox {
   readonly root: string;
   readonly userDataDir: string;
@@ -114,7 +118,7 @@ export const writeFixtureModel = async (
 ): Promise<void> => {
   const state = makeStateEngineLive(databasePath ?? join(sandbox.homeDir, ".junto", "state", "junto.db"));
   const repositories = Layer.provideMerge(Layer.mergeAll(
-    WorkRepositoryLive, SettingsLive,
+    WorkRepositoryLive, StationRepositoryLive, SettingsLive,
   ), state);
   const runtime = ManagedRuntime.make(Layer.provideMerge(
     Layer.provide(ModelService.layer, WorkModelDependentsLive), repositories,
@@ -125,6 +129,9 @@ export const writeFixtureModel = async (
       const settings = yield* SettingsService;
       const sql = yield* SqlClient.SqlClient;
       yield* settings.setStationTopology({ role: "command-center", hostId: "local", supervisedPreferred: true });
+      // Reading the installation id creates this installation; a seat's host
+      // resolves only against one that exists.
+      yield* (yield* StationRepository).installationId;
       yield* sql.withTransaction(Effect.gen(function* () {
         const exists = (yield* model.listCanvases()).some((canvas) => canvas === name);
         if (exists) yield* model.command(Schema.decodeUnknownSync(Command)({ _tag: "RemoveCanvas", canvas: name }), "operator");
