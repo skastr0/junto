@@ -178,10 +178,10 @@ The one interface three seats build against.
   is learned at the first hello, and from then on neither the name nor the id
   changes, at either end. Setup names a machine that receives Junto; a machine
   that starts on its own takes its hostname, and may change that only while it
-  has never had a peer and no row names it. A name once pinned stays bound to
-  its installation: the same machine can be removed and added again, another
-  installation under that name is refused. What the operator reads is the
-  label in the machine list, which stays editable.
+  has never had a peer and no canvas on it has changed. A name once pinned
+  stays bound to its installation: the same machine can be removed and added
+  again, another installation under that name is refused. What the operator
+  reads is the label in the machine list, which stays editable.
 - One source each: a machine's own name and its pinned peers live in the core
   (`machines/`); the machine list (`hosts/`) holds routes and presentation.
 - Who is at the other end. The trust unit is the OS account. The end that
