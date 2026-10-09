@@ -1,6 +1,6 @@
 /**
- * Packaged install acceptance, using two genuine bundles in a disposable home.
- * Run under with-app-run-lock.sh with {sshTarget,bundle,updateBundle} JSON.
+ * Packaged link/install acceptance in disposable homes, with optional real update.
+ * Run under with-app-run-lock.sh with {sshTarget,bundle,updateBundle?} JSON.
  * Any uncertain failure preserves the remote root for explicit inspection.
  */
 import { randomUUID } from "node:crypto";
@@ -18,6 +18,7 @@ import { makeRemoteCommand } from "../src/main/junto/ssh/domain";
 import { dedicatedStream } from "../src/main/junto/ssh/program";
 import { MachineOwnStatus } from "../src/shared/machine-control";
 import { MachineAbsolutePath, MachineInstallResult, MachineSendInput, MachineUninstallResult } from "../src/shared/machine-install";
+import { exerciseMachineLink } from "./machine-link-exercise";
 
 const Input = Schema.Struct({
   sshTarget: MachineSendInput.fields.sshTarget,
@@ -26,7 +27,8 @@ const Input = Schema.Struct({
   sshKnownHostsFile: MachineSendInput.fields.sshKnownHostsFile,
   sshHostKeyAlias: MachineSendInput.fields.sshHostKeyAlias,
   bundle: MachineAbsolutePath,
-  updateBundle: MachineAbsolutePath,
+  updateBundle: Schema.optionalKey(MachineAbsolutePath),
+  localBundle: Schema.optionalKey(MachineAbsolutePath),
 });
 const Epoch = Schema.Struct({ pid: Schema.Number, startKey: Schema.String });
 const Observation = Schema.Struct({
@@ -165,9 +167,14 @@ const exercise = (input: typeof Input.Type) => Effect.gen(function* () {
   });
   const transport = yield* SshTransport;
   const firstBundle = yield* attempt(() => inspectMachineBundle(input.bundle));
-  const nextBundle = yield* attempt(() => inspectMachineBundle(input.updateBundle));
-  if (firstBundle.build === nextBundle.build || firstBundle.target !== nextBundle.target) {
+  const nextBundle = input.updateBundle === undefined ? undefined : yield* attempt(() => inspectMachineBundle(input.updateBundle!));
+  if (nextBundle !== undefined && (firstBundle.build === nextBundle.build || firstBundle.target !== nextBundle.target)) {
     return yield* Effect.fail(new Error("provide two different real builds for the same platform"));
+  }
+  const localBundle = input.localBundle ?? input.bundle;
+  const localManifest = yield* attempt(() => inspectMachineBundle(localBundle));
+  if (localManifest.build !== firstBundle.build || localManifest.target !== `${process.platform}-${process.arch}`) {
+    return yield* Effect.fail(new Error("provide a native local bundle with the same build as the first remote bundle"));
   }
   const receipts = yield* attempt(() => mkdtemp(join(tmpdir(), "junto-install-exercise-")));
   const owner = randomUUID();
@@ -190,7 +197,20 @@ const exercise = (input: typeof Input.Type) => Effect.gen(function* () {
     const paths = { juntoHome: join(root, "home"), installRoot: join(root, "install") };
     const observe = () => ssh(OBSERVE, JSON.stringify({ root, owner })).pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(Observation))));
-    const first = yield* sendMachine(target, { bundle: input.bundle, ...paths });
+    const first = yield* attempt(() => exerciseMachineLink({
+      bundle: localBundle, remoteBundle: input.bundle, receipts,
+      localName: `exercise-open-${owner.slice(0, 8)}`,
+      remote: { name: `exercise-peer-${owner.slice(0, 8)}`, sshTarget: input.sshTarget,
+        ...(input.sshPort === undefined ? {} : { sshPort: input.sshPort }),
+        ...(input.sshIdentityFile === undefined ? {} : { sshIdentityFile: input.sshIdentityFile }),
+        ...(input.sshKnownHostsFile === undefined ? {} : { sshKnownHostsFile: input.sshKnownHostsFile }),
+        ...(input.sshHostKeyAlias === undefined ? {} : { sshHostKeyAlias: input.sshHostKeyAlias }),
+        ...paths },
+      record: async (step, value) => {
+        receipt.steps[step] = value;
+        await writeFile(join(receipts, "receipt.json"), JSON.stringify(receipt, null, 2) + "\n");
+      },
+    }));
     receipt.steps.install = first;
     yield* save();
     const before = yield* observe();
@@ -209,15 +229,19 @@ const exercise = (input: typeof Input.Type) => Effect.gen(function* () {
     receipt.steps.resendStatus = afterResend;
     yield* save();
     yield* attempt(async () => assertUnchangedResend(first, before, resend, afterResend));
-    const update = yield* sendMachine(target, { bundle: input.updateBundle, ...paths, expectedInstallationId: first.installationId });
-    receipt.steps.update = update;
-    const afterUpdate = yield* observe();
-    receipt.steps.updateStatus = afterUpdate;
-    yield* save();
-    yield* attempt(async () => {
-      requireProof(update.build === nextBundle.build, "update selected the wrong bundle");
-      assertOrderedUpdate(resend, afterResend, update, afterUpdate);
-    });
+    let update = resend;
+    let afterUpdate = afterResend;
+    if (input.updateBundle !== undefined && nextBundle !== undefined) {
+      update = yield* sendMachine(target, { bundle: input.updateBundle, ...paths, expectedInstallationId: first.installationId });
+      receipt.steps.update = update;
+      afterUpdate = yield* observe();
+      receipt.steps.updateStatus = afterUpdate;
+      yield* save();
+      yield* attempt(async () => {
+        requireProof(update.build === nextBundle.build, "update selected the wrong bundle");
+        assertOrderedUpdate(resend, afterResend, update, afterUpdate);
+      });
+    }
     const cleanup = yield* ssh(UNINSTALL, JSON.stringify({ root, owner, serviceLabel: update.serviceLabel, epoch: afterUpdate.epoch })).pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(Cleanup))));
     receipt.steps.uninstall = cleanup;

@@ -1,6 +1,8 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { MachineInstallResult } from "../src/shared/machine-install";
+import { InstallationId } from "../src/shared/installation-id";
+import { assertLinkedStatus } from "../scripts/machine-link-exercise";
 import {
   assertInstallObservation,
   assertOrderedUpdate,
@@ -38,6 +40,18 @@ const update: MachineInstallResult = {
 const after = observation(update, "Fri Oct  9 11:01:00 2026");
 
 describe("installer exercise evidence", () => {
+  it("requires reachable status from the distinct installed peer on the same build", () => {
+    const own = { ...before.status, machineName: "opener", installationId: Schema.decodeUnknownSync(InstallationId)("install-opener") };
+    const peer = { machineName: first.machineName, installationId: first.installationId,
+      reachable: true, form: "mac-mini" as const, harnesses: [], missingSecrets: [] };
+    expect(() => assertLinkedStatus(own, first, peer)).not.toThrow();
+    expect(() => assertLinkedStatus(own, first, { ...peer, reachable: false })).toThrow("linked status");
+    expect(() => assertLinkedStatus(own, first, { ...peer, installationId: Schema.decodeUnknownSync(InstallationId)("install-another") })).toThrow("linked status");
+    expect(() => assertLinkedStatus(own, first, { ...peer, machineName: "another" })).toThrow("linked status");
+    expect(() => assertLinkedStatus(before.status, first, peer)).toThrow("distinct");
+    expect(() => assertLinkedStatus({ ...own, build: "c".repeat(64) }, first, peer)).toThrow("same build");
+  });
+
   it("accepts unchanged resend and an update joined to independently observed epochs", () => {
     expect(() => assertUnchangedResend(first, before, resend, before)).not.toThrow();
     expect(() => assertOrderedUpdate(first, before, update, after)).not.toThrow();
