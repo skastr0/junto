@@ -66,6 +66,8 @@ export type RowExchangeDeps = {
    * for a copy no honest machine sends.
    */
   readonly installCopy: (copy: CanvasCopy) => Effect.Effect<CopyInstalled, unknown>;
+  /** A push to a linked machine failed: the exchange on that link is over. */
+  readonly linkFailed?: (peer: InstallationId, cause: ExchangeClosed) => void;
 };
 
 export type CopyInstalled =
@@ -282,8 +284,9 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
   /**
    * A local commit, or rows just taken, on a canvas: push to every other open
    * link. A canvas this machine edits goes first as its copy, when it changed.
+   * A link the push fails on is dropped and the others are still served.
    */
-  const committed = (canvasName: string, except?: InstallationId): Effect.Effect<void, ExchangeClosed> =>
+  const committed = (canvasName: string, except?: InstallationId): Effect.Effect<void> =>
     Effect.forEach(
       [...links.values()].filter((state) => state.link.peer !== except),
       (state) =>
@@ -293,6 +296,13 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
             if (yield* sendCopy(state, canvasName)) yield* sendHave(state);
             yield* offer(state, canvasName);
           }),
+        ).pipe(
+          Effect.catch((cause) =>
+            Effect.sync(() => {
+              if (links.get(state.link.peer) === state) links.delete(state.link.peer);
+              deps.linkFailed?.(state.link.peer, cause);
+            }),
+          ),
         ),
       { discard: true },
     );

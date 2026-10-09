@@ -24,6 +24,8 @@ import { makeRowExchange, type CopyInstalled, type RowExchange } from "./session
 export type LiveRowExchangeOptions = {
   /** Mail that arrived for a seat, for this machine to deliver if the seat is here. */
   readonly mailArrived: (canvasName: string, nodeId: string, message: Message) => void;
+  /** A push to a linked machine failed: the exchange on that link is over. */
+  readonly linkFailed?: (peer: InstallationId, cause: unknown) => void;
 };
 
 type Home = { readonly seatId: ActorSeatId; readonly machine: InstallationId };
@@ -153,8 +155,30 @@ export const makeLiveRowExchange = (
       canvases: records.listCanvases().pipe(Effect.orDie),
       placement: (canvasName) => placement(canvasName).pipe(Effect.orDie),
       mailArrived: options.mailArrived,
+      ...(options.linkFailed === undefined ? {} : { linkFailed: options.linkFailed }),
       cutCopy,
       copySent,
       installCopy,
     });
+  });
+
+/**
+ * Push every local commit to the open links: a change to a canvas, and a row
+ * written to the work log. Returns the function that stops following.
+ */
+export const followLocalCommits = (
+  exchange: RowExchange,
+): Effect.Effect<() => void, never, ModelService | WorkRepository> =>
+  Effect.gen(function* () {
+    const model = yield* ModelService;
+    const repository = yield* WorkRepository;
+    const push = (canvasName: string): void => {
+      Effect.runFork(exchange.committed(canvasName));
+    };
+    const offCanvas = model.subscribeChanges((event) => push(event.canvas));
+    const offWork = repository.subscribeChanges((canvasName) => push(canvasName));
+    return () => {
+      offCanvas();
+      offWork();
+    };
   });

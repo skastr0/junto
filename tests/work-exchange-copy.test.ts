@@ -17,7 +17,7 @@ import { ModelRecords } from "../src/main/junto/model/records";
 import { ModelService } from "../src/main/junto/model/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { makeRowsChannel, type RowsChannelContext } from "../src/main/junto/work/exchange/channel";
-import { makeLiveRowExchange } from "../src/main/junto/work/exchange/live";
+import { followLocalCommits, makeLiveRowExchange } from "../src/main/junto/work/exchange/live";
 import type { RowExchange } from "../src/main/junto/work/exchange/session";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { InstallationId } from "../src/shared/installation-id";
@@ -69,7 +69,12 @@ afterEach(async () => {
   }
 });
 
-const boot = async (name: string, self: InstallationId, pins: ReadonlyArray<readonly [string, InstallationId]>): Promise<Machine> => {
+const boot = async (
+  name: string,
+  self: InstallationId,
+  pins: ReadonlyArray<readonly [string, InstallationId]>,
+  linkFailed?: (peer: InstallationId) => void,
+): Promise<Machine> => {
   const root = join(tmpdir(), `junto-exchange-copy-${name}-${randomUUID()}`);
   const runtime = makeRuntime(root, name, self);
   const arrived: string[] = [];
@@ -77,7 +82,10 @@ const boot = async (name: string, self: InstallationId, pins: ReadonlyArray<read
     Effect.gen(function* () {
       const machines = yield* MachineRepository;
       for (const [machineName, installationId] of pins) yield* machines.pinPeer({ machineName, installationId });
-      return yield* makeLiveRowExchange({ mailArrived: (_canvas, nodeId, message) => arrived.push(`${nodeId} ${message.messageId}`) });
+      return yield* makeLiveRowExchange({
+        mailArrived: (_canvas, nodeId, message) => arrived.push(`${nodeId} ${message.messageId}`),
+        ...(linkFailed === undefined ? {} : { linkFailed }),
+      });
     }),
   );
   const machine: Machine = { name, self, root, runtime, exchange, channel: makeRowsChannel(exchange), arrived };
@@ -107,6 +115,11 @@ const settle = async (): Promise<void> => {
     const frame = next.to.channel.decodeEvent(next.payload);
     await next.to.runtime.runPromise(next.to.channel.handleEvent(contextOf(next.to, next.from), frame));
   }
+};
+
+/** Let the forked pushes of a local commit run. */
+const pushed = async (): Promise<void> => {
+  for (let turn = 0; turn < 20; turn += 1) await new Promise((resolve) => setTimeout(resolve, 2));
 };
 
 const place = { width: 200, height: 100 };
@@ -321,6 +334,73 @@ describe("a copy no honest machine sends", () => {
     await expect(
       mini.runtime.runPromise(mini.channel.handleEvent(contextOf(mini, macbook), mini.channel.decodeEvent(unsolicited))),
     ).rejects.toThrow(/a copy this machine did not send/u);
+  });
+});
+
+describe("a local commit", () => {
+  it("is pushed without being asked: a change to the canvas, and a row written to the log", async () => {
+    const { macbook, mini } = await pair();
+    const stop = [
+      await macbook.runtime.runPromise(followLocalCommits(macbook.exchange)),
+      await mini.runtime.runPromise(followLocalCommits(mini.exchange)),
+    ];
+    try {
+      await link(macbook, mini);
+      await settle();
+      const first = (await header(mini))!.seq;
+
+      await macbook.runtime.runPromise(
+        Effect.flatMap(ModelService, (model) =>
+          model.command(command({ _tag: "Move", canvas: "factory", moves: [{ id: "peer", x: 340, y: 60 }] }), "operator"),
+        ),
+      );
+      await pushed();
+      await settle();
+      expect((await header(mini))!.seq).toBeGreaterThan(first);
+
+      const held = (await header(mini))!;
+      await mini.runtime.runPromise(
+        Effect.flatMap(WorkRepository, (repository) =>
+          repository.appendMessage({
+            sink: { canvasName: "factory", nodeId: "lead" },
+            basis: { kind: "canvas", canvasName: "factory", seq: held.seq },
+            message: { messageId: "pushed-on-commit", role: "agent", parts: [{ kind: "text", text: "from peer" }] },
+            sentBy: { seatId: deriveActorSeatId(MINI, "binding-peer"), canvasName: "factory", nodeId: "peer" },
+            destination: { kind: "mailbox" },
+            originAt: at,
+            receivedAt: at,
+          }),
+        ),
+      );
+      await pushed();
+      await settle();
+      expect(await inbox(macbook, "lead")).toEqual(["pushed-on-commit"]);
+    } finally {
+      for (const off of stop) off();
+    }
+  });
+
+  it("drops a link the push fails on and says so", async () => {
+    const failed: string[] = [];
+    const macbook = await boot("macbook", MACBOOK, [["mini", MINI]], (peer) => failed.push(peer));
+    await factoryOn(macbook);
+    let up = true;
+    await macbook.runtime.runPromise(
+      macbook.exchange.opened({ peer: MINI, send: () => (up ? Effect.void : Effect.fail(new Error("the link is gone"))) }),
+    );
+    // The mini says it holds the canvas, so a commit has rows to push to it.
+    const held = (await header(macbook))!;
+    await macbook.runtime.runPromise(
+      macbook.exchange.receive(MINI, { kind: "have", canvases: [{ canvasName: "factory", canvasId: held.canvas_id, writers: [] }] }),
+    );
+    expect(macbook.exchange.linked(MINI)).toBe(true);
+
+    up = false;
+    await mail(macbook, { id: "lead", bindingId: "binding-lead" }, "peer", "never-leaves");
+    expect(failed).toEqual([MINI]);
+    expect(macbook.exchange.linked(MINI)).toBe(false);
+    // The mail is still in the log, for the next link.
+    expect(await inbox(macbook, "peer")).toEqual(["never-leaves"]);
   });
 });
 
