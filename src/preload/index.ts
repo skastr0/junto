@@ -941,10 +941,6 @@ const demoApi: JuntoDemoApi = {
 
 const hostsApi: JuntoHostsApi = {
   hostsList: () => invoke(IPC_CHANNELS.hostsList, IPC_TIMEOUT_MS),
-  hostsDiscoverPeers: () => invoke(IPC_CHANNELS.hostsDiscoverPeers, IPC_TIMEOUT_MS),
-  hostsUpsert: (host: unknown) => invoke(IPC_CHANNELS.hostsUpsert, IPC_TIMEOUT_MS, host),
-  hostsRemove: (id: string) => invoke(IPC_CHANNELS.hostsRemove, IPC_TIMEOUT_MS, id),
-  hostsTest: (id: string) => invoke(IPC_CHANNELS.hostsTest, IPC_TIMEOUT_MS, id),
   machineCommand: (request) => invoke(IPC_CHANNELS.machineCommand, MACHINE_COMMAND_TIMEOUT_MS, request),
   onMachineProgress: (listener) => subscribe<MachineCommandProgress>(IPC_CHANNELS.machineProgress, listener),
 };

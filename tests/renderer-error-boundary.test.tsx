@@ -36,9 +36,9 @@ describe("renderer error boundary wiring", () => {
     expect(app).toContain("closeAllWorkbenchSurfaces");
     const boundary = app.indexOf("<RendererErrorBoundary");
     const settings = app.indexOf("<SettingsPanel");
-    const fleet = app.indexOf("<FleetOverlay");
+    const machines = app.indexOf("<MachinesWindow");
     expect(boundary).toBeGreaterThan(0);
     expect(settings).toBeGreaterThan(boundary);
-    expect(fleet).toBeGreaterThan(settings);
+    expect(machines).toBeGreaterThan(settings);
   });
 });

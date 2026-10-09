@@ -1179,14 +1179,10 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly loginItemSet: (openAtLogin: boolean) => Promise<LoginItemOpResult>;
 }
 
-/** Optional fleet/hosts product surface. Omitted from preload when Fleet UI is off. */
+/** The machines surface. Omitted from preload while the fleetUi flag is off. */
 export interface JuntoHostsApi {
-  // Remote host registry (SSH fleet surface).
+  /** The machine list, for the pickers on the canvas. It changes nothing. */
   readonly hostsList: () => Promise<HostsOpResult>;
-  readonly hostsDiscoverPeers: () => Promise<HostsDiscoverPeersResult>;
-  readonly hostsUpsert: (host: unknown) => Promise<HostsOpResult>;
-  readonly hostsRemove: (id: string) => Promise<HostsOpResult>;
-  readonly hostsTest: (id: string) => Promise<HostsTestResult>;
   /**
    * One closed owner machine command, the same one `junto machine` sends.
    * Main decodes the request and answers in the owner envelope; the window
