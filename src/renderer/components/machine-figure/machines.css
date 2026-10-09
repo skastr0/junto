@@ -200,7 +200,7 @@
 }
 
 .machine-steps [data-step-phase="stalled"] small {
-  color: var(--color-amber);
+  color: var(--color-amber-fg);
 }
 
 .machine-steps [data-step-phase="done"] i {
