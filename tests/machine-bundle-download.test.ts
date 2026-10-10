@@ -73,7 +73,7 @@ it("keeps source and Preview local even when no bundle exists, while a release i
 it("downloads from the pinned origin, checks actual bytes and reuses a verified archive", async () => {
   const f = await fixture(), events: MachineSendEvent[] = [];
   expect((await run(f.acquire, events)).core).toBe("core fixture\n");
-  expect(f.fetcher).toHaveBeenCalledExactlyOnceWith(new URL(f.archive.archivePath, MACHINE_RELEASE_ORIGIN), expect.objectContaining({ redirect: "error", credentials: "omit", headers: { "Accept-Encoding": "identity" } }));
+  expect(f.fetcher).toHaveBeenCalledExactlyOnceWith(new URL(f.archive.archivePath, MACHINE_RELEASE_ORIGIN), expect.objectContaining({ redirect: "manual", credentials: "omit", headers: { "Accept-Encoding": "identity" } }));
   expect(events[0]).toMatchObject({ event: "machine-download", downloadedBytes: 0, totalBytes: f.bytes.length });
   expect(events.at(-1)).toMatchObject({ event: "machine-download", downloadedBytes: f.bytes.length, state: "downloaded" });
   expect(await readFile(f.archiveFile)).toEqual(f.bytes);
@@ -81,6 +81,47 @@ it("downloads from the pinned origin, checks actual bytes and reuses a verified 
   const cached = await run(f.acquire, cachedEvents);
   expect(cached.core).toBe("core fixture\n"); expect(f.fetcher).toHaveBeenCalledTimes(1); expect(cachedEvents).toEqual([]);
   await expect(readFile(join(cached.bundle, "manifest.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  expect(await readdir(f.cache)).toEqual([f.build]);
+});
+
+it("follows one permitted 307 by hand and still verifies the archive pins", async () => {
+  const f = await fixture(), events: MachineSendEvent[] = [], cancelled = vi.fn();
+  const destination = new URL(f.archive.archivePath, "https://junto-releases.skastr052.workers.dev");
+  f.fetcher.mockResolvedValueOnce(new Response(new ReadableStream({ cancel: cancelled }), { status: 307, headers: { Location: destination.href } }));
+  expect((await run(f.acquire, events)).core).toBe("core fixture\n");
+  expect(f.fetcher).toHaveBeenCalledTimes(2);
+  expect(f.fetcher).toHaveBeenNthCalledWith(2, destination, expect.objectContaining({ redirect: "manual", credentials: "omit", headers: { "Accept-Encoding": "identity" } }));
+  expect(f.fetcher.mock.calls[1]![1].signal).toBe(f.fetcher.mock.calls[0]![1].signal);
+  expect(cancelled).toHaveBeenCalledOnce();
+  expect(events.at(-1)).toMatchObject({ state: "downloaded", downloadedBytes: f.bytes.length });
+});
+
+it.each([
+  { kind: "disallowed host", location: (path: string) => `https://example.invalid${path}` },
+  { kind: "host suffix", location: (path: string) => `https://junto-releases.skastr052.workers.dev.example.invalid${path}` },
+  { kind: "http downgrade", location: (path: string) => `http://junto-releases.skastr052.workers.dev${path}` },
+  { kind: "path change", location: (path: string) => `https://junto-releases.skastr052.workers.dev${path.replace("darwin-arm64", "linux-x64")}` },
+  { kind: "alternate port", location: (path: string) => `https://junto-releases.skastr052.workers.dev:8443${path}` },
+  { kind: "userinfo", location: (path: string) => `https://user@junto-releases.skastr052.workers.dev${path}` },
+  { kind: "query", location: (path: string) => `https://junto-releases.skastr052.workers.dev${path}?other=1` },
+  { kind: "fragment", location: (path: string) => `https://junto-releases.skastr052.workers.dev${path}#other` },
+])("refuses a redirect with $kind before contacting its destination", async ({ location }) => {
+  const f = await fixture(), events: MachineSendEvent[] = [], cancelled = vi.fn();
+  f.fetcher.mockResolvedValueOnce(new Response(new ReadableStream({ cancel: cancelled }), { status: 307, headers: { Location: location(f.archive.archivePath) } }));
+  await expect(run(f.acquire, events)).rejects.toMatchObject({ message: "Cannot download this Junto build from its release server. The machine has not changed" });
+  expect(f.fetcher).toHaveBeenCalledTimes(1); expect(cancelled).toHaveBeenCalledOnce();
+  await expect(readFile(f.archiveFile)).rejects.toMatchObject({ code: "ENOENT" });
+  expect(await readdir(f.cache)).toEqual([f.build]);
+  expect(events.some(event => event.event === "machine-download" && event.state === "downloaded")).toBe(false);
+});
+
+it("refuses a second redirect even to the permitted host and same path", async () => {
+  const f = await fixture(), destination = new URL(f.archive.archivePath, "https://junto-releases.skastr052.workers.dev");
+  f.fetcher.mockResolvedValueOnce(new Response("first", { status: 307, headers: { Location: destination.href } }))
+    .mockResolvedValueOnce(new Response("second", { status: 307, headers: { Location: destination.href } }));
+  expect((await errorFrom(f.acquire)).message).toBe("Cannot download this Junto build from its release server. The machine has not changed");
+  expect(f.fetcher).toHaveBeenCalledTimes(2);
+  await expect(readFile(f.archiveFile)).rejects.toMatchObject({ code: "ENOENT" });
   expect(await readdir(f.cache)).toEqual([f.build]);
 });
 

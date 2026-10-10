@@ -105,7 +105,9 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
     That status never retries or interrupts the operation, and copied bytes
     do not prove that the receiving machine installed or started Junto.
     A release app first downloads the target's archive from its compiled
-    release origin. Its own build pins the exact archive size and digest
+    release origin. It may follow one HTTPS redirect to a host named in its
+    compiled allow-list, preserving the exact archive path. Its own build
+    pins the exact archive size and digest
     and the manifest digest. Admission finishes before the current link is
     disconnected or anything is sent. The window shows download bytes as
     a separate step. Offline or failed checks leave the machine as it was.

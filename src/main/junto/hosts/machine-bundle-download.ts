@@ -25,6 +25,10 @@ interface Flight {
   users: number;
 }
 const flights = new Map<string, Flight>();
+// Compiled code bounds the one redirect; response headers cannot widen this list.
+const releaseRedirectHosts: ReadonlySet<string> = new Set(["junto-releases.skastr052.workers.dev"]);
+const redirectStatuses = new Set([301, 302, 303, 307, 308]);
+const releaseServerFailure = (): Error => new Error("Cannot download this Junto build from its release server. The machine has not changed");
 const failure = (cause: unknown): MachineInstallError => new MachineInstallError({
   message: cause instanceof Error ? cause.message : "Cannot download Junto. The machine has not changed",
   disposition: "staged", retryable: true,
@@ -41,17 +45,28 @@ const download = async (input: {
   readonly observe: (bytes: number) => void;
 }): Promise<void> => {
   const signal = AbortSignal.any([input.signal, AbortSignal.timeout(10 * 60_000)]);
-  let response: Response;
-  try {
-    response = await input.fetch(new URL(input.archive.archivePath, input.catalog.origin), {
-      redirect: "error", signal, credentials: "omit", headers: { "Accept-Encoding": "identity" },
-    });
-  } catch (cause) {
-    throw new Error(input.signal.aborted ? cancelled().message : "Cannot download Junto. Check your internet connection and send again. The machine has not changed", { cause });
+  const original = new URL(input.archive.archivePath, input.catalog.origin);
+  const request: RequestInit = { redirect: "manual", signal, credentials: "omit", headers: { "Accept-Encoding": "identity" } };
+  const get = async (url: URL): Promise<Response> => {
+    try { return await input.fetch(url, request); }
+    catch (cause) {
+      throw new Error(input.signal.aborted ? cancelled().message : "Cannot download Junto. Check your internet connection and send again. The machine has not changed", { cause });
+    }
+  };
+  let response = await get(original);
+  if (!response.redirected && redirectStatuses.has(response.status)) {
+    const location = response.headers.get("location");
+    await response.body?.cancel().catch(() => undefined);
+    let destination: URL;
+    try { destination = new URL(location ?? "", original); } catch { throw releaseServerFailure(); }
+    if (!location || destination.protocol !== "https:" || !releaseRedirectHosts.has(destination.host) ||
+      destination.pathname !== original.pathname || destination.search !== original.search || destination.hash ||
+      destination.username || destination.password) throw releaseServerFailure();
+    response = await get(destination);
   }
   if (!response.ok || response.redirected || !response.body) {
-    await response.body?.cancel();
-    throw new Error("Cannot download this Junto build from its release server. The machine has not changed");
+    await response.body?.cancel().catch(() => undefined);
+    throw releaseServerFailure();
   }
   const file = await open(join(await machineBundleAttemptPath(input.attempt), "download.tar.gz"),
     constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
