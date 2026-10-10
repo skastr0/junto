@@ -296,16 +296,24 @@ machine-copy rule does not weaken that boundary.
 
 A release app carries no machine bundle. Its authenticated compiled catalog
 pins, for each supported target of its own build, the archive path, exact byte
-count, SHA-256 and manifest SHA-256. Only the compiled HTTPS release origin
-and immutable `/machines/<build>/<target>.tar.gz` objects are admitted. A
-downloaded manifest, response header or separate publication file cannot
-replace those pins. Release commands refuse local bundle overrides. Source
-and Preview builds use local bundles only and never fall back to a download.
+count, SHA-256 and manifest SHA-256. Each download starts at the compiled
+HTTPS release origin, `https://releases.juntoagents.com`, and requests an
+immutable `/machines/<build>/<target>.tar.gz` object. A downloaded manifest,
+response header or separate publication file cannot replace those pins.
+Release commands refuse local bundle overrides. Source and Preview builds
+use local bundles only and never fall back to a download.
+
+Redirects are handled manually. At most one HTTPS hop is admitted, with the
+archive path unchanged and the destination host on a compiled allow-list.
+That list contains only `junto-releases.skastr052.workers.dev`. Every other
+redirect fails closed with a plain failure message. The compiled archive
+size, hash and manifest pins remain authoritative; the allow-list only
+bounds where bytes may come from.
 
 The archive must be smaller than 300,000,000 bytes. Bound actual streamed
-bytes independently of response headers, refuse redirects, and verify the
-complete archive size and digest before unpacking. Extraction admits only
-the specified regular-file archive format, with bounded expanded bytes,
+bytes independently of response headers and verify the complete archive
+size and digest before unpacking. Extraction admits only the specified
+regular-file archive format, with bounded expanded bytes,
 members and paths, and refuses traversal, links, special files and duplicate
 paths. Match the manifest's bytes to its compiled digest, then verify the
 complete inventory, build and target. These checks finish before disconnecting
