@@ -77,6 +77,18 @@ export const abovePromptBox = (lines: readonly string[]): readonly string[] => {
   return lines.slice(0, top);
 };
 
+/**
+ * Cursor's composer has no rule box. The live row is the last `\u2192` line,
+ * and a wrapped continuation sits under it. Lines above that arrow are
+ * scrollback, including an older placeholder.
+ */
+export const fromLastArrow = (lines: readonly string[]): readonly string[] => {
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (/^\s*\u2192/u.test(lines[i]!)) return lines.slice(i);
+  }
+  return [];
+};
+
 export const extractRegion = (
   lines: readonly string[],
   region: string,
@@ -97,6 +109,8 @@ export const extractRegion = (
       return promptBoxBody(lines);
     case "above_prompt_box":
       return abovePromptBox(lines);
+    case "from_last_arrow":
+      return fromLastArrow(lines);
     default:
       return lines;
   }

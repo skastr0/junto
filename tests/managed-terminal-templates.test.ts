@@ -1073,6 +1073,35 @@ describe("resolveManagedLaunch argv", () => {
     expect(bare.argv).toEqual(["cursor-agent", "--trust"]);
   });
 
+  it("cursor: 2026.10.01 permission modes and plan mode", () => {
+    expect(CURSOR_TEMPLATE.argvSpec.addDirFlag).toBe("--add-dir");
+    expect(CURSOR_TEMPLATE.modes).toEqual(["plan", "ask"]);
+    const review = resolveManagedLaunch(
+      "cursor",
+      { permissionMode: "auto-review", mode: "plan" },
+      bareAmbient,
+    );
+    expect(review.argv).toEqual([
+      "cursor-agent",
+      "--trust",
+      "--mode",
+      "plan",
+      "--auto-review",
+    ]);
+    const sandbox = resolveManagedLaunch(
+      "cursor",
+      { permissionMode: "sandbox" },
+      bareAmbient,
+    );
+    expect(sandbox.argv).toEqual(["cursor-agent", "--trust", "--sandbox", "enabled"]);
+    const allow = resolveManagedLaunch(
+      "cursor",
+      { permissionMode: "allowlist" },
+      bareAmbient,
+    );
+    expect(allow.argv).toEqual(["cursor-agent", "--trust"]);
+  });
+
   it("cursor resume re-passes --model via --resume <id>", () => {
     const launch = resolveManagedLaunch(
       "cursor",

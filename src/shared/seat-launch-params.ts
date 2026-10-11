@@ -200,9 +200,20 @@ export const permissionModeOptions = (
   const spec = templateFor(harness);
   if (
     !spec.argvSpec.permissionModeFlag &&
-    !spec.argvSpec.permissionModeEnvKey
+    !spec.argvSpec.permissionModeEnvKey &&
+    !spec.argvSpec.permissionArgv
   ) {
     return [];
+  }
+  if (spec.argvSpec.permissionArgv) {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const mode of [spec.defaultPermissionMode, trimmed(current), ...Object.keys(spec.argvSpec.permissionArgv)]) {
+      if (!mode || seen.has(mode)) continue;
+      seen.add(mode);
+      out.push(mode);
+    }
+    return out;
   }
   const seen = new Set<string>();
   const out: string[] = [];

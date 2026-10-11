@@ -109,6 +109,12 @@ describe("seat start parameters", () => {
     expect(permissionModeOptions("claude")).toContain("bypassPermissions");
     expect(permissionModeOptions("claude", "custom")).toContain("custom");
     expect(permissionModeOptions("pi")).toEqual([]);
+    expect(permissionModeOptions("cursor")).toEqual([
+      "allowlist",
+      "sandbox",
+      "auto-review",
+      "yolo",
+    ]);
   });
 });
 

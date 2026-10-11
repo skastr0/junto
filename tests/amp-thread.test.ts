@@ -391,6 +391,7 @@ describe("AC-1: Amp is offered only where it is installed", () => {
       modes: ["low", "medium", "high", "ultra"],
     });
     expect(firstCascadeColumn("claude")).toEqual({ kind: "models" });
+    expect(firstCascadeColumn("cursor")).toEqual({ kind: "models" });
     expect(firstCascadeColumn("hermes")).toEqual({ kind: "profiles" });
   });
 });

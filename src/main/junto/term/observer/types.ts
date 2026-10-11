@@ -9,7 +9,8 @@ export type ObserverRegionName =
   | "footer_line"
   | "after_last_horizontal_rule"
   | "prompt_box_body"
-  | "above_prompt_box";
+  | "above_prompt_box"
+  | "from_last_arrow";
 
 export type ObserverModes = {
   /** CSI ?2004 — bracketed paste mode (readline input is live). */

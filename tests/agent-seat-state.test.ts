@@ -967,6 +967,30 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
     expect(result.visibleAttention).toBe(true);
   });
 
+  it("cursor: an old approval in the scrollback does not pin attention", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          "Run this command?",
+          "ls -la",
+          "Run (once) (y)",
+          "padding",
+          "padding",
+          "padding",
+          "padding",
+          "padding",
+          "padding",
+          "padding",
+          "padding",
+          "  → Add a follow-up",
+        ],
+        title: "Cursor Agent",
+      }),
+      { harness: "cursor" },
+    );
+    expect(result.state).not.toBe("attention");
+  });
+
   it("cursor: ctrl+c to stop is working", () => {
     const result = evaluate(
       snap({

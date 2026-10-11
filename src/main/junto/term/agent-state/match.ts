@@ -7,6 +7,7 @@ import {
   afterLastHorizontalRule,
   abovePromptBox,
   bottomNonEmptyLines,
+  fromLastArrow,
   extractRegion,
   footerLine,
   promptBoxBody,
@@ -54,6 +55,8 @@ export const regionLines = (
       return promptBoxBody(snapshot.lines);
     case "above_prompt_box":
       return abovePromptBox(snapshot.lines);
+    case "from_last_arrow":
+      return fromLastArrow(snapshot.lines);
     default:
       return extractRegion(snapshot.lines, region, regionN);
   }

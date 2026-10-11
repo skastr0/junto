@@ -122,7 +122,7 @@ export const OBSERVER_WATCHED_SCROLLBACK = 50_000;
  *
  * The seat signal never reads scrollback: `buildSnapshot` walks the viewport
  * (`rows` lines from `viewportY`), and every rule region — `whole_recent`,
- * `bottom_non_empty_lines`, `footer_line`, `prompt_box_body`,
+ * `bottom_non_empty_lines`, `footer_line`, `prompt_box_body`, `from_last_arrow`,
  * `after_last_horizontal_rule` — is computed from those lines. Scrollback
  * exists solely so `attachScreen` can hand a reopened node its history.
  *

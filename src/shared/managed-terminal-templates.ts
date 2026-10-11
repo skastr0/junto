@@ -127,6 +127,13 @@ export type ArgvSpec = {
   readonly effortModelBracketKey?: string;
   /** Permission / approval flag (`--permission-mode`, `-a`, `--yolo`). */
   readonly permissionModeFlag?: string;
+  /**
+   * Named permission modes that are not one flag plus a value. Cursor's
+   * 2026.10.01 CLI has four: allowlist emits nothing, sandbox and
+   * auto-review and yolo each emit their own flag. Absent means
+   * `permissionModeFlag` is the only dial.
+   */
+  readonly permissionArgv?: Readonly<Record<string, readonly string[]>>;
   /** Hermes profile: `-p` / `--profile`. */
   readonly profileFlag?: string;
   /**
@@ -1298,6 +1305,16 @@ export const isSandboxGatedPermissionMode = (mode: string): boolean =>
  *   surface only: the model-slug and live-pin behavior above were NOT
  *   re-smoked on this build, so `probedVersion` stays at the fully-probed
  *   2026.09.10-fd3934a.
+ *
+ * Flag surface re-probed 2026.10.01-e373342 (2026-10-11), without a model turn:
+ * - `--resume [chatId]` is optional. Bare `--resume` and `--continue` mean
+ *   the latest session. Launch still strips those id-less forms.
+ * - `--new-session-id` still rejects a non-v4 UUID before a turn.
+ * - Permission is four modes, not a boolean: allowlist emits nothing,
+ *   `--sandbox enabled`, `--auto-review`, and `--yolo` / `--force`.
+ * - `--mode plan|ask` is a second dial beside the model. `--add-dir` is
+ *   repeatable. The model-slug rejection above was not re-run, so
+ *   `probedVersion` stays put.
  */
 export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
   harness: "cursor",
@@ -1311,7 +1328,15 @@ export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
     // Effort rides in the model value as a hyphenated catalog slug, never
     // a flag of its own and never `[effort=…]` (rejected on this build).
     effortModelBracketKey: "effort",
+    modeFlag: "--mode",
     permissionModeFlag: "--yolo",
+    permissionArgv: {
+      allowlist: [],
+      sandbox: ["--sandbox", "enabled"],
+      "auto-review": ["--auto-review"],
+      yolo: ["--yolo"],
+    },
+    addDirFlag: "--add-dir",
     sessionIdFlag: "--new-session-id",
     resumeMode: "flag",
     resumeFlag: "--resume",
@@ -1328,6 +1353,8 @@ export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
     attentionSource: "grid (approval forms)",
     labels: ["grid", "effort in model", "session pin"],
   },
+  modes: ["plan", "ask"],
+  defaultPermissionMode: "allowlist",
   mailTransport: HARNESS_MAIL_TRANSPORT.cursor,
   isolation: HARNESS_ISOLATION.cursor,
   // Suffixes `agent models` enumerates on 2026.09.10-fd3934a. `-fast` is a

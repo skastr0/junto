@@ -98,6 +98,11 @@ export type CascadeFirstColumn =
 
 export const firstCascadeColumn = (harness: HarnessId): CascadeFirstColumn => {
   if (harness === "hermes") return { kind: "profiles" };
-  const modes = templateFor(harness).modes ?? [];
-  return modes.length > 0 ? { kind: "modes", modes } : { kind: "models" };
+  const template = templateFor(harness);
+  const modes = template.modes ?? [];
+  // Amp's mode replaces the model. Cursor has both: `--mode plan|ask` is a
+  // second dial, and the first column stays the model.
+  return modes.length > 0 && !template.argvSpec.modelFlag
+    ? { kind: "modes", modes }
+    : { kind: "models" };
 };

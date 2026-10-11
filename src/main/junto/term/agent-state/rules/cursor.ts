@@ -8,7 +8,7 @@ import type { SeatRulePack } from "../types";
 
 export const cursorRules: SeatRulePack = {
   harness: "cursor",
-  version: "2026.10.11.1",
+  version: "2026.10.11.2",
   rules: [
     {
       id: "write_file_approval",
@@ -29,7 +29,10 @@ export const cursorRules: SeatRulePack = {
       id: "approval_prompt",
       state: "attention",
       priority: 1190,
-      region: "whole_recent",
+      // The live panel only. A previous turn's "run this command?" in the
+      // scrollback must not pin attention over the current composer.
+      region: "bottom_non_empty_lines",
+      regionN: 8,
       visibleAttention: true,
       matchers: {
         any: [
@@ -121,14 +124,14 @@ export const cursorRules: SeatRulePack = {
   // (`\u2192 Plan, search, build anything` fresh, `\u2192 Add a follow-up`
   // after a turn), a draft replaces it (`\u2192 hello`). While a turn runs,
   // `ctrl+c to stop` shares that same row, padded out to the right edge.
-  // The box is still empty: Cursor accepts a follow-up there. Empties
-  // first; the draft catch-all also holds on transcript arrows (safe
-  // direction: hold, never paste).
+  // The box is still empty: Cursor accepts a follow-up there. The live
+  // row is the last arrow, not an older one in the scrollback. Empties
+  // first; the draft catch-all holds any other text on that row.
   composer: [
     {
       id: "placeholder_fresh_empty",
       verdict: "empty",
-      region: "whole_recent",
+      region: "from_last_arrow",
       matchers: {
         lineRegex: [
           "^\\s*\u2192 Plan, search, build anything(?:\\s{2,}ctrl\\+c to stop)?\\s*$",
@@ -138,7 +141,7 @@ export const cursorRules: SeatRulePack = {
     {
       id: "placeholder_followup_empty",
       verdict: "empty",
-      region: "whole_recent",
+      region: "from_last_arrow",
       matchers: {
         lineRegex: [
           "^\\s*\u2192 Add a follow-up(?:\\s{2,}ctrl\\+c to stop)?\\s*$",
@@ -148,7 +151,7 @@ export const cursorRules: SeatRulePack = {
     {
       id: "composer_content_draft",
       verdict: "draft",
-      region: "whole_recent",
+      region: "from_last_arrow",
       matchers: { lineRegex: ["^\\s*\u2192 .*\\S"] },
     },
   ],

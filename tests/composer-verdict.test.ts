@@ -218,6 +218,20 @@ describe("cursor", () => {
   it("typed text is a draft", () => {
     expect(v(["  Cursor Agent", "", "  → hello"])).toBe("draft");
   });
+
+  it("an older placeholder does not hide the live draft", () => {
+    expect(
+      v([
+        "  → Add a follow-up",
+        "  earlier turn",
+        "  → hello",
+      ]),
+    ).toBe("draft");
+  });
+
+  it("the live placeholder is empty even when an older draft is above it", () => {
+    expect(v(["  → hello", "  transcript", "  → Add a follow-up"])).toBe("empty");
+  });
 });
 
 describe("prime-agent", () => {
