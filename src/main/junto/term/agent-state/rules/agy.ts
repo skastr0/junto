@@ -76,6 +76,21 @@ export const agyRules: SeatRulePack = {
     },
     {
       /**
+       * Queued messages hint in footer: `Press up to edit queued messages`.
+       * Present only while a turn is actively running with pending queued input.
+       */
+      id: "queued_input_working",
+      state: "working",
+      priority: 96,
+      region: "bottom_non_empty_lines",
+      regionN: 8,
+      visibleWorking: true,
+      matchers: {
+        contains: ["press up to edit queued messages"],
+      },
+    },
+    {
+      /**
        * Live activity line above the footer rule:
        *   `● Agent(self)  Read TerminalSurface session load logic - 4m30s`
        * Present for both self-work and subagent turns; absent when idle.

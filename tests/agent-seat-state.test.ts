@@ -1341,4 +1341,22 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
     );
     expect(result.state).not.toBe("working");
   });
+
+  it("agy: queued messages in footer outranks empty composer idle", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          HR,
+          ">",
+          HR,
+          "  Press up to edit queued messages                                                     Gemini 3.8 Flash \u00B7 high",
+        ],
+      }),
+      { harness: "agy" },
+    );
+    expect(result.state).toBe("working");
+    expect(result.ruleId).toBe("queued_input_working");
+    expect(result.visibleWorking).toBe(true);
+  });
 });
+
