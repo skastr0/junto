@@ -91,7 +91,7 @@ a failed signature, size, or hash check.
 ## Source fallback
 
 Use this only when independently installed `gh` or Sigstore verification is
-unavailable and a current reviewed checkout plus trusted Bun 1.3.13 are
+unavailable and a current reviewed checkout plus trusted Bun 1.4.3 are
 available. An invalid signature is not a reason to fall back. Compromise of
 the GitHub repository or its release authority stops both paths.
 
@@ -109,7 +109,7 @@ the GitHub repository or its release authority stops both paths.
   test "$(git -C junto-bootstrap-source rev-parse HEAD)" = "$BOOTSTRAP_COMMIT"
 
   cd junto-bootstrap-source
-  test "$(bun --version)" = "1.3.13"
+  test "$(bun --version)" = "1.4.3"
   bun install --frozen-lockfile
   bun scripts/install-linux-desktop.ts \
     --release "$INPUTS/release.json" \

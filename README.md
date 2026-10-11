@@ -88,7 +88,7 @@ bun install --frozen-lockfile
 bun run dev
 ```
 
-Needs Bun 1.3.13 and Node.js 24.10+. Packaging, the CLI build, and checks: [docs/building.md](docs/building.md).
+Needs Bun 1.4.3 and Node.js 24.10+. Packaging, the CLI build, and checks: [docs/building.md](docs/building.md).
 
 ## Project
 

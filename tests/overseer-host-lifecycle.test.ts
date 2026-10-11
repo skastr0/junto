@@ -12,10 +12,10 @@ afterEach(() => vi.restoreAllMocks());
 
 it("the existing host picks up a replacement Live session", async () => {
   let stop: (() => void) | undefined;
-  vi.spyOn(process, "once").mockImplementation((event, listener) => {
+  vi.spyOn(process, "once").mockImplementation(((event: string | symbol, listener: () => void) => {
     if (event === "SIGTERM") stop = listener;
     return process;
-  });
+  }) as typeof process.once);
   vi.spyOn(process.stdout, "write").mockReturnValue(true);
   const run = (sessionId: string) => ({ type: "run", sessionId, requestId: sessionId, intentRevision: 1,
     model: "test", apiKey: "test", instructions: "Read the canvas", context: "What is here?", operationIds: ["op"] });

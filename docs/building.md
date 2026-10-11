@@ -1,6 +1,6 @@
 # Building Junto from source
 
-Requirements: Bun 1.3.13 (see `package.json`), Node.js 24.10 or later, macOS or Linux with an interactive desktop session, Git, and the platform's native build tools.
+Requirements: Bun 1.4.3 (see `package.json`), Node.js 24.10 or later, macOS or Linux with an interactive desktop session, Git, and the platform's native build tools.
 
 ```sh
 git clone https://github.com/skastr0/junto.git

@@ -93,7 +93,7 @@ Not for:
 
 macOS 13+, Apple silicon: download from https://juntoagents.com/download (serves `Junto-0.3.2-arm64-mac.dmg`; HTTP 206 on 2026-09-24), drag to Applications, open, add a seat.
 
-From source (Bun 1.3.13, Node 24.10+):
+From source (Bun 1.4.3, Node 24.10+):
 
 ```sh
 git clone https://github.com/skastr0/junto.git && cd junto

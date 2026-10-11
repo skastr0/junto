@@ -77,7 +77,7 @@ executing downloaded code; that checksum was not independent authentication
 and is not a fallback.
 
 From a reviewed, commit-pinned source checkout with independently trusted Bun
-1.3.13, `bun scripts/install-linux-desktop.ts` accepts the same two flags and
+1.4.3, `bun scripts/install-linux-desktop.ts` accepts the same two flags and
 invokes the same first-install API. That source fallback is documented in the
 bootstrap guide.
 
@@ -117,7 +117,7 @@ behavior.
 ## Build from source
 
 Build on Linux x86-64 with the exact Bun version in `packageManager` (currently
-1.3.13), Node 24.10 or newer, and normal native build
+1.4.3), Node 24.10 or newer, and normal native build
 tools (Python 3, a C/C++ toolchain, make, and the platform Electron libraries):
 
 ```sh
