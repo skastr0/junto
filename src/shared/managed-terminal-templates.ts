@@ -388,7 +388,7 @@ export const HARNESS_MAIL_TRANSPORT: Readonly<Record<HarnessId, MailTransportSpe
   muse: MAIL_T2_WORKING,
   devin: MAIL_T2_WORKING,
   cursor: MAIL_T2_UNAVAILABLE,
-  agy: MAIL_T2_UNAVAILABLE,
+  agy: MAIL_T2_WORKING,
   amp: MAIL_T2_WORKING,
   fx: MAIL_T2_UNAVAILABLE,
   omp: MAIL_T2_WORKING,
