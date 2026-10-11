@@ -114,6 +114,12 @@ describe("managed-terminal templates (data)", () => {
       steering: { mode: "steering", submits: 2 },
       queue: { mode: "queue", submits: 1 },
     });
+    expect(HARNESS_FOLLOW_UP.devin).toEqual({
+      steering: { mode: "steering", submits: 2 },
+      queue: { mode: "queue", submits: 1 },
+    });
+    expect(mailSteeringSubmits("devin", false)).toBe(2);
+    expect(mailSteeringSubmits("devin", true)).toBe(1);
     expect(mailSteeringSubmits("cursor", false)).toBe(2);
     expect(mailSteeringSubmits("cursor", true)).toBe(1);
     expect(mailSteeringSubmits("claude", false)).toBe(1);

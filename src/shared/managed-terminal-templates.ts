@@ -455,6 +455,12 @@ const SINGLE_STEER: HarnessFollowUp = { steering: steer(1) };
  * queues the follow-up, and the second Enter steers it. Idle stays one
  * Enter. The v2026.08.11 changelog describes that second Enter as an
  * interrupt. This contract follows the TUI the seats are running.
+ *
+ * Devin CLI is the same shape, per its own changelog: a mid-turn Enter on a
+ * filled composer paints the "N queued" section, and Enter on the now-empty
+ * composer flushes the queue — picked up after the current tool call,
+ * without interrupting the turn. One Enter alone leaves mail queued until
+ * the turn ends.
  */
 export const HARNESS_FOLLOW_UP: Readonly<Record<HarnessId, HarnessFollowUp>> = {
   claude: SINGLE_STEER,
@@ -465,7 +471,7 @@ export const HARNESS_FOLLOW_UP: Readonly<Record<HarnessId, HarnessFollowUp>> = {
   "prime-agent": SINGLE_STEER,
   kimi: SINGLE_STEER,
   muse: SINGLE_STEER,
-  devin: SINGLE_STEER,
+  devin: { steering: steer(2), queue: queue(1) },
   cursor: { steering: steer(2), queue: queue(1) },
   agy: SINGLE_STEER,
   amp: SINGLE_STEER,
