@@ -18,6 +18,7 @@ import { discoverCodexSessionId, isCodexSessionId } from "./templates/codex-sess
 import { captureMuseSessionId, isMuseSessionId } from "./templates/muse-session";
 import { discoverFxSessionId, isFxSessionId } from "./templates/fx-session";
 import { discoverOmpSessionId, isOmpSessionId } from "./templates/omp-session";
+import { discoverAgySessionId, isAgySessionId } from "./templates/agy-session";
 import { writeSeatSessionId } from "./seat-session-id";
 
 /** How a harness reveals the id it minted, and how to tell one when seen. */
@@ -42,6 +43,7 @@ const DISCOVERY: Readonly<Record<string, SessionDiscovery>> = {
   muse: { discover: captureMuseSessionId, isSessionId: isMuseSessionId },
   fx: { discover: discoverFxSessionId, isSessionId: isFxSessionId },
   omp: { discover: discoverOmpSessionId, isSessionId: isOmpSessionId },
+  agy: { discover: discoverAgySessionId, isSessionId: isAgySessionId },
 };
 
 /** Harnesses whose id is found after the fact rather than pinned or minted. */
