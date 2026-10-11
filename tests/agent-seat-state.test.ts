@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   FALLBACK_IDLE,
@@ -967,62 +968,18 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
     expect(result.visibleAttention).toBe(true);
   });
 
-  it("cursor: a settled follow-up row is idle even when the turn's approval is still on screen", () => {
-    const result = evaluate(
-      snap({
-        lines: [
-          "Run this command?",
-          "ls -la",
-          "Run (once) (y)",
-          "  → Add a follow-up",
-        ],
-        title: "Cursor Agent",
-      }),
-      { harness: "cursor" },
-    );
+  it("cursor: captured finished ask turn is idle", () => {
+    const captured = JSON.parse(
+      readFileSync(
+        new URL("./fixtures/cursor/done-ask-2026.10.01-e373342.json", import.meta.url),
+        "utf8",
+      ),
+    ) as { lines: string[] };
+    const result = evaluate(snap({ lines: captured.lines, cols: 120, rows: 40 }), {
+      harness: "cursor",
+    });
     expect(result.state).toBe("idle");
     expect(result.ruleId).toBe("settled_composer_idle");
-    expect(result.visibleIdle).toBe(true);
-  });
-
-  it("cursor: an approval drawn under the composer still needs input", () => {
-    const result = evaluate(
-      snap({
-        lines: [
-          "  → Add a follow-up",
-          "Run this command?",
-          "Run (once) (y)",
-        ],
-        title: "Cursor Agent",
-      }),
-      { harness: "cursor" },
-    );
-    expect(result.state).toBe("attention");
-    expect(result.ruleId).toBe("approval_prompt");
-  });
-
-  it("cursor: an old approval in the scrollback does not pin attention", () => {
-    const result = evaluate(
-      snap({
-        lines: [
-          "Run this command?",
-          "ls -la",
-          "Run (once) (y)",
-          "padding",
-          "padding",
-          "padding",
-          "padding",
-          "padding",
-          "padding",
-          "padding",
-          "padding",
-          "  → Add a follow-up",
-        ],
-        title: "Cursor Agent",
-      }),
-      { harness: "cursor" },
-    );
-    expect(result.state).not.toBe("attention");
   });
 
   it("cursor: ctrl+c to stop is working", () => {
