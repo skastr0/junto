@@ -1,7 +1,8 @@
 /**
  * Mail delivery: every pending message on an agent seat's mailbox is typed
  * into that seat's input and submitted — at once, whatever the seat is doing.
- * The harness queues or steers what it receives; Junto adds no admission,
+ * Mail asks for steering. While a turn is running, the harness follow-up
+ * contract says how many Enters that takes. Junto adds no admission,
  * no refusal, no retry budget, and no hold.
  *
  * The sender chooses the shape. A notice writes one short "mail from X" line

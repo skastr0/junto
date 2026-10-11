@@ -11,8 +11,11 @@ import {
   FX_TEMPLATE,
   GROK_TEMPLATE,
   HERMES_TEMPLATE,
+  HARNESS_FOLLOW_UP,
   HARNESS_IDS,
   KIMI_TEMPLATE,
+  MAIL_FOLLOW_UP_MODE,
+  mailSteeringSubmits,
   MANAGED_TERMINAL_TEMPLATES,
   MUSE_TEMPLATE,
   OMP_TEMPLATE,
@@ -94,6 +97,28 @@ describe("managed-terminal templates (data)", () => {
       expect(MANAGED_TERMINAL_TEMPLATES[id].harness).toBe(id);
     }
     expect(isHarnessId("openclaw")).toBe(false);
+  });
+
+  it("mail follow-up is steering, and every harness declares how", () => {
+    expect(MAIL_FOLLOW_UP_MODE).toBe("steering");
+    for (const id of HARNESS_IDS) {
+      const follow = HARNESS_FOLLOW_UP[id];
+      expect(follow.steering.mode, id).toBe("steering");
+      expect([1, 2]).toContain(follow.steering.submits);
+      if (follow.queue !== undefined) {
+        expect(follow.queue.mode, id).toBe("queue");
+        expect(follow.queue.submits, id).not.toBe(follow.steering.submits);
+      }
+    }
+    expect(HARNESS_FOLLOW_UP.cursor).toEqual({
+      steering: { mode: "steering", submits: 2 },
+      queue: { mode: "queue", submits: 1 },
+    });
+    expect(mailSteeringSubmits("cursor", false)).toBe(2);
+    expect(mailSteeringSubmits("cursor", true)).toBe(1);
+    expect(mailSteeringSubmits("claude", false)).toBe(1);
+    expect(mailSteeringSubmits("amp", false)).toBe(1);
+    expect(mailSteeringSubmits(undefined, false)).toBe(1);
   });
 
   it("no template prefix carries an appearance or preference flag", () => {

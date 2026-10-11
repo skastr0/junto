@@ -234,7 +234,7 @@ export const msgPromptSchema: CommandSchemaContract = {
   command: "msg send --prompt",
   schema_id: "msg.prompt.input/v1",
   description:
-    "Mail a connected seat as a prompt: the full text is typed into its input and submitted at once, whatever it is doing; its harness queues or steers it. A seat that is not up gets it when it starts.",
+    "Mail a connected seat as a prompt: the full text is typed into its input and submitted at once as steering. While a turn is running, that harness's follow-up contract says how many Enters that takes. A seat that is not up gets it when it starts.",
   schema: MsgPromptArgs,
   accepts_batch: true,
   input_modes: inputModes,
@@ -892,7 +892,7 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     command_id: "msg.prompt",
     command: "msg send --prompt",
     name: "prompt a connected seat",
-    description: "Requires msg.prompt. The full text lands in the seat's input at once, idle or mid-turn; its harness queues or steers it.",
+    description: "Requires msg.prompt. The full text lands in the seat's input at once as steering, idle or mid-turn. A running turn uses that harness's follow-up contract.",
     input: { target: "seat-b", text: "Please review the API contract." },
     args: ["msg", "send", "--prompt", '{"target":"seat-b","text":"Please review the API contract."}'],
   },

@@ -11,8 +11,8 @@
  * The nudge is an interjection, not an end-of-turn note. A turn can run for
  * hours, so it goes in as soon as it can no longer get in the way of the
  * message that started the turn: that message has been submitted, the
- * composer holds no draft, and no dialog is up. The harness queues or steers
- * what it receives mid-turn, as it does mail.
+ * composer holds no draft, and no dialog is up. Mid-turn it is steering,
+ * as mail is: the harness follow-up contract says how many Enters.
  *
  * Decision ladder (highest priority first):
  *

@@ -115,7 +115,7 @@ export const COMMAND_FAMILIES: Readonly<Record<CommandFamily, FamilySpec>> = {
         port: "msg.prompt",
         intent: "prompt",
         command: (t) => `junto msg send --prompt '{"target":"${t}","text":"..."}'`,
-        detail: "the full text lands in their input at once, idle or mid-turn; their harness queues or steers it",
+        detail: "the full text lands in their input at once as steering, idle or mid-turn. A running turn uses that harness's follow-up contract",
       },
       {
         port: "seat.wait",

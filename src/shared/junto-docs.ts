@@ -399,8 +399,9 @@ export const buildConceptsDoc = (): string =>
     "Junto may become more active with a seat's PTY only when it can",
     "prove the intervention cannot damage the experience: never near user input,",
     "never into a draft, never into a modal, one live injection at a time.",
-    "Mail is not an intervention: it is typed at once, whatever the seat is",
-    "doing, and the harness queues or steers it.",
+    "Mail is not an intervention: it is typed at once, as steering. While a",
+    "turn is running, the harness follow-up contract says how many Enters",
+    "that takes. An idle seat gets one Enter.",
     "Escalation is a canvas event, never a PTY write.",
     "",
   ].join("\n");

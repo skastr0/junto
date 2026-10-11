@@ -8,15 +8,18 @@
  * Fail-closed for gated writes (pulses, doctrine, board, overseer): an
  * unwritable seat or screen → bounded queue or immediate refusal by caller
  * policy. Mail is not gated on the seat being idle: `writeMail` types
- * mid-turn and lets the harness queue or steer it. It is gated on the input
- * box: mail is typed only into a composer the probes can read and the
- * operator is not using, and is held otherwise (composer-availability).
+ * mid-turn and submits it as steering (`MAIL_FOLLOW_UP_MODE`). The harness
+ * follow-up contract says how many Enters that takes while a turn is
+ * running. An idle seat gets one Enter. Mail is gated on the input box:
+ * it is typed only into a composer the probes can read and the operator
+ * is not using, and is held otherwise (composer-availability).
  */
 
 import {
   composerAvailability,
   type ComposerHold,
 } from "../../../../shared/composer-availability";
+import { mailSteeringSubmits } from "../../../../shared/managed-terminal-templates";
 import {
   OPERATOR_INPUT_LATCH_MS,
   OperatorInterlock,
@@ -705,9 +708,10 @@ export class ManagedTerminalDrive {
   }
 
   /**
-   * Mail: type the text into the seat's input and submit it, whatever the
-   * seat is doing — idle, mid-turn, or showing a dialog. The harness queues
-   * or steers what it receives; the drive adds no admission of its own.
+   * Mail: type the text into the seat's input and submit it as steering,
+   * whatever the seat is doing. Idle is one Enter. A running turn uses the
+   * harness follow-up contract (Cursor sends a second Enter). The drive
+   * adds no admission of its own.
    *
    * The only waits are physical: Grok swallows a paste inside its post-spawn
    * window, and another drive write already on this PTY must finish before
@@ -843,6 +847,12 @@ export class ManagedTerminalDrive {
           this.holdMail(bindingId, hold);
           return hold;
         }
+        // Counted before the first Enter. A submit that settles the seat
+        // must not cancel a second Enter this running turn already owed.
+        const steeringSubmits = mailSteeringSubmits(
+          this.harnessFor?.(bindingId),
+          this.isSeatIdle(bindingId),
+        );
         const [paste, cr] = buildMailWriteSequence(
           body,
           this.bracketedPaste?.(bindingId) ?? true,
@@ -872,6 +882,14 @@ export class ManagedTerminalDrive {
           this.chipVisible(bindingId)
         ) {
           await this.writeSubmitCr(bindingId, generation, bindingGeneration);
+        }
+        // Steering that takes a second Enter. The chip CR above only finishes
+        // a multiline paste. It is not this keystroke.
+        for (let extra = 1; extra < steeringSubmits; extra += 1) {
+          if (!(await this.settle(bindingId, generation, bindingGeneration))) return "lost";
+          if (!(await Promise.resolve(this.writeTraced(bindingId, CR, "steer-cr")))) {
+            return "lost";
+          }
         }
         return "written";
       });

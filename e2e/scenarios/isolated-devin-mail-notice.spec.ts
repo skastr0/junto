@@ -344,7 +344,7 @@ test("isolated Devin [real-harness]: delivered mail reaches readAt", async () =>
       // If the seat already moved or exited, record the precise reason instead
       // of forcing a send; the run then stays unqualified evidence. The seat
       // may still be working on the first mail: the notice is typed at once
-      // and Devin queues or steers it.
+      // and Devin is asked to steer it.
       const warm = await page.evaluate(async (id) => window.junto!.terminalGet(id), DEVIN_BINDING);
       if (warm?.status !== "running" || warm.epoch !== occupied.epoch) {
         secondNoticeSkipped = `seat-not-warm status=${warm?.status ?? "gone"} epoch=${warm?.epoch ?? "none"}`;

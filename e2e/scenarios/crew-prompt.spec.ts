@@ -6,8 +6,8 @@ import { readSeatMailbox } from "../harness/work-mail";
  *
  * msg.prompt (the op behind `junto msg send --prompt`) stores a prompt and
  * types `mail from <sender>\n<full body>` into the recipient's input and
- * submits it, whatever the seat is doing. The harness queues or steers what
- * it receives. The op answers { messageId, delivery }: "delivered" once the
+ * submits it as steering, whatever the seat is doing. The op answers
+ * { messageId, delivery }: "delivered" once the
  * text is on the seat, "waiting" when the seat is not up yet.
  *
  * Evidence: the op's `delivery` field, the projected `deliveredAt` receipt,
@@ -181,7 +181,7 @@ test("prompt [fake-tui]: working seat takes the prompt at once", async () => {
   try {
     const { page, a, b } = await boot(junto);
 
-    // B is mid-turn when the prompt lands; the harness queues or steers it.
+    // B is mid-turn when the prompt lands; mail submits it as steering.
     await b.control({ screen: { mode: "working" } });
     await expect
       .poll(async () => (await readSeat(a)).state, { timeout: 30_000 })

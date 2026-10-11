@@ -388,6 +388,43 @@ describe("ManagedTerminalDrive", () => {
     expect(writes.map((w) => w.data)).not.toContain(INTERRUPT_BYTE);
   });
 
+  it("cursor mail steers a running turn with a second Enter", async () => {
+    idle = false;
+    drive = makeDrive({ harnessFor: () => "cursor" });
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("written");
+    expect(writes.map((w) => w.data)).toEqual([encodeBracketedPaste("mail"), CR, CR]);
+    expect(writes.map((w) => w.data)).not.toContain(INTERRUPT_BYTE);
+  });
+
+  it("cursor mail to an idle seat is one Enter", async () => {
+    idle = true;
+    drive = makeDrive({ harnessFor: () => "cursor" });
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("written");
+    expect(writes.map((w) => w.data)).toEqual([encodeBracketedPaste("mail"), CR]);
+  });
+
+  it("a one-Enter steering harness stays one Enter mid-turn", async () => {
+    idle = false;
+    drive = makeDrive({ harnessFor: () => "claude" });
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("written");
+    expect(writes.map((w) => w.data)).toEqual([encodeBracketedPaste("mail"), CR]);
+  });
+
+  it("cursor's steering Enter follows a multiline chip submit", async () => {
+    idle = false;
+    drive = makeDrive({
+      harnessFor: () => "cursor",
+      pasteChip: () => true,
+    });
+    await expect(drive.writeMail("b1", "one\ntwo")).resolves.toBe("written");
+    expect(writes.map((w) => w.data)).toEqual([
+      encodeBracketedPaste("one\ntwo"),
+      CR,
+      CR,
+      CR,
+    ]);
+  });
+
   it("mail types mid-turn into an empty box, and into text the operator never typed", async () => {
     idle = false;
     // An empty box is typeable whatever the seat is doing. A draft with no

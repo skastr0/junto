@@ -395,6 +395,88 @@ export const HARNESS_MAIL_TRANSPORT: Readonly<Record<HarnessId, MailTransportSpe
   "junto-overseer": MAIL_T2_UNAVAILABLE,
 };
 
+/**
+ * What a follow-up does to a turn that is already running.
+ * `steering` delivers into the active run. `queue` waits until that run ends.
+ */
+export type FollowUpMode = "steering" | "queue";
+
+/** Mail's follow-up. Queue may exist on a harness. Mail does not use it. */
+export const MAIL_FOLLOW_UP_MODE = "steering" as const satisfies FollowUpMode;
+
+/**
+ * Enter keystrokes after the paste that select one mode while a turn is
+ * running. An idle seat is not a follow-up: mail always sends one Enter.
+ */
+export type FollowUpSubmit = {
+  readonly mode: FollowUpMode;
+  readonly submits: 1 | 2;
+};
+
+/**
+ * Every harness owes a steering submit, because mail asks for steering.
+ * `queue` is present only when that mode is a different submit from steering.
+ */
+export type HarnessFollowUp = {
+  readonly steering: FollowUpSubmit & { readonly mode: "steering" };
+  readonly queue?: FollowUpSubmit & { readonly mode: "queue" };
+};
+
+const steer = (submits: 1 | 2): HarnessFollowUp["steering"] => ({
+  mode: "steering",
+  submits,
+});
+
+const queue = (submits: 1 | 2): NonNullable<HarnessFollowUp["queue"]> => ({
+  mode: "queue",
+  submits,
+});
+
+/**
+ * One Enter steers. Amp paints that submit as a steering panel. Claude's
+ * mid-turn Enter is the queued-message path, and no second key is known
+ * that steers without cutting the turn off, so its steering submit stays
+ * one Enter rather than inventing one.
+ */
+const SINGLE_STEER: HarnessFollowUp = { steering: steer(1) };
+
+/**
+ * Follow-up submits. The key set is closed on `HarnessId`: a new harness
+ * does not typecheck until it says how mail steers.
+ *
+ * Cursor CLI 2026.10.01, from the running TUI: one Enter while a turn runs
+ * queues the follow-up, and the second Enter steers it. Idle stays one
+ * Enter. The v2026.08.11 changelog describes that second Enter as an
+ * interrupt. This contract follows the TUI the seats are running.
+ */
+export const HARNESS_FOLLOW_UP: Readonly<Record<HarnessId, HarnessFollowUp>> = {
+  claude: SINGLE_STEER,
+  codex: SINGLE_STEER,
+  grok: SINGLE_STEER,
+  hermes: SINGLE_STEER,
+  pi: SINGLE_STEER,
+  "prime-agent": SINGLE_STEER,
+  kimi: SINGLE_STEER,
+  muse: SINGLE_STEER,
+  devin: SINGLE_STEER,
+  cursor: { steering: steer(2), queue: queue(1) },
+  agy: SINGLE_STEER,
+  amp: SINGLE_STEER,
+  fx: SINGLE_STEER,
+  omp: SINGLE_STEER,
+  "junto-overseer": SINGLE_STEER,
+};
+
+/** Enters mail sends. Idle, or an unknown harness, is one. */
+export const mailSteeringSubmits = (
+  harness: string | undefined,
+  seatIdle: boolean,
+): 1 | 2 => {
+  if (seatIdle || harness === undefined || !isHarnessId(harness)) return 1;
+  const binding = HARNESS_FOLLOW_UP[harness].steering;
+  return binding.mode === MAIL_FOLLOW_UP_MODE ? binding.submits : 1;
+};
+
 export const HARNESS_ISOLATION: Readonly<Record<HarnessId, IsolationSpec>> = {
   claude: {
     homePins: [{ envKey: "CLAUDE_CONFIG_DIR", homeRelative: ".claude" }],

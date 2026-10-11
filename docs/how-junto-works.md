@@ -62,7 +62,7 @@ In 0.3.2, `junto msg send`, `junto seat wait`, and `junto seat read` stop with "
 
 ## Mail
 
-`junto msg send` stores the message and types it into the receiving seat's input at once, whatever the agent is doing; the harness queues or steers it. A plain send types one short line naming the sender and `junto msg read <id>`. With `--prompt`, the full text is typed instead. Nothing is refused and nothing needs a retry: a seat that is not running gets its mail when it starts, and the command answers `delivered` or `waiting`. How each harness handles text that arrives mid-turn is its own behavior.
+`junto msg send` stores the message and types it into the receiving seat's input at once, as steering. While a turn is running, that harness's follow-up contract says how many Enters that takes: Cursor sends two, and the others send one. An idle seat gets one Enter. A plain send types one short line naming the sender and `junto msg read <id>`. With `--prompt`, the full text is typed instead. Nothing is refused and nothing needs a retry: a seat that is not running gets its mail when it starts, and the command answers `delivered` or `waiting`.
 
 ## State
 
