@@ -967,6 +967,40 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
     expect(result.visibleAttention).toBe(true);
   });
 
+  it("cursor: a settled follow-up row is idle even when the turn's approval is still on screen", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          "Run this command?",
+          "ls -la",
+          "Run (once) (y)",
+          "  → Add a follow-up",
+        ],
+        title: "Cursor Agent",
+      }),
+      { harness: "cursor" },
+    );
+    expect(result.state).toBe("idle");
+    expect(result.ruleId).toBe("settled_composer_idle");
+    expect(result.visibleIdle).toBe(true);
+  });
+
+  it("cursor: an approval drawn under the composer still needs input", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          "  → Add a follow-up",
+          "Run this command?",
+          "Run (once) (y)",
+        ],
+        title: "Cursor Agent",
+      }),
+      { harness: "cursor" },
+    );
+    expect(result.state).toBe("attention");
+    expect(result.ruleId).toBe("approval_prompt");
+  });
+
   it("cursor: an old approval in the scrollback does not pin attention", () => {
     const result = evaluate(
       snap({

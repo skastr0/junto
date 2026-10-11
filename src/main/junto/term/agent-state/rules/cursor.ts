@@ -8,8 +8,38 @@ import type { SeatRulePack } from "../types";
 
 export const cursorRules: SeatRulePack = {
   harness: "cursor",
-  version: "2026.10.11.2",
+  version: "2026.10.11.3",
   rules: [
+    {
+      /**
+       * A settled turn paints the empty follow-up row and no stop hint.
+       * Leftover "run this command?" text above that row is the turn that
+       * just finished, not a question. This outranks the approval rules.
+       * A dialog drawn on or under the arrow still matches those rules,
+       * because this probe only sees from the last arrow down.
+       */
+      id: "settled_composer_idle",
+      state: "idle",
+      priority: 1300,
+      region: "from_last_arrow",
+      visibleIdle: true,
+      matchers: {
+        any: [
+          { lineRegex: ["^\\s*\u2192 Plan, search, build anything\\s*$"] },
+          { lineRegex: ["^\\s*\u2192 Add a follow-up\\s*$"] },
+        ],
+        not: [
+          { contains: ["ctrl+c to stop"] },
+          { contains: ["run this command?"] },
+          { contains: ["waiting for approval"] },
+          { contains: ["run (once) (y)"] },
+          { contains: ["run this command outside the sandbox?"] },
+          { contains: ["write to this file?"] },
+          { contains: ["proceed (y)"] },
+          { contains: ["reject & propose changes"] },
+        ],
+      },
+    },
     {
       id: "write_file_approval",
       state: "attention",

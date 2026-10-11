@@ -217,8 +217,17 @@ export const evaluate = (
   // force attention. Typing into a dialog is the failure mode this guards.
   // Runs AFTER hooks so a deterministic protocol idle (OSC 9;4;0) can outvote
   // a stale whole_recent attention match (OBS-8).
+  // A visible idle rule that already outranks that attention hit is a settled
+  // composer. Leftover dialog text above it must not pull the seat back.
   const attentionHit = findMatchingAttention(snapshot, pack);
-  if (attentionHit) {
+  if (
+    attentionHit &&
+    !(
+      screen.state === "idle" &&
+      screen.visibleIdle &&
+      screen.priority > attentionHit.priority
+    )
+  ) {
     return attentionHit;
   }
 
