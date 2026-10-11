@@ -8,7 +8,7 @@ import type { SeatRulePack } from "../types";
 
 export const cursorRules: SeatRulePack = {
   harness: "cursor",
-  version: "2026.08.28.1",
+  version: "2026.10.11.1",
   rules: [
     {
       id: "write_file_approval",
@@ -116,19 +116,23 @@ export const cursorRules: SeatRulePack = {
     },
   ],
   // Composer probes — grounded in a live capture of agent v2026.08.11
-  // (2026-08-28): the prompt bar is an `\u2192` line; empty shows the
-  // placeholder (`\u2192 Plan, search, build anything` fresh, `\u2192 Add a
-  // follow-up` after a turn), a draft replaces it (`\u2192 hello`). Empties
+  // (2026-08-28) and re-checked on cursor-agent 2026.10.01 (2026-10-11):
+  // the prompt bar is an `\u2192` line; empty shows the placeholder
+  // (`\u2192 Plan, search, build anything` fresh, `\u2192 Add a follow-up`
+  // after a turn), a draft replaces it (`\u2192 hello`). While a turn runs,
+  // `ctrl+c to stop` shares that same row, padded out to the right edge.
+  // The box is still empty: Cursor accepts a follow-up there. Empties
   // first; the draft catch-all also holds on transcript arrows (safe
-  // direction — hold, never paste).
+  // direction: hold, never paste).
   composer: [
     {
       id: "placeholder_fresh_empty",
       verdict: "empty",
       region: "whole_recent",
       matchers: {
-        lineRegex: ["^\\s*\u2192 Plan, search, build anything\\s*$"],
-        not: [{ contains: ["ctrl+c to stop"] }],
+        lineRegex: [
+          "^\\s*\u2192 Plan, search, build anything(?:\\s{2,}ctrl\\+c to stop)?\\s*$",
+        ],
       },
     },
     {
@@ -136,8 +140,9 @@ export const cursorRules: SeatRulePack = {
       verdict: "empty",
       region: "whole_recent",
       matchers: {
-        lineRegex: ["^\\s*\u2192 Add a follow-up\\s*$"],
-        not: [{ contains: ["ctrl+c to stop"] }],
+        lineRegex: [
+          "^\\s*\u2192 Add a follow-up(?:\\s{2,}ctrl\\+c to stop)?\\s*$",
+        ],
       },
     },
     {

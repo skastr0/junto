@@ -979,6 +979,21 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
     expect(result.ruleId).toBe("stop_hint_working");
   });
 
+  it("cursor: empty follow-up row with the stop hint stays working", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          "  ⠰⠰ Reading",
+          `  → Add a follow-up${" ".repeat(40)}ctrl+c to stop`,
+        ],
+        title: "Cursor Agent",
+      }),
+      { harness: "cursor" },
+    );
+    expect(result.state).toBe("working");
+    expect(result.ruleId).toBe("stop_hint_working");
+  });
+
   it("cursor: welcome placeholder is idle", () => {
     const result = evaluate(
       snap({

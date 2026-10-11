@@ -191,6 +191,21 @@ describe("cursor", () => {
     expect(v(["transcript", "", "  → Add a follow-up"])).toBe("empty");
   });
 
+  it("follow-up placeholder stays empty while a turn is running", () => {
+    // cursor-agent 2026.10.01 paints the stop hint on the composer row.
+    // That row is still the empty box: mail must type a follow-up into it.
+    const row = `  → Add a follow-up${" ".repeat(40)}ctrl+c to stop`;
+    expect(v(["  ⠰⠰ Reading", row])).toBe("empty");
+    expect(v(["  ⠰⠰ Reading", "  → Add a follow-up", "ctrl+c to stop"])).toBe(
+      "empty",
+    );
+  });
+
+  it("a draft on the running composer row stays a draft", () => {
+    const row = `  → hello${" ".repeat(40)}ctrl+c to stop`;
+    expect(v(["  ⠰⠰ Reading", row])).toBe("draft");
+  });
+
   it("a draft starting with the placeholder's own words is a draft", () => {
     // The empty probe must match the placeholder LINE exactly — a real
     // follow-up that happens to start with those words is typed text, and
