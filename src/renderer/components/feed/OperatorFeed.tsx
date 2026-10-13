@@ -48,6 +48,7 @@ import {
   type FeedItem,
   type FeedItemKind,
   type FeedSection,
+  type FeedSortOrder,
 } from "@shared/operator-feed";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
 import { mailAgeLabel } from "../../lib/actor-ledger";
@@ -57,9 +58,11 @@ import { isOperatorTyping } from "../../lib/focus-ownership";
 import {
   feedItemsInOrder,
   feedStatusLine,
+  feedView$,
   reconcileSelection,
   stepFeedSelection,
   useOperatorFeed,
+  viewFeedSections,
   withLeavingItems,
 } from "../../lib/operator-feed";
 import { canReviewCommit, openCommitReview } from "../../lib/git-summary";
@@ -77,7 +80,7 @@ import { QuickReplies } from "../signals/QuickReplies";
 import { SignalReply } from "../signals/SignalReply";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { PreviewedMarkdown } from "../preview/PreviewedMarkdown";
-import { Button, Kbd, StatusDot } from "../ui";
+import { Button, Dropdown, Kbd, StatusDot } from "../ui";
 import "./operator-feed.css";
 
 const LEAVE_MS = 280;
@@ -323,10 +326,24 @@ function FeedRegionSection({
   );
 }
 
+/** Dropdown values for the region pick; canvas region ids never collide. */
+const ALL_REGIONS = "all";
+const OPEN_FIELD = "open-field";
+
+const FEED_ORDER_OPTIONS: ReadonlyArray<{ readonly value: FeedSortOrder; readonly label: string }> = [
+  { value: "urgency", label: "Most urgent first" },
+  { value: "newest", label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
+];
+
 export function OperatorFeed() {
   const feed = useOperatorFeed();
   const quickReplies = useQuickReplies();
-  const nodesById: ReadonlyMap<string, Node> = useCanvas(use$(state$.canvasName)).nodes;
+  const canvasName = use$(state$.canvasName);
+  const nodesById: ReadonlyMap<string, Node> = useCanvas(canvasName).nodes;
+  const regionPick = use$(feedView$.region);
+  const feedOrder = use$(feedView$.order);
+  const activeRegion = regionPick?.canvasName === canvasName ? regionPick : undefined;
   // Coming back from a review opened on a card: the same card, the same
   // open details, the same scroll. Read as the feed mounts.
   const [place] = useState(() => operatorModalPlace("feed"));
@@ -347,16 +364,23 @@ export function OperatorFeed() {
   const [failure, setFailure] = useState<{ readonly itemId: string; readonly message: string } | null>(null);
   const [scrolled, setScrolled] = useState(false);
 
+  // The view the operator picked: one region, or all of them, in the picked
+  // order. Kept in feedView$ so it survives the modal's open and close.
+  const viewSections = useMemo(
+    () => viewFeedSections(feed.sections, regionPick, canvasName, feedOrder),
+    [feed.sections, regionPick, canvasName, feedOrder],
+  );
+
   // Answered or dismissed items fade out in place before they leave.
   const [ghost, setGhost] = useState<{ readonly previous: ReadonlyArray<FeedSection>; readonly ids: ReadonlySet<string> }>(
     () => ({ previous: [], ids: new Set() }),
   );
-  const previousSections = useRef(feed.sections);
+  const previousSections = useRef(viewSections);
   const leaveTimers = useRef(new Set<number>());
   useEffect(() => {
     const before = previousSections.current;
-    previousSections.current = feed.sections;
-    const now = new Set(feedItemsInOrder(feed.sections).map((item) => item.itemId));
+    previousSections.current = viewSections;
+    const now = new Set(feedItemsInOrder(viewSections).map((item) => item.itemId));
     const gone = feedItemsInOrder(before).filter((item) => !now.has(item.itemId)).map((item) => item.itemId);
     if (gone.length === 0) return;
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
@@ -373,7 +397,7 @@ export function OperatorFeed() {
       });
     }, LEAVE_MS);
     leaveTimers.current.add(timer);
-  }, [feed.sections]);
+  }, [viewSections]);
   useEffect(() => {
     const timers = leaveTimers.current;
     return () => {
@@ -381,11 +405,11 @@ export function OperatorFeed() {
     };
   }, []);
   const sections = useMemo(
-    () => withLeavingItems(ghost.previous, feed.sections, ghost.ids),
-    [ghost, feed.sections],
+    () => withLeavingItems(ghost.previous, viewSections, ghost.ids),
+    [ghost, viewSections],
   );
 
-  const items = useMemo(() => feedItemsInOrder(feed.sections), [feed.sections]);
+  const items = useMemo(() => feedItemsInOrder(viewSections), [viewSections]);
   const itemsRef = useRef(items);
   // When the selected item leaves, for whatever reason, its neighbour takes over.
   useEffect(() => {
@@ -412,7 +436,11 @@ export function OperatorFeed() {
   // Heard wherever focus sits inside the modal; the shell takes Escape.
   const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>): void => {
     if (event.key === "Escape") return;
+    if (event.defaultPrevented) return;
     if (isOperatorTyping(event.target) || event.metaKey || event.ctrlKey || event.altKey) return;
+    // The region and order menus read letters as type-ahead: keys that land
+    // inside a listbox are the menu's, never j/k movement.
+    if (event.target instanceof Element && event.target.closest('[role="listbox"]')) return;
     if (event.key === "j" || event.key === "ArrowDown") {
       event.preventDefault();
       setReveal(true);
@@ -443,7 +471,42 @@ export function OperatorFeed() {
     setReplyFor(null);
     return true;
   };
-  const status = feedStatusLine(feed);
+  // Regions the feed can be narrowed to, with how many are waiting in each.
+  // A pick whose region emptied out stays listed so it can be seen and cleared.
+  const regionChoices = useMemo(() => {
+    const choices = feed.sections.map((section) => ({
+      regionId: section.region.regionId,
+      label: section.region.label,
+      count: needsOperatorCount(section.items),
+    }));
+    if (activeRegion && !choices.some((choice) => choice.regionId === activeRegion.regionId)) {
+      choices.push({ regionId: activeRegion.regionId, label: activeRegion.label, count: 0 });
+    }
+    return choices;
+  }, [feed.sections, activeRegion]);
+  const regionOptions = useMemo(
+    () => [
+      { value: ALL_REGIONS, label: "All regions" },
+      ...regionChoices.map((choice) => ({
+        value: choice.regionId ?? OPEN_FIELD,
+        label: `${choice.label} (${choice.count})`,
+      })),
+    ],
+    [regionChoices],
+  );
+  const onRegionChange = (value: string): void => {
+    if (value === ALL_REGIONS) {
+      feedView$.region.set(undefined);
+      return;
+    }
+    const regionId = value === OPEN_FIELD ? null : value;
+    const choice = regionChoices.find((candidate) => candidate.regionId === regionId);
+    feedView$.region.set({ canvasName, regionId, label: choice?.label ?? "" });
+  };
+  const regionName = activeRegion?.regionId === null ? "the open field" : (activeRegion?.label ?? "");
+  const status = activeRegion
+    ? feedStatusLine(feed, { label: regionName, count: needsOperatorCount(items) })
+    : feedStatusLine(feed);
   const hasSignals = items.some((item) => item.signalId);
 
   return (
@@ -461,6 +524,31 @@ export function OperatorFeed() {
       onEscape={onEscape}
       onKeyDown={onKeyDown}
     >
+      {feed.count > 0 || activeRegion !== undefined ? (
+        <div className="operator-feed__controls">
+          <span className="operator-feed__control-label" aria-hidden>
+            Region
+          </span>
+          <Dropdown
+            aria-label="Filter needs by region"
+            value={activeRegion ? (activeRegion.regionId ?? OPEN_FIELD) : ALL_REGIONS}
+            options={regionOptions}
+            onChange={onRegionChange}
+            triggerClassName="operator-feed__control"
+          />
+          <span className="operator-feed__controls-spread" aria-hidden />
+          <span className="operator-feed__control-label" aria-hidden>
+            Order
+          </span>
+          <Dropdown
+            aria-label="Order needs"
+            value={feedOrder}
+            options={FEED_ORDER_OPTIONS}
+            onChange={(value) => feedView$.order.set(value as FeedSortOrder)}
+            triggerClassName="operator-feed__control"
+          />
+        </div>
+      ) : null}
       <div
         ref={scrollRef}
         className="operator-feed__scroll"
@@ -468,15 +556,30 @@ export function OperatorFeed() {
         onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 2)}
       >
         {sections.length === 0 ? (
-          <div className="operator-feed__empty" role="status">
-            <span className="operator-feed__empty-mark" aria-hidden>
-              <Inbox size={22} strokeWidth={1.4} />
-            </span>
-            <p className="operator-feed__empty-title">Nobody needs you right now</p>
-            <p className="operator-feed__empty-copy">
-              When an agent is blocked, asks for your input, or has work for you to review, it lands here.
-            </p>
-          </div>
+          activeRegion !== undefined ? (
+            <div className="operator-feed__empty" role="status">
+              <span className="operator-feed__empty-mark" aria-hidden>
+                <Inbox size={22} strokeWidth={1.4} />
+              </span>
+              <p className="operator-feed__empty-title">Nothing waiting in {regionName}</p>
+              <p className="operator-feed__empty-copy">
+                This corner is clear. The rest of the feed is still waiting where it was.
+              </p>
+              <Button size="sm" variant="subtle" onClick={() => feedView$.region.set(undefined)}>
+                Show all regions
+              </Button>
+            </div>
+          ) : (
+            <div className="operator-feed__empty" role="status">
+              <span className="operator-feed__empty-mark" aria-hidden>
+                <Inbox size={22} strokeWidth={1.4} />
+              </span>
+              <p className="operator-feed__empty-title">Nobody needs you right now</p>
+              <p className="operator-feed__empty-copy">
+                When an agent is blocked, asks for your input, or has work for you to review, it lands here.
+              </p>
+            </div>
+          )
         ) : (
           sections.map((section) => (
             <FeedRegionSection key={section.region.regionId ?? "open-field"} section={section}>

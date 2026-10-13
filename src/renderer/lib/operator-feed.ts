@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import type { Canvas, Node } from "@shared/model";
 import type { AgentSignal } from "@shared/agent-signals";
@@ -6,11 +7,14 @@ import { feedCanvasModelNeeds } from "@shared/canvas-needs";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import {
   buildOperatorFeed,
+  feedSectionsInRegion,
   feedSeatsFromCanvas,
   needsOperatorCount,
+  orderFeedSections,
   type FeedCanvasNeed,
   type FeedItem,
   type FeedSection,
+  type FeedSortOrder,
   type OperatorFeed,
 } from "@shared/operator-feed";
 import type { ThreadHealthReading } from "@shared/thread-health";
@@ -181,13 +185,58 @@ export const reconcileSelection = (
 
 /**
  * "3 waiting across 2 regions": the feed's status line. The number is the
- * feed's own count, the same one the top bar and the Dock badge show.
+ * feed's own count, the same one the top bar and the Dock badge show. With a
+ * region filter on, it says what is left in view against the whole feed.
  */
-export const feedStatusLine = (feed: Pick<OperatorFeed, "count" | "sections">): string => {
+export const feedStatusLine = (
+  feed: Pick<OperatorFeed, "count" | "sections">,
+  filtered?: { readonly label: string; readonly count: number },
+): string => {
+  if (filtered !== undefined) {
+    return `${filtered.count} of ${feed.count} waiting in ${filtered.label}`;
+  }
   if (feed.count === 0) return "nobody needs you right now";
   const regions = feed.sections.filter((section) => needsOperatorCount(section.items) > 0).length;
   return `${feed.count} waiting${regions > 1 ? ` across ${regions} regions` : ""}`;
 };
+
+// --- view state -------------------------------------------------------------
+
+/**
+ * The region the operator narrowed the feed to. `regionId` null names the
+ * open field. The label is a display copy kept for the option row and empty
+ * state; the pick is ignored on another canvas.
+ */
+export type FeedRegionPick = {
+  readonly canvasName: string;
+  readonly regionId: string | null;
+  readonly label: string;
+};
+
+/**
+ * The feed's view: which region is showing and in what order. Session-lived
+ * and module-scoped so it survives the modal opening and closing — triage
+ * spans more than one look — without pretending to be a preference.
+ */
+export const feedView$ = observable<{
+  region: FeedRegionPick | undefined;
+  order: FeedSortOrder;
+}>({ region: undefined, order: "urgency" });
+
+/**
+ * The sections an open feed shows: the picked region's, or all of them, in
+ * the picked order.
+ */
+export const viewFeedSections = (
+  sections: ReadonlyArray<FeedSection>,
+  pick: FeedRegionPick | undefined,
+  canvasName: string,
+  order: FeedSortOrder,
+): ReadonlyArray<FeedSection> =>
+  orderFeedSections(
+    feedSectionsInRegion(sections, pick?.canvasName === canvasName ? pick.regionId : undefined),
+    order,
+  );
 
 /**
  * Keep items that just left on screen for a moment so they can fade out: the

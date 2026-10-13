@@ -15,6 +15,7 @@ import {
   type FeedItem,
   type FeedRegion,
   type FeedSeat,
+  type FeedSection,
   type OperatorFeed,
 } from "./wire/operator-feed";
 
@@ -106,6 +107,55 @@ const byUrgencyThenAge = (a: FeedItem, b: FeedItem): number =>
   b.urgency - a.urgency ||
   (a.since ?? Number.POSITIVE_INFINITY) - (b.since ?? Number.POSITIVE_INFINITY) ||
   a.itemId.localeCompare(b.itemId);
+
+// --- view -------------------------------------------------------------------
+
+/**
+ * How a surface may order the feed: the declared order (urgency, then age),
+ * or plain recency. A need with no known time always follows the dated ones:
+ * no time is ever made up for it.
+ */
+export const FEED_SORT_ORDERS = ["urgency", "newest", "oldest"] as const;
+export type FeedSortOrder = (typeof FEED_SORT_ORDERS)[number];
+
+const FEED_ITEM_ORDER: Readonly<Record<FeedSortOrder, (a: FeedItem, b: FeedItem) => number>> = {
+  urgency: byUrgencyThenAge,
+  newest: (a, b) =>
+    (b.since ?? Number.NEGATIVE_INFINITY) - (a.since ?? Number.NEGATIVE_INFINITY) ||
+    byUrgencyThenAge(a, b),
+  oldest: (a, b) =>
+    (a.since ?? Number.POSITIVE_INFINITY) - (b.since ?? Number.POSITIVE_INFINITY) ||
+    byUrgencyThenAge(a, b),
+};
+
+/**
+ * Re-sort a feed's sections for the chosen order: each section's items, then
+ * the sections by their lead item. `urgency` reproduces the projection's own
+ * order.
+ */
+export const orderFeedSections = (
+  sections: ReadonlyArray<FeedSection>,
+  order: FeedSortOrder,
+): ReadonlyArray<FeedSection> => {
+  const byItem = FEED_ITEM_ORDER[order];
+  return [...sections]
+    .map((section) => ({ ...section, items: [...section.items].sort(byItem) }))
+    .sort(
+      (a, b) =>
+        (a.items[0] !== undefined && b.items[0] !== undefined ? byItem(a.items[0], b.items[0]) : 0) ||
+        a.region.label.localeCompare(b.region.label),
+    );
+};
+
+/**
+ * Keep only the one region the operator is looking at — `null` picks the open
+ * field, `undefined` keeps every region.
+ */
+export const feedSectionsInRegion = (
+  sections: ReadonlyArray<FeedSection>,
+  regionId: string | null | undefined,
+): ReadonlyArray<FeedSection> =>
+  regionId === undefined ? sections : sections.filter((section) => section.region.regionId === regionId);
 
 export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
   const { canvasName, nowMs } = input;

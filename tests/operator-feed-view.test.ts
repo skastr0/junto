@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { FeedItem, FeedSection } from "../src/shared/operator-feed";
+import {
+  FEED_URGENCY,
+  type FeedItem,
+  type FeedItemKind,
+  type FeedSection,
+} from "../src/shared/operator-feed";
 import {
   feedStatusLine,
   reconcileSelection,
   stepFeedSelection,
+  viewFeedSections,
   withLeavingItems,
 } from "../src/renderer/lib/operator-feed";
 import { moveQuickReply, quickReplyForKey } from "../src/renderer/lib/quick-replies";
@@ -18,6 +24,25 @@ const item = (itemId: string): FeedItem => ({
   text: "t",
   since: 0,
   ageMs: 0,
+});
+
+const itemAt = (
+  itemId: string,
+  regionId: string | null,
+  since: number | undefined,
+  kind: FeedItemKind = "feedback",
+): FeedItem => ({
+  ...item(itemId),
+  kind,
+  urgency: FEED_URGENCY[kind],
+  region: { regionId, label: regionId ?? "open field", path: [] },
+  ...(since === undefined ? { since: undefined } : { since }),
+});
+
+const region = (regionId: string | null, items: ReadonlyArray<FeedItem>): FeedSection => ({
+  region: { regionId, label: regionId ?? "open field", path: [] },
+  items: [...items],
+  worstUrgency: Math.max(0, ...items.map((entry) => entry.urgency)),
 });
 
 const section = (regionId: string | null, ids: ReadonlyArray<string>): FeedSection => ({
@@ -73,5 +98,75 @@ describe("feedStatusLine", () => {
     const reads: FeedSection = { ...section("ai", ["h"]), items: [{ ...item("h"), kind: "health" }] };
     expect(feedStatusLine({ count: 0, sections: [reads] })).toBe("nobody needs you right now");
     expect(feedStatusLine({ count: 2, sections: [section("r", ["a", "b"]), reads] })).toBe("2 waiting");
+  });
+
+  it("says what the picked region holds against the whole feed", () => {
+    expect(feedStatusLine({ count: 12, sections: [] }, { label: "Product", count: 3 })).toBe(
+      "3 of 12 waiting in Product",
+    );
+    expect(feedStatusLine({ count: 12, sections: [] }, { label: "the open field", count: 0 })).toBe(
+      "0 of 12 waiting in the open field",
+    );
+  });
+});
+
+describe("viewFeedSections", () => {
+  const sections = [
+    region("build", [itemAt("b-old", "build", 100), itemAt("b-new", "build", 300)]),
+    region("product", [itemAt("p-mid", "product", 200, "blocked")]),
+    region(null, [itemAt("f-newest", null, 400)]),
+  ];
+
+  it("keeps every region by default and narrows to the picked one", () => {
+    expect(viewFeedSections(sections, undefined, "main", "urgency")).toHaveLength(3);
+    const picked = viewFeedSections(
+      sections,
+      { canvasName: "main", regionId: "product", label: "product" },
+      "main",
+      "urgency",
+    );
+    expect(picked.map((s) => s.region.regionId)).toEqual(["product"]);
+    expect(
+      viewFeedSections(sections, { canvasName: "main", regionId: null, label: "open field" }, "main", "newest").map(
+        (s) => s.region.regionId,
+      ),
+    ).toEqual([null]);
+  });
+
+  it("ignores a pick made on another canvas", () => {
+    expect(
+      viewFeedSections(sections, { canvasName: "other", regionId: "build", label: "build" }, "main", "urgency"),
+    ).toHaveLength(3);
+  });
+
+  it("orders sections by the worst need first under urgency", () => {
+    expect(viewFeedSections(sections, undefined, "main", "urgency").map((s) => s.region.regionId)).toEqual(
+      ["product", "build", null],
+    );
+    expect(
+      viewFeedSections(sections, undefined, "main", "urgency")[1]?.items.map((i) => i.itemId),
+    ).toEqual(["b-old", "b-new"]);
+  });
+
+  it("orders newest and oldest first within and across sections", () => {
+    const newest = viewFeedSections(sections, undefined, "main", "newest");
+    expect(newest.map((s) => s.region.regionId)).toEqual([null, "build", "product"]);
+    expect(newest[1]?.items.map((i) => i.itemId)).toEqual(["b-new", "b-old"]);
+
+    const oldest = viewFeedSections(sections, undefined, "main", "oldest");
+    expect(oldest.map((s) => s.region.regionId)).toEqual(["build", "product", null]);
+    expect(oldest[0]?.items.map((i) => i.itemId)).toEqual(["b-old", "b-new"]);
+  });
+
+  it("always ranks a need with no known time after the dated ones", () => {
+    const undated = region("undated", [itemAt("u", "undated", undefined, "blocked")]);
+    const both = [...sections, undated];
+    expect(viewFeedSections(both, undefined, "main", "newest").map((s) => s.region.regionId)).toContain("undated");
+    expect(
+      viewFeedSections(both, undefined, "main", "newest").at(-1)?.region.regionId,
+    ).toBe("undated");
+    expect(
+      viewFeedSections(both, undefined, "main", "oldest").at(-1)?.region.regionId,
+    ).toBe("undated");
   });
 });

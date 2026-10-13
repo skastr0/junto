@@ -42,6 +42,40 @@
   padding: 0 12px 20px;
 }
 
+/* Filter and order: a quiet chrome row between the header and the list, kept
+   out of the scroll so the pick is never scrolled away. */
+.operator-feed__controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 6px 20px;
+  border-bottom: 1px solid color-mix(in oklab, var(--color-stroke) 55%, transparent);
+}
+
+.operator-feed__control-label {
+  font-size: var(--text-body);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+.operator-feed__control {
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--radius-md);
+  color: var(--color-dim);
+}
+
+.operator-feed__control:hover {
+  background: var(--color-overlay-1);
+  color: var(--color-ink);
+}
+
+.operator-feed__controls-spread {
+  flex: 1 1 auto;
+}
+
 /* Region sections --------------------------------------------------------- */
 
 .operator-feed__region {
