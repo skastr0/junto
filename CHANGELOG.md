@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+## 0.7.1 — 2026-10-13
+
+The first published build since 0.6.0. It carries the held 0.7.0 work.
+
+- Turn on Machines: one canvas across machines. Name this machine in
+  Settings, set up another machine from the Machines window over SSH, and
+  watch each step and its bytes as Junto is sent. The bundle for a machine
+  is downloaded when it is needed and checked against the build, so the app
+  itself stays small.
+- A canvas is changed only by the machine that edits it; other machines hold
+  a read-only copy. A seat lives on one machine, starts there, and its mail
+  crosses to and from the editing machine, waiting when a machine is out of
+  reach.
+- A seat's raised hand reaches the operator from any machine, and the
+  answer goes back to it.
+- Answer a needs-you card quietly, without waking the seat, and pick from
+  two replies the seat suggested.
+- Filter the needs-you feed by region, and order it.
+- Steer mail into a running Cursor or Devin turn, and read Cursor's settled
+  follow-up row as idle.
+- Run agy seats with working mail delivery and session discovery.
+- Step the seat rings once a second, and start managed seats without
+  stalling the window.
+- Remove the Remote screen, the station, and the fleet pages.
+- State schema moves from 13 to 21.
+
 ## 0.6.0 — 2026-10-08
 
 - Store a canvas as rows, one per seat, region, wire, and every other kind,
