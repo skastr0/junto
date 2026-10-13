@@ -8,6 +8,7 @@
  *   - ordering by newest and oldest reorders the cards the way it says
  *   - a region that empties while picked shows the filtered empty state
  *   - Send quietly records the answer: the card leaves and the count drops
+ *   - a seat's suggested replies lead its card's pills and answer the signal
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -41,7 +42,7 @@ const fixture = (): ModelFixture =>
   );
 
 // atlas and brook sit in Build, grove in Docs, nova in the open field.
-const signal = (seatId: string, n: number, minutesAgo: number): AgentSignal => ({
+const signal = (seatId: string, n: number, minutesAgo: number, extra: Partial<AgentSignal> = {}): AgentSignal => ({
   signalId: `sig-${seatId}-${n}`,
   canvasName: CANVAS,
   nodeId: seatId,
@@ -49,11 +50,12 @@ const signal = (seatId: string, n: number, minutesAgo: number): AgentSignal => (
   text: `${seatId} asks number ${n}`,
   createdAt: Date.now() - minutesAgo * MINUTE,
   state: "open",
+  ...extra,
 });
 
 const SIGNALS: ReadonlyArray<AgentSignal> = [
   signal("atlas", 0, 30),
-  signal("atlas", 1, 5),
+  signal("atlas", 1, 5, { suggestions: ["Use sqlite", "Keep JSON"] }),
   signal("brook", 0, 20),
   signal("grove", 0, 10),
   signal("nova", 0, 2),
@@ -121,21 +123,33 @@ test("the feed narrows to a region, reorders, and answers quietly", async () => 
     await page.getByRole("button", { name: "Order needs" }).click();
     await page.getByRole("listbox", { name: "Order needs" }).getByRole("option", { name: "Most urgent first" }).click();
 
+    // The seat's suggested replies lead atlas-1's pills, ahead of the
+    // operator's list; picking one answers the signal like any reply.
+    const suggestedCard = feed.locator("[data-item-id='signal:sig-atlas-1']");
+    const pills = suggestedCard.getByTestId("quick-replies").getByRole("button");
+    await expect(pills.first()).toContainText("Use sqlite");
+    await expect(suggestedCard.locator(".quick-reply--suggested")).toHaveText([/Use sqlite/, /Keep JSON/]);
+    await shot(page, "views-suggested-replies.png");
+    await pills.first().click();
+    await expect(suggestedCard).toHaveCount(0, { timeout: 10_000 });
+    await expect(page.locator(".operator-feed__status")).toHaveText("2 of 4 waiting in Build");
+    await expect(trigger).toHaveAttribute("aria-label", "Needs you, 4");
+
     // A quiet answer records the response and clears the card — no mail,
     // nothing typed into the seat (covered end to end by the transport spec;
     // here the card must leave and the count drop).
-    const quiet = feed.locator("[data-item-id='signal:sig-atlas-1']");
+    const quiet = feed.locator("[data-item-id='signal:sig-atlas-0']");
     await quiet.getByRole("button", { name: "Write reply" }).click();
     const reply = quiet.getByLabel("Your reply");
     await reply.fill("Noted, carry on.");
     await shot(page, "views-quiet-reply.png");
     await quiet.getByRole("button", { name: "Send quietly" }).click();
     await expect(quiet).toHaveCount(0, { timeout: 10_000 });
-    await expect(page.locator(".operator-feed__status")).toHaveText("2 of 4 waiting in Build");
-    await expect(trigger).toHaveAttribute("aria-label", "Needs you, 4");
+    await expect(page.locator(".operator-feed__status")).toHaveText("1 of 3 waiting in Build");
+    await expect(trigger).toHaveAttribute("aria-label", "Needs you, 3");
 
     // Clear the rest of Build; the picked region empties into its own state.
-    for (const id of ["signal:sig-atlas-0", "signal:sig-brook-0"]) {
+    for (const id of ["signal:sig-brook-0"]) {
       const card = feed.locator(`[data-item-id='${id}']`);
       await card.getByTestId("quick-replies").getByRole("button").first().click();
       await expect(card).toHaveCount(0, { timeout: 10_000 });

@@ -244,6 +244,10 @@ export const writeFixtureAgentSignals = async (
            VALUES (${signal.signalId}, ${signal.canvasName}, ${signal.nodeId}, ${signal.kind},
              ${signal.text}, ${signal.detail ?? null}, ${signal.createdAt}, ${signal.state},
              ${signal.response?.text ?? null}, ${signal.response?.at ?? null}, ${signal.closedAt ?? null})`;
+        for (const [position, suggestion] of (signal.suggestions ?? []).entries()) {
+          yield* sql`INSERT INTO agent_signal_parts(signal_id, position, kind, body_json)
+            VALUES (${signal.signalId}, ${position}, 'suggest', ${JSON.stringify({ text: suggestion })})`;
+        }
       }
     })));
   } finally {
