@@ -1015,6 +1015,37 @@ describe("work control transport", () => {
     expect(listed.data.signals[0]?.response?.text).toBe("use sqlite");
   });
 
+  it("records a silent answer without appending seat mail", async () => {
+    const server = servers[0]!;
+    const raised = (await call(server.socketPath, {
+      token: token(),
+      op: "signal.raise",
+      args: { kind: "feedback", text: "an old review, probably stale" },
+    })) as { ok: true; data: { signal: AgentSignal } };
+    const runtime = runtimes[runtimes.length - 1]!;
+    const answered = await runtime.runPromise(
+      answerAgentSignal(raised.data.signal.signalId, "thanks, this one is stale", {
+        silent: true,
+      }),
+    );
+    expect(answered.ok).toBe(true);
+    if (!answered.ok) return;
+    expect(answered.signal.state).toBe("answered");
+    expect(answered.signal.response?.text).toBe("thanks, this one is stale");
+    // No mail was appended: the seat is never typed into or started.
+    expect(answered.messageId).toBeUndefined();
+    const repository = await runtime.runPromise(WorkRepository);
+    expect(await runtime.runPromise(repository.mailbox("work-cli", "agent"))).toHaveLength(0);
+
+    // The answer is still the seat's to read when it next lists its signals.
+    const listed = (await call(server.socketPath, {
+      token: token(),
+      op: "signal.list",
+      args: {},
+    })) as { ok: true; data: { signals: AgentSignal[] } };
+    expect(listed.data.signals[0]?.response?.text).toBe("thanks, this one is stale");
+  });
+
   it("refuses an over-long signal sentence and points at --detail", async () => {
     const server = servers[0]!;
     const refused = (await call(server.socketPath, {

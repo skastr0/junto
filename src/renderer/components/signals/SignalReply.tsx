@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { AgentSignalAnswerOptions } from "@shared/ipc";
 import type { SignalActionResult } from "../../lib/agent-signals-view";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
 import { modKeyGlyph } from "../../lib/platform";
@@ -50,7 +51,11 @@ export function SignalReply({
   className = "seat-signal-popover__reply",
 }: {
   readonly signalId: string;
-  readonly respond: (signalId: string, text: string) => Promise<SignalActionResult>;
+  readonly respond: (
+    signalId: string,
+    text: string,
+    options?: AgentSignalAnswerOptions,
+  ) => Promise<SignalActionResult>;
   readonly dismiss: (signalId: string) => Promise<SignalActionResult>;
   /** Called after a successful send or dismiss. */
   readonly onDone: () => void;
@@ -62,6 +67,9 @@ export function SignalReply({
   const canSend = pending === null && reply.trim().length > 0;
   const send = (): void => {
     if (canSend) void act("", () => respond(signalId, reply.trim()));
+  };
+  const sendQuietly = (): void => {
+    if (canSend) void act("", () => respond(signalId, reply.trim(), { silent: true }));
   };
 
   return (
@@ -88,6 +96,15 @@ export function SignalReply({
       <div className="seat-signal-popover__actions">
         <Button size="xs" variant="subtle" disabled={pending !== null} onClick={() => void act("", () => dismiss(signalId))}>
           Dismiss
+        </Button>
+        <Button
+          size="xs"
+          variant="subtle"
+          disabled={!canSend}
+          title="Record the answer on the signal without typing it into the seat"
+          onClick={sendQuietly}
+        >
+          Send quietly
         </Button>
         <Button size="xs" variant="primary" disabled={!canSend} title={`${modKeyGlyph()}+↵`} onClick={send}>
           Send reply

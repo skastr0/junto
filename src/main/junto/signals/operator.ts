@@ -15,7 +15,9 @@ import { AgentSignalRepository } from "./repository";
 /**
  * Operator-side signal actions. Answering types the response into the seat as
  * operator prompt mail (the ordinary mailbox path) and only then records the
- * signal answered; dismissing records it without mail.
+ * signal answered; a silent answer records the response without mail, so the
+ * seat is never typed into or started and reads the answer later through
+ * `signal list`; dismissing records it without mail or a response.
  */
 
 export type SignalOperatorResult =
@@ -26,7 +28,11 @@ const refused = (message: string): SignalOperatorResult => ({ ok: false, message
 
 const repositoryMessage = (error: { readonly message: string }) => error.message;
 
-export const answerAgentSignal = (signalId: string, response: string) =>
+export const answerAgentSignal = (
+  signalId: string,
+  response: string,
+  options?: { readonly silent?: boolean },
+) =>
   Effect.gen(function* () {
     const text = response.trim();
     if (!text) return refused("an answer needs some text");
@@ -39,31 +45,35 @@ export const answerAgentSignal = (signalId: string, response: string) =>
     const signal = current.success;
     if (signal.state !== "open") return refused(`this signal is already ${signal.state}`);
 
-    const sender = operatorActorRef(signal.canvasName);
-    const messageId = ulid();
-    const work = yield* WorkService;
-    const appended = yield* work.workSystemMailboxNotify(
-      signal.canvasName,
-      signal.nodeId,
-      makeUserMessage({
-        messageId,
-        text: composeSignalAnswerMail(signal, text),
-        contextId: signal.canvasName,
-        metadata: {
-          factoryMail: true,
-          agentSignalId: signal.signalId,
-          ...mailExtensionMetadata({
-            mailKind: "prompt",
-            fromSeat: sender.seatId,
-            senderNodeId: sender.nodeId,
-            senderName: "operator",
-            senderGeneration: "operator",
-            senderHarness: "unknown",
-          }),
-        },
-      }),
-    );
-    if (!appended.ok) return refused(appended.message);
+    let messageId: string | undefined;
+    if (options?.silent !== true) {
+      const sender = operatorActorRef(signal.canvasName);
+      const id = ulid();
+      const work = yield* WorkService;
+      const appended = yield* work.workSystemMailboxNotify(
+        signal.canvasName,
+        signal.nodeId,
+        makeUserMessage({
+          messageId: id,
+          text: composeSignalAnswerMail(signal, text),
+          contextId: signal.canvasName,
+          metadata: {
+            factoryMail: true,
+            agentSignalId: signal.signalId,
+            ...mailExtensionMetadata({
+              mailKind: "prompt",
+              fromSeat: sender.seatId,
+              senderNodeId: sender.nodeId,
+              senderName: "operator",
+              senderGeneration: "operator",
+              senderHarness: "unknown",
+            }),
+          },
+        }),
+      );
+      if (!appended.ok) return refused(appended.message);
+      messageId = appended.data.messageId;
+    }
 
     const answered = yield* Effect.result(signals.answer(signalId, text));
     if (answered._tag === "Failure") return refused(repositoryMessage(answered.failure));
@@ -71,7 +81,7 @@ export const answerAgentSignal = (signalId: string, response: string) =>
     return {
       ok: true as const,
       signal: answered.success,
-      messageId: appended.data.messageId,
+      ...(messageId === undefined ? {} : { messageId }),
     };
   });
 

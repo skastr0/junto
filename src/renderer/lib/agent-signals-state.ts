@@ -5,7 +5,11 @@ import {
   type AgentSignal,
   type SeatSignalRollup,
 } from "@shared/agent-signals";
-import type { AgentSignalOperatorResult, JuntoApi } from "@shared/ipc";
+import type {
+  AgentSignalAnswerOptions,
+  AgentSignalOperatorResult,
+  JuntoApi,
+} from "@shared/ipc";
 import { getJuntoApi } from "./junto-api";
 import { playCue } from "./sound";
 import { signalCue } from "./sound/director";
@@ -142,15 +146,19 @@ const unavailable: SignalActionResult = {
   message: "Junto is not connected.",
 };
 
-/** Answer an open signal; main types it into the seat as operator mail. */
+/**
+ * Answer an open signal; main types it into the seat as operator mail, or —
+ * with `silent` — only records the answer for the seat to read later.
+ */
 export const respondToAgentSignal = async (
   signalId: string,
   text: string,
+  options?: AgentSignalAnswerOptions,
 ): Promise<SignalActionResult> => {
   const api = getJuntoApi();
   if (!api) return unavailable;
   return api
-    .agentSignalRespond(signalId, text)
+    .agentSignalRespond(signalId, text, options)
     .then(settle, (error: unknown) => ({
       ok: false as const,
       message: error instanceof Error ? error.message : "answer failed",

@@ -1,4 +1,5 @@
 import { use$ } from "@legendapp/state/react";
+import type { AgentSignalAnswerOptions } from "@shared/ipc";
 import {
   AGENT_SIGNAL_SEVERITY,
   type AgentSignal,
@@ -79,7 +80,11 @@ export type { SignalActionResult };
 
 type SignalSource = {
   readonly all: () => ReadonlyArray<AgentSignal>;
-  readonly respond: (signalId: string, text: string) => Promise<SignalActionResult>;
+  readonly respond: (
+    signalId: string,
+    text: string,
+    options?: AgentSignalAnswerOptions,
+  ) => Promise<SignalActionResult>;
   readonly dismiss: (signalId: string) => Promise<SignalActionResult>;
 };
 

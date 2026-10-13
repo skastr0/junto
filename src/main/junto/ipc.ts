@@ -6,6 +6,7 @@ import { Effect, Result, Schema, Stream } from "effect";
 import {
   IPC_CHANNELS,
   type BindingHint,
+  type AgentSignalAnswerOptions,
   type AgentSignalOperatorResult,
   type FactoryPauseSetResult,
   type WorkOpResult,
@@ -554,13 +555,16 @@ export const registerJuntoIpc = (): void => {
       }));
   privilegedIpc.handle(
     IPC_CHANNELS.agentSignalRespond,
-    async (_event, signalId: string, text: string) => {
+    async (_event, signalId: string, text: string, options?: AgentSignalAnswerOptions) => {
       const result = await runSignalOperator(
         "ipc.work.signal-answer",
-        answerAgentSignal(String(signalId), String(text)),
+        answerAgentSignal(String(signalId), String(text), {
+          silent: options?.silent === true,
+        }),
       );
       // The answer is durable mail now; typing it into the seat follows the
       // ordinary delivery path (at once when live, else when it comes up).
+      // A silent answer carries no mail: nothing is typed, nothing starts.
       if (result.ok && result.messageId !== undefined) {
         void messageDelivery
           .deliver(result.signal.canvasName, result.signal.nodeId, result.messageId)

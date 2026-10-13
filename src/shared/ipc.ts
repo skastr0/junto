@@ -130,6 +130,15 @@ export type AgentSignalOperatorResult =
   | { readonly ok: true; readonly signal: AgentSignal; readonly messageId?: string }
   | { readonly ok: false; readonly message: string };
 
+export type AgentSignalAnswerOptions = {
+  /**
+   * Record the answer on the signal only: no mail is appended, so the seat
+   * is never typed into or started. The agent reads it later via
+   * `signal list`.
+   */
+  readonly silent?: boolean;
+};
+
 export const IPC_CHANNELS = {
   liveStart: "junto:live-start",
   liveEnd: "junto:live-end",
@@ -786,10 +795,11 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly factoryPauseState: (canvas: string) => Promise<CanvasPauseState>;
   /** Open signals plus recent history for every seat on the canvas. */
   readonly agentSignalsList: (canvas: string) => Promise<ReadonlyArray<AgentSignal>>;
-  /** Answer an open signal: delivered to the seat as operator mail. */
+  /** Answer an open signal: delivered to the seat as operator mail, or only recorded when `options.silent`. */
   readonly agentSignalRespond: (
     signalId: string,
     text: string,
+    options?: AgentSignalAnswerOptions,
   ) => Promise<AgentSignalOperatorResult>;
   /** Close an open signal without mail. */
   readonly agentSignalDismiss: (signalId: string) => Promise<AgentSignalOperatorResult>;
