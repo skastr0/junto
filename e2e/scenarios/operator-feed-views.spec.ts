@@ -72,6 +72,13 @@ const shot = async (page: Page, name: string): Promise<void> => {
   await page.screenshot({ path: join(SHOTS, name) });
 };
 
+const setTheme = async (page: Page, theme: "dark" | "bright"): Promise<void> => {
+  await page.evaluate((mode) => window.junto!.settingsPatch({ appearance: { theme: mode } }), theme);
+  if (theme === "bright") await expect(page.locator("html")).toHaveAttribute("data-theme", "bright");
+  else await expect(page.locator("html")).not.toHaveAttribute("data-theme", "bright");
+  await page.waitForTimeout(250);
+};
+
 test("the feed narrows to a region, reorders, and answers quietly", async () => {
   await mkdir(SHOTS, { recursive: true });
   const junto = await launchJunto({ seedModels: { [CANVAS]: fixture() }, seedAgentSignals: SIGNALS });
@@ -141,6 +148,23 @@ test("the feed narrows to a region, reorders, and answers quietly", async () => 
     await expect(cards).toHaveCount(2);
     await expect(page.locator(".operator-feed__status")).toHaveText("2 waiting across 2 regions");
     await shot(page, "views-back-to-all.png");
+    await page.keyboard.press("Escape");
+    await expect(feed).toHaveCount(0);
+
+    // The same pass in bright: controls, a filtered region, the reply row.
+    await setTheme(page, "bright");
+    await openFeed(page);
+    await expect(cards).toHaveCount(2);
+    await shot(page, "views-controls-bright.png");
+    await page.getByRole("button", { name: "Filter needs by region" }).click();
+    await page
+      .getByRole("listbox", { name: "Filter needs by region" })
+      .getByRole("option", { name: "Docs (1)" })
+      .click();
+    await expect(cards).toHaveCount(1);
+    await expect(page.locator(".operator-feed__status")).toHaveText("1 of 2 waiting in Docs");
+    await feed.locator("[data-item-id='signal:sig-grove-0']").getByRole("button", { name: "Write reply" }).click();
+    await shot(page, "views-quiet-reply-bright.png");
   } finally {
     await junto.close();
   }
