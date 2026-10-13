@@ -15,7 +15,11 @@ import {
 import { ContentRef } from "./content";
 import { PadPatch } from "./pad";
 import { MailEvidenceRef } from "./crew";
-import { AgentSignalAttachmentInput, AgentSignalKind } from "./agent-signals";
+import {
+  AgentSignalAttachmentInput,
+  AgentSignalKind,
+  AgentSignalSuggestions,
+} from "./agent-signals";
 export {
   SeatWaitArgs, SeatReadArgs, TaskWaitArgs,
   SeatWaitResult, SeatReadResult, TaskWaitResult,
@@ -657,6 +661,12 @@ export const SignalRaiseArgs = Schema.Struct({
   text: Schema.String,
   detail: Schema.optionalKey(Schema.String),
   attach: Schema.optionalKey(Schema.Array(AgentSignalAttachmentInput)),
+  /**
+   * Replies the seat pre-bakes for the operator (`AgentSignalSuggestions`):
+   * at most two short pills, shown ahead of the quick replies. Sending one
+   * answers the signal exactly as a typed reply.
+   */
+  suggest: Schema.optionalKey(AgentSignalSuggestions),
 }).annotate({
   parseOptions: { onExcessProperty: "error" },
 });

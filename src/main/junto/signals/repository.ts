@@ -48,6 +48,8 @@ export type RaiseAgentSignal = AgentSignalSeat & {
   readonly signalId?: string;
   /** Already in the content store, in the order the agent gave them. */
   readonly attachments?: ReadonlyArray<AgentSignalAttachment>;
+  /** Replies the seat pre-baked for the operator, at most two, in order. */
+  readonly suggestions?: ReadonlyArray<string>;
 };
 
 /**
@@ -60,6 +62,8 @@ export type TakenAgentSignal = AgentSignalSeat & {
   readonly kind: AgentSignalKind;
   readonly text: string;
   readonly detail?: string;
+  /** Pre-baked replies the raise carried, when the sender stated them. */
+  readonly suggestions?: ReadonlyArray<string>;
   readonly createdAt: number;
   /** The closing to take, when the sender is the one that may write it. */
   readonly closing?:
@@ -137,11 +141,14 @@ const SignalRow = Schema.Struct({
   response_at: Schema.NullOr(Schema.Number),
   closed_at: Schema.NullOr(Schema.Number),
   attachments_json: Schema.String,
+  suggestions_json: Schema.String,
 });
 
 /**
- * A signal's columns, with its attachments folded into one JSON array in
- * their order. `from` names the row source the select reads signals from.
+ * A signal's columns, with its parts folded in two: what the operator can
+ * open as `attachments_json`, and the seat's pre-baked replies as
+ * `suggestions_json`. `from` names the row source the select reads signals
+ * from.
  */
 const columnsOf = (from: string): string => `
   ${from}.signal_id, ${from}.canvas_name, ${from}.node_id, ${from}.kind, ${from}.text, ${from}.detail,
@@ -150,10 +157,18 @@ const columnsOf = (from: string): string => `
     SELECT json_group_array(json_object('kind', kind, 'body', json(body_json), 'caption', caption))
     FROM (
       SELECT * FROM agent_signal_parts
-      WHERE agent_signal_parts.signal_id = ${from}.signal_id
+      WHERE agent_signal_parts.signal_id = ${from}.signal_id AND agent_signal_parts.kind <> 'suggest'
       ORDER BY position
     )
-  ) AS attachments_json
+  ) AS attachments_json,
+  (
+    SELECT json_group_array(json_extract(body_json, '$.text'))
+    FROM (
+      SELECT * FROM agent_signal_parts
+      WHERE agent_signal_parts.signal_id = ${from}.signal_id AND agent_signal_parts.kind = 'suggest'
+      ORDER BY position
+    )
+  ) AS suggestions_json
 `;
 const COLUMNS = columnsOf("agent_signals");
 
@@ -164,6 +179,8 @@ type PartJson = {
 };
 
 const PART_KINDS: ReadonlySet<string> = new Set(["file", "compare", "commit", "link"]);
+/** The part kind a suggested reply is stored as; its body is `{"text": ...}`. */
+const SUGGEST_PART_KIND = "suggest";
 
 // Written only by `raise` below, from values the wire schema already holds.
 // A part of a kind this build does not know is left out, not guessed at.
@@ -201,6 +218,16 @@ const withAttachments = (json: string): { readonly attachments?: ReadonlyArray<A
   return attachments.length > 0 ? { attachments } : {};
 };
 
+const suggestionsOf = (json: string): ReadonlyArray<string> =>
+  (JSON.parse(json) as ReadonlyArray<unknown>).filter(
+    (entry): entry is string => typeof entry === "string" && entry.length > 0,
+  );
+
+const withSuggestions = (json: string): { readonly suggestions?: ReadonlyArray<string> } => {
+  const suggestions = suggestionsOf(json);
+  return suggestions.length > 0 ? { suggestions } : {};
+};
+
 const fromRow = (row: typeof SignalRow.Type): AgentSignal => ({
   signalId: row.signal_id,
   canvasName: row.canvas_name,
@@ -209,6 +236,7 @@ const fromRow = (row: typeof SignalRow.Type): AgentSignal => ({
   text: row.text,
   ...(row.detail === null ? {} : { detail: row.detail }),
   ...withAttachments(row.attachments_json),
+  ...withSuggestions(row.suggestions_json),
   createdAt: Number(row.created_at),
   state: row.state,
   ...(row.response_text === null || row.response_at === null
@@ -287,6 +315,14 @@ export const AgentSignalRepositoryLive: Layer.Layer<
         yield* sql`
           INSERT INTO agent_signal_parts(signal_id, position, kind, body_json, caption)
           VALUES (${signalId}, ${position}, ${part.kind}, ${part.body}, ${attachment.caption ?? null})
+        `;
+      }
+      // Pre-baked replies ride as parts behind the attachments, in order.
+      const offset = input.attachments?.length ?? 0;
+      for (const [index, suggestion] of (input.suggestions ?? []).entries()) {
+        yield* sql`
+          INSERT INTO agent_signal_parts(signal_id, position, kind, body_json)
+          VALUES (${signalId}, ${offset + index}, ${SUGGEST_PART_KIND}, ${JSON.stringify({ text: suggestion })})
         `;
       }
       return (yield* readOne(signalId))!;
@@ -380,6 +416,13 @@ export const AgentSignalRepositoryLive: Layer.Layer<
           INSERT INTO agent_signals(signal_id, canvas_name, node_id, kind, text, detail, created_at, state)
           VALUES (${input.signalId}, ${input.canvasName}, ${input.nodeId}, ${input.kind}, ${input.text}, ${input.detail ?? null}, ${input.createdAt}, 'open')
         `;
+        // Only the words cross: suggestions land as parts; a file never does.
+        for (const [position, suggestion] of (input.suggestions ?? []).entries()) {
+          yield* sql`
+            INSERT INTO agent_signal_parts(signal_id, position, kind, body_json)
+            VALUES (${input.signalId}, ${position}, ${SUGGEST_PART_KIND}, ${JSON.stringify({ text: suggestion })})
+          `;
+        }
         changed = true;
       } else if (held.canvasName !== input.canvasName || held.nodeId !== input.nodeId) {
         return yield* notFound(input.signalId, `signal ${input.signalId} belongs to another seat`);

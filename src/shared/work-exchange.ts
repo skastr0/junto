@@ -17,6 +17,7 @@ import {
   AgentSignalDetail,
   AgentSignalKind,
   AgentSignalResponseText,
+  AgentSignalSuggestions,
   AgentSignalText,
 } from "./agent-signals";
 import { CanvasCopy } from "./canvas-copy";
@@ -141,6 +142,8 @@ export const ExchangeSignal = Schema.Struct({
   kind: AgentSignalKind,
   text: AgentSignalText,
   detail: Schema.optionalKey(AgentSignalDetail),
+  /** The seat's pre-baked replies; text crosses where its files cannot. */
+  suggestions: Schema.optionalKey(AgentSignalSuggestions),
   createdAt: Epoch,
   closing: Schema.optionalKey(
     Schema.Union([

@@ -144,6 +144,29 @@ describe("agent signal CLI input", () => {
     }
   });
 
+  it("carries --suggest flags and a JSON suggest list onto the raise args", async () => {
+    const flags = await Effect.runPromise(
+      loadSignalRaiseArgs("blocked", "which store", undefined, {}, undefined, ["Use sqlite", "Keep JSON"]),
+    );
+    expect(flags.suggest).toEqual(["Use sqlite", "Keep JSON"]);
+
+    const json = await Effect.runPromise(
+      loadSignalRaiseArgs("blocked", '{"text":"which store","suggest":["Postgres","SQLite"]}', undefined),
+    );
+    expect(json.suggest).toEqual(["Postgres", "SQLite"]);
+  });
+
+  it("refuses suggested replies given twice or over two", async () => {
+    await expect(
+      Effect.runPromise(
+        loadSignalRaiseArgs("blocked", '{"text":"x","suggest":["a"]}', undefined, {}, undefined, ["b"]),
+      ),
+    ).rejects.toThrow(/suggested replies given twice/);
+    await expect(
+      Effect.runPromise(loadSignalRaiseArgs("blocked", "x", undefined, {}, undefined, ["a", "b", "c"])),
+    ).rejects.toThrow(/at most 2/);
+  });
+
   it("refuses the kind inside JSON, an empty sentence, and detail given twice", async () => {
     await expect(
       Effect.runPromise(loadSignalRaiseArgs("escalate", '{"text":"x","kind":"blocked"}', undefined)),

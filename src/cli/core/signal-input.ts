@@ -1,6 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { Effect, Schema } from "effect";
-import type { AgentSignalKind } from "../../shared/agent-signals";
+import {
+  AGENT_SIGNAL_MAX_SUGGESTIONS,
+  AgentSignalSuggestions,
+  type AgentSignalKind,
+} from "../../shared/agent-signals";
 import type { SignalRaiseArgs } from "../../shared/work-control";
 import {
   type AttachFlags,
@@ -124,6 +128,12 @@ export const SignalRaiseCliInput = Schema.Struct({
   text: Schema.String,
   detail: Schema.optionalKey(Schema.String),
   attach: Schema.optionalKey(Schema.Array(SignalAttachCliItem)),
+  /**
+   * Up to two replies pre-baked for the operator, each a line they can send
+   * as-is (`AgentSignalSuggestions`). They sit ahead of the quick replies on
+   * the card.
+   */
+  suggest: Schema.optionalKey(AgentSignalSuggestions),
 }).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
@@ -138,6 +148,8 @@ export const loadSignalRaiseArgs = (
   /** The attachment flags; a bare list is `--attach` values. */
   attachFlags: AttachFlags | ReadonlyArray<string> = {},
   timeoutMs?: number,
+  /** `--suggest` values: replies the operator can send in one click. */
+  suggestFlags: ReadonlyArray<string> = [],
 ) =>
   Effect.gen(function* () {
     const flags: AttachFlags = Array.isArray(attachFlags) ? { attach: attachFlags } : (attachFlags as AttachFlags);
@@ -158,6 +170,25 @@ export const loadSignalRaiseArgs = (
           message: `attachments given twice: in the JSON input and in --${given[0]}`,
           path: `--${given[0]}`,
           hint: "use the flags or the JSON attach list, not both",
+        }),
+      );
+    }
+    if (suggestFlags.length > 0 && payload.suggest !== undefined) {
+      return yield* Effect.fail(
+        new InputError({
+          message: "suggested replies given twice: in the JSON input and in --suggest",
+          path: "--suggest",
+          hint: "use the flags or the JSON suggest list, not both",
+        }),
+      );
+    }
+    const suggested = suggestFlags.length > 0 ? [...suggestFlags] : [...(payload.suggest ?? [])];
+    if (suggested.length > AGENT_SIGNAL_MAX_SUGGESTIONS) {
+      return yield* Effect.fail(
+        new InputError({
+          message: `at most ${AGENT_SIGNAL_MAX_SUGGESTIONS} suggested replies`,
+          path: "--suggest",
+          hint: "pre-bake the two the operator is most likely to send",
         }),
       );
     }
@@ -196,6 +227,7 @@ export const loadSignalRaiseArgs = (
       text: payload.text,
       ...(resolvedDetail === undefined ? {} : { detail: resolvedDetail }),
       ...(attach.length > 0 ? { attach } : {}),
+      ...(suggested.length > 0 ? { suggest: suggested } : {}),
     };
     return args;
   });

@@ -38,6 +38,12 @@ const attachFlag = (name: string, description: string) =>
   Flag.string(name).pipe(Flag.atLeast(0), Flag.withDescription(description));
 
 const attachOptions = {
+  suggest: Flag.string("suggest").pipe(
+    Flag.atLeast(0),
+    Flag.withDescription(
+      'A reply the operator can send in one click, ahead of the quick replies: --suggest "Use sqlite" --suggest "Keep JSON". At most two.',
+    ),
+  ),
   attach: attachFlag(
     "attach",
     'A file to show the operator, of any kind and size: /path or "Caption=/path". Repeat for each. Card order: attach, code, diff, compare, commit, video',
@@ -71,11 +77,18 @@ const raiseCommand = (kind: AgentSignalKind, description: string) =>
   Command.make(
     kind,
     { input: sentenceArg, detail: detailOption, ...attachOptions, timeout: timeoutOption },
-    ({ input, detail, timeout, ...attach }) =>
+    ({ input, detail, timeout, suggest, ...attach }) =>
       executeJsonCommand(
         kind,
         Effect.gen(function* () {
-          const args = yield* loadSignalRaiseArgs(kind, input, toUndefined(detail), attach, toUndefined(timeout));
+          const args = yield* loadSignalRaiseArgs(
+            kind,
+            input,
+            toUndefined(detail),
+            attach,
+            toUndefined(timeout),
+            suggest,
+          );
           return yield* call("signal.raise", args, toUndefined(timeout));
         }),
       ),

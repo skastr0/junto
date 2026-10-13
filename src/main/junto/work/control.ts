@@ -2248,6 +2248,12 @@ const dispatchOp = (
           })),
         );
       }
+      // Pre-baked replies: each one line the operator can send as-is. The
+      // wire already bounds their count and length; what is left to do here
+      // is fold each to a single line and drop the ones that fold to none.
+      const suggestions = decoded.success.suggest
+        ?.map((suggestion) => normalizeSignalText(suggestion))
+        .filter((suggestion): suggestion is string => suggestion.length > 0);
       const signal = yield* signals
         .raise({
           ...seat,
@@ -2256,6 +2262,7 @@ const dispatchOp = (
           text,
           ...(detail ? { detail } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
+          ...(suggestions !== undefined && suggestions.length > 0 ? { suggestions } : {}),
         })
         .pipe(
           Effect.mapError(signalError),

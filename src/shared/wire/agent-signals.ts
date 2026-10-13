@@ -27,6 +27,13 @@ export const AGENT_SIGNAL_MAX_TEXT_LENGTH = 280;
 export const AGENT_SIGNAL_MAX_DETAIL_LENGTH = 8_000;
 /** The operator's answer, delivered to the seat as mail. */
 export const AGENT_SIGNAL_MAX_RESPONSE_LENGTH = 8_000;
+/**
+ * Answers the agent pre-bakes for the operator: at most this many short
+ * pills, shown ahead of the quick replies. A suggestion is one line the
+ * operator can send as-is, the same bound as a quick reply.
+ */
+export const AGENT_SIGNAL_MAX_SUGGESTIONS = 2;
+export const AGENT_SIGNAL_MAX_SUGGESTION_LENGTH = 80;
 
 const boundedText = (max: number) =>
   Schema.String.pipe(
@@ -37,6 +44,11 @@ const boundedText = (max: number) =>
 export const AgentSignalText = boundedText(AGENT_SIGNAL_MAX_TEXT_LENGTH);
 export const AgentSignalDetail = boundedText(AGENT_SIGNAL_MAX_DETAIL_LENGTH);
 export const AgentSignalResponseText = boundedText(AGENT_SIGNAL_MAX_RESPONSE_LENGTH);
+export const AgentSignalSuggestion = boundedText(AGENT_SIGNAL_MAX_SUGGESTION_LENGTH);
+export const AgentSignalSuggestions = Schema.Array(AgentSignalSuggestion).pipe(
+  Schema.check(Schema.isMaxLength(AGENT_SIGNAL_MAX_SUGGESTIONS)),
+);
+export type AgentSignalSuggestions = typeof AgentSignalSuggestions.Type;
 
 
 /** The agent's words beside an attachment ("Before"). No length of ours. */
@@ -176,6 +188,11 @@ export const AgentSignal = Schema.Struct({
   detail: Schema.optionalKey(AgentSignalDetail),
   /** Files the agent attached, in the order given. Absent when there are none. */
   attachments: Schema.optionalKey(Schema.Array(AgentSignalAttachment)),
+  /**
+   * Replies the agent pre-baked for the operator, up to two, shown ahead of
+   * the quick replies. Absent when the agent offered none.
+   */
+  suggestions: Schema.optionalKey(AgentSignalSuggestions),
   /** Epoch ms. */
   createdAt: Schema.Number,
   state: AgentSignalState,

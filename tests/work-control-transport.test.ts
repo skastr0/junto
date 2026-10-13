@@ -985,6 +985,53 @@ describe("work control transport", () => {
     expect(events.map((signal) => signal.state)).toEqual(["open", "withdrawn"]);
   });
 
+  it("carries a raise's suggested replies onto the listed signal", async () => {
+    const server = servers[0]!;
+    const raised = (await call(server.socketPath, {
+      token: token(),
+      op: "signal.raise",
+      args: {
+        kind: "blocked",
+        text: "which store",
+        suggest: [" Use sqlite \n", "Keep JSON"],
+      },
+    })) as { ok: true; data: { signal: AgentSignal } };
+    expect(raised.ok).toBe(true);
+    expect(raised.data.signal.suggestions).toEqual(["Use sqlite", "Keep JSON"]);
+
+    const listed = (await call(server.socketPath, {
+      token: token(),
+      op: "signal.list",
+      args: {},
+    })) as { ok: true; data: { signals: AgentSignal[] } };
+    expect(listed.data.signals[0]?.suggestions).toEqual(["Use sqlite", "Keep JSON"]);
+
+    // Bounds live on the wire schema: overlong or overmany is refused at decode.
+    const long = (await call(server.socketPath, {
+      token: token(),
+      op: "signal.raise",
+      args: {
+        kind: "escalate",
+        text: "with a long suggestion",
+        suggest: ["x".repeat(81)],
+      },
+    })) as { ok: false; error: { type: string } };
+    expect(long.ok).toBe(false);
+    expect(long.error.type).toBe("InputError");
+
+    const many = (await call(server.socketPath, {
+      token: token(),
+      op: "signal.raise",
+      args: {
+        kind: "escalate",
+        text: "with too many suggestions",
+        suggest: ["a", "b", "c"],
+      },
+    })) as { ok: false; error: { type: string } };
+    expect(many.ok).toBe(false);
+    expect(many.error.type).toBe("InputError");
+  });
+
   it("answers a signal as operator mail and refuses a second answer", async () => {
     const server = servers[0]!;
     const raised = (await call(server.socketPath, {

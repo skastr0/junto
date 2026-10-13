@@ -184,4 +184,74 @@ describe("AgentSignalRepository", () => {
     expect(got.attachments).toHaveLength(200);
     expect(got.attachments).toEqual(attachments);
   });
+
+  it("keeps the seat's suggested replies beside the signal, absent when none", async () => {
+    const { raised, got, listed, forSeat, plain } = await run(
+      Effect.gen(function* () {
+        const r = yield* repo;
+        const raised = yield* r.raise({
+          ...seatA,
+          kind: "blocked",
+          text: "which store",
+          signalId: "sig-suggested",
+          suggestions: ["Use sqlite", "Keep JSON"],
+        });
+        const plain = yield* r.raise({ ...seatA, kind: "escalate", text: "plain" });
+        return {
+          raised,
+          plain,
+          got: yield* r.get("sig-suggested"),
+          listed: yield* r.listCanvas("factory"),
+          forSeat: yield* r.listSeat(seatA),
+        };
+      }),
+    );
+    const suggestions = ["Use sqlite", "Keep JSON"];
+    expect(raised.suggestions).toEqual(suggestions);
+    expect(got.suggestions).toEqual(suggestions);
+    expect(listed.find((signal) => signal.signalId === "sig-suggested")?.suggestions).toEqual(suggestions);
+    expect(forSeat.find((signal) => signal.signalId === "sig-suggested")?.suggestions).toEqual(suggestions);
+    // None raised, no field.
+    expect(plain).not.toHaveProperty("suggestions");
+    expect(listed.find((signal) => signal.signalId === plain.signalId)).not.toHaveProperty("suggestions");
+  });
+
+  it("keeps suggested replies beside attachments, ordered after them", async () => {
+    const ref = { sha256: "a".repeat(64), byteLength: 10, mediaType: "image/png", displayName: "shot.png" } as never;
+    const got = await run(
+      Effect.gen(function* () {
+        const r = yield* repo;
+        yield* r.raise({
+          ...seatA,
+          kind: "feedback",
+          text: "ready",
+          signalId: "sig-both",
+          attachments: [{ ref }],
+          suggestions: ["Ship it"],
+        });
+        return yield* r.get("sig-both");
+      }),
+    );
+    expect(got.suggestions).toEqual(["Ship it"]);
+    expect(got.attachments).toHaveLength(1);
+  });
+
+  it("materializes a remote signal's suggested replies on take", async () => {
+    const got = await run(
+      Effect.gen(function* () {
+        const r = yield* repo;
+        yield* r.take({
+          ...seatA,
+          signalId: "sig-remote-suggest",
+          kind: "blocked",
+          text: "remote pick",
+          suggestions: ["Postgres", "SQLite"],
+          createdAt: 1,
+          raises: true,
+        });
+        return yield* r.get("sig-remote-suggest");
+      }),
+    );
+    expect(got.suggestions).toEqual(["Postgres", "SQLite"]);
+  });
 });

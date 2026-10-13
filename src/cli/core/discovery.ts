@@ -1055,6 +1055,15 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     args: FEW_SHOT_BLOCKED.args,
   },
   {
+    command_id: "signal.blocked",
+    command: "blocked",
+    name: "a question with its likely answers",
+    description:
+      "When the question has two likely answers, pre-bake them: they show ahead of the operator's quick replies, and whichever is picked sends as the answer.",
+    input: { text: "Which store for the run log?", suggest: ["Use sqlite", "Keep JSON"] },
+    args: ["blocked", "Which store for the run log?", "--suggest", "Use sqlite", "--suggest", "Keep JSON"],
+  },
+  {
     command_id: "signal.escalate",
     command: "escalate",
     name: "needs attention, still working",
