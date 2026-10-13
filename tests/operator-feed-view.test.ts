@@ -12,7 +12,7 @@ import {
   viewFeedSections,
   withLeavingItems,
 } from "../src/renderer/lib/operator-feed";
-import { moveQuickReply, quickReplyForKey } from "../src/renderer/lib/quick-replies";
+import { mergedQuickReplies, moveQuickReply, quickReplyForKey } from "../src/renderer/lib/quick-replies";
 
 const item = (itemId: string): FeedItem => ({
   itemId,
@@ -168,5 +168,29 @@ describe("viewFeedSections", () => {
     expect(
       viewFeedSections(both, undefined, "main", "oldest").at(-1)?.region.regionId,
     ).toBe("undated");
+  });
+});
+
+describe("mergedQuickReplies", () => {
+  const replies = ["Yes", "Looks good", "Go on", "Not now"];
+
+  it("leads with the seat's suggestions, then the operator's list", () => {
+    expect(mergedQuickReplies(replies, ["Use sqlite", "Keep JSON"])).toEqual([
+      "Use sqlite",
+      "Keep JSON",
+      "Yes",
+      "Looks good",
+      "Go on",
+      "Not now",
+    ]);
+    // What the 1..9 keys send is the same list the pills number.
+    expect(quickReplyForKey(mergedQuickReplies(replies, ["Use sqlite", "Keep JSON"]), "1")).toBe("Use sqlite");
+    expect(quickReplyForKey(mergedQuickReplies(replies, ["Use sqlite", "Keep JSON"]), "3")).toBe("Yes");
+  });
+
+  it("drops an operator reply the seat already said, and passes a bare list through", () => {
+    expect(mergedQuickReplies(replies, ["Go on"])).toEqual(["Go on", "Yes", "Looks good", "Not now"]);
+    expect(mergedQuickReplies(replies, undefined)).toBe(replies);
+    expect(mergedQuickReplies(replies, [])).toBe(replies);
   });
 });

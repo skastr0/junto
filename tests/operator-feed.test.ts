@@ -85,6 +85,22 @@ describe("buildOperatorFeed", () => {
     expect(feed.sections[2]?.items[0]).toMatchObject({ detail: "## why", signalId: "s2", ageMs: NOW - 4_000 });
   });
 
+  it("carries a signal's suggested replies onto its feed item", () => {
+    const feed = buildOperatorFeed({
+      canvasName: "main",
+      nowMs: NOW,
+      seats: seats(),
+      signals: [
+        signal({ signalId: "s1", nodeId: "a", kind: "blocked", suggestions: ["Use sqlite", "Keep JSON"] }),
+        signal({ signalId: "s2", nodeId: "a", kind: "escalate" }),
+      ],
+    });
+    const blocked = feed.sections.flatMap((s) => s.items).find((i) => i.signalId === "s1");
+    const plain = feed.sections.flatMap((s) => s.items).find((i) => i.signalId === "s2");
+    expect(blocked?.suggestions).toEqual(["Use sqlite", "Keep JSON"]);
+    expect(plain).not.toHaveProperty("suggestions");
+  });
+
   it("orders same-urgency items oldest first", () => {
     const feed = buildOperatorFeed({
       canvasName: "main",

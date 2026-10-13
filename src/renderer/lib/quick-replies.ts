@@ -16,6 +16,20 @@ export const quickReplyForKey = (replies: ReadonlyArray<string>, key: string): s
   return replies[Number(key) - 1] ?? null;
 };
 
+/**
+ * The sendable row as one list: the seat's suggested replies first, then the
+ * operator's own replies minus exact repeats. Pills and the 1..9 keys both
+ * read this, so what is marked is what sends.
+ */
+export const mergedQuickReplies = (
+  replies: ReadonlyArray<string>,
+  suggested: ReadonlyArray<string> | undefined,
+): ReadonlyArray<string> => {
+  if (!suggested || suggested.length === 0) return replies;
+  const taken = new Set(suggested);
+  return [...suggested, ...replies.filter((text) => !taken.has(text))];
+};
+
 /** Move one reply up or down; out-of-range moves leave the list as it is. */
 export const moveQuickReply = (
   replies: ReadonlyArray<string>,

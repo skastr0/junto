@@ -18,7 +18,14 @@ const decodeSettings = Schema.decodeUnknownSync(Settings, { onExcessProperty: "e
 
 describe("quick replies settings", () => {
   it("defaults to a short everyday set and resets to it", () => {
-    expect(feedSettings(defaultSettings()).quickReplies).toEqual(["Yes", "No", "Continue", "Go on", "Stop doing this"]);
+    expect(feedSettings(defaultSettings()).quickReplies).toEqual([
+      "Yes",
+      "Looks good",
+      "Go on",
+      "Not now",
+      "I disagree",
+      "Let's discuss",
+    ]);
     expect(defaultSection("feed")).toEqual({ quickReplies: [...DEFAULT_QUICK_REPLIES] });
   });
 

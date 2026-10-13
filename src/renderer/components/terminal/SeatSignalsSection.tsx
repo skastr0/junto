@@ -62,7 +62,13 @@ function SignalPopover({
         </div>
       ) : null}
       {open ? (
-        <SignalReply signalId={signal.signalId} respond={respond} dismiss={dismiss} onDone={onClose} />
+        <SignalReply
+          signalId={signal.signalId}
+          suggested={signal.suggestions}
+          respond={respond}
+          dismiss={dismiss}
+          onDone={onClose}
+        />
       ) : null}
     </Popover>
   );

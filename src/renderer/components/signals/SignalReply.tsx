@@ -45,12 +45,15 @@ export const useSignalAction = (onDone: () => void) => {
  */
 export function SignalReply({
   signalId,
+  suggested,
   respond,
   dismiss,
   onDone,
   className = "seat-signal-popover__reply",
 }: {
   readonly signalId: string;
+  /** Replies the seat pre-baked for this signal; they lead the pill row. */
+  readonly suggested?: ReadonlyArray<string>;
   readonly respond: (
     signalId: string,
     text: string,
@@ -76,6 +79,7 @@ export function SignalReply({
     <div ref={claimReplyFocus} className={className}>
       <QuickReplies
         replies={quickReplies}
+        suggested={suggested}
         pending={pending}
         onPick={(text) => void act(text, () => respond(signalId, text))}
       />

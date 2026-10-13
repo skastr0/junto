@@ -67,7 +67,7 @@ import {
 } from "../../lib/operator-feed";
 import { canReviewCommit, openCommitReview } from "../../lib/git-summary";
 import { closeOperatorModal, operatorModalPlace } from "../../lib/operator-modal";
-import { quickReplyForKey, useQuickReplies } from "../../lib/quick-replies";
+import { mergedQuickReplies, quickReplyForKey, useQuickReplies } from "../../lib/quick-replies";
 import { requestSectionReveal } from "../../lib/sidebar-sections";
 import { state$ } from "../../lib/state";
 import { useCanvas } from "../../lib/use-model";
@@ -244,6 +244,7 @@ export function FeedCard({
           {replying && item.signalId ? (
             <SignalReply
               signalId={item.signalId}
+              suggested={item.suggestions}
               respond={respondToAgentSignal}
               dismiss={dismissAgentSignal}
               onDone={() => onReply(false)}
@@ -254,6 +255,7 @@ export function FeedCard({
               {item.signalId ? (
                 <QuickReplies
                   replies={quickReplies}
+                  suggested={item.suggestions}
                   pending={sending}
                   numbered={selected}
                   to={item.seat.name}
@@ -455,7 +457,7 @@ export function OperatorFeed() {
     }
     const item = items.find((candidate) => candidate.itemId === selected);
     if (!item) return;
-    const quick = item.signalId ? quickReplyForKey(quickReplies, event.key) : null;
+    const quick = item.signalId ? quickReplyForKey(mergedQuickReplies(quickReplies, item.suggestions), event.key) : null;
     if (quick !== null) {
       event.preventDefault();
       void sendQuick(item, quick);

@@ -41,6 +41,23 @@
   background: color-mix(in oklab, var(--color-ink) 14%, transparent);
 }
 
+/* A seat's suggested reply leads the row: the same quiet pill plus a spark
+   and a hair of the accent wash, so "the agent's words" is legible at a
+   glance without outshouting the operator's own list. */
+.quick-reply--suggested {
+  background: color-mix(in oklab, var(--color-amber) 8%, transparent);
+  color: var(--color-ink-2);
+}
+
+.quick-reply--suggested:hover {
+  background: color-mix(in oklab, var(--color-amber) 16%, transparent);
+  color: var(--color-ink);
+}
+
+.quick-reply--suggested:active {
+  background: color-mix(in oklab, var(--color-amber) 22%, transparent);
+}
+
 .quick-reply[aria-busy="true"] {
   background: color-mix(in oklab, var(--color-amber) 16%, transparent);
   color: var(--color-amber-fg);

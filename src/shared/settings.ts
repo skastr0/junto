@@ -488,12 +488,20 @@ export const FeedPatch = Schema.Struct({
 });
 export type FeedPatch = typeof FeedPatch.Type;
 
+/**
+ * The phrases that send when the operator edits nothing, drawn from the
+ * operator's real answer history: approval and a green light dominate
+ * ("looks good", "go ahead"), then deferral ("not right now"), then pushing
+ * back to talk it through. Bare "no" and commands ("stop doing this") were
+ * near-absent from the history, so the list leaves those to a typed reply.
+ */
 export const DEFAULT_QUICK_REPLIES: ReadonlyArray<string> = [
   "Yes",
-  "No",
-  "Continue",
+  "Looks good",
   "Go on",
-  "Stop doing this",
+  "Not now",
+  "I disagree",
+  "Let's discuss",
 ];
 
 export const defaultFeed = (): FeedSettings => ({ quickReplies: [...DEFAULT_QUICK_REPLIES] });

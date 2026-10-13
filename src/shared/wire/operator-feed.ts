@@ -120,6 +120,8 @@ export const FeedItem = Schema.Struct({
   detail: Schema.optionalKey(Schema.String),
   /** Files the agent attached to the signal, in the order given. */
   attachments: Schema.optionalKey(Schema.Array(AgentSignalAttachment)),
+  /** Replies the agent pre-baked for the operator; shown ahead of quick replies. */
+  suggestions: Schema.optionalKey(Schema.Array(Schema.String)),
   /**
    * Epoch ms the need began. Absent when that is not known (a permission
    * request pending in a live chat): no time is ever made up for it.
