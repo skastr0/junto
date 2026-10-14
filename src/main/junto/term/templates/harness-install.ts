@@ -38,6 +38,8 @@ export type HarnessInstallProbe = {
   readonly binary: string;
   /** True when an executable for the harness binary resolves. */
   readonly installed: boolean;
+  /** The executable discovery found; absent when not installed. */
+  readonly executable?: string;
   readonly mailTransport: MailTransportSpec;
   readonly isolation: IsolationSpec;
 };
@@ -360,7 +362,7 @@ const discoverManagedHarnessInstalls = async (
       try { await access(candidate, constants.X_OK); }
       catch { continue; }
       if (SHIM_ROOT.test(dir) && !await shimRunsLiveAsync(candidate, pathEnv)) continue;
-      return probeOne(template, true);
+      return { ...probeOne(template, true), executable: candidate };
     }
     return probeOne(template, false);
   }));
@@ -368,7 +370,7 @@ const discoverManagedHarnessInstalls = async (
 
 /** Feature-enabled harnesses, discovered asynchronously and remembered for one minute. */
 export const probeManagedHarnessInstalls = (
-  options: HarnessExecutableResolution = {},
+  options: HarnessExecutableResolution & { readonly refresh?: boolean } = {},
 ): Promise<readonly HarnessInstallProbe[]> => {
   const resolved = {
     home: options.home ?? homedir(),
@@ -381,8 +383,9 @@ export const probeManagedHarnessInstalls = (
   const cliDirs = [join(process.cwd(), "dist"), ...(typeof process.resourcesPath === "string"
     ? [join(process.resourcesPath, "bin")] : [])];
   const key = JSON.stringify([resolved, cliDirs, process.cwd(), templates.map((template) => template.harness)]);
+  // A refresh still joins a scan already in flight; it only skips a settled one.
   if (installDiscovery?.key === key && (installDiscovery.at === undefined
-    || Date.now() - installDiscovery.at < INSTALL_DISCOVERY_CACHE_MS)) {
+    || (options.refresh !== true && Date.now() - installDiscovery.at < INSTALL_DISCOVERY_CACHE_MS))) {
     return installDiscovery.pending;
   }
   const pending = discoverManagedHarnessInstalls(templates, resolved, cliDirs);
