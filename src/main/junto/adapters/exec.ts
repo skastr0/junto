@@ -34,6 +34,8 @@ let adapterQuitDrain: Promise<AdapterQuitDrainResult> | undefined;
 export interface CliResult {
   readonly ok: boolean;
   readonly stdout: string;
+  /** Present on success; some CLIs print their tables to stderr. */
+  readonly stderr?: string;
   readonly error?: string;
 }
 
@@ -343,7 +345,7 @@ const runRegisteredAdapterOperation = (
       if (resultSettled) return;
       closeObserved = true;
       if (code === 0 && signal === null && !timedOut && !bufferExceeded) {
-        settleResult({ ok: true, stdout });
+        settleResult({ ok: true, stdout, stderr });
         return;
       }
       const error = stderr.trim() ||

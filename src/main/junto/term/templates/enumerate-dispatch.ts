@@ -3,14 +3,13 @@
  * Fail-soft: never throws; empty lists mean "accept template defaults".
  * Zero writes to harness configs.
  */
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import type {
   ManagedTerminalModelsResult,
   ManagedTerminalProfilesResult,
 } from "@shared/ipc";
 import { isHarnessId, templateFor, type HarnessId } from "@shared/managed-terminal-templates";
 import { managedHarnessEnabled } from "@shared/features";
+import { runCli } from "../../adapters/exec";
 import {
   enumerateAgyModels,
   enumerateFxModels,
@@ -26,32 +25,28 @@ import {
   readHermesModels,
 } from "./enumerate-models";
 
-const execFileAsync = promisify(execFile);
+// Model lists ride the adapter process plane: the harness CLI runs in its
+// own process group on the resolved tool PATH, the whole tree is killed on
+// timeout or abort, and app quit drains whatever is still running.
+const MODEL_COMMAND_TIMEOUT_MS = 8_000;
 
 const runCommand = async (
   binary: string,
   args: readonly string[],
+  signal?: AbortSignal,
 ): Promise<string> => {
-  try {
-    const { stdout, stderr } = await execFileAsync(binary, [...args], {
-      encoding: "utf8",
-      timeout: 8_000,
-      maxBuffer: 4 * 1024 * 1024,
-      env: process.env,
-    });
-    const out = typeof stdout === "string" ? stdout : "";
-    if (out.trim()) return out;
-    // Some harness CLIs print their table to stderr (prime-agent model list).
-    // Prefer stdout so ambient stderr warnings (NO_COLOR/FORCE_COLOR banner)
-    // never pollute a stdout table; fall back only when stdout is empty.
-    return typeof stderr === "string" ? stderr : "";
-  } catch {
-    return "";
-  }
+  const result = await runCli(binary, args, MODEL_COMMAND_TIMEOUT_MS, signal);
+  if (!result.ok) return "";
+  if (result.stdout.trim()) return result.stdout;
+  // Some harness CLIs print their table to stderr (prime-agent model list).
+  // Prefer stdout so ambient stderr warnings (NO_COLOR/FORCE_COLOR banner)
+  // never pollute a stdout table; fall back only when stdout is empty.
+  return result.stderr ?? "";
 };
 
 export const enumerateManagedModels = async (
   harnessRaw: string,
+  signal?: AbortSignal,
 ): Promise<ManagedTerminalModelsResult> => {
   if (!isHarnessId(harnessRaw)) {
     return {
@@ -84,7 +79,7 @@ export const enumerateManagedModels = async (
     }
     if (harness === "codex") {
       const result = await enumerateCodexModels(async () =>
-        runCommand("codex", ["debug", "models"]),
+        runCommand("codex", ["debug", "models"], signal),
       );
       return {
         models: result.models,
@@ -116,7 +111,7 @@ export const enumerateManagedModels = async (
     // pi — `pi --list-models`; provider/model rows (provider prefix in the id).
     if (harness === "pi") {
       const result = await enumeratePiModels(async () =>
-        runCommand("pi", ["--list-models"]),
+        runCommand("pi", ["--list-models"], signal),
       );
       return {
         models: result.models,
@@ -128,7 +123,7 @@ export const enumerateManagedModels = async (
     // prime-agent — `prime-agent model list`; same provider/model table shape.
     if (harness === "prime-agent") {
       const result = await enumeratePrimeAgentModels(async () =>
-        runCommand("prime-agent", ["model", "list"]),
+        runCommand("prime-agent", ["model", "list"], signal),
       );
       return {
         models: result.models,
@@ -140,7 +135,7 @@ export const enumerateManagedModels = async (
     // devin — `devin models list`; per-model price lines (ANSI-scrubbed).
     if (harness === "devin") {
       const result = await enumerateDevinModels(async () =>
-        runCommand("devin", ["models", "list"]),
+        runCommand("devin", ["models", "list"], signal),
       );
       return {
         models: result.models,
@@ -152,7 +147,7 @@ export const enumerateManagedModels = async (
     // cursor — `agent models`; `id - Label` rows (ANSI/middot scrubbed).
     if (harness === "cursor") {
       const result = await enumerateCursorModels(async () =>
-        runCommand("agent", ["models"]),
+        runCommand("agent", ["models"], signal),
       );
       return {
         models: result.models,
@@ -164,7 +159,7 @@ export const enumerateManagedModels = async (
     // fx — `fx models --json`; provider-prefixed ids, no display names.
     if (harness === "fx") {
       const result = await enumerateFxModels(async () =>
-        runCommand("fx", ["models", "--json"]),
+        runCommand("fx", ["models", "--json"], signal),
       );
       return {
         models: result.models,
@@ -177,7 +172,7 @@ export const enumerateManagedModels = async (
     // agy — `agy models`; tab-separated `id\tlabel` rows.
     if (harness === "agy") {
       const result = await enumerateAgyModels(async () =>
-        runCommand("agy", ["models"]),
+        runCommand("agy", ["models"], signal),
       );
       return {
         models: result.models,
@@ -219,7 +214,9 @@ export const enumerateManagedModels = async (
   }
 };
 
-export const enumerateManagedProfiles = async (): Promise<ManagedTerminalProfilesResult> => {
+export const enumerateManagedProfiles = async (
+  signal?: AbortSignal,
+): Promise<ManagedTerminalProfilesResult> => {
   // Profiles are a picker step for the managed Hermes TUI seat, so they ride
   // the terminal harness gate, not the deeper ACP integration gate.
   if (!managedHarnessEnabled("hermes")) {
@@ -227,7 +224,7 @@ export const enumerateManagedProfiles = async (): Promise<ManagedTerminalProfile
   }
   try {
     const result = await enumerateHermesProfiles(async () =>
-      runCommand("hermes", ["profile", "list"]),
+      runCommand("hermes", ["profile", "list"], signal),
     );
     return {
       profiles: result.profiles,
