@@ -1,9 +1,7 @@
 /**
  * Pure early argv dispatch for the unified packaged CLI.
  *
- * `browser`, `companion-stdio`, and `content-transfer` bypass the Effect CLI
- * tree (stdio wire protocols + browser control socket). Operator `station *`
- * and agent `content *` remain on the Effect CLI surface.
+ * Stdio relays and browser control bypass the Effect CLI tree.
  */
 import { CONTENT_TRANSFER_COMMAND } from "../main/junto/content/helper-contract";
 import { COMPANION_STDIO_COMMAND } from "./protocol-command-names";
