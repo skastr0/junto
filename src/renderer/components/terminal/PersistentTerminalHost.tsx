@@ -3,7 +3,7 @@
  * Zone trees register a slot; this host adopts the same DOM node into it.
  * Pin must not remount xterm or re-run ensure/create.
  */
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { panesForLayout } from "../../lib/surface-registry";
 import { closeTerminalView, dock$, terminalSurfaceId } from "../../lib/dock-state";
@@ -32,6 +32,7 @@ function PersistentTerminal({ nodeId }: { readonly nodeId: string }) {
   const slot = terminalSlotElement(nodeId);
   const wellRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
+  const [adopted, setAdopted] = useState(false);
   const gridCell = use$(terminal$.gridCellByNodeId[nodeId]);
   const dockVisible = use$(() => {
     const surfaceId = terminalSurfaceId(nodeId);
@@ -56,6 +57,9 @@ function PersistentTerminal({ nodeId }: { readonly nodeId: string }) {
     if (!host || !well) return;
     const parent: HTMLElement = slot ?? well;
     if (host.parentElement !== parent) parent.appendChild(host);
+    // Child layout effects run first. Mount xterm only after this host has
+    // left the hidden well; later slot moves keep the same terminal alive.
+    if (slot) setAdopted(true);
     requestAnimationFrame(() => {
       window.dispatchEvent(new Event("resize"));
     });
@@ -75,11 +79,11 @@ function PersistentTerminal({ nodeId }: { readonly nodeId: string }) {
           title="This seat hit a render error"
           onReset={() => closeTerminalView(nodeId)}
         >
-          <TerminalSurface
+          {adopted ? <TerminalSurface
             node={node}
             visible={visible}
             {...(gridCell ? { grid: gridCell } : {})}
-          />
+          /> : null}
         </RendererErrorBoundary>
       </div>
     </div>
