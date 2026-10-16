@@ -117,6 +117,68 @@ A conformance test per harness (spawn the real binary, run one scripted turn)
 asserts every declared `native` and `parsed` capability. Installed `--version`
 outside the record's supported range marks the seat "unverified version".
 
+## Sources beyond the harness
+
+The harness is one of four authors of facts about a seat. All four write the same
+`SignalEnvelope`, so one reducer and one urgency ladder see everything.
+
+| Author | What it says | Today | Authority |
+|---|---|---|---|
+| harness | the signals above, through the channels below | screen state only | deterministic |
+| seat | the seat's own report: `junto blocked`, `junto escalate`, `junto feedback`, suggested replies | operator feed items | deterministic, self-reported |
+| awareness | Jev classification of a bounded terminal window: 6 `activity.*`, 5 `concern.*`, 9 `health.*` questions (`src/main/junto/term/awareness/questions.ts`), each with its own probability and evidence hash | feed `health` items, advisory display | advisory |
+| system | process exit, heartbeat stall, delivery receipts | occupancy `stalled`, `gone` | deterministic |
+
+Awareness signals keep their current boundary: they carry `probability`,
+`questionId` and the evidence hash, they never drive a command, and they never
+outrank a deterministic signal. They can corroborate one (a screen-read
+permission prompt plus `concern.approval_requested`), and they can raise a need
+the harness cannot see (`health.thrashing`, `concern.repetition`).
+
+```ts
+source += "seat" | "awareness" | "system"
+AwarenessSignal { questionId, answer, probability, evidenceHash, packVersion }
+```
+
+## Urgency
+
+Four orderings exist today and disagree:
+
+| Where | Ladder |
+|---|---|
+| occupancy (`src/shared/occupancy/derive.ts`) | activity_blocked > attention > stalled > working > idle |
+| region rollup (`src/shared/region-rollup.ts:32`) | blocked > attention > working > ready > idle |
+| operator feed (`FEED_URGENCY`) | blocked 5 > attention 4 > escalate 3 > feedback 2 > health 1 |
+| desktop notifications (`desktop-notifications.ts:93`) | blocked 4 > failed 3 > needsYou 2 > done 1 |
+
+"Failed" exists only in notifications, "stalled" only in occupancy, "ready" only
+in the rollup. With signals formalized, urgency becomes one table in the domain
+package. Each surface projects from it instead of keeping its own.
+
+Urgency belongs to a **need**, derived from status plus seat and awareness
+signals, not to a raw signal. A `Retrying` signal and a `UsageLimitHit` are both
+limits; only one needs anyone.
+
+```ts
+Need { kind, urgency, actor: "operator" | "junto" | "none", since, provenance }
+```
+
+| Urgency | Need | From | Actor |
+|---|---|---|---|
+| 6 waiting on operator | `Blocked { Permission \| Question \| Dialog }`, seat `junto blocked` | harness, seat | operator |
+| 5 stopped | `Blocked { UsageLimit }` with no reset or no auto wake, `Blocked { Error: auth \| crash }`, unexpected exit | harness, system | operator, or junto failover |
+| 4 escalated | seat `junto escalate`; awareness `waiting_on_operator`, `approval_requested`, `answer_requested` | seat, awareness | operator |
+| 3 ready | seat `junto feedback`, a finished turn nobody has read | seat, harness | operator |
+| 2 degraded | `Working { retrying }`, `Blocked { UsageLimit }` with a scheduled wake, stall, awareness `stuck`, `thrashing`, `repetition`, `confused` | harness, system, awareness | junto, or none |
+| 1 working | `Working { * }` | harness | none |
+| 0 idle | `Idle` | harness | none |
+
+Rules: awareness alone never lifts a need above 4. Fidelity changes the confidence
+a surface shows, never the urgency: a permission prompt read off the screen is as
+urgent as one reported by a hook. `actor: "junto"` marks needs a feature may
+resolve on its own (wake at reset, fail over, retry), which is what lets
+automation sit on the ladder without paging the operator.
+
 ## Channels
 
 Each channel is a scoped `Stream<SignalEnvelope>` per seat. Only decoders are
