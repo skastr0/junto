@@ -77,7 +77,7 @@ const HARNESS_VERIFIED_VERSIONS: Readonly<Partial<Record<HarnessId, VerifiedVers
   grok: { from: "1.0.52", through: "1.0.52" },
   hermes: { from: "0.20.4", through: "0.21.0" },
   pi: { from: "1.1.0", through: "1.1.0" },
-  "prime-agent": { from: "0.7.1", through: "0.7.1" },
+  "prime-agent": { from: "0.7.1", through: "0.9.4" },
   kimi: { from: "0.34.0", through: "2.1.1" },
   muse: { from: "0.2.1", through: "1.2.1" },
   devin: { from: "3000.10.27", through: "3000.10.27" },
