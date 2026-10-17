@@ -9,6 +9,7 @@ import { HARNESS_PROFILE_LISTS } from "../src/main/junto/term/templates/enumerat
 import { launchForManagedSpawn, SeatProfileRefused } from "../src/main/junto/term/managed-spawn-plan";
 import { agentKeyProfileSuffix, profileFromAgentKey } from "../src/shared/harness-records";
 import type { HarnessInventory } from "../src/shared/harness-domain/inventory";
+import { parseAgentKey, parseHermesProfileName } from "../src/main/junto/hermes/domain";
 
 const BAD = ["-x", "--config", "../etc", "a:b", "a.b", "a/b", "a b", "ä", "x".repeat(65)];
 
@@ -61,6 +62,15 @@ describe("hermes profile names", () => {
         .toThrow(SeatProfileRefused);
       expect(() => launchForManagedSpawn({ nodeId: "w", harness: "hermes", agentKey: "mini:hermes", profile: name, documentLaunch }), name)
         .toThrow(SeatProfileRefused);
+    }
+  });
+
+  it("holds the ACP path to the same shape, so a profile is never a flag to hermes -p", () => {
+    expect(parseHermesProfileName("research")).toBe("research");
+    expect(parseAgentKey("mini:research")).toEqual({ host: "mini", profile: "research" });
+    for (const name of BAD) {
+      expect(parseHermesProfileName(name), name).toBeUndefined();
+      expect(parseAgentKey(`mini:${name}`), name).toBeUndefined();
     }
   });
 });

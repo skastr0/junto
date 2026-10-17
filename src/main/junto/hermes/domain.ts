@@ -1,3 +1,5 @@
+import { isProfileName } from "@shared/profile-name";
+
 declare const HermesProfileNameTypeId: unique symbol;
 
 export type HermesProfileName = string & {
@@ -28,10 +30,9 @@ export const canonicalLocalAgentKey = (
   profile: HermesProfileName,
 ): string => `${machine.agentHostId}:${profile}`;
 
-const PROFILE_NAME_RE = /^[A-Za-z0-9_-]+$/;
-
+// The one profile shape for launch, ACP and the link: never a flag to `hermes -p`.
 export const parseHermesProfileName = (value: string): HermesProfileName | undefined =>
-  PROFILE_NAME_RE.test(value) ? (value as HermesProfileName) : undefined;
+  isProfileName(value) ? (value as HermesProfileName) : undefined;
 
 export const parseAgentKey = (key: string): ParsedAgentKey | undefined => {
   const separator = key.indexOf(":");
