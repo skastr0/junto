@@ -36,9 +36,9 @@ const soft = expect.configure({ soft: true });
 /** shared/seat-offboard.ts:296-300. The constant is what is asserted; the walk's literal is checked against it once. */
 const REFUSED_WORKING = OFFBOARD_REFUSAL_REASON.working;
 const REFUSED_ATTENTION = OFFBOARD_REFUSAL_REASON.attention;
-const WALK_REFUSED_WORKING = "This seat is working. Offboard now only closes a seat that is idle, offline or resting.";
+const WALK_REFUSED_WORKING = "This seat is working. Offboard now only closes a seat that is idle, not running or resting.";
 const WALK_REFUSED_ATTENTION =
-  "This seat is waiting on you. Offboard now only closes a seat that is idle, offline or resting.";
+  "This seat is waiting on you. Offboard now only closes a seat that is idle, not running or resting.";
 
 /** nodes/SeatOffboard.tsx:252 and rts/SeatOffboardKey.tsx:21. */
 const TIP_ONE = "Offboard: end this agent's session";

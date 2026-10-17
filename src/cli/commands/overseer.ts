@@ -839,7 +839,7 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     command_id: commandIdFor("agent.offboard"),
     command: "overseer agent offboard",
     name: "end idle sessions now",
-    description: "Junto ends the session itself: no turn, no notes. Only for a seat that is idle, offline or resting; any other seat is a refused row with its reason and the command exits non-zero.",
+    description: "Junto ends the session itself: no turn, no notes. Only for a seat that is idle, not running or resting; any other seat is a refused row with its reason and the command exits non-zero.",
     args: ["overseer", "agent", "offboard"],
     input: { nodeIds: ["agent-1", "agent-2"], action: "now" },
   },

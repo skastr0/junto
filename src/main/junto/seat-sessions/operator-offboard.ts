@@ -4,7 +4,7 @@
  *
  *   ask   send the seat's agent the offboard prompt, as ordinary mail.
  *   now   end the session without the agent: no turn, no notes, no tokens.
- *         Only for a seat that is idle, offline or resting; anything else is
+ *         Only for a seat that is idle, not running or resting; anything else is
  *         refused with a reason. Never queued, and it never cuts a turn.
  *
  * This module decides WHETHER a seat may be closed and reports what
@@ -48,7 +48,7 @@ export type OffboardSeat = SeatAddress & {
   readonly local: boolean;
   /** The session the seat names now, if it has one. */
   readonly sessionId?: string;
-  /** A process is up for the seat. False: offline or resting. */
+  /** A process is up for the seat. False: not running or resting. */
   readonly running: boolean;
   /**
    * What the seat's screen says, for a running seat. `idle` only when the
@@ -320,7 +320,7 @@ const refusal = (
 });
 
 const UNCONFIRMED_IDLE =
-  "Junto cannot tell that this seat is idle. Offboard now only closes a seat that is idle, offline or resting.";
+  "Junto cannot tell that this seat is idle. Offboard now only closes a seat that is idle, not running or resting.";
 
 /** How long an ask keeps its seat's session from being cut under it. */
 const ASK_EXEMPT_MS = 10 * 60_000;

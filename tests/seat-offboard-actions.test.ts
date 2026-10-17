@@ -24,7 +24,7 @@ import type {
 
 const closed = (seatId = "s"): SeatOffboardRunRow => ({ seatId, ok: true, action: "now", outcome: "closed", pastWindow: true });
 const asked = (seatId = "s"): SeatOffboardRunRow => ({ seatId, ok: true, action: "ask", outcome: "asked", pastWindow: false });
-const refused = (code: OffboardRefusalCode, reason = "This seat is working. Offboard now only closes a seat that is idle, offline or resting."): SeatOffboardRunRow => ({
+const refused = (code: OffboardRefusalCode, reason = "This seat is working. Offboard now only closes a seat that is idle, not running or resting."): SeatOffboardRunRow => ({
   seatId: "s",
   ok: false,
   code,
@@ -42,7 +42,7 @@ const status = (over: Partial<SeatOffboardStatus> = {}): SeatOffboardStatus => (
 const working: SeatOffboardStatus["now"] = {
   allowed: false,
   code: "working",
-  reason: "This seat is working. Offboard now only closes a seat that is idle, offline or resting.",
+  reason: "This seat is working. Offboard now only closes a seat that is idle, not running or resting.",
 };
 
 describe("the line after offboard now", () => {
@@ -56,7 +56,7 @@ describe("the line after offboard now", () => {
   });
   it("gives one seat main's own sentence", () => {
     expect(offboardNowLine([refused("working")])).toBe(
-      "Not closed. This seat is working. Offboard now only closes a seat that is idle, offline or resting.",
+      "Not closed. This seat is working. Offboard now only closes a seat that is idle, not running or resting.",
     );
     expect(offboardNowLine([closed()])).toBe("Session closed. The seat is resting.");
   });

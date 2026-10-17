@@ -9,7 +9,7 @@
  *   ask   the seat's agent is asked to offboard (it writes notes, and a
  *         continuation). Costs one turn: right while the cache is warm.
  *   now   Junto ends the session itself. No turn, no notes, no tokens. Only
- *         for a seat that is idle, offline or resting. Right once the cache
+ *         for a seat that is idle, not running or resting. Right once the cache
  *         window has passed.
  *
  * Two rules do the same by themselves: the idle nudge asks, the auto
@@ -379,9 +379,9 @@ export const sessionWorthCutting = (
 /** The sentence for each refusal. One place, so every surface says the same. */
 export const OFFBOARD_REFUSAL_REASON: Readonly<Record<OffboardRefusalCode, string>> = {
   working:
-    "This seat is working. Offboard now only closes a seat that is idle, offline or resting.",
+    "This seat is working. Offboard now only closes a seat that is idle, not running or resting.",
   attention:
-    "This seat is waiting on you. Offboard now only closes a seat that is idle, offline or resting.",
+    "This seat is waiting on you. Offboard now only closes a seat that is idle, not running or resting.",
   closing: "This seat is already offboarding.",
   "not-a-seat": "Junto could not find that seat.",
   "not-local": "This seat runs on another installation.",

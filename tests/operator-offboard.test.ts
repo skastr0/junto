@@ -141,7 +141,7 @@ describe("offboard now", () => {
     expect(w.seats.get("a")).toMatchObject({ running: false, sessionId: "fresh-a" });
   });
 
-  it("closes an offline or resting seat: there is no turn to cut", async () => {
+  it("closes a not running or resting seat: there is no turn to cut", async () => {
     const w = world([seat("off", { running: false, state: undefined })]);
     const result = await w.offboard.run({ canvasName: CANVAS, seatIds: ["off"], action: "now" }, "overseer");
     expect(result.results[0]).toMatchObject({ ok: true, outcome: "closed" });
@@ -176,7 +176,7 @@ describe("offboard now", () => {
     expect(reasons.working).toBe(OFFBOARD_REFUSAL_REASON.working);
     expect(reasons.dialog).toBe(OFFBOARD_REFUSAL_REASON.attention);
     expect(reasons.starting).toBe(
-      "Junto cannot tell that this seat is idle. Offboard now only closes a seat that is idle, offline or resting.",
+      "Junto cannot tell that this seat is idle. Offboard now only closes a seat that is idle, not running or resting.",
     );
     expect(reasons.busy).toBe("This seat is already offboarding.");
     expect(reasons.ghost).toBe("Junto could not find that seat.");

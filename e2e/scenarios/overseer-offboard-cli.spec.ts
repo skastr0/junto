@@ -14,8 +14,8 @@ import { grantOverseer, readModelSeat } from "../harness/model";
  *      steps 1 to 9 runs in O, through its own CLI.
  *   W  working: mid-turn on real mail from a peer, and left there.
  *   I  idle at its prompt, with one turn behind it.
- *   R  offline: a seat that was never started. To offboard, "resting" and
- *      "offline" are the same thing, a seat with no process up
+ *   R  not running: a seat that was never started. To offboard, "resting"
+ *      and "not running" are the same thing, a seat with no process up
  *      (main/junto/seat-sessions/operator-offboard.ts, OffboardSeat.running).
  *   N  a seat with no grant, for step 10.
  *
@@ -69,7 +69,7 @@ const WALK_RULES = {
   nudge: { enabled: false, minutes: 40 },
   worth: { workMinutes: 30, tokens: 200_000 },
 } as const;
-const WALK_WORKING = "This seat is working. Offboard now only closes a seat that is idle, offline or resting.";
+const WALK_WORKING = "This seat is working. Offboard now only closes a seat that is idle, not running or resting.";
 const WALK_NOT_A_SEAT = "Junto could not find that seat.";
 const WALK_ASK_OPENS = "The operator asks you to offboard and continue in a fresh session.";
 const WALK_NUDGE_REFUSAL =
@@ -249,7 +249,7 @@ test("[fake-tui] the overseer's offboard commands: rules, status, now, ask, a re
     const i = await start(I);
     const n = await start(N);
     const peer = await start(PEER);
-    // R is never started: no process, which is what offline and resting both are to offboard.
+    // R is never started: no process, which is what not running and resting both are to offboard.
     expect(isLive(await sessionOf(page, R.id)), "R has no process").toBe(false);
 
     // O: the grant, through the human seam, before anything else is edited.

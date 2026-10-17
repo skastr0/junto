@@ -230,7 +230,7 @@ export function SeatOffboardPanel({
         ) : (
           <p className="seat-offboard-panel__hint">
             Junto closes the session itself: no agent turn, no notes. {many ? "Each seat" : "The seat"} rests on a
-            fresh session. Only {many ? "seats" : "a seat"} that {many ? "are" : "is"} idle, offline or resting.
+            fresh session. Only {many ? "seats" : "a seat"} that {many ? "are" : "is"} idle, not running or resting.
           </p>
         )}
       </div>
