@@ -330,7 +330,9 @@ machine that read the bytes makes the tail, in this order:
    resolved on that machine for the process or its seat, the generation
    credential, and every value in the process environment except those named
    `HOME`, `USER`, `LOGNAME`, `SHELL`, `PATH`, `TMPDIR`, `PWD`, `TERM`, `LANG`
-   and `LC_*`.
+   and `LC_*`. Secrets and the credential are searched from four characters,
+   environment values from six, so that a value such as `1` or `true` does
+   not erase the text.
 4. Replace what looks like a credential Junto does not know: the value after
    `Authorization:` or `Bearer`; the value of a `name=value` or `name: value`
    pair whose name contains token, secret, password, passwd, key, credential,
