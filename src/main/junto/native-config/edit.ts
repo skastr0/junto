@@ -7,7 +7,8 @@
  * catalogue declares; a key inside a table is reported unsupported rather
  * than rewritten.
  */
-import { applyEdits, modify, parse, type ParseError } from "jsonc-parser";
+// The ESM entry: the UMD main loads ./impl/* at runtime, which a bundled core cannot resolve.
+import { applyEdits, modify, parse, type ParseError } from "jsonc-parser/lib/esm/main.js";
 
 export type ScalarValue = boolean | string | number;
 
