@@ -16,35 +16,24 @@
  * the first line of each rollout touched since it spawned.
  */
 
-import { closeSync, openSync, readdirSync, readSync, realpathSync, statSync } from "node:fs";
+import { closeSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
+import {
+  discoverSpawnedSession,
+  isUuid,
+  type SpawnedSessionCandidate,
+  type SpawnedSessionInput,
+  type SpawnedSessionStore,
+} from "./spawned-session";
 
 const ROLLOUT_FILE = /^rollout-.+\.jsonl$/;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** `base_instructions` rides on the first line; 20KB today. */
 const FIRST_LINE_MAX_BYTES = 1024 * 1024;
-const DEFAULT_GRACE_MS = 2_000;
 const DAY_MS = 86_400_000;
 
-export const isCodexSessionId = (value: string): boolean => UUID.test(value.trim());
+export const isCodexSessionId = isUuid;
 
-export type CodexDiscoveryInput = {
-  readonly cwd: string;
-  readonly spawnedAtMs: number;
-  readonly home: string;
-  readonly nowMs?: number;
-  readonly graceMs?: number;
-  /** Session ids that are known not to be this seat's (a draining session). */
-  readonly exclude?: ReadonlySet<string>;
-};
-
-const canonical = (path: string): string => {
-  try {
-    return realpathSync(path);
-  } catch {
-    return path.replace(/\/+$/, "");
-  }
-};
+export type CodexDiscoveryInput = SpawnedSessionInput;
 
 const firstLine = (path: string): string | undefined => {
   let fd: number | undefined;
@@ -122,37 +111,41 @@ const readMeta = (path: string): Meta | undefined => {
 };
 
 /**
- * The root thread this seat started, or undefined while Codex has written
- * none. A rollout from before the spawn, from another workspace, or a thread
- * Codex spawned itself is never this seat's; among the rest the earliest wins,
- * because the operator's thread is created before any it spawns.
+ * Codex's store: every root rollout touched since the floor, in the day
+ * directories the seat has lived through. A thread Codex spawned itself is
+ * never this seat's; among the rest the earliest wins, because the operator's
+ * thread is created before any it spawns.
  */
-export const discoverCodexSessionId = (input: CodexDiscoveryInput): string | undefined => {
-  const floor = input.spawnedAtMs - (input.graceMs ?? DEFAULT_GRACE_MS);
-  const cwd = canonical(input.cwd);
-  const root = join(input.home, ".codex", "sessions");
-  let best: Meta | undefined;
-  for (const dir of dayDirs(root, floor, input.nowMs ?? Date.now())) {
-    let names: readonly string[];
-    try {
-      names = readdirSync(dir);
-    } catch {
-      continue;
-    }
-    for (const name of names) {
-      if (!ROLLOUT_FILE.test(name)) continue;
-      const path = join(dir, name);
+export const CODEX_SPAWNED_SESSIONS: SpawnedSessionStore = {
+  isSessionId: isCodexSessionId,
+  sameWorkspace: "real",
+  pick: "earliest",
+  scan: ({ home, floorMs, nowMs }) => {
+    const candidates: SpawnedSessionCandidate[] = [];
+    for (const dir of dayDirs(join(home, ".codex", "sessions"), floorMs, nowMs)) {
+      let names: readonly string[];
       try {
-        if (statSync(path).mtimeMs < floor) continue;
+        names = readdirSync(dir);
       } catch {
         continue;
       }
-      const meta = readMeta(path);
-      if (!meta || !meta.root || meta.createdMs < floor) continue;
-      if (input.exclude?.has(meta.id)) continue;
-      if (canonical(meta.cwd) !== cwd) continue;
-      if (!best || meta.createdMs < best.createdMs) best = meta;
+      for (const name of names) {
+        if (!ROLLOUT_FILE.test(name)) continue;
+        const path = join(dir, name);
+        try {
+          if (statSync(path).mtimeMs < floorMs) continue;
+        } catch {
+          continue;
+        }
+        const meta = readMeta(path);
+        if (!meta || !meta.root) continue;
+        candidates.push({ id: meta.id, startedAtMs: meta.createdMs, workspace: meta.cwd });
+      }
     }
-  }
-  return best?.id;
+    return { candidates, workspace: "recorded" };
+  },
 };
+
+/** The root thread this seat started, or undefined while Codex has written none. */
+export const discoverCodexSessionId = (input: CodexDiscoveryInput): string | undefined =>
+  discoverSpawnedSession(CODEX_SPAWNED_SESSIONS, input);

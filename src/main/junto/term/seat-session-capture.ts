@@ -14,41 +14,21 @@
  * overwrite a good id with a newer sibling session.
  */
 
-import { discoverCodexSessionId, isCodexSessionId } from "./templates/codex-session";
-import { captureMuseSessionId, isMuseSessionId } from "./templates/muse-session";
-import { discoverFxSessionId, isFxSessionId } from "./templates/fx-session";
-import { discoverOmpSessionId, isOmpSessionId } from "./templates/omp-session";
-import { discoverAgySessionId, isAgySessionId } from "./templates/agy-session";
+import { sessionStoreFor } from "./session-existence";
 import { writeSeatSessionId } from "./seat-session-id";
+import { discoverSpawnedSession, type SpawnedSessionStore } from "./templates/spawned-session";
 
-/** How a harness reveals the id it minted, and how to tell one when seen. */
-export type SessionDiscovery = {
-  readonly discover: (input: {
-    readonly cwd: string;
-    readonly spawnedAtMs: number;
-    readonly home: string;
-    /**
-     * Ids that are known not to be this seat's. Skipped while choosing, so the
-     * seat's own session can still be found behind one.
-     */
-    readonly exclude?: ReadonlySet<string>;
-  }) => string | undefined;
-  readonly isSessionId: (value: string) => boolean;
-};
-
-const DISCOVERY: Readonly<Record<string, SessionDiscovery>> = {
-  // Codex prints its thread id nowhere in the TUI; PTY scraping only ever
-  // caught it from hook or notify echoes, which a plain seat never shows.
-  codex: { discover: discoverCodexSessionId, isSessionId: isCodexSessionId },
-  muse: { discover: captureMuseSessionId, isSessionId: isMuseSessionId },
-  fx: { discover: discoverFxSessionId, isSessionId: isFxSessionId },
-  omp: { discover: discoverOmpSessionId, isSessionId: isOmpSessionId },
-  agy: { discover: discoverAgySessionId, isSessionId: isAgySessionId },
-};
+/**
+ * How a harness reveals the id it minted: its session store's spawned block.
+ * Codex prints its thread id nowhere in the TUI; PTY scraping only ever
+ * caught it from hook or notify echoes, which a plain seat never shows.
+ */
+const spawnedStoreFor = (harness: string): SpawnedSessionStore | undefined =>
+  sessionStoreFor(harness)?.spawned;
 
 /** Harnesses whose id is found after the fact rather than pinned or minted. */
 export const discoversSessionAfterSpawn = (harness: string): boolean =>
-  Object.hasOwn(DISCOVERY, harness);
+  spawnedStoreFor(harness) !== undefined;
 
 type Watch = {
   readonly harness: string;
@@ -57,7 +37,7 @@ type Watch = {
   readonly nodeId: string;
   readonly cwd: string;
   readonly spawnedAtMs: number;
-  readonly discovery: SessionDiscovery;
+  readonly discovery: SpawnedSessionStore;
   /** Sessions still running in this workspace that belong to no fresh seat. */
   readonly exclude: ReadonlySet<string>;
   settled: boolean;
@@ -95,7 +75,7 @@ export class SeatSessionCapture {
      */
     readonly excludeSessionIds?: ReadonlyArray<string>;
   }): void {
-    const discovery = DISCOVERY[input.harness];
+    const discovery = spawnedStoreFor(input.harness);
     if (!discovery) return;
     const existing = input.existingSessionId?.trim();
     if (existing && discovery.isSessionId(existing)) return;
@@ -131,7 +111,7 @@ export class SeatSessionCapture {
   async attempt(bindingId: string): Promise<string | undefined> {
     const watch = this.watching.get(bindingId);
     if (!watch || watch.settled) return undefined;
-    const sessionId = watch.discovery.discover({
+    const sessionId = discoverSpawnedSession(watch.discovery, {
       cwd: watch.cwd,
       spawnedAtMs: watch.spawnedAtMs,
       home: watch.home,
@@ -150,7 +130,7 @@ export class SeatSessionCapture {
       // callback happens first while another watch can claim the same id.
       for (const other of this.watching.values()) {
         if (other === watch || other.harness !== watch.harness || other.home !== watch.home) continue;
-        if (other.discovery.discover({
+        if (discoverSpawnedSession(other.discovery, {
           cwd: other.cwd,
           spawnedAtMs: other.spawnedAtMs,
           home: other.home,

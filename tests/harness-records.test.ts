@@ -30,6 +30,14 @@ describe("harness records", () => {
     }
   });
 
+  it("finds the session after spawn only for harnesses that never print or take one", () => {
+    const after = HARNESS_IDS.filter((harness) => harnessRuntimeRecordFor(harness)!.session?.spawned !== undefined);
+    expect(after.sort()).toEqual(["agy", "codex", "fx", "muse", "omp"]);
+    for (const harness of after) {
+      expect(templateFor(harness).argvSpec.sessionIdFlag, harness).toBeUndefined();
+    }
+  });
+
   it("refuses ids that name no template", () => {
     expect(harnessRecordFor("not-a-harness")).toBeUndefined();
     expect(harnessRecordFor(undefined)).toBeUndefined();

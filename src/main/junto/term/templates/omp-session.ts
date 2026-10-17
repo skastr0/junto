@@ -25,10 +25,17 @@
 import { readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  discoverSpawnedSession,
+  isUuid,
+  UUID_PATTERN,
+  type SpawnedSessionCandidate,
+  type SpawnedSessionInput,
+  type SpawnedSessionStore,
+} from "./spawned-session";
 
 /** `<ISO-ish timestamp>_<uuid>.jsonl`, e.g. `2026-08-28T09-18-18-179Z_01a047a9-…`. */
-const OMP_SESSION_FILE =
-  /^(\d{4}-\d{2}-\d{2}T[\d-]+Z)_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
+const OMP_SESSION_FILE = new RegExp(`^(\\d{4}-\\d{2}-\\d{2}T[\\d-]+Z)_(${UUID_PATTERN})\\.jsonl$`, "i");
 
 /**
  * The id a seat stores and later resumes with.
@@ -37,10 +44,7 @@ const OMP_SESSION_FILE =
  * that is what is kept — not the filename, which carries a timestamp that adds
  * nothing to `--resume`.
  */
-export const isOmpSessionId = (value: string): boolean =>
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-    value.trim(),
-  );
+export const isOmpSessionId = isUuid;
 
 /** How omp names the directory holding one workspace's sessions. */
 export const encodeOmpWorkspaceDir = (
@@ -77,52 +81,40 @@ export const ompSessionsDir = (
     encodeOmpWorkspaceDir(cwd, home, tmpRoot),
   );
 
-export type OmpDiscoveryInput = {
-  readonly cwd: string;
-  readonly spawnedAtMs: number;
-  readonly home: string;
-  readonly graceMs?: number;
-  /** Defaults to `os.tmpdir()`, matching installed omp. */
-  readonly tmpDir?: string;
-  /** Session ids that are known not to be this seat's (a draining session). */
-  readonly exclude?: ReadonlySet<string>;
-};
-
-const DEFAULT_GRACE_MS = 2_000;
+export type OmpDiscoveryInput = SpawnedSessionInput;
 
 /**
- * The session this seat started, or undefined while omp has written none.
- *
- * The workspace is already proven by the directory, so the only remaining
- * question is time: a file written before this seat spawned belongs to an
- * earlier one. Newest wins among those that pass.
+ * Oh My Pi's store: the workspace is already proven by the directory, so the
+ * only remaining question is time. Newest wins among those that pass.
  */
-export const discoverOmpSessionId = (
-  input: OmpDiscoveryInput,
-): string | undefined => {
-  const dir = ompSessionsDir(input.cwd, input.home, input.tmpDir);
-  const floor = input.spawnedAtMs - (input.graceMs ?? DEFAULT_GRACE_MS);
-  let names: readonly string[];
-  try {
-    names = readdirSync(dir);
-  } catch {
-    return undefined;
-  }
-  let best: { readonly id: string; readonly mtimeMs: number } | undefined;
-  for (const name of names) {
-    const match = OMP_SESSION_FILE.exec(name);
-    if (!match) continue;
-    if (input.exclude?.has(match[2]!)) continue;
-    let mtimeMs: number;
+export const OMP_SPAWNED_SESSIONS: SpawnedSessionStore = {
+  isSessionId: isOmpSessionId,
+  sameWorkspace: "exact",
+  pick: "newest",
+  scan: ({ home, cwd, tmpDir }) => {
+    const dir = ompSessionsDir(cwd, home, tmpDir);
+    let names: readonly string[];
     try {
-      const stat = statSync(join(dir, name));
-      if (!stat.isFile()) continue;
-      mtimeMs = stat.birthtimeMs || stat.mtimeMs;
+      names = readdirSync(dir);
     } catch {
-      continue;
+      return { candidates: [], workspace: "scoped" };
     }
-    if (mtimeMs < floor) continue;
-    if (!best || mtimeMs > best.mtimeMs) best = { id: match[2]!, mtimeMs };
-  }
-  return best?.id;
+    const candidates: SpawnedSessionCandidate[] = [];
+    for (const name of names) {
+      const match = OMP_SESSION_FILE.exec(name);
+      if (!match) continue;
+      try {
+        const stat = statSync(join(dir, name));
+        if (!stat.isFile()) continue;
+        candidates.push({ id: match[2]!, startedAtMs: stat.birthtimeMs || stat.mtimeMs });
+      } catch {
+        continue;
+      }
+    }
+    return { candidates, workspace: "scoped" };
+  },
 };
+
+/** The session this seat started, or undefined while omp has written none. */
+export const discoverOmpSessionId = (input: OmpDiscoveryInput): string | undefined =>
+  discoverSpawnedSession(OMP_SPAWNED_SESSIONS, input);

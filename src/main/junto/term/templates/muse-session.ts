@@ -23,22 +23,19 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import {
+  discoverSpawnedSession,
+  isUuid,
+  type SpawnedSessionCandidate,
+  type SpawnedSessionInput,
+  type SpawnedSessionStore,
+} from "./spawned-session";
 
 /** Muse session ids are plain UUIDs; the directory name IS the id. */
-const SESSION_UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-export const isMuseSessionId = (value: string): boolean =>
-  SESSION_UUID.test(value.trim());
+export const isMuseSessionId = isUuid;
 
 export const museSessionsRoot = (home: string): string =>
   join(home, ".local", "share", "muse", "sessions");
-
-type Candidate = {
-  readonly sessionId: string;
-  readonly recordedAtMs: number;
-  readonly workspaceRoot: string | undefined;
-};
 
 const readDirNames = (dir: string): readonly string[] => {
   try {
@@ -69,7 +66,7 @@ const isDirectory = (path: string): boolean => {
 const parseMetadataCandidate = (
   sessionId: string,
   line: string,
-): Candidate | undefined => {
+): SpawnedSessionCandidate | undefined => {
   if (!line.trim()) return undefined;
   let parsed: unknown;
   try {
@@ -97,16 +94,16 @@ const parseMetadataCandidate = (
   if (micros === undefined) return undefined;
   const workspaceRoot = record.payload?.record?.workspace_root;
   return {
-    sessionId,
-    recordedAtMs: Math.floor(micros / 1000),
-    workspaceRoot: typeof workspaceRoot === "string" ? workspaceRoot : undefined,
+    id: sessionId,
+    startedAtMs: Math.floor(micros / 1000),
+    ...(typeof workspaceRoot === "string" ? { workspace: workspaceRoot } : {}),
   };
 };
 
 const readCandidate = (
   sessionsDir: string,
   sessionId: string,
-): Candidate | undefined => {
+): SpawnedSessionCandidate | undefined => {
   let raw: string;
   try {
     raw = readFileSync(join(sessionsDir, sessionId, "session.jsonl"), "utf8");
@@ -121,8 +118,8 @@ const readCandidate = (
 };
 
 /** Every session directory in the date-nested store, unordered. */
-const walkSessions = (root: string): readonly Candidate[] => {
-  const out: Candidate[] = [];
+const walkSessions = (root: string): readonly SpawnedSessionCandidate[] => {
+  const out: SpawnedSessionCandidate[] = [];
   for (const year of readDirNames(root)) {
     const yearDir = join(root, year);
     if (!isDirectory(yearDir)) continue;
@@ -143,44 +140,20 @@ const walkSessions = (root: string): readonly Candidate[] => {
   return out;
 };
 
-export type MuseCaptureInput = {
-  /** The seat's working directory — must equal the session's workspace_root. */
-  readonly cwd: string;
-  /** Epoch ms the seat's PTY started. Older sessions are not this seat's. */
-  readonly spawnedAtMs: number;
-  readonly home: string;
-  /**
-   * Tolerance for the gap between "we recorded the spawn" and "Muse wrote its
-   * first record". Small on purpose: a wide window is how a seat steals the
-   * session of the seat that started just before it.
-   */
-  readonly graceMs?: number;
-  /** Session ids that are known not to be this seat's (a draining session). */
-  readonly exclude?: ReadonlySet<string>;
-};
-
-const DEFAULT_GRACE_MS = 2_000;
+export type MuseCaptureInput = SpawnedSessionInput;
 
 /**
- * The session this seat started, or undefined while Muse has not written one.
- *
- * Undefined is the normal early answer, not a failure: the store is written
- * asynchronously, so a caller polls the seat's own boundaries (a state change,
- * a finished turn) rather than blocking a spawn on it.
+ * Muse's store: every session directory whose metadata names its workspace.
+ * Newest wins only among sessions that pass the workspace and time filters,
+ * so a re-spawn in the same workspace claims its own generation.
  */
-export const captureMuseSessionId = (
-  input: MuseCaptureInput,
-): string | undefined => {
-  const floor = input.spawnedAtMs - (input.graceMs ?? DEFAULT_GRACE_MS);
-  const mine = walkSessions(museSessionsRoot(input.home))
-    .filter(
-      (candidate) =>
-        candidate.workspaceRoot === input.cwd &&
-        candidate.recordedAtMs >= floor &&
-        !input.exclude?.has(candidate.sessionId),
-    )
-    // Newest wins only among sessions that already passed both filters, so a
-    // re-spawn in the same workspace claims its own generation.
-    .sort((a, b) => b.recordedAtMs - a.recordedAtMs);
-  return mine[0]?.sessionId;
+export const MUSE_SPAWNED_SESSIONS: SpawnedSessionStore = {
+  isSessionId: isMuseSessionId,
+  sameWorkspace: "exact",
+  pick: "newest",
+  scan: ({ home }) => ({ candidates: walkSessions(museSessionsRoot(home)), workspace: "recorded" }),
 };
+
+/** The session this seat started, or undefined while Muse has not written one. */
+export const captureMuseSessionId = (input: MuseCaptureInput): string | undefined =>
+  discoverSpawnedSession(MUSE_SPAWNED_SESSIONS, input);

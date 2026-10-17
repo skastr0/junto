@@ -22,6 +22,12 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import {
+  discoverSpawnedSession,
+  type SpawnedSessionCandidate,
+  type SpawnedSessionInput,
+  type SpawnedSessionStore,
+} from "./spawned-session";
 
 /**
  * Legacy `<created_ms>-<created_ns>-<hex>`, e.g.
@@ -57,13 +63,7 @@ export const fxSessionsRoot = (home: string): string =>
 /** The index's schema this reader was written against. */
 export const FX_INDEX_SCHEMA_VERSION = 3;
 
-type IndexEntry = {
-  readonly id: string;
-  readonly createdAtMs: number;
-  readonly workspaceRoot: string | undefined;
-};
-
-const readIndex = (root: string): readonly IndexEntry[] | undefined => {
+const readIndex = (root: string): readonly SpawnedSessionCandidate[] | undefined => {
   let raw: string;
   try {
     raw = readFileSync(join(root, "index.json"), "utf8");
@@ -85,7 +85,7 @@ const readIndex = (root: string): readonly IndexEntry[] | undefined => {
   // shape this code was never checked against.
   if (doc.schema_version !== FX_INDEX_SCHEMA_VERSION) return undefined;
   if (!Array.isArray(doc.sessions)) return undefined;
-  const out: IndexEntry[] = [];
+  const out: SpawnedSessionCandidate[] = [];
   for (const entry of doc.sessions) {
     if (entry === null || typeof entry !== "object") continue;
     const row = entry as {
@@ -101,22 +101,21 @@ const readIndex = (root: string): readonly IndexEntry[] | undefined => {
     if (createdAtMs === undefined) continue;
     out.push({
       id: row.id,
-      createdAtMs,
-      workspaceRoot:
-        typeof row.workspace_root === "string" ? row.workspace_root : undefined,
+      startedAtMs: createdAtMs,
+      ...(typeof row.workspace_root === "string" ? { workspace: row.workspace_root } : {}),
     });
   }
   return out;
 };
 
-const readSessionDirs = (root: string): readonly IndexEntry[] => {
+const readSessionDirs = (root: string): readonly SpawnedSessionCandidate[] => {
   let names: readonly string[];
   try {
     names = readdirSync(root);
   } catch {
     return [];
   }
-  const out: IndexEntry[] = [];
+  const out: SpawnedSessionCandidate[] = [];
   for (const name of names) {
     if (!isFxSessionId(name)) continue;
     let createdAtMs = fxSessionIdCreatedAtMs(name);
@@ -130,60 +129,36 @@ const readSessionDirs = (root: string): readonly IndexEntry[] => {
       continue;
     }
     if (createdAtMs === undefined || !Number.isFinite(createdAtMs)) continue;
-    out.push({ id: name, createdAtMs, workspaceRoot: undefined });
+    out.push({ id: name, startedAtMs: createdAtMs });
   }
   return out;
 };
 
-export type FxDiscoveryInput = {
-  /** The seat's working directory — matched against `workspace_root`. */
-  readonly cwd: string;
-  /** Epoch ms the seat's PTY started. */
-  readonly spawnedAtMs: number;
-  readonly home: string;
-  /** Tolerance between recording the spawn and fx writing its store. */
-  readonly graceMs?: number;
-  /** Session ids that are known not to be this seat's (a draining session). */
-  readonly exclude?: ReadonlySet<string>;
+export type FxDiscoveryInput = SpawnedSessionInput;
+
+/**
+ * fx's store. The index names each session's workspace; without a usable
+ * index the id's own timestamp is all the evidence there is, and it says
+ * nothing about which workspace. Either way fx claims only when exactly one
+ * session can be this seat's: there is no newest-session fallback.
+ */
+export const FX_SPAWNED_SESSIONS: SpawnedSessionStore = {
+  isSessionId: isFxSessionId,
+  sameWorkspace: "exact",
+  pick: "unique",
+  scan: ({ home }) => {
+    const root = fxSessionsRoot(home);
+    const indexed = readIndex(root);
+    return indexed !== undefined
+      ? { candidates: indexed, workspace: "recorded" }
+      : { candidates: readSessionDirs(root), workspace: "scoped" };
+  },
 };
-
-const DEFAULT_GRACE_MS = 2_000;
-
-/** Claim only when exactly one candidate can be this seat's session. */
-const claimIfUnambiguous = (
-  candidates: readonly IndexEntry[],
-): string | undefined =>
-  candidates.length === 1 ? candidates[0]!.id : undefined;
 
 /**
  * The session this seat started, or undefined while there is no unambiguous
- * answer. Undefined is the normal early result — fx writes its store after
- * startup — so callers retry on the seat's own boundaries. It is also the
- * closed answer when more than one session qualifies: there is no newest-
- * session fallback.
+ * answer: fx writes its store after startup, and two qualifying sessions are
+ * the closed answer.
  */
-export const discoverFxSessionId = (
-  input: FxDiscoveryInput,
-): string | undefined => {
-  const root = fxSessionsRoot(input.home);
-  const floor = input.spawnedAtMs - (input.graceMs ?? DEFAULT_GRACE_MS);
-  const indexed = readIndex(root);
-  if (indexed !== undefined) {
-    return claimIfUnambiguous(
-      indexed.filter(
-        (entry) =>
-          entry.workspaceRoot === input.cwd &&
-          entry.createdAtMs >= floor &&
-          !input.exclude?.has(entry.id),
-      ),
-    );
-  }
-  // No usable index: the id's own timestamp is all the evidence there is, and
-  // it says nothing about which workspace. Answer only when one session could
-  // possibly be this seat's.
-  return claimIfUnambiguous(
-    readSessionDirs(root).filter(
-      (entry) => entry.createdAtMs >= floor && !input.exclude?.has(entry.id),
-    ),
-  );
-};
+export const discoverFxSessionId = (input: FxDiscoveryInput): string | undefined =>
+  discoverSpawnedSession(FX_SPAWNED_SESSIONS, input);

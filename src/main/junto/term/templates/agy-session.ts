@@ -14,16 +14,21 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import {
+  discoverSpawnedSession,
+  isUuid,
+  type SpawnedSessionCandidate,
+  type SpawnedSessionInput,
+  type SpawnedSessionStore,
+} from "./spawned-session";
 
-const SESSION_UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CONV_SLUG = /^conv-[0-9a-z_-]+$/i;
 
 /** Validate whether a string is a valid agy conversation/session ID. */
 export const isAgySessionId = (value: string): boolean => {
   const trimmed = value.trim();
   return (
-    SESSION_UUID.test(trimmed) ||
+    isUuid(trimmed) ||
     CONV_SLUG.test(trimmed) ||
     (trimmed.length >= 8 && /^[0-9a-z_-]+$/i.test(trimmed))
   );
@@ -35,25 +40,7 @@ export const agyBrainRoot = (home: string): string =>
 export const agyHistoryPath = (home: string): string =>
   join(home, ".gemini", "antigravity-cli", "history.jsonl");
 
-export type AgyDiscoveryInput = {
-  /** The seat's working directory. */
-  readonly cwd: string;
-  /** Epoch ms the seat's PTY spawned. Older sessions are excluded. */
-  readonly spawnedAtMs: number;
-  readonly home: string;
-  /** Grace window in ms before spawnedAtMs. Default 2000. */
-  readonly graceMs?: number;
-  /** Session IDs known to belong to earlier/other sessions to exclude. */
-  readonly exclude?: ReadonlySet<string>;
-};
-
-const DEFAULT_GRACE_MS = 2_000;
-
-type Candidate = {
-  readonly sessionId: string;
-  readonly recordedAtMs: number;
-  readonly workspaceRoot?: string;
-};
+export type AgyDiscoveryInput = SpawnedSessionInput;
 
 const isDirectory = (path: string): boolean => {
   try {
@@ -88,75 +75,58 @@ const readWorkspaceFromHistory = (historyPath: string, sessionId: string): strin
 };
 
 /**
- * Discover the session ID started by this seat after spawn.
+ * Antigravity's store: every brain directory touched since the floor, the
+ * latest of its own and its transcript's times. The workspace is checked
+ * where history.jsonl recorded one; the newest session wins.
  */
-export const discoverAgySessionId = (
-  input: AgyDiscoveryInput,
-): string | undefined => {
-  const root = agyBrainRoot(input.home);
-  if (!isDirectory(root)) return undefined;
-
-  let dirEntries: string[];
-  try {
-    dirEntries = readdirSync(root);
-  } catch {
-    return undefined;
-  }
-
-  const floor = input.spawnedAtMs - (input.graceMs ?? DEFAULT_GRACE_MS);
-  const historyPath = agyHistoryPath(input.home);
-  const candidates: Candidate[] = [];
-
-  for (const name of dirEntries) {
-    if (!isAgySessionId(name)) continue;
-    if (input.exclude?.has(name)) continue;
-
-    const sessionDir = join(root, name);
-    if (!isDirectory(sessionDir)) continue;
-
-    let dirStat;
+export const AGY_SPAWNED_SESSIONS: SpawnedSessionStore = {
+  isSessionId: isAgySessionId,
+  sameWorkspace: "trimmed",
+  pick: "newest",
+  scan: ({ home, floorMs }) => {
+    const root = agyBrainRoot(home);
+    if (!isDirectory(root)) return { candidates: [], workspace: "ifRecorded" };
+    let names: string[];
     try {
-      dirStat = statSync(sessionDir);
+      names = readdirSync(root);
     } catch {
-      continue;
+      return { candidates: [], workspace: "ifRecorded" };
     }
-
-    const transcript = join(sessionDir, ".system_generated", "logs", "transcript.jsonl");
-    let transcriptStat;
-    try {
-      if (existsSync(transcript)) {
-        transcriptStat = statSync(transcript);
+    const historyPath = agyHistoryPath(home);
+    const candidates: SpawnedSessionCandidate[] = [];
+    for (const name of names) {
+      if (!isAgySessionId(name)) continue;
+      const sessionDir = join(root, name);
+      let dirStat;
+      try {
+        dirStat = statSync(sessionDir);
+      } catch {
+        continue;
       }
-    } catch {
-      // best-effort
+      if (!dirStat.isDirectory()) continue;
+      const transcript = join(sessionDir, ".system_generated", "logs", "transcript.jsonl");
+      let transcriptStat;
+      try {
+        if (existsSync(transcript)) transcriptStat = statSync(transcript);
+      } catch {
+        // best-effort
+      }
+      const startedAtMs = Math.max(
+        dirStat.birthtimeMs || 0,
+        dirStat.mtimeMs || 0,
+        transcriptStat?.birthtimeMs || 0,
+        transcriptStat?.mtimeMs || 0,
+      );
+      // The history read is the expensive part; a session too old to be this
+      // seat's never needs it.
+      if (startedAtMs < floorMs) continue;
+      const workspace = readWorkspaceFromHistory(historyPath, name);
+      candidates.push({ id: name, startedAtMs, ...(workspace === undefined ? {} : { workspace }) });
     }
-
-    const recordedAtMs = Math.max(
-      dirStat.birthtimeMs || 0,
-      dirStat.mtimeMs || 0,
-      transcriptStat?.birthtimeMs || 0,
-      transcriptStat?.mtimeMs || 0,
-    );
-
-    if (recordedAtMs < floor) continue;
-
-    const workspaceRoot = readWorkspaceFromHistory(historyPath, name);
-    if (workspaceRoot !== undefined && input.cwd) {
-      const normWorkspace = workspaceRoot.replace(/\/+$/, "");
-      const normCwd = input.cwd.replace(/\/+$/, "");
-      if (normWorkspace !== normCwd) continue;
-    }
-
-    candidates.push({
-      sessionId: name,
-      recordedAtMs,
-      workspaceRoot,
-    });
-  }
-
-  if (candidates.length === 0) return undefined;
-
-  // Newest session wins
-  candidates.sort((a, b) => b.recordedAtMs - a.recordedAtMs);
-  return candidates[0]?.sessionId;
+    return { candidates, workspace: "ifRecorded" };
+  },
 };
+
+/** Discover the session ID started by this seat after spawn. */
+export const discoverAgySessionId = (input: AgyDiscoveryInput): string | undefined =>
+  discoverSpawnedSession(AGY_SPAWNED_SESSIONS, input);

@@ -21,8 +21,12 @@ import {
   piUsage,
   type UsageReader,
 } from "./session-usage";
-import { isFxSessionId } from "./templates/fx-session";
-import { isOmpSessionId, ompSessionsDir } from "./templates/omp-session";
+import { AGY_SPAWNED_SESSIONS } from "./templates/agy-session";
+import { CODEX_SPAWNED_SESSIONS } from "./templates/codex-session";
+import { FX_SPAWNED_SESSIONS, isFxSessionId } from "./templates/fx-session";
+import { MUSE_SPAWNED_SESSIONS } from "./templates/muse-session";
+import { isOmpSessionId, OMP_SPAWNED_SESSIONS, ompSessionsDir } from "./templates/omp-session";
+import type { SpawnedSessionStore } from "./templates/spawned-session";
 import {
   HARNESS_IDS,
   isHarnessId,
@@ -146,6 +150,11 @@ export type HarnessSessionStore = {
   readonly transcriptInside?: readonly string[];
   /** Undefined when what is located is not the conversation. */
   readonly size?: SessionSizeSpec;
+  /**
+   * How a seat finds the session this harness minted after spawn, for a
+   * harness that never prints its id and cannot be told one.
+   */
+  readonly spawned?: SpawnedSessionStore;
 };
 
 /**
@@ -216,6 +225,7 @@ export const HARNESS_SESSION_STORES: Readonly<Record<HarnessId, HarnessSessionSt
     root: homeRoot([".codex", "sessions"]),
     places: [self({ kind: "treeIncludes", depth: 6 })],
     size: { bytesPerToken: 5, usage: { kind: "jsonl", read: codexUsage } },
+    spawned: CODEX_SPAWNED_SESSIONS,
   },
   /**
    * Hermes sessions live in ONE place: `~/.hermes/state.db`. The jsonl
@@ -286,6 +296,7 @@ export const HARNESS_SESSION_STORES: Readonly<Record<HarnessId, HarnessSessionSt
     places: [self({ kind: "dirNamed", depth: 4 })],
     transcriptInside: ["session.jsonl"],
     size: { bytesPerToken: 13, usage: { kind: "jsonl", read: museUsage } },
+    spawned: MUSE_SPAWNED_SESSIONS,
   },
   /**
    * Devin: `~/.local/share/devin/cli/sessions.db`, table `sessions`, keyed by
@@ -339,6 +350,7 @@ export const HARNESS_SESSION_STORES: Readonly<Record<HarnessId, HarnessSessionSt
       ),
     ],
     size: { bytesPerToken: 6 },
+    spawned: AGY_SPAWNED_SESSIONS,
   },
   /**
    * Amp threads live on Amp's server; one that ran on this machine has a local
@@ -361,6 +373,7 @@ export const HARNESS_SESSION_STORES: Readonly<Record<HarnessId, HarnessSessionSt
     idShape: isFxSessionId,
     places: [self(dir((id) => [id]))],
     transcriptInside: ["events.jsonl"],
+    spawned: FX_SPAWNED_SESSIONS,
   },
   // Oh My Pi: one jsonl per session under the encoded-cwd directory, which IS the workspace.
   omp: {
@@ -368,6 +381,7 @@ export const HARNESS_SESSION_STORES: Readonly<Record<HarnessId, HarnessSessionSt
     idShape: isOmpSessionId,
     places: [self({ kind: "entryIncludes", files: false })],
     size: { bytesPerToken: 5, usage: { kind: "jsonl", read: piUsage } },
+    spawned: OMP_SPAWNED_SESSIONS,
   },
   "junto-overseer": undefined,
 };
