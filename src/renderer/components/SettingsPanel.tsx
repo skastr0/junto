@@ -50,6 +50,7 @@ import {
 import { HUE_TEXT, INK, themeFor } from "../lib/theme";
 import { claimFocus } from "../lib/focus-ownership";
 import { getJuntoApi } from "../lib/junto-api";
+import { useSettingsMachine } from "../lib/settings-machine";
 import { FocusSurface } from "./FocusSurface";
 import { Button, ConfirmDialog, IconButton, Input, OverlayHeader, Select, Switch } from "./ui";
 import "./settings-panel.css";
@@ -1067,6 +1068,12 @@ function MachineSection() {
   );
 }
 
+/** Settings > Agents for the machine chosen in the page head. */
+function MachineHarnesses() {
+  const machine = useSettingsMachine();
+  return <HarnessesSettingsSection machine={machine.name} />;
+}
+
 function SectionBody({ section }: { readonly section: PanelSection }) {
   switch (section) {
     case "appearance":
@@ -1090,7 +1097,7 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
     case "browser":
       return BROWSER_ENABLED ? <BrowserSection /> : null;
     case "harnesses":
-      return HARNESS_SETTINGS_ENABLED ? <HarnessesSettingsSection /> : null;
+      return HARNESS_SETTINGS_ENABLED ? <MachineHarnesses /> : null;
     case "providers":
       return PROVIDERS_SECTION_ENABLED ? <ProvidersSettingsSection /> : null;
     case "experimental":
