@@ -493,7 +493,7 @@ function NativeSettings({
   readonly inventory: HarnessInventory | undefined;
 }) {
   const version = inventory?.installed ? inventory.version : undefined;
-  const declared = useMemo(() => nativeSettingsFor(harness, machine, version), [harness, machine, version]);
+  const declared = useMemo(() => nativeSettingsFor(harness, version), [harness, version]);
   const [read, setRead] = useState<NativeRead>({ state: "unread" });
   const [answers, setAnswers] = useState<Readonly<Record<string, string>>>({});
   /** Bumped to read the file again after a conflict. */

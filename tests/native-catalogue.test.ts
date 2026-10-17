@@ -16,10 +16,15 @@ describe("native config catalogue", () => {
   });
 
   test("offers a key only at a verified version", () => {
-    expect(nativeSettingsFor("claude", "mini", "2.1.302").map((spec) => spec.key)).toContain("effortLevel");
-    expect(nativeSettingsFor("claude", "mini", "2.1.300")).toEqual([]);
-    expect(nativeSettingsFor("claude", "mini", undefined)).toEqual([]);
-    expect(nativeSettingsFor("codex", "mini", "0.162.1").map((spec) => spec.key)).toEqual([
+    expect(nativeSettingsFor("claude", "2.1.302").map((spec) => spec.key)).toEqual([
+      "model",
+      "effortLevel",
+      "permissions.defaultMode",
+      "alwaysThinkingEnabled",
+    ]);
+    expect(nativeSettingsFor("claude", "2.1.300")).toEqual([]);
+    expect(nativeSettingsFor("claude", undefined)).toEqual([]);
+    expect(nativeSettingsFor("codex", "0.162.1").map((spec) => spec.key)).toEqual([
       "model",
       "model_reasoning_effort",
       "approval_policy",

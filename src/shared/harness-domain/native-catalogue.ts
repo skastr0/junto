@@ -94,7 +94,6 @@ export const NATIVE_SETTINGS: readonly NativeSettingSpec[] = [
 
 export const nativeSettingsFor = (
   harness: HarnessId,
-  machine: string,
   installedVersion: string | undefined,
   catalogue: readonly NativeSettingSpec[] = NATIVE_SETTINGS,
 ): readonly NativeSettingSpec[] =>
