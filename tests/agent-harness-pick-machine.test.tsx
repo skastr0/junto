@@ -8,6 +8,7 @@ import { templateFor, type HarnessId } from "@shared/managed-terminal-templates"
 import { InventoryUnavailableError, type MachineInventory } from "@shared/harness-domain";
 import { AgentHarnessPick } from "../src/renderer/components/node-palette/AgentHarnessPick";
 import { LaunchSection } from "../src/renderer/components/customize/LaunchSection";
+import { AgentCascadeMenu } from "../src/renderer/components/node-palette/AgentCascadeMenu";
 import {
   coreHarnessMachineSource,
   pendingHarnessMachineSource,
@@ -95,5 +96,38 @@ describe("the palette picker on another machine", () => {
       root.render(<LaunchSection seat={{ id: "seat-1", name: "mini seat", harness: "codex", node } as never} />);
     });
     expect(offered()).toEqual([`Current ${named("codex")}`]);
+  });
+
+  it("Hermes on another machine offers that machine's profiles, not this window's", async () => {
+    const profiles = vi.fn(async () => ({ profiles: [{ name: "desk-profile", model: "m" }], source: "cache" }));
+    (window as { junto?: Record<string, unknown> }).junto!.managedTerminalProfiles = profiles;
+    setHarnessMachineSource({
+      ...pendingHarnessMachineSource,
+      inventory: async () =>
+        Result.succeed({
+          machine: "mac-mini",
+          harnesses: [{ ...row("hermes", true), profiles: ["mini-coder", "mini-writer"] }],
+        } as unknown as MachineInventory),
+    });
+    const anchor = document.createElement("button");
+    document.body.append(anchor);
+    await act(async () => {
+      root.render(
+        <AgentCascadeMenu
+          harness="hermes"
+          machine="mac-mini"
+          anchor={anchor}
+          onConfigure={() => {}}
+          onPointerEnter={() => {}}
+          onPointerLeave={() => {}}
+        />,
+      );
+    });
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("mini-coder");
+    expect(text).toContain("mini-writer");
+    expect(text).not.toContain("desk-profile");
+    expect(profiles).not.toHaveBeenCalled();
+    anchor.remove();
   });
 });

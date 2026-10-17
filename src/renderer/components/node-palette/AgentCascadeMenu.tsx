@@ -22,7 +22,7 @@ import type {
   ManagedTerminalProfileOption,
 } from "@shared/ipc";
 import { harnessPrefsFor } from "@shared/settings";
-import { paramSpec } from "@shared/harness-domain";
+import { inventoryOptions, paramSpec } from "@shared/harness-domain";
 import { HARNESS_RECORDS } from "@shared/harness-records";
 import { state$ } from "../../lib/state";
 import { getJuntoApi } from "../../lib/junto-api";
@@ -360,6 +360,8 @@ export function AgentCascadeMenu({
         setModels(row?.installed ? row.models : []);
         setModelSource(row?.installed && row.models.length > 0 ? "cache" : "empty");
         setEnumeratedEfforts(row?.efforts ?? []);
+        // That machine's profiles carry names only; its own pinned model is not offered from here.
+        if (profileFirst) setProfiles(inventoryOptions(row, "profiles").map((name) => ({ name, model: "" })));
       });
     } else void api
       ?.managedTerminalModels?.(harness)
@@ -374,7 +376,7 @@ export function AgentCascadeMenu({
       });
     if (machine === undefined && !api?.managedTerminalModels) setModels([]);
 
-    if (profileFirst) {
+    if (profileFirst && machine === undefined) {
       void api
         ?.managedTerminalProfiles?.()
         .then((result) => {
