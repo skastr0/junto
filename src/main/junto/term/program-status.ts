@@ -26,6 +26,8 @@
  *   idle, working, done; `clear` on exit. ST-terminated.
  * - omp 18.9.2: never queries, reports by default (`terminal.programStatus`).
  *   idle, working, error with the upstream failure as `msg`; `clear` on exit.
+ *   Under `--approval-mode always-ask` a tool approval is `blocked/permission`
+ *   with the prompt as `msg` ("Allow tool: bash Command: ls").
  * - agy 1.4.0: queries with BEL and DA1 behind it, or reports under
  *   `AGY_CLI_OSC7501=on`. BEL-terminated. Starts `blocked/auth` ("Sign in
  *   required") for about a second while credentials load, reports the folder

@@ -53,6 +53,12 @@ const CAPTURED = {
     ),
     osc("state=clear"),
   ],
+  /** `omp --approval-mode always-ask`, asked to run `ls` (2026-10-17). */
+  ompPermission: [
+    osc("state=idle:app=omp"),
+    osc("state=working:app=omp"),
+    osc("state=blocked:kind=permission:app=omp:msg=QWxsb3cgdG9vbDogYmFzaCBDb21tYW5kOiBscw=="),
+  ],
   agy: [
     osc("?", BEL),
     osc("state=blocked:kind=auth:app=antigravity:msg=U2lnbiBpbiByZXF1aXJlZA==", BEL),
@@ -138,6 +144,7 @@ describe("program status: scanning a PTY stream", () => {
       );
     expect(states(CAPTURED.pi)).toEqual(["idle", "working", "done", "clear"]);
     expect(states(CAPTURED.omp)).toEqual(["idle", "working", "error", "clear"]);
+    expect(states(CAPTURED.ompPermission)).toEqual(["idle", "working", "blocked"]);
     expect(states(CAPTURED.agy)).toEqual(["?", "blocked", "blocked", "idle", "working", "done"]);
     expect(states(CAPTURED.devin)).toEqual(["idle", "working", "working", "done", "clear"]);
   });
@@ -193,6 +200,15 @@ describe("program status: seat signals", () => {
     expect(snapshot.status).toEqual({ _tag: "Idle" });
     expect(snapshot.turnUnseen?.outcome).toBe("completed");
     expect(snapshot.channels).not.toContain("osc7501");
+  });
+
+  it("reads omp's approval prompt as a permission request with its text", () => {
+    const { envelopes, snapshot } = fold(CAPTURED.ompPermission);
+    expect(envelopes.at(-1)?.signal).toEqual({
+      _tag: "PermissionRequested",
+      detail: "Allow tool: bash Command: ls",
+    });
+    expect(snapshot.status).toEqual({ _tag: "Blocked", reason: { _tag: "Permission" } });
   });
 
   it("records omp's failure text and ends the turn failed", () => {
