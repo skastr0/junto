@@ -28,9 +28,9 @@ it("step 3 redacts known values: secrets from four characters, environment value
 });
 
 it("step 3 keeps Junto's own names and paths and short region words, and searches the credential", () => {
-  const known = knownSecretValues(["tok4"], { JUNTO_SEAT: "remote-send", JUNTO_SOCKET: "/Users/someone/.junto/core/control.sock", COLORTERM: "truecolor", REGION_STAGE: "prod", JUNTO_WORK_TOKEN: "work-token-value" });
-  expect(scrubText("remote-send at /Users/someone/.junto/core/control.sock truecolor prod tok4 work-token-value", known))
-    .toBe("remote-send at /Users/someone/.junto/core/control.sock truecolor prod [redacted] [redacted]");
+  const known = knownSecretValues(["tok4"], { JUNTO_SEAT: "remote-send", JUNTO_SOCKET: "/Users/someone/.junto/core/control.sock", COLORTERM: "truecolor", REGION_STAGE: "prod", JUNTO_WORK_TOKEN: "work-token-value", JUNTO_TOKEN: "legacy-token-value", JUNTO_FUTURE_KEY: "future-key-value" });
+  expect(scrubText("remote-send at /Users/someone/.junto/core/control.sock truecolor prod tok4 work-token-value legacy-token-value future-key-value", known))
+    .toBe("remote-send at /Users/someone/.junto/core/control.sock truecolor prod [redacted] [redacted] [redacted] [redacted]");
 });
 
 it("step 3 searches the values a launch registered until their generation ends", () => {
