@@ -47,7 +47,9 @@ export const BlockedReason = Schema.Union([
     resetsAt: Schema.optionalKey(EpochMs),
     autoResume: Schema.optionalKey(Schema.Boolean),
   }),
-  Schema.Struct({ _tag: Schema.Literal("Error"), kind: ErrorKind, message: Schema.String }),
+  // The message stays on the seat's machine; a status read from another
+  // machine carries the kind only.
+  Schema.Struct({ _tag: Schema.Literal("Error"), kind: ErrorKind, message: Schema.optionalKey(Schema.String) }),
 ]);
 export type BlockedReason = typeof BlockedReason.Type;
 
@@ -120,7 +122,7 @@ export const SeatSnapshot = Schema.Struct({
     }),
   ),
   lastError: Schema.optionalKey(
-    Schema.Struct({ kind: ErrorKind, message: Schema.String, at: EpochMs }),
+    Schema.Struct({ kind: ErrorKind, message: Schema.optionalKey(Schema.String), at: EpochMs }),
   ),
   compaction: Schema.optionalKey(Schema.Struct({ trigger: CompactionTrigger, since: EpochMs })),
   /** A finished turn the operator has not looked at. */
