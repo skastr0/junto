@@ -27,7 +27,7 @@ import {
   projectAwarenessAnswers,
   type RawAwarenessAnswer,
 } from "../src/main/junto/term/awareness/project-result";
-import { assessmentSignals } from "../src/main/junto/term/awareness/seat-signals";
+import { assessmentSignals, awarenessRetired } from "../src/main/junto/term/awareness/seat-signals";
 import { makeAwarenessRuntime } from "../src/main/junto/term/awareness/runtime";
 import { makeAwarenessScheduler } from "../src/main/junto/term/awareness/scheduler";
 import {
@@ -209,14 +209,32 @@ describe("awareness signals: on the contract", () => {
     for (const need of needs) expect(need.urgency).toBeLessThanOrEqual(NEED_URGENCY.escalated);
     expect(needs[0]!.probability).toBe(0.95);
 
+    // The newer window owns the readings: thrashing stands only because it is
+    // re-asserted there, and the approval is cleared.
     const second = request(["alpha", "beta", "approved, continuing"]);
     const cleared = reduceSeatSignals(
       raised,
-      assessmentSignals(assess(second, [noul(second, "concern.approval_requested", 0.03)])),
+      assessmentSignals(
+        assess(second, [noul(second, "concern.approval_requested", 0.03), noul(second, "health.thrashing", 0.92)]),
+      ),
     );
     expect(deriveNeeds(cleared).filter((need) => need.source === "awareness").map((need) => need.cause)).toEqual([
       "awareness_thrashing",
     ]);
+
+    const retired = reduceSeatSignals(cleared, [awarenessRetired("seat-1", "expired", OBSERVED_AT + 1)!]);
+    expect(retired.awareness).toEqual([]);
+  });
+
+  it("retires a reading the newer window does not repeat", () => {
+    const first = request();
+    const raised = fold(assessmentSignals(assess(first, [noul(first, "health.thrashing", 0.95)])));
+    const second = request(["alpha", "beta", "moved on"]);
+    const next = reduceSeatSignals(
+      raised,
+      assessmentSignals(assess(second, [noul(second, "activity.tests_running", 0.95)])),
+    );
+    expect(next.awareness.map((reading) => reading.questionId)).toEqual(["activity.tests_running"]);
   });
 });
 
@@ -256,6 +274,17 @@ describe("awareness signals: runtime stream", () => {
     runtime.hover("s1");
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(received).toHaveLength(1);
+
+    // A new generation retires what the old one asserted before it answers.
+    plane.publish(makeSnapshot({ bindingId: "s1", epoch: "e2", text: "epoch two", seq: 2n }));
+    timers.advance(0);
+    expect(signalsOf(received.slice(1))).toEqual(["AwarenessRetired"]);
+    expect(received[1]).toMatchObject({ seat: "s1", source: "system", signal: { reason: "epoch" } });
+    timers.advance(300);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(signalsOf(received.slice(2))).toEqual([
+      { questionId: "concern.approval_requested", present: true, probability: 0.97 },
+    ]);
     runtime.stop();
   });
 });

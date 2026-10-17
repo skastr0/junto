@@ -24,6 +24,11 @@
  * model scored as the chance the property holds), and the chosen option's mass
  * for an absent Choice. Nothing is multiplied or combined.
  *
+ * `awarenessRetired` is the other half: when the runtime stops holding the
+ * assessment its envelopes came from (it expired, or the seat changed
+ * generation), every reading those envelopes left in the reducer stops
+ * counting. It is Junto's own observation, so it travels as a system signal.
+ *
  * Authority: advisory. The envelopes are facts for the reducer and the need
  * table, which caps awareness at `escalated`. Nothing here drives a command.
  */
@@ -102,4 +107,21 @@ export const assessmentSignals = (assessment: AwarenessAssessment): readonly Sig
     });
   }
   return envelopes;
+};
+
+/** Every held awareness reading of a seat stops counting. Undefined for an empty id. */
+export const awarenessRetired = (
+  bindingId: string,
+  reason: "expired" | "epoch",
+  at: number,
+): SignalEnvelope | undefined => {
+  const seat = decodeSeat(bindingId);
+  if (seat._tag === "None") return undefined;
+  return {
+    seat: seat.value,
+    at,
+    source: "system",
+    fidelity: "native",
+    signal: { _tag: "AwarenessRetired", reason },
+  };
 };
