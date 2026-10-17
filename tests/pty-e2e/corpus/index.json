@@ -208,6 +208,11 @@
         "scenario": "compaction-manual",
         "status": "complete",
         "reason": null
+      },
+      {
+        "scenario": "compaction-auto",
+        "status": "complete",
+        "reason": null
       }
     ],
     "session": {

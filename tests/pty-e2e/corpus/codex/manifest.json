@@ -489,12 +489,40 @@
         "cliVersion": "codex-cli 0.162.1"
       },
       "expectedScreen": {}
+    },
+    {
+      "harness": "codex",
+      "scenario": "compaction-auto",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "CompactionStarted { trigger: auto }, CompactionEnded { ok }, then a completed turn",
+        "wiring": "-c model_provider points at a stub provider with env_key auth; CODEX_HOME isolated",
+        "stubServed": [
+          "/v1/responses ok",
+          "/v1/responses ok",
+          "/v1/responses ok",
+          "/v1/responses ok",
+          "/v1/responses ok"
+        ],
+        "renderedLines": [
+          "› say hi",
+          "• Hello from the capture stub.",
+          "  Worked for <1s • 03:41",
+          "  gpt-5.4-mini low · <CWD> · ⠋",
+          "  ? for shortcuts                                                                             ⚠ 3 warnings · f2 to view",
+          "› say hi again",
+          "• Context compacted · 0s"
+        ],
+        "cliVersion": "codex-cli 0.162.1"
+      },
+      "expectedScreen": {}
     }
   ],
   "sanitization": {
     "method": "decoded-jsonl-scan",
-    "fixtures": 14,
-    "decodedBytes": 335649,
+    "fixtures": 15,
+    "decodedBytes": 348479,
     "checks": [
       "home-path",
       "username",
@@ -520,7 +548,7 @@
   },
   "signalCaptureEvidence": {
     "tool": "tests/pty-e2e/signal-capture.ts",
-    "capturedAt": "2026-10-17T03:10:25.421Z",
+    "capturedAt": "2026-10-17T03:41:57.907Z",
     "harnessVersion": "codex-cli 0.162.1",
     "provider": "scripted local stub; the binary and its rendering are real, the provider replies are not"
   }
