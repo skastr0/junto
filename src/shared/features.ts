@@ -405,21 +405,28 @@ export const overseerOperationEnabled = (operation: string): boolean => {
 };
 
 /**
- * Whether a harness may be authored / spawned in this build.
- * Durable HarnessId still decodes historical canvas rows; this only gates
- * palette, seat factory, and terminal create IPC.
+ * The build features a harness template may name as its authoring gate, and
+ * whether each is on. The template declares which one is its own.
  */
-export const managedHarnessEnabled = (harness: string): boolean => {
-  if (harness === "junto-overseer") return LIVE_OVERSEER_ENABLED;
-  if (harness === "hermes") return HARNESS_HERMES_ENABLED;
-  if (harness === "kimi") return HARNESS_KIMI_ENABLED;
-  if (harness === "muse") return HARNESS_MUSE_ENABLED;
-  if (harness === "fx") return HARNESS_FX_ENABLED;
-  if (harness === "amp") return HARNESS_AMP_ENABLED;
-  if (harness === "omp") return HARNESS_OMP_ENABLED;
-  if (harness === "prime-agent") return HARNESS_PRIME_AGENT_ENABLED;
-  return true;
-};
+export const HARNESS_FEATURE_GATES = {
+  liveOverseer: LIVE_OVERSEER_ENABLED,
+  harnessHermes: HARNESS_HERMES_ENABLED,
+  harnessKimi: HARNESS_KIMI_ENABLED,
+  harnessMuse: HARNESS_MUSE_ENABLED,
+  harnessFx: HARNESS_FX_ENABLED,
+  harnessAmp: HARNESS_AMP_ENABLED,
+  harnessOmp: HARNESS_OMP_ENABLED,
+  harnessPrimeAgent: HARNESS_PRIME_AGENT_ENABLED,
+} as const satisfies Partial<Record<FeatureKey, boolean>>;
+
+export type HarnessFeatureGate = keyof typeof HARNESS_FEATURE_GATES;
+
+/**
+ * Whether a harness may be authored / spawned in this build, read from the
+ * gate its template declares. Re-exported here, where callers have always
+ * found it; neither module reads the other while loading.
+ */
+export { managedHarnessEnabled } from "./managed-terminal-templates";
 
 /** Strip product-hidden capabilities from a host capability list for UI. */
 export const productHostCapabilities = <T extends string>(

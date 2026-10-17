@@ -9,7 +9,7 @@
  */
 
 import { Schema } from "effect";
-import { managedHarnessEnabled } from "./features";
+import { HARNESS_FEATURE_GATES, type HarnessFeatureGate } from "./features";
 
 // ── Identity ───────────────────────────────────────────────────────────────
 
@@ -750,6 +750,11 @@ export const buildIsolatedHarnessLaunch = (input: IsolatedCaptureRequest & {
 export type ManagedTerminalTemplate = {
   readonly harness: HarnessId;
   readonly displayName: string;
+  /**
+   * The build feature that lets this harness be authored and spawned. Absent
+   * means always on. Durable rows still decode with the gate off.
+   */
+  readonly featureGate?: HarnessFeatureGate;
   readonly argvSpec: ArgvSpec;
   readonly envSpec: EnvSpec;
   readonly capabilityBadges: CapabilityBadges;
@@ -993,6 +998,7 @@ export const GROK_TEMPLATE: ManagedTerminalTemplate = {
 export const HERMES_TEMPLATE: ManagedTerminalTemplate = {
   harness: "hermes",
   displayName: "Hermes",
+  featureGate: "harnessHermes",
   probedVersion: "0.21.3",
   argvSpec: {
     binary: "hermes",
@@ -1097,6 +1103,7 @@ export const PI_TEMPLATE: ManagedTerminalTemplate = {
 export const PRIME_AGENT_TEMPLATE: ManagedTerminalTemplate = {
   harness: "prime-agent",
   displayName: "Prime Agent",
+  featureGate: "harnessPrimeAgent",
   probedVersion: "0.9.4",
   argvSpec: {
     binary: "prime-agent",
@@ -1151,6 +1158,7 @@ export const PRIME_AGENT_TEMPLATE: ManagedTerminalTemplate = {
 export const KIMI_TEMPLATE: ManagedTerminalTemplate = {
   harness: "kimi",
   displayName: "Kimi Code",
+  featureGate: "harnessKimi",
   probedVersion: "0.34.0",
   argvSpec: {
     binary: "kimi",
@@ -1221,6 +1229,7 @@ export const KIMI_TEMPLATE: ManagedTerminalTemplate = {
 export const MUSE_TEMPLATE: ManagedTerminalTemplate = {
   harness: "muse",
   displayName: "Muse",
+  featureGate: "harnessMuse",
   probedVersion: "1.1.1-R2514.1",
   argvSpec: {
     binary: "muse",
@@ -1513,6 +1522,7 @@ export const AGY_TEMPLATE: ManagedTerminalTemplate = {
 export const AMP_TEMPLATE: ManagedTerminalTemplate = {
   harness: "amp",
   displayName: "Amp",
+  featureGate: "harnessAmp",
   probedVersion: "0.0.1791331298",
   argvSpec: {
     binary: "amp",
@@ -1583,6 +1593,7 @@ export const AMP_TEMPLATE: ManagedTerminalTemplate = {
 export const FX_TEMPLATE: ManagedTerminalTemplate = {
   harness: "fx",
   displayName: "fx",
+  featureGate: "harnessFx",
   probedVersion: "0.0.7",
   argvSpec: {
     binary: "fx",
@@ -1643,6 +1654,7 @@ export const FX_TEMPLATE: ManagedTerminalTemplate = {
 export const OMP_TEMPLATE: ManagedTerminalTemplate = {
   harness: "omp",
   displayName: "Oh My Pi",
+  featureGate: "harnessOmp",
   probedVersion: "18.1.16",
   argvSpec: {
     binary: "omp",
@@ -1680,6 +1692,7 @@ export const OMP_TEMPLATE: ManagedTerminalTemplate = {
 export const JUNTO_OVERSEER_TEMPLATE: ManagedTerminalTemplate = {
   harness: "junto-overseer",
   displayName: "Junto Overseer",
+  featureGate: "liveOverseer",
   argvSpec: {
     binary: "junto",
     prefix: ["overseer-host"],
@@ -1720,6 +1733,17 @@ export const MANAGED_TERMINAL_TEMPLATES: Readonly<
 
 export const templateFor = (harness: HarnessId): ManagedTerminalTemplate =>
   MANAGED_TERMINAL_TEMPLATES[harness];
+
+/**
+ * Whether a harness may be authored / spawned in this build: its template's
+ * feature gate. Durable HarnessId still decodes historical canvas rows; this
+ * only gates palette, seat factory, and terminal create IPC.
+ */
+export const managedHarnessEnabled = (harness: string): boolean => {
+  if (!isHarnessId(harness)) return true;
+  const gate = MANAGED_TERMINAL_TEMPLATES[harness].featureGate;
+  return gate === undefined || HARNESS_FEATURE_GATES[gate];
+};
 
 export const allTemplates = (): readonly ManagedTerminalTemplate[] =>
   HARNESS_IDS
