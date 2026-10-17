@@ -11,6 +11,7 @@ import { ModelLive } from "../src/main/junto/model/layer";
 import { ModelDependents } from "../src/main/junto/model/dependents";
 import { ModelService } from "../src/main/junto/model/service";
 import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
+import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
 import { THIS_MACHINE } from "./support/machines";
@@ -56,12 +57,21 @@ it("compiles aliases and machine identity from native seats and refuses unresolv
     expect(refused).toMatchObject({ _tag: "Failure", failure: { _tag: "ModelRefused", rule: expect.stringContaining("unresolved host") } });
     expect(await runtime.runPromise(model.open("alpha"))).toEqual(before);
     expect(await runtime.runPromise(refs.read())).toEqual(all);
-    // Where a machine is pinned is read each time, never kept with the canvas:
-    // a retired machine's seats stop resolving, and resolve again when it is back.
+    // A removed machine's seats keep their ids, while the machine itself is
+    // refused wherever authority is read; re-pinning it returns the same ids.
+    const machines = await runtime.runPromise(Effect.gen(function* () { return yield* MachineRepository; }).pipe(Effect.provide(makeMachineRepositoryLive({ defaultName: () => THIS_MACHINE }))));
     await runtime.runPromise(sql.withTransaction(sql`UPDATE machine_peers SET retired_at=${at} WHERE machine_name='remote-a'`));
     expect(await runtime.runPromise(model.open("alpha"))).toEqual(before);
-    expect(await runtime.runPromise(Effect.result(refs.read("alpha")))).toMatchObject({ _tag: "Failure" });
-    await runtime.runPromise(sql.withTransaction(sql`UPDATE machine_peers SET retired_at=NULL WHERE machine_name='remote-a'`));
     expect(await runtime.runPromise(refs.read("alpha"))).toEqual(alpha);
+    expect(await runtime.runPromise(refs.read())).toEqual(all);
+    // Admission and routing read peer() and peers: the removed machine is refused there.
+    expect(await runtime.runPromise(machines.peer("remote-a"))).toBeUndefined();
+    expect((await runtime.runPromise(machines.peers)).map((peer) => peer.machineName)).not.toContain("remote-a");
+    await runtime.runPromise(machines.pinPeer({ machineName: "remote-a", installationId: remote }));
+    expect(await runtime.runPromise(machines.peer("remote-a"))).toMatchObject({ installationId: remote });
+    expect(await runtime.runPromise(refs.read("alpha"))).toEqual(alpha);
+    // A seat whose machine has no row at all is skipped; every other seat still reads.
+    await runtime.runPromise(sql.withTransaction(sql`DELETE FROM machine_peers WHERE machine_name='remote-a'`));
+    expect(await runtime.runPromise(refs.read())).toEqual(all.filter((ref) => ref.nodeId !== "remote-agent"));
   } finally { await runtime.dispose(); await rm(root, { recursive: true, force: true }); }
 });
