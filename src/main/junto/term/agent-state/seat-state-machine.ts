@@ -69,6 +69,8 @@ export type SeatFact = {
 export type SeatBindingConfig = {
   readonly harness: HarnessId | string;
   readonly epoch?: string;
+  /** The zone the seat's process runs in (its TZ); clock times on its screen read in it. */
+  readonly timeZone?: string;
 };
 
 type BindingSlot = {
@@ -76,6 +78,7 @@ type BindingSlot = {
   key: string;
   harness: HarnessId | string;
   epoch: string;
+  timeZone?: string;
   state: AgentSeatState;
   reason: string;
   confidence: "high" | "low";
@@ -135,6 +138,7 @@ export class SeatStateMachine {
       prior.harness === config.harness &&
       prior.epoch === epoch
     ) {
+      if (config.timeZone !== undefined) prior.timeZone = config.timeZone;
       return;
     }
     if (prior) this.clearPendingIdle(prior);
@@ -142,6 +146,7 @@ export class SeatStateMachine {
       key: bindingId,
       harness: config.harness,
       epoch,
+      ...(config.timeZone === undefined ? {} : { timeZone: config.timeZone }),
       state: "unknown",
       reason:
         prior?.epoch !== undefined && prior.epoch !== epoch
@@ -393,6 +398,7 @@ export class SeatStateMachine {
       hookState: opts?.hookState !== undefined ? opts.hookState : slot.hookState,
       pack: opts?.pack,
       now: this.now(),
+      ...(slot.timeZone === undefined ? {} : { timeZone: slot.timeZone }),
     };
 
     const next = evaluate(snapshot, evalOpts);

@@ -173,13 +173,14 @@ const readClock = (text: string): { readonly hour: number; readonly minute: numb
  * When a screen says a limit resets: "in 2h 30m", "3pm", "3:30 PM",
  * "15:00", "Oct 21 at 6:23am", "Oct 21st, 2026 6:25 AM", an ISO time. A zone
  * in parentheses after it ("(UTC)", "(Europe/Lisbon)") is the zone the time
- * is in; without one the time is local. A time without a date is the next
+ * is in; without one the time is in `timeZone`, the zone the seat's process
+ * runs in (its TZ), else this machine's. A time without a date is the next
  * one at or after `now`, and a date without a year the next one too.
  * Undefined when it does not read as a time.
  */
-export const parseResetAt = (text: string, now: number): number | undefined => {
+export const parseResetAt = (text: string, now: number, timeZone?: string): number | undefined => {
   let body = text.trim().replace(/[.…]+$/u, "").trim();
-  let zone: string | undefined;
+  let zone = timeZone;
   const zoned = /\s*\(([^)]*)\)$/u.exec(body);
   if (zoned) {
     zone = zoned[1]!.trim();
@@ -235,12 +236,34 @@ export const retryCause = (text: string): "rate" | "overloaded" | "network" | "s
   return "unknown";
 };
 
+/**
+ * When a screen is read: the moment, and the zone the seat's process runs in
+ * (its TZ), for a clock time the screen prints without one. Absent, this
+ * machine's zone.
+ */
+export type ScreenClock = { readonly now: number; readonly timeZone?: string };
+
+/**
+ * A process's TZ as a zone this runtime reads, else undefined: ":Area/City"
+ * loses its colon; a value Intl does not know is not a zone to read in.
+ */
+export const processTimeZone = (tz: string | undefined): string | undefined => {
+  const zone = tz?.trim().replace(/^:/u, "");
+  if (!zone) return undefined;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: zone });
+    return zone;
+  } catch {
+    return undefined;
+  }
+};
+
 /** A captured group as the value of the signal field it names. */
-const coerce = (field: string, raw: string, now: number): unknown => {
+const coerce = (field: string, raw: string, clock: ScreenClock): unknown => {
   switch (field) {
     case "resetsAt":
     case "quotaResetsAt":
-      return parseResetAt(raw, now);
+      return parseResetAt(raw, clock.now, clock.timeZone);
     case "retryInMs":
       return parseScreenDuration(raw);
     case "cause":
@@ -282,23 +305,23 @@ const needsMessage = (template: SeatRuleSignal): boolean =>
 export const ruleSignal = (
   rule: SeatRule,
   captures: RuleCaptures,
-  now: number,
+  clock: ScreenClock,
 ): HarnessSignal =>
-  fillSignal(rule.signal ?? signalForState(rule.state), rule.id, captures, now) ??
+  fillSignal(rule.signal ?? signalForState(rule.state), rule.id, captures, clock) ??
   signalForState(rule.state);
 
 /** A fact rule's signal; null when its template does not read (a pack bug the pack tests catch). */
 export const factSignal = (
   rule: SeatFactRule,
   captures: RuleCaptures,
-  now: number,
-): HarnessSignal | null => fillSignal(rule.signal, rule.id, captures, now);
+  clock: ScreenClock,
+): HarnessSignal | null => fillSignal(rule.signal, rule.id, captures, clock);
 
 const fillSignal = (
   template: SeatRuleSignal,
   id: string,
   captures: RuleCaptures,
-  now: number,
+  clock: ScreenClock,
 ): HarnessSignal | null => {
   let signal: Record<string, unknown> = { ...template };
   if (needsMessage(template) && signal.message === undefined) {
@@ -307,7 +330,7 @@ const fillSignal = (
   if (!isHarnessSignal(signal)) return null;
   for (const [field, raw] of Object.entries(captures.groups)) {
     if (field === "_tag") continue;
-    const value = coerce(field, raw, now);
+    const value = coerce(field, raw, clock);
     if (value === undefined) continue;
     const next = { ...signal, [field]: value };
     if (isHarnessSignal(next)) signal = next;

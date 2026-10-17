@@ -81,6 +81,7 @@ import {
   type TerminalObserverPlane,
 } from "./observer";
 import { seatStateRuntime } from "./agent-state";
+import { processTimeZone } from "./agent-state/screen-signal";
 import { drainKeyOf } from "@shared/seat-drain";
 import {
   extractSessionIdFromText,
@@ -1376,7 +1377,12 @@ export class LocalSessionHost extends EventEmitter {
         rows,
       });
       if (seat.kind === "agent") {
-        seatStateRuntime.bindHarness(bindingId, seat.harness, epoch);
+        seatStateRuntime.bindHarness(
+          bindingId,
+          seat.harness,
+          epoch,
+          processTimeZone(terminalLaunch.env.TZ),
+        );
       }
       // Devin announces its session id nowhere on the PTY — the id lives in a
       // lockfile written by a descendant of the process we just spawned.

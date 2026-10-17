@@ -12,7 +12,7 @@ import { isHarnessId } from "../../../../shared/managed-terminal-templates";
 import type { ObserverGridSnapshot } from "../observer/types";
 import { ruleCaptures, ruleMatches } from "./match";
 import { rulePackFor } from "./rules";
-import { factSignal, ruleSignal, signalForState } from "./screen-signal";
+import { factSignal, ruleSignal, signalForState, type ScreenClock } from "./screen-signal";
 import type { SeatSignal } from "../../../../shared/harness-domain";
 import type { SeatEvaluation, SeatRule, SeatRulePack } from "./types";
 
@@ -23,7 +23,14 @@ export type EvaluateOptions = {
   /** Override pack (tests). */
   readonly pack?: SeatRulePack;
   readonly now?: number;
+  /** The zone the seat's process runs in, for clock times read off its screen. */
+  readonly timeZone?: string;
 };
+
+const screenClock = (opts: EvaluateOptions): ScreenClock => ({
+  now: opts.now ?? Date.now(),
+  ...(opts.timeZone === undefined ? {} : { timeZone: opts.timeZone }),
+});
 
 const FALLBACK_IDLE_REASON = "default_known_agent_idle_fallback";
 const UNKNOWN_HARNESS_REASON = "unknown_harness";
@@ -68,7 +75,7 @@ const evaluationFromRule = (
   rule: SeatRule,
   pack: SeatRulePack,
   snapshot: ObserverGridSnapshot,
-  now: number,
+  clock: ScreenClock,
 ): SeatEvaluation => {
   const state = rule.state;
   const flags = flagsFor(rule, state);
@@ -89,7 +96,7 @@ const evaluationFromRule = (
     ...flags,
     ruleId: rule.id,
     harness: pack.harness,
-    signal: rule.skipStateUpdate ? null : ruleSignal(rule, ruleCaptures(rule, snapshot), now),
+    signal: rule.skipStateUpdate ? null : ruleSignal(rule, ruleCaptures(rule, snapshot), clock),
     source: "screen",
     fidelity: "screen",
   };
@@ -98,12 +105,12 @@ const evaluationFromRule = (
 const evaluateScreen = (
   snapshot: ObserverGridSnapshot,
   pack: SeatRulePack,
-  now: number,
+  clock: ScreenClock,
 ): SeatEvaluation => {
   const rules = sortedRules(pack);
   for (const rule of rules) {
     if (!ruleMatches(rule, snapshot)) continue;
-    return evaluationFromRule(rule, pack, snapshot, now);
+    return evaluationFromRule(rule, pack, snapshot, clock);
   }
   // Known harness, no rule → low-confidence idle (debounce keys on this).
   return {
@@ -127,13 +134,13 @@ const evaluateScreen = (
 const findMatchingAttention = (
   snapshot: ObserverGridSnapshot,
   pack: SeatRulePack,
-  now: number,
+  clock: ScreenClock,
 ): SeatEvaluation | null => {
   const rules = sortedRules(pack);
   for (const rule of rules) {
     if (rule.state !== "attention") continue;
     if (!ruleMatches(rule, snapshot)) continue;
-    return evaluationFromRule(rule, pack, snapshot, now);
+    return evaluationFromRule(rule, pack, snapshot, clock);
   }
   return null;
 };
@@ -149,11 +156,11 @@ export const evaluate = (
   const evaluation = evaluateState(snapshot, opts);
   const pack = opts.pack ?? (isHarnessId(opts.harness) ? rulePackFor(opts.harness) : undefined);
   if (pack?.facts === undefined || evaluation.skipStateUpdate) return evaluation;
-  const now = opts.now ?? Date.now();
+  const clock = screenClock(opts);
   const facts: SeatSignal[] = [];
   for (const rule of pack.facts) {
     if (!ruleMatches(rule, snapshot)) continue;
-    const signal = factSignal(rule, ruleCaptures(rule, snapshot), now);
+    const signal = factSignal(rule, ruleCaptures(rule, snapshot), clock);
     if (signal !== null) facts.push(signal);
   }
   return facts.length === 0 ? evaluation : { ...evaluation, facts };
@@ -184,8 +191,8 @@ const evaluateState = (
 
   const pack =
     opts.pack ?? rulePackFor(harnessRaw as HarnessId);
-  const now = opts.now ?? Date.now();
-  const screen = evaluateScreen(snapshot, pack, now);
+  const clock = screenClock(opts);
+  const screen = evaluateScreen(snapshot, pack, clock);
 
   // skip_state_update: hold prior — caller must apply; we still return the flag.
   // Screen attention always surfaces (permission chrome must never be idle/working).
@@ -252,7 +259,7 @@ const evaluateState = (
   // a stale whole_recent attention match (OBS-8).
   // A visible idle rule that already outranks that attention hit is a settled
   // composer. Leftover dialog text above it must not pull the seat back.
-  const attentionHit = findMatchingAttention(snapshot, pack, now);
+  const attentionHit = findMatchingAttention(snapshot, pack, clock);
   if (
     attentionHit &&
     !(

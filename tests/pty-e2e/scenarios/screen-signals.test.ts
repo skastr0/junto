@@ -17,8 +17,13 @@ import { topNeed, type SeatSignal, type SeatSnapshot, type SeatStatus } from "..
 import { chunkEvents, corpusRoot, loadFixture } from "../runner";
 
 const BINDING = "seat-1";
-/** The captures were recorded in UTC on 2026-10-16, a little after 03:00. */
+/**
+ * The captures were recorded on 2026-10-16, a little after 03:00, with the
+ * harness spawned under TZ=UTC (signal-capture.ts): bare clock times on
+ * their screens are UTC, so the replay binds the seat in that zone.
+ */
 const NOW = Date.UTC(2026, 9, 16, 3, 0);
+const CAPTURE_ZONE = "UTC";
 
 const disposers: Array<() => void> = [];
 afterEach(() => {
@@ -28,6 +33,7 @@ afterEach(() => {
 const replay = async (
   harness: string,
   scenario: string,
+  timeZone = CAPTURE_ZONE,
 ): Promise<{
   readonly signals: ReadonlyArray<SeatSignal>;
   readonly final: SeatStatus | undefined;
@@ -43,7 +49,7 @@ const replay = async (
     rows: manifest.pty?.rows ?? 24,
   });
   const runtime = new SeatStateRuntime({ now: () => NOW, turnProgressWatch: false });
-  runtime.bindHarness(BINDING, harness, "e1");
+  runtime.bindHarness(BINDING, harness, "e1", timeZone);
   disposers.push(() => {
     runtime.stop();
     observer.dispose();
@@ -53,7 +59,7 @@ const replay = async (
     observer.feed(chunk.data, chunk.seq);
     const snapshot = await observer.snapshot();
     runtime.observe(snapshot);
-    const evaluation = evaluate(snapshot, { harness, now: NOW });
+    const evaluation = evaluate(snapshot, { harness, now: NOW, timeZone });
     for (const signal of [evaluation.signal, ...(evaluation.facts ?? [])]) {
       if (signal !== null) seen.set(JSON.stringify(signal), signal);
     }
@@ -133,22 +139,30 @@ describe("claude", () => {
 describe("codex", () => {
   it("usage-limit: the model picker after the limit is the limit, with its reset", async () => {
     const { final } = await replay("codex", "usage-limit");
-    expect(final?._tag).toBe("Blocked");
-    const reason = final?._tag === "Blocked" ? final.reason : undefined;
-    expect(reason?._tag).toBe("UsageLimit");
-    const resetsAt = reason?._tag === "UsageLimit" ? reason.resetsAt : undefined;
-    // "try again at 6:25 AM.": the next 06:25 on this machine's clock.
-    expect(resetsAt).toBeGreaterThanOrEqual(NOW);
-    expect(resetsAt! - NOW).toBeLessThan(86_400_000);
-    expect([new Date(resetsAt!).getHours(), new Date(resetsAt!).getMinutes()]).toEqual([6, 25]);
+    // "try again at 6:25 AM.": 06:25 in the zone codex ran in.
+    expect(final).toEqual({
+      _tag: "Blocked",
+      reason: { _tag: "UsageLimit", scope: "unknown", resetsAt: Date.UTC(2026, 9, 16, 6, 25) },
+    });
   });
 
   it("usage-limit-weekly: a dated reset", async () => {
     const { final } = await replay("codex", "usage-limit-weekly");
     expect(final).toEqual({
       _tag: "Blocked",
-      reason: { _tag: "UsageLimit", scope: "unknown", resetsAt: new Date(2026, 9, 21, 6, 25).getTime() },
+      reason: { _tag: "UsageLimit", scope: "unknown", resetsAt: Date.UTC(2026, 9, 21, 6, 25) },
     });
+  });
+
+  it("a seat spawned in another zone: the same bare times read there, not in UTC", async () => {
+    // Sao Paulo is UTC-3: a bare 6:25 AM there is 09:25 UTC.
+    const fiveHour = await replay("codex", "usage-limit", "America/Sao_Paulo");
+    expect(fiveHour.final).toMatchObject({ reason: { resetsAt: Date.UTC(2026, 9, 16, 9, 25) } });
+    const weekly = await replay("codex", "usage-limit-weekly", "America/Sao_Paulo");
+    expect(weekly.final).toMatchObject({ reason: { resetsAt: Date.UTC(2026, 9, 21, 9, 25) } });
+    // Claude names its zone, "(UTC)": that wins over the seat's.
+    const claude = await replay("claude", "usage-limit-weekly", "America/Sao_Paulo");
+    expect(claude.final).toMatchObject({ reason: { resetsAt: Date.UTC(2026, 9, 21, 6, 23) } });
   });
 
   it("retry-rate: reconnecting, with the status it last saw", async () => {

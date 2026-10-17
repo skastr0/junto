@@ -16,6 +16,7 @@ import { projectAgentSeatState } from "../src/main/junto/term/agent-state/projec
 import {
   factSignal,
   parseResetAt,
+  processTimeZone,
   parseScreenDuration,
   parseScreenNumber,
   retryCause,
@@ -71,7 +72,7 @@ describe("every rule means a signal that projects to its state", () => {
     for (const rule of rulePackFor(harness).rules) {
       if (rule.skipStateUpdate) continue;
       it(`${harness} ${rule.id} (${rule.state})`, () => {
-        const signal = ruleSignal(rule, { groups: {}, matched: null }, NOW);
+        const signal = ruleSignal(rule, { groups: {}, matched: null }, { now: NOW });
         // The declared template reads as a signal: no fallback to the state's.
         expect(signal._tag).toBe((rule.signal ?? signalForState(rule.state))._tag);
         for (const [name, prior] of PRIORS) {
@@ -86,7 +87,7 @@ describe("every fact rule means a signal that leaves the status as it was", () =
   for (const harness of HARNESS_IDS) {
     for (const rule of rulePackFor(harness).facts ?? []) {
       it(`${harness} ${rule.id}`, () => {
-        const signal = factSignal(rule, { groups: {}, matched: null }, NOW);
+        const signal = factSignal(rule, { groups: {}, matched: null }, { now: NOW });
         expect(signal?._tag).toBe(rule.signal._tag);
         for (const [name, prior] of PRIORS) {
           expect(screenFold(prior, signal!).status, `from ${name}`).toEqual(prior.status);
@@ -189,7 +190,18 @@ describe("reading times, durations and numbers off a screen", () => {
     // A date already past this year is next year's.
     expect(parseResetAt("Jan 2 at 9am (UTC)", utcNow)).toBe(Date.UTC(2027, 0, 2, 9, 0));
     expect(parseResetAt("6:23am (Mars/Base)", utcNow)).toBeUndefined();
+    // A bare time reads in the seat process's zone; a named one wins over it.
+    expect(parseResetAt("6:25 AM", utcNow, "America/Sao_Paulo")).toBe(Date.UTC(2026, 9, 16, 9, 25));
+    expect(parseResetAt("Oct 21st, 2026 6:25 AM", utcNow, "America/Sao_Paulo")).toBe(Date.UTC(2026, 9, 21, 9, 25));
+    expect(parseResetAt("6:23am (UTC)", utcNow, "America/Sao_Paulo")).toBe(Date.UTC(2026, 9, 16, 6, 23));
     expect(parseResetAt("Smarch 3 at 9am", utcNow)).toBeUndefined();
+  });
+
+  it("a process TZ reads as a zone only when it is one", () => {
+    expect(processTimeZone(":America/Sao_Paulo")).toBe("America/Sao_Paulo");
+    expect(processTimeZone("UTC")).toBe("UTC");
+    expect(processTimeZone("Mars/Base")).toBeUndefined();
+    expect(processTimeZone(undefined)).toBeUndefined();
   });
 
   it("retry causes", () => {

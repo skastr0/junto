@@ -157,6 +157,8 @@ export class SeatStateRuntime {
     bindingId: string,
     harness: HarnessId | string,
     epoch?: string,
+    /** The zone the seat's process runs in (its TZ); absent, this machine's. */
+    timeZone?: string,
   ): void {
     const structured = this.structuredHookByBinding.get(bindingId);
     if (structured !== undefined && structured.epoch !== (epoch ?? "")) {
@@ -178,7 +180,7 @@ export class SeatStateRuntime {
       this.lastProgressFp.delete(bindingId);
     }
     this.harnessByBinding.set(bindingId, harness);
-    this.machine.bind(bindingId, { harness, epoch });
+    this.machine.bind(bindingId, { harness, epoch, ...(timeZone === undefined ? {} : { timeZone }) });
   }
 
   /**
