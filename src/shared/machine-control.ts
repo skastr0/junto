@@ -6,7 +6,7 @@ import { HarnessId } from "./managed-terminal-templates";
 import { isValidMachineName } from "./machine-identity";
 import type { MachineExchangeInput, MachineExchangeData } from "./machine-exchange";
 import type { MachineLogRead, MachineLogsInput } from "./machine-log";
-import type { MachineSeatInput, MachineSeatStartInput, MachineSeatStarted, MachineSeatStopped } from "./machine-seat";
+import type { MachineSeatInput, MachineSeatRead, MachineSeatReadInput, MachineSeatStartInput, MachineSeatStarted, MachineSeatStopped } from "./machine-seat";
 import { EncodedFailure } from "./failure";
 
 export const MachineName = Schema.String.pipe(Schema.check(Schema.makeFilter(isValidMachineName)));
@@ -85,7 +85,7 @@ export const MachineEmptyInput = Schema.Struct({});
 export const MachineOpName = Schema.Literals([
   "machine.add", "machine.list", "machine.send", "machine.status", "machine.update",
   "machine.remove", "machine.harnesses", "machine.configure", "machine.setup", "machine.exchange",
-  "machine.logs", "machine.seat-start", "machine.seat-stop",
+  "machine.logs", "machine.seat-start", "machine.seat-stop", "machine.seat-read",
 ]);
 export type MachineOpName = typeof MachineOpName.Type;
 export interface MachineArgsByOp {
@@ -102,6 +102,7 @@ export interface MachineArgsByOp {
   readonly "machine.logs": MachineLogsInput;
   readonly "machine.seat-start": MachineSeatStartInput;
   readonly "machine.seat-stop": MachineSeatInput;
+  readonly "machine.seat-read": MachineSeatReadInput;
 }
 export interface MachineDataByOp {
   readonly "machine.add": RemoteHost;
@@ -117,4 +118,5 @@ export interface MachineDataByOp {
   readonly "machine.logs": MachineLogRead;
   readonly "machine.seat-start": MachineSeatStarted;
   readonly "machine.seat-stop": MachineSeatStopped;
+  readonly "machine.seat-read": MachineSeatRead;
 }

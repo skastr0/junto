@@ -25,6 +25,7 @@ import { messageDelivery } from "./junto/work/message-delivery";
 import { makeMachineExchangeQuery } from "./junto/work/exchange/queries";
 import { OPERATOR_PROTOCOL_VERSION, decodeOperatorResponse } from "@shared/operator-control";
 import { makeSeatsChannel } from "./junto/term/seats-link";
+import { readSeatWindow } from "./junto/term/seat-read";
 import { makeCoreMailTransport, type CoreMailSeats } from "./junto/term/core-mail";
 import { makeMessageDeliveryStore } from "./junto/work/message-delivery-store";
 import { recordDeliveryReceiptRefusal } from "./junto/work/delivery-receipts";
@@ -230,6 +231,12 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
       // The window's start and stop path, with no window host step.
       seatStart: ({ canvas, seatId, resume }) => startSeat({ canvas, seatId, ...(resume === undefined ? {} : { resume }) }).pipe(Effect.provideContext(seatServices)),
       seatStop: ({ canvas, seatId }) => stopSeat({ canvas, seatId }).pipe(Effect.provideContext(seatServices)),
+      seatRead: ({ canvas, seatId, lines }) => readSeatWindow({ canvas, seatId, ...(lines === undefined ? {} : { lines }) }).pipe(
+        Effect.map(({ hostId, window }) => window === undefined ? { hostId, vacant: true } : {
+          hostId, vacant: false, generation: window.generation, text: window.text, lines: window.lines,
+          cols: window.cols, rows: window.rows, truncated: window.truncated,
+        }),
+        Effect.provideContext(seatServices), Effect.provideService(MachineLink, link), Effect.provideService(HostsService, hostsService)),
       copy,
       disconnect: link.disconnect,
       peerStatus: (name) => Effect.gen(function* () {

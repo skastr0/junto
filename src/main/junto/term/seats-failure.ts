@@ -128,6 +128,11 @@ export class SeatAttachLimit extends Schema.TaggedError<SeatAttachLimit>()(
 ) {}
 
 /** This machine's terminal host refused the attach (a held control lease, a stopping seat). */
+/** The seat has a live occupant whose settled grid is not up yet; its text never rides here. */
+export class SeatReadUnavailable extends Schema.TaggedError<SeatReadUnavailable>()("SeatReadUnavailable", {
+  ...Where, epoch: Id, message: Text,
+}) {}
+
 export class SeatAttachRefused extends Schema.TaggedError<SeatAttachRefused>()(
   "SeatAttachRefused", { ...Where, message: Text },
 ) {}
@@ -137,7 +142,7 @@ export const SeatsFailure = Schema.Union([
   SeatSpawnFailed, SeatExited, SeatEpochChanged, SeatOccupantChanged, SeatStopping, SeatMissing,
   SeatChangedWhilePreparing, SeatNotOnThisMachine, SeatCanvasEditorMismatch, SeatPeerNotPinned,
   SeatSessionUnavailable, SeatStartRefused, SeatLinkClosed, SeatStopRefused, SeatStateNotFromItsMachine,
-  SeatStatusInvalid, SeatAttachUnknown, SeatAttachObserveOnly, SeatAttachLimit, SeatAttachRefused,
+  SeatStatusInvalid, SeatAttachUnknown, SeatAttachObserveOnly, SeatAttachLimit, SeatAttachRefused, SeatReadUnavailable,
 ]);
 export type SeatsFailure = typeof SeatsFailure.Type;
 

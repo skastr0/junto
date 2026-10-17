@@ -6,7 +6,7 @@ import {
 } from "@shared/operator-control";
 import { MachineBuild, MachinePeerStatus, type MachineOwnStatus, type MachineHarnesses, type MachineCopyInput } from "@shared/machine-control";
 import type { MachineLogQuery, MachineLogRead } from "@shared/machine-log";
-import type { MachineSeatInput, MachineSeatStartInput, MachineSeatStarted, MachineSeatStopped } from "@shared/machine-seat";
+import type { MachineSeatInput, MachineSeatRead, MachineSeatReadInput, MachineSeatStartInput, MachineSeatStarted, MachineSeatStopped } from "@shared/machine-seat";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import { scrubMessage } from "../credentials/scrub";
 import { encodeFailure } from "../failure-encode";
@@ -33,6 +33,8 @@ export interface MachineOwnerOptions {
   readonly seatStart?: (input: MachineSeatStartInput) => Effect.Effect<TerminalSessionSummary, unknown>;
   /** Stops a seat by canvas and seat id; the node stays on the canvas. */
   readonly seatStop?: (input: MachineSeatInput) => Effect.Effect<Pick<MachineSeatStopped, "outcome">, unknown>;
+  /** Reads a seat's settled terminal grid, here or on the machine that runs it. */
+  readonly seatRead?: (input: MachineSeatReadInput) => Effect.Effect<Omit<MachineSeatRead, "canvas" | "seatId">, unknown>;
 }
 export class SeatControlUnavailable extends Schema.TaggedError<SeatControlUnavailable>()("SeatControlUnavailable", {
   message: Schema.String.pipe(Schema.check(Schema.isMaxLength(1024))),
@@ -142,6 +144,11 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         const { outcome } = yield* options.seatStop(request.args);
         return { canvas, seatId, outcome } satisfies MachineSeatStopped;
       }
+      case "machine.seat-read": {
+        const { canvas, seatId } = request.args;
+        if (options.seatRead === undefined) return yield* Effect.fail(new SeatControlUnavailable({ message: "This Junto process cannot read seats" }));
+        return { canvas, seatId, ...(yield* options.seatRead(request.args)) } satisfies MachineSeatRead;
+      }
       case "machine.send":
       case "machine.update": return yield* options.copy(yield* other(request.args.name), request.args, request.op === "machine.send" ? "send" : "update", onTransition);
       case "machine.remove": {
@@ -162,7 +169,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
     }
   });
   // Reads and seat control take no machine mutation lock: a seat start must not wait behind a send.
-  const unlocked = new Set<string>(["machine.list", "machine.status", "machine.harnesses", "machine.logs", "machine.seat-start", "machine.seat-stop"]);
+  const unlocked = new Set<string>(["machine.list", "machine.status", "machine.harnesses", "machine.logs", "machine.seat-start", "machine.seat-stop", "machine.seat-read"]);
   return {
     dispatch: (request: OperatorRequestEnvelope, onTransition?: (event: MachineSendEvent) => void) =>
       (unlocked.has(request.op) ? run(request, onTransition) : mutationLock.withPermits(1)(run(request, onTransition))).pipe(

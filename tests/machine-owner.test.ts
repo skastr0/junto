@@ -252,6 +252,23 @@ it("starts and stops a seat by canvas and seat id, scrubbing the exit message", 
   expect(seen).toEqual([{ canvas: "default", seatId: "seat-1", resume: false }, { canvas: "default", seatId: "seat-1" }]);
 });
 
+it("reads a seat's terminal by canvas and seat id, and refuses where seats cannot be read", async () => {
+  const seen: unknown[] = [];
+  const f = await fixture({ seatRead: input => Effect.sync(() => {
+    seen.push(input);
+    return { hostId: "mini", vacant: false, generation: "g1", text: "$ ready", lines: 1, cols: 80, rows: 24, truncated: false };
+  }) });
+  expect(await f.call("machine.seat-read", { canvas: "default", seatId: "seat-1", lines: 5 })).toMatchObject({
+    ok: true, op: "machine.seat-read", data: { canvas: "default", seatId: "seat-1", hostId: "mini", text: "$ ready", lines: 1 },
+  });
+  expect(seen).toEqual([{ canvas: "default", seatId: "seat-1", lines: 5 }]);
+  // The owner contract refuses a read outside 1..2000 lines before it is sent.
+  await expect((async () => f.call("machine.seat-read", { canvas: "default", seatId: "seat-1", lines: 0 }))()).rejects.toThrow(/between 1 and 2000/);
+  const unwired = await fixture();
+  expect(await unwired.call("machine.seat-read", { canvas: "default", seatId: "seat-1" }))
+    .toMatchObject({ ok: false, error: { details: { failure: { tag: "SeatControlUnavailable" } } } });
+});
+
 it("never answers a seat's own exit text: no exitReason, no exitMessage", async () => {
   const f = await fixture({ seatStart: () => Effect.succeed({ bindingId: "b1", epoch: "e1", hostId: "macbook", status: "exited" as const,
     detached: false, createdAt: 1, exitMessage: "screen text" }) });

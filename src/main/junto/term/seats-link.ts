@@ -21,6 +21,7 @@ import {
   ATTACH_LIMIT, makeSeatAttachments, SeatsAttach, SeatsAttachEvent, SeatsAttachRequest, SeatsAttachResponse,
   SeatsDetach, SeatsInput, SeatsResize, type SeatsStreamFrame,
 } from "./seat-attach";
+import { readLocalWindow, type SeatGrid, SeatsRead, SeatsReadWindow } from "./seat-read-window";
 import { deliverSeatViewFrame } from "./seat-views";
 import {
   asSeatsFailure, clipText, type SeatsFailureWhere, SeatAttachLimit, SeatAttachObserveOnly, SeatAttachRefused,
@@ -56,7 +57,7 @@ export const SeatsViewed = Schema.Struct({
   _tag: Schema.Literal("Viewed"), canvas: CanvasName, seatId: NodeId,
   generation: Generation,
 });
-export const SeatsRequest = Schema.Union([SeatsStart, SeatsGet, SeatsActivate, SeatsStop, SeatsViewed,
+export const SeatsRequest = Schema.Union([SeatsStart, SeatsGet, SeatsActivate, SeatsStop, SeatsViewed, SeatsRead,
   SeatsAttach, SeatsInput, SeatsResize, SeatsDetach]);
 export const SeatsStarted = Schema.Struct({
   _tag: Schema.Literal("Started"), canvas: CanvasName, seatId: NodeId,
@@ -78,7 +79,7 @@ export const SeatsSeen = Schema.Struct({
 });
 /** What a seat request (start, get, activate, stop, view) answers. */
 export const SeatsSeatResponse = Schema.Union([SeatsStarted, SeatsVacant, SeatsStopping, SeatsSeen]);
-export const SeatsResponse = Schema.Union([...SeatsSeatResponse.members, ...SeatsAttachResponse.members]);
+export const SeatsResponse = Schema.Union([...SeatsSeatResponse.members, SeatsReadWindow, ...SeatsAttachResponse.members]);
 
 /**
  * A seat's state, sent by the machine that runs it to the machine that edits
@@ -129,6 +130,8 @@ export type SeatsChannelOptions = {
   /** Where a remote seat's state goes on arrival; the window by default. */
   readonly publishState?: (event: AgentSeatStateEvent) => void;
   readonly pin?: typeof ensureSeatSessionId;
+  /** The seat's settled grid for a Read; this process's observer by default. */
+  readonly grid?: SeatGrid;
 };
 
 /** The peer names a seat; its own machine derives the whole launch. */
@@ -295,6 +298,14 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
       return { _tag: "Seen", canvas: request.canvas, seatId: request.seatId, machine: initial.name,
         generation: live.epoch, changed };
     }
+    if (request._tag === "Read") {
+      const window = yield* readLocalWindow(where, initial.seat.bindingId, host.get(initial.seat.bindingId),
+        request.lines, options.grid);
+      if (window === undefined) return { _tag: "Vacant", canvas: request.canvas, seatId: request.seatId, machine: initial.name };
+      // The count only: the text goes to the peer and never into a log row.
+      yield* Effect.logInfo("seat read").pipe(Effect.annotateLogs({ lines: window.lines }));
+      return { ...window, machine: initial.name };
+    }
     if (request._tag === "Stop") {
       const live = host.get(initial.seat.bindingId);
       if (live === undefined || live.status === "exited" || live.status === "missing")
@@ -371,14 +382,16 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
       );
     const where = { machine, canvas: request.canvas, seatId: request.seatId };
     const kind = request._tag === "Start" ? "start" : request._tag === "Stop" ? "stop"
-      : request._tag === "Viewed" ? "view" : "activation";
+      : request._tag === "Viewed" ? "view" : request._tag === "Read" ? "read" : "activation";
     // Every start, activation and stop is logged on this machine with its outcome.
     const trace = { occupied: false };
     const answered = answer(context, request, machine, trace).pipe(
       Effect.mapError((cause) => asSeatsFailure(where, cause)));
     // A start that reached occupy is logged there once; one refused before it is logged here.
     const logged = request._tag === "Start";
-    return yield* (request._tag === "Get" ? answered : answered.pipe(
+    // A read logs "seat read" itself, with its line count.
+    return yield* (request._tag === "Get" ? answered : request._tag === "Read" ? answered.pipe(
+      Effect.tapCause((cause) => Effect.logWarning("seat read failed", cause))) : answered.pipe(
       Effect.tap(() => logged && trace.occupied ? Effect.void : Effect.logInfo(`seat ${kind} answered`)),
       Effect.tapCause((cause) => logged && trace.occupied ? Effect.void : Effect.logError(`seat ${kind} failed`, cause)),
     )).pipe(

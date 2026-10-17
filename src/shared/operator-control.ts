@@ -18,7 +18,7 @@ import { RemoteHost } from "./remote-hosts";
 import { MachineExchangeInput, MachineExchangeData } from "./machine-exchange";
 import { MachineLogRead, MachineLogsInput } from "./machine-log";
 import { EncodedFailure } from "./failure";
-import { MachineSeatInput, MachineSeatStartInput, MachineSeatStarted, MachineSeatStopped } from "./machine-seat";
+import { MachineSeatInput, MachineSeatRead, MachineSeatReadInput, MachineSeatStartInput, MachineSeatStarted, MachineSeatStopped } from "./machine-seat";
 
 /** Owner-local control, admitted by OS peer ancestry rather than seat tokens. */
 
@@ -139,6 +139,7 @@ export const OperatorMachineExchangeRequest = request("machine.exchange", Machin
 export const OperatorMachineLogsRequest = request("machine.logs", MachineLogsInput);
 export const OperatorMachineSeatStartRequest = request("machine.seat-start", MachineSeatStartInput);
 export const OperatorMachineSeatStopRequest = request("machine.seat-stop", MachineSeatInput);
+export const OperatorMachineSeatReadRequest = request("machine.seat-read", MachineSeatReadInput);
 
 export const OperatorRequestEnvelope = Schema.Union([OperatorCompanionHelloRequest,
 OperatorCompanionCallRequest,
@@ -156,6 +157,7 @@ OperatorMachineExchangeRequest,
 OperatorMachineLogsRequest,
 OperatorMachineSeatStartRequest,
 OperatorMachineSeatStopRequest,
+OperatorMachineSeatReadRequest,
 ]);
 export type OperatorRequestEnvelope = typeof OperatorRequestEnvelope.Type;
 
@@ -191,6 +193,7 @@ export const OperatorMachineExchangeResponse = response("machine.exchange", Mach
 export const OperatorMachineLogsResponse = response("machine.logs", MachineLogRead);
 export const OperatorMachineSeatStartResponse = response("machine.seat-start", MachineSeatStarted);
 export const OperatorMachineSeatStopResponse = response("machine.seat-stop", MachineSeatStopped);
+export const OperatorMachineSeatReadResponse = response("machine.seat-read", MachineSeatRead);
 
 export const OperatorErrorType = Schema.Literals(["validation", "not_found",
 "conflict",
@@ -244,6 +247,7 @@ OperatorMachineExchangeResponse,
 OperatorMachineLogsResponse,
 OperatorMachineSeatStartResponse,
 OperatorMachineSeatStopResponse,
+OperatorMachineSeatReadResponse,
 OperatorErrorResponse,]);
 export type OperatorResponseEnvelope = typeof OperatorResponseEnvelope.Type;
 

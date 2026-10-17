@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import {
   MachineAddInput, MachineEmptyInput, MachineCopyInput, MachineStatusInput,
@@ -8,7 +8,7 @@ import type { OperatorArgsByOp } from "@shared/operator-control";
 import { OperatorSocket, requireOwnerCommand } from "../core/operator-socket";
 import { MachineExchangeInput } from "@shared/machine-exchange";
 import { MachineLogsInput } from "@shared/machine-log";
-import { MachineSeatInput, MachineSeatStartInput } from "@shared/machine-seat";
+import { MachineSeatInput, MachineSeatReadInput, MachineSeatStartInput } from "@shared/machine-seat";
 import { MachineInstallInput, MachineLocalPaths } from "@shared/machine-install";
 import { installMachine } from "../../main/junto/hosts/install";
 import { uninstallMachine } from "../../main/junto/hosts/uninstall";
@@ -84,6 +84,18 @@ const seatStop = Command.make("seat-stop", seatArguments, ({ canvas, seat }) => 
   return yield* socket.call("machine.seat-stop", args);
 }))).pipe(Command.withDescription("Stop a seat by canvas and seat id; the seat stays on the canvas"));
 
+const seatRead = Command.make("seat-read", {
+  ...seatArguments,
+  lines: Flag.integer("lines").pipe(Flag.optional, Flag.withDescription("Last lines of the settled grid to read (default 40, at most 2000)")),
+}, ({ canvas, seat, lines }) => executeJsonCommand("machine seat-read", Effect.gen(function* () {
+  yield* requireOwnerCommand;
+  const args = yield* Schema.decodeUnknownEffect(MachineSeatReadInput, { onExcessProperty: "error" })({
+    canvas, seatId: seat, ...(Option.isSome(lines) ? { lines: lines.value } : {}),
+  });
+  const socket = yield* OperatorSocket;
+  return yield* socket.call("machine.seat-read", args);
+}))).pipe(Command.withDescription("Read what a seat's terminal shows, on this machine or the one that runs it"));
+
 export const machineCommand = Command.make("machine").pipe(
   Command.withDescription("Install and manage Junto on machines"),
   Command.withSubcommands([
@@ -98,6 +110,6 @@ export const machineCommand = Command.make("machine").pipe(
     ownerCommand("configure", "machine.configure", MachineTargetInput),
     ownerCommand("setup", "machine.setup", MachinePeerIdentity),
     ownerCommand("exchange", "machine.exchange", MachineExchangeInput),
-    logs, seatStart, seatStop,
+    logs, seatStart, seatStop, seatRead,
   ]),
 );

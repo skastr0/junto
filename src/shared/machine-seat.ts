@@ -30,5 +30,32 @@ export const MachineSeatStarted = Schema.Struct({
 });
 export type MachineSeatStarted = typeof MachineSeatStarted.Type;
 
+/** Read a seat's settled terminal grid: its last lines (default 40, at most 2000). */
+export const MachineSeatReadInput = Schema.Struct({
+  canvas: CanvasName, seatId: MachineSeatId,
+  lines: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isBetween({ minimum: 1, maximum: 2000 })))),
+});
+export type MachineSeatReadInput = typeof MachineSeatReadInput.Type;
+const Count = (max: number) => Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isBetween({ minimum: 0, maximum: max })));
+
+/**
+ * What the seat's terminal shows, read on the machine that runs it. text is
+ * terminal output for the owner who asked, at most 256 KiB, and only here:
+ * vacant seats answer without it.
+ */
+export const MachineSeatRead = Schema.Struct({
+  canvas: CanvasName,
+  seatId: MachineSeatId,
+  hostId: Text,
+  vacant: Schema.Boolean,
+  generation: Schema.optionalKey(Text),
+  text: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(256 * 1024)))),
+  lines: Schema.optionalKey(Count(2000)),
+  cols: Schema.optionalKey(Count(1000)),
+  rows: Schema.optionalKey(Count(500)),
+  truncated: Schema.optionalKey(Schema.Boolean),
+});
+export type MachineSeatRead = typeof MachineSeatRead.Type;
+
 export const MachineSeatStopped = Schema.Struct({ canvas: CanvasName, seatId: MachineSeatId, outcome: Schema.Literals(["stopping", "vacant"]) });
 export type MachineSeatStopped = typeof MachineSeatStopped.Type;
