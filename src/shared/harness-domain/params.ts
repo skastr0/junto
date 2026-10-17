@@ -42,8 +42,8 @@ export type ParamLayer = typeof ParamLayer.Type;
 export const ParamOptions = Schema.Union([
   /** The harness accepts exactly these (efforts, modes, permission modes it declares). */
   Schema.Struct({ source: Schema.Literal("fixed"), values: Schema.Array(Schema.String) }),
-  /** Enumerated from the installed binary on this machine (models). */
-  Schema.Struct({ source: Schema.Literal("inventory") }),
+  /** Enumerated on the seat's machine; `list` names which inventory list (models by default). */
+  Schema.Struct({ source: Schema.Literal("inventory"), list: Schema.optionalKey(Schema.Literals(["models", "profiles"])) }),
   /** Any value; `suggestions` are known-good ones, not a closed set. */
   Schema.Struct({ source: Schema.Literal("free"), suggestions: Schema.Array(Schema.String) }),
 ]);
@@ -345,7 +345,7 @@ export const paramsOfTemplate = (template: ManagedTerminalTemplate): HarnessPara
     params.push({
       key: "profile",
       label: "Profile",
-      options: { source: "free", suggestions: [] },
+      options: { source: "inventory", list: "profiles" },
       custom: true,
       emit: { via: "flag", flag: spec.profileFlag },
       resume: "repass",

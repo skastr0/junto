@@ -350,7 +350,7 @@ const offeredValues = (spec: HarnessParamSpec, inventory: HarnessInventory | und
     case "fixed":
       return spec.options.values.filter((value) => !(spec.unoffered ?? []).includes(value));
     case "inventory":
-      return inventoryOptions(inventory);
+      return inventoryOptions(inventory, spec.options.list);
     case "free":
       return spec.options.suggestions;
   }

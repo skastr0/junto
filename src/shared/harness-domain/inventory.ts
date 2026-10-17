@@ -91,6 +91,8 @@ export const HarnessInventory = Schema.Struct({
   models: Schema.Array(InventoryModel),
   /** Efforts the harness offers when its models carry none. */
   efforts: Schema.Array(Schema.String),
+  /** Named profiles the harness has on this machine (Hermes), when it keeps any. */
+  profiles: Schema.optionalKey(Schema.Array(Schema.String)),
   /** When the models were scanned; absent before the first scan finishes. */
   scannedAt: Schema.optionalKey(Schema.Number),
   /** A scan is running now; the models shown are the last good answer. */
@@ -120,6 +122,11 @@ export class InventoryUnavailableError extends Schema.TaggedError<InventoryUnava
 export const isInventoryStale = (inventory: HarnessInventory, nowMs: number): boolean =>
   inventory.scannedAt === undefined || nowMs - inventory.scannedAt >= INVENTORY_TTL_MS;
 
-/** The values an `inventory` param offers on a machine. */
-export const inventoryOptions = (inventory: HarnessInventory | undefined): readonly string[] =>
-  inventory?.installed ? inventory.models.map((model) => model.id) : [];
+/** The values an `inventory` param offers on a machine, from the list it names. */
+export const inventoryOptions = (
+  inventory: HarnessInventory | undefined,
+  list: "models" | "profiles" = "models",
+): readonly string[] => {
+  if (!inventory?.installed) return [];
+  return list === "profiles" ? (inventory.profiles ?? []) : inventory.models.map((model) => model.id);
+};
