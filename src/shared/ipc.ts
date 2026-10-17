@@ -1341,7 +1341,12 @@ export type NativeSettingFailure =
   };
 
 export type NativeSettingsReadResult =
-  | { readonly ok: true; readonly values: Readonly<Record<string, boolean | string | number>> }
+  | {
+    readonly ok: true;
+    readonly values: Readonly<Record<string, boolean | string | number>>;
+    /** Keys whose file value is outside the declared setting; shown as unset, never as text. */
+    readonly unfit?: readonly string[];
+  }
   | { readonly ok: false; readonly error: NativeSettingFailure };
 
 export type NativeSettingWriteResult =

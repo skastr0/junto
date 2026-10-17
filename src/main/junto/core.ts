@@ -4,6 +4,7 @@ import type { MachineCoreOptions } from "../core-runtime";
 import { makeCoreRuntime } from "../core-runtime";
 import { MachineCoreStatus, MachineCoreRows, MachineCoreSeats, MachineCoreMail } from "../core-runtime";
 import { makeInventoryChannel } from "./inventory/channel";
+import { makeNativeConfigChannel } from "./inventory/native-channel";
 import { makeSettingsChannel } from "./settings/link-channel";
 import { MachineOwnerControl } from "./hosts/machine-owner";
 import { MachineLink, type MachineLinkListener } from "./link/service";
@@ -95,8 +96,9 @@ export const startCore = async (options: CoreOptions) => {
     });
     seatProcesses = await startCoreSeats({ home: options.home });
     const inventory = await runtime.runPromise(makeInventoryChannel());
+    const nativeConfig = await runtime.runPromise(makeNativeConfigChannel());
     const settings = await runtime.runPromise(makeSettingsChannel());
-    await runtime.runPromise(link.setChannels({ status: status.handler, rows: rows.handler, seats: seats.handler, inventory, settings }));
+    await runtime.runPromise(link.setChannels({ status: status.handler, rows: rows.handler, seats: seats.handler, inventory, settings, "native-config": nativeConfig }));
     listener = await runtime.runPromise(link.listen(options.home));
     owner = await startOperatorControlServer({ home: options.home, dispatch: (request) => runtime.runPromise(actions.dispatch(request)) });
     await runtime.runPromise(mail.boot({

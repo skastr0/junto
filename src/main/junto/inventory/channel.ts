@@ -7,7 +7,6 @@
  * request bound is never at stake.
  */
 import { Effect, Schema } from "effect";
-import { isThisMachine } from "@shared/machine-name";
 import type { LinkChannelHandler } from "../link/types";
 import { logMachine } from "../observability/logger";
 import { MachineRepository } from "../machines/repository";
@@ -15,12 +14,10 @@ import { ModelRecords } from "../model/records";
 import { ModelService } from "../model/service";
 import { InventoryUnavailableError } from "@shared/harness-domain/inventory";
 import { HarnessInventory } from "../term/templates/harness-inventory";
+import { admitCanvasEditor, tagOf } from "./admission";
 import {
-  InventoryCanvasEditorMismatch,
   InventoryEventRefused,
   InventoryLinkFailure,
-  InventoryNoSeatHere,
-  InventoryPeerNotPinned,
   LinkInventoryRequest,
   type InventoryLinkFailure as InventoryLinkFailureType,
   wireSnapshot,
@@ -34,9 +31,7 @@ const isLinkFailure = Schema.is(InventoryLinkFailure);
  */
 const asLinkFailure = (machine: string, cause: unknown): InventoryLinkFailureType => {
   if (isLinkFailure(cause)) return cause;
-  const tag = typeof cause === "object" && cause !== null && "_tag" in cause && typeof cause._tag === "string"
-    ? cause._tag : cause instanceof Error ? cause.name : "Unknown";
-  return new InventoryUnavailableError({ machine, reason: "failed", message: `This machine could not answer (${tag.slice(0, 64)}).` });
+  return new InventoryUnavailableError({ machine, reason: "failed", message: `This machine could not answer (${tagOf(cause)}).` });
 };
 
 /** A channel with no events refuses every event frame. */
@@ -45,31 +40,14 @@ const noEvents = (): never => {
 };
 
 export const makeInventoryChannel = Effect.fn("InventoryLink.make")(function* () {
-  const model = yield* ModelService;
-  const records = yield* ModelRecords;
+  const services = yield* Effect.context<ModelService | ModelRecords | MachineRepository>();
   const machines = yield* MachineRepository;
   const inventory = yield* HarnessInventory;
 
   const handleRequest: NonNullable<LinkChannelHandler["handleRequest"]> = (context, raw) => Effect.gen(function* () {
     // Decode here too: direct callers cannot bypass the transport decoder.
     const request = yield* Schema.decodeUnknownEffect(LinkInventoryRequest)(raw, { onExcessProperty: "error" });
-    const machine = yield* machines.machineName;
-    const where = {
-      machine,
-      ...(context.operationId === undefined ? {} : { operationId: context.operationId }),
-    };
-    // Identity comes from the admitted hello, never from the payload.
-    const peer = yield* machines.peer(context.peer.machineName);
-    if (peer?.installationId !== context.peer.installationId)
-      return yield* new InventoryPeerNotPinned({ ...where, message: "The asking machine is no longer pinned." });
-    if ((yield* records.canvasEditor(request.canvas)) !== context.peer.installationId)
-      return yield* new InventoryCanvasEditorMismatch({
-        ...where,
-        message: "Only the machine editing this canvas may ask for its seats' machine inventory.",
-      });
-    const canvas = yield* model.canvas(request.canvas);
-    const seatHere = [...canvas.nodes.values()].some((node) => node.kind === "agent" && isThisMachine(node.host, machine));
-    if (!seatHere) return yield* new InventoryNoSeatHere({ ...where, message: "This canvas has no seat on this machine." });
+    yield* admitCanvasEditor(context, request.canvas, yield* machines.machineName).pipe(Effect.provideContext(services));
     const { snapshot, omittedModels } = wireSnapshot(yield* inventory.machine, Date.now());
     if (omittedModels > 0) yield* Effect.logInfo("inventory models left out", { omittedModels });
     return snapshot;
