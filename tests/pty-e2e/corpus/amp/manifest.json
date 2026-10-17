@@ -207,12 +207,242 @@
         "description": "the numbered-line prompt remains queued as steering while the ongoing turn is Streaming; no interrupt or idle return is recorded",
         "prompt": "forty numbered JUNTO CAPTURE lines"
       }
+    },
+    {
+      "harness": "amp",
+      "scenario": "retry-overloaded",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: overloaded } creating the thread, never recovering",
+        "wiring": "AMP_URL points at the stub, which answers amp's internal API; the model runs server side, so only thread creation is scripted; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/api/thread-actors 503",
+          "/api/thread-actors 503",
+          "/api/thread-actors 503",
+          "/api/thread-actors 503",
+          "/api/thread-actors 503",
+          "/api/thread-actors 503",
+          "/api/thread-actors 503",
+          "/api/thread-actors 503",
+          "/api/thread-actors 503"
+        ],
+        "renderedLines": [
+          "                                ......",
+          "                          ••••••••••••:::::.",
+          "                       ••••••●••••••••••:::··:.",
+          "                     ••••●••●•••••••••••••::···:.",
+          "                   •●•●••●••●●●••••••••••••::····:.",
+          "                  ●••●●●●●●●••●●●•••••••••:::··.···.",
+          "                 ••●●●●●●●●●●•●●●●••••••••:::··...··.     Welcome to Amp",
+          "                •••●•●●●●●●●●●●●●●••••••••:::··...···     ctrl+o for commands · ? for shortcuts",
+          "                ●●•••••••••••●●●●●●•••••••::::·....··.",
+          "               .••••••••••••••●●●●••••••::::····....··",
+          "               .••••••●••••••••••••:::······........··",
+          "                ::•:••••••••••••••::···.............·.",
+          "                :·::••••••:::::::::···.............··",
+          "                 :·:::•::::::::::····.............··.",
+          "                  ·.··:::::::······..............··.",
+          "                   .....········.................·",
+          "                     ............................",
+          "                       ........................",
+          "                          ..................",
+          "                                  ..",
+          " ┃ say hi",
+          "╰ ∼ Connecting ─────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "╰ ≈ Connecting ─────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "╰ ≋ Connecting ─────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "                                                                                                                   ╭──╮",
+          "                                                                                                                   │  │",
+          "╰ ◌ Reconnecting in 2s ─────────────────────────────────────────────────────────── <CWD> ─╯",
+          "                                                                           ╭──────────────────────────────────────────╮",
+          "                                                                           │ ✕ Connection failed: Failed to create th │",
+          "                                            ╭─────────────────────────────────────────────────────────────────────────╮",
+          "                                            │ ✕ Connection failed: Failed to create thread-actors thread: 503 {\"error │",
+          "                    ╭─────────────────────────────────────────────────────────────────────────────────────────────────╮",
+          "                    │ ✕ Connection failed: Failed to create thread-actors thread: 503 {\"error\":\"service-unavailable\"} │",
+          "╰ ◌ Reconnecting in 10 ─────────────────────────────────────────────────────────── <CWD> ─╯"
+        ],
+        "cliVersion": "0.0.1792209635-g24a9fe (released 2026-10-17T04:00:35.000Z, 1h ago)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "amp",
+      "scenario": "retry-rate",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: rate } creating the thread, never recovering",
+        "wiring": "AMP_URL points at the stub, which answers amp's internal API; the model runs server side, so only thread creation is scripted; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/api/thread-actors 429",
+          "/api/thread-actors 429",
+          "/api/thread-actors 429",
+          "/api/thread-actors 429",
+          "/api/thread-actors 429",
+          "/api/thread-actors 429",
+          "/api/thread-actors 429",
+          "/api/thread-actors 429",
+          "/api/thread-actors 429"
+        ],
+        "renderedLines": [
+          "                              ..•:••:..",
+          "                         .••●••●•••••••::::·",
+          "                      .•••●●•●●••●●●••••::::···",
+          "                    ••••••●●●●●●●●●●●●●•••::····:",
+          "                   ••●••●•●●●••●●●●●●●●●•••::····:.",
+          "                 .•●●●●●●●●●●●••••••••••••••::·..···",
+          "                 ●•●●●●●●●●●●●●•••••••••••••::·...···     Welcome to Amp",
+          "                ●••●•●•••●●•●●●•••••••••••••::··...··.    ctrl+o for commands · ? for shortcuts",
+          "               .••••••••••●●●●●••••••••••••:::··...···",
+          "               •••••••••••●●●●●●•••••••::::······...··",
+          "               •:•••••••••••●●●●•••:::···...........··",
+          "               .:•••••••••••••●●••:::···............··",
+          "                ·:•••::::::••••••::::··............··.",
+          "                ..::•:::::::::::::·····...........··.",
+          "                 ..·::::·············.............··",
+          "                   ...··:::········..............·.",
+          "                    ............................·",
+          "                         ...................",
+          "                               ........",
+          " ┃ say hi",
+          "╰ ∼ Connecting ─────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "╰ ≈ Connecting ─────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "╰ ≋ Connecting ─────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "                                                                                               ╭──────────────────────╮",
+          "                                                                                               │ ✕ Connection failed: │",
+          "╰ ◌ Reconnecting in 2s ─────────────────────────────────────────────────────────── <CWD> ─╯",
+          "                                                          ╭───────────────────────────────────────────────────────────╮",
+          "                                                          │ ✕ Connection failed: Failed to create thread-actors threa │",
+          "                           ╭──────────────────────────────────────────────────────────────────────────────────────────╮",
+          "                           │ ✕ Connection failed: Failed to create thread-actors thread: 429 {\"error\":\"rate-limited\"} │",
+          "╰ ◌ Reconnecting in 10 ─────────────────────────────────────────────────────────── <CWD> ─╯"
+        ],
+        "cliVersion": "0.0.1792209635-g24a9fe (released 2026-10-17T04:00:35.000Z, 1h ago)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "amp",
+      "scenario": "usage-limit",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: credits }",
+        "wiring": "AMP_URL points at the stub, which answers amp's internal API; the model runs server side, so only thread creation is scripted; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/api/thread-actors 402",
+          "/api/thread-actors 402"
+        ],
+        "renderedLines": [
+          "                           ••••••••••••:::.",
+          "                       •••••••••••••••::::··:·",
+          "                     •••••••••●•••••••••:::····:.",
+          "                   ••••••••••••●•••••••••:::·····•",
+          "                  •••••●••••••••●●•••••••:::··..··:",
+          "                 ●••●●●●●●●●●●●••●●••••••:::··...··:      Welcome to Amp",
+          "                .•••●●●●●●●●●•••●●●●•••••:::··....···     ctrl+o for commands · ? for shortcuts",
+          "                ••••●•••●●•••••••●●●•••••:::··.....··",
+          "                ••••••••••••••••••••••••::::···.....·.",
+          "                •••••••••••••••••••:::·······.......·.",
+          "                ••:••:•••••••::::::···..............·",
+          "                .::::::••••::::::····..............··",
+          "                 ·:··::::::::::····...............··",
+          "                  ·······:::·····................··",
+          "                   .·...........................·:",
+          "                     ..........................·",
+          "                       .......................",
+          "                          .................",
+          "                                                                                                                   ╭──╮",
+          "                                                                                                                   │  │",
+          " ┃ say hi",
+          "╰ insuffting    ────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "                                                                          ╭───────────────────────────────────────────╮",
+          "                                                                          │ ✕ Connection failed: insufficient-credits │",
+          "╰ insufficient-credits ─────────────────────────────────────────────────────────── <CWD> ─╯"
+        ],
+        "cliVersion": "0.0.1792209635-g24a9fe (released 2026-10-17T04:00:35.000Z, 1h ago)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "amp",
+      "scenario": "error-auth",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: auth }",
+        "wiring": "AMP_URL points at the stub, which answers amp's internal API; the model runs server side, so only thread creation is scripted; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/api/thread-actors 401",
+          "/api/thread-actors 401",
+          "/api/thread-actors 401",
+          "/api/thread-actors 401",
+          "/api/thread-actors 401",
+          "/api/thread-actors 401",
+          "/api/thread-actors 401",
+          "/api/thread-actors 401",
+          "/api/thread-actors 401"
+        ],
+        "renderedLines": [
+          "                                                                                                                   ╭──╮",
+          "                                                                                                                   │  │",
+          " ┃ say hi",
+          "╰ ◌ Reconnecting in 2s ─────────────────────────────────────────────────────────── <CWD> ─╯",
+          "                                                               ╭──────────────────────────────────────────────────────╮",
+          "                                                               │ ✕ Connection failed: Failed to create thread-actors  │",
+          "                           ╭──────────────────────────────────────────────────────────────────────────────────────────╮",
+          "                           │ ✕ Connection failed: Failed to create thread-actors thread: 401 {\"error\":\"unauthorized\"} │",
+          "╰ ∼ Connecting ─────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "╰ ◌ Reconnecting in 10 ─────────────────────────────────────────────────────────── <CWD> ─╯"
+        ],
+        "cliVersion": "0.0.1792209635-g24a9fe (released 2026-10-17T04:00:35.000Z, 1h ago)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "amp",
+      "scenario": "error-server",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: provider } after retries run out",
+        "wiring": "AMP_URL points at the stub, which answers amp's internal API; the model runs server side, so only thread creation is scripted; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/api/thread-actors 500",
+          "/api/thread-actors 500",
+          "/api/thread-actors 500",
+          "/api/thread-actors 500",
+          "/api/thread-actors 500",
+          "/api/thread-actors 500",
+          "/api/thread-actors 500",
+          "/api/thread-actors 500",
+          "/api/thread-actors 500"
+        ],
+        "renderedLines": [
+          " ┃ say hi",
+          "╰ ∼ Connecting ─────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "╰ ≈ Connecting ─────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "╰ ≋ Connecting ─────────────────────────────────────────────────────────────────── <CWD> ─╯",
+          "                                                                                                 ╭────────────────────╮",
+          "                                                                                                 │ ✕ Connection faile │",
+          "╰ ◌ Reconnecting in 2s ─────────────────────────────────────────────────────────── <CWD> ─╯",
+          "                                                         ╭────────────────────────────────────────────────────────────╮",
+          "                                                         │ ✕ Connection failed: Failed to create thread-actors thread │",
+          "                         ╭────────────────────────────────────────────────────────────────────────────────────────────╮",
+          "                         │ ✕ Connection failed: Failed to create thread-actors thread: 500 {\"error\":\"internal-error\"} │",
+          "╰ ◌ Reconnecting in 10 ─────────────────────────────────────────────────────────── <CWD> ─╯"
+        ],
+        "cliVersion": "0.0.1792209635-g24a9fe (released 2026-10-17T04:00:35.000Z, 1h ago)"
+      },
+      "expectedScreen": {}
     }
   ],
   "sanitization": {
     "method": "decoded-jsonl-scan",
-    "fixtures": 4,
-    "decodedBytes": 883533,
+    "fixtures": 9,
+    "decodedBytes": 2594581,
     "checks": [
       "home-path",
       "username",
@@ -238,5 +468,11 @@
   },
   "redactions": [
     "escape-split capture working-directory fragments -> <CWD>"
-  ]
+  ],
+  "signalCaptureEvidence": {
+    "tool": "tests/pty-e2e/signal-capture.ts",
+    "capturedAt": "2026-10-17T05:22:20.294Z",
+    "harnessVersion": "0.0.1792209635-g24a9fe (released 2026-10-17T04:00:35.000Z, 1h ago)",
+    "provider": "scripted local stub; the binary and its rendering are real, the provider replies are not"
+  }
 }

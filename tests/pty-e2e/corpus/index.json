@@ -69,6 +69,31 @@
         "scenario": "working-turn",
         "status": "complete",
         "reason": null
+      },
+      {
+        "scenario": "retry-overloaded",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "retry-rate",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "usage-limit",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "error-auth",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "error-server",
+        "status": "complete",
+        "reason": null
       }
     ],
     "session": {
