@@ -50,6 +50,15 @@ describe("TOML top-level keys", () => {
     expect(readTomlKey(`[profiles.fast]\nmodel = "mini"\n`, "model")).toEqual({ ok: true, value: undefined });
   });
 
+  it("keeps a newline-and-bracket value inside its own string", () => {
+    const hostile = `x"\n[mcp_servers.a]\ncommand = "evil"`;
+    const toml = writeTomlKey(text, "model", hostile);
+    expect(toml.ok && toml.text.split("\n").filter((line) => line.startsWith("[")).length).toBe(1);
+    expect(readTomlKey(toml.ok ? toml.text : "", "model")).toEqual({ ok: true, value: hostile });
+    const json = writeJsonKey(`{}\n`, "model", hostile);
+    expect(json.ok && JSON.parse(json.text)).toEqual({ model: hostile });
+  });
+
   it("refuses a dotted key", () => {
     expect(writeTomlKey(text, "profiles.fast.model", "x").ok).toBe(false);
   });
