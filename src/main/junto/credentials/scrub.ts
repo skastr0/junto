@@ -14,7 +14,10 @@ const TAIL_LINES = 40;
 const TAIL_BYTES = 4 * 1024;
 /** Shorter environment values ("1", "true") would redact ordinary words. */
 const ENVIRONMENT_VALUE_FLOOR = 6;
-const SHOWN_ENVIRONMENT = new Set(["HOME", "USER", "LOGNAME", "SHELL", "PATH", "TMPDIR", "PWD", "TERM", "LANG"]);
+const SHOWN_ENVIRONMENT = new Set(["HOME", "USER", "LOGNAME", "SHELL", "PATH", "TMPDIR", "PWD", "TERM", "COLORTERM", "LANG"]);
+/** Junto's own variables name seats, sockets and paths; only its credential is secret. */
+const shownName = (name: string): boolean =>
+  SHOWN_ENVIRONMENT.has(name) || name.startsWith("LC_") || (name.startsWith("JUNTO_") && name !== "JUNTO_WORK_TOKEN");
 
 // Step 2: escape sequences whole, then the controls and bidi formatting left.
 const ESCAPES = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][\s\S]*?(?:\u0007|\u001b\\|$)|\u001b[PX^_][\s\S]*?(?:\u001b\\|$)|\u001b[\s\S]?|\u009b[0-?]*[ -/]*[@-~]/g;
@@ -91,7 +94,7 @@ export const knownSecretValues = (
   for (const set of registered.values()) values.push(...set);
   for (const [name, value] of Object.entries(environment)) {
     if (value === undefined || value.length < ENVIRONMENT_VALUE_FLOOR) continue;
-    if (SHOWN_ENVIRONMENT.has(name) || name.startsWith("LC_")) continue;
+    if (shownName(name)) continue;
     values.push(value);
   }
   return values;
