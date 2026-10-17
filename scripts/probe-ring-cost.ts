@@ -33,6 +33,11 @@
  * fewer than MIN_RINGS moving rings is not the fixture. Any of these marks the
  * scenario `valid: false` and the run exits 2.
  *
+
+ * --hide-ring-parts is a probe-only diagnostic: it hides .junto-mark__part so
+ * the layer cost of the rings shows. Its JSON carries diagnostic.comparable
+ * ToProduct=false; it is never a product option (motion law).
+ *
  * --hold N keeps the app up N seconds after the scenarios so another capture
  * (a Chrome trace, screenshots) can attach to the same instance on PORT.
  */
@@ -75,7 +80,7 @@ if (compareArg !== "") {
       const file = join(scratch, "run.json");
       const child = spawnSync(
         process.execPath,
-        [import.meta.path, "--app-root", build.root, "--label", `${build.name}-${repeat}`, "--out", file, "--seconds", arg("seconds", "6"), "--port", arg("port", "9341"), "--fixture", arg("fixture", "small"), "--scenarios", arg("scenarios", "idle,pan-outside,pan-hover,stream")],
+        [import.meta.path, "--app-root", build.root, "--label", `${build.name}-${repeat}`, "--out", file, "--seconds", arg("seconds", "6"), "--port", arg("port", "9341"), "--fixture", arg("fixture", "small"), "--scenarios", arg("scenarios", "idle,pan-outside,pan-hover,stream"), ...(process.argv.includes("--hide-ring-parts") ? ["--hide-ring-parts"] : [])],
         { stdio: ["ignore", "ignore", "inherit"] },
       );
       const report = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
@@ -151,6 +156,8 @@ const port = Number(arg("port", "9341"));
 const holdSeconds = Number(arg("hold", "0"));
 const outPath = arg("out", "");
 const forceAxOff = process.argv.includes("--force-ax-off");
+/** Diagnostic only: hide the ring parts to see what they cost in layers. Never a product option. */
+const hideRingParts = process.argv.includes("--hide-ring-parts");
 const CANVAS = "ring-cost";
 /** The stream scenario: this many lines every TICK_MS for the whole window. */
 const LINES_PER_TICK = 20;
@@ -784,6 +791,17 @@ try {
     };
   };
 
+  if (hideRingParts) {
+    // The rings are the product's heartbeat and the motion law forbids stilling
+    // them; this is a probe-only look at what their layers cost, in a throwaway
+    // window, and the report says so.
+    await page.evaluate(`(() => {
+      const style = document.createElement("style");
+      style.textContent = ".junto-mark__part { display: none !important; }";
+      document.head.append(style);
+    })()`);
+    await sleep(500);
+  }
   const preflight = await checks();
   const streamProblems: string[] = [];
   const results: Scenario[] = [];
@@ -979,7 +997,10 @@ try {
     label,
     sourceCommit,
     appRoot,
-    command: `bun scripts/probe-ring-cost.ts --app-root ${appRoot} --label ${label} --seconds ${seconds} --port ${port} --fixture ${fixtureName} --scenarios ${wantedScenarios.join(",")}`,
+    ...(hideRingParts
+      ? { diagnostic: { kind: "hide-ring-parts", comparableToProduct: false, note: "DIAGNOSTIC, not a product configuration: .junto-mark__part is display:none for this run. Never compare these numbers with a product build and never read them as a shipping option; the motion law stands." } }
+      : {}),
+    command: `bun scripts/probe-ring-cost.ts --app-root ${appRoot} --label ${label}${hideRingParts ? " --hide-ring-parts" : ""} --seconds ${seconds} --port ${port} --fixture ${fixtureName} --scenarios ${wantedScenarios.join(",")}`,
     when: new Date().toISOString(),
     environment: { ...environment, rendererAccessibilityForcedOff: forceAxOff, streamLinesPerTick: LINES_PER_TICK, streamTickMs: TICK_MS, preflightProblems: preflight },
     fixture: fixtureSummary,
@@ -991,7 +1012,7 @@ try {
   console.log(json);
   if (outPath !== "") writeFileSync(outPath, json);
   console.log(
-    `${label} ${sourceCommit?.slice(0, 9) ?? "?"} ` +
+    `${hideRingParts ? "DIAGNOSTIC (ring parts hidden, not comparable) " : ""}${label} ${sourceCommit?.slice(0, 9) ?? "?"} ` +
       results
         .map((row) => `${row.name}: busy ${row.rendererBusyMsPerSecond} ms/s${row.frameMs === null ? "" : `, frame p50/p95/p99/max ${row.frameMs.p50}/${row.frameMs.p95}/${row.frameMs.p99}/${row.frameMs.max} ms, dropped ${row.frameMs.droppedAtDisplayRate}`}, gpu ${row.cpuPercent.GPU ?? "?"}%, renderer ${row.cpuPercent.renderer ?? "?"}%, rings ${row.ringsVisible.moving}`)
         .join(" | ") +
