@@ -43,7 +43,8 @@ const mixedRun = (run: string): boolean => run.length >= 32 && /[A-Za-z]/.test(r
 const judgePiece = (piece: string): string =>
   piece.split(JUNTO_ID).map((part, index) => index % 2 === 1 ? part : mixedRun(part) ? REDACTED : part).join("");
 const mixed = (run: string): boolean => judgePiece(run) !== run;
-const PATH_BOUNDARY = /[\s"'`(=]/;
+// Curly quotes too: GNU tools quote a path with ‘ ’ where macOS prints it bare.
+const PATH_BOUNDARY = /[\s"'`(=‘’“”]/;
 // The same set by char code: one regex test per character costs most of a long scrub.
 const isPathBoundary = (code: number): boolean =>
   code === 32 || (code >= 9 && code <= 13) || code === 34 || code === 39 || code === 96 || code === 40 || code === 61 ||
@@ -55,7 +56,8 @@ const judgeSegment = (segment: string): string => BUILD_SEGMENT.test(segment) ? 
 
 /**
  * A run with "/" is judged whole, unless it lies in a path: the token around
- * it starts with "/", "~/" or "./" after whitespace, a quote, "(" , "=" or
+ * it starts with "/", "~/" or "./" after whitespace, a quote (straight or
+ * curly), "(" , "=" or
  * the start of the text, or is a file URL's path. Paths may enter, so a path
  * is judged one segment at a time, wherever the run starts in it (a run
  * often starts after a "." such as "/.junto/").
