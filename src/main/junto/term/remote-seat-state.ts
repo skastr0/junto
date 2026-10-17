@@ -15,6 +15,20 @@ export const rememberRemoteSeatState = (event: AgentSeatStateEvent): void => {
   lastRemoteByBinding.set(event.bindingId, event);
 };
 
+const remoteListeners = new Set<(event: AgentSeatStateEvent) => void>();
+
+/** Told each remote seat's state as its machine reports it over the link. */
+export const onRemoteSeatState = (listener: (event: AgentSeatStateEvent) => void): (() => void) => {
+  remoteListeners.add(listener);
+  return () => { remoteListeners.delete(listener); };
+};
+
+/** A remote seat's state arrived: remember it and tell the window. */
+export const publishRemoteSeatState = (event: AgentSeatStateEvent): void => {
+  rememberRemoteSeatState(event);
+  for (const listener of remoteListeners) listener(event);
+};
+
 export const remoteSeatStateEvents = (): ReadonlyArray<AgentSeatStateEvent> =>
   [...lastRemoteByBinding.values()];
 

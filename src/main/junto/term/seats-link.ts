@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { Effect, Schema } from "effect";
+import { Cause, Effect, Schema } from "effect";
+import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import { CanvasName, NodeId, type NodeOf } from "@shared/model";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import { MachineName } from "@shared/machine-control";
@@ -16,9 +17,13 @@ import { runOnSeatStartTurn } from "./seat-start-turn";
 import {
   asSeatsFailure, clipText, type SeatsFailureWhere, SeatCanvasEditorMismatch, SeatChangedWhilePreparing, SeatEpochChanged, SeatExited,
   SeatLinkClosed, SeatMissing, SeatNotOnThisMachine, SeatOccupantChanged, SeatPeerNotPinned,
-  SeatSessionUnavailable, SeatsFailure, SeatSpawnFailed, SeatStopping, SeatStopRefused,
+  SeatSessionUnavailable, SeatsFailure, SeatSpawnFailed, SeatStateNotFromItsMachine, SeatStopping, SeatStopRefused,
 } from "./seats-failure";
+import { seatStateRuntime } from "./agent-state/runtime";
+import { publishRemoteSeatState } from "./remote-seat-state";
 import type { LocalSessionHost } from "./local-host";
+
+const Generation = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(256)));
 
 export const SeatsStart = Schema.Struct({
   _tag: Schema.Literal("Start"), canvas: CanvasName, seatId: NodeId,
@@ -28,17 +33,17 @@ export const SeatsGet = Schema.Struct({
 });
 export const SeatsActivate = Schema.Struct({
   _tag: Schema.Literal("Activate"), canvas: CanvasName, seatId: NodeId,
-  generation: Schema.String,
+  generation: Generation,
 });
 /** Stop the seat's occupant; with a generation, only that one. */
 export const SeatsStop = Schema.Struct({
   _tag: Schema.Literal("Stop"), canvas: CanvasName, seatId: NodeId,
-  generation: Schema.optionalKey(Schema.String),
+  generation: Schema.optionalKey(Generation),
 });
 export const SeatsRequest = Schema.Union([SeatsStart, SeatsGet, SeatsActivate, SeatsStop]);
 export const SeatsStarted = Schema.Struct({
   _tag: Schema.Literal("Started"), canvas: CanvasName, seatId: NodeId,
-  machine: MachineName, handle: Schema.String, generation: Schema.String,
+  machine: MachineName, handle: Generation, generation: Generation,
   createdAt: Schema.Number,
   status: Schema.Literals(["starting", "running"]),
 });
@@ -47,9 +52,25 @@ export const SeatsVacant = Schema.Struct({
 });
 export const SeatsStopping = Schema.Struct({
   _tag: Schema.Literal("Stopping"), canvas: CanvasName, seatId: NodeId, machine: MachineName,
-  generation: Schema.String,
+  generation: Generation,
 });
 export const SeatsResponse = Schema.Union([SeatsStarted, SeatsVacant, SeatsStopping]);
+
+/**
+ * A seat's state, sent by the machine that runs it to the machine that edits
+ * its canvas, so the seat's ring has a producer there. reason is a rule id or
+ * the state's own word: free text (a hook's words, an error) stays home.
+ */
+export const SeatsStateEvent = Schema.Struct({
+  _tag: Schema.Literal("SeatState"), canvas: CanvasName, seatId: NodeId, machine: MachineName,
+  epoch: Generation,
+  state: Schema.Literals(["idle", "working", "attention", "unknown", "gone"]),
+  confidence: Schema.Literals(["high", "low"]),
+  at: Schema.Number,
+  reason: Schema.String.pipe(Schema.check(Schema.isPattern(/^(rule:[A-Za-z0-9_.:-]{1,128}|idle|working|attention|unknown|gone)$/))),
+});
+export type SeatsStateEvent = typeof SeatsStateEvent.Type;
+const RULE_REASON = /^rule:[A-Za-z0-9_.:-]{1,128}$/;
 
 type Handle = {
   readonly peer: LinkChannelContext["peer"];
@@ -63,6 +84,13 @@ type Handle = {
 
 export type SeatsChannelOptions = {
   readonly host?: Pick<LocalSessionHost, "get" | "kill">;
+  /** This machine's seat states; the live runtime by default. */
+  readonly seatStates?: {
+    readonly subscribe: (listener: (event: AgentSeatStateEvent) => void) => () => void;
+    readonly currentEvents: () => ReadonlyArray<AgentSeatStateEvent>;
+  };
+  /** Where a remote seat's state goes on arrival; the window by default. */
+  readonly publishState?: (event: AgentSeatStateEvent) => void;
   readonly pin?: typeof ensureSeatSessionId;
 };
 
@@ -75,6 +103,9 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
   const run = Effect.runPromiseWith(yield* Effect.context<never>());
   const host = options.host ?? termPlane.host;
   const pin = options.pin ?? ensureSeatSessionId;
+  const seatStates = options.seatStates ?? seatStateRuntime;
+  const publishState = options.publishState ?? publishRemoteSeatState;
+  const stateSubscriptions = new Map<AbortSignal, () => void>();
   const handles = new Map<string, Handle>();
   const watched = new WeakSet<AbortSignal>();
   const forget = (context: LinkChannelContext): void => {
@@ -232,12 +263,64 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
         ...(context.operationId === undefined ? {} : { operationId: context.operationId }) }),
     );
   });
+  /** Send one of this machine's seat states to the peer, when the peer edits that seat's canvas. */
+  const forwardState = Effect.fn("SeatsLink.forwardState")(function* (context: LinkChannelContext, event: AgentSeatStateEvent) {
+    if (context.signal.aborted) return;
+    const machine = yield* machines.machineName;
+    for (const name of yield* model.listCanvases()) {
+      if ((yield* records.canvasEditor(name)) !== context.peer.installationId) continue;
+      for (const node of (yield* model.canvas(name)).nodes.values()) {
+        if (node.kind !== "agent" || node.bindingId !== event.bindingId || !isThisMachine(node.host, machine)) continue;
+        const wire = yield* Schema.encodeUnknownEffect(SeatsStateEvent)({
+          _tag: "SeatState", canvas: name, seatId: node.id, machine, epoch: event.epoch, state: event.state,
+          confidence: event.confidence, at: event.at, reason: RULE_REASON.test(event.reason) ? event.reason : event.state,
+        });
+        yield* context.sendEvent("seats", wire);
+      }
+    }
+  }, (effect, context) => effect.pipe(
+    Effect.tapCause((cause) => Cause.hasInterruptsOnly(cause) ? Effect.void : Effect.logWarning("seat state not sent", cause)),
+    Effect.ignore,
+    Effect.annotateLogs({ area: "seats", peer: context.peer.machineName }),
+  ));
+
+  const opened: NonNullable<LinkChannelHandler["opened"]> = (context) => Effect.sync(() => {
+    if (stateSubscriptions.has(context.signal)) return;
+    const send = (event: AgentSeatStateEvent) => { void run(forwardState(context, event)); };
+    const unsubscribe = seatStates.subscribe(send);
+    stateSubscriptions.set(context.signal, unsubscribe);
+    context.signal.addEventListener("abort", () => {
+      stateSubscriptions.get(context.signal)?.();
+      stateSubscriptions.delete(context.signal);
+    }, { once: true });
+    // A window that just opened its link reads every seat's state at once.
+    for (const event of seatStates.currentEvents()) send(event);
+  });
+
+  /** A seat state from the machine that runs the seat: accepted only for that machine's own seat. */
+  const handleEvent: NonNullable<LinkChannelHandler["handleEvent"]> = (context, payload) => Effect.gen(function* () {
+    const event = yield* Schema.decodeUnknownEffect(SeatsStateEvent)(payload, { onExcessProperty: "error" });
+    const where = { machine: event.machine, canvas: event.canvas, seatId: event.seatId };
+    const seat = (yield* model.canvas(event.canvas)).nodes.get(event.seatId);
+    if (event.machine !== context.peer.machineName || seat?.kind !== "agent" || !isThisMachine(seat.host, event.machine))
+      return yield* new SeatStateNotFromItsMachine({ ...where, peer: context.peer.machineName,
+        message: "A seat's state came from a machine that does not run that seat." });
+    publishState({ bindingId: seat.bindingId, epoch: event.epoch, state: event.state, reason: event.reason,
+      confidence: event.confidence, at: event.at, harness: seat.harness });
+  }).pipe(Effect.withSpan("SeatsLink.state"));
+
   return {
     failureSchema: SeatsFailure as Schema.Codec<unknown, unknown>,
     decodeRequest: Schema.decodeUnknownSync(SeatsRequest, { onExcessProperty: "error" }),
     decodeResponse: Schema.decodeUnknownSync(SeatsResponse, { onExcessProperty: "error" }),
-    decodeEvent: () => { throw new Error("The seats channel has no events."); },
+    decodeEvent: Schema.decodeUnknownSync(SeatsStateEvent, { onExcessProperty: "error" }),
     handleRequest,
-    closed: (context) => Effect.sync(() => forget(context)),
+    handleEvent,
+    opened,
+    closed: (context) => Effect.sync(() => {
+      forget(context);
+      stateSubscriptions.get(context.signal)?.();
+      stateSubscriptions.delete(context.signal);
+    }),
   } satisfies LinkChannelHandler;
 });

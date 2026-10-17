@@ -99,11 +99,16 @@ export class SeatLinkClosed extends Schema.TaggedError<SeatLinkClosed>()("SeatLi
   ...Where, message: Text,
 }) {}
 
+/** A seat state arrived from a machine that does not run that seat. */
+export class SeatStateNotFromItsMachine extends Schema.TaggedError<SeatStateNotFromItsMachine>()(
+  "SeatStateNotFromItsMachine", { ...Where, peer: Id, message: Text },
+) {}
+
 /** The closed set the seats channel answers with. */
 export const SeatsFailure = Schema.Union([
   SeatSpawnFailed, SeatExited, SeatEpochChanged, SeatOccupantChanged, SeatStopping, SeatMissing,
   SeatChangedWhilePreparing, SeatNotOnThisMachine, SeatCanvasEditorMismatch, SeatPeerNotPinned,
-  SeatSessionUnavailable, SeatStartRefused, SeatLinkClosed, SeatStopRefused,
+  SeatSessionUnavailable, SeatStartRefused, SeatLinkClosed, SeatStopRefused, SeatStateNotFromItsMachine,
 ]);
 export type SeatsFailure = typeof SeatsFailure.Type;
 

@@ -19,6 +19,7 @@ import { noSeatEnvironment, type SeatEnvironmentResolver } from "../src/main/jun
 import { makeSeatsChannel, type SeatsChannelOptions } from "../src/main/junto/term/seats-link";
 import { makeSeatsProcessClient } from "../src/main/junto/term/seats-client";
 import { SeatsFailure } from "../src/main/junto/term/seats-failure";
+import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import { closeMachineLog, installMachineLog, ObservabilityLoggerLive } from "../src/main/junto/observability/logger";
 import { machineLogDir } from "../src/main/junto/observability/log-file";
 import { readFileSync } from "node:fs";
@@ -75,6 +76,8 @@ const fixture = async (options: {
   readonly editor?: string;
   readonly nodes?: ReadonlyArray<Node>;
   readonly spawnError?: Error;
+  readonly seatStates?: SeatsChannelOptions["seatStates"];
+  readonly publishState?: SeatsChannelOptions["publishState"];
 } = {}) => {
   const root = await mkdtemp(join(tmpdir(), "junto-seats-link-"));
   const fake = makeFakeTerminalProcessAuthority(() => ({ pid: 42_818, exitOnSignal: "SIGTERM" }));
@@ -114,17 +117,20 @@ const fixture = async (options: {
   );
   await copy(1);
   const pin = vi.fn(options.pin ?? (async () => ({ ok: true as const, sessionId: "named-session", minted: true })));
-  const channel = await runtime.runPromise(makeSeatsChannel({ host, pin }));
+  const channel = await runtime.runPromise(makeSeatsChannel({ host, pin,
+    seatStates: options.seatStates ?? { subscribe: () => () => undefined, currentEvents: () => [] },
+    publishState: options.publishState ?? (() => undefined) }));
+  const sent = vi.fn((_channel: string, _payload: unknown) => Effect.void);
   const controller = new AbortController();
   const context: LinkChannelContext = {
     peer: { build: "same-build", installationId: editor, machineName: "macbook" },
     sessionId: "admitted-link", signal: controller.signal,
-    sendEvent: () => Effect.void, close: () => Effect.void,
+    sendEvent: sent, close: () => Effect.void,
     request: () => Effect.die("the start receiver must not send requests"),
   };
   const start = (raw: unknown = request, caller = context) =>
     runtime.runPromise(channel.handleRequest(caller, raw).pipe(Effect.provide(ObservabilityLoggerLive)));
-  return { host, fake, runtime, channel, controller, context, start, pin, copy };
+  return { host, fake, runtime, channel, controller, context, start, pin, copy, sent };
 };
 
 const linkedClient = (f: Awaited<ReturnType<typeof fixture>>) => {
@@ -157,6 +163,59 @@ const linkedClient = (f: Awaited<ReturnType<typeof fixture>>) => {
     Effect.provideService(HostsService, hosts), Effect.provideService(MachineLink, links),
   ))) };
 };
+
+const stateEvent = (reason: string, state: AgentSeatStateEvent["state"] = "working"): AgentSeatStateEvent => ({
+  bindingId: localSeat.bindingId, epoch: "ep_1", state, reason, confidence: "high", at: 1_792_000_000_000,
+});
+
+describe("seats link state", () => {
+  it("sends this machine's seat states to the machine editing the canvas, rule ids only", async () => {
+    let emit: (event: AgentSeatStateEvent) => void = () => undefined;
+    const f = await fixture({ seatStates: {
+      subscribe: (listener) => { emit = listener; return () => { emit = () => undefined; }; },
+      currentEvents: () => [stateEvent("hook:Allow edit to secrets.env?", "attention")],
+    } });
+    await f.runtime.runPromise(f.channel.opened!(f.context));
+    await vi.waitFor(() => expect(f.sent).toHaveBeenCalledTimes(1));
+    expect(f.sent.mock.calls[0]).toEqual(["seats", {
+      _tag: "SeatState", canvas, seatId: localSeat.id, machine: THIS_MACHINE, epoch: "ep_1",
+      state: "attention", confidence: "high", at: 1_792_000_000_000, reason: "attention",
+    }]);
+    emit(stateEvent("rule:claude.spinner"));
+    await vi.waitFor(() => expect(f.sent).toHaveBeenCalledTimes(2));
+    expect(f.sent.mock.calls[1]?.[1]).toMatchObject({ state: "working", reason: "rule:claude.spinner" });
+    emit({ ...stateEvent("rule:x"), bindingId: "another-binding" });
+    f.controller.abort();
+    emit(stateEvent("rule:after-close"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(f.sent).toHaveBeenCalledTimes(2);
+  });
+
+  it("sends nothing to a machine that does not edit the canvas", async () => {
+    const f = await fixture({ editor: "another-editor", seatStates: {
+      subscribe: () => () => undefined, currentEvents: () => [stateEvent("rule:x")],
+    } });
+    await f.runtime.runPromise(f.channel.opened!(f.context));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(f.sent).not.toHaveBeenCalled();
+  });
+
+  it("publishes a state only for a seat the sending machine runs", async () => {
+    const published: AgentSeatStateEvent[] = [];
+    const remote = seat("mac-seat", { host: "macbook", agentKey: "macbook:mac-seat" });
+    const f = await fixture({ nodes: [localSeat, remote], publishState: (event) => { published.push(event); } });
+    const wire = { _tag: "SeatState", canvas, seatId: remote.id, machine: "macbook", epoch: "ep_9",
+      state: "idle", confidence: "low", at: 5, reason: "idle" };
+    await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.channel.decodeEvent(wire)));
+    expect(published).toEqual([{ bindingId: remote.bindingId, epoch: "ep_9", state: "idle", reason: "idle",
+      confidence: "low", at: 5, harness: remote.harness }]);
+    await expect(f.runtime.runPromise(f.channel.handleEvent!(f.context,
+      f.channel.decodeEvent({ ...wire, seatId: localSeat.id }))))
+      .rejects.toMatchObject({ _tag: "SeatStateNotFromItsMachine", peer: "macbook" });
+    expect(() => f.channel.decodeEvent({ ...wire, reason: "hook:free text" })).toThrow();
+    expect(published).toHaveLength(1);
+  });
+});
 
 describe("seats link start", () => {
   it("returns a remote spawn failure as the exited generation a local start returns", async () => {

@@ -23,7 +23,7 @@ import type { ControlLease, LocalHostEvent } from "./local-host";
 import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer";
 import type { TermPlane } from "./plane";
 import { injectionSupervisor } from "./injection-supervisor";
-import { rememberRemoteSeatState } from "./remote-seat-state";
+import { onRemoteSeatState, rememberRemoteSeatState } from "./remote-seat-state";
 import { ActorSeatOccupy } from "./actor-seat-occupy";
 import { AppRuntime } from "../../runtime";
 import { liveSeatEnvironment } from "../region-env/live";
@@ -166,6 +166,8 @@ export const registerTerminalIpc = (
   // the authority for who holds control, so this reads the existing fact
   // rather than inventing a second notion of "visible".
   (bindingId: string) => controlByBinding.has(bindingId));
+  // A seat on another machine reports its state over the seats channel.
+  onRemoteSeatState((event) => gate?.broadcast(IPC_CHANNELS.agentSeatStateChanged, event));
   router.on("event", (payload: LocalHostEvent) => {
     if (payload.type === "seat-state") {
       rememberRemoteSeatState(payload.event);
