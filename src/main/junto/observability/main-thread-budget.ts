@@ -31,6 +31,15 @@
  * is invoked directly with no timing calls at all.
  */
 import { performance } from "node:perf_hooks";
+import { Schema } from "effect";
+
+/** Strict mode only: a synchronous operation held the main thread past its budget. */
+export class MainThreadBudgetExceeded extends Schema.TaggedError<MainThreadBudgetExceeded>()("MainThreadBudgetExceeded", {
+  operation: Schema.String,
+  heldMs: Schema.Number,
+  budgetMs: Schema.Number,
+  message: Schema.String,
+}) {}
 
 /** The invariant, as one number. */
 export const MAIN_THREAD_BUDGET_MS = 4;
@@ -178,14 +187,18 @@ const recordSpan = (
   for (const listener of listeners) {
     try {
       listener(violation);
-    } catch {
-      // A broken observer must never break the operation it is watching.
+    } catch (cause) {
+      // A broken observer must never break the operation it is watching; it is logged instead.
+      console.error("[budget] a violation observer failed", cause);
     }
   }
   if (throwOnViolation && allowThrow) {
-    throw new Error(
-      `[budget] ${operation} held the main thread ${ms.toFixed(2)}ms, over the ${budgetMs}ms budget`,
-    );
+    throw new MainThreadBudgetExceeded({
+      operation,
+      heldMs: ms,
+      budgetMs,
+      message: `[budget] ${operation} held the main thread ${ms.toFixed(2)}ms, over the ${budgetMs}ms budget`,
+    });
   }
   return true;
 };

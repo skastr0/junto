@@ -14,6 +14,7 @@ import {
   mainThreadBudgetViolations,
   noteSyncSpan,
   onMainThreadBudgetViolation,
+  MainThreadBudgetExceeded,
   resetMainThreadBudget,
   withinBudget,
   type BudgetViolation,
@@ -121,6 +122,7 @@ describe("the 4ms main-thread budget", () => {
     expect(() =>
       withinBudget("slow.operation", () => block(MAIN_THREAD_BUDGET_MS * 2)),
     ).toThrow(/held the main thread/);
+    expect(() => noteSyncSpan("slow.operation", 900)).toThrow(MainThreadBudgetExceeded);
   });
 
   it("never masks a real failure with a timing complaint", () => {

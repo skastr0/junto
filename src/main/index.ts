@@ -1327,8 +1327,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           showAppMenuWith(yield* settings.get);
           settings.subscribe(showAppMenuWith);
         }),
-      ).catch(() => {
-        console.error("[menu] stored shortcuts could not be read; the menu shows the defaults");
+      ).catch((cause: unknown) => {
+        console.error("[menu] stored shortcuts could not be read; the menu shows the defaults", cause);
       });
     }
     if (!(await ensureSupervised())) return;
@@ -1363,8 +1363,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       await app.setProxy({ mode: "direct" });
       await session.defaultSession.setProxy({ mode: "direct" });
     } catch (error) {
-      console.error("[window] trusted renderer protocol setup failed");
-      console.error(error);
+      console.error("[window] trusted renderer protocol setup failed", error);
       exitAfterDetach(1, "trusted-renderer-startup-failure");
       return;
     }
@@ -1435,8 +1434,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
               }),
             onDevicesChanged: broadcastCompanionDevices,
             onFirstDevice: () => {
-              void ensureOperatorControl().catch(() => {
-                console.error("[companion] operator control failed to start");
+              void ensureOperatorControl().catch((cause: unknown) => {
+                console.error("[companion] operator control failed to start", cause);
               });
             },
           });
@@ -1496,8 +1495,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     if (operatorControlEnabledAtLaunch) {
       try {
         await ensureOperatorControl();
-      } catch {
-        console.error("[operator-control] failed to start");
+      } catch (error) {
+        console.error("[operator-control] failed to start", error);
         exitAfterDetach(1, "operator-control-startup-failure");
         return;
       }
@@ -1509,8 +1508,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         .then(() => companion.reconcile())
         .then(() => companion.hasDevices())
         .then((paired) => (paired ? ensureOperatorControl() : undefined))
-        .catch(() => {
-          console.error("[companion] failed to start");
+        .catch((cause: unknown) => {
+          console.error("[companion] failed to start", cause);
         });
     }
 
@@ -1685,8 +1684,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       if (shutdownAdmissionClosed) return;
       try {
         browserComposition?.registry.reapAfterResume();
-      } catch {
-        console.error("[browser-automation] resume reap failed");
+      } catch (cause) {
+        console.error("[browser-automation] resume reap failed", cause);
       }
     });
 
@@ -1705,7 +1704,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
                   return yield* Effect.forEach(names, (name) => Effect.map(model.canvas(name), (doc) => ({ name, doc })));
                 })),
               );
-            } catch {
+            } catch (cause) {
+              // No canvases means no edge grant: the read fails closed, and says why.
+              console.error("[browser-automation] canvases could not be listed; edge grants refuse until they can", cause);
               return [];
             }
           };
@@ -1786,20 +1787,22 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         browserShutdown ??= browserComposition?.drainOnQuit(shutdownReason);
         return;
       }
-    } catch {
+    } catch (startupError) {
+      console.error("[browser-automation] composition failed to start", startupError);
       browserComposition = undefined;
       unsubscribeCanvasEdgeGrants?.();
       unsubscribeCanvasEdgeGrants = undefined;
       try {
         browserControl?.close();
-      } catch {
-        // Startup is already failing closed; socket cleanup stays best-effort.
+      } catch (cause) {
+        // Startup is already failing closed; the exit below still runs.
+        console.error("[browser-automation] control socket did not close", cause);
       }
       browserControl = undefined;
       try {
         workControl?.close();
-      } catch {
-        // best-effort
+      } catch (cause) {
+        console.error("[work-control] socket did not close", cause);
       }
       workControl = undefined;
       console.error(BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE);
@@ -1814,8 +1817,11 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     rendererWindowAdmissionReady = true;
     if (process.platform === "linux" && app.isPackaged) {
       void import("./junto/update/linux-install").then(({ markLinuxDesktopInstallReady }) =>
-        markLinuxDesktopInstallReady({ executablePath: process.execPath }).catch(() => undefined),
-      );
+        markLinuxDesktopInstallReady({ executablePath: process.execPath }),
+      ).catch((cause: unknown) => {
+        // A package run outside the managed install lands here every launch; updates stay off.
+        console.warn("[update] the Linux desktop install could not be marked ready; updates stay off", cause);
+      });
     }
     if (!headless) createWindow();
   })

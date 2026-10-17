@@ -1,4 +1,4 @@
-import { Context, Effect } from "effect";
+import { Context, Effect, Schema } from "effect";
 import { join } from "node:path";
 import type { MachineCoreOptions } from "../core-runtime";
 import { makeCoreRuntime } from "../core-runtime";
@@ -16,10 +16,30 @@ import { mainAuthoringGate } from "./main-authoring-gate";
 
 export type CoreOptions = Omit<MachineCoreOptions, "ready">;
 
+/** The installed database is newer than this build; starting would corrupt it. */
+export class CoreSchemaTooNew extends Schema.TaggedError<CoreSchemaTooNew>()("CoreSchemaTooNew", {
+  userVersion: Schema.Number,
+  supportedVersion: Schema.Number,
+  message: Schema.String,
+}) {}
+
+/** A stop that could not finish: the named part still held work, so core state was kept. */
+export class CoreDidNotDrain extends Schema.TaggedError<CoreDidNotDrain>()("CoreDidNotDrain", {
+  part: Schema.Literals(["owner-commands", "seat-work", "writes", "service-children"]),
+  remaining: Schema.optionalKey(Schema.Number),
+  message: Schema.String,
+}) {}
+
 /** Both shells use this owner/link lifecycle; it creates no canvas. */
 export const startCore = async (options: CoreOptions) => {
   const schema = evaluateSchemaCompatibility(probeInstalledStateSchema(join(options.home, ".junto", "state", "junto.db")));
-  if (!schema.ok) throw new Error(`Update Junto: this database uses schema ${schema.userVersion}, this build supports ${schema.supportedVersion}`);
+  if (!schema.ok) {
+    throw new CoreSchemaTooNew({
+      userVersion: schema.userVersion,
+      supportedVersion: schema.supportedVersion,
+      message: `Update Junto: this database uses schema ${schema.userVersion}, this build supports ${schema.supportedVersion}`,
+    });
+  }
   let admitted = false;
   let stopping = false;
   let owner: OperatorControlServer | undefined;
@@ -42,19 +62,21 @@ export const startCore = async (options: CoreOptions) => {
     closeFlight = (async () => {
       if (owner !== undefined) {
         const receipt = await owner.close();
-        if (!receipt.clean) throw new Error("Owner commands did not drain; core state retained");
+        if (!receipt.clean) throw new CoreDidNotDrain({ part: "owner-commands", message: "Owner commands did not drain; core state retained" });
       }
       if (listener !== undefined) await listener.close();
       if (work !== undefined) {
         const receipt = await work.close();
-        if (!receipt.clean) throw new Error("Seat work commands did not drain; core state retained");
+        if (!receipt.clean) throw new CoreDidNotDrain({ part: "seat-work", message: "Seat work commands did not drain; core state retained" });
       }
       await seatProcesses?.close();
       const writes = await mainAuthoringGate.drain(5_000);
-      if (writes.remaining.length > 0) throw new Error("Core writes did not drain; core state retained");
+      if (writes.remaining.length > 0) {
+        throw new CoreDidNotDrain({ part: "writes", remaining: writes.remaining.length, message: "Core writes did not drain; core state retained" });
+      }
       await runtime.dispose();
       const children = await quiesceServiceChildrenOnQuit();
-      if (!children.clean) throw new Error("Core service children did not drain");
+      if (!children.clean) throw new CoreDidNotDrain({ part: "service-children", message: "Core service children did not drain" });
       releaseRunner?.();
     })();
     return closeFlight;
@@ -79,7 +101,10 @@ export const startCore = async (options: CoreOptions) => {
     admitted = true;
     return { runtime, close, ready: () => admitted && !stopping && owner!.ready() && listener!.ready() };
   } catch (cause) {
-    await close();
+    // The start failure is the reason worth keeping; a stop that also fails is logged beside it.
+    await close().catch((closeCause: unknown) => {
+      console.error("[core] Junto core could not stop after a failed start", closeCause);
+    });
     throw cause;
   }
 };
