@@ -211,6 +211,14 @@ app.commandLine.removeSwitch("proxy-bypass-list");
 app.commandLine.removeSwitch("proxy-pac-url");
 app.commandLine.removeSwitch("proxy-auto-detect");
 
+// Junto is a visual app: the renderer accessibility tree is off. Any macOS
+// client that queries the window (password managers, window tools) turns it
+// on, and then every pan frame re-serializes the whole canvas (PERF_LEDGER:
+// pan main thread 1197 -> 2405 ms per 6 s, 14% of wheel events dropped).
+// app.setAccessibilitySupportEnabled(false) does not stick against such a
+// client; the switch does. Operator decision, 2026-10-17.
+app.commandLine.appendSwitch("disable-renderer-accessibility");
+
 // Managed browser partitions use an app-owned CONNECT proxy. Do not install
 // process-wide proxy-server / no-proxy-server switches: they restamp Session
 // prefs on NetworkContext create and would either force DIRECT or inherit a
