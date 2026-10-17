@@ -2,56 +2,157 @@
  * What the activity rings cost. One repeatable command, run on a build before
  * and after a ring change, so the two result sets compare.
  *
- *   bun scripts/probe-ring-cost.ts --app-root DIR [--label baseline]
- *     [--seats 24] [--seconds 6] [--port 9341] [--hold 0] [--out FILE] [--force-ax-off]
+ *   bun scripts/probe-ring-cost.ts --app-root DIR [--label L] [--seconds 6]
+ *     [--port 9341] [--hold 0] [--out FILE] [--force-ax-off]
+ *   bun scripts/probe-ring-cost.ts --compare before=DIR,after=DIR
+ *     [--repeats 3] [--out FILE]      (interleaved: before, after, before, ...)
  *
  * DIR is a checkout whose `out/` is a PRODUCTION build (electron-vite build,
  * not `bun run dev`: React dev and StrictMode skew every number). The script
  * runs from any checkout; it never builds and never touches ~/.junto.
  *
- * The app boots on a throwaway HOME and JUNTO_HOME (short /tmp path, see
- * sandbox.ts), JUNTO_PERF=1, --remote-debugging-port=PORT and a main-process
- * --inspect port. Many seats are injected as "working", so their rings move.
- * Three scenarios of --seconds each:
- *   idle    nothing touches the canvas
- *   pan     wheel events every 16 ms, back and forth
- *   stream  a shell terminal prints in a tight loop while the rings stay up
- * Per scenario: renderer main-thread busy ms per second, frames presented and
- * dropped, GPU / browser / renderer process CPU %, and the rings on screen.
+ * Each run boots the app on a throwaway HOME and JUNTO_HOME (short /tmp path,
+ * see sandbox.ts) with JUNTO_PERF=1, --remote-debugging-port=PORT and a
+ * main-process --inspect port, dark theme, first-run tour marked seen,
+ * accessibility as found. The canvas is one fixed fixture (FIXTURE below):
+ * loose seats, seats in regions, seats in regions nested four deep, large
+ * regions with many seats and small ones with one or two. Every seat is
+ * injected as "working", so its ring moves. Three scenarios of --seconds:
+ *   idle    nothing touches the canvas; no page script runs
+ *   pan     wheel events every 16 ms sweeping across the nested regions
+ *   stream  a shell terminal receives a fixed rate of output (LINES_PER_TICK
+ *           lines every TICK_MS), so every build processes the same bytes
+ * Per scenario: renderer main-thread busy ms per second (Blink task time),
+ * script / layout / style ms per second, GPU / browser / renderer process CPU
+ * %, the rings on screen and the load average. Pan alone also counts rAF
+ * frames and dropped frames: a page rAF loop forces a main frame every vsync
+ * and would hide what compositor-only rings save in idle and stream.
  *
  * Invalid runs are reported, never repaired (PERF_LEDGER.md): an occluded
- * window gives 0 frames, and a live accessibility tree doubles main-thread
- * cost. Either marks the run `valid: false` and exits 2.
+ * window gives 0 frames, a dialog over the canvas blurs it, a light theme or
+ * fewer than MIN_RINGS moving rings is not the fixture. Any of these marks the
+ * scenario `valid: false` and the run exits 2.
  *
  * --hold N keeps the app up N seconds after the scenarios so another capture
  * (a Chrome trace, screenshots) can attach to the same instance on PORT.
  */
-import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { loadavg } from "node:os";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { closeSync, constants, existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { loadavg, tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { createSandbox, destroySandbox, writeFixtureModel } from "../e2e/harness/sandbox";
-import { modelFixture, modelSeat, modelTerminal } from "../e2e/harness/model";
+import { modelFixture, modelRegion, modelSeat, modelTerminal } from "../e2e/harness/model";
 import { startRendererServer } from "../e2e/harness/renderer-server";
 
 const arg = (name: string, fallback: string): string => {
   const at = process.argv.indexOf(`--${name}`);
   return at >= 0 && process.argv[at + 1] !== undefined ? process.argv[at + 1]! : fallback;
 };
+const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
+const round1 = (value: number) => Math.round(value * 10) / 10;
+const medianOf = (values: number[]): number | null => {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return round1(sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2);
+};
+
+// Interleaved repeats: before, after, before, after, ... one app at a time, so
+// load drift hits both builds alike. Each run is this same script in a child.
+const compareArg = arg("compare", "");
+if (compareArg !== "") {
+  const builds = compareArg.split(",").map((entry) => {
+    const [name, root] = entry.split("=");
+    return { name: name!, root: resolve(root!) };
+  });
+  const repeats = Number(arg("repeats", "3"));
+  const compareOut = arg("out", "");
+  const runs: Array<{ build: string; repeat: number; exit: number; report: any }> = [];
+  for (let repeat = 1; repeat <= repeats; repeat += 1) {
+    for (const build of builds) {
+      const scratch = mkdtempSync(join(tmpdir(), "ring-cost-run-"));
+      const file = join(scratch, "run.json");
+      const child = spawnSync(
+        process.execPath,
+        [import.meta.path, "--app-root", build.root, "--label", `${build.name}-${repeat}`, "--out", file, "--seconds", arg("seconds", "6"), "--port", arg("port", "9341")],
+        { stdio: ["ignore", "ignore", "inherit"] },
+      );
+      const report = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
+      rmSync(scratch, { recursive: true, force: true });
+      runs.push({ build: build.name, repeat, exit: child.status ?? -1, report });
+      console.error(`ring cost: ${build.name} #${repeat} exit ${child.status}`);
+      // Never two apps at once: wait for this build's Electron to be gone.
+      for (let wait = 0; wait < 40 && spawnSync("pgrep", ["-f", `${build.root}/node_modules/electron/dist`]).status === 0; wait += 1) await sleep(500);
+      await sleep(3_000);
+    }
+  }
+  const metricKeys = ["rendererBusyMsPerSecond", "scriptMsPerSecond", "layoutMsPerSecond", "styleMsPerSecond", "rafDropped", "rafFrames", "bytesWritten"] as const;
+  const summary = builds.map((build) => ({
+    build: build.name,
+    sourceCommit: runs.find((run) => run.build === build.name && run.report)?.report.sourceCommit ?? null,
+    scenarios: ["idle", "pan", "stream"].map((scenario) => {
+      const rows = runs
+        .filter((run) => run.build === build.name)
+        .flatMap((run) => (run.report?.scenarios ?? []).filter((row: any) => row.name === scenario).map((row: any) => ({ ...row, repeat: run.repeat })));
+      const valid = rows.filter((row: any) => row.valid);
+      const med = (read: (row: any) => number | null | undefined) =>
+        medianOf(valid.map(read).filter((value: any): value is number => typeof value === "number"));
+      return {
+        scenario,
+        runs: rows.length,
+        validRuns: valid.length,
+        median: {
+          ...(Object.fromEntries(metricKeys.map((key) => [key, med((row) => row[key])])) as Record<(typeof metricKeys)[number], number | null>),
+          gpuCpuPercent: med((row) => row.cpuPercent?.GPU),
+          rendererCpuPercent: med((row) => row.cpuPercent?.renderer),
+          browserCpuPercent: med((row) => row.cpuPercent?.browser),
+          movingRings: med((row) => row.ringsVisible?.moving),
+        },
+        values: Object.fromEntries(
+          [...metricKeys, "gpu"].map((key) => [
+            key,
+            rows.map((row: any) => (key === "gpu" ? row.cpuPercent?.GPU : row[key]) ?? null),
+          ]),
+        ),
+        problems: rows.flatMap((row: any) => row.problems.map((problem: string) => `#${row.repeat}: ${problem}`)),
+      };
+    }),
+  }));
+  const out = {
+    command: `bun scripts/probe-ring-cost.ts --compare ${compareArg} --repeats ${repeats}`,
+    when: new Date().toISOString(),
+    order: runs.map((run) => `${run.build}#${run.repeat}`),
+    summary,
+    runs: runs.map((run) => run.report),
+  };
+  const json = JSON.stringify(out, null, 2);
+  if (compareOut !== "") writeFileSync(compareOut, json);
+  console.log(json);
+  for (const entry of summary) {
+    console.log(
+      `${entry.build} ${entry.sourceCommit?.slice(0, 9) ?? "?"} ` +
+        entry.scenarios.map((row) => `${row.scenario}: busy ${row.median.rendererBusyMsPerSecond} ms/s, gpu ${row.median.gpuCpuPercent}%, renderer ${row.median.rendererCpuPercent}%, valid ${row.validRuns}/${row.runs}`).join(" | "),
+    );
+  }
+  process.exit(0);
+}
+
 const appRoot = resolve(arg("app-root", ""));
 const label = arg("label", "run");
-const seatCount = Number(arg("seats", "24"));
 const seconds = Number(arg("seconds", "6"));
 const port = Number(arg("port", "9341"));
 const holdSeconds = Number(arg("hold", "0"));
 const outPath = arg("out", "");
 const forceAxOff = process.argv.includes("--force-ax-off");
 const CANVAS = "ring-cost";
-const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
+/** The stream scenario: this many lines every TICK_MS for the whole window. */
+const LINES_PER_TICK = 20;
+const TICK_MS = 16;
+const MIN_RINGS = 30;
 
 if (arg("app-root", "") === "") {
-  console.error("usage: bun scripts/probe-ring-cost.ts --app-root DIR [--label L] [--seats N] [--seconds S] [--port P] [--hold S] [--out FILE]");
+  console.error("usage: bun scripts/probe-ring-cost.ts --app-root DIR [--label L] [--seconds S] [--port P] [--hold S] [--out FILE]\n       bun scripts/probe-ring-cost.ts --compare before=DIR,after=DIR [--repeats 3] [--out FILE]");
   process.exit(64);
 }
 for (const path of ["out/main/index.js", "out/renderer/index.html"]) {
@@ -64,6 +165,88 @@ const provenancePath = join(appRoot, "out/package-runtime-provenance.json");
 const sourceCommit: string | null = existsSync(provenancePath)
   ? (JSON.parse(readFileSync(provenancePath, "utf8")).sourceCommit ?? null)
   : null;
+
+// The fixture. Boxes are world coordinates; a seat is 240x96. A seat or region
+// belongs to a region when it lies fully inside its rect (shared/graph.ts
+// regionStack), so each region lists only the seats it holds directly and
+// nests the rest. Same fixture for every build; nothing here is random.
+type Spot = readonly [number, number];
+type RegionSpec = {
+  readonly id: string;
+  readonly box: { readonly x: number; readonly y: number; readonly w: number; readonly h: number };
+  readonly seats: ReadonlyArray<Spot>;
+  readonly children?: ReadonlyArray<RegionSpec>;
+};
+const SEAT_W = 240;
+const SEAT_H = 96;
+const LOOSE: ReadonlyArray<Spot> = [0, 1, 2, 3, 4].map((i): Spot => [340 + i * 260, 40]);
+const TREE: ReadonlyArray<RegionSpec> = [
+  {
+    id: "big",
+    box: { x: 20, y: 180, w: 1040, h: 820 },
+    seats: [0, 1, 2, 3, 4, 5].map((i): Spot => [50 + (i % 3) * 260, 230 + Math.floor(i / 3) * 130]),
+    children: [
+      {
+        id: "big-a",
+        box: { x: 50, y: 480, w: 600, h: 500 },
+        seats: [[70, 530], [330, 530], [70, 660], [330, 660]],
+        children: [
+          {
+            id: "big-a-1",
+            box: { x: 70, y: 790, w: 560, h: 170 },
+            seats: [[80, 830]],
+            children: [{ id: "big-a-1-a", box: { x: 340, y: 810, w: 270, h: 140 }, seats: [[355, 840]] }],
+          },
+        ],
+      },
+      {
+        id: "big-b",
+        box: { x: 680, y: 480, w: 360, h: 500 },
+        seats: [[700, 530], [700, 660]],
+        children: [{ id: "big-b-1", box: { x: 700, y: 790, w: 320, h: 170 }, seats: [[720, 830]] }],
+      },
+    ],
+  },
+  {
+    id: "mid",
+    box: { x: 1100, y: 180, w: 640, h: 500 },
+    seats: [0, 1, 2, 3].map((i): Spot => [1120 + (i % 2) * 260, 230 + Math.floor(i / 2) * 130]),
+    children: [
+      { id: "mid-a", box: { x: 1120, y: 480, w: 300, h: 180 }, seats: [[1140, 520]] },
+      { id: "mid-b", box: { x: 1440, y: 480, w: 280, h: 180 }, seats: [[1450, 520]] },
+    ],
+  },
+  { id: "small-one", box: { x: 1100, y: 720, w: 300, h: 150 }, seats: [[1115, 750]] },
+  { id: "small-two", box: { x: 1430, y: 720, w: 310, h: 300 }, seats: [[1445, 750], [1445, 880]] },
+];
+type Placed = { id: string; regionId: string | null; depth: number; spot: Spot };
+const regionRows: Array<{ id: string; parent: string | null; depth: number; seatsDirect: number; seatsInside: number; box: RegionSpec["box"] }> = [];
+const placed: Placed[] = LOOSE.map((spot, i) => ({ id: "", regionId: null, depth: 0, spot }));
+const inside = (outer: RegionSpec["box"], x: number, y: number, w: number, h: number) =>
+  x >= outer.x && y >= outer.y && x + w <= outer.x + outer.w && y + h <= outer.y + outer.h;
+const walk = (region: RegionSpec, parent: RegionSpec | null, depth: number): number => {
+  if (parent && !inside(parent.box, region.box.x, region.box.y, region.box.w, region.box.h)) throw new Error(`fixture: region ${region.id} is not inside ${parent.id}`);
+  for (const [x, y] of region.seats) {
+    if (!inside(region.box, x, y, SEAT_W, SEAT_H)) throw new Error(`fixture: seat at ${x},${y} is not inside ${region.id}`);
+    placed.push({ id: "", regionId: region.id, depth, spot: [x, y] });
+  }
+  const row = { id: region.id, parent: parent?.id ?? null, depth, seatsDirect: region.seats.length, seatsInside: region.seats.length, box: region.box };
+  regionRows.push(row);
+  for (const child of region.children ?? []) row.seatsInside += walk(child, region, depth + 1);
+  return row.seatsInside;
+};
+for (const region of TREE) walk(region, null, 1);
+placed.forEach((seat, i) => { seat.id = `ring-seat-${String(i + 1).padStart(2, "0")}`; });
+const seatCount = placed.length;
+const maxDepth = Math.max(...regionRows.map((row) => row.depth));
+if (maxDepth < 3) throw new Error("fixture: nesting is shallower than 3 levels");
+const fixtureSummary = {
+  seats: seatCount,
+  looseSeats: LOOSE.length,
+  regions: regionRows.length,
+  maxNestingDepth: maxDepth,
+  regionTable: regionRows.map((row) => ({ id: row.id, parent: row.parent, depth: row.depth, seatsDirect: row.seatsDirect, seatsInside: row.seatsInside, size: `${row.box.w}x${row.box.h}` })),
+};
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Target = { type: string; title?: string; url: string; webSocketDebuggerUrl: string };
@@ -129,33 +312,31 @@ const waitFor = async <T>(what: string, ms: number, probe: () => Promise<T | und
 const HOOK = `globalThis.__probe = require("electron");\n`;
 
 const sandbox = await createSandbox();
-const flagDir = join(sandbox.root, "flags");
-const goFile = join(flagDir, "go");
-const stopFile = join(flagDir, "stop");
-await Bun.write(join(flagDir, ".keep"), "");
+const fifo = join(sandbox.root, "stream.fifo");
+if (spawnSync("mkfifo", [fifo]).status !== 0) throw new Error("mkfifo failed");
 writeFileSync(join(sandbox.root, "probe-hook.cjs"), HOOK);
 
-const cols = 6;
-const seats = Array.from({ length: seatCount }, (_, i) =>
-  modelSeat({ id: `ring-seat-${String(i + 1).padStart(2, "0")}`, x: 40 + (i % cols) * 260, y: 190 + Math.floor(i / cols) * 150 }),
-);
-// A shell that waits for `go`, prints in a tight loop until `stop`.
+const regions = (() => {
+  const rows: ReturnType<typeof modelRegion>[] = [];
+  const add = (region: RegionSpec) => {
+    rows.push(modelRegion({ id: `ring-region-${region.id}`, label: region.id, x: region.box.x, y: region.box.y, width: region.box.w, height: region.box.h, hold: false }));
+    for (const child of region.children ?? []) add(child);
+  };
+  for (const region of TREE) add(region);
+  return rows;
+})();
+const seats = placed.map((seat) => modelSeat({ id: seat.id, x: seat.spot[0], y: seat.spot[1] }));
+// The terminal only reads the fifo; the probe writes it at a fixed rate.
 const stream = modelTerminal({
   id: "ring-stream",
   bindingId: "local:ring-stream",
   label: "stream",
   x: 40,
   y: 40,
-  launch: {
-    kind: "command",
-    argv: [
-      "/bin/sh",
-      "-c",
-      `until [ -e "${goFile}" ]; do sleep 0.05; done; while [ ! -e "${stopFile}" ]; do i=0; while [ $i -lt 400 ]; do echo "tick $i the quick brown fox jumps over the lazy dog 0123456789"; i=$((i+1)); done; done`,
-    ],
-  },
+  launch: { kind: "command", argv: ["/bin/sh", "-c", `exec cat "${fifo}"`] },
 });
-await writeFixtureModel(sandbox, CANVAS, modelFixture([...seats, stream]));
+// Regions first so they paint underneath the seats they hold.
+await writeFixtureModel(sandbox, CANVAS, modelFixture([...regions, ...seats, stream]));
 
 const server = await startRendererServer(join(appRoot, "out/renderer"));
 const electronBinary = createRequire(join(appRoot, "package.json"))("electron") as string;
@@ -222,14 +403,15 @@ type Scenario = {
   scriptMsPerSecond: number | null;
   layoutMsPerSecond: number | null;
   styleMsPerSecond: number | null;
-  rafFrames: number;
-  rafDropped: number;
-  framesPresented: number | null;
-  framesDropped: number | null;
+  /** Pan only: a page rAF loop would force frames in the other scenarios. */
+  rafFrames: number | null;
+  rafDropped: number | null;
+  bytesWritten: number | null;
   cpuPercent: Record<string, number>;
   ringsVisible: { moving: number; marks: number };
   loadAverage1m: { before: number; after: number };
   accessibilityOn: boolean;
+  viewport: string[] | null;
 };
 
 try {
@@ -248,7 +430,7 @@ try {
   // The first-run tour blurs the canvas behind it: mark it seen the way the
   // introduction itself does, through the settings IPC.
   await waitFor("the settings bridge", 30_000, () => page!.evaluate<boolean>(`Boolean(window.junto?.settingsPatch)`));
-  await page.evaluate(`window.junto.settingsPatch({ advanced: { onboardingSeen: true } })`);
+  await page.evaluate(`window.junto.settingsPatch({ advanced: { onboardingSeen: true }, appearance: { theme: "dark" } })`);
 
   await waitFor("the seat cards", 60_000, async () =>
     (await page!.evaluate<number>(`document.querySelectorAll('.react-flow__node[data-id^="ring-seat-"]').length`)) >= seatCount,
@@ -309,81 +491,74 @@ try {
     return byType;
   };
 
-  // Frames presented / dropped come from the compositor's own PipelineReporter
-  // events (browser-wide trace); rAF deltas in the page are the fallback.
-  const startFrameTrace = async () => {
-    const states: string[] = [];
-    browser!.on("Tracing.dataCollected", (params: { value: Array<any> }) => {
-      for (const event of params.value) {
-        if (event.name !== "PipelineReporter" || event.ph !== "e") continue;
-        const state = event.args?.chrome_frame_reporter?.state;
-        if (typeof state === "string") states.push(state);
-      }
-    });
-    const complete = new Promise<void>((done) => browser!.on("Tracing.tracingComplete", () => done()));
-    await browser!.send("Tracing.start", {
-      traceConfig: { includedCategories: ["benchmark", "cc", "viz", "disabled-by-default-cc.debug.display_stats"] },
-      transferMode: "ReportEvents",
-    } as never);
-    return async () => {
-      await browser!.send("Tracing.end");
-      await complete;
-      return states;
-    };
-  };
-
-  const measure = async (name: string, drive: (windowMs: number) => Promise<void>, before?: () => Promise<void>): Promise<Scenario> => {
-    await sendWorking();
-    await before?.();
-    const rings = await ringsNow();
-    await page!.evaluate(`(() => {
-      const p = (window.__ringProbe = { deltas: [], on: true });
-      let last = performance.now();
-      const tick = (now) => { p.deltas.push(now - last); last = now; if (p.on) requestAnimationFrame(tick); };
-      requestAnimationFrame(tick);
+  const darkNow = () =>
+    page!.evaluate<{ dark: boolean; background: string }>(`(() => {
+      const background = getComputedStyle(document.body).backgroundColor;
+      const [r, g, b] = background.match(/\\d+/g)?.map(Number) ?? [255, 255, 255];
+      return { dark: r + g + b < 300, background };
     })()`);
-    const stopTrace = await startFrameTrace();
+
+  const measure = async (
+    name: string,
+    drive: (windowMs: number) => Promise<{ bytesWritten?: number; viewport?: string[] } | void>,
+    options: { raf?: boolean; before?: () => Promise<void> } = {},
+  ): Promise<Scenario> => {
+    await sendWorking();
+    await options.before?.();
+    const rings = await ringsNow();
+    if (options.raf) {
+      await page!.evaluate(`(() => {
+        const p = (window.__ringProbe = { deltas: [], on: true });
+        let last = performance.now();
+        const tick = (now) => { p.deltas.push(now - last); last = now; if (p.on) requestAnimationFrame(tick); };
+        requestAnimationFrame(tick);
+      })()`);
+    }
     const metricsBefore = await metrics();
     const cpuBefore = await processCpu();
     const loadBefore = loadavg()[0]!;
     const t0 = performance.now();
-    await drive(seconds * 1000);
+    const driven = await drive(seconds * 1000);
     const elapsed = (performance.now() - t0) / 1000;
     const metricsAfter = await metrics();
     const cpuAfter = await processCpu();
-    const states = await stopTrace();
-    const deltas = await page!.evaluate<number[]>(`(() => { window.__ringProbe.on = false; return window.__ringProbe.deltas; })()`);
+    const deltas = options.raf
+      ? await page!.evaluate<number[]>(`(() => { window.__ringProbe.on = false; return window.__ringProbe.deltas; })()`)
+      : null;
 
     const perSecond = (key: string) =>
       metricsAfter[key] !== undefined && metricsBefore[key] !== undefined
-        ? Math.round(((metricsAfter[key]! - metricsBefore[key]!) / elapsed) * 1000 * 10) / 10
+        ? round1(((metricsAfter[key]! - metricsBefore[key]!) / elapsed) * 1000)
         : null;
-    const sorted = [...deltas].sort((a, b) => a - b);
-    const interval = Math.min(17.5, Math.max(6, sorted[0] ?? 16.7));
-    const rafDropped = deltas.reduce((sum, d) => (d > interval * 1.5 ? sum + Math.round(d / interval) - 1 : sum), 0);
-    const cpuPercent: Record<string, number> = {};
-    for (const type of Object.keys(cpuAfter)) {
-      cpuPercent[type] = Math.round((((cpuAfter[type]! - (cpuBefore[type] ?? 0)) / elapsed) * 100) * 10) / 10;
+    let rafDropped: number | null = null;
+    if (deltas) {
+      const interval = Math.min(17.5, Math.max(6, [...deltas].sort((x, y) => x - y)[0] ?? 16.7));
+      rafDropped = deltas.reduce((sum, d) => (d > interval * 1.5 ? sum + Math.round(d / interval) - 1 : sum), 0);
     }
+    const cpuPercent: Record<string, number> = {};
+    for (const type of Object.keys(cpuAfter)) cpuPercent[type] = round1(((cpuAfter[type]! - (cpuBefore[type] ?? 0)) / elapsed) * 100);
     const problems = await checks();
+    const theme = await darkNow();
+    if (!theme.dark) problems.push(`not the dark theme (body ${theme.background})`);
+    if (rings.moving < MIN_RINGS) problems.push(`only ${rings.moving} moving rings on screen (need ${MIN_RINGS})`);
     const accessibilityOn = await main!.evaluate<boolean>(`__probe.app.accessibilitySupportEnabled`);
-    if (deltas.length === 0) problems.push("0 frames: the window did not paint");
+    if (deltas && deltas.length === 0) problems.push("0 frames: the window did not paint");
     return {
       name,
       valid: problems.length === 0,
       problems,
-      seconds: Math.round(elapsed * 10) / 10,
+      seconds: round1(elapsed),
       rendererBusyMsPerSecond: perSecond("TaskDuration"),
       scriptMsPerSecond: perSecond("ScriptDuration"),
       layoutMsPerSecond: perSecond("LayoutDuration"),
       styleMsPerSecond: perSecond("RecalcStyleDuration"),
-      rafFrames: deltas.length,
+      rafFrames: deltas ? deltas.length : null,
       rafDropped,
-      framesPresented: states.length === 0 ? null : states.filter((s) => s.startsWith("STATE_PRESENTED")).length,
-      framesDropped: states.length === 0 ? null : states.filter((s) => s === "STATE_DROPPED").length,
+      bytesWritten: driven?.bytesWritten ?? null,
       cpuPercent,
       ringsVisible: rings,
       accessibilityOn,
+      viewport: driven?.viewport ?? null,
       loadAverage1m: { before: Math.round(loadBefore * 100) / 100, after: Math.round(loadavg()[0]! * 100) / 100 },
     };
   };
@@ -393,68 +568,113 @@ try {
   const results: Scenario[] = [];
   results.push(await measure("idle", async (ms) => { await sleep(ms); }));
   results.push(
-    await measure("pan", async (ms) => {
-      const until = performance.now() + ms;
-      for (let i = 0; performance.now() < until; i += 1) {
-        await page!.evaluate(`(() => {
-          const el = document.querySelector(".react-flow__pane") || document.body;
-          el.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaX: ${i % 2 ? -90 : 90}, deltaY: ${i % 2 ? -120 : 120} }));
-        })()`);
-        await sleep(16);
-      }
-    }),
+    await measure(
+      "pan",
+      async (ms) => {
+        // Sweep one way for half the window and back for the other half, so the
+        // camera crosses the nested regions and ends where it began.
+        const viewport = async () => page!.evaluate<string>(`document.querySelector(".react-flow__viewport")?.style.transform ?? ""`);
+        const seen = [await viewport()];
+        const until = performance.now() + ms;
+        const half = performance.now() + ms / 2;
+        let marked = false;
+        while (performance.now() < until) {
+          const sign = performance.now() < half ? 1 : -1;
+          if (!marked && sign === -1) {
+            seen.push(await viewport());
+            marked = true;
+          }
+          await page!.evaluate(`(document.querySelector(".react-flow__pane") || document.body).dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaX: ${sign * 12}, deltaY: ${sign * 6} }))`);
+          await sleep(16);
+        }
+        seen.push(await viewport());
+        return { viewport: seen };
+      },
+      { raf: true },
+    ),
   );
   results.push(
     await measure(
       "stream",
       async (ms) => {
-        writeFileSync(goFile, "");
-        await sleep(ms);
-        writeFileSync(stopFile, "");
+        // A fixed rate: LINES_PER_TICK lines every TICK_MS for the whole window,
+        // written by this script, so every build processes the same bytes.
+        const block = Array.from({ length: LINES_PER_TICK }, (_, i) => `tick ${String(i).padStart(2, "0")} the quick brown fox jumps over the lazy dog 0123456789\n`).join("");
+        let fd = -1;
+        for (let tries = 0; fd < 0 && tries < 100; tries += 1) {
+          try {
+            fd = openSync(fifo, constants.O_WRONLY | constants.O_NONBLOCK);
+          } catch {
+            await sleep(100);
+          }
+        }
+        if (fd < 0) {
+          streamProblems.push("stream terminal never opened the fifo for reading");
+          await sleep(ms);
+          return { bytesWritten: 0 };
+        }
+        let bytesWritten = 0;
+        let stalled = 0;
+        const ticks = Math.round(ms / TICK_MS);
+        const started = performance.now();
+        for (let tick = 0; tick < ticks; tick += 1) {
+          try {
+            bytesWritten += writeSync(fd, block);
+          } catch {
+            stalled += 1;
+          }
+          const wait = started + (tick + 1) * TICK_MS - performance.now();
+          if (wait > 0) await sleep(wait);
+        }
+        closeSync(fd);
+        if (stalled > 0) streamProblems.push(`${stalled} of ${ticks} output ticks hit a full pipe`);
+        return { bytesWritten };
       },
-      async () => {
-        // Open the stream terminal the way an operator does: a trusted double click.
-        // A point on the card that nothing covers (the station bar can sit over
-        // the top row at fit-view); wheel-pan the canvas a little if none is.
-        const findPoint = () => page!.evaluate<{ x: number; y: number } | null>(`(() => {
-          const node = document.querySelector('.react-flow__node[data-id="ring-stream"]');
-          if (!node) return null;
-          const r = node.getBoundingClientRect();
-          for (const fy of [0.5, 0.3, 0.7, 0.15, 0.85]) for (const fx of [0.5, 0.3, 0.7]) {
-            const x = r.left + r.width * fx, y = r.top + r.height * fy;
-            if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) continue;
-            if (document.elementFromPoint(x, y)?.closest('.react-flow__node[data-id="ring-stream"]')) return { x, y };
+      {
+        before: async () => {
+          // Open the stream terminal the way an operator does: a trusted double
+          // click on a point of the card that nothing covers (the station bar
+          // can sit over the top row at fit-view); wheel-pan a little if none is.
+          const findPoint = () => page!.evaluate<{ x: number; y: number } | null>(`(() => {
+            const node = document.querySelector('.react-flow__node[data-id="ring-stream"]');
+            if (!node) return null;
+            const r = node.getBoundingClientRect();
+            for (const fy of [0.5, 0.3, 0.7, 0.15, 0.85]) for (const fx of [0.5, 0.3, 0.7]) {
+              const x = r.left + r.width * fx, y = r.top + r.height * fy;
+              if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) continue;
+              if (document.elementFromPoint(x, y)?.closest('.react-flow__node[data-id="ring-stream"]')) return { x, y };
+            }
+            return null;
+          })()`);
+          let rect = await findPoint();
+          for (let tries = 0; !rect && tries < 4; tries += 1) {
+            await page!.evaluate(`(document.querySelector(".react-flow__pane") || document.body).dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -120 }))`);
+            await sleep(300);
+            rect = await findPoint();
           }
-          return null;
-        })()`);
-        let rect = await findPoint();
-        for (let tries = 0; !rect && tries < 4; tries += 1) {
-          await page!.evaluate(`(document.querySelector(".react-flow__pane") || document.body).dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -120 }))`);
-          await sleep(300);
-          rect = await findPoint();
-        }
-        const opened = () => page!.evaluate<boolean>(`Boolean(document.querySelector(".native-terminal-surface, .xterm"))`);
-        if (rect) {
-          for (const clickCount of [1, 2]) {
-            const at = { x: rect.x, y: rect.y, button: "left", clickCount };
-            await page!.send("Input.dispatchMouseEvent", { type: "mousePressed", ...at });
-            await page!.send("Input.dispatchMouseEvent", { type: "mouseReleased", ...at });
+          const opened = () => page!.evaluate<boolean>(`Boolean(document.querySelector(".native-terminal-surface, .xterm"))`);
+          if (rect) {
+            for (const clickCount of [1, 2]) {
+              const at = { x: rect.x, y: rect.y, button: "left", clickCount };
+              await page!.send("Input.dispatchMouseEvent", { type: "mousePressed", ...at });
+              await page!.send("Input.dispatchMouseEvent", { type: "mouseReleased", ...at });
+            }
           }
-        }
-        let surface = await waitFor("the stream terminal surface", 8_000, opened).catch(() => false);
-        if (!surface) {
-          await page!.evaluate(`document.querySelector('.react-flow__node[data-id="ring-stream"]')?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true, view: window }))`);
-          surface = await waitFor("the stream terminal surface", 8_000, opened).catch(() => false);
-        }
-        if (!surface) {
-          const seen = await page!.evaluate<string>(`JSON.stringify({
-            node: Boolean(document.querySelector('.react-flow__node[data-id="ring-stream"]')),
-            rect: ${JSON.stringify(rect)},
-            topElement: (() => { const el = document.elementFromPoint(${rect?.x ?? 0}, ${rect?.y ?? 0}); return el ? el.tagName + "." + String(el.className).slice(0, 80) : null; })(),
-            classes: [...new Set([...document.querySelectorAll("[class]")].flatMap((el) => [...el.classList]).filter((c) => /term|xterm|surface|modal/i.test(c)))].slice(0, 40),
-          })`);
-          streamProblems.push(`stream terminal did not open: ${seen}`);
-        }
+          let surface = await waitFor("the stream terminal surface", 8_000, opened).catch(() => false);
+          if (!surface) {
+            await page!.evaluate(`document.querySelector('.react-flow__node[data-id="ring-stream"]')?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true, view: window }))`);
+            surface = await waitFor("the stream terminal surface", 8_000, opened).catch(() => false);
+          }
+          if (!surface) {
+            const seen = await page!.evaluate<string>(`JSON.stringify({
+              node: Boolean(document.querySelector('.react-flow__node[data-id="ring-stream"]')),
+              rect: ${JSON.stringify(rect)},
+              topElement: (() => { const el = document.elementFromPoint(${rect?.x ?? 0}, ${rect?.y ?? 0}); return el ? el.tagName + "." + String(el.className).slice(0, 80) : null; })(),
+              classes: [...new Set([...document.querySelectorAll("[class]")].flatMap((el) => [...el.classList]).filter((c) => /term|xterm|surface|modal/i.test(c)))].slice(0, 40),
+            })`);
+            streamProblems.push(`stream terminal did not open: ${seen}`);
+          }
+        },
       },
     ),
   );
@@ -469,9 +689,10 @@ try {
     label,
     sourceCommit,
     appRoot,
-    command: `bun scripts/probe-ring-cost.ts --app-root ${appRoot} --label ${label} --seats ${seatCount} --seconds ${seconds} --port ${port}`,
+    command: `bun scripts/probe-ring-cost.ts --app-root ${appRoot} --label ${label} --seconds ${seconds} --port ${port}`,
     when: new Date().toISOString(),
-    environment: { ...environment, rendererAccessibilityForcedOff: forceAxOff, seats: seatCount, preflightProblems: preflight },
+    environment: { ...environment, rendererAccessibilityForcedOff: forceAxOff, streamLinesPerTick: LINES_PER_TICK, streamTickMs: TICK_MS, preflightProblems: preflight },
+    fixture: fixtureSummary,
     valid: results.every((row) => row.valid),
     scenarios: results,
   };
@@ -481,7 +702,7 @@ try {
   console.log(
     `${label} ${sourceCommit?.slice(0, 9) ?? "?"} ` +
       results
-        .map((row) => `${row.name}: busy ${row.rendererBusyMsPerSecond} ms/s, frames ${row.framesPresented ?? `~${row.rafFrames}`}/${row.framesDropped ?? `~${row.rafDropped}`} dropped, gpu ${row.cpuPercent.GPU ?? "?"}% browser ${row.cpuPercent.Browser ?? row.cpuPercent.browser ?? "?"}%, rings ${row.ringsVisible.moving}`)
+        .map((row) => `${row.name}: busy ${row.rendererBusyMsPerSecond} ms/s${row.rafFrames === null ? "" : `, frames ${row.rafFrames}/${row.rafDropped} dropped`}, gpu ${row.cpuPercent.GPU ?? "?"}%, renderer ${row.cpuPercent.renderer ?? "?"}%, rings ${row.ringsVisible.moving}`)
         .join(" | ") +
       (report.valid ? "" : " | INVALID"),
   );
