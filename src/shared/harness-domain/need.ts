@@ -118,7 +118,7 @@ const statusNeed = (snapshot: SeatSnapshot): Need => {
     case "Unknown":
       return need("unknown", since, statusSource);
     case "Exited":
-      return need(status.expected ? "exited" : "unexpected_exit", since, statusSource);
+      return need(status.expected === false ? "unexpected_exit" : "exited", since, statusSource);
     case "Working":
       if (status.phase === "retrying") return need("retrying", since, statusSource);
       if (status.phase === "compacting") return need("compacting", since, statusSource);

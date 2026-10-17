@@ -134,6 +134,13 @@ export type ArgvSpec = {
    * `permissionModeFlag` is the only dial.
    */
   readonly permissionArgv?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * Argv tokens a permission mode needs on the same launch. Devin 3000.10.21
+   * rejects `--permission-mode autonomous` without `--sandbox`. Pickers do
+   * not offer these modes (Junto shows no sandbox dial); the emit path pairs
+   * the tokens when a seat already carries one.
+   */
+  readonly permissionCompanions?: Readonly<Record<string, readonly string[]>>;
   /** Hermes profile: `-p` / `--profile`. */
   readonly profileFlag?: string;
   /**
@@ -758,6 +765,11 @@ export type ManagedTerminalTemplate = {
    * whose dial is a model or an effort.
    */
   readonly modes?: readonly string[];
+  /**
+   * Every permission mode the harness accepts, verified against its `--help`.
+   * Absent means unverified: pickers then offer free text.
+   */
+  readonly permissionModes?: readonly string[];
   /** Default permission/approval mode when the picker does not choose. */
   readonly defaultPermissionMode?: string;
   /** Probed binary version era (re-smoke on harness updates). */
@@ -1246,6 +1258,7 @@ export const DEVIN_TEMPLATE: ManagedTerminalTemplate = {
     promptSeparator: "--",
     modelFlag: "--model",
     permissionModeFlag: "--permission-mode",
+    permissionCompanions: { autonomous: ["--sandbox"] },
     resumeMode: "flag",
     resumeFlag: "-r",
   },

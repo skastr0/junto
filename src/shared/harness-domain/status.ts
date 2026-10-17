@@ -62,7 +62,7 @@ export const SeatStatus = Schema.Union([
     _tag: Schema.Literal("Exited"),
     code: Schema.optionalKey(Schema.Int),
     signal: Schema.optionalKey(Schema.String),
-    expected: Schema.Boolean,
+    expected: Schema.optionalKey(Schema.Boolean),
   }),
   Schema.Struct({ _tag: Schema.Literal("Unknown") }),
 ]);
@@ -239,6 +239,7 @@ const reduceHarness = (
       };
     case "ActivityObserved":
       if (signal.activity === "idle") return withStatus(snapshot, envelope, { _tag: "Idle" });
+      if (signal.activity === "unknown") return withStatus(snapshot, envelope, { _tag: "Unknown" });
       return withStatus(snapshot, envelope, {
         _tag: "Working",
         phase: snapshot.status._tag === "Working" ? snapshot.status.phase : "thinking",
@@ -323,7 +324,7 @@ const reduceHarness = (
     case "ProcessExited":
       return withStatus(snapshot, envelope, {
         _tag: "Exited",
-        expected: signal.expected,
+        ...(signal.expected === undefined ? {} : { expected: signal.expected }),
         ...(signal.code === undefined ? {} : { code: signal.code }),
         ...(signal.signal === undefined ? {} : { signal: signal.signal }),
       });

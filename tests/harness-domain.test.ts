@@ -156,6 +156,14 @@ describe("harness domain: status", () => {
     expect(topNeed(snapshot).cause).toBe("unexpected_exit");
   });
 
+  it("reads an unknown activity as Unknown and an exit of unknown cause as quiet", () => {
+    const unknown = fold(at("screen", { _tag: "ActivityObserved", activity: "unknown" }));
+    expect(unknown.status).toEqual({ _tag: "Unknown" });
+    const exited = fold(at("process", { _tag: "ProcessExited" }));
+    expect(exited.status).toEqual({ _tag: "Exited" });
+    expect(topNeed(exited).cause).toBe("exited");
+  });
+
   it("keeps since across detail updates of the same status", () => {
     const first = fold(at("screen", { _tag: "UsageLimitHit", scope: "unknown", message: "limit" }));
     const refined = reduceSeatSignals(first, [
@@ -258,6 +266,12 @@ describe("harness domain: commands", () => {
       const admitted = admitCommand(fold(at("screen", signal)), harness, { _tag: "DeliverMail", text: "hi", mode: "queue" });
       expect(Result.isFailure(admitted) && admitted.failure._tag).toBe("SeatNotReadyError");
     }
+  });
+
+  it("leaves mail to an unknown read to the composer gate", () => {
+    const unknown = fold(at("screen", { _tag: "ActivityObserved", activity: "unknown" }));
+    expect(Result.isSuccess(admitCommand(unknown, harness, { _tag: "DeliverMail", text: "hi", mode: "queue" }))).toBe(true);
+    expect(Result.isFailure(admitCommand(fold(), harness, { _tag: "DeliverMail", text: "hi", mode: "queue" }))).toBe(true);
   });
 
   it("refuses a mode the harness does not support on a working seat", () => {

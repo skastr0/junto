@@ -8,3 +8,5 @@ export * from "./status";
 export * from "./need";
 export * from "./capability";
 export * from "./command";
+export * from "./params";
+export { BindingId } from "../terminal-session-domain";

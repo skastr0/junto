@@ -64,10 +64,14 @@ export const SessionIdentified = Schema.Struct({
   transcriptPath: Schema.optionalKey(Text),
 });
 
-/** The screen or a status protocol saw a state, not an event. */
+/**
+ * The screen or a status protocol saw a state, not an event. `unknown` is a
+ * read that cannot tell (a connecting screen, a harness with no pack, a
+ * released reporter with no screen to re-read).
+ */
 export const ActivityObserved = Schema.Struct({
   _tag: Schema.Literal("ActivityObserved"),
-  activity: Schema.Literals(["idle", "working"]),
+  activity: Schema.Literals(["idle", "working", "unknown"]),
 });
 
 export const TurnStarted = Schema.Struct({
@@ -191,12 +195,16 @@ export const ErrorRaised = Schema.Struct({
 });
 export type ErrorRaised = typeof ErrorRaised.Type;
 
-/** `expected` is true when Junto asked the process to stop. */
+/**
+ * `expected` is true when Junto asked the process to stop, false when it did
+ * not, and absent when the observer cannot know (an unbind carries only its
+ * reason). Only `false` is an unexpected exit.
+ */
 export const ProcessExited = Schema.Struct({
   _tag: Schema.Literal("ProcessExited"),
   code: Schema.optionalKey(Schema.Int),
   signal: Schema.optionalKey(Text),
-  expected: Schema.Boolean,
+  expected: Schema.optionalKey(Schema.Boolean),
 });
 
 export const HarnessSignal = Schema.Union([

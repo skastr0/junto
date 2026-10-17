@@ -91,6 +91,9 @@ const notReady = (status: SeatStatus, command: SeatCommand): string | undefined 
         return undefined;
       }
       if (status._tag === "Blocked") return "the seat is blocked";
+      // A read that cannot tell is not a hold: the composer gate decides, as
+      // it did before the contract.
+      if (status._tag === "Unknown") return undefined;
       return "the seat is not running a session";
     case "AnswerPermission":
       if (status._tag === "Blocked" && status.reason._tag === "Permission") {
