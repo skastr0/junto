@@ -324,6 +324,27 @@ describe("seats link start", () => {
     expect(rows.join("\n")).toContain(`for ${localSeat.agentKey} in prod with [redacted]`);
   });
 
+  it("stops a running seat over the link and answers vacant when nothing runs", async () => {
+    const f = await fixture();
+    const linked = linkedClient(f);
+    expect(await linked.client.stop(localSeat.bindingId, "op-stop-0")).toBe(false);
+    expect(await f.start({ ...request, _tag: "Stop" })).toEqual({
+      _tag: "Vacant", canvas, seatId: localSeat.id, machine: THIS_MACHINE,
+    });
+    const started = f.channel.decodeResponse(await f.start()) as { generation: string };
+    await expect(f.start({ ...request, _tag: "Stop", generation: "old" }))
+      .rejects.toMatchObject({ _tag: "SeatEpochChanged", expectedEpoch: "old", actualEpoch: started.generation });
+    expect(f.fake.controllers[0]!.signals).toEqual([]);
+    expect(await linked.client.stop(localSeat.bindingId, "op-stop-1")).toBe(true);
+    expect(linked.requestLink.mock.calls.at(-1)?.[3]).toEqual({ operationId: "op-stop-1" });
+    expect(f.fake.controllers[0]!.signals).toContain("SIGTERM");
+  });
+
+  it("refuses a stop from a machine that does not edit the canvas", async () => {
+    const f = await fixture({ editor: "another-editor" });
+    await expect(f.start({ ...request, _tag: "Stop" })).rejects.toMatchObject({ _tag: "SeatCanvasEditorMismatch" });
+  });
+
   it("answers each refusal with its own tag", async () => {
     const editorless = await fixture({ editor: "another-editor" });
     await expect(editorless.start()).rejects.toMatchObject({ _tag: "SeatCanvasEditorMismatch", peer: "macbook" });

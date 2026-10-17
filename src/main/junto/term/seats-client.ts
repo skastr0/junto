@@ -13,11 +13,16 @@ type Services = HostsService | MachineLink | ModelService;
 export type SeatsClientRunner = <A, E>(effect: Effect.Effect<A, E, Services>) => Promise<A>;
 const asError = (cause: unknown): Error => cause instanceof Error ? cause : new Error(String(cause));
 
+export type SeatsClient = RemoteSeatProcessClient & {
+  /** True when the seat's machine began stopping it, false when it had no occupant. */
+  readonly stop: (bindingId: string, operationId?: string) => Promise<boolean>;
+};
+
 /** A remote process client sends seat identity only, never a launch plan. */
 export const makeSeatsProcessClient = (
   machine: string,
   run: SeatsClientRunner = coreRunner.runPromise,
-): RemoteSeatProcessClient => {
+): SeatsClient => {
   const locate = (bindingId: string) => Effect.gen(function* () {
     const model = yield* ModelService;
     for (const canvas of yield* model.listCanvases()) {
@@ -47,6 +52,7 @@ export const makeSeatsProcessClient = (
   const summary = (canvas: string, seat: NodeOf<"agent">, response: typeof SeatsResponse.Type): TerminalSessionSummary | undefined => {
     if (response.canvas !== canvas || response.seatId !== seat.id || response.machine !== machine)
       throw new Error("The machine returned another seat's occupant.");
+    if (response._tag === "Stopping") throw new Error("The machine answered a start with a stop.");
     return response._tag === "Vacant" ? undefined : {
       bindingId: seat.bindingId, hostId: machine, canvasName: canvas, nodeId: seat.id,
       harness: seat.harness, agentKey: seat.agentKey, epoch: response.generation,
@@ -80,5 +86,13 @@ export const makeSeatsProcessClient = (
       if (live === undefined) return yield* Effect.fail(new Error("The machine did not start this seat."));
       return live;
     })),
+    stop: (bindingId, operationId) => run(Effect.gen(function* () {
+      const held = yield* locate(bindingId);
+      if (held === undefined) return false;
+      const response = yield* request({ _tag: "Stop", canvas: held.canvas, seatId: held.seat.id }, operationId);
+      if (response.canvas !== held.canvas || response.seatId !== held.seat.id || response.machine !== machine)
+        return yield* Effect.fail(new Error("The machine answered for another seat."));
+      return response._tag === "Stopping";
+    }).pipe(Effect.annotateLogs({ area: "seats", seat: bindingId }))),
   };
 };

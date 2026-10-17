@@ -54,6 +54,11 @@ export class SeatStopping extends Schema.TaggedError<SeatStopping>()("SeatStoppi
   ...Where, epoch: Id, message: Text,
 }) {}
 
+/** The seat's machine would not stop its occupant. */
+export class SeatStopRefused extends Schema.TaggedError<SeatStopRefused>()("SeatStopRefused", {
+  ...Where, epoch: Id, message: Text,
+}) {}
+
 /** The seat has no occupant: nothing was started, or its state is unknown. */
 export class SeatMissing extends Schema.TaggedError<SeatMissing>()("SeatMissing", {
   ...Where, message: Text,
@@ -98,7 +103,7 @@ export class SeatLinkClosed extends Schema.TaggedError<SeatLinkClosed>()("SeatLi
 export const SeatsFailure = Schema.Union([
   SeatSpawnFailed, SeatExited, SeatEpochChanged, SeatOccupantChanged, SeatStopping, SeatMissing,
   SeatChangedWhilePreparing, SeatNotOnThisMachine, SeatCanvasEditorMismatch, SeatPeerNotPinned,
-  SeatSessionUnavailable, SeatStartRefused, SeatLinkClosed,
+  SeatSessionUnavailable, SeatStartRefused, SeatLinkClosed, SeatStopRefused,
 ]);
 export type SeatsFailure = typeof SeatsFailure.Type;
 

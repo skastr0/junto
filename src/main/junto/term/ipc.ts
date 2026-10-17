@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
 import { ModelService } from "../model/service";
 import { SeatSessionRepository } from "../seat-sessions/repository";
@@ -316,13 +317,20 @@ export const registerTerminalIpc = (
     async (event, bindingId: string, hostId?: string) => {
       assertTrusted(event);
       await ensureHostAvailable(hostId);
+      if (hostId !== undefined && !router.isLocalHostId(hostId)) return (await remoteSeats(hostId)).get(bindingId);
       return router.get(bindingId, hostId);
     },
   );
 
+  // A seat on another machine is reached only over the seats channel: its
+  // machine answers, and a failure there arrives typed instead of as false.
+  const remoteSeats = async (hostId: string) =>
+    (await import("./seats-client")).makeSeatsProcessClient(hostId);
   // Both trusted IPC stop commands use the same owned-session router capability.
-  const stopBinding = (bindingId: string, hostId?: string) =>
-    router.kill(bindingId, hostId);
+  const stopBinding = async (bindingId: string, hostId?: string) =>
+    hostId !== undefined && !router.isLocalHostId(hostId)
+      ? (await remoteSeats(hostId)).stop(bindingId, randomUUID())
+      : router.kill(bindingId, hostId);
 
   ipcMain.handle(
     IPC_CHANNELS.terminalKill,

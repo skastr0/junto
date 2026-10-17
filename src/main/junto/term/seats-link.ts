@@ -16,7 +16,7 @@ import { runOnSeatStartTurn } from "./seat-start-turn";
 import {
   asSeatsFailure, clipText, type SeatsFailureWhere, SeatCanvasEditorMismatch, SeatChangedWhilePreparing, SeatEpochChanged, SeatExited,
   SeatLinkClosed, SeatMissing, SeatNotOnThisMachine, SeatOccupantChanged, SeatPeerNotPinned,
-  SeatSessionUnavailable, SeatsFailure, SeatSpawnFailed, SeatStopping,
+  SeatSessionUnavailable, SeatsFailure, SeatSpawnFailed, SeatStopping, SeatStopRefused,
 } from "./seats-failure";
 import type { LocalSessionHost } from "./local-host";
 
@@ -30,7 +30,12 @@ export const SeatsActivate = Schema.Struct({
   _tag: Schema.Literal("Activate"), canvas: CanvasName, seatId: NodeId,
   generation: Schema.String,
 });
-export const SeatsRequest = Schema.Union([SeatsStart, SeatsGet, SeatsActivate]);
+/** Stop the seat's occupant; with a generation, only that one. */
+export const SeatsStop = Schema.Struct({
+  _tag: Schema.Literal("Stop"), canvas: CanvasName, seatId: NodeId,
+  generation: Schema.optionalKey(Schema.String),
+});
+export const SeatsRequest = Schema.Union([SeatsStart, SeatsGet, SeatsActivate, SeatsStop]);
 export const SeatsStarted = Schema.Struct({
   _tag: Schema.Literal("Started"), canvas: CanvasName, seatId: NodeId,
   machine: MachineName, handle: Schema.String, generation: Schema.String,
@@ -40,7 +45,11 @@ export const SeatsStarted = Schema.Struct({
 export const SeatsVacant = Schema.Struct({
   _tag: Schema.Literal("Vacant"), canvas: CanvasName, seatId: NodeId, machine: MachineName,
 });
-export const SeatsResponse = Schema.Union([SeatsStarted, SeatsVacant]);
+export const SeatsStopping = Schema.Struct({
+  _tag: Schema.Literal("Stopping"), canvas: CanvasName, seatId: NodeId, machine: MachineName,
+  generation: Schema.String,
+});
+export const SeatsResponse = Schema.Union([SeatsStarted, SeatsVacant, SeatsStopping]);
 
 type Handle = {
   readonly peer: LinkChannelContext["peer"];
@@ -53,7 +62,7 @@ type Handle = {
 };
 
 export type SeatsChannelOptions = {
-  readonly host?: Pick<LocalSessionHost, "get">;
+  readonly host?: Pick<LocalSessionHost, "get" | "kill">;
   readonly pin?: typeof ensureSeatSessionId;
 };
 
@@ -146,6 +155,19 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
       return { seat, seq: canvas.seq, name: where.machine };
     });
     const initial = yield* admit();
+    if (request._tag === "Stop") {
+      const live = host.get(initial.seat.bindingId);
+      if (live === undefined || live.status === "exited" || live.status === "missing")
+        return { _tag: "Vacant", canvas: request.canvas, seatId: request.seatId, machine: initial.name };
+      if (request.generation !== undefined && request.generation !== live.epoch)
+        return yield* new SeatEpochChanged({ ...where, expectedEpoch: request.generation, actualEpoch: live.epoch,
+          message: "The seat's occupant changed before it was asked to stop." });
+      if (!host.kill(initial.seat.bindingId))
+        return yield* new SeatStopRefused({ ...where, epoch: live.epoch,
+          message: "This machine refused to stop the seat's occupant; it may be shutting down." });
+      return { _tag: "Stopping", canvas: request.canvas, seatId: request.seatId, machine: initial.name,
+        generation: live.epoch };
+    }
     if (request._tag !== "Start") {
       const live = host.get(initial.seat.bindingId);
       if (live === undefined || live.status === "exited" || live.status === "missing") {
@@ -197,8 +219,8 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
     // A failed read of this machine's own name keeps its own typed error.
     const machine = yield* machines.machineName;
     const where = { machine, canvas: request.canvas, seatId: request.seatId };
-    const kind = request._tag === "Start" ? "start" : "activation";
-    // Every start and activation is logged on this machine with its outcome.
+    const kind = request._tag === "Start" ? "start" : request._tag === "Stop" ? "stop" : "activation";
+    // Every start, activation and stop is logged on this machine with its outcome.
     const answered = answer(context, request, machine).pipe(
       Effect.mapError((cause) => asSeatsFailure(where, cause)));
     return yield* (request._tag === "Get" ? answered : answered.pipe(
