@@ -157,6 +157,25 @@ const inventoryLine = (read: InventoryRead, inventory: HarnessInventory | undefi
   return isInventoryStale(inventory, now) ? `${version}, model list out of date` : version;
 };
 
+/**
+ * What was tested against the installed version. An unverified harness still
+ * launches: the line says what was tested, never that it is broken.
+ */
+const verificationLine = (inventory: HarnessInventory | undefined): string | undefined => {
+  const verification = inventory?.installed ? inventory.verification : undefined;
+  if (verification === undefined) return undefined;
+  switch (verification.verdict) {
+    case "verified":
+      return `Tested on this version (verified ${verification.from} through ${verification.through})`;
+    case "older":
+      return `Older than tested (verified from ${verification.from})`;
+    case "newer":
+      return `Newer than tested (verified through ${verification.through})`;
+    case "unknown":
+      return `Not compared with the tested versions (${verification.from} through ${verification.through})`;
+  }
+};
+
 function HarnessCard({
   harness,
   displayName,
@@ -195,6 +214,11 @@ function HarnessCard({
       <div className="settings-harness-card__head">
         <strong style={{ color: INK }}>{displayName}</strong>
         <span className="settings-field__hint">{inventoryLine(read, inventory, Date.now())}</span>
+        {verificationLine(inventory) ? (
+          <span className="settings-field__hint" data-verdict={inventory?.verification?.verdict}>
+            {verificationLine(inventory)}
+          </span>
+        ) : null}
       </div>
 
       <FieldRow label="Offer in palette">

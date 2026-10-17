@@ -248,6 +248,27 @@ describe("Settings > Agents, per machine", () => {
     expect(card("claude").textContent).toContain("version 2.1.302");
   });
 
+  it("says what was tested against the installed version, and never calls it broken", async () => {
+    setHarnessMachineSource({
+      ...pendingHarnessMachineSource,
+      inventory: async () =>
+        Result.succeed({
+          machine: "mac-mini",
+          harnesses: [
+            {
+              ...miniInventory.harnesses[0]!,
+              version: "2.1.400",
+              verification: { verdict: "newer", from: "2.1.200", through: "2.1.302" },
+            },
+          ],
+        }),
+    });
+    await render("mac-mini");
+    const line = card("claude").querySelector('[data-verdict="newer"]');
+    expect(line?.textContent).toBe("Newer than tested (verified through 2.1.302)");
+    expect(line?.getAttribute("role")).toBeNull();
+  });
+
   it("offers no native setting for a version nobody verified", async () => {
     setHarnessMachineSource({
       ...pendingHarnessMachineSource,
