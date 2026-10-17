@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+## 0.8.0 — 2026-10-17
+
+- Set up each machine from Settings. Providers, Name and startup, and each
+  harness's own config are read and written on the machine you choose in the
+  Settings sidebar, through that machine's core, here or over the link. A
+  machine that cannot be reached shows its last inventory, its age, and the
+  typed reason; a write the link dropped says it may not have taken.
+- Rank every need on one ladder. Needs you, the rollup on each card, the
+  seat's occupancy, and desktop notifications read the same ladder, and a
+  stopped seat is listed with it. A seat that raised its hand, one that hit a
+  limit, and one waiting on you each have their own tier. A limit the
+  harness resumes from on its own does not ask for you.
+- See which harnesses and models each machine has. Every machine answers its
+  own harness inventory over the link: installed versions, whether each is a
+  version Junto was verified against, permission modes, models, and Hermes
+  profiles with the model they pin. The palette, re-seat and Customize offer
+  the harnesses and models of the machine the seat sits on.
+- Say plainly what a seat that is not running will do next: resume or start
+  fresh. An isolated Junto home never promises a resume.
+- Read a seat's state from its own screen and its own declared signals. Claude,
+  Codex and Kimi read their limits, retries, auth errors, context errors and
+  compaction; pi, omp, agy and devin report through OSC 7501.
+- Attach to, view, start, stop, and read the terminal of a seat on another
+  machine over the link, from the window and by command. `junto logs` and
+  `junto machine logs` read this machine's log and a linked machine's log.
+- Keep a scrubbed, rotated JSON-lines log on every machine, and let a failure
+  cross the link whole, with who closed it and why, instead of reading as a
+  lost link.
+- Add an all-on Preview for checking gated surfaces.
+- Fix the core bundle loading on a linked machine (production build,
+  jsonc-parser, node-pty).
+- Fix a start that failed reading as a changed occupant; the first typed
+  cause is shown.
+- Fix a seat that queues mail mid-turn for Claude and agy, and Kimi naming its
+  session on screen.
+- Fix credentials leaking into logs or failures: paths in curly quotes,
+  UUIDs, long path tokens and registered secrets are scrubbed.
+
 ## 0.7.1 — 2026-10-13
 
 The first published build since 0.6.0. It carries the held 0.7.0 work.
