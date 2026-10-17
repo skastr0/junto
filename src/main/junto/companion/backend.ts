@@ -17,6 +17,8 @@ import type { Message } from "@shared/work-model";
 
 import { Effect } from "effect";
 import type { AgentSignal } from "@shared/agent-signals";
+import { agentSeatStatusOf } from "@shared/agent-seat-state";
+import type { SeatSnapshot } from "@shared/harness-domain";
 import { rollupSeatSignals } from "@shared/agent-signals";
 import { asNodeId, regionStack, type Canvas, type Node, type Seat } from "@shared/model";
 import { titleOf as nodeTitle } from "@shared/model/title";
@@ -136,6 +138,7 @@ const feedSeats = (canvas: Canvas, now: number): ReadonlyArray<FeedSeatInput> =>
   const controls = controlByBinding();
   const health = healthByBinding();
   const attentionByNodeId = new Map<string, { readonly reason: string; readonly at: number }>();
+  const snapshotByNodeId = new Map<string, SeatSnapshot>();
   const healthByNodeId = new Map<string, { readonly reading: ThreadHealthReading }>();
   for (const node of canvas.nodes.values()) {
     if (!isAgentSeat(node)) continue;
@@ -143,11 +146,13 @@ const feedSeats = (canvas: Canvas, now: number): ReadonlyArray<FeedSeatInput> =>
     if (!binding) continue;
     const control = controls.get(binding);
     if (control?.state === "attention") attentionByNodeId.set(node.id, { reason: control.reason, at: control.at });
+    const status = agentSeatStatusOf(control);
+    if (status) snapshotByNodeId.set(node.id, status.snapshot);
     const reading = health.get(binding);
     if (reading) healthByNodeId.set(node.id, { reading });
   }
   void now;
-  return feedSeatsFromCanvas(canvas, { nameOf: nodeTitle, attentionByNodeId, healthByNodeId });
+  return feedSeatsFromCanvas(canvas, { nameOf: nodeTitle, attentionByNodeId, snapshotByNodeId, healthByNodeId });
 };
 
 /**

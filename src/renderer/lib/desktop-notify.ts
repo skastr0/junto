@@ -89,11 +89,14 @@ const FEED_CATEGORY = {
   feedback: "needsYou",
 } as const;
 
-/** Feed items as subjects. The AI's reading and canvas needs never ping. */
+/**
+ * Feed items as subjects. The AI's reading and canvas needs never ping; a
+ * stopped seat pings through seatSubjects, as it did before the feed listed it.
+ */
 export const subjectsFromFeed = (feed: OperatorFeed): ReadonlyArray<NotifySubject> =>
   feed.sections.flatMap((section) =>
     section.items.flatMap((item): ReadonlyArray<NotifySubject> =>
-      item.kind === "health" || item.canvas === true
+      item.kind === "health" || item.kind === "stopped" || item.canvas === true
         ? []
         : [
             {

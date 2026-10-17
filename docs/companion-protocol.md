@@ -149,17 +149,17 @@ subscribed phone never needs to poll.
 
 `OperatorFeed`, `FeedSection`, `FeedItem`, `FeedSeat`, `FeedRegion` and
 `FeedHealth` are exactly the desktop shapes in `src/shared/operator-feed.ts`
-(`version: 1`). `AgentSignal` is exactly `src/shared/agent-signals.ts`.
+(`version: 3`). `AgentSignal` is exactly `src/shared/agent-signals.ts`.
 Summarised:
 
 ```ts
-type OperatorFeed = { version: 1; canvasName: string; generatedAt: number; count: number; sections: FeedSection[] };
+type OperatorFeed = { version: 3; canvasName: string; generatedAt: number; count: number; sections: FeedSection[] };
 type FeedSection  = { region: FeedRegion; items: FeedItem[]; worstUrgency: number };
 type FeedRegion   = { regionId: string | null; label: string; path: string[]; color?: string }; // color: preset "1".."6" or #hex
 type FeedItem = {
   itemId: string;
-  kind: "blocked" | "attention" | "escalate" | "feedback" | "health";
-  urgency: number;             // 5 blocked, 4 attention, 3 escalate, 2 feedback, 1 health
+  kind: "blocked" | "attention" | "stopped" | "escalate" | "feedback" | "health";
+  urgency: number;             // the need ladder: 6 blocked and attention, 5 stopped, 4 escalate and health, 3 feedback
   canvasName: string;
   seat: { nodeId: string; name: string; portraitIdentity: string; harness?: string };
   region: FeedRegion;

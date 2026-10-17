@@ -2,12 +2,16 @@ import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 import type { AgentSignal } from "../src/shared/agent-signals";
 import { canvasOf, region, seat } from "./support/model-nodes";
+import { BindingId } from "../src/shared/terminal-session-domain";
+import { initialSnapshot, reduceSeatSignals, type SeatSignal, type SignalSource } from "../src/shared/harness-domain";
 import type { ThreadHealthReading } from "../src/shared/thread-health";
 import {
   buildOperatorFeed,
   feedRegionForCanvas,
   feedKindCount,
   feedSeatsFromCanvas,
+  feedStopOf,
+  FEED_URGENCY,
   needsOperatorCount,
   OperatorFeed,
   type FeedSeatInput,
@@ -39,6 +43,18 @@ const reading = (value: ThreadHealthReading["value"], observedAt: number): Threa
   provenance: { source: "jev", assessmentId: "as1", questionId: "q", packVersion: "1" },
   signals: [],
 });
+
+const snapshotAfter = (...steps: ReadonlyArray<readonly [SignalSource, SeatSignal]>) =>
+  reduceSeatSignals(
+    initialSnapshot(Schema.decodeSync(BindingId)("bind"), 0),
+    steps.map(([source, signal], index) => ({
+      seat: Schema.decodeSync(BindingId)("bind"),
+      at: 3_000 + index,
+      source,
+      fidelity: source === "screen" ? ("screen" as const) : ("native" as const),
+      signal,
+    })),
+  );
 
 const seats = (extra?: Partial<Record<string, Partial<FeedSeatInput>>>): ReadonlyArray<FeedSeatInput> =>
   feedSeatsFromCanvas(canvas).map((entry) => ({
@@ -149,7 +165,7 @@ describe("buildOperatorFeed", () => {
       seats: seats({ a: { health: reading("stuck", NOW) } }),
       signals: [signal({ signalId: "s", nodeId: "a", kind: "feedback" })],
     });
-    expect(feed.sections[0]?.items[0]).toMatchObject({ kind: "feedback", urgency: 2, health: { value: "stuck", tone: "trouble" } });
+    expect(feed.sections[0]?.items[0]).toMatchObject({ kind: "feedback", urgency: 3, health: { value: "stuck", tone: "trouble" } });
   });
 
   it("keeps a signal whose seat left the canvas, in the open field", () => {
@@ -160,7 +176,7 @@ describe("buildOperatorFeed", () => {
 
   it("is an empty, valid feed when nobody needs the operator", () => {
     const feed = buildOperatorFeed({ canvasName: "main", nowMs: NOW, seats: seats(), signals: [] });
-    expect(feed).toEqual({ version: 2, canvasName: "main", generatedAt: NOW, count: 0, sections: [] });
+    expect(feed).toEqual({ version: 3, canvasName: "main", generatedAt: NOW, count: 0, sections: [] });
   });
 
   it("counts what needs the operator: canvas needs count, an AI reading does not", () => {
@@ -184,7 +200,7 @@ describe("buildOperatorFeed", () => {
     expect(items.map((i) => `${i.seat.nodeId}:${i.kind}`).sort()).toEqual(["a:health", "b:feedback", "sink:blocked"]);
     expect(feed.count).toBe(2);
     expect(needsOperatorCount(items)).toBe(feed.count);
-    expect(items.find((i) => i.seat.nodeId === "sink")).toMatchObject({ canvas: true, since: 4_000, urgency: 5 });
+    expect(items.find((i) => i.seat.nodeId === "sink")).toMatchObject({ canvas: true, since: 4_000, urgency: 6 });
   });
 
   it("adds a canvas need only where nothing listed for that node is as urgent", () => {
@@ -211,6 +227,55 @@ describe("buildOperatorFeed", () => {
     expect(items.filter((i) => i.seat.nodeId === "b").map((i) => i.kind)).toEqual(["blocked", "feedback"]);
     expect(items.find((i) => i.itemId === "blocked:b")?.region.regionId).toBe("inner");
     expect(feed.count).toBe(4);
+  });
+
+  it("lists a stopped seat once, between a block and an escalation, and counts it", () => {
+    const limited = snapshotAfter(
+      ["screen", { _tag: "TurnStarted" }],
+      ["screen", { _tag: "UsageLimitHit", scope: "weekly", message: "You've hit your limit" }],
+    );
+    const feed = buildOperatorFeed({
+      canvasName: "main",
+      nowMs: NOW,
+      seats: seats({ a: { snapshot: limited } }),
+      signals: [
+        signal({ signalId: "esc", nodeId: "a", kind: "escalate", createdAt: 1_000 }),
+        signal({ signalId: "blk", nodeId: "a", kind: "blocked", createdAt: 2_000 }),
+      ],
+    });
+    const items = feed.sections.flatMap((s) => s.items);
+    expect(items.map((i) => i.kind)).toEqual(["blocked", "stopped", "escalate"]);
+    expect(items[1]).toMatchObject({ itemId: "stopped:a", text: "hit a usage limit", urgency: 5, since: 3_001 });
+    expect(feed.count).toBe(3);
+  });
+
+  it("says what stopped a seat, with the harness's words in the detail", () => {
+    const resets = new Date(2026, 9, 17, 15, 0).getTime();
+    const now = new Date(2026, 9, 17, 12, 0).getTime();
+    const stop = (...steps: ReadonlyArray<readonly [SignalSource, SeatSignal]>) => feedStopOf(snapshotAfter(...steps), now);
+    expect(stop(["screen", { _tag: "UsageLimitHit", scope: "5h", resetsAt: resets, message: "limit" }])?.text).toBe(
+      "hit a usage limit, resets 15:00",
+    );
+    expect(stop(["transcript", { _tag: "ErrorRaised", kind: "auth", message: "authentication_failed" }])).toMatchObject({
+      text: "stopped on a sign-in error",
+      detail: "authentication_failed",
+    });
+    expect(stop(["transcript", { _tag: "ErrorRaised", kind: "crash", message: "panic" }])).toMatchObject({ text: "stopped on an error" });
+    expect(stop(["process", { _tag: "ProcessExited", code: 137, expected: false }])).toEqual({
+      text: "exited unexpectedly",
+      detail: "Exit code 137.",
+      since: 3_000,
+    });
+    expect(stop(["process", { _tag: "ProcessExited", code: 0, expected: true }])).toBeUndefined();
+    expect(stop(["screen", { _tag: "TurnStarted" }])).toBeUndefined();
+  });
+
+  it("ranks on the need ladder: a declared block ties a proven dialog, an AI waiting reading ties an escalation", () => {
+    expect(FEED_URGENCY.blocked).toBe(FEED_URGENCY.attention);
+    expect(FEED_URGENCY.health).toBe(FEED_URGENCY.escalate);
+    expect(FEED_URGENCY.health).toBeGreaterThan(FEED_URGENCY.feedback);
+    expect(FEED_URGENCY.stopped).toBeLessThan(FEED_URGENCY.blocked);
+    expect(FEED_URGENCY.stopped).toBeGreaterThan(FEED_URGENCY.escalate);
   });
 
   it("says a count in the label table's words, agreeing with the number", () => {

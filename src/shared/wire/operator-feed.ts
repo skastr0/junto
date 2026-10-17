@@ -11,6 +11,8 @@ import { ThreadHealthValue } from "./thread-health";
  * Four sources, kept distinct:
  * - declared signals (the agent's own claim): blocked, escalate, feedback;
  * - proven control state: the seat's screen shows a dialog that wants input;
+ * - the seat's harness status: it stopped (a usage limit nothing wakes, a
+ *   sign-in error, a crash, an unexpected exit);
  * - canvas needs, read off the work graph and the sinks: a node that holds
  *   others up, a node held up, a sink or seat that wants input. Listed only
  *   where nothing above already says as much for that node;
@@ -24,31 +26,40 @@ import { ThreadHealthValue } from "./thread-health";
 /**
  * 2: an item's `since` and `ageMs` are absent when the time its need began is
  * not known. A reader shows no age then; it never substitutes one.
+ * 3: the `stopped` kind, and urgency is the need ladder's (0 idle .. 6).
  */
-export const OPERATOR_FEED_VERSION = 2 as const;
+export const OPERATOR_FEED_VERSION = 3 as const;
 
 export const FeedItemKind = Schema.Literals([
   "blocked",
   "attention",
+  "stopped",
   "escalate",
   "feedback",
   "health",
 ]);
 export type FeedItemKind = typeof FeedItemKind.Type;
 
-/** Higher is more urgent. A proven dialog outranks a declared escalation. */
+/**
+ * Higher is more urgent: each kind's level on the one need ladder
+ * (`NEED_URGENCY` in harness-domain/need.ts, a test holds them equal). A
+ * declared block ties a proven dialog; the AI reading the operator as awaited
+ * ranks with a declared escalation.
+ */
 export const FEED_URGENCY: Readonly<Record<FeedItemKind, number>> = {
-  blocked: 5,
-  attention: 4,
-  escalate: 3,
-  feedback: 2,
-  health: 1,
+  blocked: 6,
+  attention: 6,
+  stopped: 5,
+  escalate: 4,
+  health: 4,
+  feedback: 3,
 };
 
 /** The one name for each state, wherever a surface says it in words. */
 export const FEED_KIND_LABEL: Readonly<Record<FeedItemKind, string>> = {
   blocked: "blocked",
   attention: "needs input",
+  stopped: "stopped",
   escalate: "waiting on you",
   feedback: "ready for review",
   health: "AI read",

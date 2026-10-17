@@ -18,7 +18,8 @@ import {
   type OperatorFeed,
 } from "@shared/operator-feed";
 import type { ThreadHealthReading } from "@shared/thread-health";
-import { agentSeat$, seatEventForBinding } from "./agent-seat-state";
+import type { SeatSnapshot } from "@shared/harness-domain";
+import { agentSeat$, seatEventForBinding, seatStatusForBinding } from "./agent-seat-state";
 import { agentSignals$ } from "./agent-signals-state";
 import { chatCoarse$ } from "./chat-state";
 import { executionGraphForImpact } from "./impact-mode";
@@ -31,7 +32,7 @@ import { useCanvasWorkItems } from "./use-work-sink";
 
 /**
  * The desktop's reading of the operator feed: joins the live planes (declared
- * signals, seat control state, thread health) onto the canvas and hands
+ * signals, seat control state and status, thread health) onto the canvas and hands
  * them to the shared projection, with the needs only the canvas knows
  * (`feedCanvasNeeds`: stoppages, held nodes, sinks wanting input). Whether the feed is open is
  * the operator modal slot's to say (lib/operator-modal).
@@ -46,18 +47,21 @@ export const operatorFeedFor = (
   needs: ReadonlyArray<FeedCanvasNeed> = [],
 ): OperatorFeed => {
   const attentionByNodeId = new Map<string, { readonly reason: string; readonly at: number }>();
+  const snapshotByNodeId = new Map<string, SeatSnapshot>();
   const healthByNodeId = new Map<string, { readonly reading: ThreadHealthReading; readonly fresh: boolean }>();
   for (const node of canvas.nodes.values()) {
     if (node.kind !== "agent") continue;
     const event = seatEventForBinding(node.bindingId);
     if (event?.state === "attention") attentionByNodeId.set(node.id, { reason: event.reason, at: event.at });
+    const status = seatStatusForBinding(node.bindingId);
+    if (status) snapshotByNodeId.set(node.id, status.snapshot);
     const view = threadHealthView(node.bindingId, nowMs);
     if (view) healthByNodeId.set(node.id, { reading: view.reading, fresh: view.freshness === "current" });
   }
   return buildOperatorFeed({
     canvasName,
     nowMs,
-    seats: feedSeatsFromCanvas(canvas, { attentionByNodeId, healthByNodeId }),
+    seats: feedSeatsFromCanvas(canvas, { attentionByNodeId, snapshotByNodeId, healthByNodeId }),
     signals,
     canvasNeeds: needs,
   });

@@ -34,6 +34,7 @@ import {
   ArrowBigUpDash,
   ArrowUpRight,
   ChevronDown,
+  CirclePause,
   Inbox,
   MessageCircleQuestion,
   MessageSquareText,
@@ -91,6 +92,7 @@ const closeOperatorFeed = (): void => closeOperatorModal("feed");
 const KIND_ICON: Readonly<Record<FeedItemKind, LucideIcon>> = {
   blocked: OctagonAlert,
   attention: MessageCircleQuestion,
+  stopped: CirclePause,
   escalate: ArrowBigUpDash,
   feedback: MessageSquareText,
   health: ScanEye,

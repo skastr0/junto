@@ -1,6 +1,9 @@
 import { asNodeId, inPaintOrder, regionStack as modelRegionStack, regionName, type Canvas, type Node } from "./model";
 import { titleOf } from "./model/title";
 import type { AgentSignal } from "./agent-signals";
+import { deriveNeeds, type SeatSnapshot } from "./harness-domain";
+import { FEED_FROM_NEED } from "./need-surfaces";
+import { seatStatusTime } from "./seat-status-text";
 import {
   THREAD_HEALTH_LABEL,
   THREAD_HEALTH_TONE,
@@ -34,6 +37,8 @@ export type FeedSeatInput = {
   readonly region: FeedRegion;
   /** Proven control state: the seat's screen wants input. */
   readonly attention?: { readonly reason: string; readonly at: number };
+  /** The seat's harness status, folded; the feed lists it when it stopped. */
+  readonly snapshot?: SeatSnapshot;
   readonly health?: ThreadHealthReading;
   /**
    * Freshness judged by the producer (the desktop compares screen digests).
@@ -76,11 +81,13 @@ export const feedRegionForCanvas = (canvas: Canvas, nodeId: string): FeedRegion 
 export const feedSeatsFromCanvas = (canvas: Canvas, options: {
   readonly nameOf?: (node: Node) => string;
   readonly attentionByNodeId?: ReadonlyMap<string, { readonly reason: string; readonly at: number }>;
+  readonly snapshotByNodeId?: ReadonlyMap<string, SeatSnapshot>;
   readonly healthByNodeId?: ReadonlyMap<string, { readonly reading: ThreadHealthReading; readonly fresh?: boolean }>;
 } = {}): ReadonlyArray<FeedSeatInput> => inPaintOrder(canvas).filter((node) => node.kind === "agent").map((node) => {
   const attention = options.attentionByNodeId?.get(node.id);
+  const snapshot = options.snapshotByNodeId?.get(node.id);
   const health = options.healthByNodeId?.get(node.id);
-  return { seat: { nodeId: node.id, name: (options.nameOf ?? titleOf)(node), portraitIdentity: node.id, harness: node.harness }, region: feedRegionForCanvas(canvas, node.id), ...(attention ? { attention } : {}), ...(health ? { health: health.reading } : {}), ...(health?.fresh !== undefined ? { healthFresh: health.fresh } : {}) };
+  return { seat: { nodeId: node.id, name: (options.nameOf ?? titleOf)(node), portraitIdentity: node.id, harness: node.harness }, region: feedRegionForCanvas(canvas, node.id), ...(attention ? { attention } : {}), ...(snapshot ? { snapshot } : {}), ...(health ? { health: health.reading } : {}), ...(health?.fresh !== undefined ? { healthFresh: health.fresh } : {}) };
 });
 
 // --- projection -------------------------------------------------------------
@@ -101,6 +108,33 @@ const feedHealth = (entry: FeedSeatInput, reading: ThreadHealthReading, nowMs: n
 /** Proven attention, said the way the seat card says it. */
 export const attentionText = (reason: string): string =>
   /stall/i.test(reason) ? "stalled, needs a look" : "wants your input";
+
+/**
+ * The seat's stop, when one of its needs reads stopped on the feed: a usage
+ * limit nothing wakes, a sign-in error, a crash, an unexpected exit. The
+ * sentence says what stopped it; the harness's own words go in the detail.
+ */
+export const feedStopOf = (
+  snapshot: SeatSnapshot,
+  nowMs: number,
+): { readonly text: string; readonly detail?: string; readonly since: number } | undefined => {
+  const need = deriveNeeds(snapshot).find((entry) => FEED_FROM_NEED[entry.cause] === "stopped");
+  if (!need) return undefined;
+  const { status } = snapshot;
+  if (status._tag === "Blocked" && status.reason._tag === "UsageLimit") {
+    const resets = status.reason.resetsAt;
+    return { text: `hit a usage limit${resets === undefined ? "" : `, resets ${seatStatusTime(resets, nowMs)}`}`, since: need.since };
+  }
+  if (status._tag === "Blocked" && status.reason._tag === "Error") {
+    const text = status.reason.kind === "auth" ? "stopped on a sign-in error" : "stopped on an error";
+    return { text, ...(status.reason.message ? { detail: status.reason.message } : {}), since: need.since };
+  }
+  if (status._tag === "Exited") {
+    const how = status.signal !== undefined ? `Killed by ${status.signal}.` : status.code !== undefined ? `Exit code ${status.code}.` : undefined;
+    return { text: "exited unexpectedly", ...(how ? { detail: how } : {}), since: need.since };
+  }
+  return { text: "stopped", since: need.since };
+};
 
 /** Most urgent first, then oldest first; a need with no known time follows the dated ones. */
 const byUrgencyThenAge = (a: FeedItem, b: FeedItem): number =>
@@ -207,6 +241,18 @@ export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
       kind: "attention",
       text: attentionText(entry.attention.reason),
       since: entry.attention.at,
+    });
+  }
+
+  for (const entry of input.seats) {
+    const stop = entry.snapshot && feedStopOf(entry.snapshot, nowMs);
+    if (!stop) continue;
+    push(entry, {
+      itemId: `stopped:${entry.seat.nodeId}`,
+      kind: "stopped",
+      text: stop.text,
+      ...(stop.detail ? { detail: stop.detail } : {}),
+      since: stop.since,
     });
   }
 

@@ -12,6 +12,7 @@ import {
   deriveNeeds,
   initialSnapshot,
   NEED_CAUSES,
+  NEED_URGENCY,
   reduceSeatSignals,
   type NeedCause,
   type SeatSignal,
@@ -33,7 +34,7 @@ import {
 import { DEFAULT_STALL_AFTER_MS, deriveOccupancy, OccupancySpectrum } from "../src/shared/occupancy/derive";
 import { deriveRegionRollups } from "../src/shared/region-rollup";
 import { buildOperatorFeed, feedSeatsFromCanvas } from "../src/shared/operator-feed";
-import { FEED_URGENCY } from "../src/shared/wire/operator-feed";
+import { FEED_URGENCY, FeedItemKind } from "../src/shared/wire/operator-feed";
 import { NOTIFY_CATEGORIES } from "../src/shared/desktop-notifications";
 import type { AgentSeatState } from "../src/shared/agent-seat-state";
 import type { AgentSignal } from "../src/shared/agent-signals";
@@ -180,12 +181,15 @@ const reading = (): ThreadHealthReading => ({
   signals: [],
 });
 
+const snapshotOf = (scenario: Scenario) => reduceSeatSignals(initialSnapshot(seatId, 0), scenario.signals);
+
 const todayFeed = (scenario: Scenario) =>
   buildOperatorFeed({
     canvasName: "main",
     nowMs: NOW,
     seats: feedSeatsFromCanvas(canvas, {
       attentionByNodeId: new Map(scenario.attention ? [["a", { reason: "permission dialog", at: NOW }]] : []),
+      snapshotByNodeId: new Map([["a", snapshotOf(scenario)]]),
       healthByNodeId: new Map(scenario.waitingReading ? [["a", { reading: reading(), fresh: true }]] : []),
     }),
     signals: scenario.declared
@@ -245,8 +249,7 @@ const PROJECTION = {
 
 const SURFACES = ["occupancy", "rollup", "feed", "notify"] as const;
 
-const needsOf = (scenario: Scenario) =>
-  deriveNeeds(reduceSeatSignals(initialSnapshot(seatId, 0), scenario.signals));
+const needsOf = (scenario: Scenario) => deriveNeeds(snapshotOf(scenario));
 
 const listedChange = (surface: NeedSurface, causes: readonly NeedCause[]): boolean =>
   SURFACE_CHANGES.some((change) => change.surface === surface && causes.some((cause) => change.causes.includes(cause)));
@@ -323,12 +326,15 @@ describe("need surfaces: where each surface's order disagrees with the ladder", 
   });
 
   it("operator feed", () => {
-    expect(summary("feed")).toEqual([
-      "split blocked > attention",
-      "split escalate > health",
-      "merged health > health",
-      "inverted feedback > health",
-    ]);
+    expect(summary("feed")).toEqual([]);
+  });
+
+  it("operator feed urgency is each kind's level on the need ladder", () => {
+    for (const kind of FeedItemKind.literals) {
+      const causes = (Object.keys(NEED_CAUSES) as NeedCause[]).filter((cause) => FEED_FROM_NEED[cause] === kind);
+      expect(causes.length, kind).toBeGreaterThan(0);
+      for (const cause of causes) expect(FEED_URGENCY[kind], `${kind} from ${cause}`).toBe(NEED_URGENCY[NEED_CAUSES[cause].level]);
+    }
   });
 
   it("desktop notifications", () => {
