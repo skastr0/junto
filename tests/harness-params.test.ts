@@ -1,6 +1,7 @@
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  checkNativeSetting,
   checkParam,
   paramSpec,
   paramsOfTemplate,
@@ -64,6 +65,36 @@ describe("harness params", () => {
     });
     expect(resolved.values).toEqual({ model: "opus", effort: "max", extraArgs: [] });
     expect(resolved.from).toEqual({ model: "harnessDefault", effort: "seat", extraArgs: "launch" });
+  });
+
+  it("puts the machine override between the app default and the seat", () => {
+    const resolved = resolveParams(params("claude"), {
+      harnessDefault: { model: "opus", effort: "high" },
+      machine: { model: "sonnet" },
+      seat: { effort: "max" },
+    });
+    expect(resolved.values).toEqual({ model: "sonnet", effort: "max" });
+    expect(resolved.from).toEqual({ model: "machine", effort: "seat" });
+    expect(resolveParams(params("claude"), {}).values).toEqual({});
+  });
+
+  it("admits a native setting only when declared for the installed version", () => {
+    const catalogue = [
+      {
+        harness: "claude",
+        key: "permissions.defaultMode",
+        label: "Default mode",
+        value: { kind: "enum", values: ["default", "acceptEdits", "plan"] },
+        file: ".claude/settings.json",
+        versions: { from: "2.1.200" },
+      },
+    ] as const;
+    const write = { machine: "local", harness: "claude", key: "permissions.defaultMode", value: "plan" } as const;
+    expect(Result.isSuccess(checkNativeSetting(catalogue, write as never, "2.1.302"))).toBe(true);
+    const old = checkNativeSetting(catalogue, write as never, "2.0.9");
+    expect(Result.isFailure(old) && old.failure.reason).toBe("version");
+    const bad = checkNativeSetting(catalogue, { ...write, value: "yolo" } as never, "2.1.302");
+    expect(Result.isFailure(bad) && bad.failure.reason).toBe("value");
   });
 
   it("keeps a provider on the layer its model came from", () => {

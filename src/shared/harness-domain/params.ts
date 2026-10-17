@@ -13,7 +13,9 @@
  *   session exists);
  * - which layers may set it, and what it travels with.
  *
- * Layers resolve in one order: launch choice over seat over harness default.
+ * Layers resolve in one order: launch choice over seat over the machine's
+ * override over the app-wide harness default. A param nobody set resolves to
+ * nothing, and nothing is emitted: the harness's own config decides.
  * An explicit non-empty value wins; an explicit extra-args list wins whole,
  * including an empty one.
  */
@@ -32,7 +34,8 @@ export const HARNESS_PARAM_KEYS = [
 export const HarnessParamKey = Schema.Literals(HARNESS_PARAM_KEYS);
 export type HarnessParamKey = typeof HarnessParamKey.Type;
 
-export const PARAM_LAYERS = ["harnessDefault", "seat", "launch"] as const;
+/** Least specific first: the app-wide default, its per-machine override, the seat, one launch. */
+export const PARAM_LAYERS = ["harnessDefault", "machine", "seat", "launch"] as const;
 export const ParamLayer = Schema.Literals(PARAM_LAYERS);
 export type ParamLayer = typeof ParamLayer.Type;
 
@@ -88,7 +91,7 @@ export const HarnessParamSpec = Schema.Struct({
   companions: Schema.optionalKey(Schema.Record(Schema.String, Schema.Array(Schema.String))),
   /** Values the harness accepts that no picker offers (they need a dial Junto does not show). */
   unoffered: Schema.optionalKey(Schema.Array(Schema.String)),
-  /** The harness's own default when nothing is chosen. */
+  /** The harness's own default, shown as "Harness default". Never emitted. */
   defaultValue: Schema.optionalKey(Schema.String),
 });
 export type HarnessParamSpec = typeof HarnessParamSpec.Type;
@@ -124,7 +127,7 @@ export type ResolvedParams = {
   readonly from: Partial<Readonly<Record<HarnessParamKey, ParamLayer>>>;
 };
 
-const MOST_SPECIFIC_FIRST: readonly ParamLayer[] = ["launch", "seat", "harnessDefault"];
+const MOST_SPECIFIC_FIRST: readonly ParamLayer[] = ["launch", "seat", "machine", "harnessDefault"];
 
 const present = (key: HarnessParamKey, values: ParamValues | undefined): boolean => {
   if (!values) return false;
@@ -218,7 +221,7 @@ export const checkParam = (
 // ── Declarations from today's templates ───────────────────────────────────
 
 /** Layers Settings, the seat and the picker can each set today. */
-const ALL_LAYERS: readonly ParamLayer[] = ["harnessDefault", "seat", "launch"];
+const ALL_LAYERS: readonly ParamLayer[] = ["harnessDefault", "machine", "seat", "launch"];
 const SEAT_AND_LAUNCH: readonly ParamLayer[] = ["seat", "launch"];
 const LAUNCH_ONLY: readonly ParamLayer[] = ["launch"];
 

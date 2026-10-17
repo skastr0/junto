@@ -9,4 +9,6 @@ export * from "./need";
 export * from "./capability";
 export * from "./command";
 export * from "./params";
+export * from "./inventory";
+export * from "./native-config";
 export { BindingId } from "../terminal-session-domain";
