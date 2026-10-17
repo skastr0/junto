@@ -861,6 +861,14 @@
   gap: 2px;
   min-width: 0;
 }
+.settings-harness-inherit {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-decoration: underline;
+  cursor: pointer;
+}
 
 /* Providers section - one card per configurable usage provider. */
 .settings-provider-card {

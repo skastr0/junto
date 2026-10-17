@@ -214,6 +214,20 @@ export const HarnessInstancePrefs = Schema.Struct({
 export type HarnessInstancePrefs = typeof HarnessInstancePrefs.Type;
 
 /**
+ * One machine's overrides for one harness: launch params only. An empty
+ * `extraArgs` is kept: it is this machine saying "none" over the app-wide list.
+ */
+export const MachineHarnessPrefs = Schema.Struct({
+  model: Schema.optionalKey(harnessPrefString(200)),
+  effort: Schema.optionalKey(harnessPrefString(64)),
+  permissionMode: Schema.optionalKey(harnessPrefString(64)),
+  extraArgs: Schema.optionalKey(HarnessExtraArgs),
+});
+export type MachineHarnessPrefs = typeof MachineHarnessPrefs.Type;
+
+export const MACHINE_HARNESS_PREF_KEYS = ["model", "effort", "permissionMode", "extraArgs"] as const;
+
+/**
  * Operator fine-config for managed harness instantiation.
  * Keys are HarnessId strings; unknown keys are ignored at apply time.
  * Optional on stored rows written before this section existed.
@@ -226,7 +240,7 @@ export const HarnessesSettings = Schema.Struct({
    * wins over the app-wide default for seats on that machine only.
    */
   byMachine: Schema.optionalKey(
-    Schema.Record(Schema.String, Schema.Struct({ byHarness: Schema.Record(Schema.String, HarnessInstancePrefs) })),
+    Schema.Record(Schema.String, Schema.Struct({ byHarness: Schema.Record(Schema.String, MachineHarnessPrefs) })),
   ),
 });
 export type HarnessesSettings = typeof HarnessesSettings.Type;
@@ -1000,6 +1014,19 @@ export const HarnessInstancePrefsPatch = Schema.Struct({
 });
 export type HarnessInstancePrefsPatch = typeof HarnessInstancePrefsPatch.Type;
 
+/**
+ * A machine override patch. "" clears a string key; `extraArgs: []` stores
+ * "none" on this machine; `inherit` drops keys so the app-wide value applies.
+ */
+export const MachineHarnessPrefsPatch = Schema.Struct({
+  model: Schema.optionalKey(harnessPrefString(200)),
+  effort: Schema.optionalKey(harnessPrefString(64)),
+  permissionMode: Schema.optionalKey(harnessPrefString(64)),
+  extraArgs: Schema.optionalKey(HarnessExtraArgs),
+  inherit: Schema.optionalKey(Schema.Array(Schema.Literals(MACHINE_HARNESS_PREF_KEYS))),
+});
+export type MachineHarnessPrefsPatch = typeof MachineHarnessPrefsPatch.Type;
+
 export const HarnessesPatch = Schema.Struct({
   /**
    * Per-harness shallow merge. Pass `null` values are not supported — omit a
@@ -1008,11 +1035,11 @@ export const HarnessesPatch = Schema.Struct({
   byHarness: Schema.optionalKey(
     Schema.Record(Schema.String, HarnessInstancePrefsPatch),
   ),
-  /** Per-machine, per-harness shallow merge, with the same clearing rules. */
+  /** Per-machine, per-harness shallow merge. */
   byMachine: Schema.optionalKey(
     Schema.Record(
       Schema.String,
-      Schema.Struct({ byHarness: Schema.Record(Schema.String, HarnessInstancePrefsPatch) }),
+      Schema.Struct({ byHarness: Schema.Record(Schema.String, MachineHarnessPrefsPatch) }),
     ),
   ),
 });
@@ -1340,6 +1367,26 @@ const mergeHarnessPrefs = (
   };
 };
 
+const mergeMachineHarnessPrefs = (
+  prior: MachineHarnessPrefs,
+  patch: MachineHarnessPrefsPatch,
+): MachineHarnessPrefs => {
+  const inherit = new Set(patch.inherit ?? []);
+  const keep = <K extends keyof MachineHarnessPrefs>(key: K, value: MachineHarnessPrefs[K]) =>
+    inherit.has(key) || value === undefined ? {} : { [key]: value };
+  return {
+    ...keep("model", clearedString(patch.model, prior.model)),
+    ...keep("effort", clearedString(patch.effort, prior.effort)),
+    ...keep("permissionMode", clearedString(patch.permissionMode, prior.permissionMode)),
+    ...keep(
+      "extraArgs",
+      patch.extraArgs === undefined
+        ? prior.extraArgs
+        : patch.extraArgs.map((arg) => arg.trim()).filter((arg) => arg.length > 0),
+    ),
+  };
+};
+
 const mergeHarnessPrefsMap = (
   current: Readonly<Record<string, HarnessInstancePrefs>>,
   patch: Readonly<Record<string, HarnessInstancePrefsPatch>> | undefined,
@@ -1366,7 +1413,7 @@ export const machineHarnessPrefsFor = (
   settings: Settings | undefined,
   machine: string,
   harness: string,
-): HarnessInstancePrefs => settings?.harnesses?.byMachine?.[machine]?.byHarness?.[harness] ?? {};
+): MachineHarnessPrefs => settings?.harnesses?.byMachine?.[machine]?.byHarness?.[harness] ?? {};
 
 /**
  * Whether the operator has opted a feature-enabled harness out of the palette.
@@ -1498,12 +1545,18 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
     const byHarness = mergeHarnessPrefsMap(current.byHarness, patch.harnesses.byHarness);
     let byMachine = current.byMachine;
     if (patch.harnesses.byMachine) {
-      const machines: Record<string, { readonly byHarness: Record<string, HarnessInstancePrefs> }> = {
+      const machines: Record<string, { readonly byHarness: Record<string, MachineHarnessPrefs> }> = {
         ...current.byMachine,
       };
       for (const [machine, machinePatch] of Object.entries(patch.harnesses.byMachine)) {
         if (!machinePatch || machine.trim().length === 0) continue;
-        const merged = mergeHarnessPrefsMap(machines[machine]?.byHarness ?? {}, machinePatch.byHarness);
+        const merged: Record<string, MachineHarnessPrefs> = { ...machines[machine]?.byHarness };
+        for (const [id, prefsPatch] of Object.entries(machinePatch.byHarness)) {
+          if (!prefsPatch || id.trim().length === 0) continue;
+          const prefs = mergeMachineHarnessPrefs(merged[id] ?? {}, prefsPatch);
+          if (Object.keys(prefs).length === 0) delete merged[id];
+          else merged[id] = prefs;
+        }
         if (Object.keys(merged).length === 0) delete machines[machine];
         else machines[machine] = { byHarness: merged };
       }

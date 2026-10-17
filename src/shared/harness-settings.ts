@@ -59,7 +59,7 @@ export const harnessVisibleInPalette = (
   return harnessUserEnabled(settings, harness);
 };
 
-const prefsValues = (prefs: HarnessInstancePrefs): ParamValues => ({
+const prefsValues = (prefs: Omit<HarnessInstancePrefs, "enabled" | "recentModels">): ParamValues => ({
   ...(prefs.model ? { model: prefs.model } : {}),
   ...(prefs.effort ? { effort: prefs.effort } : {}),
   ...(prefs.permissionMode ? { permissionMode: prefs.permissionMode } : {}),

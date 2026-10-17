@@ -22,7 +22,22 @@ describe("per-machine harness overrides", () => {
       harnesses: { byMachine: { "mac-mini": { byHarness: { codex: { effort: "" } } } } },
     });
     expect(machineHarnessPrefsFor(cleared, "mac-mini", "codex")).toEqual({});
-    expect(cleared.harnesses?.byMachine?.["mac-mini"]?.byHarness.codex).toEqual({});
+    expect(cleared.harnesses?.byMachine).toBeUndefined();
+  });
+
+  test("a machine can say no extra arguments over the app-wide list, and inherit it back", () => {
+    const set = applySettingsPatch(defaultSettings(), {
+      harnesses: {
+        byHarness: { claude: { extraArgs: ["--verbose"] } },
+        byMachine: { "mac-mini": { byHarness: { claude: { extraArgs: [] } } } },
+      },
+    });
+    expect(machineHarnessPrefsFor(set, "mac-mini", "claude")).toEqual({ extraArgs: [] });
+    const back = applySettingsPatch(set, {
+      harnesses: { byMachine: { "mac-mini": { byHarness: { claude: { inherit: ["extraArgs"] } } } } },
+    });
+    expect(back.harnesses?.byMachine).toBeUndefined();
+    expect(harnessPrefsFor(back, "claude").extraArgs).toEqual(["--verbose"]);
   });
 
   test("a machine patch leaves the app-wide default alone", () => {

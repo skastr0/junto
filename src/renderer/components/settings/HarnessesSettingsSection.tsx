@@ -33,7 +33,12 @@ import {
 import { harnessSettingLayers } from "@shared/harness-settings";
 import { allTemplates, type HarnessId } from "@shared/managed-terminal-templates";
 import { formatExtraArgs, parseExtraArgsText, sanitizeExtraArgs } from "@shared/launch-extra-args";
-import { harnessPrefsFor, type HarnessInstancePrefsPatch, type Settings } from "@shared/settings";
+import {
+  harnessPrefsFor,
+  type HarnessInstancePrefsPatch,
+  type MachineHarnessPrefsPatch,
+  type Settings,
+} from "@shared/settings";
 import { HUE_TEXT, INK } from "../../lib/theme";
 import { state$ } from "../../lib/state";
 import { patchSettings } from "../../lib/settings-state";
@@ -161,13 +166,11 @@ function HarnessCard({
   );
   const notInstalled = inventory !== undefined && !inventory.installed;
 
-  const patch = (layer: SettingsLayer, prefs: HarnessInstancePrefsPatch): void => {
-    void patchSettings({
-      harnesses:
-        layer === "harnessDefault"
-          ? { byHarness: { [harness]: prefs } }
-          : { byMachine: { [machine]: { byHarness: { [harness]: prefs } } } },
-    });
+  const patchAll = (prefs: HarnessInstancePrefsPatch): void => {
+    void patchSettings({ harnesses: { byHarness: { [harness]: prefs } } });
+  };
+  const patchMachine = (prefs: MachineHarnessPrefsPatch): void => {
+    void patchSettings({ harnesses: { byMachine: { [machine]: { byHarness: { [harness]: prefs } } } } });
   };
 
   return (
@@ -181,7 +184,7 @@ function HarnessCard({
         <Switch
           checked={harnessPrefsFor(settings, harness).enabled !== false}
           aria-label={`Offer ${displayName} in palette`}
-          onCheckedChange={(enabled) => patch("harnessDefault", { enabled })}
+          onCheckedChange={(enabled) => patchAll({ enabled })}
         />
       </FieldRow>
 
@@ -199,7 +202,12 @@ function HarnessCard({
           }}
           resolvedFrom={resolved.from[spec.key]}
           resolvedValue={resolved.values[spec.key]}
-          onCommit={(layer, value) => patch(layer, { [spec.key]: value })}
+          onCommit={(layer, value) =>
+            layer === "harnessDefault" ? patchAll({ [spec.key]: value }) : patchMachine({ [spec.key]: value })
+          }
+          onInherit={() => {
+            if (isStoredKey(spec.key)) patchMachine({ inherit: [spec.key] });
+          }}
         />
       ))}
 
@@ -223,6 +231,7 @@ function ParamRow({
   resolvedFrom,
   resolvedValue,
   onCommit,
+  onInherit,
 }: {
   readonly spec: HarnessParamSpec;
   readonly params: HarnessParams;
@@ -233,11 +242,18 @@ function ParamRow({
   readonly resolvedFrom: ParamLayer | undefined;
   readonly resolvedValue: StoredValue;
   readonly onCommit: (layer: SettingsLayer, value: string | readonly string[]) => void;
+  /** Drop this machine's override so the All machines value applies. */
+  readonly onInherit: () => void;
 }) {
+  const source = resolvedFrom === "machineDefault" ? machineName : "All machines";
   const effective =
-    resolvedFrom === undefined || resolvedValue === undefined || showValue(resolvedValue) === ""
+    resolvedFrom === undefined || resolvedValue === undefined
       ? HARNESS_DEFAULT
-      : `${showValue(resolvedValue)}, from ${resolvedFrom === "machineDefault" ? machineName : "All machines"}`;
+      : Array.isArray(resolvedValue) && resolvedValue.length === 0
+        ? `none, from ${source}`
+        : showValue(resolvedValue) === ""
+          ? HARNESS_DEFAULT
+          : `${showValue(resolvedValue)}, from ${source}`;
   return (
     <FieldRow group label={spec.label} hint={`Seats on ${machineName} start with: ${effective}`}>
       <span className="settings-harness-layers">
@@ -252,6 +268,7 @@ function ParamRow({
             inventory={inventory}
             stored={stored[layer]}
             onCommit={(value) => onCommit(layer, value)}
+            {...(layer === "machineDefault" ? { onInherit } : {})}
           />
         ))}
       </span>
@@ -280,6 +297,7 @@ function LayerControl({
   inventory,
   stored,
   onCommit,
+  onInherit,
 }: {
   readonly spec: HarnessParamSpec;
   readonly params: HarnessParams;
@@ -289,6 +307,8 @@ function LayerControl({
   readonly inventory: HarnessInventory | undefined;
   readonly stored: StoredValue;
   readonly onCommit: (value: string | readonly string[]) => void;
+  /** Present on a machine's own control: back to the All machines value. */
+  readonly onInherit?: () => void;
 }) {
   const storedText = showValue(stored);
   const [text, setText] = useState(storedText);
@@ -305,7 +325,8 @@ function LayerControl({
   const commitText = (next: string): void => {
     if (spec.emit.via === "args") {
       const args = sanitizeExtraArgs(params.harness, parseExtraArgsText(next)).args;
-      if (formatExtraArgs(args) !== storedText) onCommit(args);
+      // Emptying a list that is set stores "none"; an empty box over nothing stores nothing.
+      if (formatExtraArgs(args) !== storedText || (stored === undefined && args.length > 0)) onCommit(args);
       return;
     }
     const checked = checkParam(params, { key: spec.key, value: next, layer });
@@ -316,6 +337,15 @@ function LayerControl({
     setRefusal(undefined);
     if (checked.success !== storedText) onCommit(checked.success);
   };
+
+  // A saved value the installed harness no longer accepts says so, and is not passed.
+  const storedRefusal = (() => {
+    if (typeof stored !== "string" || stored.length === 0) return undefined;
+    const checked = checkParam(params, { key: spec.key, value: stored, layer });
+    return Result.isFailure(checked) ? checked.failure.message : undefined;
+  })();
+  const argsPlaceholder =
+    layer === "machineDefault" ? (stored === undefined ? "Same as all machines" : "None on this machine") : "None";
 
   const closedList = spec.options.source === "fixed" && !spec.custom;
   const control = closedList ? (
@@ -337,7 +367,7 @@ function LayerControl({
         dense
         value={text}
         list={offered.length > 0 ? listId : undefined}
-        placeholder={spec.emit.via === "args" ? `${HARNESS_DEFAULT}: none` : defaultLabel}
+        placeholder={spec.emit.via === "args" ? argsPlaceholder : defaultLabel}
         aria-label={ariaLabel}
         spellCheck={false}
         onChange={(event) => setText(event.target.value)}
@@ -361,6 +391,16 @@ function LayerControl({
     <span className="settings-harness-layer" data-layer={layer}>
       <span className="settings-field__hint">{caption}</span>
       {control}
+      {onInherit && stored !== undefined ? (
+        <button type="button" className="settings-field__hint settings-harness-inherit" onClick={onInherit}>
+          Use all machines
+        </button>
+      ) : null}
+      {storedRefusal && !refusal ? (
+        <span className="settings-field__hint" role="alert" style={{ color: HUE_TEXT.crimson }}>
+          {storedRefusal}
+        </span>
+      ) : null}
       {refusal ? (
         <span className="settings-field__hint" role="alert" style={{ color: HUE_TEXT.crimson }}>
           {refusal}

@@ -4,7 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { Result } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { applySettingsPatch, defaultSettings, type Settings, type SettingsPatch } from "@shared/settings";
-import { InventoryUnavailableError, type MachineInventory } from "@shared/harness-domain";
+import { InventoryUnavailableError, paramsOfTemplate, type MachineInventory } from "@shared/harness-domain";
+import { templateFor } from "@shared/managed-terminal-templates";
 import { HarnessesSettingsSection } from "../src/renderer/components/settings/HarnessesSettingsSection";
 import {
   pendingHarnessMachineSource,
@@ -130,6 +131,48 @@ describe("Settings > Agents, per machine", () => {
     expect(patches).toContainEqual({
       harnesses: { byMachine: { "mac-mini": { byHarness: { claude: { model: "sonnet" } } } } },
     });
+  });
+
+  it("shows a saved value the harness refuses instead of passing it quietly", async () => {
+    const codex = paramsOfTemplate(templateFor("codex")).params.find((spec) => spec.key === "permissionMode");
+    const listed = codex?.options.source === "fixed" ? codex.options.values : [];
+    expect(listed).not.toContain("untrusted");
+    state$.settings.set(
+      applySettingsPatch(state$.settings.peek(), {
+        harnesses: { byMachine: { "mac-mini": { byHarness: { codex: { permissionMode: "untrusted" } } } } },
+      }),
+    );
+    await render("mac-mini");
+    expect(card("codex").querySelector('[data-layer="machineDefault"] [role="alert"]')?.textContent).toContain(
+      "untrusted is not one of",
+    );
+  });
+
+  it("drops a machine override back to the all machines value", async () => {
+    state$.settings.set(
+      applySettingsPatch(state$.settings.peek(), {
+        harnesses: { byMachine: { "mac-mini": { byHarness: { claude: { model: "sonnet" } } } } },
+      }),
+    );
+    await render("mac-mini");
+    const button = [...card("claude").querySelectorAll("button")].find((el) => el.textContent === "Use all machines");
+    await act(async () => button?.click());
+    expect(patches).toContainEqual({
+      harnesses: { byMachine: { "mac-mini": { byHarness: { claude: { inherit: ["model"] } } } } },
+    });
+  });
+
+  it("says none when a machine opts out of the all machines arguments", async () => {
+    state$.settings.set(
+      applySettingsPatch(state$.settings.peek(), {
+        harnesses: {
+          byHarness: { claude: { extraArgs: ["--verbose"] } },
+          byMachine: { "mac-mini": { byHarness: { claude: { extraArgs: [] } } } },
+        },
+      }),
+    );
+    await render("mac-mini");
+    expect(card("claude").textContent).toContain("start with: none, from mac-mini");
   });
 
   it("says why a machine has no inventory instead of waiting", async () => {
