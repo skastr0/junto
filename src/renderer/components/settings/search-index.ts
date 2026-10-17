@@ -79,7 +79,7 @@ export const LISTED_SETTINGS: ReadonlyArray<SettingEntry> = [
   entry("companion", "Pair a phone", "Answer agents and send them mail from your phone"),
   entry("companion", "Paired phones", "Phones that can reach this Mac"),
 
-  entry("machine", "This machine's name", "What other machines call this one"),
+  entry("machine", "Name", "What other machines call this one", "machine name"),
   entry("machine", "Prefer supervised runtime", "A preference. It does not install the supervisor"),
 
   entry("updates", "Check for updates", "The Junto version you run, and newer ones", "version install"),

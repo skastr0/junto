@@ -22,6 +22,7 @@ import { BriefingSettingsSection } from "./settings/BriefingSettingsSection";
 import { CompanionSettingsSection } from "./settings/CompanionSettingsSection";
 import { ReferencesSettingsSection } from "./settings/ReferencesSettingsSection";
 import { HarnessesSettingsSection } from "./settings/HarnessesSettingsSection";
+import { MachineSettingsSection } from "./settings/MachineSettingsSection";
 import { ProvidersSettingsSection } from "./settings/ProvidersSettingsSection";
 import { KeyboardSettingsSection } from "./settings/KeyboardSettingsSection";
 import { QuickRepliesSettingsSection } from "./settings/QuickRepliesSettingsSection";
@@ -39,7 +40,6 @@ import {
   closeSettings,
   patchSettings,
   resetSettings,
-  setMachinePreferences,
 } from "../lib/settings-state";
 import { openIntro } from "../lib/first-run-intro";
 import {
@@ -179,22 +179,6 @@ const SettingsMachinePicker = __JUNTO_FLEET_UI_ENABLED__
 const DEFAULT_SETTINGS_SECTION: PanelSection = FLEET_UI_ENABLED
   ? "machine"
   : "appearance";
-
-/**
- * Supervisor preference tradeoffs. Checkbox only records intent — install is
- * separate (packaged supervised install / app:install:supervised). See
- * assessSupervisedRuntime + ensureSupervised handoff.
- */
-const SUPERVISED_RUNTIME_HELP =
-  "Records whether this installation prefers a platform supervisor " +
-  "(a macOS LaunchAgent) to own the long-running " +
-  "process — auto-restart after crashes and keep-alive across logout/reboot. " +
-  "This toggle does not install or remove the supervisor; install supervised " +
-  "startup via the packaged installer or `bun run app:install:supervised`. " +
-  "Doctor warns if preference and actual LaunchAgent state disagree. " +
-  "Tradeoff: supervised is more durable for a machine left running " +
-  "unattended; unsupervised is simpler for local development and attaching " +
-  "a debugger.";
 
 type ThemeChoice = "system" | "dark" | "bright";
 
@@ -1057,34 +1041,6 @@ function StateRecoveryControls() {
   );
 }
 
-function MachineSection() {
-  const machine = use$(state$.settings.machine);
-  if (!FLEET_UI_ENABLED) return null;
-  return (
-    <div className="settings-section" data-testid="settings-machine-section">
-      <FieldRow group label="This machine's name" hint="What other machines call this one.">
-        <span style={{ color: INK, fontSize: "var(--text-body-lg)" }}>{machine.name}</span>
-      </FieldRow>
-      <FieldRow
-        label="Prefer supervised runtime"
-        hint="A preference. It does not install the supervisor."
-        help={SUPERVISED_RUNTIME_HELP}
-      >
-        <input
-          type="checkbox"
-          checked={machine.supervisedPreferred}
-          aria-label="Prefer supervised runtime"
-          onChange={(event) =>
-            void setMachinePreferences({
-              supervisedPreferred: event.target.checked,
-            })
-          }
-        />
-      </FieldRow>
-    </div>
-  );
-}
-
 /** Settings > Agents for the machine chosen in the page head. */
 function MachineHarnesses() {
   const machine = useSettingsMachine();
@@ -1106,7 +1062,7 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
     case "offboard":
       return <OffboardSettingsSection />;
     case "machine":
-      return <MachineSection />;
+      return FLEET_UI_ENABLED ? <MachineSettingsSection /> : null;
     case "updates":
       return <UpdatesSection />;
     case "audio":
