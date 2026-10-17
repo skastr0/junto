@@ -6,7 +6,7 @@ import { LinkHelloSchema, decodeLinkFrame } from "../src/main/junto/link/protoco
 import { linkClosed, LinkPeerNotPinned, LinkRequestFailed, type LinkChannelHandler, type LinkHello, type LinkSession } from "../src/main/junto/link/types";
 
 const sessions: LinkSession[] = [];
-afterEach(async () => { await Promise.all(sessions.splice(0).map(session => session.close())); vi.useRealTimers(); });
+afterEach(async () => { await Promise.all(sessions.splice(0).map(session => session.close())); });
 const hello = (name: string, build = "a".repeat(64)): LinkHello => Schema.decodeUnknownSync(LinkHelloSchema)({ build, installationId: name + "-install", machineName: name });
 const Payload = Schema.Struct({ value: Schema.String });
 const decode = Schema.decodeUnknownSync(Payload, { onExcessProperty: "error" });
@@ -106,8 +106,8 @@ it("strictly decodes responses before resolving a pending request", async () => 
   await f.session.closed;
 });
 
+// Real time, a 20 ms bound: fake timers hang under bun test, which never advances them.
 it("closes on request timeout and rejects pending work without automatic replay", async () => {
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   let calls = 0;
   let started!: () => void;
   const handling = new Promise<void>(resolve => { started = resolve; });
@@ -117,11 +117,10 @@ it("closes on request timeout and rejects pending work without automatic replay"
   await left.ready;
   const failed = expect(left.request("status", { value: "one" })).rejects.toThrow("outcome is uncertain");
   await handling;
-  await vi.advanceTimersByTimeAsync(20);
   await failed;
   expect(calls).toBe(1);
   await cleanup;
-});
+}, 5_000);
 
 it("bounds incoming queued calls while keeping response handling independent", async () => {
   const f = raw({ limits: { inboundCalls: 1 }, channels: { status: channel(() => Effect.never) } });
@@ -183,8 +182,9 @@ it("carries an untyped handler failure's tag and cause chain, scrubbed", async (
 });
 
 it("puts the operation id on every request frame and hands it to the handler", async () => {
-  let seen: string | undefined;
-  const f = raw({ channels: { status: channel((context, payload) => Effect.sync(() => { seen = context.operationId; return payload; })) } });
+  let resolveSeen!: (operationId: string | undefined) => void;
+  const seen = new Promise<string | undefined>(resolve => { resolveSeen = resolve; });
+  const f = raw({ channels: { status: channel((context, payload) => Effect.sync(() => { resolveSeen(context.operationId); return payload; })) } });
   f.send({ type: "hello", ...hello("mini") }); await f.session.ready;
   const pending = f.session.request("status", { value: "a" }, "op-mine");
   await new Promise<void>(resolve => f.output.once("data", () => resolve()));
@@ -194,8 +194,8 @@ it("puts the operation id on every request frame and hands it to the handler", a
   f.send({ type: "response", id: request.id, op: request.op, channel: "status", ok: true, payload: { value: "b" } });
   await expect(pending).resolves.toEqual({ value: "b" });
   f.send({ type: "request", id: "in-1", op: "op-theirs", channel: "status", payload: { value: "c" } });
-  await vi.waitFor(() => expect(seen).toBe("op-theirs"));
-});
+  expect(await seen).toBe("op-theirs");
+}, 5_000);
 
 it("tells the other end who closed and why, and says it was the peer", async () => {
   const { left, right } = pair();
@@ -218,4 +218,17 @@ it("keeps the process's exit and stderr tail on every later failure", async () =
   await expect(pending).rejects.toThrow("The link to mini closed, its SSH process ended: exit code 1: junto link: core is not running");
   const later = await left.request("status", { value: "later" }).then(() => undefined, (cause: unknown) => cause);
   expect(later).toMatchObject({ _tag: "LinkClosed", by: "process", exitCode: 1, stderrTail: "junto link: core is not running" });
+});
+
+it("drops a peer's detail on a channel without a failure schema", async () => {
+  const f = raw(); f.send({ type: "hello", ...hello("mini") }); await f.session.ready;
+  const pending = f.session.request("status", { value: "x" });
+  await new Promise<void>(resolve => f.output.once("data", () => resolve()));
+  const request = f.frames.find(frame => frame.type === "request");
+  if (request?.type !== "request") throw new Error("request was not written");
+  f.send({ type: "response", id: request.id, op: request.op, channel: "status", ok: false,
+    failure: { tag: "X", message: "refused", machine: "mini", operationId: request.op, causes: [], detail: { anything: "goes" } } });
+  const failed = await pending.then(() => undefined, (cause: unknown) => cause) as LinkRequestFailed;
+  expect(failed.failure.detail).toBeUndefined();
+  expect(failed.detail).toBeUndefined();
 });
