@@ -371,7 +371,7 @@ function survivingSensitiveKinds(text: string): string[] {
   return kinds;
 }
 
-function certifyHarness(root: string, harness: string): ScrubReceipt {
+export function certifyHarness(root: string, harness: string): ScrubReceipt {
   const dir = path.join(root, harness);
   const files = fs.readdirSync(dir).filter((file) => file.endsWith(".jsonl")).sort();
   if (files.length === 0) throw new Error(`${harness}: no JSONL fixtures to certify`);
@@ -514,7 +514,7 @@ export function buildSpawnEnv(def: HarnessDef, cwd: string, home: string): Recor
   return e;
 }
 
-class Session {
+export class Session {
   readonly name: string;
   readonly def: HarnessDef;
   readonly cwd: string;
@@ -810,7 +810,7 @@ class Session {
 }
 
 // ── scenario runner ─────────────────────────────────────────────────────────
-type ScenarioResult = {
+export type ScenarioResult = {
   harness: string;
   scenario: string;
   status: "complete" | "skip" | "fail" | "killed";
@@ -1449,7 +1449,7 @@ async function runHarness(def: HarnessDef, coreOnly = false): Promise<ScenarioRe
   return results;
 }
 // ── manifest writing ────────────────────────────────────────────────────────
-function probeHarnessVersion(name: string): string | null {
+export function probeHarnessVersion(name: string): string | null {
   for (const args of [["--version"], ["-V"], ["version"]] as const) {
     const result = spawnSync(name, [...args], { encoding: "utf8", timeout: 8_000 });
     const text = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
@@ -1483,7 +1483,7 @@ function writeManifests(def: HarnessDef, results: ScenarioResult[]): void {
   fs.writeFileSync(path.join(outDir, "manifest.json"), scrub(JSON.stringify(manifest, null, 2), path.join(CWD_ROOT, def.name)) + "\n");
 }
 
-function earnSanitizedStamp(root: string, harness: string, receipt: ScrubReceipt): void {
+export function earnSanitizedStamp(root: string, harness: string, receipt: ScrubReceipt): void {
   const file = path.join(root, harness, "manifest.json");
   const manifest = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
   manifest.sanitized = true;
