@@ -96,12 +96,17 @@ export const SettingsLinkFailure = Schema.Union([
 ]);
 export type SettingsLinkFailure = typeof SettingsLinkFailure.Type;
 
+/** An event frame on the settings channel, which carries none. */
+export class SettingsEventRefused extends Schema.TaggedError<SettingsEventRefused>()("SettingsEventRefused", {
+  message: Schema.String.pipe(Schema.check(Schema.isMaxLength(1024))),
+}) {}
+
 /** An answer that failed the closed decode, refused on arrival; the link stays open. */
 export class SettingsAnswerRefused extends Schema.TaggedError<SettingsAnswerRefused>()("SettingsAnswerRefused", Where) {}
 /** An answer that names another machine than the link peer that sent it. */
 export class SettingsNotFromItsMachine extends Schema.TaggedError<SettingsNotFromItsMachine>()("SettingsNotFromItsMachine", {
   ...Where,
-  claimed: Schema.String,
+  claimed: MachineName,
 }) {}
 
 // ── Building and reading ───────────────────────────────────────────────────

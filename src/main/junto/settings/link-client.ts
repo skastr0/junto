@@ -12,6 +12,7 @@ import type { MachineSettingsResult } from "@shared/ipc";
 import { isThisMachine } from "@shared/machine-name";
 import type { MachineProviders, MachineRecord } from "@shared/machine-settings";
 import type { NativeUsageProvider } from "@shared/usage";
+import { describeCause } from "../failure-encode";
 import { HostsService } from "../hosts/service";
 import { MachineLink } from "../link/service";
 import { MachineRepository } from "../machines/repository";
@@ -27,8 +28,8 @@ import {
   SettingsNotFromItsMachine,
 } from "./link-wire";
 
-const reasonOf = (cause: unknown): string =>
-  (cause instanceof Error ? cause.message : String(cause)).slice(0, 500);
+/** A decode failure as its issue kind and path; any other text through the doctrine scrub. */
+const reasonOf = (cause: unknown): string => describeCause(cause).message.slice(0, 500);
 
 const tagOf = (cause: unknown): string =>
   (typeof cause === "object" && cause !== null && "_tag" in cause && typeof cause._tag === "string"

@@ -9,6 +9,7 @@ import { Effect, Schema } from "effect";
 import { isThisMachine } from "@shared/machine-name";
 import { machineProvidersOf, machineRecordOf } from "@shared/machine-settings";
 import type { LinkChannelHandler } from "../link/types";
+import { logMachine } from "../observability/logger";
 import { MachineRepository } from "../machines/repository";
 import { ModelRecords } from "../model/records";
 import { ModelService } from "../model/service";
@@ -16,6 +17,7 @@ import { SettingsService } from "./service";
 import {
   decodeLinkSettingsRequest,
   SettingsCanvasEditorMismatch,
+  SettingsEventRefused,
   SettingsLinkFailure,
   SettingsNoSeatHere,
   SettingsNotAnswered,
@@ -41,7 +43,7 @@ const asLinkFailure = (machine: string, operationId: string | undefined, cause: 
 };
 
 const noEvents = (): never => {
-  throw new Error("the settings channel carries no events");
+  throw new SettingsEventRefused({ message: "The settings channel carries no events." });
 };
 
 export const makeSettingsChannel = Effect.fn("SettingsLink.make")(function* () {
@@ -96,7 +98,8 @@ export const makeSettingsChannel = Effect.fn("SettingsLink.make")(function* () {
   }).pipe(
     Effect.tapCause((cause) => Effect.logError("settings failed", cause)),
     Effect.catch((cause) => machines.machineName.pipe(
-      Effect.orElseSucceed(() => ""),
+      // The name the machine log already carries, when this machine's own cannot be read.
+      Effect.orElseSucceed(logMachine),
       Effect.flatMap((machine) => Effect.fail(asLinkFailure(machine, context.operationId, cause))),
     )),
     Effect.annotateLogs({
