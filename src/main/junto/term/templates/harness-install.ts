@@ -21,7 +21,9 @@ import {
   type IsolationSpec,
 } from "@shared/managed-terminal-templates";
 import { managedHarnessEnabled } from "@shared/features";
-import { parseAmpPluginModes, parseHelpFlags } from "@shared/launch-extra-args";
+import { isOverseerHarness } from "@shared/harness-records";
+import { harnessRuntimeRecordFor } from "../harness-record";
+import { parseHelpFlags } from "@shared/launch-extra-args";
 import type { ManagedTerminalFlagsResult } from "@shared/ipc";
 import {
   configuredToolDirectories,
@@ -229,17 +231,18 @@ export const harnessLaunchFlags = async (
     help = helpTextOf(executable, searchPath);
   }
   let modes: readonly string[] | undefined;
-  if (harness === "amp") {
+  const modeList = harnessRuntimeRecordFor(harness)?.modeList;
+  if (modeList !== undefined) {
     modes = template.modes ?? [];
     try {
-      const { stdout } = await execFileAsync(executable, ["plugins", "list"], {
+      const { stdout } = await execFileAsync(executable, [...modeList.args], {
         ...(cwd?.trim() ? { cwd: cwd.trim() } : {}),
         env: { ...process.env, PATH: searchPath },
         timeout: HELP_PROBE_TIMEOUT_MS,
         maxBuffer: 1024 * 1024,
       });
       const builtins = new Set(modes.map((mode) => mode.toLowerCase()));
-      modes = [...modes, ...parseAmpPluginModes(stdout).filter((mode) => !builtins.has(mode.toLowerCase()))];
+      modes = [...modes, ...modeList.parse(stdout).filter((mode) => !builtins.has(mode.toLowerCase()))];
     } catch {
       // Plugin failure does not hide the built-in modes or the CLI's help.
     }
@@ -299,7 +302,7 @@ export const harnessBinaryInstalled = (
   harness: HarnessId,
   binary: string,
   options?: HarnessExecutableResolution,
-): boolean => resolveHarnessExecutable(binary, harness === "junto-overseer" ? {
+): boolean => resolveHarnessExecutable(binary, isOverseerHarness(harness) ? {
   ...options, extraDirs: [...juntoCliPathPrefixes(), ...(options?.extraDirs ?? configuredToolDirectories())],
 } : options) !== undefined;
 
@@ -362,7 +365,7 @@ const discoverManagedHarnessInstalls = async (
     catch { return [dir, new Set<string>()] as const; }
   })));
   return Promise.all(templates.map(async (template) => {
-    const pathEnv = template.harness === "junto-overseer" ? overseerPath : searchPath;
+    const pathEnv = isOverseerHarness(template.harness) ? overseerPath : searchPath;
     for (const dir of pathEnv.split(sep)) {
       if (!entries.get(dir)?.has(template.argvSpec.binary)) continue;
       const candidate = join(dir, template.argvSpec.binary);

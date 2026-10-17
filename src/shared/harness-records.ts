@@ -45,12 +45,24 @@ export type HarnessPtyProfile = {
   readonly clipboardImageGuard: boolean;
 };
 
+/**
+ * What the seat is to Junto. An agent is a third-party harness; the overseer
+ * is Junto's own live conversation, which runs Junto's CLI and so is found on
+ * Junto's CLI path as well as the tool path.
+ */
+export type HarnessRole = "agent" | "overseer";
+
 export type HarnessRecord = {
   readonly harness: HarnessId;
   readonly template: ManagedTerminalTemplate;
   readonly capabilities: HarnessCapabilities;
   readonly params: HarnessParams;
   readonly pty: HarnessPtyProfile;
+  readonly role: HarnessRole;
+};
+
+const HARNESS_ROLES: Readonly<Partial<Record<HarnessId, HarnessRole>>> = {
+  "junto-overseer": "overseer",
 };
 
 const PASTE: HarnessPtyProfile = {
@@ -144,6 +156,7 @@ export const HARNESS_RECORDS: Readonly<Record<HarnessId, HarnessRecord>> = Objec
         capabilities: HARNESS_CAPABILITIES[harness],
         params: harnessParamsOf(template),
         pty: HARNESS_PTY_PROFILES[harness],
+        role: HARNESS_ROLES[harness] ?? "agent",
       },
     ];
   }),
@@ -169,3 +182,7 @@ export const agentKeyOf = (harness: HarnessId, agentHost: string, profile: strin
   paramSpec(HARNESS_RECORDS[harness].params, "profile")?.inAgentKey === true && profile
     ? `${agentHost}:${profile}`
     : `${agentHost}:${harness}`;
+
+/** Whether this harness id is Junto's own overseer seat. */
+export const isOverseerHarness = (harness: string | undefined): boolean =>
+  harnessRecordFor(harness)?.role === "overseer";

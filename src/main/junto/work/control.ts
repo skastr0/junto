@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { LIVE_OVERSEER_ENABLED } from "@shared/features";
+import { isOverseerHarness } from "@shared/harness-records";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { join } from "node:path";
 import { Effect, Result, Option, Schema } from "effect";
@@ -3321,7 +3322,7 @@ export const startWorkControlServer = async (
             generation: admission.generationId,
           };
           admittedSeat = { canvasName: caller.canvasName, nodeId: caller.nodeId };
-          const nativeController = callerNode.kind === "agent" && callerNode.harness === "junto-overseer";
+          const nativeController = callerNode.kind === "agent" && isOverseerHarness(callerNode.harness);
           if (!LIVE_OVERSEER_ENABLED && (nativeController || req.op === "overseer.live")) {
             return Result.fail<WorkErrorBody>({
               type: "ScopeError", message: "Live conversation is disabled in this Junto build",

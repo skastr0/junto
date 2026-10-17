@@ -19,7 +19,6 @@ import { matcherMatches, regionLines, regionText } from "./match";
 import { rulePackFor } from "./rules";
 import { isHarnessId } from "../../../../shared/managed-terminal-templates";
 import type { ObserverGridSnapshot } from "../observer/types";
-import { codexMultilineComposerEvidence } from "../observer/interaction";
 import type { ComposerVerdict, SeatRulePack } from "./types";
 
 /** Evaluate one snapshot against a pack's composer probes. */
@@ -33,12 +32,9 @@ export const composerVerdictFor = (
       return probe.verdict;
     }
   }
-  // Native Codex expands a multiline paste beyond its bottom-four probes.
-  // Reuse the pending-evidence layout proof, and only classify it as draft:
-  // this supplies no empty-composer or idle authority to a new submission.
-  if (pack.harness === "codex" && codexMultilineComposerEvidence(snapshot.lines) !== undefined) {
-    return "draft";
-  }
+  // Evidence past the probes only classifies a draft: it supplies no
+  // empty-composer or idle authority to a new submission.
+  if (pack.composerDraft?.(snapshot.lines) === true) return "draft";
   return null;
 };
 

@@ -15,7 +15,7 @@ import {
   ManagedTerminalDrive,
   type SeatHarnessLookup,
 } from "./managed-terminal-drive";
-import { isClaudeCompactNoop } from "./claude-startup";
+import { harnessRuntimeRecordFor } from "../harness-record";
 
 export type ManagedDriveHostEvent =
   | {
@@ -61,9 +61,10 @@ export const attachManagedTerminalDriveRuntime = (
   const unsubHost = sources.subscribeHostEvents(
     (event) => {
       if (event.kind === "output") {
-        if (sources.harnessFor(event.bindingId) === "claude") {
+        const compactNoop = harnessRuntimeRecordFor(sources.harnessFor(event.bindingId))?.compactNoop;
+        if (compactNoop !== undefined) {
           const text = sources.snapshotText(event.bindingId);
-          if (text !== undefined && isClaudeCompactNoop(text)) {
+          if (text !== undefined && compactNoop(text)) {
             drive.onCompactNoop(event.bindingId);
           }
         }

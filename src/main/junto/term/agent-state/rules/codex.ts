@@ -3,6 +3,7 @@
  * Startup trust/hooks modals have no title → grid rules. Rank: OSC → grid.
  */
 
+import { codexMultilineComposerEvidence } from "../../observer/interaction";
 import type { SeatRulePack } from "../types";
 
 /** Braille / spinner glyphs Codex puts in the OSC title while working. */
@@ -274,6 +275,9 @@ export const codexRules: SeatRulePack = {
       matchers: { lineRegex: ["^\\u25A0\\s+(?<message>.*context_length_exceeded.*?)\\s*$"] },
     },
   ],
+  // Native Codex expands a multiline paste beyond its bottom-four probes;
+  // the pending-evidence layout proof reads it.
+  composerDraft: (lines) => codexMultilineComposerEvidence(lines) !== undefined,
   composer: [
     {
       id: "bare_prompt_empty",

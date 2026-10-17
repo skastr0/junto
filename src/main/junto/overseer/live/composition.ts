@@ -1,3 +1,4 @@
+import { isOverseerHarness } from "@shared/harness-records";
 import { isThisMachine } from "@shared/machine-identity";
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
@@ -63,7 +64,7 @@ export const readLiveCanvas = Effect.fn("Live.modelCanvas")(function* (canvasNam
 /** The voice overseer in a seat, or nothing when the seat is not one. */
 const voiceSeatOf = (node: unknown): Seat | undefined => {
   const seat = node as Seat | undefined;
-  return seat?.kind === "agent" && seat.overseer && seat.harness === "junto-overseer" ? seat : undefined;
+  return seat?.kind === "agent" && seat.overseer && isOverseerHarness(seat.harness) ? seat : undefined;
 };
 
 /** Joins Live to the already running app owners; no process or database is opened here. */

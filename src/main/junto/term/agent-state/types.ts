@@ -133,6 +133,12 @@ export type SeatRulePack = {
   readonly composer?: readonly ComposerProbe[];
   /** Facts beside the state; see SeatFactRule. */
   readonly facts?: readonly SeatFactRule[];
+  /**
+   * Draft evidence the composer probes cannot see, read from the whole screen
+   * (Codex expands a multiline paste past its bottom probes). It only ever
+   * answers "draft": it gives no empty-composer or idle authority.
+   */
+  readonly composerDraft?: (lines: readonly string[]) => boolean;
 };
 
 export type SeatEvaluation = {

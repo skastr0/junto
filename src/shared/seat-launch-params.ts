@@ -8,9 +8,11 @@
  */
 import type { Launch, Seat } from "./model";
 import { recoverDocumentLaunchChoices } from "./launch-choices";
+import { paramSpec } from "./harness-domain";
+import { HARNESS_RECORDS } from "./harness-records";
 import {
   sanitizeExtraArgs,
-  splitAmpFeatureArgs,
+  splitSessionOwnedArgs,
   type RejectedExtraArg,
 } from "./launch-extra-args";
 import { resolveManagedLaunch } from "./managed-terminal-launch";
@@ -150,24 +152,33 @@ export const seatStartPreviewArgv = (input: {
 };
 
 /**
- * Restarting a named Amp thread cannot change its mode. Junto applies feature
- * flags only at creation; native Amp controls own later feature changes.
- * Refuse these edits before saving or stopping anything, not after a restart.
+ * Restarting a session the harness keeps cannot change what the session owns:
+ * a param frozen with the session (Amp's thread keeps its mode), or extra
+ * args the session took at creation (Amp's startup features). Refuse these
+ * edits before saving or stopping anything, not after a restart.
  */
 export const seatLaunchParamsChangeError = (
   seat: Seat,
   params: SeatLaunchParams,
   hasSession: boolean,
 ): string | undefined => {
-  if (harnessOf(seat) !== "amp" || !hasSession) return undefined;
-  const stored = recoverDocumentLaunchChoices("amp", seat.launch);
-  if ((trimmed(stored.mode) ?? "").toLowerCase() !== (trimmed(params.mode) ?? "").toLowerCase()) {
-    return "Amp resumes the thread's saved mode. Restarting cannot change it; use Amp's dial before the first message, or re-seat from Launch.";
+  const harness = harnessOf(seat);
+  if (harness === undefined || !hasSession) return undefined;
+  const record = HARNESS_RECORDS[harness];
+  const name = record.template.displayName;
+  const stored = recoverDocumentLaunchChoices(harness, seat.launch);
+  if (paramSpec(record.params, "mode")?.resume === "frozenWithSession") {
+    if ((trimmed(stored.mode) ?? "").toLowerCase() !== (trimmed(params.mode) ?? "").toLowerCase()) {
+      return `${name} resumes the thread's saved mode. Restarting cannot change it; use ${name}'s dial before the first message, or re-seat from Launch.`;
+    }
   }
-  const before = splitAmpFeatureArgs(stored.extraArgs).features;
-  const after = splitAmpFeatureArgs(sanitizeExtraArgs("amp", params.extraArgs).args).features;
-  if (before.join("\u0000") !== after.join("\u0000")) {
-    return "Startup features apply when Junto creates the Amp thread. Change an existing thread's features in Amp; Fast and Plaid can be toggled there.";
+  const owned = paramSpec(record.params, "extraArgs")?.sessionOwnedFlags;
+  if (owned !== undefined) {
+    const before = splitSessionOwnedArgs(stored.extraArgs ?? [], owned).owned;
+    const after = splitSessionOwnedArgs(sanitizeExtraArgs(harness, params.extraArgs).args, owned).owned;
+    if (before.join("\u0000") !== after.join("\u0000")) {
+      return `Startup features apply when Junto creates the ${name} thread. Change an existing thread's features in ${name}.`;
+    }
   }
   return undefined;
 };
