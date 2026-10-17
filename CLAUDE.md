@@ -17,6 +17,13 @@ Constant: `src/shared/product-name.ts`.
 artifacts. Use commas, em dashes, or spaces. Wire sentences read as spoken
 compounds ("access stops"), never dotted.
 
+## Motion law — hard invariant
+
+**Never slow, step, throttle or still an animation to save performance.**
+Animation was never the cost. Rings paint live every display frame, and CSS
+animation is allowed everywhere. Only the operator changes motion.
+`tests/motion-law.test.ts` is the lock; see `AGENTS.md`.
+
 ## Multi-agent tree (for builders)
 
 At any time, multiple agents are working this codebase concurrently — the

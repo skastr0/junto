@@ -287,6 +287,18 @@ physics on every surface are removed, not reworded. Agent-facing docs and CLI
 output (`junto-docs.ts`, `capabilities`, `onboard`) are exempt: agents need
 the contract.
 
+## Motion law: animation is never a performance lever
+
+Animation has never been where this app's time goes; the cost is in the
+architecture. Seat rings are painted live on every display frame
+(`src/renderer/lib/activity-live.ts`), and CSS animation is allowed
+everywhere. No agent slows, steps, throttles, stills or swaps a moving
+animation for a static one to save frames, GPU or power, whatever a profile
+seems to show. Find the architectural cost instead. Only the operator
+changes motion, and says so in the commit. `tests/motion-law.test.ts` is
+the lock: weakening, skipping or deleting it is a defect. Pausing in a
+hidden window and honouring reduced motion are the only exceptions.
+
 ## Kernel: cron, relay (+ dormant gauge) — verbs
 
 An edge into or out of a scheduler authors only a **verb**; the watch predicate and fire action it produces are compiled,
