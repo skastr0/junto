@@ -1,5 +1,6 @@
 import { ulid } from "ulid";
 import { managedHarnessEnabled } from "../features";
+import { agentKeyOf } from "../harness-records";
 import { sanitizeExtraArgs } from "../launch-extra-args";
 import { resolveManagedLaunch } from "../managed-terminal-launch";
 import { templateFor, type HarnessId } from "../managed-terminal-templates";
@@ -95,10 +96,7 @@ export const seatParts = (choices: SeatChoices): SeatParts => {
     ...(resolved.cwd ? { cwd: resolved.cwd } : {}),
     ...(extraArgs.length > 0 ? { extraArgs: [...extraArgs] } : {}),
   };
-  const agentKey =
-    choices.harness === "hermes" && choices.profile
-      ? `${agentHost}:${choices.profile}`
-      : `${agentHost}:${choices.harness}`;
+  const agentKey = agentKeyOf(choices.harness, agentHost, choices.profile);
   const dials = [template.displayName, choices.profile, choices.model, choices.effort, choices.mode].filter(
     (part): part is string => Boolean(part && part.trim()),
   );

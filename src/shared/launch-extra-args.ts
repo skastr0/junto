@@ -68,20 +68,9 @@ export const reservedLaunchFlags = (
   for (const param of HARNESS_RECORDS[harness].params.params) {
     for (const alias of param.aliases ?? []) reserve(alias, `set by the ${param.label.toLowerCase()} choice`);
   }
-  if (harness === "amp") {
-    reserve("--visibility", "Junto creates a private thread for this seat");
-    for (const flag of ["--executor", "--runner-dir", "--project", "--orb-size"]) {
-      reserve(flag, "Orb and runner seats need their own integration");
-    }
-    for (const flag of ["--no-tui", "--runner-id", "--share", "--desktop", "--amp-env"]) {
-      reserve(flag, "this seat uses Amp's interactive terminal, not a runner server");
-    }
-    for (const flag of [
-      "-x", "--execute", "-ox", "--orb-execute", "--stream-json",
-      "--stream-json-thinking", "--stream-json-input", "--title", "--attach",
-      "--plugin-ready-timeout", "--no-archive-after-execute",
-    ]) {
-      reserve(flag, "execute-mode options do not apply to an interactive seat");
+  for (const param of HARNESS_RECORDS[harness].params.params) {
+    for (const { flags, why } of param.refusedFlags ?? []) {
+      for (const flag of flags) reserve(flag, why);
     }
   }
   reserve(spec.permissionModeFlag, "set by the permission mode choice");

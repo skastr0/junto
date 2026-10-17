@@ -10,6 +10,7 @@ import {
   type HarnessParamKey,
   type HarnessParams,
   type HarnessParamSpec,
+  paramSpec,
   paramsOfTemplate,
 } from "./harness-domain";
 import {
@@ -82,7 +83,7 @@ export const HARNESS_PTY_PROFILES: Readonly<Record<HarnessId, HarnessPtyProfile>
 };
 
 type ParamFacts = Partial<
-  Record<HarnessParamKey, Partial<Pick<HarnessParamSpec, "aliases" | "sessionOwnedFlags" | "custom">>>
+  Record<HarnessParamKey, Partial<Pick<HarnessParamSpec, "aliases" | "sessionOwnedFlags" | "refusedFlags" | "inAgentKey" | "custom">>>
 >;
 
 /** Param facts a template's argv spec has no slot for. */
@@ -98,8 +99,30 @@ const HARNESS_PARAM_FACTS: Readonly<Partial<Record<HarnessId, ParamFacts>>> = {
         { flag: "--features", takesValue: true },
         { flag: "--fast", takesValue: false },
       ],
+      refusedFlags: [
+        { flags: ["--visibility"], why: "Junto creates a private thread for this seat" },
+        {
+          flags: ["--executor", "--runner-dir", "--project", "--orb-size"],
+          why: "Orb and runner seats need their own integration",
+        },
+        {
+          flags: ["--no-tui", "--runner-id", "--share", "--desktop", "--amp-env"],
+          why: "this seat uses Amp's interactive terminal, not a runner server",
+        },
+        {
+          flags: [
+            "-x", "--execute", "-ox", "--orb-execute", "--stream-json",
+            "--stream-json-thinking", "--stream-json-input", "--title", "--attach",
+            "--plugin-ready-timeout", "--no-archive-after-execute",
+          ],
+          why: "execute-mode options do not apply to an interactive seat",
+        },
+      ],
     },
   },
+  // A Hermes seat's agent is its profile: the node factory keys it
+  // `${host}:<profile>`, or `${host}:hermes` with none.
+  hermes: { profile: { inAgentKey: true } },
 };
 
 /** A template's params with the harness's param facts applied. */
@@ -129,3 +152,20 @@ export const HARNESS_RECORDS: Readonly<Record<HarnessId, HarnessRecord>> = Objec
 /** The record for a harness id, or undefined when it names no template. */
 export const harnessRecordFor = (harness: string | undefined): HarnessRecord | undefined =>
   harness !== undefined && isHarnessId(harness) ? HARNESS_RECORDS[harness] : undefined;
+
+/**
+ * The profile a seat's agent key names, for a harness whose profile is in the
+ * key. `${host}:<harness>` is the no-profile key the node factory mints.
+ */
+export const profileFromAgentKey = (harness: HarnessId, agentKey: string | undefined): string | undefined => {
+  if (paramSpec(HARNESS_RECORDS[harness].params, "profile")?.inAgentKey !== true) return undefined;
+  const separator = agentKey?.indexOf(":") ?? -1;
+  const profile = separator >= 0 ? agentKey?.slice(separator + 1).trim() : undefined;
+  return profile && profile !== harness ? profile : undefined;
+};
+
+/** The agent key a seat's choices mint: the profile when the harness keys agents by it, else the harness. */
+export const agentKeyOf = (harness: HarnessId, agentHost: string, profile: string | undefined): string =>
+  paramSpec(HARNESS_RECORDS[harness].params, "profile")?.inAgentKey === true && profile
+    ? `${agentHost}:${profile}`
+    : `${agentHost}:${harness}`;

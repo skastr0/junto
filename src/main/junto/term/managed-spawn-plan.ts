@@ -19,6 +19,7 @@ import {
   type HarnessId,
 } from "@shared/managed-terminal-templates";
 import type { TerminalLaunch } from "@shared/terminal";
+import { profileFromAgentKey } from "@shared/harness-records";
 import { recoverDocumentLaunchChoices } from "@shared/launch-choices";
 import { usableJuntoHome } from "@shared/junto-home";
 import {
@@ -93,13 +94,6 @@ export const makeManagedSpawnIntent = (
   };
 };
 
-const profileFromAgentKey = (agentKey: string | undefined): string | undefined => {
-  const separator = agentKey?.indexOf(":") ?? -1;
-  const profile = separator >= 0 ? agentKey?.slice(separator + 1).trim() : undefined;
-  // `${host}:hermes` is the no-profile actor key minted by the node factory.
-  return profile && profile !== "hermes" ? profile : undefined;
-};
-
 /**
  * Build the spawn plan: recovered picker choices plus the session pin or
  * resume. Undefined for an unknown harness, and for a provisioned harness with
@@ -112,8 +106,7 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
 
   const sessionId = input.sessionId?.trim();
   const recovered = recoverDocumentLaunchChoices(harness, input.documentLaunch);
-  const profile = input.profile ?? recovered.profile ??
-    (harness === "hermes" ? profileFromAgentKey(input.agentKey) : undefined);
+  const profile = input.profile ?? recovered.profile ?? profileFromAgentKey(harness, input.agentKey);
   const cwd =
     input.cwd?.trim() ||
     input.documentLaunch?.cwd?.trim() ||
@@ -269,9 +262,7 @@ export const planFreshPinSession = (input: {
   readonly sessionId: string;
 }): ManagedLaunchPlan => {
   const recovered = recoverDocumentLaunchChoices(input.harness, input.documentLaunch);
-  const profile =
-    recovered.profile ??
-    (input.harness === "hermes" ? profileFromAgentKey(input.agentKey) : undefined);
+  const profile = recovered.profile ?? profileFromAgentKey(input.harness, input.agentKey);
   const cwd = input.cwd?.trim() || input.documentLaunch?.cwd?.trim() || undefined;
   return resolveManagedLaunchPlan(input.harness, {
     sessionId: input.sessionId,
