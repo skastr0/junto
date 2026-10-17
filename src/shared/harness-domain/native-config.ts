@@ -82,6 +82,13 @@ const valueFits = (spec: NativeSettingValue, value: NativeSettingWrite["value"])
   }
 };
 
+/** Is a declared setting verified for the machine's installed version? */
+export const isNativeSettingVerified = (spec: NativeSettingSpec, installedVersion: string | undefined): boolean =>
+  verifyVersion(installedVersion, {
+    from: spec.versions.from,
+    through: spec.versions.through ?? `${Number.MAX_SAFE_INTEGER}`,
+  }).verdict === "verified";
+
 /** Admit a write against the catalogue and the machine's installed version. */
 export const checkNativeSetting = (
   catalogue: readonly NativeSettingSpec[],
@@ -92,8 +99,7 @@ export const checkNativeSetting = (
     Result.fail(new NativeSettingRefusedError({ harness: write.harness, key: write.key, reason, message }));
   const spec = catalogue.find((entry) => entry.harness === write.harness && entry.key === write.key);
   if (!spec) return refuse("undeclared", `${write.harness} has no declared setting ${write.key}`);
-  const range = { from: spec.versions.from, through: spec.versions.through ?? `${Number.MAX_SAFE_INTEGER}` };
-  if (verifyVersion(installedVersion, range).verdict !== "verified") {
+  if (!isNativeSettingVerified(spec, installedVersion)) {
     return refuse("version", `${write.key} is not verified for ${write.harness} ${installedVersion ?? "(not installed)"}`);
   }
   if (!valueFits(spec.value, write.value)) return refuse("value", `${String(write.value)} does not fit ${write.key}`);

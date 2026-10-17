@@ -7,9 +7,8 @@
  * executed or loaded as code, and none sits inside an `env` block. Adding a
  * key is a `remote-security` review.
  */
-import { Result } from "effect";
 import type { HarnessId } from "../managed-terminal-templates";
-import { checkNativeSetting, type NativeSettingSpec, type NativeSettingWrite } from "./native-config";
+import { isNativeSettingVerified, type NativeSettingSpec } from "./native-config";
 
 const CLAUDE_FILE = ".claude/settings.json";
 const CODEX_FILE = ".codex/config.toml";
@@ -93,31 +92,10 @@ export const NATIVE_SETTINGS: readonly NativeSettingSpec[] = [
   },
 ];
 
-/** A value every declaration admits, so the version check can be asked on its own. */
-const admittedValue = (spec: NativeSettingSpec): NativeSettingWrite["value"] => {
-  switch (spec.value.kind) {
-    case "boolean":
-      return false;
-    case "enum":
-      return spec.value.values[0] ?? "";
-    case "string":
-      return "";
-    case "number":
-      return spec.value.minimum ?? spec.value.maximum ?? 0;
-  }
-};
-
-/** The settings a machine offers for a harness at its installed version. */
 export const nativeSettingsFor = (
   harness: HarnessId,
   machine: string,
   installedVersion: string | undefined,
   catalogue: readonly NativeSettingSpec[] = NATIVE_SETTINGS,
 ): readonly NativeSettingSpec[] =>
-  catalogue.filter(
-    (spec) =>
-      spec.harness === harness &&
-      Result.isSuccess(
-        checkNativeSetting(catalogue, { machine, harness, key: spec.key, value: admittedValue(spec) }, installedVersion),
-      ),
-  );
+  catalogue.filter((spec) => spec.harness === harness && isNativeSettingVerified(spec, installedVersion));
