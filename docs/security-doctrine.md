@@ -330,13 +330,14 @@ machine that read the bytes makes the tail, in this order:
    controls, and bidirectional overrides and isolates. A carriage return ends
    a line.
 3. Replace every known value with `[redacted]` through `redactSecretValues`
-   (`src/main/junto/credentials/redact.ts`). Known values are every secret
-   resolved on that machine for the process or its seat, the generation
-   credential, and every value in the process environment except those named
-   `HOME`, `USER`, `LOGNAME`, `SHELL`, `PATH`, `TMPDIR`, `PWD`, `TERM`, `LANG`
-   and `LC_*`. Secrets and the credential are searched from four characters,
-   environment values from six, so that a value such as `1` or `true` does
-   not erase the text.
+   (`src/main/junto/credentials/redact.ts`). Known values are the generation
+   credential and every value in the process environment and in each live
+   seat's child environment, region values included, except those named
+   `HOME`, `USER`, `LOGNAME`, `SHELL`, `PATH`, `TMPDIR`, `PWD`, `TERM`,
+   `COLORTERM`, `LANG`, `LC_*`, and `JUNTO_*` other than `JUNTO_WORK_TOKEN`:
+   those are names and paths. The credential is searched from four
+   characters, environment values from six, so that a value such as `1` or
+   `true` does not erase the text.
 4. Replace what looks like a credential Junto does not know: the value after
    `Authorization:` or `Bearer`; the value of a `name=value` or `name: value`
    pair whose name contains token, secret, password, passwd, key, credential,
