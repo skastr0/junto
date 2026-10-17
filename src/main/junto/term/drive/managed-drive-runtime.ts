@@ -10,8 +10,8 @@
  * runtime.
  */
 
+import { harnessRecordFor } from "../../../../shared/harness-records";
 import {
-  GROK_MIN_POST_SPAWN_MS,
   ManagedTerminalDrive,
   type SeatHarnessLookup,
 } from "./managed-terminal-drive";
@@ -72,8 +72,11 @@ export const attachManagedTerminalDriveRuntime = (
       if (event.exited || event.running) {
         drive.invalidateBinding(event.bindingId);
       }
-      if (event.running && sources.harnessFor(event.bindingId) === "grok") {
-        drive.markSpawned(event.bindingId, GROK_MIN_POST_SPAWN_MS);
+      const settleMs = event.running
+        ? harnessRecordFor(sources.harnessFor(event.bindingId))?.pty.postSpawnSettleMs
+        : undefined;
+      if (settleMs !== undefined) {
+        drive.markSpawned(event.bindingId, settleMs);
       }
     },
     { replayCurrentSessions: true },

@@ -124,9 +124,7 @@ import { makeCheckoutWatchComposition } from "./work/checkout-watch-composition"
 import type { CheckoutWatchSupervisor } from "./work/checkout-watch-live";
 import { registerTerminalIpc } from "./term/ipc";
 import { registerGitIpc } from "./git/ipc";
-import {
-  GROK_MIN_POST_SPAWN_MS,
-} from "./term/drive";
+import { harnessRecordFor } from "../../shared/harness-records";
 import { clipboardFormatsAreSafeForGrok } from "./term/drive/clipboard-safe";
 import {
   isLiveClaudeResumeSummaryChoice,
@@ -1566,9 +1564,9 @@ export const registerJuntoIpc = (): void => {
       applySeatAwareness(settingsAtBoot);
       settingsForSeed.subscribe(applySeatAwareness);
       const { drive: managedDrive, mailReadyNow, driveReady } = coreMail.seats;
-      // Electron alone can inspect the pasteboard before Grok receives text.
+      // Electron alone can inspect the pasteboard before the harness receives text.
       coreMail.seats.setClipboardSafe((bindingId) =>
-        seatStateRuntime.machine.getSlot(bindingId)?.harness !== "grok" ||
+        harnessRecordFor(seatStateRuntime.machine.getSlot(bindingId)?.harness)?.pty.clipboardImageGuard !== true ||
         clipboardFormatsAreSafeForGrok(clipboard.availableFormats()),
       );
       const writeManagedPrompt = (
@@ -2001,11 +1999,12 @@ export const registerJuntoIpc = (): void => {
             excludeSessionIds: seatDrain?.drainingSessionIds(live?.nodeId ?? "") ?? [],
           });
         }
-        if (harness === "grok") {
-          managedDrive.markSpawned(bindingId, GROK_MIN_POST_SPAWN_MS);
+        const settleMs = harnessRecordFor(harness)?.pty.postSpawnSettleMs;
+        if (settleMs !== undefined) {
+          managedDrive.markSpawned(bindingId, settleMs);
           const cancel = scheduleManagedPulseReady(
             { bindingId, epoch },
-            GROK_MIN_POST_SPAWN_MS,
+            settleMs,
             () => {
               const pending = managedPulseReadyCancels.get(bindingId);
               if (pending?.epoch !== epoch) return false;

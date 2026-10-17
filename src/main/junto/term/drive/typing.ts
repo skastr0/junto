@@ -9,6 +9,8 @@
  * - Two idle 0x03 must be ≥ ~1.0s apart (Claude self-exits in the 0.509–1.009s window).
  */
 
+import { harnessRecordFor } from "../../../../shared/harness-records";
+
 /** CSI bracketed-paste start (DECSET 2004 body). */
 export const BRACKETED_PASTE_START = "\u001b[200~";
 /** CSI bracketed-paste end. */
@@ -45,14 +47,16 @@ export const PASTE_TO_CR_SETTLE_MS = 80;
 export const payloadMayChip = (text: string): boolean => text.includes("\n");
 
 /**
- * Hermes (E2 / GAP-DRV-6): a multiline paste chips immediately and never
- * collapses on any CR — only Ctrl+C clears it. The drive must refuse that
- * body before a write, not try the Claude/Devin 2-CR recipe.
+ * A harness whose PTY profile says a multiline paste sticks (Hermes, E2 /
+ * GAP-DRV-6) chips immediately and never collapses on any CR — only Ctrl+C
+ * clears it. The drive must refuse that body before a write, not try the
+ * Claude/Devin 2-CR recipe.
  */
 export const hermesRefusesMultilinePaste = (
   harness: string | undefined,
   text: string,
-): boolean => harness === "hermes" && payloadMayChip(text);
+): boolean =>
+  harnessRecordFor(harness)?.pty.multilinePasteSticks === true && payloadMayChip(text);
 
 /** Wrap text in a bracketed-paste envelope (single write payload). */
 export const encodeBracketedPaste = (text: string): string =>

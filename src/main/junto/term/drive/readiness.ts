@@ -4,6 +4,7 @@
  */
 
 import type { AgentSeatState } from "../../../../shared/agent-seat-state";
+import { harnessRecordFor } from "../../../../shared/harness-records";
 import type { ObserverGridSnapshot } from "../observer/types";
 
 export type ReadinessInput = {
@@ -54,11 +55,11 @@ const isAmpReady = (input: ReadinessInput): boolean => {
 };
 
 export const isManagedTerminalReady = (input: ReadinessInput): boolean => {
-  const harness = input.harness?.trim().toLowerCase() ?? "";
-  if (harness === "amp") return isAmpReady(input);
-  if (harness !== "hermes") {
-    // Claude/Codex/Grok: allow as soon as we are not totally unbound.
-    // Idle gate still prevents typing into dialogs.
+  const ready = harnessRecordFor(input.harness?.trim().toLowerCase())?.pty.typingReady ?? "bound";
+  if (ready === "composer") return isAmpReady(input);
+  if (ready === "bound") {
+    // Allow as soon as we are not totally unbound. The idle gate still
+    // prevents typing into dialogs.
     return true;
   }
 

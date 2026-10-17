@@ -15,26 +15,13 @@
  */
 
 import type { AgentSeatState } from "../../../../shared/agent-seat-state";
+import { HARNESS_RECORDS, harnessRecordFor } from "../../../../shared/harness-records";
+import { HARNESS_IDS } from "../../../../shared/managed-terminal-templates";
 
-/**
- * Harnesses whose TUI enables bracketed paste at startup, probed on a real
- * PTY (DECSET 2004 seen within 15s of launch). Mail to these never writes
- * before the mode is on.
- */
-export const BRACKETED_PASTE_HARNESSES: ReadonlySet<string> = new Set([
-  "agy",
-  "amp",
-  "claude",
-  "codex",
-  "devin",
-  "fx",
-  "grok",
-  "hermes",
-  "kimi",
-  "muse",
-  "omp",
-  "pi",
-]);
+/** Harnesses whose PTY profile says the TUI enables bracketed paste at startup. */
+export const BRACKETED_PASTE_HARNESSES: ReadonlySet<string> = new Set(
+  HARNESS_IDS.filter((harness) => HARNESS_RECORDS[harness].pty.bracketedPaste),
+);
 
 /** Amp paints its composer while it still connects; text typed there is lost. */
 const AMP_STARTUP_FOOTER =
@@ -55,8 +42,11 @@ export type MailReadinessInput = {
   readonly lines?: ReadonlyArray<string>;
 };
 
+const ptyProfile = (harness: string | undefined) =>
+  harnessRecordFor(harness?.trim().toLowerCase())?.pty;
+
 const usesBracketedPaste = (harness: string | undefined): boolean =>
-  BRACKETED_PASTE_HARNESSES.has(harness?.trim().toLowerCase() ?? "");
+  ptyProfile(harness)?.bracketedPaste === true;
 
 /** The terminal takes a paste right now: the mode is on, or never used. */
 export const mailPasteable = (input: MailReadinessInput): boolean =>
@@ -76,7 +66,7 @@ export const mailFirstReady = (input: MailReadinessInput): boolean => {
     return input.bracketedPaste || input.idleConfirmed;
   }
   if (!input.bracketedPaste || !input.idleConfirmed) return false;
-  if (input.harness === "amp") {
+  if (ptyProfile(input.harness)?.typingReady === "composer") {
     const tail = (input.lines ?? []).filter((line) => line.trim()).slice(-8);
     if (tail.some((line) => AMP_STARTUP_FOOTER.test(line))) return false;
   }
