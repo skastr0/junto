@@ -118,16 +118,16 @@ describe("desktop notification subjects", () => {
           canvasName: "main",
           nodeId: "a1",
           seatName: "Maple",
-          text: "hit its usage limit, resets 15:00",
+          text: "hit a usage limit, resets 15:00",
         },
       ]);
     });
 
-    it("posts a sign-in error and a crash with the harness's own message", () => {
+    it("posts a sign-in error and a crash in the feed's words", () => {
       const auth = fold({ _tag: "ErrorRaised", kind: "auth", message: "Invalid API key, run /login" });
       const crash = fold({ _tag: "ErrorRaised", kind: "crash", message: "  " });
       expect(stoppedBy(auth).map((subject) => [subject.category, subject.level, subject.text])).toEqual([
-        ["failed", "stopped", "Invalid API key, run /login"],
+        ["failed", "stopped", "stopped on a sign-in error"],
       ]);
       expect(stoppedBy(crash).map((subject) => [subject.category, subject.level, subject.text])).toEqual([
         ["failed", "stopped", "stopped on an error"],

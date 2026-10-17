@@ -6,12 +6,11 @@ import type {
   NotifySubject,
   NotifyTarget,
 } from "@shared/desktop-notifications";
-import { deriveNeeds, type NeedCause, type SeatSnapshot, type SeatStatus } from "@shared/harness-domain";
+import { deriveNeeds, type NeedCause, type SeatSnapshot } from "@shared/harness-domain";
 import { nodesOf, type Seat } from "@shared/model";
 import { titleOf } from "@shared/model/title";
-import type { OperatorFeed } from "@shared/operator-feed";
+import { feedStopOf, type OperatorFeed } from "@shared/operator-feed";
 import { notifyNeed } from "@shared/need-surfaces";
-import { seatStatusTime } from "@shared/seat-status-text";
 import { notificationSettings } from "@shared/settings";
 import type { PreambleEvent } from "@shared/preamble";
 import { activateNodeSurface } from "./activate-node-surface";
@@ -174,7 +173,8 @@ export const seatSubjects = (input: {
         key: `stopped:${node.id}:${stop.since}`,
         category: stop.category,
         level: stop.level,
-        text: stopText(snapshot.status, now),
+        // The feed's own sentence for the stop, so both surfaces say it alike.
+        text: feedStopOf(snapshot, now)?.text ?? "stopped",
       });
       continue;
     }
@@ -206,18 +206,6 @@ const stopOf = (snapshot: SeatSnapshot) => {
     if (notified?.category === "failed") return { ...notified, since: need.since };
   }
   return undefined;
-};
-
-const stopText = (status: SeatStatus, now: number): string => {
-  if (status._tag !== "Blocked") return "stopped";
-  const reason = status.reason;
-  if (reason._tag === "UsageLimit") {
-    return reason.resetsAt === undefined
-      ? "hit its usage limit"
-      : `hit its usage limit, resets ${seatStatusTime(reason.resetsAt, now)}`;
-  }
-  if (reason._tag === "Error") return reason.message.trim() || (reason.kind === "auth" ? "cannot sign in" : "stopped on an error");
-  return "stopped";
 };
 
 /** A report's identity for change detection: what main would act on. */
