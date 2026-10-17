@@ -16,6 +16,7 @@ import { LocalSessionHost } from "../src/main/junto/term/local-host";
 import { noSeatEnvironment, type SeatEnvironmentResolver } from "../src/main/junto/term/seat-process";
 import { makeSeatsChannel, type SeatsChannelOptions } from "../src/main/junto/term/seats-link";
 import { makeSeatsProcessClient } from "../src/main/junto/term/seats-client";
+import { SeatsFailure } from "../src/main/junto/term/seats-failure";
 import { getSeatCredentialRegistry, setSeatCredentialRegistryForTests } from "../src/main/junto/work/seat-credentials";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { InstallationId } from "../src/shared/installation-id";
@@ -222,6 +223,36 @@ describe("seats link start", () => {
     }) });
     await expect(f.start()).rejects.toThrow("Required source is missing");
     expect(f.fake.controllers).toHaveLength(0);
+  });
+
+  it("answers a spawn failure with its classified cause, not a changed occupant", async () => {
+    const missing = join(tmpdir(), "junto-seats-link-missing-folder");
+    const broken = seat("mini-seat", { host: THIS_MACHINE, agentKey: `${THIS_MACHINE}:mini-seat`,
+      launch: { kind: "harness", argv: ["claude"], cwd: missing } });
+    const f = await fixture({ nodes: [broken] });
+    const failure = await f.start().then(() => undefined, (error: unknown) => error);
+    expect(failure).toMatchObject({
+      _tag: "SeatSpawnFailed", machine: THIS_MACHINE, canvas, seatId: broken.id,
+      bindingId: broken.bindingId, harness: "claude", exitReason: "spawn_failed",
+      exitMessage: expect.stringContaining("could not start"),
+    });
+    expect(Schema.is(SeatsFailure)(failure)).toBe(true);
+    expect(JSON.stringify(Schema.encodeSync(SeatsFailure)(failure as SeatsFailure))).not.toContain("JUNTO_WORK_TOKEN");
+    expect(f.fake.controllers).toHaveLength(0);
+  });
+
+  it("answers each refusal with its own tag", async () => {
+    const editorless = await fixture({ editor: "another-editor" });
+    await expect(editorless.start()).rejects.toMatchObject({ _tag: "SeatCanvasEditorMismatch", peer: "macbook" });
+    const foreign = await fixture({ nodes: [seat("mini-seat", { host: "macbook" })] });
+    await expect(foreign.start()).rejects.toMatchObject({ _tag: "SeatNotOnThisMachine", seatHost: "macbook" });
+    const unpinned = await fixture();
+    await unpinned.runtime.runPromise(Effect.flatMap(MachineRepository, (machine) => machine.retirePeer("macbook")));
+    await expect(unpinned.start()).rejects.toMatchObject({ _tag: "SeatPeerNotPinned" });
+    const vacant = await fixture();
+    await expect(vacant.start({ ...request, _tag: "Activate", generation: "old" })).rejects.toMatchObject({ _tag: "SeatMissing" });
+    const unavailable = await fixture({ pin: async () => ({ ok: false as const, reason: "thread is gone" }) });
+    await expect(unavailable.start()).rejects.toMatchObject({ _tag: "SeatSessionUnavailable", reason: "thread is gone" });
   });
 
   it("reads occupancy without starting and activates only the exact live generation", async () => {
