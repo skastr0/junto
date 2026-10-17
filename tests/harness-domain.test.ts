@@ -229,6 +229,23 @@ describe("harness domain: needs", () => {
     expect(deriveNeeds(snapshot).map((need) => need.cause)).toEqual(["idle"]);
   });
 
+  it("retires awareness held on older evidence, or on expiry", () => {
+    const reading = (questionId: string, evidenceHash: string) =>
+      at("awareness", {
+        _tag: "AwarenessAssessed",
+        questionId,
+        answer: { axis: "concern", value: "approval_requested" },
+        present: true,
+        probability: 0.8,
+        evidenceHash,
+        packVersion: "awareness-pack/2",
+      });
+    const moved = fold(reading("concern.approval_requested", "old"), reading("health.state", "new"));
+    expect(moved.awareness.map((held) => held.evidenceHash)).toEqual(["new"]);
+    const retired = reduceSeatSignals(moved, [at("system", { _tag: "AwarenessRetired", reason: "expired" })]);
+    expect(retired.awareness).toEqual([]);
+  });
+
   it("shows a finished turn until the operator looks", () => {
     const done = fold(at("screen", { _tag: "TurnStarted" }), at("screen", { _tag: "TurnEnded", outcome: "completed" }));
     expect(topNeed(done).cause).toBe("turn_unseen");

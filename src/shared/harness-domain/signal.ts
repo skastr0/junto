@@ -275,7 +275,10 @@ export type AwarenessAnswer = typeof AwarenessAnswer.Type;
 
 /**
  * One decisive answer. `present: false` is a decisive "checked and clear",
- * which withdraws an earlier answer on the same question.
+ * which withdraws an earlier answer on the same question. `probability` is
+ * the confidence in what was decided: in the presence when present, in the
+ * clear when not. An answer on newer evidence (a different `evidenceHash`)
+ * retires every reading held on older evidence.
  */
 export const AwarenessAssessed = Schema.Struct({
   _tag: Schema.Literal("AwarenessAssessed"),
@@ -333,6 +336,12 @@ export const OperatorViewed = Schema.Struct({
   _tag: Schema.Literal("OperatorViewed"),
 });
 
+/** Every held awareness reading stops counting (the advisory expired, or the seat changed generation). */
+export const AwarenessRetired = Schema.Struct({
+  _tag: Schema.Literal("AwarenessRetired"),
+  reason: Schema.Literals(["expired", "epoch"]),
+});
+
 export const SystemSignal = Schema.Union([
   ChannelOpened,
   ChannelClosed,
@@ -342,6 +351,7 @@ export const SystemSignal = Schema.Union([
   MailDelivered,
   MailDeliveryFailed,
   OperatorViewed,
+  AwarenessRetired,
 ]);
 export type SystemSignal = typeof SystemSignal.Type;
 

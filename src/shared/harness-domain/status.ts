@@ -364,7 +364,10 @@ export const reduceSeat = (snapshot: SeatSnapshot, envelope: SignalEnvelope): Se
       };
     }
     case "AwarenessAssessed": {
-      const others = base.awareness.filter((reading) => reading.questionId !== signal.questionId);
+      // The newest evidence owns the set: readings on an older window retire.
+      const others = base.awareness.filter(
+        (reading) => reading.questionId !== signal.questionId && reading.evidenceHash === signal.evidenceHash,
+      );
       if (!signal.present) return { ...base, awareness: others };
       return {
         ...base,
@@ -399,6 +402,8 @@ export const reduceSeat = (snapshot: SeatSnapshot, envelope: SignalEnvelope): Se
       };
     case "OperatorViewed":
       return dropKey(base, "turnUnseen");
+    case "AwarenessRetired":
+      return { ...base, awareness: [] };
     default:
       return reduceHarness(base, envelope, signal);
   }
