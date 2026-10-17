@@ -6,7 +6,7 @@ import { expect, test } from "../harness/launch";
 
 // Settings > Agents renders for the machine the page head chose: every
 // harness card has the four rows with an All machines and a machine control,
-// unset rows say Harness default, and a missing inventory is a red line.
+// unset rows say Harness default, and a machine that does not answer says why.
 
 test.use({ juntoOptions: { seedModels: { "settings-agents-machine": modelFixture([]) } } });
 
@@ -17,7 +17,7 @@ test("Settings > Agents follows the chosen machine", async ({ junto }) => {
   const { app, page } = junto;
   await mkdir(SHOTS, { recursive: true });
   await page.getByRole("button", { name: "Open settings" }).click();
-  await page.locator(".settings-nav__item", { hasText: "Machine" }).first().click();
+  await page.locator(".settings-nav__item", { hasText: "Name and startup" }).first().click();
   const own = (await page.getByTestId("settings-machine-section").locator('span[style*="color"]').first().innerText()).trim();
 
   await app.evaluate(({ ipcMain }, { command, protocol, own }) => {
@@ -50,7 +50,10 @@ test("Settings > Agents follows the chosen machine", async ({ junto }) => {
     await expect(picker).toHaveAttribute("data-machine", machine);
     await expect(section).toHaveAttribute("data-machine", machine);
     await expect(page.getByTestId("harness-settings-machine")).toContainText(label);
-    await expect(page.getByRole("status").filter({ hasText: `No inventory for ${label}` })).toBeVisible();
+    // This machine answers its own inventory; the fixture's Mini has no link, so it names why.
+    const refused = page.getByTestId("harness-inventory-refused");
+    if (machine === own) await expect(refused).toHaveCount(0);
+    else await expect(refused).toContainText(`${label} did not answer (`);
 
     const card = section.locator(".settings-harness-list > li").first();
     for (const rowLabel of ROWS) {
