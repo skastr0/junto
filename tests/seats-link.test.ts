@@ -24,7 +24,7 @@ import {
 } from "../src/shared/agent-seat-state";
 import { topNeed, type BindingId, type SeatSnapshot } from "../src/shared/harness-domain";
 import { toSeatsStatus } from "../src/main/junto/term/seats-status";
-import { closeMachineLog, installMachineLog, ObservabilityLoggerLive } from "../src/main/junto/observability/logger";
+import { closeMachineLog, installMachineLog, ObservabilityLoggerLive, withMachineLogger } from "../src/main/junto/observability/logger";
 import { machineLogDir } from "../src/main/junto/observability/log-file";
 import { readFileSync } from "node:fs";
 import { getSeatCredentialRegistry, setSeatCredentialRegistryForTests } from "../src/main/junto/work/seat-credentials";
@@ -115,9 +115,10 @@ const fixture = async (options: {
       seatEnvironment: options.environment ?? noSeatEnvironment,
     });
   }));
-  const runtime = ManagedRuntime.make(Layer.provideMerge(
+  // As the core builds it: forked fibers (occupy's own run) log through the machine logger.
+  const runtime = ManagedRuntime.make(withMachineLogger(Layer.provideMerge(
     actors, Layer.provideMerge(ModelStoresLive, repositories),
-  ));
+  )));
   cleanups.push(async () => {
     await host.shutdownAll("test_cleanup");
     await runtime.dispose();

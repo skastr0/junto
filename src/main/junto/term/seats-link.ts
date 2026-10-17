@@ -187,7 +187,7 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
   });
 
   const answer = Effect.fn("SeatsLink.request")(function* (context: LinkChannelContext,
-    request: typeof SeatsRequest.Type, machine: string) {
+    request: typeof SeatsRequest.Type, machine: string, trace: { occupied: boolean } = { occupied: false }) {
     const where = { machine, canvas: request.canvas, seatId: request.seatId };
     const admit = Effect.fn("SeatsLink.admit")(function* () {
       yield* disconnected(context, where);
@@ -265,10 +265,13 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
       canvasName: request.canvas, nodeId: initial.seat.id, bindingId: initial.seat.bindingId,
       hostId: initial.name, harness: initial.seat.harness, agentKey: initial.seat.agentKey,
       label: initial.seat.label, beforeSpawn,
+      ...(context.operationId === undefined ? {} : { operationId: context.operationId }),
       spawnIntent: makeManagedSpawnIntent({ nodeId: initial.seat.id, harness: initial.seat.harness,
         agentKey: initial.seat.agentKey, documentLaunch: initial.seat.launch,
         cwd: initial.seat.launch?.cwd, sessionId: prepared.sessionId || undefined, resume: !prepared.minted }),
     });
+    // From here occupy logs the start's outcome under its operation id.
+    trace.occupied = true;
     const live = yield* Effect.tryPromise({
       try: () => runOnSeatStartTurn(() => run(start)),
       catch: (cause) => asSeatsFailure(where, cause),
@@ -286,11 +289,14 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
     const kind = request._tag === "Start" ? "start" : request._tag === "Stop" ? "stop"
       : request._tag === "Viewed" ? "view" : "activation";
     // Every start, activation and stop is logged on this machine with its outcome.
-    const answered = answer(context, request, machine).pipe(
+    const trace = { occupied: false };
+    const answered = answer(context, request, machine, trace).pipe(
       Effect.mapError((cause) => asSeatsFailure(where, cause)));
+    // A start that reached occupy is logged there once; one refused before it is logged here.
+    const logged = request._tag === "Start";
     return yield* (request._tag === "Get" ? answered : answered.pipe(
-      Effect.tap(() => Effect.logInfo(`seat ${kind} answered`)),
-      Effect.tapCause((cause) => Effect.logError(`seat ${kind} failed`, cause)),
+      Effect.tap(() => logged && trace.occupied ? Effect.void : Effect.logInfo(`seat ${kind} answered`)),
+      Effect.tapCause((cause) => logged && trace.occupied ? Effect.void : Effect.logError(`seat ${kind} failed`, cause)),
     )).pipe(
       Effect.annotateLogs({ area: "seats", seat: request.seatId, canvas: request.canvas, request: request._tag,
         peer: context.peer.machineName,
