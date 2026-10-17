@@ -82,7 +82,7 @@ const scrubDetail = (value: unknown, depth = 0): unknown => {
 const withDetail = (encoded: EncodedFailure, detail: unknown): EncodedFailure => {
   let scrubbed: unknown;
   try { scrubbed = scrubDetail(detail); } catch { return { ...encoded, detailCut: true }; }
-  if (JSON.stringify(scrubbed).length > MAX_FAILURE_DETAIL_BYTES) return { ...encoded, detailCut: true };
+  if (Buffer.byteLength(JSON.stringify(scrubbed)) > MAX_FAILURE_DETAIL_BYTES) return { ...encoded, detailCut: true };
   return decodeEncoded({ ...encoded, detail: scrubbed });
 };
 

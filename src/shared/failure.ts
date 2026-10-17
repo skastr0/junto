@@ -29,7 +29,7 @@ export const EncodedFailure = Schema.Struct({
    * string scrubbed, at most 4 KiB as JSON. Receivers decode it with that
    * channel's closed schema, never as free JSON.
    */
-  detail: Schema.optionalKey(Schema.Json.pipe(Schema.check(Schema.makeFilter((value: unknown) => JSON.stringify(value).length <= MAX_FAILURE_DETAIL_BYTES)))),
+  detail: Schema.optionalKey(Schema.Json.pipe(Schema.check(Schema.makeFilter((value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length <= MAX_FAILURE_DETAIL_BYTES)))),
   /** Present when a detail was dropped: not JSON, or over its bound. */
   detailCut: Schema.optionalKey(Schema.Literal(true)),
 });

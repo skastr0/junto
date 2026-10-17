@@ -58,6 +58,12 @@ it("step 4 redacts credential shapes Junto does not know", () => {
   expect(scrubText("/Users/someone/Projects/junto/node_modules/node-pty/build/Release/pty.node", [])).toBe("/Users/someone/Projects/junto/node_modules/node-pty/build/Release/pty.node");
 });
 
+it("Junto ids survive in free text; UUIDs and hex digests do not", () => {
+  expect(scrubText("seat agent-01M4G59ER01QPV3WBTEK3Z84TP in region-01M4FA8TRP5WCTVC26GVKPC5C2", [])).toBe("seat agent-01M4G59ER01QPV3WBTEK3Z84TP in region-01M4FA8TRP5WCTVC26GVKPC5C2");
+  expect(scrubText("key 01a1202e-880e-7391-9903-bb0931c63820", [])).toBe("key [redacted]");
+  expect(scrubText("agent-01M4G59ER01QPV3WBTEK3Z84TPx9f86d081884c7d659a2feaa0c55ad015", [])).toBe("[redacted]");
+});
+
 it("step 5 keeps the last 40 lines and 4 KiB, scrubbing the whole window before the cut", () => {
   const lines = Array.from({ length: 60 }, (_, index) => `line ${index}`);
   const read = tail(lines.join("\n") + "\n", []);

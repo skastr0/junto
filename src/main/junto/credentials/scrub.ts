@@ -29,7 +29,12 @@ const URL_USERINFO = /(\b[a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/gi;
 const NAMED_VALUE = /([A-Za-z0-9_.-]{0,48}(?:token|secret|password|passwd|key|credential|auth|cookie|session)[A-Za-z0-9_.-]{0,48}(?:"|')?\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s&#"',;]+)/gi;
 const TOKEN_SHAPES = /\b(?:sk-|ghp_|gho_|github_pat_|xox[abpr]-|ops_)[A-Za-z0-9_-]+|\bAKIA[A-Z0-9]{12,}|\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g;
 const LONG_RUN = /[A-Za-z0-9+/_-]{32,}={0,2}/g;
-const mixed = (run: string): boolean => run.length >= 32 && /[A-Za-z]/.test(run) && /[0-9]/.test(run);
+/** Junto's own ids, <kind>-<ULID>, are not secrets; UUIDs and hex digests stay redacted. */
+const JUNTO_ID = /((?:^|(?<=[^A-Za-z]))[a-z]{2,16}-[0-9A-HJKMNP-TV-Z]{26})(?![0-9A-Za-z])/;
+const mixedRun = (run: string): boolean => run.length >= 32 && /[A-Za-z]/.test(run) && /[0-9]/.test(run);
+const judgePiece = (piece: string): string =>
+  piece.split(JUNTO_ID).map((part, index) => index % 2 === 1 ? part : mixedRun(part) ? REDACTED : part).join("");
+const mixed = (run: string): boolean => judgePiece(run) !== run;
 const PATH_BOUNDARY = /[\s"'`(=]/;
 
 /**
@@ -42,8 +47,8 @@ const judgeRun = (run: string, offset: number, text: string): string => {
   const boundary = (char: string | undefined): boolean => char === undefined || PATH_BOUNDARY.test(char);
   const prev = before(offset - 1);
   const path = run.startsWith("/") && (boundary(prev) || ((prev === "~" || prev === ".") && boundary(before(offset - 2))) || text.slice(Math.max(0, offset - 5), offset) === "file:");
-  if (!path) return mixed(run) ? REDACTED : run;
-  return run.split("/").map(segment => mixed(segment) ? REDACTED : segment).join("/");
+  if (!path) return judgePiece(run);
+  return run.split("/").map(judgePiece).join("/");
 };
 
 const stripControls = (text: string): string =>
