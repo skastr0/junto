@@ -20,7 +20,8 @@ compounds ("access stops"), never dotted.
 ## Motion law — hard invariant
 
 **Never slow, step, throttle or still an animation to save performance.**
-Animation was never the cost. Rings paint live every display frame, and CSS
+Motion runs on the compositor, never on the main thread: rings turn and
+pulse every display frame with `transform` and `opacity` only, and CSS
 animation is allowed everywhere. Only the operator changes motion.
 `tests/motion-law.test.ts` is the lock; see `AGENTS.md`.
 

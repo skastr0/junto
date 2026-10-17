@@ -295,9 +295,12 @@ the contract.
 
 ## Motion law: animation is never a performance lever
 
-Animation has never been where this app's time goes; the cost is in the
-architecture. Seat rings are painted live on every display frame
-(`src/renderer/lib/activity-live.ts`), and CSS animation is allowed
+Motion is never traded away, and motion never runs on the main thread.
+Seat rings move on the compositor every display frame: their still parts
+are baked once into the atlas and only `transform` and `opacity` animate
+(`src/renderer/lib/activity-atlas.ts`). A per-frame main-thread loop (the
+old live ring painter) lagged panning and the terminal stream, so the cost
+of motion is where it runs, not the motion itself. CSS animation is allowed
 everywhere. No agent slows, steps, throttles, stills or swaps a moving
 animation for a static one to save frames, GPU or power, whatever a profile
 seems to show. Find the architectural cost instead. Only the operator
