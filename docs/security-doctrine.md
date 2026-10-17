@@ -57,6 +57,10 @@ a filesystem sandbox against the account that owns the files.
 | Another machine | The bound link peer plus authorization for the particular canvas, channel, operation and resource. A successful hello grants no general execution authority. |
 | Paired phone | Its restricted companion transport and live device registry, limited to the companion operations. It is not a machine link or a general operator-command relay. |
 
+Settings the operator writes apply as written on the machine they name,
+including a seat's permission mode, its launch arguments and native harness
+settings. The operator's decision, 17 October.
+
 The window calls the same closed owner commands for machine operations. It
 adds no authority of its own and cannot bypass their validation or admission.
 
