@@ -1,6 +1,6 @@
 /**
  * Settings → Agents for one named machine. Every row renders and validates
- * from the harness domain (`paramsOfTemplate`, `resolveParams`, `checkParam`);
+ * from the harness record's params (`resolveParams`, `checkParam`);
  * nothing here branches on a harness id. Two Settings layers per param: the
  * app-wide default and this machine's override. A key set in neither shows
  * "Harness default" and is never passed to the harness.
@@ -19,7 +19,6 @@ import {
   checkParam,
   inventoryOptions,
   isInventoryStale,
-  paramsOfTemplate,
   resolveParams,
   type HarnessInventory,
   type HarnessParamKey,
@@ -34,6 +33,7 @@ import {
 } from "@shared/harness-domain";
 import { NATIVE_SETTINGS, nativeSettingsFor } from "@shared/harness-domain/native-catalogue";
 import { harnessSettingLayers } from "@shared/harness-settings";
+import { HARNESS_RECORDS } from "@shared/harness-records";
 import { allTemplates, type HarnessId } from "@shared/managed-terminal-templates";
 import { formatExtraArgs, parseExtraArgsText, sanitizeExtraArgs } from "@shared/launch-extra-args";
 import {
@@ -109,7 +109,7 @@ export function HarnessesSettingsSection({ machine: chosen }: { readonly machine
       ) : null}
       <ul className="settings-harness-list" role="list">
         {allTemplates().map((template) => {
-          const params = paramsOfTemplate(template);
+          const params = HARNESS_RECORDS[template.harness].params;
           const inventory =
             read.state === "answered"
               ? read.inventory.harnesses.find((row) => row.harness === template.harness)

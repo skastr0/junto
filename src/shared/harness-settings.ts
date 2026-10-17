@@ -3,10 +3,10 @@
  * Cascade / explicit picker choices always win over stored defaults.
  */
 
-import { isHarnessId, templateFor, type HarnessId } from "./managed-terminal-templates";
+import { isHarnessId, type HarnessId } from "./managed-terminal-templates";
+import { HARNESS_RECORDS } from "./harness-records";
 import {
   checkParam,
-  paramsOfTemplate,
   resolveParams,
   type ParamLayers,
   type ParamValues,
@@ -101,7 +101,7 @@ export const resolveHarnessLaunchDefaults = (
   choices: LaunchChoiceSlice = {},
 ): LaunchChoiceSlice => {
   if (!HARNESS_SETTINGS_ENABLED || !isHarnessId(harness)) return mergeHarnessLaunchDefaults(settings, harness, choices);
-  const params = paramsOfTemplate(templateFor(harness));
+  const params = HARNESS_RECORDS[harness].params;
   const stored = harnessSettingLayers(settings, machine ?? "", harness);
   const resolved = resolveParams(params, {
     harnessDefault: stored.harnessDefault ?? {},
