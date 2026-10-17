@@ -5,7 +5,9 @@
  * router output for the view only.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { LinkEventContext } from "../src/main/junto/link/types";
 import type { LocalHostEvent } from "../src/main/junto/term/local-host";
+import { CHUNK_UNITS } from "../src/main/junto/term/seat-attach";
 import { TerminalRouter } from "../src/main/junto/term/router";
 import { unwrapSeatsFailure } from "../src/main/junto/term/seats-failure";
 import { makeSeatViews, type SeatViews } from "../src/main/junto/term/seat-views";
@@ -103,5 +105,49 @@ describe("a linked seat's view through the router", () => {
     const window = await bookWindow();
     const result = await window.router.attach({ bindingId: "not-a-linked-seat", mode: "control", hostId: "mini" });
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("a seat's machine that breaks the stream's bounds", () => {
+  /** A view on a fake seat machine that answers Get and Attach and records every request. */
+  const fakeView = () => {
+    const requests: Array<{ readonly _tag: string }> = [];
+    const views = makeSeatViews({
+      locate: async () => ({ machine: "mini", canvas, seatId: miniSeat.id }),
+      request: async (_machine, payload) => {
+        const sent = payload as { readonly _tag: string };
+        requests.push(sent);
+        if (sent._tag === "Get") return { _tag: "Started", generation: "g1" };
+        if (sent._tag === "Attach") return { _tag: "Attached", handle: "h".repeat(22), generation: "g1", cols: 80, rows: 24, status: "running" };
+        return { _tag: "Detached", handle: "h".repeat(22) };
+      },
+      sendEvent: async () => undefined,
+    });
+    const context = { peer: { machineName: "mini" } } as unknown as LinkEventContext;
+    const screen = (seq: number, part: number, data: string) =>
+      views.frame(context, { _tag: "Screen", handle: "h".repeat(22), seq: String(seq), part, last: false, data });
+    return { views, requests, screen };
+  };
+
+  it("drops the view and detaches when a screen never ends past its cap", async () => {
+    const { views, requests, screen } = fakeView();
+    const attached = views.attach({ bindingId: miniSeat.bindingId, mode: "observe" });
+    await eventually(() => expect(requests.some((request) => request._tag === "Attach")).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const part = "x".repeat(CHUNK_UNITS);
+    for (let index = 0; index < 60; index++) screen(index + 1, index, part);
+    expect(await attached).toMatchObject({ ok: false });
+    await eventually(() => expect(requests.some((request) => request._tag === "Detach")).toBe(true));
+  });
+
+  it("drops the view when screen parts arrive out of order", async () => {
+    const { views, requests, screen } = fakeView();
+    const attached = views.attach({ bindingId: miniSeat.bindingId, mode: "observe" });
+    await eventually(() => expect(requests.some((request) => request._tag === "Attach")).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    screen(1, 0, "a");
+    screen(2, 2, "c");
+    expect(await attached).toMatchObject({ ok: false });
+    await eventually(() => expect(requests.some((request) => request._tag === "Detach")).toBe(true));
   });
 });

@@ -18,7 +18,7 @@ import { ModelService } from "../model/service";
 import { unwrapSeatsFailure } from "./seats-failure";
 import type { AttachOk, AttachResult } from "./router";
 import type { ControlLease, LocalHostEvent } from "./local-host";
-import { ATTACH_CREDITS, chunkUnits, type SeatsStreamFrame } from "./seat-attach";
+import { ATTACH_CREDITS, CHUNK_UNITS, chunkUnits, SCREEN_LIMIT_UNITS, type SeatsStreamFrame } from "./seat-attach";
 
 /** A seat on a canvas this machine edits, run by another machine. */
 export type LinkedSeat = { readonly machine: string; readonly canvas: string; readonly seatId: string };
@@ -37,6 +37,8 @@ type View = {
   readonly epoch: string;
   readonly lease: ControlLease;
   parts: string[];
+  /** UTF-16 units of the screen being received; the seat's machine caps it, and so does this side. */
+  screenUnits: number;
   /** The last frame's sequence: frames count up per handle, so the window orders them as it does a local host's. */
   seq: bigint;
   /** Set while attach waits for the first Screen. */
@@ -77,14 +79,27 @@ export const makeSeatViews = (transport: SeatViewTransport) => {
     });
   };
 
+  /** A seat's machine that breaks the stream's bounds loses the view: nothing it sends grows this core. */
+  const abandon = (view: View, failure: "ScreenOverBound" | "ScreenOutOfOrder"): void => {
+    drop(view);
+    view.parts = [];
+    log("seat view refused", { machine: view.machine, failure });
+    void transport.request(view.machine, { _tag: "Detach", handle: view.handle }, randomBytes(16).toString("hex"))
+      .catch(() => undefined);
+  };
+
   const deliver = (view: View, frame: SeatsStreamFrame): void => {
     if (frame._tag !== "Ended") view.seq = BigInt(frame.seq);
     switch (frame._tag) {
       case "Screen": {
+        if (frame.part !== view.parts.length) return abandon(view, "ScreenOutOfOrder");
+        view.screenUnits += frame.data.length;
+        if (view.screenUnits > SCREEN_LIMIT_UNITS + CHUNK_UNITS) return abandon(view, "ScreenOverBound");
         view.parts.push(frame.data);
         if (frame.last) {
           const serialized = view.parts.join("");
           view.parts = [];
+          view.screenUnits = 0;
           if (view.screen !== undefined) view.screen(serialized);
           else output(view, RESET + serialized);
         }
@@ -95,6 +110,7 @@ export const makeSeatViews = (transport: SeatViewTransport) => {
         return ack(view, frame.seq);
       case "Resync":
         view.parts = [];
+        view.screenUnits = 0;
         return ack(view, frame.seq);
       case "Ended":
         drop(view);
@@ -147,7 +163,7 @@ export const makeSeatViews = (transport: SeatViewTransport) => {
         const lease: ControlLease = { leaseId: `lv_${randomBytes(8).toString("hex")}`, bindingId: input.bindingId,
           epoch: attached.generation, mode: input.mode };
         const view: View = { machine: seat.machine, handle: attached.handle, bindingId: input.bindingId,
-          epoch: attached.generation, lease, parts: [], seq: 0n, screen: undefined };
+          epoch: attached.generation, lease, parts: [], screenUnits: 0, seq: 0n, screen: undefined };
         const screen = new Promise<string | undefined>((resolve) => {
           const timer = setTimeout(() => resolve(undefined), SCREEN_WAIT_MS);
           view.screen = (serialized) => { clearTimeout(timer); view.screen = undefined; resolve(serialized); };
@@ -157,6 +173,7 @@ export const makeSeatViews = (transport: SeatViewTransport) => {
         for (const frame of early.get(view.handle) ?? []) deliver(view, frame);
         early.delete(view.handle);
         const serialized = await screen;
+        if (!byLease.has(lease.leaseId)) return { ok: false, message: "The seat's machine ended the view before it showed." };
         log("seat view opened", { machine: seat.machine, seat: seat.seatId, canvas: seat.canvas, mode: input.mode, operationId });
         const ok: AttachOk = {
           ok: true, lease, cols: attached.cols, rows: attached.rows, journal: [], status: attached.status,
