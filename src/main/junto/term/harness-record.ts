@@ -1,15 +1,27 @@
 /**
  * The harness record as main sees it: the shared record joined with the
- * screen rule pack, which lives beside the engine that runs it.
+ * screen rule pack and the session store, which live beside the code that
+ * runs them.
  */
 import { type HarnessRecord, harnessRecordFor } from "../../../shared/harness-records";
 import { rulePackFor } from "./agent-state/rules";
 import type { SeatRulePack } from "./agent-state/types";
+import { HARNESS_SESSION_STORES, type HarnessSessionStore } from "./session-existence";
 
-export type HarnessRuntimeRecord = HarnessRecord & { readonly rulePack: SeatRulePack };
+export type HarnessRuntimeRecord = HarnessRecord & {
+  readonly rulePack: SeatRulePack;
+  /** Where the harness keeps its sessions; undefined when it keeps none Junto can read. */
+  readonly session: HarnessSessionStore | undefined;
+};
 
 /** The runtime record for a harness id, or undefined when it names no template. */
 export const harnessRuntimeRecordFor = (harness: string | undefined): HarnessRuntimeRecord | undefined => {
   const record = harnessRecordFor(harness);
-  return record === undefined ? undefined : { ...record, rulePack: rulePackFor(record.harness) };
+  return record === undefined
+    ? undefined
+    : {
+        ...record,
+        rulePack: rulePackFor(record.harness),
+        session: HARNESS_SESSION_STORES[record.harness],
+      };
 };

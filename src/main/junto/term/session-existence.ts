@@ -8,12 +8,24 @@
 
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { DatabaseSync } from "node:sqlite";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { stripIdlessSessionContinue } from "@shared/managed-terminal-launch";
+import { withReadOnlyDatabase } from "./read-only-sqlite";
+import {
+  ampDocumentUsage,
+  claudeUsage,
+  codexUsage,
+  grokUsage,
+  kimiUsage,
+  museUsage,
+  piUsage,
+  type UsageReader,
+} from "./session-usage";
 import { isFxSessionId } from "./templates/fx-session";
 import { isOmpSessionId, ompSessionsDir } from "./templates/omp-session";
 import {
+  HARNESS_IDS,
+  isHarnessId,
   templateFor,
   type HarnessId,
 } from "@shared/managed-terminal-templates";
@@ -33,24 +45,6 @@ export const __setSessionExistenceHomeForTest = (home: string | undefined): void
 };
 
 const resolveHome = (home?: string): string => home ?? homeForTest ?? homedir();
-
-/**
- * Sessions root with a harness env override (KIMI_CODE_HOME, PI_CODING_AGENT_DIR
- * — both are the parent dir of `sessions`). The override applies only when the
- * caller did not pin a root (explicit probe.home or the test home root); pinned
- * roots win so tests stay hermetic against ambient machine env.
- */
-const sessionsRootWithEnvOverride = (
-  probe: SessionExistenceProbe,
-  envKey: string,
-  fallbackRoot: string,
-): string => {
-  if (probe.home !== undefined || homeForTest !== undefined) {
-    return fallbackRoot;
-  }
-  const env = process.env[envKey]?.trim();
-  return env ? join(env, "sessions") : fallbackRoot;
-};
 
 /** Grok stores sessions under ~/.grok/sessions/<encodeURIComponent(cwd)>/<id>/. */
 export const encodeGrokSessionCwd = (cwd: string): string =>
@@ -73,6 +67,314 @@ export const encodePiSessionCwd = (cwd: string): string => {
   return `--${absolute.replace(/^\//, "").replace(/[/:]/g, "-")}--`;
 };
 
+/**
+ * Hermes session ids are `%Y%m%d_%H%M%S_<hex6>` — the same value the harness
+ * exports as `HERMES_SESSION_ID` into the agent shell. Shape-checking before
+ * the query keeps scraped PTY text from reaching the database at all.
+ */
+export const isHermesSessionId = (value: string): boolean =>
+  /^\d{8}_\d{6}_[0-9a-f]{6}$/i.test(value.trim());
+
+/** Amp thread ids are `T-<uuid>`. */
+const isAmpThreadId = (value: string): boolean =>
+  /^T-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
+// ── Session stores ─────────────────────────────────────────────────────────
+
+/** Where a probe looks from. `pinned` is true when the caller fixed the home (tests). */
+export type SessionWhere = {
+  readonly home: string;
+  readonly cwd?: string;
+  readonly pinned: boolean;
+};
+
+/**
+ * What proves a session inside one directory. Matches are tried in order; the
+ * first that answers is the session's location.
+ * - file / dir: a path under the directory, built from the id. A dir may need
+ *   a file inside it, or any entry at all.
+ * - entryIncludes: a direct entry whose name contains the id.
+ * - treeIncludes: any entry, at most `depth` levels down, whose name contains
+ *   the id (rollout names embed it).
+ * - dirNamed: a directory named exactly the id, at most `depth` levels down.
+ * - database: a read-only query on the harness's own database; the first
+ *   statement that prepares decides, so a column rename degrades to the next.
+ */
+export type SessionMatch =
+  | { readonly kind: "file"; readonly path: (id: string) => readonly string[] }
+  | {
+      readonly kind: "dir";
+      readonly path: (id: string) => readonly string[];
+      readonly holds?: readonly string[];
+      readonly nonEmpty?: boolean;
+    }
+  | { readonly kind: "entryIncludes"; readonly files: boolean }
+  | { readonly kind: "treeIncludes"; readonly depth: number }
+  | { readonly kind: "dirNamed"; readonly depth: number }
+  | { readonly kind: "database"; readonly file: string; readonly statements: readonly string[] };
+
+/**
+ * One directory the store keeps sessions in, under its root. `children`
+ * looks in every child directory (an encoded cwd or a workspace key), the
+ * cwd's own child first when the store can name it.
+ */
+export type SessionPlace = {
+  readonly under?: readonly string[];
+  readonly scope: { readonly kind: "self" } | { readonly kind: "children"; readonly cwdChild?: (cwd: string) => string };
+  readonly match: readonly SessionMatch[];
+};
+
+/** How big a located session is (see `session-size.ts`). */
+export type SessionSizeSpec = {
+  /** Transcript bytes per context token, for the `estimated` basis. */
+  readonly bytesPerToken: number;
+  /** Byte-count queries, used when the session was located in a database. */
+  readonly database?: readonly string[];
+  /** Where the harness records its own token counts. */
+  readonly usage?:
+    | { readonly kind: "jsonl"; readonly read: UsageReader; readonly sibling?: string }
+    | { readonly kind: "document"; readonly read: (tail: string) => number | undefined };
+};
+
+/** A harness's session store: where its sessions live and how one is proven. */
+export type HarnessSessionStore = {
+  readonly root: (where: SessionWhere) => string | undefined;
+  /** Ids of any other shape are never looked up. */
+  readonly idShape?: (id: string) => boolean;
+  readonly places: readonly SessionPlace[];
+  /** The conversation file inside a located session folder. */
+  readonly transcriptInside?: readonly string[];
+  /** Undefined when what is located is not the conversation. */
+  readonly size?: SessionSizeSpec;
+};
+
+/**
+ * A root under the home. An env override applies only when the caller did
+ * not pin the home, so tests stay hermetic against ambient machine env; the
+ * first override set wins.
+ */
+const homeRoot =
+  (segments: readonly string[], overrides: readonly { key: string; then?: readonly string[] }[] = []) =>
+  (where: SessionWhere): string => {
+    if (!where.pinned) {
+      for (const { key, then } of overrides) {
+        const value = process.env[key]?.trim();
+        if (value) return join(value, ...(then ?? []));
+      }
+    }
+    return join(where.home, ...segments);
+  };
+
+const file = (path: (id: string) => readonly string[]): SessionMatch => ({ kind: "file", path });
+const dir = (
+  path: (id: string) => readonly string[],
+  extra: { holds?: readonly string[]; nonEmpty?: boolean } = {},
+): SessionMatch => ({ kind: "dir", path, ...extra });
+const self = (...match: readonly SessionMatch[]): SessionPlace => ({ scope: { kind: "self" }, match });
+
+/**
+ * Hermes: only messages still in the model's context (`active`), so its own
+ * compaction is respected. Tried with and without that column, since the
+ * schema is the harness's to change.
+ */
+const HERMES_BYTES_SQL = [
+  "SELECT SUM(LENGTH(COALESCE(content,'')) + LENGTH(COALESCE(tool_calls,'')) + LENGTH(COALESCE(reasoning,''))) AS bytes FROM messages WHERE session_id = ? AND COALESCE(active, 1) = 1",
+  "SELECT SUM(LENGTH(COALESCE(content,''))) AS bytes FROM messages WHERE session_id = ?",
+] as const;
+
+const DEVIN_BYTES_SQL =
+  "SELECT SUM(LENGTH(COALESCE(chat_message,''))) AS bytes FROM message_nodes WHERE session_id = ?";
+
+/**
+ * Every harness's session store. Byte ratios for formats that also record
+ * usage are the median of bytes over recorded context across uncompacted
+ * sessions on a development machine (2026-10); the others take the middle of
+ * that range. They are estimates, and the settings page should say so.
+ */
+export const HARNESS_SESSION_STORES: Readonly<Record<HarnessId, HarnessSessionStore | undefined>> = {
+  // ~/.grok/sessions/<encoded cwd>/<id>/; the id may live under any cwd.
+  // Grok reports its running total beside each update, in a sibling file.
+  grok: {
+    root: homeRoot([".grok", "sessions"]),
+    places: [{ scope: { kind: "children", cwdChild: encodeGrokSessionCwd }, match: [dir((id) => [id])] }],
+    transcriptInside: ["chat_history.jsonl"],
+    size: { bytesPerToken: 6, usage: { kind: "jsonl", read: grokUsage, sibling: "updates.jsonl" } },
+  },
+  // The transcript is the jsonl; the id-named directory holds its sidecars.
+  claude: {
+    root: homeRoot([".claude", "projects"]),
+    places: [
+      {
+        scope: { kind: "children", cwdChild: encodeClaudeProjectCwd },
+        match: [file((id) => [`${id}.jsonl`]), dir((id) => [id])],
+      },
+    ],
+    size: { bytesPerToken: 8, usage: { kind: "jsonl", read: claudeUsage } },
+  },
+  // Codex rollouts embed the thread id in the filename.
+  codex: {
+    root: homeRoot([".codex", "sessions"]),
+    places: [self({ kind: "treeIncludes", depth: 6 })],
+    size: { bytesPerToken: 5, usage: { kind: "jsonl", read: codexUsage } },
+  },
+  /**
+   * Hermes sessions live in ONE place: `~/.hermes/state.db`. The jsonl
+   * transcripts under `~/.hermes/sessions/` are retired — v0.20.4 writes
+   * nothing there, so a filesystem probe would report "not proven" for every
+   * live session. The id column has been `id` in every build probed.
+   */
+  hermes: {
+    root: homeRoot([".hermes"]),
+    idShape: isHermesSessionId,
+    places: [
+      self({
+        kind: "database",
+        file: "state.db",
+        statements: [
+          "SELECT 1 AS present FROM sessions WHERE id = ? LIMIT 1",
+          "SELECT 1 AS present FROM sessions WHERE session_id = ? LIMIT 1",
+        ],
+      }),
+    ],
+    // Message text read out of the database, without a transcript's JSON wrapping.
+    size: { bytesPerToken: 4, database: HERMES_BYTES_SQL },
+  },
+  /**
+   * Pi: <root>/--<cwd-encoded>--/<ISO-ts>_<uuidv7>.jsonl. Resume accepts
+   * partial ids, so a filename containing the id is proof. The root is
+   * ~/.pi/agent/sessions; PI_CODING_AGENT_SESSION_DIR replaces it outright and
+   * PI_CODING_AGENT_DIR relocates the agent dir.
+   */
+  pi: {
+    root: homeRoot(
+      [".pi", "agent", "sessions"],
+      [{ key: "PI_CODING_AGENT_SESSION_DIR" }, { key: "PI_CODING_AGENT_DIR", then: ["sessions"] }],
+    ),
+    places: [
+      { scope: { kind: "children", cwdChild: encodePiSessionCwd }, match: [{ kind: "treeIncludes", depth: 6 }] },
+    ],
+    size: { bytesPerToken: 5, usage: { kind: "jsonl", read: piUsage } },
+  },
+  /**
+   * Prime Agent: ~/.prime/agent/sessions/<uuid>.jsonl (flat). Resume accepts
+   * an id prefix or suffix. A session may also own a sidecar folder named by
+   * the bare id; the transcript file is preferred, so the answer is what an
+   * agent can read.
+   */
+  "prime-agent": {
+    root: homeRoot([".prime", "agent", "sessions"]),
+    places: [
+      self(file((id) => [`${id}.jsonl`]), { kind: "entryIncludes", files: true }, { kind: "treeIncludes", depth: 6 }),
+    ],
+    size: { bytesPerToken: 5, usage: { kind: "jsonl", read: piUsage } },
+  },
+  /**
+   * Kimi: $KIMI_CODE_HOME/sessions/<workDirKey>/<id>/, the directory `-S <id>`
+   * reads (verified on 0.34.0). The welcome-card `Session:` line is blank at
+   * spawn and is never a startup receipt; a later scrape is only stored after
+   * this probe succeeds.
+   */
+  kimi: {
+    root: homeRoot([".kimi-code", "sessions"], [{ key: "KIMI_CODE_HOME", then: ["sessions"] }]),
+    places: [{ scope: { kind: "children" }, match: [dir((id) => [id])] }],
+    transcriptInside: ["agents", "main", "wire.jsonl"],
+    size: { bytesPerToken: 5, usage: { kind: "jsonl", read: kimiUsage } },
+  },
+  // Muse: ~/.local/share/muse/sessions/<yyyy>/<mm>/<dd>/<uuid>/.
+  muse: {
+    root: homeRoot([".local", "share", "muse", "sessions"]),
+    places: [self({ kind: "dirNamed", depth: 4 })],
+    transcriptInside: ["session.jsonl"],
+    size: { bytesPerToken: 13, usage: { kind: "jsonl", read: museUsage } },
+  },
+  /**
+   * Devin: `~/.local/share/devin/cli/sessions.db`, table `sessions`, keyed by
+   * the adjective-noun slug; the database is exactly what `-r` reads.
+   * `session_locks/<id>.lock` is NOT proof: locks outlive their sessions, and
+   * `devin -r` on a lock-only slug finds nothing. `transcripts/<id>.json` is a
+   * legacy fallback that can prove an id but never disprove one.
+   */
+  devin: {
+    root: homeRoot([".local", "share", "devin", "cli"]),
+    places: [
+      self(file((id) => ["transcripts", `${id}.json`]), {
+        kind: "database",
+        file: "sessions.db",
+        statements: ["SELECT 1 AS present FROM sessions WHERE id = ? LIMIT 1"],
+      }),
+    ],
+    size: { bytesPerToken: 6, database: [DEVIN_BYTES_SQL] },
+  },
+  /**
+   * Cursor. The durable receipt is `chats/<workspaceHash>/<id>/meta.json`,
+   * written once the session has a first turn, and checked first because it is
+   * the path re-probed live (2026-08-25). `projects/<sanitized>/agent-transcripts/`
+   * is a second look for older layouts. A pinned id with no turn yet is not
+   * proven, and rightly: the spawn creates the session with that same id.
+   * CURSOR_DATA_DIR replaces ~/.cursor. Its store.db is a content-addressed
+   * blob store, not the conversation, so it has no size.
+   */
+  cursor: {
+    root: homeRoot([".cursor"], [{ key: "CURSOR_DATA_DIR" }]),
+    places: [
+      { under: ["chats"], scope: { kind: "children" }, match: [dir((id) => [id], { holds: ["meta.json"] })] },
+      {
+        under: ["projects"],
+        scope: { kind: "children", cwdChild: encodeCursorProjectCwd },
+        match: [
+          dir((id) => ["agent-transcripts", id]),
+          file((id) => ["agent-transcripts", `${id}.jsonl`]),
+        ],
+      },
+    ],
+    transcriptInside: ["store.db"],
+  },
+  // Antigravity: ~/.gemini/antigravity-cli/brain/<id>/, its transcript or any entry.
+  agy: {
+    root: homeRoot([".gemini", "antigravity-cli", "brain"]),
+    places: [
+      self(
+        file((id) => [id, ".system_generated", "logs", "transcript.jsonl"]),
+        dir((id) => [id], { nonEmpty: true }),
+      ),
+    ],
+    size: { bytesPerToken: 6 },
+  },
+  /**
+   * Amp threads live on Amp's server; one that ran on this machine has a local
+   * copy at ~/.local/share/amp/threads/<T-id>.json, the only transcript there
+   * is. Never resume proof: Amp's thread is provisioned through its own CLI.
+   */
+  amp: {
+    root: homeRoot([".local", "share", "amp", "threads"]),
+    idShape: isAmpThreadId,
+    places: [self(file((id) => [`${id}.json`]))],
+    size: { bytesPerToken: 6, usage: { kind: "document", read: ampDocumentUsage } },
+  },
+  /**
+   * fx: ~/.fx/sessions/<id>/, flat. An id captured from the index still has to
+   * exist on disk. Its events.jsonl repeats every streamed chunk, so it is not
+   * the conversation and has no size.
+   */
+  fx: {
+    root: homeRoot([".fx", "sessions"]),
+    idShape: isFxSessionId,
+    places: [self(dir((id) => [id]))],
+    transcriptInside: ["events.jsonl"],
+  },
+  // Oh My Pi: one jsonl per session under the encoded-cwd directory, which IS the workspace.
+  omp: {
+    root: (where) => (where.cwd ? ompSessionsDir(where.cwd, where.home) : undefined),
+    idShape: isOmpSessionId,
+    places: [self({ kind: "entryIncludes", files: false })],
+    size: { bytesPerToken: 5, usage: { kind: "jsonl", read: piUsage } },
+  },
+  "junto-overseer": undefined,
+};
+
+export const sessionStoreFor = (harness: string): HarnessSessionStore | undefined =>
+  isHarnessId(harness) ? HARNESS_SESSION_STORES[harness] : undefined;
+
 const isDir = (path: string): boolean => {
   try {
     return existsSync(path) && statSync(path).isDirectory();
@@ -89,6 +391,103 @@ const isFile = (path: string): boolean => {
   }
 };
 
+const entriesOf = (path: string): readonly string[] => {
+  try {
+    return readdirSync(path);
+  } catch {
+    return [];
+  }
+};
+
+const treeIncludes = (path: string, id: string, depth: number, maxDepth: number): string | undefined => {
+  if (depth > maxDepth) return undefined;
+  for (const name of entriesOf(path)) {
+    const child = join(path, name);
+    if (name.includes(id)) return child;
+    if (isDir(child)) {
+      const found = treeIncludes(child, id, depth + 1, maxDepth);
+      if (found) return found;
+    }
+  }
+  return undefined;
+};
+
+const dirNamed = (path: string, id: string, depth: number, maxDepth: number): string | undefined => {
+  if (depth > maxDepth) return undefined;
+  for (const name of entriesOf(path)) {
+    const child = join(path, name);
+    if (!isDir(child)) continue;
+    if (name === id) return child;
+    const found = dirNamed(child, id, depth + 1, maxDepth);
+    if (found) return found;
+  }
+  return undefined;
+};
+
+const matchIn = (path: string, id: string, match: SessionMatch): string | undefined => {
+  switch (match.kind) {
+    case "file": {
+      const candidate = join(path, ...match.path(id));
+      return isFile(candidate) ? candidate : undefined;
+    }
+    case "dir": {
+      const candidate = join(path, ...match.path(id));
+      if (!isDir(candidate)) return undefined;
+      if (match.holds && !isFile(join(candidate, ...match.holds))) return undefined;
+      if (match.nonEmpty && entriesOf(candidate).length === 0) return undefined;
+      return candidate;
+    }
+    case "entryIncludes": {
+      const name = entriesOf(path).find(
+        (entry) => entry.includes(id) && (!match.files || isFile(join(path, entry))),
+      );
+      return name === undefined ? undefined : join(path, name);
+    }
+    case "treeIncludes":
+      return treeIncludes(path, id, 0, match.depth);
+    case "dirNamed":
+      return dirNamed(path, id, 0, match.depth);
+    case "database": {
+      const database = join(path, match.file);
+      if (!isFile(database)) return undefined;
+      const present = withReadOnlyDatabase(database, (db) => {
+        for (const sql of match.statements) {
+          try {
+            return db.prepare(sql).get(id) !== undefined;
+          } catch {
+            // try the next statement
+          }
+        }
+        return undefined;
+      });
+      return present === true ? database : undefined;
+    }
+  }
+};
+
+const firstMatch = (path: string, id: string, matches: readonly SessionMatch[]): string | undefined => {
+  for (const match of matches) {
+    const found = matchIn(path, id, match);
+    if (found) return found;
+  }
+  return undefined;
+};
+
+const locateIn = (root: string, place: SessionPlace, id: string, cwd: string | undefined): string | undefined => {
+  const base = join(root, ...(place.under ?? []));
+  if (!isDir(base)) return undefined;
+  if (place.scope.kind === "self") return firstMatch(base, id, place.match);
+  if (cwd && cwd.trim() && place.scope.cwdChild) {
+    const found = firstMatch(join(base, place.scope.cwdChild(cwd)), id, place.match);
+    if (found) return found;
+  }
+  for (const child of entriesOf(base)) {
+    const found = firstMatch(join(base, child), id, place.match);
+    if (found) return found;
+  }
+  return undefined;
+};
+
 /**
  * Where the harness keeps this session on disk: the transcript file or session
  * directory an agent can open itself, or the harness's own session database
@@ -101,57 +500,21 @@ export const harnessSessionLocation = (
 ): string | undefined => {
   const sessionId = probe.sessionId.trim();
   if (!sessionId) return undefined;
-  const harness = probe.harness.trim();
-  if (!harness) return undefined;
-  const home = resolveHome(probe.home);
+  const store = sessionStoreFor(probe.harness.trim());
+  if (store === undefined) return undefined;
+  if (store.idShape && !store.idShape(sessionId)) return undefined;
   try {
-    switch (harness) {
-      case "grok":
-        return grokSessionLocation(sessionId, probe.cwd, home);
-      case "claude":
-        return claudeSessionLocation(sessionId, probe.cwd, home);
-      // Capture harnesses: no pin-mint contract; never claim proof from mint alone.
-      case "codex":
-        return codexSessionLocation(sessionId, home);
-      case "hermes":
-        return hermesSessionLocation(sessionId, home);
-      // Pi is a pin harness; sessions live under
-      // ~/.pi/agent/sessions/--<cwd-encoded>--/<ts>_<uuidv7>.jsonl.
-      case "pi":
-        return piSessionLocation(
-          sessionId,
-          probe.cwd,
-          piSessionsRoot(probe, home),
-        );
-      // Capture harnesses with filesystem cold-proof layouts (2026-08 sweep).
-      case "prime-agent":
-        return primeAgentSessionLocation(sessionId, home);
-      case "kimi":
-        return kimiSessionLocation(
-          sessionId,
-          sessionsRootWithEnvOverride(
-            probe,
-            "KIMI_CODE_HOME",
-            join(home, ".kimi-code", "sessions"),
-          ),
-        );
-      case "muse":
-        return museSessionLocation(sessionId, home);
-      case "fx":
-        return fxSessionLocation(sessionId, home);
-      case "omp":
-        return ompSessionLocation(sessionId, probe.cwd, home);
-      case "devin":
-        return devinSessionLocation(sessionId, home);
-      case "cursor":
-        return cursorSessionLocation(sessionId, probe.cwd, cursorDataRoot(probe, home));
-      case "agy":
-        return agySessionLocation(sessionId, home);
-      case "amp":
-        return ampSessionLocation(sessionId, home);
-      default:
-        return undefined;
+    const root = store.root({
+      home: resolveHome(probe.home),
+      ...(probe.cwd === undefined ? {} : { cwd: probe.cwd }),
+      pinned: probe.home !== undefined || homeForTest !== undefined,
+    });
+    if (root === undefined) return undefined;
+    for (const place of store.places) {
+      const found = locateIn(root, place, sessionId, probe.cwd);
+      if (found) return found;
     }
+    return undefined;
   } catch {
     return undefined;
   }
@@ -172,485 +535,6 @@ export const shouldResumeHarnessSession = (
   wantResume: boolean,
   probe: SessionExistenceProbe,
 ): boolean => wantResume && harnessSessionExists(probe);
-
-const grokSessionLocation = (
-  sessionId: string,
-  cwd: string | undefined,
-  home: string,
-): string | undefined => {
-  const root = join(home, ".grok", "sessions");
-  if (!isDir(root)) return undefined;
-
-  if (cwd && cwd.trim()) {
-    const absolute = isAbsolute(cwd) ? cwd : resolve(cwd);
-    const direct = join(root, encodeGrokSessionCwd(absolute), sessionId);
-    if (isDir(direct)) return direct;
-  }
-
-  // Id may live under any encoded cwd; one-level scan is the harness layout.
-  let entries: string[];
-  try {
-    entries = readdirSync(root);
-  } catch {
-    return undefined;
-  }
-  for (const enc of entries) {
-    const candidate = join(root, enc, sessionId);
-    if (isDir(candidate)) return candidate;
-  }
-  return undefined;
-};
-
-const claudeSessionLocation = (
-  sessionId: string,
-  cwd: string | undefined,
-  home: string,
-): string | undefined => {
-  const projects = join(home, ".claude", "projects");
-  if (!isDir(projects)) return undefined;
-
-  // The transcript is the jsonl; the id-named directory holds its sidecars.
-  const matchInProject = (projectDir: string): string | undefined => {
-    const transcript = join(projectDir, `${sessionId}.jsonl`);
-    if (isFile(transcript)) return transcript;
-    const dir = join(projectDir, sessionId);
-    if (isDir(dir)) return dir;
-    return undefined;
-  };
-
-  if (cwd && cwd.trim()) {
-    const found = matchInProject(join(projects, encodeClaudeProjectCwd(cwd)));
-    if (found) return found;
-  }
-
-  let entries: string[];
-  try {
-    entries = readdirSync(projects);
-  } catch {
-    return undefined;
-  }
-  for (const enc of entries) {
-    const found = matchInProject(join(projects, enc));
-    if (found) return found;
-  }
-  return undefined;
-};
-
-/**
- * Hermes session ids are `%Y%m%d_%H%M%S_<hex6>` — the same value the harness
- * exports as `HERMES_SESSION_ID` into the agent shell. Shape-checking before
- * the query keeps scraped PTY text from reaching the database at all.
- */
-export const isHermesSessionId = (value: string): boolean =>
-  /^\d{8}_\d{6}_[0-9a-f]{6}$/i.test(value.trim());
-
-/**
- * Hermes sessions live in ONE place: `~/.hermes/state.db`.
- *
- * The jsonl transcripts under `~/.hermes/sessions/` are retired — v0.20.4
- * writes nothing there, so the newest file on disk predates the sessions a seat
- * is actually resuming, and a filesystem probe would report "not proven" for
- * every live session. The database is the only current receipt.
- *
- * Opened strictly read-only: this never creates the file, never migrates it,
- * and never takes a write lock on a database the operator's own Hermes is
- * using. Any failure — missing file, locked, unexpected schema — is
- * not-proven, which fails open to a fresh session rather than a dead resume.
- */
-const hermesSessionLocation = (sessionId: string, home: string): string | undefined => {
-  if (!isHermesSessionId(sessionId)) return undefined;
-  const path = join(home, ".hermes", "state.db");
-  if (!isFile(path)) return undefined;
-
-  let database: DatabaseSync | undefined;
-  try {
-    database = new DatabaseSync(path, {
-      open: true,
-      readOnly: true,
-      allowExtension: false,
-      enableDoubleQuotedStringLiterals: false,
-      timeout: 2_000,
-    });
-    // The id column has been `id` in every build probed; `session_id` is tried
-    // only if the first statement cannot prepare, so a schema rename degrades
-    // to a second attempt instead of a silent false.
-    for (const column of ["id", "session_id"] as const) {
-      try {
-        const row = database
-          .prepare(`SELECT 1 AS present FROM sessions WHERE ${column} = ? LIMIT 1`)
-          .get(sessionId);
-        return row === undefined ? undefined : path;
-      } catch {
-        // try the next column name
-      }
-    }
-    return undefined;
-  } catch {
-    return undefined;
-  } finally {
-    try {
-      database?.close();
-    } catch {
-      // best-effort
-    }
-  }
-};
-
-/** Codex rollouts embed the thread id in the filename. */
-const codexSessionLocation = (sessionId: string, home: string): string | undefined => {
-  const root = join(home, ".codex", "sessions");
-  if (!isDir(root)) return undefined;
-  return codexTreeFindSession(root, sessionId, 0);
-};
-
-const codexTreeFindSession = (
-  dir: string,
-  sessionId: string,
-  depth: number,
-): string | undefined => {
-  if (depth > 6) return undefined;
-  let entries: string[];
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return undefined;
-  }
-  for (const name of entries) {
-    const child = join(dir, name);
-    if (name.includes(sessionId)) return child;
-    if (isDir(child)) {
-      const found = codexTreeFindSession(child, sessionId, depth + 1);
-      if (found) return found;
-    }
-  }
-  return undefined;
-};
-
-/**
- * Pi sessions: ~/.pi/agent/sessions/--<cwd-encoded>--/<ISO-ts>_<uuidv7>.jsonl.
- * Session id is the uuidv7 part of the filename; resume accepts partial ids,
- * so a filename containing the id is proof. Prefer the cwd-encoded dir when
- * cwd is given, then fall back to scanning every cwd dir (superset).
- */
-/**
- * Pi sessions root. Default ~/.pi/agent/sessions. Env overrides (production
- * only — pinned probe roots win): PI_CODING_AGENT_SESSION_DIR replaces the
- * root outright; PI_CODING_AGENT_DIR relocates the agent dir (~/.pi/agent),
- * so sessions live under <agentDir>/sessions.
- */
-const piSessionsRoot = (
-  probe: SessionExistenceProbe,
-  home: string,
-): string => {
-  if (probe.home === undefined && homeForTest === undefined) {
-    const sessionDir = process.env.PI_CODING_AGENT_SESSION_DIR?.trim();
-    if (sessionDir) return sessionDir;
-    const agentDir = process.env.PI_CODING_AGENT_DIR?.trim();
-    if (agentDir) return join(agentDir, "sessions");
-  }
-  return join(home, ".pi", "agent", "sessions");
-};
-
-const piSessionLocation = (
-  sessionId: string,
-  cwd: string | undefined,
-  root: string,
-): string | undefined => {
-  if (!isDir(root)) return undefined;
-
-  if (cwd && cwd.trim()) {
-    const direct = join(root, encodePiSessionCwd(cwd));
-    const found = isDir(direct) ? codexTreeFindSession(direct, sessionId, 0) : undefined;
-    if (found) return found;
-  }
-
-  let entries: string[];
-  try {
-    entries = readdirSync(root);
-  } catch {
-    return undefined;
-  }
-  for (const enc of entries) {
-    const candidate = join(root, enc);
-    const found = isDir(candidate) ? codexTreeFindSession(candidate, sessionId, 0) : undefined;
-    if (found) return found;
-  }
-  return undefined;
-};
-
-/**
- * Prime Agent sessions: ~/.prime/agent/sessions/<uuid>.jsonl (flat). Resume
- * accepts id prefix/suffix, so a filename containing the id is proof.
- */
-const primeAgentSessionLocation = (sessionId: string, home: string): string | undefined => {
-  const root = join(home, ".prime", "agent", "sessions");
-  if (!isDir(root)) return undefined;
-  // A session may also own a sidecar folder named by the bare id (artifacts).
-  // The transcript is the file: prefer it, so the answer is what an agent can
-  // read rather than whichever name sorts first.
-  const transcript = join(root, `${sessionId}.jsonl`);
-  if (isFile(transcript)) return transcript;
-  let entries: string[];
-  try {
-    entries = readdirSync(root);
-  } catch {
-    return undefined;
-  }
-  const file = entries.find(
-    (name) => name.includes(sessionId) && isFile(join(root, name)),
-  );
-  if (file !== undefined) return join(root, file);
-  return codexTreeFindSession(root, sessionId, 0);
-};
-
-/** Amp thread ids are `T-<uuid>`. */
-const isAmpThreadId = (value: string): boolean =>
-  /^T-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
-
-/**
- * Amp threads live on Amp's server; a thread that has run on this machine
- * also has a local copy at `~/.local/share/amp/threads/<T-id>.json`. That
- * copy is the only transcript there is to point at, and a thread with none
- * is simply not located. Never used as resume proof: Amp's thread is
- * provisioned through its own CLI, and that path does not come here.
- */
-const ampSessionLocation = (sessionId: string, home: string): string | undefined => {
-  if (!isAmpThreadId(sessionId)) return undefined;
-  const path = join(home, ".local", "share", "amp", "threads", `${sessionId}.json`);
-  return isFile(path) ? path : undefined;
-};
-
-/**
- * Kimi sessions: $KIMI_CODE_HOME/sessions/<workDirKey>/<sessionId>/ (dir name
- * equals the session id, `ses_<uuid>` or `session_<uuid>`). Probe any
- * workDirKey. Verified on 0.34.0 — this directory is the proof `-S <id>`
- * reads. The welcome-card `Session:` line is blank at spawn (0.33.0+ lazy
- * creation) and is never treated as a startup receipt; a later scrape is
- * only stored after this probe succeeds.
- */
-const kimiSessionLocation = (sessionId: string, root: string): string | undefined => {
-  if (!isDir(root)) return undefined;
-  let entries: string[];
-  try {
-    entries = readdirSync(root);
-  } catch {
-    return undefined;
-  }
-  for (const workDirKey of entries) {
-    const dir = join(root, workDirKey, sessionId);
-    if (isDir(dir)) return dir;
-  }
-  return undefined;
-};
-
-/**
- * Oh My Pi sessions: one jsonl per session under the encoded-cwd directory.
- * Proof needs the cwd, because that directory IS the workspace.
- */
-const ompSessionLocation = (
-  sessionId: string,
-  cwd: string | undefined,
-  home: string,
-): string | undefined => {
-  const id = sessionId.trim();
-  if (!isOmpSessionId(id) || !cwd) return undefined;
-  try {
-    const dir = ompSessionsDir(cwd, home);
-    const name = readdirSync(dir).find((entry) => entry.includes(id));
-    return name === undefined ? undefined : join(dir, name);
-  } catch {
-    return undefined;
-  }
-};
-
-/**
- * fx sessions: ~/.fx/sessions/<id>/, flat, id-named. Proof is the directory —
- * an id captured from the index still has to exist on disk before a seat is
- * allowed to resume it.
- */
-const fxSessionLocation = (sessionId: string, home: string): string | undefined => {
-  const id = sessionId.trim();
-  if (!isFxSessionId(id)) return undefined;
-  const dir = join(home, ".fx", "sessions", id);
-  return isDir(dir) ? dir : undefined;
-};
-
-/**
- * Muse sessions: ~/.local/share/muse/sessions/<yyyy>/<mm>/<dd>/<uuid>/. The
- * session id is the date-nested dir name; bounded walk finds it.
- */
-const museSessionLocation = (sessionId: string, home: string): string | undefined => {
-  const root = join(home, ".local", "share", "muse", "sessions");
-  if (!isDir(root)) return undefined;
-  return findDirNamed(root, sessionId, 0);
-};
-
-const findDirNamed = (
-  dir: string,
-  name: string,
-  depth: number,
-): string | undefined => {
-  if (depth > 4) return undefined;
-  let entries: string[];
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return undefined;
-  }
-  for (const entry of entries) {
-    const child = join(dir, entry);
-    if (!isDir(child)) continue;
-    if (entry === name) return child;
-    const found = findDirNamed(child, name, depth + 1);
-    if (found) return found;
-  }
-  return undefined;
-};
-
-/**
- * Devin sessions: `~/.local/share/devin/cli/sessions.db`, table `sessions`,
- * keyed by the adjective-noun slug (`sample-session`). Ids are exact.
- *
- * The database is the proof because it is exactly what `-r` reads. Probed on
- * 3000.4.16:
- *
- * - `session_locks/<id>.lock` is NOT proof. Locks are written at startup and
- *   never removed, so they outlive their sessions — and `devin -r <slug>` on a
- *   lock-only slug answers `No session found matching '<slug>'`. Treating a
- *   lock as proof pins a seat to a session that cannot be resumed.
- * - `transcripts/<id>.json` is a legacy fallback: recent sessions (including
- *   ones resumable right now) have no transcript file at all, so it can prove
- *   an id but never disprove one.
- *
- * Opened read-only: never created, never migrated, never write-locked while
- * the operator's own Devin is running. Any failure is not-proven, which fails
- * open to a fresh session rather than a dead resume.
- */
-const devinSessionLocation = (sessionId: string, home: string): string | undefined => {
-  const root = join(home, ".local", "share", "devin", "cli");
-  if (!isDir(root)) return undefined;
-  const transcript = join(root, "transcripts", `${sessionId}.json`);
-  if (isFile(transcript)) return transcript;
-
-  const path = join(root, "sessions.db");
-  if (!isFile(path)) return undefined;
-  let database: DatabaseSync | undefined;
-  try {
-    database = new DatabaseSync(path, {
-      open: true,
-      readOnly: true,
-      allowExtension: false,
-      enableDoubleQuotedStringLiterals: false,
-      timeout: 2_000,
-    });
-    const row = database
-      .prepare("SELECT 1 AS present FROM sessions WHERE id = ? LIMIT 1")
-      .get(sessionId);
-    return row === undefined ? undefined : path;
-  } catch {
-    return undefined;
-  } finally {
-    try {
-      database?.close();
-    } catch {
-      // best-effort
-    }
-  }
-};
-
-/**
- * Cursor data root. Default ~/.cursor. CURSOR_DATA_DIR replaces the root
- * outright when the caller did not pin probe.home or the test home.
- */
-const cursorDataRoot = (
-  probe: SessionExistenceProbe,
-  home: string,
-): string => {
-  if (probe.home === undefined && homeForTest === undefined) {
-    const env = process.env.CURSOR_DATA_DIR?.trim();
-    if (env) return env;
-  }
-  return join(home, ".cursor");
-};
-
-/**
- * Cursor sessions. The durable receipt is
- * `~/.cursor/chats/<workspaceHash>/<id>/meta.json`, written once the session
- * has a first turn — checked first because it is the one path re-probed live
- * (2026-08-25). `~/.cursor/projects/<sanitized>/agent-transcripts/…` is kept as
- * a second look for older layouts; sanitize is Claude-ish without the leading
- * dash.
- *
- * A pinned id that has not taken a turn yet is legitimately not proven here,
- * and that is the right answer: resume would have nothing to resume, so the
- * spawn falls open to creating the session with that same pinned id.
- */
-const cursorSessionLocation = (
-  sessionId: string,
-  cwd: string | undefined,
-  dataRoot: string,
-): string | undefined => {
-  const chatsRoot = join(dataRoot, "chats");
-  if (isDir(chatsRoot)) {
-    let workspaceDirs: string[];
-    try {
-      workspaceDirs = readdirSync(chatsRoot);
-    } catch {
-      workspaceDirs = [];
-    }
-    for (const workspaceId of workspaceDirs) {
-      const chat = join(chatsRoot, workspaceId, sessionId);
-      if (isFile(join(chat, "meta.json"))) return chat;
-    }
-  }
-
-  const projects = join(dataRoot, "projects");
-  const matchInProject = (projectDir: string): string | undefined => {
-    const transcripts = join(projectDir, "agent-transcripts");
-    const dir = join(transcripts, sessionId);
-    if (isDir(dir)) return dir;
-    const file = join(transcripts, `${sessionId}.jsonl`);
-    if (isFile(file)) return file;
-    return undefined;
-  };
-
-  if (cwd && cwd.trim()) {
-    const found = matchInProject(join(projects, encodeCursorProjectCwd(cwd)));
-    if (found) return found;
-  }
-
-  if (isDir(projects)) {
-    let entries: string[];
-    try {
-      entries = readdirSync(projects);
-    } catch {
-      entries = [];
-    }
-    for (const enc of entries) {
-      const found = matchInProject(join(projects, enc));
-      if (found) return found;
-    }
-  }
-
-  return undefined;
-};
-
-/**
- * Antigravity sessions: ~/.gemini/antigravity-cli/brain/<sessionId>/.
- * Verified layout: directory exists and either contains
- * .system_generated/logs/transcript.jsonl or is a directory with entries.
- */
-const agySessionLocation = (sessionId: string, home: string): string | undefined => {
-  const root = join(home, ".gemini", "antigravity-cli", "brain", sessionId);
-  if (!isDir(root)) return undefined;
-  const transcript = join(root, ".system_generated", "logs", "transcript.jsonl");
-  if (isFile(transcript)) return transcript;
-  try {
-    return readdirSync(root).length > 0 ? root : undefined;
-  } catch {
-    return undefined;
-  }
-};
 
 /**
  * Harness-printed resume failure (Grok remote 404, missing Claude session, …).
@@ -676,16 +560,18 @@ export const isHarnessResumeFailureText = (text: string): boolean => {
 };
 
 /**
- * The pin harnesses: the four whose template declares a `sessionIdFlag`, so
- * their session id can be read back off spawn argv. This tuple is the type.
- * Each harness's binary comes from its template rather than a second list, so
- * renaming a CLI cannot leave a stale name behind: Cursor's moved from the
- * `agent` compatibility alias to its own `cursor-agent`.
+ * The pin harnesses: those whose template declares a `sessionIdFlag`, so
+ * their session id can be read back off spawn argv. Each harness's binary
+ * comes from its template rather than a second list, so renaming a CLI cannot
+ * leave a stale name behind: Cursor's moved from the `agent` compatibility
+ * alias to its own `cursor-agent`.
  */
-const PIN_HARNESSES = ["claude", "grok", "pi", "cursor"] as const;
+const PIN_HARNESSES: readonly HarnessId[] = HARNESS_IDS.filter(
+  (harness) => templateFor(harness).argvSpec.sessionIdFlag !== undefined,
+);
 
 export type HarnessSessionArgv = {
-  readonly harness: (typeof PIN_HARNESSES)[number];
+  readonly harness: HarnessId;
   readonly sessionId: string;
   readonly mode: "pin" | "resume";
 };
@@ -823,9 +709,6 @@ export const launchArgvUsesResume = (
  * Cursor via `--new-session-id`.
  */
 export const isPinSessionHarness = (harness: string): boolean =>
-  harness === "claude" ||
-  harness === "grok" ||
-  harness === "pi" ||
-  harness === "cursor";
+  isHarnessId(harness) && PIN_HARNESSES.includes(harness);
 
 export type { HarnessId };

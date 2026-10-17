@@ -17,6 +17,7 @@ describe("harness records", () => {
       expect(record.capabilities).toBe(HARNESS_CAPABILITIES[harness]);
       expect(record.params.harness).toBe(harness);
       expect(harnessRuntimeRecordFor(harness)?.rulePack).toBe(rulePackFor(harness));
+      expect(harnessRuntimeRecordFor(harness)?.session === undefined, harness).toBe(harness === "junto-overseer");
     }
   });
 
