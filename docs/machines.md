@@ -302,8 +302,8 @@ machine that runs it.
 - **Settings name their machine.** A settings page scoped to a machine has a
   machine dropdown and shows that machine's colour and icon. The seat picker
   and a seat's Params read the inventory of the seat's machine.
-- **Native config is written by its own machine.** Proposed 17 October by
-  the operator's decision, under `remote-lead` and `remote-security` review.
+- **Native config is written by its own machine.** Agreed 17 October by the
+  operator's decision, reviewed by `remote-lead`.
   Settings offer launch flags and permanent edits to a harness's own config;
   both work on every machine from the start.
   - The operator edits a machine's harness settings from any window. The
