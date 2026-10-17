@@ -3,8 +3,13 @@ import { dirname, join, resolve } from "node:path";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { runningBuildIdentity } from "./junto/build-identity";
 import { startCore } from "./junto/core";
+import { armMainThreadBudget } from "./junto/observability/main-thread-budget";
 
 const main = async (): Promise<void> => {
+  // The 4ms assertion is a development instrument. Bun's bundler inlines
+  // NODE_ENV as "development", so without this every installed core reports
+  // each kernel pass to stderr. JUNTO_BUDGET still arms it by hand.
+  armMainThreadBudget({ enabled: false });
   const entry = resolve(process.argv[1] ?? process.execPath);
   const packageRoot = dirname(dirname(entry));
   const nativeTarget = `${process.platform}-${process.arch}`;
