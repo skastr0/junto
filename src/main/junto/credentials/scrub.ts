@@ -25,10 +25,26 @@ const PRIVATE_KEY = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A
 const AUTHORIZATION = /(authorization\s*:\s*)[^\n]*/gi;
 const BEARER = /(\bbearer\s+)[^\s"',;]+/gi;
 const URL_USERINFO = /(\b[a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/gi;
-const NAMED_VALUE = /([A-Za-z0-9_.-]*(?:token|secret|password|passwd|key|credential|auth|cookie|session)[A-Za-z0-9_.-]*\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s&#"',;]+)/gi;
+// The name is bounded: an unbounded prefix rescans from every start (quadratic).
+const NAMED_VALUE = /([A-Za-z0-9_.-]{0,48}(?:token|secret|password|passwd|key|credential|auth|cookie|session)[A-Za-z0-9_.-]{0,48}(?:"|')?\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s&#"',;]+)/gi;
 const TOKEN_SHAPES = /\b(?:sk-|ghp_|gho_|github_pat_|xox[abpr]-|ops_)[A-Za-z0-9_-]+|\bAKIA[A-Z0-9]{12,}|\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g;
-// Paths may enter, so a run stops at "/": a path segment is judged alone.
-const LONG_RUN = /[A-Za-z0-9+=_-]{32,}/g;
+const LONG_RUN = /[A-Za-z0-9+/_-]{32,}={0,2}/g;
+const mixed = (run: string): boolean => run.length >= 32 && /[A-Za-z]/.test(run) && /[0-9]/.test(run);
+const PATH_BOUNDARY = /[\s"'`(=]/;
+
+/**
+ * A run with "/" is judged whole, unless it is a path: it starts with "/",
+ * "~/" or "./" after whitespace, a quote or the start of the text, or is a
+ * file URL's path. Paths may enter, so a path is judged one segment at a time.
+ */
+const judgeRun = (run: string, offset: number, text: string): string => {
+  const before = (at: number): string | undefined => at < 0 ? undefined : text[at];
+  const boundary = (char: string | undefined): boolean => char === undefined || PATH_BOUNDARY.test(char);
+  const prev = before(offset - 1);
+  const path = run.startsWith("/") && (boundary(prev) || ((prev === "~" || prev === ".") && boundary(before(offset - 2))) || text.slice(Math.max(0, offset - 5), offset) === "file:");
+  if (!path) return mixed(run) ? REDACTED : run;
+  return run.split("/").map(segment => mixed(segment) ? REDACTED : segment).join("/");
+};
 
 const stripControls = (text: string): string =>
   text.replace(/\r\n?/g, "\n").replace(ESCAPES, "").replace(CONTROLS, "");
@@ -41,19 +57,33 @@ const replaceShapes = (text: string): string =>
     .replace(URL_USERINFO, `$1${REDACTED}@`)
     .replace(NAMED_VALUE, (_match, name: string) => `${name}${REDACTED}`)
     .replace(TOKEN_SHAPES, REDACTED)
-    .replace(LONG_RUN, run => /[A-Za-z]/.test(run) && /[0-9]/.test(run) ? REDACTED : run);
+    .replace(LONG_RUN, (run: string, offset: number, whole: string) => judgeRun(run, offset, whole));
 
 /**
- * Step 3's known values: the caller's resolved secrets and generation
- * credential (searched from four characters by `redactSecretValues`), and this
- * process's environment values from six characters, minus the names the
- * doctrine allows to show.
+ * Values live on this machine that no failure or log may carry: each
+ * generation's resolved secrets and its credential live in the seat's child
+ * environment, not this process's, so the launch path registers them here and
+ * the generation's end removes them.
+ */
+const registered = new Map<string, ReadonlyArray<string>>();
+/** `owner` names the holder, such as "seat:<bindingId>@<epoch>"; a second call replaces its set. */
+export const registerKnownSecrets = (owner: string, values: Iterable<string | undefined>): void => {
+  registered.set(owner, [...values].filter((value): value is string => value !== undefined && value.length > 0));
+};
+export const releaseKnownSecrets = (owner: string): void => { registered.delete(owner); };
+
+/**
+ * Step 3's known values: the caller's secrets, every registered value
+ * (searched from four characters by `redactSecretValues`), and this process's
+ * environment values from six characters, minus the names the doctrine allows
+ * to show.
  */
 export const knownSecretValues = (
   secrets: ReadonlyArray<string | undefined> = [],
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): ReadonlyArray<string | undefined> => {
   const values: Array<string | undefined> = [...secrets];
+  for (const set of registered.values()) values.push(...set);
   for (const [name, value] of Object.entries(environment)) {
     if (value === undefined || value.length < ENVIRONMENT_VALUE_FLOOR) continue;
     if (SHOWN_ENVIRONMENT.has(name) || name.startsWith("LC_")) continue;

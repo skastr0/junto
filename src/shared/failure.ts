@@ -8,6 +8,7 @@ import { MachineName } from "./machine-control";
  * `src/main/junto/failure-encode.ts`; nothing else builds this shape.
  */
 export const MAX_FAILURE_CAUSES = 8;
+export const MAX_FAILURE_DETAIL_BYTES = 4 * 1024;
 export const OperationId = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64)), Schema.check(Schema.isPattern(/^[A-Za-z0-9._-]+$/)));
 export const FailureTag = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64)), Schema.check(Schema.isPattern(/^[A-Za-z][A-Za-z0-9_]*$/)));
 export const FailureText = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(1024)));
@@ -23,8 +24,14 @@ export const EncodedFailure = Schema.Struct({
   causes: EncodedCauses,
   /** Present when the chain was longer than its bound. */
   causesCut: Schema.optionalKey(Schema.Literal(true)),
-  /** A channel's own closed failure, encoded by that channel's schema. */
-  detail: Schema.optionalKey(Schema.Json),
+  /**
+   * A channel's own closed failure, encoded by that channel's schema, every
+   * string scrubbed, at most 4 KiB as JSON. Receivers decode it with that
+   * channel's closed schema, never as free JSON.
+   */
+  detail: Schema.optionalKey(Schema.Json.pipe(Schema.check(Schema.makeFilter((value: unknown) => JSON.stringify(value).length <= MAX_FAILURE_DETAIL_BYTES)))),
+  /** Present when a detail was dropped: not JSON, or over its bound. */
+  detailCut: Schema.optionalKey(Schema.Literal(true)),
 });
 export type EncodedFailure = typeof EncodedFailure.Type;
 

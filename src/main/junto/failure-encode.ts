@@ -1,5 +1,5 @@
 import { Cause, Schema } from "effect";
-import { EncodedFailure, MAX_FAILURE_CAUSES, type EncodedCause } from "@shared/failure";
+import { EncodedFailure, MAX_FAILURE_CAUSES, MAX_FAILURE_DETAIL_BYTES, type EncodedCause } from "@shared/failure";
 import { scrubMessage } from "./credentials/scrub";
 
 /**
@@ -67,6 +67,25 @@ export const causeChain = (cause: unknown): { readonly causes: ReadonlyArray<Enc
   return { causes, cut };
 };
 
+/** Every string in a detail through the scrub; anything not JSON-shaped is refused. */
+const scrubDetail = (value: unknown, depth = 0): unknown => {
+  if (depth > 8) throw new Error("failure detail is nested too deeply");
+  if (typeof value === "string") return scrubMessage(value);
+  if (value === null || typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) return value.map(item => scrubDetail(item, depth + 1));
+  if (isRecord(value) && Object.getPrototypeOf(value) === Object.prototype) {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [scrubMessage(key), scrubDetail(item, depth + 1)]));
+  }
+  throw new Error("failure detail is not JSON");
+};
+
+const withDetail = (encoded: EncodedFailure, detail: unknown): EncodedFailure => {
+  let scrubbed: unknown;
+  try { scrubbed = scrubDetail(detail); } catch { return { ...encoded, detailCut: true }; }
+  if (JSON.stringify(scrubbed).length > MAX_FAILURE_DETAIL_BYTES) return { ...encoded, detailCut: true };
+  return decodeEncoded({ ...encoded, detail: scrubbed });
+};
+
 export interface FailureWhere {
   readonly machine: string;
   readonly operationId?: string;
@@ -79,10 +98,8 @@ export const encodeError = (error: unknown, where: FailureWhere): EncodedFailure
   const head = describeCause(error);
   const { causes, cut } = causeChain(error);
   const encoded = { ...head, machine: where.machine, ...(where.operationId === undefined ? {} : { operationId: where.operationId }), causes, ...(cut ? { causesCut: true as const } : {}) };
-  if (where.detail !== undefined) {
-    try { return decodeEncoded({ ...encoded, detail: where.detail }); } catch { /* A detail that is not JSON travels as the chain alone. */ }
-  }
-  return decodeEncoded(encoded);
+  const decoded = decodeEncoded(encoded);
+  return where.detail === undefined ? decoded : withDetail(decoded, where.detail);
 };
 
 /**
@@ -100,8 +117,12 @@ export const encodeFailure = (failure: unknown, where: FailureWhere): EncodedFai
 /** The receiving end distrusts the sender: closed decode, then the scrub again. */
 export const decodeEncodedFailure = (input: unknown): EncodedFailure => {
   const failure = decodeEncoded(input);
+  const { detail, ...rest } = failure;
+  let scrubbed: unknown;
+  if (detail !== undefined) { try { scrubbed = scrubDetail(detail); } catch { scrubbed = undefined; } }
   return {
-    ...failure,
+    ...rest,
+    ...(scrubbed === undefined ? (detail === undefined ? {} : { detailCut: true as const }) : { detail: scrubbed as EncodedFailure["detail"] }),
     message: scrubMessage(failure.message) || NO_MESSAGE,
     causes: failure.causes.map(link => ({ tag: link.tag, message: scrubMessage(link.message) || NO_MESSAGE })),
   };

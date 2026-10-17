@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { knownSecretValues, scrubMessage, scrubText, StderrTail } from "../src/main/junto/credentials/scrub";
+import { knownSecretValues, registerKnownSecrets, releaseKnownSecrets, scrubMessage, scrubText, StderrTail } from "../src/main/junto/credentials/scrub";
 
 const tail = (text: string, known?: ReadonlyArray<string | undefined>) => {
   const window = new StderrTail();
@@ -27,6 +27,13 @@ it("step 3 redacts known values: secrets from four characters, environment value
   expect(text).toBe("[redacted] [redacted] wxyz5 /Users/someone en_US.UTF-8");
 });
 
+it("step 3 searches the values a launch registered until their generation ends", () => {
+  registerKnownSecrets("seat:b1@1", ["gen-credential-1", "rs1x"]);
+  expect(scrubText("seat env had gen-credential-1 and rs1x")).toBe("seat env had [redacted] and [redacted]");
+  releaseKnownSecrets("seat:b1@1");
+  expect(scrubText("seat env had gen-credential-1")).toBe("seat env had gen-credential-1");
+});
+
 it("step 4 redacts credential shapes Junto does not know", () => {
   const seeded = [
     "Authorization: Basic dXNlcjpwYXNz",
@@ -34,16 +41,20 @@ it("step 4 redacts credential shapes Junto does not know", () => {
     "https://user:hunter2@example.com/path",
     "JUNTO_WORK_TOKEN=plainvalue",
     "session: cookievalue",
+    '{"api_key": "Zq81LmP0wx", "token":"short1x"}',
+    "aws wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY end",
     "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAAkeybody\n-----END OPENSSH PRIVATE KEY-----",
     "sk-proj1234 ghp_abc123 github_pat_11AB xoxb-1-2 AKIAABCDEFGHIJKLMNOP ops_abc",
     "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig",
     "digest 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
   ].join("\n");
   const text = scrubText(seeded, []);
-  for (const secret of ["dXNlcjpwYXNz", "abc.def-ghi", "hunter2", "plainvalue", "cookievalue", "AAAAkeybody", "sk-proj1234", "ghp_abc123", "github_pat_11AB", "xoxb-1-2", "AKIAABCDEFGHIJKLMNOP", "ops_abc", "eyJhbGci", "9f86d081884c7d659a2f"]) {
+  for (const secret of ["dXNlcjpwYXNz", "abc.def-ghi", "hunter2", "plainvalue", "cookievalue", "Zq81LmP0wx", "short1x", "K7MDENG", "AAAAkeybody", "sk-proj1234", "ghp_abc123", "github_pat_11AB", "xoxb-1-2", "AKIAABCDEFGHIJKLMNOP", "ops_abc", "eyJhbGci", "9f86d081884c7d659a2f"]) {
     expect(text).not.toContain(secret);
   }
   expect(text).toContain("https://[redacted]@example.com/path");
+  expect(scrubText("TMPDIR=/var/folders/f5/yx3b1gkj5d7h9kq2m4n6p8r0t2v4x6z8/T/junto", [])).toBe("TMPDIR=/var/folders/f5/yx3b1gkj5d7h9kq2m4n6p8r0t2v4x6z8/T/junto".replace("yx3b1gkj5d7h9kq2m4n6p8r0t2v4x6z8", "[redacted]"));
+  expect(scrubText("open ~/x/node_modules/node-pty/build/Release/pty.node", [])).toBe("open ~/x/node_modules/node-pty/build/Release/pty.node");
   expect(scrubText("/Users/someone/Projects/junto/node_modules/node-pty/build/Release/pty.node", [])).toBe("/Users/someone/Projects/junto/node_modules/node-pty/build/Release/pty.node");
 });
 
@@ -58,6 +69,12 @@ it("step 5 keeps the last 40 lines and 4 KiB, scrubbing the whole window before 
   // A token split by the window would leave half visible if the cut ran first.
   const token = tail(`password=${"z".repeat(10)}\nok\n`, []);
   expect(token.text).toBe("password=[redacted]\nok");
+});
+
+it("a long run costs linear time, so a peer's message cannot stall the main thread", () => {
+  const started = performance.now();
+  scrubMessage("x".repeat(16 * 1024), []);
+  expect(performance.now() - started).toBeLessThan(50);
 });
 
 it("a message is one scrubbed line of at most 1 KiB, its cut marked", () => {

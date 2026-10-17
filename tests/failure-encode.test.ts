@@ -38,9 +38,15 @@ it("decodes closed and scrubs again on the receiving end", () => {
   expect(() => decodeEncodedFailure({ ...sent, tag: "<script>" })).toThrow();
 });
 
-it("carries a channel's encoded detail only when it is JSON", () => {
-  expect(encodeError(new Error("x"), { machine: "mini", operationId: "op-5", detail: { _tag: "SeatSpawnFailed", exitCode: 1 } }).detail).toEqual({ _tag: "SeatSpawnFailed", exitCode: 1 });
-  expect(encodeError(new Error("x"), { machine: "mini", operationId: "op-5", detail: { at: new Date(0) } }).detail).toBeUndefined();
+it("scrubs and bounds a channel's detail, marking a dropped one", () => {
+  const sent = encodeError(new Error("x"), { machine: "mini", operationId: "op-5", detail: { _tag: "SeatSpawnFailed", exitCode: 1, exitMessage: "token=abcdEFGH12347890 Bearer xyz" } });
+  expect(sent.detail).toEqual({ _tag: "SeatSpawnFailed", exitCode: 1, exitMessage: "token=[redacted] Bearer [redacted]" });
+  const notJson = encodeError(new Error("x"), { machine: "mini", operationId: "op-5", detail: { at: new Date(0) } });
+  expect(notJson.detail).toBeUndefined(); expect(notJson.detailCut).toBe(true);
+  const large = encodeError(new Error("x"), { machine: "mini", operationId: "op-5", detail: { text: Array.from({ length: 8 }, () => "w ".repeat(400)) } });
+  expect(large.detail).toBeUndefined(); expect(large.detailCut).toBe(true);
+  const received = decodeEncodedFailure({ tag: "X", message: "x", machine: "mini", operationId: "op-6", causes: [], detail: { exitMessage: "password=hunter22" } });
+  expect(received.detail).toEqual({ exitMessage: "password=[redacted]" });
 });
 
 it("encodes an Effect Cause by its first failure, and an empty Cause to nothing", () => {
