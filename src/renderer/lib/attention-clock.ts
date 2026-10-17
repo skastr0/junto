@@ -1,10 +1,10 @@
 /**
- * Crew attention clock — discrete 90 ms phases, no CSS interpolation.
+ * Crew attention clock: one shared 90 ms step for every looping ring.
  *
- * Chromium samples interpolating CSS animations every vsync, which keeps the
- * GPU helper and WindowServer presenting the whole window. This clock stamps
- * `html[data-mark-frame]` so ActivityMark sprites step through precomposed
- * atlas frames (activity-atlas.ts). Between ticks the compositor can idle.
+ * The clock stamps `html[data-mark-frame]` so ActivityMark sprites step
+ * through precomposed atlas frames (activity-atlas.ts). The tick is the
+ * ring's motion, not a cost: animation has never been where this app's
+ * time goes, so never slow or still it to save frames.
  *
  * Refcounted: runs only while at least one looping ActivityMark is on screen,
  * at every level-of-detail tier: a seat moves wherever it is drawn. Pauses

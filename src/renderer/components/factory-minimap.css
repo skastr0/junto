@@ -3,9 +3,8 @@
    operator or has work for review is rimmed in that state's colour.
 
    Pings: blocked and needs-you seats send a ring outward, stepped on the
-   attention clock's html[data-mark-frame] (no CSS animation, so the window
-   idles between ticks). Blocked pings twice per 2.88 s cycle, needs-you
-   once. With no stamp (motion paused, reduced motion, a moving camera) the
+   attention clock's html[data-mark-frame], in time with the seat rings.
+   Blocked pings twice per 2.88 s cycle, needs-you once. With no stamp (motion paused, reduced motion, a moving camera) the
    ping is not drawn; the rim still says it. */
 
 .junto-minimap-seat {

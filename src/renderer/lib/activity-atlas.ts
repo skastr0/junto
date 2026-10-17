@@ -4,10 +4,8 @@
  *
  * A mark on screen is one element whose background points into this atlas.
  * Animation is a background-position step keyed off the shared 90 ms clock
- * (`html[data-mark-frame]`, see attention-clock.ts), so a tick costs one
- * style match and one small blit per visible looping mark: no per-mark DOM
- * subtree, no interpolating CSS, no per-mark timers. Anything not looping is
- * a static cell and never repaints.
+ * (`html[data-mark-frame]`, see attention-clock.ts), so every mark turns in
+ * step with every other one, with no per-mark DOM subtree or timer.
  *
  * Layers (20-unit box; see ActivityMark.tsx and activity-rings.ts):
  *   ring     control state, bent by the thread-health reading when it is trouble

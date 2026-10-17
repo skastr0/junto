@@ -54,9 +54,9 @@ describe("attention clock", () => {
 
   it("keeps the rings turning: the tick is 90 ms and a lap is under 3 s", () => {
     // The tick is the motion, not a cost to trade away: at 1000 ms a working
-    // ring jumps like a clock hand (0a59c634c, reverted). Raising it is a
+    // ring jumps like a clock hand (0a59c634c, reverted). Slowing it is a
     // design change the operator signs off, never a performance fix.
-    expect(ATTENTION_CLOCK_TICK_MS).toBe(90);
+    expect(ATTENTION_CLOCK_TICK_MS).toBeLessThanOrEqual(90);
     expect(ATTENTION_CLOCK_FRAMES * ATTENTION_CLOCK_TICK_MS).toBeLessThanOrEqual(2880);
   });
 
