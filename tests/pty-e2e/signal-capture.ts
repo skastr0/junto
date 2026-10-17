@@ -31,7 +31,8 @@ import * as fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as http from "node:http";
-import type { AddressInfo } from "node:net";
+import * as http2 from "node:http2";
+import * as net from "node:net";
 import * as path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -57,14 +58,21 @@ const SETTLE_QUIET_MS = 3_000;
 
 // ── stub provider ───────────────────────────────────────────────────────────
 
-type Protocol = "anthropic" | "openai-responses" | "openai-chat";
+/**
+ * `gemini` is the Gemini API (agy's API-key mode). `devin` and `cursor` are
+ * the vendors' own Connect RPC backends: the stub cannot encode a successful
+ * answer for them, only errors, limits and dropped connections.
+ */
+type Protocol = "anthropic" | "openai-responses" | "openai-chat" | "gemini" | "devin" | "cursor";
 
 type Reply =
   /** `inputTokens` is the context size the reply reports; large values trigger auto-compaction. */
   | { readonly kind: "ok"; readonly text: string; readonly delayMs?: number; readonly inputTokens?: number }
   | { readonly kind: "error"; readonly status: number; readonly body: unknown; readonly headers?: Record<string, string>; readonly delayMs?: number }
   /** Destroy the socket before any response: a network failure. */
-  | { readonly kind: "drop"; readonly delayMs?: number };
+  | { readonly kind: "drop"; readonly delayMs?: number }
+  /** HTTP 200 whose Connect end-of-stream frame carries an error (devin, cursor). */
+  | { readonly kind: "connect-error"; readonly code: string; readonly message: string; readonly details?: readonly unknown[]; readonly delayMs?: number };
 
 /** Failures held back this long so a retry state stays on screen between attempts. */
 const RETRY_HOLD_MS = 1_500;
@@ -75,12 +83,22 @@ type Served = { readonly path: string; readonly reply: string };
 type OkReply = Extract<Reply, { kind: "ok" }>;
 
 const OK: OkReply = { kind: "ok", text: "Hello from the capture stub." };
+/** About 25k tokens of answer, so a two-turn session is worth compacting. */
+const BULKY: OkReply = {
+  kind: "ok",
+  inputTokens: 30_000,
+  text: Array.from({ length: 1_600 }, (_, i) => `Line ${i + 1} of a long capture answer, padding the conversation.`).join("\n"),
+};
 /** Held back so the compaction spinner stays on screen long enough to sample. */
 const SUMMARY: OkReply = { kind: "ok", text: "Summary: the user greeted the assistant and the assistant replied.", delayMs: 4_000 };
+const DEBUG = process.env.CAPTURE_STUB_DEBUG === "1";
 /** A fixed port keeps the stub address that harnesses print stable across captures. */
 const STUB_PORT = Number(process.env.CAPTURE_STUB_PORT ?? 47_820);
 
 function protocolOf(pathname: string): Protocol | null {
+  if (pathname.includes(":streamGenerateContent") || pathname.includes(":generateContent")) return "gemini";
+  if (pathname.endsWith("/GetChatMessage")) return "devin";
+  if (pathname === "/agent.v1.AgentService/Run") return "cursor";
   if (pathname.endsWith("/messages")) return "anthropic";
   if (pathname.endsWith("/responses")) return "openai-responses";
   if (pathname.endsWith("/chat/completions")) return "openai-chat";
@@ -94,6 +112,7 @@ function sseLine(event: string | null, data: unknown): string {
 const sse = sseLine;
 
 function okStream(protocol: Protocol, text: string, n: number, inputTokens = 12): string {
+  if (protocol === "gemini") return sse(null, okJson(protocol, text, n, inputTokens));
   if (protocol === "anthropic") {
     return [
       sse("message_start", { type: "message_start", message: { id: `msg_stub${n}`, type: "message", role: "assistant", model: "stub", content: [], stop_reason: null, usage: { input_tokens: inputTokens, output_tokens: 1 } } }),
@@ -129,7 +148,14 @@ function okStream(protocol: Protocol, text: string, n: number, inputTokens = 12)
   ].join("");
 }
 
-function okJson(protocol: Protocol, text: string, n: number): unknown {
+function okJson(protocol: Protocol, text: string, n: number, inputTokens = 12): unknown {
+  if (protocol === "gemini") {
+    return {
+      candidates: [{ content: { role: "model", parts: [{ text }] }, finishReason: "STOP", index: 0 }],
+      usageMetadata: { promptTokenCount: inputTokens, candidatesTokenCount: 8, totalTokenCount: inputTokens + 8 },
+      modelVersion: "stub",
+    };
+  }
   if (protocol === "anthropic") {
     return { id: `msg_stub${n}`, type: "message", role: "assistant", model: "stub", content: [{ type: "text", text }], stop_reason: "end_turn", stop_sequence: null, usage: { input_tokens: 12, output_tokens: 8 } };
   }
@@ -139,27 +165,150 @@ function okJson(protocol: Protocol, text: string, n: number): unknown {
   return { id: `chatcmpl-stub${n}`, object: "chat.completion", created: Math.floor(Date.now() / 1000), model: "stub", choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }], usage: { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 } };
 }
 
+/** A Connect streaming frame: flags, big-endian length, payload. Flag 2 ends the stream. */
+function connectFrame(flags: number, payload: Buffer): Buffer {
+  const header = Buffer.alloc(5);
+  header[0] = flags;
+  header.writeUInt32BE(payload.length, 1);
+  return Buffer.concat([header, payload]);
+}
+
+const endOfStream = (error?: Record<string, unknown>): Buffer =>
+  connectFrame(2, Buffer.from(JSON.stringify(error ? { error } : {})));
+
+// Minimal protobuf encoding for the few cursor messages the stub must send.
+function varint(n: number): Buffer {
+  const out: number[] = [];
+  do {
+    let byte = n & 0x7f;
+    n = Math.floor(n / 128);
+    if (n > 0) byte |= 0x80;
+    out.push(byte);
+  } while (n > 0);
+  return Buffer.from(out);
+}
+
+function pb(...fields: ReadonlyArray<readonly [number, number | boolean | string | Buffer]>): Buffer {
+  return Buffer.concat(fields.map(([no, value]) => {
+    if (typeof value === "number" || typeof value === "boolean") return Buffer.concat([varint(no << 3), varint(Number(value))]);
+    const bytes = typeof value === "string" ? Buffer.from(value) : value;
+    return Buffer.concat([varint((no << 3) | 2), varint(bytes.length), bytes]);
+  }));
+}
+
+/** agent.v1.ModelDetails: model_id, display_model_id, display_name, display_name_short. */
+const CURSOR_MODEL = pb([1, "stub-model"], [3, "stub-model"], [4, "Stub Model"], [5, "Stub"]);
+
+/**
+ * aiserver.v1.ErrorDetails { error: PRO_USER_USAGE_LIMIT (10), details { title, detail }, is_expected }.
+ * Cursor renders the title and detail the server sends; these words are the stub's.
+ */
+function cursorErrorDetails(title: string, detail: string): unknown {
+  const value = pb([1, 10], [2, pb([1, title], [2, detail], [4, false])], [3, true]).toString("base64").replace(/=+$/u, "");
+  return { type: "aiserver.v1.ErrorDetails", value };
+}
+
+const base64url = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+/** An unsigned token cursor accepts as a session; it is never checked. */
+const CURSOR_TOKEN = `${base64url({ alg: "none", typ: "JWT" })}.${base64url({ sub: "capture-stub", exp: Math.floor(Date.now() / 1000) + 5 * 365 * 86_400 })}.`;
+
+type SideReply = { readonly status: number; readonly type: string; readonly body: string | Buffer };
+
+/** Everything a harness asks the stub for besides the model call. */
+function sideRoute(method: string, pathname: string, contentType: string): SideReply {
+  const json = (value: unknown): SideReply => ({ status: 200, type: "application/json", body: JSON.stringify(value) });
+  if (pathname === "/muse-code/models") return json(MUSE_CATALOG);
+  if (pathname === "/auth/exchange_user_api_key") return json({ accessToken: CURSOR_TOKEN, refreshToken: CURSOR_TOKEN });
+  if (pathname.endsWith("/GetUsableModels") || pathname.endsWith("/GetDefaultModelForCli")) {
+    return { status: 200, type: "application/proto", body: pb([1, CURSOR_MODEL]) };
+  }
+  if (pathname.endsWith("/AvailableModels")) return { status: 200, type: "application/proto", body: pb([1, "stub-model"]) };
+  if (contentType.startsWith("application/connect+")) return { status: 200, type: contentType, body: endOfStream() };
+  if (contentType.startsWith("application/proto") || pathname.includes("Service/")) return { status: 200, type: "application/proto", body: "" };
+  if (method === "GET" && /\/models\/?$/u.test(pathname)) {
+    return json({ object: "list", data: [], models: [{ name: "models/stub-model", displayName: "stub", supportedGenerationMethods: ["generateContent", "streamGenerateContent"] }] });
+  }
+  return json({ object: "list", data: [] });
+}
+
 /**
  * A scripted provider. Model requests consume `replies` in order and the last
  * reply repeats; anything else (model lists, health probes) gets an empty 200.
  */
 class StubProvider {
-  private server: http.Server | null = null;
+  private server: net.Server | null = null;
+  private readonly http1 = http.createServer((req, res) => this.collect(req, res));
+  private readonly http2 = http2.createServer();
   private replies: readonly Reply[] = [OK];
   private cursor = 0;
+  private lastGeminiStream = false;
   readonly served: Served[] = [];
 
+  private collect(req: http.IncomingMessage | http2.Http2ServerRequest, res: http.ServerResponse | http2.Http2ServerResponse): void {
+    const chunks: Buffer[] = [];
+    let handled = false;
+    // The HTTP/2 compatibility response has the same writeHead/end surface.
+    const handle = () => {
+      if (handled) return;
+      handled = true;
+      this.handle(req, res as http.ServerResponse, Buffer.concat(chunks).toString("utf8"));
+    };
+    req.on("data", (c: Buffer) => chunks.push(c));
+    req.on("end", handle);
+    // A bidirectional HTTP/2 stream (cursor's agent call) never ends its
+    // request body: answer once its opening frames have arrived.
+    if ("stream" in req) setTimeout(handle, 300);
+  }
+
   async start(): Promise<string> {
-    this.server = http.createServer((req, res) => {
-      const chunks: Buffer[] = [];
-      req.on("data", (c: Buffer) => chunks.push(c));
-      req.on("end", () => this.handle(req, res, Buffer.concat(chunks).toString("utf8")));
+    this.http2.on("request", (req, res) => this.collect(req, res));
+    this.http2.on("sessionError", (err) => { if (DEBUG) console.error(`[stub] h2 session error: ${err.message}`); });
+    this.http2.on("stream", (_stream, headers) => { if (DEBUG) console.error(`[stub] h2 stream ${headers[":method"]} ${headers[":path"]}`); });
+    // Closed harnesses run with HTTPS_PROXY pointed here: refuse every tunnel,
+    // so nothing they send leaves the machine.
+    this.http1.on("connect", (req, socket: net.Socket, head: Buffer) => {
+      // A tunnel to the stub itself is allowed: cursor proxies even loopback.
+      if (req.url !== `127.0.0.1:${STUB_PORT}` && req.url !== `localhost:${STUB_PORT}`) {
+        socket.end("HTTP/1.1 502 Bad Gateway\r\n\r\n");
+        return;
+      }
+      const self = net.connect(STUB_PORT, "127.0.0.1", () => {
+        socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+        if (head.length) self.write(head);
+        socket.pipe(self).pipe(socket);
+      });
+      self.on("error", () => socket.destroy());
+      socket.on("error", () => self.destroy());
+    });
+    // One port for both: cursor opens its agent stream as cleartext HTTP/2.
+    // The HTTP/2 server reads the native socket handle and never sees bytes
+    // put back with unshift(), so HTTP/2 is piped to its own loopback listener.
+    await new Promise<void>((resolve) => this.http2.listen(0, "127.0.0.1", resolve));
+    const h2Port = (this.http2.address() as net.AddressInfo).port;
+    this.server = net.createServer((socket) => {
+      socket.on("error", () => { /* dropped by a scenario or the harness */ });
+      socket.once("data", (first: Buffer) => {
+        const h2 = first.subarray(0, 14).toString("latin1") === "PRI * HTTP/2.0";
+        if (DEBUG) console.error(`[stub] connection ${h2 ? "h2" : "http/1"}: ${JSON.stringify(first.subarray(0, 40).toString("latin1"))}`);
+        if (!h2) {
+          socket.pause();
+          socket.unshift(first);
+          this.http1.emit("connection", socket);
+          socket.resume();
+          return;
+        }
+        const upstream = net.connect(h2Port, "127.0.0.1", () => {
+          upstream.write(first);
+          socket.pipe(upstream).pipe(socket);
+        });
+        upstream.on("error", () => socket.destroy());
+      });
     });
     await new Promise<void>((resolve, reject) => {
       this.server!.once("error", reject);
       this.server!.listen(STUB_PORT, "127.0.0.1", resolve);
     });
-    return `http://127.0.0.1:${(this.server.address() as AddressInfo).port}`;
+    return `http://127.0.0.1:${(this.server.address() as net.AddressInfo).port}`;
   }
 
   script(replies: readonly Reply[]): void {
@@ -169,17 +318,15 @@ class StubProvider {
   }
 
   stop(): Promise<void> {
+    this.http1.closeAllConnections();
+    this.http2.close();
     return new Promise((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()));
   }
 
-  private handle(req: http.IncomingMessage, res: http.ServerResponse, body: string): void {
+  private handle(req: http.IncomingMessage | http2.Http2ServerRequest, res: http.ServerResponse, body: string): void {
     const pathname = new URL(req.url ?? "/", "http://stub").pathname;
     const protocol = req.method === "POST" ? protocolOf(pathname) : null;
-    if (pathname === "/muse-code/models") {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify(MUSE_CATALOG));
-      return;
-    }
+    const contentType = String(req.headers["content-type"] ?? "");
     // Muse sends reminder side calls each turn; they never consume the script.
     const role = req.headers["x-tbh-agent-role"];
     if (protocol && typeof role === "string" && role !== "main") {
@@ -187,17 +334,24 @@ class StubProvider {
       return;
     }
     if (!protocol) {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ object: "list", data: [] }));
+      const side = sideRoute(req.method ?? "GET", pathname, contentType);
+      res.writeHead(side.status, { "content-type": side.type });
+      res.end(side.body);
       return;
     }
+    this.lastGeminiStream = pathname.includes(":streamGenerateContent");
     const reply = this.replies[Math.min(this.cursor, this.replies.length - 1)];
     this.cursor += 1;
     const n = this.cursor;
-    this.served.push({ path: pathname, reply: reply.kind === "error" ? String(reply.status) : reply.kind });
+    this.served.push({ path: pathname, reply: reply.kind === "error" ? String(reply.status) : reply.kind === "connect-error" ? reply.code : reply.kind });
     const respond = () => {
-      if (reply.kind === "drop") req.socket.destroy();
-      else if (reply.kind === "error") {
+      if (reply.kind === "drop") {
+        if ("stream" in req) req.stream.session?.destroy();
+        else req.socket.destroy();
+      } else if (reply.kind === "connect-error") {
+        res.writeHead(200, { "content-type": contentType || "application/connect+proto" });
+        res.end(endOfStream({ code: reply.code, message: reply.message, ...(reply.details ? { details: reply.details } : {}) }));
+      } else if (reply.kind === "error") {
         res.writeHead(reply.status, { "content-type": "application/json", ...reply.headers });
         res.end(JSON.stringify(reply.body));
       } else this.respondOk(res, body, protocol, reply, n);
@@ -208,8 +362,15 @@ class StubProvider {
 
   private respondOk(res: http.ServerResponse, body: string, protocol: Protocol, reply: OkReply, n: number): void {
     const text = reply.text;
+    if (protocol === "devin" || protocol === "cursor") {
+      // No protobuf answer is encoded: an empty, successful stream.
+      res.writeHead(200, { "content-type": "application/connect+proto" });
+      res.end(endOfStream());
+      return;
+    }
     let streaming = false;
     try { streaming = (JSON.parse(body) as { stream?: unknown }).stream === true; } catch { /* not JSON */ }
+    if (protocol === "gemini") streaming = this.lastGeminiStream;
     if (!streaming) {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(okJson(protocol, text, n)));
@@ -238,13 +399,16 @@ type Scenario = {
   readonly name: string;
   /** The domain signal the screen should carry (src/shared/harness-domain). */
   readonly signal: string;
-  readonly replies: (protocol: Protocol) => readonly Reply[];
+  /** OpenAI and Anthropic replies; vendor protocols read VENDOR. Null: does not apply. */
+  readonly replies: (protocol: Protocol) => readonly Reply[] | null;
   /** Typed into the composer in order; each waits for the previous to settle. */
   readonly prompts: readonly string[];
   /** Extra env for one harness in this scenario, over its wiring. */
   readonly env?: Readonly<Record<string, Record<string, string>>>;
   /** The screen must show this, or the scenario is a skip and writes no fixture. */
   readonly expect?: RegExp;
+  /** The screen must not show this: the scenario failed to happen (e.g. a refused compaction). */
+  readonly reject?: RegExp;
   /** Extra argv for one harness in this scenario, after its wiring. */
   readonly args?: Readonly<Record<string, readonly string[]>>;
 };
@@ -364,18 +528,93 @@ const SCENARIOS: readonly Scenario[] = [
     prompts: ["say hi", "say hi again"],
     expect: /compact/i,
     // The first answer reports a nearly full context window.
-    replies: () => [{ ...OK, inputTokens: 190_000 }, SUMMARY, OK],
+    // The first answer reports a nearly full context window, and is bulky so
+    // the pi family finds something to compact.
+    replies: () => [{ ...BULKY, inputTokens: 190_000 }, SUMMARY, OK],
     args: { codex: ["-c", "model_context_window=200000", "-c", "model_auto_compact_token_limit=150000"] },
     env: { claude: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000" } },
   },
   {
     name: "compaction-manual",
     signal: "CompactionStarted { trigger: manual }, CompactionEnded { ok }",
-    prompts: ["say hi", "/compact"],
     expect: /compact/i,
-    replies: () => [OK, SUMMARY],
+    // pi and omp refuse to compact a session too small by their own count of
+    // the conversation text, so the two answers before /compact are bulky.
+    prompts: ["say hi", "say more", "/compact"],
+    reject: /compaction failed/i,
+    replies: () => [BULKY, BULKY, SUMMARY],
   },
+  // Devin's own limit kinds; see VENDOR.devin.
+  { name: "usage-limit-monthly", signal: "UsageLimitHit { scope: monthly }", prompts: ["say hi"], replies: () => null },
+  { name: "usage-limit-org", signal: "UsageLimitHit { scope: org }", prompts: ["say hi"], replies: () => null },
+  { name: "usage-paused", signal: "UsageLimitHit { scope: org }, an admin paused usage", prompts: ["say hi"], replies: () => null },
 ];
+
+type VendorProtocol = "gemini" | "devin" | "cursor";
+const isVendor = (p: Protocol): p is VendorProtocol => p === "gemini" || p === "devin" || p === "cursor";
+
+const geminiError = (status: number, code: string, message: string): Reply =>
+  ({ kind: "error", status, body: { error: { code: status, message, status: code } } });
+const connectHttp = (status: number, code: string, message: string): Reply =>
+  ({ kind: "error", status, body: { code, message }, ...(status === 429 ? { headers: { "retry-after": "2" } } : {}) });
+const connectEos = (code: string, message: string, details?: readonly unknown[]): Reply =>
+  ({ kind: "connect-error", code, message, details });
+const DROP: Reply = { kind: "drop" };
+
+type VendorPlan = { readonly replies: () => readonly Reply[]; readonly signal?: string };
+
+/**
+ * What each scenario means on a vendor protocol; a missing entry does not
+ * apply. Devin and cursor can never answer, so their retries end in an error.
+ * The Connect error codes and messages are the ones each CLI classifies on.
+ */
+const VENDOR: Readonly<Record<VendorProtocol, Readonly<Record<string, VendorPlan>>>> = {
+  gemini: {
+    "retry-overloaded": { replies: () => { const f = held(geminiError(503, "UNAVAILABLE", "The model is overloaded. Please try again later.")); return [f, f, f, OK]; } },
+    "retry-rate": { replies: () => { const f = held(geminiError(429, "RESOURCE_EXHAUSTED", "Resource has been exhausted (e.g. check quota).")); return [f, f, f, OK]; } },
+    "retry-network": { replies: () => [held(DROP), held(DROP), held(DROP), OK] },
+    "usage-limit": {
+      signal: "UsageLimitHit { scope: unknown }, the Gemini API key quota",
+      replies: () => [geminiError(429, "RESOURCE_EXHAUSTED", "You exceeded your current quota, please check your plan and billing details.")],
+    },
+    "error-auth": { replies: () => [geminiError(400, "INVALID_ARGUMENT", "API key not valid. Please pass a valid API key.")] },
+    "error-server": { replies: () => [held(geminiError(500, "INTERNAL", "An internal error has occurred."))] },
+    "error-context": { replies: () => [geminiError(400, "INVALID_ARGUMENT", "The input token count (250000) exceeds the maximum number of tokens allowed (200000).")] },
+    "compaction-auto": { replies: () => [{ ...BULKY, inputTokens: 190_000 }, SUMMARY, OK] },
+    "compaction-manual": { replies: () => [BULKY, BULKY, SUMMARY] },
+  },
+  devin: {
+    "retry-overloaded": { signal: "Retrying { cause: overloaded }, never recovering", replies: () => [held(connectHttp(503, "unavailable", "service unavailable"))] },
+    "retry-rate": { signal: "Retrying { cause: rate }, then ErrorRaised", replies: () => [held(connectEos("resource_exhausted", "You have reached your rate limit. Please try again later."))] },
+    "retry-network": { signal: "Retrying { cause: network }, never recovering", replies: () => [held(DROP)] },
+    "usage-limit-monthly": { replies: () => [connectEos("resource_exhausted", "monthly acu limit reached")] },
+    "usage-limit-org": { replies: () => [connectEos("permission_denied", "organization usage limit reached")] },
+    "usage-paused": { replies: () => [connectEos("permission_denied", "usage frozen by an administrator")] },
+    "error-auth": { replies: () => [connectEos("unauthenticated", "invalid api key")] },
+    "error-server": { replies: () => [held(connectEos("internal", "internal error"))] },
+  },
+  cursor: {
+    "retry-overloaded": { signal: "Retrying { cause: overloaded }, then ErrorRaised { kind: provider }", replies: () => [held(connectHttp(503, "unavailable", "service unavailable"))] },
+    "retry-rate": { signal: "Retrying { cause: rate }, then ErrorRaised { kind: provider }", replies: () => [held(connectHttp(429, "resource_exhausted", "rate limited"))] },
+    "retry-network": { signal: "Retrying { cause: network }, never recovering within the capture", replies: () => [held(DROP)] },
+    "usage-limit": {
+      signal: "UsageLimitHit { scope: unknown }; Cursor renders the server's title and detail, here the stub's words",
+      replies: () => [connectEos("resource_exhausted", "usage limit", [cursorErrorDetails("Usage limit reached", "You've hit your usage limit.")])],
+    },
+    "error-auth": { replies: () => [connectHttp(401, "unauthenticated", "invalid api key")] },
+    "error-server": { replies: () => [held(connectHttp(500, "internal", "internal error"))] },
+  },
+};
+
+/** The replies and signal a scenario has on one protocol, or null where it does not apply. */
+function planFor(scenario: Scenario, protocol: Protocol): { readonly replies: readonly Reply[]; readonly signal: string } | null {
+  if (isVendor(protocol)) {
+    const vendor = VENDOR[protocol][scenario.name];
+    return vendor ? { replies: vendor.replies(), signal: vendor.signal ?? scenario.signal } : null;
+  }
+  const replies = scenario.replies(protocol);
+  return replies ? { replies, signal: scenario.signal } : null;
+}
 
 // ── provider wiring per harness ─────────────────────────────────────────────
 
@@ -524,8 +763,8 @@ const WIRING: Readonly<Record<string, Wiring>> = {
     def: (base) => ({
       ...base,
       argv: (cwd, sid) => ["-a", "--offline", "--model", "capture/stub-model", "--session-id", sid],
-      // The footer context meter marks a ready composer; the stub model has a 128k window.
-      promptGlyphs: ["0.0%/128k (auto)"],
+      // The footer context meter marks a ready composer.
+      promptGlyphs: ["0.0%/200k (auto)"],
     }),
     seed: (home) => writePiModels(path.join(home, ".pi", "agent"), "models.json", "openai-responses"),
   },
@@ -570,6 +809,62 @@ const WIRING: Readonly<Record<string, Wiring>> = {
       }, null, 2));
     },
   },
+  devin: {
+    protocol: "devin",
+    note: "an isolated credentials.toml sends every Connect RPC to the stub; HTTPS_PROXY refuses anything else",
+    def: (base, url) => ({ ...base, env: withEnv(base, () => sealedProxy(url)) }),
+    seed: (home) => {
+      // Overwrites the operator credentials Session.spawn() seeds for devin.
+      const dir = path.join(home, ".local", "share", "devin");
+      fs.mkdirSync(dir, { recursive: true });
+      const url = `http://127.0.0.1:${STUB_PORT}`;
+      fs.writeFileSync(path.join(dir, "credentials.toml"), [
+        'windsurf_api_key = "capture-stub"',
+        `api_server_url = "${url}"`,
+        `devin_webapp_host = "${url}"`,
+        `devin_api_url = "${url}"`,
+        "",
+      ].join("\n"));
+    },
+  },
+  agy: {
+    protocol: "gemini",
+    note: "Gemini API key mode: GOOGLE_GEMINI_BASE_URL points at the stub; onboarding and folder trust pre-seeded; HTTPS_PROXY refuses anything else. The signed-in Google path is not reached.",
+    def: (base, url) => ({
+      ...base,
+      env: withEnv(base, () => ({ ...sealedProxy(url), GEMINI_API_KEY: "capture-stub", GOOGLE_GEMINI_BASE_URL: url })),
+    }),
+    seed: (home, cwd) => {
+      const dir = path.join(home, ".gemini", "antigravity-cli");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({
+        modelProvider: "gemini",
+        trustedWorkspaces: [cwd, fs.realpathSync(cwd)],
+      }, null, 2));
+      fs.writeFileSync(path.join(dir, "jetski_state.pbtxt"), [
+        "post_onboarding:  {",
+        "  completed_steps:  POST_ONBOARDING_STEP_TYPE_MANAGER_WELCOME",
+        "  completed_steps:  POST_ONBOARDING_STEP_TYPE_USAGE_MODE",
+        "  completed_steps:  POST_ONBOARDING_STEP_TYPE_AGENT_CONFIGURATION",
+        "  completed_steps:  POST_ONBOARDING_STEP_TYPE_ADD_WORKSPACE",
+        "}",
+        "",
+      ].join("\n"));
+    },
+  },
+  cursor: {
+    protocol: "cursor",
+    note: "CURSOR_API_ENDPOINT points at the stub, which answers Cursor's Connect RPCs and the cleartext HTTP/2 agent stream; file credential store, never the keychain; HTTPS_PROXY refuses anything else",
+    def: (base, url) => ({
+      ...base,
+      env: withEnv(base, () => ({
+        ...sealedProxy(url),
+        CURSOR_API_KEY: "capture-stub",
+        CURSOR_API_ENDPOINT: url,
+        AGENT_CLI_CREDENTIAL_STORE: "file",
+      })),
+    }),
+  },
   "prime-agent": {
     protocol: "openai-responses",
     note: "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
@@ -591,23 +886,64 @@ const WIRING: Readonly<Record<string, Wiring>> = {
   },
 };
 
+/** Proxy everything but the stub to the stub, which refuses every tunnel. */
+function sealedProxy(url: string): Record<string, string> {
+  return { HTTPS_PROXY: url, HTTP_PROXY: url, https_proxy: url, http_proxy: url, NO_PROXY: "127.0.0.1,localhost", no_proxy: "127.0.0.1,localhost" };
+}
+
 /** pi-lineage provider file: one `capture` provider pointed at the stub. */
 function writePiModels(dir: string, file: string, api: string): void {
   fs.mkdirSync(dir, { recursive: true });
   const baseUrl = api === "anthropic-messages" ? `http://127.0.0.1:${STUB_PORT}` : `http://127.0.0.1:${STUB_PORT}/v1`;
-  const providers = { capture: { baseUrl, api, apiKey: "capture-stub", models: [{ id: "stub-model" }] } };
+  // A 200k window, so the 190k context compaction-auto reports crosses the threshold.
+  const providers = { capture: { baseUrl, api, apiKey: "capture-stub", models: [{ id: "stub-model", contextWindow: 200_000, maxTokens: 8_192 }] } };
   fs.writeFileSync(path.join(dir, file), file.endsWith(".yml")
-    ? `providers:\n  capture: {baseUrl: "${baseUrl}", api: ${api}, apiKey: capture-stub, models: [{id: stub-model}]}\n`
+    ? `providers:\n  capture: {baseUrl: "${baseUrl}", api: ${api}, apiKey: capture-stub, models: [{id: stub-model, contextWindow: 200000, maxTokens: 8192}]}\n`
     : JSON.stringify({ providers }, null, 2));
 }
 
 const HERMES_INSTALLS = "/tmp/junto-capture-cache/hermes-installs";
+
+/**
+ * Kill processes that outlived the TUI (prime-agent's daemon and its kernel)
+ * by the capture home in their environment: the daemon rewrites its title.
+ */
+function killDetached(home: string): void {
+  const ps = spawnSync("ps", ["-axE", "-o", "pid=,command="]).stdout?.toString() ?? "";
+  for (const line of ps.split("\n")) {
+    if (!line.includes(`HOME=${home} `) && !line.includes(`${home}/`)) continue;
+    const pid = Number(line.trim().split(/\s+/u)[0]);
+    if (pid && pid !== process.pid) {
+      try { process.kill(pid, "SIGKILL"); } catch { /* gone */ }
+    }
+  }
+}
 
 /** Short enough for the 104-byte macOS socket path limit. */
 const PRIME_SOCKET = `/tmp/junto-capture-prime-${process.pid}.sock`;
 
 /** Harnesses pty-capture.ts has no definition for. */
 const EXTRA_HARNESSES: readonly HarnessDef[] = [
+  {
+    name: "agy", displayName: "Antigravity",
+    argv: () => [],
+    promptGlyphs: ["? for shortcuts"],
+    exitRecipe: ["\u0003", "\u0003", "\u0004"],
+    modals: [
+      { when: /press enter to continue/i, reply: "\r" },
+      // Untick the data-use box (checked by default), then Down, Right to Done, Enter.
+      { when: /terms of service & data use/i, reply: "\r\u001b[B\u001b[C\r" },
+    ],
+    note: "Gemini API key mode; first run is a theme picker, then the Terms screen",
+  },
+  {
+    name: "cursor-agent", displayName: "Cursor Agent",
+    argv: () => [],
+    promptGlyphs: ["\u2192", "\u276f", ">"],
+    exitRecipe: ["\u0003", "\u0003", "\u0004"],
+    modals: [{ when: /workspace trust required/i, reply: "a" }],
+    note: "the binary is cursor-agent; the corpus harness is cursor",
+  },
   {
     name: "fx", displayName: "fx",
     argv: () => [],
@@ -617,8 +953,10 @@ const EXTRA_HARNESSES: readonly HarnessDef[] = [
   },
 ];
 
+const BINARY: Readonly<Record<string, string>> = { cursor: "cursor-agent" };
+
 const harnessDef = (harness: string): HarnessDef | undefined =>
-  [...HARNESSES, ...EXTRA_HARNESSES].find((def) => def.name === harness);
+  [...HARNESSES, ...EXTRA_HARNESSES].find((def) => def.name === (BINARY[harness] ?? harness));
 
 // ── driver ──────────────────────────────────────────────────────────────────
 
@@ -674,6 +1012,7 @@ async function runScenario(harness: string, scenario: Scenario, stub: StubProvid
     prep: (cwd) => { wired.prep?.(cwd); wiring.seed?.(sess.home, cwd); },
   };
   const sess: Session = new Session(def);
+  killDetached(sess.home);
   const term = new Terminal({ cols: COLS, rows: ROWS, allowProposedApi: true });
   let fed = 0;
   const pump = async () => {
@@ -694,7 +1033,9 @@ async function runScenario(harness: string, scenario: Scenario, stub: StubProvid
       rendered.push(line);
     }
   };
-  const observed: Record<string, unknown> = { source: "stub-provider", signal: scenario.signal, wiring: wiring.note };
+  const plan = planFor(scenario, wiring.protocol);
+  if (!plan) throw new Error(`${scenario.name} does not apply to ${wiring.protocol}`);
+  const observed: Record<string, unknown> = { source: "stub-provider", signal: plan.signal, wiring: wiring.note };
   let status: ScenarioResult["status"] = "complete";
   let reason: string | undefined;
 
@@ -708,7 +1049,7 @@ async function runScenario(harness: string, scenario: Scenario, stub: StubProvid
       status = "skip";
       reason = sess.detectBlock() ?? "composer never ready";
     } else {
-      stub.script(scenario.replies(wiring.protocol));
+      stub.script(planFor(scenario, wiring.protocol)!.replies);
       for (const prompt of scenario.prompts) {
         await pump();
         const baseline = new Set(screenLines(term).map((line) => line.trimEnd()));
@@ -743,6 +1084,9 @@ async function runScenario(harness: string, scenario: Scenario, stub: StubProvid
       } else if (scenario.expect && !rendered.some((line) => scenario.expect!.test(line))) {
         status = "skip";
         reason = `the screen never showed ${scenario.expect}`;
+      } else if (scenario.reject && rendered.some((line) => scenario.reject!.test(line))) {
+        status = "skip";
+        reason = `the screen showed ${scenario.reject}`;
       }
     }
   } catch (err) {
@@ -757,8 +1101,7 @@ async function runScenario(harness: string, scenario: Scenario, stub: StubProvid
   for (const step of def.exitRecipe) { sess.write(step); await wait(500); }
   await sess.killTree();
   if (harness === "prime-agent") {
-    // The daemon detaches from the TUI; it is ours by its per-capture socket.
-    spawnSync("pkill", ["-f", PRIME_SOCKET]);
+    killDetached(sess.home);
     fs.rmSync(PRIME_SOCKET, { force: true });
   }
   term.dispose();
@@ -842,6 +1185,11 @@ async function main(): Promise<void> {
   const results: ScenarioResult[] = [];
   try {
     for (const scenario of pickScenarios(rest)) {
+      const wiring = WIRING[harness];
+      if (wiring && !planFor(scenario, wiring.protocol)) {
+        console.log(`[${harness}] ${scenario.name}: does not apply to ${wiring.protocol}`);
+        continue;
+      }
       console.log(`[${harness}] ${scenario.name}: ${scenario.signal}`);
       const run = await runScenario(harness, scenario, stub, url);
       console.log(`[${harness}] ${scenario.name}: ${run.result.status}${run.result.reason ? ` (${run.result.reason})` : ""}`);
