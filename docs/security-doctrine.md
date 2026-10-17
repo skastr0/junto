@@ -363,8 +363,9 @@ one function in one module. A message is at most 1 KiB and a chain at most 8
 links; the rest is cut and marked. A cause Junto did not write, from Node,
 SQLite or a library, is scrubbed like any other, never trusted to be clean.
 Schema decode failures are formatted without the actual value. A typed id or
-name field (seat, canvas, machine, operation id) is checked against its own
-schema and dropped when it fails; it is never scrubbed, because a scrubbed id
+name field (seat, canvas, machine, operation, link session, request,
+installation, binding and generation ids) is checked against its own schema
+and dropped when it fails; it is never scrubbed, because a scrubbed id
 no longer matches the scope it is read under.
 
 **The receiver distrusts the sender.** A failure from another machine is
