@@ -6,21 +6,10 @@
 import type { AgentSeatState } from "@shared/agent-seat-state";
 import type { WorkSinkGlance } from "@shared/work-attention";
 import type { Task } from "@shared/work-model";
-import type { MemberSeverity } from "@shared/region-rollup";
+import { worseSeverity, type MemberSeverity } from "@shared/region-rollup";
 
-const SEVERITY_RANK: Readonly<Record<MemberSeverity, number>> = {
-  blocked: 0,
-  attention: 1,
-  working: 2,
-  ready: 3,
-  idle: 4,
-};
-
-/** Worse operational tier wins (blocked > attention > working > ready > idle). */
-export const worseMemberSeverity = (
-  a: MemberSeverity,
-  b: MemberSeverity,
-): MemberSeverity => (SEVERITY_RANK[a] <= SEVERITY_RANK[b] ? a : b);
+/** Worse operational tier wins, on the rollup's ladder (attention > blocked > ready > working > idle). */
+export const worseMemberSeverity = (a: MemberSeverity, b: MemberSeverity): MemberSeverity => worseSeverity(a, b);
 
 /**
  * Map live managed-seat status → chip severity.

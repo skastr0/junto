@@ -24,19 +24,39 @@ import type { WorkItemsOf } from "./execution-graph";
 // only narrow what can be derived; they never fabricate blocks, attention,
 // or work.
 
-// The severity ladder, worst first. A member lands in the WORST tier it
-// matches; its reasons collect every match, in ladder order.
-// `ready` is finished work nobody has read yet (seat idle + needsLook).
-// It sits below working on purpose: it asks for a glance, never for
-// input, so notify pills and attention alerts must keep ignoring it.
+// The severity ladder, worst first, in step with the one need ladder
+// (harness-domain/need.ts): a seat waiting on the operator outranks a
+// stopped one, and finished work nobody has read outranks work in flight.
+// A member lands in the WORST tier it matches; its reasons collect every
+// match, in ladder order. `ready` asks for a glance, never for input, so
+// notify pills and attention alerts must keep ignoring it.
 export const MemberSeverity = Schema.Literals([
-  "blocked",
   "attention",
-  "working",
+  "blocked",
   "ready",
+  "working",
   "idle",
 ]);
 export type MemberSeverity = typeof MemberSeverity.Type;
+
+/** Ladder position, 0 worst. Every surface that compares tiers reads this. */
+export const MEMBER_SEVERITY_RANK: Readonly<Record<MemberSeverity, number>> = Object.fromEntries(
+  MemberSeverity.literals.map((severity, rank) => [severity, rank]),
+) as Record<MemberSeverity, number>;
+
+/** The worse of two tiers. */
+export const worseSeverity = (a: MemberSeverity, b: MemberSeverity): MemberSeverity =>
+  MEMBER_SEVERITY_RANK[a] <= MEMBER_SEVERITY_RANK[b] ? a : b;
+
+/**
+ * A seat's tier read off its needs through `ROLLUP_FROM_NEED`
+ * (need-surfaces.ts), and the need cause that set it. The caller projects,
+ * so this module stays free of the need tables.
+ */
+export type SeatNeedTier = {
+  readonly severity: MemberSeverity;
+  readonly cause: string;
+};
 
 // Live per-agent runtime signal, keyed by agentKey (the hermes
 // "<host>:<profile>" key). The app-side ACP chat plane fills this in; the
@@ -53,9 +73,9 @@ export const MemberStatus = Schema.Struct({
   // the native node kind.
   kind: Schema.String,
   severity: MemberSeverity,
-  // Short machine strings, worst-tier first: work:<detail>, edge:<detail>,
-  // activity:blocked, permission:pending, activity:attention,
-  // activity:working, activity:ready.
+  // Short machine strings, worst-tier first: permission:pending,
+  // need:<cause>, work:<detail>, edge:<detail>, and the harness fallback's
+  // activity:attention, activity:blocked, activity:ready, activity:working.
   reasons: Schema.Array(Schema.String),
 });
 export type MemberStatus = typeof MemberStatus.Type;
@@ -75,7 +95,7 @@ export const RegionRollup = Schema.Struct({
     working: Schema.Number,
     ready: Schema.Number,
   }),
-  // Sorted: severity rank (blocked -> idle), then kind rank (agent, task/
+  // Sorted: severity rank (attention -> idle), then kind rank (agent, task/
   // requests, rest), then paint order.
   members: Schema.Array(MemberStatus),
 });
@@ -95,16 +115,15 @@ export interface RegionRollupInput extends LiveTrustViews {
   readonly agentActivity?: ReadonlyMap<string, AgentActivity>;
   // Backend-neutral harness activity by canvas node id. Session liveness alone
   // never means work: only an explicit harness state contributes severity.
+  // The fallback for a seat with no tier below.
   readonly terminalStatusByNodeId?: ReadonlyMap<string, WorkSurfaceActivity>;
+  // A seat's tier from its needs, by canvas node id. When present it
+  // replaces the harness fallback: declared signals, stops and unread turns
+  // reach the rollup on the one ladder.
+  readonly seatTierByNodeId?: ReadonlyMap<string, SeatNeedTier>;
 }
 
-const SEVERITY_RANK: Readonly<Record<MemberSeverity, number>> = {
-  blocked: 0,
-  attention: 1,
-  working: 2,
-  ready: 3,
-  idle: 4,
-};
+const SEVERITY_RANK = MEMBER_SEVERITY_RANK;
 
 // Rollcall ordering: message-bearing actor seats first, then the two work
 // stores an operator reads next, then everything else. Exhaustive over NodeSpec
@@ -120,27 +139,17 @@ const kindRank = (kind: string): number =>
     }),
   );
 
-const workSurfaceContribution = (
-  activity: WorkSurfaceActivity | undefined,
-): {
-  readonly blocked: boolean;
-  readonly attention: boolean;
-  readonly working: boolean;
-  readonly ready: boolean;
-  readonly reason?: string;
-} => {
+// The harness fallback: a seat with no need tier reads its harness state.
+// Finished-but-unread rides alongside it: the surface reports `idle` and
+// marks `ready`, so nothing downstream reads it as needs-input.
+const surfaceTier = (activity: WorkSurfaceActivity | undefined): SeatNeedTier | undefined => {
   const state = activity?.harness;
-  // Finished-but-unread rides alongside the harness state: the surface reports
-  // `idle` and marks `ready`, so nothing downstream reads it as needs-input.
-  const ready = activity?.ready === true;
   if (state === undefined || state === "unknown" || state === "idle") {
-    return ready
-      ? { blocked: false, attention: false, working: false, ready, reason: "activity:ready" }
-      : { blocked: false, attention: false, working: false, ready: false };
+    return activity?.ready === true ? { severity: "ready", cause: "activity:ready" } : undefined;
   }
-  if (state === "blocked") return { blocked: true, attention: false, working: false, ready: false, reason: "activity:blocked" };
-  if (state === "attention") return { blocked: false, attention: true, working: false, ready: false, reason: "activity:attention" };
-  return { blocked: false, attention: false, working: true, ready: false, reason: "activity:working" };
+  if (state === "blocked") return { severity: "blocked", cause: "activity:blocked" };
+  if (state === "attention") return { severity: "attention", cause: "activity:attention" };
+  return { severity: "working", cause: "activity:working" };
 };
 
 // Rank for mapped execution-graph reasons: edge before seed (no relay cascade).
@@ -153,50 +162,36 @@ const deriveMember = (
   graph: ReturnType<typeof deriveExecutionGraph>,
   agentActivity: ReadonlyMap<string, AgentActivity> | undefined,
   terminalStatusByNodeId: ReadonlyMap<string, WorkSurfaceActivity> | undefined,
+  seatTierByNodeId: ReadonlyMap<string, SeatNeedTier> | undefined,
 ): MemberStatus => {
   const kind = node.kind;
   const activity = node.kind === "agent" ? agentActivity?.get(node.agentKey) : undefined;
-  const surface = workSurfaceContribution(terminalStatusByNodeId?.get(node.id));
+  const fromNeeds = seatTierByNodeId?.get(node.id);
+  const seat = fromNeeds
+    ? { ...fromNeeds, cause: `need:${fromNeeds.cause}` }
+    : surfaceTier(terminalStatusByNodeId?.get(node.id));
 
-  const reasons: string[] = [];
-
-  // blocked: execution-graph closure or harness blocked.
+  const matches: Array<readonly [MemberSeverity, string]> = [];
+  // ACP permission pending: the chat plane's own attention.
+  if (activity?.permissionPending === true) matches.push(["attention", "permission:pending"]);
+  // Idle is where a member lands with no match; it carries no reason.
+  if (seat && seat.severity !== "idle") matches.push([seat.severity, seat.cause]);
+  // Execution-graph closure: edge before seed (no relay cascade).
   const graphReasons = [...(graph.reasonsByNodeId.get(node.id) ?? [])].sort(
     (a, b) => GRAPH_REASON_RANK[a.kind] - GRAPH_REASON_RANK[b.kind],
   );
-  for (const reason of graphReasons) {
-    if (reason.kind === "work") reasons.push(`work:${reason.detail}`);
-    else reasons.push(`edge:${reason.detail}`);
-  }
-  if (surface.reason === "activity:blocked") reasons.push(surface.reason);
-  const blocked = graph.blocked.has(node.id) || surface.blocked;
+  for (const reason of graphReasons) matches.push(["blocked", `${reason.kind}:${reason.detail}`]);
+  // A graph block with no reason still blocks; it just adds no reason string.
+  if (graph.blocked.has(node.id) && graphReasons.length === 0) matches.push(["blocked", ""]);
 
-  // attention: ACP permission pending or explicit harness signal.
-  if (activity?.permissionPending === true) reasons.push("permission:pending");
-  if (surface.reason === "activity:attention") reasons.push(surface.reason);
-  const attention = activity?.permissionPending === true || surface.attention;
-
-  // working: explicit harness activity only.
-  if (surface.reason === "activity:working") reasons.push(surface.reason);
-  const working = surface.working;
-
-  // ready: the seat finished a turn and nobody has looked yet.
-  if (surface.reason === "activity:ready") reasons.push(surface.reason);
-
-  const severity: MemberSeverity = blocked
-    ? "blocked"
-    : attention
-      ? "attention"
-      : working
-        ? "working"
-        : surface.ready
-          ? "ready"
-          : "idle";
-
+  // Stable: equal tiers keep the order they were found in.
+  matches.sort((a, b) => SEVERITY_RANK[a[0]] - SEVERITY_RANK[b[0]]);
+  const severity: MemberSeverity = matches[0]?.[0] ?? "idle";
+  const reasons = matches.flatMap(([, reason]) => (reason === "" ? [] : [reason]));
   return { nodeId: node.id, label: titleOf(node), kind, severity, reasons };
 };
 
-// A region's members, sorted for the rollcall: severity rank (blocked ->
+// A region's members, sorted for the rollcall: severity rank (attention ->
 // idle), then kind rank (agent, project, rest), then paint order.
 const regionMembers = (
   memberIds: ReadonlyArray<string>,
@@ -205,6 +200,7 @@ const regionMembers = (
   graph: ReturnType<typeof deriveExecutionGraph>,
   agentActivity: ReadonlyMap<string, AgentActivity> | undefined,
   terminalStatusByNodeId: ReadonlyMap<string, WorkSurfaceActivity> | undefined,
+  seatTierByNodeId: ReadonlyMap<string, SeatNeedTier> | undefined,
 ): MemberStatus[] =>
   memberIds
     .map((id) => {
@@ -212,7 +208,7 @@ const regionMembers = (
       return member === undefined
         ? undefined
         : {
-            status: deriveMember(member, graph, agentActivity, terminalStatusByNodeId),
+            status: deriveMember(member, graph, agentActivity, terminalStatusByNodeId, seatTierByNodeId),
             index: indexById.get(id) ?? 0,
           };
     })
@@ -252,6 +248,7 @@ export const deriveRegionRollups = (input: RegionRollupInput): ReadonlyArray<Reg
     approvals,
     agentActivity,
     terminalStatusByNodeId,
+    seatTierByNodeId,
   } = input;
   const graph = deriveExecutionGraph(canvas, {
     canvasName,
@@ -275,6 +272,7 @@ export const deriveRegionRollups = (input: RegionRollupInput): ReadonlyArray<Reg
       graph,
       agentActivity,
       terminalStatusByNodeId,
+      seatTierByNodeId,
     );
     rollups.push({
       regionId: node.id,

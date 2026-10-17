@@ -88,7 +88,10 @@ export const signalMarkForMember = (member: Pick<MemberStatus, "severity" | "rea
   // Map machine reasons to short aria/tooltips without inventing severity.
   if (reason === "permission:pending") return { ...base, label: "awaiting permission", symbol: "?" };
   if (reason === "session:live") return { ...base, label: "session live" };
-  if (reason === "activity:ready") return { ...base, label: "ready to read" };
+  if (reason === "activity:ready" || reason === "need:turn_unseen" || reason === "need:turn_failed") {
+    return { ...base, label: "ready to read" };
+  }
+  if (reason === "need:permission") return { ...base, label: "awaiting permission", symbol: "?" };
   if (reason.startsWith("flag:")) return { ...base, label: reason.slice("flag:".length) };
   if (reason.startsWith("edge:")) return { ...base, label: reason.slice("edge:".length) };
   if (reason === "relay") return { ...base, label: "relayed block" };

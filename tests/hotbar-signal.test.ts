@@ -56,9 +56,9 @@ describe("liveActivitySeverity", () => {
     expect(liveActivitySeverity({ seatState: "gone", seatNeedsLook: true })).toBe("idle");
   });
 
-  it("keeps ready under a live working seat and over a quiet rollup", () => {
+  it("keeps ready over working and over a quiet rollup, as on the need ladder", () => {
     expect(hotbarNodeSeverity(false, { memberSeverity: "idle", liveSeverity: "ready" })).toBe("ready");
-    expect(hotbarNodeSeverity(false, { memberSeverity: "working", liveSeverity: "ready" })).toBe("working");
+    expect(hotbarNodeSeverity(false, { memberSeverity: "working", liveSeverity: "ready" })).toBe("ready");
     // A seat that went quiet again drops a stale ready from the rollup.
     expect(hotbarNodeSeverity(false, { memberSeverity: "ready", liveSeverity: "idle" })).toBe("idle");
   });

@@ -23,6 +23,8 @@ import {
   type AgentSeatState,
   type AgentSeatStateEvent,
 } from "@shared/agent-seat-state";
+import type { AgentSignal } from "@shared/agent-signals";
+import { deriveNeeds, type Need } from "@shared/harness-domain/need";
 import type { OccupancyClue, OccupancyHarnessState } from "@shared/occupancy";
 import { terminalBindingOf, type WorkSurfaceActivity } from "@shared/terminal";
 import { getJuntoApi } from "./junto-api";
@@ -184,9 +186,13 @@ export const clueFromAgentSeat = (
   needsLook = false,
 ): OccupancyClue | undefined => {
   if (!event) return undefined;
+  // Declared signals and unread turns show nothing on occupancy, so the
+  // seat's own snapshot is the whole answer.
+  const needs = seatNeedsOf(event, false);
   return {
     hasOccupant: event.state !== "gone",
     activity: { harness: harnessFromSeatState(event.state, needsLook) },
+    ...(needs ? { needs } : {}),
     lastSeenAtMs: event.at,
   };
 };
@@ -268,6 +274,41 @@ export const seatEventForBinding = (
 export const seatStatusForBinding = (
   bindingId: string | undefined,
 ): AgentSeatStatus | undefined => agentSeatStatusOf(seatEventForBinding(bindingId));
+
+/**
+ * A seat's needs, most urgent first, from its latest event's snapshot plus
+ * two facts the renderer holds and main does not feed yet: the seat's worst
+ * open declared signal (main reports no SeatReported) and whether the
+ * operator has seen its finished turn (main sends no OperatorViewed, so
+ * `needsLook` decides). Undefined before an event carries a snapshot.
+ */
+export const seatNeedsOf = (
+  event: AgentSeatStateEvent | undefined,
+  needsLook: boolean,
+  declared?: Pick<AgentSignal, "kind" | "signalId" | "text" | "createdAt">,
+): readonly Need[] | undefined => {
+  const status = agentSeatStatusOf(event);
+  if (!status) return undefined;
+  const { snapshot } = status;
+  const { turnUnseen: _seen, ...rest } = snapshot;
+  const turnUnseen = needsLook
+    ? (snapshot.turnUnseen ?? { outcome: "completed" as const, since: event?.at ?? snapshot.since })
+    : undefined;
+  return deriveNeeds({
+    ...rest,
+    ...(turnUnseen ? { turnUnseen } : {}),
+    reports: declared
+      ? [
+          {
+            kind: declared.kind,
+            signalId: declared.signalId,
+            ...(declared.text ? { text: declared.text } : {}),
+            since: declared.createdAt,
+          },
+        ]
+      : snapshot.reports,
+  });
+};
 
 // Singleton fan-out: main snapshot + onAgentSeatStateChanged → agentSeat$.
 // Safe to call from App boot and every card mount; only the first call

@@ -6,7 +6,12 @@ import { asCanvasName } from "@shared/model";
 import { regionMembers } from "@shared/model/canvas";
 import { titleOf } from "@shared/model/title";
 import { actorRefResolverFromProjection } from "@shared/graph";
-import { deriveRegionRollups, type AgentActivity, type RegionRollup } from "@shared/region-rollup";
+import {
+  deriveRegionRollups,
+  type AgentActivity,
+  type RegionRollup,
+  type SeatNeedTier,
+} from "@shared/region-rollup";
 import type { WorkSurfaceActivity } from "@shared/terminal";
 import { keepUnchanged, type createModelStore } from "./model-store";
 
@@ -16,6 +21,8 @@ export type RegionRollupSources = {
   readonly items: (canvas: string, nodeId: string) => ReadonlyArray<Task>;
   readonly agentActivity: (agentKey: string) => AgentActivity;
   readonly surface: (bindingId: string) => WorkSurfaceActivity | undefined;
+  /** The seat's tier from its needs; undefined falls back to `surface`. */
+  readonly seatTier?: (bindingId: string, nodeId: string) => SeatNeedTier | undefined;
 };
 
 const sameIds = (a: ReadonlyArray<string> | undefined, b: ReadonlyArray<string>): boolean =>
@@ -61,6 +68,7 @@ export const createRegionRollupStore = (
       const wires = new Map<Wire["id"], Wire>();
       const agentActivity = new Map<string, AgentActivity>();
       const terminalStatusByNodeId = new Map<string, WorkSurfaceActivity>();
+      const seatTierByNodeId = new Map<string, SeatNeedTier>();
       const refs: ActorRef[] = [];
       for (const id of membership.members[regionId].get() ?? []) {
         const node = readNode(id);
@@ -70,6 +78,8 @@ export const createRegionRollupStore = (
           const bindingId = (model.nodes[id] as unknown as { bindingId: { get(): string } }).bindingId.get();
           const surface = sources.surface(bindingId);
           if (surface) terminalStatusByNodeId.set(id, surface);
+          const tier = sources.seatTier?.(bindingId, id);
+          if (tier) seatTierByNodeId.set(id, tier);
         }
         if (node.kind === "agent") {
           const agentKey = (model.nodes[id] as unknown as { agentKey: { get(): string } }).agentKey.get();
@@ -98,6 +108,7 @@ export const createRegionRollupStore = (
         itemsOf: (id) => sources.items(canvasName, id),
         agentActivity,
         terminalStatusByNodeId,
+        seatTierByNodeId,
       })[0];
       const previous = state.byRegionId[regionId].peek();
       const next = keepUnchanged(previous, rollup);

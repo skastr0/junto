@@ -49,7 +49,7 @@ describe("RollCall ready tier", () => {
     expect(html).not.toContain("All quiet");
   });
 
-  it("keeps working above ready and still shows both", () => {
+  it("puts ready above working and still shows both", () => {
     const html = renderToStaticMarkup(
       <RollCall
         rollup={rollup([
@@ -58,8 +58,8 @@ describe("RollCall ready tier", () => {
         ])}
       />,
     );
-    expect(html.indexOf('data-severity="working"')).toBeLessThan(
-      html.indexOf('data-severity="ready"'),
+    expect(html.indexOf('data-severity="ready"')).toBeLessThan(
+      html.indexOf('data-severity="working"'),
     );
     expect(html).toContain("1 working");
     expect(html).toContain("1 ready");

@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import type { Region } from "@shared/model";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
-import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
+import { MEMBER_SEVERITY_RANK, type MemberSeverity, type RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
 import { selectNode, state$ } from "../../lib/state";
 import { readRegionRollups, useRegionRollups } from "../../lib/region-rollups";
@@ -541,16 +541,7 @@ function MinimapChrome({ children }: { readonly children: ReactNode }) {
   return <div className="rts-minimap-wrap">{children}</div>;
 }
 
-const severityRank = (s: MemberSeverity): number =>
-  s === "blocked"
-    ? 0
-    : s === "attention"
-      ? 1
-      : s === "working"
-        ? 2
-        : s === "ready"
-          ? 3
-          : 4;
+const severityRank = (s: MemberSeverity): number => MEMBER_SEVERITY_RANK[s];
 
 const readRegionAlertSignals = () => collectAlertSignals(readRegionRollups());
 

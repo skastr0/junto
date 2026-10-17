@@ -99,7 +99,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     expect(rollup?.members[0]).toMatchObject({ severity: "working", reasons: ["activity:working"] });
   });
 
-  it("ready: finished turn nobody has read yet, below working, above idle", () => {
+  it("ready: finished turn nobody has read yet, above working and idle", () => {
     const doc: Fixture = { nodes: [group("r", 0, 0, 500, 500, "ops"), liveSurface("seat", 10, 10, "profile-13")], edges: [] };
     const activity: WorkSurfaceActivity = { session: "running", harness: "idle", ready: true, source: "native" };
     const [rollup] = deriveRegionRollups({ doc, terminalStatusByNodeId: new Map([["seat", activity]]) });
@@ -114,6 +114,37 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const [rollup] = deriveRegionRollups({ doc, terminalStatusByNodeId: new Map([["seat", working]]) });
     expect(rollup?.members[0]).toMatchObject({ severity: "working" });
     expect(rollup?.counts.ready).toBe(0);
+  });
+
+  it("a region with an unread seat and a working seat reads ready", () => {
+    const doc: Fixture = {
+      nodes: [
+        group("r", 0, 0, 500, 500, "ops"),
+        liveSurface("done", 10, 10, "profile-13"),
+        liveSurface("busy", 10, 100, "profile-14"),
+      ],
+      edges: [],
+    };
+    const [rollup] = deriveRegionRollups({
+      doc,
+      terminalStatusByNodeId: new Map<string, WorkSurfaceActivity>([
+        ["done", { session: "running", harness: "idle", ready: true }],
+        ["busy", { session: "running", harness: "working" }],
+      ]),
+    });
+    expect(rollup?.severity).toBe("ready");
+    expect(rollup?.members.map((member) => member.nodeId)).toEqual(["done", "busy"]);
+  });
+
+  it("a seat's need tier replaces its harness state", () => {
+    const doc: Fixture = { nodes: [group("r", 0, 0, 500, 500, "ops"), liveSurface("seat", 10, 10, "profile-13")], edges: [] };
+    const [rollup] = deriveRegionRollups({
+      doc,
+      terminalStatusByNodeId: new Map([["seat", { session: "running", harness: "working" } as WorkSurfaceActivity]]),
+      seatTierByNodeId: new Map([["seat", { severity: "blocked", cause: "seat_blocked" }]]),
+    });
+    expect(rollup?.members[0]).toMatchObject({ severity: "blocked", reasons: ["need:seat_blocked"] });
+    expect(rollup?.counts).toEqual({ total: 1, blocked: 1, attention: 0, working: 0, ready: 0 });
   });
 
   it("idle by default: unbound node with no live data", () => {
@@ -141,10 +172,10 @@ describe("deriveRegionRollups — member severity ladder", () => {
       agentActivity: activityOf(["remote-a:profile-13", { sessionLive: true, permissionPending: true }]),
     });
     const member = rollup?.members.find((candidate) => candidate.nodeId === "a");
-    expect(member?.severity).toBe("blocked");
-    // the blocked harness first, then the lower-ladder live attention
-    expect(member?.reasons).toEqual(["activity:blocked", "permission:pending"]);
-    expect(rollup?.counts).toEqual({ total: 2, blocked: 1, attention: 0, working: 0, ready: 0 });
+    // Waiting on the operator outranks a stop, as on the need ladder.
+    expect(member?.severity).toBe("attention");
+    expect(member?.reasons).toEqual(["permission:pending", "activity:blocked"]);
+    expect(rollup?.counts).toEqual({ total: 2, blocked: 0, attention: 1, working: 0, ready: 0 });
   });
 });
 

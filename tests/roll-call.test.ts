@@ -23,7 +23,7 @@ const rollup = (members: ReadonlyArray<MemberStatus>): RegionRollup => ({
 });
 
 describe("buildRollCall", () => {
-  it("surfaces ready as its own bucket, after working", () => {
+  it("surfaces ready as its own bucket, ahead of working", () => {
     const model = buildRollCall(
       rollup([
         member("w", "working", ["activity:working"]),
@@ -34,7 +34,7 @@ describe("buildRollCall", () => {
     );
     expect(model.kind).toBe("hot");
     if (model.kind !== "hot") return;
-    expect(model.buckets.map((bucket) => bucket.severity)).toEqual(["working", "ready"]);
+    expect(model.buckets.map((bucket) => bucket.severity)).toEqual(["ready", "working"]);
     const ready = model.buckets.find((bucket) => bucket.severity === "ready");
     expect(ready?.count).toBe(2);
     expect(ready?.names).toEqual(["a", "b"]);

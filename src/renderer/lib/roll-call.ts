@@ -5,7 +5,7 @@
 import type { MemberSeverity, MemberStatus, RegionRollup } from "@shared/region-rollup";
 
 /** Hot ladder for roll call. Idle never surfaces as its own bucket. */
-export const ROLL_CALL_BUCKETS = ["blocked", "attention", "working", "ready"] as const;
+export const ROLL_CALL_BUCKETS = ["attention", "blocked", "ready", "working"] as const;
 export type RollCallSeverity = (typeof ROLL_CALL_BUCKETS)[number];
 
 export type RollCallBucket = {
