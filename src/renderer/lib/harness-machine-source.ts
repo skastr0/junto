@@ -3,10 +3,11 @@
  * config. Every machine, the window's own included, is asked the same way:
  * there is no local-only path (docs/machines.md, Harness inventory).
  *
- * The inventory channel and the native config writer have not landed yet, so
- * the source answers every machine alike: no inventory yet, no declared
- * native settings, and a typed refusal for a write. It never waits on a
- * probe and never reads this window's own CLIs in place of another machine's.
+ * Inventory comes from the machine's own core through `machineInventory`:
+ * every machine is asked by name, and one the link cannot reach yet answers a
+ * typed refusal. The native config writer has not landed, so there are no
+ * declared native settings and a write is refused. It never waits on a probe
+ * and never reads this window's own CLIs in place of another machine's.
  */
 import { Result } from "effect";
 import {
@@ -46,7 +47,32 @@ export const pendingHarnessMachineSource: HarnessMachineSource = {
     ),
 };
 
-let source: HarnessMachineSource = pendingHarnessMachineSource;
+/** Inventory from each machine's core; native config still pending. */
+export const coreHarnessMachineSource: HarnessMachineSource = {
+  ...pendingHarnessMachineSource,
+  inventory: async (machine) => {
+    const api = window.junto;
+    if (api === undefined) return pendingHarnessMachineSource.inventory(machine);
+    const answer = await api.machineInventory(machine).catch((cause: unknown) => ({
+      ok: false as const,
+      error: {
+        _tag: "InventoryUnavailableError" as const,
+        machine,
+        reason: "failed" as const,
+        message: cause instanceof Error ? cause.message : String(cause),
+      },
+    }));
+    return answer.ok
+      ? Result.succeed(answer.inventory)
+      : Result.fail(new InventoryUnavailableError({
+        machine: answer.error.machine,
+        reason: answer.error.reason,
+        message: answer.error.message,
+      }));
+  },
+};
+
+let source: HarnessMachineSource = coreHarnessMachineSource;
 
 export const harnessMachineSource = (): HarnessMachineSource => source;
 
