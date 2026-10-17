@@ -37,7 +37,9 @@ export const makeOnboardNudgeInterject =
     // The drive's mail gate is the one check on the input box: it types only
     // into an available one and says why it did not.
     const outcome = await deps.writeMail(bindingId, text);
-    return outcome === "lost" ? "unavailable" : outcome;
+    if (outcome === "written" || outcome === "draft" || outcome === "dialog" || outcome === "unreadable") return outcome;
+    // Lost, or the seat's status refuses mail: the nudge has nowhere to go now.
+    return "unavailable";
   };
 
 /**

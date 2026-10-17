@@ -11,7 +11,7 @@
  */
 
 import type { Message } from "./work-model";
-import type { ComposerHold } from "./composer-availability";
+import type { MailHold } from "./mail-hold";
 import { readMailExtension } from "./crew";
 import { operatorActorRef } from "./work-reference";
 
@@ -39,12 +39,12 @@ export type WireTrafficEvent = {
    */
   readonly failed?: true;
   /**
-   * The seat's input box was not available, so the message was not typed:
-   * it waits in the mailbox. The value says why (the operator's draft, a
-   * dialog, an unreadable box). Told once for a draft and repeated for the
-   * other two; never pulsed.
+   * The seat could not take the message, so it was not typed: it waits in
+   * the mailbox. The value says why (the operator's draft, a dialog, an
+   * unreadable box, or the seat's status, see `MailHold`). Told once for a
+   * draft and repeated for the rest; never pulsed.
    */
-  readonly held?: ComposerHold;
+  readonly held?: MailHold;
 };
 
 export const WIRE_TRAFFIC_PREVIEW_MAX = 80;

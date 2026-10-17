@@ -19,6 +19,7 @@ import {
   type SeatIdleLookup,
   type TerminalWriter,
 } from "./managed-terminal-drive";
+import type { MailAdmission } from "./mail-admission";
 import {
   promptHasPasteChip,
   promptStillPending,
@@ -41,6 +42,8 @@ export type ManagedDriveFactoryDeps = {
   readonly bracketedPaste?: (bindingId: string) => boolean;
   /** Grok clipboard-image preflight (Electron only; omitted on Remote). */
   readonly assertClipboardSafe?: ClipboardSafeAssert;
+  /** The harness domain's verdict on mail (`admitMail`); absent = composer only. */
+  readonly mailAdmission?: (bindingId: string) => MailAdmission | undefined;
 };
 
 export const createManagedTerminalDrive = (
@@ -88,4 +91,5 @@ export const createManagedTerminalDrive = (
     ...(deps.assertClipboardSafe !== undefined
       ? { assertClipboardSafe: deps.assertClipboardSafe }
       : {}),
+    ...(deps.mailAdmission !== undefined ? { mailAdmission: deps.mailAdmission } : {}),
   });

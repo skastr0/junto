@@ -29,6 +29,7 @@ import {
   THREAD_HEALTH_TONE,
   type ThreadHealthValue,
 } from "@shared/thread-health";
+import type { MailHold } from "@shared/mail-hold";
 import type { WireTrafficEvent } from "@shared/wire-traffic";
 import { agentSeat$ } from "./agent-seat-state";
 import { agentSignals$ } from "./agent-signals-state";
@@ -210,7 +211,10 @@ const HELD_REASON = {
   draft: "waits for your draft",
   dialog: "waits: this seat is showing a dialog",
   unreadable: "waits: Junto cannot read this seat's input box",
-} as const;
+  busy: "waits: this seat is starting, compacting or retrying",
+  stopped: "waits: this seat is stopped by a usage limit or an error",
+  unsupported: "waits: this seat's harness cannot take mail right now",
+} as const satisfies Record<MailHold, string>;
 
 export const wirePreambles = (
   event: WireTrafficEvent,

@@ -15,10 +15,8 @@
  * is not using, and is held otherwise (composer-availability).
  */
 
-import {
-  composerAvailability,
-  type ComposerHold,
-} from "../../../../shared/composer-availability";
+import { composerAvailability } from "../../../../shared/composer-availability";
+import type { MailHold } from "../../../../shared/mail-hold";
 import { mailSteeringSubmits } from "../../../../shared/managed-terminal-templates";
 import {
   OPERATOR_INPUT_LATCH_MS,
@@ -37,6 +35,7 @@ import {
   hermesRefusesMultilinePaste,
   payloadMayChip,
 } from "./typing";
+import type { MailAdmission } from "./mail-admission";
 import {
   createPtyDeliveryTracer,
   type PtyDeliveryTraceContext,
@@ -179,13 +178,14 @@ export type WritePromptOptions = {
  * What became of one mail write. "written": the paste and its CR reached the
  * PTY. "lost": the seat had no live generation to write into. Anything else
  * is a hold, with nothing typed: the operator is composing there ("draft"),
- * the harness is asking something ("dialog"), or the input box cannot be
- * read ("unreadable"). `subscribeMailWritable` says when to try again.
+ * the harness is asking something ("dialog"), the input box cannot be read
+ * ("unreadable"), or the seat's status refuses it (see `MailHold`).
+ * `subscribeMailWritable` says when to try again.
  */
-export type MailWriteOutcome = "written" | "lost" | ComposerHold;
+export type MailWriteOutcome = "written" | "lost" | MailHold;
 
 /** True when a mail write was held rather than written or lost. */
-export const isMailHold = (outcome: MailWriteOutcome): outcome is ComposerHold =>
+export const isMailHold = (outcome: MailWriteOutcome): outcome is MailHold =>
   outcome !== "written" && outcome !== "lost";
 
 /**
@@ -275,6 +275,11 @@ export type ManagedTerminalDriveOptions = {
    * typing. Absent = every seat with a composer lookup is probed.
    */
   readonly composerProbed?: (bindingId: string) => boolean;
+  /**
+   * The harness domain's verdict on mail for this seat (`admitMail`), read
+   * before the composer. Absent, or no verdict, = only the composer decides.
+   */
+  readonly mailAdmission?: (bindingId: string) => MailAdmission | undefined;
   /** Grace for an unread input box (see MAIL_UNREADABLE_GRACE_MS). */
   readonly mailUnreadableGraceMs?: number;
   /** Binding → harness id. Absent lookup = no Hermes multiline refuse. */
@@ -313,6 +318,7 @@ export class ManagedTerminalDrive {
   private readonly composerVerdict: ComposerVerdictLookup | undefined;
   private readonly seatState: ((bindingId: string) => string | undefined) | undefined;
   private readonly composerProbed: ((bindingId: string) => boolean) | undefined;
+  private readonly mailAdmission: ((bindingId: string) => MailAdmission | undefined) | undefined;
   private readonly mailUnreadableGraceMs: number;
   private readonly harnessFor: SeatHarnessLookup | undefined;
   private readonly bracketedPaste: ((bindingId: string) => boolean) | undefined;
@@ -368,7 +374,7 @@ export class ManagedTerminalDrive {
   /** Bindings whose mail is held, with why and the recheck timer. */
   private readonly mailHeld = new Map<
     string,
-    { reason: ComposerHold; timer: ReturnType<typeof setTimeout> }
+    { reason: MailHold; timer: ReturnType<typeof setTimeout> }
   >();
   private readonly mailWritableListeners = new Set<(bindingId: string) => void>();
   /** A paste landed without submission proof. Only a new binding generation clears it. */
@@ -420,6 +426,7 @@ export class ManagedTerminalDrive {
     };
     this.seatState = options.seatState;
     this.composerProbed = options.composerProbed;
+    this.mailAdmission = options.mailAdmission;
     this.mailUnreadableGraceMs = options.mailUnreadableGraceMs ?? MAIL_UNREADABLE_GRACE_MS;
     this.harnessFor = options.harnessFor;
     this.bracketedPaste = options.bracketedPaste;
@@ -755,13 +762,16 @@ export class ManagedTerminalDrive {
 
   /**
    * Why mail may not be typed into this seat now, or undefined when it may.
+   * The seat's status refusing mail holds first, whatever the box reads.
    * A seat asking for attention always holds. A draft holds only when it is
    * the operator's; the drive's own stuck paste and text the harness painted
    * are still a composer, and typeable. A seat with no composer probes, and
    * a drive with no composer lookup (a test seam), read as an empty box:
    * with nothing to read the box by, an unread box is not a finding.
    */
-  private mailHold(bindingId: string): ComposerHold | undefined {
+  private mailHold(bindingId: string): MailHold | undefined {
+    const admission = this.mailAdmission?.(bindingId);
+    if (admission?._tag === "Held") return admission.reason;
     const probed =
       this.composerVerdict !== undefined &&
       (this.composerProbed?.(bindingId) ?? true);
@@ -775,9 +785,9 @@ export class ManagedTerminalDrive {
   }
 
   /** Hold this binding's mail and look again until the box is available. */
-  private holdMail(bindingId: string, reason: ComposerHold): void {
+  private holdMail(bindingId: string, reason: MailHold): void {
     if (this.mailHeld.has(bindingId)) return;
-    const arm = (why: ComposerHold): void => {
+    const arm = (why: MailHold): void => {
       const timer = setTimeout(() => {
         if (this.mailHeld.get(bindingId)?.timer !== timer) return;
         const still = this.mailHold(bindingId);
@@ -841,6 +851,10 @@ export class ManagedTerminalDrive {
         // Checked inside the hold and before the first await: operator bytes
         // that arrive from here on are parked until the CR, so no keystroke
         // can fall between this check and the paste.
+        if (this.mailAdmission?.(bindingId)?._tag === "Lost") {
+          this.traceState(bindingId, "gate", { gate: "mail-admission", lost: true });
+          return "lost";
+        }
         const hold = this.mailHold(bindingId);
         if (hold !== undefined) {
           this.traceState(bindingId, "gate", { gate: "mail-composer", held: true, reason: hold });

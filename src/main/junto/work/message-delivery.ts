@@ -51,7 +51,7 @@ import {
   sanitizeDeliveryLine,
   type MailLineOptions,
 } from "@shared/message-delivery";
-import type { ComposerHold } from "@shared/composer-availability";
+import type { MailHold } from "@shared/mail-hold";
 import {
   wireTrafficOfMail,
   wireTrafficPreview,
@@ -113,7 +113,7 @@ export type MessageDeliveryTransport = {
   readonly writeMail: (
     bindingId: string,
     text: string,
-  ) => Promise<"written" | "lost" | ComposerHold>;
+  ) => Promise<"written" | "lost" | MailHold>;
 };
 
 /** Perf tag for each authority read: a boot scan, or one message's delivery. */
@@ -214,7 +214,7 @@ export class MessageDeliveryService {
   /** Mail whose failed write was already told; cleared once it lands. */
   private readonly failedTold = new Set<string>();
   /** Held mail already told, with why and when; cleared once it lands. */
-  private readonly heldTold = new Map<string, { reason: ComposerHold; at: number }>();
+  private readonly heldTold = new Map<string, { reason: MailHold; at: number }>();
   /** One retry timer per held message; see MAIL_HELD_RETRY_MS. */
   private readonly heldRetries = new Map<string, ReturnType<typeof setTimeout>>();
   /** Told once per message typed into a seat (wire pulse, preambles). */
@@ -455,7 +455,7 @@ export class MessageDeliveryService {
     nodeId: string,
     message: Message,
     key: string,
-    reason: ComposerHold,
+    reason: MailHold,
   ): void {
     const now = Date.now();
     const told = this.heldTold.get(key);
