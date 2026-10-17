@@ -70,6 +70,28 @@ describe("harness capabilities", () => {
     }
   });
 
+  it("agrees with the signal each screen rule declares", () => {
+    for (const harness of HARNESS_IDS) {
+      const declaration = HARNESS_CAPABILITY_DECLARATIONS[harness];
+      const rules = rulePackFor(harness).rules;
+      for (const rule of rules) {
+        if (rule.signal === undefined) continue;
+        const support = declaration.signals[rule.signal._tag];
+        const label = `${harness} ${rule.id} ${rule.signal._tag}`;
+        expect(support.level, label).not.toBe("none");
+        if (support.level === "screen") expect(support.grounds, label).toContainEqual({ rule: rule.id });
+      }
+      for (const [kind, support] of Object.entries(declaration.signals)) {
+        if (support.level === "none") continue;
+        for (const ground of support.grounds) {
+          if (!("rule" in ground)) continue;
+          const signal = rules.find((rule) => rule.id === ground.rule)?.signal;
+          if (signal !== undefined) expect(signal._tag, `${harness} ${kind} ${ground.rule}`).toBe(kind);
+        }
+      }
+    }
+  });
+
   it("stays inside the PTY stream: screen, osc7501 and process signals, pty and process commands", () => {
     for (const harness of HARNESS_IDS) {
       const { signals, commands } = HARNESS_CAPABILITIES[harness];
