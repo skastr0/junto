@@ -6,6 +6,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { Schema } from "effect";
 import type { Node } from "@shared/model";
 import {
   resolveManagedLaunchPlan,
@@ -14,9 +15,9 @@ import {
   type ManagedSpawnIntent,
 } from "@shared/managed-terminal-launch";
 import {
+  HarnessId,
   isHarnessId,
   templateFor,
-  type HarnessId,
 } from "@shared/managed-terminal-templates";
 import type { TerminalLaunch } from "@shared/terminal";
 import { agentKeyProfileSuffix } from "@shared/harness-records";
@@ -96,18 +97,16 @@ export const makeManagedSpawnIntent = (
 };
 
 /** A seat whose profile is not a profile name: it does not launch, under that profile or the default. */
-export class SeatProfileRefused extends Error {
-  readonly _tag = "SeatProfileRefused";
-  constructor(readonly harness: HarnessId) {
-    super(`This seat's ${harness} profile is not a profile name, so it does not launch.`);
-    this.name = "SeatProfileRefused";
-  }
-}
+export class SeatProfileRefused extends Schema.TaggedError<SeatProfileRefused>()("SeatProfileRefused", {
+  harness: HarnessId,
+  message: Schema.String,
+}) {}
 
 /** The seat's profile from its choices, its document launch or its agent key; one that could not cross the link cannot launch. */
 const seatProfile = (harness: HarnessId, chosen: string | undefined, agentKey: string | undefined): string | undefined => {
   const profile = chosen ?? agentKeyProfileSuffix(harness, agentKey);
-  if (profile !== undefined && !isProfileName(profile)) throw new SeatProfileRefused(harness);
+  if (profile !== undefined && !isProfileName(profile))
+    throw new SeatProfileRefused({ harness, message: `This seat's ${harness} profile is not a profile name, so it does not launch.` });
   return profile;
 };
 

@@ -3,6 +3,7 @@
  * carried on the link's inventory snapshot, and passed to `hermes --profile`.
  * A name that cannot cross cannot launch.
  */
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { decodeLinkInventorySnapshot, inventoryOfSnapshot, wireSnapshot } from "../src/main/junto/inventory/wire";
 import { HARNESS_PROFILE_LISTS } from "../src/main/junto/term/templates/enumerate-dispatch";
@@ -63,6 +64,15 @@ describe("hermes profile names", () => {
       expect(() => launchForManagedSpawn({ nodeId: "w", harness: "hermes", agentKey: "mini:hermes", profile: name, documentLaunch }), name)
         .toThrow(SeatProfileRefused);
     }
+  });
+
+  it("refuses as a tagged failure that encodes like the rest", () => {
+    const refused = (() => {
+      try { launchForManagedSpawn({ nodeId: "w", harness: "hermes", agentKey: "mini:-x", documentLaunch: { kind: "harness", argv: ["hermes"] } }); }
+      catch (cause) { return cause; }
+    })();
+    expect(refused).toMatchObject({ _tag: "SeatProfileRefused", harness: "hermes" });
+    expect(Schema.encodeSync(SeatProfileRefused)(refused as SeatProfileRefused)).toMatchObject({ _tag: "SeatProfileRefused", harness: "hermes" });
   });
 
   it("holds the ACP path to the same shape, so a profile is never a flag to hermes -p", () => {
