@@ -61,7 +61,7 @@ const chooseMachine = async (page: Page, label: string) => {
 const nav = (page: Page, name: RegExp) => page.locator(".settings-nav__item", { hasText: name }).click();
 
 test("Agents, Providers and Name and startup follow the chosen machine", async () => {
-  test.setTimeout(300_000);
+  test.setTimeout(180_000);
   await mkdir(SHOTS, { recursive: true });
   const realVersion = /\d+\.\d+\.\d+/.exec(execFileSync(REAL_CLAUDE, ["--version"], { encoding: "utf8" }))?.[0];
   expect(realVersion).toBeDefined();
@@ -77,14 +77,8 @@ test("Agents, Providers and Name and startup follow the chosen machine", async (
     // (1) Agents on this machine: real version, saved values from the file.
     await nav(page, /^Agents$/);
     const claude = page.locator('.settings-harness-card[data-harness="claude"]');
-    await expect(claude).toContainText("rescanning", { timeout: 30_000 });
-    await expect(claude).toContainText(`version ${realVersion}`, { timeout: 20_000 }).catch(() => undefined);
-    console.log("claude head after first open:", (await claude.locator(".settings-harness-card__head").innerText()).replace(/\n/g, " | "));
-    // Open the page again: the scan has had time to finish.
-    await nav(page, /^Providers$/);
-    await nav(page, /^Agents$/);
-    console.log("claude head after reopen:", (await claude.locator(".settings-harness-card__head").innerText()).replace(/\n/g, " | "));
-    await expect(claude).toContainText(`version ${realVersion}`, { timeout: 30_000 });
+    // The first open waits on the scan and shows its result without a reopen.
+    await expect(claude).toContainText(`version ${realVersion}`, { timeout: 60_000 });
     await expect(claude).toContainText("Saved in Claude Code's own config");
     const field = (label: string) => claude.getByLabel(`Claude Code ${label} in its own config on Desk`);
     await expect(field("model")).toHaveValue("opus", { timeout: 15_000 });
@@ -108,10 +102,9 @@ test("Agents, Providers and Name and startup follow the chosen machine", async (
     const providerSwitches = page.locator('.settings-section input[type="checkbox"]');
     expect(await providerSwitches.count()).toBeGreaterThan(0);
     for (let index = 0; index < (await providerSwitches.count()); index += 1) await expect(providerSwitches.nth(index)).toBeDisabled();
-    // The credential fields are not held off with the switches today; logged, not asserted.
-    const openSecrets = await page.locator('.settings-section input[type="password"]').evaluateAll((els) =>
-      (els as HTMLInputElement[]).filter((el) => !el.disabled).length);
-    console.log("credential inputs still enabled with Mini:", openSecrets);
+    const secrets = page.locator('.settings-section input[type="password"]');
+    expect(await secrets.count()).toBeGreaterThan(0);
+    for (let index = 0; index < (await secrets.count()); index += 1) await expect(secrets.nth(index)).toBeDisabled();
     await page.screenshot({ path: `${SHOTS}/mini-providers.png` });
     await nav(page, /Machine|Name and startup/);
     await expect(page.getByRole("status").filter({ hasText: "No record from Mini:" })).toBeVisible();
