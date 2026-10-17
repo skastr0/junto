@@ -76,11 +76,10 @@ const LAST_SCREEN: Readonly<Record<string, Readonly<Record<string, Outcome>>>> =
     "error-server": "written",
     "error-context": "written",
     "compaction-manual": "written",
-    // DEFECT: both limits end on Codex's "Switch to gpt-6-luna?" model picker
-    // (enter select, esc back). Mail is typed into the picker; it should hold
-    // as a dialog once the codex pack recognizes the picker.
-    "usage-limit": "written",
-    "usage-limit-weekly": "written",
+    // Both limits end on Codex's "Switch to gpt-6-luna?" model picker
+    // (enter select, esc back): the seat is blocked on the limit, mail holds.
+    "usage-limit": "dialog",
+    "usage-limit-weekly": "dialog",
   },
   devin: {
     "startup-idle": "written",

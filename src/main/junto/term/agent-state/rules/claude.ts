@@ -38,6 +38,39 @@ export const claudeRules: SeatRulePack = {
     // TUI paints it as a constant footer, so it cannot separate the two states.
     // Priority sits above both idle prompt-box rules and below every permission
     // rule (1170+); the `not` gate keeps live dialog chrome winning regardless.
+    // A retry or a compaction is a turn in progress whose status line says
+    // which. Live only: "esc to interrupt" in the footer, and the line in the
+    // last few, so a finished one in the scrollback never pins. Captures:
+    // tests/pty-e2e/corpus/claude/retry-*, compaction-manual.
+    {
+      id: "api_retry_working",
+      state: "working",
+      signal: { _tag: "Retrying", cause: "unknown" },
+      priority: 1162,
+      region: "bottom_non_empty_lines",
+      regionN: 6,
+      visibleWorking: true,
+      matchers: {
+        contains: ["esc to interrupt"],
+        // "\u273B 529 Overloaded \u00B7 Retrying in 3s \u00B7 attempt 3/3"
+        lineRegex: [
+          "^\\s*\\S\\s+(?<cause>.+?)\\s+\\u00B7\\s+Retrying in\\s+(?<retryInMs>\\d+(?:\\.\\d+)?\\s*(?:ms|s|m))\\s+\\u00B7\\s+attempt\\s+(?<attempt>\\d+)/(?<max>\\d+)",
+        ],
+      },
+    },
+    {
+      id: "compacting_working",
+      state: "working",
+      signal: { _tag: "CompactionStarted", trigger: "unknown" },
+      priority: 1162,
+      region: "bottom_non_empty_lines",
+      regionN: 12,
+      visibleWorking: true,
+      matchers: {
+        lineRegex: ["Compacting conversation…\\s*\\(\\d+s\\b"],
+        not: [{ contains: ["esc to cancel"] }],
+      },
+    },
     {
       id: "live_status_line_working",
       state: "working",
@@ -111,6 +144,26 @@ export const claudeRules: SeatRulePack = {
       visibleAttention: true,
       matchers: {
         contains: ["run a dynamic workflow?", "esc to cancel"],
+      },
+    },
+    // The weekly (or session) limit asks what to do: stop and wait, wait
+    // here and continue at the reset, or upgrade. A usage limit, not a
+    // permission: above the generic "do you want to" blocker. Capture:
+    // tests/pty-e2e/corpus/claude/usage-limit-weekly.
+    {
+      id: "usage_limit_choice",
+      state: "attention",
+      signal: { _tag: "UsageLimitHit", scope: "unknown" },
+      priority: 1220,
+      region: "bottom_non_empty_lines",
+      regionN: 12,
+      visibleAttention: true,
+      matchers: {
+        contains: ["what do you want to do?", "wait for limit to reset"],
+        // "You've hit your weekly limit \u00B7 resets Oct 21 at 6:23am (UTC)"
+        regex: [
+          "^(?:[\\s\\S]*hit your (?<scope>weekly|session) limit[^\\n]*?\\bresets (?<resetsAt>[^\\n]+?)[ \\t]*(?:\\n|$))?",
+        ],
       },
     },
     {

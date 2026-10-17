@@ -17,6 +17,7 @@ import {
   parseResetAt,
   parseScreenDuration,
   parseScreenNumber,
+  retryCause,
   ruleSignal,
   signalForState,
 } from "../src/main/junto/term/agent-state/screen-signal";
@@ -98,7 +99,7 @@ describe("named captures fill the signal", () => {
   };
 
   it("a reset time on the screen becomes resetsAt, and the matched text the message", () => {
-    const evaluation = evaluate(snap(["■ You've hit your usage limit. Resets 3pm (Europe/Lisbon)"]), {
+    const evaluation = evaluate(snap(["■ You've hit your usage limit. Resets 3pm"]), {
       harness: "codex",
       pack: limitPack,
       now: NOW,
@@ -110,7 +111,7 @@ describe("named captures fill the signal", () => {
       _tag: "UsageLimitHit",
       scope: "5h",
       resetsAt: new Date(2026, 9, 16, 15, 0, 0, 0).getTime(),
-      message: "usage limit. Resets 3pm (Europe/Lisbon)",
+      message: "usage limit. Resets 3pm",
     });
   });
 
@@ -159,6 +160,29 @@ describe("reading times, durations and numbers off a screen", () => {
     expect(parseResetAt("soon", NOW)).toBeUndefined();
     expect(parseResetAt("13pm", NOW)).toBeUndefined();
     expect(parseResetAt("3", NOW)).toBeUndefined();
+  });
+
+  it("dated and zoned reset times, as Claude and Codex print them", () => {
+    const utcNow = Date.UTC(2026, 9, 16, 3, 0);
+    expect(parseResetAt("6:23am (UTC)", utcNow)).toBe(Date.UTC(2026, 9, 16, 6, 23));
+    expect(parseResetAt("2am (UTC)", utcNow)).toBe(Date.UTC(2026, 9, 17, 2, 0));
+    expect(parseResetAt("Oct 21 at 6:23am (UTC)", utcNow)).toBe(Date.UTC(2026, 9, 21, 6, 23));
+    // Lisbon is UTC+1 in October.
+    expect(parseResetAt("3pm (Europe/Lisbon)", utcNow)).toBe(Date.UTC(2026, 9, 16, 14, 0));
+    // No zone: the machine's own.
+    expect(parseResetAt("Oct 21st, 2026 6:25 AM", utcNow)).toBe(new Date(2026, 9, 21, 6, 25).getTime());
+    // A date already past this year is next year's.
+    expect(parseResetAt("Jan 2 at 9am (UTC)", utcNow)).toBe(Date.UTC(2027, 0, 2, 9, 0));
+    expect(parseResetAt("6:23am (Mars/Base)", utcNow)).toBeUndefined();
+    expect(parseResetAt("Smarch 3 at 9am", utcNow)).toBeUndefined();
+  });
+
+  it("retry causes", () => {
+    expect(retryCause("529 Overloaded")).toBe("overloaded");
+    expect(retryCause("429 Rate limit reached for requests per minute.")).toBe("rate");
+    expect(retryCause("Connection dropped (ECONNRESET)")).toBe("network");
+    expect(retryCause("500 Internal server error")).toBe("server");
+    expect(retryCause("API error")).toBe("unknown");
   });
 
   it("durations", () => {

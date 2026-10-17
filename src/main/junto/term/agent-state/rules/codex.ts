@@ -21,6 +21,36 @@ export const codexRules: SeatRulePack = {
       visibleAttention: true,
       matchers: { contains: ["action required"] },
     },
+    // A retry or a compaction is still a turn in progress, but the status
+    // line says which: above the title spinner so the signal is not lost to
+    // it. Bottom lines only, so a finished one in the scrollback never pins.
+    // Captures: tests/pty-e2e/corpus/codex/retry-*, compaction-manual.
+    {
+      id: "reconnecting_retry",
+      state: "working",
+      signal: { _tag: "Retrying", cause: "unknown" },
+      priority: 1062,
+      region: "bottom_non_empty_lines",
+      regionN: 5,
+      visibleWorking: true,
+      matchers: {
+        regex: [
+          "(?:^|\\n)[•◦]\\s+Reconnecting\\.{3}\\s+(?<attempt>\\d+)/(?<max>\\d+)\\s+\\([^)\\n]*esc to interrupt\\)(?:\\n\\s*└\\s*(?<cause>[^\\n]+))?",
+        ],
+      },
+    },
+    {
+      id: "compacting_context",
+      state: "working",
+      signal: { _tag: "CompactionStarted", trigger: "unknown" },
+      priority: 1061,
+      region: "bottom_non_empty_lines",
+      regionN: 5,
+      visibleWorking: true,
+      matchers: {
+        lineRegex: ["^[•◦]\\s+Compacting context \\([^)]*esc to interrupt\\)"],
+      },
+    },
     {
       id: "osc_title_working",
       state: "working",
@@ -41,6 +71,39 @@ export const codexRules: SeatRulePack = {
           { contains: ["esc to edit prev"] },
           { contains: ["esc/← to edit prev"] },
         ],
+      },
+    },
+    // A usage limit ends on a model picker ("Switch to <model> for lower
+    // credit usage?", enter select, esc back). The picker's arrow reads as a
+    // draft in the box, so without these the seat reads idle and mail is
+    // typed into the picker. Capture: corpus/codex/usage-limit*.
+    {
+      id: "usage_limit_picker",
+      state: "attention",
+      signal: { _tag: "UsageLimitHit", scope: "unknown" },
+      priority: 710,
+      region: "bottom_non_empty_lines",
+      regionN: 10,
+      visibleAttention: true,
+      matchers: {
+        contains: ["hit your usage limit"],
+        lineRegex: ["^\\s*enter select \\u00B7 esc back\\s*$"],
+        // Captures the reset when the message gives one: "try again at
+        // 6:25 AM." or "try again at Oct 21st, 2026 6:25 AM.", wrapped
+        // anywhere. Optional, so a message without one is still a limit.
+        regex: ["^(?:[\\s\\S]*try\\s+again\\s+at\\s+(?<resetsAt>[^.]+?)\\.(?:\\s|$))?"],
+      },
+    },
+    {
+      id: "live_picker",
+      state: "attention",
+      signal: { _tag: "DialogShown", kind: "picker" },
+      priority: 700,
+      region: "bottom_non_empty_lines",
+      regionN: 3,
+      visibleAttention: true,
+      matchers: {
+        lineRegex: ["^\\s*enter select \\u00B7 esc back\\s*$"],
       },
     },
     {
