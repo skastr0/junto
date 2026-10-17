@@ -1,5 +1,6 @@
 /** Seat admission selects the process implementation for its machine. */
-import { Context, Effect, Layer } from "effect";
+import { randomUUID } from "node:crypto";
+import { Cause, Context, Effect, Layer } from "effect";
 import { isThisMachine } from "@shared/machine-name";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import type { TerminalSessionSummary } from "@shared/terminal";
@@ -18,6 +19,8 @@ import {
   type OccupySpec,
   type RemoteSeatProcessClient,
 } from "./seat-process";
+import { asCanvasName, asNodeId } from "@shared/model";
+import { clipText, SeatSpawnFailed } from "./seats-failure";
 
 export type ActorOccupySpec = OccupySpec & {
   readonly harness: HarnessId;
@@ -128,6 +131,24 @@ const occupancyProgram = (
     return yield* seats.occupancy(bindingId);
   });
 
+/**
+ * A harness that never started still returns its exited generation, so the
+ * card reads exitMessage from it; the log row records it as the failure.
+ */
+const logStartOutcome = (
+  spec: ActorOccupySpec,
+  machine: string,
+  live: TerminalSessionSummary,
+): Effect.Effect<void> =>
+  live.status === "exited" && live.exitReason !== undefined
+    ? Effect.logError("seat start failed", Cause.fail(new SeatSpawnFailed({
+        machine, canvas: asCanvasName(spec.canvasName), seatId: asNodeId(spec.nodeId),
+        bindingId: spec.bindingId, harness: spec.harness, exitReason: live.exitReason,
+        exitMessage: clipText(live.exitMessage ?? live.exitReason),
+        message: clipText(live.exitMessage ?? live.exitReason),
+      })))
+    : Effect.logInfo(`seat start ${live.status}`);
+
 export const makeActorSeatOccupy = (
   deps: ActorSeatOccupyDeps,
 ): Context.Service.Shape<typeof ActorSeatOccupy> =>
@@ -151,8 +172,17 @@ export const makeActorSeatOccupy = (
           Effect.provide(
             Layer.succeed(TerminalSeatProcess, implementation),
           ),
+          Effect.tap((live) => logStartOutcome(spec, targetHostId, live)),
+          Effect.tapCause((cause) => Effect.logError("seat start failed", cause)),
+          Effect.annotateLogs({ machine_target: targetHostId }),
         );
-      });
+      }).pipe(
+        Effect.annotateLogs({
+          area: "seats", operationId: randomUUID(), seat: spec.nodeId,
+          canvas: spec.canvasName, harness: spec.harness,
+        }),
+        Effect.withSpan("ActorSeatOccupy.occupy"),
+      );
     },
     occupancy: (bindingId, hostId) =>
       Effect.gen(function* () {

@@ -14,7 +14,7 @@ import { makeManagedSpawnIntent } from "./managed-spawn-plan";
 import { termPlane } from "./plane";
 import { runOnSeatStartTurn } from "./seat-start-turn";
 import {
-  asSeatsFailure, SeatCanvasEditorMismatch, SeatChangedWhilePreparing, SeatEpochChanged, SeatExited,
+  asSeatsFailure, clipText, type SeatsFailureWhere, SeatCanvasEditorMismatch, SeatChangedWhilePreparing, SeatEpochChanged, SeatExited,
   SeatLinkClosed, SeatMissing, SeatNotOnThisMachine, SeatOccupantChanged, SeatPeerNotPinned,
   SeatSessionUnavailable, SeatSpawnFailed, SeatStopping,
 } from "./seats-failure";
@@ -41,8 +41,6 @@ export const SeatsVacant = Schema.Struct({
   _tag: Schema.Literal("Vacant"), canvas: CanvasName, seatId: NodeId, machine: MachineName,
 });
 export const SeatsResponse = Schema.Union([SeatsStarted, SeatsVacant]);
-
-type Where = { readonly machine: string; readonly canvas: string; readonly seatId: string };
 
 type Handle = {
   readonly peer: LinkChannelContext["peer"];
@@ -75,17 +73,17 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
       if (handle.sessionId === context.sessionId && handle.peer.installationId === context.peer.installationId)
         handles.delete(id);
   };
-  const disconnected = (context: LinkChannelContext, where: Where) =>
+  const disconnected = (context: LinkChannelContext, where: SeatsFailureWhere) =>
     context.signal.aborted ? Effect.fail(new SeatLinkClosed({ ...where, message: "This machine link has closed." })) : Effect.void;
 
-  const reply = (context: LinkChannelContext, canvas: string, seat: NodeOf<"agent">,
+  const reply = (context: LinkChannelContext, canvas: CanvasName, seat: NodeOf<"agent">,
     machine: string, live: TerminalSessionSummary) => Effect.gen(function* () {
     const where = { machine, canvas, seatId: seat.id };
     const current = host.get(seat.bindingId);
     // The first cause wins: a harness that never started answers why, whatever came after.
     const ended = current?.epoch === live.epoch ? current : live;
     if (ended.status === "exited" && ended.exitReason !== undefined) {
-      const exitMessage = (ended.exitMessage ?? `The seat's harness could not start (${ended.exitReason}).`).slice(0, 2048);
+      const exitMessage = clipText(ended.exitMessage ?? `The seat's harness could not start (${ended.exitReason}).`);
       return yield* new SeatSpawnFailed({ ...where, bindingId: seat.bindingId, harness: seat.harness,
         exitReason: ended.exitReason, exitMessage, message: exitMessage });
     }
@@ -174,8 +172,8 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
       catch: (cause) => asSeatsFailure(where, cause),
     });
     if (!prepared.ok)
-      return yield* new SeatSessionUnavailable({ ...where, reason: prepared.reason.slice(0, 2048),
-        message: `This seat could not start: ${prepared.reason}`.slice(0, 2048) });
+      return yield* new SeatSessionUnavailable({ ...where, reason: clipText(prepared.reason),
+        message: clipText(`This seat could not start: ${prepared.reason}`) });
     yield* beforeSpawn;
     const start = occupants.occupy({
       canvasName: request.canvas, nodeId: initial.seat.id, bindingId: initial.seat.bindingId,
@@ -196,12 +194,13 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
   const handleRequest: NonNullable<LinkChannelHandler["handleRequest"]> = (context, raw) => Effect.gen(function* () {
     // Decode unknown here too: direct callers cannot bypass the transport decoder.
     const request = yield* Schema.decodeUnknownEffect(SeatsRequest)(raw, { onExcessProperty: "error" });
-    const where = { machine: "", canvas: request.canvas, seatId: request.seatId };
-    const machine = yield* machines.machineName.pipe(Effect.mapError((cause) => asSeatsFailure(where, cause)));
+    // A failed read of this machine's own name keeps its own typed error.
+    const machine = yield* machines.machineName;
+    const where = { machine, canvas: request.canvas, seatId: request.seatId };
     const kind = request._tag === "Start" ? "start" : "activation";
     // Every start and activation is logged on this machine with its outcome.
     const answered = answer(context, request, machine).pipe(
-      Effect.mapError((cause) => asSeatsFailure({ ...where, machine }, cause)));
+      Effect.mapError((cause) => asSeatsFailure(where, cause)));
     return yield* (request._tag === "Get" ? answered : answered.pipe(
       Effect.tap(() => Effect.logInfo(`seat ${kind} answered`)),
       Effect.tapCause((cause) => Effect.logError(`seat ${kind} failed`, cause)),
