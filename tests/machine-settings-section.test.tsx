@@ -56,6 +56,14 @@ describe("Name and startup, per machine", () => {
     expect(supervised().checked).toBe(true);
   });
 
+  it("names the machine by its list label and offers no rename", async () => {
+    state$.machines.set([{ id: "desk", label: "Desk", isThisMachine: true } as never]);
+    await render();
+    const section = host.querySelector('[data-testid="settings-machine-section"]')!;
+    expect(section.textContent).toContain("Desk");
+    expect(section.querySelectorAll('input:not([type="checkbox"]), textarea').length).toBe(0);
+  });
+
   it("says why another machine's record is not shown, and offers no write", async () => {
     state$.machines.set([
       { id: "desk", label: "Desk", isThisMachine: true } as never,

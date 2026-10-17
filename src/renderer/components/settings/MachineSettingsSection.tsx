@@ -1,6 +1,7 @@
 /**
- * Settings > Name and startup, for the machine chosen in the sidebar: what
- * other machines call it and whether it prefers a supervised runtime. The
+ * Settings > Name and startup, for the machine chosen in the sidebar: its
+ * label from the machine list and whether it prefers a supervised runtime.
+ * The name pinned at setup never changes, so this page offers no rename. The
  * machine's own core answers and writes it (lib/machine-settings-source.ts);
  * a machine no channel reaches yet says why.
  */
@@ -72,8 +73,8 @@ export function MachineSettingsSection() {
           Not saved on {machine.label}: {writeError}
         </p>
       ) : null}
-      <FieldRow group label="Name" hint={`What other machines call ${whose}.`}>
-        <span style={{ color: INK, fontSize: "var(--text-body-lg)" }}>{record?.name ?? machine.name}</span>
+      <FieldRow group label="Name" hint={`What your machines list calls ${whose}.`}>
+        <span style={{ color: INK, fontSize: "var(--text-body-lg)" }}>{machine.label}</span>
       </FieldRow>
       <FieldRow
         label="Prefer supervised runtime"
