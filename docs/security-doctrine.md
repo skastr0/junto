@@ -334,8 +334,10 @@ machine that read the bytes makes the tail, in this order:
    credential and every value in the process environment and in each live
    seat's child environment, region values included, except those named
    `HOME`, `USER`, `LOGNAME`, `SHELL`, `PATH`, `TMPDIR`, `PWD`, `TERM`,
-   `COLORTERM`, `LANG`, `LC_*`, and `JUNTO_*` other than `JUNTO_WORK_TOKEN`:
-   those are names and paths. The credential is searched from four
+   `COLORTERM`, `LANG`, `LC_*`, `JUNTO_SEAT`, `JUNTO_NODE_REF`,
+   `JUNTO_SOCKET`, `JUNTO_WORK_SOCKET`, `JUNTO_WORK_HOME` and `JUNTO_CLI`:
+   those are names and paths. The list is closed; a new variable is searched
+   until it is added here. The credential is searched from four
    characters, environment values from six, so that a value such as `1` or
    `true` does not erase the text.
 4. Replace what looks like a credential Junto does not know: the value after
