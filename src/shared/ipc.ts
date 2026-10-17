@@ -1301,6 +1301,12 @@ export type MachineInventoryFailure = {
   readonly machine: string;
   readonly reason: "timeout" | "failed" | "unreachable" | "notInstalled";
   readonly message: string;
+  /** The typed failure behind the reason, e.g. LinkUnavailable or InventorySnapshotRefused. */
+  readonly failure?: string;
+  /** The operation both machines logged this request under. */
+  readonly operationId?: string;
+  /** The last snapshot that machine sent, and when this machine received it. */
+  readonly last?: { readonly inventory: MachineInventory; readonly receivedAt: number };
 };
 
 export type MachineInventoryResult =

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { MachineCoreOptions } from "../core-runtime";
 import { makeCoreRuntime } from "../core-runtime";
 import { MachineCoreStatus, MachineCoreRows, MachineCoreSeats, MachineCoreMail } from "../core-runtime";
+import { makeInventoryChannel } from "./inventory/channel";
 import { MachineOwnerControl } from "./hosts/machine-owner";
 import { MachineLink, type MachineLinkListener } from "./link/service";
 import { startOperatorControlServer, type OperatorControlServer } from "./operator-control";
@@ -92,7 +93,8 @@ export const startCore = async (options: CoreOptions) => {
       run: effect => runtime.runPromise(effect),
     });
     seatProcesses = await startCoreSeats({ home: options.home });
-    await runtime.runPromise(link.setChannels({ status: status.handler, rows: rows.handler, seats: seats.handler }));
+    const inventory = await runtime.runPromise(makeInventoryChannel());
+    await runtime.runPromise(link.setChannels({ status: status.handler, rows: rows.handler, seats: seats.handler, inventory }));
     listener = await runtime.runPromise(link.listen(options.home));
     owner = await startOperatorControlServer({ home: options.home, dispatch: (request) => runtime.runPromise(actions.dispatch(request)) });
     await runtime.runPromise(mail.boot({

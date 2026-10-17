@@ -27,6 +27,7 @@ import { onRemoteSeatState, rememberRemoteSeatState } from "./remote-seat-state"
 import { AppRuntime } from "../../runtime";
 import { liveSeatEnvironment } from "../region-env/live";
 import { Effect, Result, Schema } from "effect";
+import { MachineRepository } from "../machines/repository";
 import type { InventoryUnavailableError } from "@shared/harness-domain/inventory";
 import type { NativeSettingRefusedError } from "@shared/harness-domain/native-config";
 import type { NativeConfigWriteError } from "@shared/harness-domain/native-config-write";
@@ -268,17 +269,14 @@ export const registerTerminalIpc = (
     assertTrusted(event);
     if (typeof machine !== "string" || !machine.trim()) return deny("machine inventory: a machine name is required");
     const { HarnessInventory } = await import("./templates/harness-inventory");
-    return AppRuntime.runPromise(Effect.flatMap(HarnessInventory, (inventory) => inventory.machine).pipe(
-      Effect.map((inventory): MachineInventoryResult => inventory.machine === machine
-        ? { ok: true, inventory }
-        // A linked machine answers over the link's inventory channel, which lands
-        // after the link rewrite (docs/machines.md, Harness inventory, Order).
-        : { ok: false, error: {
-          _tag: "InventoryUnavailableError",
-          machine,
-          reason: "unreachable",
-          message: "Another machine's inventory comes over the link's inventory channel, which is not built yet",
-        } }),
+    const { peerInventory } = await import("../inventory/client");
+    return AppRuntime.runPromise(Effect.gen(function* () {
+      const inventory = yield* HarnessInventory;
+      const own = yield* (yield* MachineRepository).machineName.pipe(Effect.orElseSucceed(() => undefined));
+      if (own === undefined || own === machine) return { ok: true, inventory: yield* inventory.machine } satisfies MachineInventoryResult;
+      // A linked machine answers over the link's inventory channel.
+      return yield* peerInventory().inventoryOf(machine);
+    }).pipe(
       Effect.catchTag("InventoryUnavailableError", (error) => Effect.succeed<MachineInventoryResult>({
         ok: false,
         error: { _tag: error._tag, machine: error.machine || machine, reason: error.reason, message: error.message },
