@@ -23,7 +23,7 @@ import {
   SeatSessionUnavailable, SeatsFailure, SeatSpawnFailed, SeatStateNotFromItsMachine, SeatStatusInvalid, SeatStopping,
   SeatStopRefused,
 } from "./seats-failure";
-import { decodeSeatsStatus, fromSeatsStatus, toSeatsStatus } from "./seats-status";
+import { decodeSeatsStatus, fromSeatsStatus, statusIssueAt, toSeatsStatus } from "./seats-status";
 import { seatStateRuntime } from "./agent-state/runtime";
 import { publishRemoteSeatState } from "./remote-seat-state";
 import type { LocalSessionHost } from "./local-host";
@@ -355,7 +355,7 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
       } catch (cause) {
         // One event refused, logged with its tag; the link stays open.
         const refused = new SeatStatusInvalid({ ...where, peer: context.peer.machineName,
-          message: clipText(`A seat state's status did not read: ${cause instanceof Error ? cause.message : String(cause)}`) });
+          message: `A seat state's status did not read: ${statusIssueAt(cause)}.` });
         yield* Effect.logWarning("seat state refused", refused).pipe(Effect.annotateLogs({
           area: "seats", canvas: event.canvas, seat: event.seatId, peer: context.peer.machineName, failure: refused._tag }));
         return;

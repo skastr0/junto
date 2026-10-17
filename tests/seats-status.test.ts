@@ -5,7 +5,7 @@
  */
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { decodeSeatsStatus, fromSeatsStatus, toSeatsStatus } from "../src/main/junto/term/seats-status";
+import { decodeSeatsStatus, fromSeatsStatus, statusIssueAt, toSeatsStatus } from "../src/main/junto/term/seats-status";
 import { AgentSeatStatus } from "../src/shared/agent-seat-state";
 import { topNeed, type BindingId, type SeatSnapshot } from "../src/shared/harness-domain";
 
@@ -104,6 +104,24 @@ describe("the seats wire status", () => {
     expect(held.snapshot.seat).toBe("edit-binding");
     expect(held.snapshot.status).toEqual({ _tag: "Blocked", reason: { _tag: "Question" } });
     expect(held.snapshot.turnUnseen).toEqual({ outcome: "completed", since: AT });
+  });
+
+  it("where a status failed to read names the path and kind, never a peer value", () => {
+    const wire = toSeatsStatus(statusOf(full()))!;
+    const failed = (value: unknown): string => {
+      try {
+        decodeSeatsStatus(value);
+      } catch (cause) {
+        return statusIssueAt(cause);
+      }
+      throw new Error("decoded");
+    };
+    const bad = failed({ ...wire, snapshot: { ...wire.snapshot, lastDelivery: { messageId: "PEER-SECRET value", ok: true, at: AT } } });
+    expect(bad).toMatch(/^\w+ at snapshot\.lastDelivery\.messageId$/u);
+    expect(bad).not.toContain("PEER-SECRET");
+    const keyed = failed({ ...wire, snapshot: { ...wire.snapshot, "PEER SECRET KEY": 1 } });
+    expect(keyed).not.toContain("PEER");
+    expect(failed(7)).toMatch(/ at the status$/u);
   });
 
   it("the wire decodes closed and bounded", () => {

@@ -427,7 +427,11 @@ export const registerJuntoIpc = (): void => {
     const remote = remoteSeatStateEvents().find((event) => event.bindingId === bindingId);
     if (remote === undefined || remote.state === "gone") return;
     const { makeSeatsProcessClient, remoteSeatMachine } = await import("./term/seats-client");
-    const machine = await AppRuntime.runPromise(remoteSeatMachine(bindingId)).catch(() => undefined);
+    const machine = await AppRuntime.runPromise(remoteSeatMachine(bindingId).pipe(
+      Effect.tapCause((cause) => Effect.logWarning("seat view not sent: its machine could not be read", cause)),
+      Effect.annotateLogs({ area: "seats", seat: bindingId }),
+      Effect.orElseSucceed(() => undefined),
+    ));
     if (machine !== undefined) await makeSeatsProcessClient(machine).viewed(bindingId, remote.epoch).catch(() => false);
   });
 

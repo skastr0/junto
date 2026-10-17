@@ -268,6 +268,28 @@ export const toSeatsStatus = ({ snapshot, need }: AgentSeatStatus): SeatsStatus 
   }
 };
 
+const SEGMENT = /^[A-Za-z0-9_]{1,64}$/;
+
+/**
+ * Where a status failed to read, as fixed copy: the field path and the kind
+ * of issue, never the decoder's text, since that may quote what the peer
+ * sent. A key outside a plain name reads as "?".
+ */
+export const statusIssueAt = (cause: unknown): string => {
+  const path: string[] = [];
+  let issue: unknown = typeof cause === "object" && cause !== null && "issue" in cause ? cause.issue : undefined;
+  let kind = "Unknown";
+  for (let depth = 0; depth < 32 && typeof issue === "object" && issue !== null; depth++) {
+    const node = issue as { readonly _tag?: unknown; readonly path?: unknown; readonly issue?: unknown; readonly issues?: unknown };
+    if (Array.isArray(node.path)) {
+      for (const key of node.path) path.push(typeof key === "number" || (typeof key === "string" && SEGMENT.test(key)) ? String(key) : "?");
+    }
+    if (typeof node._tag === "string" && SEGMENT.test(node._tag)) kind = node._tag;
+    issue = node.issue ?? (Array.isArray(node.issues) ? node.issues[0] : undefined);
+  }
+  return `${kind} at ${path.length === 0 ? "the status" : path.slice(0, 12).join(".")}`;
+};
+
 /**
  * The status as the receiving machine holds it, on its own node's binding.
  * What stayed home stays absent.
