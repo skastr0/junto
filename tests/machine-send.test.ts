@@ -27,7 +27,7 @@ it("preserves a closed installer failure receipt from the chosen SSH account", a
   const endpoint = await Effect.runPromise(parseSshEndpoint("user@target"));
   const transitions = [{ step: "selected" as const, build: "a".repeat(64) }];
   const transport = SshTransport.of({ run: () => Effect.succeed({ stdout: "ready\n", stderr: "" }), connect: () => Effect.die("unexpected"), forward: () => Effect.die("unexpected"), warm: () => Effect.void, teardown: () => Effect.void,
-    transfer: (program, input) => Stream.runDrain(input).pipe(Effect.andThen(Effect.fail(new SshTransferExitError(endpoint, 1, "", JSON.stringify({ ok: false, command: "machine install-local", error: { type: "MachineInstallError", message: "service did not become ready", details: { disposition: "activated", retryable: false, transitions } } }))))),
+    transfer: (program, input) => Stream.runDrain(input).pipe(Effect.andThen(Effect.fail(SshTransferExitError.of(endpoint, 1, "", JSON.stringify({ ok: false, command: "machine install-local", error: { type: "MachineInstallError", message: "service did not become ready", details: { disposition: "activated", retryable: false, transitions } } }))))),
   });
   const error = await Effect.runPromise(sendMachine(target, { bundle: root }).pipe(Effect.provideService(SshTransport, transport), Effect.flip));
   expect(error.disposition).toBe("activated");

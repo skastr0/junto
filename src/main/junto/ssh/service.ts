@@ -10,6 +10,7 @@ import { Context,
   Queue,
   Ref,
   Result,
+  Schema,
   Scope,
   Sink,
   Stream, Semaphore } from "effect";
@@ -30,7 +31,7 @@ import type {
   OneShotProgram,
   ScopedStreamProgram,
 } from "./program";
-import { StderrTail } from "../credentials/scrub";
+import { lastTailLine, StderrTail } from "../credentials/scrub";
 import { classifySshStderr } from "./format";
 import { createSshProgramCompiler } from "./program";
 import {
@@ -54,18 +55,34 @@ export interface SshCommandResult {
   readonly stderr: string;
 }
 
-/** A non-zero transfer exit retains bounded diagnostic output for its caller. */
-export class SshTransferExitError extends Error {
-  readonly _tag = "SshTransferExitError";
+/**
+ * A non-zero transfer exit. Its message and tail are scrubbed (doctrine steps
+ * 1-5); the raw output stays on this machine for its caller's own parsing of a
+ * structured last line, never encoded, sent or logged.
+ */
+export class SshTransferExitError extends Schema.TaggedError<SshTransferExitError>()("SshTransferExitError", {
+  endpoint: Schema.String,
+  code: Schema.Number,
+  stderrTail: Schema.optionalKey(Schema.String),
+  stderrCut: Schema.optionalKey(Schema.Literal(true)),
+  message: Schema.String,
+}) {
+  declare readonly stdout: string;
+  declare readonly stderr: string;
 
-  constructor(
-    readonly endpoint: SshEndpoint,
-    readonly code: number,
-    readonly stdout: string,
-    readonly stderr: string,
-  ) {
-    super(`SSH transfer exited with code ${code}`);
-    this.name = "SshTransferExitError";
+  static of(endpoint: SshEndpoint, code: number, stdout: string, stderr: string): SshTransferExitError {
+    const window = new StderrTail();
+    window.push(Buffer.from(stderr));
+    const tail = window.read();
+    const last = lastTailLine(tail);
+    const error = new SshTransferExitError({
+      endpoint, code,
+      ...(tail.text === "" ? {} : { stderrTail: tail.text }),
+      ...(tail.cut ? { stderrCut: true as const } : {}),
+      message: `SSH transfer exited with code ${code}${last === undefined ? "" : `: ${last}`}`,
+    });
+    Object.defineProperties(error, { stdout: { value: stdout, enumerable: false }, stderr: { value: stderr, enumerable: false } });
+    return error;
   }
 }
 
@@ -879,7 +896,7 @@ export const SshTransportLayer = Layer.effect(
                             stderr: asText(stderr),
                           })
                       : Effect.fail(
-                          new SshTransferExitError(
+                          SshTransferExitError.of(
                             compiled.endpoint,
                             code,
                             asText(stdout),

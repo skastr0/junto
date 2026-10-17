@@ -493,6 +493,9 @@ describe("SshTransport", () => {
       expect(failure.code).toBe(2);
       expect(failure.stdout).toContain("TERM_SOCK_TIMEOUT");
       expect(failure.stderr).toContain("STATION_PARTIAL");
+      expect(failure.message).toContain("STATION_PARTIAL");
+      expect(failure.stderrTail).toContain("STATION_PARTIAL");
+      expect(Object.keys(failure)).not.toContain("stderr");
     }
   });
 
