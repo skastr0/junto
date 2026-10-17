@@ -127,6 +127,10 @@ export const buildMachine = async (input: BuildMachineInput) => {
       define: { __filename: "__JUNTO_CORE_FILENAME__", "process.env.NODE_ENV": JSON.stringify("production"), __JUNTO_BUILD_ID__: JSON.stringify(build), __JUNTO_APP_VERSION__: JSON.stringify(pkg.version), __JUNTO_MAC_UPDATE_FEED_URL__: JSON.stringify(""), __JUNTO_MACHINE_RELEASE_CATALOG__: "undefined", ...featureViteDefines(features) },
       plugins: [{name: "native-fs", setup(builder) {
         builder.onResolve({filter: /^original-fs$/}, () => ({path: "native", namespace: "native-fs"}));
+        // jsonc-parser's UMD main requires ./impl/* at runtime, which a bundle cannot
+        // follow; its ESM entry is plain imports the bundler inlines. The app keeps
+        // the UMD main: Node loads it there, and cannot load the extensionless ESM.
+        builder.onResolve({filter: /^jsonc-parser$/}, () => ({path: join(repoRoot, "node_modules/jsonc-parser/lib/esm/main.js")}));
         builder.onLoad({filter: /.*/, namespace: "native-fs"}, () => ({contents: 'module.exports = require("node:fs");', loader: "js"}));
       }}],
     }).catch((error: unknown) => { throw MachineBundleBuildFailed.from(error); });
