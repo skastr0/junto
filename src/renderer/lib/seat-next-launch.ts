@@ -47,6 +47,8 @@ export const useSeatNextLaunch = (
   });
   useEffect(() => {
     if (notRunning) void askSeatNextLaunch(canvas, id);
+    // A run makes the last answer stale: drop it, so the line never flashes it.
+    else seatNextLaunch$[canvas][id].delete();
   }, [canvas, id, notRunning, moved, offboardAt]);
   const next = use$(seatNextLaunch$[canvas][id]);
   return notRunning ? next : undefined;

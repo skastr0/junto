@@ -3,6 +3,7 @@ import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
 import { ModelService } from "../model/service";
 import { SeatSessionRepository } from "../seat-sessions/repository";
 import { shouldResumeHarnessSession } from "./session-existence";
+import { shouldAvoidSharedHarnessResume } from "./managed-spawn-plan";
 import { seatNextLaunch } from "@shared/seat-next-launch";
 import type {
   JuntoApi,
@@ -220,13 +221,15 @@ export const registerTerminalIpc = (
         history: sessions.list(node.id).pipe(Effect.orElseSucceed(() => [])),
       })));
     const lastEnded = history.find((row) => row.endedAt !== undefined)?.endReason;
-    // The same proof a start asks for (managed-spawn-plan.ts): the harness's own store holds the id.
+    // The same proof a start asks for (managed-spawn-plan.ts): the harness's own
+    // store holds the id, and this Junto is not an isolated home sharing the
+    // harness's sessions, where every start is fresh.
     const cwd = node.launch?.cwd?.trim();
     const next = seatNextLaunch({
       harness: node.harness,
       ...(session ? { open: { harness: session.harness, sessionId: session.sessionId } } : {}),
       provisioned: isHarnessId(node.harness) && templateFor(node.harness).capabilityBadges.sessionId === "provision",
-      provenOnDisk: session !== undefined && session.harness === node.harness &&
+      provenOnDisk: session !== undefined && session.harness === node.harness && !shouldAvoidSharedHarnessResume() &&
         shouldResumeHarnessSession(true, { harness: node.harness, sessionId: session.sessionId, ...(cwd ? { cwd } : {}) }),
       ...(lastEnded ? { lastEnded } : {}),
     });
