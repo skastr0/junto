@@ -200,3 +200,61 @@ describe("codex", () => {
     expect(topNeed(snapshot!).cause).toBe("turn_unseen");
   });
 });
+
+/** Kimi counts its retries to ten and shows each wait. */
+const kimiRetrying = (cause: string) =>
+  expect.objectContaining({ _tag: "Retrying", cause, attempt: 2, max: 10, retryInMs: expect.any(Number) });
+
+describe("kimi", () => {
+  it("retry-overloaded, retry-rate, retry-network: the status line under the retry names the cause", async () => {
+    for (const [scenario, cause] of [
+      ["retry-overloaded", "overloaded"],
+      ["retry-rate", "rate"],
+      ["retry-network", "network"],
+    ] as const) {
+      const { signals, final } = await replay("kimi", scenario);
+      expect(signals, scenario).toContainEqual(kimiRetrying(cause));
+      expect(final, scenario).toEqual({ _tag: "Idle" });
+    }
+  });
+
+  it("error-server: still retrying the 500s when the recording ends", async () => {
+    const { signals, final, snapshot } = await replay("kimi", "error-server");
+    expect(signals).toContainEqual(kimiRetrying("server"));
+    expect(final).toEqual({ _tag: "Working", phase: "retrying" });
+    expect(topNeed(snapshot!).cause).toBe("retrying");
+  });
+
+  it("usage-limit, usage-limit-weekly: a limit kimi retries, with no window and no reset on screen", async () => {
+    for (const scenario of ["usage-limit", "usage-limit-weekly"]) {
+      const { final, snapshot } = await replay("kimi", scenario);
+      expect(final, scenario).toEqual({ _tag: "Blocked", reason: { _tag: "UsageLimit", scope: "unknown" } });
+      expect(topNeed(snapshot!).cause, scenario).toBe("usage_limit");
+    }
+  });
+
+  it("error-auth: a rejected API key blocks the seat on auth", async () => {
+    const { final, snapshot } = await replay("kimi", "error-auth");
+    expect(final).toEqual({
+      _tag: "Blocked",
+      reason: { _tag: "Error", kind: "auth", message: "[provider.auth_error] 401 Incorrect API key provided." },
+    });
+    expect(topNeed(snapshot!).cause).toBe("auth_error");
+  });
+
+  it("error-context: the overflow cancels the compaction it started, and is recorded", async () => {
+    const { signals, final, snapshot } = await replay("kimi", "error-context");
+    expect(signals).toContainEqual({ _tag: "CompactionStarted", trigger: "unknown" });
+    expect(signals).toContainEqual({ _tag: "CompactionEnded", ok: false });
+    expect(final).toEqual({ _tag: "Idle" });
+    expect(snapshot?.lastError).toMatchObject({ kind: "contextOverflow" });
+    expect(snapshot?.lastError?.message).toMatch(/^\[compaction\.failed\] APIContextOverflowError: 400 /u);
+  });
+
+  it("compaction-manual: started, then complete with its token counts", async () => {
+    const { signals, final } = await replay("kimi", "compaction-manual");
+    expect(signals).toContainEqual({ _tag: "CompactionStarted", trigger: "unknown" });
+    expect(signals).toContainEqual({ _tag: "CompactionEnded", ok: true, tokensBefore: 21169, tokensAfter: 21735 });
+    expect(final).toEqual({ _tag: "Idle" });
+  });
+});

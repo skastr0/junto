@@ -18,7 +18,7 @@ import type { SeatRulePack } from "../types";
 
 export const kimiRules: SeatRulePack = {
   harness: "kimi",
-  version: "2026.09.14.2",
+  version: "2026.10.17.1",
   rules: [
     {
       id: "model_not_configured_attention",
@@ -125,6 +125,81 @@ export const kimiRules: SeatRulePack = {
         ],
       },
     },
+    // A turn that ended on a rejected API key: the seat cannot take mail until
+    // its credentials are fixed. Only while the error is the last thing above
+    // the box, so the next turn pushes it out. Capture: corpus/kimi/error-auth
+    // ("Error: [provider.auth_error] 401 Incorrect API key provided.").
+    {
+      id: "provider_auth_error",
+      state: "attention",
+      signal: { _tag: "ErrorRaised", kind: "auth" },
+      priority: 1080,
+      region: "bottom_non_empty_lines",
+      regionN: 8,
+      visibleAttention: true,
+      matchers: {
+        regex: [
+          "(?:^|\\n)\\s*Error:\\s+(?<message>\\[provider\\.auth_error\\][^\\n]*?)[ \\t]*(?:\\n(?!\\s*╭)[^\\n]*){0,3}\\n\\s*╭─",
+        ],
+      },
+    },
+    // A usage limit is retried like a rate limit: the moon line says
+    // "Retrying (2/10) \u00B7 APIProviderRateLimitError \u00B7 in 1s" and the
+    // line under it "429 \u00B7 429 The usage limit has been reached". The
+    // screen names no window and no reset, so the scope is unknown, and it
+    // does not say the turn resumes at a reset. Mail holds while it stands.
+    // Capture: corpus/kimi/usage-limit, usage-limit-weekly.
+    {
+      id: "usage_limit_retrying",
+      state: "attention",
+      signal: { _tag: "UsageLimitHit", scope: "unknown" },
+      priority: 1070,
+      region: "bottom_non_empty_lines",
+      regionN: 8,
+      visibleAttention: true,
+      matchers: {
+        regex: [
+          "(?:^|\\n)\\s*(?:🌕|🌖|🌗|🌘|🌑|🌒|🌓|🌔)\\s+Retrying\\b[^\\n]*\\n[ \\t]{4,}(?<message>[^\\n]*\\busage limit has been reached\\b[^\\n]*?)[ \\t]*(?:\\n|$)",
+        ],
+      },
+    },
+    // The moon line during a retry: attempt, the error class, the wait, and
+    // under it the provider's status line, which names the cause ("503 The
+    // server is overloaded", "Connection error.", "500 Internal server
+    // error"). Above the plain moon spinner so the retry is not lost to it.
+    // Eight lines: the moon line, the status line, the box and its footer.
+    // Captures: corpus/kimi/retry-*, error-server.
+    {
+      id: "retrying_working",
+      state: "working",
+      signal: { _tag: "Retrying", cause: "unknown" },
+      priority: 1062,
+      region: "bottom_non_empty_lines",
+      regionN: 8,
+      visibleWorking: true,
+      matchers: {
+        regex: [
+          "(?:^|\\n)\\s*(?:🌕|🌖|🌗|🌘|🌑|🌒|🌓|🌔)\\s+Retrying\\b(?:\\s+\\((?<attempt>\\d+)/(?<max>\\d+)\\))?(?<cause>[^\\n]*(?:\\n[ \\t]{4,}\\S[^\\n]*)?)",
+          "^(?:[\\s\\S]*?Retrying\\b[^\\n]*\\u00B7\\s+in\\s+(?<retryInMs>\\d+(?:\\.\\d+)?\\s*(?:ms|s|m))\\b)?",
+        ],
+      },
+    },
+    // "\u25CF Compacting context\u2026 \u00B7 Tip: \u2026", its bullet blinking. The same
+    // line for /compact and for the compaction a context overflow starts, so
+    // the trigger is unknown. Captures: corpus/kimi/compaction-manual,
+    // error-context.
+    {
+      id: "compacting_context",
+      state: "working",
+      signal: { _tag: "CompactionStarted", trigger: "unknown" },
+      priority: 1061,
+      region: "bottom_non_empty_lines",
+      regionN: 8,
+      visibleWorking: true,
+      matchers: {
+        lineRegex: ["^\\s*(?:\\u25CF\\s+)?Compacting context\\u2026"],
+      },
+    },
     // Background subagent status: "kimi… thinking … [N agents running]".
     {
       id: "background_agent_status_working",
@@ -150,7 +225,9 @@ export const kimiRules: SeatRulePack = {
       regionN: 6,
       visibleWorking: true,
       matchers: {
-        lineRegex: ["^\\s*(🌕|🌖|🌗|🌘|🌑|🌒|🌓|🌔)\\s*$"],
+        // 2.1.1 writes a tip after the glyph: "\u{1F311} \u00B7 Tip: \u2026"
+        // (corpus/kimi/retry-*, the turn before its first retry).
+        lineRegex: ["^\\s*(🌕|🌖|🌗|🌘|🌑|🌒|🌓|🌔)(?:\\s*$|\\s+\\u00B7\\s)"],
       },
     },
     // Braille spinner + thinking.../working.../using (tool status lines).
@@ -209,6 +286,37 @@ export const kimiRules: SeatRulePack = {
       matchers: {
         contains: ["context:"],
         lineRegex: ["^\\s*>"],
+      },
+    },
+  ],
+  // Errors and compaction ends a turn shows, beside whatever state the
+  // screen reads. Captures: corpus/kimi/compaction-manual, error-context.
+  facts: [
+    {
+      id: "compaction_complete",
+      region: "bottom_non_empty_lines",
+      regionN: 10,
+      signal: { _tag: "CompactionEnded", ok: true },
+      // "\u25CF Compaction complete (21169 \u2192 21735 tokens) (Ctrl-O to show compaction summary)"
+      matchers: {
+        lineRegex: ["^\\s*\\u25CF\\s+Compaction complete \\((?<tokensBefore>[\\d,]+)\\s*\\u2192\\s*(?<tokensAfter>[\\d,]+) tokens\\)"],
+      },
+    },
+    {
+      id: "compaction_cancelled",
+      region: "bottom_non_empty_lines",
+      regionN: 10,
+      signal: { _tag: "CompactionEnded", ok: false },
+      matchers: { lineRegex: ["^\\s*\\u25CF\\s+Compaction cancelled\\b"] },
+    },
+    {
+      id: "context_overflow_error",
+      region: "bottom_non_empty_lines",
+      regionN: 10,
+      signal: { _tag: "ErrorRaised", kind: "contextOverflow" },
+      // "Error: [compaction.failed] APIContextOverflowError: 400 Your input exceeds the context window\u2026"
+      matchers: {
+        lineRegex: ["^\\s*Error:\\s+(?<message>(?:\\[[\\w.]+\\]\\s+)?APIContextOverflowError\\b.*?)\\s*$"],
       },
     },
   ],

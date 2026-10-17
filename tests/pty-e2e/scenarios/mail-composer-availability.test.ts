@@ -173,15 +173,17 @@ const LAST_SCREEN: Readonly<Record<string, Readonly<Record<string, Outcome>>>> =
     // Recorded with no model configured: Kimi asks for attention.
     "startup-idle": "dialog",
     "type-echo": "dialog",
-    // Signal captures (tests/pty-e2e/signal-capture.ts). No screen rules read
-    // this harness's limits or auth errors yet, so mail is typed into a seat
-    // that cannot answer it until pty-state's pack rules land.
+    // Signal captures (tests/pty-e2e/signal-capture.ts): the turn has ended on
+    // an error, a retry that recovered, or a compaction, and the box is empty.
     "retry-overloaded": "written",
     "retry-rate": "written",
     "retry-network": "written",
-    "usage-limit": "written",
-    "usage-limit-weekly": "written",
-    "error-auth": "written",
+    // A usage limit kimi keeps retrying: blocked on the limit, mail holds.
+    "usage-limit": "dialog",
+    "usage-limit-weekly": "dialog",
+    // A rejected API key: the seat cannot take mail until it is fixed.
+    "error-auth": "dialog",
+    // Still retrying the 500s when the recording ends; the box stays open.
     "error-server": "written",
     "error-context": "written",
     "compaction-manual": "written",
@@ -265,6 +267,7 @@ const MID_TURN: Readonly<Record<string, ReadonlyArray<string>>> = {
   devin: ["draft"],
   grok: ["available"],
   hermes: ["draft"],
+  kimi: ["available"],
   muse: ["available", "unreadable"],
   omp: ["available", "draft", "unreadable"],
 };
