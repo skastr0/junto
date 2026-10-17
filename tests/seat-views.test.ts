@@ -9,6 +9,7 @@ import type { LinkEventContext } from "../src/main/junto/link/types";
 import type { LocalHostEvent } from "../src/main/junto/term/local-host";
 import { CHUNK_UNITS } from "../src/main/junto/term/seat-attach";
 import { TerminalRouter } from "../src/main/junto/term/router";
+import { seatExitMessage } from "../src/shared/spawn-failure";
 import { unwrapSeatsFailure } from "../src/main/junto/term/seats-failure";
 import { makeSeatViews, type SeatViews } from "../src/main/junto/term/seat-views";
 import { eventually, miniSeat, twoCoreCanvas as canvas, twoCoreProcess, twoCores } from "./support/two-cores";
@@ -26,7 +27,8 @@ const bookWindow = async () => {
   let views: SeatViews | undefined;
   const cores = await twoCores({ cleanups, book: { attachStream: (context, frame) => views?.frame(context, frame) } });
   views = makeSeatViews({
-    locate: async (bindingId) => bindingId === miniSeat.bindingId ? { machine: "mini", canvas, seatId: miniSeat.id } : undefined,
+    locate: async (bindingId) => bindingId === miniSeat.bindingId
+      ? { machine: "mini", canvas, seatId: miniSeat.id, harness: miniSeat.harness } : undefined,
     request: (_machine, payload, operationId) =>
       cores.bookEnd.request("seats", payload, operationId).catch((cause: unknown) => { throw unwrapSeatsFailure(cause); }),
     sendEvent: (_machine, payload) => cores.bookEnd.sendEvent("seats", payload),
@@ -76,17 +78,44 @@ describe("a linked seat's view through the router", () => {
     const window = await bookWindow();
     const attached = await window.router.attach({ bindingId: miniSeat.bindingId, mode: "observe", hostId: "mini" });
     if (!attached.ok) throw new Error(attached.message);
+    expect(attached.lease.mode).toBe("observe");
     expect(await window.router.write(attached.lease, "nope", "mini")).toBe(false);
     expect(window.mini.fake.controllers[0]!.writes.join("")).not.toContain("nope");
   });
 
-  it("tells the window when the seat's generation exits", async () => {
+  it("tells the window when the seat's generation exits, worded as a local seat's exit", async () => {
     const window = await bookWindow();
     const attached = await window.router.attach({ bindingId: miniSeat.bindingId, mode: "control", takeover: true, hostId: "mini" });
     if (!attached.ok) throw new Error(attached.message);
     window.mini.fake.controllers[0]!.exit(0);
-    await eventually(() => expect(window.sent.some((event) => event.type === "exit" && event.bindingId === miniSeat.bindingId)).toBe(true));
+    await eventually(() => expect(window.sent).toContainEqual(expect.objectContaining({ type: "exit", bindingId: miniSeat.bindingId, code: 0 })));
     expect(await window.router.write(attached.lease, "late", "mini")).toBe(false);
+    // The window's read after the exit: a clean exit, not a start that failed.
+    let after = await window.router.get(miniSeat.bindingId, "mini");
+    for (let tries = 0; tries < 100 && after?.status !== "exited"; tries++) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      after = await window.router.get(miniSeat.bindingId, "mini");
+    }
+    expect(after).toMatchObject({ status: "exited", epoch: attached.lease.epoch, exitMessage: seatExitMessage({ harness: miniSeat.harness, code: 0 }) });
+    expect(after?.exitMessage).toMatch(/exited by itself$/);
+  });
+
+  it("reads a running linked seat for the window", async () => {
+    const window = await bookWindow();
+    expect(await window.router.get(miniSeat.bindingId, "mini")).toMatchObject({ status: "running", hostId: "mini", nodeId: miniSeat.id });
+  });
+
+  it("tells the window its view lost control when the seat's own machine takes over", async () => {
+    const window = await bookWindow();
+    const ended: Array<{ leaseId: string; reason: string }> = [];
+    window.router.on("lease-ended", (end: { leaseId: string; reason: string }) => ended.push(end));
+    const attached = await window.router.attach({ bindingId: miniSeat.bindingId, mode: "control", takeover: true, hostId: "mini" });
+    if (!attached.ok) throw new Error(attached.message);
+    expect(await window.mini.host.attach({ bindingId: miniSeat.bindingId, mode: "control", takeover: true })).toMatchObject({ ok: true });
+    // The seat's machine learns of its own window's takeover at the view's next key.
+    expect(await window.router.write(attached.lease, "x", "mini")).toBe(false);
+    await eventually(() => expect(ended).toContainEqual(expect.objectContaining({ leaseId: attached.lease.leaseId, reason: "replaced" })));
+    expect(await window.router.write(attached.lease, "x", "mini")).toBe(false);
   });
 
   it("a takeover from another view ends this one", async () => {

@@ -132,6 +132,17 @@ export const registerTerminalIpc = (
     }
   };
 
+  /** Tell the window holding a lease that it ended without its release, so it stops typing into nothing. */
+  const leaseEnded = (leaseId: string, reason: string): void => {
+    const owner = owners.get(leaseId);
+    if (owner === undefined || owner.sender.isDestroyed()) return;
+    try {
+      owner.sender.send(IPC_CHANNELS.terminalLeaseEnded, { leaseId, reason });
+    } catch {
+      /* gone */
+    }
+  };
+
   const owned = (sender: WebContents, leaseId: string): LeaseOwner | undefined => {
     const owner = owners.get(leaseId);
     return owner?.sender === sender && !sender.isDestroyed() ? owner : undefined;
@@ -166,6 +177,12 @@ export const registerTerminalIpc = (
   // the authority for who holds control, so this reads the existing fact
   // rather than inventing a second notion of "visible".
   (bindingId: string) => controlByBinding.has(bindingId));
+  // A linked seat's view the seat's machine ended: tell its window, then forget the lease.
+  router.on("lease-ended", (end: { readonly leaseId: string; readonly reason: string }) => {
+    if (!owners.has(end.leaseId)) return;
+    leaseEnded(end.leaseId, end.reason);
+    release(end.leaseId);
+  });
   // A seat on another machine reports its state over the seats channel.
   onRemoteSeatState((event) => gate?.broadcast(IPC_CHANNELS.agentSeatStateChanged, event));
   router.on("event", (payload: LocalHostEvent) => {
@@ -398,7 +415,10 @@ export const registerTerminalIpc = (
     await ensureHostAvailable(hostId);
     if (input.mode === "control" && input.takeover) {
       const priorLeaseId = controlByBinding.get(input.bindingId);
-      if (priorLeaseId) release(priorLeaseId);
+      if (priorLeaseId) {
+        leaseEnded(priorLeaseId, "replaced");
+        release(priorLeaseId);
+      }
     }
     const result = await router.attach({ ...input, hostId });
     if (!result.ok) return result;

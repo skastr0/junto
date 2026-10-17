@@ -92,7 +92,7 @@ import { GRID_CELL_CHROME } from "../../lib/terminal-grid";
 type AttachResult = {
   readonly ok: boolean;
   readonly message?: string;
-  readonly lease?: { readonly leaseId: string; readonly epoch: string };
+  readonly lease?: { readonly leaseId: string; readonly epoch: string; readonly mode?: "control" | "observe" };
   readonly cols?: number;
   readonly rows?: number;
   /** Session status at attach time — retained exited generations still attach. */
@@ -1505,9 +1505,27 @@ export function TerminalSurface({
       setLoadPhase(null);
     };
 
+    // Keys reach the seat only through a control lease. A read-only view, or one
+    // whose lease ended, keeps its keys: they go nowhere, not to the canvas.
+    let readOnly = false;
     const offData = term.onData((data) => {
       const lease = leaseRef.current;
-      if (lease) void api.terminalWrite(lease, data);
+      if (lease && !readOnly) void api.terminalWrite(lease, data);
+    });
+
+    const LEASE_ENDED: Readonly<Record<string, string>> = {
+      replaced: "Another view has control of this seat. Reopen to take it back.",
+      "link-closed": "The link to this seat's machine closed. Reopen to attach again.",
+      "admission-lost": "This machine no longer edits this seat's canvas.",
+      "generation-changed": "This seat restarted. Reopen to attach to it.",
+    };
+    const offLeaseEnded = api.onTerminalLeaseEnded?.((raw) => {
+      const event = raw as { readonly leaseId?: unknown; readonly reason?: unknown };
+      if (typeof event.leaseId !== "string" || event.leaseId !== leaseRef.current) return;
+      leaseRef.current = undefined;
+      setStatus(LEASE_ENDED[String(event.reason)] ?? "This view ended. Reopen to attach again.");
+      setKillPhase("stopped");
+      setLoadPhase(null);
     });
 
     // Do NOT wire term.onResize → PTY. pushResize is the only path.
@@ -1658,6 +1676,7 @@ export function TerminalSurface({
           }
           leaseRef.current = result.lease.leaseId;
           epochRef.current = result.lease.epoch;
+          readOnly = result.lease.mode === "observe";
           // The child's geometry is UNKNOWN until this surface has told it.
           // Seeding from the session snapshot records what the child was at
           // some earlier moment, and if the pane has since changed size the
@@ -1699,7 +1718,7 @@ export function TerminalSurface({
             }
             // Retained exited generations may expose their final raw journal.
             // Never paint those as a live control lease.
-            setStatus(sawExit ? "exited" : "control");
+            setStatus(sawExit ? "exited" : readOnly ? "Read-only view: typing here does not reach the seat." : "control");
             setKillPhase(sawExit ? "stopped" : "idle");
             // Correct local geometry to the real pane box BEFORE clearLoad()
             // reveals the terminal. A crew-woken seat was hydrated above at
@@ -1872,6 +1891,7 @@ export function TerminalSurface({
         }
       }
       offData.dispose();
+      offLeaseEnded?.();
       offEvent();
       offSeatState?.();
       for (const t of settleTimers) clearTimeout(t);

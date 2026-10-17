@@ -9,6 +9,8 @@
 import { randomBytes } from "node:crypto";
 import { Effect } from "effect";
 import { isThisMachine } from "@shared/machine-name";
+import { seatExitMessage } from "@shared/spawn-failure";
+import type { TerminalSessionSummary } from "@shared/terminal";
 import { coreRunner } from "../../core-runner";
 import { HostsService } from "../hosts/service";
 import { MachineLink } from "../link/service";
@@ -21,7 +23,11 @@ import type { ControlLease, LocalHostEvent } from "./local-host";
 import { ATTACH_CREDITS, CHUNK_UNITS, chunkUnits, SCREEN_LIMIT_UNITS, type SeatsStreamFrame } from "./seat-attach";
 
 /** A seat on a canvas this machine edits, run by another machine. */
-export type LinkedSeat = { readonly machine: string; readonly canvas: string; readonly seatId: string };
+export type LinkedSeat = {
+  readonly machine: string; readonly canvas: string; readonly seatId: string; readonly harness?: string;
+};
+/** Why a view's lease ended without its window releasing it. */
+export type SeatViewLeaseEnd = { readonly leaseId: string; readonly bindingId: string; readonly reason: "replaced" | "admission-lost" | "link-closed" | "generation-changed" };
 
 export type SeatViewTransport = {
   readonly locate: (bindingId: string) => Promise<LinkedSeat | undefined>;
@@ -32,6 +38,9 @@ export type SeatViewTransport = {
 
 type View = {
   readonly machine: string;
+  readonly canvas: string;
+  readonly seatId: string;
+  readonly harness: string | undefined;
   readonly handle: string;
   readonly bindingId: string;
   readonly epoch: string;
@@ -50,6 +59,9 @@ const SCREEN_WAIT_MS = 5_000;
 /** Terminal reset: a Resync's fresh screen repaints from nothing. */
 const RESET = "\u001bc";
 
+/** Generations whose end this window saw, so a read after the exit says how it ended. */
+const ENDED_KEPT = 64;
+
 const tagOf = (cause: unknown): string =>
   typeof cause === "object" && cause !== null && "_tag" in cause && typeof cause._tag === "string" ? cause._tag : "Error";
 
@@ -59,6 +71,8 @@ export const makeSeatViews = (transport: SeatViewTransport) => {
   // Frames that beat their Attached answer; credits bound them to a few per handle.
   const early = new Map<string, SeatsStreamFrame[]>();
   const listeners = new Set<(event: LocalHostEvent) => void>();
+  const leaseListeners = new Set<(end: SeatViewLeaseEnd) => void>();
+  const ended = new Map<string, { readonly epoch: string; readonly at: number; readonly exitMessage: string }>();
   const emit = (event: LocalHostEvent) => { for (const listener of listeners) listener(event); };
   const log = (message: string, fields: Record<string, unknown>) =>
     Effect.runFork(Effect.logInfo(message).pipe(Effect.annotateLogs({ area: "seats", ...fields })));
@@ -115,8 +129,16 @@ export const makeSeatViews = (transport: SeatViewTransport) => {
       case "Ended":
         drop(view);
         log("seat view ended", { machine: view.machine, reason: frame.reason });
-        if (frame.reason === "exited")
-          emit({ type: "exit", bindingId: view.bindingId, epoch: view.epoch, seq: view.seq + 1n, code: undefined, signal: undefined });
+        if (frame.reason === "exited") {
+          // Worded as a local seat's exit is, from its code or signal only: what it printed stays on its machine.
+          ended.delete(view.bindingId);
+          ended.set(view.bindingId, { epoch: view.epoch, at: Date.now(),
+            exitMessage: seatExitMessage({ harness: view.harness, code: frame.code, signal: frame.signal }) });
+          if (ended.size > ENDED_KEPT) ended.delete(ended.keys().next().value!);
+          emit({ type: "exit", bindingId: view.bindingId, epoch: view.epoch, seq: view.seq + 1n, code: frame.code, signal: frame.signal });
+        } else if (frame.reason !== "released") {
+          for (const listener of leaseListeners) listener({ leaseId: view.lease.leaseId, bindingId: view.bindingId, reason: frame.reason });
+        }
         return;
     }
   };
@@ -125,6 +147,24 @@ export const makeSeatViews = (transport: SeatViewTransport) => {
     onEvent: (listener: (event: LocalHostEvent) => void): (() => void) => {
       listeners.add(listener);
       return () => { listeners.delete(listener); };
+    },
+    /** A view's lease ended on the seat's machine (a takeover, lost admission, a closed link). */
+    onLeaseEnded: (listener: (end: SeatViewLeaseEnd) => void): (() => void) => {
+      leaseListeners.add(listener);
+      return () => { leaseListeners.delete(listener); };
+    },
+    /** The seat's live generation, or the one whose end this window saw; asks its machine. */
+    get: async (bindingId: string): Promise<TerminalSessionSummary | undefined> => {
+      const seat = await transport.locate(bindingId);
+      if (seat === undefined) return undefined;
+      const base = { bindingId, hostId: seat.machine, canvasName: seat.canvas, nodeId: seat.seatId, detached: false };
+      const live = await transport.request(seat.machine, { _tag: "Get", canvas: seat.canvas, seatId: seat.seatId },
+        randomBytes(16).toString("hex")) as { readonly _tag: string; readonly generation?: string; readonly status?: "starting" | "running"; readonly createdAt?: number };
+      if (live._tag === "Started" && live.generation !== undefined && live.status !== undefined)
+        return { ...base, epoch: live.generation, status: live.status, createdAt: live.createdAt ?? Date.now() };
+      const last = ended.get(bindingId);
+      return last === undefined ? undefined
+        : { ...base, epoch: last.epoch, status: "exited", createdAt: last.at, exitMessage: last.exitMessage };
     },
     /** True when the seat runs on that machine, on a canvas this machine edits. */
     serves: async (hostId: string, bindingId: string): Promise<boolean> =>
@@ -162,7 +202,7 @@ export const makeSeatViews = (transport: SeatViewTransport) => {
           { readonly handle: string; readonly generation: string; readonly cols: number; readonly rows: number; readonly status: string };
         const lease: ControlLease = { leaseId: `lv_${randomBytes(8).toString("hex")}`, bindingId: input.bindingId,
           epoch: attached.generation, mode: input.mode };
-        const view: View = { machine: seat.machine, handle: attached.handle, bindingId: input.bindingId,
+        const view: View = { machine: seat.machine, canvas: seat.canvas, seatId: seat.seatId, harness: seat.harness, handle: attached.handle, bindingId: input.bindingId,
           epoch: attached.generation, lease, parts: [], screenUnits: 0, seq: 0n, screen: undefined };
         const screen = new Promise<string | undefined>((resolve) => {
           const timer = setTimeout(() => resolve(undefined), SCREEN_WAIT_MS);
@@ -192,7 +232,8 @@ export const makeSeatViews = (transport: SeatViewTransport) => {
     /** The operator's typing, in frame-sized parts; never logged, never kept. */
     write: async (lease: ControlLease, data: string): Promise<boolean> => {
       const view = byLease.get(lease.leaseId);
-      if (view === undefined) return false;
+      // An observing view takes no keys: refused here, never sent.
+      if (view === undefined || view.lease.mode === "observe") return false;
       try {
         for (const part of chunkUnits(data)) {
           const written = await transport.request(view.machine, { _tag: "Input", handle: view.handle, data: part },
@@ -249,7 +290,7 @@ export const linkSeatViewTransport = (run = coreRunner.runPromise): SeatViewTran
     for (const canvas of yield* model.listCanvases()) {
       for (const node of (yield* model.canvas(canvas)).nodes.values()) {
         if (node.kind === "agent" && node.bindingId === bindingId && !isThisMachine(node.host, self))
-          return { machine: node.host, canvas, seatId: node.id };
+          return { machine: node.host, canvas, seatId: node.id, harness: node.harness };
       }
     }
     return undefined;

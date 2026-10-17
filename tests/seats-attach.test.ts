@@ -121,7 +121,7 @@ describe("seat attach over the link", () => {
     const pair = await attachedPair();
     const view = await pair.attach("control", true);
     pair.mini.fake.controllers[0]!.exit(0);
-    await eventually(() => expect(pair.frames).toContainEqual({ _tag: "Ended", handle: view.handle, reason: "exited" }));
+    await eventually(() => expect(pair.frames).toContainEqual({ _tag: "Ended", handle: view.handle, reason: "exited", code: 0 }));
 
     const again = await attachedPair();
     await again.attach("control", true);

@@ -54,8 +54,11 @@ export const SeatsResync = Schema.Struct({ _tag: Schema.Literal("Resync"), handl
 export const ATTACH_END_REASONS = [
   "exited", "released", "replaced", "generation-changed", "admission-lost", "link-closed",
 ] as const;
+/** On exited, how the process ended: its exit code or signal number, never what it printed. */
 export const SeatsEnded = Schema.Struct({
   _tag: Schema.Literal("Ended"), handle: AttachHandle, reason: Schema.Literals(ATTACH_END_REASONS),
+  code: Schema.optionalKey(Int(-2_147_483_648, 2_147_483_647)),
+  signal: Schema.optionalKey(Int(0, 255)),
 });
 /** The editing machine received every frame of the handle up to seq: their credit returns. */
 export const SeatsAck = Schema.Struct({ _tag: Schema.Literal("Ack"), handle: AttachHandle, upTo: Seq });
@@ -74,7 +77,7 @@ export const SCREEN_LIMIT_UNITS = 1024 * 1024;
 export const BACKLOG_LIMIT_UNITS = 1024 * 1024;
 const COALESCE_MS = 16;
 
-export type AttachHost = Pick<LocalSessionHost, "attach" | "write" | "resize" | "release" | "subscribeEvents">;
+export type AttachHost = Pick<LocalSessionHost, "get" | "attach" | "write" | "resize" | "release" | "subscribeEvents">;
 
 export type AttachBinding = {
   readonly canvas: CanvasName;
@@ -196,7 +199,16 @@ export const makeSeatAttachments = (options: SeatAttachmentsOptions) => {
     pump(attachment);
   };
 
-  const end = (attachment: Attachment, reason: AttachEndReason, notify = true): void => {
+  const held = (attachment: Attachment, accepted: boolean): boolean => {
+    if (accepted || attachment.mode !== "control") return accepted;
+    const live = host.get(attachment.bindingId);
+    if (live !== undefined && live.epoch === attachment.generation && (live.status === "running" || live.status === "starting"))
+      end(attachment, "replaced");
+    return false;
+  };
+
+  const end = (attachment: Attachment, reason: AttachEndReason, notify = true,
+    exit?: { readonly code: number | undefined; readonly signal: number | undefined }): void => {
     if (attachment.ended) return;
     attachment.ended = true;
     if (attachment.timer !== undefined) clearTimeout(attachment.timer);
@@ -205,7 +217,9 @@ export const makeSeatAttachments = (options: SeatAttachmentsOptions) => {
     const session = attachment.context.sessionId;
     inFlight.set(session, Math.max(0, (inFlight.get(session) ?? 0) - Number(attachment.sent - attachment.acked)));
     if (notify && !attachment.context.signal.aborted)
-      void run(attachment.context.sendEvent("seats", { _tag: "Ended", handle: attachment.handle, reason })).catch(() => undefined);
+      void run(attachment.context.sendEvent("seats", { _tag: "Ended", handle: attachment.handle, reason,
+        ...(exit?.code === undefined ? {} : { code: exit.code }),
+        ...(exit?.signal === undefined ? {} : { signal: exit.signal }) })).catch(() => undefined);
     void run(logEnded(attachment, reason));
     if (live.size === 0) { unsubscribe?.(); unsubscribe = undefined; }
     pumpSession(session);
@@ -218,7 +232,7 @@ export const makeSeatAttachments = (options: SeatAttachmentsOptions) => {
         if (event.type === "session") end(attachment, "generation-changed");
         continue;
       }
-      if (event.type === "exit") end(attachment, "exited");
+      if (event.type === "exit") end(attachment, "exited", true, { code: event.code, signal: event.signal });
       else if (event.type === "output" && event.seq > attachment.screenSeq) {
         attachment.out += event.data;
         if (attachment.out.length > BACKLOG_LIMIT_UNITS) void resync(attachment);
@@ -259,8 +273,14 @@ export const makeSeatAttachments = (options: SeatAttachmentsOptions) => {
       pump(attachment);
       return { ok: true as const, attachment, cols: leased.cols, rows: leased.rows, status: leased.status };
     },
-    write: (attachment: Attachment, data: string): boolean => host.write(attachment.lease, data),
-    resize: (attachment: Attachment, cols: number, rows: number): boolean => host.resize(attachment.lease, cols, rows),
+    /**
+     * A refused write or resize on a live generation means this view's lease
+     * is gone: a window on this machine took control. The view hears it as
+     * Ended replaced, not as keys that silently go nowhere.
+     */
+    write: (attachment: Attachment, data: string): boolean => held(attachment, host.write(attachment.lease, data)),
+    resize: (attachment: Attachment, cols: number, rows: number): boolean =>
+      held(attachment, host.resize(attachment.lease, cols, rows)),
     end,
     ack: (context: LinkEventContext, handle: string, upTo: bigint): void => {
       const attachment = live.get(handle);

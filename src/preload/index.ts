@@ -906,6 +906,7 @@ const terminalApi: JuntoTerminalApi = {
     invoke(IPC_CHANNELS.terminalManagedPrompt, AGENT_MESSAGE_TIMEOUT_MS, input),
   terminalResize: (leaseId, cols, rows) => invoke(IPC_CHANNELS.terminalResize, IPC_TIMEOUT_MS, leaseId, cols, rows),
   onTerminalEvent: (listener) => subscribe(IPC_CHANNELS.terminalEvent, listener),
+  onTerminalLeaseEnded: (listener) => subscribe(IPC_CHANNELS.terminalLeaseEnded, listener),
   managedTerminalModels: (harness) =>
     invoke(IPC_CHANNELS.managedTerminalModels, IPC_TIMEOUT_MS, harness),
   managedTerminalProfiles: () =>

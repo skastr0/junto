@@ -371,6 +371,8 @@ export const IPC_CHANNELS = {
   terminalManagedPrompt: "junto:terminal-managed-prompt",
   terminalResize: "junto:terminal-resize",
   terminalEvent: "junto:terminal-event",
+  /** A lease this window held ended without its release: another view took control, or the link ended it. */
+  terminalLeaseEnded: "junto:terminal-lease-ended",
   hostDirectoryRead: "junto:host-directory-read",
   gitStatus: "junto:git-status",
   gitLog: "junto:git-log",
@@ -1509,6 +1511,8 @@ export interface JuntoTerminalApi {
   }) => Promise<TerminalManagedPromptResult>;
   readonly terminalResize: (leaseId: string, cols: number, rows: number) => Promise<boolean>;
   readonly onTerminalEvent: (listener: (event: unknown) => void) => () => void;
+  /** This window's lease ended without its release; `{ leaseId, reason }`, reason a closed word. */
+  readonly onTerminalLeaseEnded?: (listener: (event: unknown) => void) => () => void;
   /** Fail-soft model enumeration for one harness (empty list = use defaults). */
   readonly managedTerminalModels: (
     harness: string,

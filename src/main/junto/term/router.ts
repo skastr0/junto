@@ -310,7 +310,10 @@ export class TerminalRouter extends EventEmitter {
   setSeatViews(views: SeatViews | undefined): void {
     this.unsubscribeSeatViews?.();
     this.seatViews = views;
-    this.unsubscribeSeatViews = views?.onEvent((ev) => this.emit("event", ev));
+    const offEvents = views?.onEvent((ev) => this.emit("event", ev));
+    // A view's lease the seat's machine ended: its window is told, not left typing into nothing.
+    const offLeases = views?.onLeaseEnded((end) => this.emit("lease-ended", end));
+    this.unsubscribeSeatViews = () => { offEvents?.(); offLeases?.(); };
   }
 
   /** Wire the region environment for plain terminals (the app does, once). */
@@ -512,6 +515,9 @@ export class TerminalRouter extends EventEmitter {
       return undefined;
     }
     if (!hostId || this.isLocalHostId(hostId)) return this.local.get(bindingId);
+    if (this.seatViews !== undefined && await this.seatViews.serves(hostId, bindingId).catch(() => false)) {
+      return await this.seatViews.get(bindingId);
+    }
     try {
       const c = await this.ensureRemoteClient(hostId);
       this.assertRouteAdmission(hostId);
