@@ -143,29 +143,6 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
   },
 ];
 
-/**
- * Pages that show one machine's settings: the Machine group, under the
- * machine dropdown in the section list. Their body reads the choice
- * (lib/settings-machine.ts).
- */
-const MACHINE_SCOPED_SECTIONS: ReadonlySet<PanelSection> = new Set(
-  SECTIONS.filter((item) => item.group === "Machine").map((item) => item.key),
-);
-
-/** Machine pages that read only this machine so far. */
-const READS_THIS_MACHINE_ONLY: ReadonlySet<PanelSection> = new Set(["providers", "machine"]);
-
-/** Said on a machine page that cannot show the chosen machine yet. */
-function ThisMachineOnlyNote({ section }: { readonly section: PanelSection }) {
-  const machine = useSettingsMachine();
-  if (machine.isThisMachine || !READS_THIS_MACHINE_ONLY.has(section)) return null;
-  return (
-    <p className="settings-note" data-testid="settings-machine-local-note">
-      This page shows this machine. {machine.label} comes next.
-    </p>
-  );
-}
-
 // The define identifier wraps the import() so a build without the machines
 // surface drops the picker and the owner command client with it.
 const SettingsMachinePicker = __JUNTO_FLEET_UI_ENABLED__
@@ -1356,10 +1333,7 @@ export function SettingsPanel() {
               {loading ? (
                 <p className="settings-note">loading…</p>
               ) : (
-                <>
-                  {MACHINE_SCOPED_SECTIONS.has(activeSection) ? <ThisMachineOnlyNote section={activeSection} /> : null}
-                  <SectionBody section={activeSection} />
-                </>
+                <SectionBody section={activeSection} />
               )}
               {error ? (
                 <p className="settings-error" role="alert">

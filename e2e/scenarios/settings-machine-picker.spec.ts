@@ -64,9 +64,9 @@ test("the Settings sidebar has a machines dropdown naming every linked machine",
     await expect(picker).toHaveAttribute("data-machine", "mac-mini");
     await expect(picker).toContainText("unreachable");
     await page.screenshot({ path: `${SHOTS}/${theme.toLowerCase()}-unreachable.png` });
-    // A machine page that reads only this machine says so.
+    // Every machine page follows the dropdown.
     await page.locator(".settings-nav__item", { hasText: "Providers" }).click();
-    await expect(page.getByTestId("settings-machine-local-note")).toContainText("Mini comes next");
+    await expect(page.getByTestId("providers-machine-refused")).toContainText("Mini");
     await expect(picker).toHaveAttribute("data-machine", "mac-mini");
 
     // Back to this machine for the next theme.
