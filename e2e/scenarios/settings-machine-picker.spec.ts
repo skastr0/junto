@@ -4,18 +4,19 @@ import { OPERATOR_PROTOCOL_VERSION } from "../../src/shared/operator-control";
 import { modelFixture } from "../harness/model";
 import { expect, test } from "../harness/launch";
 
-// Settings > Agents names whose settings it shows: one machines dropdown,
-// every linked machine in it, an unreachable one still a choice.
+// One machines dropdown in the Settings section list heads every
+// machine-specific page: every linked machine in it, an unreachable one
+// still a choice.
 
 test.use({ juntoOptions: { seedModels: { "settings-machine": modelFixture([]) } } });
 
 const SHOTS = "test-results/settings-machine-picker";
 
-test("Settings > Agents has a machines dropdown naming every linked machine", async ({ junto }) => {
+test("the Settings sidebar has a machines dropdown naming every linked machine", async ({ junto }) => {
   const { app, page } = junto;
   await mkdir(SHOTS, { recursive: true });
   await page.getByRole("button", { name: "Open settings" }).click();
-  await page.locator(".settings-nav__item", { hasText: "Machine" }).first().click();
+  await page.locator(".settings-nav__item", { hasText: "Name and startup" }).click();
   const own = (await page.getByTestId("settings-machine-section").locator('span[style*="color"]').first().innerText()).trim();
 
   await app.evaluate(({ ipcMain }, { command, protocol, own }) => {
@@ -35,6 +36,9 @@ test("Settings > Agents has a machines dropdown naming every linked machine", as
       return { protocol, id: request.id, op: request.op, ok: false, error: { type: "unavailable", message: "Fixture does not run this command" } };
     });
   }, { command: IPC_CHANNELS.machineCommand, protocol: OPERATOR_PROTOCOL_VERSION, own });
+  // The dropdown reads the machines as Settings opens: open it again on the fixture.
+  await page.locator(".settings-panel__close").click();
+  await page.getByRole("button", { name: "Open settings" }).click();
 
   for (const theme of ["Dark", "Bright"] as const) {
     await page.locator(".settings-nav__item", { hasText: "Appearance" }).click();
@@ -60,6 +64,10 @@ test("Settings > Agents has a machines dropdown naming every linked machine", as
     await expect(picker).toHaveAttribute("data-machine", "mac-mini");
     await expect(picker).toContainText("unreachable");
     await page.screenshot({ path: `${SHOTS}/${theme.toLowerCase()}-unreachable.png` });
+    // A machine page that reads only this machine says so.
+    await page.locator(".settings-nav__item", { hasText: "Providers" }).click();
+    await expect(page.getByTestId("settings-machine-local-note")).toContainText("Mini comes next");
+    await expect(picker).toHaveAttribute("data-machine", "mac-mini");
 
     // Back to this machine for the next theme.
     await picker.getByRole("button").click();

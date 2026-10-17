@@ -65,7 +65,7 @@ const PROVIDERS_SECTION_ENABLED =
   USAGE_ENABLED || LIVE_OVERSEER_ENABLED || HERMES_INTEGRATION_ENABLED;
 
 /** The section list's groups, in the order they are listed. */
-const SECTION_GROUPS = ["You", "Agents", "App"] as const;
+const SECTION_GROUPS = ["You", "Machine", "Agents", "App"] as const;
 type SectionGroup = (typeof SECTION_GROUPS)[number];
 
 type SectionItem = {
@@ -96,7 +96,7 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
     ? [
         {
           key: "harnesses",
-          group: "Agents",
+          group: "Machine",
           label: "Agents",
           blurb: "",
         } as const,
@@ -108,7 +108,7 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
     ? [
         {
           key: "providers",
-          group: "Agents",
+          group: "Machine",
           label: "Providers",
           blurb: "",
         } as const,
@@ -121,7 +121,7 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
     : []),
   // This machine's name and how it is kept running.
   ...(FLEET_UI_ENABLED
-    ? [{ key: "machine", group: "App", label: "Machine", blurb: "" } as const]
+    ? [{ key: "machine", group: "Machine", label: "Name and startup", blurb: "" } as const]
     : []),
   // Built and in the app, off until turned on here. Absent when this build
   // ships nothing experimental.
@@ -144,10 +144,27 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
 ];
 
 /**
- * Pages that show one machine's settings. Their head carries the machine
- * dropdown, and their body reads the choice (lib/settings-machine.ts).
+ * Pages that show one machine's settings: the Machine group, under the
+ * machine dropdown in the section list. Their body reads the choice
+ * (lib/settings-machine.ts).
  */
-const MACHINE_SCOPED_SECTIONS: ReadonlySet<PanelSection> = new Set(["harnesses"]);
+const MACHINE_SCOPED_SECTIONS: ReadonlySet<PanelSection> = new Set(
+  SECTIONS.filter((item) => item.group === "Machine").map((item) => item.key),
+);
+
+/** Machine pages that read only this machine so far. */
+const READS_THIS_MACHINE_ONLY: ReadonlySet<PanelSection> = new Set(["providers", "machine"]);
+
+/** Said on a machine page that cannot show the chosen machine yet. */
+function ThisMachineOnlyNote({ section }: { readonly section: PanelSection }) {
+  const machine = useSettingsMachine();
+  if (machine.isThisMachine || !READS_THIS_MACHINE_ONLY.has(section)) return null;
+  return (
+    <p className="settings-note" data-testid="settings-machine-local-note">
+      This page shows this machine. {machine.label} comes next.
+    </p>
+  );
+}
 
 // The define identifier wraps the import() so a build without the machines
 // surface drops the picker and the owner command client with it.
@@ -1300,9 +1317,16 @@ export function SettingsPanel() {
               if (items.length === 0) return null;
               return (
                 <div key={group} className="settings-nav__group" role="group" aria-label={group}>
-                  <div className="settings-nav__group-label" aria-hidden>
-                    {group}
-                  </div>
+                  {group === "Machine" && SettingsMachinePicker ? (
+                    // Whose settings the pages below show.
+                    <Suspense fallback={<div className="settings-nav__group-label">This machine</div>}>
+                      <SettingsMachinePicker />
+                    </Suspense>
+                  ) : (
+                    <div className="settings-nav__group-label" aria-hidden>
+                      {group}
+                    </div>
+                  )}
                   {items.map((item) => {
                     const current = !searching && activeSection === item.key;
                     return (
@@ -1370,22 +1394,16 @@ export function SettingsPanel() {
           {searching ? null : (
             <div className="settings-page">
               <div className="settings-content__head">
-                {SettingsMachinePicker && MACHINE_SCOPED_SECTIONS.has(activeSection) ? (
-                  <div className="settings-content__title">
-                    <h2 tabIndex={-1}>{meta.label}</h2>
-                    <Suspense fallback={null}>
-                      <SettingsMachinePicker />
-                    </Suspense>
-                  </div>
-                ) : (
-                  <h2 tabIndex={-1}>{meta.label}</h2>
-                )}
+                <h2 tabIndex={-1}>{meta.label}</h2>
                 {meta.blurb ? <p>{meta.blurb}</p> : null}
               </div>
               {loading ? (
                 <p className="settings-note">loading…</p>
               ) : (
-                <SectionBody section={activeSection} />
+                <>
+                  {MACHINE_SCOPED_SECTIONS.has(activeSection) ? <ThisMachineOnlyNote section={activeSection} /> : null}
+                  <SectionBody section={activeSection} />
+                </>
               )}
               {error ? (
                 <p className="settings-error" role="alert">
