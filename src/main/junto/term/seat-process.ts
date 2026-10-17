@@ -54,6 +54,8 @@ export type OccupySpec = {
   readonly seatRect?: RegionRect;
   /** Receiver-local admission, rechecked after asynchronous launch preparation. */
   readonly beforeSpawn?: Effect.Effect<void, Error>;
+  /** The operation this start belongs to; every request it sends to another machine carries it. */
+  readonly operationId?: string;
 };
 
 /**
@@ -81,7 +83,7 @@ export const noSeatEnvironment: SeatEnvironmentResolver = () =>
 
 export type ActorActivateSpec = Pick<
   OccupySpec,
-  "harness" | "agentKey" | "canvasName" | "nodeId"
+  "harness" | "agentKey" | "canvasName" | "nodeId" | "operationId"
 >;
 
 export interface TerminalSeatProcessApi {
@@ -357,9 +359,11 @@ export type RemoteAgentSeatCommand =
 export type RemoteSeatProcessClient = {
   readonly get: (
     bindingId: string,
+    operationId?: string,
   ) => Promise<TerminalSessionSummary | undefined>;
   readonly createAgentSeat: (
     input: RemoteAgentSeatCommand,
+    operationId?: string,
   ) => Promise<TerminalSessionSummary>;
 };
 
@@ -425,7 +429,7 @@ export const makeRemoteSeatProcess = (
       Effect.gen(function* () {
         const bindingId = command.seat.bindingId;
         const summary = yield* Effect.tryPromise({
-          try: () => client.get(bindingId),
+          try: () => client.get(bindingId, spec.operationId),
           catch: asClientError,
         });
         const current = yield* checkedRemoteSummary(
@@ -455,7 +459,7 @@ export const makeRemoteSeatProcess = (
           return yield* occupy.failure;
         }
         const created = yield* Effect.tryPromise({
-          try: () => client.createAgentSeat(remoteAgentInput(bindingId, spec)),
+          try: () => client.createAgentSeat(remoteAgentInput(bindingId, spec), spec.operationId),
           catch: asClientError,
         }).pipe(
           Effect.catch((failure) =>
@@ -465,7 +469,7 @@ export const makeRemoteSeatProcess = (
               // the winner's generation; any other occupant is a typed
               // conflict; a vacant seat preserves the original failure.
               const raced = yield* Effect.tryPromise({
-                try: () => client.get(bindingId),
+                try: () => client.get(bindingId, spec.operationId),
                 catch: () => failure,
               });
               const incumbent = yield* checkedRemoteSummary(
@@ -497,7 +501,7 @@ export const makeRemoteSeatProcess = (
         // A proven resume can die and fail-open on the host's promise queue.
         // Re-read so occupation returns that replacement head, not its dead seed.
         const head = yield* Effect.tryPromise({
-          try: () => client.get(bindingId),
+          try: () => client.get(bindingId, spec.operationId),
           catch: asClientError,
         });
         const projectedHead = yield* checkedRemoteSummary(
@@ -516,7 +520,7 @@ export const makeRemoteSeatProcess = (
       Effect.gen(function* () {
         const bindingId = command.seat.bindingId;
         const summary = yield* Effect.tryPromise({
-          try: () => client.get(bindingId),
+          try: () => client.get(bindingId, actor.operationId),
           catch: asClientError,
         });
         const live = yield* checkedRemoteSummary(
@@ -557,7 +561,7 @@ export const makeRemoteSeatProcess = (
               agentKey: actor.agentKey,
               canvasName: actor.canvasName,
               nodeId: actor.nodeId,
-            }),
+            }, actor.operationId),
           catch: asClientError,
         });
         const projected = yield* checkedRemoteSummary(

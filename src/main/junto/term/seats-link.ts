@@ -16,7 +16,7 @@ import { runOnSeatStartTurn } from "./seat-start-turn";
 import {
   asSeatsFailure, clipText, type SeatsFailureWhere, SeatCanvasEditorMismatch, SeatChangedWhilePreparing, SeatEpochChanged, SeatExited,
   SeatLinkClosed, SeatMissing, SeatNotOnThisMachine, SeatOccupantChanged, SeatPeerNotPinned,
-  SeatSessionUnavailable, SeatSpawnFailed, SeatStopping,
+  SeatSessionUnavailable, SeatsFailure, SeatSpawnFailed, SeatStopping,
 } from "./seats-failure";
 import type { LocalSessionHost } from "./local-host";
 
@@ -206,10 +206,12 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
       Effect.tapCause((cause) => Effect.logError(`seat ${kind} failed`, cause)),
     )).pipe(
       Effect.annotateLogs({ area: "seats", seat: request.seatId, canvas: request.canvas, request: request._tag,
-        peer: context.peer.machineName }),
+        peer: context.peer.machineName,
+        ...(context.operationId === undefined ? {} : { operationId: context.operationId }) }),
     );
   });
   return {
+    failureSchema: SeatsFailure as Schema.Codec<unknown, unknown>,
     decodeRequest: Schema.decodeUnknownSync(SeatsRequest, { onExcessProperty: "error" }),
     decodeResponse: Schema.decodeUnknownSync(SeatsResponse, { onExcessProperty: "error" }),
     decodeEvent: () => { throw new Error("The seats channel has no events."); },

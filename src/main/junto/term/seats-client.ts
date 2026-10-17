@@ -28,13 +28,14 @@ export const makeSeatsProcessClient = (
     }
     return undefined;
   });
-  const request = (payload: unknown) => Effect.gen(function* () {
+  const request = (payload: unknown, operationId: string | undefined) => Effect.gen(function* () {
     const hosts = yield* HostsService;
     const host = yield* hosts.get(machine);
     if (host === undefined) return yield* Effect.fail(new Error("This seat's machine is unavailable."));
     const link = yield* MachineLink;
     yield* link.connect(host);
-    const response = yield* link.request(machine, "seats", payload).pipe(Effect.mapError(unwrapSeatsFailure));
+    const response = yield* link.request(machine, "seats", payload,
+      operationId === undefined ? undefined : { operationId }).pipe(Effect.mapError(unwrapSeatsFailure));
     return yield* Schema.decodeUnknownEffect(SeatsResponse)(response, { onExcessProperty: "error" });
   });
   /** A harness that never started is the same exited generation a local start returns. */
@@ -53,13 +54,13 @@ export const makeSeatsProcessClient = (
     };
   };
   return {
-    get: (bindingId) => run(Effect.gen(function* () {
+    get: (bindingId, operationId) => run(Effect.gen(function* () {
       const held = yield* locate(bindingId);
       if (held === undefined) return undefined;
-      const response = yield* request({ _tag: "Get", canvas: held.canvas, seatId: held.seat.id });
+      const response = yield* request({ _tag: "Get", canvas: held.canvas, seatId: held.seat.id }, operationId);
       return yield* Effect.try({ try: () => summary(held.canvas, held.seat, response), catch: asError });
     })),
-    createAgentSeat: (input) => run(Effect.gen(function* () {
+    createAgentSeat: (input, operationId) => run(Effect.gen(function* () {
       const held = yield* locate(input.bindingId);
       if (held === undefined || held.canvas !== input.canvasName || held.seat.id !== input.nodeId ||
         held.seat.harness !== input.harness || held.seat.agentKey !== input.agentKey)
@@ -68,7 +69,7 @@ export const makeSeatsProcessClient = (
         _tag: input.admission === "activate" ? "Activate" : "Start",
         canvas: held.canvas, seatId: held.seat.id,
         ...(input.admission === "activate" ? { generation: input.expectedEpoch } : {}),
-      }).pipe(Effect.catchIf(
+      }, operationId).pipe(Effect.catchIf(
         (failure): failure is SeatSpawnFailed =>
           typeof failure === "object" && failure !== null && "_tag" in failure && failure._tag === "SeatSpawnFailed" &&
           (failure as SeatSpawnFailed).machine === machine && (failure as SeatSpawnFailed).seatId === held.seat.id,

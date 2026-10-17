@@ -4,7 +4,9 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LinkChannelContext } from "../src/main/junto/link/types";
-import { MachineLink, MachineLinkError } from "../src/main/junto/link/service";
+import { LinkUnavailable, MachineLink } from "../src/main/junto/link/service";
+import { LinkRequestFailed } from "../src/main/junto/link/types";
+import { encodeError } from "../src/main/junto/failure-encode";
 import { HostsService } from "../src/main/junto/hosts/service";
 import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { ModelService } from "../src/main/junto/model/service";
@@ -117,7 +119,7 @@ const fixture = async (options: {
   const context: LinkChannelContext = {
     peer: { build: "same-build", installationId: editor, machineName: "macbook" },
     sessionId: "admitted-link", signal: controller.signal,
-    sendEvent: () => Effect.void,
+    sendEvent: () => Effect.void, close: () => Effect.void,
     request: () => Effect.die("the start receiver must not send requests"),
   };
   const start = (raw: unknown = request, caller = context) =>
@@ -129,10 +131,17 @@ const linkedClient = (f: Awaited<ReturnType<typeof fixture>>) => {
   const host = Schema.decodeUnknownSync(RemoteHost)({
     id: THIS_MACHINE, label: "Mini", isThisMachine: false, sshEndpoint: "mini", capabilities: ["terminal"],
   });
-  const requestLink = vi.fn((_machine: string, _channel: string, payload: unknown) =>
-    // The link decodes a channel failure into its detail; this stands in for that frame.
-    f.channel.handleRequest(f.context, payload).pipe(Effect.mapError((detail) =>
-      ({ _tag: "LinkRequestFailed", detail }) as unknown as MachineLinkError)));
+  const requestLink = vi.fn((_machine: string, _channel: string, payload: unknown, options?: { readonly operationId?: string }) =>
+    // What the link does with a channel failure: encode it under the channel's
+    // failureSchema, send it, and decode it closed as the requester's detail.
+    f.channel.handleRequest({ ...f.context, ...(options?.operationId ? { operationId: options.operationId } : {}) }, payload)
+      .pipe(Effect.mapError((cause) => {
+        const schema = f.channel.failureSchema!;
+        const detail = Schema.decodeUnknownSync(schema)(JSON.parse(JSON.stringify(Schema.encodeSync(schema)(cause))));
+        const operationId = options?.operationId ?? "link-minted";
+        return new LinkRequestFailed({ machine: THIS_MACHINE, channel: "seats", operationId,
+          failure: encodeError(cause, { machine: THIS_MACHINE, operationId }), detail, message: String(cause) });
+      })));
   const unused = Effect.die("unused machine operation");
   const links = MachineLink.of({
     setChannels: () => unused, listen: () => unused,
@@ -144,9 +153,9 @@ const linkedClient = (f: Awaited<ReturnType<typeof fixture>>) => {
     get: () => Effect.succeed(host), list: unused, doctor: unused, doctorSnapshot: unused,
     upsert: () => unused, remove: () => unused, test: () => unused,
   });
-  return makeSeatsProcessClient(THIS_MACHINE, (effect) => f.runtime.runPromise(effect.pipe(
+  return { requestLink, client: makeSeatsProcessClient(THIS_MACHINE, (effect) => f.runtime.runPromise(effect.pipe(
     Effect.provideService(HostsService, hosts), Effect.provideService(MachineLink, links),
-  )));
+  ))) };
 };
 
 describe("seats link start", () => {
@@ -155,11 +164,13 @@ describe("seats link start", () => {
     const broken = seat("mini-seat", { host: THIS_MACHINE, agentKey: `${THIS_MACHINE}:mini-seat`,
       launch: { kind: "harness", argv: ["claude"], cwd: missing } });
     const f = await fixture({ nodes: [broken] });
-    const live = await linkedClient(f).createAgentSeat({
+    const linked = linkedClient(f);
+    const live = await linked.client.createAgentSeat({
       admission: "occupy", bindingId: broken.bindingId, canvasName: canvas, nodeId: broken.id,
       harness: broken.harness, agentKey: broken.agentKey,
       spawnIntent: { documentLaunch: broken.launch!, resumeRequested: false },
-    });
+    }, "op-start-1");
+    expect(linked.requestLink.mock.calls.map((call) => call[3])).toEqual([{ operationId: "op-start-1" }]);
     expect(live).toMatchObject({
       bindingId: broken.bindingId, hostId: THIS_MACHINE, nodeId: broken.id, status: "exited",
       exitReason: "spawn_failed", epoch: f.host.get(broken.bindingId)?.epoch,
@@ -297,8 +308,8 @@ describe("seats link start", () => {
     cleanups.push(async () => { closeMachineLog(); await rm(home, { recursive: true, force: true }); });
     installMachineLog({ home, process: "core", echo: false });
     const f = await fixture({
-      environment: async () => ({ env: { REGION_SECRET: secret }, folders: [], record: EMPTY_LAUNCH_RECORD }),
-      spawnError: new Error(`spawn refused with ${secret} in its text`),
+      environment: async () => ({ env: { REGION_SECRET: secret, STAGE: "prod" }, folders: [], record: EMPTY_LAUNCH_RECORD }),
+      spawnError: new Error(`spawn refused for ${localSeat.agentKey} in prod with ${secret} in its text`),
     });
     const failure = await f.start().then(() => undefined, (error: unknown) => error);
     expect(failure).toMatchObject({ _tag: "SeatSpawnFailed" });
@@ -308,6 +319,9 @@ describe("seats link start", () => {
     expect(rows.length).toBeGreaterThan(0);
     expect(log).not.toContain(secret);
     expect(rows.join("\n")).toContain("[redacted]");
+    // The seat's name (JUNTO_SEAT) and a short region word are in its
+    // environment, and neither is a secret.
+    expect(rows.join("\n")).toContain(`for ${localSeat.agentKey} in prod with [redacted]`);
   });
 
   it("answers each refusal with its own tag", async () => {
@@ -348,7 +362,7 @@ describe("seats link start", () => {
     const requestLink = vi.fn((_machine: string, channel: string, payload: unknown) => {
       expect(channel).toBe("seats");
       return f.channel.handleRequest(f.context, payload).pipe(Effect.mapError((cause) =>
-        new MachineLinkError(cause instanceof Error ? cause.message : String(cause))));
+        new LinkUnavailable({ reason: "not-linked", message: cause instanceof Error ? cause.message : String(cause) })));
     });
     const unused = Effect.die("unused machine operation");
     const links = MachineLink.of({

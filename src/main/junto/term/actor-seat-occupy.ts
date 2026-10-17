@@ -154,6 +154,7 @@ export const makeActorSeatOccupy = (
 ): Context.Service.Shape<typeof ActorSeatOccupy> =>
   ActorSeatOccupy.of({
     occupy: (spec) => {
+      const operationId = spec.operationId ?? randomUUID();
       return Effect.gen(function* () {
         const localHostId = yield* deps.localHostId();
         const targetHostId = normalizeTargetHostId(spec.hostId, localHostId);
@@ -168,7 +169,7 @@ export const makeActorSeatOccupy = (
                 catch: asClientError,
               }),
             );
-        return yield* occupyProgram({ ...spec, hostId: targetHostId }).pipe(
+        return yield* occupyProgram({ ...spec, hostId: targetHostId, operationId }).pipe(
           Effect.provide(
             Layer.succeed(TerminalSeatProcess, implementation),
           ),
@@ -178,7 +179,7 @@ export const makeActorSeatOccupy = (
         );
       }).pipe(
         Effect.annotateLogs({
-          area: "seats", operationId: randomUUID(), seat: spec.nodeId,
+          area: "seats", operationId, seat: spec.nodeId,
           canvas: spec.canvasName, harness: spec.harness,
         }),
         Effect.withSpan("ActorSeatOccupy.occupy"),
