@@ -302,9 +302,10 @@ machine that runs it.
 - **Settings name their machine.** A settings page scoped to a machine has a
   machine dropdown and shows that machine's colour and icon. The seat picker
   and a seat's Params read the inventory of the seat's machine.
-- **Native config is written by its own machine.** Proposed 17 October by
-  the operator's decision. Not yet signed off by `remote-security`: no write
-  ships until it holds.
+- **Native config is written by its own machine.** Agreed 17 October:
+  signed off by `remote-security`. Settings the operator writes apply as
+  written, permission modes included (the operator's decision,
+  `docs/security-doctrine.md`, 934550478).
   Settings offer launch flags and permanent edits to a harness's own config;
   both work on every machine from the start.
   - The operator edits a machine's harness settings from any window. The
@@ -318,27 +319,13 @@ machine that runs it.
     or names a program, a script, a path, a directory or a URL: no hooks, MCP
     server definitions, status line commands, API key helpers or plugin
     directories. Adding a key to the list is a `remote-security` review.
-  - No write widens what the harness may do without asking: permission
-    modes, allow rules such as `Bash(*)`, sandbox levels such as
-    `danger-full-access`, approval policies such as `never`, trusted folders,
-    additional directories. Narrowing is allowed. This holds on every
-    machine, the window's own included, so there is still one path; the
-    operator sets wider values in the harness's own file by hand. Open: the
-    operator's call on whether some widening, such as Claude's `auto` mode,
-    may be written.
-  - No write sets an environment block or any key inside one (`NODE_OPTIONS`,
-    `PATH`, `*_BASE_URL` and the like).
-  - Admission. Writing is an owner command, refused from a seat. Over the
-    link, only the bound peer that edits a canvas placing a seat on that
-    machine may write; any other pinned peer reads inventory only.
   - Reads use the same closed keys: the machine answers each key's current
     typed value, never a file and never a block such as `env` that can hold a
     secret. Credential files are never read, written or carried.
   - A write changes only the named key and keeps the file's comments and
-    formatting, backs the file up first and replaces it in one step. The
-    backup keeps the file's mode, stays beside the file on that machine, and
-    is never logged, read by key or carried. A file changed by hand since the
-    machine last read it answers a typed conflict, never a silent overwrite.
+    formatting, backs the file up first and replaces it in one step. A file
+    changed by hand since the machine last read it answers a typed conflict,
+    never a silent overwrite.
   - The answer is the key's value as read back after the write, or a typed
     failure (Failures and logs). An unreachable machine refuses the write
     with its typed reason; nothing is queued.
