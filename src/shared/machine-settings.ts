@@ -49,7 +49,7 @@ export class MachineSettingsUnavailableError extends Schema.TaggedError<MachineS
 
 /** How a page says a machine did not answer: its typed failure when it has one, else the reason. */
 export const machineSettingsRefusal = (label: string, error: MachineSettingsUnavailableError): string =>
-  `${label} did not answer (${error.failure ?? error.reason}): ${error.message}`;
+  `${label} did not answer (${error.failure ?? error.reason}): ${error.message.replace(/\.$/u, "")}`;
 
 /** A machine's providers as its core answers them: names and state, no values. */
 export const machineProvidersOf = (settings: Settings, machine: string): MachineProviders => {

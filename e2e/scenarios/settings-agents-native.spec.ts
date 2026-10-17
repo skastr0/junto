@@ -98,7 +98,7 @@ test("Agents, Providers and Name and startup follow the chosen machine", async (
 
     // (3) Providers and Name and startup with Mini: plain refusals, controls off.
     await nav(page, /^Providers$/);
-    await expect(page.getByTestId("providers-machine-refused")).toContainText("No providers for Mini:");
+    await expect(page.getByTestId("providers-machine-refused")).toContainText("Mini did not answer (");
     const providerSwitches = page.locator('.settings-section input[type="checkbox"]');
     expect(await providerSwitches.count()).toBeGreaterThan(0);
     for (let index = 0; index < (await providerSwitches.count()); index += 1) await expect(providerSwitches.nth(index)).toBeDisabled();
@@ -107,7 +107,7 @@ test("Agents, Providers and Name and startup follow the chosen machine", async (
     for (let index = 0; index < (await secrets.count()); index += 1) await expect(secrets.nth(index)).toBeDisabled();
     await page.screenshot({ path: `${SHOTS}/mini-providers.png` });
     await nav(page, /Machine|Name and startup/);
-    await expect(page.getByRole("status").filter({ hasText: "No record from Mini:" })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Mini did not answer (" })).toBeVisible();
     const nameControls = page.getByTestId("settings-machine-section").locator("input");
     expect(await nameControls.count()).toBeGreaterThan(0);
     for (let index = 0; index < (await nameControls.count()); index += 1) await expect(nameControls.nth(index)).toBeDisabled();
@@ -115,7 +115,7 @@ test("Agents, Providers and Name and startup follow the chosen machine", async (
 
     // This machine again: both pages work as before.
     await chooseMachine(page, "Desk");
-    await expect(page.getByRole("status").filter({ hasText: "No record from" })).toHaveCount(0);
+    await expect(page.getByRole("status").filter({ hasText: "did not answer" })).toHaveCount(0);
     await expect(page.getByTestId("settings-machine-section").locator("input").first()).toBeEnabled();
     await page.screenshot({ path: `${SHOTS}/desk-name.png` });
     await nav(page, /^Providers$/);
