@@ -474,6 +474,23 @@ try {
   );
 
   if (holdSeconds > 0) {
+    // For another capture sharing the instance: one seat done (a turn that
+    // ended unread), one needing input, the rest still working.
+    await main.evaluate(`(() => {
+      const at = Date.now();
+      const send = (n, state, offset) => {
+        const id = "ring-seat-" + String(n).padStart(2, "0");
+        for (const window of __probe.BrowserWindow.getAllWindows())
+          window.webContents.send("junto:agent-seat-state-changed", {
+            bindingId: "local:" + id, epoch: "ring-cost", state,
+            reason: state === "attention" ? "rule:approval_prompt" : "rule:empty_prompt_idle",
+            confidence: "high", at: at + offset,
+          });
+      };
+      send(1, "idle", 1);
+      send(2, "attention", 0);
+      return true;
+    })()`);
     console.error(`ring cost: holding the app for ${holdSeconds} s; renderer CDP on 127.0.0.1:${port}`);
     await sleep(holdSeconds * 1000);
   }
