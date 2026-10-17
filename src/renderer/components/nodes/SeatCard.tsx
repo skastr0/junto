@@ -8,6 +8,8 @@ import { useSeatMachineLine } from "../../lib/machines";
 import { editText } from "../../lib/mutations";
 import { useSeatAttentionReasons } from "../../lib/occupancy-feed";
 import { cardMark, seatFactsForNode } from "../../lib/seat-projections";
+import { useSeatNextLaunch } from "../../lib/seat-next-launch";
+import { SEAT_NEXT_LAUNCH_LINE } from "@shared/seat-next-launch";
 import { onTerminalEvent } from "../../lib/terminal-events";
 import {
   sessionChromeUnchanged,
@@ -78,12 +80,7 @@ export function SeatCard({
   }, [bindingId, hostId]);
   const attentionReasons = useSeatAttentionReasons(agentKey);
   const machineLine = useSeatMachineLine(hostId, harness);
-
-  if (name === undefined) return null;
-
-  const exitReason = session?.exitReason;
-  const exitMessage = session?.exitMessage;
-  const activity = cardMark(
+  const mark = cardMark(
     seatFactsForNode({
       nodeId: id,
       seatEvent,
@@ -94,6 +91,20 @@ export function SeatCard({
       managedSeat: true,
     }),
   );
+  // A seat with no process says what its next start does: resume the
+  // session it had, or begin fresh. Both used to read "not running".
+  const nextLaunch = useSeatNextLaunch(
+    canvas,
+    id,
+    mark.mode === "static" && mark.glyph === "off",
+    `${bindingId ?? ""}:${seatEvent?.at ?? 0}:${session?.epoch ?? ""}:${session?.status ?? ""}`,
+  );
+  const activity = nextLaunch ? { ...mark, label: SEAT_NEXT_LAUNCH_LINE[nextLaunch] } : mark;
+
+  if (name === undefined) return null;
+
+  const exitReason = session?.exitReason;
+  const exitMessage = session?.exitMessage;
   // Which machine a seat sits on is not what the operator reads an agent node
   // for, and it crowded out the claimed task. The machine is named only when
   // it is why the seat cannot run; that outranks the spawn failure it causes.

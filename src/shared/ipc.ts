@@ -117,6 +117,7 @@ import type {
   ProfilesChanged,
 } from "./agent-profiles";
 import type { NotifyCue, NotifyReport, NotifyTarget } from "./desktop-notifications";
+import type { SeatNextLaunch } from "./seat-next-launch";
 import type { OverseerLiveApi } from "./overseer-live";
 import type {
   ObservabilityLogEntry,
@@ -801,8 +802,15 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   }) => Promise<TerminalSessionSummary>;
   /** Stop the session of a seat or terminal. The node stays on the canvas. */
   readonly modelStop: (input: { readonly canvas: string; readonly id: string }) => Promise<void>;
-  /** Creation settings remain locked after a seat acquired its named session. */
-  readonly modelSeatLaunchState: (input: { readonly canvas: string; readonly id: string }) => Promise<{ readonly hasSession: boolean }>;
+  /**
+   * Creation settings remain locked after a seat acquired its named session.
+   * `next`: what the seat's next start does, resume its session or begin a
+   * fresh one (seat-next-launch.ts).
+   */
+  readonly modelSeatLaunchState: (input: { readonly canvas: string; readonly id: string }) => Promise<{
+    readonly hasSession: boolean;
+    readonly next: SeatNextLaunch;
+  }>;
   readonly getSnapshots: () => Promise<SnapshotState>;
   // Kernel state and control (headless kernel in main process).
   readonly getKernelState: () => Promise<KernelSnapshot>;

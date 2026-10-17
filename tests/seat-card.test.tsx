@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import { decodeNode, type Node } from "../src/shared/model";
 import { SeatCard } from "../src/renderer/components/nodes/SeatCard";
+import { seatNextLaunch$ } from "../src/renderer/lib/seat-next-launch";
 import { state$ } from "../src/renderer/lib/state";
 import { holdModelCanvas as holdCanvas } from "./support/hold-canvas";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
@@ -29,6 +30,7 @@ describe("SeatCard", () => {
     state$.machines.set([]);
     state$.machineFacts.set({});
     state$.settings.machine.name.set("");
+    seatNextLaunch$.set({});
   });
 
   it("marks an overseer seat", () => {
@@ -68,6 +70,18 @@ describe("SeatCard", () => {
     expect(card("far")).toContain("Claude Code is not on Atlas. Install it there, or move this seat.");
     state$.machineFacts.set({ [OTHER_MACHINE]: { setUp: true, needsUpdate: false, reachable: true, harnesses: ["claude"] } });
     expect(card("far")).not.toContain("data-machine-state");
+  });
+
+  it("says whether a seat that is not running will resume its session or start fresh", () => {
+    stop = holdCanvas("factory", [seat("lead", "canvas-lead"), seat("scout", "scout"), seat("new", "new")]);
+    // Before main answers, it says only that it is not running.
+    expect(card("lead")).toContain("not running");
+    expect(card("lead")).not.toContain("will resume");
+
+    seatNextLaunch$.set({ factory: { lead: "resume", scout: "offboarded", new: "fresh" } });
+    expect(card("lead")).toContain("not running, will resume");
+    expect(card("scout")).toContain("offboarded, starts fresh");
+    expect(card("new")).toContain("not running, starts fresh");
   });
 
   it("renders nothing for an id the store does not hold as a seat", () => {

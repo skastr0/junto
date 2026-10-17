@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
 import { ModelService } from "../model/service";
 import { SeatSessionRepository } from "../seat-sessions/repository";
+import { shouldResumeHarnessSession } from "./session-existence";
+import { seatNextLaunch } from "@shared/seat-next-launch";
 import type {
   JuntoApi,
   MachineInventoryResult,
@@ -17,6 +19,7 @@ import {
 } from "@shared/ipc";
 import {
   isHarnessId,
+  templateFor,
 } from "@shared/managed-terminal-templates";
 import { asCanvasName } from "@shared/model";
 import type { ControlLease, LocalHostEvent } from "./local-host";
@@ -209,11 +212,25 @@ export const registerTerminalIpc = (
   ipcMain.handle(IPC_CHANNELS.modelSeatLaunchState, async (event, input: Parameters<JuntoApi["modelSeatLaunchState"]>[0]) => {
     assertTrusted(event);
     const node = await readSeat(input?.canvas, input?.id);
-    if (node.kind !== "agent") return { hasSession: false };
+    if (node.kind !== "agent") return { hasSession: false, next: "fresh" };
     if (!router.isLocalHostId(node.host)) return deny("This seat runs on another machine.");
-    const session = await AppRuntime.runPromise(Effect.flatMap(SeatSessionRepository,
-      (sessions) => sessions.current(node.id, node.bindingId)));
-    return { hasSession: session?.harness === node.harness };
+    const { session, history } = await AppRuntime.runPromise(Effect.flatMap(SeatSessionRepository,
+      (sessions) => Effect.all({
+        session: sessions.current(node.id, node.bindingId),
+        history: sessions.list(node.id).pipe(Effect.orElseSucceed(() => [])),
+      })));
+    const lastEnded = history.find((row) => row.endedAt !== undefined)?.endReason;
+    // The same proof a start asks for (managed-spawn-plan.ts): the harness's own store holds the id.
+    const cwd = node.launch?.cwd?.trim();
+    const next = seatNextLaunch({
+      harness: node.harness,
+      ...(session ? { open: { harness: session.harness, sessionId: session.sessionId } } : {}),
+      provisioned: isHarnessId(node.harness) && templateFor(node.harness).capabilityBadges.sessionId === "provision",
+      provenOnDisk: session !== undefined && session.harness === node.harness &&
+        shouldResumeHarnessSession(true, { harness: node.harness, sessionId: session.sessionId, ...(cwd ? { cwd } : {}) }),
+      ...(lastEnded ? { lastEnded } : {}),
+    });
+    return { hasSession: session?.harness === node.harness, next };
   });
 
   ipcMain.handle(IPC_CHANNELS.modelStart, async (event, input: Parameters<JuntoApi["modelStart"]>[0]) => {
