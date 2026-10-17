@@ -255,6 +255,7 @@ class StubProvider {
   private replies: readonly Reply[] = [OK];
   private cursor = 0;
   private lastGeminiStream = false;
+  private readonly sockets = new Set<net.Socket>();
   readonly served: Served[] = [];
 
   private collect(req: http.IncomingMessage | http2.Http2ServerRequest, res: http.ServerResponse | http2.Http2ServerResponse): void {
@@ -299,6 +300,8 @@ class StubProvider {
     await new Promise<void>((resolve) => this.http2.listen(0, "127.0.0.1", resolve));
     const h2Port = (this.http2.address() as net.AddressInfo).port;
     this.server = net.createServer((socket) => {
+      this.sockets.add(socket);
+      socket.on("close", () => this.sockets.delete(socket));
       socket.on("error", () => { /* dropped by a scenario or the harness */ });
       socket.once("data", (first: Buffer) => {
         const h2 = first.subarray(0, 14).toString("latin1") === "PRI * HTTP/2.0";
@@ -331,6 +334,9 @@ class StubProvider {
   }
 
   stop(): Promise<void> {
+    // Sockets piped to the HTTP/2 listener are not the HTTP servers' to close;
+    // left open, server.close() never calls back and the process just drains.
+    for (const socket of this.sockets) socket.destroy();
     this.http1.closeAllConnections();
     this.http2.close();
     return new Promise((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()));
