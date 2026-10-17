@@ -7,7 +7,7 @@
  * events only; a request or a response on it is refused. Who the peer is
  * comes from the link's admitted hello, never from a frame.
  */
-import { Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 import type { InstallationId } from "@shared/installation-id";
 import { decodeExchangeFrame, type ExchangeFrame } from "@shared/work-exchange";
 import type { RowExchange } from "./session";
@@ -18,15 +18,21 @@ export type RowsChannelContext = {
   readonly sendEvent: (channel: "rows", payload: unknown) => Effect.Effect<void, unknown>;
 };
 
+/** Why the rows channel refused what a link handed it; the link closes as frame-invalid with this cause. */
+export class RowsFrameRefused extends Schema.TaggedError<RowsFrameRefused>()("RowsFrameRefused", {
+  check: Schema.Literals(["unknown-frame", "no-requests"]),
+  message: Schema.String,
+}) {}
+
 /** The one decode of a frame from another machine. Throws for anything else. */
 export const decodeRowsEvent = (payload: unknown): ExchangeFrame => {
   const decoded = decodeExchangeFrame(payload);
-  if (Result.isFailure(decoded)) throw new Error("a frame this machine does not know");
+  if (Result.isFailure(decoded)) throw new RowsFrameRefused({ check: "unknown-frame", message: "a frame this machine does not know" });
   return decoded.success;
 };
 
 const noRequests = (): never => {
-  throw new Error("the rows channel carries no requests");
+  throw new RowsFrameRefused({ check: "no-requests", message: "the rows channel carries no requests" });
 };
 
 export const makeRowsChannel = (exchange: RowExchange) => ({

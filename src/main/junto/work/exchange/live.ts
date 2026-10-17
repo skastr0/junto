@@ -35,6 +35,8 @@ import { raisedHands } from "../../signals/raised-hands";
 import { AgentSignalRepository } from "../../signals/repository";
 import { WorkRepository } from "../repository";
 import { makeRowExchange, type CopyInstalled, type RowExchange } from "./session";
+import { encodeFailure } from "../../failure-encode";
+import { logMachine } from "../../observability/logger";
 
 export type LiveRowExchangeOptions = {
   /** Mail that arrived for a seat, for this machine to deliver if the seat is here. */
@@ -304,7 +306,9 @@ export const followLocalCommits = (
       Effect.runFork(
         records.listCanvases().pipe(
           Effect.flatMap((canvases) => Effect.forEach(canvases, exchange.committed, { discard: true })),
-          Effect.ignore,
+          // Nothing is pushed this time; the next commit pushes again. Never silent.
+          Effect.catchCause((cause) => Effect.logWarning("canvases could not be listed to push to linked machines").pipe(
+            Effect.annotateLogs({ area: "exchange", failure: encodeFailure(cause, { machine: logMachine() }) }))),
         ),
       );
     };
