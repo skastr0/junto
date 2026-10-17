@@ -115,6 +115,8 @@ export const buildMachine = async (input: BuildMachineInput) => {
     if (!result.success) throw new Error(result.logs.map(String).join("\n"));
     const core = await readFile(join(stage, "core/junto.cjs"), "utf8");
     if (/(?:__require|require)\s*\(\s*["']electron["']\s*\)|\bBrowserWindow\b/.test(core)) throw new Error("the windowless core imports Electron");
+    // A baked source URL resolves packages from the build machine's checkout, absent on the target.
+    if (/createRequire\(\s*["']file:/.test(core)) throw new Error("the core resolves packages from a build-machine path");
     for (const dependency of ["@xterm/headless", "@xterm/addon-serialize"]) {
       const source = join(repoRoot, "node_modules", dependency);
       const metadata = JSON.parse(await readFile(join(source, "package.json"), "utf8")) as {main:string};

@@ -28,7 +28,8 @@ export const APP_PROCESS_PLANE_QUIESCING_ERROR =
   "app process plane is shutting down";
 
 // The bundled ESM main has no ambient require; node-pty stays a runtime load.
-const require = createRequire(import.meta.url);
+// The CJS machine core resolves it beside its installed file, not the build path.
+const require = createRequire(typeof __filename === "string" ? __filename : import.meta.url);
 
 export const APP_PROCESS_TERM_GRACE_MS = 1_000;
 export const APP_PROCESS_KILL_GRACE_MS = 1_500;
