@@ -13,19 +13,23 @@
  * The seat runs with `--approval-mode always-ask` in a fresh folder and is
  * asked to run one shell command, so the turn passes through a real
  * permission prompt. Every published seat state must equal the projection of
- * the snapshot it was published from.
+ * the status the event carries, and that status must be the slot's snapshot.
  */
 import { seedThisMachine, clearMachines } from "../support/seed-this-machine";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { isDeepStrictEqual } from "node:util";
 import { afterAll, describe, expect, it } from "vitest";
 import { LocalSessionHost } from "../../src/main/junto/term/local-host";
 import { createAppProcessPlane } from "../../src/main/junto/app-process-plane";
 import { seatStateRuntime } from "../../src/main/junto/term/agent-state";
 import { projectAgentSeatState } from "../../src/main/junto/term/agent-state/projection";
-import type { AgentSeatStateEvent } from "../../src/shared/agent-seat-state";
+import {
+  agentSeatStatusOf,
+  type AgentSeatStateEvent,
+} from "../../src/shared/agent-seat-state";
 import type { SeatSnapshot } from "../../src/shared/harness-domain";
 
 const LIVE = process.env.JUNTO_LIVE_OSC7501 === "1";
@@ -39,6 +43,9 @@ type Published = {
   readonly status: SeatSnapshot["status"];
   readonly statusSource: SeatSnapshot["statusSource"];
   readonly projection: AgentSeatStateEvent["state"];
+  /** The published status is the slot's snapshot at that moment. */
+  readonly sameAsSlot: boolean;
+  readonly need: string;
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -71,8 +78,9 @@ describe.skipIf(!LIVE)("OSC 7501 live: a real omp seat", () => {
     const timeline: Published[] = [];
     const off = seatStateRuntime.subscribe((event) => {
       if (event.bindingId !== BINDING) return;
-      const snapshot = seatStateRuntime.snapshot(BINDING);
-      if (snapshot === undefined) return;
+      const published = agentSeatStatusOf(event);
+      if (published === undefined) return;
+      const { snapshot } = published;
       timeline.push({
         t: Date.now() - t0,
         state: event.state,
@@ -80,6 +88,8 @@ describe.skipIf(!LIVE)("OSC 7501 live: a real omp seat", () => {
         status: snapshot.status,
         statusSource: snapshot.statusSource,
         projection: projectAgentSeatState(snapshot),
+        sameAsSlot: isDeepStrictEqual(snapshot, seatStateRuntime.snapshot(BINDING)),
+        need: `${published.need.cause}/${published.need.urgency}`,
       });
     });
     const owned = (tag: SeatSnapshot["status"]["_tag"], reason?: string) =>
@@ -138,6 +148,10 @@ describe.skipIf(!LIVE)("OSC 7501 live: a real omp seat", () => {
     expect(owned("Blocked", "Permission")).toBe(true);
     expect(owned("Idle")).toBe(true);
     expect(seatStateRuntime.snapshot(BINDING)?.turnUnseen?.outcome).toBe("completed");
-    for (const entry of timeline) expect(entry.state).toBe(entry.projection);
+    expect(timeline.length).toBeGreaterThan(3);
+    for (const entry of timeline) {
+      expect(entry.state).toBe(entry.projection);
+      expect(entry.sameAsSlot).toBe(true);
+    }
   }, 240_000);
 });
