@@ -14,7 +14,7 @@ import { MachineLink, type MachineLinkListener } from "./service";
 import { startLinkListener } from "./listener";
 import {
   isMachineLinkError, LinkBuildMismatch, linkClosed, LinkHelloRefused, LinkPeerNotPinned, LinkUnavailable,
-  type LinkChannels, type LinkHello, type LinkSession, type MachineLinkError,
+  type LinkChannel, type LinkChannels, type LinkHello, type LinkSession, type MachineLinkError,
 } from "./types";
 
 /** How long a closing link waits for its SSH process to say how it ended. */
@@ -188,7 +188,7 @@ export const makeMachineLink = (options: { readonly build: string }) => Effect.g
   return MachineLink.of({
     setChannels: (next) => Effect.try({ try: () => {
       if (configured || allSessions.size !== 0 || listener !== undefined) throw new LinkUnavailable({ reason: "channels-bound", message: "Link channels are already bound" });
-      for (const name of Object.keys(next)) if (name !== "rows" && name !== "seats" && name !== "status") throw new LinkUnavailable({ reason: "unknown-channel", message: `Unknown link channel ${name}` });
+      for (const name of Object.keys(next)) if (name !== "rows" && name !== "seats" && name !== "status" && name !== "inventory") throw new LinkUnavailable({ reason: "unknown-channel", message: `Unknown link channel ${name}` });
       channels = Object.freeze({ ...next });
       configured = true;
     }, catch: (cause) => toLinkError(cause) }),
@@ -209,10 +209,10 @@ export const makeMachineLink = (options: { readonly build: string }) => Effect.g
     connectSetup: (host, expectedInstallationId) => connect(host, expectedInstallationId),
     disconnect,
     peerBuild: (name) => Effect.sync(() => builds.get(name)),
-    request: Effect.fn("MachineLink.request")(function* (name: string, channel: "rows" | "seats" | "status", payload: unknown, requestOptions?: { readonly operationId?: string }) {
+    request: Effect.fn("MachineLink.request")(function* (name: string, channel: LinkChannel, payload: unknown, requestOptions?: { readonly operationId?: string }) {
       return yield* Effect.tryPromise({ try: () => sessionFor(name).request(channel, payload, requestOptions?.operationId), catch: (cause) => toLinkError(cause, name) });
     }),
-    sendEvent: Effect.fn("MachineLink.sendEvent")(function* (name: string, channel: "rows" | "seats" | "status", payload: unknown) {
+    sendEvent: Effect.fn("MachineLink.sendEvent")(function* (name: string, channel: LinkChannel, payload: unknown) {
       return yield* Effect.tryPromise({ try: () => sessionFor(name).sendEvent(channel, payload), catch: (cause) => toLinkError(cause, name) });
     }),
   });

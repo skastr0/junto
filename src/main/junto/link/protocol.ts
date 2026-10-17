@@ -5,7 +5,7 @@ import { MachineBuild, MachineName } from "@shared/machine-control";
 
 export const LinkHelloSchema = Schema.Struct({ build: MachineBuild, installationId: InstallationId, machineName: MachineName });
 const Id = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64)), Schema.check(Schema.isPattern(/^[A-Za-z0-9._-]+$/)));
-const Channel = Schema.Literals(["rows", "seats", "status"]);
+const Channel = Schema.Literals(["rows", "seats", "status", "inventory"]);
 export const LinkFrame = Schema.Union([
   Schema.Struct({ type: Schema.Literal("hello"), ...LinkHelloSchema.fields }),
   Schema.Struct({ type: Schema.Literal("request"), id: Id, op: OperationId, channel: Channel, payload: Schema.Json }),
