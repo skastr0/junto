@@ -231,12 +231,217 @@
         "promptGlyph": "❭",
         "description": "isolated trust view before any Enter"
       }
+    },
+    {
+      "harness": "devin",
+      "scenario": "retry-overloaded",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: overloaded }, never recovering",
+        "wiring": "an isolated credentials.toml sends every Connect RPC to the stub; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/exa.api_server_pb.ApiServerService/GetChatMessage 503",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage 503",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage 503",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage 503",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage 503",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage 503",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage 503",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage 503",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage 503",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage 503",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage 503",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage 503",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage 503"
+        ],
+        "renderedLines": [
+          "❭ say hi",
+          "⠇⠀ Thinking · 0s (esc twice to interrupt)",
+          "❭ Guide Devin while it works",
+          "⣄⠀ Connection failed (attempt 1), retrying… · 1s (esc twice to interrupt)",
+          "⢀⡄ Connection failed (attempt 4), retrying… · 1m 0s (esc twice to interrupt)"
+        ],
+        "cliVersion": "devin 3000.11.92 (7f4e64980e22)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "devin",
+      "scenario": "retry-rate",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: rate }, then ErrorRaised",
+        "wiring": "an isolated credentials.toml sends every Connect RPC to the stub; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/exa.api_server_pb.ApiServerService/GetChatMessage resource_exhausted",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage resource_exhausted",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage resource_exhausted"
+        ],
+        "renderedLines": [
+          "❭ say hi",
+          "⠇⠀ Thinking · 0s (esc twice to interrupt)",
+          "❭ Guide Devin while it works",
+          "⣄⠀ Connection failed (attempt 1), retrying… · 1s (esc twice to interrupt)",
+          " ▲ Something went wrong",
+          "   You have reached your rate limit. Please try again later. Send a message to retry",
+          "SWE-1.6 Fast                              Use Shift+Tab to cycle permission modes, and /plan and /ask to switch profiles"
+        ],
+        "cliVersion": "devin 3000.11.92 (7f4e64980e22)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "devin",
+      "scenario": "retry-network",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: network }, never recovering",
+        "wiring": "an isolated credentials.toml sends every Connect RPC to the stub; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/exa.api_server_pb.ApiServerService/GetChatMessage drop",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage drop",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage drop",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage drop",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage drop",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage drop",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage drop",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage drop",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage drop"
+        ],
+        "renderedLines": [
+          "❭ say hi",
+          "⠇⠀ Thinking · 0s (esc twice to interrupt)",
+          "❭ Guide Devin while it works",
+          "⣄⠀ Connection failed (attempt 1), retrying… · 1s (esc twice to interrupt)",
+          "⢀⡄ Connection failed (attempt 3), retrying… · 1m 0s (esc twice to interrupt)"
+        ],
+        "cliVersion": "devin 3000.11.92 (7f4e64980e22)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "devin",
+      "scenario": "error-auth",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: auth }",
+        "wiring": "an isolated credentials.toml sends every Connect RPC to the stub; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/exa.api_server_pb.ApiServerService/GetChatMessage unauthenticated",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage unauthenticated"
+        ],
+        "renderedLines": [
+          "❭ say hi",
+          " ▲ Authentication required",
+          "   Your session is no longer authenticated. Run `/login` to re-authenticate here (or `devin auth login`), then send a",
+          "   message to continue",
+          "SWE-1.6 Fast                                                                Press Ctrl+O to view the full thinking trace"
+        ],
+        "cliVersion": "devin 3000.11.92 (7f4e64980e22)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "devin",
+      "scenario": "error-server",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: provider } after retries run out",
+        "wiring": "an isolated credentials.toml sends every Connect RPC to the stub; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/exa.api_server_pb.ApiServerService/GetChatMessage internal",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage internal",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage internal"
+        ],
+        "renderedLines": [
+          "❭ say hi",
+          "⠇⠀ Thinking · 0s (esc twice to interrupt)",
+          "❭ Guide Devin while it works",
+          "⣄⠀ Connection failed (attempt 1), retrying… · 1s (esc twice to interrupt)",
+          " ▲ Something went wrong",
+          "   internal error. Send a message to retry",
+          "SWE-1.6 Fast                                                                        Press opt+t to cycle thinking levels"
+        ],
+        "cliVersion": "devin 3000.11.92 (7f4e64980e22)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "devin",
+      "scenario": "usage-limit-monthly",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: monthly }",
+        "wiring": "an isolated credentials.toml sends every Connect RPC to the stub; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/exa.api_server_pb.ApiServerService/GetChatMessage resource_exhausted",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage resource_exhausted"
+        ],
+        "renderedLines": [
+          "❭ say hi",
+          " ▲ Usage limit reached",
+          "   You've reached your monthly usage limit. Wait for the limit to reset next month."
+        ],
+        "cliVersion": "devin 3000.11.92 (7f4e64980e22)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "devin",
+      "scenario": "usage-limit-org",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: org }",
+        "wiring": "an isolated credentials.toml sends every Connect RPC to the stub; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/exa.api_server_pb.ApiServerService/GetChatMessage permission_denied",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage permission_denied"
+        ],
+        "renderedLines": [
+          "❭ say hi",
+          " ▲ Organization usage limit reached",
+          "   Your organization has reached its monthly usage limit. Ask an account admin to raise it, or wait for the limit to",
+          "   reset next month.",
+          "SWE-1.6 Fast                                                                    Use /clear to start a fresh conversation"
+        ],
+        "cliVersion": "devin 3000.11.92 (7f4e64980e22)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "devin",
+      "scenario": "usage-paused",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: org }, an admin paused usage",
+        "wiring": "an isolated credentials.toml sends every Connect RPC to the stub; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/exa.api_server_pb.ApiServerService/GetChatMessage permission_denied",
+          "/exa.api_server_pb.ApiServerService/GetChatMessage permission_denied"
+        ],
+        "renderedLines": [
+          "❭ say hi",
+          " ▲ Usage paused",
+          "   An admin paused usage on your account. Ask them to resume it to continue.",
+          "SWE-1.6 Fast                                                                Press Ctrl+O to view the full thinking trace"
+        ],
+        "cliVersion": "devin 3000.11.92 (7f4e64980e22)"
+      },
+      "expectedScreen": {}
     }
   ],
   "sanitization": {
     "method": "decoded-jsonl-scan",
-    "fixtures": 6,
-    "decodedBytes": 186603,
+    "fixtures": 14,
+    "decodedBytes": 343896,
     "checks": [
       "home-path",
       "username",
@@ -255,5 +460,11 @@
     "typedNoticeQualified": false,
     "status": "complete",
     "reason": "adapter evidence only; typedNoticeQualified stays false"
+  },
+  "signalCaptureEvidence": {
+    "tool": "tests/pty-e2e/signal-capture.ts",
+    "capturedAt": "2026-10-17T04:39:30.904Z",
+    "harnessVersion": "devin 3000.11.92 (7f4e64980e22)",
+    "provider": "scripted local stub; the binary and its rendering are real, the provider replies are not"
   }
 }
