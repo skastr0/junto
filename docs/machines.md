@@ -271,7 +271,7 @@ this section removes.
 
 ## Harness inventory
 
-Proposed 17 October, under `remote-lead` review. Settings and the seat picker
+Agreed 17 October. Settings and the seat picker
 read only the window's own machine: placing a seat on the mini offered the
 MacBook's harnesses and models. What a seat can be set to comes from the
 machine that runs it.
@@ -284,6 +284,7 @@ machine that runs it.
   to probe, or passes a command.
 - **The snapshot is closed.** Per harness: name, version, model ids, mode
   names, when it was taken, and a typed probe failure when the probe failed.
+  Every list and string is bounded, so a snapshot has a fixed maximum size.
   No paths, no command output, no environment, no argv. It is decoded with a
   closed decoder on arrival, and `remote-security` checks each field against
   the redaction rule (`docs/security-doctrine.md`) before it lands.
@@ -292,7 +293,7 @@ machine that runs it.
   cache, probing again only when the cache has expired. `status` is unchanged
   and stays probe-free.
 - **Unreachable is a state, never a wait.** The editing machine keeps the last
-  snapshot each machine sent. A machine it cannot reach shows that snapshot,
+  snapshot each machine sent, on disk, so it survives a restart. A machine it cannot reach shows that snapshot,
   its age, and the typed reason the link failed (Failures and logs). A loader
   never stands in for a cache.
 - **Settings name their machine.** A settings page scoped to a machine has a
