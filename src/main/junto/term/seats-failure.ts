@@ -112,12 +112,32 @@ export class SeatStatusInvalid extends Schema.TaggedError<SeatStatusInvalid>()(
   "SeatStatusInvalid", { ...Where, peer: Id, message: Text },
 ) {}
 
+/** An attach handle this link session does not hold: dead, ended, or another session's. */
+export class SeatAttachUnknown extends Schema.TaggedError<SeatAttachUnknown>()(
+  "SeatAttachUnknown", { machine: MachineName, message: Text },
+) {}
+
+/** An observing attach may not type into or resize the seat's terminal. */
+export class SeatAttachObserveOnly extends Schema.TaggedError<SeatAttachObserveOnly>()(
+  "SeatAttachObserveOnly", { ...Where, message: Text },
+) {}
+
+/** The peer already holds as many live attaches as one machine may. */
+export class SeatAttachLimit extends Schema.TaggedError<SeatAttachLimit>()(
+  "SeatAttachLimit", { ...Where, limit: Schema.Int, message: Text },
+) {}
+
+/** This machine's terminal host refused the attach (a held control lease, a stopping seat). */
+export class SeatAttachRefused extends Schema.TaggedError<SeatAttachRefused>()(
+  "SeatAttachRefused", { ...Where, message: Text },
+) {}
+
 /** The closed set the seats channel answers with. */
 export const SeatsFailure = Schema.Union([
   SeatSpawnFailed, SeatExited, SeatEpochChanged, SeatOccupantChanged, SeatStopping, SeatMissing,
   SeatChangedWhilePreparing, SeatNotOnThisMachine, SeatCanvasEditorMismatch, SeatPeerNotPinned,
   SeatSessionUnavailable, SeatStartRefused, SeatLinkClosed, SeatStopRefused, SeatStateNotFromItsMachine,
-  SeatStatusInvalid,
+  SeatStatusInvalid, SeatAttachUnknown, SeatAttachObserveOnly, SeatAttachLimit, SeatAttachRefused,
 ]);
 export type SeatsFailure = typeof SeatsFailure.Type;
 

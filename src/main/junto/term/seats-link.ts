@@ -8,7 +8,7 @@ import { CanvasName, NodeId, type NodeOf } from "@shared/model";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import { MachineName } from "@shared/machine-control";
 import { isThisMachine } from "@shared/machine-name";
-import type { LinkChannelContext, LinkChannelHandler } from "../link/types";
+import type { LinkChannelContext, LinkChannelHandler, LinkEventContext } from "../link/types";
 import { MachineRepository } from "../machines/repository";
 import { ModelRecords } from "../model/records";
 import { ModelService } from "../model/service";
@@ -18,7 +18,12 @@ import { makeManagedSpawnIntent } from "./managed-spawn-plan";
 import { termPlane } from "./plane";
 import { runOnSeatStartTurn } from "./seat-start-turn";
 import {
-  asSeatsFailure, clipText, type SeatsFailureWhere, SeatCanvasEditorMismatch, SeatChangedWhilePreparing, SeatEpochChanged, SeatExited,
+  ATTACH_LIMIT, makeSeatAttachments, SeatsAttach, SeatsAttachEvent, SeatsAttachRequest, SeatsAttachResponse,
+  SeatsDetach, SeatsInput, SeatsResize, type SeatsStreamFrame,
+} from "./seat-attach";
+import {
+  asSeatsFailure, clipText, type SeatsFailureWhere, SeatAttachLimit, SeatAttachObserveOnly, SeatAttachRefused,
+  SeatAttachUnknown, SeatCanvasEditorMismatch, SeatChangedWhilePreparing, SeatEpochChanged, SeatExited,
   SeatLinkClosed, SeatMissing, SeatNotOnThisMachine, SeatOccupantChanged, SeatPeerNotPinned,
   SeatSessionUnavailable, SeatsFailure, SeatSpawnFailed, SeatStateNotFromItsMachine, SeatStatusInvalid, SeatStopping,
   SeatStopRefused,
@@ -50,7 +55,8 @@ export const SeatsViewed = Schema.Struct({
   _tag: Schema.Literal("Viewed"), canvas: CanvasName, seatId: NodeId,
   generation: Generation,
 });
-export const SeatsRequest = Schema.Union([SeatsStart, SeatsGet, SeatsActivate, SeatsStop, SeatsViewed]);
+export const SeatsRequest = Schema.Union([SeatsStart, SeatsGet, SeatsActivate, SeatsStop, SeatsViewed,
+  SeatsAttach, SeatsInput, SeatsResize, SeatsDetach]);
 export const SeatsStarted = Schema.Struct({
   _tag: Schema.Literal("Started"), canvas: CanvasName, seatId: NodeId,
   machine: MachineName, handle: Generation, generation: Generation,
@@ -69,7 +75,9 @@ export const SeatsSeen = Schema.Struct({
   _tag: Schema.Literal("Seen"), canvas: CanvasName, seatId: NodeId, machine: MachineName,
   generation: Generation, changed: Schema.Boolean,
 });
-export const SeatsResponse = Schema.Union([SeatsStarted, SeatsVacant, SeatsStopping, SeatsSeen]);
+/** What a seat request (start, get, activate, stop, view) answers. */
+export const SeatsSeatResponse = Schema.Union([SeatsStarted, SeatsVacant, SeatsStopping, SeatsSeen]);
+export const SeatsResponse = Schema.Union([...SeatsSeatResponse.members, ...SeatsAttachResponse.members]);
 
 /**
  * A seat's state, sent by the machine that runs it to the machine that edits
@@ -90,6 +98,7 @@ export const SeatsStateEvent = Schema.Struct({
   status: Schema.optionalKey(Schema.Unknown),
 });
 export type SeatsStateEvent = typeof SeatsStateEvent.Type;
+export const SeatsEvent = Schema.Union([SeatsStateEvent, ...SeatsAttachEvent.members]);
 const RULE_REASON = /^rule:[A-Za-z0-9_.:-]{1,128}$/;
 
 type Handle = {
@@ -103,7 +112,12 @@ type Handle = {
 };
 
 export type SeatsChannelOptions = {
-  readonly host?: Pick<LocalSessionHost, "get" | "kill">;
+  readonly host?: Pick<LocalSessionHost, "get" | "kill" | "attach" | "write" | "resize" | "release" | "subscribeEvents">;
+  /**
+   * Where an attached seat's stream lands on the editing machine: display
+   * only, never seat state, a log or disk. Dropped when nothing takes it.
+   */
+  readonly attachStream?: (context: LinkEventContext, frame: SeatsStreamFrame) => void;
   /** This machine's seat states; the live runtime by default. */
   readonly seatStates?: {
     readonly subscribe: (listener: (event: AgentSeatStateEvent) => void) => () => void;
@@ -128,6 +142,7 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
   const seatStates = options.seatStates ?? seatStateRuntime;
   const publishState = options.publishState ?? publishRemoteSeatState;
   const stateSubscriptions = new Map<AbortSignal, () => void>();
+  const attachments = makeSeatAttachments({ host, run });
   const handles = new Map<string, Handle>();
   const watched = new WeakSet<AbortSignal>();
   const forget = (context: LinkChannelContext): void => {
@@ -186,27 +201,87 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
       status: current.status }, { onExcessProperty: "error" });
   });
 
+  /** The peer is pinned, edits the seat's canvas, and the seat runs here: every seat request, every frame. */
+  const admitSeat = Effect.fn("SeatsLink.admit")(function* (context: LinkChannelContext, where: SeatsFailureWhere) {
+    yield* disconnected(context, where);
+    const peer = yield* machines.peer(context.peer.machineName);
+    if (peer?.installationId !== context.peer.installationId)
+      return yield* new SeatPeerNotPinned({ ...where, peer: context.peer.machineName,
+        message: "The sending machine is no longer pinned." });
+    if ((yield* records.canvasEditor(where.canvas)) !== context.peer.installationId)
+      return yield* new SeatCanvasEditorMismatch({ ...where, peer: context.peer.machineName,
+        message: "Only the machine editing this canvas may start its seats." });
+    const canvas = yield* model.canvas(where.canvas);
+    const seat = canvas.nodes.get(where.seatId);
+    if (seat?.kind !== "agent" || !isThisMachine(seat.host, where.machine))
+      return yield* new SeatNotOnThisMachine({ ...where,
+        ...(seat?.kind === "agent" ? { seatHost: seat.host } : {}),
+        message: "This machine does not run that seat." });
+    yield* disconnected(context, where);
+    return { seat, seq: canvas.seq, name: where.machine };
+  });
+
+  /**
+   * Attach, Input, Resize and Detach. Terminal bytes never enter a failure or
+   * a log row here: Input is counted at debug, never its data or its length.
+   */
+  const answerAttach = Effect.fn("SeatsLink.attach")(function* (context: LinkChannelContext,
+    request: typeof SeatsAttachRequest.Type, machine: string) {
+    if (request._tag === "Attach") {
+      const where = { machine, canvas: request.canvas, seatId: request.seatId };
+      const admitted = yield* admitSeat(context, where);
+      if (attachments.count(context) >= ATTACH_LIMIT)
+        return yield* new SeatAttachLimit({ ...where, limit: ATTACH_LIMIT,
+          message: `This machine already holds ${ATTACH_LIMIT} views for that machine.` });
+      const opened = yield* Effect.promise(() => attachments.open(context,
+        { canvas: request.canvas, seatId: request.seatId, machine, bindingId: admitted.seat.bindingId }, request));
+      if (!opened.ok)
+        return yield* (opened.epoch !== undefined
+          ? new SeatEpochChanged({ ...where, expectedEpoch: request.generation, actualEpoch: opened.epoch, message: opened.message })
+          : new SeatAttachRefused({ ...where, message: clipText(opened.message) }));
+      yield* Effect.logInfo("seat attach opened").pipe(Effect.annotateLogs({ mode: request.mode }));
+      return { _tag: "Attached" as const, canvas: request.canvas, seatId: request.seatId, machine,
+        generation: opened.attachment.generation, handle: opened.attachment.handle, mode: request.mode,
+        cols: opened.cols, rows: opened.rows, status: opened.status };
+    }
+    const attachment = attachments.held(context, request.handle);
+    if (attachment === undefined)
+      return yield* new SeatAttachUnknown({ machine, message: "This machine holds no such view for that link." });
+    if (request._tag === "Detach") {
+      attachments.end(attachment, "released", false);
+      return { _tag: "Detached" as const, handle: request.handle };
+    }
+    const where = { machine, canvas: attachment.canvas, seatId: attachment.seatId };
+    if (attachment.mode === "observe")
+      return yield* new SeatAttachObserveOnly({ ...where, message: "An observing view cannot type into or resize the seat." });
+    // Participation is checked on every frame; a view that lost it ends at once.
+    yield* admitSeat(context, where).pipe(Effect.tapError(() => Effect.sync(() => attachments.end(attachment, "admission-lost"))));
+    if (request._tag === "Input") {
+      yield* Effect.logDebug("seat attach input");
+      return { _tag: "Written" as const, handle: request.handle, accepted: attachments.write(attachment, request.data) };
+    }
+    return { _tag: "Resized" as const, handle: request.handle,
+      accepted: attachments.resize(attachment, request.cols, request.rows) };
+  });
+
+  // A canvas that changed or left this machine re-admits every live view of its peers.
+  const recheckViews = () => {
+    for (const attachment of attachments.list())
+      void run(admitSeat(attachment.context, { machine: attachment.machine, canvas: attachment.canvas, seatId: attachment.seatId })
+        .pipe(Effect.matchEffect({
+          onFailure: () => Effect.sync(() => attachments.end(attachment, "admission-lost")),
+          onSuccess: (admitted) => Effect.sync(() => {
+            if (admitted.seat.bindingId !== attachment.bindingId) attachments.end(attachment, "admission-lost");
+          }),
+        })));
+  };
+  model.subscribeChanges(recheckViews);
+  model.subscribeCanvasesChanges(recheckViews);
+
   const answer = Effect.fn("SeatsLink.request")(function* (context: LinkChannelContext,
-    request: typeof SeatsRequest.Type, machine: string, trace: { occupied: boolean } = { occupied: false }) {
+    request: Exclude<typeof SeatsRequest.Type, typeof SeatsAttachRequest.Type>, machine: string, trace: { occupied: boolean } = { occupied: false }) {
     const where = { machine, canvas: request.canvas, seatId: request.seatId };
-    const admit = Effect.fn("SeatsLink.admit")(function* () {
-      yield* disconnected(context, where);
-      const peer = yield* machines.peer(context.peer.machineName);
-      if (peer?.installationId !== context.peer.installationId)
-        return yield* new SeatPeerNotPinned({ ...where, peer: context.peer.machineName,
-          message: "The sending machine is no longer pinned." });
-      if ((yield* records.canvasEditor(request.canvas)) !== context.peer.installationId)
-        return yield* new SeatCanvasEditorMismatch({ ...where, peer: context.peer.machineName,
-          message: "Only the machine editing this canvas may start its seats." });
-      const canvas = yield* model.canvas(request.canvas);
-      const seat = canvas.nodes.get(request.seatId);
-      if (seat?.kind !== "agent" || !isThisMachine(seat.host, where.machine))
-        return yield* new SeatNotOnThisMachine({ ...where,
-          ...(seat?.kind === "agent" ? { seatHost: seat.host } : {}),
-          message: "This machine does not run that seat." });
-      yield* disconnected(context, where);
-      return { seat, seq: canvas.seq, name: where.machine };
-    });
+    const admit = () => admitSeat(context, where);
     const initial = yield* admit();
     if (request._tag === "Viewed") {
       const live = host.get(initial.seat.bindingId);
@@ -285,6 +360,14 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
     const request = yield* Schema.decodeUnknownEffect(SeatsRequest)(raw, { onExcessProperty: "error" });
     // A failed read of this machine's own name keeps its own typed error.
     const machine = yield* machines.machineName;
+    if (request._tag === "Attach" || request._tag === "Input" || request._tag === "Resize" || request._tag === "Detach")
+      return yield* answerAttach(context, request, machine).pipe(
+        Effect.tapCause((cause) => request._tag === "Input" || request._tag === "Resize" ? Effect.void
+          : Effect.logWarning(`seat attach ${request._tag === "Attach" ? "refused" : "detach failed"}`, cause)),
+        Effect.annotateLogs({ area: "seats", request: request._tag, peer: context.peer.machineName,
+          ...(request._tag === "Attach" ? { seat: request.seatId, canvas: request.canvas } : {}),
+          ...(context.operationId === undefined ? {} : { operationId: context.operationId }) }),
+      );
     const where = { machine, canvas: request.canvas, seatId: request.seatId };
     const kind = request._tag === "Start" ? "start" : request._tag === "Stop" ? "stop"
       : request._tag === "Viewed" ? "view" : "activation";
@@ -348,7 +431,14 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
 
   /** A seat state from the machine that runs the seat: accepted only for that machine's own seat. */
   const handleEvent: NonNullable<LinkChannelHandler["handleEvent"]> = (context, payload) => Effect.gen(function* () {
-    const event = yield* Schema.decodeUnknownEffect(SeatsStateEvent)(payload, { onExcessProperty: "error" });
+    const received = yield* Schema.decodeUnknownEffect(SeatsEvent)(payload, { onExcessProperty: "error" });
+    if (received._tag === "Ack") return attachments.ack(context, received.handle, BigInt(received.upTo));
+    if (received._tag !== "SeatState") {
+      // Display only: never seat state, a log row or disk. Nothing takes it: dropped.
+      options.attachStream?.(context, received);
+      return;
+    }
+    const event = received;
     const where = { machine: event.machine, canvas: event.canvas, seatId: event.seatId };
     // A state about a canvas this machine does not hold is not for it: dropped, never a failure.
     if (!(yield* model.listCanvases()).includes(event.canvas)) {
@@ -389,12 +479,13 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
     failureSchema: SeatsFailure as Schema.Codec<unknown, unknown>,
     decodeRequest: Schema.decodeUnknownSync(SeatsRequest, { onExcessProperty: "error" }),
     decodeResponse: Schema.decodeUnknownSync(SeatsResponse, { onExcessProperty: "error" }),
-    decodeEvent: Schema.decodeUnknownSync(SeatsStateEvent, { onExcessProperty: "error" }),
+    decodeEvent: Schema.decodeUnknownSync(SeatsEvent, { onExcessProperty: "error" }),
     handleRequest,
     handleEvent,
     opened,
     closed: (context) => Effect.sync(() => {
       forget(context);
+      attachments.closeSession(context);
       stateSubscriptions.get(context.signal)?.();
       stateSubscriptions.delete(context.signal);
     }),

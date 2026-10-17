@@ -10,7 +10,7 @@ import { ModelRecords } from "../model/records";
 import { MachineRepository } from "../machines/repository";
 import { isThisMachine } from "@shared/machine-name";
 import type { RemoteSeatProcessClient } from "./seat-process";
-import { SeatsResponse } from "./seats-link";
+import { SeatsSeatResponse } from "./seats-link";
 import { type SeatSpawnFailed, unwrapSeatsFailure } from "./seats-failure";
 
 type Services = HostsService | MachineLink | ModelService;
@@ -50,7 +50,7 @@ export const makeSeatsProcessClient = (
     yield* link.connect(host);
     const response = yield* link.request(machine, "seats", payload,
       operationId === undefined ? undefined : { operationId }).pipe(Effect.mapError(unwrapSeatsFailure));
-    return yield* Schema.decodeUnknownEffect(SeatsResponse)(response, { onExcessProperty: "error" });
+    return yield* Schema.decodeUnknownEffect(SeatsSeatResponse)(response, { onExcessProperty: "error" });
   });
   /** A harness that never started is the same exited generation a local start returns. */
   const exited = (canvas: string, seat: NodeOf<"agent">, failure: SeatSpawnFailed): TerminalSessionSummary => ({
@@ -58,7 +58,7 @@ export const makeSeatsProcessClient = (
     harness: seat.harness, agentKey: seat.agentKey, epoch: failure.epoch, status: "exited",
     createdAt: Date.now(), detached: false, exitReason: failure.exitReason, exitMessage: failure.exitMessage,
   });
-  const summary = (canvas: string, seat: NodeOf<"agent">, response: typeof SeatsResponse.Type): TerminalSessionSummary | undefined => {
+  const summary = (canvas: string, seat: NodeOf<"agent">, response: typeof SeatsSeatResponse.Type): TerminalSessionSummary | undefined => {
     if (response.canvas !== canvas || response.seatId !== seat.id || response.machine !== machine)
       throw new Error("The machine returned another seat's occupant.");
     if (response._tag === "Stopping") throw new Error("The machine answered a start with a stop.");
