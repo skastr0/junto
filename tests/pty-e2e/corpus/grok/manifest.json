@@ -204,12 +204,276 @@
         "description": "permission dialog clears and the idle composer returns",
         "permissionDialogCleared": true
       }
+    },
+    {
+      "harness": "grok",
+      "scenario": "retry-overloaded",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: overloaded }, then a completed turn",
+        "wiring": "a stub model in the isolated ~/.grok/config.toml (chat_completions backend); autoupdate, telemetry and campaigns off",
+        "stubServed": [
+          "/v1/chat/completions 503",
+          "/v1/chat/completions 503",
+          "/v1/chat/completions 503",
+          "/v1/chat/completions ok",
+          "/v1/chat/completions ok"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "⠙ Waiting for response… 0.1s                                                                                 0.1s ⇣1.33k",
+          "⠴ Service unavailable (503) | Retrying (attempt 1)... 0.1s                                                   1.8s ⇣1.33k",
+          "Hello from the capture stub.",
+          "⠼ Responding… 0.0s                                                                                              8.3s ⇣20",
+          "Stub · 20 / 200K (0%) · ctrl+o transcript",
+          "Worked for 8.4s"
+        ],
+        "cliVersion": "grok 1.0.52 (0920c8169e27) [stable]"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "grok",
+      "scenario": "retry-rate",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: rate }, then a completed turn",
+        "wiring": "a stub model in the isolated ~/.grok/config.toml (chat_completions backend); autoupdate, telemetry and campaigns off",
+        "stubServed": [
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "⠙ Waiting for response… 0.1s                                                                                 0.1s ⇣1.33k",
+          "⠼ Rate limited | Retrying (attempt 1)... 0.0s                                                                1.6s ⇣1.33k",
+          "Retry failed: rate_limit_exceeded: Rate limit reached for requests per minute. Please try again in 2s."
+        ],
+        "cliVersion": "grok 1.0.52 (0920c8169e27) [stable]"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "grok",
+      "scenario": "retry-network",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: network }, then a completed turn",
+        "wiring": "a stub model in the isolated ~/.grok/config.toml (chat_completions backend); autoupdate, telemetry and campaigns off",
+        "stubServed": [
+          "/v1/chat/completions drop",
+          "/v1/chat/completions drop",
+          "/v1/chat/completions drop",
+          "/v1/chat/completions ok",
+          "/v1/chat/completions ok"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "⠙ Waiting for response… 0.1s                                                                                 0.1s ⇣1.33k",
+          "⠼ Connection failed | Retrying (attempt 1)... 0.0s                                                           1.6s ⇣1.33k",
+          "Hello from the capture stub.",
+          "Worked for 6.7s",
+          "Stub · 20 / 200K (0%) · ctrl+o transcript"
+        ],
+        "cliVersion": "grok 1.0.52 (0920c8169e27) [stable]"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "grok",
+      "scenario": "usage-limit",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: 5h, resetsAt }",
+        "wiring": "a stub model in the isolated ~/.grok/config.toml (chat_completions backend); autoupdate, telemetry and campaigns off",
+        "stubServed": [
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "⠙ Waiting for response… 0.1s                                                                                 0.1s ⇣1.33k",
+          "⠹ Rate limited | Retrying (attempt 1)... 0.1s                                                                0.2s ⇣1.33k",
+          "Retry failed: usage_limit_reached: The usage limit has been reached"
+        ],
+        "cliVersion": "grok 1.0.52 (0920c8169e27) [stable]"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "grok",
+      "scenario": "usage-limit-weekly",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: weekly, resetsAt }",
+        "wiring": "a stub model in the isolated ~/.grok/config.toml (chat_completions backend); autoupdate, telemetry and campaigns off",
+        "stubServed": [
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "⠹ Rate limited | Retrying (attempt 1)... 0.0s                                                                0.1s ⇣1.33k",
+          "Retry failed: usage_limit_reached: The usage limit has been reached"
+        ],
+        "cliVersion": "grok 1.0.52 (0920c8169e27) [stable]"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "grok",
+      "scenario": "error-auth",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: auth }",
+        "wiring": "a stub model in the isolated ~/.grok/config.toml (chat_completions backend); autoupdate, telemetry and campaigns off",
+        "stubServed": [
+          "/v1/chat/completions 401",
+          "/v1/chat/completions 401"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "⠙ Waiting for response… 0.1s                                                                                 0.1s ⇣1.33k",
+          "Authentication required: your session has expired or your credentials were rejected. Run /login to re-authenticate, then",
+          "resend your message."
+        ],
+        "cliVersion": "grok 1.0.52 (0920c8169e27) [stable]"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "grok",
+      "scenario": "error-server",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: provider } after retries run out",
+        "wiring": "a stub model in the isolated ~/.grok/config.toml (chat_completions backend); autoupdate, telemetry and campaigns off",
+        "stubServed": [
+          "/v1/chat/completions 500",
+          "/v1/chat/completions 500",
+          "/v1/chat/completions 500",
+          "/v1/chat/completions 500",
+          "/v1/chat/completions 500",
+          "/v1/chat/completions 500",
+          "/v1/chat/completions 500"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "⠙ Waiting for response… 0.1s                                                                                 0.1s ⇣1.33k",
+          "⠼ Server error (500) | Retrying (attempt 1)... 0.0s                                                          1.6s ⇣1.33k",
+          "⠋ Server error (500) | Retrying (attempt 3)... 0.3s                                                           10s ⇣1.33k",
+          "⠴ Server error (500) | Retrying (attempt 4)... 10.0s                                                          28s ⇣1.33k",
+          "⠴ Server error (500) | Retrying (attempt 4)... 10s                                                            28s ⇣1.33k",
+          "⠦ Server error (500) | Retrying (attempt 5)... 25s                                                           1m0s ⇣1.33k",
+          "⠦ Server error (500) | Retrying (attempt 6)... 0.0s                                                          1m4s ⇣1.33k",
+          "⠴ Server error (500) | Retrying (attempt 6)... 5.5s                                                         1m10s ⇣1.33k",
+          "⠼ Server error (500) | Retrying (attempt 6)... 10.0s                                                        1m14s ⇣1.33k",
+          "⠴ Server error (500) | Retrying (attempt 6)... 10s                                                          1m14s ⇣1.33k"
+        ],
+        "cliVersion": "grok 1.0.52 (0920c8169e27) [stable]"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "grok",
+      "scenario": "error-context",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: contextOverflow }",
+        "wiring": "a stub model in the isolated ~/.grok/config.toml (chat_completions backend); autoupdate, telemetry and campaigns off",
+        "stubServed": [
+          "/v1/chat/completions 400",
+          "/v1/chat/completions 400"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "⠹ Waiting for response… 0.1s                                                                                 0.1s ⇣1.33k",
+          "This conversation is too large for the model's context window. Use /new to start a new session."
+        ],
+        "cliVersion": "grok 1.0.52 (0920c8169e27) [stable]"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "grok",
+      "scenario": "compaction-auto",
+      "status": "skip",
+      "reason": "the screen never showed /compact/i",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "CompactionStarted { trigger: auto }, CompactionEnded { ok }, then a completed turn",
+        "wiring": "a stub model in the isolated ~/.grok/config.toml (chat_completions backend); autoupdate, telemetry and campaigns off",
+        "stubServed": [
+          "/v1/chat/completions ok",
+          "/v1/chat/completions ok",
+          "/v1/chat/completions ok",
+          "/v1/chat/completions ok",
+          "/v1/chat/completions ok",
+          "/v1/chat/completions ok"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "⠙ Waiting for response… 0.1s                                                                                 0.1s ⇣1.33k",
+          "Summary: the user greeted the assistant and the assistant replied.",
+          "Worked for 4.2s",
+          "Stub · 20 / 200K (0%) · ctrl+o transcript",
+          "❯ say hi again",
+          "Hello from the capture stub.",
+          "⠋ Responding… 0.0s                                                                                              0.1s ⇣20"
+        ],
+        "cliVersion": "grok 1.0.52 (0920c8169e27) [stable]"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "grok",
+      "scenario": "compaction-manual",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "CompactionStarted { trigger: manual }, CompactionEnded { ok }",
+        "wiring": "a stub model in the isolated ~/.grok/config.toml (chat_completions backend); autoupdate, telemetry and campaigns off",
+        "stubServed": [
+          "/v1/chat/completions ok",
+          "/v1/chat/completions ok",
+          "/v1/chat/completions ok",
+          "/v1/chat/completions ok",
+          "/v1/chat/completions ok",
+          "/v1/chat/completions ok"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "⠙ Waiting for response… 0.1s                                                                                 0.1s ⇣1.33k",
+          "Summary: the user greeted the assistant and the assistant replied.",
+          "⠦ Responding… 0.0s                                                                                              4.1s ⇣20",
+          "Stub · 20 / 200K (0%) · ctrl+o transcript",
+          "Worked for 4.2s",
+          "Compacting conversation…",
+          "⠋ Compacting…                                                                                                   0.1s ⇣20",
+          "⠧ Compacting…                                                                                                  10.0s ⇣20",
+          "⠋ Compacting…                                                                                                    10s ⇣20",
+          "Compaction failed - degenerate summary (66 chars for ~2010 input tokens)"
+        ],
+        "cliVersion": "grok 1.0.52 (0920c8169e27) [stable]"
+      },
+      "expectedScreen": {}
     }
   ],
   "sanitization": {
     "method": "decoded-jsonl-scan",
-    "fixtures": 5,
-    "decodedBytes": 236761,
+    "fixtures": 14,
+    "decodedBytes": 394073,
     "checks": [
       "home-path",
       "username",
@@ -221,5 +485,11 @@
   "redactions": [
     "operator instruction-file names in model reasoning neutralized",
     "session-start hook path neutralized"
-  ]
+  ],
+  "signalCaptureEvidence": {
+    "tool": "tests/pty-e2e/signal-capture.ts",
+    "capturedAt": "2026-10-17T03:51:57.890Z",
+    "harnessVersion": "grok 1.0.52 (0920c8169e27) [stable]",
+    "provider": "scripted local stub; the binary and its rendering are real, the provider replies are not"
+  }
 }
