@@ -56,6 +56,8 @@ import type { ContentRef } from "@shared/content";
 import type { AgentSignal } from "@shared/agent-signals";
 import { messageDelivery } from "./work/message-delivery";
 import { AgentSignalRepository } from "./signals/repository";
+import { onAgentSignalChanged } from "./signals/changes";
+import { wireSeatReports } from "./term/agent-state/seat-reports";
 import {
   locatePreviewForReveal,
   readAttachmentPreview,
@@ -414,6 +416,10 @@ export const registerJuntoIpc = (): void => {
   privilegedIpc.handle(IPC_CHANNELS.agentSeatStateSnapshot, () =>
     mergeSeatStateSnapshot(seatStateRuntime.currentEvents()),
   );
+
+  privilegedIpc.handle(IPC_CHANNELS.agentSeatViewed, (_event, bindingId: unknown) => {
+    if (typeof bindingId === "string" && bindingId.length > 0) seatStateRuntime.viewed(bindingId);
+  });
 
   privilegedIpc.handle(IPC_CHANNELS.seatAwarenessSnapshot, () =>
     seatAwarenessPlane.currentEvents(),
@@ -2020,6 +2026,17 @@ export const registerJuntoIpc = (): void => {
           managedPulseReadyCancels.set(bindingId, { epoch, cancel });
         }
       }, { replayCurrentSessions: true });
+      // A seat's declared signals ride its own snapshot, so its needs carry them.
+      wireSeatReports({
+        sessions: () => termPlane.host.list(),
+        seatReported: (bindingId, report) => seatStateRuntime.seatReported(bindingId, report),
+        subscribeSeatState: (listener) => seatStateRuntime.subscribe(listener),
+        onSignalChanged: onAgentSignalChanged,
+        signalsOf: (canvasName, nodeId) =>
+          AppRuntime.runPromise(
+            Effect.flatMap(AgentSignalRepository, (signals) => signals.listSeat({ canvasName, nodeId })),
+          ),
+      });
       seatStateRuntime.subscribe((event) => {
         broadcast(IPC_CHANNELS.agentSeatStateChanged, event);
         // Muse and fx mint their session id without printing it, so the seat

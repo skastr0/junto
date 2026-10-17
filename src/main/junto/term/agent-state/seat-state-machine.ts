@@ -294,6 +294,31 @@ export class SeatStateMachine {
     if (slot) this.fold(slot, fact);
   }
 
+  /**
+   * Fold a fact that moves no state but can change what the seat needs (a
+   * signal it declared, the operator viewing it) and publish the new status
+   * when the snapshot changed. State, reason and confidence stay as published.
+   */
+  publishFact(bindingId: string, fact: SeatFact): AgentSeatStateEvent | null {
+    const slot = this.slots.get(bindingId);
+    if (!slot) return null;
+    const before = snapshotKey(slot.snapshot);
+    this.fold(slot, fact);
+    if (snapshotKey(slot.snapshot) === before) return null;
+    const event: AgentSeatStateEvent = {
+      bindingId: slot.key,
+      epoch: slot.epoch,
+      state: slot.state,
+      reason: slot.reason,
+      confidence: slot.confidence,
+      at: this.now(),
+      harness: typeof slot.harness === "string" ? slot.harness : undefined,
+      status: statusWire(slot.snapshot),
+    };
+    this.emit(event);
+    return event;
+  }
+
   getState(bindingId: string): AgentSeatState | undefined {
     return this.slots.get(bindingId)?.state;
   }
@@ -544,7 +569,11 @@ export class SeatStateMachine {
   ): AgentSeatStateEvent | null {
     const t = this.now();
     if (next.signal !== null) {
-      this.fold(slot, { signal: next.signal, source: next.source, fidelity: next.fidelity });
+      // The idle that ends a turn is the turn's end: it leaves the turn
+      // unseen until the operator views the seat. From the channel that saw
+      // it, so a richer one that reports real turn ends owns it when open.
+      const signal: SeatSignal = endsTurn(slot.state, next) ? TURN_COMPLETED : next.signal;
+      this.fold(slot, { signal, source: next.source, fidelity: next.fidelity });
     }
     const state = projectAgentSeatState(slot.snapshot);
     // A richer open channel owning the seat outranks the screen by design;
@@ -680,6 +709,28 @@ export class SeatStateMachine {
     };
   }
 }
+
+const TURN_COMPLETED: SeatSignal = { _tag: "TurnEnded", outcome: "completed" };
+
+/**
+ * Settling at the live prompt box is a title restore, not a finished turn:
+ * the harness repaints the box whenever its title reverts, and a draft may
+ * still sit in it. The OSC 9;4;0 idle fires on those repaints too.
+ */
+const isPromptBoxIdleReason = (reason: string): boolean =>
+  reason.includes("prompt_box") || reason.includes("composer") || reason.includes("osc9_idle");
+
+/**
+ * A turn ends where a working seat settles idle on its canonical idle, or
+ * where a seat that needed the operator settles idle.
+ */
+const endsTurn = (published: AgentSeatState, next: SeatEvaluation): boolean =>
+  next.signal?._tag === "ActivityObserved" &&
+  next.signal.activity === "idle" &&
+  (published === "attention" || (published === "working" && !isPromptBoxIdleReason(next.reason)));
+
+/** A snapshot's content, without the time it was last touched. */
+const snapshotKey = (snapshot: SeatSnapshot): string => JSON.stringify({ ...snapshot, updatedAt: 0 });
 
 const outrankedByOwner = (snapshot: SeatSnapshot, source: SignalSource): boolean => {
   const owner = snapshot.statusSource;

@@ -108,9 +108,16 @@ export const seatNeedsLook = (bindingId: string | undefined): boolean => {
 /** Operator opened / looked at the seat — clear ready/complete chrome. */
 export const markAgentSeatSeen = (bindingId: string | undefined): void => {
   if (!bindingId) return;
+  tellMainViewed(bindingId);
   if (agentSeat$.needsLookByBindingId[bindingId].peek() !== true) return;
   agentSeat$.needsLookByBindingId[bindingId].set(false);
   agentSeat$.doneAtByBindingId[bindingId].set(undefined);
+};
+
+/** Main keeps the seat's unseen turn; a view from this window clears it there. */
+const tellMainViewed = (bindingId: string): void => {
+  const viewed = getJuntoApi()?.agentSeatViewed;
+  if (typeof viewed === "function") void viewed(bindingId).catch(() => undefined);
 };
 
 /** When the seat's unread finished turn ended, if it has one. */
@@ -250,6 +257,10 @@ export const applyAgentSeatStateEvent = (event: AgentSeatStateEvent): void => {
     turnEnded = needsLook;
   }
 
+  // A turn that ends while the operator is already looking is seen.
+  if (agentSeatStatusOf(event)?.snapshot.turnUnseen !== undefined && isBindingSurfaceOpen(event.bindingId)) {
+    tellMainViewed(event.bindingId);
+  }
   agentSeat$.byBindingId[event.bindingId].set(event);
   agentSeat$.needsLookByBindingId[event.bindingId].set(needsLook);
   if (!needsLook) agentSeat$.doneAtByBindingId[event.bindingId].set(undefined);

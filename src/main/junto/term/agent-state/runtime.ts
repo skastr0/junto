@@ -25,6 +25,7 @@ import {
   type SignalEnvelope,
 } from "../../../../shared/harness-domain";
 import { projectAgentSeatState } from "./projection";
+import type { AgentSignalKind } from "../../../../shared/wire/agent-signals";
 import type { HarnessId } from "../../../../shared/managed-terminal-templates";
 import { isHarnessId } from "../../../../shared/managed-terminal-templates";
 import {
@@ -216,6 +217,39 @@ export class SeatStateRuntime {
    */
   snapshot(bindingId: string): SeatSnapshot | undefined {
     return this.machine.snapshot(bindingId);
+  }
+
+  /**
+   * The operator viewed the seat, from any window or machine showing it: a
+   * finished turn is no longer unseen. Publishes when that changed anything.
+   */
+  viewed(bindingId: string): AgentSeatStateEvent | null {
+    return this.machine.publishFact(bindingId, {
+      signal: { _tag: "OperatorViewed" },
+      source: "system",
+      fidelity: "native",
+    });
+  }
+
+  /**
+   * A signal the seat declared (escalate, blocked, feedback) opened or
+   * closed: the seat's own claim, so its needs carry it.
+   */
+  seatReported(
+    bindingId: string,
+    report: { readonly signalId: string; readonly kind: AgentSignalKind; readonly open: boolean; readonly text?: string },
+  ): AgentSeatStateEvent | null {
+    return this.machine.publishFact(bindingId, {
+      signal: {
+        _tag: "SeatReported",
+        kind: report.kind,
+        signalId: report.signalId,
+        state: report.open ? "open" : "closed",
+        ...(report.text === undefined ? {} : { text: report.text }),
+      },
+      source: "seat",
+      fidelity: "native",
+    });
   }
 
   unbind(

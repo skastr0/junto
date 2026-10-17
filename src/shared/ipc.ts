@@ -401,6 +401,7 @@ export const IPC_CHANNELS = {
   machineRecordWrite: "junto:machine-record-write",
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
   agentSeatStateSnapshot: "junto:agent-seat-state-snapshot",
+  agentSeatViewed: "junto:agent-seat-viewed",
   agentSeatStateChanged: "junto:agent-seat-state-changed",
   /** Renderer → main: seat-awareness hydration read (advisory sidecar). */
   seatAwarenessSnapshot: "junto:seat-awareness-snapshot",
@@ -1525,6 +1526,11 @@ export interface JuntoTerminalApi {
   ) => Promise<ManagedTerminalFlagsResult>;
   /** Current managed-seat projection for renderer restart hydration. */
   readonly agentSeatStateSnapshot: () => Promise<ReadonlyArray<AgentSeatStateEvent>>;
+  /**
+   * The operator viewed a seat: its finished turn is no longer unseen. Names
+   * the binding, not the window, so a view from any window counts.
+   */
+  readonly agentSeatViewed: (bindingId: string) => Promise<void>;
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
   readonly onAgentSeatStateChanged: (
     listener: (event: AgentSeatStateEvent) => void,
