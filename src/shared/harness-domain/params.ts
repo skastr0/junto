@@ -300,7 +300,8 @@ export const paramsOfTemplate = (template: ManagedTerminalTemplate): HarnessPara
       key: "mode",
       label: "Mode",
       options: { source: "fixed", values: template.modes ?? [] },
-      custom: true,
+      // Closed unless the harness record says otherwise (Amp takes plugin mode keys).
+      custom: false,
       emit: { via: "flag", flag: spec.modeFlag },
       resume: spec.resumeMode === "subcommand" && spec.resumeSubcommand ? "frozenWithSession" : "repass",
       layers: SEAT_AND_LAUNCH,

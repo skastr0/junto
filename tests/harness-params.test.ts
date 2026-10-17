@@ -8,6 +8,7 @@ import {
   resolveParams,
   type HarnessParams,
 } from "../src/shared/harness-domain";
+import { HARNESS_RECORDS } from "../src/shared/harness-records";
 import { resolveManagedLaunch } from "../src/shared/managed-terminal-launch";
 import { HARNESS_IDS, templateFor } from "../src/shared/managed-terminal-templates";
 
@@ -37,6 +38,19 @@ describe("harness params", () => {
       const { permissionModeFlag: flag, permissionArgv } = templateFor(harness).argvSpec;
       if (permissionArgv || (flag !== "--yolo" && flag !== "--dangerously-skip-permissions")) continue;
       expect(paramSpec(params(harness), "permissionMode")?.emit).toEqual({ via: "switch", flag, value: "yolo" });
+    }
+  });
+
+  it("closes a mode list unless the record opens it", () => {
+    for (const harness of HARNESS_IDS) {
+      const mode = paramSpec(HARNESS_RECORDS[harness].params, "mode");
+      if (!mode) continue;
+      expect(mode.custom, harness).toBe(harness === "amp");
+    }
+    const cursor = HARNESS_RECORDS.cursor.params;
+    if (paramSpec(cursor, "mode")) {
+      const refused = checkParam(cursor, { key: "mode", value: "made-up", layer: "seat" });
+      expect(Result.isFailure(refused) && refused.failure.reason).toBe("offList");
     }
   });
 

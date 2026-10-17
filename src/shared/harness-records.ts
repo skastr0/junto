@@ -81,13 +81,16 @@ export const HARNESS_PTY_PROFILES: Readonly<Record<HarnessId, HarnessPtyProfile>
   "junto-overseer": NO_PASTE,
 };
 
-type ParamFacts = Partial<Record<HarnessParamKey, Pick<HarnessParamSpec, "aliases" | "sessionOwnedFlags">>>;
+type ParamFacts = Partial<
+  Record<HarnessParamKey, Partial<Pick<HarnessParamSpec, "aliases" | "sessionOwnedFlags" | "custom">>>
+>;
 
 /** Param facts a template's argv spec has no slot for. */
 const HARNESS_PARAM_FACTS: Readonly<Partial<Record<HarnessId, ParamFacts>>> = {
   amp: {
-    // Amp accepts both spellings of its mode flag.
-    mode: { aliases: ["--mode"] },
+    // Amp accepts both spellings of its mode flag, and plugin modes beyond
+    // the built-in list, so a mode key is open.
+    mode: { aliases: ["--mode"], custom: true },
     // Junto applies speed features at thread creation; once the thread
     // exists they are Amp's, so a resume drops them.
     extraArgs: {
