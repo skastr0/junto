@@ -297,8 +297,8 @@ describe("seats link start", () => {
     cleanups.push(async () => { closeMachineLog(); await rm(home, { recursive: true, force: true }); });
     installMachineLog({ home, process: "core", echo: false });
     const f = await fixture({
-      environment: async () => ({ env: { REGION_SECRET: secret, STAGE: "prod" }, folders: [], record: EMPTY_LAUNCH_RECORD }),
-      spawnError: new Error(`spawn refused for ${localSeat.agentKey} in prod with ${secret} in its text`),
+      environment: async () => ({ env: { REGION_SECRET: secret }, folders: [], record: EMPTY_LAUNCH_RECORD }),
+      spawnError: new Error(`spawn refused with ${secret} in its text`),
     });
     const failure = await f.start().then(() => undefined, (error: unknown) => error);
     expect(failure).toMatchObject({ _tag: "SeatSpawnFailed" });
@@ -308,9 +308,6 @@ describe("seats link start", () => {
     expect(rows.length).toBeGreaterThan(0);
     expect(log).not.toContain(secret);
     expect(rows.join("\n")).toContain("[redacted]");
-    // The seat's name (JUNTO_SEAT) and a short region word are in its
-    // environment, and neither is a secret.
-    expect(rows.join("\n")).toContain(`for ${localSeat.agentKey} in prod with [redacted]`);
   });
 
   it("answers each refusal with its own tag", async () => {

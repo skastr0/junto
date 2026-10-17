@@ -51,6 +51,8 @@ export type ParamOptions = typeof ParamOptions.Type;
 
 export const ParamEmission = Schema.Union([
   Schema.Struct({ via: Schema.Literal("flag"), flag: Schema.String }),
+  /** A bare flag the harness takes for one value (`--yolo` for yolo); other values emit nothing. */
+  Schema.Struct({ via: Schema.Literal("switch"), flag: Schema.String, value: Schema.String }),
   /** Codex `-c model_reasoning_effort="high"`. */
   Schema.Struct({ via: Schema.Literal("configKey"), key: Schema.String }),
   /** fx `FX_MODEL`: read from the environment, rebuilt every launch. */
@@ -91,6 +93,15 @@ export const HarnessParamSpec = Schema.Struct({
   companions: Schema.optionalKey(Schema.Record(Schema.String, Schema.Array(Schema.String))),
   /** Values the harness accepts that no picker offers (they need a dial Junto does not show). */
   unoffered: Schema.optionalKey(Schema.Array(Schema.String)),
+  /** Other spellings of a flag param: recovery reads them, extra args may not repeat them (Amp mode `-m`, `--mode`). */
+  aliases: Schema.optionalKey(Schema.Array(Schema.String)),
+  /**
+   * On the extra-args param: tokens the session owns once it exists, dropped
+   * on resume (Amp `--features <value>`, `--fast`).
+   */
+  sessionOwnedFlags: Schema.optionalKey(
+    Schema.Array(Schema.Struct({ flag: Schema.String, takesValue: Schema.Boolean })),
+  ),
   /** The harness's own default, shown as "Harness default". Never emitted. */
   defaultValue: Schema.optionalKey(Schema.String),
 });
@@ -220,6 +231,9 @@ export const checkParam = (
 
 // ── Declarations from today's templates ───────────────────────────────────
 
+/** Bare permission flags `resolveManagedLaunch` emits for `yolo` and nothing else. */
+const SWITCH_PERMISSION_FLAGS: readonly string[] = ["--yolo", "--dangerously-skip-permissions"];
+
 /** Layers Settings, the seat and the picker can each set today. */
 const ALL_LAYERS: readonly ParamLayer[] = ["harnessDefault", "machineDefault", "seat", "launch"];
 const SEAT_AND_LAUNCH: readonly ParamLayer[] = ["seat", "launch"];
@@ -294,7 +308,9 @@ export const paramsOfTemplate = (template: ManagedTerminalTemplate): HarnessPara
   }
   const permissionEmit: ParamEmission | undefined = spec.permissionArgv
     ? { via: "perValue", argv: spec.permissionArgv }
-    : spec.permissionModeFlag
+    : spec.permissionModeFlag && SWITCH_PERMISSION_FLAGS.includes(spec.permissionModeFlag)
+      ? { via: "switch", flag: spec.permissionModeFlag, value: "yolo" }
+      : spec.permissionModeFlag
       ? { via: "flag", flag: spec.permissionModeFlag }
       : spec.permissionModeEnvKey
         ? { via: "env", key: spec.permissionModeEnvKey }

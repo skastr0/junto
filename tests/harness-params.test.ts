@@ -32,6 +32,14 @@ describe("harness params", () => {
     expect(paramSpec(params("cursor"), "effort")?.emit.via ?? "absent").toMatch(/modelSlug|absent/);
   });
 
+  it("declares a bare permission flag as a switch for yolo", () => {
+    for (const harness of HARNESS_IDS) {
+      const { permissionModeFlag: flag, permissionArgv } = templateFor(harness).argvSpec;
+      if (permissionArgv || (flag !== "--yolo" && flag !== "--dangerously-skip-permissions")) continue;
+      expect(paramSpec(params(harness), "permissionMode")?.emit).toEqual({ via: "switch", flag, value: "yolo" });
+    }
+  });
+
   it("freezes Amp's mode once the thread exists", () => {
     const amp = params("amp");
     expect(paramSpec(amp, "mode")?.resume).toBe("frozenWithSession");
