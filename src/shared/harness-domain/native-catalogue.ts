@@ -20,7 +20,7 @@ export const NATIVE_SETTINGS: readonly NativeSettingSpec[] = [
     key: "model",
     label: "Model",
     // Schema: "Override the default model used by Claude Code"; aliases or a full id.
-    value: { kind: "string", maxLength: 200 },
+    value: { kind: "string", maxLength: 200, format: "modelId" },
     file: CLAUDE_FILE,
     versions: { from: "2.1.302" },
     param: "model",
@@ -57,7 +57,7 @@ export const NATIVE_SETTINGS: readonly NativeSettingSpec[] = [
     harness: "codex",
     key: "model",
     label: "Model",
-    value: { kind: "string", maxLength: 200 },
+    value: { kind: "string", maxLength: 200, format: "modelId" },
     file: CODEX_FILE,
     versions: { from: "0.162.1" },
     param: "model",
