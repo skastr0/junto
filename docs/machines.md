@@ -251,9 +251,11 @@ this section removes.
   id, message, and the encoded failure when there is one. `console.*` in main
   goes through the same logger. A failure that reaches a person was logged on
   the machine where it happened and on the machine that asked.
-- **An agent can read all of it.** `junto logs` reads this machine's log;
-  the same read works for a linked machine. A seat's last start result, with
-  its spawn failure, can be read by command. Rule 13 applies.
+- **An agent can read all of it.** `junto logs` reads this machine's log and
+  runs from a seat. `junto machine logs` reads a linked machine's log over the
+  link; it is an owner command, refused from a seat, and returns only rows for
+  canvases that peer shares (`docs/security-doctrine.md`). A seat's last start
+  result is `junto logs --area seats --seat <id> --last 1`. Rule 13 applies.
 - **Nothing secret is logged or sent.** Secret values, tokens, credentials
   and environment values never enter a failure or a log row
   (`docs/security-doctrine.md`). Names, paths, exit codes and error text do.
