@@ -7,6 +7,7 @@ import { defaultSettings } from "@shared/settings";
 import { templateFor, type HarnessId } from "@shared/managed-terminal-templates";
 import { InventoryUnavailableError, type MachineInventory } from "@shared/harness-domain";
 import { AgentHarnessPick } from "../src/renderer/components/node-palette/AgentHarnessPick";
+import { LaunchSection } from "../src/renderer/components/customize/LaunchSection";
 import {
   coreHarnessMachineSource,
   pendingHarnessMachineSource,
@@ -85,5 +86,14 @@ describe("the palette picker on another machine", () => {
   it("asks this window's CLIs for this machine", async () => {
     await render("macbook");
     expect(offered()).toEqual([named("claude")]);
+  });
+
+  it("Customize re-seats a seat from the machine it sits on", async () => {
+    setHarnessMachineSource({ ...pendingHarnessMachineSource, inventory: async () => Result.succeed(miniInventory) });
+    const node = { id: "seat-1", kind: "agent", harness: "codex", host: "mac-mini" };
+    await act(async () => {
+      root.render(<LaunchSection seat={{ id: "seat-1", name: "mini seat", harness: "codex", node } as never} />);
+    });
+    expect(offered()).toEqual([`Current ${named("codex")}`]);
   });
 });

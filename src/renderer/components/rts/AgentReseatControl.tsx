@@ -98,6 +98,7 @@ export function AgentReseatControl({ nodeId }: { readonly nodeId: string }) {
           <AgentHarnessPick
             currentHarness={current}
             cwd={node.launch?.cwd}
+            {...(node.host ? { machine: node.host } : {})}
             onConfigure={onConfigure}
             listLabel="Available harnesses"
           />

@@ -121,6 +121,7 @@ function SeatLaunch({ seat }: AgentEditorSectionProps) {
           className="customize-launch__pick"
           listLabel="Harnesses"
           cwd={node?.launch?.cwd}
+          {...(node?.host ? { machine: node.host } : {})}
           onConfigure={onConfigure}
           {...(harness ? { currentHarness: harness } : {})}
         />
