@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { Effect, Option, Schema } from "effect";
 import {
+  failureDetailNamesSeat,
   failureDetailSeat,
   LOG_READ_DEFAULT_LIMIT,
   MachineLogRow,
@@ -193,6 +194,9 @@ export const readMachineLog = Effect.fn("readMachineLog")(function* (
 export const seatLogScope = (visibleSeats: ReadonlySet<string>) => (row: MachineLogRow): boolean => {
   // A row written before its seat was lifted from the failure detail still
   // answers to the seat that detail names.
-  const named: ReadonlyArray<string | undefined> = [row.seat, failureDetailSeat(row.failure)];
+  const fromDetail = failureDetailSeat(row.failure);
+  // A detail that names a seat this reader cannot validate fails closed.
+  if (fromDetail === undefined && failureDetailNamesSeat(row.failure)) return false;
+  const named: ReadonlyArray<string | undefined> = [row.seat, fromDetail];
   return named.every((seat) => seat === undefined || visibleSeats.has(seat));
 };

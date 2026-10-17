@@ -184,7 +184,13 @@ export const writeLog = (input: LogInput): MachineLogRow => {
   let seat: MachineLogRow["seat"];
   let canvas: MachineLogRow["canvas"];
   const annotations: Record<string, string> = {};
+  // An encoded failure annotated on the log is the row's failure, kept typed.
+  let annotatedFailure: unknown;
   for (const [key, value] of Object.entries(input.annotations ?? {})) {
+    if (key === "failure" && isEncodedFailure(value)) {
+      annotatedFailure = value;
+      continue;
+    }
     const text = annotationText(value);
     if (key === "area" && AREA.test(text)) area = text;
     else if (key === "operationId" && OPERATION_ID.test(text)) operationId = text;
@@ -197,11 +203,12 @@ export const writeLog = (input: LogInput): MachineLogRow => {
     }
   }
   message = scrubMessage(precut(message, known), known);
-  const failure = input.failure === undefined
+  const held = input.failure ?? annotatedFailure;
+  const failure = held === undefined
     ? undefined
-    : isEncodedFailure(input.failure)
-      ? decodeEncodedFailure(input.failure)
-      : encodeFailure(input.failure, {
+    : isEncodedFailure(held)
+      ? decodeEncodedFailure(held)
+      : encodeFailure(held, {
           machine: state.machine,
           ...(operationId === undefined ? {} : { operationId }),
           ...(input.detail === undefined ? {} : { detail: input.detail }),

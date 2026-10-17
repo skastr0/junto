@@ -203,6 +203,33 @@ describe("row ids", () => {
     const read = await Effect.runPromise(readMachineLog(home, "mini", {}, seatLogScope(new Set(["agent-me"]))));
     expect(read.rows).toEqual([]);
   });
+
+  it("keeps an encoded failure given as a log annotation as the row's failure", async () => {
+    const home = freshHome();
+    installMachineLog({ home, process: "app", echo: false });
+    const runtime = ManagedRuntime.make(ObservabilityLoggerLive);
+    const failure = { tag: "LinkClosed", message: "the peer closed the link", machine: "mini", causes: [{ tag: "SpawnRefused", message: "harness not installed" }] };
+    await runtime.runPromise(Effect.logWarning("machine status failed").pipe(Effect.annotateLogs({ area: "link", peer: "mini", failure })));
+    await runtime.dispose();
+    const [row] = rowsOf(home, "app");
+    expect(row).toMatchObject({ area: "link", failure, annotations: { peer: "mini" } });
+    expect(row?.annotations?.failure).toBeUndefined();
+  });
+
+  it("withholds from seats a row whose detail names a seat that does not validate; the owner still reads it", async () => {
+    const home = freshHome();
+    installMachineLog({ home, process: "core", echo: false });
+    setLogMachine("mini");
+    writeLog({
+      level: "error", source: "effect", message: "odd detail", annotations: { area: "link" },
+      failure: new Error("spawn failed"), detail: { seatId: "not a seat id" },
+    });
+    closeMachineLog();
+    const seatRead = await Effect.runPromise(readMachineLog(home, "mini", {}, seatLogScope(new Set(["agent-me"]))));
+    expect(seatRead.rows).toEqual([]);
+    const ownerRead = await Effect.runPromise(readMachineLog(home, "mini", {}));
+    expect(ownerRead.rows.map((row) => row.message)).toEqual(["odd detail"]);
+  });
 });
 
 describe("console hook", () => {

@@ -87,6 +87,12 @@ export const matchesMachineLogQuery = (row: MachineLogRow, query: MachineLogQuer
 
 const isLogSeatId = Schema.is(LogSeatId);
 
+/** Whether a failure's channel detail carries a seatId at all, valid or not. */
+export const failureDetailNamesSeat = (failure: EncodedFailure | undefined): boolean => {
+  const detail = failure?.detail;
+  return detail !== null && typeof detail === "object" && !Array.isArray(detail) && "seatId" in detail;
+};
+
 /** The seat a failure's channel detail names, when it names a valid one. */
 export const failureDetailSeat = (failure: EncodedFailure | undefined): typeof LogSeatId.Type | undefined => {
   const detail = failure?.detail;
