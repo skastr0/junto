@@ -12,6 +12,7 @@ import {
   type HarnessParamSpec,
   paramSpec,
   paramsOfTemplate,
+  type VerifiedRange,
 } from "./harness-domain";
 import {
   HARNESS_IDS,
@@ -60,7 +61,7 @@ export type HarnessRecord = {
   readonly pty: HarnessPtyProfile;
   readonly role: HarnessRole;
   /** The harness versions this record was checked against; undefined for Junto's own seat. */
-  readonly verified: VerifiedVersions | undefined;
+  readonly verified: VerifiedRange | undefined;
 };
 
 /**
@@ -69,9 +70,7 @@ export type HarnessRecord = {
  * (its manifest names the version) or a version a comment cites as probed.
  * Raise `through` only by re-checking against the newer version.
  */
-export type VerifiedVersions = { readonly from: string; readonly through: string };
-
-const HARNESS_VERIFIED_VERSIONS: Readonly<Partial<Record<HarnessId, VerifiedVersions>>> = {
+const HARNESS_VERIFIED_VERSIONS: Readonly<Partial<Record<HarnessId, VerifiedRange>>> = {
   claude: { from: "2.1.272", through: "2.1.302" },
   codex: { from: "0.154.0", through: "0.162.1" },
   grok: { from: "1.0.52", through: "1.0.52" },
@@ -215,32 +214,3 @@ export const agentKeyOf = (harness: HarnessId, agentHost: string, profile: strin
 /** Whether this harness id is Junto's own overseer seat. */
 export const isOverseerHarness = (harness: string | undefined): boolean =>
   harnessRecordFor(harness)?.role === "overseer";
-
-/** The dotted numbers of the first version-shaped token: "codex-cli 0.162.1" is [0, 162, 1]. */
-export const versionNumbers = (text: string | undefined): readonly number[] | undefined => {
-  const match = text?.match(/\d+(?:\.\d+)+/);
-  return match === undefined || match === null ? undefined : match[0].split(".").map(Number);
-};
-
-const compareVersions = (left: readonly number[], right: readonly number[]): number => {
-  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
-    const difference = (left[index] ?? 0) - (right[index] ?? 0);
-    if (difference !== 0) return difference;
-  }
-  return 0;
-};
-
-/**
- * How an installed version stands against the versions a record was checked
- * with. Unknown when the version text has no version in it.
- */
-export const versionVerdict = (
-  verified: VerifiedVersions,
-  installed: string | undefined,
-): "verified" | "older" | "newer" | "unknown" => {
-  const version = versionNumbers(installed);
-  if (version === undefined) return "unknown";
-  if (compareVersions(version, versionNumbers(verified.from)!) < 0) return "older";
-  if (compareVersions(version, versionNumbers(verified.through)!) > 0) return "newer";
-  return "verified";
-};

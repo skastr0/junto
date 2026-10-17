@@ -2,7 +2,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { HARNESS_CAPABILITIES } from "../src/shared/harness-capabilities";
-import { HARNESS_RECORDS, harnessRecordFor, versionVerdict } from "../src/shared/harness-records";
+import { verifyVersion, type VerifiedRange } from "../src/shared/harness-domain";
+import { HARNESS_RECORDS, harnessRecordFor } from "../src/shared/harness-records";
+
+const versionVerdict = (range: VerifiedRange, installed: string | undefined) => verifyVersion(installed, range).verdict;
 import { HARNESS_IDS, templateFor } from "../src/shared/managed-terminal-templates";
 import { GROK_MIN_POST_SPAWN_MS } from "../src/main/junto/term/drive/managed-terminal-drive";
 import { BRACKETED_PASTE_HARNESSES } from "../src/main/junto/term/drive/mail-readiness";
@@ -53,17 +56,6 @@ describe("harness records", () => {
       const versions = [...readFileSync(manifest, "utf8").matchAll(/"[a-zA-Z]*[vV]ersion"\s*:\s*"([^"]+)"/g)].map((m) => m[1]!);
       for (const version of versions) expect(versionVerdict(verified, version), `${harness} ${version}`).toBe("verified");
     }
-  });
-
-  it("reads an installed version against the verified range", () => {
-    const range = { from: "0.154.0", through: "0.162.1" };
-    expect(versionVerdict(range, "codex-cli 0.162.1")).toBe("verified");
-    expect(versionVerdict(range, "codex-cli 0.163.0")).toBe("newer");
-    expect(versionVerdict(range, "codex-cli 0.99.9")).toBe("older");
-    expect(versionVerdict({ from: "0.20.4", through: "0.21.0" }, "Hermes Agent v0.21.6+675.g79b45d1 (2026.9.24)")).toBe("newer");
-    expect(versionVerdict({ from: "0.0.1789401648", through: "0.0.1789401648" }, "0.0.1792195263-g037e53")).toBe("newer");
-    expect(versionVerdict(range, "")).toBe("unknown");
-    expect(versionVerdict(range, undefined)).toBe("unknown");
   });
 
   it("refuses ids that name no template", () => {

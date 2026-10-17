@@ -30,7 +30,9 @@ import {
   type HarnessInventory as HarnessSnapshot,
   type InventoryScanFailure,
   type MachineInventory,
+  verifyVersion,
 } from "@shared/harness-domain/inventory";
+import { harnessRecordFor } from "@shared/harness-records";
 import { runCli } from "../../adapters/exec";
 import { MachineRepository } from "../../machines/repository";
 import { enumerateManagedModels } from "./enumerate-dispatch";
@@ -293,11 +295,15 @@ export const makeHarnessInventory = (options: {
     const failure: InventoryScanFailure | undefined = current?.failure === undefined
       ? undefined
       : { reason: current.failure.reason, message: clip(current.failure.message, MAX_TEXT), at: current.scannedAt };
+    const verified = harnessRecordFor(probe.harness)?.verified;
     const row: HarnessSnapshot = {
       harness: probe.harness,
       machine,
       installed: true,
       ...(current?.version === undefined ? {} : { version: current.version }),
+      // An installed harness whose record names verified versions says where
+      // this install sits; unknown until a version has been read.
+      ...(verified === undefined ? {} : { verification: verifyVersion(current?.version, verified) }),
       models: (result?.models ?? []).slice(0, MAX_MODELS).map((model) => ({
         id: clip(model.id, MAX_ID),
         label: clip(model.label, MAX_ID),
