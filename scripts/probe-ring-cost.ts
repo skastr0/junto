@@ -491,10 +491,15 @@ try {
     return byType;
   };
 
+  // The background may be written in any colour syntax (the app uses oklch):
+  // paint it into a pixel and read the pixel back.
   const darkNow = () =>
     page!.evaluate<{ dark: boolean; background: string }>(`(() => {
       const background = getComputedStyle(document.body).backgroundColor;
-      const [r, g, b] = background.match(/\\d+/g)?.map(Number) ?? [255, 255, 255];
+      const ctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+      ctx.fillStyle = background;
+      ctx.fillRect(0, 0, 1, 1);
+      const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
       return { dark: r + g + b < 300, background };
     })()`);
 

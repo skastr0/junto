@@ -1,0 +1,1702 @@
+{
+  "command": "bun scripts/probe-ring-cost.ts --compare before=/Users/guilhermecastro/Projects/junto-wt-build,after=/Users/guilhermecastro/Projects/junto-wt-after --repeats 3",
+  "when": "2026-10-17T19:57:46.307Z",
+  "order": [
+    "before#1",
+    "after#1",
+    "before#2",
+    "after#2",
+    "before#3",
+    "after#3"
+  ],
+  "summary": [
+    {
+      "build": "before",
+      "sourceCommit": "e58cdc3bdc6935d4d5095e229910d9940dd7460f",
+      "scenarios": [
+        {
+          "scenario": "idle",
+          "runs": 3,
+          "validRuns": 0,
+          "median": {
+            "rendererBusyMsPerSecond": null,
+            "scriptMsPerSecond": null,
+            "layoutMsPerSecond": null,
+            "styleMsPerSecond": null,
+            "rafDropped": null,
+            "rafFrames": null,
+            "bytesWritten": null,
+            "gpuCpuPercent": null,
+            "rendererCpuPercent": null,
+            "browserCpuPercent": null,
+            "movingRings": null
+          },
+          "values": {
+            "rendererBusyMsPerSecond": [
+              223.5,
+              220.6,
+              227.8
+            ],
+            "scriptMsPerSecond": [
+              122.6,
+              122.6,
+              123.9
+            ],
+            "layoutMsPerSecond": [
+              0,
+              0,
+              0
+            ],
+            "styleMsPerSecond": [
+              0,
+              0,
+              0
+            ],
+            "rafDropped": [
+              null,
+              null,
+              null
+            ],
+            "rafFrames": [
+              null,
+              null,
+              null
+            ],
+            "bytesWritten": [
+              null,
+              null,
+              null
+            ],
+            "gpu": [
+              60,
+              59.3,
+              61.4
+            ]
+          },
+          "problems": [
+            "#1: not the dark theme (body oklch(0.15039 0.00272 67.55))",
+            "#2: not the dark theme (body oklch(0.15039 0.00272 67.55))",
+            "#3: not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ]
+        },
+        {
+          "scenario": "pan",
+          "runs": 3,
+          "validRuns": 0,
+          "median": {
+            "rendererBusyMsPerSecond": null,
+            "scriptMsPerSecond": null,
+            "layoutMsPerSecond": null,
+            "styleMsPerSecond": null,
+            "rafDropped": null,
+            "rafFrames": null,
+            "bytesWritten": null,
+            "gpuCpuPercent": null,
+            "rendererCpuPercent": null,
+            "browserCpuPercent": null,
+            "movingRings": null
+          },
+          "values": {
+            "rendererBusyMsPerSecond": [
+              250.4,
+              224.4,
+              223.7
+            ],
+            "scriptMsPerSecond": [
+              64.1,
+              66.1,
+              66
+            ],
+            "layoutMsPerSecond": [
+              3.7,
+              3.7,
+              3.7
+            ],
+            "styleMsPerSecond": [
+              9.7,
+              8.7,
+              8.6
+            ],
+            "rafDropped": [
+              26,
+              26,
+              64
+            ],
+            "rafFrames": [
+              721,
+              724,
+              722
+            ],
+            "bytesWritten": [
+              null,
+              null,
+              null
+            ],
+            "gpu": [
+              48.8,
+              49,
+              49.2
+            ]
+          },
+          "problems": [
+            "#1: not the dark theme (body oklch(0.15039 0.00272 67.55))",
+            "#2: not the dark theme (body oklch(0.15039 0.00272 67.55))",
+            "#3: not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ]
+        },
+        {
+          "scenario": "stream",
+          "runs": 3,
+          "validRuns": 0,
+          "median": {
+            "rendererBusyMsPerSecond": null,
+            "scriptMsPerSecond": null,
+            "layoutMsPerSecond": null,
+            "styleMsPerSecond": null,
+            "rafDropped": null,
+            "rafFrames": null,
+            "bytesWritten": null,
+            "gpuCpuPercent": null,
+            "rendererCpuPercent": null,
+            "browserCpuPercent": null,
+            "movingRings": null
+          },
+          "values": {
+            "rendererBusyMsPerSecond": [
+              254.4,
+              279,
+              286.5
+            ],
+            "scriptMsPerSecond": [
+              139.7,
+              152.5,
+              155.7
+            ],
+            "layoutMsPerSecond": [
+              0.8,
+              0.8,
+              0.9
+            ],
+            "styleMsPerSecond": [
+              0.7,
+              0.8,
+              0.9
+            ],
+            "rafDropped": [
+              null,
+              null,
+              null
+            ],
+            "rafFrames": [
+              null,
+              null,
+              null
+            ],
+            "bytesWritten": [
+              472500,
+              472500,
+              472500
+            ],
+            "gpu": [
+              69.1,
+              73.2,
+              77.4
+            ]
+          },
+          "problems": [
+            "#1: not the dark theme (body oklch(0.15039 0.00272 67.55))",
+            "#2: not the dark theme (body oklch(0.15039 0.00272 67.55))",
+            "#3: not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ]
+        }
+      ]
+    },
+    {
+      "build": "after",
+      "sourceCommit": "2deba933eb64321cca99039b96d507ddb4f616c7",
+      "scenarios": [
+        {
+          "scenario": "idle",
+          "runs": 3,
+          "validRuns": 0,
+          "median": {
+            "rendererBusyMsPerSecond": null,
+            "scriptMsPerSecond": null,
+            "layoutMsPerSecond": null,
+            "styleMsPerSecond": null,
+            "rafDropped": null,
+            "rafFrames": null,
+            "bytesWritten": null,
+            "gpuCpuPercent": null,
+            "rendererCpuPercent": null,
+            "browserCpuPercent": null,
+            "movingRings": null
+          },
+          "values": {
+            "rendererBusyMsPerSecond": [
+              24.4,
+              212.3,
+              24.1
+            ],
+            "scriptMsPerSecond": [
+              7.8,
+              7.9,
+              7.8
+            ],
+            "layoutMsPerSecond": [
+              0,
+              0,
+              0
+            ],
+            "styleMsPerSecond": [
+              2,
+              43.3,
+              2
+            ],
+            "rafDropped": [
+              null,
+              null,
+              null
+            ],
+            "rafFrames": [
+              null,
+              null,
+              null
+            ],
+            "bytesWritten": [
+              null,
+              null,
+              null
+            ],
+            "gpu": [
+              19.5,
+              37.5,
+              18
+            ]
+          },
+          "problems": [
+            "#1: not the dark theme (body oklch(0.15039 0.00272 67.55))",
+            "#2: not the dark theme (body oklch(0.15039 0.00272 67.55))",
+            "#3: not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ]
+        },
+        {
+          "scenario": "pan",
+          "runs": 3,
+          "validRuns": 0,
+          "median": {
+            "rendererBusyMsPerSecond": null,
+            "scriptMsPerSecond": null,
+            "layoutMsPerSecond": null,
+            "styleMsPerSecond": null,
+            "rafDropped": null,
+            "rafFrames": null,
+            "bytesWritten": null,
+            "gpuCpuPercent": null,
+            "rendererCpuPercent": null,
+            "browserCpuPercent": null,
+            "movingRings": null
+          },
+          "values": {
+            "rendererBusyMsPerSecond": [
+              223.8,
+              233.6,
+              188.6
+            ],
+            "scriptMsPerSecond": [
+              24.5,
+              22.9,
+              23.7
+            ],
+            "layoutMsPerSecond": [
+              3.5,
+              3.4,
+              3.5
+            ],
+            "styleMsPerSecond": [
+              24.1,
+              23.3,
+              24.1
+            ],
+            "rafDropped": [
+              37,
+              33,
+              35
+            ],
+            "rafFrames": [
+              724,
+              722,
+              722
+            ],
+            "bytesWritten": [
+              null,
+              null,
+              null
+            ],
+            "gpu": [
+              35.9,
+              50.7,
+              32.1
+            ]
+          },
+          "problems": [
+            "#1: not the dark theme (body oklch(0.15039 0.00272 67.55))",
+            "#2: not the dark theme (body oklch(0.15039 0.00272 67.55))",
+            "#3: not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ]
+        },
+        {
+          "scenario": "stream",
+          "runs": 3,
+          "validRuns": 0,
+          "median": {
+            "rendererBusyMsPerSecond": null,
+            "scriptMsPerSecond": null,
+            "layoutMsPerSecond": null,
+            "styleMsPerSecond": null,
+            "rafDropped": null,
+            "rafFrames": null,
+            "bytesWritten": null,
+            "gpuCpuPercent": null,
+            "rendererCpuPercent": null,
+            "browserCpuPercent": null,
+            "movingRings": null
+          },
+          "values": {
+            "rendererBusyMsPerSecond": [
+              274.3,
+              525.3,
+              311.4
+            ],
+            "scriptMsPerSecond": [
+              39.2,
+              41.4,
+              40.2
+            ],
+            "layoutMsPerSecond": [
+              0.9,
+              1.2,
+              0.9
+            ],
+            "styleMsPerSecond": [
+              26.2,
+              36.8,
+              29.7
+            ],
+            "rafDropped": [
+              null,
+              null,
+              null
+            ],
+            "rafFrames": [
+              null,
+              null,
+              null
+            ],
+            "bytesWritten": [
+              472500,
+              472500,
+              472500
+            ],
+            "gpu": [
+              31.6,
+              56.3,
+              36.4
+            ]
+          },
+          "problems": [
+            "#1: not the dark theme (body oklch(0.15039 0.00272 67.55))",
+            "#2: not the dark theme (body oklch(0.15039 0.00272 67.55))",
+            "#3: not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ]
+        }
+      ]
+    }
+  ],
+  "runs": [
+    {
+      "label": "before-1",
+      "sourceCommit": "e58cdc3bdc6935d4d5095e229910d9940dd7460f",
+      "appRoot": "/Users/guilhermecastro/Projects/junto-wt-build",
+      "command": "bun scripts/probe-ring-cost.ts --app-root /Users/guilhermecastro/Projects/junto-wt-build --label before-1 --seconds 6 --port 9341",
+      "when": "2026-10-17T19:55:36.787Z",
+      "environment": {
+        "accessibility": true,
+        "electron": "43.5.0",
+        "chrome": "150.0.7871.250",
+        "displays": 1,
+        "darkOs": true,
+        "rendererAccessibilityForcedOff": false,
+        "streamLinesPerTick": 20,
+        "streamTickMs": 16,
+        "preflightProblems": []
+      },
+      "fixture": {
+        "seats": 29,
+        "looseSeats": 5,
+        "regions": 11,
+        "maxNestingDepth": 4,
+        "regionTable": [
+          {
+            "id": "big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "big-a",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "big-a-1",
+            "parent": "big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "big-a-1-a",
+            "parent": "big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "big-b",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "big-b-1",
+            "parent": "big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "mid-a",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "mid-b",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          }
+        ]
+      },
+      "valid": false,
+      "scenarios": [
+        {
+          "name": "idle",
+          "valid": false,
+          "problems": [
+            "not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 223.5,
+          "scriptMsPerSecond": 122.6,
+          "layoutMsPerSecond": 0,
+          "styleMsPerSecond": 0,
+          "rafFrames": null,
+          "rafDropped": null,
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 0,
+            "renderer": 31.7,
+            "GPU": 60,
+            "network.mojom.NetworkService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 36
+          },
+          "accessibilityOn": true,
+          "viewport": null,
+          "loadAverage1m": {
+            "before": 10.6,
+            "after": 10.55
+          }
+        },
+        {
+          "name": "pan",
+          "valid": false,
+          "problems": [
+            "not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 250.4,
+          "scriptMsPerSecond": 64.1,
+          "layoutMsPerSecond": 3.7,
+          "styleMsPerSecond": 9.7,
+          "rafFrames": 721,
+          "rafDropped": 26,
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 2.5,
+            "renderer": 35.1,
+            "GPU": 48.8,
+            "network.mojom.NetworkService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 36
+          },
+          "accessibilityOn": true,
+          "viewport": [
+            "translate(86.9767px, 27.3023px) scale(0.651163)",
+            "translate(-2303.42px, -1167.9px) scale(0.651163)",
+            "translate(101.377px, 34.5023px) scale(0.651163)"
+          ],
+          "loadAverage1m": {
+            "before": 10.55,
+            "after": 9.84
+          }
+        },
+        {
+          "name": "stream",
+          "valid": false,
+          "problems": [
+            "not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 254.4,
+          "scriptMsPerSecond": 139.7,
+          "layoutMsPerSecond": 0.8,
+          "styleMsPerSecond": 0.7,
+          "rafFrames": null,
+          "rafDropped": null,
+          "bytesWritten": 472500,
+          "cpuPercent": {
+            "browser": 5.9,
+            "renderer": 35.5,
+            "GPU": 69.1,
+            "network.mojom.NetworkService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 37
+          },
+          "accessibilityOn": true,
+          "viewport": null,
+          "loadAverage1m": {
+            "before": 9.84,
+            "after": 9.21
+          }
+        }
+      ]
+    },
+    {
+      "label": "after-1",
+      "sourceCommit": "2deba933eb64321cca99039b96d507ddb4f616c7",
+      "appRoot": "/Users/guilhermecastro/Projects/junto-wt-after",
+      "command": "bun scripts/probe-ring-cost.ts --app-root /Users/guilhermecastro/Projects/junto-wt-after --label after-1 --seconds 6 --port 9341",
+      "when": "2026-10-17T19:56:02.178Z",
+      "environment": {
+        "accessibility": true,
+        "electron": "43.5.0",
+        "chrome": "150.0.7871.250",
+        "displays": 1,
+        "darkOs": true,
+        "rendererAccessibilityForcedOff": false,
+        "streamLinesPerTick": 20,
+        "streamTickMs": 16,
+        "preflightProblems": []
+      },
+      "fixture": {
+        "seats": 29,
+        "looseSeats": 5,
+        "regions": 11,
+        "maxNestingDepth": 4,
+        "regionTable": [
+          {
+            "id": "big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "big-a",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "big-a-1",
+            "parent": "big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "big-a-1-a",
+            "parent": "big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "big-b",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "big-b-1",
+            "parent": "big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "mid-a",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "mid-b",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          }
+        ]
+      },
+      "valid": false,
+      "scenarios": [
+        {
+          "name": "idle",
+          "valid": false,
+          "problems": [
+            "not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 24.4,
+          "scriptMsPerSecond": 7.8,
+          "layoutMsPerSecond": 0,
+          "styleMsPerSecond": 2,
+          "rafFrames": null,
+          "rafDropped": null,
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 0,
+            "renderer": 9.6,
+            "GPU": 19.5,
+            "network.mojom.NetworkService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 36
+          },
+          "accessibilityOn": true,
+          "viewport": null,
+          "loadAverage1m": {
+            "before": 8.72,
+            "after": 7.76
+          }
+        },
+        {
+          "name": "pan",
+          "valid": false,
+          "problems": [
+            "not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 223.8,
+          "scriptMsPerSecond": 24.5,
+          "layoutMsPerSecond": 3.5,
+          "styleMsPerSecond": 24.1,
+          "rafFrames": 724,
+          "rafDropped": 37,
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 2.5,
+            "renderer": 31.4,
+            "GPU": 35.9,
+            "network.mojom.NetworkService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 36
+          },
+          "accessibilityOn": true,
+          "viewport": [
+            "translate(86.9767px, 27.3023px) scale(0.651163)",
+            "translate(-2317.82px, -1175.1px) scale(0.651163)",
+            "translate(86.9767px, 27.3023px) scale(0.651163)"
+          ],
+          "loadAverage1m": {
+            "before": 7.76,
+            "after": 7.78
+          }
+        },
+        {
+          "name": "stream",
+          "valid": false,
+          "problems": [
+            "not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 274.3,
+          "scriptMsPerSecond": 39.2,
+          "layoutMsPerSecond": 0.9,
+          "styleMsPerSecond": 26.2,
+          "rafFrames": null,
+          "rafDropped": null,
+          "bytesWritten": 472500,
+          "cpuPercent": {
+            "browser": 6.7,
+            "renderer": 38.5,
+            "GPU": 31.6,
+            "network.mojom.NetworkService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 37
+          },
+          "accessibilityOn": true,
+          "viewport": null,
+          "loadAverage1m": {
+            "before": 7.78,
+            "after": 7.56
+          }
+        }
+      ]
+    },
+    {
+      "label": "before-2",
+      "sourceCommit": "e58cdc3bdc6935d4d5095e229910d9940dd7460f",
+      "appRoot": "/Users/guilhermecastro/Projects/junto-wt-build",
+      "command": "bun scripts/probe-ring-cost.ts --app-root /Users/guilhermecastro/Projects/junto-wt-build --label before-2 --seconds 6 --port 9341",
+      "when": "2026-10-17T19:56:27.503Z",
+      "environment": {
+        "accessibility": true,
+        "electron": "43.5.0",
+        "chrome": "150.0.7871.250",
+        "displays": 1,
+        "darkOs": true,
+        "rendererAccessibilityForcedOff": false,
+        "streamLinesPerTick": 20,
+        "streamTickMs": 16,
+        "preflightProblems": []
+      },
+      "fixture": {
+        "seats": 29,
+        "looseSeats": 5,
+        "regions": 11,
+        "maxNestingDepth": 4,
+        "regionTable": [
+          {
+            "id": "big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "big-a",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "big-a-1",
+            "parent": "big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "big-a-1-a",
+            "parent": "big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "big-b",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "big-b-1",
+            "parent": "big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "mid-a",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "mid-b",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          }
+        ]
+      },
+      "valid": false,
+      "scenarios": [
+        {
+          "name": "idle",
+          "valid": false,
+          "problems": [
+            "not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 220.6,
+          "scriptMsPerSecond": 122.6,
+          "layoutMsPerSecond": 0,
+          "styleMsPerSecond": 0,
+          "rafFrames": null,
+          "rafDropped": null,
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 0,
+            "renderer": 31.4,
+            "GPU": 59.3,
+            "network.mojom.NetworkService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 36
+          },
+          "accessibilityOn": true,
+          "viewport": null,
+          "loadAverage1m": {
+            "before": 7.27,
+            "after": 7.56
+          }
+        },
+        {
+          "name": "pan",
+          "valid": false,
+          "problems": [
+            "not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 224.4,
+          "scriptMsPerSecond": 66.1,
+          "layoutMsPerSecond": 3.7,
+          "styleMsPerSecond": 8.7,
+          "rafFrames": 724,
+          "rafDropped": 26,
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 1.8,
+            "renderer": 33.4,
+            "GPU": 49,
+            "network.mojom.NetworkService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 36
+          },
+          "accessibilityOn": true,
+          "viewport": [
+            "translate(86.9767px, 27.3023px) scale(0.651163)",
+            "translate(-2317.82px, -1175.1px) scale(0.651163)",
+            "translate(72.5767px, 20.1023px) scale(0.651163)"
+          ],
+          "loadAverage1m": {
+            "before": 7.56,
+            "after": 7.75
+          }
+        },
+        {
+          "name": "stream",
+          "valid": false,
+          "problems": [
+            "not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 279,
+          "scriptMsPerSecond": 152.5,
+          "layoutMsPerSecond": 0.8,
+          "styleMsPerSecond": 0.8,
+          "rafFrames": null,
+          "rafDropped": null,
+          "bytesWritten": 472500,
+          "cpuPercent": {
+            "browser": 5.9,
+            "renderer": 38.7,
+            "GPU": 73.2,
+            "network.mojom.NetworkService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 37
+          },
+          "accessibilityOn": true,
+          "viewport": null,
+          "loadAverage1m": {
+            "before": 7.75,
+            "after": 7.85
+          }
+        }
+      ]
+    },
+    {
+      "label": "after-2",
+      "sourceCommit": "2deba933eb64321cca99039b96d507ddb4f616c7",
+      "appRoot": "/Users/guilhermecastro/Projects/junto-wt-after",
+      "command": "bun scripts/probe-ring-cost.ts --app-root /Users/guilhermecastro/Projects/junto-wt-after --label after-2 --seconds 6 --port 9341",
+      "when": "2026-10-17T19:56:52.665Z",
+      "environment": {
+        "accessibility": true,
+        "electron": "43.5.0",
+        "chrome": "150.0.7871.250",
+        "displays": 1,
+        "darkOs": true,
+        "rendererAccessibilityForcedOff": false,
+        "streamLinesPerTick": 20,
+        "streamTickMs": 16,
+        "preflightProblems": []
+      },
+      "fixture": {
+        "seats": 29,
+        "looseSeats": 5,
+        "regions": 11,
+        "maxNestingDepth": 4,
+        "regionTable": [
+          {
+            "id": "big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "big-a",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "big-a-1",
+            "parent": "big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "big-a-1-a",
+            "parent": "big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "big-b",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "big-b-1",
+            "parent": "big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "mid-a",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "mid-b",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          }
+        ]
+      },
+      "valid": false,
+      "scenarios": [
+        {
+          "name": "idle",
+          "valid": false,
+          "problems": [
+            "not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 212.3,
+          "scriptMsPerSecond": 7.9,
+          "layoutMsPerSecond": 0,
+          "styleMsPerSecond": 43.3,
+          "rafFrames": null,
+          "rafDropped": null,
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 0,
+            "renderer": 38.2,
+            "GPU": 37.5,
+            "network.mojom.NetworkService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 36
+          },
+          "accessibilityOn": true,
+          "viewport": null,
+          "loadAverage1m": {
+            "before": 8.02,
+            "after": 7.16
+          }
+        },
+        {
+          "name": "pan",
+          "valid": false,
+          "problems": [
+            "not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 233.6,
+          "scriptMsPerSecond": 22.9,
+          "layoutMsPerSecond": 3.4,
+          "styleMsPerSecond": 23.3,
+          "rafFrames": 722,
+          "rafDropped": 33,
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 1.8,
+            "renderer": 38.8,
+            "GPU": 50.7,
+            "network.mojom.NetworkService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 36
+          },
+          "accessibilityOn": true,
+          "viewport": [
+            "translate(86.9767px, 27.3023px) scale(0.651163)",
+            "translate(-2317.82px, -1175.1px) scale(0.651163)",
+            "translate(58.1767px, 12.9023px) scale(0.651163)"
+          ],
+          "loadAverage1m": {
+            "before": 7.16,
+            "after": 6.59
+          }
+        },
+        {
+          "name": "stream",
+          "valid": false,
+          "problems": [
+            "not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 525.3,
+          "scriptMsPerSecond": 41.4,
+          "layoutMsPerSecond": 1.2,
+          "styleMsPerSecond": 36.8,
+          "rafFrames": null,
+          "rafDropped": null,
+          "bytesWritten": 472500,
+          "cpuPercent": {
+            "browser": 5.8,
+            "renderer": 73.5,
+            "GPU": 56.3,
+            "network.mojom.NetworkService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 37
+          },
+          "accessibilityOn": true,
+          "viewport": null,
+          "loadAverage1m": {
+            "before": 6.59,
+            "after": 7.02
+          }
+        }
+      ]
+    },
+    {
+      "label": "before-3",
+      "sourceCommit": "e58cdc3bdc6935d4d5095e229910d9940dd7460f",
+      "appRoot": "/Users/guilhermecastro/Projects/junto-wt-build",
+      "command": "bun scripts/probe-ring-cost.ts --app-root /Users/guilhermecastro/Projects/junto-wt-build --label before-3 --seconds 6 --port 9341",
+      "when": "2026-10-17T19:57:17.829Z",
+      "environment": {
+        "accessibility": true,
+        "electron": "43.5.0",
+        "chrome": "150.0.7871.250",
+        "displays": 1,
+        "darkOs": true,
+        "rendererAccessibilityForcedOff": false,
+        "streamLinesPerTick": 20,
+        "streamTickMs": 16,
+        "preflightProblems": []
+      },
+      "fixture": {
+        "seats": 29,
+        "looseSeats": 5,
+        "regions": 11,
+        "maxNestingDepth": 4,
+        "regionTable": [
+          {
+            "id": "big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "big-a",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "big-a-1",
+            "parent": "big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "big-a-1-a",
+            "parent": "big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "big-b",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "big-b-1",
+            "parent": "big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "mid-a",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "mid-b",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          }
+        ]
+      },
+      "valid": false,
+      "scenarios": [
+        {
+          "name": "idle",
+          "valid": false,
+          "problems": [
+            "not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 227.8,
+          "scriptMsPerSecond": 123.9,
+          "layoutMsPerSecond": 0,
+          "styleMsPerSecond": 0,
+          "rafFrames": null,
+          "rafDropped": null,
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 0,
+            "renderer": 32.3,
+            "GPU": 61.4,
+            "network.mojom.NetworkService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 36
+          },
+          "accessibilityOn": true,
+          "viewport": null,
+          "loadAverage1m": {
+            "before": 7.1,
+            "after": 7.96
+          }
+        },
+        {
+          "name": "pan",
+          "valid": false,
+          "problems": [
+            "not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 223.7,
+          "scriptMsPerSecond": 66,
+          "layoutMsPerSecond": 3.7,
+          "styleMsPerSecond": 8.6,
+          "rafFrames": 722,
+          "rafDropped": 64,
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 1.8,
+            "renderer": 32.6,
+            "GPU": 49.2,
+            "network.mojom.NetworkService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 36
+          },
+          "accessibilityOn": true,
+          "viewport": [
+            "translate(86.9767px, 27.3023px) scale(0.651163)",
+            "translate(-2303.42px, -1167.9px) scale(0.651163)",
+            "translate(86.9767px, 27.3023px) scale(0.651163)"
+          ],
+          "loadAverage1m": {
+            "before": 7.96,
+            "after": 8.21
+          }
+        },
+        {
+          "name": "stream",
+          "valid": false,
+          "problems": [
+            "not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 286.5,
+          "scriptMsPerSecond": 155.7,
+          "layoutMsPerSecond": 0.9,
+          "styleMsPerSecond": 0.9,
+          "rafFrames": null,
+          "rafDropped": null,
+          "bytesWritten": 472500,
+          "cpuPercent": {
+            "browser": 6.1,
+            "renderer": 40.8,
+            "GPU": 77.4,
+            "network.mojom.NetworkService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 37
+          },
+          "accessibilityOn": true,
+          "viewport": null,
+          "loadAverage1m": {
+            "before": 8.21,
+            "after": 7.71
+          }
+        }
+      ]
+    },
+    {
+      "label": "after-3",
+      "sourceCommit": "2deba933eb64321cca99039b96d507ddb4f616c7",
+      "appRoot": "/Users/guilhermecastro/Projects/junto-wt-after",
+      "command": "bun scripts/probe-ring-cost.ts --app-root /Users/guilhermecastro/Projects/junto-wt-after --label after-3 --seconds 6 --port 9341",
+      "when": "2026-10-17T19:57:43.126Z",
+      "environment": {
+        "accessibility": true,
+        "electron": "43.5.0",
+        "chrome": "150.0.7871.250",
+        "displays": 1,
+        "darkOs": true,
+        "rendererAccessibilityForcedOff": false,
+        "streamLinesPerTick": 20,
+        "streamTickMs": 16,
+        "preflightProblems": []
+      },
+      "fixture": {
+        "seats": 29,
+        "looseSeats": 5,
+        "regions": 11,
+        "maxNestingDepth": 4,
+        "regionTable": [
+          {
+            "id": "big",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 6,
+            "seatsInside": 15,
+            "size": "1040x820"
+          },
+          {
+            "id": "big-a",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "600x500"
+          },
+          {
+            "id": "big-a-1",
+            "parent": "big-a",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 2,
+            "size": "560x170"
+          },
+          {
+            "id": "big-a-1-a",
+            "parent": "big-a-1",
+            "depth": 4,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "270x140"
+          },
+          {
+            "id": "big-b",
+            "parent": "big",
+            "depth": 2,
+            "seatsDirect": 2,
+            "seatsInside": 3,
+            "size": "360x500"
+          },
+          {
+            "id": "big-b-1",
+            "parent": "big-b",
+            "depth": 3,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "320x170"
+          },
+          {
+            "id": "mid",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 4,
+            "seatsInside": 6,
+            "size": "640x500"
+          },
+          {
+            "id": "mid-a",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x180"
+          },
+          {
+            "id": "mid-b",
+            "parent": "mid",
+            "depth": 2,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "280x180"
+          },
+          {
+            "id": "small-one",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 1,
+            "seatsInside": 1,
+            "size": "300x150"
+          },
+          {
+            "id": "small-two",
+            "parent": null,
+            "depth": 1,
+            "seatsDirect": 2,
+            "seatsInside": 2,
+            "size": "310x300"
+          }
+        ]
+      },
+      "valid": false,
+      "scenarios": [
+        {
+          "name": "idle",
+          "valid": false,
+          "problems": [
+            "not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 24.1,
+          "scriptMsPerSecond": 7.8,
+          "layoutMsPerSecond": 0,
+          "styleMsPerSecond": 2,
+          "rafFrames": null,
+          "rafDropped": null,
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 0,
+            "renderer": 9.7,
+            "GPU": 18,
+            "network.mojom.NetworkService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 36
+          },
+          "accessibilityOn": true,
+          "viewport": null,
+          "loadAverage1m": {
+            "before": 7.22,
+            "after": 7.6
+          }
+        },
+        {
+          "name": "pan",
+          "valid": false,
+          "problems": [
+            "not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 188.6,
+          "scriptMsPerSecond": 23.7,
+          "layoutMsPerSecond": 3.5,
+          "styleMsPerSecond": 24.1,
+          "rafFrames": 722,
+          "rafDropped": 35,
+          "bytesWritten": null,
+          "cpuPercent": {
+            "browser": 1.8,
+            "renderer": 27.9,
+            "GPU": 32.1,
+            "network.mojom.NetworkService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 36
+          },
+          "accessibilityOn": true,
+          "viewport": [
+            "translate(86.9767px, 27.3023px) scale(0.651163)",
+            "translate(-2317.82px, -1175.1px) scale(0.651163)",
+            "translate(72.5767px, 20.1023px) scale(0.651163)"
+          ],
+          "loadAverage1m": {
+            "before": 7.6,
+            "after": 8.35
+          }
+        },
+        {
+          "name": "stream",
+          "valid": false,
+          "problems": [
+            "not the dark theme (body oklch(0.15039 0.00272 67.55))"
+          ],
+          "seconds": 6,
+          "rendererBusyMsPerSecond": 311.4,
+          "scriptMsPerSecond": 40.2,
+          "layoutMsPerSecond": 0.9,
+          "styleMsPerSecond": 29.7,
+          "rafFrames": null,
+          "rafDropped": null,
+          "bytesWritten": 472500,
+          "cpuPercent": {
+            "browser": 5.9,
+            "renderer": 43,
+            "GPU": 36.4,
+            "network.mojom.NetworkService": 0
+          },
+          "ringsVisible": {
+            "moving": 35,
+            "marks": 37
+          },
+          "accessibilityOn": true,
+          "viewport": null,
+          "loadAverage1m": {
+            "before": 8.35,
+            "after": 8.25
+          }
+        }
+      ]
+    }
+  ]
+}
