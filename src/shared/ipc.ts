@@ -1309,7 +1309,11 @@ export type MachineInventoryFailure = {
   readonly machine: string;
   readonly reason: "timeout" | "failed" | "unreachable" | "notInstalled";
   readonly message: string;
-  /** The typed failure behind the reason, e.g. LinkUnavailable or InventorySnapshotRefused. */
+  /**
+   * The typed failure behind the reason, e.g. LinkUnavailable or
+   * InventorySnapshotRefused. NativeSettingUnconfirmed: a write's link closed
+   * before its answer and a read-back could not confirm it; it may have taken.
+   */
   readonly failure?: string;
   /** The operation both machines logged this request under. */
   readonly operationId?: string;

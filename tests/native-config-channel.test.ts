@@ -271,12 +271,22 @@ describe("native-config channel request", () => {
       .toEqual({ ok: true, value: "sonnet" });
     expect(c.request.mock.calls.map((call) => (call[2] as { _tag: string })._tag)).toEqual(["WriteSetting", "ReadSettings"]);
 
-    // The write did not take: the closed link is the answer.
+    // The read-back shows another value, or cannot be read: unconfirmed, not refused.
+    const unconfirmed = {
+      ok: false,
+      error: {
+        _tag: "InventoryUnavailableError", machine: PEER, reason: "failed", failure: "NativeSettingUnconfirmed", operationId: "op-lost",
+        message: "model on mini may not have taken: the link closed before the answer. Read it again.",
+      },
+    };
     const lost = await client((payload) => payload._tag === "WriteSetting"
       ? Effect.fail(closed)
       : Effect.succeed({ _tag: "Settings", machine: PEER, harness: "claude", values: [{ key: "model", value: "opus" }] }));
-    expect(await lost.run(lost.native.writeSetting({ machine: PEER, harness: "claude", key: "model", value: "sonnet" }) as never))
-      .toMatchObject({ ok: false, error: { failure: "LinkClosed", reason: "unreachable" } });
+    expect(await lost.run(lost.native.writeSetting({ machine: PEER, harness: "claude", key: "model", value: "sonnet" }, "op-lost") as never))
+      .toEqual(unconfirmed);
+    const gone = await client(() => Effect.fail(closed));
+    expect(await gone.run(gone.native.writeSetting({ machine: PEER, harness: "claude", key: "model", value: "sonnet" }, "op-lost") as never))
+      .toEqual(unconfirmed);
     closeNext = false;
   });
 

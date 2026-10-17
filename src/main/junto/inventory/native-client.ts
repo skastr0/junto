@@ -36,6 +36,15 @@ const ReadAsk = Schema.Struct({
 });
 const WriteAsk = Schema.Struct({ harness: HarnessId, key: Key, value: NativeWireValue });
 
+/** The write's link closed before its answer, and reading it back could not confirm it took. */
+export class NativeSettingUnconfirmed extends Schema.TaggedError<NativeSettingUnconfirmed>()("NativeSettingUnconfirmed", {
+  machine: Schema.String,
+  harness: HarnessId,
+  key: Schema.String,
+  operationId: Schema.String,
+  message: Schema.String,
+}) {}
+
 const decodeResponse = Schema.decodeUnknownSync(NativeConfigResponse, { onExcessProperty: "error" });
 const isLinkFailure = Schema.is(NativeConfigLinkFailure);
 
@@ -46,6 +55,9 @@ const unwrap = (cause: unknown): unknown =>
 /** A failure as the window reads it: the setting's own refusals keep their tags, the rest is unavailable. */
 const asIpcFailure = (machine: string, operationId: string, raw: unknown): NativeSettingFailure => {
   const cause = unwrap(raw);
+  // Not refused: the write may have taken. Its own tag, so the window can say so.
+  if (cause instanceof NativeSettingUnconfirmed)
+    return { _tag: "InventoryUnavailableError", machine: cause.machine, reason: "failed", message: cause.message, failure: cause._tag, operationId: cause.operationId };
   if (cause instanceof NativeSettingRefused)
     return { _tag: "NativeSettingRefusedError", harness: cause.harness, key: cause.key ?? "", reason: cause.reason, message: cause.message };
   if (cause instanceof NativeConfigWriteFailed)
@@ -131,12 +143,17 @@ export const makeNativeConfigClient = (answers: NativeConfigAnswers) => {
       );
       return yield* over.pipe(
         // The link closed before the answer: the write may have taken. Read it back once.
-        Effect.catchIf((cause): cause is LinkClosed => cause instanceof LinkClosed, (closed) => Effect.gen(function* () {
+        Effect.catchIf((cause): cause is LinkClosed => cause instanceof LinkClosed, () => Effect.gen(function* () {
           yield* Effect.logWarning("native setting write lost its link; reading it back", { harness: asked.harness, key: asked.key });
-          const values = yield* readOver(input.machine, operationId, asked.harness, [asked.key]).pipe(Effect.mapError(() => closed));
+          const values = yield* readOver(input.machine, operationId, asked.harness, [asked.key]).pipe(Effect.orElseSucceed(() => []));
           const row = values.find((entry) => entry.key === asked.key);
           if (row !== undefined && "value" in row && row.value === asked.value) return row.value;
-          return yield* Effect.fail(closed);
+          // Not refused: the machine may have written it before the link closed.
+          yield* Effect.logWarning("native setting write unconfirmed", { harness: asked.harness, key: asked.key });
+          return yield* new NativeSettingUnconfirmed({
+            machine: input.machine, harness: asked.harness, key: asked.key, operationId,
+            message: `${asked.key} on ${input.machine} may not have taken: the link closed before the answer. Read it again.`,
+          });
         })),
       );
     }).pipe(
