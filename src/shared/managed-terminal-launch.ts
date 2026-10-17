@@ -8,8 +8,10 @@
  * empty composer; the agent learns about Junto by running `junto onboard`.
  * The only prompt a launch can carry is one the operator supplied.
  */
+import { type HarnessParamKey, type HarnessParamSpec, paramSpec } from "./harness-domain";
+import { harnessParamsOf } from "./harness-records";
 import type { Launch } from "./model/kinds";
-import { sanitizeExtraArgs, splitAmpFeatureArgs } from "./launch-extra-args";
+import { sanitizeExtraArgs, splitSessionOwnedArgs } from "./launch-extra-args";
 import {
   type HarnessId,
   type ManagedTerminalTemplate,
@@ -138,13 +140,11 @@ const envDials = (
   template: ManagedTerminalTemplate,
   choices: ManagedLaunchChoices,
 ): Record<string, string> => {
-  const { argvSpec: spec } = template;
   const dials: Record<string, string> = {};
-  const model = choices.model?.trim();
-  if (spec.modelEnvKey && model) dials[spec.modelEnvKey] = model;
-  const permissionMode = choices.permissionMode?.trim();
-  if (spec.permissionModeEnvKey && permissionMode) {
-    dials[spec.permissionModeEnvKey] = permissionMode;
+  for (const param of harnessParamsOf(template).params) {
+    if (param.emit.via !== "env" || param.key === "extraArgs") continue;
+    const value = choices[param.key]?.trim();
+    if (value) dials[param.emit.key] = value;
   }
   return dials;
 };
@@ -305,6 +305,50 @@ export const withModelEffortSlug = (model: string, effort: string): string => {
   return `${nextBase}${brackets}`;
 };
 
+/** Template dials in argv order. How each one is spelled comes from the harness's params. */
+const DIAL_ORDER: readonly Exclude<HarnessParamKey, "extraArgs">[] = [
+  "profile",
+  "provider",
+  "model",
+  "mode",
+  "effort",
+  "permissionMode",
+];
+
+/**
+ * Emit one dial. A switch takes its flag alone for its one value (also spelled
+ * `true`, `1` or the flag itself); any other value omits it. A per-value
+ * param emits that value's own tokens, and an empty list is a real mode
+ * (Cursor allowlist). A value that brings companion tokens gets them on the
+ * same argv, so a saved mode cannot produce a spawn that dies at parse
+ * (Devin: `--permission-mode autonomous requires --sandbox`).
+ */
+const emitDial = (argv: string[], param: HarnessParamSpec, value: string): void => {
+  const emit = param.emit;
+  switch (emit.via) {
+    case "flag":
+      for (const token of param.companions?.[value] ?? []) {
+        if (!argv.includes(token)) argv.push(token);
+      }
+      pushFlag(argv, emit.flag, value);
+      return;
+    case "switch":
+      if ([emit.value, "true", "1", emit.flag, "--yolo"].includes(value)) argv.push(emit.flag);
+      return;
+    case "configKey":
+      // Codex: -c model_reasoning_effort="low"
+      argv.push("-c", `${emit.key}=${JSON.stringify(value)}`);
+      return;
+    case "perValue":
+      argv.push(...(emit.argv[value] ?? []));
+      return;
+    case "env":
+    case "modelSlug":
+    case "args":
+      return;
+  }
+};
+
 const buildArgv = (
   template: ManagedTerminalTemplate,
   choices: ManagedLaunchChoices,
@@ -331,77 +375,24 @@ const buildArgv = (
     }
   }
 
-  if (choices.profile) {
-    pushFlag(argv, spec.profileFlag, choices.profile);
-  }
-
-  if (choices.provider) {
-    pushFlag(argv, spec.providerFlag, choices.provider);
-  }
-
-  if (choices.model) {
+  // Only a dial the operator chose in Junto is emitted. Unset means the
+  // harness's own config decides; a param's `defaultValue` names that default
+  // for display and is never passed. A dial the session owns (Amp's thread
+  // keeps its mode) is not re-passed on a resume.
+  const params = harnessParamsOf(template);
+  const modelSlugEffort =
+    paramSpec(params, "effort")?.emit.via === "modelSlug" ? choices.effort : undefined;
+  for (const key of DIAL_ORDER) {
+    const param = paramSpec(params, key);
+    const chosen = choices[key];
+    if (param === undefined || chosen === undefined) continue;
+    if (resumeId && param.resume === "frozenWithSession") continue;
     // Cursor carries effort inside the model value as a hyphenated catalog
     // slug (`claude-opus-4-8-high`), not `[effort=…]` — that form is rejected
-    // on 2026.09.10-fd3934a. The two dials are resolved together.
-    pushFlag(
-      argv,
-      spec.modelFlag,
-      spec.effortModelBracketKey && choices.effort
-        ? withModelEffortSlug(choices.model, choices.effort)
-        : choices.model,
-    );
-  }
-
-  if (choices.mode && !(template.harness === "amp" && resumeId)) {
-    pushFlag(argv, spec.modeFlag, choices.mode);
-  }
-
-  if (choices.effort) {
-    if (spec.effortModelBracketKey) {
-      // Already merged into the model slug above. With no model selected the
-      // suffix has nothing to attach to, so the effort is dropped rather than
-      // invented onto a model the operator did not choose.
-    } else if (spec.effortConfigKey) {
-      // Codex: -c model_reasoning_effort="low"
-      argv.push("-c", `${spec.effortConfigKey}=${JSON.stringify(choices.effort)}`);
-    } else {
-      pushFlag(argv, spec.effortFlag, choices.effort);
-    }
-  }
-
-  // Permission / approval. Bare flags like --yolo or --dangerously-skip-permissions are emitted without value when enabled.
-  // A harness with `permissionArgv` names each mode's own tokens. An empty
-  // list is a real mode (Cursor allowlist) and emits nothing.
-  // Only a mode the operator chose in Junto is emitted. Unset means the
-  // harness's own config decides; `defaultPermissionMode` names that default
-  // for display and is never passed.
-  const permission = choices.permissionMode;
-  if (permission !== undefined && spec.permissionArgv && permission in spec.permissionArgv) {
-    argv.push(...spec.permissionArgv[permission]!);
-  } else if (permission !== undefined) {
-    if (
-      spec.permissionModeFlag === "--yolo" ||
-      spec.permissionModeFlag === "--dangerously-skip-permissions"
-    ) {
-      if (
-        permission === "yolo" ||
-        permission === "true" ||
-        permission === "1" ||
-        permission === spec.permissionModeFlag ||
-        permission === "--yolo"
-      ) {
-        argv.push(spec.permissionModeFlag);
-      }
-      // "off"/false/default → omit
-    } else {
-      // A mode that needs companion tokens gets them on the same argv, so a
-      // saved or hand-authored mode cannot produce a spawn that dies at parse
-      // (Devin: `--permission-mode autonomous requires --sandbox`).
-      for (const token of spec.permissionCompanions?.[permission] ?? []) {
-        if (!argv.includes(token)) argv.push(token);
-      }
-      pushFlag(argv, spec.permissionModeFlag, permission);
-    }
+    // on 2026.09.10-fd3934a. With no model the effort has nothing to attach
+    // to and is dropped rather than invented onto a model nobody chose.
+    const value = key === "model" && modelSlugEffort ? withModelEffortSlug(chosen, modelSlugEffort) : chosen;
+    emitDial(argv, param, value);
   }
 
   if (choices.sessionId && spec.sessionIdFlag) {
@@ -411,9 +402,8 @@ const buildArgv = (
   // The operator's own arguments: after everything the template owns, before
   // the prompt (a positional prompt must stay the last token).
   const extraArgs = sanitizeExtraArgs(template.harness, choices.extraArgs).args;
-  argv.push(...(template.harness === "amp" && resumeId
-    ? splitAmpFeatureArgs(extraArgs).client
-    : extraArgs));
+  const sessionOwned = resumeId ? paramSpec(params, "extraArgs")?.sessionOwnedFlags : undefined;
+  argv.push(...(sessionOwned ? splitSessionOwnedArgs(extraArgs, sessionOwned).client : extraArgs));
 
   // Prompt last (positional, with optional separator), as -q for Hermes TUI
   // auto-submit, as -i for Antigravity auto-submit, or not at all when the

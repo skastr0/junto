@@ -12,6 +12,8 @@
  * argument that names one of those would fight the launch the seat depends on,
  * so it is refused here, with a reason the surface can show.
  */
+import type { HarnessParamSpec } from "./harness-domain";
+import { HARNESS_RECORDS } from "./harness-records";
 import { templateFor, type HarnessId } from "./managed-terminal-templates";
 
 /** Longest extra-argument list a seat may carry. */
@@ -63,8 +65,10 @@ export const reservedLaunchFlags = (
   // config-override flag, so it stays open to the operator.
   if (!spec.effortConfigKey) reserve(spec.effortFlag, "set by the effort choice");
   reserve(spec.modeFlag, "set by the mode choice");
+  for (const param of HARNESS_RECORDS[harness].params.params) {
+    for (const alias of param.aliases ?? []) reserve(alias, `set by the ${param.label.toLowerCase()} choice`);
+  }
   if (harness === "amp") {
-    reserve("--mode", "set by the mode choice");
     reserve("--visibility", "Junto creates a private thread for this seat");
     for (const flag of ["--executor", "--runner-dir", "--project", "--orb-size"]) {
       reserve(flag, "Orb and runner seats need their own integration");
@@ -142,31 +146,46 @@ export const sanitizeExtraArgs = (
 };
 
 /**
+ * Split extra arguments into the ones the session owns once it exists (a
+ * resume drops them) and the rest. Values and repeated flags stay verbatim;
+ * the harness owns their interpretation.
+ */
+export const splitSessionOwnedArgs = (
+  input: readonly string[],
+  owned: NonNullable<HarnessParamSpec["sessionOwnedFlags"]>,
+): { readonly owned: readonly string[]; readonly client: readonly string[] } => {
+  const ownedArgs: string[] = [];
+  const client: string[] = [];
+  for (let i = 0; i < input.length; i += 1) {
+    const token = input[i]!;
+    const match = owned.find((entry) => entry.flag === flagNameOf(token));
+    if (match === undefined) {
+      client.push(token);
+      continue;
+    }
+    ownedArgs.push(token);
+    const next = input[i + 1];
+    if (match.takesValue && token === match.flag && next !== undefined && !next.startsWith("-")) {
+      ownedArgs.push(next);
+      i += 1;
+    }
+  }
+  return { owned: ownedArgs, client };
+};
+
+const AMP_SESSION_OWNED_FLAGS =
+  HARNESS_RECORDS.amp.params.params.find((param) => param.key === "extraArgs")?.sessionOwnedFlags ?? [];
+
+/**
  * Junto applies speed features at thread creation, not when reopening its TUI.
  * Once a thread exists, speed changes belong to Amp, not the viewer's next start.
- * Keep values and repeated flags verbatim; Amp owns their interpretation.
  */
 export const splitAmpFeatureArgs = (input: readonly string[] = []): {
   readonly features: readonly string[];
   readonly client: readonly string[];
 } => {
-  const features: string[] = [];
-  const client: string[] = [];
-  for (let i = 0; i < input.length; i += 1) {
-    const token = input[i]!;
-    const name = flagNameOf(token);
-    if (name !== "--features" && name !== "--fast") {
-      client.push(token);
-      continue;
-    }
-    features.push(token);
-    const next = input[i + 1];
-    if (token === "--features" && next !== undefined && !next.startsWith("-")) {
-      features.push(next);
-      i += 1;
-    }
-  }
-  return { features, client };
+  const { owned, client } = splitSessionOwnedArgs(input, AMP_SESSION_OWNED_FLAGS);
+  return { features: owned, client };
 };
 
 /** Public global options that affect Amp thread creation, not TUI paint. */

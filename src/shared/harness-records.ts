@@ -5,7 +5,13 @@
  * pack (`src/main/junto/term/harness-record.ts`). Design: `docs/harness-domain.md`.
  */
 import { HARNESS_CAPABILITIES } from "./harness-capabilities";
-import { type HarnessCapabilities, type HarnessParams, paramsOfTemplate } from "./harness-domain";
+import {
+  type HarnessCapabilities,
+  type HarnessParamKey,
+  type HarnessParams,
+  type HarnessParamSpec,
+  paramsOfTemplate,
+} from "./harness-domain";
 import {
   HARNESS_IDS,
   type HarnessId,
@@ -75,6 +81,32 @@ export const HARNESS_PTY_PROFILES: Readonly<Record<HarnessId, HarnessPtyProfile>
   "junto-overseer": NO_PASTE,
 };
 
+type ParamFacts = Partial<Record<HarnessParamKey, Pick<HarnessParamSpec, "aliases" | "sessionOwnedFlags">>>;
+
+/** Param facts a template's argv spec has no slot for. */
+const HARNESS_PARAM_FACTS: Readonly<Partial<Record<HarnessId, ParamFacts>>> = {
+  amp: {
+    // Amp accepts both spellings of its mode flag.
+    mode: { aliases: ["--mode"] },
+    // Junto applies speed features at thread creation; once the thread
+    // exists they are Amp's, so a resume drops them.
+    extraArgs: {
+      sessionOwnedFlags: [
+        { flag: "--features", takesValue: true },
+        { flag: "--fast", takesValue: false },
+      ],
+    },
+  },
+};
+
+/** A template's params with the harness's param facts applied. */
+export const harnessParamsOf = (template: ManagedTerminalTemplate): HarnessParams => {
+  const params = paramsOfTemplate(template);
+  const facts = HARNESS_PARAM_FACTS[template.harness];
+  if (facts === undefined) return params;
+  return { ...params, params: params.params.map((spec) => ({ ...spec, ...facts[spec.key] })) };
+};
+
 export const HARNESS_RECORDS: Readonly<Record<HarnessId, HarnessRecord>> = Object.fromEntries(
   HARNESS_IDS.map((harness) => {
     const template = templateFor(harness);
@@ -84,7 +116,7 @@ export const HARNESS_RECORDS: Readonly<Record<HarnessId, HarnessRecord>> = Objec
         harness,
         template,
         capabilities: HARNESS_CAPABILITIES[harness],
-        params: paramsOfTemplate(template),
+        params: harnessParamsOf(template),
         pty: HARNESS_PTY_PROFILES[harness],
       },
     ];
