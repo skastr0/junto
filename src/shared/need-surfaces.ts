@@ -18,7 +18,7 @@ import type { MemberSeverity } from "./region-rollup";
 import { MemberSeverity as MemberSeveritySchema } from "./region-rollup";
 import type { OccupancySpectrum } from "./occupancy/derive";
 import { FEED_URGENCY, type FeedItemKind } from "./wire/operator-feed";
-import { NOTIFY_CATEGORIES, type NotifyCategory } from "./desktop-notifications";
+import type { NotifyCategory } from "./desktop-notifications";
 import { NEED_CAUSES, NEED_URGENCY, type Need, type NeedCause, type NeedLevel } from "./harness-domain/need";
 
 /** A surface's value for every need cause, `null` where it does not show it. */

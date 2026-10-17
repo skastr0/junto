@@ -27,8 +27,10 @@ import {
   OCCUPANCY_FROM_NEED,
   OCCUPANCY_LADDER,
   projectNeeds,
+  notifyNeed,
   ROLLUP_FROM_NEED,
   SURFACE_CHANGES,
+  SURFACE_ORDER,
   type NeedSurface,
 } from "../src/shared/need-surfaces";
 import { DEFAULT_STALL_AFTER_MS, deriveOccupancy, OccupancySpectrum } from "../src/shared/occupancy/derive";
@@ -315,12 +317,14 @@ describe("need surfaces: where each surface's order disagrees with the ladder", 
   });
 
   it("region rollup", () => {
+    // The tiers run attention, blocked, ready, working, idle. What is left is
+    // the table's: attention holds both waiting and escalated, which a stop
+    // sits between.
     expect(summary("rollup")).toEqual([
+      "split attention > blocked",
       "merged attention > attention",
-      "split blocked > attention",
       "merged blocked > blocked",
-      "inverted blocked > attention",
-      "inverted working > ready",
+      "inverted attention > blocked",
       "merged working > working",
     ]);
   });
@@ -338,11 +342,34 @@ describe("need surfaces: where each surface's order disagrees with the ladder", 
   });
 
   it("desktop notifications", () => {
-    expect(summary("notify")).toEqual([
-      "merged needsYou > needsYou",
-      "split blocked > needsYou",
-      "inverted failed > needsYou",
-      "split needsYou > done",
-    ]);
+    expect(summary("notify")).toEqual([]);
+  });
+
+  it("leaves no disagreement on a surface that follows the ladder", () => {
+    for (const surface of SURFACES) {
+      if (SURFACE_ORDER[surface].order === "ladder") expect(ladderDisagreements(surface), surface).toEqual([]);
+    }
+  });
+});
+
+describe("need surfaces: decisions", () => {
+  it("orders notifications by ladder level, inside needsYou and across categories", () => {
+    const rank = (cause: NeedCause) => NEED_URGENCY[notifyNeed(cause)!.level];
+    expect(notifyNeed("dialog")?.category).toBe("needsYou");
+    expect(notifyNeed("seat_escalated")?.category).toBe("needsYou");
+    expect(notifyNeed("seat_feedback")?.category).toBe("needsYou");
+    expect(rank("dialog")).toBeGreaterThan(rank("seat_escalated"));
+    expect(rank("seat_escalated")).toBeGreaterThan(rank("seat_feedback"));
+    expect(rank("dialog")).toBeGreaterThan(rank("crash"));
+    expect(rank("seat_blocked")).toBe(rank("permission"));
+    expect(notifyNeed("awareness_waiting")).toBeUndefined();
+  });
+
+  it("keeps a change open only where the surface's owner has not decided", () => {
+    for (const change of SURFACE_CHANGES) {
+      const order = SURFACE_ORDER[change.surface].order;
+      expect(change.status, `${change.surface} ${change.causes.join(",")}`).toBe(order === "ladder" ? "decided" : "open");
+      expect(change.decided !== undefined).toBe(change.status === "decided");
+    }
   });
 });
