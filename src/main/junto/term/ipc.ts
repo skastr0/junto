@@ -8,7 +8,6 @@ import { seatNextLaunch } from "@shared/seat-next-launch";
 import type {
   JuntoApi,
   MachineInventoryResult,
-  NativeSettingFailure,
   NativeSettingsReadResult,
   NativeSettingWriteResult,
 } from "@shared/ipc";
@@ -30,11 +29,8 @@ import { injectionSupervisor } from "./injection-supervisor";
 import { onRemoteSeatState, rememberRemoteSeatState } from "./remote-seat-state";
 import { AppRuntime } from "../../runtime";
 import { liveSeatEnvironment } from "../region-env/live";
-import { Effect, Result, Schema } from "effect";
+import { Effect } from "effect";
 import { MachineRepository } from "../machines/repository";
-import type { InventoryUnavailableError } from "@shared/harness-domain/inventory";
-import type { NativeSettingRefusedError } from "@shared/harness-domain/native-config";
-import type { NativeConfigWriteError } from "@shared/harness-domain/native-config-write";
 
 type LeaseOwner = {
   readonly lease: ControlLease;
@@ -304,65 +300,27 @@ export const registerTerminalIpc = (
     ));
   });
 
-  // Another machine's config is read and written by that machine over the
-  // link's inventory channel, which lands after the link rewrite.
-  const notThisMachine = (machine: string): NativeSettingFailure => ({
-    _tag: "InventoryUnavailableError",
-    machine,
-    reason: "unreachable",
-    message: "Another machine's harness config comes over the link's inventory channel, which is not built yet",
-  });
-  const asFailure = (
-    error: InventoryUnavailableError | NativeSettingRefusedError | NativeConfigWriteError,
-  ): NativeSettingFailure => {
-    switch (error._tag) {
-      case "InventoryUnavailableError":
-        return { _tag: error._tag, machine: error.machine, reason: error.reason, message: error.message };
-      case "NativeSettingRefusedError":
-        return { _tag: error._tag, harness: error.harness, key: error.key, reason: error.reason, message: error.message };
-      case "NativeConfigWriteError":
-        return {
-          _tag: error._tag, machine: error.machine, harness: error.harness, key: error.key,
-          reason: error.reason, message: error.message,
-        };
-    }
-  };
-
+  // Every machine's harness config, this one included, goes through the same
+  // client: this machine answers itself, a linked one over the link.
   ipcMain.handle(IPC_CHANNELS.nativeSettingsRead, async (event, input: unknown): Promise<NativeSettingsReadResult> => {
     assertTrusted(event);
     const request = input as { machine?: unknown; harness?: unknown; keys?: unknown } | undefined;
-    if (typeof request?.machine !== "string" || typeof request.harness !== "string" || !isHarnessId(request.harness)
+    if (typeof request?.machine !== "string" || typeof request.harness !== "string"
       || !Array.isArray(request.keys) || !request.keys.every((key) => typeof key === "string"))
       return deny("native settings: machine, harness and keys are required");
     const { machine, harness, keys } = { machine: request.machine, harness: request.harness, keys: request.keys as string[] };
-    const [{ HarnessInventory }, { NativeConfig }] = await Promise.all([
-      import("./templates/harness-inventory"),
-      import("../native-config/service"),
-    ]);
-    return AppRuntime.runPromise(Effect.gen(function* () {
-      const own = (yield* (yield* HarnessInventory).machine).machine;
-      if (own !== machine) return { ok: false, error: notThisMachine(machine) } satisfies NativeSettingsReadResult;
-      const values = yield* (yield* NativeConfig).read(harness, keys);
-      return { ok: true, values } satisfies NativeSettingsReadResult;
-    }).pipe(Effect.catch((error) => Effect.succeed<NativeSettingsReadResult>({ ok: false, error: asFailure(error) }))));
+    const { nativeConfigClient } = await import("../inventory/native-client");
+    return AppRuntime.runPromise(Effect.flatMap(nativeConfigClient, (client) => client.readSettings({ machine, harness, keys })));
   });
 
   ipcMain.handle(IPC_CHANNELS.nativeSettingWrite, async (event, input: unknown): Promise<NativeSettingWriteResult> => {
     assertTrusted(event);
-    const { NativeSettingWrite } = await import("@shared/harness-domain/native-config");
-    const decoded = Schema.decodeUnknownResult(NativeSettingWrite)(input);
-    if (Result.isFailure(decoded)) return deny("native settings: the write does not match its schema");
-    const write = decoded.success;
-    const [{ HarnessInventory }, { NativeConfig }] = await Promise.all([
-      import("./templates/harness-inventory"),
-      import("../native-config/service"),
-    ]);
-    return AppRuntime.runPromise(Effect.gen(function* () {
-      const own = (yield* (yield* HarnessInventory).machine).machine;
-      if (own !== write.machine) return { ok: false, error: notThisMachine(write.machine) } satisfies NativeSettingWriteResult;
-      const value = yield* (yield* NativeConfig).write(write);
-      return { ok: true, value } satisfies NativeSettingWriteResult;
-    }).pipe(Effect.catch((error) => Effect.succeed<NativeSettingWriteResult>({ ok: false, error: asFailure(error) }))));
+    const request = input as { machine?: unknown; harness?: unknown; key?: unknown; value?: unknown } | undefined;
+    if (typeof request?.machine !== "string" || typeof request.harness !== "string" || typeof request.key !== "string")
+      return deny("native settings: machine, harness, key and value are required");
+    const { machine, harness, key, value } = { machine: request.machine, harness: request.harness, key: request.key, value: request.value };
+    const { nativeConfigClient } = await import("../inventory/native-client");
+    return AppRuntime.runPromise(Effect.flatMap(nativeConfigClient, (client) => client.writeSetting({ machine, harness, key, value })));
   });
 
   ipcMain.handle(IPC_CHANNELS.managedTerminalHarnesses, async (event) => {
