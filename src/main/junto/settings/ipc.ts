@@ -22,6 +22,16 @@ import {
   createStartupProvider,
 } from "../login-item";
 import { SettingsService } from "./service";
+import { type PeerSettingsClient, type ProvidersChange, peerSettings } from "./link-client";
+import type { HostsService } from "../hosts/service";
+import type { MachineLink } from "../link/service";
+import type { MachineRepository } from "../machines/repository";
+import type { ModelRecords } from "../model/records";
+import type { ModelService } from "../model/service";
+import type { NativeUsageProvider } from "@shared/usage";
+
+/** What asking another machine needs from the app runtime. */
+type PeerSettingsNeeds = HostsService | MachineLink | MachineRepository | ModelRecords | ModelService;
 import {
   createStateRecoveryIpcHandlers,
   type StateRecoveryDestinationChoice,
@@ -143,7 +153,8 @@ export const registerSettingsIpc = (
   const forMachine = <A>(
     machine: unknown,
     answer: (settings: Settings) => A,
-    change?: (service: typeof SettingsService.Service) => Effect.Effect<unknown, { readonly message: string }>,
+    change: ((service: typeof SettingsService.Service) => Effect.Effect<unknown, { readonly message: string }>) | undefined,
+    peer: (client: PeerSettingsClient, machine: string) => Effect.Effect<MachineSettingsResult<A>, never, PeerSettingsNeeds>,
   ): Promise<MachineSettingsResult<A>> =>
     AppRuntime.runPromise(Effect.gen(function* () {
       const service = yield* SettingsService;
@@ -152,9 +163,9 @@ export const registerSettingsIpc = (
         ({ ok: false, error: { _tag: "MachineSettingsUnavailableError", machine: name, reason, message } });
       const current = yield* Effect.result(service.get);
       if (Result.isFailure(current)) return fail("failed", current.failure.message);
-      if (name === "" || name !== current.success.machine.name) {
-        return fail("unreachable", "Another machine's settings come over the link, which does not carry them yet");
-      }
+      if (name === "") return fail("unreachable", "A machine-scoped settings request names its machine");
+      // Another machine answers over the link's settings channel.
+      if (name !== current.success.machine.name) return yield* peer(peerSettings(), name);
       if (change === undefined) return { ok: true, value: answer(current.success) };
       const changed = yield* Effect.result(change(service));
       if (Result.isFailure(changed)) return fail("failed", changed.failure.message);
@@ -166,22 +177,53 @@ export const registerSettingsIpc = (
   const keyedPatch = (input: unknown): { readonly machine: unknown; readonly patch: Record<string, unknown> } | undefined =>
     plainObject(input) && plainObject(input.patch) ? { machine: input.machine, patch: input.patch } : undefined;
 
+  // A change for another machine carries only what may cross; a credential
+  // value is set on its own machine (docs/machines.md, rule 9).
+  const refused = <A>(machine: string, message: string) =>
+    Effect.succeed<MachineSettingsResult<A>>({ ok: false, error: { _tag: "MachineSettingsUnavailableError", machine, reason: "failed", message } });
+  const providersChange = (patch: Record<string, unknown>): ProvidersChange | string => {
+    const extra = Object.keys(patch).filter((key) => key !== "enabledSources" && key !== "hermesHostSnapshots");
+    if (extra.length > 0) return "A credential is set on its own machine; open Junto there to change it.";
+    const { enabledSources, hermesHostSnapshots } = patch;
+    if (enabledSources !== undefined && !Array.isArray(enabledSources)) return "enabledSources must be a list";
+    if (hermesHostSnapshots !== undefined && typeof hermesHostSnapshots !== "boolean") return "hermesHostSnapshots must be true or false";
+    if (enabledSources === undefined && hermesHostSnapshots === undefined) return "a providers change sets something";
+    return {
+      ...(enabledSources === undefined ? {} : { enabledSources: enabledSources as ReadonlyArray<NativeUsageProvider> }),
+      ...(hermesHostSnapshots === undefined ? {} : { hermesHostSnapshots }),
+    };
+  };
+
   ipcMain.handle(IPC_CHANNELS.machineProviders, (_event, machine: unknown) =>
-    forMachine(machine, (settings) => machineProvidersOf(settings, settings.machine.name)));
+    forMachine(machine, (settings) => machineProvidersOf(settings, settings.machine.name), undefined,
+      (client, name) => client.providers(name)));
   ipcMain.handle(IPC_CHANNELS.machineProvidersWrite, (_event, input: unknown) => {
     const request = keyedPatch(input);
     return forMachine(request?.machine, (settings) => machineProvidersOf(settings, settings.machine.name),
       (service) => request === undefined
         ? Effect.fail({ message: "a providers write needs a machine and a patch" })
-        : service.patch({ providers: request.patch }));
+        : service.patch({ providers: request.patch }),
+      (client, name) => {
+        const change = request === undefined ? "a providers write needs a machine and a patch" : providersChange(request.patch);
+        return typeof change === "string" ? refused(name, change) : client.setProviders(name, change);
+      });
   });
-  ipcMain.handle(IPC_CHANNELS.machineRecord, (_event, machine: unknown) => forMachine(machine, machineRecordOf));
+  ipcMain.handle(IPC_CHANNELS.machineRecord, (_event, machine: unknown) =>
+    forMachine(machine, machineRecordOf, undefined, (client, name) => client.record(name)));
   ipcMain.handle(IPC_CHANNELS.machineRecordWrite, (_event, input: unknown) => {
     const request = keyedPatch(input);
     return forMachine(request?.machine, machineRecordOf,
       (service) => request === undefined
         ? Effect.fail({ message: "a record write needs a machine and a patch" })
-        : service.setMachinePreferences(request.patch));
+        : service.setMachinePreferences(request.patch),
+      (client, name) => {
+        const keys = request === undefined ? [] : Object.keys(request.patch);
+        const preferred = request?.patch.supervisedPreferred;
+        // The name is this machine's label for it; only startup is set over the link.
+        return keys.length !== 1 || typeof preferred !== "boolean"
+          ? refused(name, "Over the link a machine's record changes only its startup preference")
+          : client.setStartup(name, preferred);
+      });
   });
 
   ipcMain.handle(IPC_CHANNELS.settingsReset, (_event, section?: unknown) =>

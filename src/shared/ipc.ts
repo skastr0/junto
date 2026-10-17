@@ -1350,6 +1350,10 @@ export type MachineSettingsResult<A> =
       readonly machine: string;
       readonly reason: "unreachable" | "failed";
       readonly message: string;
+      /** The typed failure behind the reason, e.g. LinkUnavailable or SettingsNoSeatHere. */
+      readonly failure?: string;
+      /** The operation both machines logged this request under. */
+      readonly operationId?: string;
     };
   };
 
