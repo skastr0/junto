@@ -267,7 +267,7 @@ test("starting-folder modal reuses live directory browsing and can save a contai
     await expect(input).toHaveValue(join(REPO_ROOT, "src"));
 
     const regionDefault = picker.getByRole("checkbox", {
-      name: /use this folder as region default for (?:this )?host/i,
+      name: /use this folder for the region on this machine/i,
     });
     await expect(regionDefault).toBeEnabled();
     await regionDefault.check({ force: true });
@@ -286,7 +286,7 @@ test("region-default promotion fails closed with actionable guidance outside a r
     const deck = await openModeDeck(page);
     const picker = await openFolderPicker(page, deck);
     const regionDefault = picker.getByRole("checkbox", {
-      name: /use this folder as region default for (?:this )?host/i,
+      name: /use this folder for the region on this machine/i,
     });
 
     await expect(regionDefault).toBeDisabled();
