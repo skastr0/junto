@@ -95,7 +95,7 @@ describe("companion seat state", () => {
     expect(pick({ control: at("attention", "stalled"), health: health("trouble") })).toEqual(["needs_input", "stalled, needs a look"]);
     expect(pick({ process: "stopped", health: health("trouble") })).toEqual(["stopped", "stopped"]);
     expect(pick({ process: "starting" })).toEqual(["starting", "starting up"]);
-    expect(pick({ process: undefined })).toEqual(["offline", "offline"]);
+    expect(pick({ process: undefined })).toEqual(["offline", "not running"]);
     expect(pick({ control: at("working"), health: health("trouble") })).toEqual(["trouble", "AI reads: stuck"]);
     expect(pick({ control: at("idle"), health: health("waiting") })).toEqual(["waiting_on_you", "AI reads: wants your input"]);
     expect(pick({ control: at("working"), health: health("good") })).toEqual(["working", "AI reads: going well"]);

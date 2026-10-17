@@ -6,8 +6,8 @@ import type { ReviewCandidate } from "./git-review";
  * Who a review can go to: the agent seats in the same region as the place
  * the review was opened from, the innermost region's seats first, then each
  * containing region's, so a lead in the parent region can be mentioned. From
- * the open field, every agent on the canvas. An agent that is offline is
- * still a candidate: mail wakes it.
+ * the open field, every agent on the canvas. An agent that is not running
+ * is still a candidate: mail wakes it.
  */
 export const reviewCandidates = (
   canvas: Canvas,

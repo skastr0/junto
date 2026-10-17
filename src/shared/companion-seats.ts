@@ -39,7 +39,9 @@ const pick = (input: CompanionSeatInput): readonly [CompanionSeatState, string] 
   const control = input.control;
   if (control?.state === "attention") return ["needs_input", attentionText(control.reason)];
   if (input.process === undefined || control?.state === "gone" || control?.state === "unknown") {
-    return input.process === "stopped" ? ["stopped", "stopped"] : ["offline", "offline"];
+    // The wire state keeps its name; the line is the desktop's words, and a
+    // seat with no process is not running (offline is a machine's word).
+    return input.process === "stopped" ? ["stopped", "stopped"] : ["offline", "not running"];
   }
   if (input.process === "stopped") return ["stopped", "stopped"];
   if (input.process === "starting") return ["starting", "starting up"];
