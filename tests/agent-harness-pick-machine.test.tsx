@@ -84,9 +84,21 @@ describe("the palette picker on another machine", () => {
     expect(offered()).toEqual([named("codex")]);
   });
 
-  it("asks this window's CLIs for this machine", async () => {
-    await render("macbook");
+  it("reads this machine through its inventory too, never the local CLI probe", async () => {
+    const asked: string[] = [];
+    setHarnessMachineSource({
+      ...pendingHarnessMachineSource,
+      inventory: async (machine) => {
+        asked.push(machine);
+        return Result.succeed({ machine, harnesses: [row("claude", true)] } as unknown as MachineInventory);
+      },
+    });
+    await act(async () => {
+      root.render(<AgentHarnessPick onConfigure={() => {}} />);
+    });
+    expect(asked).toEqual(["macbook"]);
     expect(offered()).toEqual([named("claude")]);
+    expect((window as { junto?: { managedTerminalHarnesses: ReturnType<typeof vi.fn> } }).junto!.managedTerminalHarnesses).not.toHaveBeenCalled();
   });
 
   it("Customize re-seats a seat from the machine it sits on", async () => {

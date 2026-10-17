@@ -27,8 +27,7 @@ import {
 import { harnessVisibleInPalette } from "@shared/harness-settings";
 import { harnessPrefsFor, rememberRecentModel } from "@shared/settings";
 import { pickerInventory } from "../../lib/harness-machine-source";
-import { getJuntoApi } from "../../lib/junto-api";
-import { onThisMachine } from "../../lib/machines";
+import { useThisMachineName } from "../../lib/machines";
 import { state$ } from "../../lib/state";
 import { patchSettings } from "../../lib/settings-state";
 import { rankMatches } from "../../lib/fuzzy-match";
@@ -63,7 +62,7 @@ export type AgentHarnessPickProps = {
   /** Highlight the current seat harness (re-seat). */
   readonly currentHarness?: HarnessId;
   readonly cascadeDismissRef?: MutableRefObject<CascadeDismiss | null>;
-  /** The machine the seat is placed on; another machine's harnesses come from its inventory. */
+  /** The machine the seat is placed on; absent means this machine. Its inventory says what it has. */
   readonly machine?: string;
 };
 
@@ -95,7 +94,9 @@ export function AgentHarnessPick({
   cascadeDismissRef,
   machine,
 }: AgentHarnessPickProps) {
-  const remote = machine !== undefined && machine !== "" && !onThisMachine(machine);
+  const thisMachine = useThisMachineName();
+  /** Every machine is read through its inventory, this one included. */
+  const target = machine !== undefined && machine !== "" ? machine : thisMachine;
   const settings = use$(state$.settings);
   const [agentCascade, setAgentCascade] = useState<{
     readonly harness: HarnessId;
@@ -222,42 +223,20 @@ export function AgentHarnessPick({
   >(null);
 
   useEffect(() => {
+    // Settings name this machine once they load; until then nothing is offered.
+    if (target === "") return;
     let cancelled = false;
-    if (remote) {
-      void pickerInventory(machine).then((inventory) => {
-        if (cancelled) return;
-        setInstalledHarnesses(
-          new Set((inventory?.harnesses ?? []).filter((row) => row.installed).map((row) => row.harness as HarnessId)),
-        );
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
-    const api = getJuntoApi();
-    if (!api?.managedTerminalHarnesses) {
-      // No probe API (tests / degraded preload): fail closed — hide all until
-      // we can prove install. Feature gate still applied via empty set.
-      setInstalledHarnesses(new Set());
-      return;
-    }
-    void api
-      .managedTerminalHarnesses()
-      .then((result) => {
-        if (cancelled) return;
-        const installed = new Set<HarnessId>();
-        for (const row of result.harnesses) {
-          if (row.installed) installed.add(row.harness as HarnessId);
-        }
-        setInstalledHarnesses(installed);
-      })
-      .catch(() => {
-        if (!cancelled) setInstalledHarnesses(new Set());
-      });
+    setInstalledHarnesses(null);
+    void pickerInventory(target).then((inventory) => {
+      if (cancelled) return;
+      setInstalledHarnesses(
+        new Set((inventory?.harnesses ?? []).filter((row) => row.installed).map((row) => row.harness as HarnessId)),
+      );
+    });
     return () => {
       cancelled = true;
     };
-  }, [remote, machine]);
+  }, [target]);
 
   const probing = installedHarnesses === null;
   const installedTemplates = useMemo(() => {
@@ -460,7 +439,7 @@ export function AgentHarnessPick({
         <AgentCascadeMenu
           key={agentCascade.harness}
           harness={agentCascade.harness}
-          machine={remote ? machine : undefined}
+          machine={target}
           cwd={cwd}
           anchor={agentCascade.anchor}
           focusOnOpen={agentCascade.focusOnOpen}

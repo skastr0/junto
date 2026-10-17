@@ -27,6 +27,7 @@ import { HARNESS_RECORDS } from "@shared/harness-records";
 import { state$ } from "../../lib/state";
 import { getJuntoApi } from "../../lib/junto-api";
 import { pickerInventory } from "../../lib/harness-machine-source";
+import { onThisMachine } from "../../lib/machines";
 import { useHarnessLaunchOptions } from "../../lib/harness-launch-options";
 import {
   typeaheadAccept,
@@ -295,8 +296,8 @@ export function AgentCascadeMenu({
   machine,
 }: {
   readonly harness: HarnessId;
-  /** Another machine the seat is placed on: its models come from its inventory. */
-  readonly machine?: string;
+  /** The machine the seat is placed on: its inventory says the models it offers. */
+  readonly machine: string;
   readonly cwd?: string;
   readonly anchor: HTMLElement;
   readonly onConfigure: (choices: AgentConfigurationChoices) => void;
@@ -315,6 +316,7 @@ export function AgentCascadeMenu({
   /** Retreat focus must not re-open the child column via onFocus. */
   const skipExpandOnFocusRef = useRef(false);
   const [models, setModels] = useState<readonly ManagedTerminalModelOption[] | null>(null);
+  const local = onThisMachine(machine);
   const [modelSource, setModelSource] = useState<ManagedTerminalModelsResult["source"]>();
   const [modelQuery, setModelQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -353,30 +355,18 @@ export function AgentCascadeMenu({
   useEffect(() => {
     let live = true;
     const api = getJuntoApi();
-    if (machine !== undefined) {
-      void pickerInventory(machine).then((inventory) => {
-        if (!live) return;
-        const row = inventory?.harnesses.find((entry) => entry.harness === harness);
-        setModels(row?.installed ? row.models : []);
-        setModelSource(row?.installed && row.models.length > 0 ? "cache" : "empty");
-        setEnumeratedEfforts(row?.efforts ?? []);
-        // That machine's profiles carry names only; its own pinned model is not offered from here.
-        if (profileFirst) setProfiles(inventoryOptions(row, "profiles").map((name) => ({ name, model: "" })));
-      });
-    } else void api
-      ?.managedTerminalModels?.(harness)
-      .then((result) => {
-        if (!live) return;
-        setModels(result.models);
-        setModelSource(result.source);
-        setEnumeratedEfforts(result.efforts);
-      })
-      .catch(() => {
-        if (live) setModels([]);
-      });
-    if (machine === undefined && !api?.managedTerminalModels) setModels([]);
+    void pickerInventory(machine).then((inventory) => {
+      if (!live) return;
+      const row = inventory?.harnesses.find((entry) => entry.harness === harness);
+      setModels(row?.installed ? row.models : []);
+      setModelSource(row?.installed && row.models.length > 0 ? "cache" : "empty");
+      setEnumeratedEfforts(row?.efforts ?? []);
+      // Another machine's profiles carry names only; their pinned model is not offered from here.
+      if (profileFirst && !local) setProfiles(inventoryOptions(row, "profiles").map((name) => ({ name, model: "" })));
+    });
 
-    if (profileFirst && machine === undefined) {
+    // This machine's profiles carry their pinned model; they move to the inventory when it does.
+    if (profileFirst && local) {
       void api
         ?.managedTerminalProfiles?.()
         .then((result) => {
@@ -390,7 +380,7 @@ export function AgentCascadeMenu({
     return () => {
       live = false;
     };
-  }, [harness, profileFirst, machine]);
+  }, [harness, profileFirst, machine, local]);
 
   const efforts = useMemo(() => {
     if (!activeModel) return [] as readonly string[];
