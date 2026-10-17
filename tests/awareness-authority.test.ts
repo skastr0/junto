@@ -58,6 +58,7 @@ const AWARENESS_SOURCES = [
   "src/main/junto/term/awareness/questions.ts",
   "src/main/junto/term/awareness/select-input.ts",
   "src/main/junto/term/awareness/project-result.ts",
+  "src/main/junto/term/awareness/seat-signals.ts",
 ] as const;
 
 const sourceFilesUnder = (path: string): ReadonlyArray<string> => {

@@ -40,6 +40,7 @@ import {
   type AwarenessSchedulerStats,
 } from "./scheduler";
 import { makeAwarenessModelLive, type JevClientOptions } from "./jev-client";
+import { assessmentSignals, type SignalEnvelope } from "./seat-signals";
 
 /**
  * How many retained lines one observation may consider. C's candidate cap is the
@@ -85,6 +86,11 @@ export type AwarenessRuntimeShape = {
   readonly retire: (bindingId: string) => void;
   readonly reconfigure: () => void;
   readonly subscribe: (listener: (advisory: AwarenessAdvisory) => void) => () => void;
+  /**
+   * Decisive answers as `AwarenessAssessed` envelopes, once per assessment: a
+   * replayed or re-published advisory for the same assessment emits nothing.
+   */
+  readonly subscribeSignals: (listener: (envelope: SignalEnvelope) => void) => () => void;
   readonly status: () => AwarenessRuntimeStatus;
   readonly doctor: Effect.Effect<ServiceCheck>;
 };
@@ -119,6 +125,9 @@ export const makeAwarenessRuntime = (
   /** Every binding this runtime has observed, so stop() can retire them all. */
   const known = new Set<string>();
   const listeners = new Set<(advisory: AwarenessAdvisory) => void>();
+  const signalListeners = new Set<(envelope: SignalEnvelope) => void>();
+  /** The assessment already turned into envelopes, per seat. */
+  const signalled = new Map<string, string>();
   let flushTimer: unknown;
   let unsubscribePlane: (() => void) | undefined;
   let unsubscribeScheduler: (() => void) | undefined;
@@ -194,9 +203,27 @@ export const makeAwarenessRuntime = (
     }
     for (const bindingId of known) scheduler.retire(bindingId);
     known.clear();
+    signalled.clear();
     latest.clear();
     lastWindowSeq.clear();
     started = false;
+  };
+
+  const publishSignals = (advisory: AwarenessAdvisory): void => {
+    const { assessment, assessmentId } = advisory;
+    if (assessment === undefined || assessmentId === undefined) return;
+    if (signalled.get(advisory.bindingId) === assessmentId) return;
+    signalled.set(advisory.bindingId, assessmentId);
+    if (signalListeners.size === 0) return;
+    for (const envelope of assessmentSignals(assessment)) {
+      for (const listener of signalListeners) {
+        try {
+          listener(envelope);
+        } catch (error) {
+          console.error("[awareness] signal listener failed:", error);
+        }
+      }
+    }
   };
 
   return {
@@ -211,6 +238,7 @@ export const makeAwarenessRuntime = (
             console.error("[awareness] runtime listener failed:", error);
           }
         }
+        publishSignals(advisory);
       });
       // `subscribeAll` replays every live seat, so a seat that painted its only
       // readiness screen before this runtime booted is still observed.
@@ -236,6 +264,7 @@ export const makeAwarenessRuntime = (
       latest.delete(bindingId);
       known.delete(bindingId);
       lastWindowSeq.delete(bindingId);
+      signalled.delete(bindingId);
       scheduler.retire(bindingId);
     },
     reconfigure: () => scheduler.reconfigure(),
@@ -243,6 +272,12 @@ export const makeAwarenessRuntime = (
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
+      };
+    },
+    subscribeSignals: (listener) => {
+      signalListeners.add(listener);
+      return () => {
+        signalListeners.delete(listener);
       };
     },
     status: () => ({
