@@ -69,7 +69,7 @@ const seatArguments = {
  */
 const seatStart = Command.make("seat-start", {
   ...seatArguments,
-  fresh: Flag.boolean("fresh").pipe(Flag.withDescription("Start a fresh session where one could be resumed")),
+  fresh: Flag.boolean("fresh").pipe(Flag.withDefault(false), Flag.withDescription("Start a fresh session where one could be resumed")),
 }, ({ canvas, seat, fresh }) => executeJsonCommand("machine seat-start", Effect.gen(function* () {
   yield* requireOwnerCommand;
   const args = yield* Schema.decodeUnknownEffect(MachineSeatStartInput, { onExcessProperty: "error" })({ canvas, seatId: seat, ...(fresh ? { resume: false } : {}) });
