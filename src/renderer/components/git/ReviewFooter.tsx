@@ -140,7 +140,7 @@ export function ReviewFooter({
           emptyLabel="no agents in this region"
           options={candidates.map((candidate) => ({
             value: candidate.nodeId,
-            label: `${reviewCandidateLabel(candidate, candidates)}${offline.has(candidate.nodeId) ? ", offline, mail wakes it" : ""}`,
+            label: `${reviewCandidateLabel(candidate, candidates)}${offline.has(candidate.nodeId) ? ", not running, mail wakes it" : ""}`,
           }))}
           onChange={onTo}
         />

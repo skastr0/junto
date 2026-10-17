@@ -192,7 +192,7 @@ function Composer({
             >
               <AgentPortrait identity={candidate.nodeId} size={18} frame="round" outline={false} badge={false} />
               {reviewCandidateLabel(candidate, candidates)}
-              {offline.has(candidate.nodeId) ? <span className="git-review__to">offline, mail wakes it</span> : null}
+              {offline.has(candidate.nodeId) ? <span className="git-review__to">not running, mail wakes it</span> : null}
             </li>
           ))}
         </ul>

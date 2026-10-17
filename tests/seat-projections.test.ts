@@ -74,7 +74,8 @@ describe("cardMark", () => {
     expect(cardMark(facts({ seatState: "unknown", managedSeat: true }))).toMatchObject({
       mode: "static",
       tone: "steel",
-      label: "offline",
+      glyph: "off",
+      label: "not running",
     });
   });
 

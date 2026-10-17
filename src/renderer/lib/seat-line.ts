@@ -36,10 +36,11 @@ export const seatLine = (activity: ActivitySpec): SeatLine => {
       return { text: "ready" };
     case "stopped":
       return { text: "stopped" };
-    case "offline":
+    // Never started, or exited: "offline" is said of a machine, not a seat.
+    case "not running":
     case "gone":
     case "unknown":
-      return { text: "offline" };
+      return { text: "not running" };
     default:
       return { text: label };
   }

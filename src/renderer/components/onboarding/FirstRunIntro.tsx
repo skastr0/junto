@@ -135,7 +135,7 @@ function StatesDemo() {
   const idle = terminalActivity({ seatState: "idle" });
   return (
     <div className="tour-column">
-      <TourStage width={COL * 4} height={ROW * 2} label="Seats in every state: working, wants your input, waiting on you, blocked, done, resting, ready for review, offline">
+      <TourStage width={COL * 4} height={ROW * 2} label="Seats in every state: working, wants your input, waiting on you, blocked, done, resting, ready for review, not running">
         <DemoSeat id="tour-s1" name="planner" harness="claude" x={8} y={8} spec={terminalActivity({ seatState: "working" })} caption="working: the ring laps" />
         <DemoSeat id="tour-s2" name="reviewer" harness="claude" x={8 + COL} y={8} spec={terminalActivity({ seatState: "attention" })} caption="wants your input: rings go out" />
         <DemoSeat id="tour-s3" name="schema" harness="codex" x={8 + COL * 2} y={8} spec={idle} signal={signalOf("escalate", "two specs disagree")} caption="waiting on you: it circles" />
@@ -151,7 +151,7 @@ function StatesDemo() {
         />
         <DemoSeat id="tour-s6" name="notes" harness="claude" x={8 + COL} y={8 + ROW} spec={idle} caption="resting: the one still ring" />
         <DemoSeat id="tour-s7" name="docs" harness="grok" x={8 + COL * 2} y={8 + ROW} spec={idle} signal={signalOf("feedback", "draft ready")} caption="ready for review" />
-        <DemoSeat id="tour-s8" name="archive" harness="claude" x={8 + COL * 3} y={8 + ROW} spec={terminalActivity({ managedSeat: true, seatState: "unknown" })} caption="offline" />
+        <DemoSeat id="tour-s8" name="archive" harness="claude" x={8 + COL * 3} y={8 + ROW} spec={terminalActivity({ managedSeat: true, seatState: "unknown" })} caption="not running" />
       </TourStage>
       {SEAT_AWARENESS_COMPILED ? (
         <div className="tour-aside">

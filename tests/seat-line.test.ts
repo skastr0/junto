@@ -13,9 +13,9 @@ describe("seatLine: friendly and true for every control state", () => {
     [{ seatState: "idle", needsLook: true }, "done, not read yet"],
     [{ seatState: "idle" }, "resting"],
     [{ running: true, managedSeat: true }, "ready"],
-    [{ managedSeat: true, seatState: "unknown" }, "offline"],
-    [{ managedSeat: true }, "offline"],
-    [{ seatState: "gone" }, "offline"],
+    [{ managedSeat: true, seatState: "unknown" }, "not running"],
+    [{ managedSeat: true }, "not running"],
+    [{ seatState: "gone" }, "not running"],
     [{}, "stopped"],
     [{ starting: true }, "starting up"],
     [{ running: true, processName: "npm run dev" }, "running npm run dev"],
@@ -23,11 +23,11 @@ describe("seatLine: friendly and true for every control state", () => {
     expect(words(input)).toBe(expected);
   });
 
-  it("never says unknown or idle", () => {
-    for (const seatState of ["unknown", "idle", "gone", "working", "attention"] as const) {
+  it("never says unknown, idle or offline: offline is a machine's word", () => {
+    for (const seatState of ["unknown", "idle", "gone", "working", "attention", undefined] as const) {
       for (const managedSeat of [true, false]) {
         const text = words({ seatState, managedSeat });
-        expect(text).not.toMatch(/unknown|^idle$/);
+        expect(text).not.toMatch(/unknown|^idle$|offline/);
       }
     }
   });

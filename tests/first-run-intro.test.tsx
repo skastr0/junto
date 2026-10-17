@@ -162,7 +162,7 @@ describe("what the tour says", () => {
   it("shows every ring state live, done until read, and the AI reading only when built in", () => {
     const html = chapterAt("states");
     const copy = text(html);
-    for (const state of ["working", "wants your input", "waiting on you", "blocked", "resting", "ready for review", "offline"]) {
+    for (const state of ["working", "wants your input", "waiting on you", "blocked", "resting", "ready for review", "not running"]) {
       expect(copy).toContain(state);
     }
     expect(copy).toContain("until you open the seat and read the answer");
