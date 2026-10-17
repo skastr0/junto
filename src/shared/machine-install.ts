@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { InstallationId } from "./installation-id";
+import { EncodedFailure } from "./failure";
 
 export const MachineAbsolutePath = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1)),
@@ -84,6 +85,12 @@ export class MachineInstallError extends Schema.TaggedError<MachineInstallError>
   retryable: Schema.Boolean,
   disposition: Schema.Literals(["staged", "activated", "uncertain"]),
   transitions: Schema.optionalKey(Schema.Array(MachineInstallTransition).pipe(Schema.check(Schema.isMaxLength(5)))),
+  /**
+   * The typed chain behind the message, from the one encoder, set where this
+   * machine wraps a cause. The install-local CLI never sets it: the sender
+   * decodes that output closed.
+   */
+  failure: Schema.optionalKey(EncodedFailure),
 }) {}
 
 /** Installation finished; retry setup or connection without copying the package again. */

@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { isValidMachineName } from "./machine-identity";
+import type { EncodedFailure } from "./failure";
 
 /** Machine registry read model, separate from the link protocol. */
 export const REMOTE_HOSTS_VERSION = 1;
@@ -133,12 +134,16 @@ export const isLocalHost = (host: RemoteHost): boolean =>
 
 export class RemoteHostsError extends Error {
   readonly code: "io" | "validation" | "not_found" | "conflict";
+  /** The typed chain behind the message, from the one encoder, when a cause was wrapped. */
+  readonly failure?: EncodedFailure;
   constructor(
     code: RemoteHostsError["code"],
     message: string,
+    failure?: EncodedFailure,
   ) {
     super(message);
     this.name = "RemoteHostsError";
     this.code = code;
+    if (failure !== undefined) this.failure = failure;
   }
 }

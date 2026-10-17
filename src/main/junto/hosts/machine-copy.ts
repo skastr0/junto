@@ -6,6 +6,7 @@ import type { InstallationId } from "@shared/installation-id";
 import type { RemoteHost } from "@shared/remote-hosts";
 import { OperatorErrorBody } from "@shared/operator-control";
 import { scrubMessage } from "../credentials/scrub";
+import { failureHere } from "./failure-here";
 import { MachineRepository } from "../machines/repository";
 import { parseHostSshRoute, SshTransport, type ScopedStreamProgram, type SshError } from "../ssh";
 import { SshTransferExitError } from "../ssh/service";
@@ -34,7 +35,7 @@ export class MachineCopyRefused extends Schema.TaggedError<MachineCopyRefused>()
 }) {}
 const refused = (check: typeof MachineCopyCheck.Type, message: string) =>
   new MachineCopyRefused({ check, message: check === "remote-refused" ? scrubMessage(message) : message });
-const staged = (cause: unknown) => new MachineInstallError({ message: cause instanceof Error ? cause.message : String(cause), disposition: "staged", retryable: false });
+const staged = (cause: unknown) => new MachineInstallError({ message: cause instanceof Error ? cause.message : String(cause), disposition: "staged", retryable: false, ...failureHere(cause) });
 const ConfigureResponse = Schema.Struct({ ok: Schema.Literal(true), command: Schema.Literal("machine configure"), data: MachineConfigured });
 const SetupResponse = Schema.Struct({ ok: Schema.Literal(true), command: Schema.Literal("machine setup"), data: MachinePeerPin });
 

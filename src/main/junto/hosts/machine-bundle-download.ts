@@ -14,6 +14,7 @@ import {
   type OwnedMachineBundleCache, type OwnedMachineBundleAttempt,
 } from "./machine-bundle-cache";
 import { makeDownloadProgress } from "./download-progress";
+import { failureHere } from "./failure-here";
 
 export type MachineBundleAcquirer = (target: string, onTransition?: (event: MachineSendEvent) => void) => Effect.Effect<string, MachineInstallError, Scope.Scope>;
 type DownloadFetch = (url: URL, init: RequestInit) => Promise<Response>;
@@ -42,7 +43,7 @@ const releaseServerFailure = (cause?: unknown): MachineBundleDownloadFailed =>
   downloadFailed("release-server", "Cannot download this Junto build from its release server. The machine has not changed", cause);
 const failure = (cause: unknown): MachineInstallError => new MachineInstallError({
   message: cause instanceof Error ? cause.message : "Cannot download Junto. The machine has not changed",
-  disposition: "staged", retryable: true,
+  disposition: "staged", retryable: true, ...failureHere(cause),
 });
 const cancelled = (): MachineBundleDownloadFailed => downloadFailed("cancelled", "Junto's download was interrupted. The machine has not changed");
 

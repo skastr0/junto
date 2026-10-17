@@ -64,3 +64,14 @@ it("skips a cause link that adds no text when it reads the sentence", () => {
   const closed = linkClosed({ machine: "mini", by: "process", reason: "process-exited", exitCode: 1, cause: new Error("") });
   expect(closed.message).toBe("The link to mini closed, its SSH process ended: exit code 1");
 });
+
+it("keeps the typed chain an install or hosts error wrapped", async () => {
+  const { MachineInstallError } = await import("../src/shared/machine-install");
+  const { RemoteHostsError } = await import("../src/shared/remote-hosts");
+  const { failureHere } = await import("../src/main/junto/hosts/failure-here");
+  const ssh = Object.assign(new Error("The link to mini closed, its SSH process ended: exit code 127"), { _tag: "LinkClosed", cause: Object.assign(new Error("env: /x/bin/junto: No such file or directory"), { _tag: "SshExitError" }) });
+  const install = new MachineInstallError({ message: ssh.message, disposition: "staged", retryable: false, ...failureHere(ssh) });
+  expect(encodeFailure(install, { machine: "macbook" })?.causes.map(link => link.tag)).toEqual(expect.arrayContaining(["LinkClosed", "SshExitError"]));
+  const hosts = new RemoteHostsError("io", "hosts database list failed", failureHere(ssh).failure);
+  expect(encodeFailure(hosts, { machine: "macbook" })?.causes.map(link => link.tag)).toContain("SshExitError");
+});

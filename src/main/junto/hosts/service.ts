@@ -21,6 +21,7 @@ import {
   type HostsRegistry,
 } from "./registry";
 import { setHostsSnapshot } from "./snapshot";
+import { failureHere } from "./failure-here";
 import { StateTransactionOperation } from "../state/service";
 
 const decodeHost = Schema.decodeUnknownResult(RemoteHost, {
@@ -59,6 +60,7 @@ const asRemoteHostsError = (error: unknown): RemoteHostsError =>
     : new RemoteHostsError(
         "io",
         error instanceof Error ? error.message : String(error),
+        failureHere(error).failure,
       );
 
 const loadHostsIntoRoutingSnapshot = (
@@ -140,7 +142,7 @@ export const makeHostsService = (
 const persistenceError = (operation: string, cause: unknown): RemoteHostsError =>
   new RemoteHostsError("io", `hosts database ${operation} failed: ${
     cause instanceof Error ? cause.message : String(cause)
-  }`);
+  }`, failureHere(cause).failure);
 
 /** Owns host registry transactions on the product connection. */
 export const HostsPersistenceLive = Layer.effect(HostsPersistence, Effect.gen(function* () {
