@@ -152,7 +152,11 @@ const inventoryLine = (read: InventoryRead, inventory: HarnessInventory | undefi
   if (!inventory) return "not reported by this machine";
   if (!inventory.installed) return "not installed";
   const version = inventory.version ? `version ${inventory.version}` : "installed";
-  if (inventory.lastFailure) return `${version}, last scan ${inventory.lastFailure.reason}: ${inventory.lastFailure.message}`;
+  if (inventory.lastFailure) {
+    // A remote machine sends the reason without its command output.
+    const { reason, message } = inventory.lastFailure;
+    return message ? `${version}, last scan ${reason}: ${message}` : `${version}, last scan ${reason}`;
+  }
   if (inventory.refreshing) return `${version}, rescanning`;
   return isInventoryStale(inventory, now) ? `${version}, model list out of date` : version;
 };

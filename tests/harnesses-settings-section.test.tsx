@@ -269,6 +269,20 @@ describe("Settings > Agents, per machine", () => {
     expect(line?.getAttribute("role")).toBeNull();
   });
 
+  it("names a failed scan by its reason when the machine sent no message", async () => {
+    setHarnessMachineSource({
+      ...pendingHarnessMachineSource,
+      inventory: async () =>
+        Result.succeed({
+          machine: "mac-mini",
+          harnesses: [{ ...miniInventory.harnesses[0]!, lastFailure: { reason: "timeout", at: 1 } }],
+        }),
+    });
+    await render("mac-mini");
+    expect(card("claude").textContent).toContain("version 2.1.0, last scan timeout");
+    expect(card("claude").textContent).not.toContain("undefined");
+  });
+
   it("offers no native setting for a version nobody verified", async () => {
     setHarnessMachineSource({
       ...pendingHarnessMachineSource,
