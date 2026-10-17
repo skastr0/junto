@@ -36,6 +36,17 @@ import { ModelStoresLive } from "./support/seed-canvas";
 import { seedThisMachine, clearMachines } from "./support/seed-this-machine";
 import { THIS_MACHINE } from "./support/machines";
 
+/** Polls until the check passes (bun has no vi.waitFor). */
+const eventually = async (check: () => void, timeoutMs = 2_000): Promise<void> => {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try { return check(); } catch (error) {
+      if (Date.now() > deadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+};
+
 const installation = Schema.decodeUnknownSync(InstallationId);
 const editor = installation("editor-installation");
 const canvas = asCanvasName("remote-start");
@@ -176,13 +187,13 @@ describe("seats link state", () => {
       currentEvents: () => [stateEvent("hook:Allow edit to secrets.env?", "attention")],
     } });
     await f.runtime.runPromise(f.channel.opened!(f.context));
-    await vi.waitFor(() => expect(f.sent).toHaveBeenCalledTimes(1));
+    await eventually(() => expect(f.sent).toHaveBeenCalledTimes(1));
     expect(f.sent.mock.calls[0]).toEqual(["seats", {
       _tag: "SeatState", canvas, seatId: localSeat.id, machine: THIS_MACHINE, epoch: "ep_1",
       state: "attention", confidence: "high", at: 1_792_000_000_000, reason: "attention",
     }]);
     emit(stateEvent("rule:claude.spinner"));
-    await vi.waitFor(() => expect(f.sent).toHaveBeenCalledTimes(2));
+    await eventually(() => expect(f.sent).toHaveBeenCalledTimes(2));
     expect(f.sent.mock.calls[1]?.[1]).toMatchObject({ state: "working", reason: "rule:claude.spinner" });
     emit({ ...stateEvent("rule:x"), bindingId: "another-binding" });
     f.controller.abort();

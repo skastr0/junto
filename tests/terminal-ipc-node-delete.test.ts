@@ -4,11 +4,22 @@ import { IPC_CHANNELS } from "../src/shared/ipc";
 import { Node, type Node as ModelNode } from "../src/shared/model";
 import { Schema } from "effect";
 import { AppRuntime } from "../src/main/runtime";
-import * as seatSessionBeforeStart from "../src/main/junto/term/seat-session-before-start";
+import * as seatControl from "../src/main/junto/term/seat-control";
 import { registerTerminalIpc } from "../src/main/junto/term/ipc";
 import type { TermPlane } from "../src/main/junto/term/plane";
 import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
 import type { HarnessId } from "../src/shared/managed-terminal-templates";
+
+/** Polls until the check passes (bun has no vi.waitFor). */
+const eventually = async (check: () => void, timeoutMs = 2_000): Promise<void> => {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try { return check(); } catch (error) {
+      if (Date.now() > deadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+};
 
 const sender = {
   isDestroyed: () => false,
@@ -92,7 +103,7 @@ describe("terminal IPC node-delete admission", () => {
       event,
       { canvas: "factory", id: "node-binding-race" },
     ));
-    await vi.waitFor(() => expect(ensureHostAvailable).toHaveBeenCalledOnce());
+    await eventually(() => expect(ensureHostAvailable).toHaveBeenCalledOnce());
 
     const began = await runtime.handler(
       IPC_CHANNELS.terminalBeginNodeDelete,
@@ -106,78 +117,32 @@ describe("terminal IPC node-delete admission", () => {
     expect(runtime.router.create).not.toHaveBeenCalled();
   });
 
-  it("routes installed harnesses to their machine", async () => {
-    const hostSentinel = new Error("host activation sentinel");
-    const ensureHostAvailable = vi.fn(async () => {
-      throw hostSentinel;
-    });
-    const runtime = harness({ ensureHostAvailable, node: agentNode("claude-remote", "remote-a", "claude", "local:claude-remote") });
-
-    await expect(Promise.resolve(runtime.handler(IPC_CHANNELS.modelStart)(
-      event,
-      {
-        id: "node-claude-remote", canvas: "factory",
-      },
-    ))).rejects.toThrow(hostSentinel);
-    expect(ensureHostAvailable).toHaveBeenCalledWith("remote-a");
-
-    vi.mocked(AppRuntime.runPromise).mockResolvedValue(agentNode("prime-remote", "remote-a", "prime-agent", "local:prime-remote"));
-    await expect(Promise.resolve(runtime.handler(IPC_CHANNELS.modelStart)(
-      event,
-      {
-        id: "node-prime-remote", canvas: "factory",
-      },
-    ))).rejects.toThrow(hostSentinel);
-    expect(ensureHostAvailable).toHaveBeenCalledWith("remote-a");
+  it("starts an agent seat through seat control, with the window's host step", async () => {
+    const ensureHostAvailable = vi.fn(async () => {});
+    const runtime = harness({ ensureHostAvailable });
+    const node = agentNode("codex-mini", "mini", "codex", "mini:codex-mini");
+    const start = vi.spyOn(seatControl, "startSeat");
+    const occupied = { bindingId: "codex-mini", status: "running" };
+    vi.spyOn(AppRuntime, "runPromise").mockResolvedValueOnce(node).mockResolvedValueOnce(occupied);
+    expect(await runtime.handler(IPC_CHANNELS.modelStart)(event, {
+      id: node.id, canvas: "factory", resume: false,
+    })).toEqual(occupied);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledWith(
+      { canvas: "factory", seatId: node.id, resume: false },
+      { plane: expect.anything(), ensureHostAvailable: expect.any(Function) },
+    );
+    expect(runtime.router.create).not.toHaveBeenCalled();
   });
 
-  it("leaves a remote seat's session selection to its machine", async () => {
+  it("stops an agent seat through seat control, a plain terminal through the router", async () => {
     const runtime = harness();
     const node = agentNode("codex-mini", "mini", "codex", "mini:codex-mini");
-    const provision = vi.spyOn(seatSessionBeforeStart, "ensureSeatSessionId");
-    const occupied = { bindingId: "codex-mini", status: "running" };
-    const run = vi.spyOn(AppRuntime, "runPromise")
-      .mockResolvedValueOnce(node)
-      .mockResolvedValueOnce(node)
-      .mockResolvedValueOnce(occupied);
-    expect(await runtime.handler(IPC_CHANNELS.modelStart)(event, {
-      id: node.id, canvas: "factory",
-    })).toEqual(occupied);
-    expect(provision).not.toHaveBeenCalled();
-    expect(run).toHaveBeenCalledTimes(3);
-  });
-
-  it("forwards the selected Amp launch to provisioning on an operator open", async () => {
-    const runtime = harness();
-    const base = agentNode("amp-low", "workbench", "amp", "local:amp-low");
-    const launch = { kind: "harness" as const, argv: ["amp", "--no-ide", "-m", "low"], cwd: "/work" };
-    const node = Schema.decodeUnknownSync(Node)({ ...base, launch });
-    const provision = vi.spyOn(seatSessionBeforeStart, "ensureSeatSessionId").mockResolvedValue({
-      ok: true,
-      sessionId: "T-00000000-0000-4000-8000-000000000001",
-      minted: true,
-    });
-    const occupied = { bindingId: "amp-low", status: "running" };
-    const run = vi.spyOn(AppRuntime, "runPromise")
-      .mockResolvedValueOnce(node)
-      .mockResolvedValueOnce(node)
-      .mockResolvedValueOnce(occupied);
-    try {
-      expect(await runtime.handler(IPC_CHANNELS.modelStart)(event, {
-        id: node.id, canvas: "factory",
-      })).toEqual(occupied);
-      expect(provision).toHaveBeenCalledExactlyOnceWith({
-        canvasName: "factory",
-        nodeId: "node-amp-low",
-        bindingId: "amp-low",
-        harness: "amp",
-        cwd: "/work",
-        documentLaunch: launch,
-      });
-      expect(run).toHaveBeenCalledTimes(3);
-    } finally {
-      provision.mockRestore();
-      run.mockRestore();
-    }
+    const stop = vi.spyOn(seatControl, "stopSeat");
+    vi.spyOn(AppRuntime, "runPromise").mockResolvedValueOnce(node).mockResolvedValueOnce({ outcome: "stopping" });
+    await runtime.handler(IPC_CHANNELS.modelStop)(event, { id: node.id, canvas: "factory" });
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(stop).toHaveBeenCalledWith({ canvas: "factory", seatId: node.id }, { plane: expect.anything() });
+    expect(runtime.router.kill).not.toHaveBeenCalled();
   });
 });

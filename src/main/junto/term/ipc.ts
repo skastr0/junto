@@ -18,13 +18,12 @@ import {
 import {
   isHarnessId,
 } from "@shared/managed-terminal-templates";
-import { managedHarnessEnabled } from "@shared/features";
+import { asCanvasName } from "@shared/model";
 import type { ControlLease, LocalHostEvent } from "./local-host";
 import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer";
 import type { TermPlane } from "./plane";
 import { injectionSupervisor } from "./injection-supervisor";
 import { onRemoteSeatState, rememberRemoteSeatState } from "./remote-seat-state";
-import { ActorSeatOccupy } from "./actor-seat-occupy";
 import { AppRuntime } from "../../runtime";
 import { liveSeatEnvironment } from "../region-env/live";
 import { Effect, Result, Schema } from "effect";
@@ -219,53 +218,35 @@ export const registerTerminalIpc = (
   ipcMain.handle(IPC_CHANNELS.modelStart, async (event, input: Parameters<JuntoApi["modelStart"]>[0]) => {
     assertTrusted(event);
     const node = await readSeat(input?.canvas, input?.id);
-    const createAdmission = nodeDelete.admitCreate(node.bindingId, node.host);
     if (node.kind === "agent") {
-      if (!managedHarnessEnabled(node.harness)) return deny(`terminal ipc: harness ${node.harness} is disabled in this build`);
+      const { startSeat } = await import("./seat-control");
+      return AppRuntime.runPromise(startSeat({ canvas: asCanvasName(input.canvas), seatId: node.id,
+        ...(input.resume === undefined ? {} : { resume: input.resume }) },
+      { plane, ensureHostAvailable }));
     }
+    const createAdmission = nodeDelete.admitCreate(node.bindingId, node.host);
     await ensureHostAvailable(node.host);
     const assertCurrent = async () => {
       nodeDelete.assertCreate(createAdmission);
       const current = await readSeat(input.canvas, input.id);
       nodeDelete.assertCreate(createAdmission);
-      if (current.kind !== node.kind || current.bindingId !== node.bindingId || current.host !== node.host ||
-        (current.kind === "agent" && node.kind === "agent" && (current.harness !== node.harness || current.agentKey !== node.agentKey)))
+      if (current.kind !== node.kind || current.bindingId !== node.bindingId || current.host !== node.host)
         return deny("terminal ipc: seat changed while starting");
     };
-    if (node.kind === "terminal") {
-      await assertCurrent();
-      return router.create({ bindingId: node.bindingId, hostId: node.host,
-        ...(node.launch ? { launch: node.launch } : {}), canvasName: input.canvas, nodeId: node.id,
-        seatRect: { x: node.x, y: node.y, width: node.width, height: node.height },
-        ...(node.label ? { label: node.label } : {}),
-      });
-    }
-    const { ensureSeatSessionId } = await import("./seat-session-before-start");
-    const provisioned = router.isLocalHostId(node.host) ? await ensureSeatSessionId({ canvasName: input.canvas, nodeId: node.id, bindingId: node.bindingId,
-      harness: node.harness, documentLaunch: node.launch,
-      ...(node.launch?.cwd ? { cwd: node.launch.cwd } : {}),
-    }) : { ok: true as const, sessionId: "", minted: false };
-    if (!provisioned.ok) return deny(`terminal ipc: ${node.harness} session unavailable — ${provisioned.reason}`);
-    const { makeManagedSpawnIntent } = await import("./managed-spawn-plan");
-    const spawnIntent = makeManagedSpawnIntent({ nodeId: node.id, harness: node.harness,
-      documentLaunch: node.launch, agentKey: node.agentKey, cwd: node.launch?.cwd,
-      sessionId: provisioned.sessionId || undefined,
-      resume: provisioned.minted ? false : input.resume !== false,
-    });
     await assertCurrent();
-    return AppRuntime.runPromise(Effect.gen(function* () {
-      const seats = yield* ActorSeatOccupy;
-      return yield* seats.occupy({ bindingId: node.bindingId, harness: node.harness,
-        agentKey: node.agentKey, hostId: node.host, spawnIntent, canvasName: input.canvas, nodeId: node.id,
-        seatRect: { x: node.x, y: node.y, width: node.width, height: node.height }, label: node.label,
-      });
-    }));
+    return router.create({ bindingId: node.bindingId, hostId: node.host,
+      ...(node.launch ? { launch: node.launch } : {}), canvasName: input.canvas, nodeId: node.id,
+      seatRect: { x: node.x, y: node.y, width: node.width, height: node.height },
+      ...(node.label ? { label: node.label } : {}),
+    });
   });
 
   ipcMain.handle(IPC_CHANNELS.modelStop, async (event, input: Parameters<JuntoApi["modelStop"]>[0]) => {
     assertTrusted(event);
     const node = await readSeat(input?.canvas, input?.id);
-    await stopBinding(node.bindingId, node.host);
+    if (node.kind !== "agent") return void await stopBinding(node.bindingId, node.host);
+    const { stopSeat } = await import("./seat-control");
+    await AppRuntime.runPromise(stopSeat({ canvas: asCanvasName(input.canvas), seatId: node.id }, { plane }));
   });
 
   ipcMain.handle(

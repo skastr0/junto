@@ -16,6 +16,7 @@ const RENDERER_ENTRY = "src/renderer/lib/terminal-actions.ts";
 const TERMINAL_SURFACE =
   "src/renderer/components/terminal/TerminalSurface.tsx";
 const MAIN_ENTRY = "src/main/junto/term/ipc.ts";
+const SEAT_CONTROL = "src/main/junto/term/seat-control.ts";
 
 const between = (source: string, start: string, end: string): string => {
   const from = source.indexOf(start);
@@ -131,18 +132,24 @@ describe("terminal actor entry", () => {
   it("Main reads its stored node and enters ActorSeatOccupy only for an agent", () => {
     const source = readSource(MAIN_ENTRY);
     const start = between(source, "ipcMain.handle(IPC_CHANNELS.modelStart,", "ipcMain.handle(IPC_CHANNELS.modelStop,");
-    const geography = between(start, 'if (node.kind === "terminal") {', 'const { ensureSeatSessionId }');
+    const agent = between(start, 'if (node.kind === "agent") {', "const createAdmission");
+    const geography = start.slice(start.indexOf("const createAdmission"));
     expect(start).toContain("const node = await readSeat(input?.canvas, input?.id);");
     expect(source).toContain('node?.kind !== "agent" && node?.kind !== "terminal"');
     expect(source).toContain("return current.nodes.get(id as never);");
-    expect(start).toContain("const seats = yield* ActorSeatOccupy;");
-    expect(start).toContain("yield* seats.occupy({");
-    expect(start).toContain("makeManagedSpawnIntent");
-    expect(start).toContain("spawnIntent,");
-    expect(start).not.toContain("router.createAgentSeat");
-    expect(start).not.toContain("firstTypedMessage");
-    expect(start).not.toContain("isManagedHarnessInstalled");
-    expect(start).not.toMatch(/input\??\.(?:node|harness|agentKey|bindingId|hostId|launch)/u);
+    // An agent seat starts through the one path the owner commands share.
+    expect(agent).toContain("startSeat({ canvas: asCanvasName(input.canvas), seatId: node.id,");
+    const control = readSource(SEAT_CONTROL);
+    expect(control).toContain("const seats = yield* ActorSeatOccupy;");
+    expect(control).toContain("yield* seats.occupy({");
+    expect(control).toContain("makeManagedSpawnIntent");
+    expect(control).toContain("spawnIntent,");
+    for (const body of [start, control]) {
+      expect(body).not.toContain("router.createAgentSeat");
+      expect(body).not.toContain("firstTypedMessage");
+      expect(body).not.toContain("isManagedHarnessInstalled");
+      expect(body).not.toMatch(/input\??\.(?:node|harness|agentKey|bindingId|hostId|launch)/u);
+    }
     expect(geography).toContain("return router.create({");
     expect(geography).not.toContain("ActorSeatOccupy");
   });
