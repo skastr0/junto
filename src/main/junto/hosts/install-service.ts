@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
+import { Schema } from "effect";
 import { ensureMachineDirectory, ownedMachineFile, removeMachineServiceFile, writeMachineServiceFile } from "./install-paths";
 import { quiesceMachineService } from "./quiesce-service";
 
@@ -20,6 +21,15 @@ export interface MachineService {
   readonly start: () => Promise<void>;
   readonly removeDefinition: () => Promise<void>;
 }
+
+/** Which service check refused to act on a definition or a loaded job. */
+export const MachineServiceCheck = Schema.Literals(["service-foreign", "not-this-install", "changed-after-admission", "not-quiescent",
+  "platform-unsupported", "invalid-pid", "service-changed"]);
+export class MachineServiceRefused extends Schema.TaggedError<MachineServiceRefused>()("MachineServiceRefused", {
+  check: MachineServiceCheck,
+  message: Schema.String,
+}) {}
+const refused = (check: typeof MachineServiceCheck.Type, message: string): MachineServiceRefused => new MachineServiceRefused({ check, message });
 
 const exitCode = (cause: unknown): unknown => cause instanceof Error && "code" in cause ? cause.code : undefined;
 
@@ -46,7 +56,7 @@ export const darwinMachineService = async (
   const definition = async (): Promise<string | undefined> => {
     if (!await ownedMachineFile(file)) return undefined;
     const value = await readFile(file, "utf8");
-    if (value !== background && value !== aqua) throw new Error("existing service definition belongs to a different install");
+    if (value !== background && value !== aqua) throw refused("service-foreign", "existing service definition belongs to a different install");
     return value;
   };
   await definition();
@@ -66,7 +76,7 @@ export const darwinMachineService = async (
       const args = argumentsBlock?.[1]?.split("\n").map(line => line.trim()).filter(Boolean);
       if (value === undefined || !lines.includes(`path = ${file}`) || !lines.includes(`program = ${node}`) ||
           !lines.includes(`JUNTO_HOME => ${home}`) || args?.length !== 2 || args[0] !== node || args[1] !== entry) {
-        throw new Error("loaded service does not belong to this install");
+        throw refused("not-this-install", "loaded service does not belong to this install");
       }
       const match = /^\s*pid = ([1-9][0-9]*)\s*$/m.exec(output);
       jobs.push({ domain: candidate, pid: match === null ? 0 : Number(match[1]), definition: value });
@@ -83,7 +93,7 @@ export const darwinMachineService = async (
       stop: async () => {
         const current = (await snapshot()).find(value => value.domain === job.domain);
         if (current === undefined) return;
-        if (current.pid !== job.pid || current.definition !== job.definition) throw new Error("service changed after admission; stopping refused");
+        if (current.pid !== job.pid || current.definition !== job.definition) throw refused("changed-after-admission", "service changed after admission; stopping refused");
         await launchctl(["bootout", `${job.domain}/${label}`]);
       },
     }, { loaded: true, pid: job.pid }, () => {});
@@ -116,14 +126,14 @@ export const darwinMachineService = async (
       if (jobs.length === 0) return;
       const current = jobs.find(job => job.domain === admitted?.domain);
       if (admitted === undefined || (current !== undefined && (admitted.pid !== current.pid || admitted.definition !== current.definition))) {
-        throw new Error("service changed after admission; stopping refused");
+        throw refused("changed-after-admission", "service changed after admission; stopping refused");
       }
       for (const job of jobs) await quiesceJob(job);
     },
     start: async () => {
       if ((await snapshot()).length !== 0) {
         await reconcile();
-        throw new Error("Junto service must be quiescent before starting");
+        throw refused("not-quiescent", "Junto service must be quiescent before starting");
       }
       const previous = await definition();
       if (previous !== undefined && previous !== desired) await removeMachineServiceFile(file, previous);
@@ -134,7 +144,7 @@ export const darwinMachineService = async (
       await reconcile();
     },
     removeDefinition: async () => {
-      if ((await snapshot()).length !== 0) throw new Error("Junto service must be quiescent before removing its definition");
+      if ((await snapshot()).length !== 0) throw refused("not-quiescent", "Junto service must be quiescent before removing its definition");
       const value = await definition();
       if (value !== undefined) await removeMachineServiceFile(file, value);
     },
@@ -148,13 +158,13 @@ export const machineService = async (root: string, home: string, label: string):
   if (process.platform === "darwin") {
     return darwinMachineService(root, home, label);
   }
-  if (process.platform !== "linux") throw new Error("machine services support macOS and Linux");
+  if (process.platform !== "linux") throw refused("platform-unsupported", "machine services support macOS and Linux");
   const name = label + ".service";
   const file = join(homedir(), ".config/systemd/user", name);
   const body = `[Unit]\nDescription=Junto\nAfter=network.target\n\n[Service]\nType=simple\nExecStart=:${unit(node)} ${unit(entry)}\nEnvironment=${unit('JUNTO_HOME='+home)}\nRestart=on-failure\nRestartSec=2\nTimeoutStopSec=30\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`;
   await ensureMachineDirectory(dirname(file));
   const existed = await ownedMachineFile(file);
-  if (existed && await readFile(file, "utf8") !== body) throw new Error("existing service definition belongs to a different install");
+  if (existed && await readFile(file, "utf8") !== body) throw refused("service-foreign", "existing service definition belongs to a different install");
   return {
     provider: "systemd-user",
     reconcile: async () => {},
@@ -162,8 +172,8 @@ export const machineService = async (root: string, home: string, label: string):
       const output = await run("/usr/bin/systemctl", ["--user", "show", name, "--property=LoadState,MainPID,FragmentPath,ExecStart"]);
       const fields = Object.fromEntries(output.trim().split("\n").map(line => { const index = line.indexOf("="); return [line.slice(0,index),line.slice(index+1)]; }));
       if (fields.LoadState === "not-found" && fields.MainPID === "0") return { loaded: false, pid: 0, matchesDesiredPlacement: true };
-      if (fields.LoadState !== "loaded" || fields.FragmentPath !== file || !fields.ExecStart?.includes(`path=${node} ;`)) throw new Error("loaded service does not belong to this install");
-      if (!/^(0|[1-9][0-9]*)$/.test(fields.MainPID ?? "")) throw new Error("service returned an invalid process id");
+      if (fields.LoadState !== "loaded" || fields.FragmentPath !== file || !fields.ExecStart?.includes(`path=${node} ;`)) throw refused("not-this-install", "loaded service does not belong to this install");
+      if (!/^(0|[1-9][0-9]*)$/.test(fields.MainPID ?? "")) throw refused("invalid-pid", "service returned an invalid process id");
       return { loaded: true, pid: Number(fields.MainPID), matchesDesiredPlacement: true };
     },
     stop: async () => { await run("/usr/bin/systemctl", ["--user", "stop", name]); },
@@ -176,7 +186,7 @@ export const machineService = async (root: string, home: string, label: string):
     removeDefinition: async () => {
       // Refuse a changed file before asking systemd to alter its links.
       if (await ownedMachineFile(file)) {
-        if (await readFile(file, "utf8") !== body) throw new Error("service definition changed; cleanup refused");
+        if (await readFile(file, "utf8") !== body) throw refused("service-changed", "service definition changed; cleanup refused");
         await run("/usr/bin/systemctl", ["--user", "disable", name]);
         await removeMachineServiceFile(file, body);
         await run("/usr/bin/systemctl", ["--user", "daemon-reload"]);

@@ -144,6 +144,9 @@ export const registerHostsIpc = (
           Effect.gen(function* () {
             const hosts = yield* HostsService;
             const listed = yield* Effect.result(hosts.list);
+            if (listed._tag === "Failure") {
+              yield* Effect.logWarning("machines could not be read; discovery cannot hide enrolled peers", listed.failure);
+            }
             const enrolled =
               listed._tag === "Success"
                 ? enrolledTokens(listed.success)
@@ -157,7 +160,11 @@ export const registerHostsIpc = (
               .map(toDiscoveredPeer)
               .filter((peer): peer is DiscoveredPeer => peer !== undefined);
             return { ok: true, peers } satisfies HostsDiscoverPeersResult;
-          }).pipe(Effect.catch(() => Effect.succeed(DISCOVER_PEERS_EMPTY))),
+          }).pipe(
+            // Discovery never throws (HostsDiscoverPeersResult); a failure is logged, then no peers.
+            Effect.catchCause((cause) => Effect.logWarning("machine discovery failed; no peers are shown", cause).pipe(Effect.as(DISCOVER_PEERS_EMPTY))),
+            Effect.annotateLogs({ area: "machines", operation: "discover-peers" }),
+          ),
         ),
       ),
       () => DISCOVER_PEERS_EMPTY,

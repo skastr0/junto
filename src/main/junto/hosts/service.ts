@@ -190,14 +190,17 @@ export const HostsServiceLive = Layer.effect(
     // visible to synchronous Hermes routing before this layer can feed
     // either transport or plane.
     yield* loadHostsIntoRoutingSnapshot(() => registry.reload()).pipe(
-      Effect.catch(() =>
-        Effect.sync(() => {
-          // A corrupt/unavailable database must not mint stale remote routing
-          // or invent machine identity. Registry methods still surface the
-          // typed failure while synchronous routing stays empty.
-          setHostsSnapshot(defaultRemoteHostsDocument().hosts);
-        }),
+      Effect.catch((cause) =>
+        Effect.logWarning("machine registry could not be loaded; routing starts empty", cause).pipe(
+          Effect.andThen(Effect.sync(() => {
+            // A corrupt/unavailable database must not mint stale remote routing
+            // or invent machine identity. Registry methods still surface the
+            // typed failure while synchronous routing stays empty.
+            setHostsSnapshot(defaultRemoteHostsDocument().hosts);
+          })),
+        ),
       ),
+      Effect.annotateLogs({ area: "machines", operation: "registry-load" }),
     );
     return makeHostsService(registry, ssh);
   }),

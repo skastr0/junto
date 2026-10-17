@@ -2,7 +2,19 @@ import { createHash } from "node:crypto";
 import { constants, type Stats } from "node:fs";
 import { lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm, rmdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
+import { Schema } from "effect";
 import type { MachineReleaseArchive } from "@shared/machine-release";
+
+/** Which cache check refused a download; a failed snapshot keeps its first failure as the cause. */
+export const MachineBundleCacheCheck = Schema.Literals(["folder-not-owned", "folder-changed", "cache-not-owned", "invalid-target", "file-not-owned",
+  "invalid-build", "attempt-not-owned", "cleanup-depth", "cleanup-bounds", "size-changed", "size-exceeded", "save-failed", "checksum-changed",
+  "snapshot-failed"]);
+export class MachineBundleCacheRefused extends Schema.TaggedError<MachineBundleCacheRefused>()("MachineBundleCacheRefused", {
+  check: MachineBundleCacheCheck,
+  message: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
+const refused = (check: typeof MachineBundleCacheCheck.Type, message: string): MachineBundleCacheRefused => new MachineBundleCacheRefused({ check, message });
 
 declare const cacheBrand: unique symbol;
 declare const attemptBrand: unique symbol;
@@ -31,12 +43,12 @@ const metadata = async (path: string): Promise<Stats | undefined> => {
 const owned = (info: Stats): boolean => info.uid === process.getuid?.() && (info.mode & 0o022) === 0;
 const directory = async (path: string): Promise<Directory> => {
   const info = await lstat(path);
-  if (!info.isDirectory() || info.isSymbolicLink() || !owned(info)) throw new Error("Junto's download folder is not owned by this account");
+  if (!info.isDirectory() || info.isSymbolicLink() || !owned(info)) throw refused("folder-not-owned", "Junto's download folder is not owned by this account");
   return { path, dev: info.dev, ino: info.ino };
 };
 const recheck = async (value: Directory): Promise<void> => {
   const current = await directory(value.path);
-  if (current.dev !== value.dev || current.ino !== value.ino) throw new Error("Junto's download folder changed while it was in use");
+  if (current.dev !== value.dev || current.ino !== value.ino) throw refused("folder-changed", "Junto's download folder changed while it was in use");
 };
 const childDirectory = async (parent: Directory, name: string): Promise<Directory> => {
   await recheck(parent);
@@ -49,20 +61,20 @@ const childDirectory = async (parent: Directory, name: string): Promise<Director
 };
 const authority = (handle: OwnedMachineBundleCache): CacheAuthority => {
   const value = caches.get(handle);
-  if (value === undefined) throw new Error("Machine downloads require an owned cache");
+  if (value === undefined) throw refused("cache-not-owned", "Machine downloads require an owned cache");
   return value;
 };
 const filePath = (value: CacheAuthority, target: string): string => {
-  if (!archiveName.test(`${target}.tar.gz`)) throw new Error("Invalid machine download target");
+  if (!archiveName.test(`${target}.tar.gz`)) throw refused("invalid-target", "Invalid machine download target");
   return join(value.build.path, `${target}.tar.gz`);
 };
 const requireFile = (info: Stats): void => {
-  if (!info.isFile() || !owned(info) || info.nlink !== 1) throw new Error("Junto's saved download is not an owned regular file");
+  if (!info.isFile() || !owned(info) || info.nlink !== 1) throw refused("file-not-owned", "Junto's saved download is not an owned regular file");
 };
 
 /** The configured home is read-only authority; only fixed cache descendants are created. */
 export const acquireMachineBundleCache = async (home: string, build: string): Promise<OwnedMachineBundleCache> => {
-  if (!buildName.test(build)) throw new Error("Invalid machine download build");
+  if (!buildName.test(build)) throw refused("invalid-build", "Invalid machine download build");
   let parent = await directory(await realpath(home));
   for (const name of [".junto", "cache", "machine-bundles"]) parent = await childDirectory(parent, name);
   const root = parent;
@@ -96,20 +108,20 @@ export const createMachineBundleAttempt = async (handle: OwnedMachineBundleCache
 
 export const machineBundleAttemptPath = async (handle: OwnedMachineBundleAttempt): Promise<string> => {
   const value = attempts.get(handle);
-  if (value === undefined) throw new Error("Machine unpacking requires an owned attempt");
+  if (value === undefined) throw refused("attempt-not-owned", "Machine unpacking requires an owned attempt");
   await recheck(value);
   return value.path;
 };
 
 export const discardMachineBundleAttempt = async (handle: OwnedMachineBundleAttempt): Promise<void> => {
   const value = attempts.get(handle);
-  if (value === undefined) throw new Error("Machine cleanup requires an owned attempt");
+  if (value === undefined) throw refused("attempt-not-owned", "Machine cleanup requires an owned attempt");
   await recheck(value);
   let entries = 0;
   const inspect = async (path: string, depth: number): Promise<void> => {
-    if (depth > 64) throw new Error("Machine attempt exceeds cleanup depth");
+    if (depth > 64) throw refused("cleanup-depth", "Machine attempt exceeds cleanup depth");
     for (const name of await readdir(path)) {
-      if (++entries > 4096) throw new Error("Machine attempt exceeds cleanup bounds");
+      if (++entries > 4096) throw refused("cleanup-bounds", "Machine attempt exceeds cleanup bounds");
       const child = join(path, name), info = await lstat(child);
       if (info.isDirectory() && !info.isSymbolicLink() && owned(info)) await inspect(child, depth + 1);
       else requireFile(info);
@@ -137,7 +149,7 @@ export const snapshotCachedMachineArchive = async (
     const snapshot = join(await machineBundleAttemptPath(attempt), "archive.tar.gz");
     destination = await open(snapshot, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
     const info = await source.stat(); requireFile(info);
-    if (info.dev !== before.dev || info.ino !== before.ino || info.size !== expected.archiveBytes) throw new Error("Saved download size changed");
+    if (info.dev !== before.dev || info.ino !== before.ino || info.size !== expected.archiveBytes) throw refused("size-changed", "Saved download size changed");
     const hash = createHash("sha256");
     const buffer = Buffer.allocUnsafe(128 * 1024);
     let total = 0;
@@ -145,16 +157,16 @@ export const snapshotCachedMachineArchive = async (
       const { bytesRead } = await source.read(buffer, 0, buffer.length, null);
       if (bytesRead === 0) break;
       total += bytesRead;
-      if (total > expected.archiveBytes) throw new Error("Saved download exceeds its expected size");
+      if (total > expected.archiveBytes) throw refused("size-exceeded", "Saved download exceeds its expected size");
       const bytes = buffer.subarray(0, bytesRead); hash.update(bytes);
       let offset = 0;
       while (offset < bytes.length) {
         const { bytesWritten } = await destination.write(bytes, offset, bytes.length - offset, null);
-        if (bytesWritten === 0) throw new Error("Cannot save Junto's verified download");
+        if (bytesWritten === 0) throw refused("save-failed", "Cannot save Junto's verified download");
         offset += bytesWritten;
       }
     }
-    if (total !== expected.archiveBytes || hash.digest("hex") !== expected.archiveSha256) throw new Error("Saved download checksum changed");
+    if (total !== expected.archiveBytes || hash.digest("hex") !== expected.archiveSha256) throw refused("checksum-changed", "Saved download checksum changed");
     await destination.sync();
     return true;
   } catch (error) {
@@ -163,7 +175,7 @@ export const snapshotCachedMachineArchive = async (
     if (current?.dev === before.dev && current.ino === before.ino) {
       requireFile(current); await recheck(value.build); await unlink(path);
     }
-    throw new Error("Junto's saved download failed its check. Send Junto again to download a fresh copy", { cause: error });
+    throw new MachineBundleCacheRefused({ check: "snapshot-failed", message: "Junto's saved download failed its check. Send Junto again to download a fresh copy", cause: error });
   } finally { await destination?.close(); await source.close(); }
 };
 

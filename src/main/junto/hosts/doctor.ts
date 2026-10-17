@@ -1,6 +1,7 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import type { RemoteHost } from "@shared/remote-hosts";
+import { scrubMessage } from "../credentials/scrub";
 import { parseHostSshRoute } from "../ssh/domain";
 import { formatSshFailure } from "../ssh/format";
 import type { SshTransportShape } from "../ssh/service";
@@ -16,6 +17,12 @@ export type RemoteHostsDoctorSnapshot = {
     readonly reachabilityError?: string;
   }>;
 };
+
+/** The machine list could not be read; the doctor check reports its message as the detail. */
+export class RemoteHostsDoctorUnreadable extends Schema.TaggedError<RemoteHostsDoctorUnreadable>()("RemoteHostsDoctorUnreadable", {
+  message: Schema.String,
+  cause: Schema.Defect(),
+}) {}
 
 /** Reachability only. A successful SSH connection does not prove Junto is running. */
 export const testHostConnection = (ssh: SshTransportShape, host: RemoteHost) =>
@@ -38,7 +45,7 @@ export const runRemoteHostsDoctorSnapshot = (
   Effect.gen(function* () {
     const hosts = yield* Effect.tryPromise({
       try: () => registry.list(),
-      catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
+      catch: (cause) => cause instanceof Error ? cause : new RemoteHostsDoctorUnreadable({ message: scrubMessage(String(cause)), cause }),
     });
     const remotes = hosts.filter((host) => !host.isThisMachine);
     const results = yield* Effect.forEach(remotes, (host) =>

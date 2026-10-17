@@ -1,5 +1,12 @@
+import { Schema } from "effect";
 import type { StateSchemaMigrationDatabase } from "../state/migrations";
 import { MACHINE_REGISTRY_STATE_SCHEMA_SQL } from "./state-schema";
+
+/** The name migration refuses a missing or taken machine name. */
+export class HostRegistryNameRefused extends Schema.TaggedError<HostRegistryNameRefused>()("HostRegistryNameRefused", {
+  check: Schema.Literals(["name-invalid", "name-conflict"]),
+  message: Schema.String,
+}) {}
 
 /** Runs inside the name migration's transaction. */
 export const migrateHostRegistry = (
@@ -7,10 +14,10 @@ export const migrateHostRegistry = (
   ownName: string,
 ): void => {
   if (ownName === "local" || !/^(?!-)[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(ownName)) {
-    throw new Error("this machine needs a real short name");
+    throw new HostRegistryNameRefused({ check: "name-invalid", message: "this machine needs a real short name" });
   }
   if (database.prepare("SELECT id FROM host_registry WHERE id = ?").get(ownName)) {
-    throw new Error(`this machine name conflicts with an existing machine: ${ownName}`);
+    throw new HostRegistryNameRefused({ check: "name-conflict", message: `this machine name conflicts with an existing machine: ${ownName}` });
   }
   database.exec(`
     CREATE TABLE host_registry_name_copy AS SELECT * FROM host_registry;

@@ -43,7 +43,10 @@ export const sendMachine = (
 ) => Effect.scoped(Effect.gen(function* () {
   const scratch=yield* Effect.acquireRelease(
     Effect.tryPromise({try:()=>mkdtemp(join(tmpdir(),"junto-send-")),catch:installError}),
-    directory=>Effect.tryPromise({try:()=>rm(directory,{recursive:true,force:true}),catch:installError}).pipe(Effect.ignore),
+    // A private temp directory; a cleanup failure is logged, never the send's result.
+    directory=>Effect.tryPromise(()=>rm(directory,{recursive:true,force:true})).pipe(
+      Effect.catch(cause=>Effect.logWarning("a machine send scratch directory could not be removed", cause)),
+      Effect.annotateLogs({ area: "machines", operation: "send-cleanup" })),
   );
   const archive=join(scratch,"package.tgz");
   const bundle=resolve(input.bundle);
@@ -104,7 +107,8 @@ export const sendMachine = (
   const transferError = (cause: unknown): MachineInstallError => {
     if (cause instanceof SshTransferExitError) {
       const decoded = Schema.decodeUnknownResult(Schema.fromJsonString(Failure), { onExcessProperty: "error" })(cause.stderr.trim().split("\n").at(-1));
-      if (decoded._tag === "Success") return new MachineInstallError({ message: decoded.success.error.message,
+      // The remote's words are data: scrubbed again on receipt.
+      if (decoded._tag === "Success") return new MachineInstallError({ message: scrubText(decoded.success.error.message),
         disposition: decoded.success.error.details.disposition, retryable: false,
         ...(decoded.success.error.details.transitions === undefined ? {} : { transitions: decoded.success.error.details.transitions }),
       });

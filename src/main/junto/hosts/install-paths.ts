@@ -2,6 +2,15 @@ import { lstat, mkdir, readFile, readdir, realpath, unlink, writeFile } from "no
 import type { Stats } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
+import { Schema } from "effect";
+
+/** Which path check refused a machine file; paths may enter, contents never do. */
+export const MachinePathCheck = Schema.Literals(["not-owned", "outside-home", "not-directory", "not-file", "service-foreign", "service-changed"]);
+export class MachinePathRefused extends Schema.TaggedError<MachinePathRefused>()("MachinePathRefused", {
+  check: MachinePathCheck,
+  path: Schema.optionalKey(Schema.String),
+  message: Schema.String,
+}) {}
 
 const missing = (cause: unknown): boolean => cause instanceof Error && "code" in cause && cause.code === "ENOENT";
 export const optionalMetadata = async (path: string) => {
@@ -10,7 +19,7 @@ export const optionalMetadata = async (path: string) => {
 
 const assertOwned = (path: string, metadata: Stats): void => {
   if (metadata.uid !== process.getuid!() || (metadata.mode & 0o022) !== 0) {
-    throw new Error(`machine path must be owned by this user and not writable by others: ${path}`);
+    throw new MachinePathRefused({ check: "not-owned", path, message: `machine path must be owned by this user and not writable by others: ${path}` });
   }
 };
 
@@ -20,7 +29,7 @@ export const machineHomePath = async (value: string, allowHome = false): Promise
   const path = resolve(value);
   const suffix = relative(home, path);
   if ((!suffix && !allowHome) || suffix === ".." || suffix.startsWith("../") || isAbsolute(suffix)) {
-    throw new Error("machine files must live under the user home");
+    throw new MachinePathRefused({ check: "outside-home", path, message: "machine files must live under the user home" });
   }
   let component = home;
   for (const part of ["", ...suffix.split("/").filter(Boolean)]) {
@@ -28,7 +37,7 @@ export const machineHomePath = async (value: string, allowHome = false): Promise
     const metadata = await optionalMetadata(component);
     if (metadata === undefined) continue;
     assertOwned(component, metadata);
-    if (!metadata.isDirectory() || metadata.isSymbolicLink()) throw new Error(`machine directory is not a real directory: ${component}`);
+    if (!metadata.isDirectory() || metadata.isSymbolicLink()) throw new MachinePathRefused({ check: "not-directory", path: component, message: `machine directory is not a real directory: ${component}` });
   }
   return path;
 };
@@ -43,7 +52,7 @@ export const ownedMachineFile = async (path: string): Promise<boolean> => {
   const metadata = await optionalMetadata(path);
   if (metadata === undefined) return false;
   assertOwned(path, metadata);
-  if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error(`machine file is not a regular file: ${path}`);
+  if (!metadata.isFile() || metadata.isSymbolicLink()) throw new MachinePathRefused({ check: "not-file", path, message: `machine file is not a regular file: ${path}` });
   return true;
 };
 
@@ -58,7 +67,7 @@ export const checkMachineTree = async (path: string): Promise<void> => {
 
 export const writeMachineServiceFile = async (file: string, body: string): Promise<void> => {
   if (await ownedMachineFile(file)) {
-    if (await readFile(file, "utf8") !== body) throw new Error("existing service definition belongs to a different install");
+    if (await readFile(file, "utf8") !== body) throw new MachinePathRefused({ check: "service-foreign", path: file, message: "existing service definition belongs to a different install" });
     return;
   }
   await writeFile(file, body, { mode: 0o600, flag: "wx" });
@@ -66,6 +75,6 @@ export const writeMachineServiceFile = async (file: string, body: string): Promi
 
 export const removeMachineServiceFile = async (file: string, body: string): Promise<void> => {
   if (!await ownedMachineFile(file)) return;
-  if (await readFile(file, "utf8") !== body) throw new Error("service definition changed; cleanup refused");
+  if (await readFile(file, "utf8") !== body) throw new MachinePathRefused({ check: "service-changed", path: file, message: "service definition changed; cleanup refused" });
   await unlink(file);
 };
