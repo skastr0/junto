@@ -215,6 +215,36 @@ describe("Settings > Agents, per machine", () => {
     );
   });
 
+  it("an unconfirmed write says it may not have been saved, reads the file again and does not retry", async () => {
+    let reads = 0;
+    let writes = 0;
+    setHarnessMachineSource({
+      ...pendingHarnessMachineSource,
+      inventory: async () => Result.succeed(withClaude("2.1.302")),
+      readNativeSettings: async () => {
+        reads += 1;
+        return Result.succeed({ values: { alwaysThinkingEnabled: reads > 1 }, unfit: [] });
+      },
+      writeNativeSetting: async (write) => {
+        writes += 1;
+        return Result.fail({
+          error: new InventoryUnavailableError({ machine: write.machine, reason: "unreachable", message: "link closed" }),
+          failure: "NativeSettingUnconfirmed",
+          operationId: "op-1",
+        });
+      },
+    });
+    await render("mac-mini");
+    const native = card("claude").querySelector('[data-native-config="claude"]') as HTMLElement;
+    const toggle = () => native.querySelector('[aria-label^="Claude Code always think"]') as HTMLElement;
+    await act(async () => toggle().click());
+    expect(writes).toBe(1);
+    expect(reads).toBe(2);
+    expect(native.textContent).toContain("May not have been saved on mac-mini");
+    expect(native.textContent).not.toContain("NativeSettingUnconfirmed");
+    expect(toggle().getAttribute("aria-checked") ?? String((toggle() as HTMLInputElement).checked)).toBe("true");
+  });
+
   it("names the link's typed failure when a machine's config cannot be read", async () => {
     setHarnessMachineSource({
       ...pendingHarnessMachineSource,

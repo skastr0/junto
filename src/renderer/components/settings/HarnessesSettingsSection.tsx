@@ -578,6 +578,13 @@ function NativeSettings({
             ...prior,
             [spec.key]: `Not written: the file changed on ${machineName} since it was read. It now shows what is there; choose again.`,
           }));
+        } else if (answer.failure.failure === "NativeSettingUnconfirmed") {
+          // The link closed before the answer: the write may have landed. Read what is there; never write again blind.
+          setReadCount((count) => count + 1);
+          setAnswers((prior) => ({
+            ...prior,
+            [spec.key]: `May not have been saved on ${machineName}: the link closed before it answered. It now shows what the file holds.`,
+          }));
         } else {
           setAnswers((prior) => ({ ...prior, [spec.key]: refusalMessage(answer.failure) }));
         }
