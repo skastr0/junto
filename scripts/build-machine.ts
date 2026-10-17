@@ -104,9 +104,10 @@ export const buildMachine = async (input: BuildMachineInput) => {
     const result = await Bun.build({
       entrypoints: [join(repoRoot, "src/main/headless.ts")], outdir: join(stage, "core"), naming: "junto.cjs", target: "node", format: "cjs",
       external: ["node-pty", "@xterm/headless", "@xterm/addon-serialize", "electron"],
-      // Bun otherwise replaces __filename with each source module's build path.
+      // Bun otherwise replaces __filename with each source module's build path,
+      // and folds NODE_ENV to "development" for every package in the core.
       banner: "const __JUNTO_CORE_FILENAME__ = __filename;",
-      define: { __filename: "__JUNTO_CORE_FILENAME__", __JUNTO_BUILD_ID__: JSON.stringify(build), __JUNTO_APP_VERSION__: JSON.stringify(pkg.version), __JUNTO_MAC_UPDATE_FEED_URL__: JSON.stringify(""), __JUNTO_MACHINE_RELEASE_CATALOG__: "undefined", ...featureViteDefines(features) },
+      define: { __filename: "__JUNTO_CORE_FILENAME__", "process.env.NODE_ENV": JSON.stringify("production"), __JUNTO_BUILD_ID__: JSON.stringify(build), __JUNTO_APP_VERSION__: JSON.stringify(pkg.version), __JUNTO_MAC_UPDATE_FEED_URL__: JSON.stringify(""), __JUNTO_MACHINE_RELEASE_CATALOG__: "undefined", ...featureViteDefines(features) },
       plugins: [{name: "native-fs", setup(builder) {
         builder.onResolve({filter: /^original-fs$/}, () => ({path: "native", namespace: "native-fs"}));
         builder.onLoad({filter: /.*/, namespace: "native-fs"}, () => ({contents: 'module.exports = require("node:fs");', loader: "js"}));
