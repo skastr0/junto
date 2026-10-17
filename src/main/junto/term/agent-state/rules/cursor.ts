@@ -43,6 +43,7 @@ export const cursorRules: SeatRulePack = {
     {
       id: "write_file_approval",
       state: "attention",
+      signal: { _tag: "PermissionRequested" },
       priority: 1200,
       region: "bottom_non_empty_lines",
       regionN: 8,
@@ -58,6 +59,7 @@ export const cursorRules: SeatRulePack = {
     {
       id: "approval_prompt",
       state: "attention",
+      signal: { _tag: "PermissionRequested" },
       priority: 1190,
       // The live panel only. A previous turn's "run this command?" in the
       // scrollback must not pin attention over the current composer.

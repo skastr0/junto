@@ -23,6 +23,7 @@ export const kimiRules: SeatRulePack = {
     {
       id: "model_not_configured_attention",
       state: "attention",
+      signal: { _tag: "DialogShown", kind: "login" },
       priority: 1300,
       region: "whole_recent",
       visibleAttention: true,
@@ -36,6 +37,7 @@ export const kimiRules: SeatRulePack = {
     {
       id: "model_missing_error_attention",
       state: "attention",
+      signal: { _tag: "DialogShown", kind: "login" },
       priority: 1300,
       region: "bottom_non_empty_lines",
       regionN: 8,
@@ -51,6 +53,7 @@ export const kimiRules: SeatRulePack = {
     {
       id: "current_approval_panel",
       state: "attention",
+      signal: { _tag: "PermissionRequested" },
       priority: 1200,
       region: "bottom_non_empty_lines",
       regionN: 16,
@@ -81,6 +84,7 @@ export const kimiRules: SeatRulePack = {
     {
       id: "question_panel",
       state: "attention",
+      signal: { _tag: "QuestionAsked" },
       priority: 1190,
       region: "bottom_non_empty_lines",
       regionN: 16,
@@ -100,6 +104,7 @@ export const kimiRules: SeatRulePack = {
     {
       id: "legacy_approval_panel",
       state: "attention",
+      signal: { _tag: "PermissionRequested" },
       priority: 1150,
       region: "bottom_non_empty_lines",
       regionN: 16,

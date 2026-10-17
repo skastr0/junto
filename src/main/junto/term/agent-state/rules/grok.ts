@@ -21,6 +21,7 @@ export const grokRules: SeatRulePack = {
     {
       id: "option_dialog_attention",
       state: "attention",
+      signal: { _tag: "QuestionAsked" },
       priority: 1200,
       region: "whole_recent",
       visibleAttention: true,
@@ -31,6 +32,7 @@ export const grokRules: SeatRulePack = {
     {
       id: "permission_hints_attention",
       state: "attention",
+      signal: { _tag: "PermissionRequested" },
       priority: 1190,
       region: "bottom_non_empty_lines",
       regionN: 2,
@@ -42,6 +44,7 @@ export const grokRules: SeatRulePack = {
     {
       id: "question_dialog_hints_attention",
       state: "attention",
+      signal: { _tag: "QuestionAsked" },
       priority: 1185,
       region: "bottom_non_empty_lines",
       regionN: 2,
@@ -53,6 +56,7 @@ export const grokRules: SeatRulePack = {
     {
       id: "permission_scope_selector",
       state: "attention",
+      signal: { _tag: "PermissionRequested" },
       priority: 1180,
       region: "whole_recent",
       visibleAttention: true,

@@ -21,6 +21,7 @@ export const ampRules: SeatRulePack = {
     {
       id: "authentication_attention",
       state: "attention",
+      signal: { _tag: "ErrorRaised", kind: "auth" },
       priority: 1300,
       region: "bottom_non_empty_lines",
       regionN: 8,
@@ -33,6 +34,7 @@ export const ampRules: SeatRulePack = {
       /** Approval gate: the turn stops until the operator answers. */
       id: "approval_wait_attention",
       state: "attention",
+      signal: { _tag: "PermissionRequested" },
       priority: 1300,
       region: "whole_recent",
       visibleAttention: true,
@@ -46,6 +48,7 @@ export const ampRules: SeatRulePack = {
        */
       id: "interrupt_menu_attention",
       state: "attention",
+      signal: { _tag: "DialogShown", kind: "picker" },
       priority: 1290,
       region: "whole_recent",
       visibleAttention: true,

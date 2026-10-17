@@ -10,8 +10,9 @@ import type {
 import type { HarnessId } from "../../../../shared/managed-terminal-templates";
 import { isHarnessId } from "../../../../shared/managed-terminal-templates";
 import type { ObserverGridSnapshot } from "../observer/types";
-import { ruleMatches } from "./match";
+import { ruleCaptures, ruleMatches } from "./match";
 import { rulePackFor } from "./rules";
+import { ruleSignal, signalForState } from "./screen-signal";
 import type { SeatEvaluation, SeatRule, SeatRulePack } from "./types";
 
 export type EvaluateOptions = {
@@ -65,6 +66,8 @@ const flagsFor = (
 const evaluationFromRule = (
   rule: SeatRule,
   pack: SeatRulePack,
+  snapshot: ObserverGridSnapshot,
+  now: number,
 ): SeatEvaluation => {
   const state = rule.state;
   const flags = flagsFor(rule, state);
@@ -85,17 +88,21 @@ const evaluationFromRule = (
     ...flags,
     ruleId: rule.id,
     harness: pack.harness,
+    signal: rule.skipStateUpdate ? null : ruleSignal(rule, ruleCaptures(rule, snapshot), now),
+    source: "screen",
+    fidelity: "screen",
   };
 };
 
 const evaluateScreen = (
   snapshot: ObserverGridSnapshot,
   pack: SeatRulePack,
+  now: number,
 ): SeatEvaluation => {
   const rules = sortedRules(pack);
   for (const rule of rules) {
     if (!ruleMatches(rule, snapshot)) continue;
-    return evaluationFromRule(rule, pack);
+    return evaluationFromRule(rule, pack, snapshot, now);
   }
   // Known harness, no rule → low-confidence idle (debounce keys on this).
   return {
@@ -109,6 +116,9 @@ const evaluateScreen = (
     skipStateUpdate: false,
     ruleId: null,
     harness: pack.harness,
+    signal: signalForState("idle"),
+    source: "screen",
+    fidelity: "screen",
   };
 };
 
@@ -116,12 +126,13 @@ const evaluateScreen = (
 const findMatchingAttention = (
   snapshot: ObserverGridSnapshot,
   pack: SeatRulePack,
+  now: number,
 ): SeatEvaluation | null => {
   const rules = sortedRules(pack);
   for (const rule of rules) {
     if (rule.state !== "attention") continue;
     if (!ruleMatches(rule, snapshot)) continue;
-    return evaluationFromRule(rule, pack);
+    return evaluationFromRule(rule, pack, snapshot, now);
   }
   return null;
 };
@@ -147,12 +158,16 @@ export const evaluate = (
       skipStateUpdate: false,
       ruleId: null,
       harness: "claude", // placeholder; caller should not trust harness on unknown
+      signal: signalForState("unknown"),
+      source: "screen",
+      fidelity: "screen",
     };
   }
 
   const pack =
     opts.pack ?? rulePackFor(harnessRaw as HarnessId);
-  const screen = evaluateScreen(snapshot, pack);
+  const now = opts.now ?? Date.now();
+  const screen = evaluateScreen(snapshot, pack, now);
 
   // skip_state_update: hold prior — caller must apply; we still return the flag.
   // Screen attention always surfaces (permission chrome must never be idle/working).
@@ -219,7 +234,7 @@ export const evaluate = (
   // a stale whole_recent attention match (OBS-8).
   // A visible idle rule that already outranks that attention hit is a settled
   // composer. Leftover dialog text above it must not pull the seat back.
-  const attentionHit = findMatchingAttention(snapshot, pack);
+  const attentionHit = findMatchingAttention(snapshot, pack, now);
   if (
     attentionHit &&
     !(
@@ -234,6 +249,11 @@ export const evaluate = (
   return screen;
 };
 
+/**
+ * A hook carries the seat. A full-lifecycle hook is a structured reporter
+ * (the report channel); any other is OSC 9;4 progress, an in-band escape the
+ * harness writes for this purpose, so it is the screen channel read natively.
+ */
 const hookEvaluation = (
   hook: AgentSeatHookState,
   harness: HarnessId,
@@ -249,6 +269,9 @@ const hookEvaluation = (
   skipStateUpdate: false,
   ruleId: null,
   harness,
+  signal: signalForState(hook.state),
+  source: hook.fullLifecycle ? "report" : "screen",
+  fidelity: "native",
 });
 
 export const FALLBACK_IDLE = FALLBACK_IDLE_REASON;

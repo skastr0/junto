@@ -22,6 +22,7 @@ export const devinRules: SeatRulePack = {
     {
       id: "workspace_trust_prompt",
       state: "attention",
+      signal: { _tag: "DialogShown", kind: "trust" },
       priority: 1200,
       region: "bottom_non_empty_lines",
       regionN: 8,
@@ -39,6 +40,7 @@ export const devinRules: SeatRulePack = {
     {
       id: "permission_prompt",
       state: "attention",
+      signal: { _tag: "PermissionRequested" },
       priority: 1190,
       region: "bottom_non_empty_lines",
       regionN: 9,

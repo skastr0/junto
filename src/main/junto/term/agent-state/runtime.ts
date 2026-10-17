@@ -16,7 +16,9 @@ import { composerVerdictForHarness } from "./composer";
 import type { ComposerVerdict } from "./types";
 import { FALLBACK_IDLE } from "./engine";
 import { hookStateFromSnapshot } from "./hook-feed";
-import { SeatStateMachine } from "./seat-state-machine";
+import { SeatStateMachine, type SeatFact } from "./seat-state-machine";
+import { signalForState } from "./screen-signal";
+import type { SeatSnapshot } from "../../../../shared/harness-domain";
 import type { HarnessId } from "../../../../shared/managed-terminal-templates";
 import { isHarnessId } from "../../../../shared/managed-terminal-templates";
 import {
@@ -199,6 +201,15 @@ export class SeatStateRuntime {
     );
   }
 
+  /**
+   * The seat's status in the harness-domain vocabulary, folded from every
+   * state this runtime published for its generation; the published state is
+   * its projection. Undefined for a binding with no slot.
+   */
+  snapshot(bindingId: string): SeatSnapshot | undefined {
+    return this.machine.snapshot(bindingId);
+  }
+
   unbind(
     bindingId: string,
     epoch?: string,
@@ -301,6 +312,7 @@ export class SeatStateRuntime {
       input.state,
       input.reason,
       "high",
+      reporterFact(input.state),
     );
   }
 
@@ -331,7 +343,12 @@ export class SeatStateRuntime {
     if (snapshot !== undefined && snapshot.epoch === epoch) {
       return this.observe(snapshot);
     }
-    return this.machine.force(bindingId, "unknown", reason, "low");
+    // The reporter's channel closed with the hook; nothing is left to read.
+    return this.machine.force(bindingId, "unknown", reason, "low", {
+      signal: { _tag: "ActivityObserved", activity: "unknown" },
+      source: "system",
+      fidelity: "native",
+    });
   }
 
   /**
@@ -493,6 +510,7 @@ export class SeatStateRuntime {
           structured.hook.state,
           structured.hook.reason,
           "high",
+          reporterFact(structured.hook.state),
         );
       }
       this.syncWatchWithPublished(snap.bindingId);
@@ -530,6 +548,7 @@ export class SeatStateRuntime {
         "attention",
         TURN_STALLED_REASON,
         "high",
+        this.stallFact(snap.bindingId),
       );
     }
 
@@ -544,7 +563,19 @@ export class SeatStateRuntime {
     if (structured !== undefined && structured.epoch === slot.epoch) return;
     // Never idle: attention refuses paste and does not call onSeatIdle.
     this.turnStalled.add(bindingId);
-    this.machine.force(bindingId, "attention", TURN_STALLED_REASON, "high");
+    this.machine.force(bindingId, "attention", TURN_STALLED_REASON, "high", this.stallFact(bindingId));
+  }
+
+  /** A working seat's turn went silent: Junto's own observation, never the harness's. */
+  private stallFact(bindingId: string): SeatFact {
+    return {
+      signal: {
+        _tag: "HeartbeatStalled",
+        lastSeenAt: this.progressWatch?.lastProgressAt(bindingId) ?? this.now(),
+      },
+      source: "system",
+      fidelity: "native",
+    };
   }
 
   private syncWatchWithEvent(event: AgentSeatStateEvent): void {
@@ -607,3 +638,10 @@ export {
   TURN_STALLED_REASON,
   progressFingerprint,
 } from "./turn-progress-watch";
+
+/** A structured reporter's state, as the report channel says it. */
+const reporterFact = (state: AgentSeatState): SeatFact => ({
+  signal: signalForState(state),
+  source: "report",
+  fidelity: "native",
+});

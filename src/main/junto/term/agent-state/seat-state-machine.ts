@@ -8,6 +8,12 @@
  * - 3 consecutive confirmations OR a real 700ms cap timer
  * - visible idle / attention publish immediately
  * - never publish idle while visibleAttention is true
+ *
+ * Each slot folds the fact behind every published decision into a
+ * `SeatSnapshot` (shared/harness-domain reduceSeat), and the state it
+ * publishes is the projection of that snapshot (projection.ts). Debounce and
+ * arbitration still decide here which decision is published; the snapshot is
+ * what the decision means.
  */
 
 import type {
@@ -22,6 +28,17 @@ import {
   type HarnessId,
 } from "../../../../shared/managed-terminal-templates";
 import type { SeatEvaluation } from "./types";
+import {
+  initialSnapshot,
+  reduceSeat,
+  type BindingId,
+  type Fidelity,
+  type SeatSignal,
+  type SeatSnapshot,
+  type SignalSource,
+} from "../../../../shared/harness-domain";
+import { projectAgentSeatState } from "./projection";
+import { signalForState } from "./screen-signal";
 
 /** Debounce constants for agent-state detection. */
 export const SEAT_DEBOUNCE = {
@@ -36,6 +53,13 @@ export const SEAT_DEBOUNCE = {
 export type SeatMachineOptions = {
   readonly now?: () => number;
   readonly onEvent?: (event: AgentSeatStateEvent) => void;
+};
+
+/** A fact for a forced state: what it means, and who said it. */
+export type SeatFact = {
+  readonly signal: SeatSignal;
+  readonly source: SignalSource;
+  readonly fidelity: Fidelity;
 };
 
 export type SeatBindingConfig = {
@@ -65,6 +89,8 @@ type BindingSlot = {
     timer: ReturnType<typeof setTimeout> | undefined;
   };
   lastEval: SeatEvaluation | null;
+  /** Every published decision's fact, folded. `state` is its projection. */
+  snapshot: SeatSnapshot;
 };
 
 export type SeatStateListener = (event: AgentSeatStateEvent) => void;
@@ -130,6 +156,7 @@ export class SeatStateMachine {
           : null,
       pendingIdle: null,
       lastEval: null,
+      snapshot: initialSnapshot(bindingId as BindingId, this.now()),
     };
     this.slots.set(bindingId, slot);
     // A live generation supersedes its predecessor's tombstone.
@@ -170,6 +197,7 @@ export class SeatStateMachine {
         "gone",
         options.reason ?? "generation_unbound",
         "high",
+        { signal: { _tag: "ProcessExited" }, source: "process", fidelity: "native" },
       ),
       true,
     );
@@ -200,6 +228,7 @@ export class SeatStateMachine {
     if (!slot || from === to || this.slots.has(to)) return false;
     this.slots.delete(from);
     slot.key = to;
+    slot.snapshot = { ...slot.snapshot, seat: to as BindingId };
     this.slots.set(to, slot);
     const gone: AgentSeatStateEvent = {
       bindingId: from,
@@ -232,6 +261,25 @@ export class SeatStateMachine {
   ): void {
     const slot = this.ensure(bindingId, undefined);
     slot.hookState = hookState;
+    // A structured reporter that no longer holds the seat stops owning it,
+    // so the screen carries the seat again.
+    if (hookState?.fullLifecycle !== true && slot.snapshot.channels.includes("report")) {
+      this.fold(slot, { signal: { _tag: "ChannelClosed", channel: "report" }, source: "system", fidelity: "native" });
+    }
+  }
+
+  /** The seat's folded snapshot: the status the published state projects. */
+  snapshot(bindingId: string): SeatSnapshot | undefined {
+    return this.slots.get(bindingId)?.snapshot;
+  }
+
+  /**
+   * Fold a fact that publishes nothing by itself: a channel closing, a
+   * heartbeat. The next published decision projects from it.
+   */
+  note(bindingId: string, fact: SeatFact): void {
+    const slot = this.slots.get(bindingId);
+    if (slot) this.fold(slot, fact);
   }
 
   getState(bindingId: string): AgentSeatState | undefined {
@@ -355,6 +403,7 @@ export class SeatStateMachine {
         state: "attention",
         reason: "coerced_idle_with_visible_attention",
         confidence: "high",
+        signal: signalForState("attention"),
       });
     }
 
@@ -414,12 +463,17 @@ export class SeatStateMachine {
     return this.maybePublish(slot, bindingId, next);
   }
 
-  /** Force-publish current evaluation (e.g. process exit → idle). */
+  /**
+   * Force-publish a state (e.g. process exit → idle). `fact` says what it
+   * means and who said it; without one it is the signal the state stands
+   * for, as the screen would have read it.
+   */
   force(
     bindingId: string,
     state: AgentSeatState,
     reason: string,
     confidence: "high" | "low" = "high",
+    fact?: SeatFact,
   ): AgentSeatStateEvent {
     const slot = this.ensure(bindingId, undefined);
     this.clearPendingIdle(slot);
@@ -428,6 +482,7 @@ export class SeatStateMachine {
       state,
       reason,
       confidence,
+      fact ?? { signal: signalForState(state), source: "screen", fidelity: "screen" },
     );
     return this.maybePublish(slot, bindingId, evalLike, true)!;
   }
@@ -458,6 +513,7 @@ export class SeatStateMachine {
         hookState: null,
         pendingIdle: null,
         lastEval: null,
+        snapshot: initialSnapshot(bindingId as BindingId, this.now()),
       };
       this.slots.set(bindingId, slot);
     }
@@ -471,7 +527,16 @@ export class SeatStateMachine {
     force = false,
   ): AgentSeatStateEvent | null {
     const t = this.now();
-    const stateChanged = slot.state !== next.state;
+    if (next.signal !== null) {
+      this.fold(slot, { signal: next.signal, source: next.source, fidelity: next.fidelity });
+    }
+    const state = projectAgentSeatState(slot.snapshot);
+    if (state !== next.state) {
+      console.warn(
+        `[seat-state] ${bindingId}: ${next.reason} decided ${next.state}, the snapshot reads ${state} (${slot.snapshot.status._tag} from ${slot.snapshot.statusSource})`,
+      );
+    }
+    const stateChanged = slot.state !== state;
     const flagsChanged =
       slot.visibleIdle !== next.visibleIdle ||
       slot.visibleWorking !== next.visibleWorking ||
@@ -488,7 +553,7 @@ export class SeatStateMachine {
       return null;
     }
 
-    slot.state = next.state;
+    slot.state = state;
     slot.reason = next.reason;
     slot.confidence = next.confidence;
     slot.visibleIdle = next.visibleIdle;
@@ -499,7 +564,7 @@ export class SeatStateMachine {
     const event: AgentSeatStateEvent = {
       bindingId,
       epoch: slot.epoch,
-      state: next.state,
+      state,
       reason: next.reason,
       confidence: next.confidence,
       at: t,
@@ -522,6 +587,27 @@ export class SeatStateMachine {
     this.onEvent?.(event);
   }
 
+  /**
+   * Fold one fact into the slot's snapshot. A fresh decision supersedes a
+   * stalled-turn latch, so any fact but the stall itself resumes the
+   * heartbeat first: the latch reads only until the next judgment.
+   */
+  private fold(slot: BindingSlot, fact: SeatFact): void {
+    const at = Math.max(this.now(), slot.snapshot.updatedAt);
+    const envelope = (signal: SeatSignal, source: SignalSource, fidelity: Fidelity) => ({
+      seat: slot.snapshot.seat,
+      at,
+      source,
+      fidelity,
+      signal,
+    });
+    let snapshot = slot.snapshot;
+    if (snapshot.stalledSince !== undefined && fact.signal._tag !== "HeartbeatStalled" && isStatusFact(fact.signal)) {
+      snapshot = reduceSeat(snapshot, envelope({ _tag: "HeartbeatResumed" }, "system", "native"));
+    }
+    slot.snapshot = reduceSeat(snapshot, envelope(fact.signal, fact.source, fact.fidelity));
+  }
+
   private clearPendingIdle(slot: BindingSlot): void {
     if (!slot.pendingIdle) return;
     if (slot.pendingIdle.timer !== undefined) {
@@ -530,11 +616,16 @@ export class SeatStateMachine {
     slot.pendingIdle = null;
   }
 
+  /**
+   * A state Junto publishes itself. Without a fact it folds nothing: binding
+   * a generation and moving a slot publish the status the snapshot holds.
+   */
   private lifecycleEvaluation(
     slot: BindingSlot,
     state: AgentSeatState,
     reason: string,
     confidence: "high" | "low",
+    fact?: SeatFact,
   ): SeatEvaluation {
     return {
       state,
@@ -550,9 +641,26 @@ export class SeatStateMachine {
         typeof slot.harness === "string" && isHarnessId(slot.harness)
           ? slot.harness
           : "claude",
+      signal: fact?.signal ?? null,
+      source: fact?.source ?? "system",
+      fidelity: fact?.fidelity ?? "native",
     };
   }
 }
+
+/** A fact that judges the seat's status, as opposed to one that only records. */
+const isStatusFact = (signal: SeatSignal): boolean =>
+  signal._tag !== "UsageLevel" &&
+  signal._tag !== "SessionIdentified" &&
+  signal._tag !== "SeatReported" &&
+  signal._tag !== "AwarenessAssessed" &&
+  signal._tag !== "ChannelOpened" &&
+  signal._tag !== "ChannelClosed" &&
+  signal._tag !== "HeartbeatResumed" &&
+  signal._tag !== "WakeScheduled" &&
+  signal._tag !== "MailDelivered" &&
+  signal._tag !== "MailDeliveryFailed" &&
+  signal._tag !== "OperatorViewed";
 
 /**
  * Hold only low-confidence Working→Idle drops.

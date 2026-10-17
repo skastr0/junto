@@ -24,6 +24,7 @@ export const piRules: SeatRulePack = {
     {
       id: "trust_selector_attention",
       state: "attention",
+      signal: { _tag: "DialogShown", kind: "trust" },
       priority: 1100,
       region: "bottom_non_empty_lines",
       regionN: 8,
@@ -42,6 +43,7 @@ export const piRules: SeatRulePack = {
     {
       id: "resume_delete_confirm_attention",
       state: "attention",
+      signal: { _tag: "QuestionAsked" },
       priority: 1000,
       region: "bottom_non_empty_lines",
       regionN: 8,
@@ -65,6 +67,7 @@ export const piRules: SeatRulePack = {
     {
       id: "compacting_status",
       state: "working",
+      signal: { _tag: "CompactionStarted", trigger: "unknown" },
       priority: 190,
       region: "bottom_non_empty_lines",
       regionN: 6,
@@ -75,12 +78,17 @@ export const piRules: SeatRulePack = {
     {
       id: "retry_status",
       state: "working",
+      signal: { _tag: "Retrying", cause: "unknown" },
       priority: 180,
       region: "bottom_non_empty_lines",
       regionN: 6,
       visibleWorking: true,
       matchers: {
-        lineRegex: ["^\\s*[Rr]etrying\\s*\\(\\d+\\s*/\\s*\\d+\\)\\s+in"],
+        // Named groups fill the Retrying signal; the optional delay leaves
+        // the lines this matches unchanged.
+        lineRegex: [
+          "^\\s*[Rr]etrying\\s*\\((?<attempt>\\d+)\\s*/\\s*(?<max>\\d+)\\)\\s+in(?:\\s+(?<retryInMs>\\d+(?:\\.\\d+)?\\s*(?:ms|s|m)\\b))?",
+        ],
       },
     },
     {

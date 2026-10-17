@@ -4,6 +4,12 @@
  */
 
 import type { AgentSeatState } from "../../../../shared/agent-seat-state";
+import type {
+  Fidelity,
+  HarnessSignal,
+  SeatSignal,
+  SignalSource,
+} from "../../../../shared/harness-domain";
 import type { HarnessId } from "../../../../shared/managed-terminal-templates";
 
 /** Regions available to rule packs (observer signal + grid slices). */
@@ -34,6 +40,20 @@ export type SeatMatcher = {
   readonly not?: readonly SeatMatcher[];
 };
 
+/**
+ * The signal a rule emits when it matches: the tag and any constant fields.
+ * Named groups in the rule's regex and lineRegex matchers fill the field of
+ * the same name, e.g. `resets (?<resetsAt>.+)` on a `UsageLimitHit`. A
+ * capture that does not read as its field (an unparseable time) is left out;
+ * the constant fields always hold. Without one, the rule emits the signal its
+ * state stands for (see screen-signal.ts).
+ */
+export type SeatRuleSignal = HarnessSignal extends infer S
+  ? S extends { readonly _tag: infer T }
+    ? { readonly _tag: T } & Partial<Omit<S, "_tag">>
+    : never
+  : never;
+
 export type SeatRule = {
   readonly id: string;
   readonly state: AgentSeatState;
@@ -52,6 +72,8 @@ export type SeatRule = {
    * Only legal with state "unknown".
    */
   readonly skipStateUpdate?: boolean;
+  /** What the match means in the seat signal vocabulary; it must project to `state`. */
+  readonly signal?: SeatRuleSignal;
 };
 
 /**
@@ -106,4 +128,12 @@ export type SeatEvaluation = {
   readonly skipStateUpdate: boolean;
   readonly ruleId: string | null;
   readonly harness: HarnessId;
+  /**
+   * The fact behind the state, in the seat signal vocabulary. Null when the
+   * evaluation holds the prior state (skipStateUpdate).
+   */
+  readonly signal: SeatSignal | null;
+  /** Where the fact was read: a screen rule, OSC 9;4 progress, a reporter. */
+  readonly source: SignalSource;
+  readonly fidelity: Fidelity;
 };

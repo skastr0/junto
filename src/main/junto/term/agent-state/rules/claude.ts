@@ -87,6 +87,7 @@ export const claudeRules: SeatRulePack = {
     {
       id: "live_permission_form",
       state: "attention",
+      signal: { _tag: "PermissionRequested" },
       priority: 1200,
       region: "after_last_horizontal_rule",
       visibleAttention: true,
@@ -104,6 +105,7 @@ export const claudeRules: SeatRulePack = {
     {
       id: "dynamic_workflow_prompt",
       state: "attention",
+      signal: { _tag: "QuestionAsked" },
       priority: 1200,
       region: "whole_recent",
       visibleAttention: true,
@@ -114,6 +116,7 @@ export const claudeRules: SeatRulePack = {
     {
       id: "resume_summary_choice",
       state: "attention",
+      signal: { _tag: "DialogShown", kind: "picker" },
       priority: 1210,
       // Live selector only: a stale selector transcript above the last rule
       // must not pin attention over a live composer or permission dialog
@@ -213,6 +216,7 @@ export const claudeRules: SeatRulePack = {
     {
       id: "bash_permission_prompt",
       state: "attention",
+      signal: { _tag: "PermissionRequested" },
       priority: 1180,
       // Live K2 dialog only: the dialog panel renders at the bottom of the
       // grid (same region as live_permission_form). whole_recent let a
@@ -243,6 +247,7 @@ export const claudeRules: SeatRulePack = {
     {
       id: "generic_permission_prompt",
       state: "attention",
+      signal: { _tag: "PermissionRequested" },
       priority: 1170,
       region: "after_last_horizontal_rule",
       visibleAttention: true,
@@ -263,6 +268,7 @@ export const claudeRules: SeatRulePack = {
     {
       id: "legacy_permission_blocker",
       state: "attention",
+      signal: { _tag: "PermissionRequested" },
       priority: 1150,
       // Live dialog chrome only, like live_permission_form: the permission
       // panel is drawn at the bottom of the grid. A stale dialog in the

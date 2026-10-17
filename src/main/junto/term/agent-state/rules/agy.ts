@@ -26,6 +26,7 @@ export const agyRules: SeatRulePack = {
     {
       id: "modal_allow_action",
       state: "attention",
+      signal: { _tag: "PermissionRequested" },
       priority: 310,
       region: "whole_recent",
       visibleAttention: true,
@@ -41,6 +42,7 @@ export const agyRules: SeatRulePack = {
     {
       id: "permission_prompt",
       state: "attention",
+      signal: { _tag: "PermissionRequested" },
       priority: 300,
       region: "whole_recent",
       visibleAttention: true,

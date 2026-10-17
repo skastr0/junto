@@ -40,6 +40,7 @@ export const ompRules: SeatRulePack = {
        */
       id: "approval_dialog_attention",
       state: "attention",
+      signal: { _tag: "PermissionRequested" },
       priority: 1300,
       region: "whole_recent",
       visibleAttention: true,

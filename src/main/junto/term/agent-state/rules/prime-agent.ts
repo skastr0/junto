@@ -35,6 +35,7 @@ export const primeAgentRules: SeatRulePack = {
     {
       id: "permission_overlay_attention",
       state: "attention",
+      signal: { _tag: "PermissionRequested" },
       priority: 1100,
       region: "whole_recent",
       visibleAttention: true,

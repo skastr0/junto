@@ -160,3 +160,54 @@ export const ruleMatches = (
   }
   return matcherMatches(rule.matchers, text, lines);
 };
+
+/** What a matched rule read: its named groups, and the first text a pattern matched. */
+export type RuleCaptures = {
+  readonly groups: Readonly<Record<string, string>>;
+  readonly matched: string | null;
+};
+
+/**
+ * Named groups from a rule's positive regex and lineRegex matchers, read off
+ * the region the rule matched. `not` arms only gate, so they never capture.
+ * When two patterns name the same group, the first in tree order wins.
+ */
+export const ruleCaptures = (
+  rule: SeatRule,
+  snapshot: ObserverGridSnapshot,
+): RuleCaptures => {
+  const lines = regionLines(snapshot, rule.region, rule.regionN ?? 5);
+  const text = regionText(lines);
+  const groups: Record<string, string> = {};
+  let matched: string | null = null;
+  const take = (hit: RegExpExecArray | null): void => {
+    if (!hit) return;
+    matched ??= hit[0];
+    for (const [name, value] of Object.entries(hit.groups ?? {})) {
+      if (value !== undefined && !(name in groups)) groups[name] = value;
+    }
+  };
+  const walk = (matcher: SeatMatcher, depth: number): void => {
+    if (depth > MAX_GATE_DEPTH) return;
+    for (const source of matcher.regex ?? []) take(compileRegex(source)?.exec(text) ?? null);
+    for (const source of matcher.lineRegex ?? []) {
+      const re = compileRegex(source);
+      if (!re) continue;
+      for (const line of lines) {
+        const hit = re.exec(line);
+        if (hit) {
+          take(hit);
+          break;
+        }
+      }
+    }
+    for (const child of matcher.all ?? []) walk(child, depth + 1);
+    for (const child of matcher.any ?? []) walk(child, depth + 1);
+  };
+  walk(rule.matchers, 0);
+  if (matched === null) {
+    const needle = rule.matchers.contains?.[0]?.toLowerCase();
+    if (needle) matched = lines.find((line) => line.toLowerCase().includes(needle)) ?? null;
+  }
+  return { groups, matched };
+};

@@ -13,6 +13,7 @@ export const hermesRules: SeatRulePack = {
     {
       id: "authentication_failed_attention",
       state: "attention",
+      signal: { _tag: "ErrorRaised", kind: "auth" },
       priority: 350,
       region: "bottom_non_empty_lines",
       regionN: 6,
@@ -42,6 +43,7 @@ export const hermesRules: SeatRulePack = {
     {
       id: "dangerous_command_approval",
       state: "attention",
+      signal: { _tag: "PermissionRequested" },
       priority: 300,
       region: "whole_recent",
       visibleAttention: true,
