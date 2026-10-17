@@ -8,7 +8,7 @@
  * Loaded only where the machines surface is on (SettingsPanel).
  */
 import { use$ } from "@legendapp/state/react";
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import { machines$, refreshMachines } from "../../lib/machines-actions";
 import {
   machineCondition,
@@ -54,38 +54,34 @@ export function SettingsMachinePicker() {
     void refreshMachines();
   }, []);
 
-  const options = useMemo<ReadonlyArray<DropdownOption>>(
-    () =>
-      linkedInOrder(items).map((item) => {
-        const read = reads[item.machine.id];
-        const condition = machineCondition(item, read, undefined);
-        const label = labelOf(item);
-        const detail = STATE_WORD[condition];
-        return {
-          value: item.machine.id,
-          label,
-          ...(detail === undefined ? {} : { detail }),
-          leading: (
-            <MachineFigure
-              machine={{
-                name: item.machine.id,
-                label,
-                form: machineForm(item, read),
-                isThisMachine: item.machine.isThisMachine,
-                ...(item.machine.appearance?.color === undefined ? {} : { hue: item.machine.appearance.color }),
-              }}
-              state={machineFigureState(item, read, undefined, NOTHING_PLACED)}
-              size={FIGURE}
-              turns={false}
-            />
-          ),
-        };
-      }),
-    [items, reads],
-  );
+  // Worked out each render: a keyed write keeps `reads` the same object.
+  const options: ReadonlyArray<DropdownOption> = linkedInOrder(items).map((item) => {
+    const read = reads[item.machine.id];
+    const condition = machineCondition(item, read, undefined);
+    const label = labelOf(item);
+    const detail = STATE_WORD[condition];
+    return {
+      value: item.machine.id,
+      label,
+      ...(detail === undefined ? {} : { detail }),
+      leading: (
+        <MachineFigure
+          machine={{
+            name: item.machine.id,
+            label,
+            form: machineForm(item, read),
+            isThisMachine: item.machine.isThisMachine,
+            ...(item.machine.appearance?.color === undefined ? {} : { hue: item.machine.appearance.color }),
+          }}
+          state={machineFigureState(item, read, undefined, NOTHING_PLACED)}
+          size={FIGURE}
+          turns={false}
+        />
+      ),
+    };
+  });
 
-  const reach =
-    shown.isThisMachine ? "this machine" : shown.reachable === false ? "unreachable" : undefined;
+  const reach = shown.isThisMachine ? "this machine" : shown.reachable === false ? "unreachable" : undefined;
 
   return (
     <div className="settings-machine" data-testid="settings-machine-picker" data-machine={shown.name}>
