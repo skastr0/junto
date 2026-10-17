@@ -12,6 +12,7 @@
 import { Result, Schema } from "effect";
 import { HarnessId } from "../managed-terminal-templates";
 import { HostId } from "../remote-hosts";
+import { verifyVersion } from "./inventory";
 
 export const NativeSettingValue = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("boolean") }),
@@ -54,21 +55,6 @@ export class NativeSettingRefusedError extends Schema.TaggedError<NativeSettingR
   },
 ) {}
 
-/** Numeric dotted-version compare; non-numeric parts compare as text. */
-const compareVersions = (a: string, b: string): number => {
-  const left = a.split(/[.-]/);
-  const right = b.split(/[.-]/);
-  for (let i = 0; i < Math.max(left.length, right.length); i++) {
-    const x = left[i] ?? "0";
-    const y = right[i] ?? "0";
-    const nx = Number(x);
-    const ny = Number(y);
-    const order = Number.isFinite(nx) && Number.isFinite(ny) ? nx - ny : x.localeCompare(y);
-    if (order !== 0) return order;
-  }
-  return 0;
-};
-
 const valueFits = (spec: NativeSettingValue, value: NativeSettingWrite["value"]): boolean => {
   switch (spec.kind) {
     case "boolean":
@@ -96,11 +82,8 @@ export const checkNativeSetting = (
     Result.fail(new NativeSettingRefusedError({ harness: write.harness, key: write.key, reason, message }));
   const spec = catalogue.find((entry) => entry.harness === write.harness && entry.key === write.key);
   if (!spec) return refuse("undeclared", `${write.harness} has no declared setting ${write.key}`);
-  const inRange =
-    installedVersion !== undefined &&
-    compareVersions(installedVersion, spec.versions.from) >= 0 &&
-    (spec.versions.through === undefined || compareVersions(installedVersion, spec.versions.through) <= 0);
-  if (!inRange) {
+  const range = { from: spec.versions.from, through: spec.versions.through ?? `${Number.MAX_SAFE_INTEGER}` };
+  if (verifyVersion(installedVersion, range).verdict !== "verified") {
     return refuse("version", `${write.key} is not verified for ${write.harness} ${installedVersion ?? "(not installed)"}`);
   }
   if (!valueFits(spec.value, write.value)) return refuse("value", `${String(write.value)} does not fit ${write.key}`);

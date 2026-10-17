@@ -7,6 +7,7 @@ import {
   paramsOfTemplate,
   resolveParams,
   type HarnessParams,
+  verifyVersion,
 } from "../src/shared/harness-domain";
 import { HARNESS_RECORDS } from "../src/shared/harness-records";
 import { resolveManagedLaunch } from "../src/shared/managed-terminal-launch";
@@ -117,6 +118,17 @@ describe("harness params", () => {
     expect(Result.isFailure(old) && old.failure.reason).toBe("version");
     const bad = checkNativeSetting(catalogue, { ...write, value: "yolo" } as never, "2.1.302");
     expect(Result.isFailure(bad) && bad.failure.reason).toBe("value");
+  });
+
+  it("reads an installed version against the record's verified range", () => {
+    const range = { from: "0.20.4", through: "0.21.6" };
+    expect(verifyVersion("hermes v0.21.6+675", range).verdict).toBe("verified");
+    expect(verifyVersion("0.21.10", range).verdict).toBe("newer");
+    expect(verifyVersion("0.9.4", range).verdict).toBe("older");
+    expect(verifyVersion("2026.10.14", { from: "2026.9.1", through: "2026.10.14" }).verdict).toBe("verified");
+    expect(verifyVersion("amp 0.0.1760000000", { from: "0.0.1750000000", through: "0.0.1759999999" }).verdict).toBe("newer");
+    expect(verifyVersion("dev build", range).verdict).toBe("unknown");
+    expect(verifyVersion(undefined, range)).toEqual({ verdict: "unknown", ...range });
   });
 
   it("keeps a provider on the layer its model came from", () => {

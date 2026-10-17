@@ -30,6 +30,56 @@ export const InventoryScanFailure = Schema.Struct({
 });
 export type InventoryScanFailure = typeof InventoryScanFailure.Type;
 
+/**
+ * Where an installed version sits against the range a harness record was
+ * verified on. Anything but `verified` means Junto's reading of that harness
+ * (screen rules, params, decoders) has not been checked on this install.
+ */
+export const VersionVerdict = Schema.Literals(["verified", "older", "newer", "unknown"]);
+export type VersionVerdict = typeof VersionVerdict.Type;
+
+export const VerifiedRange = Schema.Struct({ from: Schema.String, through: Schema.String });
+export type VerifiedRange = typeof VerifiedRange.Type;
+
+export const InventoryVerification = Schema.Struct({
+  verdict: VersionVerdict,
+  from: Schema.String,
+  through: Schema.String,
+});
+export type InventoryVerification = typeof InventoryVerification.Type;
+
+/**
+ * The first dotted number in a version string, by segment: `v0.21.6+675`,
+ * `2026.10.14`, `codex-cli 0.46.0`. Undefined when there is none.
+ */
+export const versionNumbers = (raw: string): readonly number[] | undefined =>
+  raw.match(/\d+(?:\.\d+)*/)?.[0].split(".").map(Number);
+
+/** Numeric compare by segment; a missing segment reads as 0. */
+export const compareVersions = (a: readonly number[], b: readonly number[]): number => {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const order = (a[i] ?? 0) - (b[i] ?? 0);
+    if (order !== 0) return order;
+  }
+  return 0;
+};
+
+/** Is `installed` inside `range`, inclusive at both ends? */
+export const verifyVersion = (installed: string | undefined, range: VerifiedRange): InventoryVerification => {
+  const at = installed === undefined ? undefined : versionNumbers(installed);
+  const from = versionNumbers(range.from);
+  const through = versionNumbers(range.through);
+  const verdict: VersionVerdict =
+    at === undefined || from === undefined || through === undefined
+      ? "unknown"
+      : compareVersions(at, from) < 0
+        ? "older"
+        : compareVersions(at, through) > 0
+          ? "newer"
+          : "verified";
+  return { verdict, from: range.from, through: range.through };
+};
+
 export const HarnessInventory = Schema.Struct({
   harness: HarnessId,
   machine: HostId,
@@ -44,6 +94,8 @@ export const HarnessInventory = Schema.Struct({
   /** A scan is running now; the models shown are the last good answer. */
   refreshing: Schema.Boolean,
   lastFailure: Schema.optionalKey(InventoryScanFailure),
+  /** The installed version against the record's verified range; absent when not installed. */
+  verification: Schema.optionalKey(InventoryVerification),
 });
 export type HarnessInventory = typeof HarnessInventory.Type;
 
