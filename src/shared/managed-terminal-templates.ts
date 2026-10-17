@@ -367,6 +367,11 @@ export type IsolationSpec = {
   readonly credentialFiles: readonly IsolationCredentialFile[];
   readonly captureHome: "isolated" | "unsupported";
   readonly limitation?: string;
+  /**
+   * The harness keeps its sign-in in the OS keychain, so a machine whose
+   * keychain cannot be reached cannot sign it in.
+   */
+  readonly keychainLogin?: true;
 };
 
 const MAIL_T2_WORKING: MailTransportSpec = {
@@ -500,6 +505,7 @@ export const mailSteeringSubmits = (
 export const HARNESS_ISOLATION: Readonly<Record<HarnessId, IsolationSpec>> = {
   claude: {
     homePins: [{ envKey: "CLAUDE_CONFIG_DIR", homeRelative: ".claude" }],
+    keychainLogin: true,
     credentialEnv: [],
     credentialFiles: [],
     captureHome: "isolated",
@@ -508,6 +514,7 @@ export const HARNESS_ISOLATION: Readonly<Record<HarnessId, IsolationSpec>> = {
   },
   codex: {
     homePins: [{ envKey: "CODEX_HOME", homeRelative: ".codex" }],
+    keychainLogin: true,
     credentialEnv: [],
     credentialFiles: [],
     captureHome: "isolated",

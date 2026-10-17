@@ -1,4 +1,4 @@
-import type { HarnessId } from "./managed-terminal-templates";
+import { HARNESS_ISOLATION, type HarnessId } from "./managed-terminal-templates";
 import type { MachineHarnessSignIn, MachineKeychainStatus } from "./machine-control";
 
 /** This reports the keychain route only, never whether a credential is valid. */
@@ -8,7 +8,7 @@ export const machineHarnessSignIn = (
   keychain: MachineKeychainStatus,
 ): MachineHarnessSignIn => {
   if (!installed) return "not-installed";
-  if (keychain === "unavailable" && (harness === "claude" || harness === "codex")) {
+  if (keychain === "unavailable" && HARNESS_ISOLATION[harness].keychainLogin) {
     return "keychain-login-unavailable";
   }
   return "sign-in-unverified";
