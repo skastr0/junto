@@ -219,7 +219,15 @@ export type HarnessInstancePrefs = typeof HarnessInstancePrefs.Type;
  * Optional on stored rows written before this section existed.
  */
 export const HarnessesSettings = Schema.Struct({
+  /** App-wide defaults: every machine's seats start from these. */
   byHarness: Schema.Record(Schema.String, HarnessInstancePrefs),
+  /**
+   * Per-machine overrides, keyed by the machine's real name. A key set here
+   * wins over the app-wide default for seats on that machine only.
+   */
+  byMachine: Schema.optionalKey(
+    Schema.Record(Schema.String, Schema.Struct({ byHarness: Schema.Record(Schema.String, HarnessInstancePrefs) })),
+  ),
 });
 export type HarnessesSettings = typeof HarnessesSettings.Type;
 
@@ -1000,6 +1008,13 @@ export const HarnessesPatch = Schema.Struct({
   byHarness: Schema.optionalKey(
     Schema.Record(Schema.String, HarnessInstancePrefsPatch),
   ),
+  /** Per-machine, per-harness shallow merge, with the same clearing rules. */
+  byMachine: Schema.optionalKey(
+    Schema.Record(
+      Schema.String,
+      Schema.Struct({ byHarness: Schema.Record(Schema.String, HarnessInstancePrefsPatch) }),
+    ),
+  ),
 });
 export type HarnessesPatch = typeof HarnessesPatch.Type;
 
@@ -1290,6 +1305,53 @@ export const sanitizeRecentModels = (ids: ReadonlyArray<string>): string[] => {
 export const rememberRecentModel = (recent: ReadonlyArray<string> | undefined, model: string): string[] =>
   sanitizeRecentModels([model, ...(recent ?? [])]);
 
+const clearedString = (value: string | undefined, prior: string | undefined): string | undefined => {
+  if (value === undefined) return prior;
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? undefined : trimmed;
+};
+
+/** One harness's prefs after a patch: "" and [] clear a field, an absent field stays. */
+const mergeHarnessPrefs = (
+  prior: HarnessInstancePrefs,
+  patch: HarnessInstancePrefsPatch,
+): HarnessInstancePrefs => {
+  const enabled = patch.enabled ?? prior.enabled;
+  const model = clearedString(patch.model, prior.model);
+  const effort = clearedString(patch.effort, prior.effort);
+  const permissionMode = clearedString(patch.permissionMode, prior.permissionMode);
+  let extraArgs = prior.extraArgs;
+  if (patch.extraArgs !== undefined) {
+    const kept = patch.extraArgs.map((arg) => arg.trim()).filter((arg) => arg.length > 0);
+    extraArgs = kept.length === 0 ? undefined : kept;
+  }
+  let recentModels = prior.recentModels;
+  if (patch.recentModels !== undefined) {
+    const kept = sanitizeRecentModels(patch.recentModels);
+    recentModels = kept.length === 0 ? undefined : kept;
+  }
+  return {
+    ...(enabled !== undefined ? { enabled } : {}),
+    ...(model !== undefined ? { model } : {}),
+    ...(effort !== undefined ? { effort } : {}),
+    ...(permissionMode !== undefined ? { permissionMode } : {}),
+    ...(extraArgs !== undefined ? { extraArgs } : {}),
+    ...(recentModels !== undefined ? { recentModels } : {}),
+  };
+};
+
+const mergeHarnessPrefsMap = (
+  current: Readonly<Record<string, HarnessInstancePrefs>>,
+  patch: Readonly<Record<string, HarnessInstancePrefsPatch>> | undefined,
+): Record<string, HarnessInstancePrefs> => {
+  const out: Record<string, HarnessInstancePrefs> = { ...current };
+  for (const [id, prefsPatch] of Object.entries(patch ?? {})) {
+    if (!prefsPatch || id.trim().length === 0) continue;
+    out[id] = mergeHarnessPrefs(out[id] ?? {}, prefsPatch);
+  }
+  return out;
+};
+
 /** Read prefs for one harness; empty when unset. */
 export const harnessPrefsFor = (
   settings: Settings | undefined,
@@ -1298,6 +1360,13 @@ export const harnessPrefsFor = (
   const row = settings?.harnesses?.byHarness?.[harness];
   return row ?? {};
 };
+
+/** One machine's overrides for one harness; empty when unset. */
+export const machineHarnessPrefsFor = (
+  settings: Settings | undefined,
+  machine: string,
+  harness: string,
+): HarnessInstancePrefs => settings?.harnesses?.byMachine?.[machine]?.byHarness?.[harness] ?? {};
 
 /**
  * Whether the operator has opted a feature-enabled harness out of the palette.
@@ -1424,54 +1493,23 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
     // The patch carries the whole map: a shortcut left out is back on its default.
     next = { ...next, keyboard: { overrides: sanitizeKeyOverrides(patch.keyboard.overrides) } };
   }
-  if (patch.harnesses?.byHarness) {
+  if (patch.harnesses?.byHarness || patch.harnesses?.byMachine) {
     const current = next.harnesses ?? defaultHarnesses();
-    const byHarness: Record<string, HarnessInstancePrefs> = {
-      ...current.byHarness,
-    };
-    for (const [id, prefsPatch] of Object.entries(patch.harnesses.byHarness)) {
-      if (!prefsPatch || id.trim().length === 0) continue;
-      const prior = byHarness[id] ?? {};
-      // Build a fresh prefs object — Schema.Type fields are readonly.
-      let enabled = prior.enabled;
-      let model = prior.model;
-      let effort = prior.effort;
-      let permissionMode = prior.permissionMode;
-      let recentModels = prior.recentModels;
-      let extraArgs = prior.extraArgs;
-      if (prefsPatch.enabled !== undefined) enabled = prefsPatch.enabled;
-      if (prefsPatch.extraArgs !== undefined) {
-        const kept = prefsPatch.extraArgs
-          .map((arg) => arg.trim())
-          .filter((arg) => arg.length > 0);
-        extraArgs = kept.length === 0 ? undefined : kept;
-      }
-      if (prefsPatch.recentModels !== undefined) {
-        const kept = sanitizeRecentModels(prefsPatch.recentModels);
-        recentModels = kept.length === 0 ? undefined : kept;
-      }
-      if (prefsPatch.model !== undefined) {
-        const trimmed = prefsPatch.model.trim();
-        model = trimmed.length === 0 ? undefined : trimmed;
-      }
-      if (prefsPatch.effort !== undefined) {
-        const trimmed = prefsPatch.effort.trim();
-        effort = trimmed.length === 0 ? undefined : trimmed;
-      }
-      if (prefsPatch.permissionMode !== undefined) {
-        const trimmed = prefsPatch.permissionMode.trim();
-        permissionMode = trimmed.length === 0 ? undefined : trimmed;
-      }
-      byHarness[id] = {
-        ...(enabled !== undefined ? { enabled } : {}),
-        ...(model !== undefined ? { model } : {}),
-        ...(effort !== undefined ? { effort } : {}),
-        ...(permissionMode !== undefined ? { permissionMode } : {}),
-        ...(extraArgs !== undefined ? { extraArgs } : {}),
-        ...(recentModels !== undefined ? { recentModels } : {}),
+    const byHarness = mergeHarnessPrefsMap(current.byHarness, patch.harnesses.byHarness);
+    let byMachine = current.byMachine;
+    if (patch.harnesses.byMachine) {
+      const machines: Record<string, { readonly byHarness: Record<string, HarnessInstancePrefs> }> = {
+        ...current.byMachine,
       };
+      for (const [machine, machinePatch] of Object.entries(patch.harnesses.byMachine)) {
+        if (!machinePatch || machine.trim().length === 0) continue;
+        const merged = mergeHarnessPrefsMap(machines[machine]?.byHarness ?? {}, machinePatch.byHarness);
+        if (Object.keys(merged).length === 0) delete machines[machine];
+        else machines[machine] = { byHarness: merged };
+      }
+      byMachine = Object.keys(machines).length === 0 ? undefined : machines;
     }
-    next = { ...next, harnesses: { byHarness } };
+    next = { ...next, harnesses: { byHarness, ...(byMachine ? { byMachine } : {}) } };
   }
   if (patch.providers) {
     const current = next.providers ?? defaultProviders();
