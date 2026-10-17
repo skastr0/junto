@@ -2,10 +2,10 @@
  * ActivityMark sprite atlas: every frame of every ring, painted once per
  * theme into one canvas, served to the page as a single data URL.
  *
- * A mark on screen is one element whose background points into this atlas.
- * Animation is a background-position step keyed off the shared 90 ms clock
- * (`html[data-mark-frame]`, see attention-clock.ts), so every mark turns in
- * step with every other one, with no per-mark DOM subtree or timer.
+ * A mark on screen is one element whose background points into this atlas:
+ * still rings, the outer band, and the rest pose a moving ring shows while
+ * motion is paused. A moving ring on screen is painted live on every display
+ * frame (activity-live.ts); the atlas never animates it.
  *
  * Layers (20-unit box; see ActivityMark.tsx and activity-rings.ts):
  *   ring     control state, bent by the thread-health reading when it is trouble
@@ -17,12 +17,12 @@
 import type { ThemeMode } from "@shared/theme";
 import type { ThreadHealthTone, ThreadHealthValue } from "@shared/thread-health";
 import type { AgentSignalKind } from "@shared/agent-signals";
-import { ATTENTION_CLOCK_FRAMES, ATTENTION_CLOCK_TICK_MS } from "./attention-clock";
 import { themeFor } from "./theme";
 import type { ActivityGlyph, ActivityTone } from "./activity";
 import {
   LAND_FRAMES,
   LOOP_REST_FRAME,
+  RING_CYCLE_FRAMES,
   paintDone,
   paintFlag,
   paintGlow,
@@ -39,11 +39,13 @@ import {
 export { LAND_FRAMES };
 
 /** Design units per mark edge. */
-const BOX = 20;
+export const MARK_BOX = 20;
+const BOX = MARK_BOX;
 /** Atlas pixels per unit: a 52px seat ring at dpr 2 draws 1:1. */
 const SCALE = 5.2;
-const CELL = Math.round(BOX * SCALE);
-export const MARK_ATLAS_COLS = ATTENTION_CLOCK_FRAMES;
+export const MARK_CELL = Math.round(BOX * SCALE);
+const CELL = MARK_CELL;
+export const MARK_ATLAS_COLS = RING_CYCLE_FRAMES;
 
 const LOOP_ROWS: ReadonlyArray<readonly [LoopRing, ActivityTone]> = [
   ["work", "cyan"],
@@ -93,6 +95,8 @@ type Layout = {
   readonly loop: ReadonlyMap<string, number>;
   readonly stills: ReadonlyMap<string, AtlasCell>;
   readonly bands: ReadonlyMap<string, AtlasCell>;
+  /** Left empty: a live ring's core points here so only its canvas shows. */
+  readonly blank: AtlasCell;
   readonly rows: number;
 };
 
@@ -110,6 +114,7 @@ const buildLayout = (): Layout => {
     col += 1;
     return cell;
   };
+  const blank = next();
   const stills = new Map<string, AtlasCell>();
   for (const [ring, tone] of STILL_CELLS) stills.set(key(ring, tone), next());
   const bands = new Map<string, AtlasCell>();
@@ -124,15 +129,17 @@ const buildLayout = (): Layout => {
       }
     }
   }
-  return { loop, stills, bands, rows: row + 1 };
+  return { loop, stills, bands, blank, rows: row + 1 };
 };
 
 const LAYOUT = buildLayout();
 export const MARK_ATLAS_ROWS = LAYOUT.rows;
 
 export type CoreCell = AtlasCell & {
-  /** loop = steps with the clock; still = never moves. */
+  /** loop = painted live while on screen; still = never moves. */
   readonly motion: "loop" | "still";
+  /** What the live painter draws for a moving ring. */
+  readonly live?: { readonly ring: LoopRing; readonly tone: ActivityTone };
   /** Atlas row of a one-shot draw-in played before the loop (done). */
   readonly land?: number;
 };
@@ -162,7 +169,10 @@ const loopCell = (ring: LoopRing, tone: ActivityTone, animate: boolean): CoreCel
     LAYOUT.loop.get(key(ring, tone)) ??
     LAYOUT.loop.get(key(ring, LOOP_ROWS.find(([r]) => r === ring)?.[1] ?? "cyan")) ??
     0;
-  return { col: LOOP_REST_FRAME[ring], row, motion: animate ? "loop" : "still" };
+  const drawn = LOOP_ROWS[row]?.[1] ?? tone;
+  return animate
+    ? { col: LOOP_REST_FRAME[ring], row, motion: "loop", live: { ring, tone: drawn } }
+    : { col: LOOP_REST_FRAME[ring], row, motion: "still" };
 };
 
 const stillCell = (ring: StillRing): CoreCell => {
@@ -248,7 +258,7 @@ export const ringCells = (input: RingInput): RingCells => {
 type Ctx = CanvasRenderingContext2D;
 type Tones = Readonly<Record<ActivityTone, string>>;
 
-const tonesFor = (mode: ThemeMode): Tones => {
+export const tonesFor = (mode: ThemeMode): Tones => {
   const t = themeFor(mode);
   return {
     amber: t.amber ?? "",
@@ -259,7 +269,7 @@ const tonesFor = (mode: ThemeMode): Tones => {
   };
 };
 
-const paletteFor = (mode: ThemeMode): RingPalette => ({
+export const paletteFor = (mode: ThemeMode): RingPalette => ({
   glow: mode === "dark" ? 1.8 : 0,
   dark: mode === "dark",
 });
@@ -339,21 +349,6 @@ const renderAtlas = (mode: ThemeMode): string | undefined => {
   }
 };
 
-/**
- * Frame rules: one per clock frame, matched only by visible looping marks.
- * The html stamp is the only thing that changes per tick; with no stamp
- * (motion paused, clock idle) a loop shows its rest pose.
- */
-const frameRules = (): string => {
-  const rules: string[] = [];
-  for (let frame = 0; frame < MARK_ATLAS_COLS; frame += 1) {
-    rules.push(
-      `html[data-mark-frame="${String(frame)}"] .junto-mark[data-mark-motion="loop"][data-mark-visible]{background-position-x:calc(var(--mark-u) * -${String(frame)})}`,
-    );
-  }
-  return rules.join("\n");
-};
-
 /** Structural CSS for every mark. Exported so tests can read the real sheet. */
 export const markAtlasCss = (): string =>
   [
@@ -366,13 +361,10 @@ export const markAtlasCss = (): string =>
     `.junto-mark[data-mark-band]::after{content:"";position:absolute;inset:0;pointer-events:none;background-image:inherit;background-repeat:no-repeat;background-size:inherit;background-position:calc(var(--mark-bcol) * var(--mark-u) * -1) calc(var(--mark-brow) * var(--mark-u) * -1)}`,
     // A portrait sits in the ring's hole, centred.
     `.junto-mark__seat{position:absolute;inset:0;display:grid;place-items:center}`,
-    frameRules(),
-    // Done draws itself once from its land row, then hands over to its loop:
-    // the animation has no fill, so when it ends the loop's own rules resume.
-    `@keyframes juntoMarkLand{from{background-position:0 calc(var(--mark-lrow) * var(--mark-u) * -1)}to{background-position:calc(var(--mark-u) * -${String(LAND_FRAMES)}) calc(var(--mark-lrow) * var(--mark-u) * -1)}}`,
-    `.junto-mark[data-mark-land]{animation:juntoMarkLand ${String(LAND_FRAMES * ATTENTION_CLOCK_TICK_MS)}ms steps(${String(LAND_FRAMES)}, end) 1}`,
-    `html[data-surface-motion="paused"] .junto-mark[data-mark-land]{animation:none}`,
-    `@media (prefers-reduced-motion: reduce){.junto-mark[data-mark-land]{animation:none}}`,
+    // A live ring (activity-live.ts) paints its own canvas; the core cell
+    // underneath goes blank so the rest pose never shows through.
+    `.junto-mark[data-mark-live]{background-position:calc(${String(LAYOUT.blank.col)} * var(--mark-u) * -1) calc(${String(LAYOUT.blank.row)} * var(--mark-u) * -1)}`,
+    `.junto-mark__live{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}`,
     // Overseer crest: top of the ring, rimmed in ground so it cuts the ring.
     `.junto-mark__crest{position:absolute;left:50%;top:0;width:30%;height:21%;min-width:9px;min-height:6px;transform:translate(-50%,-4%);color:var(--color-indigo);pointer-events:none}`,
     `.junto-mark__crest path{fill:currentColor;stroke:var(--color-ground);stroke-width:1.6px;stroke-linejoin:round;paint-order:stroke}`,

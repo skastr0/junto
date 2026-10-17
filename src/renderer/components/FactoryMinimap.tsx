@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactElement } from "react";
 import { useStoreApi, type Node } from "@xyflow/react";
-import { retainAttentionClock } from "../lib/attention-clock";
 import type { Urgency } from "../lib/region-urgency";
 import "./factory-minimap.css";
 
@@ -244,10 +243,6 @@ export function FactoryMinimap({
     });
     return unsubscribe;
   }, [store, nodeColor, nodeStrokeColor, seatMarkOf]);
-
-  // Pings step on the attention clock: keep it running while a seat pings.
-  const pinging = rects.some((rect) => rect.seat?.urgency === "blocked" || rect.seat?.urgency === "needs-you");
-  useEffect(() => (pinging ? retainAttentionClock() : undefined), [pinging]);
 
   // Camera subscription + element size.
   useEffect(() => {

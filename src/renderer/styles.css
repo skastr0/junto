@@ -1724,10 +1724,10 @@ html[data-surface-motion="paused"] *::after {
   transform: scale(1);
 }
 
-/* --- ActivityMark: sprite atlas + discrete 90 ms clock ----------------------
-   Structure, frame rules and the atlas image are generated with the atlas
-   (src/renderer/lib/activity-atlas.ts), so frame count and geometry have one
-   source. The clock (attention-clock.ts) stamps html[data-mark-frame]. */
+/* --- ActivityMark: sprite atlas + live rings ---------------------------------
+   Structure and the atlas image are generated with the atlas
+   (src/renderer/lib/activity-atlas.ts), so geometry has one source. Moving
+   rings are painted live every display frame (activity-live.ts). */
 
 /* Hidden/reduced-motion: freeze continuous status/edge motion entirely.
    ActivityMark loops fall to their rest pose when the clock stamp clears. */

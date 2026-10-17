@@ -1,11 +1,11 @@
 /**
- * Surface motion gate — freezes continuous CSS/compositor animation when the
- * page cannot be seen (hidden tab / minimized / obscured) or the operator has
- * asked for reduced motion.
+ * Surface motion gate — pauses continuous animation when the page cannot be
+ * seen (hidden tab / minimized / obscured) or the operator has asked for
+ * reduced motion. Those are the only two reasons motion ever stops.
  *
  * Sets `document.documentElement.dataset.surfaceMotion` to `"live" | "paused"`.
- * CSS under `html[data-surface-motion="paused"]` stops infinite paints so the
- * GPU process can idle (fans). See styles.css + RtsBottomBar.css.
+ * CSS under `html[data-surface-motion="paused"]` holds animations at rest;
+ * live rings (activity-live.ts) show their rest pose.
  *
  * This is independent of fleet WebGL loops (those gate on their own
  * visibility).

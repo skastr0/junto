@@ -12,7 +12,7 @@ import {
   type ActivityTone,
 } from "../lib/activity";
 import { ensureMarkAtlas, ringCells } from "../lib/activity-atlas";
-import { retainAttentionClock } from "../lib/attention-clock";
+import { startLiveRing, type LiveRing } from "../lib/activity-live";
 import { canvasPerformance } from "../lib/performance/canvas-performance";
 import { themeMode$ } from "../lib/theme-mode";
 
@@ -89,21 +89,21 @@ export function ActivityMarkFromSpec({
 // --- visibility: one observer for every looping mark -------------------------
 
 /**
- * A looping mark only steps while it intersects the window. Offscreen marks
- * drop `data-mark-visible` (their frame rules stop matching) and release the
- * clock, so a canvas whose working seats are all out of view ticks nothing.
- * Toggled straight on the DOM: visibility never re-renders React.
+ * A looping mark is painted live only while it intersects the window.
+ * Offscreen marks drop `data-mark-visible` and their canvas, so a canvas
+ * whose working seats are all out of view paints nothing. Toggled straight
+ * on the DOM: visibility never re-renders React.
  */
-type Watch = { release?: () => void };
+type Watch = { readonly ring: LiveRing; release?: () => void };
 const watched = new WeakMap<Element, Watch>();
 let observer: IntersectionObserver | undefined;
 
 const setVisible = (el: Element, visible: boolean): void => {
   const watch = watched.get(el);
-  if (!watch) return;
+  if (!watch || !(el instanceof HTMLElement)) return;
   if (visible && !watch.release) {
     el.setAttribute("data-mark-visible", "");
-    watch.release = retainAttentionClock();
+    watch.release = startLiveRing(el, watch.ring);
   } else if (!visible && watch.release) {
     el.removeAttribute("data-mark-visible");
     watch.release();
@@ -123,9 +123,9 @@ const visibilityObserver = (): IntersectionObserver | undefined => {
   return observer;
 };
 
-const watchLoop = (el: Element): (() => void) => {
+const watchLoop = (el: Element, ring: LiveRing): (() => void) => {
   const io = visibilityObserver();
-  watched.set(el, {});
+  watched.set(el, { ring });
   if (io) io.observe(el);
   // No observer (tests, old engines): treat as visible so it still animates.
   else setVisible(el, true);
@@ -200,10 +200,10 @@ const hubTone = (ring: string, tone: ActivityTone): ActivityTone => {
  * (activity-atlas.ts): the ring carries control state (bent by a trouble
  * reading), a ::after band carries the waiting glow, the good halo and the
  * declared-signal flag. Standalone it has a hub; at seat size a portrait sits
- * in the ring. Loops step on the shared 90 ms clock only while visible and
- * motion is live; done draws itself once and then glints until read; only
- * resting and stopped rings are still. No visible text: the label is the
- * accessible name.
+ * in the ring. Moving rings are painted live every display frame while on
+ * screen and motion is live (activity-live.ts); done draws itself once and
+ * then glints until read; only resting and stopped rings are still. No
+ * visible text: the label is the accessible name.
  */
 export function ActivityMark({
   mode,
@@ -239,6 +239,9 @@ export function ActivityMark({
     signal,
   });
   const looping = core.motion === "loop";
+  const liveRing = core.live?.ring;
+  const liveTone = core.live?.tone;
+  const landing = core.land !== undefined;
   // Idempotent: paints the theme's atlas on first use so the very first
   // frame already has pixels; afterwards a map lookup.
   ensureMarkAtlas(theme);
@@ -248,12 +251,15 @@ export function ActivityMark({
     const animated = renderedMode !== "static";
     canvasPerformance.recordActivityMount(animated, renderedMode);
     const el = ref.current;
-    const unwatch = looping && el ? watchLoop(el) : undefined;
+    const unwatch =
+      looping && el && liveRing && liveTone
+        ? watchLoop(el, { ring: liveRing, tone: liveTone, theme, land: landing })
+        : undefined;
     return () => {
       unwatch?.();
       canvasPerformance.recordActivityUnmount(animated, renderedMode);
     };
-  }, [looping]);
+  }, [looping, liveRing, liveTone, landing, theme]);
 
   const named = accessibleName(label, healthLabel, signal, signalCount);
   const name = crest ? `Overseer, ${named}` : named;
@@ -262,7 +268,6 @@ export function ActivityMark({
     ...(unit !== undefined ? { "--mark-u": `${String(unit)}px` } : {}),
     "--mark-col": core.col,
     "--mark-row": core.row,
-    ...(core.land !== undefined ? { "--mark-lrow": core.land } : {}),
     ...(band ? { "--mark-bcol": band.col, "--mark-brow": band.row } : {}),
     ...(hubMix !== undefined
       ? {

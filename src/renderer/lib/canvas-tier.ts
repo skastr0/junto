@@ -10,7 +10,7 @@
 //             faint blocks with their kind's glyph
 //   overview  regions and seats; crowded seats gather into clusters
 //
-// Rings move at every tier (attention-clock.ts): a seat moves wherever it is
+// Rings move at every tier (activity-live.ts): a seat moves wherever it is
 // drawn. The tier is stamped on <html> as data-canvas-tier, so CSS switches
 // the detail without a React render, and published as canvasTier$ for gates
 // in script (seat clusters at the overview). Hysteresis: a boundary must be

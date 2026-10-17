@@ -370,11 +370,9 @@ const STRESS_SEATS: ReadonlyArray<Seat> = SEATS.slice(0, 8);
  */
 function Stress({ count, bare }: { readonly count: number; readonly bare: boolean }) {
   const [visible, setVisible] = useState(0);
-  const [frame, setFrame] = useState<string | undefined>();
   useEffect(() => {
     const id = window.setInterval(() => {
-      setVisible(document.querySelectorAll(".junto-mark[data-mark-visible]").length);
-      setFrame(document.documentElement.dataset.markFrame);
+      setVisible(document.querySelectorAll(".junto-mark[data-mark-live]").length);
     }, 500);
     return () => window.clearInterval(id);
   }, []);
@@ -406,7 +404,7 @@ function Stress({ count, bare }: { readonly count: number; readonly bare: boolea
           Fleet stress, {count} {bare ? "bare marks" : "seats"}
         </Eyebrow>
         <span className="font-mono text-[11px] text-dim" data-testid="mark-stress-readout">
-          visible looping {visible}, clock frame {frame ?? "idle"}
+          painting live {visible}
         </span>
       </div>
       {grid}
@@ -447,7 +445,7 @@ export function ActivityMarkGallery() {
               An agent is a seat: its portrait held by a living ring, the name, one line. The ring circles while it
               works, runs backwards when stuck, snakes when thrashing, sends a ring out when it wants you, beats
               heavy when blocked, and sweeps closed and rests when done. The band outside says who waits on whom.
-              One shared 90 ms clock, only on screen.
+              Painted live every display frame, only on screen.
             </p>
           </div>
           <div className="flex gap-2">

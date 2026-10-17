@@ -1,8 +1,9 @@
 /**
  * The ring language: how every activity mark is drawn. A seat's ring sits
  * around its portrait; a standalone mark is the same ring around a small hub.
- * Pure canvas-2D painters in a 20-unit box centered on (10, 10); the atlas
- * (activity-atlas.ts) bakes their frames once per theme.
+ * Pure canvas-2D painters in a 20-unit box centered on (10, 10). A moving
+ * ring is painted live every display frame at a continuous frame
+ * (activity-live.ts); the atlas (activity-atlas.ts) bakes rest poses.
  *
  *   work      an arc circles the ring, clockwise
  *   reverse   circling runs backwards (stuck)
@@ -31,6 +32,11 @@ export type RingPalette = {
 export type LoopRing =
   "work" | "reverse" | "snake" | "call" | "wait" | "halt" | "glint" | "fracture" | "dot" | "live";
 export type StillRing = "rest" | "off";
+
+/** The tempo every painter is drawn to: one frame is 90 ms of motion. */
+export const RING_FRAME_MS = 90;
+/** One full cycle of every loop: 32 frames, 2.88 s. Painters take any real frame. */
+export const RING_CYCLE_FRAMES = 32;
 
 /** Frames of the done draw-in; frame LAND_FRAMES is the resting pose. */
 export const LAND_FRAMES = 8;

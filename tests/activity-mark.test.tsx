@@ -27,7 +27,6 @@ describe("ActivityMark structure", () => {
     expect(attr(html, "data-mark-ring")).toBe("done");
     expect(attr(html, "data-mark-motion")).toBe("loop");
     expect(html).toContain("data-mark-land");
-    expect(html).toContain("--mark-lrow:");
   });
 
   it("a still seat that waits on you orbits, whatever its control mode", () => {

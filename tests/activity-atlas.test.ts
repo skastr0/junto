@@ -149,21 +149,16 @@ describe("atlas layout", () => {
     }
   });
 
-  it("the sheet has one frame rule per clock frame, gated on visibility", () => {
+  it("a live ring blanks its core cell so only the canvas shows", () => {
     const css = markAtlasCss();
-    for (let frame = 0; frame < MARK_ATLAS_COLS; frame += 1) {
-      expect(css).toContain(
-        `html[data-mark-frame="${String(frame)}"] .junto-mark[data-mark-motion="loop"][data-mark-visible]`,
-      );
-    }
+    expect(css).toMatch(/\.junto-mark\[data-mark-live\]\{background-position:/);
+    expect(css).toContain(".junto-mark__live{position:absolute;inset:0;");
   });
 
-  it("the land animation has no fill, so the loop takes over when it ends", () => {
-    const rule = markAtlasCss()
-      .split("\n")
-      .find((line) => line.startsWith(".junto-mark[data-mark-land]{"));
-    expect(rule).toBeDefined();
-    expect(rule).not.toMatch(/\b(both|forwards)\b/);
+  it("moving rings name what the live painter draws", () => {
+    expect(ringCells({ glyph: "work", tone: "cyan", animate: true }).core.live).toEqual({ ring: "work", tone: "cyan" });
+    expect(ringCells({ glyph: "done", tone: "steel", animate: true }).core.live).toEqual({ ring: "glint", tone: "green" });
+    expect(ringCells({ glyph: "work", tone: "cyan", animate: false }).core.live).toBeUndefined();
   });
 
   it("names the hue each ring is drawn in, for the far tier's disc", () => {
