@@ -57,9 +57,9 @@ test("a seat that is not running says whether it will resume or start fresh", as
     await expect(line(page, "holds")).toBeVisible({ timeout: 30_000 });
     await page.getByRole("button", { name: /fit all/i }).first().click();
 
-    await expect(line(page, "holds")).toContainText("not running, will resume", { timeout: 20_000 });
-    await expect(line(page, "fresh")).toContainText("not running, starts fresh");
-    await expect(line(page, "rested")).toContainText("not running, will resume");
+    await expect(line(page, "holds")).toContainText("will resume", { timeout: 20_000 });
+    await expect(line(page, "fresh")).toContainText("starts fresh");
+    await expect(line(page, "rested")).toContainText("will resume");
 
     // Offboard the third seat with rest: its session closes at an offboard.
     const result = await page.evaluate(
@@ -67,11 +67,26 @@ test("a seat that is not running says whether it will resume or start fresh", as
       { canvasName: CANVAS, seatIds: ["rested"], action: "now" as const },
     );
     console.log("offboard now", JSON.stringify(result));
-    await expect(line(page, "rested")).toContainText("offboarded, starts fresh", { timeout: 20_000 });
+    await expect(line(page, "rested")).toContainText("offboarded, fresh", { timeout: 20_000 });
 
-    await page.mouse.move(4, 600);
-    await page.waitForTimeout(600);
-    await page.screenshot({ path: join(SHOTS, "three-lines.png") });
+    // At fit-all each line reads whole: none is cut by an ellipsis.
+    for (const [id, text] of [["holds", "will resume"], ["rested", "offboarded, fresh"], ["fresh", "starts fresh"]] as const) {
+      const label = line(page, id).getByText(text, { exact: true });
+      await expect(label).toBeVisible();
+      expect(await label.evaluate((el) => el.scrollWidth <= el.clientWidth), `${id}: the line is not clipped`).toBe(true);
+    }
+    for (const theme of ["Dark", "Bright"] as const) {
+      await page.getByRole("button", { name: "Open settings" }).click();
+      await page.locator(".settings-nav__item", { hasText: "Appearance" }).click();
+      const choice = page.getByRole("radiogroup", { name: "Theme", exact: true }).getByRole("radio", { name: new RegExp(theme) });
+      await choice.click();
+      await expect(choice).toHaveAttribute("aria-checked", "true");
+      await page.locator(".settings-panel__close").click();
+      await page.getByRole("button", { name: /fit all/i }).first().click();
+      await page.mouse.move(4, 600);
+      await page.waitForTimeout(800);
+      await page.screenshot({ path: join(SHOTS, `three-lines-${theme.toLowerCase()}.png`) });
+    }
     console.log("lines", JSON.stringify(await Promise.all(["holds", "rested", "fresh"].map(async (id) => `${id}: ${(await line(page, id).innerText()).replace(/\n/g, " | ")}`))));
 
     // A start takes the same path as a ping: the held seat resumes its session.
