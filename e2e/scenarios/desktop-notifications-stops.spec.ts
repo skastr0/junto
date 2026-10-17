@@ -129,7 +129,7 @@ test("stops post as Stopped, and a dialog replaces a stop", async () => {
       seatEvent("dialog", "idle", now + 1, {
         status: statusOf("dialog", now + 1, [
           ["screen", { _tag: "TurnStarted" }],
-          ["transcript", { _tag: "UsageLimitHit", scope: "weekly", resetsAt: now + 3 * 60 * MINUTE, message: "You've hit your weekly limit" }],
+          ["transcript", { _tag: "UsageLimitHit", scope: "weekly", message: "You've hit your weekly limit" }],
         ]),
       }),
     ]);
