@@ -110,3 +110,13 @@ it("keeps a stack frame's bundle path whole and judges each segment of a path", 
   expect(scrubText(`key at /tmp/x/${"Ab9".repeat(12)}/y`)).toBe("key at /tmp/x/[redacted]/y");
   expect(scrubText(`/Users/someone/.cache/${"Ab9".repeat(12)}`)).toBe("/Users/someone/.cache/[redacted]");
 });
+
+it("judges one 64 KiB path token in linear time", () => {
+  const token = "/" + ("Ab1".repeat(11) + ".").repeat(Math.ceil(64 * 1024 / 34));
+  const started = performance.now();
+  scrubText(token);
+  const tail = new StderrTail();
+  tail.push(new TextEncoder().encode(token));
+  tail.read();
+  expect(performance.now() - started).toBeLessThan(50);
+});

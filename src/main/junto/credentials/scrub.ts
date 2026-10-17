@@ -29,7 +29,8 @@ const CONTROLS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f؜‎‏‪-‮⁦-⁩
 const PRIVATE_KEY = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/g;
 const AUTHORIZATION = /(authorization\s*:\s*)[^\n]*/gi;
 const BEARER = /(\bbearer\s+)[^\s"',;]+/gi;
-const URL_USERINFO = /(\b[a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/gi;
+// A scheme is short; an unbounded one rescans a long token from every word start (quadratic).
+const URL_USERINFO = /(\b[a-z][a-z0-9+.-]{0,31}:\/\/)[^/\s@]+@/gi;
 // The name is bounded: an unbounded prefix rescans from every start (quadratic).
 const NAMED_VALUE = /([A-Za-z0-9_.-]{0,48}(?:token|secret|password|passwd|key|credential|auth|cookie|session)[A-Za-z0-9_.-]{0,48}(?:"|')?\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s&#"',;]+)/gi;
 const TOKEN_SHAPES = /\b(?:sk-|ghp_|gho_|github_pat_|xox[abpr]-|ops_)[A-Za-z0-9_-]+|\bAKIA[A-Z0-9]{12,}|\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g;
@@ -55,13 +56,32 @@ const judgeSegment = (segment: string): string => BUILD_SEGMENT.test(segment) ? 
  * is judged one segment at a time, wherever the run starts in it (a run
  * often starts after a "." such as "/.junto/").
  */
-const judgeRun = (run: string, offset: number, text: string): string => {
-  let start = offset;
-  while (start > 0 && !PATH_BOUNDARY.test(text[start - 1]!)) start--;
-  const token = text.slice(start, offset + run.length);
-  const path = token.startsWith("/") || token.startsWith("~/") || token.startsWith("./") || token.startsWith("file:/");
+const judgeRun = (run: string, offset: number, text: string, tokenStart: (at: number) => number): string => {
+  // The prefix is read in place: slicing the token would be linear per run again.
+  const start = tokenStart(offset);
+  const path = text.startsWith("/", start) || text.startsWith("~/", start) || text.startsWith("./", start) || text.startsWith("file:/", start);
   if (!path) return judgePiece(run);
   return run.split("/").map(judgeSegment).join("/");
+};
+
+/**
+ * Where the token holding each position starts, found in one pass and kept
+ * for the text being scrubbed: walking back per run is quadratic on one long
+ * token.
+ */
+let startsFor: { readonly text: string; readonly starts: Int32Array } | undefined;
+const tokenStarts = (text: string): ((at: number) => number) => {
+  if (startsFor?.text !== text) {
+    const starts = new Int32Array(text.length + 1);
+    let start = 0;
+    for (let at = 0; at <= text.length; at++) {
+      starts[at] = start;
+      if (at < text.length && PATH_BOUNDARY.test(text[at]!)) start = at + 1;
+    }
+    startsFor = { text, starts };
+  }
+  const { starts } = startsFor;
+  return (at) => starts[at]!;
 };
 
 const stripControls = (text: string): string =>
@@ -76,7 +96,7 @@ const replaceShapes = (text: string): string =>
     .replace(NAMED_VALUE, (_match, name: string) => `${name}${REDACTED}`)
     .replace(TOKEN_SHAPES, REDACTED)
     .replace(UUID, REDACTED)
-    .replace(LONG_RUN, (run: string, offset: number, whole: string) => judgeRun(run, offset, whole));
+    .replace(LONG_RUN, (run: string, offset: number, whole: string) => judgeRun(run, offset, whole, tokenStarts(whole)));
 
 /**
  * Values live on this machine that no failure or log may carry: each
