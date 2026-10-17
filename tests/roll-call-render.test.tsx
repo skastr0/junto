@@ -25,6 +25,7 @@ const rollup = (members: ReadonlyArray<MemberStatus>): RegionRollup => ({
     total: members.length,
     blocked: members.filter((m) => m.severity === "blocked").length,
     attention: members.filter((m) => m.severity === "attention").length,
+    escalated: members.filter((m) => m.severity === "escalated").length,
     working: members.filter((m) => m.severity === "working").length,
     ready: members.filter((m) => m.severity === "ready").length,
   },
