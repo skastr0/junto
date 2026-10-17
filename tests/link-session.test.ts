@@ -286,7 +286,7 @@ it("pauses on held event bytes too, and refuses a request from an event handler"
 
 it("refuses a request from a channel's opened hook too", async () => {
   let refused: unknown;
-  const hooked: LinkChannelHandler = { ...channel(), opened: (context) => Effect.flip(context.request("status", { value: "x" })).pipe(Effect.map(error => { refused = error; })) };
+  const hooked: LinkChannelHandler = { ...channel(), opened: (context) => Effect.flip((context as unknown as LinkChannelContext).request("status", { value: "x" })).pipe(Effect.map(error => { refused = error; })) };
   const f = raw({ channels: { status: hooked } });
   f.send({ type: "hello", ...hello("mini") }); await f.session.ready;
   await new Promise<void>(resolve => { const poll = () => refused !== undefined ? resolve() : setTimeout(poll, 2); poll(); });

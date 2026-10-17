@@ -173,12 +173,9 @@ export interface LinkChannelHandler {
   readonly failureSchema?: Schema.Codec<unknown, unknown>;
   readonly handleRequest?: (context: LinkChannelContext, payload: unknown) => Effect.Effect<unknown, unknown>;
   readonly handleEvent?: (context: LinkEventContext, payload: unknown) => Effect.Effect<void, unknown>;
-  /**
-   * Runs in the channel's event queue; the session refuses a request from it at
-   * run time. Typed LinkEventContext once the seats helpers take it.
-   */
-  readonly opened?: (context: LinkChannelContext) => Effect.Effect<void, unknown>;
-  readonly closed?: (context: LinkChannelContext) => Effect.Effect<void, unknown>;
+  /** Runs in the channel's event queue, so it gets no request either. */
+  readonly opened?: (context: LinkEventContext) => Effect.Effect<void, unknown>;
+  readonly closed?: (context: LinkEventContext) => Effect.Effect<void, unknown>;
 }
 
 export type LinkChannels = Readonly<Partial<Record<LinkChannel, LinkChannelHandler>>>;

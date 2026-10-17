@@ -132,14 +132,16 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
   /**
    * The context for work in a channel's event queue: handleEvent, opened and
    * closed. Its request is refused, typed, before anything is sent, so a cast
-   * cannot bring it back. Typed whole for opened and closed until their users
-   * take LinkEventContext.
+   * cannot bring it back.
    */
-  const eventContext = (): LinkChannelContext & LinkEventContext => ({
-    ...context(),
-    request: () => Effect.fail(new LinkUnavailable({ ...(peerName() === undefined ? {} : { machine: peerName()! }),
-      reason: "request-from-event", message: "An event handler cannot send a request on its own link" })),
-  });
+  const eventContext = (): LinkEventContext => {
+    const refusing: LinkChannelContext = {
+      ...context(),
+      request: () => Effect.fail(new LinkUnavailable({ ...(peerName() === undefined ? {} : { machine: peerName()! }),
+        reason: "request-from-event", message: "An event handler cannot send a request on its own link" })),
+    };
+    return refusing;
+  };
   const classify = (cause: unknown): MachineLinkError => isMachineLinkError(cause) ? cause :
     linkClosed({ ...(peerName() === undefined ? {} : { machine: peerName()! }), by: "this-end", reason: "failed", cause });
   const closedFrom = (first: MachineLinkError): LinkClosed => first._tag === "LinkClosed" ? first :
