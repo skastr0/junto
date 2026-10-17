@@ -340,7 +340,8 @@ machine that read the bytes makes the tail, in this order:
    `-----BEGIN ... PRIVATE KEY-----` blocks whole; the token shapes `sk-`,
    `ghp_`, `gho_`, `github_pat_`, `xoxa-`, `xoxb-`, `xoxp-`, `xoxr-`, `AKIA`,
    `ops_` and a three-part JWT starting `eyJ`; and any run of 32 or more
-   base64 or hex characters that mixes letters and digits.
+   base64 or hex characters that mixes letters and digits, except Junto's own
+   ids of the form `<kind>-<26-character ULID>`.
 5. Keep the last 40 lines and at most 4 KiB, cutting at a line start, and
    record that it was cut.
 
@@ -354,7 +355,10 @@ steps 2 to 4 where it is encoded for the link or written to the log, through
 one function in one module. A message is at most 1 KiB and a chain at most 8
 links; the rest is cut and marked. A cause Junto did not write, from Node,
 SQLite or a library, is scrubbed like any other, never trusted to be clean.
-Schema decode failures are formatted without the actual value.
+Schema decode failures are formatted without the actual value. A typed id or
+name field (seat, canvas, machine, operation id) is checked against its own
+schema and dropped when it fails; it is never scrubbed, because a scrubbed id
+no longer matches the scope it is read under.
 
 **The receiver distrusts the sender.** A failure from another machine is
 decoded with a closed schema whose strings have maximum lengths, then put
