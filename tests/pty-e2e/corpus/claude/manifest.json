@@ -477,6 +477,31 @@
         "cliVersion": "2.1.302 (Claude Code)"
       },
       "expectedScreen": {}
+    },
+    {
+      "harness": "claude",
+      "scenario": "compaction-auto",
+      "status": "skip",
+      "reason": "the screen never showed /compact/i",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "CompactionStarted { trigger: auto }, CompactionEnded { ok }, then a completed turn",
+        "wiring": "ANTHROPIC_BASE_URL and a subscription CLAUDE_CODE_OAUTH_TOKEN point at the stub, as Junto seats log in; onboarding and folder trust pre-seeded in the isolated CLAUDE_CONFIG_DIR",
+        "stubServed": [
+          "/v1/messages ok",
+          "/v1/messages ok",
+          "/v1/messages ok"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "⏺ Hello from the capture stub.",
+          "✻ Baked for 0s · done 3:41 AM",
+          "❯ say hi again",
+          "✻ Cogitated for 0s · done 3:41 AM"
+        ],
+        "cliVersion": "2.1.302 (Claude Code)"
+      },
+      "expectedScreen": {}
     }
   ],
   "sanitization": {
@@ -505,7 +530,7 @@
   },
   "signalCaptureEvidence": {
     "tool": "tests/pty-e2e/signal-capture.ts",
-    "capturedAt": "2026-10-17T03:07:34.193Z",
+    "capturedAt": "2026-10-17T03:41:39.317Z",
     "harnessVersion": "2.1.302 (Claude Code)",
     "provider": "scripted local stub; the binary and its rendering are real, the provider replies are not"
   }

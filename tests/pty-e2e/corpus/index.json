@@ -114,6 +114,11 @@
         "scenario": "compaction-manual",
         "status": "complete",
         "reason": null
+      },
+      {
+        "scenario": "compaction-auto",
+        "status": "skip",
+        "reason": "the screen never showed /compact/i"
       }
     ],
     "session": {
