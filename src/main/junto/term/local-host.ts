@@ -115,6 +115,13 @@ import {
 import { configuredToolDirectories } from "../adapters/exec";
 import { buildManagedSeatInject } from "./templates/seat-env";
 import {
+  PROGRAM_STATUS_ENV,
+  PROGRAM_STATUS_QUERY_REPLY,
+  ProgramStatusScanner,
+  programStatusEnvelopes,
+} from "./program-status";
+import type { SignalEnvelope } from "@shared/harness-domain";
+import {
   primeAgentDaemons,
   type PrimeAgentDaemonHandle,
   type PrimeAgentDaemons,
@@ -351,6 +358,8 @@ type SessionRec = {
   killReceipt: AppProcessSignalReceipt | undefined;
   /** Bounded carryover for a harness session marker split across PTY chunks. */
   sessionCaptureTail: string;
+  /** OSC 7501 reports and queries in this generation's output. */
+  programStatus: ProgramStatusScanner;
   /** Exact-record escalation; never follows a mutable binding lookup. */
   escalationTimer: ReturnType<typeof setTimeout> | undefined;
   /**
@@ -729,6 +738,8 @@ export const resolveLaunch = (
     seat.kind === "agent"
       ? {
           ...buildSpawnEnv(process.env, {
+            // Status reporting on by default; anything the seat or region set wins.
+            ...PROGRAM_STATUS_ENV,
             ...launchEnv,
             ...(options?.regionEnv ?? {}),
             ...seatOwnEnv,
@@ -899,6 +910,7 @@ export class LocalSessionHost extends EventEmitter {
   private readonly recordExitWaiters = new Set<RecordExitWaiter>();
   private inputSealed: ((bindingId: string) => boolean) | undefined;
   private readonly drainEndedListeners = new Set<(drainKey: string, code: number | undefined) => void>();
+  private readonly seatSignalListeners = new Set<(envelope: SignalEnvelope) => void>();
   private maintenanceLease: LocalTerminalMaintenanceLease | undefined;
   private shuttingDown = false;
   private shutdownFlight: Promise<LocalHostShutdownResult> | undefined;
@@ -1206,6 +1218,7 @@ export class LocalSessionHost extends EventEmitter {
       termReceipt: undefined,
       killReceipt: undefined,
       sessionCaptureTail: "",
+      programStatus: new ProgramStatusScanner(),
       escalationTimer: undefined,
       unconfirmedStop: undefined,
       draining: undefined,
@@ -2174,6 +2187,14 @@ export class LocalSessionHost extends EventEmitter {
     };
   }
 
+  /** Told each seat signal read out of a seat's PTY stream (OSC 7501 today). */
+  onSeatSignal(listener: (envelope: SignalEnvelope) => void): () => void {
+    this.seatSignalListeners.add(listener);
+    return () => {
+      this.seatSignalListeners.delete(listener);
+    };
+  }
+
   /** Detached sessions still alive, for the record at quit. */
   drainingKeys(): ReadonlyArray<string> {
     return [...this.liveRecords]
@@ -2559,6 +2580,7 @@ export class LocalSessionHost extends EventEmitter {
     this.pushJournal(rec, { seq: rec.seq, type: "output", data });
     // Single insertion point: every byte already flows here with a seq.
     this.observerPlane.feed(rec.bindingId, data, rec.seq);
+    this.observeProgramStatus(rec, data);
     // Best-effort diagnostic observation when a harness prints a labeled id.
     // PTY text is untrusted and this value is neither durable nor a cold-resume
     // capability. Retain a bounded tail so a label split across chunks remains
@@ -2605,6 +2627,42 @@ export class LocalSessionHost extends EventEmitter {
     } catch (error) {
       console.error(`[term] output listener failed for ${rec.bindingId}@${rec.epoch}:`, error);
     }
+  }
+
+  /**
+   * Junto is the seat's terminal, so it answers the OSC 7501 support query
+   * and reads the program's status reports. The reply is written in the same
+   * tick the query arrives, ahead of any DA1 reply a surface sends, which is
+   * the order pi and agy require.
+   */
+  private observeProgramStatus(rec: SessionRec, data: string): void {
+    for (const event of rec.programStatus.feed(data)) {
+      if (event.type === "query") {
+        this.answerProgramStatusQuery(rec);
+        continue;
+      }
+      for (const envelope of programStatusEnvelopes(rec.bindingId, Date.now(), event.report)) {
+        for (const listener of this.seatSignalListeners) {
+          try {
+            listener(envelope);
+          } catch (error) {
+            console.error(`[term] seat signal listener failed for ${rec.bindingId}@${rec.epoch}:`, error);
+          }
+        }
+      }
+    }
+  }
+
+  /** Behind a managed submission span, like any other write, so it never lands inside a paste. */
+  private answerProgramStatusQuery(rec: SessionRec): void {
+    const answer = (): void => {
+      if (this.sessions.get(rec.bindingId) !== rec || rec.killed || !sessionPhaseAllowsWrite(rec.phase)) {
+        return;
+      }
+      this.writeRecord(rec, PROGRAM_STATUS_QUERY_REPLY);
+    };
+    if (this.operatorInterlock.holdWrite(rec.bindingId, { replay: answer })) return;
+    answer();
   }
 
   private observeExit(
