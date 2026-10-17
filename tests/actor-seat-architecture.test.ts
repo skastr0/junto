@@ -35,7 +35,8 @@ describe("actor seat production architecture", () => {
   });
 
   it("compiles spawn intent before placement and finalizes only on the process host", () => {
-    const ipc = source("src/main/junto/term/ipc.ts");
+    // The window's and the owner commands' agent seat start (seat-control.ts).
+    const ipc = source("src/main/junto/term/seat-control.ts");
     const ensure = source("src/main/junto/term/ensure-managed-seat.ts");
     const process = source("src/main/junto/term/seat-process.ts");
     const server = source("src/main/junto/term/control-server.ts");

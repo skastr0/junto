@@ -374,6 +374,12 @@ describe("machine-safety architecture", () => {
       "src/main/junto/term/ipc.ts:router.kill",
       "src/main/junto/term/router.ts:c.kill",
       "src/main/junto/term/router.ts:this.local.kill",
+      // The one agent-seat stop the window and the owner commands share: a
+      // binding on this machine through the router's owned-session stop.
+      "src/main/junto/term/seat-control.ts:plane.router.kill",
+      // A pinned peer's admitted Stop of its seat's live binding on this
+      // machine, the link's twin of control-server's host.kill.
+      "src/main/junto/term/seats-link.ts:host.kill",
       // Owned child only: codesign/plutil admit timeout.
       "src/main/junto/update/admit-mac-app.ts:child.kill",
     ]);

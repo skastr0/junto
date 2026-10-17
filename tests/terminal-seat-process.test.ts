@@ -405,6 +405,7 @@ describe("Remote TerminalSeatProcess", () => {
       epoch: "epoch-1",
       hostId: "station-a",
     });
+    // The operation id rides apart from the payload; none was given here.
     expect(createAgentSeat).toHaveBeenCalledWith({
       admission: "activate",
       bindingId: "seat-r",
@@ -413,7 +414,7 @@ describe("Remote TerminalSeatProcess", () => {
       agentKey: "local:grok",
       canvasName: "factory",
       nodeId: "node-seat-r",
-    });
+    }, undefined);
   });
 
   it.each([
