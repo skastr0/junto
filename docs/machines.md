@@ -117,7 +117,9 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
 11. **Seat control addresses the machine.** Start, stop and attach go to the
     seat's machine directly.
 12. **Harnesses are the operator's.** Junto reports which harness CLIs exist on
-    each machine. It installs none and logs in to none.
+    each machine. It installs none and logs in to none. A harness setting the
+    operator sets for a machine is written into that machine's own harness
+    config by that machine's Junto (Harness inventory).
 13. **An agent can exercise all of it, alone.** Every operation in this feature
     has a command an agent can run and a result it can read: add, send, update
     and remove a machine; place a seat on a machine, wire it, start and stop
@@ -187,8 +189,9 @@ The one interface three seats build against.
   - `status`: reachable or not, harness CLIs present, the names of missing
     secrets. Never a value, a path or anything a caller chose to probe.
   - `inventory`: the machine's own harness snapshot, each harness with its
-    version, model ids and permission mode names. Nothing else, and nothing a
-    caller chose to probe (Harness inventory, below).
+    version, model ids and permission mode names, and its harness settings
+    read and written by closed key (Harness inventory, below). Nothing else,
+    and nothing a caller chose to probe.
 - The same code runs at both ends. Nothing above the transport knows which end
   opened the link.
 - Terminal bytes ride the link. If running shows that hurts typing,
@@ -299,14 +302,38 @@ machine that runs it.
 - **Settings name their machine.** A settings page scoped to a machine has a
   machine dropdown and shows that machine's colour and icon. The seat picker
   and a seat's Params read the inventory of the seat's machine.
-- **Read only across machines.** Rule 12 is unchanged: no machine edits
-  another machine's harness config. Whether a machine's own Junto may ever
-  write its native harness config on request is the operator's later call.
-- **An agent can read it.** An owner command returns a machine's snapshot and
-  its age, local or over the link (rule 13).
+- **Native config is written by its own machine.** Proposed 17 October by
+  the operator's decision, under `remote-lead` and `remote-security` review.
+  Settings offer launch flags and permanent edits to a harness's own config;
+  both work on every machine from the start.
+  - The operator edits a machine's harness settings from any window. The
+    request goes to that machine, and its own Junto writes the change. No
+    peer writes another machine's files.
+  - A request names a harness, a setting key from the harness domain's closed
+    list for that machine's installed version, and a typed value. Never a
+    file, a path, free text to write, or a command. The machine validates it
+    against its own installed version and refuses what it does not offer.
+  - Reads use the same closed keys: the machine answers each key's current
+    typed value, never a file and never a block such as `env` that can hold a
+    secret. Credential files are never read, written or carried.
+  - A write changes only the named key and keeps the file's comments and
+    formatting, backs the file up first and replaces it in one step. A file
+    changed by hand since the machine last read it answers a typed conflict,
+    never a silent overwrite.
+  - The answer is the key's value as read back after the write, or a typed
+    failure (Failures and logs). An unreachable machine refuses the write
+    with its typed reason; nothing is queued.
+- **One path for every machine.** The window's own machine answers the same
+  requests through the same code as a linked one. There is no local-only
+  path to settings, and nothing ships as local first with other machines
+  added later.
+- **An agent can do all of it.** Owner commands read a machine's snapshot,
+  its age and its settings, and write a setting, local or over the link
+  (rule 13).
 - **Order.** The channel lands after `remote-send`'s link rewrite (typed
   failures, operation ids on frames). The per-machine cache (`07c1d3ada`) and
-  the harness params it feeds are local and come first.
+  the harness params can be built before it, but no settings page ships until
+  inventory, settings reads and writes work for every linked machine.
 - **Owners.** `remote-send` the channel; `product-lead` the per-machine cache
   and the settings pages; the PTY harness domain decides which values a
   harness offers.
