@@ -770,7 +770,11 @@ export type ManagedTerminalTemplate = {
    * Absent means unverified: pickers then offer free text.
    */
   readonly permissionModes?: readonly string[];
-  /** Default permission/approval mode when the picker does not choose. */
+  /**
+   * The harness's own permission default, for display ("Harness default").
+   * Never emitted: a launch passes a permission mode only when the operator
+   * chose one in Junto, so an unset seat follows the harness's own config.
+   */
   readonly defaultPermissionMode?: string;
   /** Probed binary version era (re-smoke on harness updates). */
   readonly probedVersion?: string;

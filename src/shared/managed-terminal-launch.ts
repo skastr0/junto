@@ -372,8 +372,10 @@ const buildArgv = (
   // Permission / approval. Bare flags like --yolo or --dangerously-skip-permissions are emitted without value when enabled.
   // A harness with `permissionArgv` names each mode's own tokens. An empty
   // list is a real mode (Cursor allowlist) and emits nothing.
-  const permission =
-    choices.permissionMode ?? template.defaultPermissionMode;
+  // Only a mode the operator chose in Junto is emitted. Unset means the
+  // harness's own config decides; `defaultPermissionMode` names that default
+  // for display and is never passed.
+  const permission = choices.permissionMode;
   if (permission !== undefined && spec.permissionArgv && permission in spec.permissionArgv) {
     argv.push(...spec.permissionArgv[permission]!);
   } else if (permission !== undefined) {

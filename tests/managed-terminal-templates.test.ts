@@ -479,8 +479,6 @@ describe("resolveManagedLaunch argv", () => {
       "haiku",
       "--effort",
       "low",
-      "--permission-mode",
-      "default",
     ]);
     // Snapshot-off only rides a resume that also re-passes doctrine.
     expect(launch.argv).not.toContain("--system-prompt-snapshot");
@@ -508,8 +506,6 @@ describe("resolveManagedLaunch argv", () => {
       "claude",
       "--resume",
       "abc",
-      "--permission-mode",
-      "default",
     ]);
   });
 
@@ -591,8 +587,6 @@ describe("resolveManagedLaunch argv", () => {
       "grok-4.5",
       "--reasoning-effort",
       "low",
-      "--permission-mode",
-      "default",
       "--session-id",
       "eacbbdbf-e813-5648-927c-a357e5eddaad",
       "Reply with OK",
@@ -1018,17 +1012,11 @@ describe("resolveManagedLaunch argv", () => {
     expect(launch.argv).not.toContain("--yolo");
   });
 
-  it("devin: --permission-mode default and -- separator before positional prompt", () => {
+  it("devin: no unset permission mode, and -- separator before positional prompt", () => {
     const launch = resolveManagedLaunch("devin", { prompt: "make it" }, bareAmbient);
-    expect(launch.argv).toEqual([
-      "devin",
-      "--permission-mode",
-      "normal",
-      "--",
-      "make it",
-    ]);
+    expect(launch.argv).toEqual(["devin", "--", "make it"]);
     const bare = resolveManagedLaunch("devin", {}, bareAmbient);
-    expect(bare.argv).toEqual(["devin", "--permission-mode", "normal"]);
+    expect(bare.argv).toEqual(["devin"]);
     expect(bare.argv).not.toContain("--sandbox");
   });
 
@@ -1147,7 +1135,7 @@ describe("resolveManagedLaunch argv", () => {
     expect(bracketed.argv).toContain("composer-2.5[fast=false]");
   });
 
-  it("devin resume re-passes --model and default permission via -r", () => {
+  it("devin resume re-passes --model via -r and no unset permission", () => {
     const launch = resolveManagedLaunch(
       "devin",
       { resumeId: "sample-session", model: "devin-3" },
@@ -1159,8 +1147,6 @@ describe("resolveManagedLaunch argv", () => {
       "sample-session",
       "--model",
       "devin-3",
-      "--permission-mode",
-      "normal",
     ]);
   });
 
@@ -1214,9 +1200,9 @@ describe("resolveManagedLaunch argv", () => {
     expect(launch.argv).not.toContain("-c");
   });
 
-  it("defaults: click harness → argv with default permission only", () => {
+  it("defaults: click harness → bare argv, the harness's own config decides", () => {
     const launch = resolveManagedLaunch("claude", {}, bareAmbient);
-    expect(launch.argv).toEqual(["claude", "--permission-mode", "default"]);
+    expect(launch.argv).toEqual(["claude"]);
   });
 
   it("rejects unknown harness ids", () => {

@@ -222,19 +222,19 @@ describe("customize agent editor", { timeout: 30_000 }, () => {
     expect(opened.querySelector('[role="tabpanel"]')?.getAttribute("data-section")).toBe("params");
     const preview = (): string =>
       opened.querySelector('[data-testid="seat-start-params-preview"]')?.textContent ?? "";
-    expect(preview()).toBe("claude --permission-mode default");
+    expect(preview()).toBe("claude");
 
     // The harness's own options are listed; one Junto already sets is not addable.
     const options = [...opened.querySelectorAll<HTMLButtonElement>(".customize-params__flag-add")];
     expect(options.map((option) => option.disabled)).toEqual([false, true]);
     act(() => options[0]!.click());
     type(opened.querySelector<HTMLInputElement>('input[aria-label="Model"]')!, "opus");
-    expect(preview()).toBe("claude --model opus --permission-mode default --verbose");
+    expect(preview()).toBe("claude --model opus --verbose");
 
     // A flag Junto owns is reported, not launched.
     type(opened.querySelector<HTMLInputElement>('input[aria-label="Extra arguments"]')!, "--verbose --session-id x");
     expect(opened.querySelector(".customize-params__rejected")?.textContent).toContain("--session-id");
-    expect(preview()).toBe("claude --model opus --permission-mode default --verbose");
+    expect(preview()).toBe("claude --model opus --verbose");
 
     await act(async () => {
       button("Save").click();
@@ -252,7 +252,7 @@ describe("customize agent editor", { timeout: 30_000 }, () => {
           kind: "agent",
           launch: {
             kind: "harness",
-            argv: ["claude", "--model", "opus", "--permission-mode", "default", "--verbose"],
+            argv: ["claude", "--model", "opus", "--verbose"],
             extraArgs: ["--verbose"],
           },
         },
