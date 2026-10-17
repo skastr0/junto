@@ -30,6 +30,22 @@ const BuildInput = Schema.Struct({
 export type BuildMachineInput = typeof BuildInput.Type;
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
+/** The bundler's own messages, each with its file and line, never the bare "Bundle failed". */
+export class MachineBundleBuildFailed extends Schema.TaggedError<MachineBundleBuildFailed>()("MachineBundleBuildFailed", {
+  messages: Schema.Array(Schema.String),
+  message: Schema.String,
+}) {
+  static from(error: unknown): MachineBundleBuildFailed {
+    const logs = error instanceof AggregateError ? error.errors : [error];
+    const messages = logs.map((log: unknown) => {
+      const text = log instanceof Error ? log.message : String(log);
+      const position = (log as { position?: { file?: string; line?: number; column?: number } | null }).position;
+      return position?.file ? `${position.file}:${position.line ?? 0}:${position.column ?? 0}: ${text}` : text;
+    }).filter(text => text.length > 0);
+    return new MachineBundleBuildFailed({ messages, message: `The core bundle failed to build:\n${messages.join("\n") || String(error)}` });
+  }
+}
+
 const run = (program: string, args: string[], cwd?: string, env: NodeJS.ProcessEnv = process.env): string => {
   const result = spawnSync(program, args, { cwd, env, encoding: "utf8", timeout: 300_000, maxBuffer: 16 * 1024 * 1024 });
   if (result.stderr) process.stderr.write(result.stderr);
@@ -101,6 +117,7 @@ export const buildMachine = async (input: BuildMachineInput) => {
     await mkdir(join(stage, "bin"), {recursive: true});
     await mkdir(join(stage, "core"), {recursive: true});
     await stageOfficialMachineNode(input.target, stage, resolve(input.cache ?? join(homedir(), ".cache/junto/node")));
+    // Bun.build throws an AggregateError on failure; its BuildMessages are the cause.
     const result = await Bun.build({
       entrypoints: [join(repoRoot, "src/main/headless.ts")], outdir: join(stage, "core"), naming: "junto.cjs", target: "node", format: "cjs",
       external: ["node-pty", "@xterm/headless", "@xterm/addon-serialize", "electron"],
@@ -112,8 +129,8 @@ export const buildMachine = async (input: BuildMachineInput) => {
         builder.onResolve({filter: /^original-fs$/}, () => ({path: "native", namespace: "native-fs"}));
         builder.onLoad({filter: /.*/, namespace: "native-fs"}, () => ({contents: 'module.exports = require("node:fs");', loader: "js"}));
       }}],
-    });
-    if (!result.success) throw new Error(result.logs.map(String).join("\n"));
+    }).catch((error: unknown) => { throw MachineBundleBuildFailed.from(error); });
+    if (!result.success) throw MachineBundleBuildFailed.from(new AggregateError(result.logs, "Bundle failed"));
     const core = await readFile(join(stage, "core/junto.cjs"), "utf8");
     if (/(?:__require|require)\s*\(\s*["']electron["']\s*\)|\bBrowserWindow\b/.test(core)) throw new Error("the windowless core imports Electron");
     // A baked source URL resolves packages from the build machine's checkout, absent on the target.
