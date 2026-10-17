@@ -134,7 +134,12 @@ export type TemporalEvidenceAbsentReason =
   /** No failure marker on any evidence line. */
   | "no_failure_visible"
   /** One failure block only: a comparison needs two. */
-  | "fewer_than_two_attempts";
+  | "fewer_than_two_attempts"
+  /**
+   * Every failure block is the harness retrying its own provider call (a 429,
+   * a 503, a dropped connection): the agent made no attempt to compare.
+   */
+  | "provider_retry_only";
 
 export type TemporalEvidence =
   | { readonly kind: "absent"; readonly reason: TemporalEvidenceAbsentReason }
@@ -554,6 +559,27 @@ export const FAILURE_MARKERS: readonly RegExp[] = [
 const isFailureLine = (text: string): boolean =>
   FAILURE_MARKERS.some((re) => re.test(text));
 
+/**
+ * Provider-call failure markers. A harness retrying its model request prints
+ * the same provider error once per try (`Error: 429 {...rate_limit_error...}`,
+ * `Error: <provider> API error (503): {...overloaded...}`, `Error: Connection
+ * error.`, then `Retry failed after 3 attempts: ...`). Those lines repeat by
+ * construction, are no attempt by the agent, and are already read natively as
+ * `Retrying` or a usage limit by the harness screen rules. A block carrying one
+ * is not an attempt, so a retry countdown never certifies a pair. Captures:
+ * corpus/pi/{retry-*,error-server,usage-limit*}, corpus/omp/usage-limit*.
+ */
+export const PROVIDER_FAILURE_MARKERS: readonly RegExp[] = [
+  /^\s*Error:\s+(?:429|5\d\d)\b/u,
+  /\bAPI error \((?:429|5\d\d)\)/u,
+  /^\s*Error:\s+Connection error\b/u,
+  /\bRetry failed after \d+ attempts?\b/u,
+  /"(?:rate_limit_error|rate_limit_exceeded|usage_limit_reached|overloaded_error)"/u,
+];
+
+const isProviderFailureLine = (text: string): boolean =>
+  PROVIDER_FAILURE_MARKERS.some((re) => re.test(text));
+
 const isBlockBoundary = (text: string): boolean =>
   text.trim().length === 0 || isHorizontalRule(text);
 
@@ -563,8 +589,10 @@ const isBlockBoundary = (text: string): boolean =>
  * A block is the maximal contiguous run of non-blank, non-rule lines around a
  * failure marker. Two failures inside one run are one block; two failures
  * separated by a blank line, a rule, or fresh output are two — which is the
- * shape a repeated attempt has on a real screen. Fewer than two blocks is
- * `absent`, and the comparison question is then not asked.
+ * shape a repeated attempt has on a real screen. A block carrying a provider
+ * failure marker is the harness retrying, not an attempt, and does not count.
+ * Fewer than two attempt blocks is `absent`, and the comparison question is
+ * then not asked.
  */
 export const detectTemporalEvidence = (
   lines: readonly Pick<EvidenceLine, "id" | "text">[],
@@ -584,9 +612,13 @@ export const detectTemporalEvidence = (
     blocks.push({ start, end });
   }
   if (blocks.length === 0) return { kind: "absent", reason: "no_failure_visible" };
-  if (blocks.length < 2) return { kind: "absent", reason: "fewer_than_two_attempts" };
-  const first = blocks[blocks.length - 2]!;
-  const second = blocks[blocks.length - 1]!;
+  const attempts = blocks.filter(
+    (block) => !lines.slice(block.start, block.end + 1).some((line) => isProviderFailureLine(line.text)),
+  );
+  if (attempts.length === 0) return { kind: "absent", reason: "provider_retry_only" };
+  if (attempts.length < 2) return { kind: "absent", reason: "fewer_than_two_attempts" };
+  const first = attempts[attempts.length - 2]!;
+  const second = attempts[attempts.length - 1]!;
   return {
     kind: "pair",
     firstLineIds: lines.slice(first.start, first.end + 1).map((l) => l.id),
@@ -596,9 +628,16 @@ export const detectTemporalEvidence = (
 
 const describeTemporal = (temporal: TemporalEvidence): string => {
   if (temporal.kind === "absent") {
-    return temporal.reason === "no_failure_visible"
-      ? "Note: no failure output is present in this evidence, so a repeat comparison is not possible."
-      : "Note: only one failure block is present in this evidence, so a repeat comparison is not possible.";
+    if (temporal.reason === "no_failure_visible") {
+      return "Note: no failure output is present in this evidence, so a repeat comparison is not possible.";
+    }
+    if (temporal.reason === "provider_retry_only") {
+      return (
+        "Note: the failure output in this evidence is the harness retrying its provider request, " +
+        "not an attempt by the agent, so a repeat comparison is not possible."
+      );
+    }
+    return "Note: only one failure block is present in this evidence, so a repeat comparison is not possible.";
   }
   const range = (ids: readonly string[]): string => `${ids[0]} to ${ids[ids.length - 1]}`;
   return (

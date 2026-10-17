@@ -275,14 +275,21 @@ describe("awareness evidence projection over real corpus windows", () => {
       ).toBe(state.drops.windowLines);
     }
 
-    // Measured over the 38 complete captures with committed fixtures: 36
-    // windows carry no failure output at all and 2 carry exactly one failure
-    // block, so the comparison question is never asked and the axis reports the
-    // gap. This is the measured false-positive path ("repetition yes" without
+    // Measured over every complete capture with a committed fixture: most
+    // windows carry no failure output, some carry exactly one failure block,
+    // and the retry, error and limit screens carry only the harness's own
+    // provider errors repeated once per try (pi/retry-*, pi/error-server,
+    // pi/usage-limit*, omp/usage-limit*), which are no attempt by the agent.
+    // So the comparison question is never asked and the axis reports the gap.
+    // This is the measured false-positive path ("repetition yes" without
     // temporal evidence) closed by construction on every real screen in the
     // corpus.
     expect(pairFixtures).toEqual([]);
-    expect([...reasons.keys()].sort()).toEqual(["fewer_than_two_attempts", "no_failure_visible"]);
+    expect([...reasons.keys()].sort()).toEqual([
+      "fewer_than_two_attempts",
+      "no_failure_visible",
+      "provider_retry_only",
+    ]);
     // The caps do real work: the line cap binds on 7 of the 38 captures, and at
     // 120 columns the largest evidence block measured 16038 bytes against the
     // 32 KiB cap, so the byte cap binds on none of them.
@@ -546,6 +553,30 @@ describe("awareness temporal evidence", () => {
       reason: "fewer_than_two_attempts",
     });
     expect(FAILURE_MARKERS.length).toBeGreaterThan(0);
+  });
+
+  it("does not read a harness retrying its provider request as two attempts", () => {
+    // corpus/pi/retry-network and pi/usage-limit: the same provider error once
+    // per try, then the give-up line. No attempt by the agent repeats.
+    expect(
+      detectTemporalEvidence(
+        ids(["say hi", "", "Error: Connection error.", "", "Error: Connection error.", "", "Hello."]),
+      ),
+    ).toEqual({ kind: "absent", reason: "provider_retry_only" });
+    const limit =
+      'Error: capture API error (429): {"type":"usage_limit_reached","message":"The usage limit has been reached"}';
+    expect(
+      detectTemporalEvidence(
+        ids([limit, "", limit, "", `Error: Retry failed after 3 attempts: ${limit.slice(7)}`]),
+      ),
+    ).toEqual({ kind: "absent", reason: "provider_retry_only" });
+    // A provider error beside one real failure leaves one attempt, not a pair.
+    expect(
+      detectTemporalEvidence(ids(["$ npm test", "FAIL src/a.test.ts", "", "Error: 503 overloaded"])),
+    ).toEqual({ kind: "absent", reason: "fewer_than_two_attempts" });
+    expect(selectAwarenessInput(windowOf(["Error: Connection error.", "", "Error: Connection error."])).temporalNote).toMatch(
+      /harness retrying its provider request/u,
+    );
   });
 
   it("reports no_failure_visible when nothing failed", () => {
