@@ -1,7 +1,9 @@
 import type { HostsOpResult } from "@shared/ipc";
 import { TERMINAL_HOST_CAPABILITY } from "@shared/remote-hosts";
 import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
-import { templateFor, type HarnessId } from "@shared/managed-terminal-templates";
+import type { HarnessId } from "@shared/managed-terminal-templates";
+import { paramSpec } from "@shared/harness-domain";
+import { HARNESS_RECORDS } from "@shared/harness-records";
 import { resolveHarnessLaunchDefaults } from "@shared/harness-settings";
 import type { Settings } from "@shared/settings";
 
@@ -99,12 +101,13 @@ export type CascadeFirstColumn =
   | { readonly kind: "modes"; readonly modes: readonly string[] };
 
 export const firstCascadeColumn = (harness: HarnessId): CascadeFirstColumn => {
-  if (harness === "hermes") return { kind: "profiles" };
-  const template = templateFor(harness);
-  const modes = template.modes ?? [];
-  // Amp's mode replaces the model. Cursor has both: `--mode plan|ask` is a
-  // second dial, and the first column stays the model.
-  return modes.length > 0 && !template.argvSpec.modelFlag
+  const params = HARNESS_RECORDS[harness].params;
+  if (paramSpec(params, "profile")) return { kind: "profiles" };
+  const mode = paramSpec(params, "mode");
+  const modes = mode?.options.source === "fixed" ? mode.options.values : [];
+  // A mode that replaces the model (Amp) is the first column. A harness with
+  // both (Cursor `--mode plan|ask`) keeps the model first.
+  return modes.length > 0 && !paramSpec(params, "model")
     ? { kind: "modes", modes }
     : { kind: "models" };
 };

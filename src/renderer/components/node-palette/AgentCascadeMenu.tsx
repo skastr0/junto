@@ -22,6 +22,8 @@ import type {
   ManagedTerminalProfileOption,
 } from "@shared/ipc";
 import { harnessPrefsFor } from "@shared/settings";
+import { paramSpec } from "@shared/harness-domain";
+import { HARNESS_RECORDS } from "@shared/harness-records";
 import { state$ } from "../../lib/state";
 import { getJuntoApi } from "../../lib/junto-api";
 import { useHarnessLaunchOptions } from "../../lib/harness-launch-options";
@@ -312,11 +314,17 @@ export function AgentCascadeMenu({
   const [modelSource, setModelSource] = useState<ManagedTerminalModelsResult["source"]>();
   const [modelQuery, setModelQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
-  const { modes: discoveredModes } = useHarnessLaunchOptions(harness === "amp" ? harness : undefined, cwd);
+  // Read from the harness record: a profile param picks the profile first; a
+  // mode with no model is the first column itself.
+  const profileFirst = paramSpec(HARNESS_RECORDS[harness].params, "profile") !== undefined;
+  const { modes: discoveredModes } = useHarnessLaunchOptions(
+    firstCascadeColumn(harness).kind === "modes" ? harness : undefined,
+    cwd,
+  );
   const settings = use$(state$.settings);
   const recentModels = harnessPrefsFor(settings, harness).recentModels;
   const [profiles, setProfiles] = useState<readonly ManagedTerminalProfileOption[] | null>(
-    harness === "hermes" ? null : [],
+    profileFirst ? null : [],
   );
   const [enumeratedEfforts, setEnumeratedEfforts] = useState<readonly string[]>([]);
   const [activeProfile, setActiveProfile] = useState<ManagedTerminalProfileOption | null>(null);
@@ -354,7 +362,7 @@ export function AgentCascadeMenu({
       });
     if (!api?.managedTerminalModels) setModels([]);
 
-    if (harness === "hermes") {
+    if (profileFirst) {
       void api
         ?.managedTerminalProfiles?.()
         .then((result) => {
@@ -368,7 +376,7 @@ export function AgentCascadeMenu({
     return () => {
       live = false;
     };
-  }, [harness]);
+  }, [harness, profileFirst]);
 
   const efforts = useMemo(() => {
     if (!activeModel) return [] as readonly string[];
@@ -378,7 +386,7 @@ export function AgentCascadeMenu({
   }, [activeModel, enumeratedEfforts, harness]);
 
   const showModelColumn =
-    harness === "hermes" && activeProfile !== null && (models === null || models.length > 0);
+    profileFirst && activeProfile !== null && (models === null || models.length > 0);
   const showEffortColumn = activeModel !== null && efforts.length > 0;
 
   useLayoutEffect(() => {
@@ -403,12 +411,12 @@ export function AgentCascadeMenu({
   // so hover→pick stays one glance away from "use profile default".
   const modelChoices = useMemo(() => {
     const base = orderModels(models ?? [], modelSource);
-    if (harness !== "hermes" || !activeProfile?.model) return base;
+    if (!profileFirst || !activeProfile?.model) return base;
     const pin = activeProfile.model;
     const rest = base.filter((m) => m.id !== pin);
     const pinned = base.find((m) => m.id === pin) ?? { id: pin, label: pin };
     return [pinned, ...rest];
-  }, [models, modelSource, harness, activeProfile]);
+  }, [models, modelSource, profileFirst, activeProfile]);
   const arranged = useMemo(
     () => arrangeModels(modelChoices, recentModels, modelQuery),
     [modelChoices, recentModels, modelQuery],
@@ -426,7 +434,7 @@ export function AgentCascadeMenu({
   const usesModes = firstColumn.kind === "modes";
   const firstColumnIsLoading = usesModes
     ? false
-    : harness === "hermes"
+    : profileFirst
       ? profiles === null
       : models === null;
   const configure = (choices: AgentConfigurationChoices): void => {
@@ -502,7 +510,7 @@ export function AgentCascadeMenu({
         if (!searching || !top) return;
         configure({
           harness,
-          ...(harness === "hermes" && activeProfile ? { profile: activeProfile.name } : {}),
+          ...(profileFirst && activeProfile ? { profile: activeProfile.name } : {}),
           model: top.id,
         });
         return;
@@ -513,7 +521,7 @@ export function AgentCascadeMenu({
           changeQuery("");
           return;
         }
-        if (harness === "hermes" && activeProfile) {
+        if (profileFirst && activeProfile) {
           const label = activeProfile.name;
           setActiveModel(null);
           skipExpandOnFocusRef.current = true;
@@ -634,7 +642,7 @@ export function AgentCascadeMenu({
         focusParentColumn("model", label);
         return;
       }
-      if (step === "model" && harness === "hermes") {
+      if (step === "model" && profileFirst) {
         const label = activeProfile?.name;
         setActiveModel(null);
         focusParentColumn("profile", label);
@@ -720,7 +728,7 @@ export function AgentCascadeMenu({
     enumeratedEfforts.length > 0 ||
     templateFor(harness).efforts.length > 0;
   const profileChoice = (): { readonly profile?: string } =>
-    harness === "hermes" && activeProfile ? { profile: activeProfile.name } : {};
+    profileFirst && activeProfile ? { profile: activeProfile.name } : {};
 
   // First in every column, and lit until the pointer or keys pick another
   // row: a plain click on the agent (or the model) means exactly this.
@@ -814,15 +822,15 @@ export function AgentCascadeMenu({
     >
       <MenuColumn
         label={
-          harness === "hermes"
+          profileFirst
             ? "Hermes profiles"
             : usesModes
               ? `${displayName} modes`
               : `${displayName} models`
         }
         parent={displayName}
-        step={harness === "hermes" ? "profile" : usesModes ? "mode" : "model"}
-        {...(harness !== "hermes" && !usesModes && !firstColumnIsLoading
+        step={profileFirst ? "profile" : usesModes ? "mode" : "model"}
+        {...(!profileFirst && !usesModes && !firstColumnIsLoading
           ? { search: search(`Search ${displayName} models`) }
           : {})}
       >
@@ -840,7 +848,7 @@ export function AgentCascadeMenu({
               />
             ))}
           </>
-        ) : harness === "hermes" ? (
+        ) : profileFirst ? (
           <>
             {defaultsItem}
             {profileChoices.map((profile) => {
