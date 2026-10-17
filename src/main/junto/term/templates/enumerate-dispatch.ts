@@ -9,6 +9,7 @@ import type {
 } from "@shared/ipc";
 import { isHarnessId, templateFor, type HarnessId } from "@shared/managed-terminal-templates";
 import { managedHarnessEnabled } from "@shared/managed-terminal-templates";
+import type { InventoryProfile } from "@shared/harness-domain/inventory";
 import { runCli } from "../../adapters/exec";
 import {
   enumerateAgyModels,
@@ -103,13 +104,20 @@ export const HARNESS_MODEL_LISTS: Readonly<Record<HarnessId, HarnessModelList>> 
  */
 export const HARNESS_PROFILE_LISTS: Partial<Readonly<Record<HarnessId, {
   readonly args: readonly string[];
-  readonly parse: (stdout: string) => readonly string[];
+  readonly parse: (stdout: string) => readonly InventoryProfile[];
 }>>> = {
-  hermes: { args: ["profile", "list"], parse: (stdout) => parseHermesProfileList(stdout).map((row) => row.name) },
+  // The table's model column is the profile's pinned model; "unknown" when the row has none.
+  hermes: {
+    args: ["profile", "list"],
+    parse: (stdout) => parseHermesProfileList(stdout).map((row) => ({
+      name: row.name,
+      ...(row.model === "unknown" || row.model === "\u2014" ? {} : { model: row.model }),
+    })),
+  },
 };
 
-/** The profile names a harness lists on this machine; undefined when it keeps none. */
-export const listManagedProfiles = async (harness: HarnessId, signal?: AbortSignal): Promise<readonly string[] | undefined> => {
+/** The profiles a harness lists on this machine; undefined when it keeps none. */
+export const listManagedProfiles = async (harness: HarnessId, signal?: AbortSignal): Promise<readonly InventoryProfile[] | undefined> => {
   const list = HARNESS_PROFILE_LISTS[harness];
   if (list === undefined || !managedHarnessEnabled(harness)) return undefined;
   return list.parse(await runCommand(templateFor(harness).argvSpec.binary, list.args, signal));

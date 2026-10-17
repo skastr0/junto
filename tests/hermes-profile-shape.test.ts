@@ -9,7 +9,7 @@ import { decodeLinkInventorySnapshot, inventoryOfSnapshot, wireSnapshot } from "
 import { HARNESS_PROFILE_LISTS } from "../src/main/junto/term/templates/enumerate-dispatch";
 import { launchForManagedSpawn, SeatProfileRefused } from "../src/main/junto/term/managed-spawn-plan";
 import { agentKeyProfileSuffix, profileFromAgentKey } from "../src/shared/harness-records";
-import type { HarnessInventory } from "../src/shared/harness-domain/inventory";
+import { type HarnessInventory, inventoryOptions } from "../src/shared/harness-domain/inventory";
 import { parseAgentKey, parseHermesProfileName } from "../src/main/junto/hermes/domain";
 
 const BAD = ["-x", "--config", "../etc", "a:b", "a.b", "a/b", "a b", "ä", "x".repeat(65)];
@@ -22,26 +22,35 @@ describe("hermes profile names", () => {
       "◆default         gpt-5.5    running   —  —",
       "research         sonnet     stopped   —  —",
     ].join("\n");
-    expect(HARNESS_PROFILE_LISTS.hermes?.parse(table)).toEqual(["default", "research"]);
+    expect(HARNESS_PROFILE_LISTS.hermes?.parse(table)).toEqual([{ name: "default", model: "gpt-5.5" }, { name: "research", model: "sonnet" }]);
     expect(HARNESS_PROFILE_LISTS.hermes?.args).toEqual(["profile", "list"]);
   });
 
-  it("carries fitting names on the wire and leaves the rest out, never rewritten", () => {
+  it("carries fitting profiles and their pinned models on the wire, leaving the rest out, never rewritten", () => {
     const row: HarnessInventory = {
       harness: "hermes", machine: "mini", installed: true, models: [], efforts: [], refreshing: false,
-      profiles: ["default", "research", ...BAD, "research"],
+      profiles: [
+        { name: "default", model: "gpt-5.5" },
+        { name: "research", model: "bad model <x>" },
+        ...BAD.map((name) => ({ name })),
+        { name: "research" },
+      ],
     };
     const { snapshot, omittedProfiles } = wireSnapshot({ machine: "mini", harnesses: [row] }, 1);
-    expect(snapshot.harnesses[0]?.profiles).toEqual(["default", "research"]);
+    // A model that fails is dropped from its profile; the profile stays.
+    const kept = [{ name: "default", model: "gpt-5.5" }, { name: "research" }];
+    expect(snapshot.harnesses[0]?.profiles).toEqual(kept);
     expect(omittedProfiles).toBe(BAD.length + 1);
-    expect(inventoryOfSnapshot(decodeLinkInventorySnapshot(JSON.parse(JSON.stringify(snapshot)))).harnesses[0]?.profiles)
-      .toEqual(["default", "research"]);
+    expect(inventoryOfSnapshot(decodeLinkInventorySnapshot(JSON.parse(JSON.stringify(snapshot)))).harnesses[0]?.profiles).toEqual(kept);
+    expect(inventoryOptions(inventoryOfSnapshot(snapshot).harnesses[0], "profiles")).toEqual(["default", "research"]);
 
     for (const name of BAD) {
-      const bad = { ...snapshot, harnesses: [{ ...snapshot.harnesses[0]!, profiles: [name] }] };
+      const bad = { ...snapshot, harnesses: [{ ...snapshot.harnesses[0]!, profiles: [{ name }] }] };
       expect(() => decodeLinkInventorySnapshot(bad), name).toThrow();
     }
-    const tooMany = { ...snapshot, harnesses: [{ ...snapshot.harnesses[0]!, profiles: Array.from({ length: 65 }, (_, i) => `p${i}`) }] };
+    const badModel = { ...snapshot, harnesses: [{ ...snapshot.harnesses[0]!, profiles: [{ name: "a", model: "<x>" }] }] };
+    expect(() => decodeLinkInventorySnapshot(badModel)).toThrow();
+    const tooMany = { ...snapshot, harnesses: [{ ...snapshot.harnesses[0]!, profiles: Array.from({ length: 65 }, (_, i) => ({ name: `p${i}` })) }] };
     expect(() => decodeLinkInventorySnapshot(tooMany)).toThrow();
   });
 

@@ -23,6 +23,13 @@ export const InventoryModel = Schema.Struct({
 });
 export type InventoryModel = typeof InventoryModel.Type;
 
+/** A named profile the harness keeps (Hermes), with the model it pins when it pins one. */
+export const InventoryProfile = Schema.Struct({
+  name: Schema.String,
+  model: Schema.optionalKey(Schema.String),
+});
+export type InventoryProfile = typeof InventoryProfile.Type;
+
 export const InventoryScanFailure = Schema.Struct({
   reason: Schema.Literals(["timeout", "failed", "unreachable"]),
   // Can carry command output, so it stays on the scanned machine; a
@@ -92,7 +99,7 @@ export const HarnessInventory = Schema.Struct({
   /** Efforts the harness offers when its models carry none. */
   efforts: Schema.Array(Schema.String),
   /** Named profiles the harness has on this machine (Hermes), when it keeps any. */
-  profiles: Schema.optionalKey(Schema.Array(Schema.String)),
+  profiles: Schema.optionalKey(Schema.Array(InventoryProfile)),
   /** When the models were scanned; absent before the first scan finishes. */
   scannedAt: Schema.optionalKey(Schema.Number),
   /** A scan is running now; the models shown are the last good answer. */
@@ -128,5 +135,7 @@ export const inventoryOptions = (
   list: "models" | "profiles" = "models",
 ): readonly string[] => {
   if (!inventory?.installed) return [];
-  return list === "profiles" ? (inventory.profiles ?? []) : inventory.models.map((model) => model.id);
+  return list === "profiles"
+    ? (inventory.profiles ?? []).map((profile) => profile.name)
+    : inventory.models.map((model) => model.id);
 };

@@ -118,7 +118,7 @@ describe("the palette picker on another machine", () => {
       inventory: async () =>
         Result.succeed({
           machine: "mac-mini",
-          harnesses: [{ ...row("hermes", true), profiles: ["mini-coder", "mini-writer"] }],
+          harnesses: [{ ...row("hermes", true), profiles: [{ name: "mini-coder" }, { name: "mini-writer" }] }],
         } as unknown as MachineInventory),
     });
     const anchor = document.createElement("button");

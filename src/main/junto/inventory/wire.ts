@@ -22,7 +22,8 @@ import { MachineName } from "@shared/machine-control";
 import { HARNESS_IDS, HarnessId, templateFor } from "@shared/managed-terminal-templates";
 import { CanvasName } from "@shared/model";
 import { MODEL_ID_PATTERN, MODEL_LABEL_PATTERN } from "@shared/model-id";
-import { MAX_PROFILES, PROFILE_NAME_PATTERN, profileNamesOf } from "@shared/profile-name";
+import { MAX_PROFILES, PROFILE_NAME_PATTERN } from "@shared/profile-name";
+import { fittingProfiles } from "../term/templates/harness-inventory";
 
 const bounded = (pattern: RegExp) => Schema.String.pipe(Schema.check(Schema.isPattern(pattern)));
 const list = <S extends Schema.Top>(item: S, max: number) => Schema.Array(item).pipe(Schema.check(Schema.isMaxLength(max)));
@@ -63,7 +64,11 @@ export const LinkInventoryHarness = Schema.Struct({
   models: list(LinkInventoryModel, MAX_WIRE_MODELS),
   efforts: list(Effort, MAX_WIRE_EFFORTS),
   /** Named profiles (Hermes): names only, the launch takes one as its argv value. */
-  profiles: Schema.optionalKey(list(bounded(PROFILE_NAME_PATTERN), MAX_PROFILES)),
+  profiles: Schema.optionalKey(list(Schema.Struct({
+    name: bounded(PROFILE_NAME_PATTERN),
+    /** The model the profile pins, in the model id shape. */
+    model: Schema.optionalKey(bounded(WIRE_MODEL_ID)),
+  }), MAX_PROFILES)),
   modes: list(Mode, MAX_WIRE_MODES),
   permissionModes: list(Mode, MAX_WIRE_PERMISSION_MODES),
   scannedAt: Schema.optionalKey(At),
@@ -144,7 +149,7 @@ export const wireHarness = (row: HarnessInventory): {
   const verification = row.verification;
   return {
     omittedModels: Math.min(row.models.length, MAX_WIRE_MODELS) - models.length,
-    omittedProfiles: row.profiles === undefined ? 0 : Math.min(row.profiles.length, MAX_PROFILES) - profileNamesOf(row.profiles).length,
+    omittedProfiles: row.profiles === undefined ? 0 : Math.min(row.profiles.length, MAX_PROFILES) - fittingProfiles(row.profiles).length,
     harness: {
       harness: row.harness,
       installed: row.installed,
@@ -154,7 +159,7 @@ export const wireHarness = (row: HarnessInventory): {
         : {}),
       models,
       efforts: row.efforts.filter(fits(WIRE_EFFORT)).slice(0, MAX_WIRE_EFFORTS),
-      ...(row.profiles === undefined ? {} : { profiles: profileNamesOf(row.profiles) }),
+      ...(row.profiles === undefined ? {} : { profiles: fittingProfiles(row.profiles) }),
       modes: (template.modes ?? []).filter(fits(WIRE_MODE)).slice(0, MAX_WIRE_MODES),
       permissionModes: (template.permissionModes ?? []).filter(fits(WIRE_MODE)).slice(0, MAX_WIRE_PERMISSION_MODES),
       ...(row.scannedAt === undefined ? {} : { scannedAt: row.scannedAt }),
@@ -209,7 +214,9 @@ export const inventoryOfSnapshot = (snapshot: LinkInventorySnapshot): MachineInv
       ...(model.efforts === undefined ? {} : { efforts: [...model.efforts] }),
     })),
     efforts: [...row.efforts],
-    ...(row.profiles === undefined ? {} : { profiles: [...row.profiles] }),
+    ...(row.profiles === undefined ? {} : {
+      profiles: row.profiles.map((profile) => ({ name: profile.name, ...(profile.model === undefined ? {} : { model: profile.model }) })),
+    }),
     ...(row.scannedAt === undefined ? {} : { scannedAt: row.scannedAt }),
     refreshing: row.refreshing,
     ...(row.failure === undefined ? {} : { lastFailure: { reason: row.failure.reason, at: row.failure.at } }),

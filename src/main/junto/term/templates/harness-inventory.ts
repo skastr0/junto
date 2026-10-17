@@ -26,7 +26,9 @@ import type { ManagedTerminalModelsResult } from "@shared/ipc";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 import {
+  InventoryProfile as InventoryProfileSchema,
   InventoryUnavailableError,
+  type InventoryProfile,
   type HarnessInventory as HarnessSnapshot,
   type InventoryScanFailure,
   type MachineInventory,
@@ -35,7 +37,8 @@ import {
 import { harnessRecordFor } from "@shared/harness-records";
 import { runCli } from "../../adapters/exec";
 import { MachineRepository } from "../../machines/repository";
-import { profileNamesOf } from "@shared/profile-name";
+import { isModelId } from "@shared/model-id";
+import { isProfileName, MAX_PROFILES } from "@shared/profile-name";
 import { enumerateManagedModels, listManagedProfiles } from "./enumerate-dispatch";
 import { probeManagedHarnessInstalls, type HarnessInstallProbe } from "./harness-install";
 
@@ -46,7 +49,8 @@ const SCAN_DEADLINE = Duration.seconds(12);
 const SCAN_CONCURRENCY = 4;
 const WARM_DELAY = Duration.seconds(15);
 const VERSION_COMMAND_TIMEOUT_MS = 5_000;
-const CACHE_FILE_VERSION = 2;
+// 3: profiles carry their pinned model.
+const CACHE_FILE_VERSION = 3;
 
 // Bounds on what a snapshot carries, so a peer's answer has a fixed maximum size.
 const MAX_MODELS = 200;
@@ -84,7 +88,7 @@ const StoredModels = Schema.Struct({
   version: Schema.optionalKey(Schema.String),
   result: ModelsResult,
   /** Named profiles the harness listed, for a harness that keeps them. */
-  profiles: Schema.optionalKey(Schema.Array(Schema.String)),
+  profiles: Schema.optionalKey(Schema.Array(InventoryProfileSchema)),
 });
 type StoredModels = typeof StoredModels.Type;
 
@@ -146,6 +150,21 @@ const readVersion = (executable: string): Effect.Effect<string | undefined> =>
     Effect.map((result) => result.ok ? parseHarnessVersion(`${result.stdout}\n${result.stderr ?? ""}`) : undefined),
     Effect.orElseSucceed(() => undefined),
   );
+
+/**
+ * Profiles whose name fits the profile shape, each once, at most MAX_PROFILES;
+ * a pinned model outside the model id shape is dropped, the profile kept.
+ */
+export const fittingProfiles = (profiles: readonly InventoryProfile[]): readonly InventoryProfile[] => {
+  const seen = new Set<string>();
+  const kept: InventoryProfile[] = [];
+  for (const profile of profiles) {
+    if (kept.length >= MAX_PROFILES || !isProfileName(profile.name) || seen.has(profile.name)) continue;
+    seen.add(profile.name);
+    kept.push({ name: profile.name, ...(profile.model !== undefined && isModelId(profile.model) ? { model: profile.model } : {}) });
+  }
+  return kept;
+};
 
 const fingerprintOf = (executable: string): Effect.Effect<string> =>
   Effect.tryPromise(async () => {
@@ -211,11 +230,11 @@ export const makeHarnessInventory = (options: {
       }),
     );
 
-  // Names that fit the profile shape only; a list that cannot be read is no list.
-  const readProfiles = (harness: string): Effect.Effect<readonly string[] | undefined> =>
+  // A list that cannot be read is no list.
+  const readProfiles = (harness: string): Effect.Effect<readonly InventoryProfile[] | undefined> =>
     isHarnessId(harness)
       ? Effect.tryPromise((signal) => listManagedProfiles(harness, signal)).pipe(
-        Effect.map((names) => names === undefined ? undefined : profileNamesOf(names)),
+        Effect.map((profiles) => profiles === undefined ? undefined : fittingProfiles(profiles)),
         Effect.orElseSucceed(() => undefined),
       )
       : Effect.succeed(undefined);
@@ -327,7 +346,7 @@ export const makeHarnessInventory = (options: {
         ...(model.efforts === undefined ? {} : { efforts: model.efforts.slice(0, MAX_EFFORTS).map((effort) => clip(effort, MAX_ID)) }),
       })),
       efforts: (result?.efforts ?? efforts).slice(0, MAX_EFFORTS).map((effort) => clip(effort, MAX_ID)),
-      ...(current?.profiles === undefined ? {} : { profiles: profileNamesOf(current.profiles) }),
+      ...(current?.profiles === undefined ? {} : { profiles: fittingProfiles(current.profiles) }),
       ...(current === undefined || current.failed ? {} : { scannedAt: current.scannedAt }),
       refreshing: inFlight.has(probe.harness),
       ...(failure === undefined ? {} : { lastFailure: failure }),
