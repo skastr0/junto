@@ -259,8 +259,8 @@ preserve row identity and cannot duplicate terminal delivery or operator effects
 ## Secrets and external content
 
 Secret values are resolved on the seat's machine for its child environment.
-They are never included in canvas copies, row exchange, status, diagnostics or
-launch records. Missing-secret reports carry names and state only. Harness
+They are never included in canvas copies, row exchange, status, diagnostics,
+failures, logs or launch records. Missing-secret reports carry names and state only. Harness
 credentials, browser profiles and SSH credentials remain with their owning
 machine and tool; Junto does not install harnesses or log in to them.
 
@@ -280,6 +280,102 @@ The phone companion keeps its separate restricted forced-command keys, device
 revocation and bounded operation set. Pairing material is a credential, never
 ordinary log or canvas content. A phone's authority cannot be widened by the
 new machine or owner command handlers sharing a process.
+
+## Failures and logs
+
+Failures cross the link with their cause chain, and every machine keeps a log
+([machines.md](machines.md), Failures and logs). People, agents and another
+machine read both, so both are a disclosure path. This is the redaction rule.
+A field that crosses a machine or reaches a log is checked against it before
+it lands.
+
+**May enter.** Tags, operation ids, machine, canvas, seat and harness names,
+installation ids, generation numbers, file and executable paths, exit codes,
+signals, durations, byte counts, build ids and digests carried as typed
+fields, environment and secret names with their state, and error text that
+has passed the scrub below.
+
+**Never enters.** Secret values. `JUNTO_WORK_TOKEN` and every other
+credential, token, key, cookie, password or pairing material. Environment
+values of any kind, whether a whole environment or one value. Command
+arguments past the executable: argv is authored text and can hold an inline
+value. Terminal bytes, meaning a seat's terminal input or output, in any
+amount. The stdout of a secret tool. The actual value in a decode failure;
+carry the path and the expected shape only. Request and row payloads, mail
+bodies and canvas text. A field that cannot be shown to belong to the first
+list belongs to this one.
+
+**Terminal bytes stay in the terminal.** A seat's terminal merges the
+harness's output with the operator's typing, so no part of it is a stderr
+tail. A seat that fails to start reports the spawn result, exit code, signal
+and a closed classification derived on the seat's machine, such as "harness
+not installed" or "harness exited during start". What the harness printed is
+read in its terminal, under the existing terminal authorization, never copied
+into a failure or a log.
+
+**Stderr tails.** Only processes Junto spawns without a terminal contribute a
+tail: the remote core under SSH, the OpenSSH client, install, update and
+service commands, and the build check. A secret tool's stderr (`security`,
+`secret-tool`, `op`, an operator's command) stays classification only. The
+machine that read the bytes makes the tail, in this order:
+
+1. Hold at most the last 64 KiB as it arrives, and drop the window's first
+   line when it may be partial.
+2. Decode as UTF-8 with replacement. Remove escape sequences whole (CSI, OSC,
+   DCS and any other ESC pair), C0 controls except newline and tab, DEL, C1
+   controls, and bidirectional overrides and isolates. A carriage return ends
+   a line.
+3. Replace every known value with `[redacted]` through `redactSecretValues`
+   (`src/main/junto/credentials/redact.ts`). Known values are every secret
+   resolved on that machine for the process or its seat, the generation
+   credential, and every value in the process environment except those named
+   `HOME`, `USER`, `LOGNAME`, `SHELL`, `PATH`, `TMPDIR`, `PWD`, `TERM`, `LANG`
+   and `LC_*`.
+4. Replace what looks like a credential Junto does not know: the value after
+   `Authorization:` or `Bearer`; the value of a `name=value` or `name: value`
+   pair whose name contains token, secret, password, passwd, key, credential,
+   auth, cookie or session; URL user information and such query values;
+   `-----BEGIN ... PRIVATE KEY-----` blocks whole; the token shapes `sk-`,
+   `ghp_`, `gho_`, `github_pat_`, `xoxa-`, `xoxb-`, `xoxp-`, `xoxr-`, `AKIA`,
+   `ops_` and a three-part JWT starting `eyJ`; and any run of 32 or more
+   base64 or hex characters that mixes letters and digits.
+5. Keep the last 40 lines and at most 4 KiB, cutting at a line start, and
+   record that it was cut.
+
+The scrub runs over the whole window before the cut, so truncation never
+leaves half a token the patterns miss. Step 4 also removes harmless text,
+such as a digest printed to stderr; that is accepted, and the digests that
+matter travel as typed fields.
+
+**Error text.** Every message in a cause chain, and every log message, passes
+steps 2 to 4 where it is encoded for the link or written to the log, through
+one function in one module. A message is at most 1 KiB and a chain at most 8
+links; the rest is cut and marked. A cause Junto did not write, from Node,
+SQLite or a library, is scrubbed like any other, never trusted to be clean.
+Schema decode failures are formatted without the actual value.
+
+**The receiver distrusts the sender.** A failure from another machine is
+decoded with a closed schema whose strings have maximum lengths, then put
+through steps 2 and 4 again before it is stored, logged or shown. Shown means
+plain text, never markup, a link or a command. Its text is data and grants
+nothing; an agent reading it reads untrusted output.
+
+**Logs.** Files under `~/.junto/logs/` are mode 0600 in a 0700 directory.
+A row is at most 16 KiB, and rotation bounds the total, so a peer's failures
+cannot fill the disk. A row holds only fields from the first list and
+scrubbed text. `console.*` routed into the logger is scrubbed like every other
+message; that hook is the likeliest leak and is reviewed first. Reading a
+linked machine's log is an owner command over a closed link operation, not a
+shell, and is refused from a seat environment like every machine command. It
+returns only rows for canvases that peer participates in, plus machine rows
+that name no canvas. A scrubbed log is still the account's data. It is sent
+nowhere else, and deleting a secret does not erase a log written before this
+rule was in force.
+
+**Review.** The author of every new field in a failure, a link frame or a log
+row names the list it belongs to. A field without that claim does not land.
+Each scrub step has a test that seeds a value and proves it is absent from the
+encoded failure and from the log row at both ends.
 
 ## Install, update and machine safety
 
