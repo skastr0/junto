@@ -15,9 +15,13 @@ import { receiveMachineBundle } from "../ssh/machine-commands";
 import { machinePreflight } from "../ssh/machine-preflight";
 import { inspectMachineBundle } from "./bundle";
 import { makeCopyProgress } from "./copy-progress";
+import { scrubText } from "../credentials/scrub";
 import type { MachineSendEvent } from "@shared/machine-progress";
 
 const exec = promisify(execFile);
+/** The preflight script printed something other than ready; its words arrive scrubbed. */
+export class MachinePreflightRefused extends Schema.TaggedError<MachinePreflightRefused>()("MachinePreflightRefused", { message: Schema.String }) {}
+export class MachinePackageTooLarge extends Schema.TaggedError<MachinePackageTooLarge>()("MachinePackageTooLarge", { message: Schema.String, limitBytes: Schema.Number }) {}
 const installError = (cause:unknown) => {
   const message = cause instanceof SshExitError
     ? cause.detail === "permission denied" ? "SSH refused this account's key. Check SSH access, then send Junto again"
@@ -46,7 +50,7 @@ export const sendMachine = (
   const manifest = yield* Effect.tryPromise({ try: () => inspectMachineBundle(bundle), catch: installError });
   const checksum=yield* Effect.tryPromise({try:async()=>{
     await exec("tar",["-czf",archive,"-C",bundle,"."],{timeout:120_000,maxBuffer:256*1024,env:{...process.env,COPYFILE_DISABLE:"1"}});
-    if ((await stat(archive)).size > 512*1024*1024) throw new Error("machine package exceeds the copy limit");
+    if ((await stat(archive)).size > 512*1024*1024) throw new MachinePackageTooLarge({ message: "machine package exceeds the copy limit", limitBytes: 512 * 1024 * 1024 });
     const hash=createHash("sha256");
     for await (const chunk of createReadStream(archive)) hash.update(chunk);
     return hash.digest("hex");
@@ -65,7 +69,7 @@ export const sendMachine = (
     ...(input.installRoot === undefined ? {} : { installRoot: input.installRoot }),
   }).pipe(Effect.mapError(installError));
   const checks = yield* ssh.run(preflight).pipe(Effect.mapError(installError));
-  if (checks.stdout !== "ready\n") return yield* Effect.fail(installError(new Error(checks.stdout.trim().slice(0, 4096) || "Cannot check this machine before sending Junto")));
+  if (checks.stdout !== "ready\n") return yield* Effect.fail(installError(new MachinePreflightRefused({ message: scrubText(checks.stdout.trim()).slice(0, 4096) || "Cannot check this machine before sending Junto" })));
   const clock = yield* Clock.Clock;
   const copy = makeCopyProgress(archiveBytes, clock.currentTimeMillisUnsafe(), event => onTransition?.(event));
   yield* Effect.forkScoped(Effect.forever(Effect.sleep("1 second").pipe(

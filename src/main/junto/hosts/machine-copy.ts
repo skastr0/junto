@@ -5,8 +5,9 @@ import type { MachineSendEvent } from "@shared/machine-progress";
 import type { InstallationId } from "@shared/installation-id";
 import type { RemoteHost } from "@shared/remote-hosts";
 import { OperatorErrorBody } from "@shared/operator-control";
+import { scrubMessage } from "../credentials/scrub";
 import { MachineRepository } from "../machines/repository";
-import { parseHostSshRoute, SshTransport, type ScopedStreamProgram } from "../ssh";
+import { parseHostSshRoute, SshTransport, type ScopedStreamProgram, type SshError } from "../ssh";
 import { SshTransferExitError } from "../ssh/service";
 import { configureMachine, setupMachine, machinePlatform } from "../ssh/machine-owner-commands";
 import { inspectMachineBundle } from "./bundle";
@@ -24,6 +25,15 @@ export interface MachineCopyOptions {
   readonly connect: (host: RemoteHost) => Effect.Effect<unknown, unknown>;
   readonly disconnect: (name: string) => Effect.Effect<void, unknown>;
 }
+/** Which check refused a copy, setup or update; the remote's own refusal arrives scrubbed. */
+export const MachineCopyCheck = Schema.Literals(["release-download-only", "not-set-up", "platform-unsupported", "no-bundle", "bundle-mismatch",
+  "identity-mismatch", "name-not-kept", "binding-not-kept", "name-changed", "remote-refused"]);
+export class MachineCopyRefused extends Schema.TaggedError<MachineCopyRefused>()("MachineCopyRefused", {
+  check: MachineCopyCheck,
+  message: Schema.String,
+}) {}
+const refused = (check: typeof MachineCopyCheck.Type, message: string) =>
+  new MachineCopyRefused({ check, message: check === "remote-refused" ? scrubMessage(message) : message });
 const staged = (cause: unknown) => new MachineInstallError({ message: cause instanceof Error ? cause.message : String(cause), disposition: "staged", retryable: false });
 const ConfigureResponse = Schema.Struct({ ok: Schema.Literal(true), command: Schema.Literal("machine configure"), data: MachineConfigured });
 const SetupResponse = Schema.Struct({ ok: Schema.Literal(true), command: Schema.Literal("machine setup"), data: MachinePeerPin });
@@ -35,29 +45,29 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
   const ssh = yield* SshTransport;
   const build = yield* Schema.decodeUnknownEffect(MachineBuild)(options.build);
   const ownerTransfer = (program: ScopedStreamProgram, command: "machine configure" | "machine setup") =>
-    ssh.transfer(program, Stream.empty, 30_000).pipe(Effect.catch(cause => {
+    ssh.transfer(program, Stream.empty, 30_000).pipe(Effect.catch((cause): Effect.Effect<never, MachineCopyRefused | SshError | SshTransferExitError> => {
       if (cause instanceof SshTransferExitError) {
         const failure = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Struct({
           ok: Schema.Literal(false), command: Schema.Literal(command), error: OperatorErrorBody,
         })), { onExcessProperty: "error" })(cause.stderr.trim().split("\n").at(-1));
-        if (failure._tag === "Success") return Effect.fail(new Error(failure.success.error.message));
+        if (failure._tag === "Success") return Effect.fail(refused("remote-refused", failure.success.error.message));
       }
       return Effect.fail(cause);
     }));
   return (host: RemoteHost, input: MachineCopyInput, mode: "send" | "update", onTransition?: (event: MachineSendEvent) => void) => Effect.scoped(Effect.gen(function* () {
-    if (options.acquireBundle !== undefined && input.bundle !== undefined) return yield* Effect.fail(staged(new Error("This Junto release uses its own verified machine download. A local package cannot replace it")));
+    if (options.acquireBundle !== undefined && input.bundle !== undefined) return yield* Effect.fail(staged(refused("release-download-only", "This Junto release uses its own verified machine download. A local package cannot replace it")));
     const pin = yield* machines.peer(host.id);
-    if (mode === "update" && pin === undefined) return yield* Effect.fail(staged(new Error("Set up this machine before updating Junto")));
+    if (mode === "update" && pin === undefined) return yield* Effect.fail(staged(refused("not-set-up", "Set up this machine before updating Junto")));
     const target = yield* parseHostSshRoute(host).pipe(Effect.mapError(staged));
     const platform = yield* machinePlatform(target).pipe(Effect.flatMap(program => ssh.run(program)), Effect.mapError(staged));
     const reported = platform.stdout.trim();
     const targetPlatform: Target | undefined = reported === "Darwin arm64" ? "darwin-arm64" : reported === "Linux x86_64" ? "linux-x64" : undefined;
-    if (targetPlatform === undefined) return yield* Effect.fail(staged(new Error("This machine's platform is not supported by Junto")));
+    if (targetPlatform === undefined) return yield* Effect.fail(staged(refused("platform-unsupported", "This machine's platform is not supported by Junto")));
     const bundle = options.acquireBundle === undefined ? input.bundle ?? options.bundles[targetPlatform]
       : yield* options.acquireBundle(targetPlatform, onTransition);
-    if (bundle === undefined) return yield* Effect.fail(staged(new Error(targetPlatform === "linux-x64" ? "This Junto has no build for a Linux machine" : "This Junto has no build for a Mac machine")));
+    if (bundle === undefined) return yield* Effect.fail(staged(refused("no-bundle", targetPlatform === "linux-x64" ? "This Junto has no build for a Linux machine" : "This Junto has no build for a Mac machine")));
     const manifest = yield* Effect.tryPromise({ try: () => inspectMachineBundle(bundle), catch: staged });
-    if (manifest.build !== build || manifest.target !== targetPlatform) return yield* Effect.fail(staged(new Error("The selected Junto package does not match this build and the target platform")));
+    if (manifest.build !== build || manifest.target !== targetPlatform) return yield* Effect.fail(staged(refused("bundle-mismatch", "The selected Junto package does not match this build and the target platform")));
     // Existing channels must close before the service can be replaced.
     yield* options.disconnect(host.id).pipe(Effect.mapError(staged));
     const installed = yield* sendMachine(target, {
@@ -68,18 +78,18 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
     }, onTransition).pipe(Effect.provideService(SshTransport, ssh));
     const receipt = yield* Schema.decodeUnknownEffect(MachineInstallResult)(installed, { onExcessProperty: "error" });
     return yield* Effect.gen(function* () {
-      if (receipt.build !== build || (pin !== undefined && receipt.installationId !== pin.installationId)) return yield* Effect.fail(new Error("The installed Junto identity does not match the selected machine"));
+      if (receipt.build !== build || (pin !== undefined && receipt.installationId !== pin.installationId)) return yield* Effect.fail(refused("identity-mismatch", "The installed Junto identity does not match the selected machine"));
       if (pin === undefined) {
         const configuredProgram = yield* configureMachine(target, receipt, host.id);
         const configuredOutput = yield* ownerTransfer(configuredProgram, "machine configure");
         const configured = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(ConfigureResponse))(configuredOutput.stdout.trim(), { onExcessProperty: "error" });
-        if (configured.data.machineName !== host.id || configured.data.installationId !== receipt.installationId) return yield* Effect.fail(new Error("The machine did not keep its selected name and installation identity"));
+        if (configured.data.machineName !== host.id || configured.data.installationId !== receipt.installationId) return yield* Effect.fail(refused("name-not-kept", "The machine did not keep its selected name and installation identity"));
         const own = { machineName: yield* machines.machineName, installationId: yield* machines.installationId };
         const setupProgram = yield* setupMachine(target, receipt, own);
         const setupOutput = yield* ownerTransfer(setupProgram, "machine setup");
         const setup = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(SetupResponse))(setupOutput.stdout.trim(), { onExcessProperty: "error" });
-        if (setup.data.machineName !== own.machineName || setup.data.installationId !== own.installationId) return yield* Effect.fail(new Error("The machine did not bind this Junto installation"));
-      } else if (receipt.machineName !== host.id) return yield* Effect.fail(new Error("The machine calls itself another name; keep its setup binding and choose the correct machine"));
+        if (setup.data.machineName !== own.machineName || setup.data.installationId !== own.installationId) return yield* Effect.fail(refused("binding-not-kept", "The machine did not bind this Junto installation"));
+      } else if (receipt.machineName !== host.id) return yield* Effect.fail(refused("name-changed", "The machine calls itself another name; keep its setup binding and choose the correct machine"));
       const configuredHost = { ...host, juntoHome: receipt.juntoHome, installRoot: receipt.installRoot };
       yield* hosts.upsert(configuredHost);
       if (pin === undefined) yield* options.connectSetup(configuredHost, receipt.installationId);
