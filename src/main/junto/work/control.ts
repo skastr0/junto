@@ -92,6 +92,7 @@ import {
   SignalClearArgs,
   SignalListArgs,
   EnvReportArgs,
+  LogsReadArgs,
   SignalRaiseArgs,
   OffboardArgs,
   OnboardArgs,
@@ -225,6 +226,8 @@ import { resolveCallerAcrossCanvases } from "./caller-resolve";
 
 import { closingFence } from "../term/closing-fence";
 import { injectionSupervisor } from "../term/injection-supervisor";
+import { readMachineLog, seatLogScope } from "../observability/log-file";
+import { logMachine } from "../observability/logger";
 import {
   OFFBOARDED_SESSION_MESSAGE,
   type ProcessPrincipal,
@@ -2150,6 +2153,27 @@ const dispatchOp = (
         });
       }
       return report;
+    }
+
+    if (op === "logs.read") {
+      const decoded = decodeArgs(LogsReadArgs, args ?? {});
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      // The caller is the credential's seat; `seat` in the query only narrows
+      // inside what that seat may read: its own rows, seats it holds
+      // terminal.read to, and rows that name no seat.
+      const visible = new Set([
+        caller.nodeId,
+        ...connectedCapabilities(board, caller.nodeId)
+          .filter((peer) => peer.grants.includes("terminal.read"))
+          .map((peer) => peer.id),
+      ]);
+      return yield* readMachineLog(resolveJuntoHome(), logMachine(), decoded.success, seatLogScope(visible)).pipe(
+        Effect.mapError((error): WorkErrorBody => ({
+          type: "RuntimeDown",
+          message: "this machine's log could not be read",
+          details: { retryable: true, ...(error.code === undefined ? {} : { reason: error.code }) },
+        })),
+      );
     }
 
     if (op === "signal.raise" || op === "signal.clear" || op === "signal.list") {

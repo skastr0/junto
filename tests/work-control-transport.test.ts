@@ -68,6 +68,8 @@ import { AgentSignalRepositoryLive } from "../src/main/junto/signals/repository"
 import { answerAgentSignal } from "../src/main/junto/signals/operator";
 import type { AgentSignal } from "../src/shared/agent-signals";
 import { THIS_MACHINE } from "./support/machines";
+import { closeMachineLog, installMachineLog, setLogMachine, writeLog } from "../src/main/junto/observability/logger";
+import { __resetJuntoHomeCache } from "../src/shared/junto-home";
 
 const roots: string[] = [];
 const servers: WorkControlServer[] = [];
@@ -292,6 +294,42 @@ const projectedProcessActor = async (): Promise<ActorRef> => {
 };
 
 describe("work control transport", () => {
+  it("reads this machine's log within the calling seat's scope", async () => {
+    const runtime = runtimes.at(-1)!;
+    await addPromptPeer(runtime);
+    const home = roots.at(-1)!;
+    process.env.JUNTO_HOME = home;
+    __resetJuntoHomeCache();
+    try {
+      installMachineLog({ home, process: "app", echo: false });
+      setLogMachine(THIS_MACHINE);
+      writeLog({ level: "info", source: "system", message: "machine row" });
+      writeLog({ level: "error", source: "effect", message: "own", annotations: { area: "seats", seat: "agent" } });
+      writeLog({ level: "error", source: "effect", message: "wired peer", annotations: { area: "seats", seat: "peer" } });
+      writeLog({ level: "error", source: "effect", message: "unwired", annotations: { area: "seats", seat: "orphan" } });
+      closeMachineLog();
+
+      type Read = { ok: true; data: { machine: string; rows: Array<{ message: string }>; cut: boolean } };
+      const all = (await call(servers.at(-1)!.socketPath, { token: token(), op: "logs.read", args: {} })) as Read;
+      expect(all.ok).toBe(true);
+      expect(all.data.machine).toBe(THIS_MACHINE);
+      expect(all.data.rows.map((row) => row.message)).toEqual(["machine row", "own", "wired peer"]);
+
+      // --seat narrows inside the scope; it never widens it.
+      const other = (await call(servers.at(-1)!.socketPath, { token: token(), op: "logs.read", args: { seat: "orphan" } })) as Read;
+      expect(other.data.rows).toEqual([]);
+      const errors = (await call(servers.at(-1)!.socketPath, { token: token(), op: "logs.read", args: { level: "error", limit: 1 } })) as Read;
+      expect(errors.data).toMatchObject({ rows: [{ message: "wired peer" }], cut: true });
+
+      const refused = (await call(servers.at(-1)!.socketPath, { token: token(), op: "logs.read", args: { level: "loud" } })) as { ok: false; error: { type: string } };
+      expect(refused).toMatchObject({ ok: false, error: { type: "InputError" } });
+    } finally {
+      closeMachineLog();
+      delete process.env.JUNTO_HOME;
+      __resetJuntoHomeCache();
+    }
+  });
+
   it.runIf(!LIVE_OVERSEER_ENABLED)("refuses the Live protocol while disabled even when a handler is installed", async () => {
     const bridge = vi.fn<NonNullable<WorkControlServerOptions["onOverseerLive"]>>(async () => ({ type: "idle" }));
     const { server } = await startTestServer({ onOverseerLive: bridge });

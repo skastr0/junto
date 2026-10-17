@@ -1,4 +1,5 @@
 import { Result, Schema } from "effect";
+import { MachineLogQuery } from "./machine-log";
 import { ONBOARD_PAST_NOTES_MAX } from "./seat-sessions";
 import {
   CheckSide,
@@ -112,6 +113,8 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "signal.list",
 /** Universal seat-local: what this seat's regions resolve to (names and status, never values). */
 "env.report",
+/** Universal seat-local: this machine's log, scoped to the caller (its rows, seats it may read, rows naming no seat). */
+"logs.read",
 /** Universal seat-local: the operator's references in this seat's scope (the app and its regions). */
 "references.list",
 "references.read",
@@ -695,6 +698,13 @@ export const EnvReportArgs = Schema.Struct({}).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
 export type EnvReportArgs = typeof EnvReportArgs.Type;
+
+/**
+ * `logs.read`: this machine's log, filtered by the query and scoped to the
+ * calling seat (docs/security-doctrine.md, Logs). Answers a `MachineLogRead`.
+ */
+export const LogsReadArgs = MachineLogQuery;
+export type LogsReadArgs = typeof LogsReadArgs.Type;
 
 /**
  * references.list / references.read: seat-local, no edge, no port. The seat is

@@ -91,6 +91,8 @@ const SEAT_LOCAL_COMMANDS = new Set([
   "signal.list",
   // A seat reads its own environment report: no target, no edge.
   "env.report",
+  // A seat reads this machine's log within its own scope: no target, no edge.
+  "logs.read",
   "references.list",
   "references.read",
   "signal.clear",

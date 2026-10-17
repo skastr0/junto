@@ -119,6 +119,7 @@ const WORK_OPERATION_CLASSIFICATION = {
   "signal.clear": "authorial",
   "signal.list": "read",
   "env.report": "read",
+  "logs.read": "read",
   "references.list": "read",
   "references.read": "read",
   // Staging writes the content store and its manifest.
