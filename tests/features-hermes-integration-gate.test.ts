@@ -100,7 +100,7 @@ describe("Hermes integration product gate", () => {
       const preload = readFileSync("src/preload/index.ts", "utf8");
       const ipc = readFileSync("src/main/junto/ipc.ts", "utf8");
       const snapshots = readFileSync("src/main/junto/snapshots.ts", "utf8");
-      const terminalIpc = readFileSync("src/main/junto/term/ipc.ts", "utf8");
+      const terminalIpc = readFileSync("src/main/junto/term/seat-control.ts", "utf8");
       expect(preload).toContain(
         "...(HERMES_INTEGRATION_ENABLED ? hermesIntegrationApi : {})",
       );
@@ -113,8 +113,8 @@ describe("Hermes integration product gate", () => {
       expect(snapshots).toMatch(
         /HERMES_INTEGRATION_ENABLED\s*\?\s*plane\.fetchBundle/u,
       );
-      expect(terminalIpc).toContain(
-        "if (!managedHarnessEnabled(node.harness)) return deny(",
+      expect(terminalIpc).toMatch(
+        /if \(!managedHarnessEnabled\(node\.harness\)\)\s+return yield\* new HarnessDisabled\(/u,
       );
     },
   );
