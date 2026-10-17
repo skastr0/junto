@@ -61,9 +61,11 @@ const SETTLE_QUIET_MS = 3_000;
 /**
  * `gemini` is the Gemini API (agy's API-key mode). `devin` and `cursor` are
  * the vendors' own Connect RPC backends: the stub cannot encode a successful
- * answer for them, only errors, limits and dropped connections.
+ * answer for them, only errors, limits and dropped connections. `amp` runs
+ * the model on its server behind a websocket actor; only creating the thread
+ * actor is scripted, so its screens are that call's retries and refusals.
  */
-type Protocol = "anthropic" | "openai-responses" | "openai-chat" | "gemini" | "devin" | "cursor";
+type Protocol = "anthropic" | "openai-responses" | "openai-chat" | "gemini" | "devin" | "cursor" | "amp";
 
 type Reply =
   /** `inputTokens` is the context size the reply reports; large values trigger auto-compaction. */
@@ -99,6 +101,7 @@ function protocolOf(pathname: string): Protocol | null {
   if (pathname.includes(":streamGenerateContent") || pathname.includes(":generateContent")) return "gemini";
   if (pathname.endsWith("/GetChatMessage")) return "devin";
   if (pathname === "/agent.v1.AgentService/Run") return "cursor";
+  if (pathname === "/api/thread-actors") return "amp";
   if (pathname.endsWith("/messages")) return "anthropic";
   if (pathname.endsWith("/responses")) return "openai-responses";
   if (pathname.endsWith("/chat/completions")) return "openai-chat";
@@ -215,8 +218,18 @@ const CURSOR_TOKEN = `${base64url({ alg: "none", typ: "JWT" })}.${base64url({ su
 type SideReply = { readonly status: number; readonly type: string; readonly body: string | Buffer };
 
 /** Everything a harness asks the stub for besides the model call. */
-function sideRoute(method: string, pathname: string, contentType: string): SideReply {
+function sideRoute(method: string, pathname: string, search: string, contentType: string): SideReply {
   const json = (value: unknown): SideReply => ({ status: 200, type: "application/json", body: JSON.stringify(value) });
+  if (pathname === "/api/internal") {
+    const call = search.replace(/^\?/u, "").split("&")[0];
+    if (call === "getUserInfo") {
+      return json({ ok: true, result: { id: "user_capture", email: "capture@example.invalid", username: "capture", displayName: "Capture", emailVerified: true, features: [], team: null } });
+    }
+    // These four must be lists; an object crashes amp's TUI.
+    return json({ ok: true, result: ["notices", "loadPlugins", "loadSkills", "listAgentModes"].includes(call) ? [] : null });
+  }
+  if (pathname === "/api/user-actor-credentials") return json({ userId: "user_capture", wsToken: "capture-stub", poolName: "capture" });
+  if (pathname.startsWith("/api/telemetry")) return json({});
   if (pathname === "/muse-code/models") return json(MUSE_CATALOG);
   if (pathname === "/auth/exchange_user_api_key") return json({ accessToken: CURSOR_TOKEN, refreshToken: CURSOR_TOKEN });
   if (pathname.endsWith("/GetUsableModels") || pathname.endsWith("/GetDefaultModelForCli")) {
@@ -334,7 +347,7 @@ class StubProvider {
       return;
     }
     if (!protocol) {
-      const side = sideRoute(req.method ?? "GET", pathname, contentType);
+      const side = sideRoute(req.method ?? "GET", pathname, new URL(req.url ?? "/", "http://stub").search, contentType);
       res.writeHead(side.status, { "content-type": side.type });
       res.end(side.body);
       return;
@@ -550,8 +563,8 @@ const SCENARIOS: readonly Scenario[] = [
   { name: "usage-paused", signal: "UsageLimitHit { scope: org }, an admin paused usage", prompts: ["say hi"], replies: () => null },
 ];
 
-type VendorProtocol = "gemini" | "devin" | "cursor";
-const isVendor = (p: Protocol): p is VendorProtocol => p === "gemini" || p === "devin" || p === "cursor";
+type VendorProtocol = "gemini" | "devin" | "cursor" | "amp";
+const isVendor = (p: Protocol): p is VendorProtocol => p === "gemini" || p === "devin" || p === "cursor" || p === "amp";
 
 const geminiError = (status: number, code: string, message: string): Reply =>
   ({ kind: "error", status, body: { error: { code: status, message, status: code } } });
@@ -604,6 +617,13 @@ const VENDOR: Readonly<Record<VendorProtocol, Readonly<Record<string, VendorPlan
     "error-auth": { replies: () => [connectHttp(401, "unauthenticated", "invalid api key")] },
     "error-server": { replies: () => [held(connectHttp(500, "internal", "internal error"))] },
   },
+  amp: {
+    "retry-overloaded": { signal: "Retrying { cause: overloaded } creating the thread, never recovering", replies: () => [held({ kind: "error", status: 503, body: { error: "service-unavailable" } })] },
+    "retry-rate": { signal: "Retrying { cause: rate } creating the thread, never recovering", replies: () => [held({ kind: "error", status: 429, body: { error: "rate-limited" }, headers: { "retry-after": "2" } })] },
+    "usage-limit": { signal: "UsageLimitHit { scope: credits }", replies: () => [{ kind: "error", status: 402, body: { error: "insufficient-credits" } }] },
+    "error-auth": { replies: () => [{ kind: "error", status: 401, body: { error: "unauthorized" } }] },
+    "error-server": { replies: () => [held({ kind: "error", status: 500, body: { error: "internal-error" } })] },
+  },
 };
 
 /** The replies and signal a scenario has on one protocol, or null where it does not apply. */
@@ -624,6 +644,8 @@ type Wiring = {
   readonly def: (base: HarnessDef, url: string) => HarnessDef;
   /** Files written into the isolated home after Session.spawn() resets it. */
   readonly seed?: (home: string, cwd: string) => void;
+  /** Keys through a first-run flow no seeded file skips; `screen` is the live grid. */
+  readonly prelude?: (sess: Session, screen: () => Promise<string>) => Promise<void>;
   readonly note: string;
 };
 
@@ -852,6 +874,25 @@ const WIRING: Readonly<Record<string, Wiring>> = {
       ].join("\n"));
     },
   },
+  amp: {
+    protocol: "amp",
+    note: "AMP_URL points at the stub, which answers amp's internal API; the model runs server side, so only thread creation is scripted; HTTPS_PROXY refuses anything else",
+    prelude: async (sess, screen) => {
+      // Five welcome screens, each "Space to continue", then one that takes Enter.
+      for (let i = 0; i < 12; i++) {
+        const text = await screen();
+        if (/space to continue/i.test(text)) sess.write(" ");
+        else if (/enter to (?:continue|finish|start|get started)|press enter/i.test(text)) sess.write("\r");
+        else if (i > 0) return;
+        await wait(900);
+      }
+    },
+    def: (base, url) => ({
+      ...base,
+      argv: () => ["--no-ide"],
+      env: withEnv(base, () => ({ ...sealedProxy(url), AMP_URL: url, AMP_API_KEY: "capture-stub" })),
+    }),
+  },
   cursor: {
     protocol: "cursor",
     note: "CURSOR_API_ENDPOINT points at the stub, which answers Cursor's Connect RPCs and the cleartext HTTP/2 agent stream; file credential store, never the keychain; HTTPS_PROXY refuses anything else",
@@ -1042,6 +1083,10 @@ async function runScenario(harness: string, scenario: Scenario, stub: StubProvid
   stub.script([OK]);
   try {
     sess.spawn();
+    if (wiring.prelude) {
+      await sess.waitQuiet(15_000);
+      await wiring.prelude(sess, async () => { await pump(); return screenLines(term).join("\n"); });
+    }
     const ready = await sess.waitPrompt(READY_CAP_MS);
     await sess.waitQuiet(8_000);
     await pump();
