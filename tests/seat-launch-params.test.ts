@@ -11,6 +11,7 @@ import {
   seatLaunchParamsChangeError,
   seatLaunchParamsDiffer,
   seatLaunchParamsOf,
+  seatStartPreviewArgv,
 } from "../src/shared/seat-launch-params";
 import { applySettingsPatch, defaultSettings, harnessPrefsFor } from "../src/shared/settings";
 import { planManagedSpawn } from "../src/main/junto/term/managed-spawn-plan";
@@ -281,5 +282,29 @@ describe("profiles and squads carry the start parameters", () => {
     });
     if (Result.isFailure(squad)) throw new Error(squad.failure);
     expect(squad.success.seats[0]?.profile.extraArgs).toEqual(["-c", "k=v"]);
+  });
+});
+
+describe("seat start preview", () => {
+  it("resumes a saved Amp thread, without the mode or startup features it owns", () => {
+    expect(
+      seatStartPreviewArgv({
+        harness: "amp",
+        params: { mode: "low", extraArgs: ["--features", "plaid", "--no-color"] },
+        cwd: "/tmp",
+        resumesSession: true,
+      }),
+    ).toEqual(["amp", "--no-ide", "threads", "continue", "<saved thread>", "--no-color"]);
+  });
+
+  it("previews the planned launch when no session owns the dials", () => {
+    expect(
+      seatStartPreviewArgv({
+        harness: "amp",
+        params: { mode: "low", extraArgs: ["--features", "plaid"] },
+        cwd: "/tmp",
+        resumesSession: false,
+      }),
+    ).toEqual(["amp", "--no-ide", "-m", "low", "--features", "plaid"]);
   });
 });

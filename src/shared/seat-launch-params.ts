@@ -123,6 +123,32 @@ export const planSeatLaunch = (input: {
   };
 };
 
+/** Stands in for the saved session id, which the renderer never holds. */
+export const SAVED_SESSION_PLACEHOLDER = "<saved thread>";
+
+/**
+ * The argv the seat's next start runs, for the Params preview. A seat whose
+ * saved session owns its dials resumes it (`amp threads continue <id>`), so
+ * the preview resolves a resume of the placeholder session; any other seat
+ * previews the stored launch these params would plan.
+ */
+export const seatStartPreviewArgv = (input: {
+  readonly harness: HarnessId;
+  readonly params: SeatLaunchParams;
+  readonly cwd?: string;
+  readonly resumesSession: boolean;
+}): readonly string[] => {
+  const { harness, params, cwd, resumesSession } = input;
+  if (!resumesSession) return planSeatLaunch({ harness, params, base: { cwd } }).launch.argv ?? [];
+  return (
+    resolveManagedLaunch(
+      harness,
+      { ...params, ...(cwd ? { cwd } : {}), resumeId: SAVED_SESSION_PLACEHOLDER },
+      {},
+    ).argv ?? []
+  );
+};
+
 /**
  * Restarting a named Amp thread cannot change its mode. Junto applies feature
  * flags only at creation; native Amp controls own later feature changes.

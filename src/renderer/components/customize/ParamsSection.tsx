@@ -12,13 +12,12 @@ import {
 import { isHarnessId, templateFor, type HarnessId } from "@shared/managed-terminal-templates";
 import { paramSpec, type HarnessParams } from "@shared/harness-domain";
 import { HARNESS_RECORDS } from "@shared/harness-records";
-import { resolveManagedLaunch } from "@shared/managed-terminal-launch";
 import {
   permissionModeOptions,
-  planSeatLaunch,
   seatLaunchParamsChangeError,
   seatLaunchParamsDiffer,
   seatLaunchParamsOf,
+  seatStartPreviewArgv,
   type SeatLaunchParams,
 } from "@shared/seat-launch-params";
 import { openAgentEditor } from "../../lib/agent-editor-state";
@@ -128,9 +127,7 @@ function ParamsForm({ harness, stored, cwd, hasSession, lead, onDraft, footer }:
     [model, effort, mode, permissionMode, extra.args],
   );
   const preview = useMemo(
-    () => sessionOwns
-      ? resolveManagedLaunch(harness, { ...current, cwd, sessionId: "<saved thread>" }, {}).argv ?? []
-      : planSeatLaunch({ harness, params: current, base: { cwd } }).launch.argv ?? [],
+    () => seatStartPreviewArgv({ harness, params: current, cwd, resumesSession: sessionOwns }),
     [harness, current, cwd, sessionOwns],
   );
   const changed = seatLaunchParamsDiffer({ ...stored, extraArgs: stored.extraArgs ?? [] }, current);
