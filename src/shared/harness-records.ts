@@ -84,7 +84,7 @@ const HARNESS_VERIFIED_VERSIONS: Readonly<Partial<Record<HarnessId, VerifiedRang
   cursor: { from: "2026.09.10", through: "2026.10.14" },
   agy: { from: "1.2.1", through: "1.4.0" },
   // Amp versions are 0.0.<build>.
-  amp: { from: "0.0.1789401648", through: "0.0.1789401648" },
+  amp: { from: "0.0.1789401648", through: "0.0.1792209635" },
   fx: { from: "0.0.6", through: "0.0.14" },
   omp: { from: "18.0.9", through: "18.9.2" },
 };
