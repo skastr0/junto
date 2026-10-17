@@ -8,16 +8,16 @@
  * Fail-closed for gated writes (pulses, doctrine, board, overseer): an
  * unwritable seat or screen → bounded queue or immediate refusal by caller
  * policy. Mail is not gated on the seat being idle: `writeMail` types
- * mid-turn and submits it as steering (`MAIL_FOLLOW_UP_MODE`). The harness
- * follow-up contract says how many Enters that takes while a turn is
- * running. An idle seat gets one Enter. Mail is gated on the input box:
+ * mid-turn and submits it in the mode its harness declares, steering where
+ * it can (`mailModeFor`). The harness follow-up contract says how many
+ * Enters that mode takes while a turn is running. An idle seat gets one
+ * Enter. Mail is gated on the input box:
  * it is typed only into a composer the probes can read and the operator
  * is not using, and is held otherwise (composer-availability).
  */
 
 import { composerAvailability } from "../../../../shared/composer-availability";
 import type { MailHold } from "../../../../shared/mail-hold";
-import { mailSteeringSubmits } from "../../../../shared/managed-terminal-templates";
 import {
   OPERATOR_INPUT_LATCH_MS,
   OperatorInterlock,
@@ -35,7 +35,7 @@ import {
   hermesRefusesMultilinePaste,
   payloadMayChip,
 } from "./typing";
-import type { MailAdmission } from "./mail-admission";
+import { MAIL_MODE_ASKED, mailSubmits, type MailAdmission } from "./mail-admission";
 import {
   createPtyDeliveryTracer,
   type PtyDeliveryTraceContext,
@@ -863,8 +863,10 @@ export class ManagedTerminalDrive {
         }
         // Counted before the first Enter. A submit that settles the seat
         // must not cancel a second Enter this running turn already owed.
-        const steeringSubmits = mailSteeringSubmits(
+        const admission = this.mailAdmission?.(bindingId);
+        const followUpSubmits = mailSubmits(
           this.harnessFor?.(bindingId),
+          admission?._tag === "Admitted" ? admission.mode : MAIL_MODE_ASKED,
           this.isSeatIdle(bindingId),
         );
         const [paste, cr] = buildMailWriteSequence(
@@ -897,9 +899,9 @@ export class ManagedTerminalDrive {
         ) {
           await this.writeSubmitCr(bindingId, generation, bindingGeneration);
         }
-        // Steering that takes a second Enter. The chip CR above only finishes
-        // a multiline paste. It is not this keystroke.
-        for (let extra = 1; extra < steeringSubmits; extra += 1) {
+        // A follow-up that takes a second Enter. The chip CR above only
+        // finishes a multiline paste. It is not this keystroke.
+        for (let extra = 1; extra < followUpSubmits; extra += 1) {
           if (!(await this.settle(bindingId, generation, bindingGeneration))) return "lost";
           if (!(await Promise.resolve(this.writeTraced(bindingId, CR, "steer-cr")))) {
             return "lost";

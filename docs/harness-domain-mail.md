@@ -25,8 +25,8 @@ mail was held before too.
 
 | Rule today | Where | Domain mapping | After |
 |---|---|---|---|
-| Mail asks for steering, never queue | `MAIL_FOLLOW_UP_MODE`, `src/shared/managed-terminal-templates.ts` | `DeliverMail.mode = "steer"` (`MAIL_MODE_ASKED`) | same constant, read through the domain |
-| Enters per steer: two on devin and cursor mid-turn, one elsewhere and when idle | `HARNESS_FOLLOW_UP`, `mailSteeringSubmits` | none: a typing recipe, not a support level. `mailSteer` and `mailQueue` are `typed, pty` | stays in `HARNESS_FOLLOW_UP` |
+| Mail asks for steering, never queue | `MAIL_FOLLOW_UP_MODE`, `src/shared/managed-terminal-templates.ts` | `DeliverMail.mode` is the first of steer, then queue, that the harness declares (`mailModeFor`) | by declaration |
+| Enters per steer: two on devin and cursor mid-turn, one elsewhere and when idle | `HARNESS_FOLLOW_UP`, `mailSteeringSubmits` | none: a typing recipe, not a support level | `mailSubmits` reads the admitted mode's submit from `HARNESS_FOLLOW_UP`; a harness with no distinct queue queues on its steering key |
 | Mail types mid-turn | drive `writeMailInternal` | `Working { thinking \| tool }` admitted through `mailSteer` | admitted |
 | Attention holds mail as `dialog` | `composerAvailability`, `src/shared/composer-availability.ts` | `Blocked { Permission \| Question \| Dialog }` refused, held `dialog` | both, until surfaces read needs |
 | Usage limit or auth error | not detected | `Blocked { UsageLimit \| Error }` refused, held `stopped` | new, reachable once the screen emits them |

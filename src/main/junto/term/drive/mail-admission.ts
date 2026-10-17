@@ -1,7 +1,9 @@
 /**
  * Mail admission: the harness domain's say on whether mail may be typed into
- * a seat now. It asks `admitCommand` for a `DeliverMail` in mail's follow-up
- * mode and turns a refusal into the hold the mailbox already tells.
+ * a seat now. It asks `admitCommand` for a `DeliverMail` in the mode the
+ * seat's harness declares and turns a refusal into the hold the mailbox
+ * already tells. The mode decides the Enters a running turn gets
+ * (`mailSubmits`).
  *
  * Admission sits in front of the composer gate, never in place of it: an
  * admitted seat still holds on a draft or an unreadable box, and a refused one
@@ -23,10 +25,20 @@ import {
 } from "../../../../shared/harness-domain";
 import type { SeatMailHold } from "../../../../shared/mail-hold";
 import type { ComposerHold } from "../../../../shared/composer-availability";
-import { MAIL_FOLLOW_UP_MODE, type FollowUpMode } from "../../../../shared/managed-terminal-templates";
+import {
+  HARNESS_FOLLOW_UP,
+  isHarnessId,
+  MAIL_FOLLOW_UP_MODE,
+  type FollowUpMode,
+} from "../../../../shared/managed-terminal-templates";
 
 export type MailAdmission =
-  | { readonly _tag: "Admitted"; readonly support: Exclude<CommandSupport, { level: "none" }> }
+  | {
+      readonly _tag: "Admitted";
+      readonly support: Exclude<CommandSupport, { level: "none" }>;
+      /** How a running turn takes it; an idle seat takes any mode as a prompt. */
+      readonly mode: MailMode;
+    }
   | { readonly _tag: "Held"; readonly reason: Extract<ComposerHold, "dialog"> | SeatMailHold }
   /** The seat's process has exited: there is nothing to type into. */
   | { readonly _tag: "Lost" };
@@ -38,6 +50,28 @@ const MAIL_MODE: Readonly<Record<FollowUpMode, MailMode>> = {
 
 /** The mode mail asks for. A running turn takes it as a steer. */
 export const MAIL_MODE_ASKED: MailMode = MAIL_MODE[MAIL_FOLLOW_UP_MODE];
+
+/**
+ * Mail's modes, first choice first: a steer, or a queued follow-up on a
+ * harness that declares no steering. Mail never interrupts a turn.
+ */
+const MAIL_MODES: readonly MailMode[] = [MAIL_MODE_ASKED, "queue"];
+
+/** The first of mail's modes the harness declares, or the one mail asks for. */
+export const mailModeFor = (capabilities: HarnessCapabilities): MailMode =>
+  MAIL_MODES.find((mode) => capabilities.commands[mode === "steer" ? "mailSteer" : "mailQueue"].level !== "none") ??
+  MAIL_MODE_ASKED;
+
+/**
+ * Enters after the paste. An idle seat, or a harness with no template, is one.
+ * A running turn takes the mode's submit; a harness with no distinct queue
+ * submit queues on its steering key (`HARNESS_FOLLOW_UP`).
+ */
+export const mailSubmits = (harness: string | undefined, mode: MailMode, seatIdle: boolean): 1 | 2 => {
+  if (seatIdle || harness === undefined || !isHarnessId(harness)) return 1;
+  const followUp = HARNESS_FOLLOW_UP[harness];
+  return (mode === "queue" ? followUp.queue ?? followUp.steering : followUp.steering).submits;
+};
 
 const heldBy = (status: SeatStatus): MailAdmission => {
   switch (status._tag) {
@@ -61,12 +95,9 @@ export const admitMail = (
   capabilities: HarnessCapabilities | undefined,
 ): MailAdmission | undefined => {
   if (snapshot === undefined || capabilities === undefined) return undefined;
-  const admitted = admitCommand(snapshot, capabilities, {
-    _tag: "DeliverMail",
-    text: "",
-    mode: MAIL_MODE_ASKED,
-  });
-  if (Result.isSuccess(admitted)) return { _tag: "Admitted", support: admitted.success };
+  const mode = mailModeFor(capabilities);
+  const admitted = admitCommand(snapshot, capabilities, { _tag: "DeliverMail", text: "", mode });
+  if (Result.isSuccess(admitted)) return { _tag: "Admitted", support: admitted.success, mode };
   const refusal = admitted.failure;
   if (refusal._tag === "CommandUnsupportedError") return { _tag: "Held", reason: "unsupported" };
   return heldBy(snapshot.status);

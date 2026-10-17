@@ -6,7 +6,13 @@ import {
   ManagedTerminalDrive,
   encodeBracketedPaste,
 } from "../src/main/junto/term/drive";
-import { admitMail, MAIL_MODE_ASKED, type MailAdmission } from "../src/main/junto/term/drive/mail-admission";
+import {
+  admitMail,
+  MAIL_MODE_ASKED,
+  mailModeFor,
+  mailSubmits,
+  type MailAdmission,
+} from "../src/main/junto/term/drive/mail-admission";
 import {
   COMMAND_CAPABILITIES,
   HARNESS_SIGNAL_KINDS,
@@ -20,7 +26,11 @@ import {
   type SeatStatus,
 } from "../src/shared/harness-domain";
 import { HARNESS_CAPABILITIES } from "../src/shared/harness-capabilities";
-import { HARNESS_FOLLOW_UP } from "../src/shared/managed-terminal-templates";
+import {
+  HARNESS_FOLLOW_UP,
+  HARNESS_IDS,
+  mailSteeringSubmits,
+} from "../src/shared/managed-terminal-templates";
 import { BindingId } from "../src/shared/terminal-session-domain";
 
 const seat = Schema.decodeSync(BindingId)("b1");
@@ -52,6 +62,7 @@ describe("admitMail", () => {
     expect(admitMail(snapshotOf({ _tag: "Unknown" }), capabilities())).toEqual({
       _tag: "Admitted",
       support: TYPED,
+      mode: "steer",
     });
   });
 
@@ -63,20 +74,30 @@ describe("admitMail", () => {
   });
 
   it("admits an idle seat, and a working one through typed steering", () => {
-    const admitted = { _tag: "Admitted", support: TYPED };
+    const admitted = { _tag: "Admitted", support: TYPED, mode: "steer" };
     expect(admitMail(snapshotOf({ _tag: "Idle" }), capabilities())).toEqual(admitted);
     for (const phase of ["thinking", "tool"] as const) {
       expect(admitMail(snapshotOf({ _tag: "Working", phase }), capabilities())).toEqual(admitted);
     }
   });
 
-  it("holds a working seat whose harness cannot steer, and lets it in once idle", () => {
-    const none = capabilities({ mailQueue: TYPED });
-    expect(admitMail(snapshotOf({ _tag: "Working", phase: "thinking" }), none)).toEqual({
+  it("queues into a working seat whose harness declares a queue but no steering", () => {
+    const queueOnly = capabilities({ mailQueue: TYPED });
+    expect(mailModeFor(queueOnly)).toBe("queue");
+    expect(admitMail(snapshotOf({ _tag: "Working", phase: "thinking" }), queueOnly)).toEqual({
+      _tag: "Admitted",
+      support: TYPED,
+      mode: "queue",
+    });
+  });
+
+  it("holds a working seat whose harness declares neither, and lets it in once idle", () => {
+    const interruptOnly = capabilities({ mailInterrupt: TYPED });
+    expect(admitMail(snapshotOf({ _tag: "Working", phase: "thinking" }), interruptOnly)).toEqual({
       _tag: "Held",
       reason: "unsupported",
     });
-    expect(admitMail(snapshotOf({ _tag: "Idle" }), none)?._tag).toBe("Admitted");
+    expect(admitMail(snapshotOf({ _tag: "Idle" }), interruptOnly)?._tag).toBe("Admitted");
   });
 
   it("holds a seat that compacts or retries as busy", () => {
@@ -114,6 +135,33 @@ describe("admitMail", () => {
 });
 
 describe("admitMail on the declared harness records", () => {
+  it("picks the same Enters for every harness as before the records, idle and mid-turn", () => {
+    for (const harness of HARNESS_IDS) {
+      const declared = HARNESS_CAPABILITIES[harness];
+      for (const [status, idle] of [
+        [{ _tag: "Idle" }, true],
+        [{ _tag: "Working", phase: "thinking" }, false],
+        [{ _tag: "Unknown" }, false],
+      ] as const) {
+        const admission = admitMail(snapshotOf(status), declared);
+        if (admission?._tag !== "Admitted") throw new Error(`${harness} ${status._tag} not admitted`);
+        expect(admission.mode, harness).toBe(mailModeFor(declared));
+        expect(mailSubmits(harness, admission.mode, idle), `${harness} ${status._tag}`).toBe(
+          mailSteeringSubmits(harness, idle),
+        );
+      }
+    }
+  });
+
+  it("gives a queue its own submit where the harness has one, and the steering key where not", () => {
+    expect(mailSubmits("devin", "queue", false)).toBe(1);
+    expect(mailSubmits("cursor", "queue", false)).toBe(1);
+    expect(mailSubmits("devin", "steer", false)).toBe(2);
+    expect(mailSubmits("claude", "queue", false)).toBe(1);
+    expect(mailSubmits("devin", "steer", true)).toBe(1);
+    expect(mailSubmits(undefined, "steer", false)).toBe(1);
+  });
+
   it("admits mail into every harness idle and mid-turn, as delivery types it today", () => {
     for (const [harness, declared] of Object.entries(HARNESS_CAPABILITIES)) {
       expect(HARNESS_FOLLOW_UP[harness as keyof typeof HARNESS_FOLLOW_UP].steering.mode, harness).toBe("steering");
@@ -174,7 +222,7 @@ describe("ManagedTerminalDrive mail admission", () => {
     await vi.advanceTimersByTimeAsync(MAIL_DRAFT_RECHECK_MS * 4);
     expect(writes).toEqual([]);
     expect(writable).toEqual([]);
-    verdict = { _tag: "Admitted", support: TYPED };
+    verdict = { _tag: "Admitted", support: TYPED, mode: "steer" };
     await vi.advanceTimersByTimeAsync(MAIL_DRAFT_RECHECK_MS);
     expect(writable).toEqual(["b1"]);
     await expect(drive.writeMail("b1", "mail")).resolves.toBe("written");
@@ -182,11 +230,27 @@ describe("ManagedTerminalDrive mail admission", () => {
 
   it("still holds an admitted seat on its composer", async () => {
     vi.useFakeTimers();
-    drive = makeDrive(() => ({ _tag: "Admitted", support: TYPED }), {
+    drive = makeDrive(() => ({ _tag: "Admitted", support: TYPED, mode: "steer" }), {
       composerVerdict: () => null,
     });
     await expect(drive.writeMail("b1", "mail")).resolves.toBe("unreadable");
     expect(writes).toEqual([]);
+  });
+
+  it("types the declared mode's Enters into a running turn", async () => {
+    for (const [mode, expected] of [
+      ["steer", [encodeBracketedPaste("mail"), CR, CR]],
+      ["queue", [encodeBracketedPaste("mail"), CR]],
+    ] as const) {
+      drive?.resetForTest();
+      writes.length = 0;
+      drive = makeDrive(() => ({ _tag: "Admitted", support: TYPED, mode }), {
+        isSeatIdle: () => false,
+        harnessFor: () => "devin",
+      });
+      await expect(drive.writeMail("b1", "mail")).resolves.toBe("written");
+      expect(writes, mode).toEqual(expected);
+    }
   });
 
   it("writes nothing into an exited seat", async () => {
