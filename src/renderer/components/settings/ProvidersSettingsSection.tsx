@@ -1,5 +1,9 @@
 /**
- * Settings -> Providers: operator-configured usage credentials.
+ * Settings -> Providers: operator-configured usage credentials, for the
+ * machine chosen in the sidebar. The page reads that machine's providers
+ * through its core (lib/machine-settings-source.ts): credential names and
+ * whether each is set, never a value. A credential is written on its
+ * machine. The live voice card is the window's own and shows only for it.
  *
  * One card per configurable provider. Every field is a secret input with a
  * reveal toggle; values write through settingsPatch like any other settings
@@ -29,8 +33,17 @@ import {
   USAGE_ENABLED,
 } from "@shared/features";
 import { type NativeUsageProvider } from "@shared/usage";
+import { Result } from "effect";
+import {
+  credentialIsSet,
+  type MachineProviders,
+  type MachineSettingsUnavailableError,
+} from "@shared/machine-settings";
+import type { ProvidersPatch } from "@shared/settings";
 import { patchSettings } from "../../lib/settings-state";
 import { state$ } from "../../lib/state";
+import { machineSettingsSource } from "../../lib/machine-settings-source";
+import { useSettingsMachine } from "../../lib/settings-machine";
 import { Button, Eyebrow, IconButton, Input } from "../ui";
 
 function LiveProviderCard() {
@@ -351,27 +364,30 @@ const PROVIDER_SPECS: ReadonlyArray<ProviderSpec> = [
 function SecretFieldRow({
   providerId,
   spec,
-  stored,
+  configured,
+  onWrite,
 }: {
   readonly providerId: ProviderSectionKey;
   readonly spec: ProviderFieldSpec;
-  readonly stored: string | undefined;
+  /** A value is stored on the machine; the value itself never reaches the page. */
+  readonly configured: boolean;
+  readonly onWrite: (patch: ProvidersPatch) => void;
 }) {
   const [draft, setDraft] = useState<string>();
   const [revealed, setRevealed] = useState(false);
-  // A landed patch ends the edit: the (masked) durable value returns.
-  useEffect(() => setDraft(undefined), [stored]);
+  // A landed write ends the edit.
+  useEffect(() => setDraft(undefined), [configured]);
 
-  const commit = async (): Promise<void> => {
+  const commit = (): void => {
     if (draft === undefined) return;
     const next = draft.trim();
     setDraft(undefined);
     if (next === MASKED_SECRET) return;
-    if (next === (stored ?? "")) return;
-    await patchSettings({ providers: { [providerId]: { [spec.field]: next } } });
+    // An emptied field clears a stored secret; over nothing it sends nothing.
+    if (next === "" && !configured) return;
+    onWrite({ [providerId]: { [spec.field]: next } });
   };
 
-  const configured = stored !== undefined && stored.length > 0;
   return (
     <div className="settings-provider-field" role="group" aria-label={spec.label}>
       <span className="settings-provider-field__text">
@@ -388,11 +404,11 @@ function SecretFieldRow({
           placeholder={configured ? MASKED_SECRET : "not set"}
           value={draft ?? ""}
           onChange={(event) => setDraft(event.target.value)}
-          onBlur={() => void commit()}
+          onBlur={commit}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
-              void commit();
+              commit();
             } else if (event.key === "Escape") {
               setDraft(undefined);
             }
@@ -413,11 +429,7 @@ function SecretFieldRow({
             className="settings-provider-clear"
             aria-label={`Clear ${spec.label}`}
             title="Clear stored value"
-            onClick={() =>
-              void patchSettings({
-                providers: { [providerId]: { [spec.field]: "" } },
-              })
-            }
+            onClick={() => onWrite({ [providerId]: { [spec.field]: "" } })}
           >
             <X size={13} aria-hidden />
           </button>
@@ -427,39 +439,79 @@ function SecretFieldRow({
   );
 }
 
+type ProvidersRead =
+  | { readonly state: "unread" }
+  | { readonly state: "answered"; readonly providers: MachineProviders }
+  | { readonly state: "refused"; readonly error: MachineSettingsUnavailableError };
+
 export function ProvidersSettingsSection() {
-  const providers = use$(state$.settings.providers);
+  const machine = useSettingsMachine();
+  // The window's own core answers this machine; a change it saved is a reason to read again.
+  const ownProviders = use$(state$.settings.providers);
+  const [read, setRead] = useState<ProvidersRead>({ state: "unread" });
+  const [writeError, setWriteError] = useState("");
+
+  useEffect(() => {
+    let current = true;
+    void machineSettingsSource()
+      .providers(machine.name)
+      .then((answer) => {
+        if (!current) return;
+        setRead(
+          Result.isSuccess(answer)
+            ? { state: "answered", providers: answer.success }
+            : { state: "refused", error: answer.failure },
+        );
+      });
+    return () => {
+      current = false;
+    };
+  }, [machine.name, ownProviders]);
+
+  const write = (patch: ProvidersPatch): void => {
+    setWriteError("");
+    void machineSettingsSource()
+      .writeProviders(machine.name, patch)
+      .then((answer) => {
+        if (Result.isSuccess(answer)) setRead({ state: "answered", providers: answer.success });
+        else setWriteError(answer.failure.message);
+      });
+  };
+
+  const providers = read.state === "answered" ? read.providers : undefined;
   const enabledSources = new Set(providers?.enabledSources ?? []);
   const hermesHostSnapshots = providers?.hermesHostSnapshots === true;
+  const disabled = providers === undefined;
 
   const setSourceEnabled = (source: NativeUsageProvider, enabled: boolean) => {
-    void patchSettings({
-      providers: {
-        sourceAccess: { source, enabled },
-      },
-    });
+    write({ sourceAccess: { source, enabled } });
   };
 
   return (
     <div className="settings-section">
-      {LIVE_OVERSEER_ENABLED && <LiveProviderCard />}
+      {LIVE_OVERSEER_ENABLED && machine.isThisMachine && <LiveProviderCard />}
+      {read.state === "refused" ? (
+        <p className="settings-note" role="status" data-testid="providers-machine-refused">
+          No providers for {machine.label}: {read.error.message}
+        </p>
+      ) : null}
+      {writeError ? (
+        <p className="settings-note" role="alert">
+          Not saved on {machine.label}: {writeError}
+        </p>
+      ) : null}
       {USAGE_ENABLED ? (
         <>
           <p className="settings-note" role="note">
-            Provider access is off by default. Usage sources refresh every five minutes. Each card says what
-            it may read and contact. Stored values stay in this installation's credential vault, masked and
-            never logged.
+            Provider access on {machine.label} is off by default. Usage sources refresh every five minutes. Each
+            card says what it may read and contact. Stored values stay in {machine.label}&apos;s credential vault,
+            are never shown, and never leave it.
           </p>
           {PROVIDER_SPECS.map((spec) => {
-            const section = spec.credentials === undefined
-              ? undefined
-              : providers?.[spec.credentials];
-            const configured = spec.fields.filter(
-              (field) => {
-                const record = section as Record<string, string | undefined> | undefined;
-                return record !== undefined && record[field.field] !== undefined;
-              },
-            ).length ?? 0;
+            const credentials = spec.credentials;
+            const isSet = (field: string): boolean =>
+              providers !== undefined && credentials !== undefined && credentialIsSet(providers, credentials, field);
+            const configured = spec.fields.filter((field) => isSet(field.field)).length;
             return (
               <div key={spec.source} className="settings-provider-card">
                 <div className="settings-provider-head">
@@ -472,6 +524,7 @@ export function ProvidersSettingsSection() {
                     <input
                       type="checkbox"
                       checked={enabledSources.has(spec.source)}
+                      disabled={disabled}
                       aria-label={`Allow ${spec.label} usage access`}
                       onChange={(event) => setSourceEnabled(spec.source, event.target.checked)}
                     />
@@ -486,9 +539,8 @@ export function ProvidersSettingsSection() {
                     key={fieldSpec.field}
                     providerId={spec.credentials!}
                     spec={fieldSpec}
-                    stored={(section as Record<string, string | undefined> | undefined)?.[
-                      fieldSpec.field
-                    ]}
+                    configured={isSet(fieldSpec.field)}
+                    onWrite={write}
                   />
                 ))}
               </div>
@@ -510,12 +562,9 @@ export function ProvidersSettingsSection() {
               <input
                 type="checkbox"
                 checked={hermesHostSnapshots}
+                disabled={disabled}
                 aria-label="Allow Hermes host snapshot access"
-                onChange={(event) =>
-                  void patchSettings({
-                    providers: { hermesHostSnapshots: event.target.checked },
-                  })
-                }
+                onChange={(event) => write({ hermesHostSnapshots: event.target.checked })}
               />
             </label>
           </div>

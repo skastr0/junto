@@ -1,52 +1,110 @@
-import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { Result } from "effect";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { HERMES_INTEGRATION_ENABLED, LIVE_OVERSEER_ENABLED, USAGE_ENABLED } from "@shared/features";
-import { defaultSettings } from "@shared/settings";
+import { MachineSettingsUnavailableError, machineProvidersOf } from "@shared/machine-settings";
+import { defaultSettings, type ProvidersPatch, type Settings } from "@shared/settings";
 import { NATIVE_USAGE_PROVIDERS } from "@shared/usage";
 import { ProvidersSettingsSection } from "../src/renderer/components/settings/ProvidersSettingsSection";
+import {
+  coreMachineSettingsSource,
+  setMachineSettingsSource,
+} from "../src/renderer/lib/machine-settings-source";
+import { chooseSettingsMachine, forgetSettingsMachine } from "../src/renderer/lib/settings-machine";
 import { state$ } from "../src/renderer/lib/state";
 
-const render = (): string => renderToStaticMarkup(<ProvidersSettingsSection />);
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const checkboxInputs = (html: string): ReadonlyArray<string> =>
-  html.match(/<input type="checkbox"[^>]*>/gu) ?? [];
+let host: HTMLDivElement;
+let root: Root;
+let writes: Array<{ machine: string; patch: ProvidersPatch }>;
 
-afterEach(() => state$.settings.set(defaultSettings()));
+const thisMachine = (settings: Settings): Settings => ({ ...settings, machine: { ...settings.machine, name: "desk" } });
+
+const render = async (): Promise<string> => {
+  await act(async () => root.render(<ProvidersSettingsSection />));
+  return host.innerHTML;
+};
+
+const checkboxes = () => [...host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+
+beforeEach(() => {
+  writes = [];
+  state$.settings.set(thisMachine(defaultSettings()));
+  setMachineSettingsSource({
+    ...coreMachineSettingsSource,
+    providers: async (machine) =>
+      machine === "desk"
+        ? Result.succeed(machineProvidersOf(state$.settings.peek(), machine))
+        : Result.fail(new MachineSettingsUnavailableError({ machine, reason: "unreachable", message: "no link" })),
+    writeProviders: async (machine, patch) => {
+      writes.push({ machine, patch });
+      return Result.succeed(machineProvidersOf(state$.settings.peek(), machine));
+    },
+  });
+  host = document.createElement("div");
+  document.body.appendChild(host);
+  root = createRoot(host);
+});
+
+afterEach(() => {
+  act(() => root.unmount());
+  host.remove();
+  forgetSettingsMachine();
+  setMachineSettingsSource(coreMachineSettingsSource);
+  state$.settings.set(defaultSettings());
+});
 
 describe("provider access settings", () => {
-  it.runIf(USAGE_ENABLED)("shows every source as explicit opt-in and discloses sensitive access", () => {
-    const html = render();
-
-    expect(html).toContain("Provider access is off by default");
+  it.runIf(USAGE_ENABLED)("shows every source as explicit opt-in and discloses sensitive access", async () => {
+    const html = await render();
+    expect(html).toContain("Provider access on desk is off by default");
     expect(html).toContain("Usage sources refresh every five minutes");
     expect(html).toContain("macOS Keychain");
     expect(html).toContain("Chrome profile local storage");
     expect(html).toContain("process command lines and ports");
     expect(html).toContain("This does not run hermes CLI commands");
-    expect(html.match(/aria-label="Allow [^"]+ usage access"/gu)).toHaveLength(
-      NATIVE_USAGE_PROVIDERS.length,
-    );
-    expect(checkboxInputs(html)).toHaveLength(
-      NATIVE_USAGE_PROVIDERS.length + (HERMES_INTEGRATION_ENABLED ? 1 : 0),
-    );
-    expect(checkboxInputs(html).every((input) => !input.includes("checked"))).toBe(true);
+    expect(html.match(/aria-label="Allow [^"]+ usage access"/gu)).toHaveLength(NATIVE_USAGE_PROVIDERS.length);
+    expect(checkboxes()).toHaveLength(NATIVE_USAGE_PROVIDERS.length + (HERMES_INTEGRATION_ENABLED ? 1 : 0));
+    expect(checkboxes().every((input) => !input.checked)).toBe(true);
     if (HERMES_INTEGRATION_ENABLED) {
       expect(html).toContain("Allow Hermes host snapshot access");
       expect(html).toContain("enrolled-host SSH");
     }
   });
 
-  it.runIf(USAGE_ENABLED)("renders only the sources the operator enabled as checked", () => {
+  it.runIf(USAGE_ENABLED)("renders only the sources the operator enabled as checked", async () => {
     state$.settings.providers.set({ enabledSources: ["claude", "cursor"] });
-    const html = render();
-
-    expect(checkboxInputs(html).filter((input) => input.includes("checked"))).toHaveLength(2);
+    const html = await render();
+    expect(checkboxes().filter((input) => input.checked)).toHaveLength(2);
     expect(html).toContain("access on");
   });
 
-  it.runIf(LIVE_OVERSEER_ENABLED)("offers write-only OpenAI credentials and explicit per-call limits", () => {
+  it.runIf(USAGE_ENABLED)("writes a source toggle to the chosen machine", async () => {
+    await render();
+    await act(async () => checkboxes()[0]!.click());
+    expect(writes[0]?.machine).toBe("desk");
+    expect(writes[0]?.patch.sourceAccess?.enabled).toBe(true);
+  });
+
+  it.runIf(USAGE_ENABLED)("says why another machine's providers are not shown, and offers no write", async () => {
+    state$.machines.set([
+      { id: "desk", label: "Desk", isThisMachine: true } as never,
+      { id: "mini", label: "Mini", isThisMachine: false } as never,
+    ]);
+    state$.machineFacts.set({ mini: { setUp: true, needsUpdate: false, reachable: false } } as never);
+    chooseSettingsMachine("mini");
+    const html = await render();
+    expect(html).toContain("No providers for Mini: no link");
+    expect(checkboxes().every((input) => input.disabled)).toBe(true);
+    expect(html).not.toContain('aria-label="GPT-Live settings"');
+  });
+
+  it.runIf(LIVE_OVERSEER_ENABLED)("offers write-only OpenAI credentials and explicit per-call limits", async () => {
     state$.settings.providers.set({ openai: { apiKeyConfigured: true } });
-    const html = render();
+    const html = await render();
     expect(html).toContain('aria-label="GPT-Live settings"');
     expect(html).toContain("API key configured");
     expect(html).toContain("A call starts only when you choose Start live conversation");
