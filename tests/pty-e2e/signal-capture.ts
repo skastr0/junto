@@ -72,9 +72,11 @@ const held = (reply: Reply): Reply => ({ ...reply, delayMs: RETRY_HOLD_MS });
 
 type Served = { readonly path: string; readonly reply: string };
 
-const OK: Reply = { kind: "ok", text: "Hello from the capture stub." };
+type OkReply = Extract<Reply, { kind: "ok" }>;
+
+const OK: OkReply = { kind: "ok", text: "Hello from the capture stub." };
 /** Held back so the compaction spinner stays on screen long enough to sample. */
-const SUMMARY: Reply = { kind: "ok", text: "Summary: the user greeted the assistant and the assistant replied.", delayMs: 4_000 };
+const SUMMARY: OkReply = { kind: "ok", text: "Summary: the user greeted the assistant and the assistant replied.", delayMs: 4_000 };
 /** A fixed port keeps the stub address that harnesses print stable across captures. */
 const STUB_PORT = Number(process.env.CAPTURE_STUB_PORT ?? 47_820);
 
@@ -204,7 +206,7 @@ class StubProvider {
     else respond();
   }
 
-  private respondOk(res: http.ServerResponse, body: string, protocol: Protocol, reply: Extract<Reply, { kind: "ok" }>, n: number): void {
+  private respondOk(res: http.ServerResponse, body: string, protocol: Protocol, reply: OkReply, n: number): void {
     const text = reply.text;
     let streaming = false;
     try { streaming = (JSON.parse(body) as { stream?: unknown }).stream === true; } catch { /* not JSON */ }
