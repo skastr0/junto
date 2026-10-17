@@ -44,6 +44,10 @@ const judgePiece = (piece: string): string =>
   piece.split(JUNTO_ID).map((part, index) => index % 2 === 1 ? part : mixedRun(part) ? REDACTED : part).join("");
 const mixed = (run: string): boolean => judgePiece(run) !== run;
 const PATH_BOUNDARY = /[\s"'`(=]/;
+// The same set by char code: one regex test per character costs most of a long scrub.
+const isPathBoundary = (code: number): boolean =>
+  code === 32 || (code >= 9 && code <= 13) || code === 34 || code === 39 || code === 96 || code === 40 || code === 61 ||
+  (code > 127 && PATH_BOUNDARY.test(String.fromCharCode(code)));
 
 /** A Junto build directory, <64 hex>-<target>: the public bundle hash, not a secret. */
 const BUILD_SEGMENT = /^[0-9a-f]{64}-(?:darwin-arm64|linux-x64)$/;
@@ -65,38 +69,36 @@ const judgeRun = (run: string, offset: number, text: string, tokenStart: (at: nu
 };
 
 /**
- * Where the token holding each position starts, found in one pass and kept
- * for the text being scrubbed: walking back per run is quadratic on one long
- * token.
+ * Where the token holding each position starts, found in one pass: walking
+ * back per run is quadratic on one long token. Local to one scrub, so no
+ * unscrubbed text outlives it.
  */
-let startsFor: { readonly text: string; readonly starts: Int32Array } | undefined;
 const tokenStarts = (text: string): ((at: number) => number) => {
-  if (startsFor?.text !== text) {
-    const starts = new Int32Array(text.length + 1);
-    let start = 0;
-    for (let at = 0; at <= text.length; at++) {
-      starts[at] = start;
-      if (at < text.length && PATH_BOUNDARY.test(text[at]!)) start = at + 1;
-    }
-    startsFor = { text, starts };
+  const starts = new Int32Array(text.length + 1);
+  let start = 0;
+  for (let at = 0; at <= text.length; at++) {
+    starts[at] = start;
+    if (at < text.length && isPathBoundary(text.charCodeAt(at))) start = at + 1;
   }
-  const { starts } = startsFor;
   return (at) => starts[at]!;
 };
 
 const stripControls = (text: string): string =>
   text.replace(/\r\n?/g, "\n").replace(ESCAPES, "").replace(CONTROLS, "");
 
-const replaceShapes = (text: string): string =>
-  text
+const replaceShapes = (text: string): string => {
+  const shaped = text
     .replace(PRIVATE_KEY, REDACTED)
     .replace(AUTHORIZATION, `$1${REDACTED}`)
     .replace(BEARER, `$1${REDACTED}`)
     .replace(URL_USERINFO, `$1${REDACTED}@`)
     .replace(NAMED_VALUE, (_match, name: string) => `${name}${REDACTED}`)
     .replace(TOKEN_SHAPES, REDACTED)
-    .replace(UUID, REDACTED)
-    .replace(LONG_RUN, (run: string, offset: number, whole: string) => judgeRun(run, offset, whole, tokenStarts(whole)));
+    .replace(UUID, REDACTED);
+  // Computed once, on the first long run, and dropped with this call.
+  let starts: ((at: number) => number) | undefined;
+  return shaped.replace(LONG_RUN, (run: string, offset: number) => judgeRun(run, offset, shaped, starts ??= tokenStarts(shaped)));
+};
 
 /**
  * Values live on this machine that no failure or log may carry: each
