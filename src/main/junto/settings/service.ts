@@ -41,7 +41,7 @@ import { CredentialBindingRepository } from "../credentials/bindings";
 import {
   clearAllProviderSecretOps,
   commitProviderSecretOps,
-  discardStagedSecrets,
+  discardStaged,
   migrateHistoricalProviderSecrets,
   reconcileCredentialVault,
   resolveProviderSecrets,
@@ -512,7 +512,7 @@ export const makeSettingsService = (
         }),
       );
       if (Result.isFailure(outcome)) {
-        discardStagedSecrets(credentials, staged);
+        yield* discardStaged(credentials, staged);
         return yield* outcome.failure;
       }
       const result = outcome.success;

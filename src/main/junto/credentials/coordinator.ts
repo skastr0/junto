@@ -172,7 +172,8 @@ export const discardStagedSecrets = (
   return failures;
 };
 
-const discardStaged = Effect.fn("credentials.discard-staged")(function* (
+/** Rolls staged items back; a delete that fails is logged with its scrubbed cause, never a value or id. */
+export const discardStaged = Effect.fn("credentials.discard-staged")(function* (
   store: CredentialStore,
   staged: ReadonlyArray<StagedSecret>,
 ) {
