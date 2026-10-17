@@ -84,10 +84,23 @@ it("step 5 keeps the last 40 lines and 4 KiB, scrubbing the whole window before 
   expect(token.text).toBe("password=[redacted]\nok");
 });
 
+/**
+ * Growth, not a wall-clock bound: an absolute bound flakes on a loaded
+ * machine. The fastest of five runs at n and 4n; linear is about 4x,
+ * quadratic about 16x. A generous ceiling backs it up.
+ */
+const expectLinear = (scrub: (size: number) => void) => {
+  const fastest = (size: number) => Math.min(...Array.from({ length: 5 }, () => {
+    const started = performance.now(); scrub(size); return performance.now() - started;
+  }));
+  scrub(16 * 1024);
+  const small = fastest(16 * 1024), large = fastest(64 * 1024);
+  expect(large).toBeLessThan(500);
+  expect(large / Math.max(small, 0.5)).toBeLessThan(9);
+};
+
 it("a long run costs linear time, so a peer's message cannot stall the main thread", () => {
-  const started = performance.now();
-  scrubMessage("x".repeat(16 * 1024), []);
-  expect(performance.now() - started).toBeLessThan(50);
+  expectLinear(size => scrubMessage("x".repeat(size), []));
 });
 
 it("a message is one scrubbed line of at most 1 KiB, its cut marked", () => {
@@ -112,11 +125,11 @@ it("keeps a stack frame's bundle path whole and judges each segment of a path", 
 });
 
 it("judges one 64 KiB path token in linear time", () => {
-  const token = "/" + ("Ab1".repeat(11) + ".").repeat(Math.ceil(64 * 1024 / 34));
-  const started = performance.now();
-  scrubText(token);
-  const tail = new StderrTail();
-  tail.push(new TextEncoder().encode(token));
-  tail.read();
-  expect(performance.now() - started).toBeLessThan(50);
+  expectLinear(size => {
+    const token = "/" + ("Ab1".repeat(11) + ".").repeat(Math.ceil(size / 34));
+    scrubText(token);
+    const tail = new StderrTail();
+    tail.push(new TextEncoder().encode(token));
+    tail.read();
+  });
 });
