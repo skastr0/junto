@@ -99,6 +99,9 @@ describe("provider access settings", () => {
     const html = await render();
     expect(html).toContain("No providers for Mini: no link");
     expect(checkboxes().every((input) => input.disabled)).toBe(true);
+    const secrets = [...host.querySelectorAll<HTMLInputElement>('input[type="password"]')];
+    expect(secrets.length).toBeGreaterThan(0);
+    expect(secrets.every((input) => input.disabled)).toBe(true);
     expect(html).not.toContain('aria-label="GPT-Live settings"');
   });
 

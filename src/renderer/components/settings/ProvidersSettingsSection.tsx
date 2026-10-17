@@ -365,10 +365,13 @@ function SecretFieldRow({
   providerId,
   spec,
   configured,
+  disabled,
   onWrite,
 }: {
   readonly providerId: ProviderSectionKey;
   readonly spec: ProviderFieldSpec;
+  /** No answer from the machine: nothing can be written to it. */
+  readonly disabled: boolean;
   /** A value is stored on the machine; the value itself never reaches the page. */
   readonly configured: boolean;
   readonly onWrite: (patch: ProvidersPatch) => void;
@@ -401,6 +404,7 @@ function SecretFieldRow({
           autoComplete="off"
           spellCheck={false}
           aria-label={spec.label}
+          disabled={disabled}
           placeholder={configured ? MASKED_SECRET : "not set"}
           value={draft ?? ""}
           onChange={(event) => setDraft(event.target.value)}
@@ -427,6 +431,7 @@ function SecretFieldRow({
           <button
             type="button"
             className="settings-provider-clear"
+            disabled={disabled}
             aria-label={`Clear ${spec.label}`}
             title="Clear stored value"
             onClick={() => onWrite({ [providerId]: { [spec.field]: "" } })}
@@ -540,6 +545,7 @@ export function ProvidersSettingsSection() {
                     providerId={spec.credentials!}
                     spec={fieldSpec}
                     configured={isSet(fieldSpec.field)}
+                    disabled={disabled}
                     onWrite={write}
                   />
                 ))}

@@ -63,6 +63,9 @@ const isStoredKey = (key: HarnessParamKey): key is StoredKey => (STORED_KEYS as 
 
 const HARNESS_DEFAULT = "Harness default";
 
+/** How soon the page asks the machine's cache again while a scan runs behind it. */
+const INVENTORY_REREAD_MS = 2_000;
+
 type InventoryRead =
   | { readonly state: "unread" }
   | { readonly state: "answered"; readonly inventory: MachineInventory }
@@ -76,19 +79,29 @@ export function HarnessesSettingsSection({ machine: chosen }: { readonly machine
 
   useEffect(() => {
     let current = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     setRead({ state: "unread" });
-    void harnessMachineSource()
-      .inventory(machine)
-      .then((answer) => {
-        if (!current) return;
-        setRead(
-          Result.isSuccess(answer)
-            ? { state: "answered", inventory: answer.success }
-            : { state: "refused", error: answer.failure },
-        );
-      });
+    // The cache answers at once; while a scan runs behind it, ask the cache
+    // again until the scan has landed. Nothing waits on the scan itself.
+    const ask = (): void => {
+      void harnessMachineSource()
+        .inventory(machine)
+        .then((answer) => {
+          if (!current) return;
+          setRead(
+            Result.isSuccess(answer)
+              ? { state: "answered", inventory: answer.success }
+              : { state: "refused", error: answer.failure },
+          );
+          if (Result.isSuccess(answer) && answer.success.harnesses.some((row) => row.refreshing)) {
+            timer = setTimeout(ask, INVENTORY_REREAD_MS);
+          }
+        });
+    };
+    ask();
     return () => {
       current = false;
+      if (timer !== undefined) clearTimeout(timer);
     };
   }, [machine]);
 

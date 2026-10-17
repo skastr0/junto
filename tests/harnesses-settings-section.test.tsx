@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Result } from "effect";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applySettingsPatch, defaultSettings, type Settings, type SettingsPatch } from "@shared/settings";
 import { InventoryUnavailableError, paramsOfTemplate, type MachineInventory } from "@shared/harness-domain";
 import { NativeConfigWriteError } from "@shared/harness-domain/native-config-write";
@@ -225,6 +225,27 @@ describe("Settings > Agents, per machine", () => {
     expect(reads).toBe(2);
     expect(native.textContent).toContain("the file changed on mac-mini since it was read");
     expect(toggle().getAttribute("aria-checked") ?? String((toggle() as HTMLInputElement).checked)).toBe("true");
+  });
+
+  it("asks the cache again while a scan runs, and shows the version when it lands", async () => {
+    vi.useFakeTimers();
+    let asks = 0;
+    setHarnessMachineSource({
+      ...pendingHarnessMachineSource,
+      inventory: async () => {
+        asks += 1;
+        const row = { ...miniInventory.harnesses[0]!, version: "2.1.302", refreshing: asks === 1 };
+        return Result.succeed({ machine: "mac-mini", harnesses: [asks === 1 ? { ...row, version: undefined } as never : row] });
+      },
+    });
+    await render("mac-mini");
+    expect(card("claude").textContent).toContain("rescanning");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_500);
+    });
+    vi.useRealTimers();
+    expect(asks).toBe(2);
+    expect(card("claude").textContent).toContain("version 2.1.302");
   });
 
   it("offers no native setting for a version nobody verified", async () => {
