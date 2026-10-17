@@ -2,6 +2,7 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { expect, it, vi } from "vitest";
 import { MachineCoreStatus, machineCoreStatusLayer } from "../src/main/core-runtime";
 import { MachineRepository } from "../src/main/junto/machines/repository";
+import { ModelRecords } from "../src/main/junto/model/records";
 import { InstallationId } from "../src/shared/installation-id";
 import { MachineHarnesses, MachineOwnStatus, MachinePeerStatus } from "../src/shared/machine-control";
 
@@ -32,7 +33,9 @@ it("reports the same bounded facts to the owner and the linked machine, once per
   }));
   const runtime = ManagedRuntime.make(machineCoreStatusLayer({
     home: "/tmp/status-home", build: "a".repeat(64), bundles: {}, ready: () => true,
-  }).pipe(Layer.provide(machines)));
+  }).pipe(Layer.provide(machines), Layer.provide(Layer.succeed(ModelRecords, {
+    listCanvases: () => Effect.succeed([]),
+  } as unknown as ModelRecords["Service"]))));
   try {
     const status = await runtime.runPromise(MachineCoreStatus);
     const own = Schema.decodeUnknownSync(MachineOwnStatus)(await runtime.runPromise(status.own));
@@ -55,5 +58,13 @@ it("reports the same bounded facts to the owner and the linked machine, once per
     expect(peer).not.toHaveProperty("juntoHome");
     expect(peer).not.toHaveProperty("pid");
     expect(probe).toHaveBeenCalledOnce();
+    // The same channel answers this machine's log, scoped to the asking peer.
+    const logs = await runtime.runPromise(status.handler.handleRequest!({
+      peer: { machineName: "book", installationId, build: "a".repeat(64) },
+      sessionId: "status-session", signal: new AbortController().signal,
+      sendEvent: () => Effect.void, request: () => Effect.die("unused"), close: () => Effect.void,
+    }, status.handler.decodeRequest({ kind: "logs", query: { level: "error" } })));
+    expect(status.handler.decodeResponse(logs)).toEqual({ machine: "mini", rows: [], cut: false, unreadable: 0 });
+    expect(() => status.handler.decodeRequest({ kind: "logs", query: { level: "loud" } })).toThrow();
   } finally { await runtime.dispose(); }
 });

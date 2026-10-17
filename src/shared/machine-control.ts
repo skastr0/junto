@@ -5,6 +5,7 @@ import { RemoteHost, HostLabel, HostSshEndpoint } from "./remote-hosts";
 import { HarnessId } from "./managed-terminal-templates";
 import { isValidMachineName } from "./machine-identity";
 import type { MachineExchangeInput, MachineExchangeData } from "./machine-exchange";
+import type { MachineLogRead, MachineLogsInput } from "./machine-log";
 import { EncodedFailure } from "./failure";
 
 export const MachineName = Schema.String.pipe(Schema.check(Schema.makeFilter(isValidMachineName)));
@@ -83,6 +84,7 @@ export const MachineEmptyInput = Schema.Struct({});
 export const MachineOpName = Schema.Literals([
   "machine.add", "machine.list", "machine.send", "machine.status", "machine.update",
   "machine.remove", "machine.harnesses", "machine.configure", "machine.setup", "machine.exchange",
+  "machine.logs",
 ]);
 export type MachineOpName = typeof MachineOpName.Type;
 export interface MachineArgsByOp {
@@ -96,6 +98,7 @@ export interface MachineArgsByOp {
   readonly "machine.configure": MachineTargetInput;
   readonly "machine.setup": MachinePeerIdentity;
   readonly "machine.exchange": MachineExchangeInput;
+  readonly "machine.logs": MachineLogsInput;
 }
 export interface MachineDataByOp {
   readonly "machine.add": RemoteHost;
@@ -108,4 +111,5 @@ export interface MachineDataByOp {
   readonly "machine.configure": typeof MachineConfigured.Type;
   readonly "machine.setup": MachinePeerPin;
   readonly "machine.exchange": MachineExchangeData;
+  readonly "machine.logs": MachineLogRead;
 }

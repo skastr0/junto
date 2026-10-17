@@ -7,11 +7,13 @@ import {
 import type { OperatorArgsByOp } from "@shared/operator-control";
 import { OperatorSocket, requireOwnerCommand } from "../core/operator-socket";
 import { MachineExchangeInput } from "@shared/machine-exchange";
+import { MachineLogsInput } from "@shared/machine-log";
 import { MachineInstallInput, MachineLocalPaths } from "@shared/machine-install";
 import { installMachine } from "../../main/junto/hosts/install";
 import { uninstallMachine } from "../../main/junto/hosts/uninstall";
 import { loadJsonInput } from "../core/json";
 import { executeJsonCommand } from "../core/output";
+import { logsFilterFlags, logsFlagsOf, lowerLogsFlags } from "./logs";
 
 const installLocal = Command.make("install-local", {
   input: Argument.string("input").pipe(Argument.withDescription("JSON object, @file, or - for stdin")),
@@ -38,6 +40,22 @@ const ownerCommand = <Op extends MachineOpName>(name: string, op: Op, schema: Sc
     return yield* socket.call(op, args, op === "machine.send" || op === "machine.update" ? 15 * 60_000 : undefined);
   })));
 
+/**
+ * The owner reads one machine's log: this one whole, a linked one scoped by
+ * that machine to the canvases this one holds. Refused from a seat, like
+ * every machine command.
+ */
+const logs = Command.make("logs", {
+  name: Argument.string("name").pipe(Argument.withDescription("Machine name: this machine or a linked one")),
+  ...logsFilterFlags,
+}, ({ name, ...flags }) => executeJsonCommand("machine logs", Effect.gen(function* () {
+  yield* requireOwnerCommand;
+  const query = yield* lowerLogsFlags(logsFlagsOf(flags));
+  const args = yield* Schema.decodeUnknownEffect(MachineLogsInput, { onExcessProperty: "error" })({ name, query });
+  const socket = yield* OperatorSocket;
+  return yield* socket.call("machine.logs", args);
+}))).pipe(Command.withDescription("Read a machine's log, this one or a linked one, with the junto logs filters"));
+
 export const machineCommand = Command.make("machine").pipe(
   Command.withDescription("Install and manage Junto on machines"),
   Command.withSubcommands([
@@ -52,5 +70,6 @@ export const machineCommand = Command.make("machine").pipe(
     ownerCommand("configure", "machine.configure", MachineTargetInput),
     ownerCommand("setup", "machine.setup", MachinePeerIdentity),
     ownerCommand("exchange", "machine.exchange", MachineExchangeInput),
+    logs,
   ]),
 );

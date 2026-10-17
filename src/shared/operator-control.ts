@@ -16,6 +16,7 @@ import {
 import { MachineInstallResult, MachineInstallError } from "./machine-install";
 import { RemoteHost } from "./remote-hosts";
 import { MachineExchangeInput, MachineExchangeData } from "./machine-exchange";
+import { MachineLogRead, MachineLogsInput } from "./machine-log";
 
 /** Owner-local control, admitted by OS peer ancestry rather than seat tokens. */
 
@@ -133,6 +134,7 @@ export const OperatorMachineHarnessesRequest = request("machine.harnesses", Mach
 export const OperatorMachineConfigureRequest = request("machine.configure", MachineTargetInput);
 export const OperatorMachineSetupRequest = request("machine.setup", MachinePeerIdentity);
 export const OperatorMachineExchangeRequest = request("machine.exchange", MachineExchangeInput);
+export const OperatorMachineLogsRequest = request("machine.logs", MachineLogsInput);
 
 export const OperatorRequestEnvelope = Schema.Union([OperatorCompanionHelloRequest,
 OperatorCompanionCallRequest,
@@ -147,6 +149,7 @@ OperatorMachineHarnessesRequest,
 OperatorMachineConfigureRequest,
 OperatorMachineSetupRequest,
 OperatorMachineExchangeRequest,
+OperatorMachineLogsRequest,
 ]);
 export type OperatorRequestEnvelope = typeof OperatorRequestEnvelope.Type;
 
@@ -179,6 +182,7 @@ export const OperatorMachineHarnessesResponse = response("machine.harnesses", Ma
 export const OperatorMachineConfigureResponse = response("machine.configure", MachineConfigured);
 export const OperatorMachineSetupResponse = response("machine.setup", MachinePeerPin);
 export const OperatorMachineExchangeResponse = response("machine.exchange", MachineExchangeData);
+export const OperatorMachineLogsResponse = response("machine.logs", MachineLogRead);
 
 export const OperatorErrorType = Schema.Literals(["validation", "not_found",
 "conflict",
@@ -227,6 +231,7 @@ OperatorMachineHarnessesResponse,
 OperatorMachineConfigureResponse,
 OperatorMachineSetupResponse,
 OperatorMachineExchangeResponse,
+OperatorMachineLogsResponse,
 OperatorErrorResponse,]);
 export type OperatorResponseEnvelope = typeof OperatorResponseEnvelope.Type;
 

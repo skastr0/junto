@@ -5,6 +5,7 @@ import {
   ObservabilityLogSource,
 } from "./observability";
 import { EncodedFailure, OperationId } from "./failure";
+import { MachineName } from "./machine-control";
 import { CanvasName } from "./model/base";
 import { NodeId } from "./physics/schema";
 
@@ -64,6 +65,13 @@ export const MachineLogQuery = Schema.Struct({
   limit: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: LOG_READ_MAX_LIMIT })))),
 }).annotate({ parseOptions: { onExcessProperty: "error" } });
 export type MachineLogQuery = typeof MachineLogQuery.Type;
+
+/** `junto machine logs`: the owner reads one machine's log, this one or a linked one. */
+export const MachineLogsInput = Schema.Struct({
+  name: MachineName,
+  query: MachineLogQuery,
+});
+export type MachineLogsInput = typeof MachineLogsInput.Type;
 
 export const MachineLogRead = Schema.Struct({
   machine: named(64),

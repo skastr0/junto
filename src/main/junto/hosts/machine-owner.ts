@@ -5,6 +5,7 @@ import {
   type OperatorRequestEnvelope, type OperatorResponseEnvelope,
 } from "@shared/operator-control";
 import { MachineBuild, MachinePeerStatus, type MachineOwnStatus, type MachineHarnesses, type MachineCopyInput } from "@shared/machine-control";
+import type { MachineLogQuery, MachineLogRead } from "@shared/machine-log";
 import { MachineInstallError, MachineSetupError, type MachineInstallResult } from "@shared/machine-install";
 import type { MachineSendEvent } from "@shared/machine-progress";
 import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
@@ -17,6 +18,10 @@ export interface MachineOwnerOptions {
   readonly ownStatus: Effect.Effect<MachineOwnStatus, unknown>;
   readonly ownHarnesses: Effect.Effect<MachineHarnesses, unknown>;
   readonly peerStatus: (name: string) => Effect.Effect<MachinePeerStatus, unknown>;
+  /** This machine's whole log; the owner is not scoped. */
+  readonly ownLogs: (query: MachineLogQuery) => Effect.Effect<MachineLogRead, unknown>;
+  /** A linked machine's log, scoped by that machine to the canvases this one holds. */
+  readonly peerLogs: (name: string, query: MachineLogQuery) => Effect.Effect<MachineLogRead, unknown>;
   readonly peerBuild: (name: string) => Effect.Effect<string | undefined, unknown>;
   readonly copy: (host: RemoteHost, input: MachineCopyInput, mode: "send" | "update", onTransition?: (event: MachineSendEvent) => void) => Effect.Effect<MachineInstallResult, unknown>;
   readonly disconnect: (name: string) => Effect.Effect<void, unknown>;
@@ -100,6 +105,12 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         return { machineName: status.machineName, reachable: status.reachable, harnesses: status.harnesses,
           ...("keychain" in status && status.keychain !== undefined ? { keychain: status.keychain } : {}) };
       }
+      case "machine.logs": {
+        const { name, query } = request.args;
+        if (name === (yield* machines.machineName)) return yield* options.ownLogs(query);
+        yield* other(name);
+        return yield* options.peerLogs(name, query);
+      }
       case "machine.send":
       case "machine.update": return yield* options.copy(yield* other(request.args.name), request.args, request.op === "machine.send" ? "send" : "update", onTransition);
       case "machine.remove": {
@@ -121,7 +132,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
   });
   return {
     dispatch: (request: OperatorRequestEnvelope, onTransition?: (event: MachineSendEvent) => void) =>
-      (request.op === "machine.list" || request.op === "machine.status" || request.op === "machine.harnesses"
+      (request.op === "machine.list" || request.op === "machine.status" || request.op === "machine.harnesses" || request.op === "machine.logs"
         ? run(request, onTransition) : mutationLock.withPermits(1)(run(request, onTransition))).pipe(
       Effect.map(data => {
         const decoded = decodeOperatorResponse({ protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: true, data });
@@ -133,7 +144,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         error: { type: cause instanceof RemoteHostsError ? cause.code : "io",
           message: cause instanceof Error ? (cause.message.includes("pinned to another installation") ? `${cause.message}; choose another name` : cause.message).slice(0, 4096) : "machine operation failed",
           details: {
-            retryable: request.op === "machine.status" || request.op === "machine.list" || request.op === "machine.harnesses",
+            retryable: request.op === "machine.status" || request.op === "machine.list" || request.op === "machine.harnesses" || request.op === "machine.logs",
             ...(cause instanceof MachineInstallError ? {
               disposition: cause.disposition,
               ...(cause.transitions === undefined ? {} : { transitions: cause.transitions }),

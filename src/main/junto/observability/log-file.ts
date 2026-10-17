@@ -179,13 +179,31 @@ export const readMachineLog = Effect.fn("readMachineLog")(function* (
   ), { concurrency: 1 });
   const rows = results.flatMap((result) => result.kept).sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
   const matched = results.reduce((total, result) => total + result.matched, 0);
-  return {
+  return fitLogRead({
     machine,
     rows: rows.slice(-limit),
     cut: matched > limit,
     unreadable: results.reduce((total, result) => total + result.unreadable, 0),
-  } satisfies MachineLogRead;
+  });
 });
+
+/**
+ * Every read fits the smallest transport it travels on: the owner socket
+ * answers at most 544 KiB, a link frame 1 MiB, the work socket 8 MiB.
+ */
+export const LOG_READ_MAX_BYTES = 480 * 1024;
+
+/** Drop the oldest rows until the read fits `maxBytes` as JSON; say it was cut. */
+export const fitLogRead = (read: MachineLogRead, maxBytes: number = LOG_READ_MAX_BYTES): MachineLogRead => {
+  const sizes = read.rows.map((row) => Buffer.byteLength(JSON.stringify(row), "utf8") + 1);
+  let total = sizes.reduce((sum, size) => sum + size, Buffer.byteLength(JSON.stringify({ ...read, rows: [] }), "utf8"));
+  let start = 0;
+  while (start < read.rows.length && total > maxBytes) {
+    total -= sizes[start]!;
+    start += 1;
+  }
+  return start === 0 ? read : { ...read, rows: read.rows.slice(start), cut: true };
+};
 
 /**
  * What a seat may read (docs/security-doctrine.md, Logs): its own rows, rows

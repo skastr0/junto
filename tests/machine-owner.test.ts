@@ -44,6 +44,8 @@ const fixture = async (overrides: Partial<MachineOwnerOptions> = {}) => {
     peerStatus: name => Effect.sync(() => { probed.push(name); return { machineName: name, reachable: false, harnesses: [], missingSecrets: [] }; }),
     copy: () => Effect.die("copy not part of this fixture"),
     disconnect: name => Effect.sync(() => { disconnected.push(name); }),
+    ownLogs: () => Effect.die("own logs not part of this fixture"),
+    peerLogs: () => Effect.die("peer logs not part of this fixture"),
     ...overrides,
   }).pipe(Effect.provideService(HostsService, { ...hosts, list: Effect.suspend(() => failReload
     ? Effect.fail(new RemoteHostsError("io", "test reload failed")) : hosts.list) })));
@@ -210,4 +212,23 @@ it("holds removal until an in-flight copy completes so setup cannot revive a rem
   expect((await sent).ok).toBe(true);
   expect((await removed).ok).toBe(true);
   expect(f.disconnected).toEqual(["mini"]);
+});
+
+it("reads this machine's log whole and a linked machine's through that machine", async () => {
+  const reads: Array<{ readonly machine: string; readonly query: unknown }> = [];
+  const read = (machine: string) => ({ machine, rows: [], cut: false, unreadable: 0 });
+  const f = await fixture({
+    ownLogs: query => Effect.sync(() => { reads.push({ machine: "macbook", query }); return read("macbook"); }),
+    peerLogs: (name, query) => Effect.sync(() => { reads.push({ machine: name, query }); return read(name); }),
+  });
+  expect(await f.call("machine.logs", { name: "macbook", query: { level: "error" } }))
+    .toMatchObject({ ok: true, op: "machine.logs", data: { machine: "macbook" } });
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
+  expect(await f.call("machine.logs", { name: "mini", query: { area: "seats", limit: 1 } }))
+    .toMatchObject({ ok: true, op: "machine.logs", data: { machine: "mini" } });
+  expect(reads).toEqual([
+    { machine: "macbook", query: { level: "error" } },
+    { machine: "mini", query: { area: "seats", limit: 1 } },
+  ]);
+  expect(await f.call("machine.logs", { name: "ghost", query: {} })).toMatchObject({ ok: false, error: { type: "not_found" } });
 });
