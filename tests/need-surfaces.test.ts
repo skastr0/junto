@@ -1,0 +1,342 @@
+/**
+ * Needs projected onto occupancy, the region rollup, the operator feed and
+ * desktop notifications. Each scenario folds real signals into a seat
+ * snapshot, projects its needs, and compares with what today's surface code
+ * shows for the same seat. Where they differ the difference must be listed:
+ * an order disagreement from `ladderDisagreements`, or a `SURFACE_CHANGES`
+ * entry.
+ */
+import { Schema } from "effect";
+import { describe, expect, it } from "vitest";
+import {
+  deriveNeeds,
+  initialSnapshot,
+  NEED_CAUSES,
+  reduceSeatSignals,
+  type NeedCause,
+  type SeatSignal,
+  type SignalEnvelope,
+  type SignalSource,
+} from "../src/shared/harness-domain";
+import { BindingId } from "../src/shared/terminal-session-domain";
+import {
+  FEED_FROM_NEED,
+  ladderDisagreements,
+  NOTIFY_FROM_NEED,
+  OCCUPANCY_FROM_NEED,
+  OCCUPANCY_LADDER,
+  projectNeeds,
+  ROLLUP_FROM_NEED,
+  SURFACE_CHANGES,
+  type NeedSurface,
+} from "../src/shared/need-surfaces";
+import { DEFAULT_STALL_AFTER_MS, deriveOccupancy, OccupancySpectrum } from "../src/shared/occupancy/derive";
+import { deriveRegionRollups } from "../src/shared/region-rollup";
+import { buildOperatorFeed, feedSeatsFromCanvas } from "../src/shared/operator-feed";
+import { FEED_URGENCY } from "../src/shared/wire/operator-feed";
+import { NOTIFY_CATEGORIES } from "../src/shared/desktop-notifications";
+import type { AgentSeatState } from "../src/shared/agent-seat-state";
+import type { AgentSignal } from "../src/shared/agent-signals";
+import type { ThreadHealthReading } from "../src/shared/thread-health";
+import type { BindingId as ModelBindingId } from "../src/shared/model";
+import { clueFromAgentSeat, workSurfaceFromSeat } from "../src/renderer/lib/agent-seat-state";
+import { seatSubjects, subjectsFromFeed } from "../src/renderer/lib/desktop-notify";
+import { canvasOf, region, seat as seatNode } from "./support/model-nodes";
+
+const NOW = 50_000_000;
+const seatId = Schema.decodeSync(BindingId)("b-a");
+
+let clock = 1_000;
+const at = (source: SignalSource, signal: SeatSignal): SignalEnvelope => ({
+  seat: seatId,
+  at: (clock += 10),
+  source,
+  fidelity: source === "screen" ? "screen" : "native",
+  signal,
+});
+
+const awareness = (value: "waiting_on_operator"): SignalEnvelope =>
+  at("awareness", {
+    _tag: "AwarenessAssessed",
+    questionId: `health.${value}`,
+    answer: { axis: "health", value },
+    present: true,
+    probability: 0.95,
+    evidenceHash: "h",
+    packVersion: "awareness-pack/2",
+  });
+
+const report = (kind: AgentSignal["kind"]): SignalEnvelope =>
+  at("seat", { _tag: "SeatReported", kind, signalId: `s-${kind}`, state: "open" });
+
+/** One seat, and what today's sources say about it. */
+type Scenario = {
+  readonly name: string;
+  readonly signals: readonly SignalEnvelope[];
+  readonly seatState: AgentSeatState;
+  readonly needsLook?: boolean;
+  readonly stalled?: boolean;
+  readonly failedExit?: boolean;
+  readonly attention?: boolean;
+  readonly declared?: AgentSignal["kind"];
+  readonly waitingReading?: boolean;
+};
+
+const SCENARIOS: readonly Scenario[] = [
+  {
+    name: "a permission prompt on the screen",
+    signals: [at("screen", { _tag: "PermissionRequested" })],
+    seatState: "attention",
+    attention: true,
+  },
+  { name: "working", signals: [at("screen", { _tag: "TurnStarted" })], seatState: "working" },
+  { name: "idle", signals: [at("screen", { _tag: "ActivityObserved", activity: "idle" })], seatState: "idle" },
+  {
+    name: "a finished turn nobody has read",
+    signals: [at("screen", { _tag: "TurnStarted" }), at("screen", { _tag: "TurnEnded", outcome: "completed" })],
+    seatState: "idle",
+    needsLook: true,
+  },
+  {
+    name: "working, then the heartbeat stalls",
+    signals: [at("screen", { _tag: "TurnStarted" }), at("system", { _tag: "HeartbeatStalled", lastSeenAt: 1_000 })],
+    seatState: "working",
+    stalled: true,
+  },
+  {
+    name: "a seat that declared itself blocked while working",
+    signals: [at("screen", { _tag: "TurnStarted" }), report("blocked")],
+    seatState: "working",
+    declared: "blocked",
+  },
+  {
+    name: "a seat that escalated while working",
+    signals: [at("screen", { _tag: "TurnStarted" }), report("escalate")],
+    seatState: "working",
+    declared: "escalate",
+  },
+  {
+    name: "an idle seat that posted feedback",
+    signals: [at("screen", { _tag: "ActivityObserved", activity: "idle" }), report("feedback")],
+    seatState: "idle",
+    declared: "feedback",
+  },
+  {
+    name: "an idle seat the AI reads as waiting on the operator",
+    signals: [at("screen", { _tag: "ActivityObserved", activity: "idle" }), awareness("waiting_on_operator")],
+    seatState: "idle",
+    waitingReading: true,
+  },
+  {
+    name: "an expected exit",
+    signals: [at("process", { _tag: "ProcessExited", code: 0, expected: true })],
+    seatState: "gone",
+  },
+  {
+    name: "a failure exit",
+    signals: [at("process", { _tag: "ProcessExited", code: 1, expected: false })],
+    seatState: "gone",
+    failedExit: true,
+  },
+];
+
+// ── Today's surfaces, run for real ─────────────────────────────────────────
+
+const event = (scenario: Scenario) => ({
+  bindingId: "b-a",
+  epoch: "e1",
+  state: scenario.seatState,
+  reason: "test",
+  confidence: "high" as const,
+  at: scenario.stalled ? NOW - DEFAULT_STALL_AFTER_MS - 1 : NOW,
+});
+
+const todayOccupancy = (scenario: Scenario): string => {
+  const clue = clueFromAgentSeat(event(scenario), scenario.needsLook ?? false)!;
+  return deriveOccupancy({ ...clue, nowMs: NOW });
+};
+
+const maple = seatNode("a", { x: 10, y: 10, width: 100, height: 40, label: "Maple", bindingId: "b-a" as ModelBindingId });
+const canvas = canvasOf([region("r", { x: 0, y: 0, width: 500, height: 500 }, { label: "ops" }), maple]);
+
+const todayRollup = (scenario: Scenario): string | undefined => {
+  const surface = workSurfaceFromSeat(event(scenario), scenario.needsLook ?? false);
+  const [rollup] = deriveRegionRollups({
+    canvas,
+    canvasName: "main",
+    itemsOf: () => [],
+    resolveActorRef: () => undefined,
+    ...(surface ? { terminalStatusByNodeId: new Map([["a", surface]]) } : {}),
+  });
+  return rollup?.members.find((member) => member.nodeId === "a")?.severity;
+};
+
+const reading = (): ThreadHealthReading => ({
+  bindingId: "b-a",
+  value: "waiting_on_operator",
+  confidence: 0.95,
+  observedAt: NOW,
+  provenance: { source: "jev", assessmentId: "as1", questionId: "health.waiting_on_operator", packVersion: "awareness-pack/2" },
+  signals: [],
+});
+
+const todayFeed = (scenario: Scenario) =>
+  buildOperatorFeed({
+    canvasName: "main",
+    nowMs: NOW,
+    seats: feedSeatsFromCanvas(canvas, {
+      attentionByNodeId: new Map(scenario.attention ? [["a", { reason: "permission dialog", at: NOW }]] : []),
+      healthByNodeId: new Map(scenario.waitingReading ? [["a", { reading: reading(), fresh: true }]] : []),
+    }),
+    signals: scenario.declared
+      ? [
+          {
+            signalId: "s1",
+            canvasName: "main",
+            nodeId: "a",
+            kind: scenario.declared,
+            text: "said so",
+            state: "open",
+            createdAt: NOW,
+          } as AgentSignal,
+        ]
+      : [],
+  });
+
+const worst = <V extends string>(values: readonly V[], rank: (value: V) => number): V | undefined =>
+  [...values].sort((a, b) => rank(b) - rank(a))[0];
+
+const todayFeedKind = (scenario: Scenario) =>
+  worst(
+    todayFeed(scenario).sections.flatMap((section) => section.items.map((item) => item.kind)),
+    (kind) => FEED_URGENCY[kind],
+  );
+
+const todayNotify = (scenario: Scenario) =>
+  worst(
+    [
+      ...subjectsFromFeed(todayFeed(scenario)),
+      ...seatSubjects({
+        canvasName: "main",
+        seats: [maple],
+        seatState: () => ({ state: scenario.seatState, at: NOW }),
+        needsLook: () => scenario.needsLook ?? false,
+        failure: () => (scenario.failedExit ? { epoch: "e1", code: 1 } : undefined),
+        exitMessage: () => undefined,
+        lastSaid: () => undefined,
+      }),
+    ].map((subject) => subject.category),
+    (category) => NOTIFY_CATEGORIES.length - NOTIFY_CATEGORIES.indexOf(category),
+  );
+
+const TODAY: Readonly<Record<NeedSurface, (scenario: Scenario) => string | undefined>> = {
+  occupancy: todayOccupancy,
+  rollup: todayRollup,
+  feed: todayFeedKind,
+  notify: todayNotify,
+};
+
+const PROJECTION = {
+  occupancy: OCCUPANCY_FROM_NEED,
+  rollup: ROLLUP_FROM_NEED,
+  feed: FEED_FROM_NEED,
+  notify: NOTIFY_FROM_NEED,
+} as const;
+
+const SURFACES = ["occupancy", "rollup", "feed", "notify"] as const;
+
+const needsOf = (scenario: Scenario) =>
+  deriveNeeds(reduceSeatSignals(initialSnapshot(seatId, 0), scenario.signals));
+
+const listedChange = (surface: NeedSurface, causes: readonly NeedCause[]): boolean =>
+  SURFACE_CHANGES.some((change) => change.surface === surface && causes.some((cause) => change.causes.includes(cause)));
+
+// ── Tests ──────────────────────────────────────────────────────────────────
+
+describe("need surfaces: today's seats project to today's surfaces", () => {
+  for (const scenario of SCENARIOS) {
+    for (const surface of SURFACES) {
+      it(`${surface}: ${scenario.name}`, () => {
+        const needs = needsOf(scenario);
+        const projected = projectNeeds(needs, PROJECTION[surface]);
+        const today = TODAY[surface](scenario);
+        if (projected === today) return;
+        // A difference is allowed only where it is written down.
+        expect(listedChange(surface, needs.map((need) => need.cause)), `${surface} shows ${today} today, ${projected} projected`).toBe(true);
+      });
+    }
+  }
+
+  it("agrees on every scenario wherever no change is listed", () => {
+    const agreed = SCENARIOS.flatMap((scenario) =>
+      SURFACES.filter((surface) => projectNeeds(needsOf(scenario), PROJECTION[surface]) === TODAY[surface](scenario)).map(
+        (surface) => `${surface}: ${scenario.name}`,
+      ),
+    );
+    // 11 scenarios x 4 surfaces, less the four declared-signal and exit rows the rollup changes.
+    expect(agreed).toHaveLength(SCENARIOS.length * SURFACES.length - 4);
+  });
+});
+
+describe("need surfaces: tables", () => {
+  it("cover every need cause on every surface", () => {
+    const causes = Object.keys(NEED_CAUSES).sort();
+    for (const projection of Object.values(PROJECTION)) expect(Object.keys(projection).sort()).toEqual(causes);
+  });
+
+  it("keep occupancy's ladder in step with its spectrum", () => {
+    for (const value of OCCUPANCY_LADDER) expect(OccupancySpectrum.literals).toContain(value);
+  });
+
+  it("never ping or count the AI's advisory reading", () => {
+    const advisory = (Object.keys(NEED_CAUSES) as NeedCause[]).filter((cause) => cause.startsWith("awareness_"));
+    for (const cause of advisory) {
+      expect(NOTIFY_FROM_NEED[cause]).toBeNull();
+      expect(ROLLUP_FROM_NEED[cause]).toBeNull();
+      expect(OCCUPANCY_FROM_NEED[cause]).toBeNull();
+      expect([null, "health"]).toContain(FEED_FROM_NEED[cause]);
+    }
+  });
+});
+
+describe("need surfaces: where each surface's order disagrees with the ladder", () => {
+  const summary = (surface: NeedSurface) =>
+    ladderDisagreements(surface).map((entry) => `${entry.kind} ${entry.above} > ${entry.below}`);
+
+  it("occupancy", () => {
+    expect(summary("occupancy")).toEqual([
+      "inverted activity_blocked > attention",
+      "merged working > working",
+      "split stalled > working",
+    ]);
+  });
+
+  it("region rollup", () => {
+    expect(summary("rollup")).toEqual([
+      "merged attention > attention",
+      "split blocked > attention",
+      "merged blocked > blocked",
+      "inverted blocked > attention",
+      "inverted working > ready",
+      "merged working > working",
+    ]);
+  });
+
+  it("operator feed", () => {
+    expect(summary("feed")).toEqual([
+      "split blocked > attention",
+      "split escalate > health",
+      "merged health > health",
+      "inverted feedback > health",
+    ]);
+  });
+
+  it("desktop notifications", () => {
+    expect(summary("notify")).toEqual([
+      "merged needsYou > needsYou",
+      "split blocked > needsYou",
+      "inverted failed > needsYou",
+      "split needsYou > done",
+    ]);
+  });
+});
