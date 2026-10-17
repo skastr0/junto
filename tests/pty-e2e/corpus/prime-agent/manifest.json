@@ -1,0 +1,210 @@
+{
+  "harness": "prime-agent",
+  "displayName": "Prime Agent",
+  "source": "stub-provider",
+  "pty": {
+    "cols": 120,
+    "rows": 32,
+    "term": "xterm-256color"
+  },
+  "sanitized": true,
+  "scrub": [
+    "<HOME>",
+    "<USER>",
+    "<HOST>",
+    "<CWD>",
+    "<CAPTURE>",
+    "<SESSION>",
+    "<EMAIL>",
+    "<TOKEN>"
+  ],
+  "scenarios": [
+    {
+      "harness": "prime-agent",
+      "scenario": "retry-overloaded",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: overloaded }, then a completed turn",
+        "wiring": "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
+        "stubServed": [
+          "/v1/responses 503",
+          "/v1/responses 503",
+          "/v1/responses 503",
+          "/v1/responses ok"
+        ],
+        "renderedLines": [
+          "     ██████▄         ▄██████▀",
+          "    ▄███▀███▄     ▄███▀▄██▀          version  v0.9.4",
+          "    ███ ▄████▄▄▄████▀▄▄██            model    stub-model",
+          "   ▀██  ▀█████████▀▀▀▀▀▀             cwd      <CWD>",
+          "   ▄██   ██████▀▀ ▄███",
+          " ⠋ Waiting · 0s",
+          "← agents/resume  stub-model                                                                                       0 (0%)",
+          "  say hi",
+          " Error: Provider server error (server_error, 503): The server is overloaded. Please try again later.",
+          " ⠙ Retrying (1/3) in 2s... (Ctrl+C to cancel)",
+          " Hint: Share traces with Prime Intellect using /traces on to train open-source LLMs.",
+          " Hello from the capture stub.",
+          " ⠋ Writing · 0s · ↓ 8 tokens",
+          "← agents/resume  stub-model                                                                                      10 (0%)"
+        ],
+        "cliVersion": "0.9.4"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "prime-agent",
+      "scenario": "retry-rate",
+      "status": "fail",
+      "reason": "Error: ENOTEMPTY, Directory not empty: /tmp/junto-capture-home/prime-agent '/tmp/junto-capture-home/prime-agent'",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: rate }, then a completed turn",
+        "wiring": "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
+        "stubServed": [],
+        "renderedLines": [],
+        "cliVersion": "0.9.4"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "prime-agent",
+      "scenario": "retry-network",
+      "status": "skip",
+      "reason": "composer never ready",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: network }, then a completed turn",
+        "wiring": "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
+        "stubServed": [],
+        "renderedLines": [],
+        "cliVersion": "0.9.4"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "prime-agent",
+      "scenario": "usage-limit",
+      "status": "skip",
+      "reason": "composer never ready",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: 5h, resetsAt }",
+        "wiring": "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
+        "stubServed": [],
+        "renderedLines": [],
+        "cliVersion": "0.9.4"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "prime-agent",
+      "scenario": "usage-limit-weekly",
+      "status": "skip",
+      "reason": "composer never ready",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: weekly, resetsAt }",
+        "wiring": "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
+        "stubServed": [],
+        "renderedLines": [],
+        "cliVersion": "0.9.4"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "prime-agent",
+      "scenario": "error-auth",
+      "status": "skip",
+      "reason": "composer never ready",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: auth }",
+        "wiring": "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
+        "stubServed": [],
+        "renderedLines": [],
+        "cliVersion": "0.9.4"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "prime-agent",
+      "scenario": "error-server",
+      "status": "skip",
+      "reason": "composer never ready",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: provider } after retries run out",
+        "wiring": "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
+        "stubServed": [],
+        "renderedLines": [],
+        "cliVersion": "0.9.4"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "prime-agent",
+      "scenario": "error-context",
+      "status": "skip",
+      "reason": "composer never ready",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: contextOverflow }",
+        "wiring": "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
+        "stubServed": [],
+        "renderedLines": [],
+        "cliVersion": "0.9.4"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "prime-agent",
+      "scenario": "compaction-auto",
+      "status": "skip",
+      "reason": "composer never ready",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "CompactionStarted { trigger: auto }, CompactionEnded { ok }, then a completed turn",
+        "wiring": "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
+        "stubServed": [],
+        "renderedLines": [],
+        "cliVersion": "0.9.4"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "prime-agent",
+      "scenario": "compaction-manual",
+      "status": "skip",
+      "reason": "composer never ready",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "CompactionStarted { trigger: manual }, CompactionEnded { ok }",
+        "wiring": "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
+        "stubServed": [],
+        "renderedLines": [],
+        "cliVersion": "0.9.4"
+      },
+      "expectedScreen": {}
+    }
+  ],
+  "signalCaptureEvidence": {
+    "tool": "tests/pty-e2e/signal-capture.ts",
+    "capturedAt": "2026-10-17T04:34:08.660Z",
+    "harnessVersion": "0.9.4",
+    "provider": "scripted local stub; the binary and its rendering are real, the provider replies are not"
+  },
+  "sanitization": {
+    "method": "decoded-jsonl-scan",
+    "fixtures": 3,
+    "decodedBytes": 177377,
+    "checks": [
+      "home-path",
+      "username",
+      "hostname",
+      "email",
+      "token"
+    ]
+  }
+}
