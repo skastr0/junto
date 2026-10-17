@@ -32,6 +32,7 @@ import { KernelService, type KernelHost } from "./junto/kernel/service";
 import { PausePlane } from "./junto/pause-plane";
 import { pauseWasResumed } from "@shared/pause";
 import type { AgentSignal } from "@shared/agent-signals";
+import { ObservabilityLoggerLive, setLogMachine } from "./junto/observability/logger";
 
 export interface MachineCoreOptions {
   readonly home: string;
@@ -138,6 +139,12 @@ export const machineCoreStatusLayer = (options: MachineCoreOptions) => Layer.eff
   const machines = yield* MachineRepository;
   const form = yield* detectMachineForm();
   const keychain = yield* detectMachineKeychain();
+  // Rows name this machine as the canvas does, not by host name.
+  yield* machines.machineName.pipe(
+    Effect.tap((name) => Effect.sync(() => setLogMachine(name))),
+    Effect.catchCause((cause) => Effect.logWarning("the machine name could not be read; log rows use the host name", cause)),
+    Effect.annotateLogs({ area: "machines" }),
+  );
   const own = Effect.all({
     build: Effect.succeed(options.build),
     form: Effect.succeed(form),
@@ -225,5 +232,6 @@ export const makeMachineCoreLayer = (options: MachineCoreOptions) => {
   return Layer.provideMerge(makeMachineServicesLayer(options), makeCoreProductLayer(options.home));
 };
 
-export const makeCoreRuntime = (options: MachineCoreOptions) => ManagedRuntime.make(makeMachineCoreLayer(options));
+export const makeCoreRuntime = (options: MachineCoreOptions) =>
+  ManagedRuntime.make(Layer.merge(makeMachineCoreLayer(options), ObservabilityLoggerLive));
 export type CoreRuntime = ReturnType<typeof makeCoreRuntime>;

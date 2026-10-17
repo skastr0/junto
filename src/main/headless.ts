@@ -4,8 +4,16 @@ import { resolveJuntoHome } from "@shared/junto-home";
 import { runningBuildIdentity } from "./junto/build-identity";
 import { startCore } from "./junto/core";
 import { armMainThreadBudget } from "./junto/observability/main-thread-budget";
+import { installMachineLog, installObservabilityConsoleHook } from "./junto/observability/logger";
+import { machineLogDir } from "./junto/observability/log-file";
+
+const home = resolveJuntoHome();
 
 const main = async (): Promise<void> => {
+  // The log file is this core's record. Its service stdio is an unbounded
+  // file, so nothing is echoed there but the fixed lines below.
+  installMachineLog({ home, process: "core", echo: false });
+  installObservabilityConsoleHook({ echo: false });
   // The 4ms assertion is a development instrument. Bun's bundler inlines
   // NODE_ENV as "development", so without this every installed core reports
   // each kernel pass to stderr. JUNTO_BUDGET still arms it by hand.
@@ -16,7 +24,7 @@ const main = async (): Promise<void> => {
   const bundles = existsSync(join(packageRoot, "manifest.json")) && (nativeTarget === "darwin-arm64" || nativeTarget === "linux-x64")
     ? { [nativeTarget]: packageRoot } : {};
   const core = await startCore({
-    home: resolveJuntoHome(),
+    home,
     build: runningBuildIdentity(),
     bundles,
   });
@@ -24,17 +32,21 @@ const main = async (): Promise<void> => {
   const stop = (): void => {
     if (closing) return;
     closing = true;
-    void core.close().then(() => { process.exitCode = 0; }, (cause) => {
-      console.error(cause instanceof Error ? cause.message : "Junto could not stop cleanly");
+    void core.close().then(() => { process.exitCode = 0; }, (cause: unknown) => {
+      console.error("[core] Junto could not stop cleanly", cause);
+      process.stderr.write(`Junto could not stop cleanly; the reason is in ${machineLogDir(home)}\n`);
       process.exitCode = 1;
     });
   };
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
-  console.error("Junto core is ready");
+  console.info("[core] Junto core is ready");
+  // scripts/machine-bundle-boot.ts waits for this exact line.
+  process.stderr.write("Junto core is ready\n");
 };
 
-void main().catch((cause) => {
-  console.error(cause instanceof Error ? cause.message : "Junto core failed to start");
+void main().catch((cause: unknown) => {
+  console.error("[core] Junto core failed to start", cause);
+  process.stderr.write(`Junto core failed to start; the reason is in ${machineLogDir(home)}\n`);
   process.exitCode = 1;
 });

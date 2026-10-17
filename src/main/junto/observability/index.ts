@@ -1,9 +1,12 @@
 export {
   ObservabilityEffectLogger,
   ObservabilityLoggerLive,
+  installMachineLog,
   installObservabilityConsoleHook,
   recordRendererConsole,
   recordSystemLog,
+  setLogMachine,
+  writeLog,
 } from "./logger";
 export {
   makeObservabilityRing,

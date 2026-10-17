@@ -51,6 +51,7 @@ import { SeatGuidanceRepository } from "./junto/seat-guidance/repository";
 import { seatGuidanceIndex } from "./junto/seat-guidance/index-memory";
 import {
   armMainThreadBudget,
+  installMachineLog,
   installObservabilityConsoleHook,
   recordRendererConsole,
   recordSystemLog,
@@ -1260,7 +1261,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
   });
 
   void app.whenReady().then(async () => {
-    // Process log ring: main console + Effect logger (layer already on AppRuntime).
+    // One log path: main console + Effect logger (layer already on AppRuntime)
+    // into the ring and this machine's log file under ~/.junto/logs.
+    installMachineLog({ home: resolveJuntoHome(), process: "app", echo: true });
     installObservabilityConsoleHook();
     // The 4ms invariant, asserted at the source. Dev runs are armed; a
     // packaged app stays silent unless JUNTO_BUDGET says otherwise.
