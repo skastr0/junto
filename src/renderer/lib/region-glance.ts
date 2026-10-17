@@ -117,6 +117,7 @@ export type RegionTally = {
   readonly total: number;
   readonly blocked: number;
   readonly attention: number;
+  readonly escalated?: number;
   readonly working: number;
   readonly ready: number;
 };
@@ -137,6 +138,8 @@ export const regionTallyParts = (tally: RegionTally | undefined): readonly Regio
   const parts: RegionTallyPart[] = [];
   if (tally.blocked > 0) parts.push({ tone: "crimson", text: feedKindCount("blocked", tally.blocked) });
   if (tally.attention > 0) parts.push({ tone: "amber", text: feedKindCount("attention", tally.attention) });
+  const escalated = tally.escalated ?? 0;
+  if (escalated > 0) parts.push({ tone: "amber", text: feedKindCount("escalate", escalated) });
   if (tally.working > 0) parts.push({ tone: "cyan", text: `${String(tally.working)} working` });
   if (tally.ready > 0) parts.push({ tone: "green", text: `${String(tally.ready)} done` });
   if (parts.length === 0) parts.push({ tone: "steel", text: tally.total === 1 ? "1 idle" : `${String(tally.total)} idle` });

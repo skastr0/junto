@@ -76,7 +76,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     expect(rollup?.severity).toBe("attention");
     const agent = rollup?.members.find((member) => member.nodeId === "a");
     expect(agent).toMatchObject({ severity: "attention", reasons: ["permission:pending"] });
-    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 1, working: 0 , ready: 0 });
+    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 1, escalated: 0, working: 0 , ready: 0 });
   });
 
   it("session liveness alone does not imply harness work", () => {
@@ -89,7 +89,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
       agentActivity: activityOf(["remote-a:profile-13", { sessionLive: true }]),
     });
     expect(rollup?.members[0]).toMatchObject({ severity: "idle", reasons: [] });
-    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 0, working: 0, ready: 0 });
+    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 0, escalated: 0, working: 0, ready: 0 });
   });
 
   it("maps backend-neutral harness activity without knowing terminal backend", () => {
@@ -105,7 +105,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const [rollup] = deriveRegionRollups({ doc, terminalStatusByNodeId: new Map([["seat", activity]]) });
     expect(rollup?.severity).toBe("ready");
     expect(rollup?.members[0]).toMatchObject({ severity: "ready", reasons: ["activity:ready"] });
-    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 0, working: 0, ready: 1 });
+    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 0, escalated: 0, working: 0, ready: 1 });
   });
 
   it("ready never outranks a live harness state on the same seat", () => {
@@ -144,7 +144,30 @@ describe("deriveRegionRollups — member severity ladder", () => {
       seatTierByNodeId: new Map([["seat", { severity: "blocked", cause: "seat_blocked" }]]),
     });
     expect(rollup?.members[0]).toMatchObject({ severity: "blocked", reasons: ["need:seat_blocked"] });
-    expect(rollup?.counts).toEqual({ total: 1, blocked: 1, attention: 0, working: 0, ready: 0 });
+    expect(rollup?.counts).toEqual({ total: 1, blocked: 1, attention: 0, escalated: 0, working: 0, ready: 0 });
+  });
+
+  it("escalated sits below a stop and above unread work", () => {
+    const doc: Fixture = {
+      nodes: [
+        group("r", 0, 0, 500, 500, "ops"),
+        liveSurface("esc", 10, 10, "profile-13"),
+        liveSurface("stop", 10, 100, "profile-14"),
+        liveSurface("done", 10, 200, "profile-15"),
+      ],
+      edges: [],
+    };
+    const [rollup] = deriveRegionRollups({
+      doc,
+      seatTierByNodeId: new Map([
+        ["esc", { severity: "escalated", cause: "seat_escalated" }],
+        ["stop", { severity: "blocked", cause: "crash" }],
+        ["done", { severity: "ready", cause: "turn_unseen" }],
+      ]),
+    });
+    expect(rollup?.severity).toBe("blocked");
+    expect(rollup?.members.map((member) => member.nodeId)).toEqual(["stop", "esc", "done"]);
+    expect(rollup?.counts).toEqual({ total: 3, blocked: 1, attention: 0, escalated: 1, working: 0, ready: 1 });
   });
 
   it("idle by default: unbound node with no live data", () => {
@@ -175,7 +198,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     // Waiting on the operator outranks a stop, as on the need ladder.
     expect(member?.severity).toBe("attention");
     expect(member?.reasons).toEqual(["permission:pending", "activity:blocked"]);
-    expect(rollup?.counts).toEqual({ total: 2, blocked: 0, attention: 1, working: 0, ready: 0 });
+    expect(rollup?.counts).toEqual({ total: 2, blocked: 0, attention: 1, escalated: 0, working: 0, ready: 0 });
   });
 });
 
@@ -193,7 +216,7 @@ describe("deriveRegionRollups — absent activity inputs", () => {
   it("missing activity invents nothing: every member idle", () => {
     const [rollup] = deriveRegionRollups({ doc });
     expect(rollup?.severity).toBe("idle");
-    expect(rollup?.counts).toEqual({ total: 3, blocked: 0, attention: 0, working: 0 , ready: 0 });
+    expect(rollup?.counts).toEqual({ total: 3, blocked: 0, attention: 0, escalated: 0, working: 0 , ready: 0 });
     expect(rollup?.members.every((member) => member.severity === "idle" && member.reasons.length === 0)).toBe(true);
   });
 
@@ -320,7 +343,7 @@ describe("deriveRegionRollups — region nesting", () => {
     expect(rollups.map((rollup) => rollup.regionId)).toEqual(["outer", "mid", "inner"]);
     for (const rollup of rollups) {
       expect(rollup.severity).toBe("blocked");
-      expect(rollup.counts).toEqual({ total: 1, blocked: 1, attention: 0, working: 0 , ready: 0 });
+      expect(rollup.counts).toEqual({ total: 1, blocked: 1, attention: 0, escalated: 0, working: 0 , ready: 0 });
       expect(rollup.members.map((member) => member.nodeId)).toEqual(["hot"]);
     }
   });
@@ -339,7 +362,7 @@ describe("deriveRegionRollups — region nesting", () => {
     const outer = rollups.find((rollup) => rollup.regionId === "outer");
     const inner = rollups.find((rollup) => rollup.regionId === "inner");
     expect(outer?.severity).toBe("attention");
-    expect(outer?.counts).toEqual({ total: 2, blocked: 0, attention: 1, working: 0 , ready: 0 });
+    expect(outer?.counts).toEqual({ total: 2, blocked: 0, attention: 1, escalated: 0, working: 0 , ready: 0 });
     expect(inner?.severity).toBe("attention");
     expect(inner?.members.map((member) => member.nodeId)).toEqual(["deep"]);
   });
@@ -403,7 +426,7 @@ describe("deriveRegionRollups — derivation edges", () => {
     const agent = rollup?.members[0];
     expect(agent?.severity).toBe("attention");
     expect(agent?.reasons).toEqual(["permission:pending"]);
-    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 1, working: 0 , ready: 0 });
+    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 1, escalated: 0, working: 0 , ready: 0 });
   });
 
   it("a note and an agent stay idle with no activity reported", () => {

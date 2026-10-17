@@ -67,6 +67,7 @@ export const HEALTH_ROLLUP_TONE: Readonly<Record<ThreadHealthTone, SeatRollupTon
 export const CONTROL_ROLLUP_TONE: Readonly<Record<MemberSeverity, SeatRollupTone | undefined>> = {
   blocked: "crimson",
   attention: "amber",
+  escalated: "amber",
   working: "cyan",
   ready: "green",
   idle: undefined,

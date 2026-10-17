@@ -25,14 +25,16 @@ import type { WorkItemsOf } from "./execution-graph";
 // or work.
 
 // The severity ladder, worst first, in step with the one need ladder
-// (harness-domain/need.ts): a seat waiting on the operator outranks a
-// stopped one, and finished work nobody has read outranks work in flight.
+// (harness-domain/need.ts): waiting on the operator (attention), stopped
+// (blocked), escalated, finished work nobody has read (ready), work in
+// flight, idle.
 // A member lands in the WORST tier it matches; its reasons collect every
 // match, in ladder order. `ready` asks for a glance, never for input, so
 // notify pills and attention alerts must keep ignoring it.
 export const MemberSeverity = Schema.Literals([
   "attention",
   "blocked",
+  "escalated",
   "ready",
   "working",
   "idle",
@@ -92,6 +94,7 @@ export const RegionRollup = Schema.Struct({
     total: Schema.Number,
     blocked: Schema.Number,
     attention: Schema.Number,
+    escalated: Schema.Number,
     working: Schema.Number,
     ready: Schema.Number,
   }),
@@ -222,10 +225,11 @@ const regionMembers = (
     .map((entry) => entry.status);
 
 const countBySeverity = (members: ReadonlyArray<MemberStatus>): RegionRollup["counts"] => {
-  const counts = { total: members.length, blocked: 0, attention: 0, working: 0, ready: 0 };
+  const counts = { total: members.length, blocked: 0, attention: 0, escalated: 0, working: 0, ready: 0 };
   for (const member of members) {
     if (member.severity === "blocked") counts.blocked += 1;
     else if (member.severity === "attention") counts.attention += 1;
+    else if (member.severity === "escalated") counts.escalated += 1;
     else if (member.severity === "working") counts.working += 1;
     else if (member.severity === "ready") counts.ready += 1;
   }

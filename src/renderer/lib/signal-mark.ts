@@ -48,6 +48,16 @@ const MARK: Readonly<Record<SignalKind, SignalMark>> = {
     label: "attention",
     mode: "wave",
   },
+  // Escalated: attention's amber, one step quieter (a pulse, not a wave):
+  // the seat asked for the operator, nothing is stopped on screen.
+  escalated: {
+    kind: "escalated",
+    tone: SEVERITY_TONE.attention,
+    hue: ACTIVITY_TONE_HEX[SEVERITY_TONE.attention],
+    symbol: "↑",
+    label: "waiting on you",
+    mode: "pulse",
+  },
   working: {
     kind: "working",
     tone: SEVERITY_TONE.working,

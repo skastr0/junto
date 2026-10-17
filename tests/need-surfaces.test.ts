@@ -317,14 +317,12 @@ describe("need surfaces: where each surface's order disagrees with the ladder", 
   });
 
   it("region rollup", () => {
-    // The tiers run attention, blocked, ready, working, idle. What is left is
-    // the table's: attention holds both waiting and escalated, which a stop
-    // sits between.
+    // The tiers run attention, blocked, escalated, ready, working, idle. A
+    // declared block and a prompt both wait on the operator, and the rollup
+    // shows the declared block as blocked beside a stop.
     expect(summary("rollup")).toEqual([
       "split attention > blocked",
-      "merged attention > attention",
       "merged blocked > blocked",
-      "inverted attention > blocked",
       "merged working > working",
     ]);
   });

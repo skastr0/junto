@@ -5,7 +5,7 @@
 import type { MemberSeverity, MemberStatus, RegionRollup } from "@shared/region-rollup";
 
 /** Hot ladder for roll call. Idle never surfaces as its own bucket. */
-export const ROLL_CALL_BUCKETS = ["attention", "blocked", "ready", "working"] as const;
+export const ROLL_CALL_BUCKETS = ["attention", "blocked", "escalated", "ready", "working"] as const;
 export type RollCallSeverity = (typeof ROLL_CALL_BUCKETS)[number];
 
 export type RollCallBucket = {
@@ -55,6 +55,8 @@ export function buildRollCall(
   const counts: Record<RollCallSeverity, number> = {
     blocked: rollup.counts.blocked,
     attention: rollup.counts.attention,
+    // `escalated` predates this field on cached rollups — recount when it is absent.
+    escalated: rollup.counts.escalated ?? countSeverity(rollup.members, "escalated"),
     working: rollup.counts.working,
     // `ready` predates this field on cached rollups — recount when it is absent.
     ready: rollup.counts.ready ?? countSeverity(rollup.members, "ready"),
@@ -80,6 +82,8 @@ export function rollCallBucketLabel(severity: RollCallSeverity, count: number): 
         return "1 blocked";
       case "attention":
         return "1 attention";
+      case "escalated":
+        return "1 waiting on you";
       case "working":
         return "1 working";
       case "ready":
@@ -91,6 +95,8 @@ export function rollCallBucketLabel(severity: RollCallSeverity, count: number): 
       return `${count} blocked`;
     case "attention":
       return `${count} attention`;
+    case "escalated":
+      return `${count} waiting on you`;
     case "working":
       return `${count} working`;
     case "ready":

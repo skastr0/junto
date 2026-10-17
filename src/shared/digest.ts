@@ -127,8 +127,9 @@ export const digestCanvas = (
       ...trust,
     })) {
       const buckets = [
-        rollup.counts.blocked > 0 ? `${rollup.counts.blocked} blocked` : "",
         rollup.counts.attention > 0 ? `${rollup.counts.attention} attention` : "",
+        rollup.counts.blocked > 0 ? `${rollup.counts.blocked} blocked` : "",
+        rollup.counts.escalated > 0 ? `${rollup.counts.escalated} escalated` : "",
         rollup.counts.working > 0 ? `${rollup.counts.working} working` : "",
       ].filter((part) => part.length > 0);
       const total = `${rollup.counts.total} member${rollup.counts.total === 1 ? "" : "s"}`;

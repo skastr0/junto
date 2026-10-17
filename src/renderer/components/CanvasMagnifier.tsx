@@ -37,6 +37,7 @@ type VisibleNode = {
 const validSeverity = (value: string | undefined): value is MemberSeverity =>
   value === "blocked"
   || value === "attention"
+  || value === "escalated"
   || value === "working"
   || value === "ready"
   || value === "idle";
