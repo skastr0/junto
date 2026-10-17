@@ -88,6 +88,47 @@ records whether a submitted turn returned idle and whether Ctrl+C was sent.
 `--core-only` limits the capture to startup, typing, paste, and working output;
 it does not send the optional delayed-response or shell-permission probes.
 
+## Signal captures (limits, retries, errors, compaction)
+
+`signal-capture.ts` records the screens behind the harness-domain signals
+(`docs/harness-domain.md`): usage limits, retries, errors and compaction. Each
+real harness binary runs in the same isolated PTY session as `pty-capture.ts`,
+but its model provider is a scripted stub on `127.0.0.1:47820`. The binary and
+its rendering are real; the provider replies are not. No quota is spent and no
+real account is touched.
+
+```bash
+node --import jiti/register tests/pty-e2e/signal-capture.ts list
+node --import jiti/register tests/pty-e2e/signal-capture.ts probe <harness> <scenario>   # prints, writes nothing
+node --import jiti/register tests/pty-e2e/signal-capture.ts capture <harness> [scenario...]
+```
+
+Each scenario adds `<scenario>.jsonl` and a manifest row. The row carries
+`observed.source: "stub-provider"`, the replies the stub served
+(`observed.stubServed`), and `observed.renderedLines`: every screen line that
+appeared after the prompt, in order, with spinner frames collapsed. Those lines
+are the exact strings a screen rule pack matches. Times render in UTC.
+
+How each harness reaches the stub:
+
+| Harness | Route | What can't be scripted |
+|---|---|---|
+| claude | `ANTHROPIC_BASE_URL` plus a subscription OAuth token | auto compaction never fires against the stub |
+| codex | `-c model_provider` (Responses) | |
+| kimi | `KIMI_MODEL_*` env | auto compaction |
+| grok | `~/.grok/config.toml` stub model | auto compaction |
+| hermes | `~/.hermes/config.yaml` stub provider; dependencies from a capture-owned cache in `/tmp/junto-capture-cache` | |
+| pi, omp, prime-agent | pi-lineage `models.json` / `models.yml` | |
+| muse | `--base-url`; the stub serves `/muse-code/models` | |
+| fx | `~/.fx/settings.json` stub provider | |
+| agy | Gemini API key mode, `GOOGLE_GEMINI_BASE_URL` | the signed-in Google path and its plan limits |
+| devin | isolated `credentials.toml`; the stub answers devin's Connect RPCs | a successful answer (protobuf), so no compaction or recovered retry |
+| cursor | `CURSOR_API_ENDPOINT`; the stub answers Connect RPCs and the cleartext HTTP/2 agent stream | a successful answer; limit title and detail text come from the server, so the words are the stub's |
+| amp | `AMP_URL`; the stub answers amp's internal API | the model runs server side behind a websocket actor; only thread creation is scripted |
+
+devin, agy, cursor and amp run with `HTTPS_PROXY` pointed at the stub, which
+refuses every tunnel except to itself, so nothing they send leaves the machine.
+
 ## Add a repro (checklist)
 
 1. Pick the defect from /tmp/junto-defect-coverage.md (or a new finding).

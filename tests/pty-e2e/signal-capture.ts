@@ -545,7 +545,6 @@ const SCENARIOS: readonly Scenario[] = [
     // the pi family finds something to compact.
     replies: () => [{ ...BULKY, inputTokens: 190_000 }, SUMMARY, OK],
     args: { codex: ["-c", "model_context_window=200000", "-c", "model_auto_compact_token_limit=150000"] },
-    env: { claude: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000" } },
   },
   {
     name: "compaction-manual",
@@ -1245,9 +1244,10 @@ async function main(): Promise<void> {
         for (const line of run.screen) console.log(`  ${line}`);
         continue;
       }
-      if (run.result.status === "complete") {
-        writeFixture(run.sess, run.endEvent, path.join(OUT_ROOT, harness, `${scenario.name}.jsonl`));
-      }
+      const fixture = path.join(OUT_ROOT, harness, `${scenario.name}.jsonl`);
+      // A fixture always matches its manifest row: a skip drops an older capture.
+      if (run.result.status === "complete") writeFixture(run.sess, run.endEvent, fixture);
+      else fs.rmSync(fixture, { force: true });
       results.push(run.result);
     }
   } finally {
