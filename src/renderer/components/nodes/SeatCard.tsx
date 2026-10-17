@@ -3,7 +3,6 @@ import { use$ } from "@legendapp/state/react";
 
 import { TASKS_ENABLED } from "@shared/features";
 import { agentSeat$ } from "../../lib/agent-seat-state";
-import { harnessVersionNote, useHarnessVersion } from "../../lib/harness-verification";
 import { getJuntoApi } from "../../lib/junto-api";
 import { useSeatMachineLine } from "../../lib/machines";
 import { editText } from "../../lib/mutations";
@@ -17,7 +16,6 @@ import {
 import { terminal$ } from "../../lib/terminal-state";
 import { accentColor, INK } from "../../lib/theme";
 import { useNodeFieldOf } from "../../lib/use-model";
-import { Chip } from "../ui/Chip";
 import { AgentSeat, SeatName } from "./AgentSeat";
 import { ClaimedTaskStrip } from "./ClaimedTaskStrip";
 import { FirstLineRenameInput } from "./FirstLineRenameInput";
@@ -80,8 +78,6 @@ export function SeatCard({
   }, [bindingId, hostId]);
   const attentionReasons = useSeatAttentionReasons(agentKey);
   const machineLine = useSeatMachineLine(hostId, harness);
-  // Read on the seat's machine, which is the install the seat runs.
-  const versionNote = harnessVersionNote(useHarnessVersion(hostId, harness));
 
   if (name === undefined) return null;
 
@@ -140,17 +136,6 @@ export function SeatCard({
         harness={harness}
         context={context}
         overseer={overseer}
-        lineEnd={
-          versionNote ? (
-            <span data-testid="seat-version-note">
-              <Chip tone="steel" title={versionNote.title}>
-                {versionNote.label}
-              </Chip>
-              {/* A reader hears what was tested, not only the chip's word. */}
-              <span className="sr-only">{versionNote.title}</span>
-            </span>
-          ) : undefined
-        }
       >
         {TASKS_ENABLED ? <ClaimedTaskStrip nodeId={id} /> : null}
       </AgentSeat>

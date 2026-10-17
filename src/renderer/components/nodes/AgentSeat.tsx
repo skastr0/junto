@@ -73,7 +73,6 @@ export function AgentSeatView({
   onSignalOpen,
   overseer = false,
   compact = false,
-  lineEnd,
   children,
 }: {
   /** Seat identity (node id) for the portrait. */
@@ -94,8 +93,6 @@ export function AgentSeatView({
   readonly overseer?: boolean;
   /** The ring and portrait alone, name and line left out (a narrow strip of seats). */
   readonly compact?: boolean;
-  /** A quiet note at the line's end, such as an unverified harness version. */
-  readonly lineEnd?: ReactNode;
   /** Extra rows under the line (claimed task). */
   readonly children?: ReactNode;
 }) {
@@ -158,11 +155,10 @@ export function AgentSeatView({
       {compact ? null : (
       <div className="junto-seat__text min-w-0 flex-1">
         {title}
-        <div className="junto-seat__line flex max-h-[1lh] items-center gap-1 overflow-hidden text-[10.5px] leading-snug">
-          <span className="block min-w-0 flex-1 truncate" data-testid="agent-seat-line">
+        <div className="junto-seat__line max-h-[1lh] overflow-hidden text-[10.5px] leading-snug">
+          <span className="block truncate" data-testid="agent-seat-line">
             {line}
           </span>
-          {lineEnd === undefined ? null : <span className="shrink-0">{lineEnd}</span>}
         </div>
         {children}
       </div>
@@ -187,7 +183,6 @@ export function AgentSeat({
   readonly harness?: string;
   readonly context?: string;
   readonly overseer?: boolean;
-  readonly lineEnd?: ReactNode;
   readonly children?: ReactNode;
 }) {
   const rollup = useSeatSignalRollup(canvas, id);
