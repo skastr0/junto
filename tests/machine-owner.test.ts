@@ -132,7 +132,8 @@ it("preserves an activated install failure and its transition receipt", async ()
   await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
   const response = await f.call("machine.update", { name: "mini", bundle: "/tmp/package" });
   expect(response.ok).toBe(false);
-  if (!response.ok) expect(response.error.details).toEqual({ retryable: false, disposition: "activated", transitions });
+  if (!response.ok) expect(response.error.details).toEqual({ retryable: false, disposition: "activated", transitions,
+    failure: { tag: "MachineInstallError", machine: "macbook", message: "service did not become ready", causes: [] } });
   expect(Result.isSuccess(decodeOperatorResponse(response))).toBe(true);
 });
 
@@ -190,7 +191,7 @@ it("returns the installed receipt when setup failed after a successful copy", as
   await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
   const response = await f.call("machine.send", { name: "mini" });
   expect(response.ok).toBe(false);
-  if (!response.ok) expect(response.error.details).toEqual({ retryable: false, installed });
+  if (!response.ok) expect(response.error.details).toEqual({ retryable: false, installed, failure: expect.objectContaining({ tag: "MachineSetupError", machine: "macbook" }) });
   expect(Result.isSuccess(decodeOperatorResponse(response))).toBe(true);
 });
 
@@ -231,4 +232,33 @@ it("reads this machine's log whole and a linked machine's through that machine",
     { machine: "mini", query: { area: "seats", limit: 1 } },
   ]);
   expect(await f.call("machine.logs", { name: "ghost", query: {} })).toMatchObject({ ok: false, error: { type: "not_found" } });
+});
+
+it("starts and stops a seat by canvas and seat id, scrubbing the exit message", async () => {
+  const seen: unknown[] = [];
+  const f = await fixture({
+    seatStart: input => Effect.sync(() => {
+      seen.push(input);
+      return { bindingId: "b1", epoch: "e1", hostId: "macbook", status: "exited" as const, detached: false, createdAt: 1,
+        exitReason: "cli-missing" as const, exitMessage: "codex is not installed; token=sk-live-0123456789abcdef0123" };
+    }),
+    seatStop: input => Effect.sync(() => { seen.push(input); return { outcome: "vacant" as const }; }),
+  });
+  const started = await f.call("machine.seat-start", { canvas: "default", seatId: "seat-1", resume: false });
+  expect(started).toMatchObject({ ok: true, op: "machine.seat-start", data: { canvas: "default", seatId: "seat-1", status: "exited", exitReason: "cli-missing" } });
+  expect(started.ok && started.op === "machine.seat-start" && started.data.exitMessage).not.toContain("sk-live");
+  expect(await f.call("machine.seat-stop", { canvas: "default", seatId: "seat-1" }))
+    .toMatchObject({ ok: true, op: "machine.seat-stop", data: { outcome: "vacant" } });
+  expect(seen).toEqual([{ canvas: "default", seatId: "seat-1", resume: false }, { canvas: "default", seatId: "seat-1" }]);
+});
+
+it("answers a seat start's typed failure with the failure encoded", async () => {
+  class SeatNotFound extends Schema.TaggedError<SeatNotFound>()("SeatNotFound", { canvas: Schema.String, seatId: Schema.String, message: Schema.String }) {}
+  const f = await fixture({ seatStart: () => Effect.fail(new SeatNotFound({ canvas: "default", seatId: "ghost", message: "No seat ghost on default" })) });
+  expect(await f.call("machine.seat-start", { canvas: "default", seatId: "ghost" })).toMatchObject({
+    ok: false, error: { type: "io", message: "No seat ghost on default", details: { failure: { tag: "SeatNotFound", machine: "macbook", message: "No seat ghost on default" } } },
+  });
+  const unwired = await fixture();
+  expect(await unwired.call("machine.seat-stop", { canvas: "default", seatId: "seat-1" }))
+    .toMatchObject({ ok: false, error: { details: { failure: { tag: "SeatControlUnavailable" } } } });
 });

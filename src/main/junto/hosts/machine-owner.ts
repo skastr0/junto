@@ -1,4 +1,4 @@
-import { Context, Effect, Result, Schema, Semaphore } from "effect";
+import { Context, Effect, Option, Result, Schema, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import {
   OPERATOR_PROTOCOL_VERSION, decodeOperatorResponse,
@@ -6,6 +6,10 @@ import {
 } from "@shared/operator-control";
 import { MachineBuild, MachinePeerStatus, type MachineOwnStatus, type MachineHarnesses, type MachineCopyInput } from "@shared/machine-control";
 import type { MachineLogQuery, MachineLogRead } from "@shared/machine-log";
+import type { MachineSeatInput, MachineSeatStartInput, MachineSeatStarted, MachineSeatStopped } from "@shared/machine-seat";
+import type { TerminalSessionSummary } from "@shared/terminal";
+import { scrubMessage } from "../credentials/scrub";
+import { encodeFailure } from "../failure-encode";
 import { MachineInstallError, MachineSetupError, type MachineInstallResult } from "@shared/machine-install";
 import type { MachineSendEvent } from "@shared/machine-progress";
 import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
@@ -25,7 +29,12 @@ export interface MachineOwnerOptions {
   readonly peerBuild: (name: string) => Effect.Effect<string | undefined, unknown>;
   readonly copy: (host: RemoteHost, input: MachineCopyInput, mode: "send" | "update", onTransition?: (event: MachineSendEvent) => void) => Effect.Effect<MachineInstallResult, unknown>;
   readonly disconnect: (name: string) => Effect.Effect<void, unknown>;
+  /** Starts a seat by canvas and seat id through the code the window uses. */
+  readonly seatStart?: (input: MachineSeatStartInput) => Effect.Effect<TerminalSessionSummary, unknown>;
+  /** Stops a seat by canvas and seat id; the node stays on the canvas. */
+  readonly seatStop?: (input: MachineSeatInput) => Effect.Effect<Pick<MachineSeatStopped, "outcome">, unknown>;
 }
+export class SeatControlUnavailable extends Schema.TaggedError<SeatControlUnavailable>()("SeatControlUnavailable", { message: Schema.String }) {}
 export interface MachineOwnerActions {
   readonly dispatch: (request: OperatorRequestEnvelope, onTransition?: (event: MachineSendEvent) => void) => Effect.Effect<OperatorResponseEnvelope>;
 }
@@ -111,6 +120,25 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         yield* other(name);
         return yield* options.peerLogs(name, query);
       }
+      case "machine.seat-start": {
+        const { canvas, seatId } = request.args;
+        if (options.seatStart === undefined) return yield* Effect.fail(new SeatControlUnavailable({ message: "This Junto process cannot start seats" }));
+        const summary = yield* options.seatStart(request.args);
+        return {
+          canvas, seatId, hostId: summary.hostId, bindingId: summary.bindingId, status: summary.status,
+          ...(summary.stopping === true ? { stopping: true } : {}),
+          ...(summary.resuming === true ? { resuming: true } : {}),
+          ...(summary.exitReason === undefined ? {} : { exitReason: summary.exitReason }),
+          // The harness's last printed line can hold a terminal byte or a secret.
+          ...(summary.exitMessage === undefined ? {} : { exitMessage: scrubMessage(summary.exitMessage) }),
+        } satisfies MachineSeatStarted;
+      }
+      case "machine.seat-stop": {
+        const { canvas, seatId } = request.args;
+        if (options.seatStop === undefined) return yield* Effect.fail(new SeatControlUnavailable({ message: "This Junto process cannot stop seats" }));
+        const { outcome } = yield* options.seatStop(request.args);
+        return { canvas, seatId, outcome } satisfies MachineSeatStopped;
+      }
       case "machine.send":
       case "machine.update": return yield* options.copy(yield* other(request.args.name), request.args, request.op === "machine.send" ? "send" : "update", onTransition);
       case "machine.remove": {
@@ -130,17 +158,19 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
       default: return yield* Effect.fail(new RemoteHostsError("validation", "unsupported machine operation"));
     }
   });
+  // Reads and seat control take no machine mutation lock: a seat start must not wait behind a send.
+  const unlocked = new Set<string>(["machine.list", "machine.status", "machine.harnesses", "machine.logs", "machine.seat-start", "machine.seat-stop"]);
   return {
     dispatch: (request: OperatorRequestEnvelope, onTransition?: (event: MachineSendEvent) => void) =>
-      (request.op === "machine.list" || request.op === "machine.status" || request.op === "machine.harnesses" || request.op === "machine.logs"
-        ? run(request, onTransition) : mutationLock.withPermits(1)(run(request, onTransition))).pipe(
+      (unlocked.has(request.op) ? run(request, onTransition) : mutationLock.withPermits(1)(run(request, onTransition))).pipe(
       Effect.map(data => {
         const decoded = decodeOperatorResponse({ protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: true, data });
         if (Result.isSuccess(decoded)) return decoded.success;
         return { protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: false,
           error: { type: "internal_error", message: "machine result did not match its contract", details: { retryable: false } } } as const;
       }),
-      Effect.catch(cause => Effect.succeed({ protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: false,
+      Effect.catch(cause => machines.machineName.pipe(Effect.option, Effect.map(machine => encodeFailure(cause, { machine: Option.getOrElse(machine, () => "this machine") })),
+        Effect.map(failure => ({ protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: false,
         error: { type: cause instanceof RemoteHostsError ? cause.code : "io",
           message: cause instanceof Error ? (cause.message.includes("pinned to another installation") ? `${cause.message}; choose another name` : cause.message).slice(0, 4096) : "machine operation failed",
           details: {
@@ -150,8 +180,9 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
               ...(cause.transitions === undefined ? {} : { transitions: cause.transitions }),
             } : {}),
             ...(cause instanceof MachineSetupError ? { installed: cause.installed } : {}),
+            ...(failure === undefined ? {} : { failure }),
           } },
-      } as const)),
+      } as const)))),
     ),
   } satisfies MachineOwnerActions;
 });

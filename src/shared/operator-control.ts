@@ -17,6 +17,8 @@ import { MachineInstallResult, MachineInstallError } from "./machine-install";
 import { RemoteHost } from "./remote-hosts";
 import { MachineExchangeInput, MachineExchangeData } from "./machine-exchange";
 import { MachineLogRead, MachineLogsInput } from "./machine-log";
+import { EncodedFailure } from "./failure";
+import { MachineSeatInput, MachineSeatStartInput, MachineSeatStarted, MachineSeatStopped } from "./machine-seat";
 
 /** Owner-local control, admitted by OS peer ancestry rather than seat tokens. */
 
@@ -135,6 +137,8 @@ export const OperatorMachineConfigureRequest = request("machine.configure", Mach
 export const OperatorMachineSetupRequest = request("machine.setup", MachinePeerIdentity);
 export const OperatorMachineExchangeRequest = request("machine.exchange", MachineExchangeInput);
 export const OperatorMachineLogsRequest = request("machine.logs", MachineLogsInput);
+export const OperatorMachineSeatStartRequest = request("machine.seat-start", MachineSeatStartInput);
+export const OperatorMachineSeatStopRequest = request("machine.seat-stop", MachineSeatInput);
 
 export const OperatorRequestEnvelope = Schema.Union([OperatorCompanionHelloRequest,
 OperatorCompanionCallRequest,
@@ -150,6 +154,8 @@ OperatorMachineConfigureRequest,
 OperatorMachineSetupRequest,
 OperatorMachineExchangeRequest,
 OperatorMachineLogsRequest,
+OperatorMachineSeatStartRequest,
+OperatorMachineSeatStopRequest,
 ]);
 export type OperatorRequestEnvelope = typeof OperatorRequestEnvelope.Type;
 
@@ -183,6 +189,8 @@ export const OperatorMachineConfigureResponse = response("machine.configure", Ma
 export const OperatorMachineSetupResponse = response("machine.setup", MachinePeerPin);
 export const OperatorMachineExchangeResponse = response("machine.exchange", MachineExchangeData);
 export const OperatorMachineLogsResponse = response("machine.logs", MachineLogRead);
+export const OperatorMachineSeatStartResponse = response("machine.seat-start", MachineSeatStarted);
+export const OperatorMachineSeatStopResponse = response("machine.seat-stop", MachineSeatStopped);
 
 export const OperatorErrorType = Schema.Literals(["validation", "not_found",
 "conflict",
@@ -205,6 +213,8 @@ export const OperatorErrorBody = Schema.Struct({
     disposition: Schema.optionalKey(MachineInstallError.fields.disposition),
     transitions: MachineInstallError.fields.transitions,
     installed: Schema.optionalKey(MachineInstallResult),
+    /** The typed failure behind the message, encoded and scrubbed by the one encoder. */
+    failure: Schema.optionalKey(EncodedFailure),
   })),
 });
 export type OperatorErrorBody = typeof OperatorErrorBody.Type;
@@ -232,6 +242,8 @@ OperatorMachineConfigureResponse,
 OperatorMachineSetupResponse,
 OperatorMachineExchangeResponse,
 OperatorMachineLogsResponse,
+OperatorMachineSeatStartResponse,
+OperatorMachineSeatStopResponse,
 OperatorErrorResponse,]);
 export type OperatorResponseEnvelope = typeof OperatorResponseEnvelope.Type;
 

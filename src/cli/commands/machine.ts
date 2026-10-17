@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { Argument, Command } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/unstable/cli";
 import {
   MachineAddInput, MachineEmptyInput, MachineCopyInput, MachineStatusInput,
   MachineTargetInput, MachinePeerIdentity, type MachineOpName,
@@ -8,6 +8,7 @@ import type { OperatorArgsByOp } from "@shared/operator-control";
 import { OperatorSocket, requireOwnerCommand } from "../core/operator-socket";
 import { MachineExchangeInput } from "@shared/machine-exchange";
 import { MachineLogsInput } from "@shared/machine-log";
+import { MachineSeatInput, MachineSeatStartInput } from "@shared/machine-seat";
 import { MachineInstallInput, MachineLocalPaths } from "@shared/machine-install";
 import { installMachine } from "../../main/junto/hosts/install";
 import { uninstallMachine } from "../../main/junto/hosts/uninstall";
@@ -56,6 +57,33 @@ const logs = Command.make("logs", {
   return yield* socket.call("machine.logs", args);
 }))).pipe(Command.withDescription("Read a machine's log, this one or a linked one, with the junto logs filters"));
 
+const seatArguments = {
+  canvas: Argument.string("canvas").pipe(Argument.withDescription("Canvas name")),
+  seat: Argument.string("seat").pipe(Argument.withDescription("Seat id on that canvas")),
+};
+
+/**
+ * The owner starts or stops a seat by canvas and seat id without the window,
+ * through the code the window uses. Refused from a seat, like every machine
+ * command. A refused spawn answers with status exited and its exit message.
+ */
+const seatStart = Command.make("seat-start", {
+  ...seatArguments,
+  fresh: Flag.boolean("fresh").pipe(Flag.withDescription("Start a fresh session where one could be resumed")),
+}, ({ canvas, seat, fresh }) => executeJsonCommand("machine seat-start", Effect.gen(function* () {
+  yield* requireOwnerCommand;
+  const args = yield* Schema.decodeUnknownEffect(MachineSeatStartInput, { onExcessProperty: "error" })({ canvas, seatId: seat, ...(fresh ? { resume: false } : {}) });
+  const socket = yield* OperatorSocket;
+  return yield* socket.call("machine.seat-start", args, 120_000);
+}))).pipe(Command.withDescription("Start a seat by canvas and seat id, the way the window's Start does"));
+
+const seatStop = Command.make("seat-stop", seatArguments, ({ canvas, seat }) => executeJsonCommand("machine seat-stop", Effect.gen(function* () {
+  yield* requireOwnerCommand;
+  const args = yield* Schema.decodeUnknownEffect(MachineSeatInput, { onExcessProperty: "error" })({ canvas, seatId: seat });
+  const socket = yield* OperatorSocket;
+  return yield* socket.call("machine.seat-stop", args);
+}))).pipe(Command.withDescription("Stop a seat by canvas and seat id; the seat stays on the canvas"));
+
 export const machineCommand = Command.make("machine").pipe(
   Command.withDescription("Install and manage Junto on machines"),
   Command.withSubcommands([
@@ -70,6 +98,6 @@ export const machineCommand = Command.make("machine").pipe(
     ownerCommand("configure", "machine.configure", MachineTargetInput),
     ownerCommand("setup", "machine.setup", MachinePeerIdentity),
     ownerCommand("exchange", "machine.exchange", MachineExchangeInput),
-    logs,
+    logs, seatStart, seatStop,
   ]),
 );
