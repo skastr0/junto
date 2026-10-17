@@ -453,7 +453,7 @@ type Scenario = {
   accessibilityOn: boolean;
   viewport: string[] | null;
   pointer: string | null;
-  wheel: { mode: string; events: number; eventsPerSecond: number; tracePath: string | null } | null;
+  wheel: { mode: string; events: number; eventsPerSecond: number; ackLagMs: { p50: number; max: number } | null; tracePath: string | null } | null;
 };
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
@@ -730,18 +730,31 @@ try {
         let mode = where === "over" ? "trusted" : "untrusted";
         const wheel = async (dx: number, dy: number) => {
           if (mode === "trusted") {
-            try {
-              await page!.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: point.x, y: point.y, deltaX: dx, deltaY: dy }, events === 0 ? 3_000 : 20_000);
+            const sentAt = performance.now();
+            const call = page!.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: point.x, y: point.y, deltaX: dx, deltaY: dy }, 20_000);
+            const acked = call.then(() => { ackLag.push(performance.now() - sentAt); });
+            if (events === 0) {
+              // The first one is awaited: if a trusted wheel hangs, find out now.
+              try {
+                await Promise.race([acked, sleep(3_000).then(() => { throw new Error("no ack"); })]);
+                return;
+              } catch {
+                mode = "untrusted (trusted mouseWheel did not answer)";
+              }
+            } else {
+              // The ack only returns once the renderer has handled the event, so
+              // awaiting each one would serialize pacing on round trips. Send on
+              // the schedule and collect the acks after the loop; CDP keeps order.
+              inFlight.push(acked);
               return;
-            } catch {
-              if (events > 0) throw new Error("trusted wheel stopped answering mid-pan");
-              mode = "untrusted (trusted mouseWheel did not answer)";
             }
           }
           await page!.evaluate(`(document.querySelector(".react-flow__pane") || document.body).dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaX: ${dx}, deltaY: ${dy} }))`);
         };
         const step = where === "over" ? WHEEL_MS : 16;
         let events = 0;
+        const ackLag: number[] = [];
+        const inFlight: Promise<void>[] = [];
         let tracePath: string | null = null;
         const traced: Array<any> = [];
         let traceDone: Promise<void> | undefined;
@@ -768,6 +781,7 @@ try {
           const wait = started + events * step - performance.now();
           if (wait > 0) await sleep(wait);
         }
+        await Promise.all(inFlight);
         if (traceDone) {
           await browser!.send("Tracing.end");
           await traceDone;
@@ -775,7 +789,7 @@ try {
           writeFileSync(tracePath, JSON.stringify({ traceEvents: traced }));
         }
         seen.push(await viewport());
-        return { viewport: seen, wheel: { mode, events, eventsPerSecond: round1(events / ((performance.now() - started) / 1000)), tracePath } };
+        return { viewport: seen, wheel: { mode, events, eventsPerSecond: round1(events / ((performance.now() - started) / 1000)), ackLagMs: ackLag.length === 0 ? null : { p50: round1([...ackLag].sort((a, b) => a - b)[Math.floor(ackLag.length / 2)]!), max: round1(Math.max(...ackLag)) }, tracePath } };
       },
       { raf: true, pointer: where, before: () => parkPointer(where) },
     ),
