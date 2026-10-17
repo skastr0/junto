@@ -312,8 +312,13 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
       const received = decodeEncodedFailure(frame.failure);
       // A detail is kept only for a channel that decodes it with its own closed schema.
       const failure: EncodedFailure = selected.failureSchema === undefined ? (({ detail: _detail, ...rest }) => rest)(received) : received;
-      const detail = failure.detail === undefined || selected.failureSchema === undefined ? undefined
-        : decoded("payload", `The ${frame.channel} failure detail does not match its schema`, () => Schema.decodeUnknownSync(selected.failureSchema!, { onExcessProperty: "error" })(failure.detail));
+      // A detail its schema refuses is dropped, logged, and the failure still answers: the
+      // link stays open, so a typed refusal never reads as a lost link.
+      let detail: unknown;
+      if (failure.detail !== undefined && selected.failureSchema !== undefined) {
+        try { detail = Schema.decodeUnknownSync(selected.failureSchema, { onExcessProperty: "error" })(failure.detail); }
+        catch (decodeCause) { log("Warning", "link failure detail refused", { channel: frame.channel, operationId: frame.op, failure: encodeError(decodeCause, { machine: self.machineName }) }); }
+      }
       clearTimeout(waiting.timer); pending.delete(frame.id);
       log("Warning", "link request failed on the peer", { channel: frame.channel, operationId: frame.op, requestId: frame.id, failure });
       waiting.reject(new LinkRequestFailed({

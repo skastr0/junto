@@ -75,3 +75,12 @@ it("keeps the typed chain an install or hosts error wrapped", async () => {
   const hosts = new RemoteHostsError("io", "hosts database list failed", failureHere(ssh).failure);
   expect(encodeFailure(hosts, { machine: "macbook" })?.causes.map(link => link.tag)).toContain("SshExitError");
 });
+
+it("keeps a detail's typed ids whole at both ends and scrubs one that is not id-shaped", () => {
+  const operationId = "818e529c-3b4d-4e5f-8a7b-1c2d3e4f5a6b";
+  const sent = encodeError(new Error("x"), { machine: "boat", detail: { _tag: "NativeSettingRefused", operationId, bindingId: "binding-1", message: `see ${operationId}` } });
+  expect(sent.detail).toEqual({ _tag: "NativeSettingRefused", operationId, bindingId: "binding-1", message: "see [redacted]" });
+  expect(decodeEncodedFailure(JSON.parse(JSON.stringify(sent))).detail).toMatchObject({ operationId, bindingId: "binding-1" });
+  const shaped = encodeError(new Error("x"), { machine: "boat", detail: { operationId: "token=abcdEFGH12347890 x" } });
+  expect(shaped.detail).toEqual({ operationId: "token=[redacted] x" });
+});

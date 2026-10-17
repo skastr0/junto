@@ -1,5 +1,6 @@
 import { Cause, Schema } from "effect";
 import { EncodedFailure, MAX_FAILURE_CAUSES, MAX_FAILURE_DETAIL_BYTES, NO_FAILURE_MESSAGE, type EncodedCause } from "@shared/failure";
+import { isLogAnnotationId, LOG_ID_ANNOTATIONS } from "@shared/machine-log";
 import { scrubMessage } from "./credentials/scrub";
 
 /**
@@ -67,14 +68,21 @@ export const causeChain = (cause: unknown): { readonly causes: ReadonlyArray<Enc
   return { causes, cut };
 };
 
-/** Every string in a detail through the scrub; anything not JSON-shaped is refused. */
-const scrubDetail = (value: unknown, depth = 0): unknown => {
+/**
+ * Typed ids are never scrubbed (doctrine 7fc498f38): the UUID rule would turn
+ * an operation id into "[redacted]", and the peer's closed decode would then
+ * refuse the whole detail. One that fails the id shape is scrubbed like text.
+ */
+const DETAIL_ID_KEYS: ReadonlySet<string> = new Set([...LOG_ID_ANNOTATIONS, "operationId"]);
+
+/** Every string in a detail through the scrub but a typed id; anything not JSON-shaped is refused. */
+const scrubDetail = (value: unknown, depth = 0, key?: string): unknown => {
   if (depth > 8) throw new Error("failure detail is nested too deeply");
-  if (typeof value === "string") return scrubMessage(value);
+  if (typeof value === "string") return key !== undefined && DETAIL_ID_KEYS.has(key) && isLogAnnotationId(value) ? value : scrubMessage(value);
   if (value === null || typeof value === "number" || typeof value === "boolean") return value;
   if (Array.isArray(value)) return value.map(item => scrubDetail(item, depth + 1));
   if (isRecord(value) && Object.getPrototypeOf(value) === Object.prototype) {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [scrubMessage(key), scrubDetail(item, depth + 1)]));
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [scrubMessage(key), scrubDetail(item, depth + 1, key)]));
   }
   throw new Error("failure detail is not JSON");
 };

@@ -293,3 +293,31 @@ it("refuses a request from a channel's opened hook too", async () => {
   expect(refused).toMatchObject({ _tag: "LinkUnavailable", reason: "request-from-event" });
   expect(f.frames.some(frame => frame.type === "request")).toBe(false);
 }, 5_000);
+
+class SettingRefused extends Schema.TaggedError<SettingRefused>()("SettingRefused", { operationId: Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9._-]+$/))), message: Schema.String }) {}
+
+it("carries a typed refusal whose detail holds a UUID operation id, and drops a detail its schema refuses with the link open", async () => {
+  const operationId = "818e529c-3b4d-4e5f-8a7b-1c2d3e4f5a6b";
+  const refusing: LinkChannelHandler = { ...channel(() => Effect.fail(new SettingRefused({ operationId, message: "effortLevel is not verified" }))), failureSchema: SettingRefused };
+  const { left } = pair({ channels: { status: refusing } }, { channels: { status: refusing } });
+  await left.ready;
+  const failed = await left.request("status", { value: "x" }, operationId).then(() => undefined, (cause: unknown) => cause) as LinkRequestFailed;
+  expect(failed.detail).toBeInstanceOf(SettingRefused);
+  expect((failed.detail as SettingRefused).operationId).toBe(operationId);
+
+  const f = raw({ channels: { status: refusing } });
+  f.send({ type: "hello", ...hello("mini") }); await f.session.ready;
+  const pending = f.session.request("status", { value: "a" }, "op-bad").then(() => undefined, (cause: unknown) => cause);
+  await new Promise<void>(resolve => f.output.once("data", () => resolve()));
+  const request = f.frames.find(frame => frame.type === "request");
+  if (request?.type !== "request") throw new Error("request was not written");
+  f.send({ type: "response", id: request.id, op: request.op, channel: "status", ok: false,
+    failure: { tag: "SettingRefused", message: "refused", machine: "mini", causes: [], detail: { _tag: "SettingRefused", operationId: "[redacted]", message: "refused" } } });
+  const refused = await pending as LinkRequestFailed;
+  expect(refused).toBeInstanceOf(LinkRequestFailed);
+  expect(refused.detail).toBeUndefined();
+  let closed = false;
+  void f.session.closed.then(() => { closed = true; });
+  await new Promise(resolve => setTimeout(resolve, 5));
+  expect(closed).toBe(false);
+}, 5_000);
