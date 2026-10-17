@@ -252,6 +252,14 @@ it("starts and stops a seat by canvas and seat id, scrubbing the exit message", 
   expect(seen).toEqual([{ canvas: "default", seatId: "seat-1", resume: false }, { canvas: "default", seatId: "seat-1" }]);
 });
 
+it("never answers a seat's own exit text: no exitReason, no exitMessage", async () => {
+  const f = await fixture({ seatStart: () => Effect.succeed({ bindingId: "b1", epoch: "e1", hostId: "macbook", status: "exited" as const,
+    detached: false, createdAt: 1, exitMessage: "screen text" }) });
+  const started = await f.call("machine.seat-start", { canvas: "default", seatId: "seat-1" });
+  expect(started).toMatchObject({ ok: true, data: { status: "exited" } });
+  expect(started.ok && started.op === "machine.seat-start" && "exitMessage" in started.data).toBe(false);
+});
+
 it("answers a seat start's typed failure with the failure encoded", async () => {
   class SeatNotFound extends Schema.TaggedError<SeatNotFound>()("SeatNotFound", { canvas: Schema.String, seatId: Schema.String, message: Schema.String }) {}
   const f = await fixture({ seatStart: () => Effect.fail(new SeatNotFound({ canvas: "default", seatId: "ghost", message: "No seat ghost on default" })) });

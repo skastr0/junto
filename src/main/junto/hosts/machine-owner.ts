@@ -34,7 +34,9 @@ export interface MachineOwnerOptions {
   /** Stops a seat by canvas and seat id; the node stays on the canvas. */
   readonly seatStop?: (input: MachineSeatInput) => Effect.Effect<Pick<MachineSeatStopped, "outcome">, unknown>;
 }
-export class SeatControlUnavailable extends Schema.TaggedError<SeatControlUnavailable>()("SeatControlUnavailable", { message: Schema.String }) {}
+export class SeatControlUnavailable extends Schema.TaggedError<SeatControlUnavailable>()("SeatControlUnavailable", {
+  message: Schema.String.pipe(Schema.check(Schema.isMaxLength(1024))),
+}) {}
 export interface MachineOwnerActions {
   readonly dispatch: (request: OperatorRequestEnvelope, onTransition?: (event: MachineSendEvent) => void) => Effect.Effect<OperatorResponseEnvelope>;
 }
@@ -129,8 +131,8 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
           ...(summary.stopping === true ? { stopping: true } : {}),
           ...(summary.resuming === true ? { resuming: true } : {}),
           ...(summary.exitReason === undefined ? {} : { exitReason: summary.exitReason }),
-          // The harness's last printed line can hold a terminal byte or a secret.
-          ...(summary.exitMessage === undefined ? {} : { exitMessage: scrubMessage(summary.exitMessage) }),
+          // Without an exitReason the message is built from the seat's terminal output, which never leaves.
+          ...(summary.exitReason !== undefined && summary.exitMessage !== undefined ? { exitMessage: scrubMessage(summary.exitMessage) } : {}),
         } satisfies MachineSeatStarted;
       }
       case "machine.seat-stop": {

@@ -37,6 +37,9 @@ import { ObservabilityLoggerLive, setLogMachine } from "./junto/observability/lo
 import { MachineLogsNotSetUp, makePeerLogAnswer, receivePeerLogRead } from "./junto/observability/log-link";
 import { readMachineLog } from "./junto/observability/log-file";
 import { MachineLogQuery, MachineLogRead } from "@shared/machine-log";
+import type { ModelService } from "./junto/model/service";
+import type { ActorSeatOccupy } from "./junto/term/actor-seat-occupy";
+import { startSeat, stopSeat } from "./junto/term/seat-control";
 
 export interface MachineCoreOptions {
   readonly home: string;
@@ -209,6 +212,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
     const exchangeQuery = yield* makeMachineExchangeQuery(rows.exchange);
     const hostsService = yield* HostsService;
     const machines = yield* MachineRepository;
+    const seatServices = yield* Effect.context<ModelService | ActorSeatOccupy>();
     const copy = yield* makeMachineCopy({ build: options.build, bundles: options.bundles, acquireBundle: options.acquireBundle,
       connect: link.connect, connectSetup: link.connectSetup, disconnect: link.disconnect });
     const actions = yield* makeMachineOwnerActions({
@@ -223,6 +227,9 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
         return yield* receivePeerLogRead(yield* link.request(name, "status", { kind: "logs", query }), name);
       }),
       peerBuild: link.peerBuild,
+      // The window's start and stop path, with no window host step.
+      seatStart: ({ canvas, seatId, resume }) => startSeat({ canvas, seatId, ...(resume === undefined ? {} : { resume }) }).pipe(Effect.provideContext(seatServices)),
+      seatStop: ({ canvas, seatId }) => stopSeat({ canvas, seatId }).pipe(Effect.provideContext(seatServices)),
       copy,
       disconnect: link.disconnect,
       peerStatus: (name) => Effect.gen(function* () {
