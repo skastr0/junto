@@ -34,7 +34,7 @@ const nodes = HARNESSES.map(([harness], index) =>
 );
 
 test("seats show the unverified chip from this Mac's real inventory", async () => {
-  test.setTimeout(240_000);
+  test.setTimeout(120_000);
   await mkdir(SHOTS, { recursive: true });
   const found = HARNESSES.map(([harness, binary, newer]) => {
     const path = execFileSync("/bin/sh", ["-c", `command -v ${binary} || true`], { encoding: "utf8" }).trim();
@@ -54,7 +54,7 @@ test("seats show the unverified chip from this Mac's real inventory", async () =
     await expect(seat("claude")).toBeVisible({ timeout: 30_000 });
     await page.getByRole("button", { name: /fit all/i }).first().click();
 
-    // The first ask lands while the scan is still running; the card asks again every minute.
+    // A row still scanning is no answer: the cache is re-asked every 2 s, so the chips settle within seconds.
     const chip = (id: string) => seat(id).getByTestId("seat-version-note");
     const present = found.filter((row) => row.path);
     const readings = async () => {
@@ -66,13 +66,12 @@ test("seats show the unverified chip from this Mac's real inventory", async () =
       return out;
     };
     await expect(chip("grok")).toHaveCount(1, { timeout: 30_000 });
-    console.log("first minute", JSON.stringify(await readings(), null, 1));
-    await page.screenshot({ path: join(SHOTS, "first-minute.png") });
+    // No seat ever reads "Version not read" once settled; verified ones say nothing.
 
     await expect
       .poll(async () => Object.values(await readings()).every((text) => !text.startsWith("Version not read")), {
-        timeout: 150_000,
-        intervals: [3_000],
+        timeout: 30_000,
+        intervals: [1_000],
       })
       .toBe(true);
     console.log("settled", JSON.stringify(await readings(), null, 1));
