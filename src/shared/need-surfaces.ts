@@ -96,7 +96,7 @@ export const ROLLUP_FROM_NEED: NeedProjection<MemberSeverity> = {
   crash: "blocked",
   unexpected_exit: "blocked",
 
-  seat_escalated: "attention",
+  seat_escalated: "escalated",
   awareness_waiting: null,
   awareness_approval: null,
   awareness_answer: null,

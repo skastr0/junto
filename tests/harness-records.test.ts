@@ -21,6 +21,15 @@ describe("harness records", () => {
     }
   });
 
+  it("lists models with the template's binary, except Cursor's agent alias", () => {
+    for (const harness of HARNESS_IDS) {
+      const list = harnessRuntimeRecordFor(harness)!.models;
+      if (list.kind !== "command" || list.binary === undefined) continue;
+      expect(harness).toBe("cursor");
+      expect(list.binary).toBe("agent");
+    }
+  });
+
   it("refuses ids that name no template", () => {
     expect(harnessRecordFor("not-a-harness")).toBeUndefined();
     expect(harnessRecordFor(undefined)).toBeUndefined();

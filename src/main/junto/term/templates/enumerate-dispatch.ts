@@ -19,7 +19,7 @@ import {
   enumerateHermesProfiles,
   enumeratePiModels,
   enumeratePrimeAgentModels,
-  effortsFor,
+  type ModelEnumerateResult,
   readClaudeModels,
   readGrokModels,
   readHermesModels,
@@ -44,6 +44,75 @@ const runCommand = async (
   return result.stderr ?? "";
 };
 
+/**
+ * How a harness's models are listed.
+ * - file: read from a cache or config file the harness keeps.
+ * - command: one CLI call, parsed. The binary is the template's unless named.
+ * - none: no list exists; the picker stays on template defaults.
+ */
+export type HarnessModelList =
+  | { readonly kind: "file"; readonly read: () => ModelEnumerateResult }
+  | {
+      readonly kind: "command";
+      readonly binary?: string;
+      readonly args: readonly string[];
+      readonly parse: (run: () => Promise<string>) => Promise<ModelEnumerateResult>;
+    }
+  | { readonly kind: "none" };
+
+const command = (
+  args: readonly string[],
+  parse: (run: () => Promise<string>) => Promise<ModelEnumerateResult>,
+  binary?: string,
+): HarnessModelList => ({ kind: "command", args, parse, ...(binary ? { binary } : {}) });
+
+const NO_LIST: HarnessModelList = { kind: "none" };
+
+export const HARNESS_MODEL_LISTS: Readonly<Record<HarnessId, HarnessModelList>> = {
+  claude: { kind: "file", read: () => readClaudeModels() },
+  codex: command(["debug", "models"], enumerateCodexModels),
+  grok: { kind: "file", read: () => readGrokModels() },
+  // Profiles come from `hermes profile list`; models from the provider cache.
+  // Cascade: profile → model (−m) → effort (--reasoning).
+  hermes: { kind: "file", read: () => readHermesModels() },
+  // provider/model rows (provider prefix in the id).
+  pi: command(["--list-models"], enumeratePiModels),
+  // The same provider/model table shape.
+  "prime-agent": command(["model", "list"], enumeratePrimeAgentModels),
+  // Kimi models are config-managed (config.toml [models.*]); no CLI list.
+  kimi: NO_LIST,
+  // A model-catalog file exists on disk but its shape is not stable enough.
+  muse: NO_LIST,
+  // Per-model price lines (ANSI-scrubbed).
+  devin: command(["models", "list"], enumerateDevinModels),
+  // `id - Label` rows (ANSI/middot scrubbed), through the `agent` alias.
+  cursor: command(["models"], enumerateCursorModels, "agent"),
+  // Tab-separated `id\tlabel` rows.
+  agy: command(["models"], enumerateAgyModels),
+  amp: NO_LIST,
+  // Provider-prefixed ids, no display names.
+  fx: command(["models", "--json"], enumerateFxModels),
+  omp: NO_LIST,
+  "junto-overseer": NO_LIST,
+};
+
+const listModels = (
+  harness: HarnessId,
+  signal?: AbortSignal,
+): ModelEnumerateResult | Promise<ModelEnumerateResult> => {
+  const list = HARNESS_MODEL_LISTS[harness];
+  switch (list.kind) {
+    case "file":
+      return list.read();
+    case "command": {
+      const binary = list.binary ?? templateFor(harness).argvSpec.binary;
+      return list.parse(async () => runCommand(binary, list.args, signal));
+    }
+    case "none":
+      return { models: [], source: "empty" };
+  }
+};
+
 export const enumerateManagedModels = async (
   harnessRaw: string,
   signal?: AbortSignal,
@@ -65,151 +134,17 @@ export const enumerateManagedModels = async (
     };
   }
   const harness: HarnessId = harnessRaw;
-  const templateEfforts = templateFor(harness).efforts;
-
+  // The template's list is the truth; a harness with no effort dial has none.
+  const efforts = templateFor(harness).efforts as string[];
   try {
-    if (harness === "claude") {
-      const result = readClaudeModels();
-      return {
-        models: result.models,
-        source: result.source,
-        error: result.error,
-        efforts: effortsFor("claude") as string[],
-      };
-    }
-    if (harness === "codex") {
-      const result = await enumerateCodexModels(async () =>
-        runCommand("codex", ["debug", "models"], signal),
-      );
-      return {
-        models: result.models,
-        source: result.source,
-        error: result.error,
-        efforts: templateEfforts as string[],
-      };
-    }
-    if (harness === "grok") {
-      const result = readGrokModels();
-      return {
-        models: result.models,
-        source: result.source,
-        error: result.error,
-        efforts: effortsFor("grok") as string[],
-      };
-    }
-    // hermes — profiles from `hermes profile list`; models from provider cache.
-    // Cascade: profile → model (−m) → effort (--reasoning).
-    if (harness === "hermes") {
-      const result = readHermesModels();
-      return {
-        models: result.models,
-        source: result.source,
-        error: result.error,
-        efforts: templateEfforts as string[],
-      };
-    }
-    // pi — `pi --list-models`; provider/model rows (provider prefix in the id).
-    if (harness === "pi") {
-      const result = await enumeratePiModels(async () =>
-        runCommand("pi", ["--list-models"], signal),
-      );
-      return {
-        models: result.models,
-        source: result.source,
-        error: result.error,
-        efforts: templateEfforts as string[],
-      };
-    }
-    // prime-agent — `prime-agent model list`; same provider/model table shape.
-    if (harness === "prime-agent") {
-      const result = await enumeratePrimeAgentModels(async () =>
-        runCommand("prime-agent", ["model", "list"], signal),
-      );
-      return {
-        models: result.models,
-        source: result.source,
-        error: result.error,
-        efforts: templateEfforts as string[],
-      };
-    }
-    // devin — `devin models list`; per-model price lines (ANSI-scrubbed).
-    if (harness === "devin") {
-      const result = await enumerateDevinModels(async () =>
-        runCommand("devin", ["models", "list"], signal),
-      );
-      return {
-        models: result.models,
-        source: result.source,
-        error: result.error,
-        efforts: templateEfforts as string[],
-      };
-    }
-    // cursor — `agent models`; `id - Label` rows (ANSI/middot scrubbed).
-    if (harness === "cursor") {
-      const result = await enumerateCursorModels(async () =>
-        runCommand("agent", ["models"], signal),
-      );
-      return {
-        models: result.models,
-        source: result.source,
-        error: result.error,
-        efforts: templateEfforts as string[],
-      };
-    }
-    // fx — `fx models --json`; provider-prefixed ids, no display names.
-    if (harness === "fx") {
-      const result = await enumerateFxModels(async () =>
-        runCommand("fx", ["models", "--json"], signal),
-      );
-      return {
-        models: result.models,
-        source: result.source,
-        error: result.error,
-        // fx exposes no effort dial; the template's empty list is the truth.
-        efforts: templateEfforts as string[],
-      };
-    }
-    // agy — `agy models`; tab-separated `id\tlabel` rows.
-    if (harness === "agy") {
-      const result = await enumerateAgyModels(async () =>
-        runCommand("agy", ["models"], signal),
-      );
-      return {
-        models: result.models,
-        source: result.source,
-        error: result.error,
-        efforts: templateEfforts as string[],
-      };
-    }
-    // kimi — models are config-managed (config.toml [models.*]); no CLI list.
-    // Picker shows the template efforts only (empty for kimi in v1).
-    if (harness === "kimi") {
-      return {
-        models: [],
-        source: "empty",
-        efforts: templateEfforts as string[],
-      };
-    }
-    // muse — a model-catalog file exists on disk but the shape is not stable
-    // enough for v1; leave the picker on template defaults.
-    if (harness === "muse") {
-      return {
-        models: [],
-        source: "empty",
-        efforts: templateEfforts as string[],
-      };
-    }
-    return {
-      models: [],
-      source: "empty",
-      efforts: templateEfforts as string[],
-    };
+    const result = await listModels(harness, signal);
+    return { models: result.models, source: result.source, error: result.error, efforts };
   } catch (err) {
     return {
       models: [],
       source: "empty",
       error: err instanceof Error ? err.message : String(err),
-      efforts: templateEfforts as string[],
+      efforts,
     };
   }
 };
