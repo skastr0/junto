@@ -14,7 +14,7 @@ import {
   type ControlSocketPathIdentity,
 } from "../control-filesystem";
 import type { MachineLinkListener } from "./service";
-import type { LinkSession } from "./types";
+import { LinkUnavailable, type LinkSession } from "./types";
 
 export const coreControlSocketPath = (home: string): string => join(home, ".junto", "core", "control.sock");
 
@@ -50,6 +50,9 @@ export const startLinkListener = async (
   const lease = await acquireControlListenerLease(socketPath);
   const sockets = new Set<Socket>();
   const sessions = new Set<LinkSession>();
+  const sessionSockets = new WeakSet<Socket>();
+  // The listener's own stop says why; a session closed without a cause would read "closed on request".
+  let stopCause: unknown = new LinkUnavailable({ reason: "shutting-down", message: "This machine's Junto core is stopping" });
   const starts = new Set<Promise<void>>();
   let stopping = false;
   let identity: ControlSocketPathIdentity | undefined;
@@ -66,9 +69,10 @@ export const startLinkListener = async (
     socket.setTimeout(10_000, () => socket.destroy());
     const start = options.accept(socket).then((session) => {
       sessions.add(session);
+      sessionSockets.add(socket);
       void session.closed.then(() => sessions.delete(session));
       if (stopping || socket.destroyed) {
-        return session.close();
+        return session.close(stopCause);
       }
       socket.setTimeout(0);
       socket.resume();
@@ -111,18 +115,21 @@ export const startLinkListener = async (
     for (const socket of sockets) socket.destroy();
     options.failed?.("server", cause);
   });
-  const beginShutdown = (): void => {
+  const beginShutdown = (cause?: unknown): void => {
+    if (!stopping && cause !== undefined) stopCause = cause;
     stopping = true;
-    for (const socket of sockets) socket.destroy();
+    // A session writes its close frame and ends its socket itself; a socket with no session yet is dropped.
+    for (const session of sessions) void session.close(stopCause);
+    for (const socket of sockets) if (!sessionSockets.has(socket)) socket.destroy();
   };
-  const close = (): Promise<void> => {
+  const close = (cause?: unknown): Promise<void> => {
     if (closeFlight !== undefined) return closeFlight;
-    beginShutdown();
+    beginShutdown(cause);
     closeFlight = (async () => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         await Promise.race([
-          Promise.all([closeServer(), ...starts, ...[...sessions].map((session) => session.close())]),
+          Promise.all([closeServer(), ...starts, ...[...sessions].map((session) => session.close(stopCause))]),
           new Promise<never>((_resolve, reject) => {
             timer = setTimeout(() => reject(new LinkListenerFailed({ check: "drain", socketPath, message: "core link listener did not drain" })), bounded(runtime.drainMs, 5_000));
           }),

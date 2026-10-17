@@ -12,8 +12,9 @@ export type { LinkChannelContext, LinkChannelHandler, LinkChannels, MachineLinkE
 export interface MachineLinkListener {
   readonly socketPath: string;
   readonly ready: () => boolean;
-  readonly beginShutdown: () => void;
-  readonly close: () => Promise<void>;
+  /** Closes each admitted session with `cause` (a close frame the peer reads), then drops the rest. */
+  readonly beginShutdown: (cause?: unknown) => void;
+  readonly close: (cause?: unknown) => Promise<void>;
 }
 
 export interface LinkRequestOptions {

@@ -50,12 +50,13 @@ export const startCore = async (options: CoreOptions) => {
   let releaseRunner: (() => void) | undefined;
   const runtime = makeCoreRuntime({ ...options, ready: () => admitted && !stopping && owner?.ready() === true && listener?.ready() === true });
   let closeFlight: Promise<void> | undefined;
-  const close = (): Promise<void> => {
+  /** `cause` says why this core stops; each linked machine reads it in the close frame. */
+  const close = (cause?: unknown): Promise<void> => {
     if (closeFlight !== undefined) return closeFlight;
     stopping = true;
     admitted = false;
     owner?.beginShutdown();
-    listener?.beginShutdown();
+    listener?.beginShutdown(cause);
     work?.beginShutdown();
     mail?.seats.suspend();
     seatProcesses?.beginShutdown();
@@ -64,7 +65,7 @@ export const startCore = async (options: CoreOptions) => {
         const receipt = await owner.close();
         if (!receipt.clean) throw new CoreDidNotDrain({ part: "owner-commands", message: "Owner commands did not drain; core state retained" });
       }
-      if (listener !== undefined) await listener.close();
+      if (listener !== undefined) await listener.close(cause);
       if (work !== undefined) {
         const receipt = await work.close();
         if (!receipt.clean) throw new CoreDidNotDrain({ part: "seat-work", message: "Seat work commands did not drain; core state retained" });

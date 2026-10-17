@@ -7,6 +7,7 @@ import { coreControlSocketPath } from "../src/main/junto/link/listener";
 import { decodeLinkFrame, LinkHelloSchema, type LinkFrame } from "../src/main/junto/link/protocol";
 import { MachineRepository } from "../src/main/junto/machines/repository";
 import { MachineLink } from "../src/main/junto/link/service";
+import { LinkUnavailable } from "../src/main/junto/link/types";
 
 const connectPeer = async (home: string, hello: typeof LinkHelloSchema.Type) => {
   const socket = createConnection(coreControlSocketPath(home));
@@ -81,9 +82,18 @@ it("admits account-local links only for the live name, installation and build pi
     await core.runtime.runPromise(machines.retirePeer(pinned.machineName));
     expect(await peer.request("retired")).toBeUndefined();
     expect(peer.frames.some(frame => frame.type === "response" && frame.id === "retired")).toBe(false);
+    // A stopping core tells each linked peer why, in its close frame.
+    await core.runtime.runPromise(machines.pinPeer({ machineName: pinned.machineName, installationId: pinned.installationId }));
+    const last = await connectPeer(home, pinned);
+    peers.push(last);
+    expect(await last.request("before-stop")).toMatchObject({ type: "response", ok: true });
+    await core.close(new LinkUnavailable({ reason: "shutting-down", message: "This machine's Junto core is stopping: it received SIGTERM" }));
+    const closing = last.frames.find(frame => frame.type === "close");
+    expect(closing?.type === "close" && closing.failure).toMatchObject({ tag: "LinkUnavailable", message: "This machine's Junto core is stopping: it received SIGTERM" });
   } finally {
     await Promise.all(peers.map(peer => peer.close()));
     await core?.close();
     await rm(home, { recursive: true, force: true });
   }
 });
+

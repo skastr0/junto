@@ -6,6 +6,7 @@ import { startCore } from "./junto/core";
 import { armMainThreadBudget } from "./junto/observability/main-thread-budget";
 import { installMachineLog, installObservabilityConsoleHook } from "./junto/observability/logger";
 import { machineLogDir } from "./junto/observability/log-file";
+import { LinkUnavailable } from "./junto/link/types";
 
 const home = resolveJuntoHome();
 
@@ -29,10 +30,12 @@ const main = async (): Promise<void> => {
     bundles,
   });
   let closing = false;
-  const stop = (): void => {
+  const stop = (signal: NodeJS.Signals): void => {
     if (closing) return;
     closing = true;
-    void core.close().then(() => { process.exitCode = 0; }, (cause: unknown) => {
+    // The service manager stopping this core is the first fact a reader of either log needs.
+    console.info(`[core] Junto core is stopping: it received ${signal}`);
+    void core.close(new LinkUnavailable({ reason: "shutting-down", message: `This machine's Junto core is stopping: it received ${signal}` })).then(() => { process.exitCode = 0; }, (cause: unknown) => {
       console.error("[core] Junto could not stop cleanly", cause);
       process.stderr.write(`Junto could not stop cleanly; the reason is in ${machineLogDir(home)}\n`);
       process.exitCode = 1;
