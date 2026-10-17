@@ -84,12 +84,17 @@ describe("harness capabilities", () => {
     }
   });
 
-  it("steers mail by typed Enter on every harness, and queues only where the submit differs", () => {
+  it("takes mail by typed Enter on every harness, steering or queued", () => {
     for (const harness of HARNESS_IDS) {
       const { commands } = HARNESS_CAPABILITIES[harness];
-      expect(commands.mailSteer, harness).toEqual({ level: "typed", channel: "pty" });
+      const typed = { level: "typed", channel: "pty" };
+      expect([commands.mailSteer, commands.mailQueue], harness).toContainEqual(typed);
       expect(commands.mailInterrupt, harness).toEqual({ level: "none" });
-      expect(commands.mailQueue.level !== "none", harness).toBe(HARNESS_FOLLOW_UP[harness].queue !== undefined);
+      if (HARNESS_FOLLOW_UP[harness].queue !== undefined) expect(commands.mailQueue, harness).toEqual(typed);
+    }
+    for (const harness of ["claude", "agy"] as const) {
+      expect(HARNESS_CAPABILITIES[harness].commands.mailSteer, harness).toEqual({ level: "none" });
+      expect(HARNESS_CAPABILITIES[harness].commands.mailQueue, harness).toEqual({ level: "typed", channel: "pty" });
     }
   });
 

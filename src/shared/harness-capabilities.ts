@@ -10,6 +10,9 @@
  * says the pack recognizes that chrome today; step 2 of the build order makes
  * the same rule emit the signal. Tests check every ground resolves.
  *
+ * Claude and Agy queue a mid-turn Enter ("press up to edit queued messages")
+ * and no steering key is known, so they declare queue, not steer.
+ *
  * Interrupt is typed only where a rule shows the harness's own Ctrl+C cancel
  * hint: the drive's Ctrl+C means something else on other harnesses (Amp opens
  * a quit menu, Claude and Devin interrupt on Esc).
@@ -106,8 +109,8 @@ export const HARNESS_CAPABILITY_DECLARATIONS: Readonly<
       ProcessExited: EXITED,
     },
     commands: {
-      mailQueue: NONE,
-      mailSteer: STEER,
+      mailQueue: typed({ rule: "queued_input_working" }),
+      mailSteer: NONE,
       mailInterrupt: NONE,
       answerPermission: NONE,
       interrupt: NONE,
@@ -262,7 +265,7 @@ export const HARNESS_CAPABILITY_DECLARATIONS: Readonly<
   },
   kimi: {
     signals: {
-      SessionIdentified: NONE,
+      SessionIdentified: { level: "screen", channel: "screen", grounds: [{ code: "src/main/junto/term/templates/kimi-session.ts#extractKimiSessionIdFromText" }] },
       ActivityObserved: screen("braille_spinner_working", "prompt_footer_idle"),
       TurnStarted: NONE,
       TurnEnded: NONE,
@@ -396,8 +399,8 @@ export const HARNESS_CAPABILITY_DECLARATIONS: Readonly<
       ProcessExited: EXITED,
     },
     commands: {
-      mailQueue: NONE,
-      mailSteer: STEER,
+      mailQueue: typed({ rule: "queued_input_working" }),
+      mailSteer: NONE,
       mailInterrupt: NONE,
       answerPermission: NONE,
       interrupt: NONE,
