@@ -541,6 +541,10 @@ try {
       compositeFailed: traced.filter((data) => Number(data.compositeFailed ?? 0) !== 0).length,
       compositeFailedValues: [...new Set(traced.map((data) => data.compositeFailed).filter((value) => value !== undefined))],
       unsupportedProperties: [...new Set(traced.flatMap((data) => (Array.isArray(data.unsupportedProperties) ? data.unsupportedProperties : [])))],
+      // Who failed to composite: the rings, or something else (group chips, portraits).
+      ringEvents: traced.filter((data) => String(data.nodeName ?? "").includes("junto-mark")).length,
+      ringCompositeFailed: traced.filter((data) => String(data.nodeName ?? "").includes("junto-mark") && Number(data.compositeFailed ?? 0) !== 0).length,
+      compositeFailedNodes: [...new Set(traced.filter((data) => Number(data.compositeFailed ?? 0) !== 0).map((data) => String(data.nodeName ?? "").slice(0, 60)))].slice(0, 6),
       sample: traced.slice(0, 3),
     },
     note:
