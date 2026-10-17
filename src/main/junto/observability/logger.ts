@@ -1,17 +1,20 @@
-import { Logger, References, type LogLevel } from "effect";
+import { Logger, References, Schema, type LogLevel } from "effect";
 import type { ObservabilityLogLevel, ObservabilityLogSource } from "@shared/observability";
 import { OBSERVABILITY_LEVEL_RANK } from "@shared/observability";
 import {
   LOG_ROW_MAX_BYTES,
+  LogCanvasName,
+  LogSeatId,
+  failureDetailSeat,
   type LogProcess,
   type MachineLogRow,
 } from "@shared/machine-log";
-import type { EncodedFailure } from "@shared/failure";
+import { EncodedFailure } from "@shared/failure";
 import { defaultMachineName } from "@shared/machine-name";
 import { observabilityRing } from "./ring";
 import { redactSecretValues } from "../credentials/redact";
 import { knownSecretValues, scrubMessage } from "../credentials/scrub";
-import { encodeFailure } from "../failure-encode";
+import { decodeEncodedFailure, encodeFailure } from "../failure-encode";
 import { openMachineLogSink, type MachineLogSink } from "./log-file";
 
 /**
@@ -53,6 +56,9 @@ const AREA = /^[a-z0-9][a-z0-9._-]{0,47}$/u;
 const OPERATION_ID = /^[A-Za-z0-9._-]{1,64}$/u;
 const CONSOLE_PREFIX = /^\[([A-Za-z0-9][A-Za-z0-9._-]{0,47})\]/u;
 const MAX_ANNOTATIONS = 16;
+const isLogSeatId = Schema.is(LogSeatId);
+const isLogCanvasName = Schema.is(LogCanvasName);
+const isEncodedFailure = Schema.is(EncodedFailure);
 
 const DEFAULT_AREA: Record<ObservabilityLogSource, string> = {
   effect: "effect",
@@ -113,8 +119,14 @@ export type LogInput = {
   readonly level: ObservabilityLogLevel;
   readonly source: ObservabilityLogSource;
   readonly message: string;
-  /** A Cause, an Error or any thrown value; encoded, never stored raw. */
+  /**
+   * A Cause, an Error or any thrown value, encoded here; or a failure already
+   * encoded (one received from another machine), decoded closed and scrubbed
+   * again. Never stored raw.
+   */
   readonly failure?: unknown;
+  /** The channel's own closed failure, for `EncodedFailure.detail`. */
+  readonly detail?: unknown;
   readonly annotations?: Readonly<Record<string, unknown>>;
   readonly spans?: ReadonlyArray<string>;
   readonly ts?: number;
@@ -169,15 +181,17 @@ export const writeLog = (input: LogInput): MachineLogRow => {
     if (prefix !== undefined) area = prefix;
   }
   let operationId: string | undefined;
-  let seat: string | undefined;
-  let canvas: string | undefined;
+  let seat: MachineLogRow["seat"];
+  let canvas: MachineLogRow["canvas"];
   const annotations: Record<string, string> = {};
   for (const [key, value] of Object.entries(input.annotations ?? {})) {
     const text = annotationText(value);
     if (key === "area" && AREA.test(text)) area = text;
     else if (key === "operationId" && OPERATION_ID.test(text)) operationId = text;
-    else if (key === "seat" && text.length > 0) seat = scrub(text, 128);
-    else if (key === "canvas" && text.length > 0) canvas = scrub(text, 128);
+    // Ids are validated, never scrubbed: the scrub's long-run rule would
+    // erase them. An invalid one is dropped.
+    else if (key === "seat") seat = isLogSeatId(text) ? text : undefined;
+    else if (key === "canvas") canvas = isLogCanvasName(text) ? text : undefined;
     else if (Object.keys(annotations).length < MAX_ANNOTATIONS && /^[A-Za-z0-9_.-]{1,64}$/u.test(key)) {
       annotations[key] = scrub(text, 256);
     }
@@ -185,7 +199,15 @@ export const writeLog = (input: LogInput): MachineLogRow => {
   message = scrubMessage(precut(message, known), known);
   const failure = input.failure === undefined
     ? undefined
-    : encodeFailure(input.failure, { machine: state.machine, ...(operationId === undefined ? {} : { operationId }) });
+    : isEncodedFailure(input.failure)
+      ? decodeEncodedFailure(input.failure)
+      : encodeFailure(input.failure, {
+          machine: state.machine,
+          ...(operationId === undefined ? {} : { operationId }),
+          ...(input.detail === undefined ? {} : { detail: input.detail }),
+        });
+  // A failure whose detail names a seat belongs to that seat's scope.
+  seat ??= failureDetailSeat(failure);
   const spans = (input.spans ?? []).slice(0, 16).map((span) => scrub(span, 128)).filter((span) => span.length > 0);
 
   const row: MachineLogRow = {

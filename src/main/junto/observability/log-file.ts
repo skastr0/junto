@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { Effect, Option, Schema } from "effect";
 import {
+  failureDetailSeat,
   LOG_READ_DEFAULT_LIMIT,
   MachineLogRow,
   matchesMachineLogQuery,
@@ -189,5 +190,9 @@ export const readMachineLog = Effect.fn("readMachineLog")(function* (
  * What a seat may read (docs/security-doctrine.md, Logs): its own rows, rows
  * for seats it holds `terminal.read` to, and rows that name no seat.
  */
-export const seatLogScope = (visibleSeats: ReadonlySet<string>) => (row: MachineLogRow): boolean =>
-  row.seat === undefined || visibleSeats.has(row.seat);
+export const seatLogScope = (visibleSeats: ReadonlySet<string>) => (row: MachineLogRow): boolean => {
+  // A row written before its seat was lifted from the failure detail still
+  // answers to the seat that detail names.
+  const named: ReadonlyArray<string | undefined> = [row.seat, failureDetailSeat(row.failure)];
+  return named.every((seat) => seat === undefined || visibleSeats.has(seat));
+};

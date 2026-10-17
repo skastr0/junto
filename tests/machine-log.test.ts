@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
@@ -155,6 +155,53 @@ describe("machine log file", () => {
     const [row] = rowsOf(home, "app");
     expect(row).toMatchObject({ area: "link", operationId: "op-9", spans: ["link.request"], failure: { tag: "SpawnRefused" } });
     expect(Logger).toBeDefined();
+  });
+});
+
+describe("row ids", () => {
+  it("keeps Junto ids as typed fields and drops ids that are not valid", () => {
+    const home = freshHome();
+    installMachineLog({ home, process: "core", echo: false });
+    writeLog({ level: "info", source: "effect", message: "a", annotations: { seat: "agent-01M4G59ER01QPV3WBTEK3Z84TP", canvas: "factory" } });
+    writeLog({ level: "info", source: "effect", message: "b", annotations: { seat: "not a seat id", canvas: "Not A Canvas" } });
+    const [kept, dropped] = rowsOf(home);
+    expect(kept).toMatchObject({ seat: "agent-01M4G59ER01QPV3WBTEK3Z84TP", canvas: "factory" });
+    expect(dropped?.seat).toBeUndefined();
+    expect(dropped?.canvas).toBeUndefined();
+  });
+
+  it("files a failure under the seat its detail names, so another seat cannot read it", async () => {
+    const home = freshHome();
+    installMachineLog({ home, process: "core", echo: false });
+    setLogMachine("mini");
+    writeLog({
+      level: "error", source: "effect", message: "seat start failed", annotations: { area: "link" },
+      failure: new Error("harness exited during start"), detail: { seatId: "agent-other" },
+    });
+    writeLog({
+      level: "error", source: "effect", message: "peer said no", annotations: { area: "link" },
+      failure: { tag: "SeatsFailure", message: "spawn failed", machine: "laptop", causes: [], detail: { seatId: "agent-other" } },
+    });
+    closeMachineLog();
+    const rows = rowsOf(home);
+    expect(rows.map((row) => row.seat)).toEqual(["agent-other", "agent-other"]);
+    expect(rows[1]?.failure).toMatchObject({ tag: "SeatsFailure", machine: "laptop", detail: { seatId: "agent-other" } });
+    const withheld = await Effect.runPromise(readMachineLog(home, "mini", { area: "link" }, seatLogScope(new Set(["agent-me"]))));
+    expect(withheld.rows).toEqual([]);
+    const own = await Effect.runPromise(readMachineLog(home, "mini", { area: "link" }, seatLogScope(new Set(["agent-other"]))));
+    expect(own.rows).toHaveLength(2);
+  });
+
+  it("withholds a row whose stored detail names another seat even when the row has no seat", async () => {
+    const home = freshHome();
+    const dir = machineLogDir(home);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(dir, "core.jsonl"), `${JSON.stringify({
+      time: "2026-10-16T10:00:00.000Z", level: "error", machine: "mini", process: "core", source: "effect", area: "link",
+      message: "old row", failure: { tag: "SeatsFailure", message: "spawn failed", machine: "mini", causes: [], detail: { seatId: "agent-other" } },
+    })}\n`, { mode: 0o600 });
+    const read = await Effect.runPromise(readMachineLog(home, "mini", {}, seatLogScope(new Set(["agent-me"]))));
+    expect(read.rows).toEqual([]);
   });
 });
 

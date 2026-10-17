@@ -5,6 +5,8 @@ import {
   ObservabilityLogSource,
 } from "./observability";
 import { EncodedFailure, OperationId } from "./failure";
+import { CanvasName } from "./model/base";
+import { NodeId } from "./physics/schema";
 
 /**
  * The persistent machine log (docs/machines.md, Failures and logs): one JSON
@@ -26,6 +28,9 @@ const named = (max: number) =>
 /** Where a row comes from: an Effect area annotation, or a console `[prefix]`. */
 export const LogArea = Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-z0-9][a-z0-9._-]{0,47}$/u)));
 export const LogOperationId = OperationId;
+/** A seat's node id as rows carry it: a typed id, never scrubbed text. */
+export const LogSeatId = NodeId.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9._-]{1,128}$/u)));
+export const LogCanvasName = CanvasName;
 export const LogProcess = Schema.Literals(["app", "core"]);
 export type LogProcess = typeof LogProcess.Type;
 
@@ -38,8 +43,8 @@ export const MachineLogRow = Schema.Struct({
   area: LogArea,
   message: bounded(LOG_MESSAGE_MAX_BYTES),
   operationId: Schema.optionalKey(LogOperationId),
-  seat: Schema.optionalKey(named(128)),
-  canvas: Schema.optionalKey(named(128)),
+  seat: Schema.optionalKey(LogSeatId),
+  canvas: Schema.optionalKey(LogCanvasName),
   failure: Schema.optionalKey(EncodedFailure),
   spans: Schema.optionalKey(Schema.Array(named(128)).pipe(Schema.check(Schema.isMaxLength(16)))),
   annotations: Schema.optionalKey(Schema.Record(named(64), bounded(256))),
@@ -53,8 +58,8 @@ export const MachineLogQuery = Schema.Struct({
   level: Schema.optionalKey(ObservabilityLogLevel),
   area: Schema.optionalKey(LogArea),
   operationId: Schema.optionalKey(LogOperationId),
-  seat: Schema.optionalKey(named(128)),
-  canvas: Schema.optionalKey(named(128)),
+  seat: Schema.optionalKey(LogSeatId),
+  canvas: Schema.optionalKey(LogCanvasName),
   /** The newest rows that match, oldest first. */
   limit: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: LOG_READ_MAX_LIMIT })))),
 }).annotate({ parseOptions: { onExcessProperty: "error" } });
@@ -78,4 +83,14 @@ export const matchesMachineLogQuery = (row: MachineLogRow, query: MachineLogQuer
   if (query.seat !== undefined && row.seat !== query.seat) return false;
   if (query.canvas !== undefined && row.canvas !== query.canvas) return false;
   return true;
+};
+
+const isLogSeatId = Schema.is(LogSeatId);
+
+/** The seat a failure's channel detail names, when it names a valid one. */
+export const failureDetailSeat = (failure: EncodedFailure | undefined): typeof LogSeatId.Type | undefined => {
+  const detail = failure?.detail;
+  if (detail === null || typeof detail !== "object" || Array.isArray(detail)) return undefined;
+  const seatId = (detail as { readonly seatId?: unknown }).seatId;
+  return isLogSeatId(seatId) ? seatId : undefined;
 };
