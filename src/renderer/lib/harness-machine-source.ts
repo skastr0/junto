@@ -40,6 +40,29 @@ const errorOf = (failure: NativeSettingFailure): NativeSettingError => {
   }
 };
 
+/** A native read or write refused, with the typed failure and operation the link logged it under. */
+export type NativeSettingRefusal = {
+  readonly error: NativeSettingError;
+  readonly failure?: string;
+  readonly operationId?: string;
+};
+
+const refusalOf = (failure: NativeSettingFailure): NativeSettingRefusal => {
+  const { failure: tag, operationId } = failure as { readonly failure?: string; readonly operationId?: string };
+  return {
+    error: errorOf(failure),
+    ...(tag === undefined ? {} : { failure: tag }),
+    ...(operationId === undefined ? {} : { operationId }),
+  };
+};
+
+/** What a machine's harness config holds for the declared keys. */
+export type NativeSettingsRead = {
+  readonly values: Readonly<Record<string, NativeSettingWrite["value"]>>;
+  /** Keys whose file value is outside the declared setting: shown as unset, never as text. */
+  readonly unfit: readonly string[];
+};
+
 const unreachableCall = (machine: string, cause: unknown): NativeSettingFailure => ({
   _tag: "InventoryUnavailableError",
   machine,
@@ -72,11 +95,11 @@ export type HarnessMachineSource = {
     machine: string,
     harness: HarnessId,
     keys: readonly string[],
-  ) => Promise<Result.Result<Readonly<Record<string, NativeSettingWrite["value"]>>, NativeSettingError>>;
+  ) => Promise<Result.Result<NativeSettingsRead, NativeSettingRefusal>>;
   /** Written by the machine's own Junto; answers the value read back. */
   readonly writeNativeSetting: (
     write: NativeSettingWrite,
-  ) => Promise<Result.Result<NativeSettingWrite["value"], NativeSettingError>>;
+  ) => Promise<Result.Result<NativeSettingWrite["value"], NativeSettingRefusal>>;
 };
 
 const NOT_LANDED = "The machine inventory channel has not landed in this build.";
@@ -86,16 +109,16 @@ export const pendingHarnessMachineSource: HarnessMachineSource = {
   inventory: async (machine) =>
     Result.fail({ error: new InventoryUnavailableError({ machine, reason: "failed", message: NOT_LANDED }) }),
   readNativeSettings: async (machine, harness) =>
-    Result.fail(new InventoryUnavailableError({ machine, harness, reason: "failed", message: NATIVE_NOT_LANDED })),
+    Result.fail({ error: new InventoryUnavailableError({ machine, harness, reason: "failed", message: NATIVE_NOT_LANDED }) }),
   writeNativeSetting: async (write) =>
-    Result.fail(
-      new InventoryUnavailableError({
+    Result.fail({
+      error: new InventoryUnavailableError({
         machine: write.machine,
         harness: write.harness,
         reason: "failed",
         message: NATIVE_NOT_LANDED,
       }),
-    ),
+    }),
 };
 
 /** Inventory from each machine's core; native config still pending. */
@@ -131,14 +154,16 @@ export const coreHarnessMachineSource: HarnessMachineSource = {
     if (api === undefined) return pendingHarnessMachineSource.readNativeSettings(machine, harness, keys);
     const answer = await api.nativeSettingsRead({ machine, harness, keys })
       .catch((cause: unknown) => ({ ok: false as const, error: unreachableCall(machine, cause) }));
-    return answer.ok ? Result.succeed(answer.values) : Result.fail(errorOf(answer.error));
+    return answer.ok
+      ? Result.succeed({ values: answer.values, unfit: answer.unfit ?? [] })
+      : Result.fail(refusalOf(answer.error));
   },
   writeNativeSetting: async (write) => {
     const api = window.junto;
     if (api === undefined) return pendingHarnessMachineSource.writeNativeSetting(write);
     const answer = await api.nativeSettingWrite(write)
       .catch((cause: unknown) => ({ ok: false as const, error: unreachableCall(write.machine, cause) }));
-    return answer.ok ? Result.succeed(answer.value) : Result.fail(errorOf(answer.error));
+    return answer.ok ? Result.succeed(answer.value) : Result.fail(refusalOf(answer.error));
   },
 };
 

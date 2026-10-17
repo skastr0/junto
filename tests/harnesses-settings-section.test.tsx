@@ -186,7 +186,7 @@ describe("Settings > Agents, per machine", () => {
     setHarnessMachineSource({
       ...pendingHarnessMachineSource,
       inventory: async () => Result.succeed(withClaude("2.1.302")),
-      readNativeSettings: async () => Result.succeed({ effortLevel: "high", alwaysThinkingEnabled: true }),
+      readNativeSettings: async () => Result.succeed({ values: { effortLevel: "high", alwaysThinkingEnabled: true }, unfit: [] }),
       writeNativeSetting: async (write) => {
         writes.push(write);
         return Result.succeed(write.value);
@@ -200,6 +200,36 @@ describe("Settings > Agents, per machine", () => {
     expect(writes).toEqual([{ machine: "mac-mini", harness: "claude", key: "alwaysThinkingEnabled", value: false }]);
   });
 
+  it("shows a file value Junto does not offer as unset, and says the file holds one", async () => {
+    setHarnessMachineSource({
+      ...pendingHarnessMachineSource,
+      inventory: async () => Result.succeed(withClaude("2.1.302")),
+      readNativeSettings: async () =>
+        Result.succeed({ values: { effortLevel: "turbo", alwaysThinkingEnabled: true }, unfit: ["effortLevel"] }),
+    });
+    await render("mac-mini");
+    const native = card("claude").querySelector('[data-native-config="claude"]') as HTMLElement;
+    expect(native.textContent).not.toContain("turbo");
+    expect(native.querySelector('[data-unfit="effortLevel"]')?.textContent).toContain(
+      "holds a value Junto does not offer",
+    );
+  });
+
+  it("names the link's typed failure when a machine's config cannot be read", async () => {
+    setHarnessMachineSource({
+      ...pendingHarnessMachineSource,
+      inventory: async () => Result.succeed(withClaude("2.1.302")),
+      readNativeSettings: async (machine) =>
+        Result.fail({
+          error: new InventoryUnavailableError({ machine, reason: "unreachable", message: "the link is down" }),
+          failure: "LinkUnavailable",
+        }),
+    });
+    await render("mac-mini");
+    const native = card("claude").querySelector('[data-native-config="claude"]') as HTMLElement;
+    expect(native.textContent).toContain("LinkUnavailable: the link is down");
+  });
+
   it("reads the file again after a conflict and never retries on its own", async () => {
     let reads = 0;
     let writes = 0;
@@ -208,13 +238,13 @@ describe("Settings > Agents, per machine", () => {
       inventory: async () => Result.succeed(withClaude("2.1.302")),
       readNativeSettings: async () => {
         reads += 1;
-        return Result.succeed({ alwaysThinkingEnabled: reads > 1 });
+        return Result.succeed({ values: { alwaysThinkingEnabled: reads > 1 }, unfit: [] });
       },
       writeNativeSetting: async (write) => {
         writes += 1;
-        return Result.fail(
-          new NativeConfigWriteError({ machine: write.machine, harness: write.harness, key: write.key, reason: "conflict", message: "changed" }),
-        );
+        return Result.fail({
+          error: new NativeConfigWriteError({ machine: write.machine, harness: write.harness, key: write.key, reason: "conflict", message: "changed" }),
+        });
       },
     });
     await render("mac-mini");

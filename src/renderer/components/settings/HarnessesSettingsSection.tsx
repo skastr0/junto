@@ -45,7 +45,11 @@ import { HUE_TEXT, INK } from "../../lib/theme";
 import { state$ } from "../../lib/state";
 import { patchSettings } from "../../lib/settings-state";
 import { machineLabel } from "../../lib/machines";
-import { harnessMachineSource, type InventoryRefusal } from "../../lib/harness-machine-source";
+import {
+  harnessMachineSource,
+  type InventoryRefusal,
+  type NativeSettingRefusal,
+} from "../../lib/harness-machine-source";
 import { formatSeatAwarenessAge } from "../../lib/seat-awareness";
 import { useSettingsMachine } from "../../lib/settings-machine";
 import { Input, Select, Switch } from "../ui";
@@ -487,8 +491,17 @@ type NativeValue = NativeSettingWrite["value"];
 
 type NativeRead =
   | { readonly state: "unread" }
-  | { readonly state: "answered"; readonly values: Readonly<Record<string, NativeValue>> }
+  | {
+    readonly state: "answered";
+    readonly values: Readonly<Record<string, NativeValue>>;
+    /** Keys whose file value is one Junto does not offer: shown unset. */
+    readonly unfit: ReadonlySet<string>;
+  }
   | { readonly state: "refused"; readonly message: string };
+
+/** A refusal in its typed words: the link's failure tag when it carries one. */
+const refusalMessage = (refusal: NativeSettingRefusal): string =>
+  refusal.failure ? `${refusal.failure}: ${refusal.error.message}` : refusal.error.message;
 
 /**
  * Settings saved in the harness's own config on this machine, read and
@@ -528,8 +541,8 @@ function NativeSettings({
         if (!current) return;
         setRead(
           Result.isSuccess(answer)
-            ? { state: "answered", values: answer.success }
-            : { state: "refused", message: answer.failure.message },
+            ? { state: "answered", values: answer.success.values, unfit: new Set(answer.success.unfit) }
+            : { state: "refused", message: refusalMessage(answer.failure) },
         );
       });
     return () => {
@@ -549,10 +562,16 @@ function NativeSettings({
       .then((answer) => {
         if (Result.isSuccess(answer)) {
           setRead((prior) =>
-            prior.state === "answered" ? { state: "answered", values: { ...prior.values, [spec.key]: answer.success } } : prior,
+            prior.state === "answered"
+              ? {
+                state: "answered",
+                values: { ...prior.values, [spec.key]: answer.success },
+                unfit: new Set([...prior.unfit].filter((key) => key !== spec.key)),
+              }
+              : prior,
           );
           setAnswers(({ [spec.key]: _done, ...rest }) => rest);
-        } else if (answer.failure._tag === "NativeConfigWriteError" && answer.failure.reason === "conflict") {
+        } else if (answer.failure.error._tag === "NativeConfigWriteError" && answer.failure.error.reason === "conflict") {
           // The file changed by hand: show what it holds now and let the operator choose again.
           setReadCount((count) => count + 1);
           setAnswers((prior) => ({
@@ -560,7 +579,7 @@ function NativeSettings({
             [spec.key]: `Not written: the file changed on ${machineName} since it was read. It now shows what is there; choose again.`,
           }));
         } else {
-          setAnswers((prior) => ({ ...prior, [spec.key]: answer.failure.message }));
+          setAnswers((prior) => ({ ...prior, [spec.key]: refusalMessage(answer.failure) }));
         }
       });
   };
@@ -597,6 +616,10 @@ function NativeSettings({
               <span role="alert" style={{ color: HUE_TEXT.crimson }}>
                 {answers[spec.key]}
               </span>
+            ) : read.state === "answered" && read.unfit.has(spec.key) ? (
+              <span data-unfit={spec.key}>
+                <code>{spec.key}</code> holds a value Junto does not offer. Choosing one here replaces it.
+              </span>
             ) : (
               <code>{spec.key}</code>
             )
@@ -606,7 +629,7 @@ function NativeSettings({
             spec={spec}
             ariaLabel={`${displayName} ${spec.label.toLowerCase()} in its own config on ${machineName}`}
             disabled={read.state !== "answered"}
-            value={read.state === "answered" ? read.values[spec.key] : undefined}
+            value={read.state === "answered" && !read.unfit.has(spec.key) ? read.values[spec.key] : undefined}
             onWrite={(value) => write(spec, value)}
           />
         </FieldRow>
