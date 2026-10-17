@@ -186,6 +186,9 @@ The one interface three seats build against.
     id from a peer.
   - `status`: reachable or not, harness CLIs present, the names of missing
     secrets. Never a value, a path or anything a caller chose to probe.
+  - `inventory`: the machine's own harness snapshot, each harness with its
+    version, model ids and permission mode names. Nothing else, and nothing a
+    caller chose to probe (Harness inventory, below).
 - The same code runs at both ends. Nothing above the transport knows which end
   opened the link.
 - Terminal bytes ride the link. If running shows that hurts typing,
@@ -217,7 +220,8 @@ The one interface three seats build against.
   `remote-core` the windowless root (`src/main/headless.ts`), the owner
   socket and the socket the relay connects to; `remote-work` the `rows`
   channel; `remote-seats` the `seats` channel; `remote-send` the `status`
-  channel. Nothing received over a link is used before its closed decode.
+  and `inventory` channels. Nothing received over a link is used before its
+  closed decode.
 
 ## Failures and logs
 
@@ -264,6 +268,47 @@ this section removes.
   real machines: missing module, killed link mid-request, wrong install root,
   missing harness, stopped service, build mismatch. Each must show its true
   cause on the card, in the CLI, and in both machines' logs.
+
+## Harness inventory
+
+Proposed 17 October, under `remote-lead` review. Settings and the seat picker
+read only the window's own machine: placing a seat on the mini offered the
+MacBook's harnesses and models. What a seat can be set to comes from the
+machine that runs it.
+
+- **Each machine probes itself.** A machine runs one fixed probe of every
+  harness it has: its version, the model ids it lists, and the permission mode
+  names Junto knows for that version. Probes run in parallel, each under a
+  time limit that ends its whole process tree, and the result is cached on
+  that machine's disk for 6 hours. A peer never asks for a probe, names what
+  to probe, or passes a command.
+- **The snapshot is closed.** Per harness: name, version, model ids, mode
+  names, when it was taken, and a typed probe failure when the probe failed.
+  No paths, no command output, no environment, no argv. It is decoded with a
+  closed decoder on arrival, and `remote-security` checks each field against
+  the redaction rule (`docs/security-doctrine.md`) before it lands.
+- **The `inventory` channel carries it.** The machine that edits the canvas
+  asks a linked machine for its snapshot, and that machine answers from its
+  cache, probing again only when the cache has expired. `status` is unchanged
+  and stays probe-free.
+- **Unreachable is a state, never a wait.** The editing machine keeps the last
+  snapshot each machine sent. A machine it cannot reach shows that snapshot,
+  its age, and the typed reason the link failed (Failures and logs). A loader
+  never stands in for a cache.
+- **Settings name their machine.** A settings page scoped to a machine has a
+  machine dropdown and shows that machine's colour and icon. The seat picker
+  and a seat's Params read the inventory of the seat's machine.
+- **Read only across machines.** Rule 12 is unchanged: no machine edits
+  another machine's harness config. Whether a machine's own Junto may ever
+  write its native harness config on request is the operator's later call.
+- **An agent can read it.** An owner command returns a machine's snapshot and
+  its age, local or over the link (rule 13).
+- **Order.** The channel lands after `remote-send`'s link rewrite (typed
+  failures, operation ids on frames). The per-machine cache (`07c1d3ada`) and
+  the harness params it feeds are local and come first.
+- **Owners.** `remote-send` the channel; `product-lead` the per-machine cache
+  and the settings pages; the PTY harness domain decides which values a
+  harness offers.
 
 ## Not carried
 
