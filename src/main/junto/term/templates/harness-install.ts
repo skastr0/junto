@@ -58,6 +58,11 @@ export type HarnessExecutableResolution = {
   readonly home?: string;
   readonly pathSep?: string;
   readonly extraDirs?: ReadonlyArray<string>;
+  /**
+   * Search `pathEnv` alone: a region that sets PATH chose where its harness
+   * comes from, so no operator tool directory or version manager is added.
+   */
+  readonly pathOnly?: boolean;
 };
 
 /**
@@ -110,7 +115,9 @@ const mergeHarnessSearchPath = (
 
 export const harnessSearchPath = (
   options: HarnessExecutableResolution = {},
-): string => mergeHarnessSearchPath(options, enumeratedToolDirs(options.home ?? homedir()));
+): string => options.pathOnly === true
+  ? options.pathEnv ?? ""
+  : mergeHarnessSearchPath(options, enumeratedToolDirs(options.home ?? homedir()));
 
 // A `*/shims` entry is a version-manager trampoline, not a binary: it passes
 // X_OK while exiting "No version is set for shim" until its manager's

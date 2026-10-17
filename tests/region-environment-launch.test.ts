@@ -425,6 +425,27 @@ describe("the launch applies it", () => {
   // Resolve harness binaries from the temp folder only, never the machine's.
   const hermetic = () => ({ PATH: binDir });
 
+  it("a region PATH is the whole search: a harness it leaves out is not found elsewhere", () => {
+    const empty = mkdtempSync(join(tmpdir(), "junto-region-path-"));
+    try {
+      // The machine has claude (an operator tool directory, like a version
+      // manager's copy), and the region's PATH does not.
+      const refused = resolveLaunch(agent("claude"), {
+        seatInject: { JUNTO_SEAT: "local:claude" }, regionEnv: { PATH: empty },
+      });
+      expect(Result.isFailure(refused)).toBe(true);
+      if (Result.isFailure(refused)) {
+        expect(refused.failure.operatorReason).toBe(`"claude" is not on the PATH this seat's region sets`);
+        expect(refused.failure.missingExecutable).toBeUndefined();
+      }
+      // Without a region PATH the machine's own directories still count.
+      const found = resolveLaunch(agent("claude"), { seatInject: { JUNTO_SEAT: "local:claude", PATH: empty } });
+      expect(Result.getOrThrow(found).file).toBe(join(binDir, "claude"));
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
+    }
+  });
+
   it("region values sit under the seat's own env and under Junto's", () => {
     const launch = Result.getOrThrow(
       resolveLaunch(agent("claude"), {

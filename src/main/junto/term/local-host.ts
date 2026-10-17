@@ -813,10 +813,12 @@ export const resolveLaunch = (
     // resolution and spawn name the same target.
     const fileTarget =
       !isAbsolute(file) && /[/\\]/.test(file) ? resolve(cwd, file) : file;
-    const resolvedFile = resolveHarnessExecutable(fileTarget, {
-      pathEnv: env.PATH ?? process.env.PATH,
-      extraDirs: configuredToolDirectories(),
-    });
+    // A region PATH is the seat's whole search: a harness it leaves out is not
+    // found elsewhere on the machine (a version manager's copy included).
+    const regionPath = options?.regionEnv?.PATH !== undefined;
+    const resolvedFile = resolveHarnessExecutable(fileTarget, regionPath
+      ? { pathEnv: env.PATH ?? "", pathOnly: true }
+      : { pathEnv: env.PATH ?? process.env.PATH, extraDirs: configuredToolDirectories() });
     // A bare name that fails resolution must not spawn anyway: the child
     // would re-walk PATH itself and a dead shim Junto already rejected could
     // still win there. An absolute/path target that exists yet fails
@@ -828,11 +830,16 @@ export const resolveLaunch = (
       (!isAbsolute(fileTarget) || existsSync(fileTarget))
     ) {
       return Result.fail(
-        unresolvable(
-          `the harness binary "${file}" was not found on the seat PATH`,
-          `the harness binary "${file}" was not found`,
-          true,
-        ),
+        regionPath
+          ? unresolvable(
+              `the harness binary "${file}" is not on the PATH this seat's region sets`,
+              `"${file}" is not on the PATH this seat's region sets`,
+            )
+          : unresolvable(
+              `the harness binary "${file}" was not found on the seat PATH`,
+              `the harness binary "${file}" was not found`,
+              true,
+            ),
       );
     }
     const launchFile = resolvedFile ?? fileTarget;
