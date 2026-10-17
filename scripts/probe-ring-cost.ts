@@ -107,6 +107,9 @@ if (compareArg !== "") {
           ...(Object.fromEntries(metricKeys.map((key) => [key, med((row) => row[key])])) as Record<(typeof metricKeys)[number], number | null>),
           ...(Object.fromEntries(frameKeys.map((key) => [`frame_${key}`, med((row) => row.frameMs?.[key])])) as Record<string, number | null>),
           loafMaxMs: med((row) => row.longAnimationFrames?.maxMs),
+          layers: med((row) => row.layers?.count),
+          layerizeMsPerUpdate: med((row) => row.layers?.layerizeMsPerUpdate),
+          layerizeMsPerSecond: med((row) => row.layers?.layerizeMsPerSecond),
           gpuCpuPercent: med((row) => row.cpuPercent?.GPU),
           rendererCpuPercent: med((row) => row.cpuPercent?.renderer),
           browserCpuPercent: med((row) => row.cpuPercent?.browser),
@@ -453,6 +456,21 @@ type Scenario = {
   accessibilityOn: boolean;
   viewport: string[] | null;
   pointer: string | null;
+  /**
+   * Compositor layers after the scenario (LayerTree.layerTreeDidChange), and for
+   * pan the cost of building them: PaintArtifactCompositor::Update time in a
+   * separate traced sample pan after the measured window, so the trace never
+   * perturbs the measured numbers.
+   */
+  layers: {
+    count: number | null;
+    countSource: string;
+    layerizeUpdates: number | null;
+    layerizeMsPerUpdate: number | null;
+    layerizeMsPerSecond: number | null;
+    sampleSeconds: number | null;
+    traceSource: string | null;
+  } | null;
   wheel: { mode: string; events: number; eventsPerSecond: number; ackLagMs: { p50: number; max: number } | null; tracePath: string | null } | null;
 };
 
@@ -606,10 +624,57 @@ try {
       return { dark: r + g + b < 300, background };
     })()`);
 
+  // Layer count: the page's compositor layer tree. Layerize cost: trace a short
+  // extra pan and sum PaintArtifactCompositor::Update.
+  const layerCount = async (): Promise<number | null> => {
+    let layers: number | null = null;
+    page!.on("LayerTree.layerTreeDidChange", (params: { layers?: unknown[] }) => {
+      if (Array.isArray(params.layers)) layers = params.layers.length;
+    });
+    await page!.send("LayerTree.enable").catch(() => undefined);
+    for (let waited = 0; layers === null && waited < 1_500; waited += 100) await sleep(100);
+    await page!.send("LayerTree.disable").catch(() => undefined);
+    return layers;
+  };
+  const layerize = async (drive: NonNullable<Parameters<typeof measure>[1]>) => {
+    const events: Array<any> = [];
+    browser!.on("Tracing.dataCollected", (params: { value: Array<any> }) => {
+      for (const event of params.value) if (event.name === "PaintArtifactCompositor::Update") events.push(event);
+    });
+    const done = new Promise<void>((ok) => browser!.on("Tracing.tracingComplete", () => ok()));
+    await browser!.send("Tracing.start", { traceConfig: { includedCategories: ["blink", "cc", "devtools.timeline"] }, transferMode: "ReportEvents" } as never);
+    const t0 = performance.now();
+    await drive(2_000, { sample: true });
+    const sampleSeconds = (performance.now() - t0) / 1000;
+    await browser!.send("Tracing.end");
+    await done;
+    let totalUs = 0;
+    let updates = 0;
+    const open = new Map<string, number[]>();
+    for (const event of events) {
+      if (event.ph === "X" && typeof event.dur === "number") {
+        totalUs += event.dur;
+        updates += 1;
+      } else if (event.ph === "B") {
+        const key = `${event.pid}:${event.tid}`;
+        open.set(key, [...(open.get(key) ?? []), event.ts]);
+      } else if (event.ph === "E") {
+        const key = `${event.pid}:${event.tid}`;
+        const stack = open.get(key) ?? [];
+        const begin = stack.pop();
+        if (begin !== undefined) {
+          totalUs += event.ts - begin;
+          updates += 1;
+        }
+      }
+    }
+    return { updates, totalMs: totalUs / 1000, sampleSeconds };
+  };
+
   const measure = async (
     name: string,
-    drive: (windowMs: number) => Promise<{ bytesWritten?: number; viewport?: string[]; wheel?: Scenario["wheel"] } | void>,
-    options: { raf?: boolean; pointer?: string; before?: () => Promise<void> } = {},
+    drive: (windowMs: number, run?: { sample: boolean }) => Promise<{ bytesWritten?: number; viewport?: string[]; wheel?: Scenario["wheel"] } | void>,
+    options: { raf?: boolean; pointer?: string; layerSample?: boolean; before?: () => Promise<void> } = {},
   ): Promise<Scenario> => {
     await sendWorking();
     await options.before?.();
@@ -673,6 +738,25 @@ try {
     if (rings.moving < MIN_RINGS) problems.push(`only ${rings.moving} moving rings on screen (need ${MIN_RINGS})`);
     const accessibilityOn = await main!.evaluate<boolean>(`__probe.app.accessibilitySupportEnabled`);
     if (deltas && deltas.length === 0) problems.push("0 frames: the window did not paint");
+    const count = await layerCount().catch(() => null);
+    let layers: Scenario["layers"] = { count, countSource: "LayerTree.layerTreeDidChange", layerizeUpdates: null, layerizeMsPerUpdate: null, layerizeMsPerSecond: null, sampleSeconds: null, traceSource: null };
+    if (options.layerSample) {
+      const sampled = await layerize(drive).catch((error) => {
+        problems.push(`layerize sample failed: ${error instanceof Error ? error.message : String(error)}`);
+        return null;
+      });
+      if (sampled) {
+        layers = {
+          ...layers!,
+          layerizeUpdates: sampled.updates,
+          layerizeMsPerUpdate: sampled.updates === 0 ? null : Math.round((sampled.totalMs / sampled.updates) * 100) / 100,
+          layerizeMsPerSecond: round1(sampled.totalMs / sampled.sampleSeconds),
+          sampleSeconds: round1(sampled.sampleSeconds),
+          traceSource: "Chrome trace categories blink,cc,devtools.timeline: PaintArtifactCompositor::Update, summed over a separate 2 s pan after the measured window",
+        };
+        if (sampled.updates === 0) problems.push("layerize sample saw no PaintArtifactCompositor::Update events (event name or category not found)");
+      }
+    }
     return {
       name,
       valid: problems.length === 0,
@@ -689,6 +773,7 @@ try {
         ? { count: probed.loaf.length, maxMs: round1(Math.max(0, ...probed.loaf)), totalMs: round1(probed.loaf.reduce((a, b) => a + b, 0)) }
         : null,
       pointer: options.pointer ?? null,
+      layers,
       wheel: driven?.wheel ?? null,
       bytesWritten: driven?.bytesWritten ?? null,
       cpuPercent,
@@ -717,7 +802,7 @@ try {
     results.push(
     await measure(
       scenarioName,
-      async (ms) => {
+      async (ms, run) => {
         // Sweep one way for half the window and back for the other half, so the
         // camera crosses the nested regions and ends where it began.
         const viewport = async () => page!.evaluate<string>(`document.querySelector(".react-flow__viewport")?.style.transform ?? ""`);
@@ -758,7 +843,7 @@ try {
         let tracePath: string | null = null;
         const traced: Array<any> = [];
         let traceDone: Promise<void> | undefined;
-        if (traceBase !== "") {
+        if (traceBase !== "" && !run?.sample) {
           browser!.on("Tracing.dataCollected", (params: { value: Array<any> }) => { traced.push(...params.value); });
           traceDone = new Promise<void>((done) => browser!.on("Tracing.tracingComplete", () => done()));
           await browser!.send("Tracing.start", {
@@ -791,7 +876,7 @@ try {
         seen.push(await viewport());
         return { viewport: seen, wheel: { mode, events, eventsPerSecond: round1(events / ((performance.now() - started) / 1000)), ackLagMs: ackLag.length === 0 ? null : { p50: round1([...ackLag].sort((a, b) => a - b)[Math.floor(ackLag.length / 2)]!), max: round1(Math.max(...ackLag)) }, tracePath } };
       },
-      { raf: true, pointer: where, before: () => parkPointer(where) },
+      { raf: true, pointer: where, layerSample: true, before: () => parkPointer(where) },
     ),
     );
   }
