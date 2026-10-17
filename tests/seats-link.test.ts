@@ -224,9 +224,10 @@ describe("seats link state", () => {
     await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.channel.decodeEvent(wire)));
     expect(published).toEqual([{ bindingId: remote.bindingId, epoch: "ep_9", state: "idle", reason: "idle",
       confidence: "low", at: 5, harness: remote.harness }]);
-    await expect(f.runtime.runPromise(f.channel.handleEvent!(f.context,
-      f.channel.decodeEvent({ ...wire, seatId: localSeat.id }))))
-      .rejects.toMatchObject({ _tag: "SeatStateNotFromItsMachine", peer: "macbook" });
+    // A state for a seat the sender does not run is refused and logged, never a
+    // handler failure: the link session closes the whole link on one.
+    await f.runtime.runPromise(f.channel.handleEvent!(f.context,
+      f.channel.decodeEvent({ ...wire, seatId: localSeat.id })));
     expect(() => f.channel.decodeEvent({ ...wire, reason: "hook:free text" })).toThrow();
     // A canvas this machine does not hold: dropped quietly, not a failure.
     await f.runtime.runPromise(f.channel.handleEvent!(f.context,

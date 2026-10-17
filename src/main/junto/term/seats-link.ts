@@ -301,6 +301,7 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
   const forwardState = Effect.fn("SeatsLink.forwardState")(function* (context: LinkChannelContext, event: AgentSeatStateEvent) {
     if (context.signal.aborted) return;
     const machine = yield* machines.machineName;
+    let sent = false;
     for (const name of yield* model.listCanvases()) {
       if ((yield* records.canvasEditor(name)) !== context.peer.installationId) continue;
       for (const node of (yield* model.canvas(name)).nodes.values()) {
@@ -313,8 +314,13 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
           ...(status === undefined ? {} : { status }),
         });
         yield* context.sendEvent("seats", wire);
+        sent = true;
+        yield* Effect.logInfo("seat state sent").pipe(Effect.annotateLogs({
+          seat: node.id, canvas: name, epoch: event.epoch, state: event.state }));
       }
     }
+    if (!sent) yield* Effect.logDebug("seat state not for this peer").pipe(Effect.annotateLogs({
+      binding: event.bindingId, epoch: event.epoch, state: event.state }));
   }, (effect, context) => effect.pipe(
     Effect.tapCause((cause) => Cause.hasInterruptsOnly(cause) ? Effect.void : Effect.logWarning("seat state not sent", cause)),
     Effect.ignore,
@@ -345,9 +351,14 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
       return;
     }
     const seat = (yield* model.canvas(event.canvas)).nodes.get(event.seatId);
-    if (event.machine !== context.peer.machineName || seat?.kind !== "agent" || !isThisMachine(seat.host, event.machine))
-      return yield* new SeatStateNotFromItsMachine({ ...where, peer: context.peer.machineName,
+    // Refused and logged, never a handler failure: that would close the whole link.
+    if (event.machine !== context.peer.machineName || seat?.kind !== "agent" || !isThisMachine(seat.host, event.machine)) {
+      const refused = new SeatStateNotFromItsMachine({ ...where, peer: context.peer.machineName,
         message: "A seat's state came from a machine that does not run that seat." });
+      yield* Effect.logWarning("seat state refused", refused).pipe(Effect.annotateLogs({
+        area: "seats", canvas: event.canvas, seat: event.seatId, peer: context.peer.machineName, failure: refused._tag }));
+      return;
+    }
     let status: AgentSeatStatusWire | undefined;
     if (event.status !== undefined) {
       try {
@@ -363,6 +374,9 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
     }
     publishState({ bindingId: seat.bindingId, epoch: event.epoch, state: event.state, reason: event.reason,
       confidence: event.confidence, at: event.at, harness: seat.harness, ...(status === undefined ? {} : { status }) });
+    yield* Effect.logInfo("seat state received").pipe(Effect.annotateLogs({
+      area: "seats", canvas: event.canvas, seat: event.seatId, peer: context.peer.machineName,
+      epoch: event.epoch, state: event.state }));
   }).pipe(Effect.withSpan("SeatsLink.state"));
 
   return {
