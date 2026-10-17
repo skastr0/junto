@@ -64,7 +64,7 @@ export type SeatsAttachEvent = typeof SeatsAttachEvent.Type;
 export type SeatsStreamFrame = Exclude<SeatsAttachEvent, typeof SeatsAck.Type>;
 export type AttachEndReason = typeof SeatsEnded.Type.reason;
 
-/** Unacknowledged stream frames per link session, across its attaches (link inboundCalls is 32). */
+/** Unacknowledged stream frames per link session, across its attaches, well under the link's held events (64, or 8 MiB). */
 export const ATTACH_CREDITS = 8;
 /** Live attaches per peer installation. */
 export const ATTACH_LIMIT = 8;
@@ -85,10 +85,12 @@ export type AttachBinding = {
 
 type Attachment = AttachBinding & {
   readonly handle: string;
-  readonly context: LinkChannelContext;
+  readonly context: LinkEventContext;
   readonly generation: string;
   readonly mode: "control" | "observe";
   readonly lease: ControlLease;
+  /** The Attach request's operation id, so both ends of one attach join in the logs. */
+  readonly operationId: string | undefined;
   /** Frames waiting for credit: screen parts and resyncs, in order, before output. */
   readonly queue: Array<{ readonly kind: "screen"; readonly part: number; readonly last: boolean; readonly data: string } | { readonly kind: "resync" }>;
   out: string;
@@ -133,6 +135,7 @@ export const makeSeatAttachments = (options: SeatAttachmentsOptions) => {
     Effect.logInfo("seat attach ended").pipe(Effect.annotateLogs({
       area: "seats", seat: attachment.seatId, canvas: attachment.canvas, peer: attachment.context.peer.machineName,
       mode: attachment.mode, reason,
+      ...(attachment.operationId === undefined ? {} : { operationId: attachment.operationId }),
     }));
 
   const pumpSession = (sessionId: string): void => {
@@ -249,7 +252,7 @@ export const makeSeatAttachments = (options: SeatAttachmentsOptions) => {
         for (const other of [...live.values()])
           if (other.bindingId === binding.bindingId && other.mode === "control") end(other, "replaced");
       const attachment: Attachment = { ...binding, handle: mintAttachHandle(), context, generation: leased.lease.epoch,
-        mode: request.mode, lease: leased.lease, queue: [], out: "", screenSeq: 0n, sent: 0n, acked: 0n,
+        mode: request.mode, lease: leased.lease, operationId: context.operationId, queue: [], out: "", screenSeq: 0n, sent: 0n, acked: 0n,
         sending: false, timer: undefined, ended: false };
       live.set(attachment.handle, attachment);
       queueScreen(attachment, leased.screen?.serialized, leased.screen?.seq ?? 0n);
@@ -270,7 +273,7 @@ export const makeSeatAttachments = (options: SeatAttachmentsOptions) => {
       pumpSession(session);
     },
     /** The link session is gone: its attaches end without a word on the closed link. */
-    closeSession: (context: LinkChannelContext): void => {
+    closeSession: (context: LinkEventContext): void => {
       for (const attachment of [...live.values()])
         if (attachment.context.sessionId === context.sessionId) end(attachment, "link-closed", false);
       inFlight.delete(context.sessionId);

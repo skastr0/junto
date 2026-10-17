@@ -30,6 +30,7 @@ import {
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import type { RegionRect } from "@shared/graph";
 import { EMPTY_LAUNCH_RECORD } from "@shared/region-environment";
+import type { SeatViews } from "./seat-views";
 import type {
   SeatEnvironmentResolver,
   SeatLaunchEnvironment,
@@ -300,6 +301,17 @@ export class TerminalRouter extends EventEmitter {
    * terminals start with none, which is what a router with no canvas wants.
    */
   private terminalEnvironment: SeatEnvironmentResolver | undefined;
+
+  /** A seat on another machine's view rides the seats channel, not the term-control route. */
+  private seatViews: SeatViews | undefined;
+  private unsubscribeSeatViews: (() => void) | undefined;
+
+  /** Wire the link-backed views of seats on linked machines (production plane does, once). */
+  setSeatViews(views: SeatViews | undefined): void {
+    this.unsubscribeSeatViews?.();
+    this.seatViews = views;
+    this.unsubscribeSeatViews = views?.onEvent((ev) => this.emit("event", ev));
+  }
 
   /** Wire the region environment for plain terminals (the app does, once). */
   setTerminalEnvironment(resolver: SeatEnvironmentResolver | undefined): void {
@@ -575,6 +587,9 @@ export class TerminalRouter extends EventEmitter {
     if (this.isLocalHostId(hostId)) {
       return await this.local.attach(input);
     }
+    if (this.seatViews !== undefined && await this.seatViews.serves(hostId, input.bindingId).catch(() => false)) {
+      return await this.seatViews.attach(input);
+    }
     try {
       const entry = await this.ensureRemoteEntry(hostId);
       this.assertRouteAdmission(hostId);
@@ -601,6 +616,7 @@ export class TerminalRouter extends EventEmitter {
       this.local.release(lease);
       return;
     }
+    if (this.seatViews?.holds(lease.leaseId) === true) return await this.seatViews.release(lease);
     const entry = await this.currentRemoteEntry(hostId);
     const remoteId = entry?.leaseMap.get(lease.leaseId);
     if (!entry || !remoteId) return;
@@ -614,6 +630,7 @@ export class TerminalRouter extends EventEmitter {
     const normalizedHostId = hostId?.trim();
     if (normalizedHostId && this.maintenanceCuts.has(normalizedHostId)) return false;
     if (!hostId || this.isLocalHostId(hostId)) return this.local.write(lease, data);
+    if (this.seatViews?.holds(lease.leaseId) === true) return await this.seatViews.write(lease, data);
     const entry = await this.currentRemoteEntry(hostId);
     const remoteId = entry?.leaseMap.get(lease.leaseId);
     if (!entry || !remoteId) return false;
@@ -678,6 +695,7 @@ export class TerminalRouter extends EventEmitter {
     if (!hostId || this.isLocalHostId(hostId)) {
       return this.local.resize(lease, cols, rows);
     }
+    if (this.seatViews?.holds(lease.leaseId) === true) return await this.seatViews.resize(lease, cols, rows);
     const entry = await this.currentRemoteEntry(hostId);
     const remoteId = entry?.leaseMap.get(lease.leaseId);
     if (!entry || !remoteId) return false;

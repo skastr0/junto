@@ -3,6 +3,7 @@ import { seatAwarenessPlane } from "./seat-awareness";
 import { LocalSessionHost } from "./local-host";
 import { linuxReleaseFenceActive } from "./release-fence";
 import { TerminalNodeDeleteService } from "./node-delete";
+import { installSeatViews, linkSeatViewTransport, makeSeatViews } from "./seat-views";
 import { TerminalRouter } from "./router";
 import {
   startTermControlServer,
@@ -134,6 +135,12 @@ export class TermPlane {
       reporter ??
       (production ? primeAgentReporterPlane : new PrimeAgentReporterPlane());
     this.router = new TerminalRouter(this.host);
+    if (production) {
+      // A seat on a linked machine is viewed over the seats channel.
+      const views = makeSeatViews(linkSeatViewTransport());
+      this.router.setSeatViews(views);
+      installSeatViews(views);
+    }
     this.nodeDelete = new TerminalNodeDeleteService(this.router);
   }
 

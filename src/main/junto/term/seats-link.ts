@@ -21,6 +21,7 @@ import {
   ATTACH_LIMIT, makeSeatAttachments, SeatsAttach, SeatsAttachEvent, SeatsAttachRequest, SeatsAttachResponse,
   SeatsDetach, SeatsInput, SeatsResize, type SeatsStreamFrame,
 } from "./seat-attach";
+import { deliverSeatViewFrame } from "./seat-views";
 import {
   asSeatsFailure, clipText, type SeatsFailureWhere, SeatAttachLimit, SeatAttachObserveOnly, SeatAttachRefused,
   SeatAttachUnknown, SeatCanvasEditorMismatch, SeatChangedWhilePreparing, SeatEpochChanged, SeatExited,
@@ -145,12 +146,12 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
   const attachments = makeSeatAttachments({ host, run });
   const handles = new Map<string, Handle>();
   const watched = new WeakSet<AbortSignal>();
-  const forget = (context: LinkChannelContext): void => {
+  const forget = (context: LinkEventContext): void => {
     for (const [id, handle] of handles)
       if (handle.sessionId === context.sessionId && handle.peer.installationId === context.peer.installationId)
         handles.delete(id);
   };
-  const disconnected = (context: LinkChannelContext, where: SeatsFailureWhere) =>
+  const disconnected = (context: LinkEventContext, where: SeatsFailureWhere) =>
     context.signal.aborted ? Effect.fail(new SeatLinkClosed({ ...where, message: "This machine link has closed." })) : Effect.void;
 
   const reply = (context: LinkChannelContext, canvas: CanvasName, seat: NodeOf<"agent">,
@@ -202,7 +203,7 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
   });
 
   /** The peer is pinned, edits the seat's canvas, and the seat runs here: every seat request, every frame. */
-  const admitSeat = Effect.fn("SeatsLink.admit")(function* (context: LinkChannelContext, where: SeatsFailureWhere) {
+  const admitSeat = Effect.fn("SeatsLink.admit")(function* (context: LinkEventContext, where: SeatsFailureWhere) {
     yield* disconnected(context, where);
     const peer = yield* machines.peer(context.peer.machineName);
     if (peer?.installationId !== context.peer.installationId)
@@ -387,7 +388,7 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
     );
   });
   /** Send one of this machine's seat states to the peer, when the peer edits that seat's canvas. */
-  const forwardState = Effect.fn("SeatsLink.forwardState")(function* (context: LinkChannelContext, event: AgentSeatStateEvent) {
+  const forwardState = Effect.fn("SeatsLink.forwardState")(function* (context: LinkEventContext, event: AgentSeatStateEvent) {
     if (context.signal.aborted) return;
     const machine = yield* machines.machineName;
     let sent = false;
@@ -434,8 +435,8 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
     const received = yield* Schema.decodeUnknownEffect(SeatsEvent)(payload, { onExcessProperty: "error" });
     if (received._tag === "Ack") return attachments.ack(context, received.handle, BigInt(received.upTo));
     if (received._tag !== "SeatState") {
-      // Display only: never seat state, a log row or disk. Nothing takes it: dropped.
-      options.attachStream?.(context, received);
+      // Display only: never seat state, a log row or disk. No view holding it: dropped.
+      (options.attachStream ?? deliverSeatViewFrame)(context, received);
       return;
     }
     const event = received;
