@@ -46,7 +46,7 @@ it("reports the same bounded facts to the owner and the linked machine, once per
     const peer = await runtime.runPromise(status.handler.handleRequest!({
       peer: { machineName: "book", installationId, build: "a".repeat(64) },
       sessionId: "status-session", signal: new AbortController().signal,
-      sendEvent: () => Effect.void, request: () => Effect.die("unused"),
+      sendEvent: () => Effect.void, request: () => Effect.die("unused"), close: () => Effect.void,
     }, status.handler.decodeRequest({ kind: "machine" })));
     expect(Schema.decodeUnknownSync(MachinePeerStatus)(peer)).toEqual({
       ...harnesses, installationId, form: "mac-mini", missingSecrets: [],
