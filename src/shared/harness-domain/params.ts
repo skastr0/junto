@@ -35,7 +35,7 @@ export const HarnessParamKey = Schema.Literals(HARNESS_PARAM_KEYS);
 export type HarnessParamKey = typeof HarnessParamKey.Type;
 
 /** Least specific first: the app-wide default, its per-machine override, the seat, one launch. */
-export const PARAM_LAYERS = ["harnessDefault", "machine", "seat", "launch"] as const;
+export const PARAM_LAYERS = ["harnessDefault", "machineDefault", "seat", "launch"] as const;
 export const ParamLayer = Schema.Literals(PARAM_LAYERS);
 export type ParamLayer = typeof ParamLayer.Type;
 
@@ -127,7 +127,7 @@ export type ResolvedParams = {
   readonly from: Partial<Readonly<Record<HarnessParamKey, ParamLayer>>>;
 };
 
-const MOST_SPECIFIC_FIRST: readonly ParamLayer[] = ["launch", "seat", "machine", "harnessDefault"];
+const MOST_SPECIFIC_FIRST: readonly ParamLayer[] = ["launch", "seat", "machineDefault", "harnessDefault"];
 
 const present = (key: HarnessParamKey, values: ParamValues | undefined): boolean => {
   if (!values) return false;
@@ -221,7 +221,7 @@ export const checkParam = (
 // ── Declarations from today's templates ───────────────────────────────────
 
 /** Layers Settings, the seat and the picker can each set today. */
-const ALL_LAYERS: readonly ParamLayer[] = ["harnessDefault", "machine", "seat", "launch"];
+const ALL_LAYERS: readonly ParamLayer[] = ["harnessDefault", "machineDefault", "seat", "launch"];
 const SEAT_AND_LAUNCH: readonly ParamLayer[] = ["seat", "launch"];
 const LAUNCH_ONLY: readonly ParamLayer[] = ["launch"];
 

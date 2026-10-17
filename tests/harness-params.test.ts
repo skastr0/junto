@@ -70,11 +70,11 @@ describe("harness params", () => {
   it("puts the machine override between the app default and the seat", () => {
     const resolved = resolveParams(params("claude"), {
       harnessDefault: { model: "opus", effort: "high" },
-      machine: { model: "sonnet" },
+      machineDefault: { model: "sonnet" },
       seat: { effort: "max" },
     });
     expect(resolved.values).toEqual({ model: "sonnet", effort: "max" });
-    expect(resolved.from).toEqual({ model: "machine", effort: "seat" });
+    expect(resolved.from).toEqual({ model: "machineDefault", effort: "seat" });
     expect(resolveParams(params("claude"), {}).values).toEqual({});
   });
 
