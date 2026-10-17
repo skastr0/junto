@@ -3,6 +3,7 @@ import type { Seat } from "../src/shared/model";
 import { seat as modelSeat } from "./support/model-nodes";
 import { recoverDocumentLaunchChoices } from "../src/shared/launch-choices";
 import { resolveManagedLaunchPlan } from "../src/shared/managed-terminal-launch";
+import { HARNESS_IDS, templateFor } from "../src/shared/managed-terminal-templates";
 import {
   permissionModeOptions,
   planSeatLaunch,
@@ -115,6 +116,31 @@ describe("seat start parameters", () => {
       "auto-review",
       "yolo",
     ]);
+    expect(permissionModeOptions("codex")).toEqual(["on-request", "never"]);
+    expect(permissionModeOptions("devin")).not.toContain("autonomous");
+    expect(permissionModeOptions("devin", "autonomous")).toContain("autonomous");
+  });
+
+  it("lists verified permission modes on every harness with a dial, and only there", () => {
+    for (const harness of HARNESS_IDS) {
+      const template = templateFor(harness);
+      const spec = template.argvSpec;
+      const dial = spec.permissionModeFlag ?? spec.permissionModeEnvKey ?? spec.permissionArgv;
+      if (dial === undefined) {
+        expect(template.permissionModes, harness).toBeUndefined();
+        continue;
+      }
+      expect(template.permissionModes?.length, harness).toBeGreaterThan(0);
+      if (template.defaultPermissionMode !== undefined) {
+        expect(template.permissionModes, harness).toContain(template.defaultPermissionMode);
+      }
+      if (spec.permissionArgv) {
+        expect(template.permissionModes, harness).toEqual(Object.keys(spec.permissionArgv));
+      }
+      for (const mode of Object.keys(spec.permissionCompanions ?? {})) {
+        expect(template.permissionModes, harness).toContain(mode);
+      }
+    }
   });
 });
 

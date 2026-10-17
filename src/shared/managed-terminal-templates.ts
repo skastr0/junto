@@ -836,6 +836,10 @@ export const CLAUDE_TEMPLATE: ManagedTerminalTemplate = {
   // Six levels verified; ultracode accepted at spawn despite incomplete CLI help.
   efforts: ["low", "medium", "high", "xhigh", "max", "ultracode"],
   defaultPermissionMode: "default",
+  // `--help` on 2.1.302 lists acceptEdits, auto, bypassPermissions, manual,
+  // dontAsk, plan, and rejects anything else at parse. `default` still parses
+  // as the hidden spelling of manual and is the one listed, so stored seats match.
+  permissionModes: ["default", "acceptEdits", "auto", "plan", "dontAsk", "bypassPermissions"],
 };
 
 export const CODEX_TEMPLATE: ManagedTerminalTemplate = {
@@ -890,6 +894,9 @@ export const CODEX_TEMPLATE: ManagedTerminalTemplate = {
   // lists come from supported_reasoning_levels[].effort when the catalog runs.
   efforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
   defaultPermissionMode: "on-request",
+  // `-a` on 0.162.1 parses only on-request and never; untrusted and on-failure
+  // are rejected.
+  permissionModes: ["on-request", "never"],
 };
 
 /**
@@ -946,6 +953,8 @@ export const GROK_TEMPLATE: ManagedTerminalTemplate = {
   // omits xhigh, but the flag accepts the union on this binary.
   efforts: ["xhigh", "high", "medium", "low"],
   defaultPermissionMode: "default",
+  // `--help` on 1.0.52; anything else is rejected at parse.
+  permissionModes: ["default", "acceptEdits", "auto", "dontAsk", "bypassPermissions", "plan"],
 };
 
 /**
@@ -1020,6 +1029,8 @@ export const HERMES_TEMPLATE: ManagedTerminalTemplate = {
   mailTransport: HARNESS_MAIL_TRANSPORT.hermes,
   isolation: HARNESS_ISOLATION.hermes,
   efforts: ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
+  // `--yolo` is a switch on v0.21.6 (`--help`): yolo emits it, unset omits it.
+  permissionModes: ["yolo"],
 };
 
 // ── Five 2026-08 harnesses (2026-08 agent-CLI sweep) ─────
@@ -1167,6 +1178,9 @@ export const KIMI_TEMPLATE: ManagedTerminalTemplate = {
   mailTransport: HARNESS_MAIL_TRANSPORT.kimi,
   isolation: HARNESS_ISOLATION.kimi,
   efforts: [],
+  // `-y, --yolo` is a switch on 2.1.1 (`--help`, Ask When Needed): yolo emits
+  // it, unset omits it. `--auto` (Never Ask) is a second switch with no slot.
+  permissionModes: ["yolo"],
 };
 
 /**
@@ -1233,6 +1247,9 @@ export const MUSE_TEMPLATE: ManagedTerminalTemplate = {
   mailTransport: HARNESS_MAIL_TRANSPORT.muse,
   isolation: HARNESS_ISOLATION.muse,
   efforts: ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
+  // `--yolo` is a switch on 1.4.10 (`--help`): yolo emits it, unset omits it.
+  // `--approval-mode untrusted|on-request|never` exists but is not this slot.
+  permissionModes: ["yolo"],
 };
 
 /**
@@ -1281,6 +1298,10 @@ export const DEVIN_TEMPLATE: ManagedTerminalTemplate = {
   isolation: HARNESS_ISOLATION.devin,
   efforts: [],
   defaultPermissionMode: "normal",
+  // 3000.11.92 parses normal (alias auto), accept-edits, smart, dangerous
+  // (aliases yolo, bypass) and autonomous, which pickers leave unoffered
+  // because it needs `--sandbox`. Anything else is rejected at parse.
+  permissionModes: ["normal", "accept-edits", "smart", "dangerous", "autonomous"],
 };
 
 /**
@@ -1378,6 +1399,9 @@ export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
   },
   modes: ["plan", "ask"],
   defaultPermissionMode: "allowlist",
+  // `permissionArgv` keys, checked against `--help` on 2026.10.14-0f9edde
+  // (`--yolo`, `--auto-review`, `--sandbox enabled`).
+  permissionModes: ["allowlist", "sandbox", "auto-review", "yolo"],
   mailTransport: HARNESS_MAIL_TRANSPORT.cursor,
   isolation: HARNESS_ISOLATION.cursor,
   // Suffixes `agent models` enumerates on 2026.09.10-fd3934a. `-fast` is a
@@ -1449,6 +1473,8 @@ export const AGY_TEMPLATE: ManagedTerminalTemplate = {
   isolation: HARNESS_ISOLATION.agy,
   efforts: ["low", "medium", "high"],
   defaultPermissionMode: undefined,
+  // `--dangerously-skip-permissions` is a switch on 1.4.0 (`--help`).
+  permissionModes: ["yolo"],
 };
 
 /**
@@ -1584,6 +1610,10 @@ export const FX_TEMPLATE: ManagedTerminalTemplate = {
   mailTransport: HARNESS_MAIL_TRANSPORT.fx,
   isolation: HARNESS_ISOLATION.fx,
   efforts: [],
+  // `fx permissions --help` on 0.0.13 lists ask, auto (its default) and
+  // full-access; `FX_PERMISSION_MODE=<mode> fx permissions` reads each back.
+  // An unknown value is ignored silently and falls back to auto.
+  permissionModes: ["ask", "auto", "full-access"],
 };
 
 /**
@@ -1641,6 +1671,9 @@ export const OMP_TEMPLATE: ManagedTerminalTemplate = {
   mailTransport: HARNESS_MAIL_TRANSPORT.omp,
   isolation: HARNESS_ISOLATION.omp,
   efforts: ["off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"],
+  // `--help` on 18.9.2: always-ask, write, yolo. omp does not reject an
+  // unknown value at parse, so the help line is the only source.
+  permissionModes: ["always-ask", "write", "yolo"],
 };
 
 /** App-owned structured controller. Its tool calls still enter the process-bound Work socket. */

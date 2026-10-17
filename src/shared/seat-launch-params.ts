@@ -189,7 +189,8 @@ export const seatLaunchParamsDiffer = (
 
 /**
  * Permission modes offered for a harness: its template default, the stored
- * choice, then the spellings the supported harnesses share. The value is
+ * choice, then the modes its template verified. A mode that needs companion
+ * tokens is not offered unless the seat already carries it. The value is
  * passed to the harness as typed, so an unlisted mode can still be entered
  * as an extra argument.
  */
@@ -205,29 +206,13 @@ export const permissionModeOptions = (
   ) {
     return [];
   }
-  if (spec.argvSpec.permissionArgv) {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const mode of [spec.defaultPermissionMode, trimmed(current), ...Object.keys(spec.argvSpec.permissionArgv)]) {
-      if (!mode || seen.has(mode)) continue;
-      seen.add(mode);
-      out.push(mode);
-    }
-    return out;
-  }
+  const stored = trimmed(current);
+  const unoffered = spec.argvSpec.permissionCompanions ?? {};
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const mode of [
-    spec.defaultPermissionMode,
-    trimmed(current),
-    "default",
-    "acceptEdits",
-    "plan",
-    "bypassPermissions",
-    "yolo",
-    "normal",
-  ]) {
+  for (const mode of [spec.defaultPermissionMode, stored, ...(spec.permissionModes ?? [])]) {
     if (!mode || seen.has(mode)) continue;
+    if (mode !== stored && Object.hasOwn(unoffered, mode)) continue;
     seen.add(mode);
     out.push(mode);
   }
