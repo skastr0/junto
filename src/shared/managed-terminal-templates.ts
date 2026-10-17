@@ -262,11 +262,6 @@ export const APPEARANCE_PREFERENCE_FLAGS: readonly string[] = [
 export type EnvSpec = {
   /** Exact keys scrubbed on every harness; global prefix rules apply too. */
   readonly scrub: readonly string[];
-  /**
-   * Keys the host may inject (seat/socket/token/PATH). Values are filled at
-   * resolve time — never hard-coded secrets here.
-   */
-  readonly injectKeys: readonly string[];
 };
 
 // ── Capability badges (honest UI) ──────────────────────────────────────────
@@ -794,16 +789,6 @@ export type ManagedTerminalTemplate = {
 
 const SHARED_ENV_SPEC: EnvSpec = {
   scrub: SPAWN_ENV_SCRUB,
-  // Seat/socket/token reach direct harness subprocesses; the Prime Agent
-  // runtime starts its isolated daemon from this resolved environment.
-  // PATH inject so `dist/junto` resolves for `junto onboard`.
-  injectKeys: [
-    "PATH",
-    "JUNTO_SOCKET",
-    "JUNTO_TOKEN",
-    "JUNTO_SEAT",
-    "JUNTO_NODE_REF",
-  ],
 };
 
 // ── Four v1 templates ──────────────────────────────────────────────────────
