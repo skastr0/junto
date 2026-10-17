@@ -42,6 +42,17 @@ describe("harness params", () => {
     }
   });
 
+  it("refuses a profile name that could not cross the link", () => {
+    const hermes = HARNESS_RECORDS.hermes.params;
+    expect(paramSpec(hermes, "profile")?.format).toBe("profileName");
+    const check = (value: string) => checkParam(hermes, { key: "profile", value, layer: "launch" });
+    for (const name of ["work", "Coder_2", "a-b"]) expect(Result.isSuccess(check(name)), name).toBe(true);
+    for (const name of ["-x", "../etc", "a:b", "a.b", "a/b"]) {
+      const refused = check(name);
+      expect(Result.isFailure(refused) && refused.failure.reason, name).toBe("shape");
+    }
+  });
+
   it("closes a mode list unless the record opens it", () => {
     for (const harness of HARNESS_IDS) {
       const mode = paramSpec(HARNESS_RECORDS[harness].params, "mode");

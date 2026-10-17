@@ -21,6 +21,7 @@
  */
 import { Result, Schema } from "effect";
 import type { HarnessId, ManagedTerminalTemplate } from "../managed-terminal-templates";
+import { isProfileName } from "../profile-name";
 
 export const HARNESS_PARAM_KEYS = [
   "model",
@@ -100,6 +101,8 @@ export const HarnessParamSpec = Schema.Struct({
    * no stored value recovers it from the key (Hermes profile).
    */
   inAgentKey: Schema.optionalKey(Schema.Literal(true)),
+  /** A closed shape the value must match; `profileName` is `shared/profile-name.ts`. */
+  format: Schema.optionalKey(Schema.Literal("profileName")),
   /** On the extra-args param: flags the operator may not pass, with the reason shown. */
   refusedFlags: Schema.optionalKey(
     Schema.Array(Schema.Struct({ flags: Schema.Array(Schema.String), why: Schema.String })),
@@ -198,7 +201,7 @@ export class ParamRefusedError extends Schema.TaggedError<ParamRefusedError>()(
   {
     key: Schema.String,
     value: Schema.String,
-    reason: Schema.Literals(["unknown", "offList", "frozen", "layer"]),
+    reason: Schema.Literals(["unknown", "offList", "shape", "frozen", "layer"]),
     message: Schema.String,
   },
 ) {}
@@ -227,6 +230,9 @@ export const checkParam = (
   }
   if (spec.options.source === "fixed" && !spec.custom && value !== "" && !spec.options.values.includes(value)) {
     return refuse("offList", `${value} is not one of ${spec.options.values.join(", ")}`);
+  }
+  if (spec.format === "profileName" && value !== "" && !isProfileName(value)) {
+    return refuse("shape", `${value} is not a ${spec.label.toLowerCase()} name`);
   }
   if (
     spec.resume === "frozenWithSession" &&
@@ -347,6 +353,7 @@ export const paramsOfTemplate = (template: ManagedTerminalTemplate): HarnessPara
       label: "Profile",
       options: { source: "inventory", list: "profiles" },
       custom: true,
+      format: "profileName",
       emit: { via: "flag", flag: spec.profileFlag },
       resume: "repass",
       layers: LAUNCH_ONLY,
