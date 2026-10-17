@@ -45,6 +45,7 @@ export const BlockedReason = Schema.Union([
     _tag: Schema.Literal("UsageLimit"),
     scope: UsageLimitScope,
     resetsAt: Schema.optionalKey(EpochMs),
+    autoResume: Schema.optionalKey(Schema.Boolean),
   }),
   Schema.Struct({ _tag: Schema.Literal("Error"), kind: ErrorKind, message: Schema.String }),
 ]);
@@ -338,6 +339,7 @@ const reduceHarness = (
           _tag: "UsageLimit",
           scope: signal.scope,
           ...(signal.resetsAt === undefined ? {} : { resetsAt: signal.resetsAt }),
+          ...(signal.autoResume === undefined ? {} : { autoResume: signal.autoResume }),
         },
       });
     case "Retrying":

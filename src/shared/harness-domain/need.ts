@@ -133,7 +133,9 @@ const statusNeed = (snapshot: SeatSnapshot): Need => {
         case "Dialog":
           return need("dialog", since, statusSource);
         case "UsageLimit":
-          return need(snapshot.wakeAt === undefined ? "usage_limit" : "usage_limit_waking", since, statusSource);
+          // A harness that resumes on its own is waking like a Junto-scheduled wake.
+          const waking = snapshot.wakeAt !== undefined || status.reason.autoResume === true;
+          return need(waking ? "usage_limit_waking" : "usage_limit", since, statusSource);
         case "Error":
           return need(status.reason.kind === "auth" ? "auth_error" : "crash", since, statusSource);
       }

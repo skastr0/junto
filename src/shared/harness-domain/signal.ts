@@ -133,6 +133,8 @@ export const UsageLimitHit = Schema.Struct({
   _tag: Schema.Literal("UsageLimitHit"),
   scope: UsageLimitScope,
   resetsAt: Schema.optionalKey(EpochMs),
+  /** The harness itself resumes at the reset (claude "Continuing automatically at 6:23am"). */
+  autoResume: Schema.optionalKey(Schema.Boolean),
   provider: Schema.optionalKey(Text),
   message: Text,
 });
