@@ -484,7 +484,7 @@ export const HARNESS_CAPABILITY_DECLARATIONS: Readonly<
       TurnStarted: NONE,
       TurnEnded: OSC7501,
       ToolStarted: NONE,
-      PermissionRequested: screen("approval_dialog_attention"),
+      PermissionRequested: OSC7501,
       PermissionResolved: NONE,
       QuestionAsked: NONE,
       DialogShown: NONE,
