@@ -67,15 +67,24 @@ export class SshInputError extends Schema.TaggedError<SshInputError>()("SshInput
   message: Schema.String,
 }) {}
 
+/** A machine command refused before any SSH process starts; the check names which input. */
+export class SshCommandInputError extends Schema.TaggedError<SshCommandInputError>()("SshCommandInputError", {
+  check: Schema.Literals(["install-paths", "package-checksum", "preflight-selection"]),
+  message: Schema.String,
+}) {}
+
+/** `cause` is the failure underneath: a ProcessFailure, a file-system error or a policy TypeError. */
 export class SshSetupError extends Schema.TaggedError<SshSetupError>()("SshSetupError", {
   endpoint: Schema.String,
   message: Schema.String,
+  cause: Schema.optionalKey(Schema.Unknown),
 }) {}
 
 export class SshSpawnError extends Schema.TaggedError<SshSpawnError>()("SshSpawnError", {
   endpoint: Schema.String,
   operation: Schema.String,
   message: Schema.String,
+  cause: Schema.optionalKey(Schema.Unknown),
 }) {}
 
 export class SshIoError extends Schema.TaggedError<SshIoError>()("SshIoError", {
@@ -103,6 +112,7 @@ export class SshProcessError extends Schema.TaggedError<SshProcessError>()(
     operation: Schema.String,
     message: Schema.String,
     ...SshEndFields,
+    cause: Schema.optionalKey(Schema.Unknown),
   },
 ) {}
 
@@ -138,6 +148,7 @@ export class SshExitError extends Schema.TaggedError<SshExitError>()("SshExitErr
 export class SshForwardError extends Schema.TaggedError<SshForwardError>()("SshForwardError", {
   endpoint: Schema.String,
   message: Schema.String,
+  cause: Schema.optionalKey(Schema.Unknown),
 }) {}
 
 export type SshError =

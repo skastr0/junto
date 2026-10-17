@@ -40,6 +40,7 @@ export const makeMachineLink = (options: { readonly build: string }) => Effect.g
   const ssh = yield* SshTransport;
   const context = yield* Effect.context<never>();
   const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> => Effect.runPromiseWith(context)(effect);
+  const fork = Effect.runForkWith(context);
   const build = yield* Schema.decodeUnknownEffect(MachineBuild)(options.build);
   const sessions = new Map<string, LinkSession>();
   const allSessions = new Set<LinkSession>();
@@ -194,9 +195,12 @@ export const makeMachineLink = (options: { readonly build: string }) => Effect.g
     listen: Effect.fn("MachineLink.listen")(function* (home: string) {
       return yield* Effect.tryPromise({ try: async () => {
         if (!configured || stopping || listener !== undefined) throw new LinkUnavailable({ reason: "listener-unavailable", message: "Machine link listener is not available" });
+        const { machineName: machine } = await self();
         listener = await startLinkListener({ home, accept: async (socket) => {
           if (stopping) throw shuttingDown();
           return track(makeLinkSession({ readable: socket, writable: socket, self: await self(), admit: admission(), channels, run }));
+        }, failed: (what, cause) => {
+          fork(linkLog("Warning", what === "accept" ? "link connection was not accepted" : "link listener failed", { machine, failure: encodeError(cause, { machine }) }));
         } });
         return listener;
       }, catch: (cause) => toLinkError(cause) });

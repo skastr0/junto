@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isValidMachineName } from "@shared/machine-identity";
 import type { StateSchemaMigrationDatabase } from "../state/migrations";
+import { MachineRefused } from "./configuration";
 import {
   MACHINE_CONFIGURATION_STATE_SCHEMA_SQL,
   MACHINE_IDENTITY_STATE_SCHEMA_SQL,
@@ -8,7 +9,7 @@ import {
 } from "./state-schema";
 
 const admitName = (name: string): void => {
-  if (!isValidMachineName(name)) throw new Error("this machine needs a real short name");
+  if (!isValidMachineName(name)) throw new MachineRefused({ check: "name-invalid", message: "this machine needs a real short name" });
 };
 
 /** Each converter joins the schema migration's transaction. */

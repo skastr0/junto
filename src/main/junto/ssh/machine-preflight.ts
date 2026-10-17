@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { makeRemoteCommand, type SshTarget } from "./domain";
+import { makeRemoteCommand, SshCommandInputError, type SshTarget } from "./domain";
 import { oneShot } from "./program";
 
 const PREFLIGHT = `set -u
@@ -61,7 +61,7 @@ export const machinePreflight = (target: SshTarget, input: {
 }) => Effect.gen(function* () {
   if (!Number.isSafeInteger(input.requiredKiB) || input.requiredKiB <= 0
     || ![input.juntoHome, input.installRoot].every(path => path === undefined || /^\/[^\u0000-\u001f\u007f]*$/.test(path))) {
-    return yield* Effect.fail(new Error("Invalid machine preflight selection"));
+    return yield* new SshCommandInputError({ check: "preflight-selection", message: "Invalid machine preflight selection" });
   }
   const command = yield* makeRemoteCommand("/bin/sh", ["-c", PREFLIGHT, "junto-preflight", input.target,
     String(input.requiredKiB), input.juntoHome ?? "", input.installRoot ?? ""]);

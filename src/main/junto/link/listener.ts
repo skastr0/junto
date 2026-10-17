@@ -1,6 +1,7 @@
 import { chmodSync, lstatSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
+import { Schema } from "effect";
 import {
   acquireControlListenerLease,
   captureControlSocketPathIdentity,
@@ -17,9 +18,18 @@ import type { LinkSession } from "./types";
 
 export const coreControlSocketPath = (home: string): string => join(home, ".junto", "core", "control.sock");
 
+/** The owner socket was not owner-only, or the listener did not drain in its bound. */
+export class LinkListenerFailed extends Schema.TaggedError<LinkListenerFailed>()("LinkListenerFailed", {
+  check: Schema.Literals(["owner-only", "drain"]),
+  socketPath: Schema.String,
+  message: Schema.String,
+}) {}
+
 export interface LinkListenerOptions {
   readonly home: string;
   readonly accept: (socket: Socket) => Promise<LinkSession>;
+  /** A connection that never became a session, or the server failing after listen. */
+  readonly failed?: (what: "accept" | "server", cause: unknown) => void;
 }
 
 export interface LinkListenerRuntime {
@@ -63,7 +73,7 @@ export const startLinkListener = async (
       socket.setTimeout(0);
       socket.resume();
       return undefined;
-    }).catch(() => { socket.destroy(); });
+    }).catch((cause: unknown) => { socket.destroy(); options.failed?.("accept", cause); });
     starts.add(start);
     void start.finally(() => starts.delete(start));
   });
@@ -82,7 +92,7 @@ export const startLinkListener = async (
           chmodSync(socketPath, 0o600);
           const stat = lstatSync(socketPath);
           if (!stat.isSocket() || stat.uid !== process.getuid?.() || (stat.mode & 0o777) !== 0o600 || !controlSocketPathOwnedByLease(lease, identity)) {
-            throw new Error("core control socket is not owner-only");
+            throw new LinkListenerFailed({ check: "owner-only", socketPath, message: "core control socket is not owner-only" });
           }
           resolve();
         } catch (cause) { reject(cause); }
@@ -96,9 +106,10 @@ export const startLinkListener = async (
     await releaseControlListenerLease(lease);
     throw cause;
   }
-  server.on("error", () => {
+  server.on("error", (cause) => {
     stopping = true;
     for (const socket of sockets) socket.destroy();
+    options.failed?.("server", cause);
   });
   const beginShutdown = (): void => {
     stopping = true;
@@ -113,7 +124,7 @@ export const startLinkListener = async (
         await Promise.race([
           Promise.all([closeServer(), ...starts, ...[...sessions].map((session) => session.close())]),
           new Promise<never>((_resolve, reject) => {
-            timer = setTimeout(() => reject(new Error("core link listener did not drain")), bounded(runtime.drainMs, 5_000));
+            timer = setTimeout(() => reject(new LinkListenerFailed({ check: "drain", socketPath, message: "core link listener did not drain" })), bounded(runtime.drainMs, 5_000));
           }),
         ]);
       } finally { if (timer !== undefined) clearTimeout(timer); }

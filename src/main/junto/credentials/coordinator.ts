@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Effect, Schema } from "effect";
 import type { ProvidersSettings, Settings } from "@shared/settings";
 import { PROVIDER_SECTION_KEYS, PROVIDER_SECRET_FIELDS } from "@shared/settings";
+import { causeChain, describeCause } from "../failure-encode";
 import type { CredentialBindingRepository } from "./bindings";
 import { persistableProviders } from "./redact";
 import {
@@ -10,7 +11,7 @@ import {
   type ProviderCredentialFieldOp,
   type ProviderCredentialSlot,
 } from "./slots";
-import type { CredentialStore } from "./store";
+import { CredentialStoreError, UnavailableCredentialStore, type CredentialStore } from "./store";
 
 export class CredentialVaultError extends Schema.TaggedError<CredentialVaultError>()(
   "CredentialVaultError",
@@ -23,6 +24,10 @@ const vaultError = (cause: unknown) => new CredentialVaultError({
 });
 
 type Bindings = typeof CredentialBindingRepository.Service;
+
+/** A best-effort vault step that failed: its tag and scrubbed text, never an id or a value. */
+const logVaultFailure = (message: string) => (cause: unknown): Effect.Effect<void> =>
+  Effect.logWarning(message).pipe(Effect.annotateLogs({ area: "credentials", failure: describeCause(cause), causes: causeChain(cause).causes }));
 
 export const resolveProviderSecrets = Effect.fn("credentials.resolve")(function* (
   bindings: Bindings,
@@ -72,33 +77,33 @@ export type StagedSecret = {
   readonly value: string;
 };
 
-export const stageSecretValues = Effect.fn("credentials.stage")((
+export const stageSecretValues = Effect.fn("credentials.stage")(function* (
   store: CredentialStore,
   ops: ReadonlyArray<{
     readonly slot: ProviderCredentialSlot;
     readonly op: ProviderCredentialFieldOp;
   }>,
-): Effect.Effect<ReadonlyArray<StagedSecret>, CredentialVaultError> => Effect.try({ try: () => {
+) {
   if (!store.available && ops.some((op) => op.op.kind === "set")) {
-    throw new Error("credential vault is unavailable");
+    const cause = store instanceof UnavailableCredentialStore ? store.cause : undefined;
+    return yield* vaultError(new CredentialStoreError({
+      check: "vault-unavailable", message: "credential vault is unavailable", ...(cause === undefined ? {} : { cause }),
+    }));
   }
   const staged: StagedSecret[] = [];
-  try {
+  return yield* Effect.try({ try: (): ReadonlyArray<StagedSecret> => {
     for (const { slot, op } of ops) {
       if (op.kind !== "set") continue;
       const credentialId = randomUUID();
       staged.push({ slot, credentialId, value: op.value });
       store.put(credentialId, op.value);
       if (store.get(credentialId) !== op.value) {
-        throw new Error("credential vault write could not be verified");
+        throw new CredentialStoreError({ check: "write-unverified", message: "credential vault write could not be verified" });
       }
     }
     return staged;
-  } catch (error) {
-    discardStagedSecrets(store, staged);
-    throw error;
-  }
-}, catch: vaultError }));
+  }, catch: vaultError }).pipe(Effect.tapError(() => discardStaged(store, staged)));
+});
 
 export const commitProviderSecretOps = Effect.fn("credentials.commit")(function* (
   bindings: Bindings,
@@ -121,7 +126,7 @@ export const commitProviderSecretOps = Effect.fn("credentials.commit")(function*
     }
     const next = stagedBySlot.get(slot);
     if (next === undefined) {
-      return yield* vaultError(new Error("credential vault staging is incomplete"));
+      return yield* vaultError(new CredentialStoreError({ check: "staging-incomplete", message: "credential vault staging is incomplete" }));
     }
     if (current !== undefined) {
       yield* bindings.setLifecycle(current.credentialId, "delete_pending");
@@ -146,23 +151,35 @@ export const retireVaultSecrets = Effect.fn("credentials.retire")(function* (
     // Leave delete_pending so a later boot can retry.
     yield* Effect.try({ try: () => store.delete(id), catch: vaultError }).pipe(
       Effect.flatMap(() => bindings.remove(id)),
-      Effect.ignore,
+      Effect.catch(logVaultFailure("credential vault item left delete_pending for a later retry")),
     );
   }
 });
 
+/** Best-effort rollback of vault items that never became active; returns what it could not delete. */
 export const discardStagedSecrets = (
   store: CredentialStore,
   staged: ReadonlyArray<StagedSecret>,
-): void => {
+): ReadonlyArray<unknown> => {
+  const failures: unknown[] = [];
   for (const item of staged) {
     try {
       store.delete(item.credentialId);
-    } catch {
-      // Best-effort rollback of vault items that never became active.
+    } catch (cause) {
+      failures.push(cause);
     }
   }
+  return failures;
 };
+
+const discardStaged = Effect.fn("credentials.discard-staged")(function* (
+  store: CredentialStore,
+  staged: ReadonlyArray<StagedSecret>,
+) {
+  for (const cause of discardStagedSecrets(store, staged)) {
+    yield* logVaultFailure("staged credential vault item could not be rolled back")(cause);
+  }
+});
 
 export const reconcileCredentialVault = Effect.fn("credentials.reconcile")(function* (
   repository: Bindings,
@@ -178,11 +195,9 @@ export const reconcileCredentialVault = Effect.fn("credentials.reconcile")(funct
   const ids = yield* Effect.try({ try: () => store.listIds(), catch: vaultError });
   for (const id of ids) {
     if (known.has(id)) continue;
-    try {
-      store.delete(id);
-    } catch {
-      // Orphan sweep is best-effort.
-    }
+    yield* Effect.try({ try: () => store.delete(id), catch: vaultError }).pipe(
+      Effect.catch(logVaultFailure("orphan credential vault item could not be deleted")),
+    );
   }
 });
 
@@ -210,7 +225,7 @@ export const migrateHistoricalProviderSecrets = Effect.fn("credentials.migrate-h
   }));
   const staged = yield* stageSecretValues(store, ops);
   const retired = yield* commitProviderSecretOps(bindings, ops, staged).pipe(
-    Effect.onError(() => Effect.sync(() => discardStagedSecrets(store, staged))),
+    Effect.onError(() => discardStaged(store, staged)),
   );
   return {
     settings: {

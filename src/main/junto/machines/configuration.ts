@@ -12,8 +12,18 @@ export type StoredMachineConfiguration = {
   readonly configuredAt: string;
 };
 
+/** A machine identity rule refused the change; the message is fixed text naming the rule. */
+export class MachineRefused extends Schema.TaggedError<MachineRefused>()("MachineRefused", {
+  check: Schema.Literals([
+    "configuration-missing", "name-invalid", "peer-is-self", "name-pinned-elsewhere",
+    "installation-pinned-elsewhere", "name-fixed-by-peer", "name-fixed-by-canvas",
+  ]),
+  machine: Schema.optionalKey(Schema.String),
+  message: Schema.String,
+}) {}
+
 export const machineSettingsFromConfiguration = (stored: StoredMachineConfiguration | undefined) => {
-  if (stored === undefined) throw new Error("machine configuration is missing");
+  if (stored === undefined) throw new MachineRefused({ check: "configuration-missing", message: "machine configuration is missing" });
   return stored.configuration;
 };
 

@@ -1,13 +1,19 @@
 import * as Command from "effect/unstable/process/ChildProcess";
 import * as NodeSink from "@effect/platform-node/NodeSink";
 import * as NodeStream from "@effect/platform-node/NodeStream";
-import { Context, Effect, Layer, Scope, Sink, Stream } from "effect";
+import { Context, Effect, Layer, Schema, Scope, Sink, Stream } from "effect";
 import {
   appProcessPlane,
   type AppProcessLease,
 } from "../app-process-plane";
+import { scrubMessage } from "../credentials/scrub";
 
-export class ProcessFailure { readonly _tag = "ProcessFailure"; }
+/** Why a child or one of its pipes failed: the OS error code and scrubbed text, never argv or bytes. */
+export class ProcessFailure extends Schema.TaggedError<ProcessFailure>()("ProcessFailure", {
+  reason: Schema.Literals(["not-standard", "spawn-failed", "no-exit", "pipe-failed"]),
+  code: Schema.optionalKey(Schema.String),
+  message: Schema.String,
+}) {}
 export interface ProcessHandle {
   readonly pid: number;
   readonly exitCode: Effect.Effect<number, ProcessFailure>;
@@ -29,7 +35,19 @@ export class ProcessSpawner extends Context.Service<ProcessSpawner,
   }>()("@junto/ssh/ProcessSpawner") {}
 
 export type ProcessSpawnerShape = Context.Service.Shape<typeof ProcessSpawner>;
-const failure = (): ProcessFailure => new ProcessFailure();
+const PROCESS_FAILURE_TEXT: Record<ProcessFailure["reason"], string> = {
+  "not-standard": "The SSH command is not one standard command",
+  "spawn-failed": "The SSH process could not be spawned",
+  "no-exit": "The SSH process closed without an exit status",
+  "pipe-failed": "An SSH process pipe failed",
+};
+const failure = (reason: ProcessFailure["reason"]) => (cause?: unknown): ProcessFailure => {
+  const code = typeof cause === "object" && cause !== null && "code" in cause && typeof cause.code === "string"
+    && /^[A-Z][A-Z0-9_]{0,63}$/.test(cause.code) ? cause.code : undefined;
+  const detail = cause instanceof Error ? scrubMessage(cause.message) : "";
+  return new ProcessFailure({ reason, ...(code === undefined ? {} : { code }),
+    message: detail === "" ? PROCESS_FAILURE_TEXT[reason] : `${PROCESS_FAILURE_TEXT[reason]}: ${detail}` });
+};
 
 const SSH_PROCESS_TERM_GRACE_MS = 1_500;
 const SSH_PROCESS_KILL_GRACE_MS = 1_500;
@@ -165,7 +183,7 @@ const startStandard = (command: Command.StandardCommand): Effect.Effect<TrackedS
         closeObserved: () => closeObserved,
       };
     },
-    catch: failure,
+    catch: failure("spawn-failed"),
   });
 
 /**
@@ -194,7 +212,7 @@ const containBrokenPipe = (stream: {
 
 export const ProcessSpawnerLive = Layer.succeed(ProcessSpawner, ProcessSpawner.of({
   start: (command) => {
-    if (command._tag !== "StandardCommand") return Effect.fail(failure());
+    if (command._tag !== "StandardCommand") return Effect.fail(failure("not-standard")());
     return Effect.acquireRelease(startStandard(command), stopProcess).pipe(Effect.map((tracked): ProcessHandle => {
       containBrokenPipe(tracked.lease.io.stdin);
       containBrokenPipe(tracked.lease.io.stdout);
@@ -202,7 +220,8 @@ export const ProcessSpawnerLive = Layer.succeed(ProcessSpawner, ProcessSpawner.o
       return {
         pid: tracked.lease.io.pidForDiagnostics ?? -1,
         exitCode: Effect.promise(() => tracked.outcome).pipe(
-          Effect.flatMap((outcome) => outcome._tag === "exit" ? Effect.succeed(outcome.code) : Effect.fail(failure())),
+          Effect.flatMap((outcome) => outcome._tag === "exit" ? Effect.succeed(outcome.code)
+            : Effect.fail(outcome._tag === "pre-spawn-error" ? failure("spawn-failed")(outcome.error) : failure("no-exit")())),
         ),
         exitSignal: Effect.promise(() => tracked.outcome).pipe(
           Effect.map((outcome) => outcome._tag === "exit" ? outcome.signal : undefined),
@@ -212,16 +231,16 @@ export const ProcessSpawnerLive = Layer.succeed(ProcessSpawner, ProcessSpawner.o
         ),
         stdin: NodeSink.fromWritable({
           evaluate: () => tracked.lease.io.stdin,
-          onError: failure,
+          onError: failure("pipe-failed"),
           endOnDone: true,
         }),
         stdout: NodeStream.fromReadable({
           evaluate: () => tracked.lease.io.stdout,
-          onError: failure,
+          onError: failure("pipe-failed"),
         }),
         stderr: NodeStream.fromReadable({
           evaluate: () => tracked.lease.io.stderr,
-          onError: failure,
+          onError: failure("pipe-failed"),
         }),
       };
     }));

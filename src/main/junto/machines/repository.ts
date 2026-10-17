@@ -6,7 +6,7 @@ import { MachineName } from "@shared/machine-control";
 import { defaultMachineName } from "@shared/machine-name";
 import { StateTransactionOperation } from "../state/service";
 import { withSqlRead } from "../state/sql-read";
-import { MachineConfigurationRepository, type StoredMachineConfiguration } from "./configuration";
+import { MachineConfigurationRepository, MachineRefused, type StoredMachineConfiguration } from "./configuration";
 import { KnownInstallations } from "./known-installations";
 
 const Timestamp = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64)));
@@ -71,7 +71,7 @@ export const makeMachineRepository = (options: MachineRepositoryOptions = {}) =>
   })).pipe(Effect.provideService(StateTransactionOperation, "machine.ensure-configuration"), Effect.mapError(failure("ensure-configuration")));
   const configuration = withSqlRead(sql, Effect.gen(function* () {
     const stored = yield* configurations.read;
-    if (stored === undefined) return yield* Effect.fail(new Error("machine configuration disappeared"));
+    if (stored === undefined) return yield* new MachineRefused({ check: "configuration-missing", message: "machine configuration disappeared" });
     return stored;
   })).pipe(Effect.mapError(failure("configuration")));
   const findPeer = SqlSchema.findOneOption({ Request: Schema.String, Result: PeerRow,
@@ -87,17 +87,18 @@ export const makeMachineRepository = (options: MachineRepositoryOptions = {}) =>
     return yield* sql.withTransaction(Effect.gen(function* () {
       const own = yield* configurations.read;
       if (identity.installationId === installationId || identity.machineName === own?.configuration.name)
-        return yield* Effect.fail(new Error("a peer must be another installation with another machine name"));
+        return yield* new MachineRefused({ check: "peer-is-self", machine: identity.machineName, message: "a peer must be another installation with another machine name" });
       const existing = yield* findPeer(identity.machineName);
       if (Option.isSome(existing)) {
         if (existing.value.installation_id !== identity.installationId)
-          return yield* Effect.fail(new Error(`machine ${JSON.stringify(identity.machineName)} is pinned to another installation; choose another name`));
+          return yield* new MachineRefused({ check: "name-pinned-elsewhere", machine: identity.machineName,
+            message: `machine ${JSON.stringify(identity.machineName)} is pinned to another installation; choose another name` });
         if (existing.value.retired_at !== null)
           yield* sql`UPDATE machine_peers SET retired_at = NULL WHERE machine_name = ${identity.machineName}`;
         return peerFromRow(existing.value);
       }
       const sameInstallation = yield* sql`SELECT machine_name FROM machine_peers WHERE installation_id = ${identity.installationId}`;
-      if (sameInstallation.length) return yield* Effect.fail(new Error("the peer installation is pinned to another machine name"));
+      if (sameInstallation.length) return yield* new MachineRefused({ check: "installation-pinned-elsewhere", machine: identity.machineName, message: "the peer installation is pinned to another machine name" });
       const at = yield* Schema.decodeUnknownEffect(Timestamp)(now());
       yield* installations.register(identity.installationId, at);
       yield* sql`INSERT INTO machine_peers(machine_name, installation_id, bound_at) VALUES (${identity.machineName}, ${identity.installationId}, ${at})`;
@@ -112,13 +113,13 @@ export const makeMachineRepository = (options: MachineRepositoryOptions = {}) =>
     const name = yield* Schema.decodeUnknownEffect(MachineName)(input);
     return yield* sql.withTransaction(Effect.gen(function* () {
       const stored = yield* configurations.read;
-      if (stored === undefined) return yield* Effect.fail(new Error("machine configuration disappeared"));
+      if (stored === undefined) return yield* new MachineRefused({ check: "configuration-missing", message: "machine configuration disappeared" });
       const previous = stored.configuration.name;
       if (name === previous) return stored;
       const pins = yield* sql`SELECT 1 FROM machine_peers LIMIT 1`;
-      if (pins.length) return yield* Effect.fail(new Error("This machine's name is fixed because a peer has been pinned, including a retired peer."));
+      if (pins.length) return yield* new MachineRefused({ check: "name-fixed-by-peer", machine: previous, message: "This machine's name is fixed because a peer has been pinned, including a retired peer." });
       const authored = yield* sql`SELECT 1 FROM canvases WHERE seq > 0 LIMIT 1`;
-      if (authored.length) return yield* Effect.fail(new Error("This machine's name is fixed because a canvas has been authored or received."));
+      if (authored.length) return yield* new MachineRefused({ check: "name-fixed-by-canvas", machine: previous, message: "This machine's name is fixed because a canvas has been authored or received." });
       const configuredAt = yield* Schema.decodeUnknownEffect(Timestamp)(now());
       const configuration = { ...stored.configuration, name };
       yield* configurations.write(configuration, configuredAt);

@@ -2,6 +2,7 @@ import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { Effect, Layer } from "effect";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { resolvedSpawnEnv, resolvedSpawnEnvSync } from "../adapters/exec";
+import { causeChain, describeCause } from "../failure-encode";
 import { sshMuxControlDir } from "./control-dir";
 import { ProcessSpawnerLive } from "./process-spawner";
 import { SshTransportConfig, SshTransportLayer } from "./service";
@@ -32,8 +33,11 @@ const allowedSshEnvironment = (source: NodeJS.ProcessEnv): Readonly<Record<strin
 
 const SshConfigLive = Layer.effect(
   SshTransportConfig,
-  Effect.tryPromise(() => resolvedSpawnEnv()).pipe(
-    Effect.orElseSucceed(() => resolvedSpawnEnvSync()),
+  Effect.tryPromise({ try: () => resolvedSpawnEnv(), catch: (cause) => cause }).pipe(
+    Effect.catch((cause) => Effect.logWarning("SSH environment fell back to the synchronous PATH merge").pipe(
+      Effect.annotateLogs({ area: "ssh", failure: describeCause(cause), causes: causeChain(cause).causes }),
+      Effect.as(resolvedSpawnEnvSync()),
+    )),
     Effect.map((environment) => ({
       controlDir: sshMuxControlDir(resolveJuntoHome()),
       envExecutable: "/usr/bin/env",

@@ -101,7 +101,7 @@ const fakeProcess = (
           result.stdout === undefined ? [] : [result.stdout],
         ).pipe(
           result.stdoutEndsWithProcessFailure === true
-            ? Stream.concat(Stream.fail(new ProcessFailure()))
+            ? Stream.concat(Stream.fail(new ProcessFailure({ reason: "pipe-failed", message: "An SSH process pipe failed" })))
             : (stream) => stream,
         ),
         stderr: Stream.fromIterable(
@@ -585,7 +585,7 @@ describe("SshTransport", () => {
     const layer = await testLayer(
       (command) =>
         remoteText(command).includes("hermes")
-          ? { running: true, stdin: Sink.fail(new ProcessFailure()) }
+          ? { running: true, stdin: Sink.fail(new ProcessFailure({ reason: "pipe-failed", message: "An SSH process pipe failed" })) }
           : {},
       calls,
       releases,
@@ -616,7 +616,7 @@ describe("SshTransport", () => {
 
   it("says why input closed: the exit code and the scrubbed stderr tail", async () => {
     const layer = await testLayer(
-      () => ({ running: true, code: 1, exitCode: Effect.succeed(1), stdin: Sink.fail(new ProcessFailure()),
+      () => ({ running: true, code: 1, exitCode: Effect.succeed(1), stdin: Sink.fail(new ProcessFailure({ reason: "pipe-failed", message: "An SSH process pipe failed" })),
         stderr: encoder.encode("junto link: core is not running token=abcd1234\n") }),
       [],
       [],

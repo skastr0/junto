@@ -1,10 +1,10 @@
 import { Effect } from "effect";
-import { makeRemoteCommand, type SshTarget } from "./domain";
+import { makeRemoteCommand, SshCommandInputError, type SshTarget } from "./domain";
 import { dedicatedStream, oneShot } from "./program";
 
 interface Location { readonly juntoHome: string; readonly installRoot: string }
 const ownerCommand = (target: SshTarget, location: Location, op: "configure" | "setup", input: unknown) => Effect.gen(function* () {
-  if (![location.juntoHome, location.installRoot].every(path => /^\/[^\u0000-\u001f\u007f]*$/.test(path))) return yield* Effect.fail(new Error("machine owner command requires absolute install paths"));
+  if (![location.juntoHome, location.installRoot].every(path => /^\/[^\u0000-\u001f\u007f]*$/.test(path))) return yield* new SshCommandInputError({ check: "install-paths", message: "machine owner command requires absolute install paths" });
   const command = yield* makeRemoteCommand("/usr/bin/env", [
     `JUNTO_HOME=${location.juntoHome}`, `${location.installRoot}/current/bin/junto`, "machine", op, JSON.stringify(input),
   ]);

@@ -15,6 +15,7 @@ import {
 } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
+import { Schema } from "effect";
 
 const DIRECTORY_MODE = 0o700;
 const FILE_MODE = 0o600;
@@ -33,6 +34,27 @@ const UUID_FILE =
  * `available: false` means durable writes must fail closed. Reads degrade
  * to missing so Settings boot and ordinary preferences still work.
  */
+/**
+ * A vault refusal. Fields are closed tags, paths, exit codes and fixed text;
+ * never a value, and no id (a secret's id is its vault account).
+ */
+export class CredentialStoreError extends Schema.TaggedError<CredentialStoreError>()("CredentialStoreError", {
+  check: Schema.Literals([
+    "vault-unavailable", "directory-unsafe", "id-invalid", "file-unhardened",
+    "store-timeout", "store-refused", "write-unverified", "staging-incomplete",
+  ]),
+  backend: Schema.optionalKey(Schema.Literals(["file", "keychain", "secret-service"])),
+  path: Schema.optionalKey(Schema.String),
+  exitCode: Schema.optionalKey(Schema.Number),
+  message: Schema.String,
+  cause: Schema.optionalKey(Schema.Unknown),
+}) {}
+
+const vaultUnavailable = (cause?: unknown): CredentialStoreError => new CredentialStoreError({
+  check: "vault-unavailable", message: "credential vault is unavailable", ...(cause === undefined ? {} : { cause }),
+});
+const idInvalid = (): CredentialStoreError => new CredentialStoreError({ check: "id-invalid", message: "credential id is not a UUID" });
+
 export interface CredentialStore {
   readonly available: boolean;
   readonly put: (id: string, value: string) => void;
@@ -44,8 +66,11 @@ export interface CredentialStore {
 export class UnavailableCredentialStore implements CredentialStore {
   readonly available = false;
 
+  /** Why the store this replaces could not be opened, when one was tried. */
+  constructor(readonly cause?: unknown) {}
+
   put(): void {
-    throw new Error("credential vault is unavailable");
+    throw vaultUnavailable(this.cause);
   }
 
   get(): undefined {
@@ -102,33 +127,36 @@ const assertPrivateDirectory = (path: string): void => {
   mkdirSync(path, { recursive: true, mode: DIRECTORY_MODE });
   const info = lstatSync(path);
   if (!info.isDirectory() || info.isSymbolicLink()) {
-    throw new Error(`credential vault path is not a real directory: ${path}`);
+    throw new CredentialStoreError({ check: "directory-unsafe", backend: "file", path, message: `credential vault path is not a real directory: ${path}` });
   }
   chmodSync(path, DIRECTORY_MODE);
 };
 
 export class FileCredentialStore implements CredentialStore {
   available = false;
+  /** Why the directory could not be secured; carried by every refused write. */
+  readonly unavailableCause: unknown;
 
   constructor(readonly directory: string) {
     try {
       assertPrivateDirectory(directory);
       this.available = true;
-    } catch {
+    } catch (cause) {
       this.available = false;
+      this.unavailableCause = cause;
     }
   }
 
   #pathFor(id: string): string {
     if (!UUID_FILE.test(id)) {
-      throw new Error("credential id is not a UUID");
+      throw idInvalid();
     }
     return join(this.directory, `${id}.secret`);
   }
 
   put(id: string, value: string): void {
     if (!this.available) {
-      throw new Error("credential vault is unavailable");
+      throw vaultUnavailable(this.unavailableCause);
     }
     assertPrivateDirectory(this.directory);
     const destination = this.#pathFor(id);
@@ -153,7 +181,7 @@ export class FileCredentialStore implements CredentialStore {
         published.isSymbolicLink() ||
         (published.mode & 0o777) !== FILE_MODE
       ) {
-        throw new Error("credential vault file could not be hardened");
+        throw new CredentialStoreError({ check: "file-unhardened", backend: "file", path: this.directory, message: "credential vault file could not be hardened" });
       }
     } catch (error) {
       if (fd !== undefined) {
@@ -212,12 +240,8 @@ export class FileCredentialStore implements CredentialStore {
 }
 
 export const openFileCredentialStore = (directory: string): CredentialStore => {
-  try {
-    const store = new FileCredentialStore(directory);
-    return store.available ? store : new UnavailableCredentialStore();
-  } catch {
-    return new UnavailableCredentialStore();
-  }
+  const store = new FileCredentialStore(directory);
+  return store.available ? store : new UnavailableCredentialStore(store.unavailableCause);
 };
 
 /** Test helper: list leftover vault filenames. */
@@ -315,7 +339,7 @@ class SecretIdIndex {
 }
 
 const assertSecretId = (id: string): void => {
-  if (!UUID_FILE.test(id)) throw new Error("credential id is not a UUID");
+  if (!UUID_FILE.test(id)) throw idInvalid();
 };
 
 /**
@@ -373,7 +397,7 @@ export class KeychainCredentialStore implements CredentialStore {
   }
 
   put(id: string, value: string): void {
-    if (!this.available) throw new Error("credential vault is unavailable");
+    if (!this.available) throw vaultUnavailable();
     assertSecretId(id);
     // `security -i` reads its command from stdin, so the value never sits on
     // a command line. `-X` takes the password as hex: no quoting to get wrong.
@@ -384,11 +408,12 @@ export class KeychainCredentialStore implements CredentialStore {
       timeoutMs: SECRET_TOOL_TIMEOUT_MS,
     });
     if (result.status !== 0) {
-      throw new Error(
-        result.timedOut
-          ? "the Keychain did not answer in time"
-          : "the Keychain refused to save the secret",
-      );
+      throw new CredentialStoreError({
+        check: result.timedOut ? "store-timeout" : "store-refused",
+        backend: "keychain",
+        ...(result.status === undefined ? {} : { exitCode: result.status }),
+        message: result.timedOut ? "the Keychain did not answer in time" : "the Keychain refused to save the secret",
+      });
     }
     this.#index.add(id);
   }
@@ -452,7 +477,7 @@ export class SecretServiceCredentialStore implements CredentialStore {
   }
 
   put(id: string, value: string): void {
-    if (!this.available) throw new Error("credential vault is unavailable");
+    if (!this.available) throw vaultUnavailable();
     assertSecretId(id);
     // `secret-tool store` reads the secret from stdin.
     const result = this.#exec(
@@ -461,11 +486,12 @@ export class SecretServiceCredentialStore implements CredentialStore {
       { input: encodeStoredValue(value), timeoutMs: SECRET_TOOL_TIMEOUT_MS },
     );
     if (result.status !== 0) {
-      throw new Error(
-        result.timedOut
-          ? "the keyring did not answer in time"
-          : "the keyring refused to save the secret",
-      );
+      throw new CredentialStoreError({
+        check: result.timedOut ? "store-timeout" : "store-refused",
+        backend: "secret-service",
+        ...(result.status === undefined ? {} : { exitCode: result.status }),
+        message: result.timedOut ? "the keyring did not answer in time" : "the keyring refused to save the secret",
+      });
     }
     this.#index.add(id);
   }

@@ -1,12 +1,12 @@
 import { Effect } from "effect";
-import { makeRemoteCommand, type SshTarget } from "./domain";
+import { makeRemoteCommand, SshCommandInputError, type SshTarget } from "./domain";
 import { dedicatedStream } from "./program";
 
 export const openMachineLink = (
   target: SshTarget,
   location: { readonly juntoHome: string; readonly installRoot: string },
 ) => Effect.gen(function* () {
-  if (![location.juntoHome, location.installRoot].every(path => /^\/[^\u0000-\u001f\u007f]*$/.test(path))) return yield* Effect.fail(new Error("machine link requires absolute install paths"));
+  if (![location.juntoHome, location.installRoot].every(path => /^\/[^\u0000-\u001f\u007f]*$/.test(path))) return yield* new SshCommandInputError({ check: "install-paths", message: "machine link requires absolute install paths" });
   const command = yield* makeRemoteCommand("/usr/bin/env", [
     `JUNTO_HOME=${location.juntoHome}`, `${location.installRoot}/current/bin/junto`, "link",
   ]);
@@ -59,7 +59,7 @@ export const receiveMachineBundle = (
   archiveSha256: string,
   input: { readonly juntoHome?: string; readonly installRoot?: string; readonly expectedInstallationId?: string },
 ) => Effect.gen(function* () {
-  if (!/^[0-9a-f]{64}$/.test(archiveSha256)) return yield* Effect.fail(new Error("invalid package checksum"));
+  if (!/^[0-9a-f]{64}$/.test(archiveSha256)) return yield* new SshCommandInputError({ check: "package-checksum", message: "invalid package checksum" });
   const command = yield* makeRemoteCommand("/bin/sh",["-c",RECEIVE,"junto-send",archiveSha256,JSON.stringify(input)]);
   return dedicatedStream(target,command);
 });

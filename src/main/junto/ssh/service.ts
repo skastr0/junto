@@ -32,6 +32,7 @@ import type {
   ScopedStreamProgram,
 } from "./program";
 import { lastTailLine, StderrTail } from "../credentials/scrub";
+import { causeChain, describeCause } from "../failure-encode";
 import { classifySshStderr } from "./format";
 import { createSshProgramCompiler } from "./program";
 import {
@@ -228,6 +229,11 @@ interface InternalLease extends SshLease {
   readonly scope: Scope.Closeable;
 }
 
+/** A best-effort step that failed is logged with its cause, never dropped. */
+const logFailure = (level: "Debug" | "Warning", message: string, fields: Record<string, unknown>) => (cause: unknown): Effect.Effect<void> =>
+  (level === "Debug" ? Effect.logDebug : Effect.logWarning)(message).pipe(
+    Effect.annotateLogs({ area: "ssh", ...fields, failure: describeCause(cause), causes: causeChain(cause).causes }));
+
 const asText = (collected: Collected): string =>
   Buffer.concat(
     collected.chunks.map((chunk) => Buffer.from(chunk)),
@@ -267,6 +273,7 @@ const collectBounded = (
             endpoint,
             operation,
             message: `SSH ${operation} closed before it finished`,
+            cause: error,
           })
         : error,
     ),
@@ -321,11 +328,12 @@ export const SshTransportLayer = Layer.effect(
     const processClosed = (
       endpoint: SshEndpoint,
       operation: string,
+      cause?: unknown,
       message = `SSH ${operation} closed before it finished`,
-    ) => new SshProcessError({ endpoint, operation, message });
+    ) => new SshProcessError({ endpoint, operation, message, ...(cause === undefined ? {} : { cause }) });
 
-    const forwardError = (endpoint: SshEndpoint, message: string) =>
-      new SshForwardError({ endpoint, message });
+    const forwardError = (endpoint: SshEndpoint, message: string, cause?: unknown) =>
+      new SshForwardError({ endpoint, message, ...(cause === undefined ? {} : { cause }) });
 
     const ensureControlDir = (
       endpoint: SshEndpoint,
@@ -335,10 +343,11 @@ export const SshTransportLayer = Layer.effect(
         .pipe(
           Effect.andThen(fs.chmod(config.controlDir, 0o700)),
           Effect.mapError(
-            () =>
+            (cause) =>
               new SshSetupError({
                 endpoint,
                 message: "SSH control directory could not be secured",
+                cause,
               }),
           ),
         );
@@ -369,11 +378,12 @@ export const SshTransportLayer = Layer.effect(
         .start(command)
         .pipe(
           Effect.mapError(
-            () =>
+            (cause) =>
               new SshSpawnError({
                 endpoint,
                 operation,
                 message: "SSH process could not be started",
+                cause,
               }),
           ),
         );
@@ -397,7 +407,7 @@ export const SshTransportLayer = Layer.effect(
                   ? Stream.empty
                   : Stream.make(Uint8Array.from(input)),
                 process.stdin,
-              ).pipe(Effect.mapError(() => processClosed(endpoint, operation))),
+              ).pipe(Effect.mapError((cause) => processClosed(endpoint, operation, cause))),
               stdout: collectBounded(
                 process.stdout,
                 endpoint,
@@ -413,7 +423,7 @@ export const SshTransportLayer = Layer.effect(
                 STDERR_LIMIT_BYTES,
               ),
               code: process.exitCode.pipe(
-                Effect.mapError(() => processClosed(endpoint, operation)),
+                Effect.mapError((cause) => processClosed(endpoint, operation, cause)),
               ),
             },
             { concurrency: "unbounded" },
@@ -492,12 +502,12 @@ export const SshTransportLayer = Layer.effect(
           };
         });
         // The first cause wins: a failure the process end caused says how it ended.
-        const endedFailure = (what: string): Effect.Effect<never, SshProcessError> =>
+        const endedFailure = (what: string, cause?: ProcessFailure): Effect.Effect<never, SshProcessError> =>
           ended.pipe(
             Effect.timeoutOption(END_WAIT_MS),
             Effect.flatMap((end) => Effect.fail(Option.match(end, {
-              onNone: () => new SshProcessError({ endpoint, operation, message: `${what} because the SSH process stopped and has not exited` }),
-              onSome: (known) => new SshProcessError({ endpoint, operation, message: `${what} because ${describeSshEnd(known)}`, ...known }),
+              onNone: () => new SshProcessError({ endpoint, operation, message: `${what} because the SSH process stopped and has not exited`, ...(cause === undefined ? {} : { cause }) }),
+              onSome: (known) => new SshProcessError({ endpoint, operation, message: `${what} because ${describeSshEnd(known)}`, ...known, ...(cause === undefined ? {} : { cause }) }),
             }))),
           );
         const queue = yield* Queue.bounded<InputMessage>(INPUT_QUEUE_CAPACITY);
@@ -523,7 +533,7 @@ export const SshTransportLayer = Layer.effect(
           Stream.filterMap((chunk) => chunk),
         );
         const pump = Stream.run(mappedInput, process.stdin).pipe(
-          Effect.mapError(() => processClosed(endpoint, operation)),
+          Effect.mapError((cause) => processClosed(endpoint, operation, cause)),
           Effect.exit,
           Effect.flatMap((exit) =>
             Effect.uninterruptible(
@@ -546,7 +556,7 @@ export const SshTransportLayer = Layer.effect(
         );
 
         const inputClosed: Effect.Effect<never, SshError> = Effect.suspend(() => inputClosedHere
-          ? Effect.fail(processClosed(endpoint, operation, "SSH process input was closed by this side"))
+          ? Effect.fail(processClosed(endpoint, operation, undefined, "SSH process input was closed by this side"))
           : endedFailure("SSH process input is already closed"));
         const inputUnavailable: Effect.Effect<never, SshError> = Deferred.await(
           inputDone,
@@ -661,19 +671,19 @@ export const SshTransportLayer = Layer.effect(
           writeSensitive,
           closeInput,
           stdout: process.stdout.pipe(
-            Stream.catchTag("ProcessFailure", () => Stream.fromEffect(endedFailure(`SSH ${operation} output closed`))),
+            Stream.catchTag("ProcessFailure", (cause) => Stream.fromEffect(endedFailure(`SSH ${operation} output closed`, cause))),
           ),
           stderr: Stream.suspend(() => { stderrReading = true; return process.stderr; }).pipe(
             Stream.tap((chunk) => Effect.sync(() => tail.push(chunk))),
-            Stream.mapError(() => processClosed(endpoint, operation)),
+            Stream.mapError((cause) => processClosed(endpoint, operation, cause)),
             Stream.ensuring(Deferred.succeed(stderrDone, undefined)),
           ),
           exitCode: process.exitCode.pipe(
-            Effect.catchTag("ProcessFailure", () => endedFailure(`SSH ${operation} ended without an exit code`)),
+            Effect.catchTag("ProcessFailure", (cause) => endedFailure(`SSH ${operation} ended without an exit code`, cause)),
           ),
           ended,
           isRunning: process.isRunning.pipe(
-            Effect.mapError(() => processClosed(endpoint, operation)),
+            Effect.mapError((cause) => processClosed(endpoint, operation, cause)),
           ),
           close: Scope.close(child, Exit.void).pipe(Effect.ignore),
           scope: child,
@@ -684,10 +694,11 @@ export const SshTransportLayer = Layer.effect(
       Effect.gen(function* () {
         const compiled = yield* Effect.try({
           try: () => compiler.oneShot(program),
-          catch: () =>
+          catch: (cause) =>
             new SshSetupError({
               endpoint: "invalid-program",
               message: "SSH operation was not created by the policy surface",
+              cause,
             }),
         });
         return yield* withDial(
@@ -715,10 +726,11 @@ export const SshTransportLayer = Layer.effect(
     ): Effect.Effect<A, SshError | E, R | Scope.Scope> =>
       Effect.try({
         try: () => compiler.stream(program),
-        catch: () =>
+        catch: (cause) =>
           new SshSetupError({
             endpoint: "invalid-program",
             message: "SSH operation was not created by the policy surface",
+            cause,
           }),
       }).pipe(
         Effect.flatMap((compiled) => {
@@ -799,11 +811,12 @@ export const SshTransportLayer = Layer.effect(
     ) =>
       Effect.try({
         try: () => compiler.stream(program),
-        catch: () =>
+        catch: (cause) =>
           new SshSetupError({
             endpoint: "invalid-program",
             message:
               "SSH transfer operation was not created by the policy surface",
+            cause,
           }),
       }).pipe(
         Effect.flatMap((compiled) => {
@@ -852,9 +865,9 @@ export const SshTransportLayer = Layer.effect(
                     Stream.flattenIterable,
                   ),
                   Sink.forEach(chunk => onInputBytes === undefined ? lease.write(chunk) : lease.writeConfirmed(chunk).pipe(
-                    Effect.tap(() => Effect.sync(() => {
-                      try { onInputBytes(chunk.byteLength); } catch { /* observer detached */ }
-                    })),
+                    Effect.tap(() => Effect.try({ try: () => onInputBytes(chunk.byteLength), catch: (cause) => cause }).pipe(
+                      Effect.catch(logFailure("Debug", "SSH transfer input observer failed", { endpoint: compiled.endpoint })),
+                    )),
                   )),
                 ).pipe(
                   Effect.andThen(lease.closeInput),
@@ -877,10 +890,10 @@ export const SshTransportLayer = Layer.effect(
                         STDOUT_LIMIT_BYTES,
                       ),
                       stderr: collectTransferOutput(
-                        lease.stderr.pipe(Stream.tap(bytes => Effect.sync(() => {
-                          // An observer cannot alter diagnostics or cancel an in-flight mutation.
-                          try { onStderr?.(Uint8Array.from(bytes)); } catch { /* observer detached */ }
-                        }))),
+                        // An observer cannot alter diagnostics or cancel an in-flight mutation.
+                        lease.stderr.pipe(Stream.tap(bytes => Effect.try({ try: () => onStderr?.(Uint8Array.from(bytes)), catch: (cause) => cause }).pipe(
+                          Effect.catch(logFailure("Debug", "SSH transfer stderr observer failed", { endpoint: compiled.endpoint })),
+                        ))),
                         compiled.endpoint,
                         "stderr",
                         STDERR_LIMIT_BYTES,
@@ -927,35 +940,28 @@ export const SshTransportLayer = Layer.effect(
         const compiled = yield* Effect.try({
           try: () =>
             compiler.forward(program, randomUUID().replaceAll("-", "")),
-          catch: () =>
+          catch: (cause) =>
             new SshSetupError({
               endpoint: "invalid-program",
               message: "SSH forward operation or owned socket path is invalid",
+              cause,
             }),
         });
         return yield* withDial(
           compiled.endpoint,
           Effect.gen(function* () {
             yield* ensureControlDir(compiled.endpoint);
-            yield* fs
-              .remove(compiled.localSocket, { force: true })
-              .pipe(Effect.ignore);
-            yield* fs
-              .remove(compiled.controlSocket, { force: true })
-              .pipe(Effect.ignore);
+            const removeSocket = (path: string) => fs.remove(path, { force: true }).pipe(
+              Effect.catch(logFailure("Warning", "SSH forward socket file could not be removed", { endpoint: compiled.endpoint, path })),
+            );
+            yield* removeSocket(compiled.localSocket);
+            yield* removeSocket(compiled.controlSocket);
             // App shutdown quiesces process admission before runtime scopes.
             // Finalization therefore releases this existing ControlPersist=no
             // master lease and unlinks its files without spawning -O helpers.
-            const cleanupSocketFiles = fs
-              .remove(compiled.localSocket, { force: true })
-              .pipe(
-                Effect.ignore,
-                Effect.andThen(
-                  fs
-                    .remove(compiled.controlSocket, { force: true })
-                    .pipe(Effect.ignore),
-                ),
-              );
+            const cleanupSocketFiles = removeSocket(compiled.localSocket).pipe(
+              Effect.andThen(removeSocket(compiled.controlSocket)),
+            );
             const master = yield* openLease(
               compiled.endpoint,
               "forward-master",
@@ -974,11 +980,12 @@ export const SshTransportLayer = Layer.effect(
             const masterExited: Effect.Effect<never, SshError> =
               master.exitCode.pipe(
                 Effect.matchEffect({
-                  onFailure: () =>
+                  onFailure: (cause) =>
                     Effect.fail(
                       forwardError(
                         compiled.endpoint,
                         "SSH forward master failed before readiness",
+                        cause,
                       ),
                     ),
                   onSuccess: (code) =>
@@ -1012,10 +1019,11 @@ export const SshTransportLayer = Layer.effect(
             const socketExists = fs
               .exists(compiled.localSocket)
               .pipe(
-                Effect.mapError(() =>
+                Effect.mapError((cause) =>
                   forwardError(
                     compiled.endpoint,
                     "forward socket readiness check failed",
+                    cause,
                   ),
                 ),
               );
@@ -1100,7 +1108,10 @@ export const SshTransportLayer = Layer.effect(
           compiler.masterExit(endpoint),
           4_000,
         ),
-      ).pipe(Effect.asVoid, Effect.ignore);
+      ).pipe(
+        Effect.asVoid,
+        Effect.catch(logFailure("Warning", "SSH shared master did not exit on request", { endpoint })),
+      );
 
     return SshTransport.of({
       run,

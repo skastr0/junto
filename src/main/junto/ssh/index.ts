@@ -10,6 +10,7 @@ export {
   parseSshEndpoint,
   parseSshRoute,
   parseRemoteUnixSocketPath,
+  SshCommandInputError,
   SshExitError,
   SshForwardError,
   SshInputError,
