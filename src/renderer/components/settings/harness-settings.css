@@ -1,0 +1,9 @@
+/* Settings saved in the harness's own config: set apart from launch params. */
+.settings-harness-native {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-stroke);
+}

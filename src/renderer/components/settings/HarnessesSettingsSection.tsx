@@ -14,7 +14,7 @@
  */
 import { use$ } from "@legendapp/state/react";
 import { Result } from "effect";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import {
   checkParam,
   inventoryOptions,
@@ -27,9 +27,12 @@ import {
   type HarnessParams,
   type InventoryUnavailableError,
   type MachineInventory,
+  checkNativeSetting,
   type NativeSettingSpec,
+  type NativeSettingWrite,
   type ParamLayer,
 } from "@shared/harness-domain";
+import { NATIVE_SETTINGS, nativeSettingsFor } from "@shared/harness-domain/native-catalogue";
 import { harnessSettingLayers } from "@shared/harness-settings";
 import { allTemplates, type HarnessId } from "@shared/managed-terminal-templates";
 import { formatExtraArgs, parseExtraArgsText, sanitizeExtraArgs } from "@shared/launch-extra-args";
@@ -47,6 +50,7 @@ import { harnessMachineSource } from "../../lib/harness-machine-source";
 import { useSettingsMachine } from "../../lib/settings-machine";
 import { Input, Select, Switch } from "../ui";
 import { FieldRow } from "./FieldRow";
+import "./harness-settings.css";
 
 /** The layers this page writes, least specific first. */
 const SETTINGS_LAYERS = ["harnessDefault", "machineDefault"] as const satisfies readonly ParamLayer[];
@@ -211,7 +215,13 @@ function HarnessCard({
         />
       ))}
 
-      <NativeSettings harness={harness} displayName={displayName} machine={machine} machineName={machineName} />
+      <NativeSettings
+        harness={harness}
+        displayName={displayName}
+        machine={machine}
+        machineName={machineName}
+        inventory={inventory}
+      />
     </li>
   );
 }
@@ -415,49 +425,193 @@ function LayerControl({
   );
 }
 
+type NativeValue = NativeSettingWrite["value"];
+
+type NativeRead =
+  | { readonly state: "unread" }
+  | { readonly state: "answered"; readonly values: Readonly<Record<string, NativeValue>> }
+  | { readonly state: "refused"; readonly message: string };
+
 /**
- * Settings saved in the harness's own config on this machine, written by
- * that machine's Junto. Only keys the harness domain declares for the
- * machine's installed version are offered.
+ * Settings saved in the harness's own config on this machine, read and
+ * written by that machine's Junto. Only keys the closed catalogue declares for
+ * the machine's installed version are offered, and checkNativeSetting admits
+ * every write before it is sent.
  */
 function NativeSettings({
   harness,
   displayName,
   machine,
   machineName,
+  inventory,
 }: {
   readonly harness: HarnessId;
   readonly displayName: string;
   readonly machine: string;
   readonly machineName: string;
+  readonly inventory: HarnessInventory | undefined;
 }) {
-  const [declared, setDeclared] = useState<readonly NativeSettingSpec[] | undefined>();
+  const version = inventory?.installed ? inventory.version : undefined;
+  const declared = useMemo(() => nativeSettingsFor(harness, machine, version), [harness, machine, version]);
+  const [read, setRead] = useState<NativeRead>({ state: "unread" });
+  const [answers, setAnswers] = useState<Readonly<Record<string, string>>>({});
+  const keys = declared.map((spec) => spec.key).join("\n");
+
   useEffect(() => {
     let current = true;
-    setDeclared(undefined);
+    setRead({ state: "unread" });
+    setAnswers({});
+    if (keys.length === 0) return;
     void harnessMachineSource()
-      .nativeSettings(machine, harness)
-      .then((specs) => {
-        if (current) setDeclared(specs);
+      .readNativeSettings(machine, harness, keys.split("\n"))
+      .then((answer) => {
+        if (!current) return;
+        setRead(
+          Result.isSuccess(answer)
+            ? { state: "answered", values: answer.success }
+            : { state: "refused", message: answer.failure.message },
+        );
       });
     return () => {
       current = false;
     };
-  }, [machine, harness]);
+  }, [machine, harness, keys]);
+
+  const write = (spec: NativeSettingSpec, value: NativeValue): void => {
+    const request: NativeSettingWrite = { machine, harness, key: spec.key, value };
+    const admitted = checkNativeSetting(NATIVE_SETTINGS, request, version);
+    if (Result.isFailure(admitted)) {
+      setAnswers((prior) => ({ ...prior, [spec.key]: admitted.failure.message }));
+      return;
+    }
+    void harnessMachineSource()
+      .writeNativeSetting(request)
+      .then((answer) => {
+        if (Result.isSuccess(answer)) {
+          setRead((prior) =>
+            prior.state === "answered" ? { state: "answered", values: { ...prior.values, [spec.key]: answer.success } } : prior,
+          );
+          setAnswers(({ [spec.key]: _done, ...rest }) => rest);
+        } else {
+          setAnswers((prior) => ({ ...prior, [spec.key]: answer.failure.message }));
+        }
+      });
+  };
+
+  if (declared.length === 0) {
+    return (
+      <FieldRow group label={`Saved in ${displayName}'s own config`}>
+        <span className="settings-field__hint">
+          {version === undefined
+            ? `Needs ${displayName}'s version on ${machineName}.`
+            : `No settings are declared for ${displayName} ${version}.`}
+        </span>
+      </FieldRow>
+    );
+  }
 
   return (
-    <FieldRow
-      group
-      label={`Saved in ${displayName}'s own config`}
-      hint={`Changes how ${displayName} runs on ${machineName}, in Junto and outside it.`}
-    >
+    <div className="settings-harness-native" data-native-config={harness}>
       <span className="settings-field__hint">
-        {declared === undefined
-          ? "not read yet"
-          : declared.length === 0
-            ? `No settings are declared for ${displayName} on ${machineName} yet.`
-            : declared.map((spec) => spec.label).join(", ")}
+        Saved in {displayName}&apos;s own config on {machineName}: changes how it runs there, in Junto and outside it.
       </span>
-    </FieldRow>
+      {read.state === "refused" ? (
+        <span className="settings-field__hint" role="status" style={{ color: HUE_TEXT.crimson }}>
+          {read.message}
+        </span>
+      ) : null}
+      {declared.map((spec) => (
+        <FieldRow
+          key={spec.key}
+          group
+          label={spec.label}
+          hint={
+            answers[spec.key] ? (
+              <span role="alert" style={{ color: HUE_TEXT.crimson }}>
+                {answers[spec.key]}
+              </span>
+            ) : (
+              <code>{spec.key}</code>
+            )
+          }
+        >
+          <NativeControl
+            spec={spec}
+            ariaLabel={`${displayName} ${spec.label.toLowerCase()} in its own config on ${machineName}`}
+            disabled={read.state !== "answered"}
+            value={read.state === "answered" ? read.values[spec.key] : undefined}
+            onWrite={(value) => write(spec, value)}
+          />
+        </FieldRow>
+      ))}
+    </div>
   );
+}
+
+const NOT_SET = "Not set in the file";
+
+function NativeControl({
+  spec,
+  ariaLabel,
+  disabled,
+  value,
+  onWrite,
+}: {
+  readonly spec: NativeSettingSpec;
+  readonly ariaLabel: string;
+  readonly disabled: boolean;
+  readonly value: NativeValue | undefined;
+  readonly onWrite: (value: NativeValue) => void;
+}) {
+  const shown = value === undefined ? "" : String(value);
+  const [text, setText] = useState(shown);
+  useEffect(() => setText(shown), [shown]);
+  switch (spec.value.kind) {
+    case "boolean":
+      return <Switch checked={value === true} disabled={disabled} aria-label={ariaLabel} onCheckedChange={onWrite} />;
+    case "enum": {
+      const values = spec.value.values;
+      return (
+        <Select
+          dense
+          disabled={disabled}
+          value={shown}
+          aria-label={ariaLabel}
+          options={[
+            ...(shown === "" ? [{ value: "", label: NOT_SET }] : []),
+            ...values.map((option) => ({ value: option, label: option })),
+            ...(shown !== "" && !values.includes(shown) ? [{ value: shown, label: shown }] : []),
+          ]}
+          onChange={(next) => {
+            if (next !== "" && next !== shown) onWrite(next);
+          }}
+        />
+      );
+    }
+    case "string":
+    case "number": {
+      const numeric = spec.value.kind === "number";
+      const commit = (): void => {
+        const trimmed = text.trim();
+        if (trimmed === "" || trimmed === shown) return;
+        onWrite(numeric ? Number(trimmed) : trimmed);
+      };
+      return (
+        <Input
+          dense
+          disabled={disabled}
+          value={text}
+          inputMode={numeric ? "decimal" : undefined}
+          placeholder={NOT_SET}
+          aria-label={ariaLabel}
+          spellCheck={false}
+          onChange={(event) => setText(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") commit();
+          }}
+        />
+      );
+    }
+  }
 }

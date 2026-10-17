@@ -5,16 +5,16 @@
  *
  * Inventory comes from the machine's own core through `machineInventory`:
  * every machine is asked by name, and one the link cannot reach yet answers a
- * typed refusal. The native config writer has not landed, so there are no
- * declared native settings and a write is refused. It never waits on a probe
+ * typed refusal. Native settings are the closed catalogue
+ * (harness-domain/native-catalogue.ts); until the machine-side reader and
+ * writer land, a read and a write answer a typed refusal. It never waits on a probe
  * and never reads this window's own CLIs in place of another machine's.
  */
 import { Result } from "effect";
 import {
   InventoryUnavailableError,
-  NativeSettingRefusedError,
+  type NativeSettingRefusedError,
   type MachineInventory,
-  type NativeSettingSpec,
   type NativeSettingWrite,
 } from "@shared/harness-domain";
 import type { HarnessId } from "@shared/managed-terminal-templates";
@@ -22,8 +22,15 @@ import type { HarnessId } from "@shared/managed-terminal-templates";
 export type HarnessMachineSource = {
   /** The machine's last inventory, cached; never a probe the caller waits on. */
   readonly inventory: (machine: string) => Promise<Result.Result<MachineInventory, InventoryUnavailableError>>;
-  /** Native settings declared for this harness at the machine's installed version. */
-  readonly nativeSettings: (machine: string, harness: HarnessId) => Promise<readonly NativeSettingSpec[]>;
+  /**
+   * The current value of each declared key in the harness's own config on that
+   * machine, read by that machine. A key absent from the file is absent here.
+   */
+  readonly readNativeSettings: (
+    machine: string,
+    harness: HarnessId,
+    keys: readonly string[],
+  ) => Promise<Result.Result<Readonly<Record<string, NativeSettingWrite["value"]>>, InventoryUnavailableError>>;
   /** Written by the machine's own Junto; answers the value read back. */
   readonly writeNativeSetting: (
     write: NativeSettingWrite,
@@ -31,18 +38,20 @@ export type HarnessMachineSource = {
 };
 
 const NOT_LANDED = "The machine inventory channel has not landed in this build.";
+const NATIVE_NOT_LANDED = "Reading and writing harness config has not landed in this build.";
 
 export const pendingHarnessMachineSource: HarnessMachineSource = {
   inventory: async (machine) =>
     Result.fail(new InventoryUnavailableError({ machine, reason: "failed", message: NOT_LANDED })),
-  nativeSettings: async () => [],
+  readNativeSettings: async (machine, harness) =>
+    Result.fail(new InventoryUnavailableError({ machine, harness, reason: "failed", message: NATIVE_NOT_LANDED })),
   writeNativeSetting: async (write) =>
     Result.fail(
-      new NativeSettingRefusedError({
+      new InventoryUnavailableError({
+        machine: write.machine,
         harness: write.harness,
-        key: write.key,
-        reason: "undeclared",
-        message: `${write.key} is not declared for ${write.harness} in this build`,
+        reason: "failed",
+        message: NATIVE_NOT_LANDED,
       }),
     ),
 };

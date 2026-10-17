@@ -41,6 +41,11 @@ const miniInventory: MachineInventory = {
   ],
 };
 
+const withClaude = (version: string): MachineInventory => ({
+  machine: "mac-mini",
+  harnesses: [{ ...miniInventory.harnesses[0]!, version }],
+});
+
 const render = async (machine?: string) => {
   await act(async () => {
     root.render(<HarnessesSettingsSection {...(machine ? { machine } : {})} />);
@@ -173,6 +178,35 @@ describe("Settings > Agents, per machine", () => {
     );
     await render("mac-mini");
     expect(card("claude").textContent).toContain("start with: none, from mac-mini");
+  });
+
+  it("offers the declared native settings for the machine's installed version and writes through the machine", async () => {
+    const writes: unknown[] = [];
+    setHarnessMachineSource({
+      ...pendingHarnessMachineSource,
+      inventory: async () => Result.succeed(withClaude("2.1.302")),
+      readNativeSettings: async () => Result.succeed({ effortLevel: "high", alwaysThinkingEnabled: true }),
+      writeNativeSetting: async (write) => {
+        writes.push(write);
+        return Result.succeed(write.value);
+      },
+    });
+    await render("mac-mini");
+    const native = card("claude").querySelector('[data-native-config="claude"]') as HTMLElement;
+    expect(native.textContent).toContain("permissions.defaultMode");
+    const toggle = native.querySelector('[aria-label^="Claude Code always think"]') as HTMLElement;
+    await act(async () => toggle.click());
+    expect(writes).toEqual([{ machine: "mac-mini", harness: "claude", key: "alwaysThinkingEnabled", value: false }]);
+  });
+
+  it("offers no native setting for a version nobody verified", async () => {
+    setHarnessMachineSource({
+      ...pendingHarnessMachineSource,
+      inventory: async () => Result.succeed(withClaude("2.0.1")),
+    });
+    await render("mac-mini");
+    expect(card("claude").querySelector("[data-native-config]")).toBeNull();
+    expect(card("claude").textContent).toContain("No settings are declared for Claude Code 2.0.1.");
   });
 
   it("says why a machine has no inventory instead of waiting", async () => {
