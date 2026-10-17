@@ -267,6 +267,15 @@ export const codexRules: SeatRulePack = {
       signal: { _tag: "ErrorRaised", kind: "provider" },
       matchers: { lineRegex: ["^\\u25A0\\s+(?<message>.*experiencing high demand.*?)\\s*$"] },
     },
+    // A compaction that finished: "\u2022 Context compacted \u00B7 0s". An
+    // automatic one shows only this line. Capture: corpus/codex/compaction-auto.
+    {
+      id: "context_compacted",
+      region: "bottom_non_empty_lines",
+      regionN: 8,
+      signal: { _tag: "CompactionEnded", ok: true },
+      matchers: { lineRegex: ["^[\u2022\u25E6]\\s+Context compacted\\b"] },
+    },
     {
       id: "context_length_exceeded",
       region: "bottom_non_empty_lines",

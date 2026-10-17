@@ -190,4 +190,13 @@ describe("codex", () => {
     expect(signals).toContainEqual({ _tag: "CompactionStarted", trigger: "unknown" });
     expect(final).toEqual({ _tag: "Idle" });
   });
+
+  it("compaction-auto: only the finished line shows, so it is the compaction's end", async () => {
+    const { signals, final, snapshot } = await replay("codex", "compaction-auto");
+    expect(signals).toContainEqual({ _tag: "CompactionEnded", ok: true });
+    expect(final).toEqual({ _tag: "Idle" });
+    expect(snapshot?.compaction).toBeUndefined();
+    // The turn ended and nobody has looked.
+    expect(topNeed(snapshot!).cause).toBe("turn_unseen");
+  });
 });

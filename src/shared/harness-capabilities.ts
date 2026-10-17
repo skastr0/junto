@@ -144,7 +144,7 @@ export const HARNESS_CAPABILITY_DECLARATIONS: Readonly<
       Retrying: screen("reconnecting_retry"),
       UsageLevel: NONE,
       CompactionStarted: screen("compacting_context"),
-      CompactionEnded: NONE,
+      CompactionEnded: screen("context_compacted"),
       ErrorRaised: screen("unauthorized_error", "high_demand_error", "context_length_exceeded"),
       ProcessExited: EXITED,
     },

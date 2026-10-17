@@ -79,6 +79,7 @@ const LAST_SCREEN: Readonly<Record<string, Readonly<Record<string, Outcome>>>> =
     "error-server": "written",
     "error-context": "written",
     "compaction-manual": "written",
+    "compaction-auto": "written",
     // Both limits end on Codex's "Switch to gpt-6-luna?" model picker
     // (enter select, esc back): the seat is blocked on the limit, mail holds.
     "usage-limit": "dialog",
