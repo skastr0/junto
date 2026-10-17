@@ -366,7 +366,10 @@ nothing; an agent reading it reads untrusted output.
 A row is at most 16 KiB, and rotation bounds the total, so a peer's failures
 cannot fill the disk. A row holds only fields from the first list and
 scrubbed text. `console.*` routed into the logger is scrubbed like every other
-message; that hook is the likeliest leak and is reviewed first. Reading a
+message; that hook is the likeliest leak and is reviewed first. From a seat,
+reading this machine's log returns that seat's own rows, rows for seats it
+holds a `terminal.read` edge to, and machine rows that name no seat; the
+seat comes from its generation credential, never from a flag. Reading a
 linked machine's log is an owner command over a closed link operation, not a
 shell, and is refused from a seat environment like every machine command. It
 returns only rows for canvases that peer participates in, plus machine rows
