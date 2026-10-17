@@ -17,6 +17,7 @@ import {
   type MachineInventory,
   VersionVerdict,
 } from "@shared/harness-domain/inventory";
+import { OperationId } from "@shared/failure";
 import { MachineName } from "@shared/machine-control";
 import { HARNESS_IDS, HarnessId, templateFor } from "@shared/managed-terminal-templates";
 import { CanvasName } from "@shared/model";
@@ -81,7 +82,12 @@ export type LinkInventoryRequest = typeof LinkInventoryRequest.Type;
 
 // ── Failures ───────────────────────────────────────────────────────────────
 
-const Where = { machine: Schema.String, operationId: Schema.optionalKey(Schema.String), message: Schema.String };
+// Bounded as everything else that crosses: a failure rides the link as detail.
+const Where = {
+  machine: MachineName,
+  operationId: Schema.optionalKey(OperationId),
+  message: Schema.String.pipe(Schema.check(Schema.isMaxLength(1024))),
+};
 
 /** The asking machine is no longer pinned on the answering one. */
 export class InventoryPeerNotPinned extends Schema.TaggedError<InventoryPeerNotPinned>()("InventoryPeerNotPinned", Where) {}
@@ -104,7 +110,7 @@ export class InventorySnapshotRefused extends Schema.TaggedError<InventorySnapsh
 /** A snapshot that names another machine than the link peer that sent it. */
 export class InventoryNotFromItsMachine extends Schema.TaggedError<InventoryNotFromItsMachine>()("InventoryNotFromItsMachine", {
   ...Where,
-  claimed: Schema.String,
+  claimed: MachineName,
 }) {}
 
 // ── Building and reading ───────────────────────────────────────────────────

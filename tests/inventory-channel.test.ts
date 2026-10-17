@@ -12,6 +12,7 @@ import {
   decodeLinkInventorySnapshot,
   InventoryLinkFailure,
   InventoryNoSeatHere,
+  InventoryNotFromItsMachine,
   wireSnapshot,
 } from "../src/main/junto/inventory/wire";
 import { LinkUnavailable, MachineLink } from "../src/main/junto/link/service";
@@ -283,6 +284,15 @@ describe("inventory channel request", () => {
     const answer = await c.ask("op-1");
     expect(!answer.ok && answer.error.last).toBeUndefined();
     expect(await readFile(join(c.dir, `${PEER}.json`), "utf8")).toContain("<script>");
+  });
+
+  it("bounds every failure field that crosses as detail", () => {
+    const where = { machine: PEER, operationId: "op-1", message: "fine" };
+    expect(() => new InventoryNoSeatHere(where)).not.toThrow();
+    expect(() => new InventoryNoSeatHere({ ...where, machine: "../etc" })).toThrow();
+    expect(() => new InventoryNoSeatHere({ ...where, operationId: "op 1; x" })).toThrow();
+    expect(() => new InventoryNoSeatHere({ ...where, message: "x".repeat(1025) })).toThrow();
+    expect(() => new InventoryNotFromItsMachine({ ...where, claimed: "x".repeat(65) })).toThrow();
   });
 
   it("builds no path from a name that is not a machine name", async () => {
