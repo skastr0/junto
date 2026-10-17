@@ -213,6 +213,9 @@ describe("seats link state", () => {
       f.channel.decodeEvent({ ...wire, seatId: localSeat.id }))))
       .rejects.toMatchObject({ _tag: "SeatStateNotFromItsMachine", peer: "macbook" });
     expect(() => f.channel.decodeEvent({ ...wire, reason: "hook:free text" })).toThrow();
+    // A canvas this machine does not hold: dropped quietly, not a failure.
+    await f.runtime.runPromise(f.channel.handleEvent!(f.context,
+      f.channel.decodeEvent({ ...wire, canvas: asCanvasName("not-held-here") })));
     expect(published).toHaveLength(1);
   });
 });

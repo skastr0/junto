@@ -301,6 +301,12 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
   const handleEvent: NonNullable<LinkChannelHandler["handleEvent"]> = (context, payload) => Effect.gen(function* () {
     const event = yield* Schema.decodeUnknownEffect(SeatsStateEvent)(payload, { onExcessProperty: "error" });
     const where = { machine: event.machine, canvas: event.canvas, seatId: event.seatId };
+    // A state about a canvas this machine does not hold is not for it: dropped, never a failure.
+    if (!(yield* model.listCanvases()).includes(event.canvas)) {
+      yield* Effect.logInfo("seat state for a canvas not held here, dropped").pipe(Effect.annotateLogs({
+        area: "seats", canvas: event.canvas, seat: event.seatId, peer: context.peer.machineName }));
+      return;
+    }
     const seat = (yield* model.canvas(event.canvas)).nodes.get(event.seatId);
     if (event.machine !== context.peer.machineName || seat?.kind !== "agent" || !isThisMachine(seat.host, event.machine))
       return yield* new SeatStateNotFromItsMachine({ ...where, peer: context.peer.machineName,
