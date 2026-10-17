@@ -1,4 +1,5 @@
 import type { NotificationSettings } from "./settings";
+import { NEED_URGENCY, type NeedLevel } from "./harness-domain/need";
 
 /**
  * Desktop notifications: what reaches the operator while Junto is not the
@@ -16,7 +17,10 @@ import type { NotificationSettings } from "./settings";
  * - A need rises once. Only a key first seen while away can post.
  * - A need that resolves before it settles never posts.
  * - One notification per seat per absence; a more urgent need on the same
- *   seat replaces it, a less urgent one does not.
+ *   seat replaces it, a less urgent or equally urgent one does not. Urgency
+ *   is the need's rung on the one need ladder (`harness-domain/need.ts`),
+ *   never its category: a proven dialog outranks a stop, and a declared
+ *   blocked ties with it.
  * - A burst across many seats is one summary, and past a per-absence cap
  *   every further need folds into a summary.
  * - Finished seats wait longer and arrive together, quieter.
@@ -27,9 +31,11 @@ export type NotifyCategory = (typeof NOTIFY_CATEGORIES)[number];
 
 /** One open need on the canvas, as the renderer reports it. */
 export type NotifySubject = {
-  /** Stable per need: a feed item id, `done:<node>:<at>`, `failed:<node>:<epoch>`. */
+  /** Stable per need: a feed item id, `done:<node>:<at>`, `failed:<node>:<epoch>`, `stopped:<node>:<since>`. */
   readonly key: string;
   readonly category: NotifyCategory;
+  /** The need's rung on the need ladder, which ranks it (`notifyNeed` in `need-surfaces.ts`). */
+  readonly level: NeedLevel;
   readonly canvasName: string;
   readonly nodeId: string;
   readonly seatName: string;
@@ -90,12 +96,7 @@ export const SUMMARY_OVER = 3;
 export const POSTS_PER_ABSENCE = 6;
 const TEXT_MAX = 140;
 
-const RANK: Readonly<Record<NotifyCategory, number>> = {
-  blocked: 4,
-  failed: 3,
-  needsYou: 2,
-  done: 1,
-};
+const rankOf = (subject: NotifySubject): number => NEED_URGENCY[subject.level];
 
 const SUBTITLE: Readonly<Record<NotifyCategory, string>> = {
   blocked: "Blocked",
@@ -231,13 +232,13 @@ export const flush = (
   for (const { subject } of taking) {
     if (!categoryOn(prefs, subject.category)) continue;
     const tag = seatTag(subject);
-    if ((state.postedRank.get(tag) ?? 0) >= RANK[subject.category]) continue;
+    if ((state.postedRank.get(tag) ?? -1) >= rankOf(subject)) continue;
     const held = bySeat.get(tag);
-    if (!held || RANK[subject.category] > RANK[held.category]) bySeat.set(tag, subject);
+    if (!held || rankOf(subject) > rankOf(held)) bySeat.set(tag, subject);
   }
 
   const chosen = [...bySeat.values()].sort(
-    (a, b) => RANK[b.category] - RANK[a.category] || a.seatName.localeCompare(b.seatName),
+    (a, b) => rankOf(b) - rankOf(a) || a.seatName.localeCompare(b.seatName),
   );
   const keysFor = (subject: NotifySubject): ReadonlyArray<string> =>
     taking.filter((entry) => seatTag(entry.subject) === seatTag(subject)).map((entry) => entry.subject.key);
@@ -254,7 +255,7 @@ export const flush = (
     } else {
       for (const subject of needs) posts.push(seatPost(subject, prefs, keysFor(subject)));
     }
-    for (const subject of needs) postedRank.set(seatTag(subject), RANK[subject.category]);
+    for (const subject of needs) postedRank.set(seatTag(subject), rankOf(subject));
   }
   if (finished.length > 0) {
     posts.push(
@@ -262,7 +263,7 @@ export const flush = (
         ? seatPost(finished[0]!, prefs, keysFor(finished[0]!))
         : doneSummary(finished, finished.flatMap(keysFor)),
     );
-    for (const subject of finished) postedRank.set(seatTag(subject), RANK.done);
+    for (const subject of finished) postedRank.set(seatTag(subject), rankOf(subject));
   }
 
   return {

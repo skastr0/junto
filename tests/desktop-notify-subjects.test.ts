@@ -1,4 +1,12 @@
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import {
+  initialSnapshot,
+  reduceSeatSignals,
+  type SeatSignal,
+  type SeatSnapshot,
+} from "../src/shared/harness-domain";
+import { BindingId as SeatBindingId } from "../src/shared/terminal-session-domain";
 import { buildOperatorFeed, feedSeatsFromCanvas } from "../src/shared/operator-feed";
 import type { AgentSignal } from "../src/shared/agent-signals";
 import type { BindingId } from "../src/shared/model";
@@ -19,7 +27,7 @@ const signal = (nodeId: string, kind: AgentSignal["kind"], text: string): AgentS
   }) as AgentSignal;
 
 describe("desktop notification subjects", () => {
-  it("maps feed items to categories and leaves out the AI's reading", () => {
+  it("maps feed items to categories and ladder levels, and leaves out the AI's reading", () => {
     const feed = buildOperatorFeed({
       canvasName: "main",
       nowMs: 10,
@@ -30,11 +38,11 @@ describe("desktop notification subjects", () => {
       signals: [signal("a1", "blocked", "cannot reach the database"), signal("a2", "escalate", "which region?")],
     });
     expect(
-      subjectsFromFeed(feed).map((subject) => [subject.seatName, subject.category, subject.text]),
+      subjectsFromFeed(feed).map((subject) => [subject.seatName, subject.category, subject.level, subject.text]),
     ).toEqual([
-      ["Maple", "blocked", "cannot reach the database"],
-      ["Clove", "needsYou", "wants your input"],
-      ["Pip", "needsYou", "which region?"],
+      ["Maple", "blocked", "waiting", "cannot reach the database"],
+      ["Clove", "needsYou", "waiting", "wants your input"],
+      ["Pip", "needsYou", "escalated", "which region?"],
     ]);
   });
 
@@ -60,6 +68,7 @@ describe("desktop notification subjects", () => {
       {
         key: "done:a1:42",
         category: "done",
+        level: "ready",
         canvasName: "main",
         nodeId: "a1",
         seatName: "Maple",
@@ -76,10 +85,64 @@ describe("desktop notification subjects", () => {
       exitMessage: (bindingId) => (bindingId === "b-a2" ? "claude exited: rate limited" : undefined),
     });
     const pip = subjects.filter((subject) => subject.nodeId === "a2");
-    expect(pip).toEqual([expect.objectContaining({ key: "failed:a2:e7", category: "failed", text: "claude exited: rate limited" })]);
+    expect(pip).toEqual([expect.objectContaining({ key: "failed:a2:e7", category: "failed", level: "stopped", text: "claude exited: rate limited" })]);
   });
 
   it("says nothing for a resting seat", () => {
     expect(seatSubjects(base)).toEqual([]);
+  });
+
+  describe("a seat whose status stopped", () => {
+    const seatId = Schema.decodeSync(SeatBindingId)("b-a1");
+    const fold = (...signals: SeatSignal[]): SeatSnapshot =>
+      reduceSeatSignals(
+        initialSnapshot(seatId, 0),
+        signals.map((signal, index) => ({ seat: seatId, at: 1_000 + index * 10, source: "transcript", fidelity: "native", signal })),
+      );
+    const stoppedBy = (snapshot: SeatSnapshot, now = 2_000) =>
+      seatSubjects({ ...base, needsLook: () => true, status: (bindingId) => (bindingId === "b-a1" ? snapshot : undefined), now }).filter(
+        (subject) => subject.nodeId === "a1",
+      );
+    const resetsAt = new Date(2026, 9, 17, 15, 0).getTime();
+
+    it("posts a usage limit nothing wakes as failed, at the stopped rung, before its finished turn", () => {
+      const snapshot = fold(
+        { _tag: "TurnStarted" },
+        { _tag: "UsageLimitHit", scope: "weekly", resetsAt, message: "You've hit your weekly limit" },
+      );
+      expect(stoppedBy(snapshot, new Date(2026, 9, 17, 9, 0).getTime())).toEqual([
+        {
+          key: `stopped:a1:${snapshot.since}`,
+          category: "failed",
+          level: "stopped",
+          canvasName: "main",
+          nodeId: "a1",
+          seatName: "Maple",
+          text: "hit its usage limit, resets 15:00",
+        },
+      ]);
+    });
+
+    it("posts a sign-in error and a crash with the harness's own message", () => {
+      const auth = fold({ _tag: "ErrorRaised", kind: "auth", message: "Invalid API key, run /login" });
+      const crash = fold({ _tag: "ErrorRaised", kind: "crash", message: "  " });
+      expect(stoppedBy(auth).map((subject) => [subject.category, subject.level, subject.text])).toEqual([
+        ["failed", "stopped", "Invalid API key, run /login"],
+      ]);
+      expect(stoppedBy(crash).map((subject) => [subject.category, subject.level, subject.text])).toEqual([
+        ["failed", "stopped", "stopped on an error"],
+      ]);
+    });
+
+    it("stays quiet for a limit Junto wakes at its reset, and for a retry", () => {
+      const waking = fold(
+        { _tag: "UsageLimitHit", scope: "5h", resetsAt, message: "limit" },
+        { _tag: "WakeScheduled", at: resetsAt },
+      );
+      const retrying = fold({ _tag: "TurnStarted" }, { _tag: "Retrying", cause: "rate" });
+      for (const snapshot of [waking, retrying]) {
+        expect(stoppedBy(snapshot).filter((subject) => subject.category === "failed")).toEqual([]);
+      }
+    });
   });
 });

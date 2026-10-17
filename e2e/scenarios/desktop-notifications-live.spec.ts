@@ -63,6 +63,7 @@ test("a seat blocked while Junto is minimised posts a native banner", async () =
             {
               key: "signal:live-proof",
               category: "blocked",
+              level: "waiting",
               canvasName: "main",
               nodeId: "live-proof",
               seatName: "Maple",

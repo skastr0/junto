@@ -44,9 +44,12 @@ const fakeWindow = () => {
   return window;
 };
 
+const LEVEL = { blocked: "waiting", failed: "stopped", needsYou: "waiting", done: "ready" } as const;
+
 const need = (nodeId: string, category: NotifySubject["category"], text = "wants your input"): NotifySubject => ({
   key: `${category}:${nodeId}`,
   category,
+  level: LEVEL[category],
   canvasName: "main",
   nodeId,
   seatName: nodeId,

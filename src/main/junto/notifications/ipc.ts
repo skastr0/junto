@@ -6,6 +6,7 @@ import {
   type NotifyReport,
   type NotifySubject,
 } from "@shared/desktop-notifications";
+import { NEED_LEVELS, type NeedLevel } from "@shared/harness-domain/need";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { NotificationSettings } from "@shared/settings";
 import { trustedRendererIpc } from "../trusted-main-webcontents";
@@ -25,6 +26,8 @@ const text = (value: unknown, max = MAX_TEXT): string | undefined =>
 const isCategory = (value: unknown): value is NotifyCategory =>
   (NOTIFY_CATEGORIES as ReadonlyArray<unknown>).includes(value);
 
+const isLevel = (value: unknown): value is NeedLevel => (NEED_LEVELS as ReadonlyArray<unknown>).includes(value);
+
 const decodeSubject = (raw: unknown): NotifySubject | undefined => {
   if (typeof raw !== "object" || raw === null) return undefined;
   const value = raw as Record<string, unknown>;
@@ -34,8 +37,8 @@ const decodeSubject = (raw: unknown): NotifySubject | undefined => {
   const seatName = text(value.seatName, 512);
   const body = text(value.text);
   if (!key || canvasName === undefined || !nodeId || seatName === undefined || body === undefined) return undefined;
-  if (!isCategory(value.category)) return undefined;
-  return { key, category: value.category, canvasName, nodeId, seatName, text: body };
+  if (!isCategory(value.category) || !isLevel(value.level)) return undefined;
+  return { key, category: value.category, level: value.level, canvasName, nodeId, seatName, text: body };
 };
 
 /** The renderer's report, or undefined when it is not one. */

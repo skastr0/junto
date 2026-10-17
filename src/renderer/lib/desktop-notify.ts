@@ -6,13 +6,16 @@ import type {
   NotifySubject,
   NotifyTarget,
 } from "@shared/desktop-notifications";
+import { deriveNeeds, type NeedCause, type SeatSnapshot, type SeatStatus } from "@shared/harness-domain";
 import { nodesOf, type Seat } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import type { OperatorFeed } from "@shared/operator-feed";
+import { notifyNeed } from "@shared/need-surfaces";
+import { seatStatusTime } from "@shared/seat-status-text";
 import { notificationSettings } from "@shared/settings";
 import type { PreambleEvent } from "@shared/preamble";
 import { activateNodeSurface } from "./activate-node-surface";
-import { agentSeat$, presentationForSeat, seatDoneAt } from "./agent-seat-state";
+import { agentSeat$, presentationForSeat, seatDoneAt, seatStatusForBinding } from "./agent-seat-state";
 import { getJuntoApi } from "./junto-api";
 import { useOperatorFeed } from "./operator-feed";
 import { openOperatorModal } from "./operator-modal";
@@ -35,9 +38,26 @@ import { useCanvas } from "./use-model";
  *   reading and the needs read off the canvas are listed there but do not
  *   ping;
  * - seats that finished a turn the operator has not looked at (done);
- * - agent seats whose process ended with a failure exit, until they start
- *   again (stopped), and squads that could not finish starting.
+ * - agent seats that stopped: a failure exit until the seat starts again, or
+ *   a status stopped on a usage limit nothing wakes, a sign-in error or a
+ *   crash; and squads that could not finish starting.
+ *
+ * Each subject carries its need's category and rung from the one need
+ * ladder (`notifyNeed`), so the policy ranks needs the way every surface
+ * does.
  */
+
+/** A need's category and rung; every cause asked for here is one notifications show. */
+const shown = (cause: NeedCause) => {
+  const need = notifyNeed(cause);
+  if (need === undefined) throw new Error(`desktop notifications do not show ${cause}`);
+  return need;
+};
+
+const FAILED_EXIT = shown("unexpected_exit");
+const FINISHED = shown("turn_unseen");
+/** A squad that could not finish starting reads as a crash. */
+const SQUAD_FAILED = shown("crash");
 
 type Failure = { readonly epoch: string; readonly code: number };
 
@@ -65,7 +85,7 @@ export const raiseSquadFailure = (input: {
     ...live,
     {
       key: `squad:${input.nodeId}:${now}`,
-      category: "failed",
+      ...SQUAD_FAILED,
       canvasName: input.canvasName,
       nodeId: input.nodeId,
       seatName: input.squadName,
@@ -82,11 +102,15 @@ export const raiseSquadFailure = (input: {
 /** The agent's own last words per seat (its `junto preamble`), for a finish line. */
 const lastSaid$ = observable<Record<string, string | undefined>>({});
 
-const FEED_CATEGORY = {
-  blocked: "blocked",
-  attention: "needsYou",
-  escalate: "needsYou",
-  feedback: "needsYou",
+/**
+ * The need behind each feed kind that pings. A proven needs-input row is a
+ * permission, question or dialog, all one rung.
+ */
+const FEED_NEED = {
+  blocked: shown("seat_blocked"),
+  attention: shown("dialog"),
+  escalate: shown("seat_escalated"),
+  feedback: shown("seat_feedback"),
 } as const;
 
 /**
@@ -102,7 +126,7 @@ export const subjectsFromFeed = (feed: OperatorFeed): ReadonlyArray<NotifySubjec
             {
               // A seat's attention row keeps one id; each new ask is its own subject.
               key: item.kind === "attention" ? `${item.itemId}:${item.since ?? 0}` : item.itemId,
-              category: FEED_CATEGORY[item.kind],
+              ...FEED_NEED[item.kind],
               canvasName: item.canvasName,
               nodeId: item.seat.nodeId,
               seatName: item.seat.name,
@@ -123,7 +147,11 @@ export const seatSubjects = (input: {
   readonly failure: (bindingId: string) => Failure | undefined;
   readonly exitMessage: (bindingId: string) => string | undefined;
   readonly lastSaid: (nodeId: string) => string | undefined;
+  /** The seat's harness status, when its latest event carries one. */
+  readonly status?: (bindingId: string) => SeatSnapshot | undefined;
+  readonly now?: number;
 }): ReadonlyArray<NotifySubject> => {
+  const now = input.now ?? Date.now();
   const out: NotifySubject[] = [];
   for (const node of input.seats) {
     const bindingId = node.bindingId;
@@ -133,8 +161,20 @@ export const seatSubjects = (input: {
       out.push({
         ...seat,
         key: `failed:${node.id}:${failure.epoch}`,
-        category: "failed",
+        ...FAILED_EXIT,
         text: input.exitMessage(bindingId) ?? `ended with exit code ${failure.code}`,
+      });
+      continue;
+    }
+    const snapshot = input.status?.(bindingId);
+    const stop = snapshot === undefined ? undefined : stopOf(snapshot);
+    if (snapshot !== undefined && stop !== undefined) {
+      out.push({
+        ...seat,
+        key: `stopped:${node.id}:${stop.since}`,
+        category: stop.category,
+        level: stop.level,
+        text: stopText(snapshot.status, now),
       });
       continue;
     }
@@ -148,11 +188,36 @@ export const seatSubjects = (input: {
       // re-sends a seat whose reason changes with a new time, and a new key
       // would be a second banner and cue for the same turn.
       key: `done:${node.id}:${input.doneAt?.(bindingId) ?? event.at}`,
-      category: "done",
+      ...FINISHED,
       text: input.lastSaid(node.id) ?? "finished and is waiting for you to look",
     });
   }
   return out;
+};
+
+/**
+ * A stop the seat's status shows: a usage limit nothing wakes, a sign-in
+ * error, a crash. An exit is the exit path's, which knows its code.
+ */
+const stopOf = (snapshot: SeatSnapshot) => {
+  for (const need of deriveNeeds(snapshot)) {
+    if (need.cause === "unexpected_exit") continue;
+    const notified = notifyNeed(need.cause);
+    if (notified?.category === "failed") return { ...notified, since: need.since };
+  }
+  return undefined;
+};
+
+const stopText = (status: SeatStatus, now: number): string => {
+  if (status._tag !== "Blocked") return "stopped";
+  const reason = status.reason;
+  if (reason._tag === "UsageLimit") {
+    return reason.resetsAt === undefined
+      ? "hit its usage limit"
+      : `hit its usage limit, resets ${seatStatusTime(reason.resetsAt, now)}`;
+  }
+  if (reason._tag === "Error") return reason.message.trim() || (reason.kind === "auth" ? "cannot sign in" : "stopped on an error");
+  return "stopped";
 };
 
 /** A report's identity for change detection: what main would act on. */
@@ -186,6 +251,7 @@ const useNotifyReport = (): NotifyReport | null => {
     failure: (bindingId) => failures[bindingId],
     exitMessage: (bindingId) => sessions[bindingId]?.exitMessage?.trim() || undefined,
     lastSaid: (nodeId) => lastSaid[nodeId],
+    status: (bindingId) => seatStatusForBinding(bindingId)?.snapshot,
   });
   // A seat both in the feed and finished or stopped posts once: the policy
   // keeps each seat's most urgent need.

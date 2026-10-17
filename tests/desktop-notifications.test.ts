@@ -16,6 +16,7 @@ import {
   type NotifyState,
   type NotifySubject,
 } from "../src/shared/desktop-notifications";
+import type { NeedLevel } from "../src/shared/harness-domain/need";
 import {
   Settings,
   SettingsPatch,
@@ -29,12 +30,24 @@ import { decodeStoredSettings, preferencesFromSettings } from "../src/main/junto
 
 const prefs = defaultNotifications();
 
+/**
+ * Each category's usual rung on the need ladder. A needs-you subject here is a
+ * seat's escalation unless a test gives it another rung.
+ */
+const LEVEL: Readonly<Record<NotifyCategory, NeedLevel>> = {
+  blocked: "waiting",
+  failed: "stopped",
+  needsYou: "escalated",
+  done: "ready",
+};
+
 const need = (
   nodeId: string,
   category: NotifyCategory,
   text = "can I delete the old migrations?",
   key = `${category}:${nodeId}`,
-): NotifySubject => ({ key, category, canvasName: "main", nodeId, seatName: nodeId, text });
+  level = LEVEL[category],
+): NotifySubject => ({ key, category, level, canvasName: "main", nodeId, seatName: nodeId, text });
 
 /** Observe, then flush at a time. */
 const step = (state: NotifyState, subjects: ReadonlyArray<NotifySubject>, at: number, flushAt = at) => {
@@ -97,7 +110,7 @@ describe("desktop notification policy", () => {
     // A second question on the same seat stays quiet: the seat already told them.
     const second = step(first.state, [need("maple", "needsYou", "two", "b")], 5_000, 5_000 + URGENT_SETTLE_MS);
     expect(second.posts).toEqual([]);
-    // Blocked outranks needs-you: it replaces the delivered banner by tag.
+    // A declared block outranks an escalation: it replaces the delivered banner by tag.
     const worse = step(second.state, [need("maple", "blocked", "stuck on auth", "c")], 9_000, 9_000 + URGENT_SETTLE_MS);
     expect(worse.posts.map((post) => [post.tag, post.subtitle, post.bounce])).toEqual([
       ["seat:main:maple", "Blocked", true],
@@ -230,6 +243,52 @@ describe("desktop notification policy", () => {
     expect(nameList(["a", "b"])).toBe("a and b");
     expect(nameList(["a", "b", "c", "d"])).toBe("a, b, c and 1 more");
     expect(nameList(["a", "b", "c", "d"]).includes("·")).toBe(false);
+  });
+});
+
+describe("desktop notification policy: urgency from the need ladder", () => {
+  const dialog = (nodeId: string, key: string) => need(nodeId, "needsYou", "allow rm -rf dist?", key, "waiting");
+  const feedback = (nodeId: string, key: string) => need(nodeId, "needsYou", "ready for review", key, "ready");
+
+  it("ranks a proven dialog above a stop", () => {
+    const together = step(awayWith(), [need("maple", "failed", "usage limit", "f"), dialog("maple", "d")], 0, URGENT_SETTLE_MS);
+    expect(together.posts.map((post) => [post.subtitle, post.body])).toEqual([["Needs you", "allow rm -rf dist?"]]);
+
+    const stopped = step(awayWith(), [need("maple", "failed", "usage limit", "f")], 0, URGENT_SETTLE_MS);
+    const asked = step(stopped.state, [dialog("maple", "d")], 5_000, 5_000 + URGENT_SETTLE_MS);
+    expect(asked.posts.map((post) => [post.tag, post.subtitle])).toEqual([["seat:main:maple", "Needs you"]]);
+  });
+
+  it("ties a declared block with a proven dialog: neither replaces the other", () => {
+    const asked = step(awayWith(), [dialog("maple", "d")], 0, URGENT_SETTLE_MS);
+    expect(step(asked.state, [need("maple", "blocked", "stuck", "b")], 5_000, 5_000 + URGENT_SETTLE_MS).posts).toEqual([]);
+
+    const blocked = step(awayWith(), [need("maple", "blocked", "stuck", "b")], 0, URGENT_SETTLE_MS);
+    expect(step(blocked.state, [dialog("maple", "d")], 5_000, 5_000 + URGENT_SETTLE_MS).posts).toEqual([]);
+
+    // Across seats a tie sorts by name.
+    const both = step(awayWith(), [need("pip", "blocked"), dialog("clove", "d")], 0, URGENT_SETTLE_MS);
+    expect(both.posts.map((post) => [post.title, post.subtitle])).toEqual([
+      ["clove", "Needs you"],
+      ["pip", "Blocked"],
+    ]);
+  });
+
+  it("ties feedback with an unread finished turn", () => {
+    const reviewed = step(awayWith(), [feedback("maple", "r")], 0, URGENT_SETTLE_MS);
+    expect(reviewed.posts).toHaveLength(1);
+    expect(step(reviewed.state, [need("maple", "done", "ok", "t")], 2_000, 2_000 + DONE_SETTLE_MS).posts).toEqual([]);
+
+    const finished = step(awayWith(), [need("maple", "done", "ok", "t")], 0, DONE_SETTLE_MS);
+    expect(finished.posts).toHaveLength(1);
+    expect(step(finished.state, [feedback("maple", "r")], 20_000, 20_000 + URGENT_SETTLE_MS).posts).toEqual([]);
+  });
+
+  it("orders needs-you by its rung: a dialog replaces an escalation, feedback does not", () => {
+    const escalated = step(awayWith(), [need("maple", "needsYou", "which region?", "e")], 0, URGENT_SETTLE_MS);
+    expect(step(escalated.state, [feedback("maple", "r")], 5_000, 5_000 + URGENT_SETTLE_MS).posts).toEqual([]);
+    const asked = step(escalated.state, [dialog("maple", "d")], 5_000, 5_000 + URGENT_SETTLE_MS);
+    expect(asked.posts.map((post) => [post.tag, post.body])).toEqual([["seat:main:maple", "allow rm -rf dist?"]]);
   });
 });
 
