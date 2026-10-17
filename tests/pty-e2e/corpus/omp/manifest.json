@@ -187,12 +187,315 @@
       "reason": "a real permission dialog was not observed",
       "observed": {},
       "expectedScreen": {}
+    },
+    {
+      "harness": "omp",
+      "scenario": "retry-overloaded",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: overloaded }, then a completed turn",
+        "wiring": "a stub provider in the isolated PI_CODING_AGENT_DIR/models.yml (anthropic-messages); setup wizard and update check pre-seeded off",
+        "stubServed": [
+          "/v1/messages 529",
+          "/v1/messages 529",
+          "/v1/messages 529",
+          "/v1/messages ok",
+          "/v1/messages ok",
+          "/v1/messages ok"
+        ],
+        "renderedLines": [
+          " say hi",
+          "  ⎋ Working…",
+          " ⠧ 0s > ⬢ stub-model > 🗑 junto-capture-cwd/omp ▶────5%────────────────────────────────────────────╎──────┃─────────128K─",
+          "╰─",
+          " Hello from the capture stub.",
+          "                                                                                             Hello from the capture stub",
+          " π > ⬢ stub-model > 🗑 junto-capture-cwd/omp ▶─0.0%───────────────────────────────────────────────╎───────┃─────────128K─"
+        ],
+        "cliVersion": "omp/18.9.2"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "omp",
+      "scenario": "retry-rate",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: rate }, then a completed turn",
+        "wiring": "a stub provider in the isolated PI_CODING_AGENT_DIR/models.yml (anthropic-messages); setup wizard and update check pre-seeded off",
+        "stubServed": [
+          "/v1/messages 429",
+          "/v1/messages 429",
+          "/v1/messages 429",
+          "/v1/messages ok",
+          "/v1/messages ok",
+          "/v1/messages ok"
+        ],
+        "renderedLines": [
+          " say hi",
+          "  ⎋ Working…",
+          " ⠴ 0s > ⬢ stub-model > 🗑 junto-capture-cwd/omp ▶────5%────────────────────────────────────────────╎──────┃─────────128K─",
+          "╰─",
+          " Hello from the capture stub.",
+          "                                                                                             Hello from the capture stub",
+          " π > ⬢ stub-model > 🗑 junto-capture-cwd/omp ▶─0.0%───────────────────────────────────────────────╎───────┃─────────128K─"
+        ],
+        "cliVersion": "omp/18.9.2"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "omp",
+      "scenario": "retry-network",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: network }, then a completed turn",
+        "wiring": "a stub provider in the isolated PI_CODING_AGENT_DIR/models.yml (anthropic-messages); setup wizard and update check pre-seeded off",
+        "stubServed": [
+          "/v1/messages drop",
+          "/v1/messages drop",
+          "/v1/messages drop",
+          "/v1/messages ok",
+          "/v1/messages ok",
+          "/v1/messages ok"
+        ],
+        "renderedLines": [
+          " say hi",
+          "  ⎋ Working…",
+          " ⠴ 0s > ⬢ stub-model > 🗑 junto-capture-cwd/omp ▶────5%────────────────────────────────────────────╎──────┃─────────128K─",
+          "╰─",
+          " Hello from the capture stub.",
+          "                                                                                             Hello from the capture stub",
+          " π > ⬢ stub-model > 🗑 junto-capture-cwd/omp ▶─0.0%───────────────────────────────────────────────╎───────┃─────────128K─"
+        ],
+        "cliVersion": "omp/18.9.2"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "omp",
+      "scenario": "usage-limit",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: 5h, resetsAt }",
+        "wiring": "a stub provider in the isolated PI_CODING_AGENT_DIR/models.yml (anthropic-messages); setup wizard and update check pre-seeded off",
+        "stubServed": [
+          "/v1/messages 429"
+        ],
+        "renderedLines": [
+          " say hi",
+          " Error: 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"This request would exceed your account's",
+          "   rate limit. Please try again later.\"}}",
+          " Error: Retry failed after 1 attempts: Provider requested 1800000ms wait, exceeds retry.maxDelayMs (300000ms). Original",
+          " error: 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"This request would exceed your account's rate",
+          " limit. Please try again later.\"}}",
+          "╰─"
+        ],
+        "cliVersion": "omp/18.9.2"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "omp",
+      "scenario": "usage-limit-weekly",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: weekly, resetsAt }",
+        "wiring": "a stub provider in the isolated PI_CODING_AGENT_DIR/models.yml (anthropic-messages); setup wizard and update check pre-seeded off",
+        "stubServed": [
+          "/v1/messages 429"
+        ],
+        "renderedLines": [
+          " say hi",
+          " Error: 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"This request would exceed your account's",
+          "   rate limit. Please try again later.\"}}",
+          " Error: Retry failed after 1 attempts: Provider requested 1800000ms wait, exceeds retry.maxDelayMs (300000ms). Original",
+          " error: 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"This request would exceed your account's rate",
+          " limit. Please try again later.\"}}",
+          "╰─"
+        ],
+        "cliVersion": "omp/18.9.2"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "omp",
+      "scenario": "error-auth",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: auth }",
+        "wiring": "a stub provider in the isolated PI_CODING_AGENT_DIR/models.yml (anthropic-messages); setup wizard and update check pre-seeded off",
+        "stubServed": [
+          "/v1/messages 401"
+        ],
+        "renderedLines": [
+          " say hi",
+          "  ⎋ Working…",
+          " ⠏ 0s > ⬢ stub-model > 🗑 junto-capture-cwd/omp ▶────5%────────────────────────────────────────────╎──────┃─────────128K─",
+          "╰─",
+          " ✘ 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}",
+          " Dismissed when you send your next message."
+        ],
+        "cliVersion": "omp/18.9.2"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "omp",
+      "scenario": "error-server",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: provider } after retries run out",
+        "wiring": "a stub provider in the isolated PI_CODING_AGENT_DIR/models.yml (anthropic-messages); setup wizard and update check pre-seeded off",
+        "stubServed": [
+          "/v1/messages 500",
+          "/v1/messages 500",
+          "/v1/messages 500",
+          "/v1/messages 500",
+          "/v1/messages 500",
+          "/v1/messages 500",
+          "/v1/messages 500",
+          "/v1/messages 500",
+          "/v1/messages 500",
+          "/v1/messages 500",
+          "/v1/messages 500",
+          "/v1/messages 500",
+          "/v1/messages 500",
+          "/v1/messages 500",
+          "/v1/messages 500"
+        ],
+        "renderedLines": [
+          " say hi",
+          "  ⎋ Working…",
+          " ⠹ 0s > ⬢ stub-model > 🗑 junto-capture-cwd/omp ▶────5%────────────────────────────────────────────╎──────┃─────────128K─",
+          "╰─",
+          " ⠼ 1m > ⬢ stub-model > 🗑 junto-capture-cwd/omp ▶────5%────────────────────────────────────────────╎──────┃─────────128K─",
+          " ✘ 500 {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal server error\"}}",
+          " Dismissed when you send your next message.",
+          " ⠋ Retrying (1/10) in 450ms… (⎋ to cancel)",
+          " Error: 500 {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal server error\"}}"
+        ],
+        "cliVersion": "omp/18.9.2"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "omp",
+      "scenario": "error-context",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: contextOverflow }",
+        "wiring": "a stub provider in the isolated PI_CODING_AGENT_DIR/models.yml (anthropic-messages); setup wizard and update check pre-seeded off",
+        "stubServed": [
+          "/v1/messages 400"
+        ],
+        "renderedLines": [
+          " say hi",
+          "  ⎋ Working…",
+          " ⠦ 0s > ⬢ stub-model > 🗑 junto-capture-cwd/omp ▶────5%────────────────────────────────────────────╎──────┃─────────128K─",
+          "╰─",
+          " Warning: Auto-shake found nothing eligible to drop; trying the next preferred compaction method.",
+          " Warning: compaction: Compaction freed too little context to make progress — pausing automatic maintenance to avoid a",
+          " compaction loop. The most recent turn alone is too large to reduce further; shrink it (e.g. clear large tool output)",
+          " or switch to a larger-context model.",
+          " ✘ 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"prompt is too long: 250000 tokens > 200000",
+          "   maximum\"}}",
+          "   raw-http-request=<HOME>/omp/.omp/logs/http-400-requests/1792209534132-6ki113tu4chl.json",
+          " Dismissed when you send your next message."
+        ],
+        "cliVersion": "omp/18.9.2"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "omp",
+      "scenario": "compaction-auto",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "CompactionStarted { trigger: auto }, CompactionEnded { ok }, then a completed turn",
+        "wiring": "a stub provider in the isolated PI_CODING_AGENT_DIR/models.yml (anthropic-messages); setup wizard and update check pre-seeded off",
+        "stubServed": [
+          "/v1/messages ok",
+          "/v1/messages ok",
+          "/v1/messages ok",
+          "/v1/messages ok",
+          "/v1/messages ok"
+        ],
+        "renderedLines": [
+          " say hi",
+          "  ⎋ Working…",
+          " ⠹ 0s > ⬢ stub-model > 🗑 junto-capture-cwd/omp ▶────5%────────────────────────────────────────────╎──────┃─────────128K─",
+          " Hello from the capture stub.",
+          " Warning: Auto-shake found nothing eligible to drop; trying the next preferred compaction method.",
+          " Warning: compaction: Compaction freed too little context to make progress — pausing automatic maintenance to avoid a",
+          " compaction loop. The most recent turn alone is too large to reduce further; shrink it (e.g. clear large tool output)",
+          " or switch to a larger-context model.",
+          " π > ⬢ stub-model > 🗑 junto-capture-cwd/omp ▶─────────────────────────────────────────────────╎──────┃─────────128K─148%",
+          "╰─",
+          "──────────────────────────────────────────── 📷 handed-off · 190K→7.2K · ⌃O ────────────────────────────────────────────",
+          " say hi again",
+          "                                                                                             Hello from the capture stub",
+          " π > ⬢ stub-model > 🗑 junto-capture-cwd/omp ▶─0.0%───────────────────────────────────────────────╎───────┃─────────128K─"
+        ],
+        "cliVersion": "omp/18.9.2"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "omp",
+      "scenario": "compaction-manual",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "CompactionStarted { trigger: manual }, CompactionEnded { ok }",
+        "wiring": "a stub provider in the isolated PI_CODING_AGENT_DIR/models.yml (anthropic-messages); setup wizard and update check pre-seeded off",
+        "stubServed": [
+          "/v1/messages ok",
+          "/v1/messages ok",
+          "/v1/messages ok",
+          "/v1/messages ok",
+          "/v1/messages ok",
+          "/v1/messages ok"
+        ],
+        "renderedLines": [
+          " say hi",
+          "  ⎋ Working…",
+          " ⠹ 0s > ⬢ stub-model > 🗑 junto-capture-cwd/omp ▶──4%──────────────────────────────────────────────╎──────┃─────────200K─",
+          "╰─",
+          " Line 1573 of a long capture answer, padding the conversation.",
+          " π > ⬢ stub-model > 🗑 junto-capture-cwd/omp ▶───────────15%──────────────────────────────────────╎───────┃─────────200K─",
+          " say more",
+          "  ⎋ Working…                                           Summary: the user greeted the assistant and the assistant replied",
+          " Summary: the user greeted the assistant and the assistant replied.",
+          "                                                       Summary: the user greeted the assistant and the assistant replied",
+          " π > ⬢ stub-model > 🗑 junto-capture-cwd/omp ▶─0.0%───────────────────────────────────────────────╎───────┃─────────200K─",
+          " ⠋ Compacting context... (⎋ to cancel)",
+          "                                            ████████████",
+          "                                               ██  ██       ▄▀▀▄ █▀▄▀▄ █▀▀▄",
+          "                                               ██  ██       ▀▄▄▀ █ █ █ █▄▄▀",
+          "                                               ▒▒  ██                  █",
+          "                                                   ██       v18.9.2",
+          "                                   Tip: Tired of typing \"keep going\"? Just send a '.'",
+          "─────────────────────────────────────────── 📷 soft-compacted · 20→7.1K · ⌃O ───────────────────────────────────────────"
+        ],
+        "cliVersion": "omp/18.9.2"
+      },
+      "expectedScreen": {}
     }
   ],
   "sanitization": {
     "method": "decoded-jsonl-scan",
-    "fixtures": 4,
-    "decodedBytes": 1194375,
+    "fixtures": 14,
+    "decodedBytes": 2666804,
     "checks": [
       "home-path",
       "username",
@@ -207,5 +510,11 @@
     "configured model and usage-multiplier label -> synth-model-1 (1x usage)",
     "live context/quota percentages -> 0.0%/1M",
     "capture working-directory link text and escape-split path fragments -> <CWD>"
-  ]
+  ],
+  "signalCaptureEvidence": {
+    "tool": "tests/pty-e2e/signal-capture.ts",
+    "capturedAt": "2026-10-17T04:35:34.790Z",
+    "harnessVersion": "omp/18.9.2",
+    "provider": "scripted local stub; the binary and its rendering are real, the provider replies are not"
+  }
 }
