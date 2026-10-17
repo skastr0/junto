@@ -27,6 +27,7 @@ import {
   type SeatStopCause,
 } from "@shared/spawn-failure";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
+import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import {
   EMPTY_LAUNCH_RECORD,
   type RegionEnvironmentLaunchRecord,
@@ -235,15 +236,7 @@ export type LocalHostEvent =
       readonly type: "seat-state";
       readonly bindingId: string;
       readonly epoch: string;
-      readonly event: {
-        readonly bindingId: string;
-        readonly epoch: string;
-        readonly state: "idle" | "working" | "attention" | "unknown" | "gone";
-        readonly reason: string;
-        readonly confidence: "high" | "low";
-        readonly at: number;
-        readonly harness?: string;
-      };
+      readonly event: AgentSeatStateEvent;
     };
 
 export type LocalHostEventListener = (event: LocalHostEvent) => void;

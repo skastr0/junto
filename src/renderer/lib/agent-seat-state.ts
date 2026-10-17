@@ -15,7 +15,10 @@
 
 import { observable } from "@legendapp/state";
 import {
+  agentSeatStatusOf,
+  encodeAgentSeatStatus,
   isAgentSeatState,
+  type AgentSeatStatus,
   type AgentSeatConfidence,
   type AgentSeatState,
   type AgentSeatStateEvent,
@@ -143,6 +146,8 @@ export const decodeAgentSeatStateEvent = (raw: unknown): AgentSeatStateEvent | u
   if (typeof raw.at !== "number" || !Number.isFinite(raw.at)) return undefined;
   const confidence: AgentSeatConfidence = raw.confidence;
   const harness = typeof raw.harness === "string" ? raw.harness : undefined;
+  // The status is kept only when it reads as the harness domain says.
+  const status = agentSeatStatusOf({ status: raw.status as never });
   return {
     bindingId: raw.bindingId,
     epoch: raw.epoch,
@@ -151,6 +156,7 @@ export const decodeAgentSeatStateEvent = (raw: unknown): AgentSeatStateEvent | u
     confidence,
     at: raw.at,
     ...(harness ? { harness } : {}),
+    ...(status === undefined ? {} : { status: encodeAgentSeatStatus(status) }),
   };
 };
 
@@ -254,6 +260,14 @@ export const seatEventForBinding = (
   if (!bindingId) return undefined;
   return agentSeat$.byBindingId[bindingId].peek();
 };
+
+/**
+ * The seat's status in the harness-domain vocabulary (snapshot and most
+ * urgent need), decoded from its latest event; undefined before one carries it.
+ */
+export const seatStatusForBinding = (
+  bindingId: string | undefined,
+): AgentSeatStatus | undefined => agentSeatStatusOf(seatEventForBinding(bindingId));
 
 // Singleton fan-out: main snapshot + onAgentSeatStateChanged → agentSeat$.
 // Safe to call from App boot and every card mount; only the first call

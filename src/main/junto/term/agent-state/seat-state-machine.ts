@@ -16,10 +16,12 @@
  * what the decision means.
  */
 
-import type {
-  AgentSeatHookState,
-  AgentSeatState,
-  AgentSeatStateEvent,
+import {
+  encodeAgentSeatStatus,
+  type AgentSeatHookState,
+  type AgentSeatState,
+  type AgentSeatStateEvent,
+  type AgentSeatStatusWire,
 } from "../../../../shared/agent-seat-state";
 import type { ObserverGridSnapshot } from "../observer/types";
 import { evaluate, type EvaluateOptions } from "./engine";
@@ -31,6 +33,8 @@ import type { SeatEvaluation } from "./types";
 import {
   initialSnapshot,
   reduceSeat,
+  sourceRank,
+  topNeed,
   type BindingId,
   type Fidelity,
   type SeatSignal,
@@ -305,6 +309,7 @@ export class SeatStateMachine {
         confidence: slot.confidence,
         at: slot.lastPublishedAt,
         harness: slot.harness,
+        status: statusWire(slot.snapshot),
       }));
   }
 
@@ -531,7 +536,9 @@ export class SeatStateMachine {
       this.fold(slot, { signal: next.signal, source: next.source, fidelity: next.fidelity });
     }
     const state = projectAgentSeatState(slot.snapshot);
-    if (state !== next.state) {
+    // A richer open channel owning the seat outranks the screen by design;
+    // only a disagreement the precedence does not explain is worth a line.
+    if (state !== next.state && !outrankedByOwner(slot.snapshot, next.source)) {
       console.warn(
         `[seat-state] ${bindingId}: ${next.reason} decided ${next.state}, the snapshot reads ${state} (${slot.snapshot.status._tag} from ${slot.snapshot.statusSource})`,
       );
@@ -570,6 +577,7 @@ export class SeatStateMachine {
       at: t,
       harness:
         typeof slot.harness === "string" ? slot.harness : undefined,
+      status: statusWire(slot.snapshot),
     };
 
     this.emit(event);
@@ -647,6 +655,17 @@ export class SeatStateMachine {
     };
   }
 }
+
+const outrankedByOwner = (snapshot: SeatSnapshot, source: SignalSource): boolean => {
+  const owner = snapshot.statusSource;
+  return (
+    (snapshot.channels as ReadonlyArray<string>).includes(owner) &&
+    sourceRank(owner) > sourceRank(source)
+  );
+};
+
+const statusWire = (snapshot: SeatSnapshot): AgentSeatStatusWire =>
+  encodeAgentSeatStatus({ snapshot, need: topNeed(snapshot) });
 
 /** A fact that judges the seat's status, as opposed to one that only records. */
 const isStatusFact = (signal: SeatSignal): boolean =>

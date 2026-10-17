@@ -20,7 +20,7 @@ import {
   type TermControlRequest,
   type TermControlResponse,
 } from "@shared/term-control";
-import { isAgentSeatState } from "@shared/agent-seat-state";
+import { agentSeatStatusOf, encodeAgentSeatStatus, isAgentSeatState } from "@shared/agent-seat-state";
 import { readManagedPromptOutcome } from "@shared/managed-prompt";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import { Schema } from "effect";
@@ -178,6 +178,8 @@ const reviveHostEvent = (raw: unknown): LocalHostEvent | undefined => {
       (ev.confidence === "high" || ev.confidence === "low") &&
       typeof ev.at === "number"
     ) {
+      // The status rides along only when it reads as the domain says.
+      const status = agentSeatStatusOf({ status: ev.status as never });
       return {
         type: "seat-state",
         bindingId,
@@ -190,6 +192,7 @@ const reviveHostEvent = (raw: unknown): LocalHostEvent | undefined => {
           confidence: ev.confidence,
           at: ev.at,
           ...(typeof ev.harness === "string" ? { harness: ev.harness } : {}),
+          ...(status === undefined ? {} : { status: encodeAgentSeatStatus(status) }),
         },
       };
     }

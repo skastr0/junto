@@ -39,7 +39,12 @@
 import { Effect, Result } from "effect";
 import type { Canvas, Node, Seat } from "@shared/model";
 import type { Task } from "@shared/work-model";
-import type { AgentSeatState, AgentSeatStateEvent } from "@shared/agent-seat-state";
+import {
+  agentSeatStatusOf,
+  type AgentSeatState,
+  type AgentSeatStateEvent,
+} from "@shared/agent-seat-state";
+import { describeSeatStatus } from "@shared/seat-status-text";
 import {
   SEAT_WAIT_DEFAULT_MS,
   TASK_WAIT_DEFAULT_MS,
@@ -594,6 +599,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
           windowEpoch !== undefined &&
           session !== undefined &&
           session.epoch !== windowEpoch;
+        const status = seatDescribesWindow ? agentSeatStatusOf(seat) : undefined;
         return {
           target: target.nodeId,
           state: seatDescribesWindow
@@ -612,6 +618,15 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
           bytes: utf8ByteLength(text),
           truncated: !empty && (clip.truncated || (window?.truncated ?? false)),
           stopped,
+          ...(status === undefined
+            ? {}
+            : {
+                status: {
+                  summary: describeSeatStatus(status.snapshot),
+                  snapshot: status.snapshot,
+                  need: status.need,
+                },
+              }),
         };
       };
 

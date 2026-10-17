@@ -1,4 +1,6 @@
-import { Cause, Effect, Exit, Option } from "effect";
+import { Cause, Effect, Exit, Option, Schema } from "effect";
+import { SeatStateMachine } from "../src/main/junto/term/agent-state";
+import { SeatReadResult } from "../src/shared/seat-control";
 import { describe, expect, it } from "vitest";
 import type { Canvas, Node, Wire } from "../src/shared/model";
 import { canvasOf, seat, wire } from "./support/model-nodes";
@@ -414,5 +416,55 @@ describe("crew seat observation — adversarial authority and ordering", () => {
       expect(exit.value.epoch).toBe("e2");
       expect(exit.value.stopped).toBe("not-following");
     }
+  });
+
+  it("seat.read shows the seat's status with its reason, and the snapshot and need behind it", async () => {
+    const resetsAt = new Date(2026, 9, 16, 15, 0).getTime();
+    const machine = new SeatStateMachine({ now: () => new Date(2026, 9, 16, 9, 0).getTime() });
+    machine.bind("bind-peer", { harness: "codex", epoch: "e1" });
+    const event = machine.force("bind-peer", "attention", "rule:usage_limit", "high", {
+      signal: { _tag: "UsageLimitHit", scope: "weekly", resetsAt, message: "weekly limit" },
+      source: "screen",
+      fidelity: "screen",
+    });
+    const harness = makeHarness({
+      doc: docWith(
+        [agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")],
+        [messagesEdge],
+      ),
+      sessionEpoch: "e1",
+      seatEvents: [event],
+      window: gridWindow({ epoch: "e1" }),
+    });
+    const exit = await Effect.runPromiseExit(
+      harness.service.readSeat({ target: "peer" }, { canvasName: "c", nodeId: "caller" }),
+    );
+    expect(Exit.isSuccess(exit)).toBe(true);
+    if (!Exit.isSuccess(exit)) return;
+    expect(exit.value.state).toBe("attention");
+    expect(exit.value.status?.summary).toMatch(/^Blocked UsageLimit weekly, resets (Oct 16 )?15:00$/u);
+    expect(exit.value.status?.snapshot.status).toEqual({
+      _tag: "Blocked",
+      reason: { _tag: "UsageLimit", scope: "weekly", resetsAt },
+    });
+    expect(exit.value.status?.need).toMatchObject({ cause: "usage_limit", level: "stopped", actor: "operator" });
+    // The result crosses the wire as its schema says.
+    expect(Schema.decodeUnknownSync(SeatReadResult)(JSON.parse(JSON.stringify(Schema.encodeSync(SeatReadResult)(exit.value))))).toEqual(exit.value);
+  });
+
+  it("seat.read carries no status for a seat event from before it", async () => {
+    const harness = makeHarness({
+      doc: docWith(
+        [agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")],
+        [messagesEdge],
+      ),
+      sessionEpoch: "e1",
+      seatEvents: [seatEvent()],
+      window: gridWindow({ epoch: "e1" }),
+    });
+    const exit = await Effect.runPromiseExit(
+      harness.service.readSeat({ target: "peer" }, { canvasName: "c", nodeId: "caller" }),
+    );
+    expect(Exit.isSuccess(exit) && exit.value.status).toBe(undefined);
   });
 });

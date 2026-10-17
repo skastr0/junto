@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import type { AgentSeatState } from "./agent-seat-state";
+import { Need, SeatSnapshot } from "./harness-domain";
 import { TaskState } from "./work-model";
 
 // Seat wait/observe wire contract — the shared shapes for work-control ops
@@ -230,6 +231,18 @@ export type SeatWaitResult = typeof SeatWaitResult.Type;
  * exited mid-stream: the window is the last settled text of the generation that
  * left, and the terminal state and reason describe that exit.
  */
+/**
+ * The seat's status in the harness-domain vocabulary: `summary` in one line
+ * ("Blocked UsageLimit weekly, resets 15:00", seat-status-text.ts), the
+ * snapshot the five-value `state` projects, and its most urgent need.
+ */
+export const SeatReadStatus = Schema.Struct({
+  summary: Schema.String,
+  snapshot: SeatSnapshot,
+  need: Need,
+});
+export type SeatReadStatus = typeof SeatReadStatus.Type;
+
 export const SeatReadResult = Schema.Struct({
   target: Schema.String,
   state: SeatState,
@@ -244,6 +257,8 @@ export const SeatReadResult = Schema.Struct({
   bytes: Schema.Number,
   truncated: Schema.Boolean,
   stopped: SeatReadStopped,
+  /** Present when the seat state describes this window and carries a status. */
+  status: Schema.optionalKey(SeatReadStatus),
 });
 export type SeatReadResult = typeof SeatReadResult.Type;
 

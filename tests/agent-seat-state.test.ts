@@ -13,7 +13,7 @@ import {
   rulePackFor,
 } from "../src/main/junto/term/agent-state";
 import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
-import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
+import { agentSeatStatusOf, type AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import type { SeatMatcher } from "../src/main/junto/term/agent-state/types";
 import { HARNESS_IDS } from "../src/shared/managed-terminal-templates";
 
@@ -554,7 +554,7 @@ describe("SeatStateMachine — transitions without flapping", () => {
     });
 
     expect(m.currentEvents()).toEqual([
-      {
+      expect.objectContaining({
         bindingId: "b1",
         epoch: "e1",
         state: "unknown",
@@ -562,8 +562,8 @@ describe("SeatStateMachine — transitions without flapping", () => {
         confidence: "low",
         at: 1_020,
         harness: "claude",
-      },
-      {
+      }),
+      expect.objectContaining({
         bindingId: "b2",
         epoch: "e2",
         state: "working",
@@ -571,7 +571,12 @@ describe("SeatStateMachine — transitions without flapping", () => {
         confidence: "high",
         at: 1_010,
         harness: "codex",
-      },
+      }),
+    ]);
+    // Each carries the status its state projects.
+    expect(m.currentEvents().map((event) => agentSeatStatusOf(event)?.snapshot.status._tag)).toEqual([
+      "Starting",
+      "Working",
     ]);
 
     m.unbind("b2", { epoch: "e2" });
