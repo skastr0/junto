@@ -34,9 +34,6 @@ import { PausePlane } from "./junto/pause-plane";
 import { pauseWasResumed } from "@shared/pause";
 import type { AgentSignal } from "@shared/agent-signals";
 import { ObservabilityLoggerLive, setLogMachine } from "./junto/observability/logger";
-import { answerPeerLogRead, MachineLogsNotSetUp, receivePeerLogRead } from "./junto/observability/log-link";
-import { readMachineLog } from "./junto/observability/log-file";
-import { MachineLogQuery, MachineLogRead } from "@shared/machine-log";
 
 export interface MachineCoreOptions {
   readonly home: string;
@@ -46,11 +43,7 @@ export interface MachineCoreOptions {
   readonly ready: () => boolean;
 }
 
-// The status channel answers a machine's status, or its log for the asking peer.
-const MachineStatusRequest = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("machine") }),
-  Schema.Struct({ kind: Schema.Literal("logs"), query: MachineLogQuery }),
-]);
+const MachineStatusRequest = Schema.Struct({ kind: Schema.Literal("machine") });
 const rejectEvent = (): never => { throw new Error("The status channel has no events"); };
 
 export class MachineCoreStatus extends Context.Service<MachineCoreStatus, {
@@ -184,12 +177,9 @@ export const machineCoreStatusLayer = (options: MachineCoreOptions) => Layer.eff
   });
   const handler: LinkChannelHandler = {
     decodeRequest: Schema.decodeUnknownSync(MachineStatusRequest, { onExcessProperty: "error" }),
-    decodeResponse: Schema.decodeUnknownSync(Schema.Union([MachinePeerStatus, MachineLogRead]), { onExcessProperty: "error" }),
+    decodeResponse: Schema.decodeUnknownSync(MachinePeerStatus, { onExcessProperty: "error" }),
     decodeEvent: rejectEvent,
-    handleRequest: (context, payload) => {
-      const request = payload as typeof MachineStatusRequest.Type;
-      return request.kind === "logs" ? answerPeerLogRead(options.home, context.peer, request.query) : peer;
-    },
+    handleRequest: () => peer,
   };
   return { own, harnesses, handler };
 }));
@@ -213,14 +203,6 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
     const actions = yield* makeMachineOwnerActions({
       ownStatus: machineStatus.own,
       ownHarnesses: machineStatus.harnesses,
-      ownLogs: (query) => Effect.flatMap(machines.machineName, (name) => readMachineLog(options.home, name, query)),
-      peerLogs: (name, query) => Effect.gen(function* () {
-        const host = yield* hostsService.get(name);
-        const pin = yield* machines.peer(name);
-        if (host === undefined || pin === undefined) return yield* new MachineLogsNotSetUp({ machine: name, message: `Set up ${name} before reading its log` });
-        yield* link.connect(host);
-        return yield* receivePeerLogRead(yield* link.request(name, "status", { kind: "logs", query }), name);
-      }),
       peerBuild: link.peerBuild,
       copy,
       disconnect: link.disconnect,
