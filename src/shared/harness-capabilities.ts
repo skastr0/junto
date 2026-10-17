@@ -1,8 +1,9 @@
 /**
  * What each harness reports and accepts today, through the PTY stream only:
- * rendered screen text and titles, the PTY child's exit, and keystrokes typed
- * into it. One record per harness, every signal and command key written out,
- * "none" included. Design: `docs/harness-domain.md`.
+ * rendered screen text and titles, in-band OSC 7501 reports, the PTY child's
+ * exit, and keystrokes typed into it. One record per harness, every signal
+ * and command key written out, "none" included. Design:
+ * `docs/harness-domain.md`.
  *
  * Every level that is not "none" names its ground: a rule in the harness's
  * screen rule pack (`src/main/junto/term/agent-state/rules/`), a template
@@ -51,6 +52,16 @@ const screen = (...rules: readonly string[]): Grounded<SignalSupport> => ({
   channel: "screen",
   grounds: rules.map((rule) => ({ rule })),
 });
+
+/**
+ * Reported in-band by the Program Status Protocol. Declared only for reports
+ * captured from the real binary (`CAPTURED` in `tests/program-status.test.ts`).
+ */
+const OSC7501: Grounded<SignalSupport> = {
+  level: "native",
+  channel: "osc7501",
+  grounds: [{ code: "src/main/junto/term/program-status.ts#programStatusSignals" }],
+};
 
 /** The PTY child's exit code and signal (`AppTerminalBackend.attach`). */
 const EXITED: Grounded<SignalSupport> = {
@@ -208,9 +219,9 @@ export const HARNESS_CAPABILITY_DECLARATIONS: Readonly<
   pi: {
     signals: {
       SessionIdentified: NONE,
-      ActivityObserved: screen("working_literal", "editor_prompt_idle"),
+      ActivityObserved: OSC7501,
       TurnStarted: NONE,
-      TurnEnded: NONE,
+      TurnEnded: OSC7501,
       ToolStarted: NONE,
       PermissionRequested: NONE,
       PermissionResolved: NONE,
@@ -324,9 +335,9 @@ export const HARNESS_CAPABILITY_DECLARATIONS: Readonly<
   devin: {
     signals: {
       SessionIdentified: NONE,
-      ActivityObserved: screen("running_tools_footer", "live_prompt_footer"),
+      ActivityObserved: OSC7501,
       TurnStarted: NONE,
-      TurnEnded: NONE,
+      TurnEnded: OSC7501,
       ToolStarted: screen("running_tools_footer", "tool_reading_timeout"),
       PermissionRequested: screen("permission_prompt"),
       PermissionResolved: NONE,
@@ -382,14 +393,14 @@ export const HARNESS_CAPABILITY_DECLARATIONS: Readonly<
   agy: {
     signals: {
       SessionIdentified: NONE,
-      ActivityObserved: screen("spinner_working", "empty_prompt_idle"),
+      ActivityObserved: OSC7501,
       TurnStarted: NONE,
-      TurnEnded: NONE,
+      TurnEnded: OSC7501,
       ToolStarted: NONE,
-      PermissionRequested: screen("permission_prompt", "modal_allow_action"),
+      PermissionRequested: OSC7501,
       PermissionResolved: NONE,
       QuestionAsked: screen("modal_allow_action"),
-      DialogShown: NONE,
+      DialogShown: OSC7501,
       UsageLimitHit: NONE,
       Retrying: NONE,
       UsageLevel: NONE,
@@ -469,9 +480,9 @@ export const HARNESS_CAPABILITY_DECLARATIONS: Readonly<
   omp: {
     signals: {
       SessionIdentified: NONE,
-      ActivityObserved: screen("osc_title_working", "working_line_working", "osc_title_idle"),
+      ActivityObserved: OSC7501,
       TurnStarted: NONE,
-      TurnEnded: NONE,
+      TurnEnded: OSC7501,
       ToolStarted: NONE,
       PermissionRequested: screen("approval_dialog_attention"),
       PermissionResolved: NONE,
@@ -482,7 +493,7 @@ export const HARNESS_CAPABILITY_DECLARATIONS: Readonly<
       UsageLevel: NONE,
       CompactionStarted: NONE,
       CompactionEnded: NONE,
-      ErrorRaised: NONE,
+      ErrorRaised: OSC7501,
       ProcessExited: EXITED,
     },
     commands: {

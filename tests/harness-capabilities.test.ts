@@ -70,12 +70,12 @@ describe("harness capabilities", () => {
     }
   });
 
-  it("stays inside the PTY stream: screen and process signals, pty and process commands", () => {
+  it("stays inside the PTY stream: screen, osc7501 and process signals, pty and process commands", () => {
     for (const harness of HARNESS_IDS) {
       const { signals, commands } = HARNESS_CAPABILITIES[harness];
       for (const support of Object.values(signals)) {
         if (support.level === "none") continue;
-        expect(["screen", "process"], harness).toContain(support.channel);
+        expect(["screen", "osc7501", "process"], harness).toContain(support.channel);
       }
       for (const support of Object.values(commands)) {
         if (support.level === "none") continue;
