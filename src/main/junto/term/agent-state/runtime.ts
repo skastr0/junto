@@ -18,7 +18,13 @@ import { FALLBACK_IDLE } from "./engine";
 import { hookStateFromSnapshot } from "./hook-feed";
 import { SeatStateMachine, type SeatFact } from "./seat-state-machine";
 import { signalForState } from "./screen-signal";
-import type { SeatSnapshot } from "../../../../shared/harness-domain";
+import {
+  reduceSeat,
+  sourceRank,
+  type SeatSnapshot,
+  type SignalEnvelope,
+} from "../../../../shared/harness-domain";
+import { projectAgentSeatState } from "./projection";
 import type { HarnessId } from "../../../../shared/managed-terminal-templates";
 import { isHarnessId } from "../../../../shared/managed-terminal-templates";
 import {
@@ -317,6 +323,50 @@ export class SeatStateRuntime {
   }
 
   /**
+   * Fold one exact generation's in-band report (OSC 7501) into its slot and
+   * publish the projection. Precedence is the snapshot's: the report owns
+   * the activity over the screen while its channel is open, the screen may
+   * still raise a block it sees, and a closed channel hands the seat back to
+   * the screen on its next tick. A report from another generation is a no-op.
+   */
+  observeSignal(
+    bindingId: string,
+    epoch: string,
+    envelope: SignalEnvelope,
+  ): AgentSeatStateEvent | null {
+    const slot = this.machine.getSlot(bindingId);
+    const snapshot = this.machine.snapshot(bindingId);
+    if (slot === undefined || snapshot === undefined || slot.epoch !== epoch) return null;
+    const fact: SeatFact = {
+      signal: envelope.signal,
+      source: envelope.source,
+      fidelity: envelope.fidelity,
+    };
+    if (envelope.signal._tag === "ChannelClosed") {
+      this.machine.note(bindingId, fact);
+      return null;
+    }
+    // A report is the harness speaking: progress, and the end of any stall.
+    this.progressWatch?.noteProgress(bindingId);
+    this.turnStalled.delete(bindingId);
+    const at = Math.max(this.now(), snapshot.updatedAt);
+    const resumed =
+      snapshot.stalledSince === undefined
+        ? snapshot
+        : reduceSeat(snapshot, {
+            seat: snapshot.seat,
+            at,
+            source: "system",
+            fidelity: "native",
+            signal: { _tag: "HeartbeatResumed" },
+          });
+    const state = projectAgentSeatState(
+      reduceSeat(resumed, { ...envelope, seat: snapshot.seat, at }),
+    );
+    return this.machine.force(bindingId, state, `osc7501:${envelope.signal._tag}`, "high", fact);
+  }
+
+  /**
    * Release only the matching generation's structured authority.
    * Re-evaluate the newest exact-generation screen immediately when one is
    * available; otherwise publish unknown until the next observer tick.
@@ -362,8 +412,23 @@ export class SeatStateRuntime {
     if (!slot || slot.state !== "idle") return false;
     if (slot.visibleIdle) return true;
     if (slot.confidence === "high") return true;
+    // An idle a richer channel reported stays typeable after the screen's own
+    // low-confidence read lands beside it; the composer verdict still gates
+    // the paste itself.
+    if (this.idleOwnedAboveScreen(bindingId)) return true;
     // Low-confidence fallback idle: refuse paste (dialog / unmatched chrome).
     return false;
+  }
+
+  /** The snapshot reads Idle on the word of an open channel richer than the screen. */
+  private idleOwnedAboveScreen(bindingId: string): boolean {
+    const snapshot = this.machine.snapshot(bindingId);
+    if (snapshot === undefined || snapshot.status._tag !== "Idle") return false;
+    const owner = snapshot.statusSource;
+    return (
+      sourceRank(owner) > sourceRank("screen") &&
+      (snapshot.channels as ReadonlyArray<string>).includes(owner)
+    );
   }
 
   getState(bindingId: string): AgentSeatState | undefined {

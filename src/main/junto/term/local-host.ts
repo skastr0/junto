@@ -121,7 +121,6 @@ import {
   ProgramStatusScanner,
   programStatusEnvelopes,
 } from "./program-status";
-import type { SignalEnvelope } from "@shared/harness-domain";
 import {
   primeAgentDaemons,
   type PrimeAgentDaemonHandle,
@@ -915,7 +914,6 @@ export class LocalSessionHost extends EventEmitter {
   private readonly recordExitWaiters = new Set<RecordExitWaiter>();
   private inputSealed: ((bindingId: string) => boolean) | undefined;
   private readonly drainEndedListeners = new Set<(drainKey: string, code: number | undefined) => void>();
-  private readonly seatSignalListeners = new Set<(envelope: SignalEnvelope) => void>();
   private maintenanceLease: LocalTerminalMaintenanceLease | undefined;
   private shuttingDown = false;
   private shutdownFlight: Promise<LocalHostShutdownResult> | undefined;
@@ -2204,14 +2202,6 @@ export class LocalSessionHost extends EventEmitter {
     };
   }
 
-  /** Told each seat signal read out of a seat's PTY stream (OSC 7501 today). */
-  onSeatSignal(listener: (envelope: SignalEnvelope) => void): () => void {
-    this.seatSignalListeners.add(listener);
-    return () => {
-      this.seatSignalListeners.delete(listener);
-    };
-  }
-
   /** Detached sessions still alive, for the record at quit. */
   drainingKeys(): ReadonlyArray<string> {
     return [...this.liveRecords]
@@ -2239,6 +2229,7 @@ export class LocalSessionHost extends EventEmitter {
   /** Give up the grid and the seat-state slot a detached session held under its key. */
   private releaseDrainSurfaces(rec: SessionRec, drainKey: string): void {
     this.observerPlane.detach(drainKey, rec.epoch);
+    this.closeProgramStatus(drainKey, rec.epoch);
     seatStateRuntime.unbind(drainKey, rec.epoch, "drain_ended");
   }
 
@@ -2592,12 +2583,13 @@ export class LocalSessionHost extends EventEmitter {
       // seat, and above all no session-id capture: the binding's capture now
       // belongs to the fresh session, and this output must never name it.
       this.observerPlane.feed(rec.draining.key, data, rec.seq);
+      this.observeProgramStatus(rec, rec.draining.key, data);
       return;
     }
     this.pushJournal(rec, { seq: rec.seq, type: "output", data });
     // Single insertion point: every byte already flows here with a seq.
     this.observerPlane.feed(rec.bindingId, data, rec.seq);
-    this.observeProgramStatus(rec, data);
+    this.observeProgramStatus(rec, rec.bindingId, data);
     // Best-effort diagnostic observation when a harness prints a labeled id.
     // PTY text is untrusted and this value is neither durable nor a cold-resume
     // capability. Retain a bounded tail so a label split across chunks remains
@@ -2650,23 +2642,30 @@ export class LocalSessionHost extends EventEmitter {
    * Junto is the seat's terminal, so it answers the OSC 7501 support query
    * and reads the program's status reports. The reply is written in the same
    * tick the query arrives, ahead of any DA1 reply a surface sends, which is
-   * the order pi and agy require.
+   * the order pi and agy require. Reports fold into the seat state slot under
+   * `key`, the binding or a draining session's own key, for this generation.
    */
-  private observeProgramStatus(rec: SessionRec, data: string): void {
+  private observeProgramStatus(rec: SessionRec, key: string, data: string): void {
     for (const event of rec.programStatus.feed(data)) {
       if (event.type === "query") {
         this.answerProgramStatusQuery(rec);
         continue;
       }
-      for (const envelope of programStatusEnvelopes(rec.bindingId, Date.now(), event.report)) {
-        for (const listener of this.seatSignalListeners) {
-          try {
-            listener(envelope);
-          } catch (error) {
-            console.error(`[term] seat signal listener failed for ${rec.bindingId}@${rec.epoch}:`, error);
-          }
-        }
+      for (const envelope of programStatusEnvelopes(key, Date.now(), event.report)) {
+        seatStateRuntime.observeSignal(key, rec.epoch, envelope);
       }
+    }
+  }
+
+  /**
+   * The generation is over, so its program reports no more: the spec drops a
+   * working or blocked record when the process exits. Folded before the slot
+   * is unbound, and only when the program had reported.
+   */
+  private closeProgramStatus(key: string, epoch: string): void {
+    if (seatStateRuntime.snapshot(key)?.channels.includes("osc7501") !== true) return;
+    for (const envelope of programStatusEnvelopes(key, Date.now(), { state: "clear" })) {
+      seatStateRuntime.observeSignal(key, epoch, envelope);
     }
   }
 
@@ -2953,6 +2952,7 @@ export class LocalSessionHost extends EventEmitter {
     // Drop headless grid and structured authority for this exact epoch.
     this.observerPlane.detach(rec.bindingId, rec.epoch);
     this.clearPrimeAgentReporterHook(rec, "generation_exited");
+    this.closeProgramStatus(rec.bindingId, rec.epoch);
     seatStateRuntime.unbind(
       rec.bindingId,
       rec.epoch,

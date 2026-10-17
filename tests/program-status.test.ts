@@ -9,6 +9,10 @@ import {
   type ProgramStatusEvent,
 } from "../src/main/junto/term/program-status";
 import { LocalSessionHost, resolveLaunch } from "../src/main/junto/term/local-host";
+import { SeatStateRuntime } from "../src/main/junto/term/agent-state/runtime";
+import { seatStateRuntime } from "../src/main/junto/term/agent-state";
+import { projectAgentSeatState } from "../src/main/junto/term/agent-state/projection";
+import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
 import { OperatorInterlock } from "../src/main/junto/term/drive/operator-interlock";
 import {
   makeProcessIdentityMap,
@@ -305,26 +309,69 @@ describe("program status: the seat's terminal", () => {
     expect(fake.controllers[0]!.writes).toEqual([PROGRAM_STATUS_QUERY_REPLY]);
   });
 
-  it("publishes each report as seat signals for its binding", () => {
+  it("folds each report into the seat state slot of its generation", () => {
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: trackSyntheticPid(47_503),
       exitOnSignal: "SIGTERM",
     }));
     const host = hostWith(fake);
-    const seen: SignalEnvelope[] = [];
-    host.onSeatSignal((envelope) => seen.push(envelope));
-    host.create({ bindingId: "osc-signal" });
+    host.createAgentSeat({
+      bindingId: "osc-seat",
+      harness: "omp",
+      agentKey: "local:osc-seat",
+      launch: { kind: "harness", argv: ["omp"], cwd: "/tmp" },
+    });
     const report = osc(`state=blocked:kind=permission:app=omp:msg=${b64("Run ls?")}`);
     fake.controllers[0]!.emitData(report.slice(0, 12));
     fake.controllers[0]!.emitData(report.slice(12));
-    expect(seen).toEqual([
-      expect.objectContaining({
-        seat: "osc-signal",
-        source: "osc7501",
-        fidelity: "native",
-        signal: { _tag: "PermissionRequested", detail: "Run ls?" },
-      }),
-    ]);
+    const snapshot = seatStateRuntime.snapshot("osc-seat")!;
+    expect(snapshot.status).toEqual({ _tag: "Blocked", reason: { _tag: "Permission" } });
+    expect(snapshot.statusSource).toBe("osc7501");
+    expect(seatStateRuntime.getState("osc-seat")).toBe("attention");
+  });
+
+  it("closes the channel when the generation ends", async () => {
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(47_504),
+      exitOnSignal: "SIGTERM",
+    }));
+    const host = hostWith(fake);
+    host.createAgentSeat({
+      bindingId: "osc-exit",
+      harness: "pi",
+      agentKey: "local:osc-exit",
+      launch: { kind: "harness", argv: ["pi"], cwd: "/tmp" },
+    });
+    fake.controllers[0]!.emitData(osc("state=working:app=pi"));
+    expect(seatStateRuntime.snapshot("osc-exit")?.channels).toContain("osc7501");
+    const observed = vi.spyOn(seatStateRuntime, "observeSignal");
+    fake.controllers[0]!.exit();
+    await vi.waitFor(() => expect(host.get("osc-exit")?.status).toBe("exited"));
+    expect(observed).toHaveBeenCalledWith(
+      "osc-exit",
+      expect.any(String),
+      expect.objectContaining({ signal: { _tag: "ChannelClosed", channel: "osc7501" } }),
+    );
+  });
+
+  it("keeps reading a drained generation under its drain key", () => {
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(47_505),
+      exitOnSignal: "SIGTERM",
+    }));
+    const host = hostWith(fake);
+    host.createAgentSeat({
+      bindingId: "osc-drain",
+      harness: "omp",
+      agentKey: "local:osc-drain",
+      launch: { kind: "harness", argv: ["omp"], cwd: "/tmp" },
+    });
+    fake.controllers[0]!.emitData(osc("state=working:app=omp"));
+    const drained = host.drain("osc-drain");
+    expect(drained).toBeDefined();
+    fake.controllers[0]!.emitData(osc("state=idle:app=omp"));
+    expect(seatStateRuntime.snapshot(drained!.drainKey)?.status).toEqual({ _tag: "Idle" });
+    expect(seatStateRuntime.getState(drained!.drainKey)).toBe("idle");
   });
 
   it("turns reporting on through the environment, and the seat's own value wins", () => {
@@ -339,5 +386,125 @@ describe("program status: the seat's terminal", () => {
       ).env;
     expect(agent()).toMatchObject({ PI_PROGRAM_STATUS: "1", AGY_CLI_OSC7501: "on" });
     expect(agent({ PI_PROGRAM_STATUS: "0" }).PI_PROGRAM_STATUS).toBe("0");
+  });
+});
+
+// ── Precedence inside the seat state slot ────────────────────────────────
+
+const piScreen = (
+  bindingId: string,
+  over: { readonly title?: string; readonly lines?: readonly string[] } = {},
+): ObserverGridSnapshot => {
+  const lines = [...(over.lines ?? ["some output"])];
+  return {
+    bindingId,
+    epoch: "e1",
+    cols: 80,
+    rows: 24,
+    lines,
+    text: lines.join("\n"),
+    seq: 1n,
+    signals: {
+      title: over.title ?? "",
+      osc9: "",
+      modes: { bracketedPaste: true, synchronizedOutput: false, altScreen: false, mouseModes: [] },
+    },
+  };
+};
+const PI_IDLE = { title: "π - seat - junto" };
+const PI_WORKING = { lines: ["Working... (esc to interrupt)"] };
+const PI_TRUST = { lines: ["Trust project folder?", "> Trust", "↑↓ navigate - save - cancel"] };
+
+describe("program status: precedence in the seat state slot", () => {
+  let clock = 10_000;
+  const report = (body: string): SignalEnvelope[] =>
+    scanAll([osc(body)]).flatMap((event) =>
+      event.type === "report" ? [...programStatusEnvelopes("b1", (clock += 10), event.report)] : [],
+    );
+  const runtime = (): SeatStateRuntime => {
+    const rt = new SeatStateRuntime({ now: () => (clock += 10), turnProgressWatch: false });
+    rt.bindHarness("b1", "pi", "e1");
+    return rt;
+  };
+  const tell = (rt: SeatStateRuntime, body: string) => {
+    for (const envelope of report(body)) rt.observeSignal("b1", "e1", envelope);
+  };
+  const agrees = (rt: SeatStateRuntime) =>
+    expect(rt.getState("b1")).toBe(projectAgentSeatState(rt.snapshot("b1")!));
+
+  it("owns the activity over the screen while it reports", () => {
+    const rt = runtime();
+    tell(rt, "state=working:app=pi");
+    rt.observe(piScreen("b1", PI_IDLE));
+    expect(rt.getState("b1")).toBe("working");
+    expect(rt.snapshot("b1")?.statusSource).toBe("osc7501");
+    expect(rt.isSeatIdle("b1")).toBe(false);
+    agrees(rt);
+    rt.stop();
+  });
+
+  it("lets the screen raise a block it sees, and the report clear it", () => {
+    const rt = runtime();
+    tell(rt, "state=working:app=pi");
+    rt.observe(piScreen("b1", PI_TRUST));
+    expect(rt.getState("b1")).toBe("attention");
+    expect(rt.snapshot("b1")?.status).toEqual({ _tag: "Blocked", reason: { _tag: "Dialog", kind: "trust" } });
+    tell(rt, "state=working:app=pi");
+    expect(rt.getState("b1")).toBe("working");
+    agrees(rt);
+    rt.stop();
+  });
+
+  it("reads a turn, a permission and idle from reports alone", () => {
+    const rt = runtime();
+    tell(rt, "state=working:app=omp");
+    expect(rt.getState("b1")).toBe("working");
+    tell(rt, `state=blocked:kind=permission:app=omp:msg=${b64("Run ls?")}`);
+    expect(rt.getState("b1")).toBe("attention");
+    expect(rt.snapshot("b1")?.status).toEqual({ _tag: "Blocked", reason: { _tag: "Permission" } });
+    tell(rt, "state=working:app=omp");
+    tell(rt, "state=done:app=omp");
+    expect(rt.getState("b1")).toBe("idle");
+    expect(rt.snapshot("b1")?.turnUnseen?.outcome).toBe("completed");
+    expect(rt.isSeatIdle("b1")).toBe(true);
+    agrees(rt);
+    rt.stop();
+  });
+
+  it("stays typeable on a reported idle when the screen's own read is low confidence", () => {
+    const rt = runtime();
+    tell(rt, "state=idle:app=pi");
+    rt.observe(piScreen("b1", { lines: ["unmatched output"] }));
+    expect(rt.machine.getSlot("b1")?.confidence).toBe("low");
+    expect(rt.getState("b1")).toBe("idle");
+    expect(rt.isSeatIdle("b1")).toBe(true);
+    rt.stop();
+
+    const screenOnly = runtime();
+    screenOnly.observe(piScreen("b1", PI_WORKING));
+    for (let i = 0; i < 4; i += 1) screenOnly.observe(piScreen("b1", { lines: ["unmatched output"] }));
+    expect(screenOnly.getState("b1")).toBe("idle");
+    expect(screenOnly.isSeatIdle("b1")).toBe(false);
+    screenOnly.stop();
+  });
+
+  it("hands the seat back to the screen once the channel closes", () => {
+    const rt = runtime();
+    tell(rt, "state=idle:app=pi");
+    tell(rt, "state=clear");
+    expect(rt.snapshot("b1")?.channels).not.toContain("osc7501");
+    rt.observe(piScreen("b1", PI_WORKING));
+    expect(rt.getState("b1")).toBe("working");
+    expect(rt.snapshot("b1")?.statusSource).toBe("screen");
+    rt.stop();
+  });
+
+  it("ignores a report from another generation", () => {
+    const rt = runtime();
+    for (const envelope of report("state=working:app=pi")) {
+      expect(rt.observeSignal("b1", "e0", envelope)).toBeNull();
+    }
+    expect(rt.snapshot("b1")?.channels).not.toContain("osc7501");
+    rt.stop();
   });
 });
