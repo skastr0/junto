@@ -94,10 +94,15 @@ export const startSeat = Effect.fn("SeatControl.start")(function* (input: {
       return yield* changed("This seat changed while it was starting.");
   });
   const local = plane.router.isLocalHostId(node.host);
+  // A fresh start of a seat that is still running returns that generation, so
+  // its session stays the seat's.
+  const fresh = local && input.resume === false &&
+    !(yield* Effect.promise(() => plane.router.list(node.host)))
+      .some((session) => session.bindingId === node.bindingId && session.status !== "exited");
   const provisioned = local
     ? yield* Effect.promise(() => (options.pin ?? ensureSeatSessionId)({ canvasName: canvas, nodeId: node.id,
       bindingId: node.bindingId, harness: node.harness, documentLaunch: node.launch,
-      ...(node.launch?.cwd ? { cwd: node.launch.cwd } : {}) }))
+      ...(node.launch?.cwd ? { cwd: node.launch.cwd } : {}), ...(fresh ? { fresh } : {}) }))
     : { ok: true as const, sessionId: "", minted: false };
   if (!provisioned.ok)
     return yield* new SeatSessionUnavailable({ machine: node.host, canvas, seatId,

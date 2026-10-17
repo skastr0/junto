@@ -92,6 +92,7 @@ import {
   scheduleCapturedSessionPersist,
   usesCapturedSession,
 } from "./session-capture-persist";
+import { recordFailOpenSession } from "./fail-open-session";
 import { harnessRuntimeRecordFor, printedSessionIdOf } from "./harness-record";
 import {
   isHarnessResumeFailureText,
@@ -2883,6 +2884,19 @@ export class LocalSessionHost extends EventEmitter {
         `[term] fail-open respawn failed for ${rec.bindingId}:`,
         err,
       );
+      return;
+    }
+    // The seat now runs the fresh session: the next wake resumes it, not the
+    // id that just failed.
+    if (seed.canvasName && seed.nodeId) {
+      void recordFailOpenSession({
+        canvasName: seed.canvasName,
+        nodeId: seed.nodeId,
+        bindingId: seed.bindingId,
+        harness: rec.harness,
+        sessionId: freshId,
+        ...(freshLaunch?.cwd ?? rec.cwd ? { cwd: freshLaunch?.cwd ?? rec.cwd } : {}),
+      });
     }
   }
 

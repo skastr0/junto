@@ -91,6 +91,7 @@ const fixture = async (nodes: ReadonlyArray<Node> = [localSeat, plainTerminal]) 
   const router = {
     isLocalHostId: (id: string) => id === THIS_MACHINE,
     kill: vi.fn(async (bindingId: string) => host.kill(bindingId)),
+    list: async () => host.list(),
   };
   const options: SeatControlOptions = {
     plane: { router, nodeDelete: new TerminalNodeDeleteService(router as never) } as never,
@@ -138,6 +139,17 @@ describe("seat start and stop", () => {
     expect(pin).toHaveBeenCalledTimes(1);
     expect(pin).toHaveBeenCalledWith({ canvasName: canvas, nodeId: localSeat.id,
       bindingId: localSeat.bindingId, harness: localSeat.harness, documentLaunch: localSeat.launch, cwd: tmpdir() });
+  });
+
+  it("a fresh start ends the session of a stopped seat, never of a running one", async () => {
+    const f = await fixture();
+    const pin = vi.fn(f.options.pin!);
+    await f.runtime.runPromise(startSeat({ canvas, seatId: localSeat.id, resume: false }, { ...f.options, pin }));
+    expect(pin.mock.calls[0]![0]).toMatchObject({ fresh: true });
+
+    await f.runtime.runPromise(startSeat({ canvas, seatId: localSeat.id, resume: false }, { ...f.options, pin }));
+    expect(pin.mock.calls[1]![0]).not.toHaveProperty("fresh");
+    expect(f.fake.controllers).toHaveLength(1);
   });
 
   it("a seat on another machine takes the host step and leaves its session to that machine", async () => {

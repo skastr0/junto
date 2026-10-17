@@ -17,6 +17,12 @@ type SeatSessionStart = {
   readonly harness: string;
   readonly cwd?: string;
   readonly documentLaunch?: TerminalLaunch;
+  /**
+   * The operator asked for a fresh session: the open one ends here, so the
+   * start pins, captures or provisions a new one and the next wake resumes
+   * that, not the session left behind.
+   */
+  readonly fresh?: boolean;
 };
 
 /** A copy of the canvas is never edited to choose the local occupant's session. */
@@ -34,6 +40,7 @@ const sessionBeforeStart = Effect.fn("SeatSession.beforeStart")(function* (input
       return yield* Effect.fail(new Error("seat changed before its session was recorded"));
     if (!isThisMachine(current.host, machineName))
       return yield* Effect.fail(new Error("this seat runs on another machine"));
+    if (input.fresh === true) yield* sessions.end(current.id, "replaced", undefined, current.bindingId);
     if (isHarnessId(input.harness) && templateFor(input.harness).capabilityBadges.sessionId === "pin") {
       return yield* sessions.pin({ seatId: current.id, bindingId: current.bindingId, harness: current.harness,
         sessionId: candidate!, ...(input.cwd ? { cwd: input.cwd } : {}) });
