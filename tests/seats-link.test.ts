@@ -17,6 +17,9 @@ import { noSeatEnvironment, type SeatEnvironmentResolver } from "../src/main/jun
 import { makeSeatsChannel, type SeatsChannelOptions } from "../src/main/junto/term/seats-link";
 import { makeSeatsProcessClient } from "../src/main/junto/term/seats-client";
 import { SeatsFailure } from "../src/main/junto/term/seats-failure";
+import { closeMachineLog, installMachineLog, ObservabilityLoggerLive } from "../src/main/junto/observability/logger";
+import { machineLogDir } from "../src/main/junto/observability/log-file";
+import { readFileSync } from "node:fs";
 import { getSeatCredentialRegistry, setSeatCredentialRegistryForTests } from "../src/main/junto/work/seat-credentials";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { InstallationId } from "../src/shared/installation-id";
@@ -69,10 +72,14 @@ const fixture = async (options: {
   readonly pin?: SeatsChannelOptions["pin"];
   readonly editor?: string;
   readonly nodes?: ReadonlyArray<Node>;
+  readonly spawnError?: Error;
 } = {}) => {
   const root = await mkdtemp(join(tmpdir(), "junto-seats-link-"));
   const fake = makeFakeTerminalProcessAuthority(() => ({ pid: 42_818, exitOnSignal: "SIGTERM" }));
-  const host = new LocalSessionHost(fake.authority, {
+  const authority = options.spawnError === undefined ? fake.authority : {
+    ...fake.authority, spawnTerminal: () => { throw options.spawnError; },
+  };
+  const host = new LocalSessionHost(authority, {
     killGraceMs: 5, shutdownGraceMs: 5, lateExitGraceMs: 5,
   });
   const repositories = Layer.provideMerge(Layer.mergeAll(
@@ -114,7 +121,7 @@ const fixture = async (options: {
     request: () => Effect.die("the start receiver must not send requests"),
   };
   const start = (raw: unknown = request, caller = context) =>
-    runtime.runPromise(channel.handleRequest(caller, raw));
+    runtime.runPromise(channel.handleRequest(caller, raw).pipe(Effect.provide(ObservabilityLoggerLive)));
   return { host, fake, runtime, channel, controller, context, start, pin, copy };
 };
 
@@ -282,6 +289,25 @@ describe("seats link start", () => {
     expect(Schema.is(SeatsFailure)(failure)).toBe(true);
     expect(JSON.stringify(Schema.encodeSync(SeatsFailure)(failure as SeatsFailure))).not.toContain("JUNTO_WORK_TOKEN");
     expect(f.fake.controllers).toHaveLength(0);
+  });
+
+  it("logs a spawn error that quotes a seat's region secret redacted", async () => {
+    const secret = "plain-region-value-7f3k2";
+    const home = await mkdtemp(join(tmpdir(), "junto-seats-log-"));
+    cleanups.push(async () => { closeMachineLog(); await rm(home, { recursive: true, force: true }); });
+    installMachineLog({ home, process: "core", echo: false });
+    const f = await fixture({
+      environment: async () => ({ env: { REGION_SECRET: secret }, folders: [], record: EMPTY_LAUNCH_RECORD }),
+      spawnError: new Error(`spawn refused with ${secret} in its text`),
+    });
+    const failure = await f.start().then(() => undefined, (error: unknown) => error);
+    expect(failure).toMatchObject({ _tag: "SeatSpawnFailed" });
+    expect((failure as { exitMessage: string }).exitMessage).toContain(secret);
+    const log = readFileSync(join(machineLogDir(home), "core.jsonl"), "utf8");
+    const rows = log.split("\n").filter((line) => line.includes("seat start failed"));
+    expect(rows.length).toBeGreaterThan(0);
+    expect(log).not.toContain(secret);
+    expect(rows.join("\n")).toContain("[redacted]");
   });
 
   it("answers each refusal with its own tag", async () => {
