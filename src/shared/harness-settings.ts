@@ -4,9 +4,11 @@
  */
 
 import type { HarnessId } from "./managed-terminal-templates";
+import type { ParamLayers, ParamValues } from "./harness-domain/params";
 import {
   harnessPrefsFor,
   harnessUserEnabled,
+  machineHarnessPrefsFor,
   type HarnessInstancePrefs,
   type Settings,
 } from "./settings";
@@ -56,3 +58,24 @@ export const harnessVisibleInPalette = (
   if (!HARNESS_SETTINGS_ENABLED) return true;
   return harnessUserEnabled(settings, harness);
 };
+
+const prefsValues = (prefs: HarnessInstancePrefs): ParamValues => ({
+  ...(prefs.model ? { model: prefs.model } : {}),
+  ...(prefs.effort ? { effort: prefs.effort } : {}),
+  ...(prefs.permissionMode ? { permissionMode: prefs.permissionMode } : {}),
+  ...(prefs.extraArgs !== undefined ? { extraArgs: prefs.extraArgs } : {}),
+});
+
+/**
+ * The two Settings layers for one harness on one machine: the app-wide
+ * default and that machine's override. `resolveParams` orders them under the
+ * seat and the launch; a key set in neither is left to the harness.
+ */
+export const harnessSettingLayers = (
+  settings: Settings | undefined,
+  machine: string,
+  harness: HarnessId | string,
+): ParamLayers => ({
+  harnessDefault: prefsValues(harnessPrefsFor(settings, harness)),
+  machineDefault: prefsValues(machineHarnessPrefsFor(settings, machine, harness)),
+});

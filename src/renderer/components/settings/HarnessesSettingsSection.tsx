@@ -1,380 +1,423 @@
 /**
- * Settings → Agents: scan installed harness CLIs and set spawn defaults.
+ * Settings → Agents for one named machine. Every row renders and validates
+ * from the harness domain (`paramsOfTemplate`, `resolveParams`, `checkParam`);
+ * nothing here branches on a harness id. Two Settings layers per param: the
+ * app-wide default and this machine's override. A key set in neither shows
+ * "Harness default" and is never passed to the harness.
+ *
+ * The machine is the one the page head's dropdown chose (lib/settings-machine.ts).
+ * Its harnesses come from its inventory, asked the same way for
+ * every machine (lib/harness-machine-source.ts). Until an answer exists the
+ * page says so beside each harness and stays usable; no loader stands in.
+ *
  * Gated by HARNESS_SETTINGS_ENABLED (ship/prod off).
  */
 import { use$ } from "@legendapp/state/react";
-import { useCallback, useEffect, useState } from "react";
-import type { HarnessId } from "@shared/managed-terminal-templates";
+import { Result } from "effect";
+import { useEffect, useId, useState } from "react";
 import {
-  isHarnessId,
-  isSandboxGatedPermissionMode,
-  templateFor,
-} from "@shared/managed-terminal-templates";
-import {
-  formatExtraArgs,
-  parseExtraArgsText,
-  sanitizeExtraArgs,
-  type HarnessHelpFlag,
-} from "@shared/launch-extra-args";
-import type {
-  ManagedTerminalHarnessOption,
-  ManagedTerminalModelOption,
-} from "@shared/ipc";
-import { harnessPrefsFor } from "@shared/settings";
+  checkParam,
+  inventoryOptions,
+  isInventoryStale,
+  paramsOfTemplate,
+  resolveParams,
+  type HarnessInventory,
+  type HarnessParamKey,
+  type HarnessParamSpec,
+  type HarnessParams,
+  type InventoryUnavailableError,
+  type MachineInventory,
+  type NativeSettingSpec,
+  type ParamLayer,
+} from "@shared/harness-domain";
+import { harnessSettingLayers } from "@shared/harness-settings";
+import { allTemplates, type HarnessId } from "@shared/managed-terminal-templates";
+import { formatExtraArgs, parseExtraArgsText, sanitizeExtraArgs } from "@shared/launch-extra-args";
+import { harnessPrefsFor, type HarnessInstancePrefsPatch, type Settings } from "@shared/settings";
 import { HUE_TEXT, INK } from "../../lib/theme";
 import { state$ } from "../../lib/state";
 import { patchSettings } from "../../lib/settings-state";
-import { getJuntoApi } from "../../lib/junto-api";
-import { Button, Input, Select, Switch } from "../ui";
+import { machineLabel } from "../../lib/machines";
+import { harnessMachineSource } from "../../lib/harness-machine-source";
+import { useSettingsMachine } from "../../lib/settings-machine";
+import { Input, Select, Switch } from "../ui";
 import { FieldRow } from "./FieldRow";
 
-type HarnessScan = ManagedTerminalHarnessOption & {
-  readonly models: readonly ManagedTerminalModelOption[];
-  readonly efforts: readonly string[];
-  readonly modelsError?: string;
-};
+/** The layers this page writes, least specific first. */
+const SETTINGS_LAYERS = ["harnessDefault", "machineDefault"] as const satisfies readonly ParamLayer[];
+type SettingsLayer = (typeof SETTINGS_LAYERS)[number];
 
-const DEFAULT_OPTION = { value: "", label: "Product default" };
+/** Params Settings keeps; a declared param outside this set is set from the seat or the launch. */
+const STORED_KEYS = ["model", "effort", "permissionMode", "extraArgs"] as const satisfies readonly HarnessParamKey[];
+type StoredKey = (typeof STORED_KEYS)[number];
+const isStoredKey = (key: HarnessParamKey): key is StoredKey => (STORED_KEYS as readonly string[]).includes(key);
 
-export function HarnessesSettingsSection() {
+const HARNESS_DEFAULT = "Harness default";
+
+type InventoryRead =
+  | { readonly state: "unread" }
+  | { readonly state: "answered"; readonly inventory: MachineInventory }
+  | { readonly state: "refused"; readonly error: InventoryUnavailableError };
+
+export function HarnessesSettingsSection({ machine: chosen }: { readonly machine?: string }) {
   const settings = use$(state$.settings);
-  const [scan, setScan] = useState<readonly HarnessScan[] | null>(null);
-  const [error, setError] = useState<string | undefined>();
-  const [busy, setBusy] = useState(false);
-
-  const refresh = useCallback(async () => {
-    const api = getJuntoApi();
-    if (!api?.managedTerminalHarnesses) {
-      setError("Harness scan API unavailable.");
-      setScan([]);
-      return;
-    }
-    setBusy(true);
-    setError(undefined);
-    try {
-      const { harnesses } = await api.managedTerminalHarnesses();
-      const rows: HarnessScan[] = [];
-      for (const row of harnesses) {
-        let models: readonly ManagedTerminalModelOption[] = [];
-        let efforts: readonly string[] = [];
-        let modelsError: string | undefined;
-        if (row.installed && api.managedTerminalModels) {
-          try {
-            const result = await api.managedTerminalModels(row.harness);
-            models = result.models;
-            efforts = result.efforts;
-            modelsError = result.error;
-          } catch (err) {
-            modelsError =
-              err instanceof Error ? err.message : "model scan failed";
-          }
-        }
-        // Template efforts when enumeration is empty.
-        if (efforts.length === 0) {
-          try {
-            efforts = templateFor(row.harness as HarnessId).efforts;
-          } catch {
-            /* unknown harness id — skip template */
-          }
-        }
-        rows.push({ ...row, models, efforts, modelsError });
-      }
-      setScan(rows);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setScan([]);
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+  const shown = useSettingsMachine();
+  const machine = chosen && chosen.length > 0 ? chosen : shown.name;
+  const [read, setRead] = useState<InventoryRead>({ state: "unread" });
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    let current = true;
+    setRead({ state: "unread" });
+    void harnessMachineSource()
+      .inventory(machine)
+      .then((answer) => {
+        if (!current) return;
+        setRead(
+          Result.isSuccess(answer)
+            ? { state: "answered", inventory: answer.success }
+            : { state: "refused", error: answer.failure },
+        );
+      });
+    return () => {
+      current = false;
+    };
+  }, [machine]);
 
-  const patchHarness = (
-    harness: string,
-    patch: {
-      enabled?: boolean;
-      model?: string;
-      effort?: string;
-      permissionMode?: string;
-      extraArgs?: readonly string[];
-    },
-  ): void => {
+  const named = machine === shown.name ? shown.label : machineLabel(machine);
+  const label = machine === shown.name && shown.isThisMachine ? `${named} (this machine)` : named;
+
+  return (
+    <div className="settings-section" aria-label={`Agent harness settings for ${machineLabel(machine)}`} data-machine={machine}>
+      <p className="settings-note" data-testid="harness-settings-machine">
+        Settings for seats on <strong style={{ color: INK }}>{label}</strong>. A value under All machines applies
+        everywhere; a value for this machine wins on it. Anything left as {HARNESS_DEFAULT} is not passed, so the
+        harness&apos;s own config decides.
+      </p>
+      {read.state === "refused" ? (
+        <p className="settings-note" style={{ color: HUE_TEXT.crimson }} role="status">
+          No inventory for {machineLabel(machine)}: {read.error.message}
+        </p>
+      ) : null}
+      <ul className="settings-harness-list" role="list">
+        {allTemplates().map((template) => {
+          const params = paramsOfTemplate(template);
+          const inventory =
+            read.state === "answered"
+              ? read.inventory.harnesses.find((row) => row.harness === template.harness)
+              : undefined;
+          return (
+            <HarnessCard
+              key={template.harness}
+              harness={template.harness}
+              displayName={template.displayName}
+              params={params}
+              machine={machine}
+              machineName={machineLabel(machine)}
+              settings={settings}
+              read={read}
+              inventory={inventory}
+            />
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+const inventoryLine = (read: InventoryRead, inventory: HarnessInventory | undefined, now: number): string => {
+  if (read.state === "unread") return "inventory not read yet";
+  if (read.state === "refused") return "inventory unavailable";
+  if (!inventory) return "not reported by this machine";
+  if (!inventory.installed) return "not installed";
+  const version = inventory.version ? `version ${inventory.version}` : "installed";
+  if (inventory.lastFailure) return `${version}, last scan ${inventory.lastFailure.reason}: ${inventory.lastFailure.message}`;
+  if (inventory.refreshing) return `${version}, rescanning`;
+  return isInventoryStale(inventory, now) ? `${version}, model list out of date` : version;
+};
+
+function HarnessCard({
+  harness,
+  displayName,
+  params,
+  machine,
+  machineName,
+  settings,
+  read,
+  inventory,
+}: {
+  readonly harness: HarnessId;
+  readonly displayName: string;
+  readonly params: HarnessParams;
+  readonly machine: string;
+  readonly machineName: string;
+  readonly settings: Settings;
+  readonly read: InventoryRead;
+  readonly inventory: HarnessInventory | undefined;
+}) {
+  const layers = harnessSettingLayers(settings, machine, harness);
+  const resolved = resolveParams(params, layers);
+  const specs = params.params.filter(
+    (spec) => isStoredKey(spec.key) && SETTINGS_LAYERS.some((layer) => spec.layers.includes(layer)),
+  );
+  const notInstalled = inventory !== undefined && !inventory.installed;
+
+  const patch = (layer: SettingsLayer, prefs: HarnessInstancePrefsPatch): void => {
     void patchSettings({
-      harnesses: {
-        byHarness: {
-          [harness]: patch,
-        },
-      },
+      harnesses:
+        layer === "harnessDefault"
+          ? { byHarness: { [harness]: prefs } }
+          : { byMachine: { [machine]: { byHarness: { [harness]: prefs } } } },
     });
   };
 
   return (
-    <div className="settings-section" aria-label="Agent harness configuration">
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          variant="chrome"
-          size="sm"
-          disabled={busy}
-          onClick={() => void refresh()}
-          aria-label="Rescan installed agent CLIs"
-        >
-          {busy ? "Scanning…" : "Rescan"}
-        </Button>
-        <span className="settings-field__hint">Looks for agent CLIs installed on this machine.</span>
+    <li className="settings-harness-card" data-harness={harness} data-installed={notInstalled ? "false" : "true"}>
+      <div className="settings-harness-card__head">
+        <strong style={{ color: INK }}>{displayName}</strong>
+        <span className="settings-field__hint">{inventoryLine(read, inventory, Date.now())}</span>
       </div>
 
-      {error ? (
-        <p className="settings-note" style={{ color: HUE_TEXT.crimson }} role="status">
-          {error}
-        </p>
+      <FieldRow label="Offer in palette">
+        <Switch
+          checked={harnessPrefsFor(settings, harness).enabled !== false}
+          aria-label={`Offer ${displayName} in palette`}
+          onCheckedChange={(enabled) => patch("harnessDefault", { enabled })}
+        />
+      </FieldRow>
+
+      {specs.map((spec) => (
+        <ParamRow
+          key={spec.key}
+          spec={spec}
+          params={params}
+          displayName={displayName}
+          machineName={machineName}
+          inventory={inventory}
+          stored={{
+            harnessDefault: layers.harnessDefault?.[spec.key],
+            machineDefault: layers.machineDefault?.[spec.key],
+          }}
+          resolvedFrom={resolved.from[spec.key]}
+          resolvedValue={resolved.values[spec.key]}
+          onCommit={(layer, value) => patch(layer, { [spec.key]: value })}
+        />
+      ))}
+
+      <NativeSettings harness={harness} displayName={displayName} machine={machine} machineName={machineName} />
+    </li>
+  );
+}
+
+type StoredValue = string | readonly string[] | undefined;
+
+const showValue = (value: StoredValue): string =>
+  value === undefined ? "" : typeof value === "string" ? value : formatExtraArgs(value);
+
+function ParamRow({
+  spec,
+  params,
+  displayName,
+  machineName,
+  inventory,
+  stored,
+  resolvedFrom,
+  resolvedValue,
+  onCommit,
+}: {
+  readonly spec: HarnessParamSpec;
+  readonly params: HarnessParams;
+  readonly displayName: string;
+  readonly machineName: string;
+  readonly inventory: HarnessInventory | undefined;
+  readonly stored: Readonly<Record<SettingsLayer, StoredValue>>;
+  readonly resolvedFrom: ParamLayer | undefined;
+  readonly resolvedValue: StoredValue;
+  readonly onCommit: (layer: SettingsLayer, value: string | readonly string[]) => void;
+}) {
+  const effective =
+    resolvedFrom === undefined || resolvedValue === undefined || showValue(resolvedValue) === ""
+      ? HARNESS_DEFAULT
+      : `${showValue(resolvedValue)}, from ${resolvedFrom === "machineDefault" ? machineName : "All machines"}`;
+  return (
+    <FieldRow group label={spec.label} hint={`Seats on ${machineName} start with: ${effective}`}>
+      <span className="settings-harness-layers">
+        {SETTINGS_LAYERS.filter((layer) => spec.layers.includes(layer)).map((layer) => (
+          <LayerControl
+            key={layer}
+            spec={spec}
+            params={params}
+            layer={layer}
+            ariaLabel={`${displayName} ${spec.label.toLowerCase()}, ${layer === "machineDefault" ? machineName : "all machines"}`}
+            caption={layer === "machineDefault" ? machineName : "All machines"}
+            inventory={inventory}
+            stored={stored[layer]}
+            onCommit={(value) => onCommit(layer, value)}
+          />
+        ))}
+      </span>
+    </FieldRow>
+  );
+}
+
+/** The values a param offers here: its fixed list, or this machine's inventory, or its suggestions. */
+const offeredValues = (spec: HarnessParamSpec, inventory: HarnessInventory | undefined): readonly string[] => {
+  switch (spec.options.source) {
+    case "fixed":
+      return spec.options.values.filter((value) => !(spec.unoffered ?? []).includes(value));
+    case "inventory":
+      return inventoryOptions(inventory);
+    case "free":
+      return spec.options.suggestions;
+  }
+};
+
+function LayerControl({
+  spec,
+  params,
+  layer,
+  ariaLabel,
+  caption,
+  inventory,
+  stored,
+  onCommit,
+}: {
+  readonly spec: HarnessParamSpec;
+  readonly params: HarnessParams;
+  readonly layer: SettingsLayer;
+  readonly ariaLabel: string;
+  readonly caption: string;
+  readonly inventory: HarnessInventory | undefined;
+  readonly stored: StoredValue;
+  readonly onCommit: (value: string | readonly string[]) => void;
+}) {
+  const storedText = showValue(stored);
+  const [text, setText] = useState(storedText);
+  const [refusal, setRefusal] = useState<string | undefined>();
+  const listId = useId();
+  useEffect(() => {
+    setText(storedText);
+    setRefusal(undefined);
+  }, [storedText]);
+
+  const offered = offeredValues(spec, inventory);
+  const defaultLabel = spec.defaultValue ? `${HARNESS_DEFAULT} (${spec.defaultValue})` : HARNESS_DEFAULT;
+
+  const commitText = (next: string): void => {
+    if (spec.emit.via === "args") {
+      const args = sanitizeExtraArgs(params.harness, parseExtraArgsText(next)).args;
+      if (formatExtraArgs(args) !== storedText) onCommit(args);
+      return;
+    }
+    const checked = checkParam(params, { key: spec.key, value: next, layer });
+    if (Result.isFailure(checked)) {
+      setRefusal(checked.failure.message);
+      return;
+    }
+    setRefusal(undefined);
+    if (checked.success !== storedText) onCommit(checked.success);
+  };
+
+  const closedList = spec.options.source === "fixed" && !spec.custom;
+  const control = closedList ? (
+    <Select
+      dense
+      value={storedText}
+      aria-label={ariaLabel}
+      options={[
+        { value: "", label: defaultLabel },
+        ...offered.map((value) => ({ value, label: value })),
+        // A saved value the list no longer offers stays visible until changed.
+        ...(storedText && !offered.includes(storedText) ? [{ value: storedText, label: storedText }] : []),
+      ]}
+      onChange={commitText}
+    />
+  ) : (
+    <>
+      <Input
+        dense
+        value={text}
+        list={offered.length > 0 ? listId : undefined}
+        placeholder={spec.emit.via === "args" ? `${HARNESS_DEFAULT}: none` : defaultLabel}
+        aria-label={ariaLabel}
+        spellCheck={false}
+        onChange={(event) => setText(event.target.value)}
+        onBlur={() => commitText(text)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") commitText(text);
+        }}
+      />
+      {offered.length > 0 ? (
+        <datalist id={listId}>
+          {offered.map((value) => (
+            <option key={value} value={value} />
+          ))}
+        </datalist>
       ) : null}
+    </>
+  );
 
-      {scan === null ? (
-        <p className="settings-note">scanning installed agents…</p>
-      ) : scan.length === 0 ? (
-        <p className="settings-note">
-          This build has no agents to set up.
-        </p>
-      ) : (
-        <ul className="settings-harness-list" role="list">
-          {scan.map((row) => {
-            const prefs = harnessPrefsFor(settings, row.harness);
-            const template = (() => {
-              try {
-                return templateFor(row.harness as HarnessId);
-              } catch {
-                return undefined;
-              }
-            })();
-            const permissionModes =
-              template?.defaultPermissionMode !== undefined
-                ? [template.defaultPermissionMode]
-                : [];
-            // Known permission enums from templates (extend as harnesses expose them).
-            const permissionOptions = uniqueStrings([
-              ...permissionModes,
-              ...(prefs.permissionMode ? [prefs.permissionMode] : []),
-              "default",
-              "acceptEdits",
-              "plan",
-              "bypassPermissions",
-              "yolo",
-              "normal",
-            ]).filter(
-              (mode) =>
-                row.harness !== "devin" || !isSandboxGatedPermissionMode(mode),
-            );
-
-            return (
-              <li
-                key={row.harness}
-                className="settings-harness-card"
-                data-installed={row.installed ? "true" : "false"}
-              >
-                <div className="settings-harness-card__head">
-                  <strong style={{ color: INK }}>{row.displayName}</strong>
-                  <span className="settings-field__hint">
-                    {row.installed ? `${row.binary}, installed` : `${row.binary}, not installed`}
-                  </span>
-                </div>
-
-                <FieldRow label="Offer in palette">
-                  <Switch
-                    checked={prefs.enabled !== false}
-                    disabled={!row.installed}
-                    aria-label={`Offer ${row.displayName} in palette`}
-                    onCheckedChange={(enabled) => patchHarness(row.harness, { enabled })}
-                  />
-                </FieldRow>
-
-                <FieldRow
-                  group
-                  label="Default model"
-                  {...(row.modelsError ? { hint: <span style={{ color: HUE_TEXT.crimson }}>{row.modelsError}</span> } : {})}
-                >
-                  <Select
-                    dense
-                    disabled={!row.installed}
-                    value={prefs.model ?? ""}
-                    aria-label={`${row.displayName} default model`}
-                    options={[
-                      DEFAULT_OPTION,
-                      ...row.models.map((m) => ({
-                        value: m.id,
-                        label: m.label,
-                      })),
-                      // Keep a saved custom id selectable even if scan missed it.
-                      ...(prefs.model &&
-                      !row.models.some((m) => m.id === prefs.model)
-                        ? [{ value: prefs.model, label: prefs.model }]
-                        : []),
-                    ]}
-                    onChange={(value) =>
-                      patchHarness(row.harness, { model: value })
-                    }
-                  />
-                </FieldRow>
-
-                <FieldRow group label="Default effort">
-                  <Select
-                    dense
-                    disabled={!row.installed || row.efforts.length === 0}
-                    value={prefs.effort ?? ""}
-                    aria-label={`${row.displayName} default effort`}
-                    options={[
-                      DEFAULT_OPTION,
-                      ...row.efforts.map((e) => ({ value: e, label: e })),
-                    ]}
-                    onChange={(value) =>
-                      patchHarness(row.harness, { effort: value })
-                    }
-                  />
-                </FieldRow>
-
-                <FieldRow group label="Default permission mode">
-                  <Select
-                    dense
-                    disabled={!row.installed}
-                    value={prefs.permissionMode ?? ""}
-                    aria-label={`${row.displayName} default permission mode`}
-                    options={[
-                      DEFAULT_OPTION,
-                      ...permissionOptions.map((p) => ({
-                        value: p,
-                        label: p,
-                      })),
-                    ]}
-                    onChange={(value) =>
-                      patchHarness(row.harness, { permissionMode: value })
-                    }
-                  />
-                </FieldRow>
-
-                {isHarnessId(row.harness) ? (
-                  <ExtraArgsField
-                    harness={row.harness}
-                    displayName={row.displayName}
-                    disabled={!row.installed}
-                    stored={prefs.extraArgs}
-                    onCommit={(extraArgs) => patchHarness(row.harness, { extraArgs })}
-                  />
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
+  const rejected = spec.emit.via === "args" ? sanitizeExtraArgs(params.harness, parseExtraArgsText(text)).rejected : [];
+  return (
+    <span className="settings-harness-layer" data-layer={layer}>
+      <span className="settings-field__hint">{caption}</span>
+      {control}
+      {refusal ? (
+        <span className="settings-field__hint" role="alert" style={{ color: HUE_TEXT.crimson }}>
+          {refusal}
+        </span>
+      ) : null}
+      {rejected.map((item, index) => (
+        <span key={`${item.token}-${index}`} className="settings-field__hint" role="alert">
+          {item.token} is left out: {item.reason}.
+        </span>
+      ))}
+    </span>
   );
 }
 
 /**
- * Extra arguments every new seat of this harness starts with, plus the
- * options the installed harness lists so they can be picked instead of
- * remembered. Commits on blur; an existing seat keeps its own arguments and
- * is edited from the seat (Start parameters).
+ * Settings saved in the harness's own config on this machine, written by
+ * that machine's Junto. Only keys the harness domain declares for the
+ * machine's installed version are offered.
  */
-function ExtraArgsField({
+function NativeSettings({
   harness,
   displayName,
-  disabled,
-  stored,
-  onCommit,
+  machine,
+  machineName,
 }: {
   readonly harness: HarnessId;
   readonly displayName: string;
-  readonly disabled: boolean;
-  readonly stored: readonly string[] | undefined;
-  readonly onCommit: (extraArgs: readonly string[]) => void;
+  readonly machine: string;
+  readonly machineName: string;
 }) {
-  const storedText = formatExtraArgs(stored);
-  const [text, setText] = useState(storedText);
-  const [flags, setFlags] = useState<readonly HarnessHelpFlag[] | null>(null);
+  const [declared, setDeclared] = useState<readonly NativeSettingSpec[] | undefined>();
   useEffect(() => {
-    setText(storedText);
-  }, [storedText]);
-  const sanitized = sanitizeExtraArgs(harness, parseExtraArgsText(text));
-
-  const commit = (next: string): void => {
-    const args = sanitizeExtraArgs(harness, parseExtraArgsText(next)).args;
-    if (formatExtraArgs(args) !== storedText) onCommit(args);
-  };
-  const loadFlags = (): void => {
-    if (flags !== null) return;
-    const load = getJuntoApi()?.managedTerminalFlags?.(harness);
-    if (!load) {
-      setFlags([]);
-      return;
-    }
-    void load.then((result) => setFlags(result.flags)).catch(() => setFlags([]));
-  };
-  const add = (flag: HarnessHelpFlag): void => {
-    const addition = flag.value ? `${flag.flag} ` : flag.flag;
-    const next = text.trim().length > 0 ? `${text.trim()} ${addition}` : addition;
-    setText(next);
-    if (!flag.value) commit(next);
-  };
+    let current = true;
+    setDeclared(undefined);
+    void harnessMachineSource()
+      .nativeSettings(machine, harness)
+      .then((specs) => {
+        if (current) setDeclared(specs);
+      });
+    return () => {
+      current = false;
+    };
+  }, [machine, harness]);
 
   return (
-    <div className="settings-field">
-      <span className="settings-field__label">
-        <span>Default extra arguments</span>
+    <FieldRow
+      group
+      label={`Saved in ${displayName}'s own config`}
+      hint={`Changes how ${displayName} runs on ${machineName}, in Junto and outside it.`}
+    >
+      <span className="settings-field__hint">
+        {declared === undefined
+          ? "not read yet"
+          : declared.length === 0
+            ? `No settings are declared for ${displayName} on ${machineName} yet.`
+            : declared.map((spec) => spec.label).join(", ")}
       </span>
-      <span className="settings-field__control">
-        <Input
-          value={text}
-          disabled={disabled}
-          placeholder="--flag value"
-          aria-label={`${displayName} default extra arguments`}
-          spellCheck={false}
-          onChange={(event) => setText(event.target.value)}
-          onBlur={() => commit(text)}
-        />
-        {sanitized.rejected.map((item, index) => (
-          <span key={`${item.token}-${index}`} className="settings-field__hint" role="alert">
-            {item.token} is left out: {item.reason}.
-          </span>
-        ))}
-        {disabled ? null : (
-          <details onToggle={(event) => (event.currentTarget.open ? loadFlags() : undefined)}>
-            <summary className="settings-field__hint">Options {displayName} accepts</summary>
-            {flags === null ? (
-              <span className="settings-field__hint">Reading the installed harness…</span>
-            ) : flags.length === 0 ? (
-              <span className="settings-field__hint">The installed harness listed no options.</span>
-            ) : (
-              <ul className="settings-harness-flags" aria-label={`${displayName} options`}>
-                {flags.map((flag) => (
-                  <li key={flag.flag}>
-                    <button type="button" title={`Add ${flag.flag}`} onClick={() => add(flag)}>
-                      <code>
-                        {[flag.flag, ...flag.aliases].join(", ")}
-                        {flag.value ? ` ${flag.value}` : ""}
-                      </code>
-                      <span>{flag.description}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </details>
-        )}
-      </span>
-    </div>
+    </FieldRow>
   );
 }
-
-const uniqueStrings = (values: readonly string[]): readonly string[] => {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const value of values) {
-    const t = value.trim();
-    if (!t || seen.has(t)) continue;
-    seen.add(t);
-    out.push(t);
-  }
-  return out;
-};

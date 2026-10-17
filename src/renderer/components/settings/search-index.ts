@@ -89,9 +89,13 @@ export const LISTED_SETTINGS: ReadonlyArray<SettingEntry> = [
   entry("browser", "Max warm sessions", "Browser pages kept ready, up to 32"),
 
   entry("harnesses", "Offer in palette", "Whether this agent can be picked when you add one"),
-  entry("harnesses", "Default model", "the model a new seat of this harness starts with"),
-  entry("harnesses", "Default effort", "the effort a new seat of this harness starts with"),
-  entry("harnesses", "Default permission mode", "the permission mode a new seat of this harness starts with"),
+  entry(
+    "harnesses",
+    "All machines",
+    "The model, effort, permission mode and extra arguments a new seat starts with, on every machine or on one",
+    "default model effort permission mode extra arguments machine override",
+  ),
+  entry("harnesses", "Harness default", "A value left unset is not passed; the harness's own config decides"),
 
   entry("advanced", "Introduction", "The short tour from first launch"),
   entry("advanced", "Logs explorer", "show the developer logs panel in the top bar"),

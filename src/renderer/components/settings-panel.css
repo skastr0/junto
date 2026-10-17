@@ -848,6 +848,19 @@
   gap: 2px;
   margin-bottom: 8px;
 }
+/* One control per Settings layer: all machines, then this machine's override. */
+.settings-harness-layers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+.settings-harness-layer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
 
 /* Providers section - one card per configurable usage provider. */
 .settings-provider-card {
