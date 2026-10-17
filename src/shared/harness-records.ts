@@ -80,8 +80,8 @@ const HARNESS_VERIFIED_VERSIONS: Readonly<Partial<Record<HarnessId, VerifiedRang
   "prime-agent": { from: "0.7.1", through: "0.9.4" },
   kimi: { from: "0.34.0", through: "2.1.1" },
   muse: { from: "0.2.1", through: "1.4.10" },
-  devin: { from: "3000.10.27", through: "3000.10.27" },
-  cursor: { from: "2026.09.10", through: "2026.10.01" },
+  devin: { from: "3000.10.27", through: "3000.11.92" },
+  cursor: { from: "2026.09.10", through: "2026.10.14" },
   agy: { from: "1.2.1", through: "1.4.0" },
   // Amp versions are 0.0.<build>.
   amp: { from: "0.0.1789401648", through: "0.0.1789401648" },

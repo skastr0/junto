@@ -282,6 +282,22 @@ const LAST_SCREEN: Readonly<Record<string, Readonly<Record<string, Outcome>>>> =
 };
 
 /**
+ * Rows whose last screen is a running turn on a harness that steers with a
+ * second Enter (HARNESS_FOLLOW_UP): mail is the paste, its CR and that Enter.
+ * Devin 3000.11.92, run live against the stub provider on the network retry
+ * screen: the first Enter already lands the mail in the conversation and
+ * restarts the retry, and the second Enter on the emptied box adds nothing,
+ * no second message, no new turn, no dialog. Cursor 2026.10.14, the same run:
+ * the first Enter puts the mail in the follow-ups box ("enter steer"), the
+ * second marks it steering; only a third Enter would interrupt and send.
+ */
+const STEERED: ReadonlySet<string> = new Set([
+  "devin/retry-overloaded",
+  "devin/retry-network",
+  "cursor/retry-network",
+]);
+
+/**
  * What the input box read as on every recorded frame where the seat was
  * mid-turn. "available" and "draft" (not the operator's) are typed into;
  * "unreadable" holds. A harness with no entry has no mid-turn recording.
@@ -388,8 +404,9 @@ describe("mail on the last screen of every recording", () => {
       it(`${harness}/${scenario}: ${expected}`, async () => {
         const { outcome, writes } = await replay(harness, scenario);
         expect(outcome).toBe(expected);
+        const steer = STEERED.has(`${harness}/${scenario}`) ? [CR] : [];
         expect(writes).toEqual(
-          expected === "written" ? [encodeBracketedPaste(NOTICE), CR] : [],
+          expected === "written" ? [encodeBracketedPaste(NOTICE), CR, ...steer] : [],
         );
       });
     }
