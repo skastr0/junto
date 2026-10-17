@@ -282,7 +282,7 @@ try {
     const problems: string[] = [];
     const visible = await page!.evaluate<string>(`document.visibilityState`);
     if (visible !== "visible") problems.push(`window not visible (${visible}): an occluded window gives 0 frames`);
-    const overlay = await page!.evaluate<number>(`document.querySelectorAll('[role="dialog"], [aria-modal="true"]').length`);
+    const overlay = await page!.evaluate<number>(`[...document.querySelectorAll('[role="dialog"], [aria-modal="true"]')].filter((el) => !el.querySelector(".native-terminal-surface")).length`);
     if (overlay > 0) problems.push(`${overlay} dialog(s) cover the canvas (first-run tour?)`);
     return problems;
   };
