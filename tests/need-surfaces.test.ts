@@ -278,8 +278,9 @@ describe("need surfaces: today's seats project to today's surfaces", () => {
         (surface) => `${surface}: ${scenario.name}`,
       ),
     );
-    // 11 scenarios x 4 surfaces, less the four declared-signal and exit rows the rollup changes.
-    expect(agreed).toHaveLength(SCENARIOS.length * SURFACES.length - 4);
+    // 11 scenarios x 4 surfaces, less the rollup rows it now shows: three
+    // declared signals, a failure exit and the AI's waiting reading.
+    expect(agreed).toHaveLength(SCENARIOS.length * SURFACES.length - 5);
   });
 });
 
@@ -293,11 +294,11 @@ describe("need surfaces: tables", () => {
     for (const value of OCCUPANCY_LADDER) expect(OccupancySpectrum.literals).toContain(value);
   });
 
-  it("never ping or count the AI's advisory reading", () => {
+  it("never ping on the AI's advisory reading, and rank it no higher than escalated", () => {
     const advisory = (Object.keys(NEED_CAUSES) as NeedCause[]).filter((cause) => cause.startsWith("awareness_"));
     for (const cause of advisory) {
       expect(NOTIFY_FROM_NEED[cause]).toBeNull();
-      expect(ROLLUP_FROM_NEED[cause]).toBeNull();
+      expect([null, "escalated"]).toContain(ROLLUP_FROM_NEED[cause]);
       expect(OCCUPANCY_FROM_NEED[cause]).toBeNull();
       expect([null, "health"]).toContain(FEED_FROM_NEED[cause]);
     }
@@ -309,22 +310,11 @@ describe("need surfaces: where each surface's order disagrees with the ladder", 
     ladderDisagreements(surface).map((entry) => `${entry.kind} ${entry.above} > ${entry.below}`);
 
   it("occupancy", () => {
-    expect(summary("occupancy")).toEqual([
-      "inverted activity_blocked > attention",
-      "merged working > working",
-      "split stalled > working",
-    ]);
+    expect(summary("occupancy")).toEqual(["merged working > working", "split stalled > working"]);
   });
 
   it("region rollup", () => {
-    // The tiers run attention, blocked, escalated, ready, working, idle. A
-    // declared block and a prompt both wait on the operator, and the rollup
-    // shows the declared block as blocked beside a stop.
-    expect(summary("rollup")).toEqual([
-      "split attention > blocked",
-      "merged blocked > blocked",
-      "merged working > working",
-    ]);
+    expect(summary("rollup")).toEqual(["split attention > blocked", "merged blocked > blocked", "merged working > working"]);
   });
 
   it("operator feed", () => {
@@ -343,9 +333,11 @@ describe("need surfaces: where each surface's order disagrees with the ladder", 
     expect(summary("notify")).toEqual([]);
   });
 
-  it("leaves no disagreement on a surface that follows the ladder", () => {
+  it("leaves only accepted disagreements on a surface that follows the ladder", () => {
     for (const surface of SURFACES) {
-      if (SURFACE_ORDER[surface].order === "ladder") expect(ladderDisagreements(surface), surface).toEqual([]);
+      const { order, accepted } = SURFACE_ORDER[surface];
+      if (order !== "ladder") continue;
+      expect(summary(surface), surface).toEqual(accepted.map((entry) => entry.disagreement));
     }
   });
 });

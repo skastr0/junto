@@ -97,9 +97,9 @@ export const ROLLUP_FROM_NEED: NeedProjection<MemberSeverity> = {
   unexpected_exit: "blocked",
 
   seat_escalated: "escalated",
-  awareness_waiting: null,
-  awareness_approval: null,
-  awareness_answer: null,
+  awareness_waiting: "escalated",
+  awareness_approval: "escalated",
+  awareness_answer: "escalated",
 
   seat_feedback: "ready",
   turn_unseen: "ready",
@@ -253,7 +253,7 @@ export const notifyNeed = (
 // ── Each surface's own order ──────────────────────────────────────────────
 
 /** Occupancy's first-match order for a bound seat, worst first (`derive.ts`). */
-export const OCCUPANCY_LADDER = ["activity_blocked", "attention", "stalled", "working", "idle"] as const;
+export const OCCUPANCY_LADDER = ["attention", "activity_blocked", "stalled", "working", "idle"] as const;
 
 const urgencyOf = (cause: NeedCause): number => NEED_URGENCY[NEED_CAUSES[cause].level];
 
@@ -278,15 +278,42 @@ export const SURFACE_RANK: Readonly<Record<NeedSurface, (value: string, cause: N
 
 /**
  * Whose call each surface's order is, and where it stands. `ladder`: the
- * surface follows the need ladder, so any disagreement left is a decided
- * kind or label (notifications keep `needsYou` across three levels and
- * order inside it by level). `open`: not yet decided.
+ * surface follows the need ladder, and `accepted` lists the disagreements
+ * left (as `ladderDisagreements` names them) with why they stand.
+ * Notifications keep `needsYou` across three levels and order inside it by
+ * level, so they list none. `open`: not yet decided.
  */
-export const SURFACE_ORDER: Readonly<Record<NeedSurface, { readonly order: "ladder" | "open"; readonly owner: string }>> = {
-  feed: { order: "ladder", owner: "product-feed" },
-  notify: { order: "ladder", owner: "product-attention" },
-  rollup: { order: "open", owner: "canvas-lead" },
-  occupancy: { order: "open", owner: "canvas-lead" },
+export const SURFACE_ORDER: Readonly<
+  Record<
+    NeedSurface,
+    {
+      readonly order: "ladder" | "open";
+      readonly owner: string;
+      readonly accepted: ReadonlyArray<{ readonly disagreement: string; readonly why: string }>;
+    }
+  >
+> = {
+  feed: { order: "ladder", owner: "product-feed", accepted: [] },
+  notify: { order: "ladder", owner: "product-attention", accepted: [] },
+  rollup: {
+    order: "ladder",
+    owner: "canvas-lead",
+    accepted: [
+      ...["split attention > blocked", "merged blocked > blocked"].map((disagreement) => ({
+        disagreement,
+        why: "a declared block shares the blocked tier with stops, below a proven prompt",
+      })),
+      { disagreement: "merged working > working", why: "a retrying seat is still at work; the rollup has no degraded tier" },
+    ],
+  },
+  occupancy: {
+    order: "ladder",
+    owner: "canvas-lead",
+    accepted: ["merged working > working", "split stalled > working"].map((disagreement) => ({
+      disagreement,
+      why: "a retrying seat reads working, since it is still at work; occupancy's only degraded state is a stall",
+    })),
+  },
 };
 
 export const SURFACE_PROJECTION: Readonly<Record<NeedSurface, NeedProjection<string>>> = {
@@ -367,18 +394,27 @@ export const SURFACE_CHANGES: ReadonlyArray<{
     surface: "occupancy",
     causes: ["usage_limit", "auth_error", "crash"],
     before: "never produced: no seat state maps to activity_blocked, so these read as whatever the screen showed",
-    status: "open",
+    status: "decided",
+    decided: "canvas-lead 2026-10-17: occupancy reads OCCUPANCY_FROM_NEED (93ed70f5d)",
   },
-  { surface: "occupancy", causes: ["usage_limit_waking"], before: "not modelled", status: "open" },
-  { surface: "occupancy", causes: ["starting"], before: "idle (seat state unknown)", status: "open" },
+  { surface: "occupancy", causes: ["usage_limit_waking"], before: "not modelled", status: "decided", decided: "canvas-lead 2026-10-17: occupancy reads OCCUPANCY_FROM_NEED (93ed70f5d)" },
+  { surface: "occupancy", causes: ["starting"], before: "idle (seat state unknown)", status: "decided", decided: "canvas-lead 2026-10-17: occupancy reads OCCUPANCY_FROM_NEED (93ed70f5d)" },
   {
     surface: "rollup",
     causes: ["seat_blocked", "seat_escalated", "seat_feedback"],
     before: "not shown: declared signals never reach the rollup",
-    status: "open",
+    status: "decided",
+    decided: "canvas-lead 2026-10-17: the rollup reads ROLLUP_FROM_NEED (fab41b592)",
   },
-  { surface: "rollup", causes: ["usage_limit", "auth_error", "crash", "unexpected_exit"], before: "idle", status: "open" },
-  { surface: "rollup", causes: ["starting"], before: "idle (seat state unknown)", status: "open" },
+  { surface: "rollup", causes: ["usage_limit", "auth_error", "crash", "unexpected_exit"], before: "idle", status: "decided", decided: "canvas-lead 2026-10-17: the rollup reads ROLLUP_FROM_NEED (fab41b592)" },
+  { surface: "rollup", causes: ["starting"], before: "idle (seat state unknown)", status: "decided", decided: "canvas-lead 2026-10-17: the rollup reads ROLLUP_FROM_NEED (fab41b592)" },
+  {
+    surface: "rollup",
+    causes: ["awareness_waiting", "awareness_approval", "awareness_answer"],
+    before: "not shown: the AI's reading never reached the rollup",
+    status: "decided",
+    decided: "pty-lead 2026-10-17: the rollup's escalated tier holds them, with a declared escalation",
+  },
   {
     surface: "feed",
     causes: ["usage_limit", "auth_error", "crash", "unexpected_exit"],
