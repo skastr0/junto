@@ -14,9 +14,9 @@ const TAIL_LINES = 40;
 const TAIL_BYTES = 4 * 1024;
 /** Shorter environment values ("1", "true") would redact ordinary words. */
 const ENVIRONMENT_VALUE_FLOOR = 6;
-/** Names whose values may show (doctrine 3c58dd8a0 step 3); a closed list, never a prefix but LC_. */
+/** Names whose values may show (doctrine 9cba54247 step 3); a closed list, never a prefix but LC_. */
 const SHOWN_ENVIRONMENT = new Set([
-  "HOME", "USER", "LOGNAME", "SHELL", "PATH", "TMPDIR", "PWD", "TERM", "COLORTERM", "LANG",
+  "HOME", "USER", "LOGNAME", "SHELL", "PATH", "TMPDIR", "PWD", "TERM", "COLORTERM", "LANG", "JUNTO_HOME",
   "JUNTO_SEAT", "JUNTO_NODE_REF", "JUNTO_SOCKET", "JUNTO_WORK_SOCKET", "JUNTO_WORK_HOME", "JUNTO_CLI",
 ]);
 const shownName = (name: string): boolean => SHOWN_ENVIRONMENT.has(name) || name.startsWith("LC_");
