@@ -107,8 +107,11 @@ const decodeToken = (token: string): ScalarValue | undefined => {
   return token !== "" && Number.isFinite(number) ? number : undefined;
 };
 
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+// A TOML basic string: JSON's escapes are TOML's, plus DEL, which TOML forbids raw.
 const encodeValue = (value: ScalarValue): string =>
-  typeof value === "string" ? JSON.stringify(value) : String(value);
+  typeof value === "string" ? JSON.stringify(value).replace(/\u007f/g, "\\u007F") : String(value);
 
 const topLevelEnd = (lines: readonly string[]): number => {
   const header = lines.findIndex(isTableHeader);
@@ -136,6 +139,9 @@ export const readTomlKey = (text: string, key: string): ReadOutcome => {
 export const writeTomlKey = (text: string, key: string, value: ScalarValue): EditOutcome => {
   const unsupported = checkTomlKey(key);
   if (unsupported !== undefined) return { ok: false, message: unsupported };
+  if (typeof value === "string" && LONE_SURROGATE.test(value)) {
+    return { ok: false, message: `${key} holds a lone surrogate, which a TOML string cannot carry` };
+  }
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
   const lines = text === "" ? [] : text.split(/\r?\n/);
   const end = topLevelEnd(lines);

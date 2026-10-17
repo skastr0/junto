@@ -59,6 +59,13 @@ describe("TOML top-level keys", () => {
     expect(json.ok && JSON.parse(json.text)).toEqual({ model: hostile });
   });
 
+  it("escapes DEL and refuses a lone surrogate, which TOML forbids raw", () => {
+    const del = writeTomlKey(text, "model", "a\u007Fb");
+    expect(del.ok && del.text).toContain('model = "a\\u007Fb"');
+    expect(readTomlKey(del.ok ? del.text : "", "model")).toEqual({ ok: true, value: "a\u007Fb" });
+    expect(writeTomlKey(text, "model", "a\uD800b").ok).toBe(false);
+  });
+
   it("refuses a dotted key", () => {
     expect(writeTomlKey(text, "profiles.fast.model", "x").ok).toBe(false);
   });
