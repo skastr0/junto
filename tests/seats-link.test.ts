@@ -118,7 +118,48 @@ const fixture = async (options: {
   return { host, fake, runtime, channel, controller, context, start, pin, copy };
 };
 
+const linkedClient = (f: Awaited<ReturnType<typeof fixture>>) => {
+  const host = Schema.decodeUnknownSync(RemoteHost)({
+    id: THIS_MACHINE, label: "Mini", isThisMachine: false, sshEndpoint: "mini", capabilities: ["terminal"],
+  });
+  const requestLink = vi.fn((_machine: string, _channel: string, payload: unknown) =>
+    // The link decodes a channel failure into its detail; this stands in for that frame.
+    f.channel.handleRequest(f.context, payload).pipe(Effect.mapError((detail) =>
+      ({ _tag: "LinkRequestFailed", detail }) as unknown as MachineLinkError)));
+  const unused = Effect.die("unused machine operation");
+  const links = MachineLink.of({
+    setChannels: () => unused, listen: () => unused,
+    connect: () => Effect.succeed({ machineName: THIS_MACHINE, installationId: editor, boundAt: "2026-10-09" }),
+    connectSetup: () => unused, disconnect: () => unused, peerBuild: () => unused,
+    sendEvent: () => unused, request: requestLink,
+  });
+  const hosts = HostsService.of({
+    get: () => Effect.succeed(host), list: unused, doctor: unused, doctorSnapshot: unused,
+    upsert: () => unused, remove: () => unused, test: () => unused,
+  });
+  return makeSeatsProcessClient(THIS_MACHINE, (effect) => f.runtime.runPromise(effect.pipe(
+    Effect.provideService(HostsService, hosts), Effect.provideService(MachineLink, links),
+  )));
+};
+
 describe("seats link start", () => {
+  it("returns a remote spawn failure as the exited generation a local start returns", async () => {
+    const missing = join(tmpdir(), "junto-seats-link-missing-folder");
+    const broken = seat("mini-seat", { host: THIS_MACHINE, agentKey: `${THIS_MACHINE}:mini-seat`,
+      launch: { kind: "harness", argv: ["claude"], cwd: missing } });
+    const f = await fixture({ nodes: [broken] });
+    const live = await linkedClient(f).createAgentSeat({
+      admission: "occupy", bindingId: broken.bindingId, canvasName: canvas, nodeId: broken.id,
+      harness: broken.harness, agentKey: broken.agentKey,
+      spawnIntent: { documentLaunch: broken.launch!, resumeRequested: false },
+    });
+    expect(live).toMatchObject({
+      bindingId: broken.bindingId, hostId: THIS_MACHINE, nodeId: broken.id, status: "exited",
+      exitReason: "spawn_failed", epoch: f.host.get(broken.bindingId)?.epoch,
+    });
+    expect(live.exitMessage).toBe(`Claude Code could not start: the folder ${missing} does not exist`);
+  });
+
   it("starts the local copy with a live generation credential and keeps secrets on its machine", async () => {
     const secret = "resolved-on-the-seat-machine";
     const environment = vi.fn(async () => ({

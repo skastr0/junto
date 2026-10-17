@@ -7,6 +7,7 @@ import { MachineLink } from "../link/service";
 import { ModelService } from "../model/service";
 import type { RemoteSeatProcessClient } from "./seat-process";
 import { SeatsResponse } from "./seats-link";
+import { type SeatSpawnFailed, unwrapSeatsFailure } from "./seats-failure";
 
 type Services = HostsService | MachineLink | ModelService;
 export type SeatsClientRunner = <A, E>(effect: Effect.Effect<A, E, Services>) => Promise<A>;
@@ -33,8 +34,14 @@ export const makeSeatsProcessClient = (
     if (host === undefined) return yield* Effect.fail(new Error("This seat's machine is unavailable."));
     const link = yield* MachineLink;
     yield* link.connect(host);
-    return yield* Schema.decodeUnknownEffect(SeatsResponse)(yield* link.request(machine, "seats", payload),
-      { onExcessProperty: "error" });
+    const response = yield* link.request(machine, "seats", payload).pipe(Effect.mapError(unwrapSeatsFailure));
+    return yield* Schema.decodeUnknownEffect(SeatsResponse)(response, { onExcessProperty: "error" });
+  });
+  /** A harness that never started is the same exited generation a local start returns. */
+  const exited = (canvas: string, seat: NodeOf<"agent">, failure: SeatSpawnFailed): TerminalSessionSummary => ({
+    bindingId: seat.bindingId, hostId: machine, canvasName: canvas, nodeId: seat.id,
+    harness: seat.harness, agentKey: seat.agentKey, epoch: failure.epoch, status: "exited",
+    createdAt: Date.now(), detached: false, exitReason: failure.exitReason, exitMessage: failure.exitMessage,
   });
   const summary = (canvas: string, seat: NodeOf<"agent">, response: typeof SeatsResponse.Type): TerminalSessionSummary | undefined => {
     if (response.canvas !== canvas || response.seatId !== seat.id || response.machine !== machine)
@@ -61,7 +68,13 @@ export const makeSeatsProcessClient = (
         _tag: input.admission === "activate" ? "Activate" : "Start",
         canvas: held.canvas, seatId: held.seat.id,
         ...(input.admission === "activate" ? { generation: input.expectedEpoch } : {}),
-      });
+      }).pipe(Effect.catchIf(
+        (failure): failure is SeatSpawnFailed =>
+          typeof failure === "object" && failure !== null && "_tag" in failure && failure._tag === "SeatSpawnFailed" &&
+          (failure as SeatSpawnFailed).machine === machine && (failure as SeatSpawnFailed).seatId === held.seat.id,
+        (failure) => Effect.succeed(exited(held.canvas, held.seat, failure)),
+      ));
+      if (!("_tag" in response)) return response;
       const live = yield* Effect.try({ try: () => summary(held.canvas, held.seat, response), catch: asError });
       if (live === undefined) return yield* Effect.fail(new Error("The machine did not start this seat."));
       return live;

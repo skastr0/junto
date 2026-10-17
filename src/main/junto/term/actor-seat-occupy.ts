@@ -143,7 +143,7 @@ const logStartOutcome = (
   live.status === "exited" && live.exitReason !== undefined
     ? Effect.logError("seat start failed", Cause.fail(new SeatSpawnFailed({
         machine, canvas: asCanvasName(spec.canvasName), seatId: asNodeId(spec.nodeId),
-        bindingId: spec.bindingId, harness: spec.harness, exitReason: live.exitReason,
+        bindingId: spec.bindingId, harness: spec.harness, epoch: live.epoch, exitReason: live.exitReason,
         exitMessage: clipText(live.exitMessage ?? live.exitReason),
         message: clipText(live.exitMessage ?? live.exitReason),
       })))

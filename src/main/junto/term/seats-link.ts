@@ -85,7 +85,7 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
     if (ended.status === "exited" && ended.exitReason !== undefined) {
       const exitMessage = clipText(ended.exitMessage ?? `The seat's harness could not start (${ended.exitReason}).`);
       return yield* new SeatSpawnFailed({ ...where, bindingId: seat.bindingId, harness: seat.harness,
-        exitReason: ended.exitReason, exitMessage, message: exitMessage });
+        epoch: ended.epoch, exitReason: ended.exitReason, exitMessage, message: exitMessage });
     }
     if (current === undefined || current.status === "missing")
       return yield* new SeatMissing({ ...where, message: "The seat's occupant is gone; its state on this machine is unknown." });

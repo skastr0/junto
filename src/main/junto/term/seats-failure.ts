@@ -26,7 +26,7 @@ export const clipText = (text: string): string => text.slice(0, TEXT_MAX);
  * (classifySpawnFailure), never terminal output.
  */
 export class SeatSpawnFailed extends Schema.TaggedError<SeatSpawnFailed>()("SeatSpawnFailed", {
-  ...Where, bindingId: Id, harness: Id,
+  ...Where, bindingId: Id, harness: Id, epoch: Id,
   exitReason: Schema.Literals(["cli-missing", "spawn_failed"]),
   exitMessage: Text, message: Text,
 }) {}
@@ -102,7 +102,15 @@ export const SeatsFailure = Schema.Union([
 ]);
 export type SeatsFailure = typeof SeatsFailure.Type;
 
-const isSeatsFailure = Schema.is(SeatsFailure);
+export const isSeatsFailure = Schema.is(SeatsFailure);
+
+/**
+ * The seats failure a link failure carries as its decoded detail, if any.
+ * Anything else is returned as it came.
+ */
+export const unwrapSeatsFailure = (cause: unknown): unknown =>
+  typeof cause === "object" && cause !== null && "detail" in cause && isSeatsFailure(cause.detail)
+    ? cause.detail : cause;
 
 /** Keep a seats failure as it is; carry anything else as a refusal with its tag and text. */
 export const asSeatsFailure = (where: SeatsFailureWhere, cause: unknown): SeatsFailure => {
