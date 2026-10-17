@@ -302,12 +302,16 @@ machine that runs it.
 - **Settings name their machine.** A settings page scoped to a machine has a
   machine dropdown and shows that machine's colour and icon. The seat picker
   and a seat's Params read the inventory of the seat's machine.
-- **Every machine-scoped page uses the same path.** Proposed 17 October,
-  under `remote-lead` review. Agents, Providers, and Name and startup ask the
-  chosen machine's core, the window's own included; a machine the link cannot
-  reach answers a typed unreachable. Providers shows each credential's name
-  and state; a value is set on its own machine and never crosses (rule 9).
-  Name and startup read and change that machine's own record and service.
+- **Every machine-scoped page uses the same path.** Agreed 17 October with
+  `remote-lead`. Agents, Providers, and Name and startup ask the chosen
+  machine's core, the window's own included; a machine the link cannot reach
+  answers a typed unreachable. Providers shows each credential's name and
+  state; a value is set on its own machine and never crosses (rule 9). Name
+  and startup read and change that machine's own record and service: "Name"
+  is the label from the machine list, and the machine name pinned at setup
+  never changes (The link). Changing startup or a linked machine's record or
+  service is an owner command, and over the link only the machine that edits
+  a canvas with a seat there may ask.
 - **Native config is written by its own machine.** Agreed 17 October:
   signed off by `remote-security`. Settings the operator writes apply as
   written, permission modes included (the operator's decision,
