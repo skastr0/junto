@@ -421,13 +421,6 @@ export const HARNESS_FEATURE_GATES = {
 
 export type HarnessFeatureGate = keyof typeof HARNESS_FEATURE_GATES;
 
-/**
- * Whether a harness may be authored / spawned in this build, read from the
- * gate its template declares. Re-exported here, where callers have always
- * found it; neither module reads the other while loading.
- */
-export { managedHarnessEnabled } from "./managed-terminal-templates";
-
 /** Strip product-hidden capabilities from a host capability list for UI. */
 export const productHostCapabilities = <T extends string>(
   capabilities: ReadonlyArray<T>,

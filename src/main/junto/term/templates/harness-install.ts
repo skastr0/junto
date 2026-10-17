@@ -20,7 +20,7 @@ import {
   type MailTransportSpec,
   type IsolationSpec,
 } from "@shared/managed-terminal-templates";
-import { managedHarnessEnabled } from "@shared/features";
+import { managedHarnessEnabled } from "@shared/managed-terminal-templates";
 import { isOverseerHarness } from "@shared/harness-records";
 import { harnessRuntimeRecordFor } from "../harness-record";
 import { parseHelpFlags } from "@shared/launch-extra-args";

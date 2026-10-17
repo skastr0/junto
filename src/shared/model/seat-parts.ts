@@ -1,5 +1,5 @@
 import { ulid } from "ulid";
-import { managedHarnessEnabled } from "../features";
+import { managedHarnessEnabled } from "../managed-terminal-templates";
 import { agentKeyOf } from "../harness-records";
 import { sanitizeExtraArgs } from "../launch-extra-args";
 import { resolveManagedLaunch } from "../managed-terminal-launch";

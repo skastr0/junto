@@ -8,7 +8,7 @@ import type {
   ManagedTerminalProfilesResult,
 } from "@shared/ipc";
 import { isHarnessId, templateFor, type HarnessId } from "@shared/managed-terminal-templates";
-import { managedHarnessEnabled } from "@shared/features";
+import { managedHarnessEnabled } from "@shared/managed-terminal-templates";
 import { runCli } from "../../adapters/exec";
 import {
   enumerateAgyModels,

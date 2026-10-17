@@ -1,4 +1,4 @@
-import { managedHarnessEnabled } from "@shared/features";
+import { managedHarnessEnabled } from "@shared/managed-terminal-templates";
 import { HARNESS_IDS } from "@shared/managed-terminal-templates";
 import type {
   OverseerArgsFor,

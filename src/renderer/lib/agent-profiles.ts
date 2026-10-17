@@ -30,7 +30,7 @@ import { normalizePortraitOverride, type PortraitOverride } from "@shared/portra
 import type { SeatGuidance } from "@shared/seat-guidance";
 import { recoverDocumentLaunchChoices } from "@shared/launch-choices";
 import { isHarnessId, type HarnessId } from "@shared/managed-terminal-templates";
-import { managedHarnessEnabled } from "@shared/features";
+import { managedHarnessEnabled } from "@shared/managed-terminal-templates";
 import { newSeat } from "./model-factories";
 
 export type ProfileCaptureSources = {

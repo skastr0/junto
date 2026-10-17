@@ -9,9 +9,9 @@ import {
   HARNESS_OMP_ENABLED,
   HARNESS_PRIME_AGENT_ENABLED,
   HERMES_INTEGRATION_ENABLED,
-  managedHarnessEnabled,
   productHostCapabilities,
 } from "../src/shared/features";
+import { managedHarnessEnabled } from "../src/shared/managed-terminal-templates";
 import {
   HARNESS_IDS,
   allTemplates,

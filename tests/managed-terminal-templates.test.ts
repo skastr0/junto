@@ -53,8 +53,8 @@ import {
   HARNESS_KIMI_ENABLED,
   HARNESS_MUSE_ENABLED,
   HARNESS_PRIME_AGENT_ENABLED,
-  managedHarnessEnabled,
 } from "../src/shared/features";
+import { managedHarnessEnabled } from "../src/shared/managed-terminal-templates";
 
 describe("managed-terminal templates (data)", () => {
   const ALL_HARNESSES = [

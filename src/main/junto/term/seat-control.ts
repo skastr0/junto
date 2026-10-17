@@ -4,7 +4,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { Effect, Schema } from "effect";
-import { managedHarnessEnabled } from "@shared/features";
+import { managedHarnessEnabled } from "@shared/managed-terminal-templates";
 import { CanvasName, NodeId, type NodeOf } from "@shared/model";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import { ModelService } from "../model/service";

@@ -17,7 +17,7 @@ import { ActorSeatOccupy, type ActorOccupySpec } from "../src/main/junto/term/ac
 import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
 import { launchForManagedSpawnIntent } from "../src/main/junto/term/managed-spawn-plan";
 import { seat } from "./support/model-nodes";
-import { managedHarnessEnabled } from "../src/shared/features";
+import { managedHarnessEnabled } from "../src/shared/managed-terminal-templates";
 import { InstallationId } from "../src/shared/installation-id";
 import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
 import { ensureManagedSeatRunning } from "../src/main/junto/term/ensure-managed-seat";

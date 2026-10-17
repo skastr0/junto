@@ -8,7 +8,7 @@
 import { observable } from "@legendapp/state";
 import { decodeProfileBody, type AgentProfileBody } from "@shared/agent-profiles";
 import type { PortraitConfig } from "@shared/agent-portrait";
-import { managedHarnessEnabled } from "@shared/features";
+import { managedHarnessEnabled } from "@shared/managed-terminal-templates";
 import { HARNESS_IDS, type HarnessId } from "@shared/managed-terminal-templates";
 import type { SeatGuidance } from "@shared/seat-guidance";
 import { resolvedPortrait } from "./agent-profiles";
