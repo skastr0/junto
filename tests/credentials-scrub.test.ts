@@ -102,3 +102,11 @@ it("redacts a UUID whatever its digits, inside a path too", () => {
   expect(scrubText("id 6F1C2A9E-3B4D-4E5F-8A7B-1C2D3E4F5A6B")).toBe("id [redacted]");
   expect(scrubText("seat-01M4G8HNHWGG9BM2YF30KMTZYZ stays")).toBe("seat-01M4G8HNHWGG9BM2YF30KMTZYZ stays");
 });
+
+it("keeps a stack frame's bundle path whole and judges each segment of a path", () => {
+  const build = "a1".repeat(32);
+  const frame = `at logStartOutcome (/Users/someone/.junto/machine/builds/${build}-darwin-arm64/core/junto.cjs:69363:144)`;
+  expect(scrubMessage(frame)).toBe(frame);
+  expect(scrubText(`key at /tmp/x/${"Ab9".repeat(12)}/y`)).toBe("key at /tmp/x/[redacted]/y");
+  expect(scrubText(`/Users/someone/.cache/${"Ab9".repeat(12)}`)).toBe("/Users/someone/.cache/[redacted]");
+});

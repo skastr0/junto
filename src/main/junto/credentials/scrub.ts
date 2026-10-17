@@ -44,18 +44,24 @@ const judgePiece = (piece: string): string =>
 const mixed = (run: string): boolean => judgePiece(run) !== run;
 const PATH_BOUNDARY = /[\s"'`(=]/;
 
+/** A Junto build directory, <64 hex>-<target>: the public bundle hash, not a secret. */
+const BUILD_SEGMENT = /^[0-9a-f]{64}-(?:darwin-arm64|linux-x64)$/;
+const judgeSegment = (segment: string): string => BUILD_SEGMENT.test(segment) ? segment : judgePiece(segment);
+
 /**
- * A run with "/" is judged whole, unless it is a path: it starts with "/",
- * "~/" or "./" after whitespace, a quote or the start of the text, or is a
- * file URL's path. Paths may enter, so a path is judged one segment at a time.
+ * A run with "/" is judged whole, unless it lies in a path: the token around
+ * it starts with "/", "~/" or "./" after whitespace, a quote, "(" , "=" or
+ * the start of the text, or is a file URL's path. Paths may enter, so a path
+ * is judged one segment at a time, wherever the run starts in it (a run
+ * often starts after a "." such as "/.junto/").
  */
 const judgeRun = (run: string, offset: number, text: string): string => {
-  const before = (at: number): string | undefined => at < 0 ? undefined : text[at];
-  const boundary = (char: string | undefined): boolean => char === undefined || PATH_BOUNDARY.test(char);
-  const prev = before(offset - 1);
-  const path = run.startsWith("/") && (boundary(prev) || ((prev === "~" || prev === ".") && boundary(before(offset - 2))) || text.slice(Math.max(0, offset - 5), offset) === "file:");
+  let start = offset;
+  while (start > 0 && !PATH_BOUNDARY.test(text[start - 1]!)) start--;
+  const token = text.slice(start, offset + run.length);
+  const path = token.startsWith("/") || token.startsWith("~/") || token.startsWith("./") || token.startsWith("file:/");
   if (!path) return judgePiece(run);
-  return run.split("/").map(judgePiece).join("/");
+  return run.split("/").map(judgeSegment).join("/");
 };
 
 const stripControls = (text: string): string =>
