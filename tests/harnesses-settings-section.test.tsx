@@ -5,6 +5,7 @@ import { Result } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { applySettingsPatch, defaultSettings, type Settings, type SettingsPatch } from "@shared/settings";
 import { InventoryUnavailableError, paramsOfTemplate, type MachineInventory } from "@shared/harness-domain";
+import { NativeConfigWriteError } from "@shared/harness-domain/native-config-write";
 import { templateFor } from "@shared/managed-terminal-templates";
 import { HarnessesSettingsSection } from "../src/renderer/components/settings/HarnessesSettingsSection";
 import {
@@ -197,6 +198,33 @@ describe("Settings > Agents, per machine", () => {
     const toggle = native.querySelector('[aria-label^="Claude Code always think"]') as HTMLElement;
     await act(async () => toggle.click());
     expect(writes).toEqual([{ machine: "mac-mini", harness: "claude", key: "alwaysThinkingEnabled", value: false }]);
+  });
+
+  it("reads the file again after a conflict and never retries on its own", async () => {
+    let reads = 0;
+    let writes = 0;
+    setHarnessMachineSource({
+      ...pendingHarnessMachineSource,
+      inventory: async () => Result.succeed(withClaude("2.1.302")),
+      readNativeSettings: async () => {
+        reads += 1;
+        return Result.succeed({ alwaysThinkingEnabled: reads > 1 });
+      },
+      writeNativeSetting: async (write) => {
+        writes += 1;
+        return Result.fail(
+          new NativeConfigWriteError({ machine: write.machine, harness: write.harness, key: write.key, reason: "conflict", message: "changed" }),
+        );
+      },
+    });
+    await render("mac-mini");
+    const native = card("claude").querySelector('[data-native-config="claude"]') as HTMLElement;
+    const toggle = () => native.querySelector('[aria-label^="Claude Code always think"]') as HTMLElement;
+    await act(async () => toggle().click());
+    expect(writes).toBe(1);
+    expect(reads).toBe(2);
+    expect(native.textContent).toContain("the file changed on mac-mini since it was read");
+    expect(toggle().getAttribute("aria-checked") ?? String((toggle() as HTMLInputElement).checked)).toBe("true");
   });
 
   it("offers no native setting for a version nobody verified", async () => {

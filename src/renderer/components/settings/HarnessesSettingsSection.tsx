@@ -455,12 +455,14 @@ function NativeSettings({
   const declared = useMemo(() => nativeSettingsFor(harness, machine, version), [harness, machine, version]);
   const [read, setRead] = useState<NativeRead>({ state: "unread" });
   const [answers, setAnswers] = useState<Readonly<Record<string, string>>>({});
+  /** Bumped to read the file again after a conflict. */
+  const [readCount, setReadCount] = useState(0);
   const keys = declared.map((spec) => spec.key).join("\n");
+  useEffect(() => setAnswers({}), [machine, harness]);
 
   useEffect(() => {
     let current = true;
     setRead({ state: "unread" });
-    setAnswers({});
     if (keys.length === 0) return;
     void harnessMachineSource()
       .readNativeSettings(machine, harness, keys.split("\n"))
@@ -475,7 +477,7 @@ function NativeSettings({
     return () => {
       current = false;
     };
-  }, [machine, harness, keys]);
+  }, [machine, harness, keys, readCount]);
 
   const write = (spec: NativeSettingSpec, value: NativeValue): void => {
     const request: NativeSettingWrite = { machine, harness, key: spec.key, value };
@@ -492,6 +494,13 @@ function NativeSettings({
             prior.state === "answered" ? { state: "answered", values: { ...prior.values, [spec.key]: answer.success } } : prior,
           );
           setAnswers(({ [spec.key]: _done, ...rest }) => rest);
+        } else if (answer.failure._tag === "NativeConfigWriteError" && answer.failure.reason === "conflict") {
+          // The file changed by hand: show what it holds now and let the operator choose again.
+          setReadCount((count) => count + 1);
+          setAnswers((prior) => ({
+            ...prior,
+            [spec.key]: `Not written: the file changed on ${machineName} since it was read. It now shows what is there; choose again.`,
+          }));
         } else {
           setAnswers((prior) => ({ ...prior, [spec.key]: answer.failure.message }));
         }
