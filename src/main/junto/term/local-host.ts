@@ -27,7 +27,6 @@ import {
   type SeatStopCause,
 } from "@shared/spawn-failure";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
-import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import {
   EMPTY_LAUNCH_RECORD,
   type RegionEnvironmentLaunchRecord,
@@ -114,7 +113,7 @@ import {
   supportedHostProbedFlags,
 } from "./templates/harness-install";
 import { configuredToolDirectories } from "../adapters/exec";
-import { registerKnownSecrets, releaseKnownSecrets } from "../credentials/scrub";
+import { launchSecretValues, registerKnownSecrets, releaseKnownSecrets } from "../credentials/scrub";
 import { buildManagedSeatInject } from "./templates/seat-env";
 import {
   PROGRAM_STATUS_ENV,
@@ -236,7 +235,15 @@ export type LocalHostEvent =
       readonly type: "seat-state";
       readonly bindingId: string;
       readonly epoch: string;
-      readonly event: AgentSeatStateEvent;
+      readonly event: {
+        readonly bindingId: string;
+        readonly epoch: string;
+        readonly state: "idle" | "working" | "attention" | "unknown" | "gone";
+        readonly reason: string;
+        readonly confidence: "high" | "low";
+        readonly at: number;
+        readonly harness?: string;
+      };
     };
 
 export type LocalHostEventListener = (event: LocalHostEvent) => void;
@@ -1252,11 +1259,12 @@ export class LocalSessionHost extends EventEmitter {
     const launch = resolved.success;
     // What this generation's child holds and this process does not: no
     // failure or log may carry it while the generation lives.
+    // The credential is searched from four characters; every other value from
+    // six, and the names the doctrine shows (seat, sockets, TERM) are spared.
     registerKnownSecrets(knownSecretsOwner(rec), [
-      seatCredential?.credential,
-      ...Object.values(regionEnvironment?.env ?? {}),
-      ...Object.entries(launch.env ?? {})
-        .filter(([key, value]) => process.env[key] !== value).map(([, value]) => value),
+      ...launchSecretValues([seatCredential?.credential], Object.fromEntries(
+        Object.entries(launch.env ?? {}).filter(([key, value]) => process.env[key] !== value))),
+      ...launchSecretValues([], regionEnvironment?.env ?? {}),
     ]);
     if (seat.kind === "agent") {
       rec.resumeAttempt = launchArgvUsesResume([launch.file, ...launch.args]);
