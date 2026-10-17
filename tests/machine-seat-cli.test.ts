@@ -33,7 +33,7 @@ const ownerSocket = async () => {
 };
 
 const run = (home: string, args: string[]) => new Promise<{ status: number | null; stdout: string; stderr: string }>(resolve => {
-  const environment = { ...process.env, JUNTO_HOME: home };
+  const environment: NodeJS.ProcessEnv = { ...process.env, JUNTO_HOME: home };
   delete environment.JUNTO_WORK_TOKEN;
   const child = spawn("bun", ["src/cli/main.ts", ...args], { env: environment });
   let stdout = "", stderr = "";
