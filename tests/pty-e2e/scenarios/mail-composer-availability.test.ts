@@ -39,6 +39,19 @@ const LAST_SCREEN: Readonly<Record<string, Readonly<Record<string, Outcome>>>> =
     "paste-chip": "written",
     "working-turn": "written",
   },
+  agy: {
+    // Signal captures (tests/pty-e2e/signal-capture.ts). No screen rules read
+    // this harness's limits or auth errors yet, so mail is typed into a seat
+    // that cannot answer it until pty-state's pack rules land.
+    "retry-overloaded": "written",
+    "retry-rate": "written",
+    "retry-network": "written",
+    "usage-limit": "written",
+    "error-auth": "written",
+    "error-server": "written",
+    "error-context": "written",
+    "compaction-manual": "written",
+  },
   claude: {
     "startup-idle": "written",
     "type-echo": "written",
@@ -92,6 +105,31 @@ const LAST_SCREEN: Readonly<Record<string, Readonly<Record<string, Outcome>>>> =
     "working-turn": "written",
     "mail-notice": "written",
     "startup-trust": "dialog",
+    // Signal captures (tests/pty-e2e/signal-capture.ts). No screen rules read
+    // this harness's limits or auth errors yet, so mail is typed into a seat
+    // that cannot answer it until pty-state's pack rules land.
+    // Devin cannot be answered, so retries end in errors; it has its own limit kinds.
+    "retry-overloaded": "written",
+    "retry-rate": "written",
+    "retry-network": "written",
+    "error-auth": "written",
+    "error-server": "written",
+    "usage-limit-monthly": "written",
+    "usage-limit-org": "written",
+    "usage-paused": "written",
+  },
+  fx: {
+    // Signal captures (tests/pty-e2e/signal-capture.ts). No screen rules read
+    // this harness's limits or auth errors yet, so mail is typed into a seat
+    // that cannot answer it until pty-state's pack rules land.
+    "retry-overloaded": "written",
+    "retry-rate": "written",
+    "retry-network": "written",
+    "usage-limit": "written",
+    "usage-limit-weekly": "written",
+    "error-auth": "written",
+    "error-server": "written",
+    "error-context": "written",
   },
   grok: {
     "startup-idle": "written",
@@ -99,6 +137,18 @@ const LAST_SCREEN: Readonly<Record<string, Readonly<Record<string, Outcome>>>> =
     "paste-chip": "written", // mid-turn, empty prompt box
     "working-turn": "written",
     "permission-returns-idle": "written",
+    // Signal captures (tests/pty-e2e/signal-capture.ts). No screen rules read
+    // this harness's limits or auth errors yet, so mail is typed into a seat
+    // that cannot answer it until pty-state's pack rules land.
+    "retry-overloaded": "written",
+    "retry-rate": "written",
+    "retry-network": "written",
+    "usage-limit": "written",
+    "usage-limit-weekly": "written",
+    "error-auth": "written",
+    "error-server": "written",
+    "error-context": "written",
+    "compaction-manual": "written",
   },
   hermes: {
     // Recorded logged out: Hermes asks for attention ("No Codex credentials").
@@ -106,27 +156,99 @@ const LAST_SCREEN: Readonly<Record<string, Readonly<Record<string, Outcome>>>> =
     "type-echo": "dialog",
     // A multiline paste Hermes never collapses: the box is not readable.
     "paste-chip": "unreadable",
+    // Signal captures (tests/pty-e2e/signal-capture.ts). No screen rules read
+    // this harness's limits or auth errors yet, so mail is typed into a seat
+    // that cannot answer it until pty-state's pack rules land.
+    "retry-overloaded": "written",
+    "retry-rate": "written",
+    "retry-network": "written",
+    "usage-limit": "written",
+    "usage-limit-weekly": "written",
+    "error-auth": "written",
+    "error-server": "written",
+    "error-context": "written",
+    "compaction-manual": "written",
   },
   kimi: {
     // Recorded with no model configured: Kimi asks for attention.
     "startup-idle": "dialog",
     "type-echo": "dialog",
+    // Signal captures (tests/pty-e2e/signal-capture.ts). No screen rules read
+    // this harness's limits or auth errors yet, so mail is typed into a seat
+    // that cannot answer it until pty-state's pack rules land.
+    "retry-overloaded": "written",
+    "retry-rate": "written",
+    "retry-network": "written",
+    "usage-limit": "written",
+    "usage-limit-weekly": "written",
+    "error-auth": "written",
+    "error-server": "written",
+    "error-context": "written",
+    "compaction-manual": "written",
   },
   muse: {
     "startup-idle": "written",
     "type-echo": "written",
     "paste-chip": "written",
     "working-turn": "written",
+    // Signal captures (tests/pty-e2e/signal-capture.ts). No screen rules read
+    // this harness's limits or auth errors yet, so mail is typed into a seat
+    // that cannot answer it until pty-state's pack rules land.
+    "retry-overloaded": "written",
+    "retry-rate": "written",
+    "retry-network": "written",
+    "usage-limit": "written",
+    "usage-limit-weekly": "written",
+    "error-auth": "written",
+    "error-server": "written",
+    "error-context": "written",
+    "compaction-auto": "written",
+    "compaction-manual": "written",
   },
   omp: {
     "startup-idle": "written",
     "type-echo": "written",
     "paste-chip": "written", // mid-turn, empty prompt box
     "working-turn": "written",
+    // Signal captures (tests/pty-e2e/signal-capture.ts). No screen rules read
+    // this harness's limits or auth errors yet, so mail is typed into a seat
+    // that cannot answer it until pty-state's pack rules land.
+    "retry-overloaded": "written",
+    "retry-rate": "written",
+    "retry-network": "written",
+    "usage-limit": "written",
+    "usage-limit-weekly": "written",
+    "error-auth": "written",
+    "error-context": "written",
+    "compaction-auto": "written",
+    "compaction-manual": "written",
+    // Ends mid-retry with omp's status line over the box: unreadable, mail holds.
+    "error-server": "unreadable",
+  },
+  "prime-agent": {
+    // Signal captures (tests/pty-e2e/signal-capture.ts). No screen rules read
+    // this harness's limits or auth errors yet, so mail is typed into a seat
+    // that cannot answer it until pty-state's pack rules land.
+    "retry-overloaded": "written",
+    "retry-rate": "written",
+    "error-auth": "written",
   },
   pi: {
     "startup-idle": "written",
     "type-echo": "written",
+    // Signal captures (tests/pty-e2e/signal-capture.ts). No screen rules read
+    // this harness's limits or auth errors yet, so mail is typed into a seat
+    // that cannot answer it until pty-state's pack rules land.
+    "retry-overloaded": "written",
+    "retry-rate": "written",
+    "retry-network": "written",
+    "usage-limit": "written",
+    "usage-limit-weekly": "written",
+    "error-auth": "written",
+    "error-server": "written",
+    "error-context": "written",
+    "compaction-auto": "written",
+    "compaction-manual": "written",
   },
 };
 
@@ -136,12 +258,14 @@ const LAST_SCREEN: Readonly<Record<string, Readonly<Record<string, Outcome>>>> =
  * "unreadable" holds. A harness with no entry has no mid-turn recording.
  */
 const MID_TURN: Readonly<Record<string, ReadonlyArray<string>>> = {
+  agy: ["available"],
   amp: ["draft", "unreadable"],
   claude: ["available"],
   codex: ["available", "unreadable"],
   devin: ["draft"],
   grok: ["available"],
-  muse: ["unreadable"],
+  hermes: ["draft"],
+  muse: ["available", "unreadable"],
   omp: ["available", "draft", "unreadable"],
 };
 
