@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { applySettingsPatch, defaultSettings, harnessPrefsFor, machineHarnessPrefsFor } from "../src/shared/settings";
+import { HARNESS_SETTINGS_ENABLED } from "../src/shared/features";
+import { resolveHarnessLaunchDefaults } from "../src/shared/harness-settings";
 
 describe("per-machine harness overrides", () => {
   test("a machine override is kept apart from the app-wide default", () => {
@@ -46,5 +48,31 @@ describe("per-machine harness overrides", () => {
       harnesses: { byMachine: { "mac-mini": { byHarness: { pi: { model: "y" } } } } },
     });
     expect(harnessPrefsFor(next, "pi")).toEqual({ model: "x" });
+  });
+});
+
+describe("launch defaults per machine", () => {
+  const settings = applySettingsPatch(defaultSettings(), {
+    harnesses: {
+      byHarness: { claude: { model: "opus", effort: "high" }, codex: { permissionMode: "untrusted" } },
+      byMachine: { "mac-mini": { byHarness: { claude: { model: "sonnet", extraArgs: [] } } } },
+    },
+  });
+
+  test.runIf(HARNESS_SETTINGS_ENABLED)("the seat's machine override wins over the app-wide default", () => {
+    expect(resolveHarnessLaunchDefaults(settings, "claude", "mac-mini")).toEqual({
+      model: "sonnet",
+      effort: "high",
+      extraArgs: [],
+    });
+    expect(resolveHarnessLaunchDefaults(settings, "claude", "macbook")).toEqual({ model: "opus", effort: "high" });
+  });
+
+  test.runIf(HARNESS_SETTINGS_ENABLED)("an explicit choice wins over both", () => {
+    expect(resolveHarnessLaunchDefaults(settings, "claude", "mac-mini", { model: "haiku" }).model).toBe("haiku");
+  });
+
+  test.runIf(HARNESS_SETTINGS_ENABLED)("a saved value the harness refuses is not passed", () => {
+    expect(resolveHarnessLaunchDefaults(settings, "codex", "mac-mini").permissionMode).toBeUndefined();
   });
 });

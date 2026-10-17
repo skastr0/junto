@@ -3,8 +3,14 @@
  * Cascade / explicit picker choices always win over stored defaults.
  */
 
-import type { HarnessId } from "./managed-terminal-templates";
-import type { ParamLayers, ParamValues } from "./harness-domain/params";
+import { isHarnessId, templateFor, type HarnessId } from "./managed-terminal-templates";
+import {
+  checkParam,
+  paramsOfTemplate,
+  resolveParams,
+  type ParamLayers,
+  type ParamValues,
+} from "./harness-domain/params";
 import {
   harnessPrefsFor,
   harnessUserEnabled,
@@ -13,6 +19,7 @@ import {
   type Settings,
 } from "./settings";
 import { HARNESS_SETTINGS_ENABLED } from "./features";
+import { Result } from "effect";
 
 export type LaunchChoiceSlice = {
   readonly model?: string;
@@ -79,3 +86,36 @@ export const harnessSettingLayers = (
   harnessDefault: prefsValues(harnessPrefsFor(settings, harness)),
   machineDefault: prefsValues(machineHarnessPrefsFor(settings, machine, harness)),
 });
+
+/**
+ * What a new seat on `machine` starts with: the explicit choices, then that
+ * machine's override, then the app-wide default, resolved by the harness
+ * domain. A Settings value the harness no longer accepts is not passed; an
+ * explicit choice is the picker's to check. With no machine (a profile not
+ * yet placed), only the app-wide default applies.
+ */
+export const resolveHarnessLaunchDefaults = (
+  settings: Settings | undefined,
+  harness: HarnessId | string,
+  machine: string | undefined,
+  choices: LaunchChoiceSlice = {},
+): LaunchChoiceSlice => {
+  if (!HARNESS_SETTINGS_ENABLED || !isHarnessId(harness)) return mergeHarnessLaunchDefaults(settings, harness, choices);
+  const params = paramsOfTemplate(templateFor(harness));
+  const stored = harnessSettingLayers(settings, machine ?? "", harness);
+  const resolved = resolveParams(params, {
+    harnessDefault: stored.harnessDefault ?? {},
+    ...(machine ? { machineDefault: stored.machineDefault ?? {} } : {}),
+    launch: choices,
+  });
+  const out: { model?: string; effort?: string; permissionMode?: string; extraArgs?: readonly string[] } = {};
+  for (const key of ["model", "effort", "permissionMode"] as const) {
+    const value = resolved.values[key];
+    const layer = resolved.from[key];
+    if (value === undefined || layer === undefined) continue;
+    if (layer !== "launch" && Result.isFailure(checkParam(params, { key, value, layer }))) continue;
+    out[key] = value;
+  }
+  if (resolved.values.extraArgs !== undefined) out.extraArgs = resolved.values.extraArgs;
+  return out;
+};

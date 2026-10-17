@@ -2,7 +2,7 @@ import type { HostsOpResult } from "@shared/ipc";
 import { TERMINAL_HOST_CAPABILITY } from "@shared/remote-hosts";
 import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
 import { templateFor, type HarnessId } from "@shared/managed-terminal-templates";
-import { mergeHarnessLaunchDefaults } from "@shared/harness-settings";
+import { resolveHarnessLaunchDefaults } from "@shared/harness-settings";
 import type { Settings } from "@shared/settings";
 
 /** Palette / re-seat harness configuration (model, effort, hermes profile). */
@@ -19,14 +19,16 @@ export type AgentConfigurationChoices = {
 };
 
 /**
- * Apply Settings → Agents defaults under cascade/explicit picks.
+ * Apply Settings → Agents defaults under cascade/explicit picks, for the
+ * machine the seat is placed on (its override over the app-wide default).
  * Call at configure time so seats store the resolved launch prefs.
  */
 export const withHarnessSettingsDefaults = (
   choices: AgentConfigurationChoices,
   settings: Settings | undefined,
+  machine?: string,
 ): AgentConfigurationChoices => {
-  const merged = mergeHarnessLaunchDefaults(settings, choices.harness, {
+  const merged = resolveHarnessLaunchDefaults(settings, choices.harness, machine, {
     model: choices.model,
     effort: choices.effort,
     permissionMode: choices.permissionMode,

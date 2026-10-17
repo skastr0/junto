@@ -190,6 +190,7 @@ export function NodePaletteModeDeck({
     const withDefaults = withHarnessSettingsDefaults(
       choices,
       state$.settings.get(),
+      launchContext.host,
     );
     actions.addConfiguredAgent({
       ...withDefaults,
