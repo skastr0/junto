@@ -20,11 +20,17 @@ import {
 } from "../src/shared/managed-terminal-templates";
 import { rulePackFor } from "../src/main/junto/term/agent-state/rules";
 
+/** State rules and the facts read beside them: both are screen grounds. */
+const screenRulesOf = (harness: HarnessId) => {
+  const pack = rulePackFor(harness);
+  return [...pack.rules, ...(pack.facts ?? [])];
+};
+
 const sorted = (keys: readonly string[]): string[] => [...keys].sort();
 
 /** Does the ground resolve to a real rule, template fact or file today? */
 const resolves = (harness: HarnessId, ground: CapabilityGround): boolean => {
-  if ("rule" in ground) return rulePackFor(harness).rules.some((rule) => rule.id === ground.rule);
+  if ("rule" in ground) return screenRulesOf(harness).some((rule) => rule.id === ground.rule);
   if ("code" in ground) return true;
   switch (ground.template) {
     case "followUp.steering":
@@ -73,7 +79,7 @@ describe("harness capabilities", () => {
   it("agrees with the signal each screen rule declares", () => {
     for (const harness of HARNESS_IDS) {
       const declaration = HARNESS_CAPABILITY_DECLARATIONS[harness];
-      const rules = rulePackFor(harness).rules;
+      const rules = screenRulesOf(harness);
       for (const rule of rules) {
         if (rule.signal === undefined) continue;
         const support = declaration.signals[rule.signal._tag];

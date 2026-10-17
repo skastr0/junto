@@ -111,12 +111,12 @@ export const HARNESS_CAPABILITY_DECLARATIONS: Readonly<
       PermissionResolved: NONE,
       QuestionAsked: screen("dynamic_workflow_prompt"),
       DialogShown: screen("resume_summary_choice", "model_picker_menu"),
-      UsageLimitHit: screen("usage_limit_choice"),
+      UsageLimitHit: screen("usage_limit_choice", "usage_limit_continuing"),
       Retrying: screen("api_retry_working"),
       UsageLevel: NONE,
       CompactionStarted: screen("compacting_working"),
       CompactionEnded: NONE,
-      ErrorRaised: NONE,
+      ErrorRaised: screen("not_logged_in", "api_error", "prompt_too_long"),
       ProcessExited: EXITED,
     },
     commands: {
@@ -145,7 +145,7 @@ export const HARNESS_CAPABILITY_DECLARATIONS: Readonly<
       UsageLevel: NONE,
       CompactionStarted: screen("compacting_context"),
       CompactionEnded: NONE,
-      ErrorRaised: NONE,
+      ErrorRaised: screen("unauthorized_error", "high_demand_error", "context_length_exceeded"),
       ProcessExited: EXITED,
     },
     commands: {
