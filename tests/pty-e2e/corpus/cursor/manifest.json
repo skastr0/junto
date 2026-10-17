@@ -1,0 +1,197 @@
+{
+  "harness": "cursor",
+  "displayName": "Cursor Agent",
+  "source": "stub-provider",
+  "pty": {
+    "cols": 120,
+    "rows": 32,
+    "term": "xterm-256color"
+  },
+  "sanitized": true,
+  "scrub": [
+    "<HOME>",
+    "<USER>",
+    "<HOST>",
+    "<CWD>",
+    "<CAPTURE>",
+    "<SESSION>",
+    "<EMAIL>",
+    "<TOKEN>"
+  ],
+  "scenarios": [
+    {
+      "harness": "cursor",
+      "scenario": "retry-overloaded",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: overloaded }, then ErrorRaised { kind: provider }",
+        "wiring": "CURSOR_API_ENDPOINT points at the stub, which answers Cursor's Connect RPCs and the cleartext HTTP/2 agent stream; file credential store, never the keychain; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/agent.v1.AgentService/Run 503",
+          "/agent.v1.AgentService/Run 503",
+          "/agent.v1.AgentService/Run 503",
+          "/agent.v1.AgentService/Run 503"
+        ],
+        "renderedLines": [
+          "  say hi",
+          " ⠀⠞ Working",
+          "  → Add a follow-up                                                                                     ctrl+c to stop",
+          " ⠀⠞ Reconnecting (attempt 1, 0s)",
+          " ⠠⠛ Reconnecting to 127.0.0.1:47820 (attempt 2, 3s)",
+          "  → say hi",
+          "  Error: Server error",
+          "  The server failed 4 times. Please try again, or contact support if the issue persists."
+        ],
+        "cliVersion": "2026.10.14-0f9edde"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "cursor",
+      "scenario": "retry-rate",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: rate }, then ErrorRaised { kind: provider }",
+        "wiring": "CURSOR_API_ENDPOINT points at the stub, which answers Cursor's Connect RPCs and the cleartext HTTP/2 agent stream; file credential store, never the keychain; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/agent.v1.AgentService/Run 429",
+          "/agent.v1.AgentService/Run 429",
+          "/agent.v1.AgentService/Run 429",
+          "/agent.v1.AgentService/Run 429"
+        ],
+        "renderedLines": [
+          "  say hi",
+          " ⠀⠞ Working",
+          "  → Add a follow-up                                                                                     ctrl+c to stop",
+          " ⠀⠞ Reconnecting (attempt 1, 0s)",
+          " ⠀⠞ Reconnecting to 127.0.0.1:47820 (attempt 2, 4s)",
+          "  → say hi",
+          "  Error: Server error",
+          "  The server failed 4 times. Please try again, or contact support if the issue persists."
+        ],
+        "cliVersion": "2026.10.14-0f9edde"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "cursor",
+      "scenario": "retry-network",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: network }, never recovering within the capture",
+        "wiring": "CURSOR_API_ENDPOINT points at the stub, which answers Cursor's Connect RPCs and the cleartext HTTP/2 agent stream; file credential store, never the keychain; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/agent.v1.AgentService/Run drop",
+          "/agent.v1.AgentService/Run drop",
+          "/agent.v1.AgentService/Run drop",
+          "/agent.v1.AgentService/Run drop",
+          "/agent.v1.AgentService/Run drop"
+        ],
+        "renderedLines": [
+          "  say hi",
+          " ⠀⠞ Working",
+          "  → Add a follow-up                                                                                     ctrl+c to stop",
+          " ⠀⠞ Reconnecting (attempt 1, 0s)",
+          " ⠠⠛ Reconnecting to 127.0.0.1:47820 (attempt 2, 4s)"
+        ],
+        "cliVersion": "2026.10.14-0f9edde"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "cursor",
+      "scenario": "usage-limit",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: unknown }; Cursor renders the server's title and detail, here the stub's words",
+        "wiring": "CURSOR_API_ENDPOINT points at the stub, which answers Cursor's Connect RPCs and the cleartext HTTP/2 agent stream; file credential store, never the keychain; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/agent.v1.AgentService/Run resource_exhausted"
+        ],
+        "renderedLines": [
+          "  say hi",
+          " ⠀⠞ Working",
+          "  → Add a follow-up                                                                                     ctrl+c to stop",
+          "  → say hi",
+          "  Error: Usage limit reached",
+          "  You've hit your usage limit."
+        ],
+        "cliVersion": "2026.10.14-0f9edde"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "cursor",
+      "scenario": "error-auth",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: auth }",
+        "wiring": "CURSOR_API_ENDPOINT points at the stub, which answers Cursor's Connect RPCs and the cleartext HTTP/2 agent stream; file credential store, never the keychain; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/agent.v1.AgentService/Run 401"
+        ],
+        "renderedLines": [
+          "  say hi",
+          " ⠀⠞ Working",
+          "  → Add a follow-up                                                                                     ctrl+c to stop",
+          "  → say hi",
+          "  Error: Sign in required",
+          "  HTTP 401"
+        ],
+        "cliVersion": "2026.10.14-0f9edde"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "cursor",
+      "scenario": "error-server",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: provider } after retries run out",
+        "wiring": "CURSOR_API_ENDPOINT points at the stub, which answers Cursor's Connect RPCs and the cleartext HTTP/2 agent stream; file credential store, never the keychain; HTTPS_PROXY refuses anything else",
+        "stubServed": [
+          "/agent.v1.AgentService/Run 500",
+          "/agent.v1.AgentService/Run 500",
+          "/agent.v1.AgentService/Run 500",
+          "/agent.v1.AgentService/Run 500"
+        ],
+        "renderedLines": [
+          "  say hi",
+          " ⠀⠞ Working",
+          "  → Add a follow-up                                                                                     ctrl+c to stop",
+          " ⠀⠞ Reconnecting (attempt 1, 0s)",
+          " ⠀⠞ Reconnecting to 127.0.0.1:47820 (attempt 2, 4s)",
+          "  → say hi",
+          "  Error: Server error",
+          "  The server failed 4 times. Please try again, or contact support if the issue persists."
+        ],
+        "cliVersion": "2026.10.14-0f9edde"
+      },
+      "expectedScreen": {}
+    }
+  ],
+  "signalCaptureEvidence": {
+    "tool": "tests/pty-e2e/signal-capture.ts",
+    "capturedAt": "2026-10-17T05:26:01.984Z",
+    "harnessVersion": "2026.10.14-0f9edde",
+    "provider": "scripted local stub; the binary and its rendering are real, the provider replies are not"
+  },
+  "sanitization": {
+    "method": "decoded-jsonl-scan",
+    "fixtures": 6,
+    "decodedBytes": 516942,
+    "checks": [
+      "home-path",
+      "username",
+      "hostname",
+      "email",
+      "token"
+    ]
+  }
+}
