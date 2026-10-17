@@ -234,8 +234,10 @@ describe("seats link start", () => {
     expect(failure).toMatchObject({
       _tag: "SeatSpawnFailed", machine: THIS_MACHINE, canvas, seatId: broken.id,
       bindingId: broken.bindingId, harness: "claude", exitReason: "spawn_failed",
-      exitMessage: expect.stringContaining("could not start"),
     });
+    // Asserted apart: an asymmetric matcher inside toMatchObject is written back into the value under bun test.
+    expect((failure as { exitMessage: string }).exitMessage).toBe(
+      `Claude Code could not start: the folder ${missing} does not exist`);
     expect(Schema.is(SeatsFailure)(failure)).toBe(true);
     expect(JSON.stringify(Schema.encodeSync(SeatsFailure)(failure as SeatsFailure))).not.toContain("JUNTO_WORK_TOKEN");
     expect(f.fake.controllers).toHaveLength(0);
