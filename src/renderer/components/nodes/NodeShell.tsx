@@ -378,6 +378,7 @@ export function NodeShell({
   const occupancyState = deriveOccupancy({
     hasOccupant: occupancyClue?.hasOccupant ?? false,
     activity: occupancyClue?.activity,
+    needs: occupancyClue?.needs,
     lastSeenAtMs: occupancyClue?.lastSeenAtMs,
     nowMs: Date.now(),
   });

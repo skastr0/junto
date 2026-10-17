@@ -1,4 +1,6 @@
 import { Schema } from "effect";
+import type { Need } from "../harness-domain/need";
+import { OCCUPANCY_FROM_NEED, projectNeeds } from "../need-surfaces";
 
 // Seat occupancy spectrum — LIVE, DERIVED, never stored on the canvas.
 //
@@ -16,12 +18,20 @@ import { Schema } from "effect";
 //   lastSeenAtMs absent   → empty  seat never occupied / re-baselined cold
 //
 // ---------------------------------------------------------------------------
-// Occupied (first match wins)
+// Occupied, with the seat's needs (harness-domain/need.ts)
 // ---------------------------------------------------------------------------
-//   1. harness === "blocked"                 → activity_blocked
-//      Bound but activity plane says blocked (criteria / deps / harness).
-//   2. harness === "attention"               → attention
+//   The most urgent need occupancy shows, through OCCUPANCY_FROM_NEED
+//   (need-surfaces.ts): a prompt is attention, a usage limit, auth error or
+//   crash is activity_blocked, a stall is stalled. A stale heartbeat still
+//   reads stalled over working or idle.
+//
+// ---------------------------------------------------------------------------
+// Occupied, harness fallback (first match wins, on the need ladder's order)
+// ---------------------------------------------------------------------------
+//   1. harness === "attention"               → attention
 //      Needs operator input (permission, review, focus).
+//   2. harness === "blocked"                 → activity_blocked
+//      Bound but activity plane says blocked (criteria / deps / harness).
 //   3. lastSeen stale (> stallAfterMs)       → stalled
 //      Expected progress / heartbeat missing. Requires lastSeenAtMs; absent
 //      lastSeen never invents stall. Default stallAfterMs = 24h.
@@ -72,6 +82,8 @@ export interface DeriveOccupancyInput {
   readonly hasOccupant: boolean;
   /** Optional harness activity. Absent invents no work/block/attention. */
   readonly activity?: OccupancyActivity;
+  /** The seat's needs, most urgent first (deriveNeeds). Replaces `activity` when present. */
+  readonly needs?: readonly Need[];
   /** Last heartbeat / progress observation (epoch ms). Absent invents no stall/gone. */
   readonly lastSeenAtMs?: number;
   /** Clock for stall comparison (epoch ms). Caller supplies; keeps this pure. */
@@ -88,6 +100,7 @@ export const deriveOccupancy = (input: DeriveOccupancyInput): OccupancySpectrum 
   const {
     hasOccupant,
     activity,
+    needs,
     lastSeenAtMs,
     nowMs,
     stallAfterMs = DEFAULT_STALL_AFTER_MS,
@@ -98,21 +111,24 @@ export const deriveOccupancy = (input: DeriveOccupancyInput): OccupancySpectrum 
     return lastSeenAtMs !== undefined ? "gone" : "empty";
   }
 
+  // Heartbeat gap (only when lastSeen is known).
+  const stale = lastSeenAtMs !== undefined && nowMs - lastSeenAtMs > stallAfterMs;
+
+  if (needs !== undefined) {
+    const shown = projectNeeds(needs, OCCUPANCY_FROM_NEED) ?? "idle";
+    return stale && (shown === "working" || shown === "idle") ? "stalled" : shown;
+  }
+
   const harness = activity?.harness;
 
-  // 1. Activity blocked.
-  if (harness === "blocked") return "activity_blocked";
-
-  // 2. Attention.
+  // 1. Attention.
   if (harness === "attention") return "attention";
 
-  // 3. Stalled — heartbeat gap (only when lastSeen is known).
-  if (
-    lastSeenAtMs !== undefined &&
-    nowMs - lastSeenAtMs > stallAfterMs
-  ) {
-    return "stalled";
-  }
+  // 2. Activity blocked.
+  if (harness === "blocked") return "activity_blocked";
+
+  // 3. Stalled.
+  if (stale) return "stalled";
 
   // 4. Working.
   if (harness === "working") return "working";

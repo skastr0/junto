@@ -1,4 +1,5 @@
 import { Context, Layer } from "effect";
+import type { Need } from "../harness-domain/need";
 import type { OccupancyActivity } from "./derive";
 
 // A typed producer contract for live occupancy inputs. Consumers (card chrome, RTS, digest)
@@ -20,6 +21,8 @@ import type { OccupancyActivity } from "./derive";
 export interface OccupancyClue {
   readonly hasOccupant: boolean;
   readonly activity?: OccupancyActivity;
+  /** The seat's needs, most urgent first; occupancy reads these over `activity`. */
+  readonly needs?: readonly Need[];
   readonly lastSeenAtMs?: number;
 }
 
