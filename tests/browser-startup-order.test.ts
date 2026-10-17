@@ -153,9 +153,10 @@ describe("browser startup recovery gate", () => {
   it("exits nonzero with the fixed diagnostic and no window on startup failure", () => {
     const ready = indexSrc.slice(indexSrc.indexOf("app.whenReady().then"));
     const failure = ready.slice(
-      ready.indexOf("} catch {", ready.indexOf("startBrowserComposition(")),
+      ready.indexOf("} catch (startupError) {", ready.indexOf("startBrowserComposition(")),
       ready.indexOf("if (!headless) createWindow()"),
     );
+    expect(failure.startsWith("} catch (startupError) {")).toBe(true);
     expect(failure).toContain("BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE");
     expect(failure).toContain(
       'exitAfterDetach(1, "browser-composition-startup-failure")',
