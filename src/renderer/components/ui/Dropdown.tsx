@@ -313,7 +313,7 @@ export function Dropdown({
                     <span className="grid size-3.5 shrink-0 place-items-center">
                       {isSelected ? <Check size={12} strokeWidth={2.4} className="text-amber" /> : null}
                     </span>
-                    {option.leading ? <span className="flex shrink-0 items-center">{option.leading}</span> : null}
+                    {option.leading ? <span className="flex shrink-0 items-center" aria-hidden>{option.leading}</span> : null}
                     <span className="min-w-0 flex-1 truncate">{option.label}</span>
                     {option.detail ? <span className="shrink-0 pl-3 text-faint">{option.detail}</span> : null}
                   </div>
@@ -356,7 +356,7 @@ export function Dropdown({
         }}
         onKeyDown={onTriggerKeyDown}
       >
-        {selected?.leading ? <span className="flex shrink-0 items-center">{selected.leading}</span> : null}
+        {selected?.leading ? <span className="flex shrink-0 items-center" aria-hidden>{selected.leading}</span> : null}
         <span className={`min-w-0 flex-1 truncate text-body font-medium ${caseClass}`}>{labelText}</span>
         <ChevronDown
           size={12}
