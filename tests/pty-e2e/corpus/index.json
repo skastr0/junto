@@ -986,48 +986,48 @@
       },
       {
         "scenario": "retry-rate",
-        "status": "fail",
-        "reason": "Error: ENOTEMPTY, Directory not empty: /tmp/junto-capture-home/prime-agent '/tmp/junto-capture-home/prime-agent'"
+        "status": "complete",
+        "reason": null
       },
       {
         "scenario": "retry-network",
-        "status": "skip",
-        "reason": "composer never ready"
+        "status": "complete",
+        "reason": null
       },
       {
         "scenario": "usage-limit",
-        "status": "skip",
-        "reason": "composer never ready"
+        "status": "complete",
+        "reason": null
       },
       {
         "scenario": "usage-limit-weekly",
-        "status": "skip",
-        "reason": "composer never ready"
+        "status": "complete",
+        "reason": null
       },
       {
         "scenario": "error-auth",
-        "status": "skip",
-        "reason": "composer never ready"
+        "status": "complete",
+        "reason": null
       },
       {
         "scenario": "error-server",
-        "status": "skip",
-        "reason": "composer never ready"
+        "status": "complete",
+        "reason": null
       },
       {
         "scenario": "error-context",
-        "status": "skip",
-        "reason": "composer never ready"
+        "status": "complete",
+        "reason": null
       },
       {
         "scenario": "compaction-auto",
-        "status": "skip",
-        "reason": "composer never ready"
+        "status": "complete",
+        "reason": null
       },
       {
         "scenario": "compaction-manual",
-        "status": "skip",
-        "reason": "composer never ready"
+        "status": "complete",
+        "reason": null
       }
     ]
   }

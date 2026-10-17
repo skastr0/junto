@@ -43,10 +43,10 @@
           "← agents/resume  stub-model                                                                                       0 (0%)",
           "  say hi",
           " Error: Provider server error (server_error, 503): The server is overloaded. Please try again later.",
-          " ⠙ Retrying (1/3) in 2s... (Ctrl+C to cancel)",
+          " ⠋ Retrying (1/3) in 2s... (Ctrl+C to cancel)",
           " Hint: Share traces with Prime Intellect using /traces on to train open-source LLMs.",
           " Hello from the capture stub.",
-          " ⠋ Writing · 0s · ↓ 8 tokens",
+          " ⠋ Waiting · 0s · ↑ 8 tokens",
           "← agents/resume  stub-model                                                                                      10 (0%)"
         ],
         "cliVersion": "0.9.4"
@@ -56,14 +56,34 @@
     {
       "harness": "prime-agent",
       "scenario": "retry-rate",
-      "status": "fail",
-      "reason": "Error: ENOTEMPTY, Directory not empty: /tmp/junto-capture-home/prime-agent '/tmp/junto-capture-home/prime-agent'",
+      "status": "complete",
       "observed": {
         "source": "stub-provider",
         "signal": "Retrying { cause: rate }, then a completed turn",
         "wiring": "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
-        "stubServed": [],
-        "renderedLines": [],
+        "stubServed": [
+          "/v1/responses 429",
+          "/v1/responses 429",
+          "/v1/responses 429",
+          "/v1/responses ok"
+        ],
+        "renderedLines": [
+          "     ██████▄         ▄██████▀",
+          "    ▄███▀███▄     ▄███▀▄██▀          version  v0.9.4",
+          "    ███ ▄████▄▄▄████▀▄▄██            model    stub-model",
+          "   ▀██  ▀█████████▀▀▀▀▀▀             cwd      <CWD>",
+          "   ▄██   ██████▀▀ ▄███",
+          " ⠋ Waiting · 0s",
+          "← agents/resume  stub-model                                                                                       0 (0%)",
+          "  say hi",
+          " Error: Provider rate limit exceeded (rate_limit_exceeded, 429): Rate limit reached for requests per minute. Please try",
+          " again in 2s.",
+          " ⠋ Retrying (1/3) in 2s... (Ctrl+C to cancel)",
+          " Hint: Use /context to check token usage, cost, and remaining context.",
+          " Hello from the capture stub.",
+          " ⠋ Waiting · 0s · ↑ 8 tokens",
+          "← agents/resume  stub-model                                                                                      10 (0%)"
+        ],
         "cliVersion": "0.9.4"
       },
       "expectedScreen": {}
@@ -71,14 +91,33 @@
     {
       "harness": "prime-agent",
       "scenario": "retry-network",
-      "status": "skip",
-      "reason": "composer never ready",
+      "status": "complete",
       "observed": {
         "source": "stub-provider",
         "signal": "Retrying { cause: network }, then a completed turn",
         "wiring": "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
-        "stubServed": [],
-        "renderedLines": [],
+        "stubServed": [
+          "/v1/responses drop",
+          "/v1/responses drop",
+          "/v1/responses drop",
+          "/v1/responses ok"
+        ],
+        "renderedLines": [
+          "     ██████▄         ▄██████▀",
+          "    ▄███▀███▄     ▄███▀▄██▀          version  v0.9.4",
+          "    ███ ▄████▄▄▄████▀▄▄██            model    stub-model",
+          "   ▀██  ▀█████████▀▀▀▀▀▀             cwd      <CWD>",
+          "   ▄██   ██████▀▀ ▄███",
+          " ⠋ Waiting · 0s",
+          "← agents/resume  stub-model                                                                                       0 (0%)",
+          "  say hi",
+          " Error: Connection error.",
+          " ⠋ Retrying (1/3) in 2s... (Ctrl+C to cancel)",
+          " Hint: Prime Agent can delegate tasks to subagents and run them in parallel.",
+          " Hello from the capture stub.",
+          " ⠙ Waiting · 0s · ↑ 8 tokens",
+          "← agents/resume  stub-model                                                                                      10 (0%)"
+        ],
         "cliVersion": "0.9.4"
       },
       "expectedScreen": {}
@@ -86,14 +125,32 @@
     {
       "harness": "prime-agent",
       "scenario": "usage-limit",
-      "status": "skip",
-      "reason": "composer never ready",
+      "status": "complete",
       "observed": {
         "source": "stub-provider",
         "signal": "UsageLimitHit { scope: 5h, resetsAt }",
         "wiring": "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
-        "stubServed": [],
-        "renderedLines": [],
+        "stubServed": [
+          "/v1/responses 429",
+          "/v1/responses 429",
+          "/v1/responses 429",
+          "/v1/responses 429"
+        ],
+        "renderedLines": [
+          "     ██████▄         ▄██████▀",
+          "    ▄███▀███▄     ▄███▀▄██▀          version  v0.9.4",
+          "    ███ ▄████▄▄▄████▀▄▄██            model    stub-model",
+          "   ▀██  ▀█████████▀▀▀▀▀▀             cwd      <CWD>",
+          "   ▄██   ██████▀▀ ▄███",
+          " ⠋ Waiting · 0s",
+          "← agents/resume  stub-model                                                                                       0 (0%)",
+          "  say hi",
+          " Error: Provider rate limit exceeded (usage_limit_reached, 429): The usage limit has been reached",
+          " ⠋ Retrying (1/3) in 2s... (Ctrl+C to cancel)",
+          " Hint: Use /goal <objective> to keep your agent working until the goal is complete.",
+          " Error: Retry failed after 3 attempts: Provider rate limit exceeded (usage_limit_reached, 429): The usage limit has",
+          " been reached"
+        ],
         "cliVersion": "0.9.4"
       },
       "expectedScreen": {}
@@ -101,14 +158,32 @@
     {
       "harness": "prime-agent",
       "scenario": "usage-limit-weekly",
-      "status": "skip",
-      "reason": "composer never ready",
+      "status": "complete",
       "observed": {
         "source": "stub-provider",
         "signal": "UsageLimitHit { scope: weekly, resetsAt }",
         "wiring": "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
-        "stubServed": [],
-        "renderedLines": [],
+        "stubServed": [
+          "/v1/responses 429",
+          "/v1/responses 429",
+          "/v1/responses 429",
+          "/v1/responses 429"
+        ],
+        "renderedLines": [
+          "     ██████▄         ▄██████▀",
+          "    ▄███▀███▄     ▄███▀▄██▀          version  v0.9.4",
+          "    ███ ▄████▄▄▄████▀▄▄██            model    stub-model",
+          "   ▀██  ▀█████████▀▀▀▀▀▀             cwd      <CWD>",
+          "   ▄██   ██████▀▀ ▄███",
+          "  say hi",
+          " Error: Provider rate limit exceeded (usage_limit_reached, 429): The usage limit has been reached",
+          " ⠋ Waiting · 0s",
+          "← agents/resume  stub-model                                                                                       0 (0%)",
+          " ⠋ Retrying (1/3) in 2s... (Ctrl+C to cancel)",
+          " Hint: Use /heartbeat every 10m <instruction> to repeat a task on a schedule.",
+          " Error: Retry failed after 3 attempts: Provider rate limit exceeded (usage_limit_reached, 429): The usage limit has",
+          " been reached"
+        ],
         "cliVersion": "0.9.4"
       },
       "expectedScreen": {}
@@ -116,14 +191,31 @@
     {
       "harness": "prime-agent",
       "scenario": "error-auth",
-      "status": "skip",
-      "reason": "composer never ready",
+      "status": "complete",
       "observed": {
         "source": "stub-provider",
         "signal": "ErrorRaised { kind: auth }",
         "wiring": "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
-        "stubServed": [],
-        "renderedLines": [],
+        "stubServed": [
+          "/v1/responses 401",
+          "/v1/responses 401"
+        ],
+        "renderedLines": [
+          "     ██████▄         ▄██████▀",
+          "    ▄███▀███▄     ▄███▀▄██▀          version  v0.9.4",
+          "    ███ ▄████▄▄▄████▀▄▄██            model    stub-model",
+          "   ▀██  ▀█████████▀▀▀▀▀▀             cwd      <CWD>",
+          "   ▄██   ██████▀▀ ▄███",
+          "  say hi",
+          " ⠙ Waiting · 0s",
+          "← agents/resume  stub-model                                                                                       0 (0%)",
+          " Error: Provider authentication failed (invalid_api_key, 401): Incorrect API key provided. · Run /login to update",
+          " credentials.",
+          " ⠋ Retrying (1/3) in 2s... (Ctrl+C to cancel)",
+          " Error: Retry failed after 1 attempts: Provider authentication failed (invalid_api_key, 401): Incorrect API key",
+          " provided.",
+          " Run /login to update credentials."
+        ],
         "cliVersion": "0.9.4"
       },
       "expectedScreen": {}
@@ -131,14 +223,31 @@
     {
       "harness": "prime-agent",
       "scenario": "error-server",
-      "status": "skip",
-      "reason": "composer never ready",
+      "status": "complete",
       "observed": {
         "source": "stub-provider",
         "signal": "ErrorRaised { kind: provider } after retries run out",
         "wiring": "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
-        "stubServed": [],
-        "renderedLines": [],
+        "stubServed": [
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500"
+        ],
+        "renderedLines": [
+          "     ██████▄         ▄██████▀",
+          "    ▄███▀███▄     ▄███▀▄██▀          version  v0.9.4",
+          "    ███ ▄████▄▄▄████▀▄▄██            model    stub-model",
+          "   ▀██  ▀█████████▀▀▀▀▀▀             cwd      <CWD>",
+          "   ▄██   ██████▀▀ ▄███",
+          "  say hi",
+          " ⠋ Waiting · 0s",
+          "← agents/resume  stub-model                                                                                       0 (0%)",
+          " Error: Provider server error (server_error, 500): Internal server error",
+          " ⠋ Retrying (1/3) in 2s... (Ctrl+C to cancel)",
+          " Hint: Share traces with Prime Intellect using /traces on to train open-source LLMs.",
+          " Error: Retry failed after 3 attempts: Provider server error (server_error, 500): Internal server error"
+        ],
         "cliVersion": "0.9.4"
       },
       "expectedScreen": {}
@@ -146,14 +255,29 @@
     {
       "harness": "prime-agent",
       "scenario": "error-context",
-      "status": "skip",
-      "reason": "composer never ready",
+      "status": "complete",
       "observed": {
         "source": "stub-provider",
         "signal": "ErrorRaised { kind: contextOverflow }",
         "wiring": "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
-        "stubServed": [],
-        "renderedLines": [],
+        "stubServed": [
+          "/v1/responses 400"
+        ],
+        "renderedLines": [
+          "     ██████▄         ▄██████▀",
+          "    ▄███▀███▄     ▄███▀▄██▀          version  v0.9.4",
+          "    ███ ▄████▄▄▄████▀▄▄██            model    stub-model",
+          "   ▀██  ▀█████████▀▀▀▀▀▀             cwd      <CWD>",
+          "   ▄██   ██████▀▀ ▄███",
+          "  say hi",
+          " ⠋ Waiting · 0s",
+          "← agents/resume  stub-model                                                                                       0 (0%)",
+          " Error: Provider rejected the request (context_length_exceeded, 400): Your input exceeds the context window of this",
+          " model. Please adjust your input and try again.",
+          "  Auto-compaction skipped: Session is too short to compact — try again once it grows",
+          " ⠋ Context overflow detected, Auto-compacting... (Ctrl+C to cancel)",
+          "← agents/resume  stub-model                                                                                      23 (0%)"
+        ],
         "cliVersion": "0.9.4"
       },
       "expectedScreen": {}
@@ -161,14 +285,39 @@
     {
       "harness": "prime-agent",
       "scenario": "compaction-auto",
-      "status": "skip",
-      "reason": "composer never ready",
+      "status": "complete",
       "observed": {
         "source": "stub-provider",
         "signal": "CompactionStarted { trigger: auto }, CompactionEnded { ok }, then a completed turn",
         "wiring": "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
-        "stubServed": [],
-        "renderedLines": [],
+        "stubServed": [
+          "/v1/responses ok",
+          "/v1/responses ok",
+          "/v1/responses ok",
+          "/v1/responses ok"
+        ],
+        "renderedLines": [
+          "     ██████▄         ▄██████▀",
+          "    ▄███▀███▄     ▄███▀▄██▀          version  v0.9.4",
+          "    ███ ▄████▄▄▄████▀▄▄██            model    stub-model",
+          "   ▀██  ▀█████████▀▀▀▀▀▀             cwd      <CWD>",
+          "   ▄██   ██████▀▀ ▄███",
+          " ⠋ Waiting · 0s",
+          "← agents/resume  stub-model                                                                                       0 (0%)",
+          "  say hi",
+          " ⠙ Writing · 0s",
+          " Line 1576 of a long capture answer, padding the conversation.",
+          " ⠋ Compacting context... (Ctrl+C to cancel)",
+          "← agents/resume  stub-model                                                                                   190k (95%)",
+          " [compaction]",
+          " Compacted from 190,008 tokens (Ctrl+O to expand)",
+          "← agents/resume  stub-model",
+          " Line 1595 of a long captu",
+          "  say hi again",
+          " Hello from the capture stub.",
+          " ⠹ Waiting · 0s · ↑ 8 tokens",
+          "← agents/resume  stub-model                                                                                      20 (0%)"
+        ],
         "cliVersion": "0.9.4"
       },
       "expectedScreen": {}
@@ -176,14 +325,35 @@
     {
       "harness": "prime-agent",
       "scenario": "compaction-manual",
-      "status": "skip",
-      "reason": "composer never ready",
+      "status": "complete",
       "observed": {
         "source": "stub-provider",
         "signal": "CompactionStarted { trigger: manual }, CompactionEnded { ok }",
         "wiring": "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
-        "stubServed": [],
-        "renderedLines": [],
+        "stubServed": [
+          "/v1/responses ok",
+          "/v1/responses ok",
+          "/v1/responses ok",
+          "/v1/responses ok"
+        ],
+        "renderedLines": [
+          "     ██████▄         ▄██████▀",
+          "    ▄███▀███▄     ▄███▀▄██▀          version  v0.9.4",
+          "    ███ ▄████▄▄▄████▀▄▄██            model    stub-model",
+          "   ▀██  ▀█████████▀▀▀▀▀▀             cwd      <CWD>",
+          "   ▄██   ██████▀▀ ▄███",
+          "  say hi",
+          " ⠙ Writing · 0s",
+          "← agents/resume  stub-model                                                                                       0 (0%)",
+          " Line 1574 of a long capture answer, padding the conversation.",
+          "← agents/resume  stub-model                                                                                    30k (15%)",
+          "  say more",
+          "  /compact",
+          " ⠙ Compacting context... (Ctrl+C to cancel)",
+          " [compaction]",
+          " Compacted from 30,010 tokens (Ctrl+O to expand)",
+          "← agents/resume  stub-model"
+        ],
         "cliVersion": "0.9.4"
       },
       "expectedScreen": {}
@@ -191,14 +361,14 @@
   ],
   "signalCaptureEvidence": {
     "tool": "tests/pty-e2e/signal-capture.ts",
-    "capturedAt": "2026-10-17T04:34:08.660Z",
+    "capturedAt": "2026-10-17T05:12:31.029Z",
     "harnessVersion": "0.9.4",
     "provider": "scripted local stub; the binary and its rendering are real, the provider replies are not"
   },
   "sanitization": {
     "method": "decoded-jsonl-scan",
-    "fixtures": 3,
-    "decodedBytes": 177377,
+    "fixtures": 10,
+    "decodedBytes": 545032,
     "checks": [
       "home-path",
       "username",
