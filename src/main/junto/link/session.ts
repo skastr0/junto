@@ -7,7 +7,7 @@ import { decodeLinkFrame, LinkHelloSchema, type LinkFrame } from "./protocol";
 import { linkLog, type LinkLogLevel } from "./log";
 import {
   isMachineLinkError, LinkBuildMismatch, linkClosed, LinkFrameInvalid, LinkHelloRefused, LinkRequestFailed, LinkUnavailable,
-  type FrameProblem, type LinkChannel, type LinkChannelContext, type LinkChannelHandler, type LinkChannels, type LinkClosed,
+  type FrameProblem, type LinkChannel, type LinkChannelContext, type LinkChannelHandler, type LinkEventContext, type LinkChannels, type LinkClosed,
   type LinkClosedReason, type LinkHello, type LinkSession, type MachineLinkError,
 } from "./types";
 
@@ -16,12 +16,13 @@ export { LinkBuildMismatch } from "./types";
 /**
  * inboundCalls bounds requests in flight from the peer (its own pendingRequests
  * bound matches, so only a misbehaving peer exceeds it, and the link closes).
- * inboundEvents is a high-water mark, not a refusal: at it the session stops
- * reading until half have run, so a burst of events slows the sender instead
- * of closing the link. No event handler sends a request, so a paused reader
+ * inboundEvents and inboundEventBytes are a high-water mark, not a refusal:
+ * at either the session stops reading until both are at half, so a burst of
+ * events slows the sender instead of closing the link. An event handler gets
+ * no request (LinkEventContext, refused at run time too), so a paused reader
  * cannot hold up its own answer.
  */
-const DEFAULT_LIMITS = { frameBytes: 1024 * 1024, queuedBytes: 4 * 1024 * 1024, pendingRequests: 32, inboundCalls: 32, inboundEvents: 64, helloTimeoutMs: 10_000, requestTimeoutMs: 30_000 } as const;
+const DEFAULT_LIMITS = { frameBytes: 1024 * 1024, queuedBytes: 4 * 1024 * 1024, pendingRequests: 32, inboundCalls: 32, inboundEvents: 64, inboundEventBytes: 8 * 1024 * 1024, helloTimeoutMs: 10_000, requestTimeoutMs: 30_000 } as const;
 const CLOSE_FLUSH_MS = 1_000;
 export interface LinkSessionOptions {
   readonly readable: Readable;
@@ -97,6 +98,9 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
   const channelQueues = new Map<LinkChannel, Promise<void>>();
   let inboundCalls = 0;
   let inboundEvents = 0;
+  let inboundEventBytes = 0;
+  const eventsHigh = (): boolean => inboundEvents >= limits.inboundEvents || inboundEventBytes >= limits.inboundEventBytes;
+  const eventsLow = (): boolean => inboundEvents <= Math.floor(limits.inboundEvents / 2) && inboundEventBytes <= Math.floor(limits.inboundEventBytes / 2);
   let eventsDrained: (() => void) | undefined;
   const releaseReader = (): void => { const resume = eventsDrained; eventsDrained = undefined; resume?.(); };
   let peer: LinkHello | undefined;
@@ -124,6 +128,12 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
       request: (channel, payload, op) => Effect.tryPromise({ try: () => request(channel, payload, op), catch: classify }),
       close: cause => Effect.promise(() => close(cause)),
     };
+  };
+  const eventContext = (): LinkEventContext => {
+    // A cast cannot bring the request back: it is refused, typed, before it is sent.
+    const { request: _request, ...rest } = context();
+    return Object.assign(rest, { request: () => Effect.fail(new LinkUnavailable({ ...(peerName() === undefined ? {} : { machine: peerName()! }),
+      reason: "request-from-event", message: "An event handler cannot send a request on its own link" })) });
   };
   const classify = (cause: unknown): MachineLinkError => isMachineLinkError(cause) ? cause :
     linkClosed({ ...(peerName() === undefined ? {} : { machine: peerName()! }), by: "this-end", reason: "failed", cause });
@@ -237,14 +247,14 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     finish(cause === undefined ? thisEnd("closed") : isMachineLinkError(cause) ? cause : thisEnd("closed", [describeCause(cause), ...(classify(cause) as LinkClosed).causes.slice(1)]));
     await closed;
   };
-  const enqueue = (channel: LinkChannel, kind: "request" | "event", work: () => Promise<void>): void => {
+  const enqueue = (channel: LinkChannel, kind: "request" | "event", work: () => Promise<void>, bytes = 0): void => {
     if (kind === "request" && ++inboundCalls > limits.inboundCalls) { finish(thisEnd("bound-exceeded", [bound("Too many incoming link calls")])); return; }
-    if (kind === "event") inboundEvents++;
+    if (kind === "event") { inboundEvents++; inboundEventBytes += bytes; }
     const previous = channelQueues.get(channel) ?? Promise.resolve();
     const flight = previous.then(async () => { if (stopped === undefined) await work(); }).catch(cause => finish(cause)).finally(() => {
       if (kind === "request") { inboundCalls--; return; }
-      inboundEvents--;
-      if (inboundEvents <= Math.floor(limits.inboundEvents / 2)) releaseReader();
+      inboundEvents--; inboundEventBytes -= bytes;
+      if (eventsLow()) releaseReader();
     });
     channelQueues.set(channel, flight);
   };
@@ -253,7 +263,8 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     try { return Schema.encodeUnknownSync(selected.failureSchema)(cause); }
     catch (encodeCause) { log("Warning", "link failure detail did not encode", { failure: encodeError(encodeCause, { machine: self.machineName }) }); return undefined; }
   };
-  const receive = async (frame: LinkFrame): Promise<void> => {
+  /** `bytes` is the frame's size as read; held events are bounded by it too. */
+  const receive = async (frame: LinkFrame, bytes = 0): Promise<void> => {
     if (stopped !== undefined) return;
     if (frame.type === "close") {
       const failure = decodeEncodedFailure(frame.failure);
@@ -307,7 +318,7 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     if (frame.type === "event") {
       const payload = decoded("payload", `The ${frame.channel} event does not match its schema`, () => selected.decodeEvent(frame.payload));
       if (selected.handleEvent === undefined) throw frameInvalid("no-handler", "Link channel does not accept events", peer.machineName);
-      enqueue(frame.channel, "event", async () => { await checkAdmission(); await runOwned(selected.handleEvent!(context(), payload)); });
+      enqueue(frame.channel, "event", async () => { await checkAdmission(); await runOwned(selected.handleEvent!(eventContext(), payload)); }, bytes);
       return;
     }
     const payload = decoded("payload", `The ${frame.channel} request does not match its schema`, () => selected.decodeRequest(frame.payload));
@@ -349,12 +360,13 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
           pieces.push(bytes.subarray(offset, end));
           if (newline < 0) break;
           const line = decoded("utf8", "Link input is not UTF-8", () => new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(pieces, count)));
+          const size = count;
           pieces = []; count = 0;
           const json = decoded("json", "Link input is not JSON", () => JSON.parse(line) as unknown);
-          await receive(decoded("schema", "Link frame does not match the protocol", () => decodeLinkFrame(json)));
+          await receive(decoded("schema", "Link frame does not match the protocol", () => decodeLinkFrame(json)), size);
           offset = newline + 1;
           if (stopped !== undefined) return;
-          if (inboundEvents >= limits.inboundEvents) await new Promise<void>(resume => { eventsDrained = resume; });
+          if (eventsHigh()) await new Promise<void>(resume => { eventsDrained = resume; });
           if (stopped !== undefined) return;
         }
       }

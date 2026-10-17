@@ -3,7 +3,7 @@ import { Effect, Schema } from "effect";
 import { afterEach, expect, it, vi } from "vitest";
 import { LinkBuildMismatch, makeLinkSession, type LinkSessionOptions } from "../src/main/junto/link/session";
 import { LinkHelloSchema, decodeLinkFrame } from "../src/main/junto/link/protocol";
-import { linkClosed, LinkPeerNotPinned, LinkRequestFailed, type LinkChannelHandler, type LinkHello, type LinkSession } from "../src/main/junto/link/types";
+import { linkClosed, LinkPeerNotPinned, LinkRequestFailed, type LinkChannelContext, type LinkChannelHandler, type LinkHello, type LinkSession } from "../src/main/junto/link/types";
 
 const sessions: LinkSession[] = [];
 afterEach(async () => { await Promise.all(sessions.splice(0).map(session => session.close())); });
@@ -250,5 +250,36 @@ it("slows a burst of events instead of closing the link", async () => {
   open();
   await new Promise<void>(resolve => { const poll = () => handled.length === 40 ? resolve() : setTimeout(poll, 2); poll(); });
   expect(handled[39]).toBe("e39");
+  expect(closed).toBe(false);
+}, 5_000);
+
+it("pauses on held event bytes too, and refuses a request from an event handler", async () => {
+  const handled: string[] = [];
+  let refused: unknown;
+  let open!: () => void;
+  const gate = new Promise<void>(resolve => { open = resolve; });
+  const events: LinkChannelHandler = { ...channel(), handleEvent: (context, payload) => Effect.gen(function* () {
+    // A cast cannot bring the request back.
+    refused = yield* Effect.flip((context as unknown as LinkChannelContext).request("status", { value: "x" }));
+    yield* Effect.promise(() => gate);
+    handled.push((payload as { value: string }).value);
+  }) };
+  const f = raw({ limits: { inboundEvents: 64, inboundEventBytes: 2048 }, channels: { status: events } });
+  f.send({ type: "hello", ...hello("mini") }); await f.session.ready;
+  // One chunk per frame, so a paused reader leaves the rest unread in the stream.
+  for (let index = 0; index < 30; index++) {
+    f.send({ type: "event", channel: "status", payload: { value: `${index}`.padStart(200, "x") } });
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  await new Promise(resolve => setTimeout(resolve, 20));
+  expect(refused).toMatchObject({ _tag: "LinkUnavailable", reason: "request-from-event" });
+  expect(f.frames.some(frame => frame.type === "request")).toBe(false);
+  // 2 KiB of held events stopped the reader: the rest is still unread in the stream.
+  expect(f.input.readableLength).toBeGreaterThan(0);
+  open();
+  await new Promise<void>(resolve => { const poll = () => handled.length === 30 ? resolve() : setTimeout(poll, 2); poll(); });
+  let closed = false;
+  void f.session.closed.then(() => { closed = true; });
+  await new Promise(resolve => setTimeout(resolve, 5));
   expect(closed).toBe(false);
 }, 5_000);

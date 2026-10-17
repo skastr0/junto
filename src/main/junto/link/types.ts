@@ -85,7 +85,7 @@ export class LinkClosed extends Schema.TaggedError<LinkClosed>()("LinkClosed", {
 }) {}
 
 /** The link cannot take this call: not linked, not configured, or shutting down. */
-export const LinkUnavailableReason = Schema.Literals(["not-linked", "not-configured", "channels-bound", "unknown-channel", "listener-unavailable", "shutting-down", "route-incomplete", "other-installation", "invalid-limits", "not-admitted", "channel-unavailable"]);
+export const LinkUnavailableReason = Schema.Literals(["not-linked", "not-configured", "channels-bound", "unknown-channel", "listener-unavailable", "shutting-down", "route-incomplete", "other-installation", "invalid-limits", "not-admitted", "channel-unavailable", "request-from-event"]);
 export class LinkUnavailable extends Schema.TaggedError<LinkUnavailable>()("LinkUnavailable", {
   machine: Schema.optionalKey(Schema.String),
   reason: LinkUnavailableReason,
@@ -151,6 +151,13 @@ export interface LinkChannelContext {
 }
 
 /**
+ * What an event handler gets: no request. The session may stop reading while
+ * events back up, and a handler awaiting an answer on its own link would wait
+ * on a reader that waits on it. The session also refuses one at run time.
+ */
+export type LinkEventContext = Omit<LinkChannelContext, "request">;
+
+/**
  * Each decoder must reject excess fields and throw on invalid input. The
  * session calls it before dispatch, pending-response resolution or event use.
  * A channel without requests or events supplies a decoder that rejects them.
@@ -165,7 +172,7 @@ export interface LinkChannelHandler {
    */
   readonly failureSchema?: Schema.Codec<unknown, unknown>;
   readonly handleRequest?: (context: LinkChannelContext, payload: unknown) => Effect.Effect<unknown, unknown>;
-  readonly handleEvent?: (context: LinkChannelContext, payload: unknown) => Effect.Effect<void, unknown>;
+  readonly handleEvent?: (context: LinkEventContext, payload: unknown) => Effect.Effect<void, unknown>;
   readonly opened?: (context: LinkChannelContext) => Effect.Effect<void, unknown>;
   readonly closed?: (context: LinkChannelContext) => Effect.Effect<void, unknown>;
 }
