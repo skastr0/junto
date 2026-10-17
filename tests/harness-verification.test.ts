@@ -3,10 +3,11 @@
  * one answer per machine, asked again at most once a minute.
  */
 import { Result } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { InventoryUnavailableError, type MachineInventory } from "../src/shared/harness-domain";
 import {
   ASK_AGAIN_AFTER_MS,
+  SCAN_REREAD_MS,
   askHarnessVerification,
   harnessVerification$,
   harnessVersionNote,
@@ -86,5 +87,37 @@ describe("harness verification store", () => {
     expect(asked).toEqual(["studio", "studio", "atlas"]);
     expect(harnessVerification$.studio.claude.verification.verdict.peek()).toBe("newer");
     expect(harnessVerification$.atlas.peek()).toBeUndefined();
+  });
+
+  it("waits out a running scan instead of saying the version was not read", async () => {
+    vi.useFakeTimers();
+    try {
+      let scanning = true;
+      const asked: number[] = [];
+      setHarnessMachineSource({
+        ...pendingHarnessMachineSource,
+        inventory: async (machine) => {
+          asked.push(Date.now());
+          const claude = scanning
+            ? row("claude", { refreshing: true, verification: { verdict: "unknown", from: "2.0.0", through: "2.1.0" } })
+            : row("claude", { version: "2.0.5", verification: { verdict: "verified", from: "2.0.0", through: "2.1.0" } });
+          return Result.succeed({ machine, harnesses: [claude] } as unknown as MachineInventory);
+        },
+      });
+
+      askHarnessVerification("studio");
+      await vi.advanceTimersByTimeAsync(0);
+      // Not read yet: no answer, so no "not read" chip.
+      expect(harnessVerification$.studio.peek()).toEqual({});
+      expect(asked).toHaveLength(1);
+
+      scanning = false;
+      await vi.advanceTimersByTimeAsync(SCAN_REREAD_MS);
+      // Asked again within seconds, not a minute, and the scan's answer lands.
+      expect(asked).toHaveLength(2);
+      expect(harnessVerification$.studio.claude.verification.verdict.peek()).toBe("verified");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
