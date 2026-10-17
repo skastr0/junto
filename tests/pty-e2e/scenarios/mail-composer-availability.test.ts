@@ -46,6 +46,19 @@ const LAST_SCREEN: Readonly<Record<string, Readonly<Record<string, Outcome>>>> =
     "working-turn": "written",
     // Recorded while logged out: the login-method picker. The seat reads idle.
     "mail-notice": "unreadable",
+    // Signal captures (tests/pty-e2e/signal-capture.ts): the turn has ended on
+    // an error, a retry that recovered, or a compaction, and the box is empty.
+    "retry-overloaded": "written",
+    "retry-rate": "written",
+    "retry-network": "written",
+    "error-auth": "written",
+    "error-server": "written",
+    "error-context": "written",
+    "compaction-manual": "written",
+    // The 5h limit waits to continue at the reset with the box still open.
+    "usage-limit": "written",
+    // The weekly limit asks what to do: stop, wait, or upgrade.
+    "usage-limit-weekly": "dialog",
   },
   codex: {
     "startup-idle": "written",
@@ -54,6 +67,20 @@ const LAST_SCREEN: Readonly<Record<string, Readonly<Record<string, Outcome>>>> =
     "working-turn": "written",
     // Recorded with a broken home: an error and no TUI at all.
     "mail-notice": "unreadable",
+    // Signal captures (tests/pty-e2e/signal-capture.ts): the turn has ended on
+    // an error, a retry that recovered, or a compaction, and the box is empty.
+    "retry-overloaded": "written",
+    "retry-rate": "written",
+    "retry-network": "written",
+    "error-auth": "written",
+    "error-server": "written",
+    "error-context": "written",
+    "compaction-manual": "written",
+    // DEFECT: both limits end on Codex's "Switch to gpt-6-luna?" model picker
+    // (enter select, esc back). Mail is typed into the picker; it should hold
+    // as a dialog once the codex pack recognizes the picker.
+    "usage-limit": "written",
+    "usage-limit-weekly": "written",
   },
   devin: {
     "startup-idle": "written",

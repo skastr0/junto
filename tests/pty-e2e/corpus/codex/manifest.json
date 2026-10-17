@@ -210,12 +210,291 @@
         "promptGlyph": null,
         "description": "isolated typed-notice composer never ready"
       }
+    },
+    {
+      "harness": "codex",
+      "scenario": "retry-overloaded",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: overloaded }, then a completed turn",
+        "wiring": "-c model_provider points at a stub provider with env_key auth; CODEX_HOME isolated",
+        "stubServed": [
+          "/v1/responses 503",
+          "/v1/responses 503",
+          "/v1/responses 503",
+          "/v1/responses ok",
+          "/v1/responses ok"
+        ],
+        "renderedLines": [
+          "› say hi",
+          "• Working (0s • esc to interrupt)",
+          "  gpt-5.4-mini low · <CWD> · ⠋",
+          "  ? for shortcuts                                                                             ⚠ 3 warnings · f2 to view",
+          "• Hello from the capture stub.",
+          "  Worked for 3s • 03:07"
+        ],
+        "cliVersion": "codex-cli 0.162.1"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "codex",
+      "scenario": "retry-rate",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: rate }, then a completed turn",
+        "wiring": "-c model_provider points at a stub provider with env_key auth; CODEX_HOME isolated",
+        "stubServed": [
+          "/v1/responses 429",
+          "/v1/responses 429",
+          "/v1/responses 429",
+          "/v1/responses ok",
+          "/v1/responses ok"
+        ],
+        "renderedLines": [
+          "› say hi",
+          "• Working (0s • esc to interrupt)",
+          "  gpt-5.4-mini low · <CWD> · ⠏",
+          "  ? for shortcuts                                                                             ⚠ 3 warnings · f2 to view",
+          "• Reconnecting... 1/3 (1s • esc to interrupt)",
+          "  └ Exceeded retry limit, last status: 429 Too Many Requests",
+          "• Hello from the capture stub.",
+          "  Worked for 7s • 03:08"
+        ],
+        "cliVersion": "codex-cli 0.162.1"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "codex",
+      "scenario": "retry-network",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: network }, then a completed turn",
+        "wiring": "-c model_provider points at a stub provider with env_key auth; CODEX_HOME isolated",
+        "stubServed": [
+          "/v1/responses drop",
+          "/v1/responses drop",
+          "/v1/responses drop",
+          "/v1/responses ok",
+          "/v1/responses ok"
+        ],
+        "renderedLines": [
+          "› say hi",
+          "• Working (0s • esc to interrupt)",
+          "  gpt-5.4-mini low · <CWD> · ⠏",
+          "  ? for shortcuts                                                                             ⚠ 3 warnings · f2 to view",
+          "• Hello from the capture stub.",
+          "  Worked for 3s • 03:08"
+        ],
+        "cliVersion": "codex-cli 0.162.1"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "codex",
+      "scenario": "usage-limit",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: 5h, resetsAt }",
+        "wiring": "-c model_provider points at a stub provider with env_key auth; CODEX_HOME isolated",
+        "stubServed": [
+          "/v1/responses 429",
+          "/v1/responses 429"
+        ],
+        "renderedLines": [
+          "› say hi",
+          "• Working (0s • esc to interrupt)",
+          "  gpt-5.4-mini low · <CWD> · ⠋",
+          "  ? for shortcuts                                                                             ⚠ 3 warnings · f2 to view",
+          "■ You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/",
+          "usage to purchase more credits or try again at 6:25 AM.",
+          "  Approaching rate limits",
+          "  Switch to gpt-6-luna for lower credit usage?",
+          "› 1. Switch to gpt-6-luna                   Fast and affordable model for easier tasks.",
+          "  2. Keep current model",
+          "  3. Keep current model (never show again)  Hide future rate limit reminders about switching models",
+          "  enter select · esc back"
+        ],
+        "cliVersion": "codex-cli 0.162.1"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "codex",
+      "scenario": "usage-limit-weekly",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: weekly, resetsAt }",
+        "wiring": "-c model_provider points at a stub provider with env_key auth; CODEX_HOME isolated",
+        "stubServed": [
+          "/v1/responses 429",
+          "/v1/responses 429"
+        ],
+        "renderedLines": [
+          "› say hi",
+          "• Working (0s • esc to interrupt)",
+          "  ? for shortcuts                                                                             ⚠ 3 warnings · f2 to view",
+          "■ You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/",
+          "usage to purchase more credits or try again at Oct 21st, 2026 6:25 AM.",
+          "  Approaching rate limits",
+          "  Switch to gpt-6-luna for lower credit usage?",
+          "› 1. Switch to gpt-6-luna                   Fast and affordable model for easier tasks.",
+          "  2. Keep current model",
+          "  3. Keep current model (never show again)  Hide future rate limit reminders about switching models",
+          "  enter select · esc back"
+        ],
+        "cliVersion": "codex-cli 0.162.1"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "codex",
+      "scenario": "error-auth",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: auth }",
+        "wiring": "-c model_provider points at a stub provider with env_key auth; CODEX_HOME isolated",
+        "stubServed": [
+          "/v1/responses 401",
+          "/v1/responses 401",
+          "/v1/responses 401",
+          "/v1/responses 401",
+          "/v1/responses 401",
+          "/v1/responses 401",
+          "/v1/responses 401",
+          "/v1/responses 401"
+        ],
+        "renderedLines": [
+          "› say hi",
+          "• Reconnecting... 1/3 (0s • esc to interrupt)",
+          "  └ Unexpected status 401 Unauthorized: Incorrect API key provided., url: http://127.0.0.1:47820/v1/responses",
+          "  gpt-5.4-mini low · <CWD> · ⠏",
+          "  ? for shortcuts                                                                             ⚠ 3 warnings · f2 to view",
+          "■ unexpected status 401 Unauthorized: Incorrect API key provided., url: http://127.0.0.1:47820/v1/responses"
+        ],
+        "cliVersion": "codex-cli 0.162.1"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "codex",
+      "scenario": "error-server",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: provider } after retries run out",
+        "wiring": "-c model_provider points at a stub provider with env_key auth; CODEX_HOME isolated",
+        "stubServed": [
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500"
+        ],
+        "renderedLines": [
+          "› say hi",
+          "• Working (0s • esc to interrupt)",
+          "  ? for shortcuts                                                                             ⚠ 3 warnings · f2 to view",
+          "  gpt-5.4-mini low · <CWD> · ⠋",
+          "• Reconnecting... 1/3 (7s • esc to interrupt)",
+          "  └ We’re currently experiencing high demand, which may cause temporary errors.",
+          "  └ Tip: Press tab to queue a message when a task is running; otherwise it sends immediately (except !).",
+          "■ We’re currently experiencing high demand, which may cause temporary errors."
+        ],
+        "cliVersion": "codex-cli 0.162.1"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "codex",
+      "scenario": "error-context",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: contextOverflow }",
+        "wiring": "-c model_provider points at a stub provider with env_key auth; CODEX_HOME isolated",
+        "stubServed": [
+          "/v1/responses 400",
+          "/v1/responses 400"
+        ],
+        "renderedLines": [
+          "› say hi",
+          "■ {\"error\":{\"type\":\"context_length_exceeded\",\"message\":\"Your input exceeds the context window of this model. Please",
+          "adjust your input and try again.\",\"code\":\"context_length_exceeded\"}}",
+          "  gpt-5.4-mini low · <CWD> · ⠙",
+          "  ? for shortcuts                                                                             ⚠ 3 warnings · f2 to view"
+        ],
+        "cliVersion": "codex-cli 0.162.1"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "codex",
+      "scenario": "compaction-manual",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "CompactionStarted { trigger: manual }, CompactionEnded { ok }",
+        "wiring": "-c model_provider points at a stub provider with env_key auth; CODEX_HOME isolated",
+        "stubServed": [
+          "/v1/responses ok",
+          "/v1/responses ok",
+          "/v1/responses ok"
+        ],
+        "renderedLines": [
+          "› say hi",
+          "• Hello from the capture stub.",
+          "  Worked for <1s • 03:10",
+          "  gpt-5.4-mini low · <CWD> · ⠏",
+          "  ? for shortcuts                                                                             ⚠ 3 warnings · f2 to view",
+          "• Compacting context (0s • esc to interrupt)",
+          "  └ Making room to continue.",
+          "• Context compacted · 4s",
+          "  Worked for 4s • 03:10"
+        ],
+        "cliVersion": "codex-cli 0.162.1"
+      },
+      "expectedScreen": {}
     }
   ],
   "sanitization": {
     "method": "decoded-jsonl-scan",
-    "fixtures": 5,
-    "decodedBytes": 203455,
+    "fixtures": 14,
+    "decodedBytes": 335649,
     "checks": [
       "home-path",
       "username",
@@ -238,5 +517,11 @@
     "typedNoticeQualified": false,
     "status": "skip",
     "reason": "timebox or composer never ready"
+  },
+  "signalCaptureEvidence": {
+    "tool": "tests/pty-e2e/signal-capture.ts",
+    "capturedAt": "2026-10-17T03:10:25.421Z",
+    "harnessVersion": "codex-cli 0.162.1",
+    "provider": "scripted local stub; the binary and its rendering are real, the provider replies are not"
   }
 }

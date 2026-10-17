@@ -73,7 +73,7 @@ const OK: Reply = { kind: "ok", text: "Hello from the capture stub." };
 /** Held back so the compaction spinner stays on screen long enough to sample. */
 const SUMMARY: Reply = { kind: "ok", text: "Summary: the user greeted the assistant and the assistant replied.", delayMs: 4_000 };
 /** A fixed port keeps the stub address that harnesses print stable across captures. */
-const STUB_PORT = 47_811;
+const STUB_PORT = 47_820;
 
 function protocolOf(pathname: string): Protocol | null {
   if (pathname.endsWith("/messages")) return "anthropic";
@@ -391,7 +391,27 @@ type Run = {
   readonly result: ScenarioResult;
   readonly screen: readonly string[];
   readonly sess: Session;
+  /** Event count when the scenario ended, before the exit recipe repaints. */
+  readonly endEvent: number;
 };
+
+/** Session start through scenario end, scrubbed as one contiguous stream. */
+function writeFixture(sess: Session, endEvent: number, outPath: string): void {
+  const slice = sess.events.slice(0, endEvent);
+  const scrubbed = scrub(Buffer.concat(slice.map((e) => e.buf)).toString("utf8"), sess.cwd);
+  const t0 = slice[0].t;
+  const t1 = slice[slice.length - 1].t;
+  const lines: string[] = [];
+  const CHUNK = 24_000;
+  for (let off = 0; off < scrubbed.length; off += CHUNK) {
+    const chunk = scrubbed.slice(off, off + CHUNK);
+    const t = Math.round(t0 + (t1 - t0) * Math.min(1, (off + chunk.length / 2) / scrubbed.length));
+    lines.push(JSON.stringify({ t, b64: Buffer.from(chunk, "utf8").toString("base64") }));
+  }
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  fs.writeFileSync(outPath, lines.join("\n") + "\n");
+  console.log(`[${sess.name}] -> ${path.relative(path.join(__dirname, "..", ".."), outPath)} (${Math.round(scrubbed.length / 1024)} KiB)`);
+}
 
 function screenLines(term: import("@xterm/headless").Terminal): string[] {
   const buffer = term.buffer.active;
@@ -487,6 +507,7 @@ async function runScenario(harness: string, scenario: Scenario, stub: StubProvid
     reason = String(err);
   }
   const screen = screenLines(term).map((line) => line.trimEnd());
+  const endEvent = sess.events.length;
   observed.stubServed = stub.served.map((s) => `${s.path} ${s.reply}`);
   observed.renderedLines = rendered;
   observed.cliVersion = probeHarnessVersion(harness);
@@ -499,6 +520,7 @@ async function runScenario(harness: string, scenario: Scenario, stub: StubProvid
     result: { harness, scenario: scenario.name, status, reason, observed: scrubbed, expectedScreen: {} },
     screen: screen.map((line) => scrub(line, cwd)),
     sess,
+    endEvent,
   };
 }
 
@@ -583,7 +605,7 @@ async function main(): Promise<void> {
         continue;
       }
       if (run.result.status === "complete") {
-        run.sess.writeFixture(0, run.sess.events.length, path.join(OUT_ROOT, harness, `${scenario.name}.jsonl`), scenario.name);
+        writeFixture(run.sess, run.endEvent, path.join(OUT_ROOT, harness, `${scenario.name}.jsonl`));
       }
       results.push(run.result);
     }

@@ -232,12 +232,257 @@
         "promptGlyph": "❯",
         "description": "isolated typed-notice blocked"
       }
+    },
+    {
+      "harness": "claude",
+      "scenario": "retry-overloaded",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: overloaded }, then a completed turn",
+        "wiring": "ANTHROPIC_BASE_URL and a subscription CLAUDE_CODE_OAUTH_TOKEN point at the stub, as Junto seats log in; onboarding and folder trust pre-seeded in the isolated CLAUDE_CONFIG_DIR",
+        "stubServed": [
+          "/v1/messages 529",
+          "/v1/messages 529",
+          "/v1/messages 529",
+          "/v1/messages ok"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "✢ Crafting…",
+          "  ⏸ manual mode on · esc to interrupt · ← for agents",
+          "✻ API error · Retrying in 1s · attempt 1/3",
+          "✻ 529 Overloaded · Retrying in 3s · attempt 3/3",
+          "  ⎿  If it persists, check your inference gateway (127.0.0.1:47820).",
+          "  ⏸ manual mode on · esc to interrupt",
+          "⏺ Hello from the capture stub.",
+          "✻ Brewed for 8s · done 3:05 AM",
+          "  ⏸ manual mode on · ? for shortcuts"
+        ],
+        "cliVersion": "2.1.302 (Claude Code)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "claude",
+      "scenario": "retry-rate",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: rate }, then a completed turn",
+        "wiring": "ANTHROPIC_BASE_URL and a subscription CLAUDE_CODE_OAUTH_TOKEN point at the stub, as Junto seats log in; onboarding and folder trust pre-seeded in the isolated CLAUDE_CONFIG_DIR",
+        "stubServed": [
+          "/v1/messages 429",
+          "/v1/messages 429",
+          "/v1/messages 429",
+          "/v1/messages ok"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "✻ Flowing…",
+          "  ⏸ manual mode on · esc to interrupt · ← for agents",
+          "✻ API error · Retrying in 2s · attempt 1/3",
+          "  ⏸ manual mode on · esc to interrupt",
+          "✻ 429 Rate limit reached for requests per minute. Please try again in 2s. · Retrying in 3s · attempt 3/3",
+          "⏺ Hello from the capture stub.",
+          "✻ Crunched for 11s · done 3:05 AM",
+          "  ⏸ manual mode on · ? for shortcuts"
+        ],
+        "cliVersion": "2.1.302 (Claude Code)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "claude",
+      "scenario": "retry-network",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: network }, then a completed turn",
+        "wiring": "ANTHROPIC_BASE_URL and a subscription CLAUDE_CODE_OAUTH_TOKEN point at the stub, as Junto seats log in; onboarding and folder trust pre-seeded in the isolated CLAUDE_CONFIG_DIR",
+        "stubServed": [
+          "/v1/messages drop",
+          "/v1/messages drop",
+          "/v1/messages drop",
+          "/v1/messages ok"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "✽ Architecting…",
+          "  ⏸ manual mode on · esc to interrupt · ← for agents",
+          "✻ API error · Retrying in 1s · attempt 1/3",
+          "✻ Connection dropped (ECONNRESET) · Retrying in 3s · attempt 3/3",
+          "  ⏸ manual mode on · esc to interrupt",
+          "⏺ Hello from the capture stub.",
+          "✻ Churned for 8s · done 3:06 AM",
+          "  ⏸ manual mode on · ? for shortcuts"
+        ],
+        "cliVersion": "2.1.302 (Claude Code)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "claude",
+      "scenario": "usage-limit",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: 5h, resetsAt }",
+        "wiring": "ANTHROPIC_BASE_URL and a subscription CLAUDE_CODE_OAUTH_TOKEN point at the stub, as Junto seats log in; onboarding and folder trust pre-seeded in the isolated CLAUDE_CONFIG_DIR",
+        "stubServed": [
+          "/v1/messages 429"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "✳ Seasoning…",
+          "  ⏸ manual mode on · esc to interrupt · ← for agents",
+          "  ⎿  You've hit your session limit · resets 6:23am (UTC)",
+          "⏺ Usage limit reached · continuing automatically at 6:23am · esc to cancel",
+          "✻ Baked for 0s · done 3:06 AM",
+          "  ⚠ Usage limit reached · limit resets 6:23am",
+          "    Continuing automatically at 6:23am · esc to cancel"
+        ],
+        "cliVersion": "2.1.302 (Claude Code)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "claude",
+      "scenario": "usage-limit-weekly",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: weekly, resetsAt }",
+        "wiring": "ANTHROPIC_BASE_URL and a subscription CLAUDE_CODE_OAUTH_TOKEN point at the stub, as Junto seats log in; onboarding and folder trust pre-seeded in the isolated CLAUDE_CONFIG_DIR",
+        "stubServed": [
+          "/v1/messages 429"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "✻ Nebulizing…",
+          "  ⏸ manual mode on · esc to interrupt · ← for agents",
+          "  ⎿  You've hit your weekly limit · resets Oct 21 at 6:23am (UTC)",
+          "✻ Worked for 0s · done 3:06 AM",
+          "▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ ○ low · /effort ▔",
+          "   What do you want to do?",
+          "   ❯ 1. Stop and wait for limit to reset",
+          "     2. Wait here, then continue automatically at Oct 21 at 6:23am",
+          "     3. Upgrade your plan",
+          "   Enter to confirm · Esc to cancel"
+        ],
+        "cliVersion": "2.1.302 (Claude Code)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "claude",
+      "scenario": "error-auth",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: auth }",
+        "wiring": "ANTHROPIC_BASE_URL and a subscription CLAUDE_CODE_OAUTH_TOKEN point at the stub, as Junto seats log in; onboarding and folder trust pre-seeded in the isolated CLAUDE_CONFIG_DIR",
+        "stubServed": [
+          "/v1/messages 401",
+          "/v1/messages 401"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "✻ API error · Retrying in 1s · attempt 1/3",
+          "  ⏸ manual mode on · esc to interrupt · ← for agents",
+          "  ⎿  Not logged in · Please run /login",
+          "✻ Brewed for 1s · done 3:06 AM"
+        ],
+        "cliVersion": "2.1.302 (Claude Code)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "claude",
+      "scenario": "error-server",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: provider } after retries run out",
+        "wiring": "ANTHROPIC_BASE_URL and a subscription CLAUDE_CODE_OAUTH_TOKEN point at the stub, as Junto seats log in; onboarding and folder trust pre-seeded in the isolated CLAUDE_CONFIG_DIR",
+        "stubServed": [
+          "/v1/messages 500",
+          "/v1/messages 500",
+          "/v1/messages 500",
+          "/v1/messages 500"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "✽ Incubating…",
+          "  ⏸ manual mode on · esc to interrupt · ← for agents",
+          "✻ API error · Retrying in 1s · attempt 1/3",
+          "✻ 500 Internal server error · Retrying in 3s · attempt 3/3",
+          "  ⏸ manual mode on · esc to interrupt",
+          "⏺ API Error: 500 Internal server error. This is a server-side issue, usually temporary — try again in a moment.",
+          "  If it persists, check your inference gateway (127.0.0.1:47820).",
+          "✻ Cogitated for 9s · done 3:07 AM",
+          "  ⏸ manual mode on · ? for shortcuts"
+        ],
+        "cliVersion": "2.1.302 (Claude Code)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "claude",
+      "scenario": "error-context",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: contextOverflow }",
+        "wiring": "ANTHROPIC_BASE_URL and a subscription CLAUDE_CODE_OAUTH_TOKEN point at the stub, as Junto seats log in; onboarding and folder trust pre-seeded in the isolated CLAUDE_CONFIG_DIR",
+        "stubServed": [
+          "/v1/messages 400"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "  ⎿  Prompt is too long · the request is ~250000 tokens (limit 200000) but this conversation is only ~2712 tokens — the",
+          "     rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be",
+          "     compacted; reduce attached files/tools or start with less context. · /clear to start fresh",
+          "✻ Worked for 0s · done 3:07 AM"
+        ],
+        "cliVersion": "2.1.302 (Claude Code)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "claude",
+      "scenario": "compaction-manual",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "CompactionStarted { trigger: manual }, CompactionEnded { ok }",
+        "wiring": "ANTHROPIC_BASE_URL and a subscription CLAUDE_CODE_OAUTH_TOKEN point at the stub, as Junto seats log in; onboarding and folder trust pre-seeded in the isolated CLAUDE_CONFIG_DIR",
+        "stubServed": [
+          "/v1/messages ok",
+          "/v1/messages ok"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "✻ Tempering…",
+          "  ⏸ manual mode on · esc to interrupt · ← for agents",
+          "⏺ Hello from the capture stub.",
+          "✻ Brewed for 0s · done 3:07 AM",
+          "❯ /compact",
+          "✢ Compacting conversation… (0s)",
+          "  ⎿  Tip: Start with small features or bug fixes, tell Claude to propose a plan, and verify its suggested edits",
+          "  ⏸ manual mode on · esc to interrupt",
+          "  ⎿  Compacted (ctrl+o to see full summary)",
+          "  ⏸ manual mode on · ? for shortcuts"
+        ],
+        "cliVersion": "2.1.302 (Claude Code)"
+      },
+      "expectedScreen": {}
     }
   ],
   "sanitization": {
     "method": "decoded-jsonl-scan",
-    "fixtures": 5,
-    "decodedBytes": 70457,
+    "fixtures": 14,
+    "decodedBytes": 106767,
     "checks": [
       "home-path",
       "username",
@@ -257,5 +502,11 @@
     "typedNoticeQualified": false,
     "status": "skip",
     "reason": "blocked: auth: login required"
+  },
+  "signalCaptureEvidence": {
+    "tool": "tests/pty-e2e/signal-capture.ts",
+    "capturedAt": "2026-10-17T03:07:34.193Z",
+    "harnessVersion": "2.1.302 (Claude Code)",
+    "provider": "scripted local stub; the binary and its rendering are real, the provider replies are not"
   }
 }

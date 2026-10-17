@@ -69,6 +69,51 @@
         "scenario": "mail-notice",
         "status": "skip",
         "reason": "blocked: auth: login required"
+      },
+      {
+        "scenario": "retry-overloaded",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "retry-rate",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "retry-network",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "usage-limit",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "usage-limit-weekly",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "error-auth",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "error-server",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "error-context",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "compaction-manual",
+        "status": "complete",
+        "reason": null
       }
     ],
     "session": {
@@ -118,6 +163,51 @@
         "scenario": "mail-notice",
         "status": "skip",
         "reason": "timebox or composer never ready"
+      },
+      {
+        "scenario": "retry-overloaded",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "retry-rate",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "retry-network",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "usage-limit",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "usage-limit-weekly",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "error-auth",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "error-server",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "error-context",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "compaction-manual",
+        "status": "complete",
+        "reason": null
       }
     ],
     "session": {
