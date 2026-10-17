@@ -142,10 +142,12 @@ export function SeatCard({
         overseer={overseer}
         lineEnd={
           versionNote ? (
-            <span data-testid="seat-version-note" aria-label={versionNote.title}>
+            <span data-testid="seat-version-note">
               <Chip tone="steel" title={versionNote.title}>
                 {versionNote.label}
               </Chip>
+              {/* A reader hears what was tested, not only the chip's word. */}
+              <span className="sr-only">{versionNote.title}</span>
             </span>
           ) : undefined
         }

@@ -50,8 +50,7 @@ test("an unverified harness version shows a quiet chip; a verified one shows non
     const note = seat("newer").getByTestId("seat-version-note");
     await expect(note).toBeVisible({ timeout: 10_000 });
     await expect(note).toHaveText(/unverified/i);
-    await expect(note).toHaveAttribute(
-      "aria-label",
+    await expect(note.locator(".sr-only")).toHaveText(
       "Newer than tested (verified through 0.2.3). This machine has 0.2.14. It still launches.",
     );
     await expect(seat("verified").getByTestId("seat-version-note")).toHaveCount(0);
