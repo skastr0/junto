@@ -6,6 +6,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 PREVIEW_HOME="${JUNTO_PREVIEW_HOME:-${HOME}/.junto-preview}"
 node -e 'const p=require("node:path"); const [home,value]=process.argv.slice(1); if(p.dirname(value)!==home || !/^\.junto-preview(?:-[a-z0-9][a-z0-9-]*)?$/.test(p.basename(value))) throw new Error("JUNTO_PREVIEW_HOME must name .junto-preview or .junto-preview-<name> directly under HOME");' "$HOME" "$PREVIEW_HOME"
 COPY_HOME="${HOME}/.junto-preview-copy"
+# The shipped feature set by default; all-on compiles in every gated surface for QA.
+PREVIEW_PROFILE="${JUNTO_PREVIEW_FEATURE_PROFILE:-ship}"
+[[ "$PREVIEW_PROFILE" == ship || "$PREVIEW_PROFILE" == all-on ]] || { printf '%s\n' 'JUNTO_PREVIEW_FEATURE_PROFILE must be ship or all-on.' >&2; exit 1; }
 BUILD_ROOT="${HOME}/.junto-preview-builds"
 MODE="launch"
 case "${1:-}" in
@@ -41,6 +44,7 @@ case "${1:-}" in
     printf '%s\n' 'Usage: scripts/preview.sh [--prepare|--snapshot|--migrate|--check|--copy|--clean]' \
       'Default: build and launch with fresh ~/.junto-preview, create a NEW canvas for QA.' \
       'JUNTO_PREVIEW_HOME=$HOME/.junto-preview-<name>: use a separate fresh Preview home.' \
+      'JUNTO_PREVIEW_FEATURE_PROFILE=all-on: build every gated feature in; machine bundles must be built all-on too.' \
       '--prepare: build only. --snapshot: read-only SQLite backups into ~/.junto-preview-copy.' \
       '--migrate: headless StateEngine on copy only. --check: compare it with untouched baseline. --copy: launch blocked.' \
       '--clean: delete only ~/.junto-preview-copy, including its copied credentials.'
@@ -77,6 +81,7 @@ while IFS= read -r name; do unset "$name"; done < <(compgen -v JUNTO_)
 export JUNTO_HOME="$PREVIEW_HOME" JUNTO_APP_RUN_LOCK_HOME="$PREVIEW_LOCK_HOME"
 COMMIT="$(git -C "$ROOT" rev-parse refs/heads/main)"
 CHECKOUT="$BUILD_ROOT/$COMMIT"
+[[ "$PREVIEW_PROFILE" == ship ]] || CHECKOUT="$BUILD_ROOT/$COMMIT-$PREVIEW_PROFILE"
 if [[ ! -d "$CHECKOUT" ]]; then
   EXPORT="$(mktemp -d "$BUILD_ROOT/.export-XXXXXX")"
   git -C "$ROOT" archive "$COMMIT" | tar -xf - -C "$EXPORT"
@@ -102,26 +107,26 @@ if [[ "$(bun --version)" != "$PINNED_BUN" ]]; then
 fi
 if [[ ! -f .preview-build-ready ]]; then
   # The window sends these exact builds, so validate both before packaging.
-  JUNTO_FLEET_UI=1 bun -e '
+  JUNTO_FEATURE_PROFILE="$PREVIEW_PROFILE" JUNTO_FLEET_UI=1 bun -e '
     import { inspectMachineBundle } from "./src/main/junto/hosts/bundle";
     import { buildIdentity } from "./scripts/build-identity";
     const build = buildIdentity(process.cwd());
     for (const target of ["darwin-arm64", "linux-x64"]) {
       const manifest = await inspectMachineBundle(process.argv[1] + "/" + target);
       if (manifest.target !== target || manifest.build !== build) {
-        throw new Error("Rebuild the " + target + " machine bundle from this commit with JUNTO_FLEET_UI=1");
+        throw new Error("Rebuild the " + target + " machine bundle from this commit with JUNTO_FLEET_UI=1 and JUNTO_FEATURE_PROFILE=" + (process.env.JUNTO_FEATURE_PROFILE ?? "ship"));
       }
     }
   ' "$PREVIEW_MACHINE_BUNDLES"
   mkdir -p dist
   cp -cR "$PREVIEW_MACHINE_BUNDLES" dist/machines
-  JUNTO_PREVIEW_BUILD=1 JUNTO_FLEET_UI=1 JUNTO_ALLOW_FEATURE_OVERRIDES=1 bash scripts/build-app.sh --target mac --fast
+  JUNTO_FEATURE_PROFILE="$PREVIEW_PROFILE" JUNTO_PREVIEW_BUILD=1 JUNTO_FLEET_UI=1 JUNTO_ALLOW_FEATURE_OVERRIDES=1 bash scripts/build-app.sh --target mac --fast
   printf '%s\n' "$COMMIT" > .preview-build-ready
 fi
 case "$(uname -m)" in arm64) ARCH_DIR=mac-arm64 ;; x86_64) ARCH_DIR=mac ;; *) exit 1 ;; esac
 APP="$CHECKOUT/release/$ARCH_DIR/Junto.app"
 [[ -d "$APP" ]] || { printf '%s\n' 'Junto PREVIEW: packaged app is missing.' >&2; exit 1; }
-printf 'Junto PREVIEW: build %s, FRESH JUNTO_HOME=%s, Electron data isolated, HOME unchanged.\n' "$COMMIT" "$PREVIEW_HOME"
+printf 'Junto PREVIEW: build %s (%s features), FRESH JUNTO_HOME=%s, Electron data isolated, HOME unchanged.\n' "$COMMIT" "$PREVIEW_PROFILE" "$PREVIEW_HOME"
 printf '%s\n' 'QA: create a NEW canvas. This fresh instance contains no real canvases, credentials or session IDs.'
 if [[ "$MODE" == prepare ]]; then
   printf '%s\n' 'Prepared without launching. Run scripts/preview.sh to launch this build.'
