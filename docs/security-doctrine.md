@@ -334,7 +334,7 @@ machine that read the bytes makes the tail, in this order:
    credential and every value in the process environment and in each live
    seat's child environment, region values included, except those named
    `HOME`, `USER`, `LOGNAME`, `SHELL`, `PATH`, `TMPDIR`, `PWD`, `TERM`,
-   `COLORTERM`, `LANG`, `LC_*`, `JUNTO_SEAT`, `JUNTO_NODE_REF`,
+   `COLORTERM`, `LANG`, `LC_*`, `JUNTO_HOME`, `JUNTO_SEAT`, `JUNTO_NODE_REF`,
    `JUNTO_SOCKET`, `JUNTO_WORK_SOCKET`, `JUNTO_WORK_HOME` and `JUNTO_CLI`:
    those are names and paths. The list is closed; a new variable is searched
    until it is added here. The credential is searched from four
