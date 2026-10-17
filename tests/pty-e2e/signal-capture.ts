@@ -28,6 +28,8 @@
  */
 
 import * as fs from "node:fs";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import * as http from "node:http";
 import type { AddressInfo } from "node:net";
 import * as path from "node:path";
@@ -58,7 +60,8 @@ const SETTLE_QUIET_MS = 3_000;
 type Protocol = "anthropic" | "openai-responses" | "openai-chat";
 
 type Reply =
-  | { readonly kind: "ok"; readonly text: string; readonly delayMs?: number }
+  /** `inputTokens` is the context size the reply reports; large values trigger auto-compaction. */
+  | { readonly kind: "ok"; readonly text: string; readonly delayMs?: number; readonly inputTokens?: number }
   | { readonly kind: "error"; readonly status: number; readonly body: unknown; readonly headers?: Record<string, string>; readonly delayMs?: number }
   /** Destroy the socket before any response: a network failure. */
   | { readonly kind: "drop"; readonly delayMs?: number };
@@ -73,7 +76,7 @@ const OK: Reply = { kind: "ok", text: "Hello from the capture stub." };
 /** Held back so the compaction spinner stays on screen long enough to sample. */
 const SUMMARY: Reply = { kind: "ok", text: "Summary: the user greeted the assistant and the assistant replied.", delayMs: 4_000 };
 /** A fixed port keeps the stub address that harnesses print stable across captures. */
-const STUB_PORT = 47_820;
+const STUB_PORT = Number(process.env.CAPTURE_STUB_PORT ?? 47_820);
 
 function protocolOf(pathname: string): Protocol | null {
   if (pathname.endsWith("/messages")) return "anthropic";
@@ -82,14 +85,16 @@ function protocolOf(pathname: string): Protocol | null {
   return null;
 }
 
-function sse(event: string | null, data: unknown): string {
+function sseLine(event: string | null, data: unknown): string {
   return `${event ? `event: ${event}\n` : ""}data: ${typeof data === "string" ? data : JSON.stringify(data)}\n\n`;
 }
 
-function okStream(protocol: Protocol, text: string, n: number): string {
+const sse = sseLine;
+
+function okStream(protocol: Protocol, text: string, n: number, inputTokens = 12): string {
   if (protocol === "anthropic") {
     return [
-      sse("message_start", { type: "message_start", message: { id: `msg_stub${n}`, type: "message", role: "assistant", model: "stub", content: [], stop_reason: null, usage: { input_tokens: 12, output_tokens: 1 } } }),
+      sse("message_start", { type: "message_start", message: { id: `msg_stub${n}`, type: "message", role: "assistant", model: "stub", content: [], stop_reason: null, usage: { input_tokens: inputTokens, output_tokens: 1 } } }),
       sse("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
       sse("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } }),
       sse("content_block_stop", { type: "content_block_stop", index: 0 }),
@@ -98,9 +103,11 @@ function okStream(protocol: Protocol, text: string, n: number): string {
     ].join("");
   }
   if (protocol === "openai-responses") {
+    let seq = 0;
+    const sse = (event: string, data: Record<string, unknown>) => sseLine(event, { ...data, sequence_number: seq++ });
     const id = `resp_stub${n}`;
     const item = { id: `msg_stub${n}`, type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text, annotations: [] }] };
-    const usage = { input_tokens: 12, input_tokens_details: { cached_tokens: 0 }, output_tokens: 8, output_tokens_details: { reasoning_tokens: 0 }, total_tokens: 20 };
+    const usage = { input_tokens: inputTokens, input_tokens_details: { cached_tokens: 0 }, output_tokens: 8, output_tokens_details: { reasoning_tokens: 0 }, total_tokens: inputTokens + 8 };
     return [
       sse("response.created", { type: "response.created", response: { id, object: "response", status: "in_progress", output: [] } }),
       sse("response.output_item.added", { type: "response.output_item.added", output_index: 0, item: { ...item, status: "in_progress", content: [] } }),
@@ -115,7 +122,7 @@ function okStream(protocol: Protocol, text: string, n: number): string {
     chunk({ role: "assistant", content: "" }, null),
     chunk({ content: text }, null),
     chunk({}, "stop"),
-    sse(null, { id: `chatcmpl-stub${n}`, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: "stub", choices: [], usage: { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 } }),
+    sse(null, { id: `chatcmpl-stub${n}`, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: "stub", choices: [], usage: { prompt_tokens: inputTokens, completion_tokens: 8, total_tokens: inputTokens + 8 } }),
     sse(null, "[DONE]"),
   ].join("");
 }
@@ -166,6 +173,17 @@ class StubProvider {
   private handle(req: http.IncomingMessage, res: http.ServerResponse, body: string): void {
     const pathname = new URL(req.url ?? "/", "http://stub").pathname;
     const protocol = req.method === "POST" ? protocolOf(pathname) : null;
+    if (pathname === "/muse-code/models") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(MUSE_CATALOG));
+      return;
+    }
+    // Muse sends reminder side calls each turn; they never consume the script.
+    const role = req.headers["x-tbh-agent-role"];
+    if (protocol && typeof role === "string" && role !== "main") {
+      this.respondOk(res, body, protocol, OK, 0);
+      return;
+    }
     if (!protocol) {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ object: "list", data: [] }));
@@ -180,13 +198,14 @@ class StubProvider {
       else if (reply.kind === "error") {
         res.writeHead(reply.status, { "content-type": "application/json", ...reply.headers });
         res.end(JSON.stringify(reply.body));
-      } else this.respondOk(req, res, body, protocol, reply.text, n);
+      } else this.respondOk(res, body, protocol, reply, n);
     };
     if (reply.delayMs) setTimeout(respond, reply.delayMs);
     else respond();
   }
 
-  private respondOk(req: http.IncomingMessage, res: http.ServerResponse, body: string, protocol: Protocol, text: string, n: number): void {
+  private respondOk(res: http.ServerResponse, body: string, protocol: Protocol, reply: Extract<Reply, { kind: "ok" }>, n: number): void {
+    const text = reply.text;
     let streaming = false;
     try { streaming = (JSON.parse(body) as { stream?: unknown }).stream === true; } catch { /* not JSON */ }
     if (!streaming) {
@@ -195,9 +214,21 @@ class StubProvider {
       return;
     }
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
-    res.end(okStream(protocol, text, n));
+    res.end(okStream(protocol, text, n, reply.inputTokens));
   }
 }
+
+/** Muse refuses to start without a visible model in its catalog. */
+const MUSE_CATALOG = {
+  object: "list",
+  data: [{
+    id: "stub-model", object: "model", created: 0, owned_by: "meta",
+    metadata: { "muse-code": {
+      family: "stub", release_date: "2026-01-01", is_hidden: false, attachment: false, reasoning: false, tool_call: true,
+      modalities: { input: ["text"], output: ["text"] }, limit: { context: 200_000, output: 8_192 }, description: "Stub model",
+    } },
+  }],
+};
 
 // ── scenarios ───────────────────────────────────────────────────────────────
 
@@ -210,6 +241,10 @@ type Scenario = {
   readonly prompts: readonly string[];
   /** Extra env for one harness in this scenario, over its wiring. */
   readonly env?: Readonly<Record<string, Record<string, string>>>;
+  /** The screen must show this, or the scenario is a skip and writes no fixture. */
+  readonly expect?: RegExp;
+  /** Extra argv for one harness in this scenario, after its wiring. */
+  readonly args?: Readonly<Record<string, readonly string[]>>;
 };
 
 function errorBody(protocol: Protocol, type: string, message: string, extra: Record<string, unknown> = {}): unknown {
@@ -322,9 +357,20 @@ const SCENARIOS: readonly Scenario[] = [
     }],
   },
   {
+    name: "compaction-auto",
+    signal: "CompactionStarted { trigger: auto }, CompactionEnded { ok }, then a completed turn",
+    prompts: ["say hi", "say hi again"],
+    expect: /compact/i,
+    // The first answer reports a nearly full context window.
+    replies: () => [{ ...OK, inputTokens: 190_000 }, SUMMARY, OK],
+    args: { codex: ["-c", "model_context_window=200000", "-c", "model_auto_compact_token_limit=150000"] },
+    env: { claude: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000" } },
+  },
+  {
     name: "compaction-manual",
     signal: "CompactionStarted { trigger: manual }, CompactionEnded { ok }",
     prompts: ["say hi", "/compact"],
+    expect: /compact/i,
     replies: () => [OK, SUMMARY],
   },
 ];
@@ -383,7 +429,194 @@ const WIRING: Readonly<Record<string, Wiring>> = {
     }),
     seed: (home) => { fs.mkdirSync(path.join(home, ".codex"), { recursive: true }); },
   },
+  kimi: {
+    protocol: "openai-chat",
+    note: "KIMI_MODEL_* env points at the stub (kimi provider type, chat completions); folder trust seeded under the isolated HOME",
+    def: (base, url) => ({
+      ...base,
+      env: withEnv(base, () => ({
+        KIMI_MODEL_BASE_URL: `${url}/v1`,
+        KIMI_MODEL_API_KEY: "capture-stub",
+        KIMI_MODEL_NAME: "stub-model",
+        KIMI_MODEL_PROVIDER_TYPE: "kimi",
+        KIMI_CODE_NO_AUTO_UPDATE: "1",
+        KIMI_DISABLE_TELEMETRY: "1",
+      })),
+    }),
+    seed: (home, cwd) => {
+      const real = fs.realpathSync(cwd);
+      const dir = path.join(home, ".kimi-code", "workspace-trust");
+      fs.mkdirSync(dir, { recursive: true });
+      const digest = createHash("sha256").update(real).digest("hex").slice(0, 12);
+      fs.writeFileSync(path.join(dir, `wd_${path.basename(real).toLowerCase()}_${digest}`),
+        JSON.stringify({ root: real, trustedAt: Date.now() }));
+    },
+  },
+  hermes: {
+    protocol: "openai-responses",
+    note: "a named stub provider in the isolated ~/.hermes/config.yaml (codex_responses, as seats run openai-codex); dependencies come from a capture-owned install cache",
+    // The status bar says "ready" once the session is forged; earlier glyphs paint before it.
+    def: (base) => ({ ...base, argv: () => ["chat", "--tui"], promptGlyphs: ["ready"] }),
+    seed: (home) => {
+      const dir = path.join(home, ".hermes");
+      fs.mkdirSync(dir, { recursive: true });
+      // Hermes installs about 1.3 GB of dependencies into every new home and
+      // updates them in place. Share one capture-owned cache across captures;
+      // never the operator's ~/.hermes/installs, which a capture would rewrite.
+      fs.mkdirSync(HERMES_INSTALLS, { recursive: true });
+      fs.symlinkSync(HERMES_INSTALLS, path.join(dir, "installs"));
+      fs.writeFileSync(path.join(dir, "config.yaml"), [
+        "model:",
+        "  provider: capture",
+        "  default: stub-model",
+        "providers:",
+        "  capture:",
+        `    base_url: http://127.0.0.1:${STUB_PORT}/v1`,
+        "    api_key: capture-stub",
+        "    api_mode: codex_responses",
+        "telemetry:",
+        "  shared_metrics:",
+        "    enabled: false",
+        "    send: false",
+        "    offer_version: 2",
+        "",
+      ].join("\n"));
+    },
+  },
+  grok: {
+    protocol: "openai-chat",
+    note: "a stub model in the isolated ~/.grok/config.toml (chat_completions backend); autoupdate, telemetry and campaigns off",
+    def: (base) => ({
+      ...base,
+      argv: (cwd, sid) => ["--minimal", "-m", "stub", "--permission-mode", "default", "--session-id", sid],
+      env: withEnv(base, () => ({
+        GROK_DISABLE_AUTOUPDATER: "1",
+        GROK_AUTO_UPDATE: "0",
+        GROK_TELEMETRY_ENABLED: "0",
+        GROK_FEEDBACK_ENABLED: "0",
+        GROK_CAMPAIGNS: "0",
+        GROK_PROMPT_SUGGESTIONS: "0",
+      })),
+    }),
+    seed: (home) => {
+      const dir = path.join(home, ".grok");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "config.toml"), [
+        "[models]",
+        'default = "stub"',
+        "",
+        "[model.stub]",
+        'model = "stub-model"',
+        `base_url = "http://127.0.0.1:${STUB_PORT}/v1"`,
+        'name = "Stub"',
+        'api_key = "capture-stub"',
+        'api_backend = "chat_completions"',
+        "context_window = 200000",
+        "",
+      ].join("\n"));
+    },
+  },
+  pi: {
+    protocol: "openai-responses",
+    note: "a stub provider in the isolated PI_CODING_AGENT_DIR/models.json (openai-responses); --offline",
+    def: (base) => ({
+      ...base,
+      argv: (cwd, sid) => ["-a", "--offline", "--model", "capture/stub-model", "--session-id", sid],
+      // The footer context meter marks a ready composer; the stub model has a 128k window.
+      promptGlyphs: ["0.0%/128k (auto)"],
+    }),
+    seed: (home) => writePiModels(path.join(home, ".pi", "agent"), "models.json", "openai-responses"),
+  },
+  omp: {
+    protocol: "anthropic",
+    note: "a stub provider in the isolated PI_CODING_AGENT_DIR/models.yml (anthropic-messages); setup wizard and update check pre-seeded off",
+    def: (base) => ({
+      ...base,
+      argv: () => ["--model", "capture/stub-model"],
+      env: withEnv(base, (home) => ({
+        PI_CODING_AGENT_DIR: path.join(home, ".omp", "agent"),
+        PI_CODING_AGENT_SESSION_DIR: path.join(home, ".omp", "sessions"),
+      })),
+    }),
+    seed: (home) => {
+      const dir = path.join(home, ".omp", "agent");
+      writePiModels(dir, "models.yml", "anthropic-messages");
+      fs.writeFileSync(path.join(dir, "config.yml"), "setupVersion: 2\nstartup:\n  checkUpdate: false\n");
+    },
+  },
+  muse: {
+    protocol: "openai-responses",
+    note: "the meta provider's --base-url points at the stub, which also serves the /muse-code/models catalog; auto-update off",
+    def: (base, url) => ({
+      ...base,
+      argv: () => ["--base-url", `${url}/v1`, "--model", "stub-model", "--trust-workspace"],
+      env: withEnv(base, () => ({ META_API_KEY: "capture-stub", MUSE_NO_AUTO_UPDATE: "1" })),
+    }),
+  },
+  fx: {
+    protocol: "openai-chat",
+    note: "a stub provider in the isolated ~/.fx/settings.json (openai-chat-completions); auto_upgrade off",
+    def: (base) => ({ ...base, env: withEnv(base, () => ({ CAPTURE_STUB_KEY: "capture-stub" })) }),
+    seed: (home) => {
+      const dir = path.join(home, ".fx");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({
+        providers: { capture: { protocol: "openai-chat-completions", base_url: `http://127.0.0.1:${STUB_PORT}/v1`, auth: { type: "bearer", env: "CAPTURE_STUB_KEY" } } },
+        models: { capture: "stub-model" },
+        provider: "capture",
+        auto_upgrade: false,
+      }, null, 2));
+    },
+  },
+  "prime-agent": {
+    protocol: "openai-responses",
+    note: "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
+    def: (base) => ({
+      ...base,
+      argv: () => ["--offline", "--model", "capture/stub-model", "--daemon-socket", PRIME_SOCKET],
+      modals: [],
+      env: withEnv(base, (home) => ({
+        PRIME_AGENT_CODING_AGENT_DIR: path.join(home, ".prime", "agent"),
+        PRIME_AGENT_SESSION_DIR: path.join(home, ".prime", "sessions"),
+        PRIME_AGENT_TELEMETRY: "0",
+        TMPDIR: path.join(home, "tmp"),
+      })),
+    }),
+    seed: (home) => {
+      fs.mkdirSync(path.join(home, "tmp"), { recursive: true });
+      writePiModels(path.join(home, ".prime", "agent"), "models.json", "openai-responses");
+    },
+  },
 };
+
+/** pi-lineage provider file: one `capture` provider pointed at the stub. */
+function writePiModels(dir: string, file: string, api: string): void {
+  fs.mkdirSync(dir, { recursive: true });
+  const baseUrl = api === "anthropic-messages" ? `http://127.0.0.1:${STUB_PORT}` : `http://127.0.0.1:${STUB_PORT}/v1`;
+  const providers = { capture: { baseUrl, api, apiKey: "capture-stub", models: [{ id: "stub-model" }] } };
+  fs.writeFileSync(path.join(dir, file), file.endsWith(".yml")
+    ? `providers:\n  capture: {baseUrl: "${baseUrl}", api: ${api}, apiKey: capture-stub, models: [{id: stub-model}]}\n`
+    : JSON.stringify({ providers }, null, 2));
+}
+
+const HERMES_INSTALLS = "/tmp/junto-capture-cache/hermes-installs";
+
+/** Short enough for the 104-byte macOS socket path limit. */
+const PRIME_SOCKET = `/tmp/junto-capture-prime-${process.pid}.sock`;
+
+/** Harnesses pty-capture.ts has no definition for. */
+const EXTRA_HARNESSES: readonly HarnessDef[] = [
+  {
+    name: "fx", displayName: "fx",
+    argv: () => [],
+    promptGlyphs: ["stub-model"],
+    exitRecipe: ["\u0003", "\u0003", "\u0004"],
+    note: "status bar names the active model once the composer is ready",
+  },
+];
+
+const harnessDef = (harness: string): HarnessDef | undefined =>
+  [...HARNESSES, ...EXTRA_HARNESSES].find((def) => def.name === harness);
 
 // ── driver ──────────────────────────────────────────────────────────────────
 
@@ -421,13 +654,18 @@ function screenLines(term: import("@xterm/headless").Terminal): string[] {
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function runScenario(harness: string, scenario: Scenario, stub: StubProvider, url: string): Promise<Run> {
-  const base = HARNESSES.find((def) => def.name === harness);
+  const base = harnessDef(harness);
   const wiring = WIRING[harness];
   if (!base || !wiring) throw new Error(`${harness}: no stub wiring (have: ${Object.keys(WIRING).join(", ")})`);
   const wiredBase = wiring.def(base, url);
   // UTC keeps reset times deterministic and the operator's timezone out of fixtures.
   const overlay = { TZ: "UTC", ...scenario.env?.[harness] };
-  const wired: HarnessDef = { ...wiredBase, env: withEnv(wiredBase, () => overlay) };
+  const extraArgs = scenario.args?.[harness] ?? [];
+  const wired: HarnessDef = {
+    ...wiredBase,
+    argv: (cwd, sid) => [...wiredBase.argv(cwd, sid), ...extraArgs],
+    env: withEnv(wiredBase, () => overlay),
+  };
   // Session.spawn() wipes the home before prep runs, so seeding goes in prep.
   const def: HarnessDef = {
     ...wired,
@@ -445,7 +683,7 @@ async function runScenario(harness: string, scenario: Scenario, stub: StubProvid
   const seen = new Set<string>();
   // Spinner frames and ticking counters repaint one line many times; keep the
   // first paint of each line shape.
-  const shape = (line: string) => line.replace(/^\s*[✻✽✳·✢✶*⏺◐◓◑◒•◦]\s/u, "").replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/gu, "").replace(/\d+/g, "#");
+  const shape = (line: string) => line.replace(/^\s*[·*•◦]\s/u, "").replace(/[\p{So}\u2800-\u28ff]/gu, "").replace(/\d+/g, "#");
   const collect = (baseline: ReadonlySet<string>) => {
     for (const raw of screenLines(term)) {
       const line = raw.trimEnd();
@@ -500,6 +738,9 @@ async function runScenario(harness: string, scenario: Scenario, stub: StubProvid
       if (stub.served.length === 0) {
         status = "skip";
         reason = "the harness never called the stub provider";
+      } else if (scenario.expect && !rendered.some((line) => scenario.expect!.test(line))) {
+        status = "skip";
+        reason = `the screen never showed ${scenario.expect}`;
       }
     }
   } catch (err) {
@@ -513,6 +754,11 @@ async function runScenario(harness: string, scenario: Scenario, stub: StubProvid
   observed.cliVersion = probeHarnessVersion(harness);
   for (const step of def.exitRecipe) { sess.write(step); await wait(500); }
   await sess.killTree();
+  if (harness === "prime-agent") {
+    // The daemon detaches from the TUI; it is ours by its per-capture socket.
+    spawnSync("pkill", ["-f", PRIME_SOCKET]);
+    fs.rmSync(PRIME_SOCKET, { force: true });
+  }
   term.dispose();
   const cwd = sess.cwd;
   const scrubbed = JSON.parse(scrub(JSON.stringify(observed), cwd)) as Record<string, unknown>;
@@ -532,7 +778,7 @@ function mergeManifest(harness: string, results: readonly ScenarioResult[]): voi
     ? JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>
     : {
       harness,
-      displayName: HARNESSES.find((def) => def.name === harness)?.displayName ?? harness,
+      displayName: harnessDef(harness)?.displayName ?? harness,
       source: "stub-provider",
       pty: { cols: COLS, rows: ROWS, term: "xterm-256color" },
       sanitized: false,

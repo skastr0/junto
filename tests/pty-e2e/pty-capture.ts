@@ -313,7 +313,8 @@ export function scrub(text: string, cwd: string): string {
   // ids / tokens
   s = s.split(FAKE_UUID).join("<SESSION>");
   s = s.replace(UUID_RE, "<SESSION>");
-  s = s.replace(/session_([0-9a-fA-F]{8,})/g, "session_<SESSION>");
+  // "session_<uuid>": `_` is a word character, so UUID_RE's \b misses it.
+  s = s.replace(/session_[0-9a-fA-F][0-9a-fA-F-]{7,}/g, "session_<SESSION>");
   s = s.replace(EMAIL_RE, "<EMAIL>");
   s = s.replace(SK_RE, "<TOKEN>");
   s = s.replace(PROVIDER_TOKEN_RE, "<TOKEN>");
