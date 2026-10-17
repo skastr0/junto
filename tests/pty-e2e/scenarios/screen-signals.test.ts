@@ -96,7 +96,7 @@ describe("claude", () => {
       _tag: "Blocked",
       reason: { _tag: "UsageLimit", scope: "session", resetsAt: Date.UTC(2026, 9, 16, 6, 23), autoResume: true },
     });
-    expect(topNeed(snapshot!).cause).toBe("usage_limit_waking");
+    expect(topNeed(snapshot!).cause).toBe("usage_limit_resuming");
   });
 
   it("error-auth: not logged in blocks the seat on auth", async () => {

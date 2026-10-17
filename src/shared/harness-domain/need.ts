@@ -58,6 +58,8 @@ export const NEED_CAUSES = {
 
   retrying: { level: "degraded", actor: "none" },
   usage_limit_waking: { level: "degraded", actor: "junto" },
+  /** The harness resumes at the reset by itself; nobody needs to act. */
+  usage_limit_resuming: { level: "degraded", actor: "none" },
   stalled: { level: "degraded", actor: "junto" },
   awareness_stuck: { level: "degraded", actor: "none" },
   awareness_looping: { level: "degraded", actor: "none" },
@@ -133,9 +135,8 @@ const statusNeed = (snapshot: SeatSnapshot): Need => {
         case "Dialog":
           return need("dialog", since, statusSource);
         case "UsageLimit":
-          // A harness that resumes on its own is waking like a Junto-scheduled wake.
-          const waking = snapshot.wakeAt !== undefined || status.reason.autoResume === true;
-          return need(waking ? "usage_limit_waking" : "usage_limit", since, statusSource);
+          if (status.reason.autoResume === true) return need("usage_limit_resuming", since, statusSource);
+          return need(snapshot.wakeAt === undefined ? "usage_limit" : "usage_limit_waking", since, statusSource);
         case "Error":
           return need(status.reason.kind === "auth" ? "auth_error" : "crash", since, statusSource);
       }

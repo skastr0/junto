@@ -66,6 +66,7 @@ export const OCCUPANCY_FROM_NEED: NeedProjection<OccupancySpectrum> = {
 
   retrying: "working",
   usage_limit_waking: "stalled",
+  usage_limit_resuming: "stalled",
   stalled: "stalled",
   awareness_stuck: null,
   awareness_looping: null,
@@ -107,6 +108,7 @@ export const ROLLUP_FROM_NEED: NeedProjection<MemberSeverity> = {
 
   retrying: "working",
   usage_limit_waking: null,
+  usage_limit_resuming: null,
   stalled: null,
   awareness_stuck: null,
   awareness_looping: null,
@@ -152,6 +154,7 @@ export const FEED_FROM_NEED: NeedProjection<FeedItemKind> = {
 
   retrying: null,
   usage_limit_waking: null,
+  usage_limit_resuming: null,
   stalled: null,
   awareness_stuck: null,
   awareness_looping: null,
@@ -197,6 +200,7 @@ export const NOTIFY_FROM_NEED: NeedProjection<NotifyCategory> = {
 
   retrying: null,
   usage_limit_waking: null,
+  usage_limit_resuming: null,
   stalled: null,
   awareness_stuck: null,
   awareness_looping: null,

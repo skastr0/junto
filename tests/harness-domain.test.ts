@@ -138,11 +138,11 @@ describe("harness domain: status", () => {
     expect(topNeed(snapshot).cause).toBe("usage_limit");
   });
 
-  it("reads a limit the harness resumes from itself as waking", () => {
+  it("reads a limit the harness resumes from itself as degraded, nobody acts", () => {
     const resuming = fold(
       at("screen", { _tag: "UsageLimitHit", scope: "5h", resetsAt: 9_000, autoResume: true, message: "Continuing automatically at 6:23am" }),
     );
-    expect(topNeed(resuming)).toMatchObject({ cause: "usage_limit_waking", level: "degraded" });
+    expect(topNeed(resuming)).toMatchObject({ cause: "usage_limit_resuming", level: "degraded", actor: "none" });
   });
 
   it("drops a scheduled wake once the limit clears", () => {
