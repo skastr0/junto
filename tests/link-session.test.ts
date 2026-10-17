@@ -232,3 +232,23 @@ it("drops a peer's detail on a channel without a failure schema", async () => {
   expect(failed.failure.detail).toBeUndefined();
   expect(failed.detail).toBeUndefined();
 });
+
+it("slows a burst of events instead of closing the link", async () => {
+  const handled: string[] = [];
+  let open!: () => void;
+  const gate = new Promise<void>(resolve => { open = resolve; });
+  const events: LinkChannelHandler = { ...channel(), handleEvent: (_context, payload) => Effect.promise(async () => {
+    await gate; handled.push((payload as { value: string }).value);
+  }) };
+  const f = raw({ limits: { inboundEvents: 4 }, channels: { status: events } });
+  f.send({ type: "hello", ...hello("mini") }); await f.session.ready;
+  for (let index = 0; index < 40; index++) f.send({ type: "event", channel: "status", payload: { value: `e${index}` } });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  let closed = false;
+  void f.session.closed.then(() => { closed = true; });
+  expect(handled).toEqual([]);
+  open();
+  await new Promise<void>(resolve => { const poll = () => handled.length === 40 ? resolve() : setTimeout(poll, 2); poll(); });
+  expect(handled[39]).toBe("e39");
+  expect(closed).toBe(false);
+}, 5_000);

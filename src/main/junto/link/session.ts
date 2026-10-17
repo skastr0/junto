@@ -13,7 +13,15 @@ import {
 
 export { LinkBuildMismatch } from "./types";
 
-const DEFAULT_LIMITS = { frameBytes: 1024 * 1024, queuedBytes: 4 * 1024 * 1024, pendingRequests: 32, inboundCalls: 32, helloTimeoutMs: 10_000, requestTimeoutMs: 30_000 } as const;
+/**
+ * inboundCalls bounds requests in flight from the peer (its own pendingRequests
+ * bound matches, so only a misbehaving peer exceeds it, and the link closes).
+ * inboundEvents is a high-water mark, not a refusal: at it the session stops
+ * reading until half have run, so a burst of events slows the sender instead
+ * of closing the link. No event handler sends a request, so a paused reader
+ * cannot hold up its own answer.
+ */
+const DEFAULT_LIMITS = { frameBytes: 1024 * 1024, queuedBytes: 4 * 1024 * 1024, pendingRequests: 32, inboundCalls: 32, inboundEvents: 64, helloTimeoutMs: 10_000, requestTimeoutMs: 30_000 } as const;
 const CLOSE_FLUSH_MS = 1_000;
 export interface LinkSessionOptions {
   readonly readable: Readable;
@@ -88,6 +96,9 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
   const completedIds = new Set<string>();
   const channelQueues = new Map<LinkChannel, Promise<void>>();
   let inboundCalls = 0;
+  let inboundEvents = 0;
+  let eventsDrained: (() => void) | undefined;
+  const releaseReader = (): void => { const resume = eventsDrained; eventsDrained = undefined; resume?.(); };
   let peer: LinkHello | undefined;
   let helloSeen: LinkHello | undefined;
   let stopped: LinkClosed | undefined;
@@ -125,6 +136,7 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     const first = classify(cause);
     const ended = closedFrom(first);
     stopped = ended;
+    releaseReader();
     clearTimeout(helloTimer);
     controller.abort();
     rejectReady(first);
@@ -225,10 +237,15 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     finish(cause === undefined ? thisEnd("closed") : isMachineLinkError(cause) ? cause : thisEnd("closed", [describeCause(cause), ...(classify(cause) as LinkClosed).causes.slice(1)]));
     await closed;
   };
-  const enqueue = (channel: LinkChannel, work: () => Promise<void>): void => {
-    if (++inboundCalls > limits.inboundCalls) { finish(thisEnd("bound-exceeded", [bound("Too many incoming link calls")])); return; }
+  const enqueue = (channel: LinkChannel, kind: "request" | "event", work: () => Promise<void>): void => {
+    if (kind === "request" && ++inboundCalls > limits.inboundCalls) { finish(thisEnd("bound-exceeded", [bound("Too many incoming link calls")])); return; }
+    if (kind === "event") inboundEvents++;
     const previous = channelQueues.get(channel) ?? Promise.resolve();
-    const flight = previous.then(async () => { if (stopped === undefined) await work(); }).catch(cause => finish(cause)).finally(() => { inboundCalls--; });
+    const flight = previous.then(async () => { if (stopped === undefined) await work(); }).catch(cause => finish(cause)).finally(() => {
+      if (kind === "request") { inboundCalls--; return; }
+      inboundEvents--;
+      if (inboundEvents <= Math.floor(limits.inboundEvents / 2)) releaseReader();
+    });
     channelQueues.set(channel, flight);
   };
   const encodeDetail = (selected: LinkChannelHandler, cause: unknown): unknown => {
@@ -257,7 +274,7 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
       log("Info", "link opened", { peerBuild: peer.build, peerInstallationId: peer.installationId });
       const ctx = context();
       for (const [name, channel] of Object.entries(channels)) if (channel?.opened !== undefined) {
-        enqueue(name as LinkChannel, async () => { await checkAdmission(); await runOwned(channel.opened!(ctx)); });
+        enqueue(name as LinkChannel, "event", async () => { await checkAdmission(); await runOwned(channel.opened!(ctx)); });
       }
       return;
     }
@@ -290,14 +307,14 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     if (frame.type === "event") {
       const payload = decoded("payload", `The ${frame.channel} event does not match its schema`, () => selected.decodeEvent(frame.payload));
       if (selected.handleEvent === undefined) throw frameInvalid("no-handler", "Link channel does not accept events", peer.machineName);
-      enqueue(frame.channel, async () => { await checkAdmission(); await runOwned(selected.handleEvent!(context(), payload)); });
+      enqueue(frame.channel, "event", async () => { await checkAdmission(); await runOwned(selected.handleEvent!(context(), payload)); });
       return;
     }
     const payload = decoded("payload", `The ${frame.channel} request does not match its schema`, () => selected.decodeRequest(frame.payload));
     if (selected.handleRequest === undefined) throw frameInvalid("no-handler", "Link channel does not accept requests", peer.machineName);
     if (inboundIds.has(frame.id) || completedIds.has(frame.id)) throw frameInvalid("duplicate-request", "Link request id was already used", peer.machineName);
     inboundIds.add(frame.id);
-    enqueue(frame.channel, async () => {
+    enqueue(frame.channel, "request", async () => {
       await checkAdmission();
       log("Debug", "link request received", { channel: frame.channel, operationId: frame.op, requestId: frame.id });
       try {
@@ -336,6 +353,8 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
           const json = decoded("json", "Link input is not JSON", () => JSON.parse(line) as unknown);
           await receive(decoded("schema", "Link frame does not match the protocol", () => decodeLinkFrame(json)));
           offset = newline + 1;
+          if (stopped !== undefined) return;
+          if (inboundEvents >= limits.inboundEvents) await new Promise<void>(resume => { eventsDrained = resume; });
           if (stopped !== undefined) return;
         }
       }
