@@ -36,7 +36,7 @@ const connectPeer = async (home: string, hello: typeof LinkHelloSchema.Type) => 
       const response = new Promise<LinkFrame>(resolve => {
         receive = frame => { if (frame.type === "response" && frame.id === id) resolve(frame); };
       });
-      socket.write(JSON.stringify({ type: "request", id, channel, payload }) + "\n");
+      socket.write(JSON.stringify({ type: "request", id, op: `op-${id}`, channel, payload }) + "\n");
       return Promise.race([response, closed.then(() => undefined)]);
     },
     close: async () => { socket.destroy(); await closed; },

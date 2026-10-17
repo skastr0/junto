@@ -1,5 +1,8 @@
 import { Schema } from "effect";
-import { MachineName } from "./machine-control";
+import { isValidMachineName } from "./machine-identity";
+
+// machine-control nests EncodedFailure, so the name check comes from its source, not from there.
+const MachineName = Schema.String.pipe(Schema.check(Schema.makeFilter(isValidMachineName)));
 
 /**
  * Schemas only. A failure as it crosses a machine or enters a log: its tag, its scrubbed message, the

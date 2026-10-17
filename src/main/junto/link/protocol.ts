@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { EncodedFailure, OperationId } from "@shared/failure";
 import { InstallationId } from "@shared/installation-id";
 import { MachineBuild, MachineName } from "@shared/machine-control";
 
@@ -7,15 +8,18 @@ const Id = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(
 const Channel = Schema.Literals(["rows", "seats", "status"]);
 export const LinkFrame = Schema.Union([
   Schema.Struct({ type: Schema.Literal("hello"), ...LinkHelloSchema.fields }),
-  Schema.Struct({ type: Schema.Literal("request"), id: Id, channel: Channel, payload: Schema.Json }),
-  Schema.Struct({ type: Schema.Literal("response"), id: Id, channel: Channel, ok: Schema.Literal(true), payload: Schema.Json }),
-  Schema.Struct({ type: Schema.Literal("response"), id: Id, channel: Channel, ok: Schema.Literal(false), error: Schema.Struct({ message: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(1024))) }) }),
+  Schema.Struct({ type: Schema.Literal("request"), id: Id, op: OperationId, channel: Channel, payload: Schema.Json }),
+  Schema.Struct({ type: Schema.Literal("response"), id: Id, op: OperationId, channel: Channel, ok: Schema.Literal(true), payload: Schema.Json }),
+  Schema.Struct({ type: Schema.Literal("response"), id: Id, op: OperationId, channel: Channel, ok: Schema.Literal(false), failure: EncodedFailure }),
   Schema.Struct({ type: Schema.Literal("event"), channel: Channel, payload: Schema.Json }),
+  /** Sent once by the end that closes, so the other end can say who closed and why. */
+  Schema.Struct({ type: Schema.Literal("close"), failure: EncodedFailure }),
 ]);
 export type LinkFrame = typeof LinkFrame.Type;
 const decode = Schema.decodeUnknownSync(LinkFrame, { onExcessProperty: "error" });
+export class LinkFramePayloadMissing extends Schema.TaggedError<LinkFramePayloadMissing>()("LinkFramePayloadMissing", { message: Schema.String }) {}
 export const decodeLinkFrame = (input: unknown): LinkFrame => {
   const frame = decode(input);
-  if ((frame.type === "request" || frame.type === "event" || (frame.type === "response" && frame.ok)) && !Object.hasOwn(frame, "payload")) throw new Error("link frame requires payload");
+  if ((frame.type === "request" || frame.type === "event" || (frame.type === "response" && frame.ok)) && !Object.hasOwn(frame, "payload")) throw new LinkFramePayloadMissing({ message: "link frame requires payload" });
   return frame;
 };

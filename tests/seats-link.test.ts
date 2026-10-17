@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LinkChannelContext } from "../src/main/junto/link/types";
-import { MachineLink, MachineLinkError } from "../src/main/junto/link/service";
+import { LinkUnavailable, MachineLink, type MachineLinkError } from "../src/main/junto/link/service";
 import { HostsService } from "../src/main/junto/hosts/service";
 import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { ModelService } from "../src/main/junto/model/service";
@@ -117,7 +117,7 @@ const fixture = async (options: {
   const context: LinkChannelContext = {
     peer: { build: "same-build", installationId: editor, machineName: "macbook" },
     sessionId: "admitted-link", signal: controller.signal,
-    sendEvent: () => Effect.void,
+    sendEvent: () => Effect.void, close: () => Effect.void,
     request: () => Effect.die("the start receiver must not send requests"),
   };
   const start = (raw: unknown = request, caller = context) =>
@@ -348,7 +348,7 @@ describe("seats link start", () => {
     const requestLink = vi.fn((_machine: string, channel: string, payload: unknown) => {
       expect(channel).toBe("seats");
       return f.channel.handleRequest(f.context, payload).pipe(Effect.mapError((cause) =>
-        new MachineLinkError(cause instanceof Error ? cause.message : String(cause))));
+        new LinkUnavailable({ reason: "not-linked", message: cause instanceof Error ? cause.message : String(cause) })));
     });
     const unused = Effect.die("unused machine operation");
     const links = MachineLink.of({

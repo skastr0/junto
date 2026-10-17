@@ -3,7 +3,7 @@ import { Effect, Schema } from "effect";
 import { afterEach, expect, it, vi } from "vitest";
 import { LinkBuildMismatch, makeLinkSession, type LinkSessionOptions } from "../src/main/junto/link/session";
 import { LinkHelloSchema, decodeLinkFrame } from "../src/main/junto/link/protocol";
-import { MachineLinkError, type LinkChannelHandler, type LinkHello, type LinkSession } from "../src/main/junto/link/types";
+import { linkClosed, LinkPeerNotPinned, LinkRequestFailed, type LinkChannelHandler, type LinkHello, type LinkSession } from "../src/main/junto/link/types";
 
 const sessions: LinkSession[] = [];
 afterEach(async () => { await Promise.all(sessions.splice(0).map(session => session.close())); vi.useRealTimers(); });
@@ -43,7 +43,7 @@ it("refuses build mismatch and pin refusal without dispatching a channel", async
   await expect(left.ready).rejects.toThrow("Update mini");
   await right.closed;
   expect(called).toBe(false);
-  const refused = pair({ admit: async () => { throw new MachineLinkError("installation pin changed"); } });
+  const refused = pair({ admit: async () => { throw new LinkPeerNotPinned({ machine: "mini", message: "installation pin changed" }); } });
   await expect(refused.left.ready).rejects.toThrow("installation pin changed");
 });
 
@@ -56,7 +56,7 @@ it("checks the binding before reporting a build mismatch and never opens a chann
   await expect(f.session.ready).rejects.toBeInstanceOf(LinkBuildMismatch);
   expect(admit).toHaveBeenCalledWith(peer);
   expect(opened).not.toHaveBeenCalled();
-  const refused = raw({ admit: async () => { throw new MachineLinkError("installation pin changed"); } });
+  const refused = raw({ admit: async () => { throw new LinkPeerNotPinned({ machine: "mini", message: "installation pin changed" }); } });
   refused.send({ type: "hello", ...peer });
   await expect(refused.session.ready).rejects.toThrow("installation pin changed");
 });
@@ -65,7 +65,7 @@ it("closes on excess channel payload fields before a handler sees them", async (
   let called = false;
   const f = raw({ channels: { status: channel(() => Effect.sync(() => { called = true; return { value: "bad" }; })) } });
   f.send({ type: "hello", ...hello("mini") }); await f.session.ready;
-  f.send({ type: "request", id: "bad", channel: "status", payload: { value: "ok", exec: "shell" } });
+  f.send({ type: "request", id: "bad", op: "op-bad", channel: "status", payload: { value: "ok", exec: "shell" } });
   await f.session.closed;
   expect(called).toBe(false);
 });
@@ -76,7 +76,7 @@ it("rechecks admission before events and aborts the channel context on close", a
   let resolveOpened!: () => void;
   const opened = new Promise<void>(resolve => { resolveOpened = resolve; });
   let events = 0;
-  const f = raw({ admit: async () => { if (!admitted) throw new MachineLinkError("peer was removed"); }, channels: { status: { ...channel(), opened: context => Effect.sync(() => { signal = context.signal; resolveOpened(); }), handleEvent: () => Effect.sync(() => { events++; }) } } });
+  const f = raw({ admit: async () => { if (!admitted) throw new LinkPeerNotPinned({ machine: "mini", message: "peer was removed" }); }, channels: { status: { ...channel(), opened: context => Effect.sync(() => { signal = context.signal; resolveOpened(); }), handleEvent: () => Effect.sync(() => { events++; }) } } });
   f.send({ type: "hello", ...hello("mini") }); await f.session.ready; await opened;
   admitted = false;
   f.send({ type: "event", channel: "status", payload: { value: "after removal" } });
@@ -101,7 +101,7 @@ it("strictly decodes responses before resolving a pending request", async () => 
   await observed;
   const request = f.frames.find(frame => frame.type === "request");
   if (request?.type !== "request") throw new Error("request was not written");
-  f.send({ type: "response", id: request.id, channel: "status", ok: true, payload: { value: "reply", juntoHome: "/private" } });
+  f.send({ type: "response", id: request.id, op: request.op, channel: "status", ok: true, payload: { value: "reply", juntoHome: "/private" } });
   await expect(pending).rejects.toThrow();
   await f.session.closed;
 });
@@ -126,8 +126,8 @@ it("closes on request timeout and rejects pending work without automatic replay"
 it("bounds incoming queued calls while keeping response handling independent", async () => {
   const f = raw({ limits: { inboundCalls: 1 }, channels: { status: channel(() => Effect.never) } });
   f.send({ type: "hello", ...hello("mini") }); await f.session.ready;
-  f.send({ type: "request", id: "one", channel: "status", payload: { value: "one" } });
-  f.send({ type: "request", id: "two", channel: "status", payload: { value: "two" } });
+  f.send({ type: "request", id: "one", op: "op-one", channel: "status", payload: { value: "one" } });
+  f.send({ type: "request", id: "two", op: "op-two", channel: "status", payload: { value: "two" } });
   await f.session.closed;
   await expect(f.session.request("status", { value: "later" })).rejects.toThrow("Too many incoming");
 });
@@ -139,7 +139,7 @@ it("rejects a response on another channel and a repeated hello", async () => {
   await new Promise<void>(resolve => f.output.once("data", () => resolve()));
   const request = f.frames.find(frame => frame.type === "request");
   if (request?.type !== "request") throw new Error("request was not written");
-  f.send({ type: "response", id: request.id, channel: "rows", ok: true, payload: { value: "wrong" } });
+  f.send({ type: "response", id: request.id, op: request.op, channel: "rows", ok: true, payload: { value: "wrong" } });
   await expect(response).rejects.toThrow("does not match");
   const g = raw(); g.send({ type: "hello", ...hello("mini") }); await g.session.ready;
   g.send({ type: "hello", ...hello("mini") }); await g.session.closed;
@@ -149,7 +149,73 @@ it("rejects a response on another channel and a repeated hello", async () => {
 it("rejects an envelope's unknown fields, channels and absent payload", () => {
   for (const frame of [
     { type: "hello", ...hello("mini"), command: "shell" },
-    { type: "request", id: "one", channel: "shell", payload: {} },
-    { type: "request", id: "one", channel: "status" },
+    { type: "request", id: "one", op: "op", channel: "shell", payload: {} },
+    { type: "request", id: "one", op: "op", channel: "status" },
+    { type: "request", id: "one", channel: "status", payload: {} },
   ]) expect(() => decodeLinkFrame(frame)).toThrow();
+});
+
+class SeatSpawnFailed extends Schema.TaggedError<SeatSpawnFailed>()("SeatSpawnFailed", { seatId: Schema.String, exitCode: Schema.Number, message: Schema.String }) {}
+
+it("answers a failed request with its real cause, typed, never a generic phrase", async () => {
+  const failing = channel(() => Effect.fail(new SeatSpawnFailed({ seatId: "agent-01M4G59ER01QPV3WBTEK3Z84TP", exitCode: 1, message: "native PTY backend is unavailable: Cannot find module 'node-pty'" })));
+  const handler: LinkChannelHandler = { ...failing, failureSchema: SeatSpawnFailed };
+  const { left } = pair({ channels: { status: handler } }, { channels: { status: handler } });
+  await left.ready;
+  const failure = await left.request("status", { value: "start" }, "op-seat-start").then(() => undefined, (cause: unknown) => cause);
+  expect(failure).toBeInstanceOf(LinkRequestFailed);
+  const failed = failure as LinkRequestFailed;
+  expect(failed.message).toContain("Cannot find module 'node-pty'");
+  expect(failed.message).not.toContain("Channel request failed");
+  expect(failed.operationId).toBe("op-seat-start");
+  expect(failed.failure).toMatchObject({ tag: "SeatSpawnFailed", machine: "mini", operationId: "op-seat-start" });
+  expect(failed.detail).toBeInstanceOf(SeatSpawnFailed);
+  expect((failed.detail as SeatSpawnFailed).exitCode).toBe(1);
+});
+
+it("carries an untyped handler failure's tag and cause chain, scrubbed", async () => {
+  const thrown = new Error("spawn failed", { cause: new Error("ENOENT token=abcd1234") });
+  const { left } = pair({}, { channels: { status: channel(() => Effect.fail(thrown)) } });
+  await left.ready;
+  const failed = await left.request("status", { value: "x" }).then(() => undefined, (cause: unknown) => cause) as LinkRequestFailed;
+  expect(failed.failure.causes).toEqual([{ tag: "Error", message: "ENOENT token=[redacted]" }]);
+  expect(failed.message).toBe("mini could not complete the status request: spawn failed: ENOENT token=[redacted]");
+});
+
+it("puts the operation id on every request frame and hands it to the handler", async () => {
+  let seen: string | undefined;
+  const f = raw({ channels: { status: channel((context, payload) => Effect.sync(() => { seen = context.operationId; return payload; })) } });
+  f.send({ type: "hello", ...hello("mini") }); await f.session.ready;
+  const pending = f.session.request("status", { value: "a" }, "op-mine");
+  await new Promise<void>(resolve => f.output.once("data", () => resolve()));
+  const request = f.frames.find(frame => frame.type === "request");
+  expect(request).toMatchObject({ type: "request", op: "op-mine" });
+  if (request?.type !== "request") throw new Error("request was not written");
+  f.send({ type: "response", id: request.id, op: request.op, channel: "status", ok: true, payload: { value: "b" } });
+  await expect(pending).resolves.toEqual({ value: "b" });
+  f.send({ type: "request", id: "in-1", op: "op-theirs", channel: "status", payload: { value: "c" } });
+  await vi.waitFor(() => expect(seen).toBe("op-theirs"));
+});
+
+it("tells the other end who closed and why, and says it was the peer", async () => {
+  const { left, right } = pair();
+  await Promise.all([left.ready, right.ready]);
+  class ExchangeClosed extends Schema.TaggedError<ExchangeClosed>()("ExchangeClosed", { message: Schema.String }) {}
+  await left.close(new ExchangeClosed({ message: "only the machine that edits a canvas answers a signal" }));
+  const mine = await left.closed;
+  expect(mine).toMatchObject({ by: "this-end", reason: "closed", causes: [{ tag: "ExchangeClosed" }] });
+  const theirs = await right.closed;
+  expect(theirs).toMatchObject({ by: "peer", reason: "peer-closed", machine: "macbook", causes: [{ tag: "ExchangeClosed", message: "only the machine that edits a canvas answers a signal" }] });
+  expect(theirs.message).toBe("The link to macbook closed, the other machine closed it: only the machine that edits a canvas answers a signal");
+  await expect(right.request("status", { value: "late" })).rejects.toThrow("only the machine that edits a canvas");
+});
+
+it("keeps the process's exit and stderr tail on every later failure", async () => {
+  const { left } = pair();
+  await left.ready;
+  const pending = left.request("status", { value: "slow" });
+  await left.close(linkClosed({ machine: "mini", by: "process", reason: "process-exited", exitCode: 1, stderrTail: "junto link: core is not running" }));
+  await expect(pending).rejects.toThrow("The link to mini closed, its SSH process ended: exit code 1: junto link: core is not running");
+  const later = await left.request("status", { value: "later" }).then(() => undefined, (cause: unknown) => cause);
+  expect(later).toMatchObject({ _tag: "LinkClosed", by: "process", exitCode: 1, stderrTail: "junto link: core is not running" });
 });
