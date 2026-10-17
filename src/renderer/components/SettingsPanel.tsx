@@ -1,6 +1,6 @@
 import { use$ } from "@legendapp/state/react";
 import { RotateCcw, Search, X } from "lucide-react";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { BrowserProfileInfo, JuntoBrowserApi } from "@shared/ipc";
 import { DEFAULT_INTERFACE_SCALE, INTERFACE_SCALES, interfaceScaleOf, type SettingsSectionKey } from "@shared/settings";
 import {
@@ -141,6 +141,21 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
     blurb: "",
   },
 ];
+
+/**
+ * Pages that show one machine's settings. Their head carries the machine
+ * dropdown, and their body reads the choice (lib/settings-machine.ts).
+ */
+const MACHINE_SCOPED_SECTIONS: ReadonlySet<PanelSection> = new Set(["harnesses"]);
+
+// The define identifier wraps the import() so a build without the machines
+// surface drops the picker and the owner command client with it.
+const SettingsMachinePicker = __JUNTO_FLEET_UI_ENABLED__
+  ? lazy(async () => {
+      const mod = await import("./settings/SettingsMachinePicker");
+      return { default: mod.SettingsMachinePicker };
+    })
+  : null;
 
 /** Prefer first nav item when Machine is gated out. */
 const DEFAULT_SETTINGS_SECTION: PanelSection = FLEET_UI_ENABLED
@@ -1348,7 +1363,16 @@ export function SettingsPanel() {
           {searching ? null : (
             <div className="settings-page">
               <div className="settings-content__head">
-                <h2 tabIndex={-1}>{meta.label}</h2>
+                {SettingsMachinePicker && MACHINE_SCOPED_SECTIONS.has(activeSection) ? (
+                  <div className="settings-content__title">
+                    <h2 tabIndex={-1}>{meta.label}</h2>
+                    <Suspense fallback={null}>
+                      <SettingsMachinePicker />
+                    </Suspense>
+                  </div>
+                ) : (
+                  <h2 tabIndex={-1}>{meta.label}</h2>
+                )}
                 {meta.blurb ? <p>{meta.blurb}</p> : null}
               </div>
               {loading ? (
