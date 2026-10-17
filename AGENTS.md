@@ -89,6 +89,12 @@ opens, migrates, downgrades, or partially decodes advanced state.
 Bleeding-edge and unstable dependency versions are permitted. Retain Legend
 State v3; its prerelease status is not a reason to downgrade it.
 
+A new dependency in anything the machine core runs gets a machine bundle
+build before it lands: `bun scripts/build-machine.ts '{"target":"darwin-arm64","output":"<dir>"}'`
+must end with `"ready":true`. The bundled core cannot resolve a package's
+runtime `require`s of its own files (jsonc-parser's UMD main killed every core
+at start; import its ESM entry instead).
+
 ## Seat philosophy
 
 - A seat is a permanent agent. To the operator it is one continuous agent,
