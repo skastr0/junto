@@ -30,11 +30,12 @@ describe("seatNextLaunch", () => {
     expect(seatNextLaunch({ harness: "claude", open: { harness: "claude", sessionId: " " }, provisioned: false, provenOnDisk: true })).toBe("fresh");
   });
 
-  it("says each outcome in words a seat line can hold, with no middle dots", () => {
+  it("says each outcome in words a seat line holds uncut at fit-all", () => {
     expect(SEAT_NEXT_LAUNCH_LINE).toEqual({
-      resume: "not running, will resume",
-      offboarded: "offboarded, starts fresh",
-      fresh: "not running, starts fresh",
+      resume: "will resume",
+      offboarded: "offboarded, fresh",
+      fresh: "starts fresh",
     });
+    for (const line of Object.values(SEAT_NEXT_LAUNCH_LINE)) expect(line.length).toBeLessThanOrEqual(18);
   });
 });

@@ -33,9 +33,13 @@ export const seatNextLaunch = (input: {
   return input.lastEnded === "offboard" ? "offboarded" : "fresh";
 };
 
-/** The seat line for a seat that is not running, by what its next start does. */
+/**
+ * The seat line for a seat that is not running, by what its next start does.
+ * The ring already says it is not running, and a card line holds about twenty
+ * characters at fit-all, so the outcome leads and nothing is cut.
+ */
 export const SEAT_NEXT_LAUNCH_LINE: Readonly<Record<SeatNextLaunch, string>> = {
-  resume: "not running, will resume",
-  offboarded: "offboarded, starts fresh",
-  fresh: "not running, starts fresh",
+  resume: "will resume",
+  offboarded: "offboarded, fresh",
+  fresh: "starts fresh",
 };

@@ -77,11 +77,12 @@ describe("SeatCard", () => {
     // Before main answers, it says only that it is not running.
     expect(card("lead")).toContain("not running");
     expect(card("lead")).not.toContain("will resume");
+    expect(card("lead")).not.toContain("starts fresh");
 
     seatNextLaunch$.set({ factory: { lead: "resume", scout: "offboarded", new: "fresh" } });
-    expect(card("lead")).toContain("not running, will resume");
-    expect(card("scout")).toContain("offboarded, starts fresh");
-    expect(card("new")).toContain("not running, starts fresh");
+    expect(card("lead")).toContain("will resume");
+    expect(card("scout")).toContain("offboarded, fresh");
+    expect(card("new")).toContain("starts fresh");
   });
 
   it("renders nothing for an id the store does not hold as a seat", () => {
