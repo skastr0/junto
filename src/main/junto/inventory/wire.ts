@@ -105,6 +105,11 @@ export const InventoryLinkFailure = Schema.Union([
 ]);
 export type InventoryLinkFailure = typeof InventoryLinkFailure.Type;
 
+/** An event frame on the inventory channel, which carries none. */
+export class InventoryEventRefused extends Schema.TaggedError<InventoryEventRefused>()("InventoryEventRefused", {
+  message: Schema.String.pipe(Schema.check(Schema.isMaxLength(1024))),
+}) {}
+
 /** A snapshot that failed the closed decode, refused on arrival; the link stays open. */
 export class InventorySnapshotRefused extends Schema.TaggedError<InventorySnapshotRefused>()("InventorySnapshotRefused", Where) {}
 /** A snapshot that names another machine than the link peer that sent it. */

@@ -11,6 +11,7 @@ import { Effect, Schema } from "effect";
 import { InventoryUnavailableError } from "@shared/harness-domain/inventory";
 import type { MachineInventoryResult } from "@shared/ipc";
 import { isThisMachine } from "@shared/machine-name";
+import { describeCause } from "../failure-encode";
 import { HostsService } from "../hosts/service";
 import { MachineLink } from "../link/service";
 import { MachineRepository } from "../machines/repository";
@@ -25,8 +26,8 @@ import {
   inventoryOfSnapshot,
 } from "./wire";
 
-const reasonOf = (cause: unknown): string =>
-  (cause instanceof Error ? cause.message : String(cause)).slice(0, 500);
+/** A decode failure as its issue kind and path; any other text through the doctrine scrub. */
+const reasonOf = (cause: unknown): string => describeCause(cause).message.slice(0, 500);
 
 const tagOf = (cause: unknown): string =>
   (typeof cause === "object" && cause !== null && "_tag" in cause && typeof cause._tag === "string"

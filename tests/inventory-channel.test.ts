@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,6 +21,8 @@ import { type LinkChannelContext, LinkRequestFailed } from "../src/main/junto/li
 import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { ModelService } from "../src/main/junto/model/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { closeMachineLog, installMachineLog, ObservabilityLoggerLive } from "../src/main/junto/observability/logger";
+import { machineLogDir } from "../src/main/junto/observability/log-file";
 import { HarnessInventory } from "../src/main/junto/term/templates/harness-inventory";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import type { MachineInventory } from "../src/shared/harness-domain/inventory";
@@ -217,6 +220,7 @@ describe("inventory channel request", () => {
     const peer = makePeerInventoryClient(makePeerInventoryCache(dir));
     const ask = (operationId: string) => f.runtime.runPromise(peer.inventoryOf(PEER, operationId).pipe(
       Effect.provideService(HostsService, hosts), Effect.provideService(MachineLink, links),
+      Effect.provide(ObservabilityLoggerLive),
     ));
     return { ask, request, dir };
   };
@@ -284,6 +288,36 @@ describe("inventory channel request", () => {
     const answer = await c.ask("op-1");
     expect(!answer.ok && answer.error.last).toBeUndefined();
     expect(await readFile(join(c.dir, `${PEER}.json`), "utf8")).toContain("<script>");
+  });
+
+  it("logs and answers a decode failure as its path, never the value it saw, at both ends", async () => {
+    const home = await mkdtemp(join(tmpdir(), "junto-inventory-log-"));
+    cleanups.push(async () => { closeMachineLog(); await rm(home, { recursive: true, force: true }); });
+    installMachineLog({ home, process: "core", echo: false });
+    const secret = "SECRETVALUE7f3k2";
+
+    const f = await runtimeWith([seat("here", { host: THIS_MACHINE, agentKey: `${THIS_MACHINE}:here` })], "editor");
+    const channel = await f.runtime.runPromise(makeInventoryChannel());
+    await f.runtime.runPromise(Effect.flip(channel.handleRequest!(context, { canvas: `<${secret}>` })).pipe(Effect.provide(ObservabilityLoggerLive)));
+
+    const good = wireSnapshot(local(PEER), 2).snapshot;
+    const bad = { ...good, harnesses: [{ ...good.harnesses[0]!, models: [{ id: "opus", label: `<${secret}>` }] }] };
+    const c = await client(() => Effect.succeed(bad));
+    const answer = await c.ask("op-secret");
+    expect(!answer.ok && answer.error.message).toContain("label");
+    expect(JSON.stringify(answer)).not.toContain(secret);
+
+    const log = readFileSync(join(machineLogDir(home), "core.jsonl"), "utf8");
+    expect(log).toContain("inventory failed");
+    expect(log).toContain("peer inventory failed");
+    expect(log).toContain("canvas");
+    expect(log).not.toContain(secret);
+  });
+
+  it("refuses an event frame with a tagged refusal", async () => {
+    const f = await runtimeWith([], "editor");
+    const channel = await f.runtime.runPromise(makeInventoryChannel());
+    expect(() => channel.decodeEvent({})).toThrow(expect.objectContaining({ _tag: "InventoryEventRefused" }));
   });
 
   it("bounds every failure field that crosses as detail", () => {

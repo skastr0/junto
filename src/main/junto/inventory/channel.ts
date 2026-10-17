@@ -9,6 +9,7 @@
 import { Effect, Schema } from "effect";
 import { isThisMachine } from "@shared/machine-name";
 import type { LinkChannelHandler } from "../link/types";
+import { logMachine } from "../observability/logger";
 import { MachineRepository } from "../machines/repository";
 import { ModelRecords } from "../model/records";
 import { ModelService } from "../model/service";
@@ -16,6 +17,7 @@ import { InventoryUnavailableError } from "@shared/harness-domain/inventory";
 import { HarnessInventory } from "../term/templates/harness-inventory";
 import {
   InventoryCanvasEditorMismatch,
+  InventoryEventRefused,
   InventoryLinkFailure,
   InventoryNoSeatHere,
   InventoryPeerNotPinned,
@@ -39,7 +41,7 @@ const asLinkFailure = (machine: string, cause: unknown): InventoryLinkFailureTyp
 
 /** A channel with no events refuses every event frame. */
 const noEvents = (): never => {
-  throw new Error("the inventory channel carries no events");
+  throw new InventoryEventRefused({ message: "The inventory channel carries no events." });
 };
 
 export const makeInventoryChannel = Effect.fn("InventoryLink.make")(function* () {
@@ -74,7 +76,8 @@ export const makeInventoryChannel = Effect.fn("InventoryLink.make")(function* ()
   }).pipe(
     Effect.tapCause((cause) => Effect.logError("inventory failed", cause)),
     Effect.catch((cause) => machines.machineName.pipe(
-      Effect.orElseSucceed(() => ""),
+      // The name the machine log already carries, when this machine's own cannot be read.
+      Effect.orElseSucceed(logMachine),
       Effect.flatMap((machine) => Effect.fail(asLinkFailure(machine, cause))),
     )),
     Effect.tap(() => Effect.logInfo("inventory answered")),
