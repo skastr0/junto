@@ -11,13 +11,19 @@
  */
 import { Result, Schema } from "effect";
 import { HarnessId } from "../managed-terminal-templates";
+import { isModelId } from "../model-id";
 import { HostId } from "../remote-hosts";
 import { verifyVersion } from "./inventory";
 
 export const NativeSettingValue = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("boolean") }),
   Schema.Struct({ kind: Schema.Literal("enum"), values: Schema.Array(Schema.String) }),
-  Schema.Struct({ kind: Schema.Literal("string"), maxLength: Schema.Number }),
+  Schema.Struct({
+    kind: Schema.Literal("string"),
+    maxLength: Schema.Number,
+    /** A closed shape the value must also match; `modelId` is `shared/model-id.ts`. */
+    format: Schema.optionalKey(Schema.Literal("modelId")),
+  }),
   Schema.Struct({ kind: Schema.Literal("number"), minimum: Schema.optionalKey(Schema.Number), maximum: Schema.optionalKey(Schema.Number) }),
 ]);
 export type NativeSettingValue = typeof NativeSettingValue.Type;
@@ -62,7 +68,11 @@ const valueFits = (spec: NativeSettingValue, value: NativeSettingWrite["value"])
     case "enum":
       return typeof value === "string" && spec.values.includes(value);
     case "string":
-      return typeof value === "string" && value.length <= spec.maxLength;
+      return (
+        typeof value === "string" &&
+        value.length <= spec.maxLength &&
+        (spec.format !== "modelId" || isModelId(value))
+      );
     case "number":
       return (
         typeof value === "number" &&

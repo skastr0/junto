@@ -120,6 +120,26 @@ describe("harness params", () => {
     expect(Result.isFailure(bad) && bad.failure.reason).toBe("value");
   });
 
+  it("admits a model value only in the model id shape", () => {
+    const catalogue = [
+      {
+        harness: "claude",
+        key: "model",
+        label: "Model",
+        value: { kind: "string", maxLength: 200, format: "modelId" },
+        file: ".claude/settings.json",
+        versions: { from: "2.1.200" },
+      },
+    ] as const;
+    const write = (value: string) => checkNativeSetting(catalogue, { machine: "local", harness: "claude", key: "model", value } as never, "2.1.302");
+    for (const id of ["opus[1m]", "claude-fable-5-1[1m]", "openrouter/~anthropic/claude-opus-latest", "gpt-5.1-codex@high"]) {
+      expect(Result.isSuccess(write(id)), id).toBe(true);
+    }
+    for (const id of ['opus"', "a b", "<x>", "x\u202e", "$(id)"]) {
+      expect(Result.isFailure(write(id)), id).toBe(true);
+    }
+  });
+
   it("reads an installed version against the record's verified range", () => {
     const range = { from: "0.20.4", through: "0.21.6" };
     expect(verifyVersion("hermes v0.21.6+675", range).verdict).toBe("verified");
