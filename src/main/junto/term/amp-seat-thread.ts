@@ -20,14 +20,10 @@
 
 import { Effect } from "effect";
 import { recoverDocumentLaunchChoices } from "@shared/launch-choices";
-import {
-  isHarnessId,
-  templateFor,
-  type HarnessId,
-} from "@shared/managed-terminal-templates";
+import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 import type { TerminalLaunch } from "@shared/terminal";
 import { writeSeatSessionId } from "./seat-session-id";
-import { isAmpThreadId, provisionAmpThread } from "./templates/amp-thread";
+import { harnessRuntimeRecordFor } from "./harness-record";
 
 export type SeatThreadResult =
   | {
@@ -46,40 +42,13 @@ export const usesProvisionedSession = (harness: string): boolean =>
   isHarnessId(harness) &&
   templateFor(harness).capabilityBadges.sessionId === "provision";
 
-const provisionFor = async (
-  harness: HarnessId,
-  cwd: string | undefined,
-  mode: string | undefined,
-  extraArgs: readonly string[] | undefined,
-): Promise<SeatThreadResult> => {
-  switch (harness) {
-    case "amp": {
-      const minted = await provisionAmpThread({
-        ...(cwd === undefined ? {} : { cwd }),
-        ...(mode === undefined ? {} : { mode }),
-        ...(extraArgs === undefined ? {} : { extraArgs }),
-      });
-      return minted.ok
-        ? { ok: true, sessionId: minted.threadId, minted: true }
-        : { ok: false, reason: minted.failure.reason };
-    }
-    default:
-      return {
-        ok: false,
-        reason: `${harness} declares a provisioned session but has no provisioner`,
-      };
-  }
-};
-
 /** A stored id is only reusable when it still looks like that harness's id. */
 const storedSessionId = (
-  harness: HarnessId,
+  isSessionId: (value: string) => boolean,
   raw: string | undefined,
 ): string | undefined => {
   const value = raw?.trim();
-  if (!value) return undefined;
-  if (harness === "amp") return isAmpThreadId(value) ? value : undefined;
-  return value;
+  return value && isSessionId(value) ? value : undefined;
 };
 
 /**
@@ -104,13 +73,21 @@ export const ensureProvisionedSessionId = async (input: {
       minted: false,
     };
   }
-  const existing = storedSessionId(harness, input.storedSessionId);
+  const provision = harnessRuntimeRecordFor(harness)?.sessionOrigin.provision;
+  if (provision === undefined) {
+    return { ok: false, reason: `${harness} declares a provisioned session but has no provisioner` };
+  }
+  const existing = storedSessionId(provision.isSessionId, input.storedSessionId);
   if (existing !== undefined) {
     return { ok: true, sessionId: existing, minted: false };
   }
 
   const { mode, extraArgs } = recoverDocumentLaunchChoices(harness, input.documentLaunch);
-  const minted = await provisionFor(harness, input.cwd, mode, extraArgs);
+  const minted = await provision.mint({
+    ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
+    ...(mode === undefined ? {} : { mode }),
+    ...(extraArgs === undefined ? {} : { extraArgs }),
+  });
   if (!minted.ok) return minted;
 
   const stored = await writeSeatSessionId({

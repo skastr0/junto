@@ -84,20 +84,15 @@ import { seatStateRuntime } from "./agent-state";
 import { processTimeZone } from "./agent-state/screen-signal";
 import { drainKeyOf } from "@shared/seat-drain";
 import {
-  extractSessionIdFromText,
   recordCapturedSessionId,
   clearCapturedSessionId,
   getCapturedSessionId,
 } from "./session-id-store";
-import { extractKimiSessionIdFromText } from "./templates/kimi-session";
 import {
   scheduleCapturedSessionPersist,
   usesCapturedSession,
 } from "./session-capture-persist";
-import {
-  DEVIN_PROOF_RETRY_DELAYS_MS,
-  discoverDevinSessionId,
-} from "./devin-session-capture";
+import { harnessRuntimeRecordFor, printedSessionIdOf } from "./harness-record";
 import {
   isHarnessResumeFailureText,
   isPinSessionHarness,
@@ -978,7 +973,7 @@ export class LocalSessionHost extends EventEmitter {
 
   /** Open the actor seat. Its harness is declared, never inferred at spawn. */
   createAgentSeat(input: LocalHostAgentSeatInput): TerminalSessionSummary {
-    if (input.harness === "junto-overseer" && !LIVE_OVERSEER_ENABLED) {
+    if (harnessRuntimeRecordFor(input.harness)?.template.featureGate === "liveOverseer" && !LIVE_OVERSEER_ENABLED) {
       throw new Error("Live conversation is disabled in this Junto build");
     }
     const bindingId = input.bindingId.trim();
@@ -1283,7 +1278,7 @@ export class LocalSessionHost extends EventEmitter {
     let terminalLaunch: ResolvedLaunch = launch;
     if (
       seat.kind === "agent" &&
-      seat.harness === "prime-agent" &&
+      harnessRuntimeRecordFor(seat.harness)?.sidecar === "primeAgentDaemon" &&
       this.primeDaemons !== undefined
     ) {
       try {
@@ -2318,7 +2313,7 @@ export class LocalSessionHost extends EventEmitter {
   }
 
   private clearPrimeAgentReporterHook(rec: SessionRec, reason: string): void {
-    if (rec.harness !== "prime-agent") return;
+    if (harnessRuntimeRecordFor(rec.harness)?.sidecar !== "primeAgentDaemon") return;
     seatStateRuntime.clearStructuredHook(rec.bindingId, rec.epoch, reason);
   }
 
@@ -2517,12 +2512,13 @@ export class LocalSessionHost extends EventEmitter {
    * is what makes `-r <id>` work.
    */
   private scheduleDevinSessionDiscovery(rec: SessionRec): void {
-    if (rec.harness !== "devin") return;
+    const fromProcess = harnessRuntimeRecordFor(rec.harness)?.sessionOrigin.fromProcess;
+    if (fromProcess === undefined) return;
     const pid = rec.pid;
     if (pid === undefined) return;
     if (getCapturedSessionId(rec.bindingId)) return;
     const epoch = rec.epoch;
-    void discoverDevinSessionId({
+    void fromProcess.discover({
       pid,
       stillRunning: () =>
         this.sessions.get(rec.bindingId) === rec &&
@@ -2536,7 +2532,7 @@ export class LocalSessionHost extends EventEmitter {
           return;
         }
         recordCapturedSessionId(rec.bindingId, sessionId);
-        this.persistCapturedSession(rec, sessionId, DEVIN_PROOF_RETRY_DELAYS_MS);
+        this.persistCapturedSession(rec, sessionId, fromProcess.proofRetryDelaysMs);
       })
       .catch(() => {
         // Recovery, never a gate.
@@ -2607,10 +2603,7 @@ export class LocalSessionHost extends EventEmitter {
     // session_id. Proof is still ~/.kimi-code/sessions/<workDirKey>/<id>/.
     if ((rec.agentKey || rec.harness) && !getCapturedSessionId(rec.bindingId)) {
       const captureText = `${rec.sessionCaptureTail}${data}`;
-      const sid =
-        rec.harness === "kimi"
-          ? extractKimiSessionIdFromText(captureText)
-          : extractSessionIdFromText(captureText);
+      const sid = printedSessionIdOf(rec.harness, captureText);
       if (sid) {
         recordCapturedSessionId(rec.bindingId, sid);
         this.persistCapturedSession(rec, sid);
