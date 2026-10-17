@@ -1,6 +1,6 @@
 # Mail on the harness domain
 
-Status: building, step 6 of `docs/harness-domain.md` (mail delivery goes through
+Status: wired, step 6 of `docs/harness-domain.md` (mail delivery goes through
 `admitCommand`). Owner: pty-mail. PTY stream only.
 
 Mail is a `DeliverMail { mode: "steer" }` command. Before it is typed, the drive
@@ -9,12 +9,17 @@ asks `admitMail` (`src/main/junto/term/drive/mail-admission.ts`), which calls
 `HarnessCapabilities`. A refusal becomes a hold the mailbox already tells; an
 admitted seat still goes through the composer gate.
 
-Admission is wired behind two lookups on `createCoreMailTransport`:
+Admission reads two lookups on `createCoreMailTransport`: `seatSnapshot`,
+which defaults to `seatStateRuntime.snapshot` (pty-state, da35cfb6d), and
 `harnessCapabilities`, which defaults to `harnessCapabilitiesFor`
-(`src/shared/harness-capabilities.ts`, pty-contract), and `seatSnapshot`, which
-pty-state's projection supplies (`seatStateRuntime.snapshot`). While
-`seatSnapshot` is absent, `admitMail` gives no verdict and delivery is
-unchanged.
+(`src/shared/harness-capabilities.ts`, pty-contract). A seat with no slot or a
+harness with no record gives no verdict, and the composer alone decides.
+
+Wiring the snapshot made two changes an operator can see. A seat whose screen
+reads compaction or a retry now holds mail as `busy`: pi's `compacting_status`
+and `retry_status` rules read as working, and mail used to be typed in. The
+hermes and amp auth error rules now hold as `stopped` instead of `dialog`; that
+mail was held before too.
 
 ## Where each rule lives, and where it goes
 

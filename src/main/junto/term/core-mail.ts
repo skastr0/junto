@@ -29,10 +29,9 @@ type Options = {
   readonly bindSuspension?: (suspension: TermProductAutomationSuspension) => void;
   readonly bindDrive?: typeof bindManagedTerminalDriveForOverseer;
   /**
-   * The seat's projected status and its harness's declared commands (the
-   * harness records by default). Mail is admitted against them (`admitMail`)
-   * only with a status lookup; until the projection lands, the composer alone
-   * decides.
+   * The seat's status and its harness's declared commands; by default the
+   * seat state's snapshot and the harness records. Mail is admitted against
+   * them (`admitMail`) before the composer gate.
    */
   readonly seatSnapshot?: (bindingId: string) => SeatSnapshot | undefined;
   readonly harnessCapabilities?: (harness: string) => HarnessCapabilities | undefined;
@@ -60,13 +59,11 @@ export const createCoreMailTransport = (options: Options) => {
   let policy: CoreMailPolicy = {};
   let clipboardSafe: ClipboardSafeAssert = () => true;
   const harnessFor = (bindingId: string) => state.machine.getSlot(bindingId)?.harness;
-  const { seatSnapshot, harnessCapabilities = harnessCapabilitiesFor } = options;
-  const mailAdmission = seatSnapshot === undefined
-    ? undefined
-    : (bindingId: string) => {
-      const harness = harnessFor(bindingId);
-      return admitMail(seatSnapshot(bindingId), harness === undefined ? undefined : harnessCapabilities(harness));
-    };
+  const { seatSnapshot = (bindingId: string) => state.snapshot(bindingId), harnessCapabilities = harnessCapabilitiesFor } = options;
+  const mailAdmission = (bindingId: string) => {
+    const harness = harnessFor(bindingId);
+    return admitMail(seatSnapshot(bindingId), harness === undefined ? undefined : harnessCapabilities(harness));
+  };
   const mailReadyNow = (bindingId: string): boolean => {
     if (suspended) return false;
     const live = host.get(bindingId);
@@ -95,7 +92,7 @@ export const createCoreMailTransport = (options: Options) => {
     bracketedPaste: (bindingId) => observer.snapshot(bindingId)?.signals.modes.bracketedPaste === true,
     composerVerdict: (bindingId) => state.composerVerdict(bindingId),
     harnessFor, assertClipboardSafe: (bindingId) => clipboardSafe(bindingId),
-    ...(mailAdmission === undefined ? {} : { mailAdmission }),
+    mailAdmission,
   });
   (options.bindDrive ?? bindManagedTerminalDriveForOverseer)(drive);
   const driveReady = (bindingId: string): boolean => !suspended && !fence.sealed(bindingId) && isManagedTerminalReady({
