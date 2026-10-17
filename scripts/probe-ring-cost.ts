@@ -75,7 +75,7 @@ if (compareArg !== "") {
       const file = join(scratch, "run.json");
       const child = spawnSync(
         process.execPath,
-        [import.meta.path, "--app-root", build.root, "--label", `${build.name}-${repeat}`, "--out", file, "--seconds", arg("seconds", "6"), "--port", arg("port", "9341")],
+        [import.meta.path, "--app-root", build.root, "--label", `${build.name}-${repeat}`, "--out", file, "--seconds", arg("seconds", "6"), "--port", arg("port", "9341"), "--fixture", arg("fixture", "small"), "--scenarios", arg("scenarios", "idle,pan-outside,pan-hover,stream")],
         { stdio: ["ignore", "ignore", "inherit"] },
       );
       const report = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
@@ -88,10 +88,11 @@ if (compareArg !== "") {
     }
   }
   const metricKeys = ["rendererBusyMsPerSecond", "scriptMsPerSecond", "layoutMsPerSecond", "styleMsPerSecond", "rafDropped", "rafFrames", "bytesWritten"] as const;
+  const frameKeys = ["p50", "p95", "p99", "max", "over8_3", "over16_7", "droppedAtDisplayRate"] as const;
   const summary = builds.map((build) => ({
     build: build.name,
     sourceCommit: runs.find((run) => run.build === build.name && run.report)?.report.sourceCommit ?? null,
-    scenarios: ["idle", "pan", "stream"].map((scenario) => {
+    scenarios: arg("scenarios", "idle,pan-outside,pan-hover,stream").split(",").map((scenario) => {
       const rows = runs
         .filter((run) => run.build === build.name)
         .flatMap((run) => (run.report?.scenarios ?? []).filter((row: any) => row.name === scenario).map((row: any) => ({ ...row, repeat: run.repeat })));
@@ -104,6 +105,8 @@ if (compareArg !== "") {
         validRuns: valid.length,
         median: {
           ...(Object.fromEntries(metricKeys.map((key) => [key, med((row) => row[key])])) as Record<(typeof metricKeys)[number], number | null>),
+          ...(Object.fromEntries(frameKeys.map((key) => [`frame_${key}`, med((row) => row.frameMs?.[key])])) as Record<string, number | null>),
+          loafMaxMs: med((row) => row.longAnimationFrames?.maxMs),
           gpuCpuPercent: med((row) => row.cpuPercent?.GPU),
           rendererCpuPercent: med((row) => row.cpuPercent?.renderer),
           browserCpuPercent: med((row) => row.cpuPercent?.browser),
@@ -150,6 +153,22 @@ const CANVAS = "ring-cost";
 const LINES_PER_TICK = 20;
 const TICK_MS = 16;
 const MIN_RINGS = 30;
+const traceBase = arg("trace", "");
+const WHEEL_MS = 1000 / 120;
+/** small: the 29-seat fixture; large: four copies of its units, 101 seats. */
+const fixtureName = arg("fixture", "small");
+if (fixtureName !== "small" && fixtureName !== "large") {
+  console.error("ring cost: --fixture is small or large");
+  process.exit(64);
+}
+const SCENARIOS = ["idle", "pan-outside", "pan-hover", "stream"] as const;
+const wantedScenarios = arg("scenarios", SCENARIOS.join(",")).split(",");
+for (const name of wantedScenarios) {
+  if (!(SCENARIOS as readonly string[]).includes(name)) {
+    console.error(`ring cost: unknown scenario ${name}; choose from ${SCENARIOS.join(", ")}`);
+    process.exit(64);
+  }
+}
 
 if (arg("app-root", "") === "") {
   console.error("usage: bun scripts/probe-ring-cost.ts --app-root DIR [--label L] [--seconds S] [--port P] [--hold S] [--out FILE]\n       bun scripts/probe-ring-cost.ts --compare before=DIR,after=DIR [--repeats 3] [--out FILE]");
@@ -160,6 +179,11 @@ for (const path of ["out/main/index.js", "out/renderer/index.html"]) {
     console.error(`ring cost: ${join(appRoot, path)} is missing; build ${appRoot} first (electron-vite build)`);
     process.exit(64);
   }
+}
+if (!existsSync(join(appRoot, "node_modules/electron/package.json"))) {
+  // createRequire would otherwise auto-install some other Electron from the bun cache.
+  console.error(`ring cost: ${appRoot}/node_modules/electron is missing; install the checkout's dependencies first`);
+  process.exit(64);
 }
 const provenancePath = join(appRoot, "out/package-runtime-provenance.json");
 const sourceCommit: string | null = existsSync(provenancePath)
@@ -180,7 +204,7 @@ type RegionSpec = {
 const SEAT_W = 240;
 const SEAT_H = 96;
 const LOOSE: ReadonlyArray<Spot> = [0, 1, 2, 3, 4].map((i): Spot => [340 + i * 260, 40]);
-const TREE: ReadonlyArray<RegionSpec> = [
+const UNIT: ReadonlyArray<RegionSpec> = [
   {
     id: "big",
     box: { x: 20, y: 180, w: 1040, h: 820 },
@@ -219,6 +243,18 @@ const TREE: ReadonlyArray<RegionSpec> = [
   { id: "small-one", box: { x: 1100, y: 720, w: 300, h: 150 }, seats: [[1115, 750]] },
   { id: "small-two", box: { x: 1430, y: 720, w: 310, h: 300 }, seats: [[1445, 750], [1445, 880]] },
 ];
+// The large fixture tiles the unit above 2 x 2 (1800 across, 900 down), each
+// copy with its own ids; the loose seats stay once, along the top.
+const shifted = (region: RegionSpec, dx: number, dy: number, tag: string): RegionSpec => ({
+  id: `${tag}${region.id}`,
+  box: { ...region.box, x: region.box.x + dx, y: region.box.y + dy },
+  seats: region.seats.map(([x, y]): Spot => [x + dx, y + dy]),
+  ...(region.children ? { children: region.children.map((child) => shifted(child, dx, dy, tag)) } : {}),
+});
+const TREE: ReadonlyArray<RegionSpec> =
+  fixtureName === "small"
+    ? UNIT
+    : [0, 1].flatMap((row) => [0, 1].flatMap((col) => UNIT.map((region) => shifted(region, col * 1800, row * 900, `u${row}${col}-`))));
 type Placed = { id: string; regionId: string | null; depth: number; spot: Spot };
 const regionRows: Array<{ id: string; parent: string | null; depth: number; seatsDirect: number; seatsInside: number; box: RegionSpec["box"] }> = [];
 const placed: Placed[] = LOOSE.map((spot, i) => ({ id: "", regionId: null, depth: 0, spot }));
@@ -241,6 +277,7 @@ const seatCount = placed.length;
 const maxDepth = Math.max(...regionRows.map((row) => row.depth));
 if (maxDepth < 3) throw new Error("fixture: nesting is shallower than 3 levels");
 const fixtureSummary = {
+  name: fixtureName,
   seats: seatCount,
   looseSeats: LOOSE.length,
   regions: regionRows.length,
@@ -272,10 +309,10 @@ const connect = async (url: string) => {
       for (const listener of listeners.get(message.method) ?? []) listener(message.params);
     }
   };
-  const send = async (method: string, params: Record<string, Json> = {}): Promise<any> => {
+  const send = async (method: string, params: Record<string, Json> = {}, timeoutMs = 60_000): Promise<any> => {
     const id = next++;
     const reply = await new Promise<{ result?: Json; error?: unknown }>((done, fail) => {
-      const timer = setTimeout(() => fail(new Error(`CDP timeout: ${method}`)), 60_000);
+      const timer = setTimeout(() => fail(new Error(`CDP timeout: ${method}`)), timeoutMs);
       waiting.set(id, (message) => {
         clearTimeout(timer);
         done(message);
@@ -406,13 +443,25 @@ type Scenario = {
   /** Pan only: a page rAF loop would force frames in the other scenarios. */
   rafFrames: number | null;
   rafDropped: number | null;
+  /** Pan: frame-time distribution from page rAF deltas, dropped at the display rate. */
+  frameMs: { source: string; displayHz: number; p50: number; p95: number; p99: number; max: number; over8_3: number; over16_7: number; droppedAtDisplayRate: number } | null;
+  longAnimationFrames: { count: number; maxMs: number; totalMs: number } | null;
   bytesWritten: number | null;
   cpuPercent: Record<string, number>;
   ringsVisible: { moving: number; marks: number };
   loadAverage1m: { before: number; after: number };
   accessibilityOn: boolean;
   viewport: string[] | null;
+  pointer: string | null;
+  wheel: { mode: string; events: number; eventsPerSecond: number; tracePath: string | null } | null;
 };
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    child.kill("SIGKILL");
+    process.exit(130);
+  });
+}
 
 try {
   // The inspector port and the debugging port come up after the window.
@@ -450,15 +499,65 @@ try {
         }
       return true;
     })()`);
+  // The rings start the moment the seats turn "working". Trace that moment,
+  // so a launch where the animations are not composited shows up in the run.
+  const animationEvents: Array<any> = [];
+  browser.on("Tracing.dataCollected", (params: { value: Array<any> }) => {
+    for (const event of params.value) if (event.name === "Animation") animationEvents.push(event);
+  });
+  const traceDone = new Promise<void>((done) => browser!.on("Tracing.tracingComplete", () => done()));
+  await browser.send("Tracing.start", {
+    traceConfig: { includedCategories: ["devtools.timeline", "blink.animations", "benchmark", "rail"] },
+    transferMode: "ReportEvents",
+  } as never);
   await sendWorking();
-  await sleep(1_500);
+  await sleep(2_000);
+  await browser.send("Tracing.end");
+  await traceDone;
+  const animations = await page.evaluate<{
+    total: number;
+    onMarkParts: number;
+    states: Record<string, number>;
+    properties: string[];
+    nonCompositorProperties: string[];
+  }>(`(() => {
+    const all = document.getAnimations();
+    const parts = all.filter((a) => a.effect?.target?.matches?.(".junto-mark__part, .junto-mark__part *"));
+    const states = {};
+    const props = new Set();
+    for (const a of parts) {
+      states[a.playState] = (states[a.playState] ?? 0) + 1;
+      for (const k of a.effect.getKeyframes()) for (const name of Object.keys(k)) if (!["offset", "easing", "composite", "computedOffset"].includes(name)) props.add(name);
+    }
+    const compositor = new Set(["transform", "opacity", "translate", "rotate", "scale", "filter", "backdropFilter"]);
+    return { total: all.length, onMarkParts: parts.length, states, properties: [...props], nonCompositorProperties: [...props].filter((name) => !compositor.has(name)) };
+  })()`);
+  const traced = animationEvents.map((event) => event.args?.data ?? {});
+  const animationReport = {
+    ...animations,
+    trace: {
+      source: "Tracing categories devtools.timeline,blink.animations: 'Animation' events from the moment the seats turn working",
+      events: traced.length,
+      compositeFailed: traced.filter((data) => Number(data.compositeFailed ?? 0) !== 0).length,
+      compositeFailedValues: [...new Set(traced.map((data) => data.compositeFailed).filter((value) => value !== undefined))],
+      unsupportedProperties: [...new Set(traced.flatMap((data) => (Array.isArray(data.unsupportedProperties) ? data.unsupportedProperties : [])))],
+      sample: traced.slice(0, 3),
+    },
+    note:
+      animations.onMarkParts === 0
+        ? "no CSS animations on .junto-mark__part: rings are painted by script"
+        : animations.nonCompositorProperties.length > 0
+          ? "ring animations touch non-compositor properties"
+          : "ring animations use compositor properties only",
+  };
 
-  const environment = await main.evaluate<{ accessibility: boolean; electron: string; chrome: string; displays: number; darkOs: boolean }>(`({
+  const environment = await main.evaluate<{ accessibility: boolean; electron: string; chrome: string; displays: number; darkOs: boolean; displayHz: number }>(`({
     accessibility: __probe.app.accessibilitySupportEnabled,
     electron: process.versions.electron,
     chrome: process.versions.chrome,
     displays: __probe.screen.getAllDisplays().length,
     darkOs: __probe.nativeTheme.shouldUseDarkColors,
+    displayHz: __probe.screen.getPrimaryDisplay().displayFrequency || 60,
   })`);
   const checks = async (): Promise<string[]> => {
     const problems: string[] = [];
@@ -505,15 +604,18 @@ try {
 
   const measure = async (
     name: string,
-    drive: (windowMs: number) => Promise<{ bytesWritten?: number; viewport?: string[] } | void>,
-    options: { raf?: boolean; before?: () => Promise<void> } = {},
+    drive: (windowMs: number) => Promise<{ bytesWritten?: number; viewport?: string[]; wheel?: Scenario["wheel"] } | void>,
+    options: { raf?: boolean; pointer?: string; before?: () => Promise<void> } = {},
   ): Promise<Scenario> => {
     await sendWorking();
     await options.before?.();
     const rings = await ringsNow();
     if (options.raf) {
       await page!.evaluate(`(() => {
-        const p = (window.__ringProbe = { deltas: [], on: true });
+        const p = (window.__ringProbe = { deltas: [], on: true, loaf: [] });
+        try {
+          new PerformanceObserver((list) => { for (const e of list.getEntries()) p.loaf.push(e.duration); }).observe({ type: "long-animation-frame", buffered: false });
+        } catch {}
         let last = performance.now();
         const tick = (now) => { p.deltas.push(now - last); last = now; if (p.on) requestAnimationFrame(tick); };
         requestAnimationFrame(tick);
@@ -527,9 +629,10 @@ try {
     const elapsed = (performance.now() - t0) / 1000;
     const metricsAfter = await metrics();
     const cpuAfter = await processCpu();
-    const deltas = options.raf
-      ? await page!.evaluate<number[]>(`(() => { window.__ringProbe.on = false; return window.__ringProbe.deltas; })()`)
+    const probed = options.raf
+      ? await page!.evaluate<{ deltas: number[]; loaf: number[] }>(`(() => { window.__ringProbe.on = false; return { deltas: window.__ringProbe.deltas, loaf: window.__ringProbe.loaf }; })()`)
       : null;
+    const deltas = probed ? probed.deltas : null;
 
     const perSecond = (key: string) =>
       metricsAfter[key] !== undefined && metricsBefore[key] !== undefined
@@ -539,6 +642,24 @@ try {
     if (deltas) {
       const interval = Math.min(17.5, Math.max(6, [...deltas].sort((x, y) => x - y)[0] ?? 16.7));
       rafDropped = deltas.reduce((sum, d) => (d > interval * 1.5 ? sum + Math.round(d / interval) - 1 : sum), 0);
+    }
+    let frameMs: Scenario["frameMs"] = null;
+    if (deltas && deltas.length > 2) {
+      const frames = deltas.slice(1).sort((x, y) => x - y);
+      const at = (q: number) => round1(frames[Math.min(frames.length - 1, Math.floor(frames.length * q))]!);
+      const hz = environment.displayHz;
+      const interval = 1000 / hz;
+      frameMs = {
+        source: "page requestAnimationFrame deltas (main-thread frames); compositor-presented frames were not available",
+        displayHz: hz,
+        p50: at(0.5),
+        p95: at(0.95),
+        p99: at(0.99),
+        max: round1(frames[frames.length - 1]!),
+        over8_3: frames.filter((d) => d > 8.33).length,
+        over16_7: frames.filter((d) => d > 16.7).length,
+        droppedAtDisplayRate: frames.reduce((sum, d) => (d > interval * 1.5 ? sum + Math.round(d / interval) - 1 : sum), 0),
+      };
     }
     const cpuPercent: Record<string, number> = {};
     for (const type of Object.keys(cpuAfter)) cpuPercent[type] = round1(((cpuAfter[type]! - (cpuBefore[type] ?? 0)) / elapsed) * 100);
@@ -559,6 +680,12 @@ try {
       styleMsPerSecond: perSecond("RecalcStyleDuration"),
       rafFrames: deltas ? deltas.length : null,
       rafDropped,
+      frameMs,
+      longAnimationFrames: probed
+        ? { count: probed.loaf.length, maxMs: round1(Math.max(0, ...probed.loaf)), totalMs: round1(probed.loaf.reduce((a, b) => a + b, 0)) }
+        : null,
+      pointer: options.pointer ?? null,
+      wheel: driven?.wheel ?? null,
       bytesWritten: driven?.bytesWritten ?? null,
       cpuPercent,
       ringsVisible: rings,
@@ -571,34 +698,85 @@ try {
   const preflight = await checks();
   const streamProblems: string[] = [];
   const results: Scenario[] = [];
-  results.push(await measure("idle", async (ms) => { await sleep(ms); }));
-  results.push(
+  const want = (name: string) => wantedScenarios.includes(name);
+  if (want("idle")) results.push(await measure("idle", async (ms) => { await sleep(ms); }));
+  // The pointer is part of the scenario: parked over the canvas, hover work can
+  // follow the pan; outside the window, none can.
+  const parkPointer = async (where: "over" | "outside") => {
+    const point = where === "over" ? await page!.evaluate<{ x: number; y: number }>(`({ x: Math.round(innerWidth / 2), y: Math.round(innerHeight / 2) })`) : { x: -20, y: -20 };
+    await page!.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y, button: "none" });
+    await sleep(400);
+  };
+  for (const where of ["outside", "over"] as const) {
+    if (!want(`pan-${where}`)) continue;
+    results.push(
     await measure(
-      "pan",
+      `pan-${where}`,
       async (ms) => {
         // Sweep one way for half the window and back for the other half, so the
         // camera crosses the nested regions and ends where it began.
         const viewport = async () => page!.evaluate<string>(`document.querySelector(".react-flow__viewport")?.style.transform ?? ""`);
         const seen = [await viewport()];
-        const until = performance.now() + ms;
-        const half = performance.now() + ms / 2;
+        // pan-hover: trusted wheel through CDP at the parked pointer, paced at
+        // the 120 Hz frame time on an absolute schedule. pan-outside: page
+        // events with no pointer at all, the control. If a trusted wheel hangs
+        // (it can in Electron) the run falls back and says so.
+        const point = await page!.evaluate<{ x: number; y: number }>(`({ x: Math.round(innerWidth / 2), y: Math.round(innerHeight / 2) })`);
+        let mode = where === "over" ? "trusted" : "untrusted";
+        const wheel = async (dx: number, dy: number) => {
+          if (mode === "trusted") {
+            try {
+              await page!.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: point.x, y: point.y, deltaX: dx, deltaY: dy }, events === 0 ? 3_000 : 20_000);
+              return;
+            } catch {
+              if (events > 0) throw new Error("trusted wheel stopped answering mid-pan");
+              mode = "untrusted (trusted mouseWheel did not answer)";
+            }
+          }
+          await page!.evaluate(`(document.querySelector(".react-flow__pane") || document.body).dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaX: ${dx}, deltaY: ${dy} }))`);
+        };
+        const step = where === "over" ? WHEEL_MS : 16;
+        let events = 0;
+        let tracePath: string | null = null;
+        const traced: Array<any> = [];
+        let traceDone: Promise<void> | undefined;
+        if (traceBase !== "") {
+          browser!.on("Tracing.dataCollected", (params: { value: Array<any> }) => { traced.push(...params.value); });
+          traceDone = new Promise<void>((done) => browser!.on("Tracing.tracingComplete", () => done()));
+          await browser!.send("Tracing.start", {
+            traceConfig: { includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline.frame", "blink", "cc", "viz", "gpu", "benchmark"] },
+            transferMode: "ReportEvents",
+          } as never);
+        }
+        const started = performance.now();
+        const half = started + ms / 2;
         let marked = false;
-        while (performance.now() < until) {
+        const scale = step / 16;
+        while (performance.now() < started + ms) {
           const sign = performance.now() < half ? 1 : -1;
           if (!marked && sign === -1) {
             seen.push(await viewport());
             marked = true;
           }
-          await page!.evaluate(`(document.querySelector(".react-flow__pane") || document.body).dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaX: ${sign * 12}, deltaY: ${sign * 6} }))`);
-          await sleep(16);
+          await wheel(sign * 12 * scale, sign * 6 * scale);
+          events += 1;
+          const wait = started + events * step - performance.now();
+          if (wait > 0) await sleep(wait);
+        }
+        if (traceDone) {
+          await browser!.send("Tracing.end");
+          await traceDone;
+          tracePath = `${traceBase}.pan-${where}.json`;
+          writeFileSync(tracePath, JSON.stringify({ traceEvents: traced }));
         }
         seen.push(await viewport());
-        return { viewport: seen };
+        return { viewport: seen, wheel: { mode, events, eventsPerSecond: round1(events / ((performance.now() - started) / 1000)), tracePath } };
       },
-      { raf: true },
+      { raf: true, pointer: where, before: () => parkPointer(where) },
     ),
-  );
-  results.push(
+    );
+  }
+  if (want("stream")) results.push(
     await measure(
       "stream",
       async (ms) => {
@@ -683,21 +861,25 @@ try {
       },
     ),
   );
-  const streamed = await page.evaluate<number>(
-    `(() => { const m = window.__juntoTermScreenText; const read = m && m.values().next().value; return read ? read().split("tick").length - 1 : -1; })()`,
-  );
-  results[2]!.problems.push(...streamProblems);
-  if (streamed < 1) results[2]!.problems.push(`stream terminal showed no output (ticks seen: ${streamed})`);
-  results[2]!.valid = results[2]!.problems.length === 0;
+  const streamRow = results.find((row) => row.name === "stream");
+  if (streamRow) {
+    const streamed = await page.evaluate<number>(
+      `(() => { const m = window.__juntoTermScreenText; const read = m && m.values().next().value; return read ? read().split("tick").length - 1 : -1; })()`,
+    );
+    streamRow.problems.push(...streamProblems);
+    if (streamed < 1) streamRow.problems.push(`stream terminal showed no output (ticks seen: ${streamed})`);
+    streamRow.valid = streamRow.problems.length === 0;
+  }
 
   const report = {
     label,
     sourceCommit,
     appRoot,
-    command: `bun scripts/probe-ring-cost.ts --app-root ${appRoot} --label ${label} --seconds ${seconds} --port ${port}`,
+    command: `bun scripts/probe-ring-cost.ts --app-root ${appRoot} --label ${label} --seconds ${seconds} --port ${port} --fixture ${fixtureName} --scenarios ${wantedScenarios.join(",")}`,
     when: new Date().toISOString(),
     environment: { ...environment, rendererAccessibilityForcedOff: forceAxOff, streamLinesPerTick: LINES_PER_TICK, streamTickMs: TICK_MS, preflightProblems: preflight },
     fixture: fixtureSummary,
+    animations: animationReport,
     valid: results.every((row) => row.valid),
     scenarios: results,
   };
@@ -707,7 +889,7 @@ try {
   console.log(
     `${label} ${sourceCommit?.slice(0, 9) ?? "?"} ` +
       results
-        .map((row) => `${row.name}: busy ${row.rendererBusyMsPerSecond} ms/s${row.rafFrames === null ? "" : `, frames ${row.rafFrames}/${row.rafDropped} dropped`}, gpu ${row.cpuPercent.GPU ?? "?"}%, renderer ${row.cpuPercent.renderer ?? "?"}%, rings ${row.ringsVisible.moving}`)
+        .map((row) => `${row.name}: busy ${row.rendererBusyMsPerSecond} ms/s${row.frameMs === null ? "" : `, frame p50/p95/p99/max ${row.frameMs.p50}/${row.frameMs.p95}/${row.frameMs.p99}/${row.frameMs.max} ms, dropped ${row.frameMs.droppedAtDisplayRate}`}, gpu ${row.cpuPercent.GPU ?? "?"}%, renderer ${row.cpuPercent.renderer ?? "?"}%, rings ${row.ringsVisible.moving}`)
         .join(" | ") +
       (report.valid ? "" : " | INVALID"),
   );
