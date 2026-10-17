@@ -414,12 +414,25 @@ try {
       },
       async () => {
         // Open the stream terminal the way an operator does: a trusted double click.
-        const rect = await page!.evaluate<{ x: number; y: number } | null>(`(() => {
+        // A point on the card that nothing covers (the station bar can sit over
+        // the top row at fit-view); wheel-pan the canvas a little if none is.
+        const findPoint = () => page!.evaluate<{ x: number; y: number } | null>(`(() => {
           const node = document.querySelector('.react-flow__node[data-id="ring-stream"]');
           if (!node) return null;
           const r = node.getBoundingClientRect();
-          return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+          for (const fy of [0.5, 0.3, 0.7, 0.15, 0.85]) for (const fx of [0.5, 0.3, 0.7]) {
+            const x = r.left + r.width * fx, y = r.top + r.height * fy;
+            if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) continue;
+            if (document.elementFromPoint(x, y)?.closest('.react-flow__node[data-id="ring-stream"]')) return { x, y };
+          }
+          return null;
         })()`);
+        let rect = await findPoint();
+        for (let tries = 0; !rect && tries < 4; tries += 1) {
+          await page!.evaluate(`(document.querySelector(".react-flow__pane") || document.body).dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -120 }))`);
+          await sleep(300);
+          rect = await findPoint();
+        }
         const opened = () => page!.evaluate<boolean>(`Boolean(document.querySelector(".native-terminal-surface, .xterm"))`);
         if (rect) {
           for (const clickCount of [1, 2]) {
