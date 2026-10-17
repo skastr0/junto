@@ -219,6 +219,50 @@ The one interface three seats build against.
   channel; `remote-seats` the `seats` channel; `remote-send` the `status`
   channel. Nothing received over a link is used before its closed decode.
 
+## Failures and logs
+
+Added 16 October, after a seat on the mini failed to start for a reason no
+one could see: the mini's error became "Channel request failed", its log said
+nothing, the app has no log, and the card showed "SSH process input is already
+closed". Finding the cause took a patched copy of the core. That is the bar
+this section removes.
+
+- **Every failure is a value.** Each area keeps a closed set of
+  `Schema.TaggedError`s with the fields that explain it: what was attempted,
+  on which machine, for which seat, and why. No `new Error(text)`, no
+  `catch` that returns a fixed string, no `Effect.ignore` or `.catch(() => {})`
+  on a path that can fail a user action. A failure we cannot classify keeps
+  its original cause attached; it is never replaced.
+- **Failures cross the link whole.** A request that fails answers a closed,
+  encoded failure: its tag, its message, the machine it happened on, the
+  operation id, and its cause chain as tag and message pairs. The receiving
+  end decodes it with a closed decoder and keeps it as a typed failure. A
+  generic message is a bug.
+- **The first cause wins.** When a process, a link or a seat ends, the reason
+  it ended (exit code, signal, the last lines of its error output, the spawn
+  result) travels with every later failure that it caused. "Input is already
+  closed" never reaches a person without the reason the input closed.
+- **One operation id.** Every operation that touches another machine mints an
+  id at the start and carries it on every frame, log row and failure it
+  causes, at both ends.
+- **Every machine keeps a log.** The app and every windowless core write
+  structured JSON lines under `~/.junto/logs/`, rotated and size-bounded, from
+  the one Effect logger. Each row has time, level, machine, area, operation
+  id, message, and the encoded failure when there is one. `console.*` in main
+  goes through the same logger. A failure that reaches a person was logged on
+  the machine where it happened and on the machine that asked.
+- **An agent can read all of it.** `junto logs` reads this machine's log;
+  the same read works for a linked machine. A seat's last start result, with
+  its spawn failure, can be read by command. Rule 13 applies.
+- **Nothing secret is logged or sent.** Secret values, tokens, credentials
+  and environment values never enter a failure or a log row
+  (`docs/security-doctrine.md`). Names, paths, exit codes and error text do.
+  `remote-security` owns the redaction rule and reviews every new field.
+- **Proven by breaking it.** `remote-verify` keeps a fault exercise on the
+  real machines: missing module, killed link mid-request, wrong install root,
+  missing harness, stopped service, build mismatch. Each must show its true
+  cause on the card, in the CLI, and in both machines' logs.
+
 ## Not carried
 
 Tasks, board, pad, sheet, requests, artifacts, cron and relay are off. They get
