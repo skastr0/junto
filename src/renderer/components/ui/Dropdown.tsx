@@ -7,6 +7,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
@@ -17,6 +18,10 @@ export type DropdownOption = {
   readonly value: string;
   readonly label: string;
   readonly disabled?: boolean;
+  /** A mark before the label, in the menu and on the trigger while chosen. */
+  readonly leading?: ReactNode;
+  /** A short state after the label, in the menu only. */
+  readonly detail?: string;
 };
 
 type MenuBox = {
@@ -308,7 +313,9 @@ export function Dropdown({
                     <span className="grid size-3.5 shrink-0 place-items-center">
                       {isSelected ? <Check size={12} strokeWidth={2.4} className="text-amber" /> : null}
                     </span>
+                    {option.leading ? <span className="flex shrink-0 items-center">{option.leading}</span> : null}
                     <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                    {option.detail ? <span className="shrink-0 pl-3 text-faint">{option.detail}</span> : null}
                   </div>
                 );
               })
@@ -349,6 +356,7 @@ export function Dropdown({
         }}
         onKeyDown={onTriggerKeyDown}
       >
+        {selected?.leading ? <span className="flex shrink-0 items-center">{selected.leading}</span> : null}
         <span className={`min-w-0 flex-1 truncate text-body font-medium ${caseClass}`}>{labelText}</span>
         <ChevronDown
           size={12}
