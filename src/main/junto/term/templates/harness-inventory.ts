@@ -35,7 +35,8 @@ import {
   verifyVersion,
 } from "@shared/harness-domain/inventory";
 import { harnessRecordFor } from "@shared/harness-records";
-import { runCli } from "../../adapters/exec";
+import { type CliResult, runCli } from "../../adapters/exec";
+import { scrubMessage } from "../../credentials/scrub";
 import { MachineRepository } from "../../machines/repository";
 import { isModelId } from "@shared/model-id";
 import { isProfileName, MAX_PROFILES } from "@shared/profile-name";
@@ -142,13 +143,40 @@ export const parseHarnessVersion = (output: string): string | undefined => {
   return match ? clip(match[0], MAX_VERSION) : undefined;
 };
 
-const readVersion = (executable: string): Effect.Effect<string | undefined> =>
+/** Why `--version` gave no version: it timed out, could not start or exited, or printed none. */
+export type VersionProbeMiss = {
+  readonly reason: "timeout" | "spawn" | "exited" | "unparsed";
+  readonly detail: string;
+};
+
+/** A `--version` run as its version, or as why it has none, with a short scrubbed detail for the log. */
+export const versionProbeOutcome = (result: CliResult): { readonly version: string } | VersionProbeMiss => {
+  if (result.ok) {
+    const version = parseHarnessVersion(`${result.stdout}\n${result.stderr ?? ""}`);
+    if (version !== undefined) return { version };
+    return { reason: "unparsed", detail: clip(scrubMessage(`${result.stdout} ${result.stderr ?? ""}`.trim()), 160) };
+  }
+  const error = result.error ?? "";
+  const reason = /^adapter command timed out\b/u.test(error)
+    ? "timeout"
+    : /\b(?:ENOENT|EACCES|ENOEXEC)\b|spawn failed/u.test(error) ? "spawn" : "exited";
+  return { reason, detail: clip(scrubMessage(error), 160) };
+};
+
+// A miss is logged, so the machine's own log says why its version is absent.
+const readVersion = (harness: string, executable: string): Effect.Effect<string | undefined> =>
   Effect.tryPromise({
     try: (signal) => runCli(executable, ["--version"], VERSION_COMMAND_TIMEOUT_MS, signal),
-    catch: () => undefined,
+    catch: (cause) => cause,
   }).pipe(
-    Effect.map((result) => result.ok ? parseHarnessVersion(`${result.stdout}\n${result.stderr ?? ""}`) : undefined),
-    Effect.orElseSucceed(() => undefined),
+    Effect.map(versionProbeOutcome),
+    Effect.orElseSucceed((): VersionProbeMiss => ({ reason: "spawn", detail: "the version command did not run" })),
+    Effect.flatMap((outcome) => "version" in outcome
+      ? Effect.succeed(outcome.version)
+      : Effect.logWarning("harness version not read", { harness, reason: outcome.reason, detail: outcome.detail, timeoutMs: VERSION_COMMAND_TIMEOUT_MS }).pipe(
+        Effect.as(undefined),
+      )),
+    Effect.annotateLogs({ area: "inventory" }),
   );
 
 /**
@@ -251,7 +279,7 @@ export const makeHarnessInventory = (options: {
           failure: { reason: error.reason, message: error.message },
         })),
       ),
-      readVersion(executable),
+      readVersion(harness, executable),
       readProfiles(harness),
     ], { concurrency: 3 })).pipe(
       Effect.tap(([{ result, failure }, version, profiles]) => Effect.gen(function* () {

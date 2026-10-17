@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseHarnessVersion } from "../src/main/junto/term/templates/harness-inventory";
+import { parseHarnessVersion, versionProbeOutcome } from "../src/main/junto/term/templates/harness-inventory";
 
 describe("parseHarnessVersion", () => {
   it.each([
@@ -17,5 +17,27 @@ describe("parseHarnessVersion", () => {
 
   it("bounds what it keeps", () => {
     expect(parseHarnessVersion(`1.0.0-${"a".repeat(200)}`)?.length).toBe(64);
+  });
+});
+
+describe("versionProbeOutcome", () => {
+  it("reads the version off a run that printed one", () => {
+    expect(versionProbeOutcome({ ok: true, stdout: "2.1.302 (Claude Code)\n" })).toEqual({ version: "2.1.302" });
+  });
+
+  it("names why a run gave none: timeout, could not start, exited, or printed none", () => {
+    expect(versionProbeOutcome({ ok: false, stdout: "", error: "adapter command timed out after 5000ms" }))
+      .toMatchObject({ reason: "timeout" });
+    expect(versionProbeOutcome({ ok: false, stdout: "", error: "spawn /usr/bin/env ENOENT" }))
+      .toMatchObject({ reason: "spawn", detail: "spawn /usr/bin/env ENOENT" });
+    expect(versionProbeOutcome({ ok: false, stdout: "", error: "/usr/bin/env: 'node': No such file or directory" }))
+      .toMatchObject({ reason: "exited" });
+    expect(versionProbeOutcome({ ok: true, stdout: "Welcome to Claude Code\n" }))
+      .toEqual({ reason: "unparsed", detail: "Welcome to Claude Code" });
+  });
+
+  it("keeps the detail short", () => {
+    const miss = versionProbeOutcome({ ok: false, stdout: "", error: "x".repeat(500) });
+    expect("detail" in miss && miss.detail.length).toBe(160);
   });
 });
