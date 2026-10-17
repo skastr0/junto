@@ -3,13 +3,15 @@ import type { InstallationId } from "@shared/installation-id";
 import {
   failureDetailNamesSeat,
   failureDetailSeat,
+  isLogAnnotationId,
+  LOG_ID_ANNOTATIONS,
   MachineLogRead,
   type MachineLogQuery,
   type MachineLogRow,
 } from "@shared/machine-log";
 import { ModelRecords } from "../model/records";
 import { decodeEncodedFailure } from "../failure-encode";
-import { scrubMessage } from "../credentials/scrub";
+import { knownSecretValues, scrubMessage } from "../credentials/scrub";
 import { readMachineLog } from "./log-file";
 import { logMachine } from "./logger";
 
@@ -83,6 +85,7 @@ const decodeRead = Schema.decodeUnknownEffect(MachineLogRead, { onExcessProperty
  */
 export const receivePeerLogRead = Effect.fn("receivePeerLogRead")(function* (input: unknown, machine: string) {
   const read = yield* decodeRead(input);
+  const known = knownSecretValues();
   const rows = read.rows.map((row): MachineLogRow => ({
     ...row,
     message: scrubMessage(row.message),
@@ -90,7 +93,9 @@ export const receivePeerLogRead = Effect.fn("receivePeerLogRead")(function* (inp
     ...(row.spans === undefined ? {} : { spans: row.spans.map((span) => scrubMessage(span).slice(0, 128)).filter((span) => span.length > 0) }),
     ...(row.annotations === undefined
       ? {}
-      : { annotations: Object.fromEntries(Object.entries(row.annotations).map(([key, value]) => [key, scrubMessage(value).slice(0, 256)])) }),
+      : { annotations: Object.fromEntries(Object.entries(row.annotations).flatMap(([key, value]) => LOG_ID_ANNOTATIONS.has(key)
+        ? (isLogAnnotationId(value) && !known.includes(value) ? [[key, value]] : [])
+        : [[key, scrubMessage(value, known).slice(0, 256)]])) }),
   }));
   return { ...read, machine, rows };
 });

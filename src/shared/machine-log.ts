@@ -35,6 +35,19 @@ export const LogCanvasName = CanvasName;
 export const LogProcess = Schema.Literals(["app", "core"]);
 export type LogProcess = typeof LogProcess.Type;
 
+/**
+ * Annotation keys that carry link and seat ids: session, request,
+ * installation, build, binding and generation (docs/security-doctrine.md).
+ * operationId, seat and canvas are row columns, checked the same way. Their
+ * values are checked against `LogAnnotationId` and dropped when they fail;
+ * they are never scrubbed, because the scrub's id rules would erase them.
+ */
+export const LOG_ID_ANNOTATIONS: ReadonlySet<string> = new Set([
+  "sessionId", "requestId", "installationId", "peerInstallationId", "peerBuild", "bindingId", "generation", "generationId",
+]);
+export const LogAnnotationId = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u)));
+export const isLogAnnotationId = Schema.is(LogAnnotationId);
+
 export const MachineLogRow = Schema.Struct({
   time: bounded(32),
   level: ObservabilityLogLevel,

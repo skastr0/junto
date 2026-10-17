@@ -1,4 +1,4 @@
-import { Logger, References, Schema, type LogLevel } from "effect";
+import { Layer, Logger, References, Schema, type LogLevel } from "effect";
 import type { ObservabilityLogLevel, ObservabilityLogSource } from "@shared/observability";
 import { OBSERVABILITY_LEVEL_RANK } from "@shared/observability";
 import {
@@ -6,6 +6,8 @@ import {
   LogCanvasName,
   LogSeatId,
   failureDetailSeat,
+  isLogAnnotationId,
+  LOG_ID_ANNOTATIONS,
   type LogProcess,
   type MachineLogRow,
 } from "@shared/machine-log";
@@ -198,6 +200,10 @@ export const writeLog = (input: LogInput): MachineLogRow => {
     // erase them. An invalid one is dropped.
     else if (key === "seat") seat = isLogSeatId(text) ? text : undefined;
     else if (key === "canvas") canvas = isLogCanvasName(text) ? text : undefined;
+    else if (LOG_ID_ANNOTATIONS.has(key)) {
+      // A known secret value is never an id, whatever key it arrives under.
+      if (Object.keys(annotations).length < MAX_ANNOTATIONS && isLogAnnotationId(text) && !known.includes(text)) annotations[key] = text;
+    }
     else if (Object.keys(annotations).length < MAX_ANNOTATIONS && /^[A-Za-z0-9_.-]{1,64}$/u.test(key)) {
       annotations[key] = scrub(text, 256);
     }
@@ -309,6 +315,15 @@ export const ObservabilityEffectLogger = Logger.make<unknown, void>((options) =>
 export const ObservabilityLoggerLive = Logger.layer([ObservabilityEffectLogger], {
   mergeWithExisting: false,
 });
+
+/**
+ * A runtime's layer with the machine logger beneath it. Merged beside, the
+ * logger reaches only effects the runtime runs; a fiber a service forks while
+ * its layer builds (a link session, a seat watcher) keeps Effect's default
+ * logger, whose console line the hook then files as scrubbed text.
+ */
+export const withMachineLogger = <A, E, R>(layer: Layer.Layer<A, E, R>): Layer.Layer<A, E, R> =>
+  layer.pipe(Layer.provideMerge(ObservabilityLoggerLive));
 
 type ConsoleMethod = "log" | "info" | "warn" | "error" | "debug";
 

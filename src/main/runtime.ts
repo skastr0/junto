@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { app } from "electron";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { ObservabilityLoggerLive } from "./junto/observability";
+import { withMachineLogger } from "./junto/observability";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { makeMachineCoreLayer } from "./core-runtime";
 import { runningBuildIdentity } from "./junto/build-identity";
@@ -86,7 +86,7 @@ const MachineServicesLive = Layer.unwrap(Effect.sync(() => {
 export const RootLayer = MachineServicesLive;
 
 // The product owns one warm runtime and disposes it on shutdown.
-const AppLayer = Layer.mergeAll(RootLayer, AppInfoLive, CodexLive, UpdateServiceLive, ObservabilityLoggerLive);
+const AppLayer = withMachineLogger(Layer.mergeAll(RootLayer, AppInfoLive, CodexLive, UpdateServiceLive));
 export const AppRuntime = ManagedRuntime.make(AppLayer);
 installCoreRunner(AppRuntime);
 

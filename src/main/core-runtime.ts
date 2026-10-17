@@ -33,7 +33,7 @@ import { KernelService, type KernelHost } from "./junto/kernel/service";
 import { PausePlane } from "./junto/pause-plane";
 import { pauseWasResumed } from "@shared/pause";
 import type { AgentSignal } from "@shared/agent-signals";
-import { ObservabilityLoggerLive, setLogMachine } from "./junto/observability/logger";
+import { setLogMachine, withMachineLogger } from "./junto/observability/logger";
 import { MachineLogsNotSetUp, makePeerLogAnswer, receivePeerLogRead } from "./junto/observability/log-link";
 import { readMachineLog } from "./junto/observability/log-file";
 import { MachineLogQuery, MachineLogRead } from "@shared/machine-log";
@@ -278,5 +278,5 @@ export const makeMachineCoreLayer = (options: MachineCoreOptions) => {
 };
 
 export const makeCoreRuntime = (options: MachineCoreOptions) =>
-  ManagedRuntime.make(Layer.merge(makeMachineCoreLayer(options), ObservabilityLoggerLive));
+  ManagedRuntime.make(withMachineLogger(makeMachineCoreLayer(options)));
 export type CoreRuntime = ReturnType<typeof makeCoreRuntime>;

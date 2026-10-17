@@ -76,7 +76,7 @@ describe("a linked machine's log", () => {
       machine: "someone-else",
       rows: [row({
         message: "token=abcdef0123456789 refused \u001b[31mred",
-        annotations: { detail: "Authorization: Bearer xyz" },
+        annotations: { detail: "Authorization: Bearer xyz", sessionId: "6f1c2b9e-3d4a-4f5b-8c7d-0e1f2a3b4c5d", requestId: "token=abc def" },
         failure: { tag: "SpawnRefused", message: "password: hunter2", machine: "mini", causes: [{ tag: "Error", message: "ghp_abcdefghijklmnop0123" }] },
       })],
       cut: false,
@@ -84,6 +84,8 @@ describe("a linked machine's log", () => {
     };
     const read = await Effect.runPromise(receivePeerLogRead(sent, "mini"));
     expect(read.machine).toBe("mini");
+    expect(read.rows[0]?.annotations?.sessionId).toBe("6f1c2b9e-3d4a-4f5b-8c7d-0e1f2a3b4c5d");
+    expect(read.rows[0]?.annotations).not.toHaveProperty("requestId");
     const text = JSON.stringify(read);
     for (const secret of ["abcdef0123456789", "xyz", "hunter2", "ghp_abcdefghijklmnop0123", "\u001b"]) expect(text).not.toContain(secret);
     const refused = await Effect.runPromiseExit(receivePeerLogRead({ ...sent, rows: [{ ...sent.rows[0], extra: 1 }] }, "mini"));

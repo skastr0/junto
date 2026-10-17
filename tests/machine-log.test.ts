@@ -3,13 +3,14 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, wr
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
-import { Cause, Effect, Layer, Logger, ManagedRuntime, Schema } from "effect";
+import { Cause, Context, Deferred, Effect, Layer, Logger, ManagedRuntime, Schema } from "effect";
 import { MachineLogRow, type MachineLogRow as Row } from "../src/shared/machine-log";
 import {
   closeMachineLog,
   installMachineLog,
   ObservabilityLoggerLive,
   setLogMachine,
+  withMachineLogger,
   writeLog,
 } from "../src/main/junto/observability/logger";
 import { machineLogDir, openMachineLogSink, readMachineLog, seatLogScope } from "../src/main/junto/observability/log-file";
@@ -156,6 +157,31 @@ describe("machine log file", () => {
     expect(row).toMatchObject({ area: "link", operationId: "op-9", spans: ["link.request"], failure: { tag: "SpawnRefused" } });
     expect(Logger).toBeDefined();
   });
+
+  it("logs from a fiber a service forks while its layer builds, with the link ids whole", async () => {
+    const home = freshHome();
+    installMachineLog({ home, process: "core", echo: false });
+    setLogMachine("mini");
+    class LinkProbe extends Context.Service<LinkProbe, { readonly opened: Deferred.Deferred<void> }>()("test/LinkProbe") {}
+    // The shape of the mini's real "link opened" row (rerun 7b829b7d9), with fresh ids.
+    const opened = {
+      area: "link", machine: "mini", sessionId: "3f6b2d1e-8c4a-4e9f-b7d2-5a1c9e0f3b6d", peer: "guilhermes-macbook-pro-2",
+      peerBuild: "7b829b7d9e4c1a2f3b5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3", peerInstallationId: "01M4FX7HGTF3MYC3R771Y12MRX",
+    };
+    const service = Layer.effect(LinkProbe, Effect.gen(function* () {
+      const done = yield* Deferred.make<void>();
+      yield* Effect.forkDetach(Effect.logInfo("link opened").pipe(Effect.annotateLogs(opened), Effect.andThen(Deferred.succeed(done, undefined))));
+      return { opened: done };
+    }));
+    const runtime = ManagedRuntime.make(withMachineLogger(service));
+    await runtime.runPromise(Effect.flatMap(LinkProbe, (probe) => Deferred.await(probe.opened)));
+    await runtime.dispose();
+    const [row] = rowsOf(home, "core");
+    expect(row).toMatchObject({ source: "effect", area: "link", message: "link opened", machine: "mini", annotations: {
+      machine: "mini", peer: "guilhermes-macbook-pro-2",
+      sessionId: opened.sessionId, peerBuild: opened.peerBuild, peerInstallationId: opened.peerInstallationId,
+    } });
+  });
 });
 
 describe("row ids", () => {
@@ -168,6 +194,29 @@ describe("row ids", () => {
     expect(kept).toMatchObject({ seat: "agent-01M4G59ER01QPV3WBTEK3Z84TP", canvas: "factory" });
     expect(dropped?.seat).toBeUndefined();
     expect(dropped?.canvas).toBeUndefined();
+  });
+
+  it("keeps link ids in annotations as they are, while a credential-id UUID in text is still redacted", () => {
+    const home = freshHome();
+    installMachineLog({ home, process: "core", echo: false });
+    const sessionId = "6f1c2b9e-3d4a-4f5b-8c7d-0e1f2a3b4c5d";
+    const credentialId = "12345678-1234-1234-1234-123456789012";
+    process.env.JUNTO_TEST_LOG_SECRET = "generation-secret-value";
+    writeLog({ level: "info", source: "effect", message: `vault/credentials/${credentialId} refused`, annotations: {
+      area: "link", sessionId, requestId: "7a8b9c0d-1e2f-4a3b-9c4d-5e6f7a8b9c0d", peerInstallationId: "mini-install:01",
+      operationId: "status.read", bindingId: "binding-1", generation: "generation-secret-value", note: credentialId,
+    } });
+    writeLog({ level: "info", source: "effect", message: "b", annotations: { sessionId: "token=abc def", peerInstallationId: "-bad" } });
+    const [kept, dropped] = rowsOf(home);
+    expect(kept?.annotations).toMatchObject({
+      sessionId, requestId: "7a8b9c0d-1e2f-4a3b-9c4d-5e6f7a8b9c0d", peerInstallationId: "mini-install:01", bindingId: "binding-1",
+    });
+    expect(kept?.operationId).toBe("status.read");
+    // A known secret value is never let through as an id; other text keeps every scrub rule.
+    expect(kept?.annotations?.generation).toBeUndefined();
+    expect(kept?.message).not.toContain(credentialId);
+    expect(kept?.annotations?.note).not.toContain(credentialId);
+    expect(dropped?.annotations).toBeUndefined();
   });
 
   it("files a failure under the seat its detail names, so another seat cannot read it", async () => {

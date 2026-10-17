@@ -6,6 +6,7 @@ export {
   recordRendererConsole,
   recordSystemLog,
   setLogMachine,
+  withMachineLogger,
   writeLog,
 } from "./logger";
 export {
