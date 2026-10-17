@@ -84,6 +84,17 @@ export class SshIoError extends Schema.TaggedError<SshIoError>()("SshIoError", {
   message: Schema.String,
 }) {}
 
+/**
+ * How an SSH child ended, carried by every later failure it caused. The tail
+ * is scrubbed by the machine that read the bytes (credentials/scrub.ts).
+ */
+const SshEndFields = {
+  exitCode: Schema.optionalKey(Schema.Number),
+  signal: Schema.optionalKey(Schema.String),
+  stderrTail: Schema.optionalKey(Schema.String),
+  stderrCut: Schema.optionalKey(Schema.Literal(true)),
+} as const;
+
 /** Process or pipe death. Not I/O — a closed SSH child is not a stream bound. */
 export class SshProcessError extends Schema.TaggedError<SshProcessError>()(
   "SshProcessError",
@@ -91,6 +102,7 @@ export class SshProcessError extends Schema.TaggedError<SshProcessError>()(
     endpoint: Schema.String,
     operation: Schema.String,
     message: Schema.String,
+    ...SshEndFields,
   },
 ) {}
 
@@ -118,6 +130,9 @@ export class SshExitError extends Schema.TaggedError<SshExitError>()("SshExitErr
   operation: Schema.String,
   code: Schema.Number,
   detail: Schema.optionalKey(Schema.String),
+  signal: SshEndFields.signal,
+  stderrTail: SshEndFields.stderrTail,
+  stderrCut: SshEndFields.stderrCut,
 }) {}
 
 export class SshForwardError extends Schema.TaggedError<SshForwardError>()("SshForwardError", {

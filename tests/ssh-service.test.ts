@@ -611,6 +611,37 @@ describe("SshTransport", () => {
     if (Result.isFailure(result)) expect(result.failure).toBeInstanceOf(SshProcessError);
   });
 
+  it("says why input closed: the exit code and the scrubbed stderr tail", async () => {
+    const layer = await testLayer(
+      () => ({ running: true, code: 1, exitCode: Effect.succeed(1), stdin: Sink.fail(new ProcessFailure()),
+        stderr: encoder.encode("junto link: core is not running token=abcd1234\n") }),
+      [],
+      [],
+    );
+    const result = await runPromise(
+      Effect.result(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const endpoint = yield* parseSshEndpoint("remote-a");
+            const remote = yield* makeRemoteCommand("junto", ["link"]);
+            const lease = yield* (yield* SshTransport).connect(dedicatedStream(endpoint, remote), (held, confirm) => Effect.succeed(confirm(held)));
+            yield* Stream.runDrain(lease.stderr);
+            yield* Effect.sleep(10);
+            return yield* lease.write(encoder.encode("frame"));
+          }),
+        ).pipe(Effect.provide(layer)),
+      ),
+    );
+    expect(Result.isFailure(result)).toBe(true);
+    if (!Result.isFailure(result)) return;
+    expect(result.failure).toBeInstanceOf(SshProcessError);
+    expect(result.failure).toMatchObject({
+      exitCode: 1,
+      stderrTail: "junto link: core is not running token=[redacted]",
+      message: "SSH process input is already closed because the process exited with code 1: junto link: core is not running token=[redacted]",
+    });
+  });
+
   it("rejects readiness when the stream exits first or is closed by the callback", async () => {
     const calls: Command.StandardCommand[] = [];
     const releases: Command.StandardCommand[] = [];

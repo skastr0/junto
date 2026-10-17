@@ -11,6 +11,8 @@ export class ProcessFailure { readonly _tag = "ProcessFailure"; }
 export interface ProcessHandle {
   readonly pid: number;
   readonly exitCode: Effect.Effect<number, ProcessFailure>;
+  /** The signal that ended the child, once it has exited; absent on test doubles. */
+  readonly exitSignal?: Effect.Effect<string | undefined>;
   readonly isRunning: Effect.Effect<boolean, ProcessFailure>;
   readonly stdin: Sink.Sink<void, Uint8Array, never, ProcessFailure>;
   readonly stdout: Stream.Stream<Uint8Array, ProcessFailure>;
@@ -33,7 +35,7 @@ const SSH_PROCESS_TERM_GRACE_MS = 1_500;
 const SSH_PROCESS_KILL_GRACE_MS = 1_500;
 
 type SpawnOutcome =
-  | { readonly _tag: "exit"; readonly code: number }
+  | { readonly _tag: "exit"; readonly code: number; readonly signal: string | undefined }
   | { readonly _tag: "pre-spawn-error"; readonly error: unknown }
   | { readonly _tag: "closed-without-exit" };
 
@@ -137,9 +139,9 @@ const startStandard = (command: Command.StandardCommand): Effect.Effect<TrackedS
 
       // Resolve, never reject: async spawn errors can occur before a consumer
       // asks for exitCode, and must never become process-wide rejections.
-      lease.io.onExit(({ code }) => {
+      lease.io.onExit(({ code, signal }) => {
         processEnded = true;
-        settleOutcome({ _tag: "exit", code: code ?? -1 });
+        settleOutcome({ _tag: "exit", code: code ?? -1, signal: signal ?? undefined });
       });
       lease.io.onClose(() => {
         settleOutcome({ _tag: "closed-without-exit" });
@@ -201,6 +203,9 @@ export const ProcessSpawnerLive = Layer.succeed(ProcessSpawner, ProcessSpawner.o
         pid: tracked.lease.io.pidForDiagnostics ?? -1,
         exitCode: Effect.promise(() => tracked.outcome).pipe(
           Effect.flatMap((outcome) => outcome._tag === "exit" ? Effect.succeed(outcome.code) : Effect.fail(failure())),
+        ),
+        exitSignal: Effect.promise(() => tracked.outcome).pipe(
+          Effect.map((outcome) => outcome._tag === "exit" ? outcome.signal : undefined),
         ),
         isRunning: Effect.sync(() =>
           !tracked.preSpawnFailed() && !tracked.processEnded()

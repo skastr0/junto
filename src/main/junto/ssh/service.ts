@@ -6,6 +6,7 @@ import { Context,
   Effect,
   Exit,
   Layer,
+  Option,
   Queue,
   Ref,
   Result,
@@ -29,6 +30,7 @@ import type {
   OneShotProgram,
   ScopedStreamProgram,
 } from "./program";
+import { StderrTail } from "../credentials/scrub";
 import { classifySshStderr } from "./format";
 import { createSshProgramCompiler } from "./program";
 import {
@@ -42,6 +44,10 @@ const STDERR_LIMIT_BYTES = 256 * 1024;
 const INPUT_CHUNK_LIMIT_BYTES = 1024 * 1024;
 const INPUT_QUEUE_CAPACITY = 64;
 const FORWARD_POLL_MS = 40;
+/** How long a failure waits for the exit that explains it. */
+const END_WAIT_MS = 2_000;
+/** How long the exit waits for the last stderr bytes before reading the tail. */
+const STDERR_SETTLE_MS = 500;
 
 export interface SshCommandResult {
   readonly stdout: string;
@@ -76,8 +82,28 @@ export interface SshLease {
   readonly stdout: Stream.Stream<Uint8Array, SshError>;
   readonly stderr: Stream.Stream<Uint8Array, SshError>;
   readonly exitCode: Effect.Effect<number, SshError>;
+  /**
+   * How the process ended: exit code or signal, and the scrubbed tail of the
+   * stderr this lease's reader consumed. Waits for the exit; callers bound it.
+   * Absent on test doubles.
+   */
+  readonly ended?: Effect.Effect<SshProcessEnd>;
   readonly close: Effect.Effect<void>;
 }
+
+export interface SshProcessEnd {
+  readonly exitCode?: number;
+  readonly signal?: string;
+  readonly stderrTail?: string;
+  readonly stderrCut?: true;
+}
+
+/** "the process exited with code 1: <last stderr line>", for a person. */
+export const describeSshEnd = (end: SshProcessEnd): string => {
+  const how = end.signal !== undefined ? `the process was ended by ${end.signal}` : end.exitCode !== undefined ? `the process exited with code ${end.exitCode}` : "the process ended";
+  const last = end.stderrTail?.split("\n").map((line) => line.trim()).filter(Boolean).at(-1);
+  return last === undefined ? how : `${how}: ${last}`;
+};
 
 declare const LocalForwardSocketTypeId: unique symbol;
 export type LocalForwardSocket = string & {
@@ -179,6 +205,7 @@ interface InputEnd {
 type InputMessage = InputChunk | InputBarrier | InputEnd;
 
 interface InternalLease extends SshLease {
+  readonly ended: Effect.Effect<SshProcessEnd>;
   readonly writeConfirmed: (bytes: Uint8Array) => Effect.Effect<void, SshError>;
   readonly isRunning: Effect.Effect<boolean, SshError>;
   readonly scope: Scope.Closeable;
@@ -431,6 +458,31 @@ export const SshTransportLayer = Layer.effect(
             ),
           ),
         );
+        const tail = new StderrTail();
+        const stderrDone = yield* Deferred.make<void>();
+        let inputClosedHere = false;
+        let stderrReading = false;
+        // While a reader drains stderr, the tail waits briefly for it to reach the end.
+        const ended: Effect.Effect<SshProcessEnd> = Effect.gen(function* () {
+          const code = yield* Effect.option(process.exitCode);
+          const signal = process.exitSignal === undefined ? undefined : yield* process.exitSignal;
+          if (stderrReading) yield* Deferred.await(stderrDone).pipe(Effect.timeoutOption(STDERR_SETTLE_MS));
+          const read = tail.read();
+          return {
+            ...(signal !== undefined ? { signal } : Option.isSome(code) && code.value >= 0 ? { exitCode: code.value } : {}),
+            ...(read.text === "" ? {} : { stderrTail: read.text }),
+            ...(read.cut ? { stderrCut: true as const } : {}),
+          };
+        });
+        // The first cause wins: a failure the process end caused says how it ended.
+        const endedFailure = (what: string): Effect.Effect<never, SshProcessError> =>
+          ended.pipe(
+            Effect.timeoutOption(END_WAIT_MS),
+            Effect.flatMap((end) => Effect.fail(Option.match(end, {
+              onNone: () => new SshProcessError({ endpoint, operation, message: `${what} because the SSH process stopped and has not exited` }),
+              onSome: (known) => new SshProcessError({ endpoint, operation, message: `${what} because ${describeSshEnd(known)}`, ...known }),
+            }))),
+          );
         const queue = yield* Queue.bounded<InputMessage>(INPUT_QUEUE_CAPACITY);
         const inputDone = yield* Deferred.make<void, SshError>();
         const inputOpen = yield* Ref.make(true);
@@ -476,18 +528,14 @@ export const SshTransportLayer = Layer.effect(
           }),
         );
 
+        const inputClosed: Effect.Effect<never, SshError> = Effect.suspend(() => inputClosedHere
+          ? Effect.fail(processClosed(endpoint, operation, "SSH process input was closed by this side"))
+          : endedFailure("SSH process input is already closed"));
         const inputUnavailable: Effect.Effect<never, SshError> = Deferred.await(
           inputDone,
         ).pipe(
-          Effect.flatMap(() =>
-            Effect.fail(
-              processClosed(
-                endpoint,
-                operation,
-                "SSH process input is already closed",
-              ),
-            ),
-          ),
+          Effect.exit,
+          Effect.andThen(inputClosed),
         );
         const offer = (message: InputMessage): Effect.Effect<void, SshError> =>
           Effect.raceFirst(
@@ -511,13 +559,7 @@ export const SshTransportLayer = Layer.effect(
                 );
               }
               if (!(yield* Ref.get(inputOpen))) {
-                return yield* Effect.fail(
-                  processClosed(
-                    endpoint,
-                    operation,
-                    "SSH process input is already closed",
-                  ),
-                );
+                return yield* inputClosed;
               }
               yield* offer({ _tag: "Chunk", bytes: Uint8Array.from(bytes) });
             }),
@@ -544,13 +586,7 @@ export const SshTransportLayer = Layer.effect(
                 );
               }
               if (!(yield* Ref.get(inputOpen))) {
-                return yield* Effect.fail(
-                  processClosed(
-                    endpoint,
-                    operation,
-                    "SSH process input is already closed",
-                  ),
-                );
+                return yield* inputClosed;
               }
               const owned = Uint8Array.from(bytes);
               const flushed = yield* Deferred.make<void, SshError>();
@@ -594,9 +630,10 @@ export const SshTransportLayer = Layer.effect(
         const closeInput = inputLock
           .withPermits(1)(
             Ref.getAndSet(inputOpen, false).pipe(
-              Effect.flatMap((wasOpen) =>
-                wasOpen ? offer({ _tag: "End" }) : Effect.void,
-              ),
+              Effect.flatMap((wasOpen) => {
+                if (wasOpen) inputClosedHere = true;
+                return wasOpen ? offer({ _tag: "End" }) : Effect.void;
+              }),
             ),
           )
           .pipe(Effect.andThen(Deferred.await(inputDone)));
@@ -607,14 +644,17 @@ export const SshTransportLayer = Layer.effect(
           writeSensitive,
           closeInput,
           stdout: process.stdout.pipe(
-            Stream.mapError(() => processClosed(endpoint, operation)),
+            Stream.catchTag("ProcessFailure", () => Stream.fromEffect(endedFailure(`SSH ${operation} output closed`))),
           ),
-          stderr: process.stderr.pipe(
+          stderr: Stream.suspend(() => { stderrReading = true; return process.stderr; }).pipe(
+            Stream.tap((chunk) => Effect.sync(() => tail.push(chunk))),
             Stream.mapError(() => processClosed(endpoint, operation)),
+            Stream.ensuring(Deferred.succeed(stderrDone, undefined)),
           ),
           exitCode: process.exitCode.pipe(
-            Effect.mapError(() => processClosed(endpoint, operation)),
+            Effect.catchTag("ProcessFailure", () => endedFailure(`SSH ${operation} ended without an exit code`)),
           ),
+          ended,
           isRunning: process.isRunning.pipe(
             Effect.mapError(() => processClosed(endpoint, operation)),
           ),
@@ -678,15 +718,22 @@ export const SshTransportLayer = Layer.effect(
               Effect.flatMap((lease) => {
                 const exited: Effect.Effect<never, SshError> =
                   lease.exitCode.pipe(
-                    Effect.flatMap((code) =>
-                      Effect.fail(
-                        new SshExitError({
-                          endpoint: compiled.endpoint,
-                          operation: "stream",
-                          code,
-                        }),
-                      ),
-                    ),
+                    Effect.flatMap((code) => lease.ended.pipe(
+                      Effect.flatMap((end) => {
+                        const detail = end?.stderrTail === undefined ? undefined : classifySshStderr(end.stderrTail);
+                        return Effect.fail(
+                          new SshExitError({
+                            endpoint: compiled.endpoint,
+                            operation: "stream",
+                            code,
+                            ...(detail === undefined ? {} : { detail }),
+                            ...(end?.signal === undefined ? {} : { signal: end.signal }),
+                            ...(end?.stderrTail === undefined ? {} : { stderrTail: end.stderrTail }),
+                            ...(end?.stderrCut === undefined ? {} : { stderrCut: end.stderrCut }),
+                          }),
+                        );
+                      }),
+                    )),
                   );
                 const readiness = Effect.raceFirst(awaitReady(lease, confirm), exited);
                 return readiness.pipe(
