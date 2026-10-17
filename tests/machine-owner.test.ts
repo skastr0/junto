@@ -270,3 +270,12 @@ it("answers a seat start's typed failure with the failure encoded", async () => 
   expect(await unwired.call("machine.seat-stop", { canvas: "default", seatId: "seat-1" }))
     .toMatchObject({ ok: false, error: { details: { failure: { tag: "SeatControlUnavailable" } } } });
 });
+
+it("answers a peer status failure as itself, not as a contract mismatch", async () => {
+  class LinkClosedProbe extends Schema.TaggedError<LinkClosedProbe>()("LinkClosed", { message: Schema.String }) {}
+  const f = await fixture({ peerStatus: () => Effect.fail(new LinkClosedProbe({ message: "The link to mini closed, its SSH process ended: exit code 127" })) });
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
+  await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+  expect(await f.call("machine.status", { name: "mini" })).toMatchObject({ ok: false, error: {
+    message: "The link to mini closed, its SSH process ended: exit code 127", details: { failure: { tag: "LinkClosed" } } } });
+});

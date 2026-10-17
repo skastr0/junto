@@ -58,9 +58,10 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
     yield* other(name);
     const pin = yield* machines.peer(name);
     if (pin === undefined) return { machineName: name, reachable: false, harnesses: [], missingSecrets: [], detail: "Set up this machine first" } satisfies MachinePeerStatus;
+    // Only the decode maps to the contract refusal; a link or registry failure arrives as itself.
     const status = yield* options.peerStatus(name).pipe(Effect.flatMap(value =>
-      Schema.decodeUnknownEffect(MachinePeerStatus, { onExcessProperty: "error" })(value)),
-      Effect.mapError(() => new RemoteHostsError("validation", "machine status did not match the peer contract")));
+      Schema.decodeUnknownEffect(MachinePeerStatus, { onExcessProperty: "error" })(value).pipe(
+        Effect.mapError(() => new RemoteHostsError("validation", "machine status did not match the peer contract")))));
     if (status.machineName !== name || (status.installationId !== undefined && status.installationId !== pin.installationId)) {
       return yield* Effect.fail(new RemoteHostsError("conflict", "machine status does not match its setup binding"));
     }
