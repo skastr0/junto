@@ -96,6 +96,15 @@ export const HarnessParamSpec = Schema.Struct({
   /** Other spellings of a flag param: recovery reads them, extra args may not repeat them (Amp mode `-m`, `--mode`). */
   aliases: Schema.optionalKey(Schema.Array(Schema.String)),
   /**
+   * The value names the seat's agent (agent key `host:<value>`); a launch with
+   * no stored value recovers it from the key (Hermes profile).
+   */
+  inAgentKey: Schema.optionalKey(Schema.Literal(true)),
+  /** On the extra-args param: flags the operator may not pass, with the reason shown. */
+  refusedFlags: Schema.optionalKey(
+    Schema.Array(Schema.Struct({ flags: Schema.Array(Schema.String), why: Schema.String })),
+  ),
+  /**
    * On the extra-args param: tokens the session owns once it exists, dropped
    * on resume (Amp `--features <value>`, `--fast`).
    */
