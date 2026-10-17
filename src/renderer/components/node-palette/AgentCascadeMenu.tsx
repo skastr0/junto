@@ -22,12 +22,10 @@ import type {
   ManagedTerminalProfileOption,
 } from "@shared/ipc";
 import { harnessPrefsFor } from "@shared/settings";
-import { inventoryOptions, paramSpec } from "@shared/harness-domain";
+import { paramSpec } from "@shared/harness-domain";
 import { HARNESS_RECORDS } from "@shared/harness-records";
 import { state$ } from "../../lib/state";
-import { getJuntoApi } from "../../lib/junto-api";
 import { pickerInventory } from "../../lib/harness-machine-source";
-import { onThisMachine } from "../../lib/machines";
 import { useHarnessLaunchOptions } from "../../lib/harness-launch-options";
 import {
   typeaheadAccept,
@@ -281,6 +279,9 @@ function CascadeItem({
   );
 }
 
+/** How soon the cascade asks again while a machine scans its models. */
+const INVENTORY_REREAD_MS = 500;
+
 export function AgentCascadeMenu({
   harness,
   cwd,
@@ -316,7 +317,6 @@ export function AgentCascadeMenu({
   /** Retreat focus must not re-open the child column via onFocus. */
   const skipExpandOnFocusRef = useRef(false);
   const [models, setModels] = useState<readonly ManagedTerminalModelOption[] | null>(null);
-  const local = onThisMachine(machine);
   const [modelSource, setModelSource] = useState<ManagedTerminalModelsResult["source"]>();
   const [modelQuery, setModelQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -354,33 +354,28 @@ export function AgentCascadeMenu({
 
   useEffect(() => {
     let live = true;
-    const api = getJuntoApi();
-    void pickerInventory(machine).then((inventory) => {
-      if (!live) return;
-      const row = inventory?.harnesses.find((entry) => entry.harness === harness);
-      setModels(row?.installed ? row.models : []);
-      setModelSource(row?.installed && row.models.length > 0 ? "cache" : "empty");
-      setEnumeratedEfforts(row?.efforts ?? []);
-      // Another machine's profiles carry names only; their pinned model is not offered from here.
-      if (profileFirst && !local) setProfiles(inventoryOptions(row, "profiles").map((name) => ({ name, model: "" })));
-    });
+    let reread: ReturnType<typeof setTimeout> | undefined;
+    // The inventory answers at once with the last scan; while a scan runs, ask again to show its result.
+    const ask = (): void => {
+      void pickerInventory(machine).then((inventory) => {
+        if (!live) return;
+        const row = inventory?.harnesses.find((entry) => entry.harness === harness);
+        setModels(row?.installed ? row.models : []);
+        setModelSource(row?.installed && row.models.length > 0 ? "cache" : "empty");
+        setEnumeratedEfforts(row?.efforts ?? []);
+        if (profileFirst) {
+          setProfiles(row?.installed ? (row.profiles ?? []).map((profile) => ({ name: profile.name, model: profile.model ?? "" })) : []);
+        }
+        if (row?.refreshing) reread = setTimeout(ask, INVENTORY_REREAD_MS);
+      });
+    };
+    ask();
 
-    // This machine's profiles carry their pinned model; they move to the inventory when it does.
-    if (profileFirst && local) {
-      void api
-        ?.managedTerminalProfiles?.()
-        .then((result) => {
-          if (live) setProfiles(result.profiles);
-        })
-        .catch(() => {
-          if (live) setProfiles([]);
-        });
-      if (!api?.managedTerminalProfiles) setProfiles([]);
-    }
     return () => {
       live = false;
+      if (reread !== undefined) clearTimeout(reread);
     };
-  }, [harness, profileFirst, machine, local]);
+  }, [harness, profileFirst, machine]);
 
   const efforts = useMemo(() => {
     if (!activeModel) return [] as readonly string[];

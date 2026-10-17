@@ -142,4 +142,45 @@ describe("the palette picker on another machine", () => {
     expect(profiles).not.toHaveBeenCalled();
     anchor.remove();
   });
+
+  it("Hermes on this machine reads its profiles and pinned model from the inventory too", async () => {
+    const configured: unknown[] = [];
+    const profiles = vi.fn();
+    (window as { junto?: Record<string, unknown> }).junto!.managedTerminalProfiles = profiles;
+    const asked: string[] = [];
+    setHarnessMachineSource({
+      ...pendingHarnessMachineSource,
+      inventory: async (machine) => {
+        asked.push(machine);
+        return Result.succeed({
+          machine,
+          harnesses: [{ ...row("hermes", true), profiles: [{ name: "desk-coder", model: "pinned-model" }] }],
+        } as unknown as MachineInventory);
+      },
+    });
+    const anchor = document.createElement("button");
+    document.body.append(anchor);
+    await act(async () => {
+      root.render(
+        <AgentCascadeMenu
+          harness="hermes"
+          machine="macbook"
+          anchor={anchor}
+          onConfigure={(choices) => configured.push(choices)}
+          onPointerEnter={() => {}}
+          onPointerLeave={() => {}}
+        />,
+      );
+    });
+    expect(asked).toEqual(["macbook"]);
+    expect(document.body.textContent).toContain("desk-coder");
+    const profile = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
+      item.textContent?.includes("desk-coder"),
+    )!;
+    await act(async () => profile.click());
+    // Picking the profile launches on the model it pins.
+    expect(configured[0]).toMatchObject({ harness: "hermes", profile: "desk-coder", model: "pinned-model" });
+    expect(profiles).not.toHaveBeenCalled();
+    anchor.remove();
+  });
 });
