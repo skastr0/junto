@@ -3,7 +3,7 @@
  * and after a ring change, so the two result sets compare.
  *
  *   bun scripts/probe-ring-cost.ts --app-root DIR [--label baseline]
- *     [--seats 24] [--seconds 6] [--port 9341] [--hold 0] [--out FILE] [--ax-as-found]
+ *     [--seats 24] [--seconds 6] [--port 9341] [--hold 0] [--out FILE] [--force-ax-off]
  *
  * DIR is a checkout whose `out/` is a PRODUCTION build (electron-vite build,
  * not `bun run dev`: React dev and StrictMode skew every number). The script
@@ -46,7 +46,7 @@ const seconds = Number(arg("seconds", "6"));
 const port = Number(arg("port", "9341"));
 const holdSeconds = Number(arg("hold", "0"));
 const outPath = arg("out", "");
-const forceAxOff = !process.argv.includes("--ax-as-found");
+const forceAxOff = process.argv.includes("--force-ax-off");
 const CANVAS = "ring-cost";
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
@@ -173,9 +173,10 @@ const child: ChildProcess = spawn(
     `--remote-debugging-port=${port}`,
     `--inspect=${inspectPort}`,
     "--mute-audio",
-    // The OS keeps the accessibility tree on for a whole session once an
-    // assistive client has asked, and the app cannot switch it back off. The
-    // renderer flag does; it is recorded in the report.
+    // Accessibility is measured as found by default: once an assistive client
+    // has asked, the OS keeps the tree on and the app cannot switch it off,
+    // and that is how the operator runs. --force-ax-off turns the renderer
+    // side off for a clean A/B; either way it is recorded in the report.
     ...(forceAxOff ? ["--disable-renderer-accessibility"] : []),
     // Keep a window behind other windows painting (PERF_LEDGER.md); the
     // visibility check below still refuses a hidden page.
@@ -228,6 +229,7 @@ type Scenario = {
   cpuPercent: Record<string, number>;
   ringsVisible: { moving: number; marks: number };
   loadAverage1m: { before: number; after: number };
+  accessibilityOn: boolean;
 };
 
 try {
@@ -242,6 +244,11 @@ try {
   browser = await connect(version.webSocketDebuggerUrl);
   await page.send("Runtime.enable");
   await page.send("Performance.enable");
+
+  // The first-run tour blurs the canvas behind it: mark it seen the way the
+  // introduction itself does, through the settings IPC.
+  await waitFor("the settings bridge", 30_000, () => page!.evaluate<boolean>(`Boolean(window.junto?.settingsPatch)`));
+  await page.evaluate(`window.junto.settingsPatch({ advanced: { onboardingSeen: true } })`);
 
   await waitFor("the seat cards", 60_000, async () =>
     (await page!.evaluate<number>(`document.querySelectorAll('.react-flow__node[data-id^="ring-seat-"]').length`)) >= seatCount,
@@ -264,18 +271,19 @@ try {
   await sendWorking();
   await sleep(1_500);
 
-  const environment = await main.evaluate<{ accessibility: boolean; electron: string; chrome: string; displays: number }>(`({
+  const environment = await main.evaluate<{ accessibility: boolean; electron: string; chrome: string; displays: number; darkOs: boolean }>(`({
     accessibility: __probe.app.accessibilitySupportEnabled,
     electron: process.versions.electron,
     chrome: process.versions.chrome,
     displays: __probe.screen.getAllDisplays().length,
+    darkOs: __probe.nativeTheme.shouldUseDarkColors,
   })`);
   const checks = async (): Promise<string[]> => {
     const problems: string[] = [];
     const visible = await page!.evaluate<string>(`document.visibilityState`);
     if (visible !== "visible") problems.push(`window not visible (${visible}): an occluded window gives 0 frames`);
-    const ax = await main!.evaluate<boolean>(`__probe.app.accessibilitySupportEnabled`);
-    if (ax && !forceAxOff) problems.push("renderer accessibility tree is on");
+    const overlay = await page!.evaluate<number>(`document.querySelectorAll('[role="dialog"], [aria-modal="true"]').length`);
+    if (overlay > 0) problems.push(`${overlay} dialog(s) cover the canvas (first-run tour?)`);
     return problems;
   };
 
@@ -358,6 +366,7 @@ try {
       cpuPercent[type] = Math.round((((cpuAfter[type]! - (cpuBefore[type] ?? 0)) / elapsed) * 100) * 10) / 10;
     }
     const problems = await checks();
+    const accessibilityOn = await main!.evaluate<boolean>(`__probe.app.accessibilitySupportEnabled`);
     if (deltas.length === 0) problems.push("0 frames: the window did not paint");
     return {
       name,
@@ -374,6 +383,7 @@ try {
       framesDropped: states.length === 0 ? null : states.filter((s) => s === "STATE_DROPPED").length,
       cpuPercent,
       ringsVisible: rings,
+      accessibilityOn,
       loadAverage1m: { before: Math.round(loadBefore * 100) / 100, after: Math.round(loadavg()[0]! * 100) / 100 },
     };
   };
