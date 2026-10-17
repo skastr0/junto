@@ -128,6 +128,31 @@ A conformance test per harness (spawn the real binary, run one scripted turn)
 asserts every declared `native` and `parsed` capability. Installed `--version`
 outside the record's supported range marks the seat "unverified version".
 
+## Settings and params
+
+Harness configuration is part of the same domain (`params.ts`,
+`inventory.ts`, `native-config.ts`). Settings, the seat's Params section and
+the launch picker render and validate from it, never from a harness branch.
+
+- **Params** are dials on one launch: model, provider, effort, mode,
+  permission mode, profile, extra args. Each harness declares its options
+  (fixed list, the machine's inventory, or free text), how a value is emitted
+  (flag, config key, env, model slug, per-value flags), what a resume does with
+  it (`repass`, or `frozenWithSession` for Amp's mode), which layers may set it,
+  companion tokens (Devin `autonomous` brings `--sandbox`) and unoffered values.
+- **Layers** resolve launch over seat over `machineDefault` over
+  `harnessDefault`. A param nobody set in Junto resolves to nothing and nothing
+  is emitted, so the harness's own config decides (operator decision,
+  2026-10-14, confirmed 2026-10-16). `defaultValue` is the harness default a
+  picker shows, never passed.
+- **Inventory** is keyed by harness and the seat's machine (`HostId`), fresh for
+  six hours, and a reader never waits: a stale answer is served with
+  `refreshing`, and a failed scan says why.
+- **Native config** is a separate, explicit write to a harness's own config
+  file on a named machine. Settings are declared per harness for a verified
+  version range with typed values; anything else is refused before a file is
+  touched. Product owns the catalogue and the writer against these types.
+
 ## Sources beyond the harness
 
 The harness is one of four authors of facts about a seat. All four write the same
