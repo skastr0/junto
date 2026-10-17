@@ -52,6 +52,17 @@ type View = {
   seq: bigint;
   /** Set while attach waits for the first Screen. */
   screen: ((serialized: string | undefined) => void) | undefined;
+  /**
+   * Keys typed while an Input is in flight wait here and go in order as the
+   * next one: the link closes past 32 pending requests, and a key per request
+   * reached that with one typed sentence.
+   */
+  typed: string;
+  typedWaiters: Array<(written: boolean) => void>;
+  typing: boolean;
+  /** The size asked for while a Resize is in flight; only the latest is sent. */
+  size: { readonly cols: number; readonly rows: number; readonly waiters: Array<(resized: boolean) => void> } | undefined;
+  sizing: boolean;
 };
 
 /** How long an attach waits for the seat's screen before showing what comes next. */
@@ -61,6 +72,8 @@ const RESET = "\u001bc";
 
 /** Generations whose end this window saw, so a read after the exit says how it ended. */
 const ENDED_KEPT = 64;
+/** Typing waiting behind an Input in flight; a paste past this is refused, not queued without end. */
+const TYPED_LIMIT_UNITS = SCREEN_LIMIT_UNITS;
 
 const tagOf = (cause: unknown): string =>
   typeof cause === "object" && cause !== null && "_tag" in cause && typeof cause._tag === "string" ? cause._tag : "Error";
@@ -143,6 +156,55 @@ export const makeSeatViews = (transport: SeatViewTransport) => {
     }
   };
 
+  const sendTyped = async (view: View): Promise<void> => {
+    view.typing = true;
+    while (view.typed.length > 0) {
+      const data = view.typed;
+      const waiters = view.typedWaiters;
+      view.typed = "";
+      view.typedWaiters = [];
+      let written = true;
+      try {
+        for (const part of chunkUnits(data)) {
+          const answer = await transport.request(view.machine, { _tag: "Input", handle: view.handle, data: part },
+            randomBytes(16).toString("hex")) as { readonly accepted?: boolean };
+          if (answer.accepted !== true) { written = false; break; }
+        }
+      } catch (cause) {
+        written = false;
+        if (tagOf(cause) === "SeatAttachUnknown") drop(view);
+        log("seat view input refused", { machine: view.machine, failure: tagOf(cause) });
+      }
+      for (const waiter of waiters) waiter(written);
+      if (!written) {
+        // Keys after a refused one are refused too: none lands out of order.
+        for (const waiter of view.typedWaiters) waiter(false);
+        view.typed = "";
+        view.typedWaiters = [];
+      }
+    }
+    view.typing = false;
+  };
+
+  const sendSize = async (view: View): Promise<void> => {
+    view.sizing = true;
+    while (view.size !== undefined) {
+      const { cols, rows, waiters } = view.size;
+      view.size = undefined;
+      let resized = false;
+      try {
+        const answer = await transport.request(view.machine, { _tag: "Resize", handle: view.handle, cols, rows },
+          randomBytes(16).toString("hex")) as { readonly accepted?: boolean };
+        resized = answer.accepted === true;
+      } catch (cause) {
+        if (tagOf(cause) === "SeatAttachUnknown") drop(view);
+        log("seat view resize refused", { machine: view.machine, failure: tagOf(cause) });
+      }
+      for (const waiter of waiters) waiter(resized);
+    }
+    view.sizing = false;
+  };
+
   return {
     onEvent: (listener: (event: LocalHostEvent) => void): (() => void) => {
       listeners.add(listener);
@@ -203,7 +265,8 @@ export const makeSeatViews = (transport: SeatViewTransport) => {
         const lease: ControlLease = { leaseId: `lv_${randomBytes(8).toString("hex")}`, bindingId: input.bindingId,
           epoch: attached.generation, mode: input.mode };
         const view: View = { machine: seat.machine, canvas: seat.canvas, seatId: seat.seatId, harness: seat.harness, handle: attached.handle, bindingId: input.bindingId,
-          epoch: attached.generation, lease, parts: [], screenUnits: 0, seq: 0n, screen: undefined };
+          epoch: attached.generation, lease, parts: [], screenUnits: 0, seq: 0n, screen: undefined,
+          typed: "", typedWaiters: [], typing: false, size: undefined, sizing: false };
         const screen = new Promise<string | undefined>((resolve) => {
           const timer = setTimeout(() => resolve(undefined), SCREEN_WAIT_MS);
           view.screen = (serialized) => { clearTimeout(timer); view.screen = undefined; resolve(serialized); };
@@ -229,38 +292,28 @@ export const makeSeatViews = (transport: SeatViewTransport) => {
       }
     },
 
-    /** The operator's typing, in frame-sized parts; never logged, never kept. */
-    write: async (lease: ControlLease, data: string): Promise<boolean> => {
+    /** The operator's typing, in frame-sized parts, one Input in flight per view; never logged, never kept. */
+    write: (lease: ControlLease, data: string): Promise<boolean> => {
       const view = byLease.get(lease.leaseId);
       // An observing view takes no keys: refused here, never sent.
-      if (view === undefined || view.lease.mode === "observe") return false;
-      try {
-        for (const part of chunkUnits(data)) {
-          const written = await transport.request(view.machine, { _tag: "Input", handle: view.handle, data: part },
-            randomBytes(16).toString("hex")) as { readonly accepted?: boolean };
-          if (written.accepted !== true) return false;
-        }
-        return true;
-      } catch (cause) {
-        if (tagOf(cause) === "SeatAttachUnknown") drop(view);
-        log("seat view input refused", { machine: view.machine, failure: tagOf(cause) });
-        return false;
-      }
+      if (view === undefined || view.lease.mode === "observe") return Promise.resolve(false);
+      if (view.typed.length + data.length > TYPED_LIMIT_UNITS) return Promise.resolve(false);
+      return new Promise<boolean>((resolve) => {
+        view.typed += data;
+        view.typedWaiters.push(resolve);
+        if (!view.typing) void sendTyped(view);
+      });
     },
 
-    resize: async (lease: ControlLease, cols: number, rows: number): Promise<boolean> => {
+    /** One Resize in flight per view; sizes asked for meanwhile collapse to the latest. */
+    resize: (lease: ControlLease, cols: number, rows: number): Promise<boolean> => {
       const view = byLease.get(lease.leaseId);
-      if (view === undefined) return false;
-      try {
-        const resized = await transport.request(view.machine, { _tag: "Resize", handle: view.handle,
-          cols: Math.max(2, Math.min(1000, Math.trunc(cols))), rows: Math.max(1, Math.min(500, Math.trunc(rows))) },
-          randomBytes(16).toString("hex")) as { readonly accepted?: boolean };
-        return resized.accepted === true;
-      } catch (cause) {
-        if (tagOf(cause) === "SeatAttachUnknown") drop(view);
-        log("seat view resize refused", { machine: view.machine, failure: tagOf(cause) });
-        return false;
-      }
+      if (view === undefined) return Promise.resolve(false);
+      return new Promise<boolean>((resolve) => {
+        view.size = { cols: Math.max(2, Math.min(1000, Math.trunc(cols))), rows: Math.max(1, Math.min(500, Math.trunc(rows))),
+          waiters: [...(view.size?.waiters ?? []), resolve] };
+        if (!view.sizing) void sendSize(view);
+      });
     },
 
     release: async (lease: ControlLease): Promise<void> => {

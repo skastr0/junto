@@ -74,6 +74,22 @@ describe("a linked seat's view through the router", () => {
     expect(local).toMatchObject({ ok: true });
   });
 
+  it("a burst of keys and sizes keeps the link open and lands every key in order", async () => {
+    // On the mini, one typed sentence sent a request per key and closed the link past its 32 pending requests.
+    const window = await bookWindow();
+    const controller = window.mini.fake.controllers[0]!;
+    const attached = await window.router.attach({ bindingId: miniSeat.bindingId, mode: "control", takeover: true, hostId: "mini" });
+    if (!attached.ok) throw new Error(attached.message);
+    const sentence = "Run the shell command hostname, then reply with exactly: PONG from the hostname\r".repeat(3);
+    const keys = await Promise.all([...sentence].map((key) => window.router.write(attached.lease, key, "mini")));
+    const sizes = await Promise.all(Array.from({ length: 100 }, (_, i) => window.router.resize(attached.lease, 80 + i, 24, "mini")));
+    expect(keys.every(Boolean)).toBe(true);
+    expect(sizes.every(Boolean)).toBe(true);
+    expect(controller.writes.join("")).toBe(sentence);
+    expect(controller.resizes.at(-1)).toEqual({ cols: 179, rows: 24 });
+    expect(await window.router.write(attached.lease, "still open\r", "mini")).toBe(true);
+  });
+
   it("an observing view cannot type", async () => {
     const window = await bookWindow();
     const attached = await window.router.attach({ bindingId: miniSeat.bindingId, mode: "observe", hostId: "mini" });
