@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { knownSecretValues, registerKnownSecrets, releaseKnownSecrets, scrubMessage, scrubText, StderrTail } from "../src/main/junto/credentials/scrub";
+import { knownSecretValues, launchSecretValues, registerKnownSecrets, releaseKnownSecrets, scrubMessage, scrubText, StderrTail } from "../src/main/junto/credentials/scrub";
 
 const tail = (text: string, known?: ReadonlyArray<string | undefined>) => {
   const window = new StderrTail();
@@ -36,6 +36,7 @@ it("step 3 keeps Junto's own names and paths and short region words, and searche
 it("step 3 searches the values a launch registered until their generation ends", () => {
   registerKnownSecrets("seat:b1@1", ["gen-credential-1", "rs1x"]);
   expect(scrubText("seat env had gen-credential-1 and rs1x")).toBe("seat env had [redacted] and [redacted]");
+  expect(launchSecretValues(["tok4"], {})).toEqual(["tok4"]);
   releaseKnownSecrets("seat:b1@1");
   expect(scrubText("seat env had gen-credential-1")).toBe("seat env had gen-credential-1");
 });

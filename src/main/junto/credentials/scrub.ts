@@ -81,22 +81,31 @@ export const registerKnownSecrets = (owner: string, values: Iterable<string | un
 export const releaseKnownSecrets = (owner: string): void => { registered.delete(owner); };
 
 /**
- * Step 3's known values: the caller's secrets, every registered value
- * (searched from four characters by `redactSecretValues`), and this process's
- * environment values from six characters, minus the names the doctrine allows
- * to show.
+ * The known values one launch holds: its secrets and credential (searched from
+ * four characters by `redactSecretValues`), and the environment's values from
+ * six characters, minus the names the doctrine allows to show. A launch
+ * registers this result; it never includes other owners' sets.
  */
-export const knownSecretValues = (
-  secrets: ReadonlyArray<string | undefined> = [],
-  environment: Readonly<Record<string, string | undefined>> = process.env,
+export const launchSecretValues = (
+  secrets: ReadonlyArray<string | undefined>,
+  environment: Readonly<Record<string, string | undefined>>,
 ): ReadonlyArray<string | undefined> => {
   const values: Array<string | undefined> = [...secrets];
-  for (const set of registered.values()) values.push(...set);
   for (const [name, value] of Object.entries(environment)) {
     if (value === undefined || value.length < ENVIRONMENT_VALUE_FLOOR) continue;
     if (shownName(name)) continue;
     values.push(value);
   }
+  return values;
+};
+
+/** Step 3's known values: the caller's, every registered set, and this process's environment. */
+export const knownSecretValues = (
+  secrets: ReadonlyArray<string | undefined> = [],
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): ReadonlyArray<string | undefined> => {
+  const values = [...launchSecretValues(secrets, environment)];
+  for (const set of registered.values()) values.push(...set);
   return values;
 };
 
