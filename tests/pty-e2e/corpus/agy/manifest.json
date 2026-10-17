@@ -1,0 +1,288 @@
+{
+  "harness": "agy",
+  "displayName": "Antigravity",
+  "source": "stub-provider",
+  "pty": {
+    "cols": 120,
+    "rows": 32,
+    "term": "xterm-256color"
+  },
+  "sanitized": true,
+  "scrub": [
+    "<HOME>",
+    "<USER>",
+    "<HOST>",
+    "<CWD>",
+    "<CAPTURE>",
+    "<SESSION>",
+    "<EMAIL>",
+    "<TOKEN>"
+  ],
+  "scenarios": [
+    {
+      "harness": "agy",
+      "scenario": "retry-overloaded",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: overloaded }, then a completed turn",
+        "wiring": "Gemini API key mode: GOOGLE_GEMINI_BASE_URL points at the stub; onboarding and folder trust pre-seeded; HTTPS_PROXY refuses anything else. The signed-in Google path is not reached.",
+        "stubServed": [
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent 503",
+          "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent 503",
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent 503",
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent ok",
+          "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent ok"
+        ],
+        "renderedLines": [
+          "────────────────────────────────────────────────────────────",
+          "> say hi",
+          "⣷  Generating...",
+          "esc to cancel                                                                                       Gemini 3.1 Pro · low",
+          "  Hello from the capture stub."
+        ],
+        "cliVersion": "1.4.0"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "agy",
+      "scenario": "retry-rate",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: rate }, then a completed turn",
+        "wiring": "Gemini API key mode: GOOGLE_GEMINI_BASE_URL points at the stub; onboarding and folder trust pre-seeded; HTTPS_PROXY refuses anything else. The signed-in Google path is not reached.",
+        "stubServed": [
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent 429",
+          "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent 429",
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent 429",
+          "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent ok",
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent ok"
+        ],
+        "renderedLines": [
+          "────────────────────────────────────────────────────────────",
+          "> say hi",
+          "⣷  Generating...",
+          "esc to cancel                                                                                       Gemini 3.1 Pro · low",
+          "└ Tip: Use /help to see all commands.",
+          "  Hello from the capture stub."
+        ],
+        "cliVersion": "1.4.0"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "agy",
+      "scenario": "retry-network",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: network }, then a completed turn",
+        "wiring": "Gemini API key mode: GOOGLE_GEMINI_BASE_URL points at the stub; onboarding and folder trust pre-seeded; HTTPS_PROXY refuses anything else. The signed-in Google path is not reached.",
+        "stubServed": [
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent drop",
+          "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent drop",
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent drop",
+          "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent ok",
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent ok"
+        ],
+        "renderedLines": [
+          "────────────────────────────────────────────────────────────",
+          "> say hi",
+          "⣷  Generating...",
+          "esc to cancel                                                                                       Gemini 3.1 Pro · low",
+          "  Hello from the capture stub."
+        ],
+        "cliVersion": "1.4.0"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "agy",
+      "scenario": "usage-limit",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: unknown }, the Gemini API key quota",
+        "wiring": "Gemini API key mode: GOOGLE_GEMINI_BASE_URL points at the stub; onboarding and folder trust pre-seeded; HTTPS_PROXY refuses anything else. The signed-in Google path is not reached.",
+        "stubServed": [
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent 429",
+          "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent 429",
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent 429",
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent 429",
+          "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent 429",
+          "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent 429",
+          "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent 429",
+          "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent 429",
+          "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent 429"
+        ],
+        "renderedLines": [
+          "────────────────────────────────────────────────────────────",
+          "> say hi",
+          "⣷  Generating...",
+          "esc to cancel                                                                                       Gemini 3.1 Pro · low",
+          "└ Tip: Press ctrl+r to review pending artifacts.",
+          "⢿  Working...",
+          "└ Tip: Press ctrl+g to open an external editor for long prompts.",
+          "⣷  Loading..."
+        ],
+        "cliVersion": "1.4.0"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "agy",
+      "scenario": "error-auth",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: auth }",
+        "wiring": "Gemini API key mode: GOOGLE_GEMINI_BASE_URL points at the stub; onboarding and folder trust pre-seeded; HTTPS_PROXY refuses anything else. The signed-in Google path is not reached.",
+        "stubServed": [
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent 400",
+          "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent 400",
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent 400",
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent 400"
+        ],
+        "renderedLines": [
+          "────────────────────────────────────────────────────────────",
+          "> say hi",
+          "⚠ agent executor error: generating and executing: Error 400, Message: API key not valid. Please pass a valid API key.,",
+          "Status: INVALID_ARGUMENT, Details: []",
+          "Error ID: <SESSION>-1"
+        ],
+        "cliVersion": "1.4.0"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "agy",
+      "scenario": "error-server",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: provider } after retries run out",
+        "wiring": "Gemini API key mode: GOOGLE_GEMINI_BASE_URL points at the stub; onboarding and folder trust pre-seeded; HTTPS_PROXY refuses anything else. The signed-in Google path is not reached.",
+        "stubServed": [
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent 500",
+          "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent 500",
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent 500",
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent 500"
+        ],
+        "renderedLines": [
+          "────────────────────────────────────────────────────────────",
+          "> say hi",
+          "⣷  Generating...",
+          "esc to cancel                                                                                       Gemini 3.1 Pro · low",
+          "⚠ agent executor error: generating and executing: Error 500, Message: An internal error has occurred., Status:",
+          "INTERNAL, Details: []",
+          "Error ID: <SESSION>-1"
+        ],
+        "cliVersion": "1.4.0"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "agy",
+      "scenario": "error-context",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: contextOverflow }",
+        "wiring": "Gemini API key mode: GOOGLE_GEMINI_BASE_URL points at the stub; onboarding and folder trust pre-seeded; HTTPS_PROXY refuses anything else. The signed-in Google path is not reached.",
+        "stubServed": [
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent 400",
+          "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent 400",
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent 400",
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent 400"
+        ],
+        "renderedLines": [
+          "────────────────────────────────────────────────────────────",
+          "> say hi",
+          "⚠ agent executor error: generating and executing: Error 400, Message: The input token count (250000) exceeds the",
+          "maximum number of tokens allowed (200000)., Status: INVALID_ARGUMENT, Details: []",
+          "Error ID: <SESSION>-1"
+        ],
+        "cliVersion": "1.4.0"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "agy",
+      "scenario": "compaction-auto",
+      "status": "skip",
+      "reason": "the screen never showed /compact/i",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "CompactionStarted { trigger: auto }, CompactionEnded { ok }, then a completed turn",
+        "wiring": "Gemini API key mode: GOOGLE_GEMINI_BASE_URL points at the stub; onboarding and folder trust pre-seeded; HTTPS_PROXY refuses anything else. The signed-in Google path is not reached.",
+        "stubServed": [
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent ok",
+          "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent ok",
+          "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent ok"
+        ],
+        "renderedLines": [
+          "────────────────────────────────────────────────────────────",
+          "> say hi",
+          "⣷  Generating...",
+          "esc to cancel                                                                                       Gemini 3.1 Pro · low",
+          "  Summary: the user greeted the assistant and the assistant replied.",
+          "> say hi again",
+          "  Hello from the capture stub."
+        ],
+        "cliVersion": "1.4.0"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "agy",
+      "scenario": "compaction-manual",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "CompactionStarted { trigger: manual }, CompactionEnded { ok }",
+        "wiring": "Gemini API key mode: GOOGLE_GEMINI_BASE_URL points at the stub; onboarding and folder trust pre-seeded; HTTPS_PROXY refuses anything else. The signed-in Google path is not reached.",
+        "stubServed": [
+          "/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent ok",
+          "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent ok",
+          "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent ok",
+          "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent ok"
+        ],
+        "renderedLines": [
+          "  Line 1189 of a long capture answer, padding the conversation.",
+          "  Line 1220 of a long capture answer, padding t",
+          "────────────────────────────────────────────────────────────",
+          "> say more",
+          "⣟  Generating...",
+          "esc to cancel                                                                                       Gemini 3.1 Pro · low",
+          "  Summary: the user greeted the assistant and the assistant replied.",
+          "> /compact",
+          "⢿  Compacting conversation… (0s · esc to cancel)",
+          "─────────────────────────────────────────────── Conversation compacted ────────────────────────────────────────────────",
+          "                            5 steps summarized · context 12 → ~17.1k (8 summary) · took 4s"
+        ],
+        "cliVersion": "1.4.0"
+      },
+      "expectedScreen": {}
+    }
+  ],
+  "signalCaptureEvidence": {
+    "tool": "tests/pty-e2e/signal-capture.ts",
+    "capturedAt": "2026-10-17T04:43:06.422Z",
+    "harnessVersion": "1.4.0",
+    "provider": "scripted local stub; the binary and its rendering are real, the provider replies are not"
+  },
+  "sanitization": {
+    "method": "decoded-jsonl-scan",
+    "fixtures": 8,
+    "decodedBytes": 223083,
+    "checks": [
+      "home-path",
+      "username",
+      "hostname",
+      "email",
+      "token"
+    ]
+  }
+}
