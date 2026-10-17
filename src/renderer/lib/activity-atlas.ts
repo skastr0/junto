@@ -410,14 +410,16 @@ const cellAt = (col: string, row: string): string =>
  * nothing repaints and no frame runs on the main thread. Paused (hidden
  * window, reduced motion) the parts hide and the rest pose shows. Parts show
  * only on screen (data-mark-visible), so an offscreen mark holds no layer.
- * `--mark-t0` puts every ring on one shared clock.
+ * `--mark-t0` puts every ring on one shared clock. No will-change: the
+ * running animation composites a part anyway, and will-change pins its raster
+ * scale, which canvas-tier-budget.spec.ts reads as pinned layers zoomed out.
  */
 const motionCss = (): readonly string[] => {
   const live = `html:not([data-surface-motion="paused"])`;
   return [
     `${live} .junto-mark[data-mark-motion="loop"][data-mark-parts]{background-position:${cellAt("--mark-lcol", "--mark-lrow")}}`,
     `${live} .junto-mark[data-mark-land]:not([data-mark-landed]){background-position:calc(${String(LAYOUT.blank.col)} * var(--mark-u) * -1) calc(${String(LAYOUT.blank.row)} * var(--mark-u) * -1)}`,
-    `.junto-mark__part{display:none;position:absolute;inset:0;pointer-events:none;background-image:inherit;background-repeat:no-repeat;background-size:inherit;background-position:${cellAt("--part-col", "--part-row")};animation-duration:var(--part-ms);animation-delay:var(--mark-t0,0ms);animation-iteration-count:infinite;will-change:transform,opacity}`,
+    `.junto-mark__part{display:none;position:absolute;inset:0;pointer-events:none;background-image:inherit;background-repeat:no-repeat;background-size:inherit;background-position:${cellAt("--part-col", "--part-row")};animation-duration:var(--part-ms);animation-delay:var(--mark-t0,0ms);animation-iteration-count:infinite}`,
     `${live} .junto-mark[data-mark-visible]>.junto-mark__part{display:block}`,
     `${live} .junto-mark[data-mark-landed]>.junto-mark__part[data-part="land"]{display:none}`,
     `.junto-mark__part[data-spin]{animation-name:junto-mark-turn;animation-timing-function:linear}`,
