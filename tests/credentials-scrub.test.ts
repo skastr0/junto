@@ -1,0 +1,68 @@
+import { expect, it } from "vitest";
+import { knownSecretValues, scrubMessage, scrubText, StderrTail } from "../src/main/junto/credentials/scrub";
+
+const tail = (text: string, known?: ReadonlyArray<string | undefined>) => {
+  const window = new StderrTail();
+  window.push(Buffer.from(text));
+  return window.read(known);
+};
+
+it("step 1 holds the last 64 KiB and drops a partial first line", () => {
+  const window = new StderrTail();
+  window.push(Buffer.from("PARTIAL-LINE-START " + "x".repeat(64 * 1024) + "\nlast line\n"));
+  const read = window.read([]);
+  expect(read.text).toBe("last line");
+  expect(read.cut).toBe(true);
+});
+
+it("step 2 removes escape sequences whole, controls and bidi, and a carriage return ends a line", () => {
+  const text = scrubText("a\u001b[31mred\u001b[0m\u001b]0;TITLE\u0007b\u0000c\u007fd\u0085e‮f⁧g\rnext\tTab", []);
+  expect(text).toBe("aredbcdefg\nnext\tTab");
+  expect(text).not.toContain("TITLE");
+});
+
+it("step 3 redacts known values: secrets from four characters, environment values from six", () => {
+  const known = knownSecretValues(["s3cr"], { GH_TOKEN_VALUE: "abcdef1", SHORT: "wxyz5", HOME: "/Users/someone", LC_ALL: "en_US.UTF-8" });
+  const text = scrubText("s3cr abcdef1 wxyz5 /Users/someone en_US.UTF-8", known);
+  expect(text).toBe("[redacted] [redacted] wxyz5 /Users/someone en_US.UTF-8");
+});
+
+it("step 4 redacts credential shapes Junto does not know", () => {
+  const seeded = [
+    "Authorization: Basic dXNlcjpwYXNz",
+    "curl -H 'Bearer abc.def-ghi'",
+    "https://user:hunter2@example.com/path",
+    "JUNTO_WORK_TOKEN=plainvalue",
+    "session: cookievalue",
+    "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAAkeybody\n-----END OPENSSH PRIVATE KEY-----",
+    "sk-proj1234 ghp_abc123 github_pat_11AB xoxb-1-2 AKIAABCDEFGHIJKLMNOP ops_abc",
+    "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig",
+    "digest 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  ].join("\n");
+  const text = scrubText(seeded, []);
+  for (const secret of ["dXNlcjpwYXNz", "abc.def-ghi", "hunter2", "plainvalue", "cookievalue", "AAAAkeybody", "sk-proj1234", "ghp_abc123", "github_pat_11AB", "xoxb-1-2", "AKIAABCDEFGHIJKLMNOP", "ops_abc", "eyJhbGci", "9f86d081884c7d659a2f"]) {
+    expect(text).not.toContain(secret);
+  }
+  expect(text).toContain("https://[redacted]@example.com/path");
+  expect(scrubText("/Users/someone/Projects/junto/node_modules/node-pty/build/Release/pty.node", [])).toBe("/Users/someone/Projects/junto/node_modules/node-pty/build/Release/pty.node");
+});
+
+it("step 5 keeps the last 40 lines and 4 KiB, scrubbing the whole window before the cut", () => {
+  const lines = Array.from({ length: 60 }, (_, index) => `line ${index}`);
+  const read = tail(lines.join("\n") + "\n", []);
+  expect(read.text.split("\n")).toEqual(lines.slice(20));
+  expect(read.cut).toBe(true);
+  const wide = tail(Array.from({ length: 30 }, (_, index) => `${index} ${"w".repeat(300)}`).join("\n"), []);
+  expect(Buffer.byteLength(wide.text)).toBeLessThanOrEqual(4096);
+  expect(wide.text.startsWith(String(wide.text.split(" ")[0]))).toBe(true);
+  // A token split by the window would leave half visible if the cut ran first.
+  const token = tail(`password=${"z".repeat(10)}\nok\n`, []);
+  expect(token.text).toBe("password=[redacted]\nok");
+});
+
+it("a message is one scrubbed line of at most 1 KiB, its cut marked", () => {
+  expect(scrubMessage("first\nsecond token=abc")).toBe("first second token=[redacted]");
+  const long = scrubMessage("m".repeat(5000), []);
+  expect(long.length).toBe(1024);
+  expect(long.endsWith(" [cut]")).toBe(true);
+});

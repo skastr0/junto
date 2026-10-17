@@ -1,0 +1,50 @@
+import { Cause, Schema } from "effect";
+import { expect, it } from "vitest";
+import { failureSentence, MAX_FAILURE_CAUSES } from "../src/shared/failure";
+import { decodeEncodedFailure, encodeError, encodeFailure } from "../src/main/junto/failure-encode";
+
+class SeatStart extends Schema.TaggedError<SeatStart>()("SeatStart", { message: Schema.String, cause: Schema.optionalKey(Schema.Unknown) }) {}
+
+it("encodes the tag, scrubbed message, machine, operation id and the cause chain", () => {
+  const first = new Error("Cannot find module 'node-pty' token=leaked");
+  const failure = encodeError(new SeatStart({ message: "native PTY backend is unavailable", cause: first }), { machine: "mini", operationId: "op-1" });
+  expect(failure).toEqual({ tag: "SeatStart", message: "native PTY backend is unavailable", machine: "mini", operationId: "op-1",
+    causes: [{ tag: "Error", message: "Cannot find module 'node-pty' token=[redacted]" }] });
+  expect(failureSentence(failure)).toBe("native PTY backend is unavailable: Cannot find module 'node-pty' token=[redacted]");
+});
+
+it("bounds the chain at eight links and marks the cut", () => {
+  let cause: Error = new Error("root");
+  for (let index = 0; index < 12; index++) cause = new Error(`level ${index}`, { cause });
+  const failure = encodeError(cause, { machine: "mini", operationId: "op-2" });
+  expect(failure.causes).toHaveLength(MAX_FAILURE_CAUSES);
+  expect(failure.causesCut).toBe(true);
+});
+
+it("formats a decode failure without the value it saw", () => {
+  let thrown: unknown;
+  try { Schema.decodeUnknownSync(Schema.Struct({ a: Schema.Number }))({ a: "SEEDED-VALUE" }); } catch (cause) { thrown = cause; }
+  const failure = encodeError(thrown, { machine: "mini", operationId: "op-3" });
+  expect(failure.tag).toBe("SchemaError");
+  expect(JSON.stringify(failure)).not.toContain("SEEDED-VALUE");
+  expect(failure.message).toContain('["a"]');
+});
+
+it("decodes closed and scrubs again on the receiving end", () => {
+  const sent = { tag: "SeatStart", message: "bad \u001b[2Jpassword=x", machine: "mini", operationId: "op-4", causes: [{ tag: "Error", message: "Bearer abc" }] };
+  expect(decodeEncodedFailure(sent)).toEqual({ ...sent, message: "bad password=[redacted]", causes: [{ tag: "Error", message: "Bearer [redacted]" }] });
+  expect(() => decodeEncodedFailure({ ...sent, extra: 1 })).toThrow();
+  expect(() => decodeEncodedFailure({ ...sent, message: "m".repeat(1025) })).toThrow();
+  expect(() => decodeEncodedFailure({ ...sent, tag: "<script>" })).toThrow();
+});
+
+it("carries a channel's encoded detail only when it is JSON", () => {
+  expect(encodeError(new Error("x"), { machine: "mini", operationId: "op-5", detail: { _tag: "SeatSpawnFailed", exitCode: 1 } }).detail).toEqual({ _tag: "SeatSpawnFailed", exitCode: 1 });
+  expect(encodeError(new Error("x"), { machine: "mini", operationId: "op-5", detail: { at: new Date(0) } }).detail).toBeUndefined();
+});
+
+it("encodes an Effect Cause by its first failure, and an empty Cause to nothing", () => {
+  expect(encodeFailure(Cause.fail(new SeatStart({ message: "spawn failed" })), { machine: "mini" })).toEqual({ tag: "SeatStart", message: "spawn failed", machine: "mini", causes: [] });
+  expect(encodeFailure(Cause.die(new Error("defect")), { machine: "mini" })?.message).toBe("defect");
+  expect(encodeFailure(Cause.empty, { machine: "mini" })).toBeUndefined();
+});
