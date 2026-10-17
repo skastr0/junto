@@ -15,7 +15,7 @@
  */
 import { Schema } from "effect";
 import type { AwarenessReading, SeatSnapshot } from "./status";
-import type { SignalSource } from "./signal";
+import { SignalSource } from "./signal";
 
 export const NEED_LEVELS = ["idle", "working", "degraded", "ready", "escalated", "stopped", "waiting"] as const;
 export const NeedLevel = Schema.Literals(NEED_LEVELS);
@@ -79,16 +79,17 @@ export const NEED_CAUSES = {
 export type NeedCause = keyof typeof NEED_CAUSES;
 export const NeedCause = Schema.Literals(Object.keys(NEED_CAUSES) as [NeedCause, ...NeedCause[]]);
 
-export interface Need {
-  readonly cause: NeedCause;
-  readonly level: NeedLevel;
-  readonly urgency: number;
-  readonly actor: NeedActor;
-  readonly since: number;
-  readonly source: SignalSource;
+export const Need = Schema.Struct({
+  cause: NeedCause,
+  level: NeedLevel,
+  urgency: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 6 })),
+  actor: NeedActor,
+  since: Schema.Number,
+  source: SignalSource,
   /** Present on awareness needs, which are advisory. */
-  readonly probability?: number;
-}
+  probability: Schema.optionalKey(Schema.Number),
+});
+export type Need = typeof Need.Type;
 
 const need = (
   cause: NeedCause,

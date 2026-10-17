@@ -9,6 +9,7 @@ import {
   deriveNeeds,
   HARNESS_SIGNAL_KINDS,
   initialSnapshot,
+  Need,
   NEED_CAUSES,
   NEED_URGENCY,
   NO_COMMAND,
@@ -253,6 +254,11 @@ describe("harness domain: needs", () => {
     expect(topNeed(viewed).cause).toBe("idle");
     const interrupted = fold(at("screen", { _tag: "TurnStarted" }), at("screen", { _tag: "TurnEnded", outcome: "interrupted" }));
     expect(topNeed(interrupted).cause).toBe("idle");
+  });
+
+  it("encodes a need with its schema", () => {
+    const need = topNeed(fold(at("screen", { _tag: "QuestionAsked" })));
+    expect(Schema.decodeUnknownSync(Need)(Schema.encodeSync(Need)(need))).toEqual(need);
   });
 
   it("puts a waiting prompt above everything", () => {
