@@ -238,6 +238,36 @@ const resolvedLimits = (
   ),
 });
 
+const delimiter = (byte: number | undefined) =>
+  byte === undefined || byte === 0 || byte === 34 || byte === 39 || byte === 96;
+
+const SLASH = 47;
+
+/** A retired file name is Junto's own only as a whole string, or in a path through a junto directory. */
+const juntoBasenameAt = (buffer: Buffer, offset: number, length: number): boolean => {
+  if (!delimiter(buffer[offset + length])) return false;
+  if (delimiter(buffer[offset - 1])) return true;
+  if (buffer[offset - 1] !== SLASH) return false;
+  let start = offset - 2;
+  while (start >= 0 && !delimiter(buffer[start])) start--;
+  return buffer.subarray(start + 1, offset - 1).toString("utf8").toLowerCase().includes("junto");
+};
+
+const isBasenameSignature = (signature: string): boolean =>
+  /^[\w.-]+\.(?:json|key|seal|frame|ack)$/.test(signature);
+
+const containsSignature = (buffer: Buffer, signature: Buffer, basename: boolean): boolean => {
+  let offset = buffer.indexOf(signature);
+  if (!basename) return offset !== -1;
+  // A retired file name must be Junto's own path, not the suffix of a
+  // documented third-party path such as ~/.claude/settings.json.
+  while (offset !== -1) {
+    if (juntoBasenameAt(buffer, offset, signature.length)) return true;
+    offset = buffer.indexOf(signature, offset + signature.length);
+  }
+  return false;
+};
+
 const firstRetiredSignature = (
   bytes: Uint8Array,
 ): string | undefined => {
@@ -246,26 +276,14 @@ const firstRetiredSignature = (
     bytes.byteOffset,
     bytes.byteLength,
   );
-  const exact = signatureBytes.find(({ bytes: signature }) =>
-    buffer.indexOf(signature) !== -1
+  const exact = signatureBytes.find(({ signature, bytes: signatureBuffer }) =>
+    containsSignature(buffer, signatureBuffer, isBasenameSignature(signature))
   )?.signature;
   if (exact !== undefined) return exact;
   return compoundSignatureBytes.find(({ signatures }) =>
-    signatures.every(({ bytes: signature, standalone }) => {
-      let offset = buffer.indexOf(signature);
-      if (!standalone) return offset !== -1;
-      // A retired basename must be a whole string literal or binary string,
-      // not the suffix of a documented third-party path in the same bundle.
-      const delimiter = (byte: number | undefined) =>
-        byte === undefined || byte === 0 || byte === 34 || byte === 39 || byte === 96;
-      while (offset !== -1) {
-        if (delimiter(buffer[offset - 1]) && delimiter(buffer[offset + signature.length])) {
-          return true;
-        }
-        offset = buffer.indexOf(signature, offset + signature.length);
-      }
-      return false;
-    })
+    signatures.every(({ bytes: signature, standalone }) =>
+      containsSignature(buffer, signature, standalone)
+    )
   )?.label;
 };
 

@@ -131,6 +131,21 @@ describe("retired product-state signature boundary", () => {
     }
   });
 
+  it("does not confuse a harness's own config file with retired Junto settings", () => {
+    const current = Buffer.from('const CLAUDE_FILE = ".claude/settings.json"; const codex = "~/.codex/config.toml";');
+    expect(() => auditRetiredStateBuffer(current)).not.toThrow();
+    for (const retired of [
+      'join(home, "settings.json")',
+      'const path = "~/.junto/settings.json";',
+      "readFile(`${home}/.junto/state/current.json`)",
+      "\0hosts.json\0",
+    ]) {
+      expect(() => auditRetiredStateBuffer(Buffer.concat([current, Buffer.from(retired)]))).toThrowError(
+        expect.objectContaining({ code: "retired-signature" }),
+      );
+    }
+  });
+
   it("bounds executable buffers and regular-file reads before accepting them", async () => {
     const root = await makeTempRoot();
     const executable = join(root, "junto-browser");
