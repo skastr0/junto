@@ -4,7 +4,6 @@ import { useRtsValue } from "./rts-selection";
 import type { RegionRollup } from "@shared/region-rollup";
 import { projectNeeds, ROLLUP_FROM_NEED } from "@shared/need-surfaces";
 import { agentSeat$, seatNeedsOf, workSurfaceFromSeat } from "./agent-seat-state";
-import { seatSignalRollups$ } from "./agent-signals-state";
 import { state$ } from "./state";
 import { createChatChromeStore, type ChatChromeApi } from "./chat-chrome-store";
 import { getJuntoApi } from "./junto-api";
@@ -28,12 +27,8 @@ export const regionRollupStore = createRegionRollupStore({
   },
   // The seat's needs, read through the rollup's need table: declared signals,
   // stops and unread turns all land on the one ladder.
-  seatTier: (bindingId, nodeId) => {
-    const needs = seatNeedsOf(
-      agentSeat$.byBindingId[bindingId].get(),
-      agentSeat$.needsLookByBindingId[bindingId].get() === true,
-      seatSignalRollups$.get()[nodeId]?.signal,
-    );
+  seatTier: (bindingId) => {
+    const needs = seatNeedsOf(agentSeat$.byBindingId[bindingId].get());
     if (!needs) return undefined;
     const severity = projectNeeds(needs, ROLLUP_FROM_NEED);
     const cause = needs.find((need) => ROLLUP_FROM_NEED[need.cause] === severity)?.cause;

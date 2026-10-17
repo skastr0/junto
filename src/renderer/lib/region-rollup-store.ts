@@ -22,7 +22,7 @@ export type RegionRollupSources = {
   readonly agentActivity: (agentKey: string) => AgentActivity;
   readonly surface: (bindingId: string) => WorkSurfaceActivity | undefined;
   /** The seat's tier from its needs; undefined falls back to `surface`. */
-  readonly seatTier?: (bindingId: string, nodeId: string) => SeatNeedTier | undefined;
+  readonly seatTier?: (bindingId: string) => SeatNeedTier | undefined;
 };
 
 const sameIds = (a: ReadonlyArray<string> | undefined, b: ReadonlyArray<string>): boolean =>
@@ -78,7 +78,7 @@ export const createRegionRollupStore = (
           const bindingId = (model.nodes[id] as unknown as { bindingId: { get(): string } }).bindingId.get();
           const surface = sources.surface(bindingId);
           if (surface) terminalStatusByNodeId.set(id, surface);
-          const tier = sources.seatTier?.(bindingId, id);
+          const tier = sources.seatTier?.(bindingId);
           if (tier) seatTierByNodeId.set(id, tier);
         }
         if (node.kind === "agent") {

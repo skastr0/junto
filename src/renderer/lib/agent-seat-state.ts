@@ -23,7 +23,6 @@ import {
   type AgentSeatState,
   type AgentSeatStateEvent,
 } from "@shared/agent-seat-state";
-import type { AgentSignal } from "@shared/agent-signals";
 import { deriveNeeds, type Need } from "@shared/harness-domain/need";
 import type { OccupancyClue, OccupancyHarnessState } from "@shared/occupancy";
 import { terminalBindingOf, type WorkSurfaceActivity } from "@shared/terminal";
@@ -193,9 +192,7 @@ export const clueFromAgentSeat = (
   needsLook = false,
 ): OccupancyClue | undefined => {
   if (!event) return undefined;
-  // Declared signals and unread turns show nothing on occupancy, so the
-  // seat's own snapshot is the whole answer.
-  const needs = seatNeedsOf(event, false);
+  const needs = seatNeedsOf(event);
   return {
     hasOccupant: event.state !== "gone",
     activity: { harness: harnessFromSeatState(event.state, needsLook) },
@@ -287,38 +284,15 @@ export const seatStatusForBinding = (
 ): AgentSeatStatus | undefined => agentSeatStatusOf(seatEventForBinding(bindingId));
 
 /**
- * A seat's needs, most urgent first, from its latest event's snapshot plus
- * two facts the renderer holds and main does not feed yet: the seat's worst
- * open declared signal (main reports no SeatReported) and whether the
- * operator has seen its finished turn (main sends no OperatorViewed, so
- * `needsLook` decides). Undefined before an event carries a snapshot.
+ * A seat's needs, most urgent first, from its latest event's snapshot: main
+ * folds the seat's declared signals and whether the operator has seen its
+ * finished turn into it. Undefined before an event carries a snapshot, as
+ * for a seat on another machine (seats-link sends no status yet); callers
+ * fall back to the harness state there.
  */
-export const seatNeedsOf = (
-  event: AgentSeatStateEvent | undefined,
-  needsLook: boolean,
-  declared?: Pick<AgentSignal, "kind" | "signalId" | "text" | "createdAt">,
-): readonly Need[] | undefined => {
+export const seatNeedsOf = (event: AgentSeatStateEvent | undefined): readonly Need[] | undefined => {
   const status = agentSeatStatusOf(event);
-  if (!status) return undefined;
-  const { snapshot } = status;
-  const { turnUnseen: _seen, ...rest } = snapshot;
-  const turnUnseen = needsLook
-    ? (snapshot.turnUnseen ?? { outcome: "completed" as const, since: event?.at ?? snapshot.since })
-    : undefined;
-  return deriveNeeds({
-    ...rest,
-    ...(turnUnseen ? { turnUnseen } : {}),
-    reports: declared
-      ? [
-          {
-            kind: declared.kind,
-            signalId: declared.signalId,
-            ...(declared.text ? { text: declared.text } : {}),
-            since: declared.createdAt,
-          },
-        ]
-      : snapshot.reports,
-  });
+  return status ? deriveNeeds(status.snapshot) : undefined;
 };
 
 // Singleton fan-out: main snapshot + onAgentSeatStateChanged → agentSeat$.
