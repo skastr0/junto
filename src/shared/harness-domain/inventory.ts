@@ -25,7 +25,9 @@ export type InventoryModel = typeof InventoryModel.Type;
 
 export const InventoryScanFailure = Schema.Struct({
   reason: Schema.Literals(["timeout", "failed", "unreachable"]),
-  message: Schema.String,
+  // Can carry command output, so it stays on the scanned machine; a
+  // snapshot read over the link carries the reason only.
+  message: Schema.optionalKey(Schema.String),
   at: Schema.Number,
 });
 export type InventoryScanFailure = typeof InventoryScanFailure.Type;
