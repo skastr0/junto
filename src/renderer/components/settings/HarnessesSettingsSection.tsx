@@ -24,7 +24,6 @@ import {
   type HarnessParamKey,
   type HarnessParamSpec,
   type HarnessParams,
-  type InventoryUnavailableError,
   type MachineInventory,
   checkNativeSetting,
   type NativeSettingSpec,
@@ -46,7 +45,8 @@ import { HUE_TEXT, INK } from "../../lib/theme";
 import { state$ } from "../../lib/state";
 import { patchSettings } from "../../lib/settings-state";
 import { machineLabel } from "../../lib/machines";
-import { harnessMachineSource } from "../../lib/harness-machine-source";
+import { harnessMachineSource, type InventoryRefusal } from "../../lib/harness-machine-source";
+import { formatSeatAwarenessAge } from "../../lib/seat-awareness";
 import { useSettingsMachine } from "../../lib/settings-machine";
 import { Input, Select, Switch } from "../ui";
 import { FieldRow } from "./FieldRow";
@@ -69,7 +69,7 @@ const INVENTORY_REREAD_MS = 2_000;
 type InventoryRead =
   | { readonly state: "unread" }
   | { readonly state: "answered"; readonly inventory: MachineInventory }
-  | { readonly state: "refused"; readonly error: InventoryUnavailableError };
+  | { readonly state: "refused"; readonly refusal: InventoryRefusal };
 
 export function HarnessesSettingsSection({ machine: chosen }: { readonly machine?: string }) {
   const settings = use$(state$.settings);
@@ -91,7 +91,7 @@ export function HarnessesSettingsSection({ machine: chosen }: { readonly machine
           setRead(
             Result.isSuccess(answer)
               ? { state: "answered", inventory: answer.success }
-              : { state: "refused", error: answer.failure },
+              : { state: "refused", refusal: answer.failure },
           );
           if (Result.isSuccess(answer) && answer.success.harnesses.some((row) => row.refreshing)) {
             timer = setTimeout(ask, INVENTORY_REREAD_MS);
@@ -115,18 +115,17 @@ export function HarnessesSettingsSection({ machine: chosen }: { readonly machine
         everywhere; a value for this machine wins on it. Anything left as {HARNESS_DEFAULT} is not passed, so the
         harness&apos;s own config decides.
       </p>
-      {read.state === "refused" ? (
-        <p className="settings-note" style={{ color: HUE_TEXT.crimson }} role="status">
-          No inventory for {machineLabel(machine)}: {read.error.message}
-        </p>
-      ) : null}
+      {read.state === "refused" ? <RefusedInventory machineName={named} refusal={read.refusal} /> : null}
       <ul className="settings-harness-list" role="list">
         {allTemplates().map((template) => {
           const params = HARNESS_RECORDS[template.harness].params;
-          const inventory =
+          const shownInventory =
             read.state === "answered"
-              ? read.inventory.harnesses.find((row) => row.harness === template.harness)
-              : undefined;
+              ? read.inventory
+              : read.state === "refused"
+                ? read.refusal.last?.inventory
+                : undefined;
+          const inventory = shownInventory?.harnesses.find((row) => row.harness === template.harness);
           return (
             <HarnessCard
               key={template.harness}
@@ -146,9 +145,27 @@ export function HarnessesSettingsSection({ machine: chosen }: { readonly machine
   );
 }
 
+/**
+ * A machine that did not answer: why, in its typed words, and what it last
+ * sent with its age. The cards below show that last snapshot.
+ */
+function RefusedInventory({ machineName, refusal }: { readonly machineName: string; readonly refusal: InventoryRefusal }) {
+  const why = refusal.failure ?? refusal.error.reason;
+  return (
+    <p className="settings-note" role="status" data-testid="harness-inventory-refused" data-failure={why}>
+      <span style={{ color: HUE_TEXT.crimson }}>
+        {machineName} did not answer ({why}): {refusal.error.message}.
+      </span>{" "}
+      {refusal.last
+        ? `Showing what it sent ${formatSeatAwarenessAge(Date.now() - refusal.last.receivedAt)}.`
+        : "It has not sent an inventory yet."}
+    </p>
+  );
+}
+
 const inventoryLine = (read: InventoryRead, inventory: HarnessInventory | undefined, now: number): string => {
   if (read.state === "unread") return "inventory not read yet";
-  if (read.state === "refused") return "inventory unavailable";
+  if (read.state === "refused" && inventory === undefined) return "inventory unavailable";
   if (!inventory) return "not reported by this machine";
   if (!inventory.installed) return "not installed";
   const version = inventory.version ? `version ${inventory.version}` : "installed";

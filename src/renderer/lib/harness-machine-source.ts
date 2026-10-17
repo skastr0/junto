@@ -20,6 +20,7 @@ import {
 import { NativeConfigWriteError } from "@shared/harness-domain/native-config-write";
 import type { NativeSettingFailure } from "@shared/ipc";
 import type { HarnessId } from "@shared/managed-terminal-templates";
+import type { MachineInventoryFailure } from "@shared/ipc";
 
 /** Why a native setting could not be read or written on its machine. */
 export type NativeSettingError = InventoryUnavailableError | NativeSettingRefusedError | NativeConfigWriteError;
@@ -46,9 +47,23 @@ const unreachableCall = (machine: string, cause: unknown): NativeSettingFailure 
   message: cause instanceof Error ? cause.message : String(cause),
 });
 
+/**
+ * Why a machine's inventory could not be read now, and what it last sent.
+ * An unreachable machine is shown from `last` with its age; nothing waits.
+ */
+export type InventoryRefusal = {
+  readonly error: InventoryUnavailableError;
+  /** The typed failure behind the reason, e.g. LinkUnavailable. */
+  readonly failure?: string;
+  /** The operation both machines logged the request under. */
+  readonly operationId?: string;
+  /** The last snapshot that machine sent, and when this machine received it. */
+  readonly last?: { readonly inventory: MachineInventory; readonly receivedAt: number };
+};
+
 export type HarnessMachineSource = {
   /** The machine's last inventory, cached; never a probe the caller waits on. */
-  readonly inventory: (machine: string) => Promise<Result.Result<MachineInventory, InventoryUnavailableError>>;
+  readonly inventory: (machine: string) => Promise<Result.Result<MachineInventory, InventoryRefusal>>;
   /**
    * The current value of each declared key in the harness's own config on that
    * machine, read by that machine. A key absent from the file is absent here.
@@ -69,7 +84,7 @@ const NATIVE_NOT_LANDED = "Reading and writing harness config has not landed in 
 
 export const pendingHarnessMachineSource: HarnessMachineSource = {
   inventory: async (machine) =>
-    Result.fail(new InventoryUnavailableError({ machine, reason: "failed", message: NOT_LANDED })),
+    Result.fail({ error: new InventoryUnavailableError({ machine, reason: "failed", message: NOT_LANDED }) }),
   readNativeSettings: async (machine, harness) =>
     Result.fail(new InventoryUnavailableError({ machine, harness, reason: "failed", message: NATIVE_NOT_LANDED })),
   writeNativeSetting: async (write) =>
@@ -98,13 +113,18 @@ export const coreHarnessMachineSource: HarnessMachineSource = {
         message: cause instanceof Error ? cause.message : String(cause),
       },
     }));
-    return answer.ok
-      ? Result.succeed(answer.inventory)
-      : Result.fail(new InventoryUnavailableError({
+    if (answer.ok) return Result.succeed(answer.inventory);
+    const { failure, operationId, last } = answer.error as MachineInventoryFailure;
+    return Result.fail({
+      error: new InventoryUnavailableError({
         machine: answer.error.machine,
         reason: answer.error.reason,
         message: answer.error.message,
-      }));
+      }),
+      ...(failure === undefined ? {} : { failure }),
+      ...(operationId === undefined ? {} : { operationId }),
+      ...(last === undefined ? {} : { last }),
+    });
   },
   readNativeSettings: async (machine, harness, keys) => {
     const api = window.junto;

@@ -72,7 +72,7 @@ beforeEach(() => {
       asked.push(machine);
       return machine === "mac-mini"
         ? Result.succeed(miniInventory)
-        : Result.fail(new InventoryUnavailableError({ machine, reason: "unreachable", message: "no route" }));
+        : Result.fail({ error: new InventoryUnavailableError({ machine, reason: "unreachable", message: "no route" }) });
     },
   });
   host = document.createElement("div");
@@ -293,9 +293,30 @@ describe("Settings > Agents, per machine", () => {
     expect(card("claude").textContent).toContain("No settings are declared for Claude Code 2.0.1.");
   });
 
+  it("shows an unreachable machine's last snapshot with its age and the typed failure", async () => {
+    setHarnessMachineSource({
+      ...pendingHarnessMachineSource,
+      inventory: async (machine) =>
+        Result.fail({
+          error: new InventoryUnavailableError({ machine, reason: "unreachable", message: "the link is down" }),
+          failure: "LinkUnavailable",
+          last: { inventory: miniInventory, receivedAt: Date.now() - 5 * 60_000 },
+        }),
+    });
+    await render("mac-mini");
+    const note = host.querySelector('[data-testid="harness-inventory-refused"]')!;
+    expect(note.getAttribute("data-failure")).toBe("LinkUnavailable");
+    expect(note.textContent).toContain("did not answer (LinkUnavailable): the link is down.");
+    expect(note.textContent).toContain("Showing what it sent 5m ago.");
+    expect(card("claude").textContent).toContain("version 2.1.0");
+    const options = [...card("claude").querySelectorAll("datalist option")].map((o) => o.getAttribute("value"));
+    expect(options).toContain("mini-only-model");
+  });
+
   it("says why a machine has no inventory instead of waiting", async () => {
     await render("macbook");
-    expect(host.textContent).toContain("No inventory for macbook: no route");
+    expect(host.textContent).toContain("macbook did not answer (unreachable): no route.");
+    expect(host.textContent).toContain("It has not sent an inventory yet.");
     expect(host.querySelectorAll("[data-harness]").length).toBeGreaterThan(0);
   });
 });
