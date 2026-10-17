@@ -13,4 +13,9 @@ describe("a machine's providers", () => {
     expect(JSON.stringify(answer)).not.toContain("sk-or-v1-secret");
     expect(answer.enabledSources).toEqual(["openrouter"]);
   });
+
+  test("count a vault-backed secret as set", () => {
+    const settings = { ...defaultSettings(), providers: { openai: { apiKeyConfigured: true } } };
+    expect(machineProvidersOf(settings, "desk").credentials.openai).toEqual({ apiKey: true });
+  });
 });

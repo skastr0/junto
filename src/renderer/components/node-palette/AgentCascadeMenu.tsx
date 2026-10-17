@@ -407,7 +407,7 @@ export function AgentCascadeMenu({
   }, [anchor]);
 
   const profileChoices = profiles ?? [];
-  // Hermes: pin the profile's configured model to the top of the second column
+  // A profile-first harness: pin the profile's configured model to the top of the second column
   // so hover→pick stays one glance away from "use profile default".
   const modelChoices = useMemo(() => {
     const base = orderModels(models ?? [], modelSource);
@@ -543,7 +543,7 @@ export function AgentCascadeMenu({
     }
   };
 
-  // Hermes: each profile's model column starts unfiltered.
+  // Profile first: each profile's model column starts unfiltered.
   useEffect(() => {
     setModelQuery("");
   }, [activeProfile?.name]);
@@ -823,7 +823,7 @@ export function AgentCascadeMenu({
       <MenuColumn
         label={
           profileFirst
-            ? "Hermes profiles"
+            ? `${templateFor(harness).displayName} profiles`
             : usesModes
               ? `${displayName} modes`
               : `${displayName} models`
@@ -885,10 +885,10 @@ export function AgentCascadeMenu({
 
       {showModelColumn ? (
         <MenuColumn
-          label={`${activeProfile?.name ?? "Hermes"} models`}
-          parent={activeProfile?.name ?? "Hermes"}
+          label={`${activeProfile?.name ?? templateFor(harness).displayName} models`}
+          parent={activeProfile?.name ?? templateFor(harness).displayName}
           step="model"
-          {...(models === null ? {} : { search: search(`Search ${activeProfile?.name ?? "Hermes"} models`) })}
+          {...(models === null ? {} : { search: search(`Search ${activeProfile?.name ?? templateFor(harness).displayName} models`) })}
         >
           {models === null ? (
             <LoadingRows />

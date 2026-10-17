@@ -52,7 +52,8 @@ export const machineProvidersOf = (settings: Settings, machine: string): Machine
     credentials[section] = Object.fromEntries(
       PROVIDER_SECRET_FIELDS[section].map((field) => {
         const value = record?.[field];
-        return [field, typeof value === "string" && value.length > 0];
+        // A vault-backed secret is absent from settings and says so beside it (`apiKeyConfigured`).
+        return [field, (typeof value === "string" && value.length > 0) || record?.[`${field}Configured`] === true];
       }),
     );
   }
