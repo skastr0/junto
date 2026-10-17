@@ -96,3 +96,9 @@ it("a message is one scrubbed line of at most 1 KiB, its cut marked", () => {
   expect(long.length).toBe(1024);
   expect(long.endsWith(" [cut]")).toBe(true);
 });
+
+it("redacts a UUID whatever its digits, inside a path too", () => {
+  expect(scrubText("could not remove /vault/00000000-0000-4000-8000-000000000001: x")).toBe("could not remove /vault/[redacted]: x");
+  expect(scrubText("id 6F1C2A9E-3B4D-4E5F-8A7B-1C2D3E4F5A6B")).toBe("id [redacted]");
+  expect(scrubText("seat-01M4G8HNHWGG9BM2YF30KMTZYZ stays")).toBe("seat-01M4G8HNHWGG9BM2YF30KMTZYZ stays");
+});
