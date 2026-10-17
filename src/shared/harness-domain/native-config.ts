@@ -61,7 +61,8 @@ export class NativeSettingRefusedError extends Schema.TaggedError<NativeSettingR
   },
 ) {}
 
-const valueFits = (spec: NativeSettingValue, value: NativeSettingWrite["value"]): boolean => {
+/** Does a value fit its declared spec? A read uses it alone; a write also checks the version. */
+export const nativeValueFits = (spec: NativeSettingValue, value: NativeSettingWrite["value"]): boolean => {
   switch (spec.kind) {
     case "boolean":
       return typeof value === "boolean";
@@ -102,6 +103,6 @@ export const checkNativeSetting = (
   if (!isNativeSettingVerified(spec, installedVersion)) {
     return refuse("version", `${write.key} is not verified for ${write.harness} ${installedVersion ?? "(not installed)"}`);
   }
-  if (!valueFits(spec.value, write.value)) return refuse("value", `${String(write.value)} does not fit ${write.key}`);
+  if (!nativeValueFits(spec.value, write.value)) return refuse("value", `${String(write.value)} does not fit ${write.key}`);
   return Result.succeed(spec);
 };
