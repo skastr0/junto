@@ -23,7 +23,8 @@ vi.mock("node:fs/promises", async original => {
 vi.mock("../src/main/junto/process-epoch", () => ({
   readSingleProcessEpochSnapshot: (pid: number) => fixture.stopped ? [] : [{ pid, startKey: "incumbent" }],
 }));
-vi.mock("../src/main/junto/hosts/install-service", () => ({
+vi.mock("../src/main/junto/hosts/install-service", async (original) => ({
+  ...await original<typeof import("../src/main/junto/hosts/install-service")>(),
   machineService: async () => ({
     provider: "launchd",
     reconcile: async () => {},

@@ -24,20 +24,35 @@ export interface MachineService {
 
 /** Which service check refused to act on a definition or a loaded job. */
 export const MachineServiceCheck = Schema.Literals(["service-foreign", "not-this-install", "changed-after-admission", "not-quiescent",
-  "platform-unsupported", "invalid-pid", "service-changed"]);
+  "platform-unsupported", "invalid-pid", "service-changed", "label-invalid"]);
 export class MachineServiceRefused extends Schema.TaggedError<MachineServiceRefused>()("MachineServiceRefused", {
   check: MachineServiceCheck,
   message: Schema.String,
 }) {}
 const refused = (check: typeof MachineServiceCheck.Type, message: string): MachineServiceRefused => new MachineServiceRefused({ check, message });
 
+/**
+ * The one service label shape Junto mints (install.ts machineServiceLabel). It is
+ * spliced into launchctl and systemctl targets and the plist, so nothing else is
+ * ever accepted: an empty label made `launchctl bootout gui/501/` end a whole session.
+ */
+export const MachineServiceLabel = Schema.String.pipe(Schema.check(Schema.isPattern(/^dev\.junto\.machine\.[0-9a-f]{16}$/)), Schema.brand("MachineServiceLabel"));
+export type MachineServiceLabel = typeof MachineServiceLabel.Type;
+const isServiceLabel = Schema.is(MachineServiceLabel);
+/** Checked again at every entry: a brand is a type, and a caller can cast. */
+export const admitMachineServiceLabel = (label: unknown): MachineServiceLabel => {
+  if (!isServiceLabel(label)) throw refused("label-invalid", "The machine service label is not one Junto minted");
+  return label;
+};
+
 const exitCode = (cause: unknown): unknown => cause instanceof Error && "code" in cause ? cause.code : undefined;
 
 /** Admission is the exact owned definition plus the loaded job's paths and home. */
 export const darwinMachineService = async (
-  root: string, home: string, label: string,
+  root: string, home: string, label: MachineServiceLabel,
   launchctl: (args: string[]) => Promise<string> = args => run("/bin/launchctl", args),
 ): Promise<MachineService> => {
+  admitMachineServiceLabel(label);
   const node = join(root, "current/bin/node");
   const entry = join(root, "current/core/junto.cjs");
   const user = `user/${process.getuid!()}`;
@@ -152,7 +167,8 @@ export const darwinMachineService = async (
 };
 
 /** Only the install's exact service name and definition can be acted on. */
-export const machineService = async (root: string, home: string, label: string): Promise<MachineService> => {
+export const machineService = async (root: string, home: string, label: MachineServiceLabel): Promise<MachineService> => {
+  admitMachineServiceLabel(label);
   const node = join(root, "current/bin/node");
   const entry = join(root, "current/core/junto.cjs");
   if (process.platform === "darwin") {

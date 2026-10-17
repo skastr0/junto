@@ -11,7 +11,7 @@ import { MachineOwnStatus } from "@shared/machine-control";
 import { scrubMessage, scrubText } from "../credentials/scrub";
 import { inspectMachineBundle } from "./bundle";
 import { checkMachineTree, ensureMachineDirectory, machineHomePath, optionalMetadata, ownedMachineFile } from "./install-paths";
-import { machineService } from "./install-service";
+import { admitMachineServiceLabel, machineService, type MachineServiceLabel } from "./install-service";
 import { quiesceMachineService } from "./quiesce-service";
 import { acquireInstallLock, admitInstallLockRoot } from "./install-lock";
 
@@ -32,8 +32,8 @@ export class MachineInstallRefused extends Schema.TaggedError<MachineInstallRefu
 const refused = (check: typeof MachineInstallCheck.Type, message: string, cause?: unknown): MachineInstallRefused =>
   new MachineInstallRefused({ check, message, ...(cause === undefined ? {} : { cause }) });
 
-export const machineServiceLabel = (installRoot: string, juntoHome: string): string =>
-  `dev.junto.machine.${createHash("sha256").update(`${installRoot}\0${juntoHome}`).digest("hex").slice(0,16)}`;
+export const machineServiceLabel = (installRoot: string, juntoHome: string): MachineServiceLabel =>
+  admitMachineServiceLabel(`dev.junto.machine.${createHash("sha256").update(`${installRoot}\0${juntoHome}`).digest("hex").slice(0,16)}`);
 
 export const readInstalledMachineStatus = async (directory: string, home: string): Promise<MachineOwnStatus> => {
   const result = await exec(join(directory, "bin/junto"), ["machine", "status", "{}"], {

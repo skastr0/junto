@@ -8,12 +8,12 @@ vi.mock("node:os", async original => ({ ...await original<typeof import("node:os
 vi.mock("../src/main/junto/process-epoch", () => ({
   readSingleProcessEpochSnapshot: (pid: number) => account.isLive(pid) ? [{ pid, startKey: `fixture-${pid}` }] : [],
 }));
-import { darwinMachineService } from "../src/main/junto/hosts/install-service";
+import { admitMachineServiceLabel, darwinMachineService, machineService, MachineServiceRefused } from "../src/main/junto/hosts/install-service";
 import { removeMachineServiceFile } from "../src/main/junto/hosts/install-paths";
 
 type Job = { pid: number; path: string; program: string; args: string[]; home: string };
 let root: string, home: string, file: string;
-const label = "dev.junto.machine.test";
+const label = admitMachineServiceLabel("dev.junto.machine.0123456789abcdef");
 const user = `user/${process.getuid!()}`, gui = `gui/${process.getuid!()}`;
 let guiExists: boolean, failure: string, injectLogin: boolean;
 let jobs: Map<string, Job>, calls: string[][];
@@ -273,3 +273,12 @@ describe("owned macOS machine service", () => {
     expect(await readFile(file, "utf8")).not.toBe(legacyBody);
   });
 });
+
+it.each(["", "dev.junto.machine.", "dev.junto.machine.0123456789abcdeF", "dev.junto.machine.0123456789abcdef/x", "x</string><key>"])(
+  "refuses the label %j before any launchctl or systemctl call", async (bad) => {
+    const calls: string[][] = [];
+    const spy = async (args: string[]) => { calls.push(args); return ""; };
+    await expect(darwinMachineService("/root", "/home", bad as never, spy)).rejects.toMatchObject({ _tag: "MachineServiceRefused", check: "label-invalid" });
+    await expect(machineService("/root", "/home", bad as never)).rejects.toBeInstanceOf(MachineServiceRefused);
+    expect(calls).toEqual([]);
+  });
