@@ -84,6 +84,29 @@ describe("harness domain: status", () => {
     expect(owned.status).toEqual({ _tag: "Blocked", reason: { _tag: "Permission" } });
   });
 
+  it("returns to the owner's activity when a poorer channel clears its own block", () => {
+    const snapshot = fold(
+      at("osc7501", { _tag: "ActivityObserved", activity: "working" }),
+      at("screen", { _tag: "DialogShown", kind: "unknown" }),
+      at("screen", { _tag: "ActivityObserved", activity: "idle" }),
+    );
+    expect(snapshot.status).toEqual({ _tag: "Working", phase: "thinking" });
+    expect(snapshot.statusSource).toBe("osc7501");
+    const later = reduceSeatSignals(snapshot, [at("screen", { _tag: "ActivityObserved", activity: "idle" })]);
+    expect(later.status._tag).toBe("Working");
+  });
+
+  it("keeps a richer channel's block while a poorer one owns the activity", () => {
+    const snapshot = fold(
+      at("screen", { _tag: "ActivityObserved", activity: "working" }),
+      at("hook", { _tag: "PermissionRequested" }),
+      at("system", { _tag: "ChannelOpened", channel: "hook" }),
+      at("screen", { _tag: "ActivityObserved", activity: "idle" }),
+    );
+    expect(snapshot.status._tag).toBe("Blocked");
+    expect(snapshot.activity?.status).toEqual({ _tag: "Idle" });
+  });
+
   it("hands the seat to the next channel when the owner closes", () => {
     const snapshot = fold(
       at("osc7501", { _tag: "TurnStarted" }),

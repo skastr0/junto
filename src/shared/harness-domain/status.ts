@@ -94,6 +94,14 @@ export const SeatSnapshot = Schema.Struct({
   since: EpochMs,
   statusSource: SignalSource,
   statusFidelity: Fidelity,
+  /**
+   * The activity owner's own view (never Blocked): the richest open channel's
+   * last idle or working read. A block a poorer channel raises sits on top of
+   * it, and clearing that block returns the seat to this view.
+   */
+  activity: Schema.optionalKey(
+    Schema.Struct({ status: SeatStatus, source: SignalSource, fidelity: Fidelity }),
+  ),
   /** Harness channels that have reported and not closed. */
   channels: Schema.Array(HarnessChannel),
   sessionId: Schema.optionalKey(Schema.String),
@@ -166,18 +174,53 @@ export const sourceRank = (source: SignalSource): number => RANK[source];
 const isHarnessChannel = (source: SignalSource): source is HarnessChannel =>
   Schema.is(HarnessChannel)(source);
 
-/** The status owner still speaks for the seat. */
-const ownerLive = (snapshot: SeatSnapshot): boolean =>
-  isHarnessChannel(snapshot.statusSource) && snapshot.channels.includes(snapshot.statusSource);
+const isOpen = (snapshot: SeatSnapshot, source: SignalSource): boolean =>
+  isHarnessChannel(source) && snapshot.channels.includes(source);
 
-const accepts = (snapshot: SeatSnapshot, source: SignalSource, next: SeatStatus): boolean => {
-  if (snapshot.status._tag === "Exited") return false;
-  if (next._tag === "Exited") return true;
-  const outranked = ownerLive(snapshot) && RANK[source] < RANK[snapshot.statusSource];
-  if (!outranked) return true;
-  // A poorer channel may raise a block it sees, never clear or replace one.
-  return next._tag === "Blocked" && snapshot.status._tag !== "Blocked";
+/** A richer open channel set the activity, so `source` may not overwrite it. */
+const activityOutranks = (snapshot: SeatSnapshot, source: SignalSource): boolean => {
+  const owner = snapshot.activity?.source;
+  return owner !== undefined && isOpen(snapshot, owner) && RANK[source] < RANK[owner];
 };
+
+/** The current block came from a richer channel that is still open. */
+const blockOutranks = (snapshot: SeatSnapshot, source: SignalSource): boolean =>
+  snapshot.status._tag === "Blocked" &&
+  isOpen(snapshot, snapshot.statusSource) &&
+  RANK[source] < RANK[snapshot.statusSource];
+
+type Shown = { readonly status: SeatStatus; readonly source: SignalSource; readonly fidelity: Fidelity };
+
+/**
+ * What a status fact from `envelope.source` does to the seat: the status to
+ * show and the activity view to keep, or undefined when it changes nothing.
+ */
+const arbitrate = (
+  snapshot: SeatSnapshot,
+  envelope: SignalEnvelope,
+  next: SeatStatus,
+): { readonly shown: Shown; readonly activity: SeatSnapshot["activity"] } | undefined => {
+  if (snapshot.status._tag === "Exited") return undefined;
+  const fact: Shown = { status: next, source: envelope.source, fidelity: envelope.fidelity };
+  if (next._tag === "Exited") return { shown: fact, activity: snapshot.activity };
+  if (next._tag === "Blocked") {
+    // Any channel may raise a block it sees; only an equal or richer one replaces a block.
+    return blockOutranks(snapshot, envelope.source) ? undefined : { shown: fact, activity: snapshot.activity };
+  }
+  if (activityOutranks(snapshot, envelope.source)) {
+    // A poorer channel clearing its own block hands the seat back to the owner's view.
+    const ownBlock = snapshot.status._tag === "Blocked" && snapshot.statusSource === envelope.source;
+    return ownBlock && snapshot.activity ? { shown: snapshot.activity, activity: snapshot.activity } : undefined;
+  }
+  // This channel now owns the activity; a richer channel's block still stands over it.
+  return { shown: blockOutranks(snapshot, envelope.source) ? current(snapshot) : fact, activity: fact };
+};
+
+const current = (snapshot: SeatSnapshot): Shown => ({
+  status: snapshot.status,
+  source: snapshot.statusSource,
+  fidelity: snapshot.statusFidelity,
+});
 
 const statusKey = (status: SeatStatus): string => {
   switch (status._tag) {
@@ -195,18 +238,22 @@ const withStatus = (
   envelope: SignalEnvelope,
   next: SeatStatus,
 ): SeatSnapshot => {
-  if (!accepts(snapshot, envelope.source, next)) return snapshot;
+  const decided = arbitrate(snapshot, envelope, next);
+  if (!decided) return snapshot;
+  const { shown, activity } = decided;
   const leavingLimit =
     snapshot.status._tag === "Blocked" &&
     snapshot.status.reason._tag === "UsageLimit" &&
-    !(next._tag === "Blocked" && next.reason._tag === "UsageLimit");
-  const { wakeAt: _wakeAt, ...rest } = snapshot;
+    !(shown.status._tag === "Blocked" && shown.status.reason._tag === "UsageLimit");
+  const { wakeAt: _wakeAt, activity: _activity, ...rest } = snapshot;
+  const base = leavingLimit ? rest : dropKey(snapshot, "activity");
   return {
-    ...(leavingLimit ? rest : snapshot),
-    status: next,
-    since: statusKey(next) === statusKey(snapshot.status) ? snapshot.since : envelope.at,
-    statusSource: envelope.source,
-    statusFidelity: envelope.fidelity,
+    ...base,
+    ...(activity === undefined ? {} : { activity }),
+    status: shown.status,
+    since: statusKey(shown.status) === statusKey(snapshot.status) ? snapshot.since : envelope.at,
+    statusSource: shown.source,
+    statusFidelity: shown.fidelity,
   };
 };
 
