@@ -129,12 +129,17 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
       close: cause => Effect.promise(() => close(cause)),
     };
   };
-  const eventContext = (): LinkEventContext => {
-    // A cast cannot bring the request back: it is refused, typed, before it is sent.
-    const { request: _request, ...rest } = context();
-    return Object.assign(rest, { request: () => Effect.fail(new LinkUnavailable({ ...(peerName() === undefined ? {} : { machine: peerName()! }),
-      reason: "request-from-event", message: "An event handler cannot send a request on its own link" })) });
-  };
+  /**
+   * The context for work in a channel's event queue: handleEvent, opened and
+   * closed. Its request is refused, typed, before anything is sent, so a cast
+   * cannot bring it back. Typed whole for opened and closed until their users
+   * take LinkEventContext.
+   */
+  const eventContext = (): LinkChannelContext & LinkEventContext => ({
+    ...context(),
+    request: () => Effect.fail(new LinkUnavailable({ ...(peerName() === undefined ? {} : { machine: peerName()! }),
+      reason: "request-from-event", message: "An event handler cannot send a request on its own link" })),
+  });
   const classify = (cause: unknown): MachineLinkError => isMachineLinkError(cause) ? cause :
     linkClosed({ ...(peerName() === undefined ? {} : { machine: peerName()! }), by: "this-end", reason: "failed", cause });
   const closedFrom = (first: MachineLinkError): LinkClosed => first._tag === "LinkClosed" ? first :
@@ -171,7 +176,7 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     }
     if (duplex && farewell === undefined) options.readable.destroy();
     if (peer !== undefined) {
-      const ctx = context();
+      const ctx = eventContext();
       for (const [name, channel] of Object.entries(channels)) if (channel?.closed !== undefined) {
         void options.run(channel.closed(ctx)).catch(hookCause => log("Warning", "link channel close hook failed", { channel: name, failure: encodeError(hookCause, { machine: self.machineName }) }));
       }
@@ -283,7 +288,7 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
       clearTimeout(helloTimer);
       resolveReady(peer);
       log("Info", "link opened", { peerBuild: peer.build, peerInstallationId: peer.installationId });
-      const ctx = context();
+      const ctx = eventContext();
       for (const [name, channel] of Object.entries(channels)) if (channel?.opened !== undefined) {
         enqueue(name as LinkChannel, "event", async () => { await checkAdmission(); await runOwned(channel.opened!(ctx)); });
       }
