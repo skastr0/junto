@@ -708,10 +708,11 @@ try {
     await sleep(400);
   };
   for (const where of ["outside", "over"] as const) {
-    if (!want(`pan-${where}`)) continue;
+    const scenarioName = where === "over" ? "pan-hover" : "pan-outside";
+    if (!want(scenarioName)) continue;
     results.push(
     await measure(
-      `pan-${where}`,
+      scenarioName,
       async (ms) => {
         // Sweep one way for half the window and back for the other half, so the
         // camera crosses the nested regions and ends where it began.
@@ -766,7 +767,7 @@ try {
         if (traceDone) {
           await browser!.send("Tracing.end");
           await traceDone;
-          tracePath = `${traceBase}.pan-${where}.json`;
+          tracePath = `${traceBase}.${scenarioName}.json`;
           writeFileSync(tracePath, JSON.stringify({ traceEvents: traced }));
         }
         seen.push(await viewport());
