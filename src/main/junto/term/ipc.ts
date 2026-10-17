@@ -1,7 +1,7 @@
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
 import { ModelService } from "../model/service";
 import { SeatSessionRepository } from "../seat-sessions/repository";
-import type { JuntoApi } from "@shared/ipc";
+import type { JuntoApi, MachineInventoryResult } from "@shared/ipc";
 import {
   IPC_CHANNELS,
   type TerminalAttachInput,
@@ -260,8 +260,8 @@ export const registerTerminalIpc = (
     IPC_CHANNELS.managedTerminalModels,
     async (event, harness: string) => {
       assertTrusted(event);
-      const { enumerateManagedModels } = await import("./templates/enumerate-dispatch");
-      return enumerateManagedModels(harness);
+      const { HarnessInventory } = await import("./templates/harness-inventory");
+      return AppRuntime.runPromise(Effect.flatMap(HarnessInventory, (inventory) => inventory.models(harness)));
     },
   );
 
@@ -269,6 +269,28 @@ export const registerTerminalIpc = (
     assertTrusted(event);
     const { enumerateManagedProfiles } = await import("./templates/enumerate-dispatch");
     return enumerateManagedProfiles();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.machineInventory, async (event, machine: unknown): Promise<MachineInventoryResult> => {
+    assertTrusted(event);
+    if (typeof machine !== "string" || !machine.trim()) return deny("machine inventory: a machine name is required");
+    const { HarnessInventory } = await import("./templates/harness-inventory");
+    return AppRuntime.runPromise(Effect.flatMap(HarnessInventory, (inventory) => inventory.machine).pipe(
+      Effect.map((inventory): MachineInventoryResult => inventory.machine === machine
+        ? { ok: true, inventory }
+        // A linked machine answers over the link's inventory channel, which lands
+        // after the link rewrite (docs/machines.md, Harness inventory, Order).
+        : { ok: false, error: {
+          _tag: "InventoryUnavailableError",
+          machine,
+          reason: "unreachable",
+          message: "Another machine's inventory comes over the link's inventory channel, which is not built yet",
+        } }),
+      Effect.catchTag("InventoryUnavailableError", (error) => Effect.succeed<MachineInventoryResult>({
+        ok: false,
+        error: { _tag: error._tag, machine: error.machine || machine, reason: error.reason, message: error.message },
+      })),
+    ));
   });
 
   ipcMain.handle(IPC_CHANNELS.managedTerminalHarnesses, async (event) => {

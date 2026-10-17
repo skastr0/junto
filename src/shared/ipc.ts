@@ -1,3 +1,4 @@
+import type { MachineInventory } from "./harness-domain/inventory";
 import type { ChatChromeSnapshot, ChatChromeChanged } from "./chat-chrome";
 import type { WorkAttentionSnapshot } from "./work-attention";
 import type { WorkItemQuery, WorkActorQuery, WorkActorPage, WorkAttentionQuery, WorkLaneRow, WorkSinkQuery, WorkSinkPage, WorkSinkChanged } from "./work-sinks";
@@ -384,6 +385,8 @@ export const IPC_CHANNELS = {
   managedTerminalHarnesses: "junto:managed-terminal-harnesses",
   /** Options the installed harness lists in its own `--help`. */
   managedTerminalFlags: "junto:managed-terminal-flags",
+  /** One machine's harness inventory snapshot (docs/machines.md, Harness inventory). */
+  machineInventory: "junto:machine-inventory",
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
   agentSeatStateSnapshot: "junto:agent-seat-state-snapshot",
   agentSeatStateChanged: "junto:agent-seat-state-changed",
@@ -1279,6 +1282,19 @@ export interface ManagedTerminalModelOption {
   readonly efforts?: readonly string[];
 }
 
+/** A machine's harness snapshot, or why it cannot be read now. */
+export type MachineInventoryResult =
+  | { readonly ok: true; readonly inventory: MachineInventory }
+  | {
+    readonly ok: false;
+    readonly error: {
+      readonly _tag: "InventoryUnavailableError";
+      readonly machine: string;
+      readonly reason: "timeout" | "failed" | "unreachable" | "notInstalled";
+      readonly message: string;
+    };
+  };
+
 export interface ManagedTerminalModelsResult {
   readonly models: readonly ManagedTerminalModelOption[];
   readonly source: "cache" | "aliases" | "command" | "empty";
@@ -1425,6 +1441,8 @@ export interface JuntoTerminalApi {
    * Palette filters to `installed` before offering a seat.
    */
   readonly managedTerminalHarnesses: () => Promise<ManagedTerminalHarnessesResult>;
+  /** One machine's harness inventory, answered at once from that machine's cache. */
+  readonly machineInventory: (machine: string) => Promise<MachineInventoryResult>;
   /**
    * Fail-soft: the options the installed harness prints in `--help`, for the
    * launch-parameter editor, plus Amp plugin modes in the chosen folder.
