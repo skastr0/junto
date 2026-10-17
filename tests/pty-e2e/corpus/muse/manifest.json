@@ -176,12 +176,261 @@
         "description": "working turn: OSC title churn / spinner / progress frames then interrupt",
         "prompt": "forty numbered JUNTO CAPTURE lines"
       }
+    },
+    {
+      "harness": "muse",
+      "scenario": "retry-overloaded",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: overloaded }, then a completed turn",
+        "wiring": "the meta provider's --base-url points at the stub, which also serves the /muse-code/models catalog; auto-update off",
+        "stubServed": [
+          "/v1/responses 503",
+          "/v1/responses 503",
+          "/v1/responses 503",
+          "/v1/responses ok"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "◇ Working (0s · esc to interrupt)",
+          "◆ Thinking (0s · esc to interrupt)",
+          "└ Meta Model API server error (HTTP 503) · retrying in 1s · attempt 2/10",
+          "└ Meta Model API server error (HTTP 503) · attempt 4/10",
+          "◆ Hello from the capture stub."
+        ],
+        "cliVersion": "Muse Code 1.4.10 (1.4.10-R6427.1)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "muse",
+      "scenario": "retry-rate",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: rate }, then a completed turn",
+        "wiring": "the meta provider's --base-url points at the stub, which also serves the /muse-code/models catalog; auto-update off",
+        "stubServed": [
+          "/v1/responses 429",
+          "/v1/responses 429",
+          "/v1/responses 429",
+          "/v1/responses ok"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "◇ Working (0s · esc to interrupt)",
+          "◆ Thinking (0s · esc to interrupt)",
+          "└ Meta Model API rate limited (HTTP 429) · retrying in 2s · attempt 2/10",
+          "└ Meta Model API rate limited (HTTP 429) · attempt 2/10",
+          "◆ Hello from the capture stub."
+        ],
+        "cliVersion": "Muse Code 1.4.10 (1.4.10-R6427.1)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "muse",
+      "scenario": "retry-network",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: network }, then a completed turn",
+        "wiring": "the meta provider's --base-url points at the stub, which also serves the /muse-code/models catalog; auto-update off",
+        "stubServed": [
+          "/v1/responses drop",
+          "/v1/responses drop",
+          "/v1/responses drop",
+          "/v1/responses ok"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "◇ Working (0s · esc to interrupt)",
+          "◆ Thinking (0s · esc to interrupt)",
+          "└ Meta Model API connection failed · retrying in 1s · attempt 2/10",
+          "◆ Hello from the capture stub.",
+          "◇ Double checking (12s · esc to interrupt)"
+        ],
+        "cliVersion": "Muse Code 1.4.10 (1.4.10-R6427.1)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "muse",
+      "scenario": "usage-limit",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: 5h, resetsAt }",
+        "wiring": "the meta provider's --base-url points at the stub, which also serves the /muse-code/models catalog; auto-update off",
+        "stubServed": [
+          "/v1/responses 429"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "◇ Working (0s · esc to interrupt)",
+          "◆ Usage limit reached · /upgrade (https://accountscenter.meta.com/muse_code/?ep=xgrade) for increased limits, or wait",
+          "  for usage to reset at 7:20 AM"
+        ],
+        "cliVersion": "Muse Code 1.4.10 (1.4.10-R6427.1)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "muse",
+      "scenario": "usage-limit-weekly",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: weekly, resetsAt }",
+        "wiring": "the meta provider's --base-url points at the stub, which also serves the /muse-code/models catalog; auto-update off",
+        "stubServed": [
+          "/v1/responses 429"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "◇ Working (0s · esc to interrupt)",
+          "◆ model failed: API error 429: The usage limit has been reached (usage_limit_reached)",
+          "◆ Usage limit reached · /upgrade (https://accountscenter.meta.com/muse_code/?ep=xgrade) for increased limits, or wait",
+          "  for usage to reset at Oct 21 at 7:21 AM"
+        ],
+        "cliVersion": "Muse Code 1.4.10 (1.4.10-R6427.1)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "muse",
+      "scenario": "error-auth",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: auth }",
+        "wiring": "the meta provider's --base-url points at the stub, which also serves the /muse-code/models catalog; auto-update off",
+        "stubServed": [
+          "/v1/responses 401"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "◇ Working (0s · esc to interrupt)",
+          "◆ your API key from META_API_KEY was rejected — update or unset it"
+        ],
+        "cliVersion": "Muse Code 1.4.10 (1.4.10-R6427.1)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "muse",
+      "scenario": "error-server",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: provider } after retries run out",
+        "wiring": "the meta provider's --base-url points at the stub, which also serves the /muse-code/models catalog; auto-update off",
+        "stubServed": [
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "◇ Working (0s · esc to interrupt)",
+          "◆ Thinking (0s · esc to interrupt)",
+          "└ Meta Model API server error (HTTP 500) · retrying in 1s · attempt 2/10",
+          "└ Meta Model API server error (HTTP 500) · attempt 2/10",
+          "◇ Thinking (1m 00s · esc to interrupt)"
+        ],
+        "cliVersion": "Muse Code 1.4.10 (1.4.10-R6427.1)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "muse",
+      "scenario": "error-context",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: contextOverflow }",
+        "wiring": "the meta provider's --base-url points at the stub, which also serves the /muse-code/models catalog; auto-update off",
+        "stubServed": [
+          "/v1/responses 400"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "◇ Working (0s · esc to interrupt)",
+          "◆ model failed: API error 400: Your input exceeds the context window of this model. Please adjust your input and try",
+          "  again. (context_length_exceeded)"
+        ],
+        "cliVersion": "Muse Code 1.4.10 (1.4.10-R6427.1)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "muse",
+      "scenario": "compaction-auto",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "CompactionStarted { trigger: auto }, CompactionEnded { ok }, then a completed turn",
+        "wiring": "the meta provider's --base-url points at the stub, which also serves the /muse-code/models catalog; auto-update off",
+        "stubServed": [
+          "/v1/responses ok",
+          "/v1/responses ok"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "◇ Working (0s · esc to interrupt)",
+          "◆ Hello from the capture stub.",
+          "◆ Compacting context",
+          "  stub-model · high · ctx 95% · <CWD> · Auto-review                     compacting context",
+          "◆ The conversation could not be summarized.",
+          "  stub-model · high · ctx 95% · muse  automatic compaction reached the trim floor; retrying /compact is unlikely to help",
+          "  stub-model · high · ctx 95% · <CWD> · Auto-review",
+          "❯ say hi again",
+          "  stub-model · high · <CWD> · Auto-review",
+          "◆ Thinking (0s · esc to interrupt)",
+          "◆ Summary: the user greeted the assistant and the assistant replied."
+        ],
+        "cliVersion": "Muse Code 1.4.10 (1.4.10-R6427.1)"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "muse",
+      "scenario": "compaction-manual",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "CompactionStarted { trigger: manual }, CompactionEnded { ok }",
+        "wiring": "the meta provider's --base-url points at the stub, which also serves the /muse-code/models catalog; auto-update off",
+        "stubServed": [
+          "/v1/responses ok",
+          "/v1/responses ok"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "◇ Working (0s · esc to interrupt)",
+          "  Line 276 of a long capture answer, padding the conversation.",
+          "… 300 more lines (use /export to save the full text)",
+          "└ (ctrl+o to expand)",
+          "❯ say more",
+          "  Line 9 of a long capture answer, padding the conver",
+          "◇ Compacting context",
+          "  stub-model · high · <CWD> · Auto-review                               compacting context",
+          "◆ The conversation could not be summarized."
+        ],
+        "cliVersion": "Muse Code 1.4.10 (1.4.10-R6427.1)"
+      },
+      "expectedScreen": {}
     }
   ],
   "sanitization": {
     "method": "decoded-jsonl-scan",
-    "fixtures": 4,
-    "decodedBytes": 105276,
+    "fixtures": 14,
+    "decodedBytes": 582281,
     "checks": [
       "home-path",
       "username",
@@ -201,5 +450,11 @@
     "authentication": "not required by the deterministic echo provider",
     "turnEvidence": "deterministic echo turns only; no remote model turn was exercised"
   },
-  "redactions": []
+  "redactions": [],
+  "signalCaptureEvidence": {
+    "tool": "tests/pty-e2e/signal-capture.ts",
+    "capturedAt": "2026-10-17T04:06:58.643Z",
+    "harnessVersion": "Muse Code 1.4.10 (1.4.10-R6427.1)",
+    "provider": "scripted local stub; the binary and its rendering are real, the provider replies are not"
+  }
 }
