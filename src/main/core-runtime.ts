@@ -14,8 +14,9 @@ import { MachineOwnerControl, makeMachineOwnerActions } from "./junto/hosts/mach
 import { makeCoreProductLayer } from "./core-product";
 import { MachineLink } from "./junto/link/service";
 import { machineLinkLayer } from "./junto/link/live";
-import { LinkBuildMismatch } from "./junto/link/session";
-import type { LinkChannelHandler } from "./junto/link/types";
+import { LinkBuildMismatch, LinkPeerNotPinned, type LinkChannelHandler, type MachineLinkError } from "./junto/link/types";
+import { encodeError, encodeFailure } from "./junto/failure-encode";
+import { failureSentence } from "@shared/failure";
 import { probeManagedHarnessInstalls } from "./junto/term/templates/harness-install";
 import { makeRowsChannel } from "./junto/work/exchange/channel";
 import { followLocalCommits, makeLiveRowExchange } from "./junto/work/exchange/live";
@@ -33,6 +34,9 @@ import { PausePlane } from "./junto/pause-plane";
 import { pauseWasResumed } from "@shared/pause";
 import type { AgentSignal } from "@shared/agent-signals";
 import { ObservabilityLoggerLive, setLogMachine } from "./junto/observability/logger";
+import { answerPeerLogRead, MachineLogsNotSetUp, receivePeerLogRead } from "./junto/observability/log-link";
+import { readMachineLog } from "./junto/observability/log-file";
+import { MachineLogQuery, MachineLogRead } from "@shared/machine-log";
 
 export interface MachineCoreOptions {
   readonly home: string;
@@ -42,7 +46,11 @@ export interface MachineCoreOptions {
   readonly ready: () => boolean;
 }
 
-const MachineStatusRequest = Schema.Struct({ kind: Schema.Literal("machine") });
+// The status channel answers a machine's status, or its log for the asking peer.
+const MachineStatusRequest = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("machine") }),
+  Schema.Struct({ kind: Schema.Literal("logs"), query: MachineLogQuery }),
+]);
 const rejectEvent = (): never => { throw new Error("The status channel has no events"); };
 
 export class MachineCoreStatus extends Context.Service<MachineCoreStatus, {
@@ -110,6 +118,8 @@ const machineCoreMailLayer = Layer.effect(MachineCoreMail, Effect.gen(function* 
   };
 }));
 
+class ExchangeStatusInvalid extends Schema.TaggedError<ExchangeStatusInvalid>()("ExchangeStatusInvalid", { message: Schema.String }) {}
+
 const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* () {
   const machines = yield* MachineRepository;
   const links = yield* MachineLink;
@@ -118,11 +128,15 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
   const exchange = yield* makeLiveRowExchange({
     mailArrived: (canvas, nodeId, message) => messageDelivery.notifyAppended(canvas, nodeId, message),
     signalTaken: signal => notifySignal?.(signal),
-    linkFailed: (peer) => {
+    // The closing rule travels with the link close: logged at both ends and sent to the peer.
+    linkFailed: (peer, cause) => {
       void Effect.runPromiseWith(context)(Effect.gen(function* () {
         const machine = (yield* machines.peers).find(machine => machine.installationId === peer);
-        if (machine !== undefined) yield* links.disconnect(machine.machineName);
-      })).catch(() => undefined);
+        if (machine !== undefined) yield* links.disconnect(machine.machineName, cause);
+      }).pipe(Effect.catchCause(failed => Effect.gen(function* () {
+        const failure = encodeFailure(failed, { machine: yield* machines.machineName.pipe(Effect.orElseSucceed(() => "this-machine")) });
+        yield* Effect.logWarning("the row exchange could not close its link").pipe(Effect.annotateLogs({ area: "link", ...(failure === undefined ? {} : { failure }) }));
+      }))));
     },
   });
   messageDelivery.followLinks((canvas, nodeId) => Effect.runPromiseWith(context)(exchange.routed(canvas, nodeId)));
@@ -170,9 +184,12 @@ export const machineCoreStatusLayer = (options: MachineCoreOptions) => Layer.eff
   });
   const handler: LinkChannelHandler = {
     decodeRequest: Schema.decodeUnknownSync(MachineStatusRequest, { onExcessProperty: "error" }),
-    decodeResponse: Schema.decodeUnknownSync(MachinePeerStatus, { onExcessProperty: "error" }),
+    decodeResponse: Schema.decodeUnknownSync(Schema.Union([MachinePeerStatus, MachineLogRead]), { onExcessProperty: "error" }),
     decodeEvent: rejectEvent,
-    handleRequest: () => peer,
+    handleRequest: (context, payload) => {
+      const request = payload as typeof MachineStatusRequest.Type;
+      return request.kind === "logs" ? answerPeerLogRead(options.home, context.peer, request.query) : peer;
+    },
   };
   return { own, harnesses, handler };
 }));
@@ -196,18 +213,33 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
     const actions = yield* makeMachineOwnerActions({
       ownStatus: machineStatus.own,
       ownHarnesses: machineStatus.harnesses,
+      ownLogs: (query) => Effect.flatMap(machines.machineName, (name) => readMachineLog(options.home, name, query)),
+      peerLogs: (name, query) => Effect.gen(function* () {
+        const host = yield* hostsService.get(name);
+        const pin = yield* machines.peer(name);
+        if (host === undefined || pin === undefined) return yield* new MachineLogsNotSetUp({ machine: name, message: `Set up ${name} before reading its log` });
+        yield* link.connect(host);
+        return yield* receivePeerLogRead(yield* link.request(name, "status", { kind: "logs", query }), name);
+      }),
       peerBuild: link.peerBuild,
       copy,
       disconnect: link.disconnect,
       peerStatus: (name) => Effect.gen(function* () {
         const host = yield* hostsService.get(name);
         const pin = yield* machines.peer(name);
-        if (host === undefined || pin === undefined) return yield* Effect.fail(new Error("Set up this machine first"));
+        if (host === undefined || pin === undefined) return yield* Effect.fail(new LinkPeerNotPinned({ machine: name, message: `Set up ${name} first` }));
+        const own = yield* machines.machineName;
         return yield* link.connect(host).pipe(
           Effect.andThen(link.request(name, "status", { kind: "machine" })),
           Effect.flatMap(Schema.decodeUnknownEffect(MachinePeerStatus, { onExcessProperty: "error" })),
-          Effect.catch(cause => Effect.succeed({ machineName: name, reachable: cause instanceof LinkBuildMismatch, installationId: pin.installationId,
-            harnesses: [], missingSecrets: [], detail: cause instanceof LinkBuildMismatch ? "Update Junto on this machine" : "Cannot reach this machine" })),
+          // Unreachable is an answer, and it says why: the typed failure, encoded and scrubbed.
+          Effect.catch((cause: MachineLinkError | Schema.SchemaError) => Effect.gen(function* () {
+            const failure = cause._tag === "LinkRequestFailed" ? cause.failure : encodeError(cause, { machine: own });
+            yield* Effect.logWarning("machine status failed").pipe(Effect.annotateLogs({ area: "link", peer: name, failure }));
+            return { machineName: name, reachable: cause instanceof LinkBuildMismatch, installationId: pin.installationId,
+              harnesses: [], missingSecrets: [], failure,
+              detail: cause instanceof LinkBuildMismatch ? "Update Junto on this machine" : failureSentence(failure).slice(0, 1024) };
+          })),
         );
       }),
     });
@@ -217,10 +249,15 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
         Effect.map(data => ({ protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: "machine.exchange" as const, ok: true as const, data })),
         Effect.flatMap(response => {
           const decoded = decodeOperatorResponse(response);
-          return decoded._tag === "Success" ? Effect.succeed(decoded.success) : Effect.fail(new Error("Exchange status exceeds its contract"));
+          return decoded._tag === "Success" ? Effect.succeed(decoded.success) : Effect.fail(new ExchangeStatusInvalid({ message: "Exchange status exceeds its contract" }));
         }),
-        Effect.catch(() => Effect.succeed({ protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op,
-          ok: false as const, error: { type: "io" as const, message: "Could not read machine exchange state", details: { retryable: true } } })),
+        Effect.catchCause(cause => Effect.gen(function* () {
+          const failure = encodeFailure(cause, { machine: yield* machines.machineName.pipe(Effect.orElseSucceed(() => "this-machine")) });
+          yield* Effect.logWarning("machine exchange state could not be read").pipe(Effect.annotateLogs({ area: "link", ...(failure === undefined ? {} : { failure }) }));
+          const why = failure === undefined ? "" : `: ${failureSentence(failure)}`;
+          return { protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op,
+            ok: false as const, error: { type: "io" as const, message: `Could not read machine exchange state${why}`.slice(0, 1024), details: { retryable: true } } };
+        })),
       ),
     });
   }));
