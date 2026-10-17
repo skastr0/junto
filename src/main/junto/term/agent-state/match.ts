@@ -145,8 +145,11 @@ export const matcherMatches = (
   return true;
 };
 
+/** What a rule reads: a region and a gate tree. */
+type RegionRule = Pick<SeatRule, "region" | "regionN" | "matchers">;
+
 export const ruleMatches = (
-  rule: SeatRule,
+  rule: RegionRule,
   snapshot: ObserverGridSnapshot,
 ): boolean => {
   const lines = regionLines(snapshot, rule.region, rule.regionN ?? 5);
@@ -173,7 +176,7 @@ export type RuleCaptures = {
  * When two patterns name the same group, the first in tree order wins.
  */
 export const ruleCaptures = (
-  rule: SeatRule,
+  rule: RegionRule,
   snapshot: ObserverGridSnapshot,
 ): RuleCaptures => {
   const lines = regionLines(snapshot, rule.region, rule.regionN ?? 5);

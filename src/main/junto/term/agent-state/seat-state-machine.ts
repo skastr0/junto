@@ -95,6 +95,8 @@ type BindingSlot = {
   lastEval: SeatEvaluation | null;
   /** Every published decision's fact, folded. `state` is its projection. */
   snapshot: SeatSnapshot;
+  /** The screen facts the last frame showed, so each folds once, on appearing. */
+  factKeys: ReadonlySet<string>;
 };
 
 export type SeatStateListener = (event: AgentSeatStateEvent) => void;
@@ -161,6 +163,7 @@ export class SeatStateMachine {
       pendingIdle: null,
       lastEval: null,
       snapshot: initialSnapshot(bindingId as BindingId, this.now()),
+      factKeys: new Set(),
     };
     this.slots.set(bindingId, slot);
     // A live generation supersedes its predecessor's tombstone.
@@ -394,6 +397,7 @@ export class SeatStateMachine {
 
     const next = evaluate(snapshot, evalOpts);
     slot.lastEval = next;
+    if (!next.skipStateUpdate) this.foldFacts(slot, next.facts ?? []);
 
     // Viewer / menu: hold prior published state entirely.
     if (next.skipStateUpdate) {
@@ -519,6 +523,7 @@ export class SeatStateMachine {
         pendingIdle: null,
         lastEval: null,
         snapshot: initialSnapshot(bindingId as BindingId, this.now()),
+        factKeys: new Set(),
       };
       this.slots.set(bindingId, slot);
     }
@@ -614,6 +619,20 @@ export class SeatStateMachine {
       snapshot = reduceSeat(snapshot, envelope({ _tag: "HeartbeatResumed" }, "system", "native"));
     }
     slot.snapshot = reduceSeat(snapshot, envelope(fact.signal, fact.source, fact.fidelity));
+  }
+
+  /**
+   * Fold the screen facts that appeared since the last frame. A fact still
+   * on screen is not news; one that left and comes back is.
+   */
+  private foldFacts(slot: BindingSlot, facts: ReadonlyArray<SeatSignal>): void {
+    const keys = new Set<string>();
+    for (const signal of facts) {
+      const key = JSON.stringify(signal);
+      keys.add(key);
+      if (!slot.factKeys.has(key)) this.fold(slot, { signal, source: "screen", fidelity: "screen" });
+    }
+    slot.factKeys = keys;
   }
 
   private clearPendingIdle(slot: BindingSlot): void {

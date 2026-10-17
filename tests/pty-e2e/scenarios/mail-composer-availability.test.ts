@@ -51,12 +51,14 @@ const LAST_SCREEN: Readonly<Record<string, Readonly<Record<string, Outcome>>>> =
     "retry-overloaded": "written",
     "retry-rate": "written",
     "retry-network": "written",
-    "error-auth": "written",
+    // Not logged in: the seat cannot take mail until someone logs it in.
+    "error-auth": "dialog",
     "error-server": "written",
     "error-context": "written",
     "compaction-manual": "written",
-    // The 5h limit waits to continue at the reset with the box still open.
-    "usage-limit": "written",
+    // The 5h limit waits with the box open and continues by itself at the
+    // reset: blocked on the limit until then, mail holds.
+    "usage-limit": "dialog",
     // The weekly limit asks what to do: stop, wait, or upgrade.
     "usage-limit-weekly": "dialog",
   },
@@ -72,7 +74,8 @@ const LAST_SCREEN: Readonly<Record<string, Readonly<Record<string, Outcome>>>> =
     "retry-overloaded": "written",
     "retry-rate": "written",
     "retry-network": "written",
-    "error-auth": "written",
+    // 401 Unauthorized: the seat cannot take mail until its credentials are fixed.
+    "error-auth": "dialog",
     "error-server": "written",
     "error-context": "written",
     "compaction-manual": "written",

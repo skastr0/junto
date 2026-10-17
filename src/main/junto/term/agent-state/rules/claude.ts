@@ -42,6 +42,45 @@ export const claudeRules: SeatRulePack = {
     // which. Live only: "esc to interrupt" in the footer, and the line in the
     // last few, so a finished one in the scrollback never pins. Captures:
     // tests/pty-e2e/corpus/claude/retry-*, compaction-manual.
+    // A turn that ended on a login failure: the seat cannot take mail until
+    // someone logs it in. Only while the failure is the last thing above the
+    // box: the turn's done line right after it, in the last few lines, so a
+    // new turn pushes it out. Capture: corpus/claude/error-auth.
+    {
+      id: "not_logged_in",
+      state: "attention",
+      signal: { _tag: "ErrorRaised", kind: "auth" },
+      priority: 1160.5,
+      region: "bottom_non_empty_lines",
+      // The box, its rules, its footer and the effort hint sit below.
+      regionN: 8,
+      visibleAttention: true,
+      matchers: {
+        regex: [
+          "(?:^|\\n)\\s*\\u23BF\\s+(?<message>Not logged in\\b[^\\n]*?)[ \\t]*\\n\\s*\\S\\s+\\S+ for \\d+[smh]\\b[^\\n]*\\u00B7 done\\b",
+        ],
+      },
+    },
+    // The 5h limit waits with the box open and continues by itself at the
+    // reset. Still a usage limit (mail holds), one the harness lifts itself.
+    // The reset comes from the line that names its zone when it is on
+    // screen, else from the footer. Capture: corpus/claude/usage-limit.
+    {
+      id: "usage_limit_continuing",
+      state: "attention",
+      signal: { _tag: "UsageLimitHit", scope: "unknown", autoResume: true },
+      priority: 1160.6,
+      region: "bottom_non_empty_lines",
+      regionN: 12,
+      visibleAttention: true,
+      matchers: {
+        lineRegex: ["^\\s*Continuing automatically at\\s+\\S.*\\u00B7 esc to cancel\\s*$"],
+        regex: [
+          "^(?:[\\s\\S]*hit your (?<scope>weekly|session) limit[^\\n]*?\\bresets (?<resetsAt>[^\\n]+?)[ \\t]*(?:\\n|$))?",
+          "^(?:[\\s\\S]*Continuing automatically at\\s+(?<resetsAt>[^\\n]+?)\\s+\\u00B7 esc to cancel)?",
+        ],
+      },
+    },
     {
       id: "api_retry_working",
       state: "working",
@@ -378,6 +417,26 @@ export const claudeRules: SeatRulePack = {
   // Empties are exact and ordered first; the glyph-anchored draft catch-all
   // also covers our own `[Pasted text #N]` chips. Dialog chrome matches no
   // probe → null → factory typing refuses.
+  // Errors a turn ended on, beside whatever state the screen reads.
+  // Captures: tests/pty-e2e/corpus/claude/error-server, error-context.
+  facts: [
+    {
+      id: "api_error",
+      region: "bottom_non_empty_lines",
+      regionN: 12,
+      signal: { _tag: "ErrorRaised", kind: "provider" },
+      // "\u23FA API Error: 500 Internal server error. This is a server-side issue…"
+      matchers: { lineRegex: ["^\\s*\\u23FA\\s+API Error:\\s*(?<message>.+?)\\s*$"] },
+    },
+    {
+      id: "prompt_too_long",
+      region: "bottom_non_empty_lines",
+      regionN: 12,
+      signal: { _tag: "ErrorRaised", kind: "contextOverflow" },
+      // "\u23BF  Prompt is too long \u00B7 the request is ~250000 tokens (limit 200000)…"
+      matchers: { lineRegex: ["^\\s*\\u23BF\\s+(?<message>Prompt is too long\\b.*?)\\s*$"] },
+    },
+  ],
   composer: [
     {
       id: "bare_prompt_empty",

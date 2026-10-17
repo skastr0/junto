@@ -77,6 +77,22 @@ export type SeatRule = {
 };
 
 /**
+ * A fact the screen shows that changes no status: an error the turn ended
+ * on, a context or quota level. Every fact rule that matches is read on each
+ * frame, beside the one state rule that wins, and a fact is folded once,
+ * when it appears. Its signal must leave any status as it was (the pack
+ * tests hold this), so facts never compete with the state rules.
+ */
+export type SeatFactRule = {
+  readonly id: string;
+  readonly region: SeatRuleRegion;
+  /** For `bottom_non_empty_lines` (default 5). */
+  readonly regionN?: number;
+  readonly matchers: SeatMatcher;
+  readonly signal: SeatRuleSignal;
+};
+
+/**
  * What the screen proves about the seat's composer (the harness's input box).
  * "empty" — the box is visibly empty (bare glyph or the harness's known
  * placeholder hint); the only state in which a factory paste may land.
@@ -115,6 +131,8 @@ export type SeatRulePack = {
    * captured and encoded.
    */
   readonly composer?: readonly ComposerProbe[];
+  /** Facts beside the state; see SeatFactRule. */
+  readonly facts?: readonly SeatFactRule[];
 };
 
 export type SeatEvaluation = {
@@ -136,4 +154,6 @@ export type SeatEvaluation = {
   /** Where the fact was read: a screen rule, OSC 9;4 progress, a reporter. */
   readonly source: SignalSource;
   readonly fidelity: Fidelity;
+  /** Facts the screen shows this frame (SeatFactRule), read off the screen. */
+  readonly facts?: readonly SeatSignal[];
 };

@@ -13,7 +13,7 @@ import type { AgentSeatState } from "../../../../shared/agent-seat-state";
 import { HarnessSignal } from "../../../../shared/harness-domain";
 import { Schema } from "effect";
 import type { RuleCaptures } from "./match";
-import type { SeatRule, SeatRuleSignal } from "./types";
+import type { SeatFactRule, SeatRule, SeatRuleSignal } from "./types";
 
 const isHarnessSignal = Schema.is(HarnessSignal);
 
@@ -40,8 +40,15 @@ export const signalForState = (state: AgentSeatState): HarnessSignal => {
   }
 };
 
+/**
+ * A screen message as Junto shows it: one line, bounded, and with a
+ * harness's middle-dot separators read as commas (the copy law).
+ */
 const oneLine = (text: string): string => {
-  const flat = text.replace(/\s+/gu, " ").trim();
+  const flat = text
+    .replace(/\s*\u00B7\s*/gu, ", ")
+    .replace(/\s+/gu, " ")
+    .trim();
   return flat.length > MESSAGE_MAX ? `${flat.slice(0, MESSAGE_MAX - 1)}…` : flat;
 };
 
@@ -276,13 +283,28 @@ export const ruleSignal = (
   rule: SeatRule,
   captures: RuleCaptures,
   now: number,
-): HarnessSignal => {
-  const template: SeatRuleSignal = rule.signal ?? signalForState(rule.state);
+): HarnessSignal =>
+  fillSignal(rule.signal ?? signalForState(rule.state), rule.id, captures, now) ??
+  signalForState(rule.state);
+
+/** A fact rule's signal; null when its template does not read (a pack bug the pack tests catch). */
+export const factSignal = (
+  rule: SeatFactRule,
+  captures: RuleCaptures,
+  now: number,
+): HarnessSignal | null => fillSignal(rule.signal, rule.id, captures, now);
+
+const fillSignal = (
+  template: SeatRuleSignal,
+  id: string,
+  captures: RuleCaptures,
+  now: number,
+): HarnessSignal | null => {
   let signal: Record<string, unknown> = { ...template };
   if (needsMessage(template) && signal.message === undefined) {
-    signal.message = oneLine(captures.matched ?? rule.id);
+    signal.message = oneLine(captures.matched ?? id);
   }
-  if (!isHarnessSignal(signal)) return signalForState(rule.state);
+  if (!isHarnessSignal(signal)) return null;
   for (const [field, raw] of Object.entries(captures.groups)) {
     if (field === "_tag") continue;
     const value = coerce(field, raw, now);

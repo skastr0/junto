@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { evaluate } from "../../../src/main/junto/term/agent-state";
 import { SeatStateRuntime } from "../../../src/main/junto/term/agent-state/runtime";
 import { SessionObserver } from "../../../src/main/junto/term/observer/session-observer";
-import type { SeatSignal, SeatStatus } from "../../../src/shared/harness-domain";
+import { topNeed, type SeatSignal, type SeatSnapshot, type SeatStatus } from "../../../src/shared/harness-domain";
 import { chunkEvents, corpusRoot, loadFixture } from "../runner";
 
 const BINDING = "seat-1";
@@ -28,7 +28,11 @@ afterEach(() => {
 const replay = async (
   harness: string,
   scenario: string,
-): Promise<{ readonly signals: ReadonlyArray<SeatSignal>; readonly final: SeatStatus | undefined }> => {
+): Promise<{
+  readonly signals: ReadonlyArray<SeatSignal>;
+  readonly final: SeatStatus | undefined;
+  readonly snapshot: SeatSnapshot | undefined;
+}> => {
   const manifest = JSON.parse(readFileSync(join(corpusRoot(), harness, "manifest.json"), "utf8")) as {
     pty?: { cols?: number; rows?: number };
   };
@@ -49,10 +53,13 @@ const replay = async (
     observer.feed(chunk.data, chunk.seq);
     const snapshot = await observer.snapshot();
     runtime.observe(snapshot);
-    const signal = evaluate(snapshot, { harness, now: NOW }).signal;
-    if (signal !== null) seen.set(JSON.stringify(signal), signal);
+    const evaluation = evaluate(snapshot, { harness, now: NOW });
+    for (const signal of [evaluation.signal, ...(evaluation.facts ?? [])]) {
+      if (signal !== null) seen.set(JSON.stringify(signal), signal);
+    }
   }
-  return { signals: [...seen.values()], final: runtime.snapshot(BINDING)?.status };
+  const last = runtime.snapshot(BINDING);
+  return { signals: [...seen.values()], final: last?.status, snapshot: last };
 };
 
 /** A retry the screen counted down: its delay ticks, so any delay is the same retry. */
@@ -81,6 +88,37 @@ describe("claude", () => {
     const { signals, final } = await replay("claude", "compaction-manual");
     expect(signals).toContainEqual({ _tag: "CompactionStarted", trigger: "unknown" });
     expect(final).toEqual({ _tag: "Idle" });
+  });
+
+  it("usage-limit: the 5h limit continues by itself at the reset, so Junto need not wake it", async () => {
+    const { final, snapshot } = await replay("claude", "usage-limit");
+    expect(final).toEqual({
+      _tag: "Blocked",
+      reason: { _tag: "UsageLimit", scope: "session", resetsAt: Date.UTC(2026, 9, 16, 6, 23), autoResume: true },
+    });
+    expect(topNeed(snapshot!).cause).toBe("usage_limit_waking");
+  });
+
+  it("error-auth: not logged in blocks the seat on auth", async () => {
+    const { final } = await replay("claude", "error-auth");
+    expect(final).toEqual({
+      _tag: "Blocked",
+      reason: { _tag: "Error", kind: "auth", message: "Not logged in, Please run /login" },
+    });
+  });
+
+  it("error-server: the turn's error is recorded, the seat is idle", async () => {
+    const { final, snapshot } = await replay("claude", "error-server");
+    expect(final).toEqual({ _tag: "Idle" });
+    expect(snapshot?.lastError).toMatchObject({ kind: "provider" });
+    expect(snapshot?.lastError?.message).toMatch(/^500 Internal server error\./u);
+  });
+
+  it("error-context: a prompt too long is a context overflow", async () => {
+    const { final, snapshot } = await replay("claude", "error-context");
+    expect(final).toEqual({ _tag: "Idle" });
+    expect(snapshot?.lastError).toMatchObject({ kind: "contextOverflow" });
+    expect(snapshot?.lastError?.message).toMatch(/^Prompt is too long, the request is ~250000 tokens/u);
   });
 
   it("usage-limit-weekly: the what-to-do dialog is the weekly limit, with its reset in UTC", async () => {
@@ -117,6 +155,20 @@ describe("codex", () => {
     const { signals, final } = await replay("codex", "retry-rate");
     expect(signals).toContainEqual({ _tag: "Retrying", cause: "rate", attempt: 1, max: 3 });
     expect(final).toEqual({ _tag: "Idle" });
+  });
+
+  it("error-auth: 401 Unauthorized blocks the seat on auth", async () => {
+    const { final } = await replay("codex", "error-auth");
+    expect(final).toMatchObject({ _tag: "Blocked", reason: { _tag: "Error", kind: "auth" } });
+  });
+
+  it("error-server and error-context: recorded, the seat idle", async () => {
+    const server = await replay("codex", "error-server");
+    expect(server.final).toEqual({ _tag: "Idle" });
+    expect(server.snapshot?.lastError).toMatchObject({ kind: "provider" });
+    const context = await replay("codex", "error-context");
+    expect(context.final).toEqual({ _tag: "Idle" });
+    expect(context.snapshot?.lastError).toMatchObject({ kind: "contextOverflow" });
   });
 
   it("compaction-manual", async () => {

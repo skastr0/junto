@@ -14,6 +14,7 @@ import {
 } from "../src/main/junto/term/agent-state";
 import { projectAgentSeatState } from "../src/main/junto/term/agent-state/projection";
 import {
+  factSignal,
   parseResetAt,
   parseScreenDuration,
   parseScreenNumber,
@@ -75,6 +76,20 @@ describe("every rule means a signal that projects to its state", () => {
         expect(signal._tag).toBe((rule.signal ?? signalForState(rule.state))._tag);
         for (const [name, prior] of PRIORS) {
           expect(projectAgentSeatState(screenFold(prior, signal)), `from ${name}`).toBe(rule.state);
+        }
+      });
+    }
+  }
+});
+
+describe("every fact rule means a signal that leaves the status as it was", () => {
+  for (const harness of HARNESS_IDS) {
+    for (const rule of rulePackFor(harness).facts ?? []) {
+      it(`${harness} ${rule.id}`, () => {
+        const signal = factSignal(rule, { groups: {}, matched: null }, NOW);
+        expect(signal?._tag).toBe(rule.signal._tag);
+        for (const [name, prior] of PRIORS) {
+          expect(screenFold(prior, signal!).status, `from ${name}`).toEqual(prior.status);
         }
       });
     }

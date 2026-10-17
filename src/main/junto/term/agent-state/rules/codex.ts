@@ -94,6 +94,21 @@ export const codexRules: SeatRulePack = {
         regex: ["^(?:[\\s\\S]*try\\s+again\\s+at\\s+(?<resetsAt>[^.]+?)\\.(?:\\s|$))?"],
       },
     },
+    // A turn that ended on 401 Unauthorized: the seat cannot take mail until
+    // its credentials are fixed. Only while the error sits just above the box.
+    // Capture: corpus/codex/error-auth.
+    {
+      id: "unauthorized_error",
+      state: "attention",
+      signal: { _tag: "ErrorRaised", kind: "auth" },
+      priority: 705,
+      region: "bottom_non_empty_lines",
+      regionN: 5,
+      visibleAttention: true,
+      matchers: {
+        lineRegex: ["^\\u25A0\\s+(?<message>(?:unexpected status )?40[13] Unauthorized\\b.*?)\\s*$"],
+      },
+    },
     {
       id: "live_picker",
       state: "attention",
@@ -240,6 +255,25 @@ export const codexRules: SeatRulePack = {
   // are EXACT literals ordered first: a rotated placeholder this pack does
   // not know reads as draft and holds delivery loudly (battery check 3 goes
   // red) instead of pasting into unknown chrome.
+  // Errors a turn ended on ("\u25A0 " lines), beside whatever state the
+  // screen reads. Captures: tests/pty-e2e/corpus/codex/error-server,
+  // error-context.
+  facts: [
+    {
+      id: "high_demand_error",
+      region: "bottom_non_empty_lines",
+      regionN: 8,
+      signal: { _tag: "ErrorRaised", kind: "provider" },
+      matchers: { lineRegex: ["^\\u25A0\\s+(?<message>.*experiencing high demand.*?)\\s*$"] },
+    },
+    {
+      id: "context_length_exceeded",
+      region: "bottom_non_empty_lines",
+      regionN: 8,
+      signal: { _tag: "ErrorRaised", kind: "contextOverflow" },
+      matchers: { lineRegex: ["^\\u25A0\\s+(?<message>.*context_length_exceeded.*?)\\s*$"] },
+    },
+  ],
   composer: [
     {
       id: "bare_prompt_empty",

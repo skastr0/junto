@@ -12,7 +12,8 @@ import { isHarnessId } from "../../../../shared/managed-terminal-templates";
 import type { ObserverGridSnapshot } from "../observer/types";
 import { ruleCaptures, ruleMatches } from "./match";
 import { rulePackFor } from "./rules";
-import { ruleSignal, signalForState } from "./screen-signal";
+import { factSignal, ruleSignal, signalForState } from "./screen-signal";
+import type { SeatSignal } from "../../../../shared/harness-domain";
 import type { SeatEvaluation, SeatRule, SeatRulePack } from "./types";
 
 export type EvaluateOptions = {
@@ -138,10 +139,27 @@ const findMatchingAttention = (
 };
 
 /**
- * Evaluate a grid snapshot (+ optional hook) into a seat state.
- * Pure; no debounce.
+ * Evaluate a grid snapshot (+ optional hook) into a seat state, with the
+ * facts the screen shows beside it. Pure; no debounce.
  */
 export const evaluate = (
+  snapshot: ObserverGridSnapshot,
+  opts: EvaluateOptions,
+): SeatEvaluation => {
+  const evaluation = evaluateState(snapshot, opts);
+  const pack = opts.pack ?? (isHarnessId(opts.harness) ? rulePackFor(opts.harness) : undefined);
+  if (pack?.facts === undefined || evaluation.skipStateUpdate) return evaluation;
+  const now = opts.now ?? Date.now();
+  const facts: SeatSignal[] = [];
+  for (const rule of pack.facts) {
+    if (!ruleMatches(rule, snapshot)) continue;
+    const signal = factSignal(rule, ruleCaptures(rule, snapshot), now);
+    if (signal !== null) facts.push(signal);
+  }
+  return facts.length === 0 ? evaluation : { ...evaluation, facts };
+};
+
+const evaluateState = (
   snapshot: ObserverGridSnapshot,
   opts: EvaluateOptions,
 ): SeatEvaluation => {
