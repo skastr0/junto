@@ -72,7 +72,7 @@ describe("Name and startup, per machine", () => {
     state$.machineFacts.set({ mini: { setUp: true, needsUpdate: false } } as never);
     chooseSettingsMachine("mini");
     await render();
-    expect(host.textContent).toContain("No record from Mini: no link");
+    expect(host.textContent).toContain("Mini did not answer (unreachable): no link.");
     expect(supervised().disabled).toBe(true);
   });
 });

@@ -38,6 +38,7 @@ import {
   credentialIsSet,
   type MachineProviders,
   type MachineSettingsUnavailableError,
+  machineSettingsRefusal,
 } from "@shared/machine-settings";
 import type { ProvidersPatch } from "@shared/settings";
 import { patchSettings } from "../../lib/settings-state";
@@ -479,7 +480,7 @@ export function ProvidersSettingsSection() {
       .writeProviders(machine.name, patch)
       .then((answer) => {
         if (Result.isSuccess(answer)) setRead({ state: "answered", providers: answer.success });
-        else setWriteError(answer.failure.message);
+        else setWriteError(answer.failure.failure ? `${answer.failure.failure}: ${answer.failure.message}` : answer.failure.message);
       });
   };
 
@@ -487,6 +488,8 @@ export function ProvidersSettingsSection() {
   const enabledSources = new Set(providers?.enabledSources ?? []);
   const hermesHostSnapshots = providers?.hermesHostSnapshots === true;
   const disabled = providers === undefined;
+  // Rule 9: a secret's value never crosses machines, so another machine's credentials are set there.
+  const credentialsDisabled = disabled || !machine.isThisMachine;
 
   const setSourceEnabled = (source: NativeUsageProvider, enabled: boolean) => {
     write({ sourceAccess: { source, enabled } });
@@ -497,7 +500,7 @@ export function ProvidersSettingsSection() {
       {LIVE_OVERSEER_ENABLED && machine.isThisMachine && <LiveProviderCard />}
       {read.state === "refused" ? (
         <p className="settings-note" role="status" data-testid="providers-machine-refused">
-          No providers for {machine.label}: {read.error.message}
+          {machineSettingsRefusal(machine.label, read.error)}.
         </p>
       ) : null}
       {writeError ? (
@@ -539,13 +542,18 @@ export function ProvidersSettingsSection() {
                 {configured > 0 ? (
                   <span className="settings-field__hint">{configured} credential fields configured</span>
                 ) : null}
+                {!machine.isThisMachine && spec.fields.length > 0 ? (
+                  <span className="settings-field__hint" data-testid="providers-credentials-remote">
+                    Set these on {machine.label} itself. A credential&apos;s value never leaves its machine.
+                  </span>
+                ) : null}
                 {spec.fields.map((fieldSpec) => (
                   <SecretFieldRow
                     key={fieldSpec.field}
                     providerId={spec.credentials!}
                     spec={fieldSpec}
                     configured={isSet(fieldSpec.field)}
-                    disabled={disabled}
+                    disabled={credentialsDisabled}
                     onWrite={write}
                   />
                 ))}

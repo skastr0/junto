@@ -29,7 +29,16 @@ export type MachineSettingsSource = {
 
 type Keyed<A> =
   | { readonly ok: true; readonly value: A }
-  | { readonly ok: false; readonly error: { readonly machine: string; readonly reason: "unreachable" | "failed"; readonly message: string } };
+  | {
+    readonly ok: false;
+    readonly error: {
+      readonly machine: string;
+      readonly reason: "unreachable" | "failed";
+      readonly message: string;
+      readonly failure?: string;
+      readonly operationId?: string;
+    };
+  };
 
 const answerOf = async <A>(machine: string, call: () => Promise<Keyed<A>>): Answer<A> => {
   const answer = await call().catch((cause: unknown): Keyed<A> => ({
@@ -42,6 +51,8 @@ const answerOf = async <A>(machine: string, call: () => Promise<Keyed<A>>): Answ
       machine: answer.error.machine || machine,
       reason: answer.error.reason,
       message: answer.error.message,
+      ...(answer.error.failure === undefined ? {} : { failure: answer.error.failure }),
+      ...(answer.error.operationId === undefined ? {} : { operationId: answer.error.operationId }),
     }));
 };
 

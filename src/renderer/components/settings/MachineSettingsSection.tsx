@@ -8,7 +8,7 @@
 import { use$ } from "@legendapp/state/react";
 import { Result } from "effect";
 import { useEffect, useState } from "react";
-import type { MachineRecord, MachineSettingsUnavailableError } from "@shared/machine-settings";
+import { machineSettingsRefusal, type MachineRecord, type MachineSettingsUnavailableError } from "@shared/machine-settings";
 import { INK } from "../../lib/theme";
 import { state$ } from "../../lib/state";
 import { machineSettingsSource } from "../../lib/machine-settings-source";
@@ -65,7 +65,7 @@ export function MachineSettingsSection() {
     <div className="settings-section" data-testid="settings-machine-section" data-machine={machine.name}>
       {read.state === "refused" ? (
         <p className="settings-note" role="status">
-          No record from {machine.label}: {read.error.message}
+          {machineSettingsRefusal(machine.label, read.error)}.
         </p>
       ) : null}
       {writeError ? (
@@ -92,7 +92,7 @@ export function MachineSettingsSection() {
               .writeRecord(machine.name, { supervisedPreferred: event.target.checked })
               .then((answer) => {
                 if (Result.isSuccess(answer)) setRead({ state: "answered", record: answer.success });
-                else setWriteError(answer.failure.message);
+                else setWriteError(answer.failure.failure ? `${answer.failure.failure}: ${answer.failure.message}` : answer.failure.message);
               });
           }}
         />

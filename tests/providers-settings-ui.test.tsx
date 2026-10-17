@@ -97,12 +97,40 @@ describe("provider access settings", () => {
     state$.machineFacts.set({ mini: { setUp: true, needsUpdate: false, reachable: false } } as never);
     chooseSettingsMachine("mini");
     const html = await render();
-    expect(html).toContain("No providers for Mini: no link");
+    expect(host.textContent).toContain("Mini did not answer (unreachable): no link.");
     expect(checkboxes().every((input) => input.disabled)).toBe(true);
     const secrets = [...host.querySelectorAll<HTMLInputElement>('input[type="password"]')];
     expect(secrets.length).toBeGreaterThan(0);
     expect(secrets.every((input) => input.disabled)).toBe(true);
     expect(html).not.toContain('aria-label="GPT-Live settings"');
+  });
+
+  it.runIf(USAGE_ENABLED)("an answering machine's toggles write there, its credentials are set on it", async () => {
+    state$.machines.set([
+      { id: "desk", label: "Desk", isThisMachine: true } as never,
+      { id: "mini", label: "Mini", isThisMachine: false } as never,
+    ]);
+    setMachineSettingsSource({
+      ...coreMachineSettingsSource,
+      providers: async (machine) => Result.succeed(machineProvidersOf(state$.settings.peek(), machine)),
+      writeProviders: async (machine, patch) => {
+        writes.push({ machine, patch });
+        return Result.fail(
+          new MachineSettingsUnavailableError({ machine, reason: "unreachable", message: "the link dropped", failure: "LinkUnavailable" }),
+        );
+      },
+    });
+    chooseSettingsMachine("mini");
+    await render();
+    expect(checkboxes().every((input) => !input.disabled)).toBe(true);
+    const secrets = [...host.querySelectorAll<HTMLInputElement>('input[type="password"]')];
+    expect(secrets.every((input) => input.disabled)).toBe(true);
+    expect(host.querySelector('[data-testid="providers-credentials-remote"]')?.textContent).toContain(
+      "Set these on Mini itself",
+    );
+    await act(async () => checkboxes()[0]!.click());
+    expect(writes[0]?.machine).toBe("mini");
+    expect(host.textContent).toContain("Not saved on Mini: LinkUnavailable: the link dropped");
   });
 
   it.runIf(LIVE_OVERSEER_ENABLED)("offers write-only OpenAI credentials and explicit per-call limits", async () => {

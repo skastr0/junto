@@ -40,8 +40,16 @@ export class MachineSettingsUnavailableError extends Schema.TaggedError<MachineS
     machine: Schema.String,
     reason: Schema.Literals(["unreachable", "failed"]),
     message: Schema.String,
+    /** The typed failure behind the reason, e.g. LinkUnavailable. */
+    failure: Schema.optionalKey(Schema.String),
+    /** The operation both machines logged the request under. */
+    operationId: Schema.optionalKey(Schema.String),
   },
 ) {}
+
+/** How a page says a machine did not answer: its typed failure when it has one, else the reason. */
+export const machineSettingsRefusal = (label: string, error: MachineSettingsUnavailableError): string =>
+  `${label} did not answer (${error.failure ?? error.reason}): ${error.message}`;
 
 /** A machine's providers as its core answers them: names and state, no values. */
 export const machineProvidersOf = (settings: Settings, machine: string): MachineProviders => {
