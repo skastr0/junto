@@ -38,6 +38,15 @@ const LAST_SCREEN: Readonly<Record<string, Readonly<Record<string, Outcome>>>> =
     // Mid-turn: Amp's steering box holds our own earlier paste. Still a composer.
     "paste-chip": "written",
     "working-turn": "written",
+    // Signal captures (tests/pty-e2e/signal-capture.ts): amp could not create
+    // its thread. After retries or a refusal the unsent prompt stays above the
+    // box and the box reads unreadable, so mail holds; out of credits it is
+    // written into a seat that cannot answer until pack rules land.
+    "retry-overloaded": "unreadable",
+    "retry-rate": "unreadable",
+    "usage-limit": "written",
+    "error-auth": "unreadable",
+    "error-server": "unreadable",
   },
   agy: {
     // Signal captures (tests/pty-e2e/signal-capture.ts). No screen rules read
@@ -97,6 +106,17 @@ const LAST_SCREEN: Readonly<Record<string, Readonly<Record<string, Outcome>>>> =
     // (enter select, esc back): the seat is blocked on the limit, mail holds.
     "usage-limit": "dialog",
     "usage-limit-weekly": "dialog",
+  },
+  cursor: {
+    // Signal captures (tests/pty-e2e/signal-capture.ts). No screen rules read
+    // this harness's limits or auth errors yet, so mail is typed into a seat
+    // that cannot answer it until pty-state's pack rules land.
+    "retry-overloaded": "written",
+    "retry-rate": "written",
+    "retry-network": "written",
+    "usage-limit": "written",
+    "error-auth": "written",
+    "error-server": "written",
   },
   devin: {
     "startup-idle": "written",
@@ -233,7 +253,14 @@ const LAST_SCREEN: Readonly<Record<string, Readonly<Record<string, Outcome>>>> =
     // that cannot answer it until pty-state's pack rules land.
     "retry-overloaded": "written",
     "retry-rate": "written",
+    "retry-network": "written",
+    "usage-limit": "written",
+    "usage-limit-weekly": "written",
     "error-auth": "written",
+    "error-server": "written",
+    "error-context": "written",
+    "compaction-auto": "written",
+    "compaction-manual": "written",
   },
   pi: {
     "startup-idle": "written",
@@ -264,6 +291,7 @@ const MID_TURN: Readonly<Record<string, ReadonlyArray<string>>> = {
   amp: ["draft", "unreadable"],
   claude: ["available"],
   codex: ["available", "unreadable"],
+  cursor: ["available", "draft", "unreadable"],
   devin: ["draft"],
   grok: ["available"],
   hermes: ["draft"],
