@@ -313,6 +313,13 @@ machine that runs it.
     list for that machine's installed version, and a typed value. Never a
     file, a path, free text to write, or a command. The machine validates it
     against its own installed version and refuses what it does not offer.
+  - The closed list holds no key whose value is executed or loaded as code,
+    or names a program, a script, a path, a directory or a URL: no hooks, MCP
+    server definitions, status line commands, API key helpers or plugin
+    directories. Adding a key to the list is a `remote-security` review.
+  - No write sets a mode that skips or bypasses permission checks, on any
+    machine, the window's own included, so there is still one path. The
+    operator sets those modes in the harness's own file by hand.
   - Reads use the same closed keys: the machine answers each key's current
     typed value, never a file and never a block such as `env` that can hold a
     secret. Credential files are never read, written or carried.
