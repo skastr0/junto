@@ -1,789 +1,3233 @@
-commit 041051778d2971d9d8367b4aa525ea63a06fd02c
-Author: Guilherme Castro <skastr052@gmail.com>
-Date:   Sat Oct 17 00:00:55 2026 -0300
+/**
+ * App-scoped local terminal session coordinator.
+ * The central app process plane exclusively owns native PTY processes.
+ * Presentation (xterm) is a consumer — never co-located as process owner.
+ * Product law: app quit stops all local sessions (no LaunchAgent survive-quit).
+ */
 
-    feat(pty): read OSC 7501 program status out of the seat's PTY stream
-    
-    Junto is the seat's terminal, so it now answers the Program Status
-    Protocol query (ESC]7501;?) in the same tick it arrives, ahead of the
-    DA1 reply pi and agy wait behind, and turns each root report into seat
-    signals (source osc7501, fidelity native) published through
-    LocalSessionHost.onSeatSignal. The reply goes through the managed
-    submission hold like any other write. Agent seats spawn with
-    PI_PROGRAM_STATUS=1 and AGY_CLI_OSC7501=on; a seat's own value wins.
-    
-    Decoding follows spec rev 0.4's receiving rules. Only the root record
-    speaks for the seat. working and done msgs are dropped: agy puts the
-    model's answer in done.
-    
-    Captured from the real binaries: pi 1.1.0 and agy 1.4.0 report after
-    the query reply or under their env; omp 18.9.2 and devin 3000.11.92
-    report unconditionally. Their sequences are fixtures in the tests.
-    
-    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+import { thisMachineName } from "./machine-name";
+import { EventEmitter } from "node:events";
+import { existsSync, statSync } from "node:fs";
+import * as os from "node:os";
+import { basename, isAbsolute, join, resolve } from "node:path";
+import { randomBytes, randomUUID } from "node:crypto";
+import { Result } from "effect";
+import { LIVE_OVERSEER_ENABLED } from "@shared/features";
+import type { ManagedSpawnIntent } from "@shared/managed-terminal-launch";
+import {
+  isHarnessId,
+  templateFor,
+  type HarnessId,
+} from "@shared/managed-terminal-templates";
+import {
+  classifySpawnFailure,
+  LaunchRefusedError,
+  launchRefusalCopy,
+  seatExitMessage,
+  type SeatStopCause,
+} from "@shared/spawn-failure";
+import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
+import {
+  EMPTY_LAUNCH_RECORD,
+  type RegionEnvironmentLaunchRecord,
+} from "@shared/region-environment";
+import { colorFgBgFor, type ThemeMode } from "@shared/theme";
+import { currentThemeMode } from "../theme-state";
+import {
+  productStatusFromSessionPhase,
+  sessionPhaseAllowsWrite,
+  SessionPhase,
+  type SessionPhase as SessionPhaseT,
+} from "@shared/terminal-session-domain";
+import {
+  occupancyFromSession,
+  occupyVacantSeat,
+  seatIdentityConflictError,
+  seatOccupationFailedError,
+} from "@shared/terminal-seat-occupancy";
+import {
+  TERM_MAINTENANCE_OBSERVATION_BYTES,
+  type TermMaintenanceDenialReason,
+  type TermMaintenanceEvidence,
+  type TermMaintenanceQuiescenceEvidence,
+} from "@shared/term-control";
+import {
+  getProcessIdentityMap,
+  type ProcessIdentityBinding,
+  type ProcessPrincipal,
+} from "../process-identity";
+import { WORK_TOKEN_ENV } from "@shared/work-control";
+import {
+  getSeatCredentialRegistry,
+  mintSeatCredential,
+  type SeatCredentialMint,
+} from "../work/seat-credentials";
+import {
+  TerminalLaunchError,
+  validateExecutableShell,
+  type TerminalLaunchFailureCode,
+} from "./shell-policy";
+import {
+  appProcessPlane,
+  type AppProcessPlane,
+  type AppProcessSignalReceipt,
+  type AppTerminalExit,
+  type AppTerminalLease,
+  type AppTerminalSpawnSpec,
+} from "../app-process-plane";
+import {
+  terminalObserverPlane,
+  type TerminalObserverPlane,
+} from "./observer";
+import { seatStateRuntime } from "./agent-state";
+import { drainKeyOf } from "@shared/seat-drain";
+import {
+  extractSessionIdFromText,
+  recordCapturedSessionId,
+  clearCapturedSessionId,
+  getCapturedSessionId,
+} from "./session-id-store";
+import { extractKimiSessionIdFromText } from "./templates/kimi-session";
+import {
+  scheduleCapturedSessionPersist,
+  usesCapturedSession,
+} from "./session-capture-persist";
+import {
+  DEVIN_PROOF_RETRY_DELAYS_MS,
+  discoverDevinSessionId,
+} from "./devin-session-capture";
+import {
+  isHarnessResumeFailureText,
+  isPinSessionHarness,
+  launchArgvUsesResume,
+  reclaimOrphanedHarnessArgv,
+} from "./session-existence";
+import {
+  planFreshManagedSpawnIntent,
+  planFreshPinSession,
+  shouldAvoidSharedHarnessResume,
+} from "./managed-spawn-plan";
+import { buildSpawnEnv, scrubSpawnEnv } from "./templates/resolve-launch";
+import {
+  resolveHarnessExecutable,
+  supportedHostProbedFlags,
+} from "./templates/harness-install";
+import { configuredToolDirectories } from "../adapters/exec";
+import { registerKnownSecrets, releaseKnownSecrets } from "../credentials/scrub";
+import { buildManagedSeatInject } from "./templates/seat-env";
+import {
+  PROGRAM_STATUS_ENV,
+  PROGRAM_STATUS_QUERY_REPLY,
+  ProgramStatusScanner,
+  programStatusEnvelopes,
+} from "./program-status";
+import type { SignalEnvelope } from "@shared/harness-domain";
+import {
+  primeAgentDaemons,
+  type PrimeAgentDaemonHandle,
+  type PrimeAgentDaemons,
+} from "./prime-agent-daemon";
+import {
+  OperatorInterlock,
+  seatOperatorInterlock,
+} from "./drive/operator-interlock";
 
-diff --git a/src/main/junto/term/local-host.ts b/src/main/junto/term/local-host.ts
-index 50bb70979..66125d467 100644
---- a/src/main/junto/term/local-host.ts
-+++ b/src/main/junto/term/local-host.ts
-@@ -114,6 +114,13 @@ import {
- } from "./templates/harness-install";
- import { configuredToolDirectories } from "../adapters/exec";
- import { buildManagedSeatInject } from "./templates/seat-env";
-+import {
-+  PROGRAM_STATUS_ENV,
-+  PROGRAM_STATUS_QUERY_REPLY,
-+  ProgramStatusScanner,
-+  programStatusEnvelopes,
-+} from "./program-status";
-+import type { SignalEnvelope } from "@shared/harness-domain";
- import {
-   primeAgentDaemons,
-   type PrimeAgentDaemonHandle,
-@@ -351,6 +358,8 @@ type SessionRec = {
-   killReceipt: AppProcessSignalReceipt | undefined;
-   /** Bounded carryover for a harness session marker split across PTY chunks. */
-   sessionCaptureTail: string;
-+  /** OSC 7501 reports and queries in this generation's output. */
-+  programStatus: ProgramStatusScanner;
-   /** Exact-record escalation; never follows a mutable binding lookup. */
-   escalationTimer: ReturnType<typeof setTimeout> | undefined;
-   /**
-@@ -729,6 +738,8 @@ export const resolveLaunch = (
-     seat.kind === "agent"
-       ? {
-           ...buildSpawnEnv(process.env, {
-+            // Status reporting on by default; anything the seat or region set wins.
-+            ...PROGRAM_STATUS_ENV,
-             ...launchEnv,
-             ...(options?.regionEnv ?? {}),
-             ...seatOwnEnv,
-@@ -899,6 +910,7 @@ export class LocalSessionHost extends EventEmitter {
-   private readonly recordExitWaiters = new Set<RecordExitWaiter>();
-   private inputSealed: ((bindingId: string) => boolean) | undefined;
-   private readonly drainEndedListeners = new Set<(drainKey: string, code: number | undefined) => void>();
-+  private readonly seatSignalListeners = new Set<(envelope: SignalEnvelope) => void>();
-   private maintenanceLease: LocalTerminalMaintenanceLease | undefined;
-   private shuttingDown = false;
-   private shutdownFlight: Promise<LocalHostShutdownResult> | undefined;
-@@ -1206,6 +1218,7 @@ export class LocalSessionHost extends EventEmitter {
-       termReceipt: undefined,
-       killReceipt: undefined,
-       sessionCaptureTail: "",
-+      programStatus: new ProgramStatusScanner(),
-       escalationTimer: undefined,
-       unconfirmedStop: undefined,
-       draining: undefined,
-@@ -2174,6 +2187,14 @@ export class LocalSessionHost extends EventEmitter {
-     };
-   }
- 
-+  /** Told each seat signal read out of a seat's PTY stream (OSC 7501 today). */
-+  onSeatSignal(listener: (envelope: SignalEnvelope) => void): () => void {
-+    this.seatSignalListeners.add(listener);
-+    return () => {
-+      this.seatSignalListeners.delete(listener);
-+    };
-+  }
-+
-   /** Detached sessions still alive, for the record at quit. */
-   drainingKeys(): ReadonlyArray<string> {
-     return [...this.liveRecords]
-@@ -2559,6 +2580,7 @@ export class LocalSessionHost extends EventEmitter {
-     this.pushJournal(rec, { seq: rec.seq, type: "output", data });
-     // Single insertion point: every byte already flows here with a seq.
-     this.observerPlane.feed(rec.bindingId, data, rec.seq);
-+    this.observeProgramStatus(rec, data);
-     // Best-effort diagnostic observation when a harness prints a labeled id.
-     // PTY text is untrusted and this value is neither durable nor a cold-resume
-     // capability. Retain a bounded tail so a label split across chunks remains
-@@ -2607,6 +2629,42 @@ export class LocalSessionHost extends EventEmitter {
-     }
-   }
- 
-+  /**
-+   * Junto is the seat's terminal, so it answers the OSC 7501 support query
-+   * and reads the program's status reports. The reply is written in the same
-+   * tick the query arrives, ahead of any DA1 reply a surface sends, which is
-+   * the order pi and agy require.
-+   */
-+  private observeProgramStatus(rec: SessionRec, data: string): void {
-+    for (const event of rec.programStatus.feed(data)) {
-+      if (event.type === "query") {
-+        this.answerProgramStatusQuery(rec);
-+        continue;
-+      }
-+      for (const envelope of programStatusEnvelopes(rec.bindingId, Date.now(), event.report)) {
-+        for (const listener of this.seatSignalListeners) {
-+          try {
-+            listener(envelope);
-+          } catch (error) {
-+            console.error(`[term] seat signal listener failed for ${rec.bindingId}@${rec.epoch}:`, error);
-+          }
-+        }
-+      }
-+    }
-+  }
-+
-+  /** Behind a managed submission span, like any other write, so it never lands inside a paste. */
-+  private answerProgramStatusQuery(rec: SessionRec): void {
-+    const answer = (): void => {
-+      if (this.sessions.get(rec.bindingId) !== rec || rec.killed || !sessionPhaseAllowsWrite(rec.phase)) {
-+        return;
-+      }
-+      this.writeRecord(rec, PROGRAM_STATUS_QUERY_REPLY);
-+    };
-+    if (this.operatorInterlock.holdWrite(rec.bindingId, { replay: answer })) return;
-+    answer();
-+  }
-+
-   private observeExit(
-     rec: SessionRec,
-     code: number | undefined,
-diff --git a/src/main/junto/term/program-status.ts b/src/main/junto/term/program-status.ts
-new file mode 100644
-index 000000000..f1bb2fe53
---- /dev/null
-+++ b/src/main/junto/term/program-status.ts
-@@ -0,0 +1,292 @@
-+/**
-+ * OSC 7501, the Program Status Protocol, read out of a seat's PTY stream.
-+ *
-+ * A program reports its own state in-band:
-+ *
-+ *   ESC ] 7501 ; state=working:app=pi ST
-+ *   ESC ] 7501 ; state=blocked:kind=permission:app=omp:msg=<base64> ST
-+ *
-+ * and asks whether the terminal supports it with `ESC ] 7501 ; ? ST`. Junto
-+ * is the seat's terminal, so it answers the query and turns each root report
-+ * into seat signals (source `osc7501`, fidelity `native`).
-+ *
-+ * Spec: https://www.superlogical.com/rex/docs/build/program-status (rev 0.4).
-+ * The decoder follows its receiving rules: a malformed pair is skipped, the
-+ * last value of a repeated key wins, an unknown key is ignored, and the whole
-+ * report is dropped when it is over a limit, its state is missing or unknown,
-+ * its id is malformed, or its base64 text does not decode to control-free
-+ * UTF-8. Only the root record (no `id`) speaks for the seat; child records
-+ * are a program's sub-tasks and are not read.
-+ *
-+ * What the installed harnesses emit, captured from the real binaries on
-+ * 2026-10-16 (PTY, one short turn each):
-+ *
-+ * - pi 1.1.0: queries `7501;?` with DA1 behind it and reports only when the
-+ *   reply comes first, or always under `PI_PROGRAM_STATUS=1`.
-+ *   idle, working, done; `clear` on exit. ST-terminated.
-+ * - omp 18.9.2: never queries, reports by default (`terminal.programStatus`).
-+ *   idle, working, error with the upstream failure as `msg`; `clear` on exit.
-+ * - agy 1.4.0: queries with BEL and DA1 behind it, or reports under
-+ *   `AGY_CLI_OSC7501=on`. BEL-terminated. Starts `blocked/auth` ("Sign in
-+ *   required") for about a second while credentials load, reports the folder
-+ *   trust dialog as `blocked/permission` ("Trust this folder?"), and puts the
-+ *   model's final answer in the `done` msg.
-+ * - devin 3000.11.92: never queries, reports always. idle, working with
-+ *   "Thinking" and "Typing", done ("Devin finished"); `clear` on exit.
-+ *
-+ * A `working` or `done` msg is a label, and agy's is model output: neither is
-+ * carried. Only `blocked` and `error` keep their text.
-+ */
-+import { Schema } from "effect";
-+import {
-+  BindingId,
-+  type SeatSignal,
-+  type SignalEnvelope,
-+} from "@shared/harness-domain";
-+
-+/** Environment that turns reporting on without a query, for the harnesses that read one. */
-+export const PROGRAM_STATUS_ENV: Readonly<Record<string, string>> = {
-+  PI_PROGRAM_STATUS: "1",
-+  AGY_CLI_OSC7501: "on",
-+};
-+
-+/** The answer to `7501;?`: support for the default states and kinds. */
-+export const PROGRAM_STATUS_QUERY_REPLY = "\u001b]7501;?\u001b\\";
-+
-+const INTRODUCER = "\u001b]7501;";
-+const BEL = "\u0007";
-+const ESC = "\u001b";
-+
-+/** Whole sequence, introducer to terminator. */
-+const MAX_SEQUENCE_BYTES = 4096;
-+const MAX_KEY_BYTES = 16;
-+const MAX_MSG_ENCODED = 2732;
-+const MAX_MSG_DECODED = 2048;
-+const MAX_TITLE_ENCODED = 256;
-+const MAX_TITLE_DECODED = 192;
-+const MAX_ID_BYTES = 128;
-+const MAX_ID_DEPTH = 8;
-+
-+const KEY = /^[a-z]+$/;
-+const VALUE = /^[A-Za-z0-9_.,+/=-]*$/;
-+const SEGMENT = /^[A-Za-z0-9_.+-]{1,32}$/;
-+const APP = /^[A-Za-z0-9_.+-]{1,32}$/;
-+const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}(?:==)?|[A-Za-z0-9+/]{3}=?)?$/;
-+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
-+
-+export const PROGRAM_STATES = ["idle", "working", "done", "blocked", "error", "clear"] as const;
-+export type ProgramState = (typeof PROGRAM_STATES)[number];
-+
-+export const BLOCKED_KINDS = ["permission", "question", "auth"] as const;
-+export type BlockedKind = (typeof BLOCKED_KINDS)[number];
-+
-+export type ProgramStatusReport = {
-+  readonly state: ProgramState;
-+  /** Absent for the root record. */
-+  readonly id?: string;
-+  /** Only on `blocked`. */
-+  readonly kind?: BlockedKind;
-+  /** 0 to 100, only on `working` and `blocked`. Absent means indeterminate. */
-+  readonly progress?: number;
-+  readonly app?: string;
-+  readonly title?: string;
-+  readonly msg?: string;
-+};
-+
-+const isState = (value: string): value is ProgramState =>
-+  (PROGRAM_STATES as readonly string[]).includes(value);
-+
-+const isKind = (value: string): value is BlockedKind =>
-+  (BLOCKED_KINDS as readonly string[]).includes(value);
-+
-+const utf8 = new TextDecoder("utf-8", { fatal: true });
-+
-+/** Decoded text, or `null` when the whole report must be refused. */
-+const decodeText = (encoded: string, maxEncoded: number, maxDecoded: number): string | null => {
-+  if (encoded.length > maxEncoded || !BASE64.test(encoded)) return null;
-+  const bytes = Buffer.from(encoded, "base64");
-+  if (bytes.length > maxDecoded) return null;
-+  let text: string;
-+  try {
-+    text = utf8.decode(bytes);
-+  } catch {
-+    return null;
-+  }
-+  return CONTROL.test(text) ? null : text;
-+};
-+
-+const validId = (id: string): boolean => {
-+  if (id.length > MAX_ID_BYTES) return false;
-+  const segments = id.split("/");
-+  return segments.length <= MAX_ID_DEPTH && segments.every((segment) => SEGMENT.test(segment));
-+};
-+
-+/**
-+ * The body after `7501;`, decoded by the spec's receiving rules. `undefined`
-+ * means the report is ignored. The query (`?`) is not a report.
-+ */
-+export const decodeProgramStatus = (body: string): ProgramStatusReport | undefined => {
-+  if (body.startsWith("?")) return undefined;
-+  const pairs = new Map<string, string>();
-+  for (const pair of body.split(":")) {
-+    const eq = pair.indexOf("=");
-+    if (eq < 0) continue;
-+    const key = pair.slice(0, eq).trim();
-+    const value = pair.slice(eq + 1).trim();
-+    if (key.length > MAX_KEY_BYTES || !KEY.test(key) || !VALUE.test(value)) continue;
-+    pairs.set(key, value);
-+  }
-+  const state = pairs.get("state");
-+  if (state === undefined || !isState(state)) return undefined;
-+  const id = pairs.get("id");
-+  if (id !== undefined && !validId(id)) return undefined;
-+  const encodedMsg = pairs.get("msg");
-+  const msg =
-+    encodedMsg === undefined ? undefined : decodeText(encodedMsg, MAX_MSG_ENCODED, MAX_MSG_DECODED);
-+  if (msg === null) return undefined;
-+  const encodedTitle = pairs.get("title");
-+  const title =
-+    encodedTitle === undefined
-+      ? undefined
-+      : decodeText(encodedTitle, MAX_TITLE_ENCODED, MAX_TITLE_DECODED);
-+  if (title === null) return undefined;
-+  const kind = pairs.get("kind");
-+  const progress = pairs.get("progress");
-+  const progressValue = progress !== undefined && /^\d{1,3}$/.test(progress) ? Number(progress) : NaN;
-+  const app = pairs.get("app");
-+  return {
-+    state,
-+    ...(id === undefined ? {} : { id }),
-+    ...(state === "blocked" && kind !== undefined && isKind(kind) ? { kind } : {}),
-+    ...((state === "working" || state === "blocked") && progressValue <= 100
-+      ? { progress: progressValue }
-+      : {}),
-+    ...(app !== undefined && APP.test(app) ? { app } : {}),
-+    ...(title === undefined || title === "" ? {} : { title }),
-+    ...(msg === undefined || msg === "" ? {} : { msg }),
-+  };
-+};
-+
-+/**
-+ * What a root report says about the seat. Child records, and a `clear` aimed
-+ * at one, say nothing.
-+ */
-+export const programStatusSignals = (report: ProgramStatusReport): readonly SeatSignal[] => {
-+  if (report.id !== undefined) return [];
-+  switch (report.state) {
-+    case "idle":
-+      return [{ _tag: "ActivityObserved", activity: "idle" }];
-+    case "working":
-+      return [{ _tag: "ActivityObserved", activity: "working" }];
-+    case "done":
-+      return [{ _tag: "TurnEnded", outcome: "completed" }];
-+    case "error":
-+      return [
-+        { _tag: "ErrorRaised", kind: "unknown", message: report.msg ?? "" },
-+        { _tag: "TurnEnded", outcome: "failed" },
-+      ];
-+    // The program withdrew its record (exit, suspend, opt-out): it no longer
-+    // speaks for the seat, and the next channel carries it.
-+    case "clear":
-+      return [{ _tag: "ChannelClosed", channel: "osc7501" }];
-+    case "blocked":
-+      return [blockedSignal(report)];
-+  }
-+};
-+
-+const blockedSignal = (report: ProgramStatusReport): SeatSignal => {
-+  switch (report.kind) {
-+    case "permission":
-+      return { _tag: "PermissionRequested", ...(report.msg === undefined ? {} : { detail: report.msg }) };
-+    case "question":
-+      return { _tag: "QuestionAsked", ...(report.msg === undefined ? {} : { text: report.msg }) };
-+    case "auth":
-+      return { _tag: "DialogShown", kind: "login" };
-+    case undefined:
-+      return { _tag: "DialogShown", kind: "unknown" };
-+  }
-+};
-+
-+const decodeSeat = Schema.decodeUnknownOption(BindingId);
-+
-+/** A root report as envelopes for one seat. Empty for anything that says nothing. */
-+export const programStatusEnvelopes = (
-+  seat: string,
-+  at: number,
-+  report: ProgramStatusReport,
-+): readonly SignalEnvelope[] => {
-+  const signals = programStatusSignals(report);
-+  if (signals.length === 0) return [];
-+  const decoded = decodeSeat(seat);
-+  if (decoded._tag === "None") return [];
-+  return signals.map((signal) => ({
-+    seat: decoded.value,
-+    at,
-+    source: "osc7501",
-+    fidelity: "native",
-+    signal,
-+  }));
-+};
-+
-+export type ProgramStatusEvent =
-+  | { readonly type: "query" }
-+  | { readonly type: "report"; readonly report: ProgramStatusReport };
-+
-+/**
-+ * Finds OSC 7501 sequences in a PTY stream that arrives in arbitrary chunks.
-+ *
-+ * A sequence split across chunks is held until its terminator (BEL or ST)
-+ * arrives, up to the spec's 4096-byte sequence limit; longer is dropped. An
-+ * ESC that does not start ST aborts the sequence, as it does in a terminal.
-+ * A chunk with no introducer and nothing held costs one `indexOf`.
-+ */
-+export class ProgramStatusScanner {
-+  private carry = "";
-+
-+  feed(data: string): readonly ProgramStatusEvent[] {
-+    const text = this.carry === "" ? data : this.carry + data;
-+    this.carry = "";
-+    let start = text.indexOf(INTRODUCER);
-+    if (start < 0) {
-+      this.carry = partialIntroducer(text);
-+      return NO_EVENTS;
-+    }
-+    const events: ProgramStatusEvent[] = [];
-+    let rest = 0;
-+    while (start >= 0) {
-+      const bodyStart = start + INTRODUCER.length;
-+      let end = bodyStart;
-+      while (end < text.length && text[end] !== BEL && text[end] !== ESC) end += 1;
-+      if (end - start > MAX_SEQUENCE_BYTES) {
-+        rest = end;
-+      } else if (end >= text.length || (text[end] === ESC && end + 1 >= text.length)) {
-+        this.carry = text.slice(start);
-+        return events;
-+      } else if (text[end] === BEL || text[end + 1] === "\\") {
-+        const body = text.slice(bodyStart, end);
-+        if (body.startsWith("?")) events.push({ type: "query" });
-+        else {
-+          const report = decodeProgramStatus(body);
-+          if (report !== undefined) events.push({ type: "report", report });
-+        }
-+        rest = end + (text[end] === BEL ? 1 : 2);
-+      } else {
-+        // Any other escape aborts the sequence and may begin the next one.
-+        rest = end;
-+      }
-+      start = text.indexOf(INTRODUCER, rest);
-+    }
-+    this.carry = partialIntroducer(text.slice(rest));
-+    return events;
-+  }
-+}
-+
-+const NO_EVENTS: readonly ProgramStatusEvent[] = [];
-+
-+/** The tail of `text` that could be the start of an introducer split across chunks. */
-+const partialIntroducer = (text: string): string => {
-+  const from = text.lastIndexOf(ESC, text.length - 1);
-+  if (from < 0 || text.length - from >= INTRODUCER.length) return "";
-+  const tail = text.slice(from);
-+  return INTRODUCER.startsWith(tail) ? tail : "";
-+};
-diff --git a/tests/program-status.test.ts b/tests/program-status.test.ts
-new file mode 100644
-index 000000000..36f190f7f
---- /dev/null
-+++ b/tests/program-status.test.ts
-@@ -0,0 +1,343 @@
-+import { seedThisMachine, clearMachines } from "./support/seed-this-machine";
-+import { Result } from "effect";
-+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-+import {
-+  decodeProgramStatus,
-+  PROGRAM_STATUS_QUERY_REPLY,
-+  ProgramStatusScanner,
-+  programStatusEnvelopes,
-+  type ProgramStatusEvent,
-+} from "../src/main/junto/term/program-status";
-+import { LocalSessionHost, resolveLaunch } from "../src/main/junto/term/local-host";
-+import { OperatorInterlock } from "../src/main/junto/term/drive/operator-interlock";
-+import {
-+  makeProcessIdentityMap,
-+  setProcessIdentityMapForTests,
-+} from "../src/main/junto/process-identity";
-+import { setProcessEpochReaderForTests } from "../src/main/junto/process-epoch";
-+import {
-+  makeFakeTerminalProcessAuthority,
-+  type FakeTerminalProcessAuthority,
-+} from "./helpers/fake-terminal-process-authority";
-+import { installHermeticHarnessBins } from "./helpers/hermetic-harness-bins";
-+import {
-+  decodeSignalEnvelope,
-+  initialSnapshot,
-+  reduceSeatSignals,
-+  type SignalEnvelope,
-+} from "../src/shared/harness-domain";
-+
-+const ESC = "\u001b";
-+const ST = `${ESC}\\`;
-+const BEL = "\u0007";
-+const b64 = (text: string): string => Buffer.from(text, "utf8").toString("base64");
-+const osc = (body: string, end = ST): string => `${ESC}]7501;${body}${end}`;
-+
-+const scanAll = (chunks: readonly string[]): ProgramStatusEvent[] => {
-+  const scanner = new ProgramStatusScanner();
-+  return chunks.flatMap((chunk) => [...scanner.feed(chunk)]);
-+};
-+
-+/** Exactly what the installed harnesses wrote on 2026-10-16 (see program-status.ts). */
-+const CAPTURED = {
-+  pi: [osc("state=idle:app=pi"), osc("state=working:app=pi"), osc("state=done:app=pi"), osc("state=clear")],
-+  omp: [
-+    osc("state=idle:app=omp"),
-+    osc("state=working:app=omp"),
-+    osc(
-+      "state=error:app=omp:msg=NDAwIFVwc3RyZWFtIHJlcXVlc3QgZmFpbGVkOiBNb2RlbCBpcyB1bmF2YWlsYWJsZS4gVXBzdHJlYW0gcmVxdWVzdCBmYWlsZWQ6IE1vZGVsIGlzIHVuYXZhaWxhYmxlLiAodHlwZT1zZXJ2ZXJfZXJyb3IpIHJhdy1odHRwLXJlcXVlc3Q9L1VzZXJzL2d1aWxoZXJtZWNhc3Ryby8ub21wL2xvZ3MvaHR0cC00MDAtcmVxdWVzdHMvMTc5MjIwNTYzMDAxNC0xYzl5b3hxOXJ1YW5wLmpzb24=",
-+    ),
-+    osc("state=clear"),
-+  ],
-+  agy: [
-+    osc("?", BEL),
-+    osc("state=blocked:kind=auth:app=antigravity:msg=U2lnbiBpbiByZXF1aXJlZA==", BEL),
-+    osc("state=blocked:kind=permission:app=antigravity:msg=VHJ1c3QgdGhpcyBmb2xkZXI/", BEL),
-+    osc("state=idle:app=antigravity", BEL),
-+    osc("state=working:app=antigravity", BEL),
-+    osc("state=done:app=antigravity:msg=b2s=", BEL),
-+  ],
-+  devin: [
-+    osc("state=idle:app=devin"),
-+    osc("state=working:app=devin:msg=VGhpbmtpbmc="),
-+    osc("state=working:app=devin:msg=VHlwaW5n"),
-+    osc("state=done:app=devin:msg=RGV2aW4gZmluaXNoZWQ="),
-+    osc("state=clear"),
-+  ],
-+} as const;
-+
-+describe("program status: decoding by the spec's receiving rules", () => {
-+  it("reads state, kind, app and base64 msg in any order", () => {
-+    expect(decodeProgramStatus(`state=blocked:kind=question:app=omp:msg=${b64("Which branch?")}`)).toEqual({
-+      state: "blocked",
-+      kind: "question",
-+      app: "omp",
-+      msg: "Which branch?",
-+    });
-+    expect(decodeProgramStatus(`app=pi:state=working`)).toEqual({ state: "working", app: "pi" });
-+  });
-+
-+  it("ignores a report whose state is missing or unknown", () => {
-+    expect(decodeProgramStatus("app=pi")).toBeUndefined();
-+    expect(decodeProgramStatus("state=paused:app=pi")).toBeUndefined();
-+  });
-+
-+  it("lets the last repeated key win and skips malformed pairs", () => {
-+    expect(decodeProgramStatus("state=idle:state=working:junk:=x:BAD=1:app=pi")).toEqual({
-+      state: "working",
-+      app: "pi",
-+    });
-+    expect(decodeProgramStatus(" state = done : app = pi ")).toEqual({ state: "done", app: "pi" });
-+  });
-+
-+  it("drops a kind on any state but blocked, and an unknown kind", () => {
-+    expect(decodeProgramStatus("state=working:kind=permission")).toEqual({ state: "working" });
-+    expect(decodeProgramStatus("state=blocked:kind=payment")).toEqual({ state: "blocked" });
-+  });
-+
-+  it("keeps progress only as an integer 0 to 100 on working or blocked", () => {
-+    expect(decodeProgramStatus("state=working:progress=40")).toEqual({ state: "working", progress: 40 });
-+    expect(decodeProgramStatus("state=working:progress=140")).toEqual({ state: "working" });
-+    expect(decodeProgramStatus("state=done:progress=40")).toEqual({ state: "done" });
-+  });
-+
-+  it("refuses the whole report when its text is not control-free UTF-8 base64", () => {
-+    expect(decodeProgramStatus("state=error:msg=a,b")).toBeUndefined();
-+    expect(decodeProgramStatus("state=error:msg=a")).toBeUndefined();
-+    // A byte outside the value set makes a malformed pair, which is skipped.
-+    expect(decodeProgramStatus("state=error:msg=***")).toEqual({ state: "error" });
-+    expect(decodeProgramStatus(`state=error:msg=${b64("line one\nline two")}`)).toBeUndefined();
-+    expect(decodeProgramStatus(`state=error:msg=${Buffer.from([0xff, 0xfe]).toString("base64")}`)).toBeUndefined();
-+    expect(decodeProgramStatus(`state=error:msg=${b64("x".repeat(2049))}`)).toBeUndefined();
-+  });
-+
-+  it("accepts unpadded base64", () => {
-+    expect(decodeProgramStatus("state=error:msg=b2s")).toEqual({ state: "error", msg: "ok" });
-+  });
-+
-+  it("refuses a malformed id instead of falling back to the root", () => {
-+    expect(decodeProgramStatus("state=working:id=build/test")).toEqual({ state: "working", id: "build/test" });
-+    expect(decodeProgramStatus("state=working:id=build//test")).toBeUndefined();
-+    expect(decodeProgramStatus(`state=working:id=${"a".repeat(33)}`)).toBeUndefined();
-+  });
-+
-+  it("drops an app outside its charset", () => {
-+    expect(decodeProgramStatus(`state=idle:app=${"a".repeat(33)}`)).toEqual({ state: "idle" });
-+  });
-+});
-+
-+describe("program status: scanning a PTY stream", () => {
-+  it("finds every report captured from pi, omp, agy and devin", () => {
-+    const states = (chunks: readonly string[]) =>
-+      scanAll([chunks.join("plain text between\r\n")]).map((event) =>
-+        event.type === "query" ? "?" : event.report.state,
-+      );
-+    expect(states(CAPTURED.pi)).toEqual(["idle", "working", "done", "clear"]);
-+    expect(states(CAPTURED.omp)).toEqual(["idle", "working", "error", "clear"]);
-+    expect(states(CAPTURED.agy)).toEqual(["?", "blocked", "blocked", "idle", "working", "done"]);
-+    expect(states(CAPTURED.devin)).toEqual(["idle", "working", "working", "done", "clear"]);
-+  });
-+
-+  it("holds a sequence split anywhere across chunks, the terminator included", () => {
-+    const stream = `a${osc("state=working:app=pi")}b${osc("?", BEL)}c`;
-+    for (let cut = 1; cut < stream.length; cut += 1) {
-+      const events = scanAll([stream.slice(0, cut), stream.slice(cut)]);
-+      expect(events.map((event) => event.type)).toEqual(["report", "query"]);
-+    }
-+    const byteByByte = scanAll([...stream]);
-+    expect(byteByByte.map((event) => event.type)).toEqual(["report", "query"]);
-+  });
-+
-+  it("lets another escape abort a sequence and start the next one", () => {
-+    const events = scanAll([`${ESC}]7501;state=idle${ESC}[0m${osc("state=done")}`]);
-+    expect(events).toEqual([{ type: "report", report: { state: "done" } }]);
-+  });
-+
-+  it("drops a sequence past the 4096-byte limit and recovers after it", () => {
-+    const long = `${ESC}]7501;state=working:title=${"A".repeat(5000)}`;
-+    const events = scanAll([long.slice(0, 3000), long.slice(3000), `${ST}${osc("state=idle")}`]);
-+    expect(events).toEqual([{ type: "report", report: { state: "idle" } }]);
-+  });
-+
-+  it("ignores other OSCs", () => {
-+    expect(scanAll([`${ESC}]0;title${BEL}${ESC}]9;4;3${BEL}${ESC}]75010;x${ST}`])).toEqual([]);
-+  });
-+});
-+
-+describe("program status: seat signals", () => {
-+  const seat = "seat-osc";
-+  const fold = (chunks: readonly string[]) => {
-+    let clock = 1_000;
-+    const envelopes: SignalEnvelope[] = scanAll(chunks).flatMap((event) =>
-+      event.type === "report" ? [...programStatusEnvelopes(seat, (clock += 10), event.report)] : [],
-+    );
-+    for (const envelope of envelopes) {
-+      expect(Result.isSuccess(decodeSignalEnvelope(envelope))).toBe(true);
-+    }
-+    return { envelopes, snapshot: reduceSeatSignals(initialSnapshot(envelopes[0]!.seat, 0), envelopes) };
-+  };
-+
-+  it("marks every envelope native OSC 7501", () => {
-+    const { envelopes } = fold([osc("state=working")]);
-+    expect(envelopes).toEqual([
-+      expect.objectContaining({ source: "osc7501", fidelity: "native", signal: { _tag: "ActivityObserved", activity: "working" } }),
-+    ]);
-+  });
-+
-+  it("reads a finished pi turn as an unseen completed turn, then a closed channel", () => {
-+    const { snapshot } = fold(CAPTURED.pi);
-+    expect(snapshot.status).toEqual({ _tag: "Idle" });
-+    expect(snapshot.turnUnseen?.outcome).toBe("completed");
-+    expect(snapshot.channels).not.toContain("osc7501");
-+  });
-+
-+  it("records omp's failure text and ends the turn failed", () => {
-+    const { snapshot } = fold(CAPTURED.omp.slice(0, 3));
-+    expect(snapshot.lastError?.kind).toBe("unknown");
-+    expect(snapshot.lastError?.message).toMatch(/^400 Upstream request failed: Model is unavailable/);
-+    expect(snapshot.turnUnseen?.outcome).toBe("failed");
-+    expect(snapshot.status).toEqual({ _tag: "Idle" });
-+  });
-+
-+  it("maps blocked kinds to permission, question, login and an unknown dialog", () => {
-+    const signal = (body: string) => fold([osc(body)]).envelopes.map((envelope) => envelope.signal);
-+    expect(signal(`state=blocked:kind=permission:msg=${b64("Trust this folder?")}`)).toEqual([
-+      { _tag: "PermissionRequested", detail: "Trust this folder?" },
-+    ]);
-+    expect(signal(`state=blocked:kind=question:msg=${b64("Which branch?")}`)).toEqual([
-+      { _tag: "QuestionAsked", text: "Which branch?" },
-+    ]);
-+    expect(signal("state=blocked:kind=auth")).toEqual([{ _tag: "DialogShown", kind: "login" }]);
-+    expect(signal("state=blocked")).toEqual([{ _tag: "DialogShown", kind: "unknown" }]);
-+  });
-+
-+  it("never carries a working or done msg: agy puts the model's answer there", () => {
-+    const { envelopes } = fold(CAPTURED.agy);
-+    expect(JSON.stringify(envelopes)).not.toContain('"ok"');
-+    expect(envelopes.at(-1)?.signal).toEqual({ _tag: "TurnEnded", outcome: "completed" });
-+  });
-+
-+  it("says nothing for a child record or a clear aimed at one", () => {
-+    expect(programStatusEnvelopes(seat, 1, { state: "blocked", id: "build" })).toEqual([]);
-+    expect(programStatusEnvelopes(seat, 1, { state: "clear", id: "build" })).toEqual([]);
-+  });
-+});
-+
-+// ── The host answers the query and publishes signals ─────────────────────
-+
-+const hosts: LocalSessionHost[] = [];
-+const syntheticEpochs = new Map<number, string>();
-+let restoreHarnessBins: () => void = () => undefined;
-+
-+const trackSyntheticPid = (pid: number): number => {
-+  syntheticEpochs.set(pid, `synthetic-${pid}`);
-+  return pid;
-+};
-+
-+const hostWith = (
-+  fake: FakeTerminalProcessAuthority,
-+  options: ConstructorParameters<typeof LocalSessionHost>[1] = {},
-+): LocalSessionHost => {
-+  const host = new LocalSessionHost(fake.authority, {
-+    killGraceMs: 5,
-+    shutdownGraceMs: 5,
-+    lateExitGraceMs: 5,
-+    ...options,
-+  });
-+  hosts.push(host);
-+  return host;
-+};
-+
-+beforeEach(() => {
-+  seedThisMachine();
-+  syntheticEpochs.clear();
-+  restoreHarnessBins = installHermeticHarnessBins();
-+  setProcessEpochReaderForTests({
-+    snapshot: () =>
-+      [...syntheticEpochs].map(([pid, startKey]) => ({
-+        pid,
-+        processGroupId: Math.max(2, pid - 1),
-+        sessionId: 7,
-+        startKey,
-+      })),
-+  });
-+  setProcessIdentityMapForTests(
-+    makeProcessIdentityMap({
-+      processAlive: (pid) => pid === process.pid || syntheticEpochs.has(pid),
-+      readProcessStartKey: (pid) => (pid === process.pid ? `self-${pid}` : syntheticEpochs.get(pid)),
-+    }),
-+  );
-+});
-+
-+afterEach(async () => {
-+  restoreHarnessBins();
-+  for (const host of hosts.splice(0)) await host.shutdownAll("test_cleanup");
-+  setProcessEpochReaderForTests(undefined);
-+  setProcessIdentityMapForTests(undefined);
-+  vi.unstubAllEnvs();
-+  clearMachines();
-+});
-+
-+describe("program status: the seat's terminal", () => {
-+  it("answers the support query before the DA1 that follows it, in the same tick", () => {
-+    const fake = makeFakeTerminalProcessAuthority(() => ({
-+      pid: trackSyntheticPid(47_501),
-+      exitOnSignal: "SIGTERM",
-+    }));
-+    const host = hostWith(fake);
-+    host.create({ bindingId: "osc-query" });
-+    fake.controllers[0]!.emitData(`${ESC}[?u${ESC}]7501;?${ST}${ESC}[c`);
-+    expect(fake.controllers[0]!.writes).toEqual([PROGRAM_STATUS_QUERY_REPLY]);
-+  });
-+
-+  it("holds the answer behind a managed submission span", () => {
-+    const interlock = new OperatorInterlock();
-+    const fake = makeFakeTerminalProcessAuthority(() => ({
-+      pid: trackSyntheticPid(47_502),
-+      exitOnSignal: "SIGTERM",
-+    }));
-+    const host = hostWith(fake, { operatorInterlock: interlock });
-+    host.create({ bindingId: "osc-hold" });
-+    interlock.beginHold("osc-hold");
-+    fake.controllers[0]!.emitData(osc("?", BEL));
-+    expect(fake.controllers[0]!.writes).toEqual([]);
-+    interlock.endHold("osc-hold");
-+    expect(fake.controllers[0]!.writes).toEqual([PROGRAM_STATUS_QUERY_REPLY]);
-+  });
-+
-+  it("publishes each report as seat signals for its binding", () => {
-+    const fake = makeFakeTerminalProcessAuthority(() => ({
-+      pid: trackSyntheticPid(47_503),
-+      exitOnSignal: "SIGTERM",
-+    }));
-+    const host = hostWith(fake);
-+    const seen: SignalEnvelope[] = [];
-+    host.onSeatSignal((envelope) => seen.push(envelope));
-+    host.create({ bindingId: "osc-signal" });
-+    const report = osc(`state=blocked:kind=permission:app=omp:msg=${b64("Run ls?")}`);
-+    fake.controllers[0]!.emitData(report.slice(0, 12));
-+    fake.controllers[0]!.emitData(report.slice(12));
-+    expect(seen).toEqual([
-+      expect.objectContaining({
-+        seat: "osc-signal",
-+        source: "osc7501",
-+        fidelity: "native",
-+        signal: { _tag: "PermissionRequested", detail: "Run ls?" },
-+      }),
-+    ]);
-+  });
-+
-+  it("turns reporting on through the environment, and the seat's own value wins", () => {
-+    const agent = (env?: Record<string, string>) =>
-+      Result.getOrThrow(
-+        resolveLaunch({
-+          kind: "agent",
-+          harness: "pi",
-+          agentKey: "local:pi",
-+          launch: { kind: "harness", argv: ["pi"], cwd: "/tmp", ...(env ? { env } : {}) },
-+        }),
-+      ).env;
-+    expect(agent()).toMatchObject({ PI_PROGRAM_STATUS: "1", AGY_CLI_OSC7501: "on" });
-+    expect(agent({ PI_PROGRAM_STATUS: "0" }).PI_PROGRAM_STATUS).toBe("0");
-+  });
-+});
+/**
+ * What a terminal generation *is*. Decided by the caller from the node's
+ * authored spec and never recomputed from the launch payload:
+ *
+ *   agent    → the actor seat. A harness template, spawned from its own argv.
+ *   terminal → geography. A shell.
+ *
+ * The shell path is reachable only from the `terminal` variant, so an actor
+ * whose launch does not resolve fails; it never degrades into a login shell.
+ */
+export type TerminalSeat =
+  | {
+      readonly kind: "agent";
+      /** Closed literal — an actor seat always names a real template. */
+      readonly harness: HarnessId;
+      readonly agentKey: string;
+      readonly launch?: TerminalLaunch;
+    }
+  | {
+      readonly kind: "terminal";
+      readonly launch?: TerminalLaunch;
+    };
+
+/** Fields every generation carries, whatever the node is. */
+export type TerminalOpenInput = {
+  readonly bindingId: string;
+  readonly hostId?: string;
+  readonly cols?: number;
+  readonly rows?: number;
+  readonly canvasName?: string;
+  readonly nodeId?: string;
+  readonly label?: string;
+  readonly title?: string;
+};
+
+/** Geography terminal (`geography/"terminal"`) — a shell. Holds no harness. */
+export type LocalHostCreateInput = TerminalOpenInput & {
+  readonly launch?: TerminalLaunch;
+  /** What the regions around this terminal resolved to, for this spawn only. */
+  readonly regionEnvironment?: SeatRegionEnvironment;
+};
+
+/** The actor seat. Harness and agent key are part of the type, not a bolt-on. */
+export type LocalHostAgentSeatInput = TerminalOpenInput & {
+  readonly harness: HarnessId;
+  readonly agentKey: string;
+  readonly launch?: TerminalLaunch;
+  /** Pure seat context retained only for a failed-resume fresh replan. */
+  readonly resumeFallbackIntent?: ManagedSpawnIntent;
+  /**
+   * What the regions containing this seat resolved to, for this spawn only.
+   * The values live here and in the child's environment, nowhere else: the
+   * record is the only part a session keeps or reports.
+   */
+  readonly regionEnvironment?: SeatRegionEnvironment;
+};
+
+/** A seat's resolved region environment, handed to one spawn. */
+export type SeatRegionEnvironment = {
+  /** Names to values. Never logged, never put on argv. */
+  readonly env: Readonly<Record<string, string>>;
+  /** Absolute directories to expose through the harness's own option. */
+  readonly folders: ReadonlyArray<string>;
+  /** Names and identities of what was applied. Holds no value. */
+  readonly record: RegionEnvironmentLaunchRecord;
+};
+
+
+export type LocalHostEvent =
+  | {
+      readonly type: "output";
+      readonly bindingId: string;
+      readonly epoch: string;
+      readonly seq: bigint;
+      readonly data: string;
+    }
+  | {
+      readonly type: "resize";
+      readonly bindingId: string;
+      readonly epoch: string;
+      readonly seq: bigint;
+      readonly cols: number;
+      readonly rows: number;
+    }
+  | {
+      readonly type: "exit";
+      readonly bindingId: string;
+      readonly epoch: string;
+      readonly seq: bigint;
+      readonly code: number | undefined;
+      readonly signal: number | undefined;
+    }
+  | {
+      readonly type: "session";
+      readonly bindingId: string;
+      readonly epoch: string;
+      readonly status: "starting" | "running" | "exited";
+      readonly pid?: number;
+    }
+  | {
+      readonly type: "seat-state";
+      readonly bindingId: string;
+      readonly epoch: string;
+      readonly event: {
+        readonly bindingId: string;
+        readonly epoch: string;
+        readonly state: "idle" | "working" | "attention" | "unknown" | "gone";
+        readonly reason: string;
+        readonly confidence: "high" | "low";
+        readonly at: number;
+        readonly harness?: string;
+      };
+    };
+
+export type LocalHostEventListener = (event: LocalHostEvent) => void;
+
+export type LocalHostEventSubscriptionOptions = {
+  /**
+   * Replay each binding's current live generation after the listener is
+   * installed. This closes startup read/subscribe windows without making
+   * exited generations look live.
+   */
+  readonly replayCurrentSessions?: boolean;
+};
+
+export type ControlLease = {
+  readonly leaseId: string;
+  readonly bindingId: string;
+  readonly epoch: string;
+  readonly mode: "control" | "observe";
+};
+
+declare const localTerminalMaintenanceLeaseBrand: unique symbol;
+
+/**
+ * Opaque host authority for one zero-session terminal admission cut.
+ * Only exact object identity can release the cut; it is never serialized.
+ */
+export type LocalTerminalMaintenanceLease = {
+  readonly [localTerminalMaintenanceLeaseBrand]: true;
+};
+
+export type LocalTerminalMaintenanceAcquireResult =
+  | {
+      readonly acquired: true;
+      readonly evidence: TermMaintenanceQuiescenceEvidence;
+      readonly lease: LocalTerminalMaintenanceLease;
+    }
+  | {
+      readonly acquired: false;
+      readonly evidence: TermMaintenanceEvidence;
+      readonly reason: TermMaintenanceDenialReason;
+    };
+
+export type JournalEntry =
+  | { readonly seq: bigint; readonly type: "output"; readonly data: string }
+  | { readonly seq: bigint; readonly type: "resize"; readonly cols: number; readonly rows: number }
+  | {
+      readonly seq: bigint;
+      readonly type: "exit";
+      readonly code: number | undefined;
+      readonly signal: number | undefined;
+    };
+
+export type LocalTerminalProcessAuthority = Pick<
+  AppProcessPlane,
+  "spawnTerminal" | "terminate" | "forceTerminate"
+>;
+
+type PrimeDaemonCleanupState = "none" | "pending" | "clean" | "failed";
+type PrimeAgentDaemonReport = Parameters<
+  NonNullable<Parameters<PrimeAgentDaemons["start"]>[0]["onReport"]>
+>[0];
+
+type SessionRec = {
+  bindingId: string;
+  epoch: string;
+  hostId: string;
+  /**
+   * Product session phase.
+   * Write only while Live; Broken still "running" for inventory until exit.
+   */
+  phase: SessionPhaseT;
+  lease: AppTerminalLease | undefined;
+  exitWitness: Promise<AppTerminalExit> | undefined;
+  listenerCleanups: Array<() => void>;
+  pid: number | undefined;
+  /** Exact PID/start-key authorities; never replace these with numeric revocation. */
+  ptyIdentityBinding: ProcessIdentityBinding | undefined;
+  daemonIdentityBinding: ProcessIdentityBinding | undefined;
+  /**
+   * Seat generation credential minted before spawn and injected into the seat
+   * environment. Published to the registry once the lease is live and canvas
+   * anchors are known; revoked when the generation ends.
+   */
+  seatCredential: SeatCredentialMint | undefined;
+  seatCredentialLive: boolean;
+  /** Prime Agent's per-seat foreground daemon + reporter registration. */
+  primeDaemon: PrimeAgentDaemonHandle | undefined;
+  primeDaemonStopFlight: Promise<void> | undefined;
+  primeDaemonCleanupState: PrimeDaemonCleanupState;
+  primeDaemonCleanupError: string | undefined;
+  cols: number;
+  rows: number;
+  cwd: string;
+  title?: string;
+  /** Spawn argv basename — display fallback when OSC title is empty. */
+  processName?: string;
+  label?: string;
+  backend: "pty" | undefined;
+  canvasName?: string;
+  nodeId?: string;
+  /** Actor key when this generation is an agent seat (process-bind principal). */
+  agentKey?: string;
+  /** Harness template when this generation is an actor seat. */
+  harness?: HarnessId;
+  detached: boolean;
+  createdAt: number;
+  seq: bigint;
+  journal: JournalEntry[];
+  journalBytes: number;
+  controlLeaseId: string | undefined;
+  killed: boolean;
+  termReceipt: AppProcessSignalReceipt | undefined;
+  killReceipt: AppProcessSignalReceipt | undefined;
+  /** Bounded carryover for a harness session marker split across PTY chunks. */
+  sessionCaptureTail: string;
+  /** OSC 7501 reports and queries in this generation's output. */
+  programStatus: ProgramStatusScanner;
+  /** Exact-record escalation; never follows a mutable binding lookup. */
+  escalationTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * The process was told to stop, then killed, and never reported exiting.
+   * The seat is released (the record reads exited, so a fresh generation can
+   * start) while this record keeps its lease and stays in the live set: the
+   * process is still tracked, still counted, and still a shutdown straggler
+   * until its exit is actually witnessed.
+   */
+  unconfirmedStop: { readonly at: number; readonly cause: string } | undefined;
+  /**
+   * The seat offboarded and moved on; this process was detached from it and
+   * is finishing its turn in a world of its own. It is off the binding (the
+   * seat's next generation owns that), reads under its drain key, takes no
+   * input from anyone, holds no seat identity, and is stopped when the drain
+   * manager says so. `stopped` is why, once it has been told to stop.
+   */
+  draining: { readonly key: string; stopped: string | undefined } | undefined;
+  /** Why the process was told to stop, when it was. */
+  stopCause: SeatStopCause | undefined;
+  /** The process drew a terminal interface (alternate screen or bracketed paste). */
+  interfaceSeen: boolean;
+  /**
+   * This generation used harness resume argv (`-r` / `--resume` / `resume`).
+   * On proven resume failure we fail open to a fresh pin session once.
+   */
+  resumeAttempt: boolean;
+  resumeFailureSeen: boolean;
+  failOpenUsed: boolean;
+  /** Payload to recreate a pin generation after resume failure. */
+  failOpenSeed?: LocalHostAgentSeatInput;
+  /**
+   * What this generation's region environment was: names and identities, no
+   * values. The empty record when it was started inside no region.
+   */
+  regionEnvironment: RegionEnvironmentLaunchRecord;
+  /**
+   * Pre-ownership failure only. Clean post-run exits leave this unset so
+   * the canvas keeps the normal stopped/exited grammar.
+   */
+  exitReason?: "cli-missing" | "spawn_failed";
+  /** The refusal, or how an agent harness exited and what it last printed. */
+  exitMessage?: string;
+};
+
+const sessionStatusOf = (
+  rec: Pick<SessionRec, "phase">,
+): "starting" | "running" | "exited" =>
+  productStatusFromSessionPhase(rec.phase);
+
+const activeSessionStatusOf = (
+  rec: Pick<SessionRec, "bindingId" | "epoch" | "phase">,
+): "starting" | "running" => {
+  const status = sessionStatusOf(rec);
+  if (status === "exited") {
+    throw new Error(
+      `closed terminal retained as active: ${rec.bindingId}@${rec.epoch}`,
+    );
+  }
+  return status;
+};
+
+export type LocalHostShutdownStraggler = {
+  readonly bindingId: string;
+  readonly epoch: string;
+  readonly status: "starting" | "running";
+  readonly pid?: number;
+  /** True only while the app process plane still owns an unobserved PTY exit. */
+  readonly ownedPtyOutstanding?: true;
+  readonly term?: AppProcessSignalReceipt;
+  readonly kill?: AppProcessSignalReceipt;
+  /** Present when a per-seat daemon receipt is still pending or failed. */
+  readonly primeDaemon?: {
+    readonly daemonPid?: number;
+    readonly state: "pending" | "failed" | "manager_pending" | "manager_failed";
+    readonly message?: string;
+  };
+};
+
+export type LocalHostShutdownResult =
+  | { readonly clean: true; readonly stragglers: readonly [] }
+  | {
+      readonly clean: false;
+      readonly stragglers: readonly LocalHostShutdownStraggler[];
+    };
+
+export type LocalSessionHostOptions = {
+  /** TERM-to-KILL delay for one exact terminal generation. */
+  readonly killGraceMs?: number;
+  /** Bounded wait after each shutdown signal phase. */
+  readonly shutdownGraceMs?: number;
+  /** Final event-driven window for a late observed exit after SIGKILL. */
+  readonly lateExitGraceMs?: number;
+  /**
+   * Read-only external admission fence. Production observes the fixed
+   * root-owned Linux release marker; tests inject state without touching the
+   * host filesystem. Errors close admission.
+   */
+  readonly externalMaintenanceFence?: () => boolean;
+  /**
+   * Main-process screen observer plane. Defaults to the process singleton.
+   * Tests may inject an isolated plane.
+   */
+  readonly observerPlane?: TerminalObserverPlane;
+  /**
+   * Per-seat Prime Agent daemon. Production passes the singleton explicitly;
+   * omission selects it only for the exact app process plane. `null` disables
+   * the integration for isolated tests without ever launching a real CLI.
+   */
+  readonly primeDaemons?: PrimeAgentDaemons | null;
+  /**
+   * Operator-input interlock shared with the managed-terminal drive.
+   * Production defaults to the process singleton so the drive sees every
+   * operator keystroke and resize at the write boundary; isolated test hosts
+   * get a fresh instance unless one is injected.
+   */
+  readonly operatorInterlock?: OperatorInterlock;
+};
+
+type AllExitedWaiter = {
+  timer: ReturnType<typeof setTimeout> | undefined;
+  readonly resolve: (clean: boolean) => void;
+};
+
+type RecordExitWaiter = {
+  readonly record: SessionRec;
+  timer: ReturnType<typeof setTimeout> | undefined;
+  readonly resolve: (clean: boolean) => void;
+};
+
+const DEFAULT_COLS = 120;
+const DEFAULT_ROWS = 32;
+const MAX_JOURNAL_BYTES = 512 * 1024;
+const SESSION_CAPTURE_TAIL_BYTES = 1024;
+const SHUTDOWN_GRACE_MS = 1500;
+/**
+ * TERM-to-KILL delay. Equal to the graceful window on purpose: a shorter
+ * timer preempts every `shutdownGraceMs` wait below and force-kills harnesses
+ * that are still exiting cleanly. Measured clean exits after SIGTERM: Claude
+ * Code 590 to 780 ms, Grok 700 to 735 ms, so the old 400 ms killed both on
+ * every stop.
+ */
+const KILL_GRACE_MS = SHUTDOWN_GRACE_MS;
+const LATE_EXIT_GRACE_MS = 1500;
+
+const mintEpoch = (): string =>
+  `ep_${Date.now().toString(36)}_${randomBytes(4).toString("hex")}`;
+
+const mintLease = (): string => `ls_${randomBytes(8).toString("hex")}`;
+const mintMaintenanceObservation = (): string =>
+  `tm_${randomBytes(TERM_MAINTENANCE_OBSERVATION_BYTES).toString("hex")}`;
+
+const CLEANUP_DIAGNOSTIC_MESSAGE_BYTES = 512;
+
+const boundedCleanupMessage = (message: string): string =>
+  Buffer.from(message, "utf8")
+    .subarray(0, CLEANUP_DIAGNOSTIC_MESSAGE_BYTES)
+    .toString("utf8");
+
+const cleanupFailureMessage = (receipt: unknown): string | undefined => {
+  if (
+    typeof receipt !== "object" ||
+    receipt === null ||
+    !("clean" in receipt) ||
+    receipt.clean !== false
+  ) return undefined;
+  if ("message" in receipt && typeof receipt.message === "string") {
+    return boundedCleanupMessage(receipt.message);
+  }
+  if ("diagnostics" in receipt && Array.isArray(receipt.diagnostics)) {
+    const first = receipt.diagnostics.find(
+      (value): value is { readonly stage?: unknown; readonly message: string } =>
+        typeof value === "object" &&
+        value !== null &&
+        "message" in value &&
+        typeof value.message === "string" &&
+        value.message.trim().length > 0,
+    );
+    if (first !== undefined) {
+      const stage = typeof first.stage === "string" && first.stage.trim().length > 0
+        ? `${first.stage.trim()}: `
+        : "";
+      return boundedCleanupMessage(`${stage}${first.message.trim()}`);
+    }
+  }
+  // Manager shutdown receipts carry the actionable detail on the first
+  // non-clean per-seat child receipt rather than at the top level.
+  if ("receipts" in receipt && Array.isArray(receipt.receipts)) {
+    for (const child of receipt.receipts) {
+      const detail = cleanupFailureMessage(child);
+      if (detail !== undefined) return detail;
+    }
+  }
+  return "daemon cleanup returned a non-clean receipt";
+};
+
+const errorMessage = (error: unknown): string =>
+  boundedCleanupMessage(error instanceof Error ? error.message : String(error));
+
+/** Reporter fields are authoritative, but still bounded before display storage. */
+const safeStructuredSessionId = (report: {
+  readonly sessionId?: string;
+  readonly sessionPath?: string;
+}): string | undefined => {
+  const safeToken = (value: string): string | undefined => {
+    const token = value.trim();
+    if (
+      token.length === 0 ||
+      token.length > 256 ||
+      !/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(token)
+    ) return undefined;
+    return token;
+  };
+  if (typeof report.sessionId === "string") {
+    const direct = safeToken(report.sessionId);
+    if (direct !== undefined) return direct;
+  }
+  if (typeof report.sessionPath !== "string") return undefined;
+  const leaf = report.sessionPath.trim().split(/[\\/]/u).at(-1) ?? "";
+  return safeToken(leaf.replace(/\.jsonl$/iu, ""));
+};
+
+export { TerminalLaunchError };
+export type { TerminalLaunchFailureCode };
+
+const defaultShell = (): string => {
+  if (process.platform === "win32") return process.env.COMSPEC || "cmd.exe";
+  const userShell = process.env.SHELL?.trim();
+  if (userShell) {
+    try {
+      return validateExecutableShell(userShell);
+    } catch (error) {
+      if (!(error instanceof TerminalLaunchError)) throw error;
+      // `$SHELL` is ambient preference, not executable authority. A stale or
+      // malformed value falls through to the fixed platform policy below.
+    }
+  }
+  // Linux is deliberately bash-first; macOS retains its system login shell.
+  return validateExecutableShell(
+    process.platform === "linux" ? "/bin/bash" : "/bin/zsh",
+  );
+};
+
+/**
+ * Expand a station-local cwd. Region paths and the directory picker author `~`
+ * / `~/…` (see host-directory); node-pty requires a real absolute path and
+ * exits the child immediately when given a literal tilde.
+ */
+export const expandTerminalCwd = (
+  input: string | undefined,
+  home: string = os.homedir(),
+): string => {
+  const requested = input?.trim() ?? "";
+  if (!requested || requested === "~") return home;
+  if (requested.startsWith("~/")) return join(home, requested.slice(2));
+  return requested;
+};
+
+const resolveCwd = (launch: TerminalLaunch | undefined): string => {
+  const expanded = expandTerminalCwd(
+    (launch?.cwd && launch.cwd.trim()) ||
+      process.env.HOME ||
+      os.homedir() ||
+      process.cwd(),
+  );
+  // node-pty rejects relative cwds; fall back rather than mint a doomed spawn.
+  if (!isAbsolute(expanded)) {
+    return os.homedir() || process.cwd();
+  }
+  return expanded;
+};
+
+/** Operator-home paths read as `~/…` on a seat card. */
+const displayPath = (path: string): string => {
+  const home = os.homedir();
+  if (home && (path === home || path.startsWith(`${home}/`))) {
+    return `~${path.slice(home.length)}`;
+  }
+  return path;
+};
+
+/** The typed refusal for a launch cwd that is missing or not a directory. */
+const unusableCwdError = (cwd: string): LaunchRefusedError =>
+  new LaunchRefusedError({
+    operatorReason: existsSync(cwd)
+      ? launchRefusalCopy.notAFolder(displayPath(cwd))
+      : launchRefusalCopy.folderMissing(displayPath(cwd)),
+    detail: `working directory is not a usable directory: ${cwd}`,
+  });
+
+/** True when the path is an existing directory the child can start in. */
+const isUsableCwd = (cwd: string): boolean => {
+  try {
+    return existsSync(cwd) && statSync(cwd).isDirectory();
+  } catch {
+    return false;
+  }
+};
+
+/** An actor seat whose harness launch does not name an executable argv. */
+export type AgentLaunchUnresolvable = {
+  readonly code: "agent_launch_unresolvable";
+  readonly harness: HarnessId;
+  readonly reason: string;
+  /** Plain copy completing "{Harness} could not start: …" on the seat card. */
+  readonly operatorReason: string;
+  /** The harness binary itself is absent (cli-missing, not spawn_failed). */
+  readonly missingExecutable?: true;
+};
+
+export type ResolvedLaunch = {
+  readonly file: string;
+  readonly args: string[];
+  readonly cwd: string;
+  readonly env: Record<string, string>;
+};
+
+/**
+ * Resolve the argv a seat spawns. Total over the seat sum:
+ *
+ *   agent    → the harness argv, or a typed failure. There is no shell here.
+ *   terminal → the authored command, else a validated login shell.
+ *
+ * A seat is what the node says it is; nothing about the launch payload can
+ * make one variant behave like the other.
+ */
+export const resolveLaunch = (
+  seat: TerminalSeat,
+  options?: {
+    readonly seatInject?: Readonly<Record<string, string>>;
+    /**
+     * The seat's region environment. Sits above the ambient environment
+     * (including the ambient snapshot a planned launch carries) and below
+     * what the seat itself set and Junto's injections, so `JUNTO_*` always
+     * wins and the nested-session scrub still applies.
+     */
+    readonly regionEnv?: Readonly<Record<string, string>>;
+    /** Region folders, passed to the harness's add-directory option if it has one. */
+    readonly folders?: ReadonlyArray<string>;
+    /**
+     * Active Junto theme for COLORFGBG fallback. Defaults dark —
+     * renderer OSC 10/11 + CSI ?996n are the live authority once attached.
+     */
+    readonly themeMode?: ThemeMode;
+  },
+): Result.Result<ResolvedLaunch, AgentLaunchUnresolvable> => {
+  const launch = seat.launch;
+  const cwd = resolveCwd(launch);
+  // Actor seat: scrub nested Claude markers + merge seat inject after scrub
+  // so ambient CLAUDE_CODE_CHILD_SESSION cannot disable the child transcript.
+  // PTY is always a real xterm surface. Inherit ambient TERM only when it is
+  // already an xterm* value — a host launched under TERM=dumb (CI, headless
+  // harnesses) must not blank interactive shells.
+  const ambientTerm = process.env.TERM?.trim() ?? "";
+  const term =
+    ambientTerm.startsWith("xterm") || ambientTerm.startsWith("screen")
+      ? ambientTerm
+      : "xterm-256color";
+  // COLORFGBG is the spawn hint a TUI reads when it never asks the terminal
+  // what colour it is (Grok: its real captures carry no OSC 10/11 query). It
+  // comes from main's theme state, which is the source of truth for every seat
+  // on every canvas — a seat woken with no surface attached is told exactly
+  // what a hand-opened one is told. The renderer's OSC 10/11 + CSI ?996n stay
+  // the live update path once a surface exists; they are no longer the only
+  // way the harness ever learns the theme.
+  const colorFgBg = colorFgBgFor(options?.themeMode ?? currentThemeMode());
+  // A planned launch carries a snapshot of the ambient environment, so most
+  // of `launch.env` is not the seat's own. Only what differs from the ambient
+  // value is: the picker's dials and anything authored on the seat. A region
+  // overrides the snapshot and yields to those.
+  const launchEnv = launch?.env ?? {};
+  const seatOwnEnv = Object.fromEntries(
+    Object.entries(launchEnv).filter(([key, value]) => process.env[key] !== value),
+  );
+  const env: Record<string, string> =
+    seat.kind === "agent"
+      ? {
+          ...buildSpawnEnv(process.env, {
+            // Status reporting on by default; anything the seat or region set wins.
+            ...PROGRAM_STATUS_ENV,
+            ...launchEnv,
+            ...(options?.regionEnv ?? {}),
+            ...seatOwnEnv,
+            // Live host authority wins over the earlier pure launch plan.
+            // In dev, that keeps repo/dist ahead of a stale installed CLI;
+            // for every build, it prevents document/ambient launch env from
+            // replacing the process-bound seat and control-socket contract.
+            ...(options?.seatInject ?? {}),
+          }),
+          TERM: term,
+          COLORTERM: process.env.COLORTERM || "truecolor",
+          COLORFGBG: colorFgBg,
+        }
+      : {
+          ...(process.env as Record<string, string>),
+          // A shell opened inside a region is part of that region's work.
+          ...(options?.regionEnv ?? {}),
+          ...(launch?.env ?? {}),
+          TERM: term,
+          COLORTERM: process.env.COLORTERM || "truecolor",
+          COLORFGBG: colorFgBg,
+        };
+  // Defensive: never let scrubbed keys re-enter via TERM/COLORTERM path.
+  if (seat.kind === "agent") {
+    for (const key of Object.keys(env)) {
+      if (scrubSpawnEnv({ [key]: env[key] })[key] === undefined) {
+        delete env[key];
+      }
+    }
+  }
+  const argv = reclaimOrphanedHarnessArgv(
+    launch?.argv?.filter((a) => typeof a === "string" && a.length > 0) ?? [],
+    cwd,
+  );
+
+  if (seat.kind === "agent") {
+    const unresolvable = (
+      reason: string,
+      operatorReason: string,
+      missingExecutable?: true,
+    ): AgentLaunchUnresolvable => ({
+      code: "agent_launch_unresolvable",
+      harness: seat.harness,
+      reason,
+      operatorReason,
+      ...(missingExecutable ? { missingExecutable } : {}),
+    });
+    if (!launch) {
+      return Result.fail(
+        unresolvable("the seat carries no launch profile", launchRefusalCopy.launchIncomplete),
+      );
+    }
+    if (launch.kind === "shell") {
+      return Result.fail(
+        unresolvable("the seat's launch profile is a shell", launchRefusalCopy.launchIncomplete),
+      );
+    }
+    const file = argv[0];
+    if (file === undefined) {
+      return Result.fail(
+        unresolvable("the seat's launch profile carries no argv", launchRefusalCopy.launchIncomplete),
+      );
+    }
+    // A managed agent seat must name its own working directory. resolveCwd
+    // falls back to the operator home, which the refusal below rejects — so a
+    // seat that never chose a folder would be refused under the home rule and
+    // report the wrong problem. Name the real one: the authoring path requires
+    // a folder, and a seat without one has nothing to run in.
+    if (!launch.cwd?.trim()) {
+      return Result.fail(
+        unresolvable(
+          "the seat has no working directory — choose a folder for this seat",
+          launchRefusalCopy.noFolder,
+        ),
+      );
+    }
+    // Path-like argv (`./tool`, `dir/tool`) resolves against the seat cwd so
+    // resolution and spawn name the same target.
+    const fileTarget =
+      !isAbsolute(file) && /[/\\]/.test(file) ? resolve(cwd, file) : file;
+    const resolvedFile = resolveHarnessExecutable(fileTarget, {
+      pathEnv: env.PATH ?? process.env.PATH,
+      extraDirs: configuredToolDirectories(),
+    });
+    // A bare name that fails resolution must not spawn anyway: the child
+    // would re-walk PATH itself and a dead shim Junto already rejected could
+    // still win there. An absolute/path target that exists yet fails
+    // resolution (a dead shim, or a non-executable file) fails closed the same
+    // way — only a genuinely absent path reaches spawn so ENOENT can classify
+    // as cli-missing.
+    if (
+      resolvedFile === undefined &&
+      (!isAbsolute(fileTarget) || existsSync(fileTarget))
+    ) {
+      return Result.fail(
+        unresolvable(
+          `the harness binary "${file}" was not found on the seat PATH`,
+          `the harness binary "${file}" was not found`,
+          true,
+        ),
+      );
+    }
+    const launchFile = resolvedFile ?? fileTarget;
+    // Version-dependent structural flags (Codex `--no-daemon`): added only
+    // when this installed binary lists them, and never twice.
+    const probedFlags = supportedHostProbedFlags(
+      launchFile,
+      (isHarnessId(seat.harness)
+        ? templateFor(seat.harness).argvSpec.hostProbedFlags
+        : undefined) ?? [],
+      env.PATH ?? process.env.PATH,
+    ).filter((flag) => !argv.includes(flag));
+    // Region folders ride the harness's own add-directory option, under the
+    // same law: only when this installed binary lists it. A harness without
+    // one launches exactly as before.
+    const addDirFlag = isHarnessId(seat.harness)
+      ? templateFor(seat.harness).argvSpec.addDirFlag
+      : undefined;
+    const folders = options?.folders ?? [];
+    const folderArgs =
+      addDirFlag !== undefined &&
+      folders.length > 0 &&
+      supportedHostProbedFlags(
+        launchFile,
+        [addDirFlag],
+        env.PATH ?? process.env.PATH,
+      ).length > 0
+        ? folders.flatMap((folder) => [addDirFlag, folder])
+        : [];
+    return Result.succeed({
+      file: launchFile,
+      args: [...probedFlags, ...folderArgs, ...argv.slice(1)],
+      cwd,
+      env,
+    });
+  }
+
+  if (launch && launch.kind !== "shell" && argv.length > 0) {
+    return Result.succeed({ file: argv[0]!, args: argv.slice(1), cwd, env });
+  }
+  // An explicit shell argv wins over the user/default shell, but is still
+  // validated before process ownership can be minted.
+  const shell = argv.length > 0 ? validateExecutableShell(argv[0]!) : defaultShell();
+  if (process.platform !== "win32") {
+    return Result.succeed({
+      file: shell,
+      args: argv.length > 1 ? argv.slice(1) : ["-l"],
+      cwd,
+      env,
+    });
+  }
+  return Result.succeed({ file: shell, args: [], cwd, env });
+};
+
+/** A terminal interface coming up: the alternate screen, or bracketed paste turned on. */
+const INTERFACE_UP_RE = /\x1b\[\?(?:1049|1047|47|2004)h/;
+
+/** The scrub registry's owner for one generation's secrets. */
+const knownSecretsOwner = (rec: { readonly bindingId: string; readonly epoch: string }): string =>
+  `seat:${rec.bindingId}@${rec.epoch}`;
+
+export class LocalSessionHost extends EventEmitter {
+  /** Current presentation generation by binding. */
+  private readonly sessions = new Map<string, SessionRec>();
+  /** Every terminal generation remains live until its exact witness settles. */
+  private readonly liveRecords = new Set<SessionRec>();
+  /** Daemon authority remains outstanding until its exact stop receipt settles. */
+  private readonly primeDaemonRecords = new Set<SessionRec>();
+  /** Bounded waiters used only after shutdown has prevented further creates. */
+  private readonly allExitedWaiters = new Set<AllExitedWaiter>();
+  /** Exact-generation deletion waiters; unrelated seats never hold these open. */
+  private readonly recordExitWaiters = new Set<RecordExitWaiter>();
+  private inputSealed: ((bindingId: string) => boolean) | undefined;
+  private readonly drainEndedListeners = new Set<(drainKey: string, code: number | undefined) => void>();
+  private readonly seatSignalListeners = new Set<(envelope: SignalEnvelope) => void>();
+  private maintenanceLease: LocalTerminalMaintenanceLease | undefined;
+  private shuttingDown = false;
+  private shutdownFlight: Promise<LocalHostShutdownResult> | undefined;
+  private readonly processAuthority: LocalTerminalProcessAuthority;
+  private readonly killGraceMs: number;
+  private readonly shutdownGraceMs: number;
+  private readonly lateExitGraceMs: number;
+  private readonly externalMaintenanceFence: () => boolean;
+  private readonly observerPlane: TerminalObserverPlane;
+  /**
+   * Live attach leases that are painting a surface, leaseId -> bindingId.
+   *
+   * A lease is what makes a session "one somebody is looking at": the renderer
+   * takes one when a node is opened and `release` runs on close, on renderer
+   * teardown, and on render-process loss. Holding the mapping here keeps the
+   * refcount idempotent — a double `release` for the same lease must not drop
+   * another viewer's retention.
+   */
+  private readonly surfaceLeases = new Map<string, string>();
+  private readonly primeDaemons: PrimeAgentDaemons | undefined;
+  private readonly operatorInterlock: OperatorInterlock;
+  private primeDaemonsShutdownState:
+    | "idle"
+    | "pending"
+    | "clean"
+    | "failed" = "idle";
+  private primeDaemonsShutdownError: string | undefined;
+  private primeDaemonsShutdownFlight: Promise<void> | undefined;
+
+  constructor(
+    processAuthority: LocalTerminalProcessAuthority = appProcessPlane,
+    options: LocalSessionHostOptions = {},
+  ) {
+    super();
+    this.processAuthority = processAuthority;
+    this.killGraceMs = Math.max(0, options.killGraceMs ?? KILL_GRACE_MS);
+    this.shutdownGraceMs = Math.max(0, options.shutdownGraceMs ?? SHUTDOWN_GRACE_MS);
+    this.lateExitGraceMs = Math.max(0, options.lateExitGraceMs ?? LATE_EXIT_GRACE_MS);
+    this.externalMaintenanceFence =
+      options.externalMaintenanceFence ?? (() => false);
+    this.observerPlane = options.observerPlane ?? terminalObserverPlane;
+    this.primeDaemons = options.primeDaemons === undefined
+      ? processAuthority === appProcessPlane
+        ? primeAgentDaemons
+        : undefined
+      : options.primeDaemons ?? undefined;
+    this.operatorInterlock =
+      options.operatorInterlock ??
+      (processAuthority === appProcessPlane
+        ? seatOperatorInterlock
+        : new OperatorInterlock());
+  }
+
+  /** Open a geography terminal. A shell — it can hold no harness. */
+  create(input: LocalHostCreateInput): TerminalSessionSummary {
+    return this.open(
+      { kind: "terminal", ...(input.launch ? { launch: input.launch } : {}) },
+      input,
+    );
+  }
+
+  /** Open the actor seat. Its harness is declared, never inferred at spawn. */
+  createAgentSeat(input: LocalHostAgentSeatInput): TerminalSessionSummary {
+    if (input.harness === "junto-overseer" && !LIVE_OVERSEER_ENABLED) {
+      throw new Error("Live conversation is disabled in this Junto build");
+    }
+    const bindingId = input.bindingId.trim();
+    const current = this.sessions.get(bindingId);
+    const occupancy = occupancyFromSession(
+      bindingId,
+      current === undefined
+        ? undefined
+        : {
+            epoch: current.epoch,
+            status: sessionStatusOf(current),
+            ...(current.killed ? { stopping: true as const } : {}),
+          },
+      "local",
+    );
+    const occupy = occupyVacantSeat(occupancy);
+    if (Result.isFailure(occupy) && current) {
+      // Occupied create is an idempotent ensure only for the exact requested
+      // actor identity. Any other occupant is a typed conflict — a live
+      // generation is never repurposed.
+      const incumbent = this.summaryOf(current);
+      if (
+        incumbent.harness === input.harness &&
+        incumbent.agentKey === input.agentKey &&
+        incumbent.canvasName === input.canvasName &&
+        incumbent.nodeId === input.nodeId
+      ) {
+        return incumbent;
+      }
+      throw seatIdentityConflictError(
+        bindingId,
+        {
+          harness: input.harness,
+          agentKey: input.agentKey,
+          canvasName: input.canvasName ?? "",
+          nodeId: input.nodeId ?? "",
+        },
+        {
+          ...(incumbent.harness === undefined
+            ? {}
+            : { harness: incumbent.harness }),
+          ...(incumbent.agentKey === undefined
+            ? {}
+            : { agentKey: incumbent.agentKey }),
+          ...(incumbent.canvasName === undefined
+            ? {}
+            : { canvasName: incumbent.canvasName }),
+          ...(incumbent.nodeId === undefined
+            ? {}
+            : { nodeId: incumbent.nodeId }),
+        },
+      );
+    }
+    // Under isolation, never spawn pin harnesses with resume argv even if a
+    // caller bypassed launchForManagedSpawn and handed us document -r.
+    let launch = input.launch;
+    let resumeAttempt = launchArgvUsesResume(launch?.argv);
+    if (
+      shouldAvoidSharedHarnessResume() &&
+      isPinSessionHarness(input.harness) &&
+      resumeAttempt
+    ) {
+      const freshId = randomUUID();
+      try {
+        launch = planFreshPinSession({
+          harness: input.harness,
+          documentLaunch: input.launch,
+          agentKey: input.agentKey,
+          cwd: input.launch?.cwd,
+          sessionId: freshId,
+        }).launch;
+        resumeAttempt = false;
+      } catch (err) {
+        console.error(
+          `[term] isolate fresh-pin plan failed for ${bindingId}; refusing shared resume:`,
+          err,
+        );
+        throw new Error(
+          `isolated JUNTO_HOME refuses shared harness resume for ${input.harness}`,
+        );
+      }
+    }
+    const opened = this.open(
+      {
+        kind: "agent",
+        harness: input.harness,
+        agentKey: input.agentKey,
+        ...(launch ? { launch } : {}),
+      },
+      {
+        ...input,
+        ...(launch ? { launch } : {}),
+      },
+      {
+        resumeAttempt,
+        failOpenSeed: {
+          ...input,
+          ...(launch ? { launch } : {}),
+        },
+      },
+    );
+    // Fail-open after a dead resume can replace this binding during open (or
+    // immediately after exit). Create must return the authoritative generation
+    // for the binding — never the exited resume row that is no longer current.
+    // Returning the dead summary is what painted "Agent stopped" while a live
+    // replacement was already running (Reopen then attached instantly).
+    const head = this.sessions.get(bindingId);
+    return head ? this.summaryOf(head) : opened;
+  }
+
+  private open(
+    seat: TerminalSeat,
+    input: TerminalOpenInput,
+    agentMeta?: {
+      readonly resumeAttempt: boolean;
+      readonly failOpenSeed: LocalHostAgentSeatInput;
+      readonly failOpenUsed?: boolean;
+    },
+  ): TerminalSessionSummary {
+    if (this.shuttingDown) {
+      throw new Error("terminal host shutting down");
+    }
+    let externallyFenced = true;
+    try {
+      externallyFenced = this.externalMaintenanceFence();
+    } catch {
+      // Cross-privilege maintenance state is fail-closed. A broken observation
+      // must never become permission to create a new terminal.
+    }
+    if (this.maintenanceLease !== undefined || externallyFenced) {
+      throw new Error("terminal admission closed for maintenance");
+    }
+    const bindingId = input.bindingId.trim();
+    if (!bindingId) throw new Error("bindingId required");
+
+    const prior = this.sessions.get(bindingId);
+    const occupancy = occupancyFromSession(
+      bindingId,
+      prior === undefined
+        ? undefined
+        : {
+            epoch: prior.epoch,
+            status: sessionStatusOf(prior),
+            ...(prior.killed ? { stopping: true as const } : {}),
+          },
+      "local",
+    );
+    if (Result.isFailure(occupyVacantSeat(occupancy)) && prior) {
+      return this.summaryOf(prior);
+    }
+
+    const cols = Math.max(20, Math.min(300, input.cols ?? DEFAULT_COLS));
+    const rows = Math.max(5, Math.min(120, input.rows ?? DEFAULT_ROWS));
+    const harness = seat.kind === "agent" ? seat.harness : undefined;
+    const agentKey = seat.kind === "agent" ? seat.agentKey : undefined;
+    // Agent seats and plain terminals both start with their regions'
+    // environment; only the agent path has folders to pass on.
+    const regionEnvironment = (
+      input as LocalHostAgentSeatInput | LocalHostCreateInput
+    ).regionEnvironment;
+    // Agent seats mint their generation credential before launch resolution so
+    // the value is in the spawn environment. Geography terminals never call
+    // the work socket and mint nothing.
+    const seatCredential = seat.kind === "agent" ? mintSeatCredential() : undefined;
+    const resolved = resolveLaunch(
+      seat,
+      seat.kind === "agent"
+        ? {
+            seatInject: {
+              ...buildManagedSeatInject(
+                {
+                  agentKey: seat.agentKey,
+                  canvasName: input.canvasName,
+                  nodeId: input.nodeId,
+                },
+                // A region's PATH is honored, with Junto's CLI directory kept
+                // in front of it.
+                regionEnvironment?.env.PATH === undefined
+                  ? process.env
+                  : { ...process.env, PATH: regionEnvironment.env.PATH },
+              ),
+              ...(seatCredential ? { [WORK_TOKEN_ENV]: seatCredential.credential } : {}),
+            },
+            ...(regionEnvironment
+              ? {
+                  regionEnv: regionEnvironment.env,
+                  folders: regionEnvironment.folders,
+                }
+              : {}),
+          }
+        : regionEnvironment
+          ? { regionEnv: regionEnvironment.env }
+          : {},
+    );
+    const epoch = mintEpoch();
+    const requestedCanvasName = input.canvasName?.trim() || undefined;
+    const requestedNodeId = input.nodeId?.trim() || undefined;
+    // A partial anchor names no principal. Keep the generation intentionally
+    // unbound until bindCanvas supplies both halves together.
+    const canvasName = requestedCanvasName && requestedNodeId
+      ? requestedCanvasName
+      : undefined;
+    const nodeId = requestedCanvasName && requestedNodeId
+      ? requestedNodeId
+      : undefined;
+    const rec: SessionRec = {
+      bindingId,
+      epoch,
+      hostId: input.hostId?.trim() || thisMachineName(),
+      phase: SessionPhase.Opening({ surface: "native" }),
+      lease: undefined,
+      exitWitness: undefined,
+      listenerCleanups: [],
+      pid: undefined,
+      ptyIdentityBinding: undefined,
+      daemonIdentityBinding: undefined,
+      seatCredential,
+      seatCredentialLive: false,
+      primeDaemon: undefined,
+      primeDaemonStopFlight: undefined,
+      primeDaemonCleanupState: "none",
+      primeDaemonCleanupError: undefined,
+      cols,
+      rows,
+      cwd: Result.isSuccess(resolved) ? resolved.success.cwd : resolveCwd(seat.launch),
+      title: input.title,
+      label: input.label,
+      backend: undefined,
+      canvasName,
+      nodeId,
+      agentKey,
+      harness,
+      regionEnvironment: regionEnvironment?.record ?? EMPTY_LAUNCH_RECORD,
+      detached: canvasName === undefined,
+      createdAt: Date.now(),
+      seq: 0n,
+      journal: [],
+      journalBytes: 0,
+      controlLeaseId: undefined,
+      killed: false,
+      termReceipt: undefined,
+      killReceipt: undefined,
+      sessionCaptureTail: "",
+      programStatus: new ProgramStatusScanner(),
+      escalationTimer: undefined,
+      unconfirmedStop: undefined,
+      draining: undefined,
+      stopCause: undefined,
+      interfaceSeen: false,
+      resumeAttempt: agentMeta?.resumeAttempt === true,
+      resumeFailureSeen: false,
+      failOpenUsed: agentMeta?.failOpenUsed === true,
+      failOpenSeed: agentMeta?.failOpenSeed,
+    };
+    // A generation that never owned a process (or whose process is gone)
+    // has nothing left to protect once the binding moves on.
+    if (prior !== undefined && !this.liveRecords.has(prior)) releaseKnownSecrets(knownSecretsOwner(prior));
+    this.sessions.set(bindingId, rec);
+    this.liveRecords.add(rec);
+    // The captured-session store is binding-keyed, not epoch-keyed. Clear it at the authority
+    // handoff so an old generation's late callbacks cannot leak into the new.
+    clearCapturedSessionId(bindingId);
+
+    if (Result.isFailure(resolved)) {
+      // An actor whose launch does not resolve stops here and shows the error
+      // state on its node. It never falls through to a shell.
+      this.failBeforeOwnership(
+        rec,
+        new LaunchRefusedError({
+          operatorReason: resolved.failure.operatorReason,
+          detail: `${resolved.failure.harness} seat launch unresolvable: ${resolved.failure.reason}`,
+          ...(resolved.failure.missingExecutable ? { missingExecutable: true } : {}),
+        }),
+      );
+      return this.summaryOf(rec);
+    }
+    const launch = resolved.success;
+    // What this generation's child holds and this process does not: no
+    // failure or log may carry it while the generation lives.
+    registerKnownSecrets(knownSecretsOwner(rec), [
+      seatCredential?.credential,
+      ...Object.values(regionEnvironment?.env ?? {}),
+      ...Object.entries(launch.env ?? {})
+        .filter(([key, value]) => process.env[key] !== value).map(([, value]) => value),
+    ]);
+    if (seat.kind === "agent") {
+      rec.resumeAttempt = launchArgvUsesResume([launch.file, ...launch.args]);
+    }
+    // Best-effort display name until OSC title updates (the daemon wrapper is
+    // transport, not the process name the operator chose).
+    const spawnName = basename(launch.file).trim();
+    if (spawnName.length > 0) rec.processName = spawnName;
+    if (!isUsableCwd(launch.cwd)) {
+      // node-pty exits the child with code 1 and no output for a missing or
+      // non-directory cwd (including a literal unexpanded `~/…` before expand).
+      // Fail before ownership so the journal names the path.
+      this.failBeforeOwnership(rec, unusableCwdError(launch.cwd));
+      return this.summaryOf(rec);
+    }
+
+    let terminalLaunch: ResolvedLaunch = launch;
+    if (
+      seat.kind === "agent" &&
+      seat.harness === "prime-agent" &&
+      this.primeDaemons !== undefined
+    ) {
+      try {
+        const daemon = this.primeDaemons.start({
+          bindingId,
+          epoch,
+          launch,
+          onReport: (report) => this.observePrimeAgentReport(rec, report),
+          onUnexpectedExit: () => this.observePrimeDaemonUnexpectedExit(rec),
+        });
+        rec.primeDaemon = daemon;
+        this.primeDaemonRecords.add(rec);
+        terminalLaunch = daemon.terminalLaunch;
+        // The daemon must wield the exact seat principal before its socket-routed
+        // client is spawned and can release the initial prompt.
+        if (!this.bindDaemonProcessIdentity(rec)) {
+          throw new Error("Prime Agent daemon process identity bind failed");
+        }
+        if (rec.killed || !this.liveRecords.has(rec)) {
+          throw new Error("Prime Agent daemon exited during startup");
+        }
+      } catch (error) {
+        this.revokeProcessIdentities(rec);
+        this.requestPrimeDaemonStop(rec, "prime_daemon_start_failed");
+        this.failBeforeOwnership(rec, error);
+        return this.summaryOf(rec);
+      }
+    }
+
+    if (!isUsableCwd(terminalLaunch.cwd)) {
+      const error = unusableCwdError(terminalLaunch.cwd);
+      this.revokeProcessIdentities(rec);
+      this.requestPrimeDaemonStop(rec, "prime_daemon_launch_invalid");
+      this.failBeforeOwnership(rec, error);
+      return this.summaryOf(rec);
+    }
+
+    let lease: AppTerminalLease;
+    try {
+      const spec: AppTerminalSpawnSpec = {
+        source: `term:${bindingId}`,
+        purpose: `local terminal ${bindingId}@${epoch}`,
+        command: terminalLaunch.file,
+        args: terminalLaunch.args,
+        cwd: terminalLaunch.cwd,
+        env: terminalLaunch.env,
+        cols,
+        rows,
+      };
+      lease = this.processAuthority.spawnTerminal(spec);
+    } catch (err) {
+      this.revokeProcessIdentities(rec);
+      this.requestPrimeDaemonStop(rec, "terminal_spawn_failed");
+      this.failBeforeOwnership(rec, err);
+      return this.summaryOf(rec);
+    }
+
+    try {
+      rec.lease = lease;
+      rec.backend = lease.backend;
+      rec.exitWitness = lease.io.exited;
+      rec.pid = lease.io.pidForDiagnostics;
+      rec.phase = SessionPhase.Live({ surface: "native" });
+      // Retain the central plane's exact native-PTY exit witness before any
+      // fallible presentation setup. Rejection is diagnostic only: authority
+      // stays registered centrally and this generation remains a straggler.
+      void rec.exitWitness.then(
+        (event) => this.observeExit(rec, event.code, event.signal),
+        (error) => this.observeWitnessFailure(rec, error),
+      );
+      // The terminal is a second exact generation for the same principal. A
+      // missing/failed bind is a setup failure, never permission to run ambient.
+      if (!this.bindPtyProcessIdentity(rec)) {
+        throw new Error("terminal process identity bind failed");
+      }
+      // Publish the generation credential once the lease is live. Anchors may
+      // still be missing; bindCanvas completes those and publishes then.
+      if (!this.publishSeatCredential(rec)) {
+        throw new Error("terminal seat credential publish failed");
+      }
+      rec.listenerCleanups.push(
+        lease.io.onData((data) => this.observeData(rec, data)),
+        lease.io.onError((error) => this.observeTerminalError(rec, error)),
+      );
+      // Main-process screen truth: one headless grid per live generation.
+      // Independent of renderer mount lifetime (workers run with windows closed).
+      this.observerPlane.attach({
+        bindingId,
+        epoch,
+        cols,
+        rows,
+      });
+      if (seat.kind === "agent") {
+        seatStateRuntime.bindHarness(bindingId, seat.harness, epoch);
+      }
+      // Devin announces its session id nowhere on the PTY — the id lives in a
+      // lockfile written by a descendant of the process we just spawned.
+      this.scheduleDevinSessionDiscovery(rec);
+      if (!this.liveRecords.has(rec)) {
+        this.observerPlane.detach(bindingId, epoch);
+        if (seat.kind === "agent") {
+          seatStateRuntime.unbind(bindingId, epoch, "generation_aborted");
+        }
+        // Resume fail-open may already own this binding with a live generation.
+        const replacement = this.sessions.get(bindingId);
+        if (
+          replacement &&
+          replacement !== rec &&
+          sessionStatusOf(replacement) !== "exited"
+        ) {
+          return this.summaryOf(replacement);
+        }
+        return this.summaryOf(rec);
+      }
+
+      this.emitEvent({ type: "session", bindingId, epoch, status: "starting" });
+      this.emitEvent({
+        type: "session",
+        bindingId,
+        epoch,
+        status: "running",
+        pid: rec.pid,
+      });
+    } catch (err) {
+      this.recordPostSpawnFailure(rec, err);
+      this.requestStop(rec, "terminal_setup_failed");
+      if (seat.kind === "agent") {
+        // Actor occupation is fail-closed: the process is torn down exactly as
+        // for geography, but the occupation itself rejects with a typed
+        // failure instead of converging on an exited summary.
+        throw seatOccupationFailedError(bindingId, epoch, err);
+      }
+    }
+
+    // Prefer the map head: fail-open may have swapped the binding mid-open.
+    const head = this.sessions.get(bindingId);
+    return this.summaryOf(head && this.liveRecords.has(head) ? head : rec);
+  }
+
+  list(): readonly TerminalSessionSummary[] {
+    return [...this.sessions.values()].map((s) => this.summaryOf(s));
+  }
+
+  get(bindingId: string): TerminalSessionSummary | undefined {
+    const rec = this.sessions.get(bindingId);
+    return rec ? this.summaryOf(rec) : undefined;
+  }
+
+  /**
+   * What the running generation on this binding was launched with from its
+   * regions: names and identities, never values. Undefined when nothing is
+   * running there, so a seat that is not running is never "stale".
+   */
+  regionEnvironmentRecord(
+    bindingId: string,
+  ): RegionEnvironmentLaunchRecord | undefined {
+    const rec = this.sessions.get(bindingId);
+    if (!rec || sessionStatusOf(rec) === "exited") return undefined;
+    return rec.regionEnvironment;
+  }
+
+  /**
+   * Subscribe first, then optionally replay current live session state.
+   *
+   * The exact-record recheck matters when a replay listener synchronously
+   * stops or replaces another binding: only the generation still authoritative
+   * in `sessions` may be presented as current.
+   */
+  subscribeEvents(
+    listener: LocalHostEventListener,
+    options: LocalHostEventSubscriptionOptions = {},
+  ): () => void {
+    this.on("event", listener);
+    if (options.replayCurrentSessions) {
+      try {
+        for (const rec of [...this.sessions.values()]) {
+          if (this.sessions.get(rec.bindingId) !== rec) continue;
+          const status = sessionStatusOf(rec);
+          if (status === "exited") continue;
+          listener({
+            type: "session",
+            bindingId: rec.bindingId,
+            epoch: rec.epoch,
+            status,
+            ...(status === "running" && rec.pid !== undefined
+              ? { pid: rec.pid }
+              : {}),
+          });
+        }
+      } catch (error) {
+        this.off("event", listener);
+        throw error;
+      }
+    }
+    return () => this.off("event", listener);
+  }
+
+  bindCanvas(
+    bindingId: string,
+    ref: { canvasName?: string; nodeId?: string } | null,
+  ): void {
+    const rec = this.sessions.get(bindingId);
+    if (!rec || rec.killed || sessionStatusOf(rec) === "exited") return;
+    const canvasName = ref?.canvasName?.trim() || undefined;
+    const nodeId = ref?.nodeId?.trim() || undefined;
+
+    // Rebinding is two exact-generation retirements followed by two exact
+    // mints. A partial anchor is deliberately no principal at all. The seat
+    // credential keeps its value across the rebind: detach suspends it and
+    // reattach reanchors it, since a replacement value cannot be delivered
+    // to a running process.
+    this.revokeProcessIdentities(rec, { keepSeatCredential: true });
+    if (canvasName === undefined || nodeId === undefined) {
+      rec.canvasName = undefined;
+      rec.nodeId = undefined;
+      rec.detached = true;
+      this.suspendSeatCredential(rec);
+      return;
+    }
+
+    rec.canvasName = canvasName;
+    rec.nodeId = nodeId;
+    rec.detached = false;
+    if (!this.bindAllProcessIdentities(rec)) {
+      this.revokeProcessIdentities(rec);
+      this.recordPostSpawnFailure(
+        rec,
+        new Error("canvas rebind could not bind every exact process generation"),
+      );
+      this.requestStop(rec, "canvas_identity_rebind_failed");
+      return;
+    }
+    if (!this.reanchorSeatCredential(rec)) {
+      this.revokeProcessIdentities(rec);
+      this.recordPostSpawnFailure(
+        rec,
+        new Error("canvas rebind could not reanchor the seat credential"),
+      );
+      this.requestStop(rec, "canvas_identity_rebind_failed");
+    }
+  }
+
+  async attach(input: {
+    readonly bindingId: string;
+    readonly mode: "control" | "observe";
+    readonly takeover?: boolean;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly lease: ControlLease;
+        readonly cols: number;
+        readonly rows: number;
+        /** Canonical live-session attach: serialized xterm VT state. */
+        readonly screen?: {
+          readonly bindingId: string;
+          readonly epoch: string;
+          readonly cols: number;
+          readonly rows: number;
+          readonly seq: bigint;
+          readonly serialized: string;
+        };
+        /** Spawn/setup diagnostics only, when no live observer was created. */
+        readonly journal: readonly JournalEntry[];
+        readonly status: "starting" | "running" | "exited";
+        readonly pid?: number;
+      }
+    | { readonly ok: false; readonly message: string }
+  > {
+    let rec = this.sessions.get(input.bindingId);
+    if (!rec) return { ok: false, message: "session not found" };
+    if (rec.killed) {
+      return { ok: false, message: "session interaction revoked during stop" };
+    }
+
+    // One canonical live attach representation: xterm's serialized VT state.
+    // Never reconstruct a terminal from observer text.
+    let screen = await this.observerPlane.attachScreen(rec.bindingId);
+
+    // attachScreen awaits the headless grid. A resume generation can die and
+    // be fail-open replaced while we waited — the map head is then a NEW live
+    // epoch. Returning the stale exited rec is exactly "Agent stopped" with a
+    // live pin already running (Reopen only re-attached). Re-resolve once.
+    const head = this.sessions.get(input.bindingId);
+    if (head && head !== rec) {
+      rec = head;
+      if (rec.killed) {
+        return { ok: false, message: "session interaction revoked during stop" };
+      }
+      if (sessionStatusOf(rec) !== "exited") {
+        screen = await this.observerPlane.attachScreen(rec.bindingId);
+      }
+    }
+
+    const screenPayload = screen
+      ? {
+          bindingId: screen.bindingId,
+          epoch: screen.epoch,
+          cols: screen.cols,
+          rows: screen.rows,
+          seq: screen.seq,
+          serialized: screen.serialized,
+        }
+      : undefined;
+    // A live observer owns presentation. Journal is retained only for
+    // pre-observer spawn/setup failures, never as an alternate live painter.
+    // Drop a screen snapshot that belongs to a different (dead) epoch.
+    const screenForRec =
+      screenPayload && screenPayload.epoch === rec.epoch
+        ? screenPayload
+        : undefined;
+    const journal = screenForRec ? ([] as const) : rec.journal.slice();
+
+    if (input.mode === "control") {
+      if (rec.controlLeaseId && !input.takeover) {
+        return { ok: false, message: "control lease held (pass takeover)" };
+      }
+      // Takeover drops the prior control lease without a `release` call on
+      // every path — give its retention back here or the refcount never drains.
+      if (rec.controlLeaseId) this.releaseSurfaceLease(rec.controlLeaseId);
+      rec.controlLeaseId = mintLease();
+      // A surface is now painting this session: retain the full scrollback for
+      // as long as the lease lives. `screen` above was already serialized from
+      // the bounded window, so this only changes what accrues from here on.
+      this.retainSurfaceLease(rec.controlLeaseId, rec.bindingId);
+      return {
+        ok: true,
+        lease: {
+          leaseId: rec.controlLeaseId,
+          bindingId: rec.bindingId,
+          epoch: rec.epoch,
+          mode: "control",
+        },
+        cols: rec.cols,
+        rows: rec.rows,
+        ...(screenForRec ? { screen: screenForRec } : {}),
+        journal,
+        status: sessionStatusOf(rec),
+        pid: rec.pid,
+      };
+    }
+
+    const observeLeaseId = mintLease();
+    this.retainSurfaceLease(observeLeaseId, rec.bindingId);
+    return {
+      ok: true,
+      lease: {
+        leaseId: observeLeaseId,
+        bindingId: rec.bindingId,
+        epoch: rec.epoch,
+        mode: "observe",
+      },
+      cols: rec.cols,
+      rows: rec.rows,
+      ...(screenForRec ? { screen: screenForRec } : {}),
+      journal,
+      status: sessionStatusOf(rec),
+      pid: rec.pid,
+    };
+  }
+
+  /**
+   * Record that this lease is painting the binding and raise the observer's
+   * retention tier. Idempotent per lease id.
+   */
+  private retainSurfaceLease(leaseId: string, bindingId: string): void {
+    if (this.surfaceLeases.has(leaseId)) return;
+    this.surfaceLeases.set(leaseId, bindingId);
+    this.observerPlane.retainSurface(bindingId);
+  }
+
+  /** Give back what `retainSurfaceLease` took. No-op for an unknown lease. */
+  private releaseSurfaceLease(leaseId: string): void {
+    const bindingId = this.surfaceLeases.get(leaseId);
+    if (bindingId === undefined) return;
+    this.surfaceLeases.delete(leaseId);
+    this.observerPlane.releaseSurface(bindingId);
+  }
+
+  release(lease: ControlLease): void {
+    // Surface retention is lease-scoped, never record-scoped: a session that
+    // exited while a node was open must still give the scrollback back.
+    this.releaseSurfaceLease(lease.leaseId);
+    const rec = this.sessions.get(lease.bindingId);
+    if (!rec) return;
+    if (lease.mode === "control" && rec.controlLeaseId === lease.leaseId) {
+      rec.controlLeaseId = undefined;
+    }
+  }
+
+  write(lease: ControlLease, data: string): boolean {
+    // Zero-latency operator evidence: the drive's admission gate must see a
+    // keystroke before the screen could possibly repaint it. Stamped even on
+    // refused writes — operator presence is the signal, not delivery.
+    this.operatorInterlock.noteInput(lease.bindingId);
+    // The seat's session has offboarded: nothing more goes into it, the
+    // operator's keystrokes included, in the moment before it is detached.
+    if (this.inputSealed?.(lease.bindingId) === true) return false;
+    const rec = this.sessions.get(lease.bindingId);
+    if (!rec || rec.killed || !rec.lease || !sessionPhaseAllowsWrite(rec.phase)) return false;
+    if (lease.mode !== "control" || rec.controlLeaseId !== lease.leaseId) return false;
+    if (lease.epoch !== rec.epoch) return false;
+    // A managed submission span holds the write path: park these bytes and
+    // let the outermost span end replay them — a keystroke can never land
+    // inside a paste envelope or between paste-end and the submit CR.
+    if (
+      this.operatorInterlock.holdWrite(lease.bindingId, {
+        replay: () => {
+          this.write(lease, data);
+        },
+      })
+    ) {
+      return true;
+    }
+    return this.writeRecord(rec, data);
+  }
+
+  /**
+   * In-process factory delivery for the current managed-agent generation.
+   *
+   * Product automation is not an external terminal controller and must never
+   * enter control-lease takeover arbitration with the interactive renderer.
+   * The kernel has already proven the actor edge and binding; this boundary
+   * additionally refuses geography terminals and dead generations.
+   */
+  writeManagedSeat(bindingId: string, data: string): boolean {
+    const rec = this.sessions.get(bindingId);
+    if (
+      !rec ||
+      !rec.agentKey ||
+      !rec.harness ||
+      rec.killed ||
+      !rec.lease ||
+      !sessionPhaseAllowsWrite(rec.phase)
+    ) {
+      return false;
+    }
+    return this.writeRecord(rec, data);
+  }
+
+  /**
+   * In-process PTY resize for a managed-agent generation. Same lease-free
+   * product-automation boundary as writeManagedSeat: never takes renderer control.
+   */
+  resizeManagedSeat(bindingId: string, cols: number, rows: number): boolean {
+    const rec = this.sessions.get(bindingId);
+    if (
+      !rec ||
+      !rec.agentKey ||
+      !rec.harness ||
+      rec.killed ||
+      !rec.lease ||
+      !sessionPhaseAllowsWrite(rec.phase)
+    ) {
+      return false;
+    }
+    const c = Math.max(20, Math.min(300, cols | 0));
+    const r = Math.max(5, Math.min(120, rows | 0));
+    if (c === rec.cols && r === rec.rows) return true;
+    try {
+      rec.lease.io.resize?.(c, r);
+      rec.cols = c;
+      rec.rows = r;
+      rec.seq = rec.seq + 1n;
+      this.pushJournal(rec, { seq: rec.seq, type: "resize", cols: c, rows: r });
+      this.observerPlane.resize(rec.bindingId, c, r);
+      this.emitEvent({
+        type: "resize",
+        bindingId: rec.bindingId,
+        epoch: rec.epoch,
+        seq: rec.seq,
+        cols: c,
+        rows: r,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private writeRecord(rec: SessionRec, data: string): boolean {
+    const lease = rec.lease;
+    if (!lease) return false;
+    try {
+      lease.io.write(data);
+      return true;
+    } catch {
+      // PTY write failure (broken pipe family): this generation can never be
+      // typed into again. Refuse further writes via phase, and stop it: left
+      // alone it would sit Broken, occupying its seat, for as long as no exit
+      // witness arrives, which for a dead pipe can be forever.
+      rec.phase = SessionPhase.Broken({ surface: "native", reason: "pipe" });
+      queueMicrotask(() => {
+        if (this.liveRecords.has(rec) && !rec.killed) {
+          this.requestStop(rec, "pty_write_failed");
+        }
+      });
+      return false;
+    }
+  }
+
+  resize(lease: ControlLease, cols: number, rows: number): boolean {
+    // A resize repaints the grid — automated typing must not begin mid-churn.
+    this.operatorInterlock.noteResize(lease.bindingId);
+    const rec = this.sessions.get(lease.bindingId);
+    if (!rec || rec.killed || !rec.lease || !sessionPhaseAllowsWrite(rec.phase)) return false;
+    if (lease.mode !== "control" || rec.controlLeaseId !== lease.leaseId) return false;
+    if (lease.epoch !== rec.epoch) return false;
+    const c = Math.max(20, Math.min(300, cols | 0));
+    const r = Math.max(5, Math.min(120, rows | 0));
+    if (c === rec.cols && r === rec.rows) return true;
+    try {
+      rec.lease.io.resize?.(c, r);
+      rec.cols = c;
+      rec.rows = r;
+      rec.seq = rec.seq + 1n;
+      this.pushJournal(rec, { seq: rec.seq, type: "resize", cols: c, rows: r });
+      this.observerPlane.resize(rec.bindingId, c, r);
+      this.emitEvent({
+        type: "resize",
+        bindingId: rec.bindingId,
+        epoch: rec.epoch,
+        seq: rec.seq,
+        cols: c,
+        rows: r,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  kill(bindingId: string): boolean {
+    return this.killBinding(bindingId, "explicit_kill");
+  }
+
+  /**
+   * Node deletion is stronger than an interactive Stop click: synchronously cut
+   * the exact current generation, then wait for both its PTY witness and any
+   * Prime Agent daemon receipt. A missing binding is already clean.
+   */
+  async deleteBinding(bindingId: string): Promise<boolean> {
+    const rec = this.sessions.get(bindingId.trim());
+    if (rec === undefined) return true;
+    this.requestStop(rec, "node_delete");
+    if (await this.waitForRecordExitWithin(rec, this.shutdownGraceMs)) return true;
+    if (this.recordCleanupFailed(rec)) return false;
+
+    if (this.liveRecords.has(rec)) this.forceKill(rec, "SIGKILL");
+    if (await this.waitForRecordExitWithin(rec, this.shutdownGraceMs)) return true;
+    if (this.recordCleanupFailed(rec)) return false;
+    return this.waitForRecordExitWithin(rec, this.lateExitGraceMs);
+  }
+
+  runningCount(): number {
+    return this.outstandingGenerationCount();
+  }
+
+  /**
+   * Atomically observes the exact live-generation set and closes create
+   * admission only when it is empty. JavaScript execution cannot interleave a
+   * synchronous create/shutdown call between the observation and capability
+   * mint.
+   */
+  acquireMaintenanceLease(): LocalTerminalMaintenanceAcquireResult {
+    const activeTerminalSessions = this.outstandingGenerationCount();
+    const evidence = Object.freeze({
+      activeTerminalSessions,
+      observationId: mintMaintenanceObservation(),
+    });
+    if (this.shuttingDown) {
+      return { acquired: false, evidence, reason: "shutting_down" };
+    }
+    if (this.maintenanceLease !== undefined) {
+      return { acquired: false, evidence, reason: "maintenance_held" };
+    }
+    if (activeTerminalSessions !== 0) {
+      return { acquired: false, evidence, reason: "active_sessions" };
+    }
+    const lease = Object.freeze({}) as LocalTerminalMaintenanceLease;
+    this.maintenanceLease = lease;
+    return {
+      acquired: true,
+      evidence: {
+        activeTerminalSessions: 0,
+        observationId: evidence.observationId,
+      },
+      lease,
+    };
+  }
+
+  /** Release requires the exact in-process capability minted above. */
+  releaseMaintenanceLease(lease: LocalTerminalMaintenanceLease): boolean {
+    if (this.maintenanceLease !== lease) return false;
+    this.maintenanceLease = undefined;
+    return true;
+  }
+
+  detachedRunning(): readonly TerminalSessionSummary[] {
+    return [...this.sessions.values()]
+      .filter((s) => s.detached && sessionStatusOf(s) !== "exited")
+      .map((s) => this.summaryOf(s));
+  }
+
+  shutdownAll(reason = "app_quit"): Promise<LocalHostShutdownResult> {
+    if (this.shutdownFlight !== undefined) return this.shutdownFlight;
+    // Close admission synchronously, then defer signaling until the shared
+    // promise is published. A terminal backend callback can re-enter this host.
+    this.shuttingDown = true;
+    this.maintenanceLease = undefined;
+    const flight = Promise.resolve()
+      .then(() => this.performShutdown(reason))
+      .finally(() => {
+        if (this.shutdownFlight === flight) this.shutdownFlight = undefined;
+      });
+    this.shutdownFlight = flight;
+    return flight;
+  }
+
+  private async performShutdown(reason: string): Promise<LocalHostShutdownResult> {
+    for (const rec of [...this.liveRecords]) {
+      this.requestStop(rec, reason);
+    }
+    this.requestPrimeDaemonsShutdown(reason);
+    if (await this.waitForAllExitsWithin(this.shutdownGraceMs)) {
+      return { clean: true, stragglers: [] };
+    }
+    for (const rec of [...this.liveRecords]) {
+      this.forceKill(rec, "SIGKILL");
+    }
+    if (await this.waitForAllExitsWithin(this.shutdownGraceMs)) {
+      return { clean: true, stragglers: [] };
+    }
+    // Some process wrappers report exit just after a successful KILL. Give
+    // that observed callback one final bounded, event-driven window. Daemon
+    // stop receipts share the same bound; a hung daemon can never yield clean.
+    if (await this.waitForAllExitsWithin(this.lateExitGraceMs)) {
+      return { clean: true, stragglers: [] };
+    }
+    const retained = new Set([...this.liveRecords, ...this.primeDaemonRecords]);
+    const stragglers = [...retained].map((rec) => {
+      const status = sessionStatusOf(rec) === "exited"
+        ? "running" as const
+        : activeSessionStatusOf(rec);
+      const primeDaemon = this.primeDaemonRecords.has(rec)
+        ? {
+            daemonPid: rec.primeDaemon?.daemonPid,
+            state: rec.primeDaemonCleanupState === "failed"
+              ? "failed" as const
+              : "pending" as const,
+            ...(rec.primeDaemonCleanupError === undefined
+              ? {}
+              : { message: rec.primeDaemonCleanupError }),
+          }
+        : undefined;
+      return {
+        bindingId: rec.bindingId,
+        epoch: rec.epoch,
+        status,
+        ...(rec.pid === undefined ? {} : { pid: rec.pid }),
+        ...(this.liveRecords.has(rec) ? { ownedPtyOutstanding: true as const } : {}),
+        ...(rec.termReceipt === undefined ? {} : { term: rec.termReceipt }),
+        ...(rec.killReceipt === undefined ? {} : { kill: rec.killReceipt }),
+        ...(primeDaemon === undefined ? {} : { primeDaemon }),
+      };
+    }) as LocalHostShutdownStraggler[];
+    if (
+      this.primeDaemonsShutdownState === "pending" ||
+      this.primeDaemonsShutdownState === "failed"
+    ) {
+      stragglers.push({
+        bindingId: "prime-agent-daemon-manager",
+        epoch: "shutdown",
+        status: "running",
+        primeDaemon: {
+          state: this.primeDaemonsShutdownState === "failed"
+            ? "manager_failed"
+            : "manager_pending",
+          ...(this.primeDaemonsShutdownError === undefined
+            ? {}
+            : { message: this.primeDaemonsShutdownError }),
+        },
+      });
+    }
+    console.error(
+      `[term] ${reason} retained ${stragglers.length} local generation cleanup(s): ${stragglers
+        .map((rec) => `${rec.bindingId}@${rec.epoch}${rec.pid === undefined ? "" : ` pid=${rec.pid}`}`)
+        .join(", ")}`,
+    );
+    // Retained exact authorities remain live. Shutdown admission is monotonic:
+    // a failed quit may retry the same records but can never spawn new ones.
+    return { clean: false, stragglers };
+  }
+
+  private killBinding(bindingId: string, reason: string): boolean {
+    const rec = this.sessions.get(bindingId);
+    if (!rec) return false;
+    if (sessionStatusOf(rec) === "exited") {
+      this.revokeProcessIdentities(rec);
+      this.requestPrimeDaemonStop(rec, reason);
+      return true;
+    }
+    this.requestStop(rec, reason);
+    return true;
+  }
+
+  private requestStop(rec: SessionRec, reason: string): void {
+    const alreadyKilled = rec.killed;
+    // The first reason stands: it is why the process was told to stop.
+    if (!alreadyKilled) rec.stopCause = this.stopCauseOf(rec, reason);
+    rec.killed = true;
+    rec.controlLeaseId = undefined;
+    // Identity revocation is synchronous and exact. Neither daemon shutdown nor
+    // terminal TERM may begin while a dying generation still wields the seat.
+    this.revokeProcessIdentities(rec);
+    this.clearPrimeAgentReporterHook(rec, reason);
+    this.requestPrimeDaemonStop(rec, reason);
+    if (alreadyKilled || sessionStatusOf(rec) === "exited") return;
+
+    this.forceKill(rec, "SIGTERM");
+    if (rec.escalationTimer === undefined && this.liveRecords.has(rec)) {
+      rec.escalationTimer = setTimeout(() => {
+        rec.escalationTimer = undefined;
+        if (!this.liveRecords.has(rec)) return;
+        this.forceKill(rec, "SIGKILL");
+        // The wait for the exit witness is bounded too. A process that
+        // survives KILL (or whose exit is never reported) must not hold its
+        // seat in "stopping" until the app restarts.
+        rec.escalationTimer = setTimeout(() => {
+          rec.escalationTimer = undefined;
+          this.declareStopUnconfirmed(rec, reason);
+        }, this.lateExitGraceMs);
+        rec.escalationTimer.unref?.();
+      }, this.killGraceMs);
+      rec.escalationTimer.unref?.();
+    }
+  }
+
+  /**
+   * TERM, KILL and the late-exit window all passed with no exit witness. The
+   * generation is declared dead FOR THE SEAT: its record reads exited, the
+   * exit is announced, and a fresh generation may occupy the binding. It is
+   * not declared dead for the host: the record keeps its lease and its place
+   * in the live set, so the process is still signalled at quit, still counted
+   * against maintenance, and reported as a straggler. Its identities were
+   * revoked when the stop was requested, so it never acts as the seat again.
+   * If the exit is witnessed later, the record is released then.
+   */
+  private declareStopUnconfirmed(rec: SessionRec, cause: string): void {
+    if (!this.liveRecords.has(rec) || rec.unconfirmedStop !== undefined) return;
+    if (sessionStatusOf(rec) === "exited") return;
+    rec.unconfirmedStop = { at: Date.now(), cause };
+    if (rec.draining !== undefined) {
+      // A detached session that will not die: there is no seat to release
+      // (it left it at the detach). Its drain is over all the same; the
+      // process stays tracked here until its exit is witnessed.
+      const { key } = rec.draining;
+      for (const cleanup of rec.listenerCleanups.splice(0)) {
+        try {
+          cleanup();
+        } catch {
+          // Listener disposal never weakens the exact central exit witness.
+        }
+      }
+      this.releaseDrainSurfaces(rec, key);
+      rec.phase = SessionPhase.Closed({ surface: "native", reason: "stop_unconfirmed" });
+      console.error(
+        `[term] stop unconfirmed for detached session ${key}` +
+          `${rec.pid === undefined ? "" : ` pid=${rec.pid}`} (${cause}): process still tracked`,
+      );
+      this.tellDrainEnded(key, undefined);
+      return;
+    }
+    for (const cleanup of rec.listenerCleanups.splice(0)) {
+      try {
+        cleanup();
+      } catch {
+        // Listener disposal never weakens the exact central exit witness.
+      }
+    }
+    this.releaseSeatSurfaces(rec);
+    rec.phase = SessionPhase.Closed({ surface: "native", reason: "stop_unconfirmed" });
+    const process = rec.pid === undefined ? "its process" : `its process (pid ${rec.pid})`;
+    rec.exitMessage =
+      `Junto told this session to stop and then killed it, but ${process} never reported exiting. ` +
+      "It may still be running. The seat is free to start a fresh session.";
+    console.error(
+      `[term] stop unconfirmed for ${rec.bindingId}@${rec.epoch}` +
+        `${rec.pid === undefined ? "" : ` pid=${rec.pid}`} (${cause}): ` +
+        "no exit witness after TERM, KILL and the late-exit window; " +
+        "seat released, process still tracked",
+    );
+    if (this.sessions.get(rec.bindingId) !== rec) return;
+    const data = `\r\n[junto] ${rec.exitMessage}\r\n`;
+    rec.seq = rec.seq + 1n;
+    this.pushJournal(rec, { seq: rec.seq, type: "output", data });
+    this.safeEmitEvent({
+      type: "output",
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      seq: rec.seq,
+      data,
+    });
+    rec.seq = rec.seq + 1n;
+    this.pushJournal(rec, { seq: rec.seq, type: "exit", code: undefined, signal: undefined });
+    this.safeEmitEvent({
+      type: "exit",
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      seq: rec.seq,
+      code: undefined,
+      signal: undefined,
+    });
+    this.safeEmitEvent({
+      type: "session",
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      status: "exited",
+      pid: rec.pid,
+    });
+  }
+
+  /** Who told this process to stop, for the reason its seat shows. */
+  private stopCauseOf(rec: SessionRec, reason: string): SeatStopCause {
+    if (reason === "node_delete") return "removed";
+    if (reason !== "explicit_kill") return "junto";
+    // An explicit stop of a seat sealed by an offboard is that offboard's
+    // (the close stops what it could not leave to wind down).
+    return this.inputSealed?.(rec.bindingId) === true ? "offboard" : "operator";
+  }
+
+  // ── Draining: a session that offboarded, detached from its seat ──────────
+
+  /**
+   * How the host learns that a seat's session has offboarded and takes no
+   * more input (the closing fence). Asked on every operator write.
+   */
+  setInputSealed(sealed: ((bindingId: string) => boolean) | undefined): void {
+    this.inputSealed = sealed;
+  }
+
+  /**
+   * Detach the binding's running generation from its seat, without stopping
+   * it. The seat reads vacant at once, so its next generation can start; the
+   * old process lives on under a drain key: read, never written to, with no
+   * seat identity. Everything is one synchronous step, so nothing can reach
+   * the old process in between.
+   *
+   * Undefined, and nothing changed, when the binding has no running
+   * generation, the generation is already stopping, or its screen reading
+   * could not be moved (a process must never be drained blind; the caller
+   * stops it instead).
+   */
+  drain(bindingId: string): { readonly drainKey: string; readonly epoch: string; readonly pid?: number } | undefined {
+    const rec = this.sessions.get(bindingId.trim());
+    if (rec === undefined || rec.killed || rec.draining !== undefined) return undefined;
+    if (sessionStatusOf(rec) !== "running" || !this.liveRecords.has(rec)) return undefined;
+    const drainKey = drainKeyOf(rec.bindingId, rec.epoch);
+    // The grid moves whole (screen, title, modes): a reading that started
+    // empty mid-turn cannot tell when some harnesses finish.
+    if (!this.observerPlane.rekey(rec.bindingId, drainKey)) return undefined;
+    if (!seatStateRuntime.rekey(rec.bindingId, drainKey)) {
+      // No seat-state slot to move: its idle cannot be read, so only the
+      // drain's cap will end it. Said, not hidden.
+      console.warn(`[term] ${drainKey}: no seat state to move; this drain can only end at its cap`);
+    }
+    rec.draining = { key: drainKey, stopped: undefined };
+    // No input: the lease that could type into it is void, and the binding
+    // no longer leads here.
+    rec.controlLeaseId = undefined;
+    this.sessions.delete(rec.bindingId);
+    // Its seat identity goes, remembered as offboarded: a junto call from it
+    // is refused in plain words and can never act as the seat.
+    this.offboardProcessIdentities(rec);
+    this.clearPrimeAgentReporterHook(rec, "offboard_detached");
+    // The id this process printed was the binding's captured session. The
+    // binding is the fresh session's now, and must not inherit it.
+    clearCapturedSessionId(rec.bindingId);
+    // For the seat, this generation has ended. Say so once, as an exit does,
+    // so every surface lets go of it now.
+    rec.seq = rec.seq + 1n;
+    this.safeEmitEvent({
+      type: "exit",
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      seq: rec.seq,
+      code: undefined,
+      signal: undefined,
+    });
+    this.safeEmitEvent({
+      type: "session",
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      status: "exited",
+      pid: rec.pid,
+    });
+    return { drainKey, epoch: rec.epoch, ...(rec.pid === undefined ? {} : { pid: rec.pid }) };
+  }
+
+  /**
+   * Stop a detached session: TERM, then KILL, then the host's own bound, with
+   * its Prime Agent daemon torn down now and not before. False when no such
+   * session is draining or it was already told to stop.
+   */
+  stopDraining(drainKey: string, reason: string): boolean {
+    const rec = this.drainingRecord(drainKey);
+    if (rec === undefined || rec.draining === undefined || rec.draining.stopped !== undefined) return false;
+    rec.draining.stopped = reason;
+    this.requestStop(rec, `offboard_drain_${reason}`);
+    return true;
+  }
+
+  /** Told when a detached session's process is gone: its key and exit code. */
+  onDrainEnded(listener: (drainKey: string, code: number | undefined) => void): () => void {
+    this.drainEndedListeners.add(listener);
+    return () => {
+      this.drainEndedListeners.delete(listener);
+    };
+  }
+
+  /** Told each seat signal read out of a seat's PTY stream (OSC 7501 today). */
+  onSeatSignal(listener: (envelope: SignalEnvelope) => void): () => void {
+    this.seatSignalListeners.add(listener);
+    return () => {
+      this.seatSignalListeners.delete(listener);
+    };
+  }
+
+  /** Detached sessions still alive, for the record at quit. */
+  drainingKeys(): ReadonlyArray<string> {
+    return [...this.liveRecords]
+      .filter((rec) => rec.draining !== undefined && rec.unconfirmedStop === undefined)
+      .map((rec) => rec.draining!.key);
+  }
+
+  private drainingRecord(drainKey: string): SessionRec | undefined {
+    for (const rec of this.liveRecords) {
+      if (rec.draining?.key === drainKey) return rec;
+    }
+    return undefined;
+  }
+
+  private tellDrainEnded(drainKey: string, code: number | undefined): void {
+    for (const listener of [...this.drainEndedListeners]) {
+      try {
+        listener(drainKey, code);
+      } catch (error) {
+        console.error(`[term] drain listener failed for ${drainKey}:`, error);
+      }
+    }
+  }
+
+  /** Give up the grid and the seat-state slot a detached session held under its key. */
+  private releaseDrainSurfaces(rec: SessionRec, drainKey: string): void {
+    this.observerPlane.detach(drainKey, rec.epoch);
+    seatStateRuntime.unbind(drainKey, rec.epoch, "drain_ended");
+  }
+
+  /** Revoke the record's identities as offboarded (see process-identity). */
+  private offboardProcessIdentities(rec: SessionRec): void {
+    this.revokeSeatCredential(rec, "offboarded");
+    const identities = getProcessIdentityMap();
+    const bindings = [rec.daemonIdentityBinding, rec.ptyIdentityBinding].filter(
+      (binding): binding is ProcessIdentityBinding => binding !== undefined,
+    );
+    rec.daemonIdentityBinding = undefined;
+    rec.ptyIdentityBinding = undefined;
+    for (const binding of bindings) {
+      try {
+        identities.unbindGeneration(binding);
+      } catch (error) {
+        console.error(`[term] identity offboard failed for ${rec.bindingId}@${rec.epoch}:`, error);
+      }
+    }
+  }
+
+  /**
+   * Processes Junto stopped whose exit was never witnessed. Each has given
+   * up its seat and its identities; each is still tracked here until it is
+   * seen to exit.
+   */
+  unconfirmedStops(): ReadonlyArray<{
+    readonly bindingId: string;
+    readonly epoch: string;
+    readonly pid?: number;
+    readonly since: number;
+    readonly cause: string;
+  }> {
+    return [...this.liveRecords]
+      .filter((rec) => rec.unconfirmedStop !== undefined)
+      .map((rec) => ({
+        bindingId: rec.bindingId,
+        epoch: rec.epoch,
+        ...(rec.pid === undefined ? {} : { pid: rec.pid }),
+        since: rec.unconfirmedStop!.at,
+        cause: rec.unconfirmedStop!.cause,
+      }));
+  }
+
+  private observePrimeAgentReport(
+    rec: SessionRec,
+    report: PrimeAgentDaemonReport,
+  ): void {
+    // Reporter sockets are per generation, but the host independently fences the
+    // callback because a released registration may already have queued a frame.
+    if (
+      this.sessions.get(rec.bindingId) !== rec ||
+      !this.liveRecords.has(rec) ||
+      rec.killed ||
+      report.bindingId !== rec.bindingId ||
+      report.epoch !== rec.epoch
+    ) return;
+
+    const sessionId = safeStructuredSessionId(report);
+    if (sessionId !== undefined) {
+      recordCapturedSessionId(rec.bindingId, sessionId);
+      // The reporter is Prime Agent's own structured channel — a better source
+      // than scraped PTY text, and it reaches the same proof-then-store path.
+      this.persistCapturedSession(rec, sessionId);
+    }
+    if (report.released === true) {
+      seatStateRuntime.clearStructuredHook(
+        rec.bindingId,
+        rec.epoch,
+        report.reason,
+      );
+      return;
+    }
+    seatStateRuntime.observeStructuredHook({
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      state: report.state,
+      reason: report.reason,
+    });
+  }
+
+  private clearPrimeAgentReporterHook(rec: SessionRec, reason: string): void {
+    if (rec.harness !== "prime-agent") return;
+    seatStateRuntime.clearStructuredHook(rec.bindingId, rec.epoch, reason);
+  }
+
+  private observePrimeDaemonUnexpectedExit(rec: SessionRec): void {
+    if (!this.liveRecords.has(rec)) return;
+    // Exact bindings are retired before terminal TERM. The callback owns `rec`,
+    // never a mutable binding lookup, so an old daemon cannot stop a replacement.
+    this.revokeProcessIdentities(rec);
+    if (this.sessions.get(rec.bindingId) === rec) {
+      const data =
+        "\r\n[junto] Prime Agent daemon exited unexpectedly; stopping client\r\n";
+      rec.seq = rec.seq + 1n;
+      this.pushJournal(rec, {
+        seq: rec.seq,
+        type: "output",
+        data,
+      });
+      this.safeEmitEvent({
+        type: "output",
+        bindingId: rec.bindingId,
+        epoch: rec.epoch,
+        seq: rec.seq,
+        data,
+      });
+    }
+    this.requestStop(rec, "prime_daemon_unexpected_exit");
+  }
+
+  private requestPrimeDaemonStop(rec: SessionRec, reason: string): void {
+    const daemon = rec.primeDaemon;
+    if (
+      daemon === undefined ||
+      rec.primeDaemonStopFlight !== undefined ||
+      rec.primeDaemonCleanupState !== "none"
+    ) return;
+    rec.primeDaemonCleanupState = "pending";
+    let stopReceipt: ReturnType<PrimeAgentDaemonHandle["stop"]>;
+    try {
+      stopReceipt = daemon.stop(reason);
+    } catch (error) {
+      this.markPrimeDaemonCleanupFailed(rec, error);
+      return;
+    }
+    rec.primeDaemonStopFlight = Promise.resolve(stopReceipt).then(
+      (receipt) => {
+        const failure = cleanupFailureMessage(receipt);
+        if (failure !== undefined) {
+          this.markPrimeDaemonCleanupFailed(rec, failure);
+          return;
+        }
+        rec.primeDaemonCleanupState = "clean";
+        rec.primeDaemonCleanupError = undefined;
+        this.primeDaemonRecords.delete(rec);
+        this.notifyQuiescentWaiters();
+      },
+      (error) => this.markPrimeDaemonCleanupFailed(rec, error),
+    );
+  }
+
+  private markPrimeDaemonCleanupFailed(rec: SessionRec, error: unknown): void {
+    rec.primeDaemonCleanupState = "failed";
+    rec.primeDaemonCleanupError = errorMessage(error);
+    console.error(
+      `[term] Prime Agent daemon cleanup failed for ${rec.bindingId}@${rec.epoch}:`,
+      error,
+    );
+    this.notifyQuiescentWaiters();
+    // Keep the record outstanding. A bounded shutdown must report it non-clean.
+  }
+
+  private requestPrimeDaemonsShutdown(reason: string): void {
+    const manager = this.primeDaemons;
+    if (manager === undefined || this.primeDaemonsShutdownFlight !== undefined) {
+      return;
+    }
+    this.primeDaemonsShutdownState = "pending";
+    let shutdownReceipt: ReturnType<PrimeAgentDaemons["shutdownAll"]>;
+    try {
+      shutdownReceipt = manager.shutdownAll(reason);
+    } catch (error) {
+      this.primeDaemonsShutdownState = "failed";
+      this.primeDaemonsShutdownError = errorMessage(error);
+      this.primeDaemonsShutdownFlight = Promise.resolve();
+      return;
+    }
+    this.primeDaemonsShutdownFlight = Promise.resolve(shutdownReceipt).then(
+      (receipt) => {
+        const failure = cleanupFailureMessage(receipt);
+        if (failure !== undefined) {
+          this.primeDaemonsShutdownState = "failed";
+          this.primeDaemonsShutdownError = failure;
+          return;
+        }
+        this.primeDaemonsShutdownState = "clean";
+        this.primeDaemonsShutdownError = undefined;
+        this.notifyQuiescentWaiters();
+      },
+      (error) => {
+        this.primeDaemonsShutdownState = "failed";
+        this.primeDaemonsShutdownError = errorMessage(error);
+      },
+    );
+  }
+
+  private outstandingGenerationCount(): number {
+    return new Set([...this.liveRecords, ...this.primeDaemonRecords]).size;
+  }
+
+  private shutdownQuiescent(): boolean {
+    if (this.liveRecords.size !== 0 || this.primeDaemonRecords.size !== 0) {
+      return false;
+    }
+    return this.primeDaemons === undefined ||
+      this.primeDaemonsShutdownState === "clean";
+  }
+
+  private recordQuiescent(rec: SessionRec): boolean {
+    return !this.liveRecords.has(rec) && !this.primeDaemonRecords.has(rec);
+  }
+
+  private recordCleanupFailed(rec: SessionRec): boolean {
+    return !this.liveRecords.has(rec) &&
+      rec.primeDaemonCleanupState === "failed";
+  }
+
+  private waitForRecordExitWithin(
+    rec: SessionRec,
+    timeoutMs: number,
+  ): Promise<boolean> {
+    if (this.recordQuiescent(rec)) return Promise.resolve(true);
+    if (this.recordCleanupFailed(rec) || timeoutMs <= 0) {
+      return Promise.resolve(false);
+    }
+    return new Promise<boolean>((resolve) => {
+      const waiter: RecordExitWaiter = {
+        record: rec,
+        timer: undefined,
+        resolve,
+      };
+      waiter.timer = setTimeout(() => {
+        if (!this.recordExitWaiters.delete(waiter)) return;
+        resolve(this.recordQuiescent(rec));
+      }, timeoutMs);
+      this.recordExitWaiters.add(waiter);
+      if (
+        (this.recordQuiescent(rec) || this.recordCleanupFailed(rec)) &&
+        this.recordExitWaiters.delete(waiter)
+      ) {
+        if (waiter.timer !== undefined) clearTimeout(waiter.timer);
+        resolve(this.recordQuiescent(rec));
+      }
+    });
+  }
+
+  private waitForAllExitsWithin(timeoutMs: number): Promise<boolean> {
+    if (this.shutdownQuiescent()) return Promise.resolve(true);
+    if (timeoutMs <= 0) return Promise.resolve(false);
+    return new Promise<boolean>((resolve) => {
+      const waiter: AllExitedWaiter = {
+        timer: undefined,
+        resolve,
+      };
+      waiter.timer = setTimeout(() => {
+        if (!this.allExitedWaiters.delete(waiter)) return;
+        resolve(this.shutdownQuiescent());
+      }, timeoutMs);
+      this.allExitedWaiters.add(waiter);
+      // Defensive totality if future code makes registration re-entrant.
+      if (this.shutdownQuiescent() && this.allExitedWaiters.delete(waiter)) {
+        if (waiter.timer !== undefined) clearTimeout(waiter.timer);
+        resolve(true);
+      }
+    });
+  }
+
+  /**
+   * A capture harness just announced its session id. Prove it against the
+   * harness's own state, then write it to the seat's node so the next wake
+   * resumes this conversation instead of opening a new one.
+   *
+   * Fire-and-forget by design: the PTY data path must not wait on a filesystem
+   * probe or a canvas write, and a seat whose id cannot be proven simply keeps
+   * running with the id held for this generation only.
+   */
+  /**
+   * Devin's cold-resume loop, opened at spawn.
+   *
+   * Every other capture harness prints its id, so `observeData` sees it. Devin
+   * prints nothing and writes `session_locks/<slug>.lock` from a descendant of
+   * the process this host spawned, so the id has to be looked up rather than
+   * read. Discovery is bounded and fire-and-forget: it never gates the spawn,
+   * and a seat whose id is never found simply keeps running without one.
+   *
+   * The id found here is a candidate, not proof — `persistCapturedSession`
+   * still refuses to store it until Devin's own `sessions` row exists, which
+   * is what makes `-r <id>` work.
+   */
+  private scheduleDevinSessionDiscovery(rec: SessionRec): void {
+    if (rec.harness !== "devin") return;
+    const pid = rec.pid;
+    if (pid === undefined) return;
+    if (getCapturedSessionId(rec.bindingId)) return;
+    const epoch = rec.epoch;
+    void discoverDevinSessionId({
+      pid,
+      stillRunning: () =>
+        this.sessions.get(rec.bindingId) === rec &&
+        rec.epoch === epoch &&
+        !rec.killed &&
+        this.liveRecords.has(rec),
+    })
+      .then((sessionId) => {
+        if (!sessionId) return;
+        if (this.sessions.get(rec.bindingId) !== rec || rec.epoch !== epoch) {
+          return;
+        }
+        recordCapturedSessionId(rec.bindingId, sessionId);
+        this.persistCapturedSession(rec, sessionId, DEVIN_PROOF_RETRY_DELAYS_MS);
+      })
+      .catch(() => {
+        // Recovery, never a gate.
+      });
+  }
+
+  private persistCapturedSession(
+    rec: SessionRec,
+    sessionId: string,
+    delays?: readonly number[],
+  ): void {
+    const canvasName = rec.canvasName;
+    const nodeId = rec.nodeId;
+    const harness = rec.harness;
+    if (!canvasName || !nodeId || !harness) return;
+    if (!usesCapturedSession(harness)) return;
+    void scheduleCapturedSessionPersist(
+      `${rec.bindingId}@${rec.epoch}`,
+      {
+        canvasName,
+        nodeId,
+        bindingId: rec.bindingId,
+        harness,
+        sessionId,
+        ...(rec.cwd ? { cwd: rec.cwd } : {}),
+        // The proof ladder runs for seconds. If this generation stops being
+        // the binding's own meanwhile (replaced, or offboarded and draining),
+        // its id must not be written onto the seat's node.
+        isCurrent: () => this.sessions.get(rec.bindingId) === rec,
+      },
+      ...(delays ? ([delays] as const) : ([] as const)),
+    ).catch(() => {
+      // Recovery, never a gate: a failed persist leaves the seat untouched.
+    });
+  }
+
+  private observeData(rec: SessionRec, data: string): void {
+    if (
+      rec.killed ||
+      sessionStatusOf(rec) !== "running" ||
+      !this.liveRecords.has(rec)
+    ) return;
+    rec.seq = rec.seq + 1n;
+    if (!rec.interfaceSeen && INTERFACE_UP_RE.test(`${rec.sessionCaptureTail.slice(-16)}${data}`)) {
+      rec.interfaceSeen = true;
+    }
+    if (rec.draining !== undefined) {
+      // A detached session is read, and that is all: its bytes go to its own
+      // grid under its drain key. No journal for a surface, no event for the
+      // seat, and above all no session-id capture: the binding's capture now
+      // belongs to the fresh session, and this output must never name it.
+      this.observerPlane.feed(rec.draining.key, data, rec.seq);
+      return;
+    }
+    this.pushJournal(rec, { seq: rec.seq, type: "output", data });
+    // Single insertion point: every byte already flows here with a seq.
+    this.observerPlane.feed(rec.bindingId, data, rec.seq);
+    this.observeProgramStatus(rec, data);
+    // Best-effort diagnostic observation when a harness prints a labeled id.
+    // PTY text is untrusted and this value is neither durable nor a cold-resume
+    // capability. Retain a bounded tail so a label split across chunks remains
+    // parseable; the first candidate wins within this process lifetime.
+    //
+    // Kimi 0.34.0 starts with a blank welcome-card `Session:` line. That spawn
+    // card is not an id — `extractKimiSessionIdFromText` waits for a later
+    // filled `Session: <id>` (post-first-message scrape) or a structured
+    // session_id. Proof is still ~/.kimi-code/sessions/<workDirKey>/<id>/.
+    if ((rec.agentKey || rec.harness) && !getCapturedSessionId(rec.bindingId)) {
+      const captureText = `${rec.sessionCaptureTail}${data}`;
+      const sid =
+        rec.harness === "kimi"
+          ? extractKimiSessionIdFromText(captureText)
+          : extractSessionIdFromText(captureText);
+      if (sid) {
+        recordCapturedSessionId(rec.bindingId, sid);
+        this.persistCapturedSession(rec, sid);
+      }
+      rec.sessionCaptureTail = captureText.slice(-SESSION_CAPTURE_TAIL_BYTES);
+    } else {
+      rec.sessionCaptureTail = `${rec.sessionCaptureTail}${data}`.slice(
+        -SESSION_CAPTURE_TAIL_BYTES,
+      );
+    }
+    // Resume failure evidence is harness-printed, not our cache. Tail is enough
+    // when the error is short; also check the live chunk.
+    if (
+      rec.resumeAttempt &&
+      !rec.resumeFailureSeen &&
+      (isHarnessResumeFailureText(data) ||
+        isHarnessResumeFailureText(rec.sessionCaptureTail))
+    ) {
+      rec.resumeFailureSeen = true;
+    }
+    try {
+      this.emitEvent({
+        type: "output",
+        bindingId: rec.bindingId,
+        epoch: rec.epoch,
+        seq: rec.seq,
+        data,
+      });
+    } catch (error) {
+      console.error(`[term] output listener failed for ${rec.bindingId}@${rec.epoch}:`, error);
+    }
+  }
+
+  /**
+   * Junto is the seat's terminal, so it answers the OSC 7501 support query
+   * and reads the program's status reports. The reply is written in the same
+   * tick the query arrives, ahead of any DA1 reply a surface sends, which is
+   * the order pi and agy require.
+   */
+  private observeProgramStatus(rec: SessionRec, data: string): void {
+    for (const event of rec.programStatus.feed(data)) {
+      if (event.type === "query") {
+        this.answerProgramStatusQuery(rec);
+        continue;
+      }
+      for (const envelope of programStatusEnvelopes(rec.bindingId, Date.now(), event.report)) {
+        for (const listener of this.seatSignalListeners) {
+          try {
+            listener(envelope);
+          } catch (error) {
+            console.error(`[term] seat signal listener failed for ${rec.bindingId}@${rec.epoch}:`, error);
+          }
+        }
+      }
+    }
+  }
+
+  /** Behind a managed submission span, like any other write, so it never lands inside a paste. */
+  private answerProgramStatusQuery(rec: SessionRec): void {
+    const answer = (): void => {
+      if (this.sessions.get(rec.bindingId) !== rec || rec.killed || !sessionPhaseAllowsWrite(rec.phase)) {
+        return;
+      }
+      this.writeRecord(rec, PROGRAM_STATUS_QUERY_REPLY);
+    };
+    if (this.operatorInterlock.holdWrite(rec.bindingId, { replay: answer })) return;
+    answer();
+  }
+
+  private observeExit(
+    rec: SessionRec,
+    code: number | undefined,
+    signal: number | undefined,
+  ): void {
+    // The process is gone, and with it what its environment held.
+    releaseKnownSecrets(knownSecretsOwner(rec));
+    if (!this.liveRecords.has(rec)) return;
+    if (rec.escalationTimer !== undefined) {
+      clearTimeout(rec.escalationTimer);
+      rec.escalationTimer = undefined;
+    }
+    for (const cleanup of rec.listenerCleanups.splice(0)) {
+      try {
+        cleanup();
+      } catch {
+        // Listener disposal never weakens the exact central exit witness.
+      }
+    }
+    // Natural client exit owns the same cleanup contract as explicit stop.
+    // Revoke exact identities before asking the daemon to drain.
+    this.revokeProcessIdentities(rec);
+    this.clearPrimeAgentReporterHook(rec, "terminal_exit");
+    this.requestPrimeDaemonStop(rec, "terminal_exit");
+    if (rec.draining !== undefined) {
+      // The seat heard that this generation was gone when it was detached.
+      // This is the process itself ending, told only to whoever manages the drain.
+      const { key } = rec.draining;
+      if (rec.unconfirmedStop === undefined) this.releaseDrainSurfaces(rec, key);
+      if (this.liveRecords.delete(rec)) this.notifyQuiescentWaiters();
+      rec.phase = SessionPhase.Closed({
+        surface: "native",
+        reason: signal !== undefined ? `signal_${signal}` : `exit_${code ?? "null"}`,
+      });
+      rec.lease = undefined;
+      rec.exitWitness = undefined;
+      if (rec.unconfirmedStop === undefined) this.tellDrainEnded(key, code);
+      rec.unconfirmedStop = undefined;
+      return;
+    }
+    this.removeLiveRecord(rec);
+    if (rec.unconfirmedStop !== undefined) {
+      // The seat was released when the stop went unconfirmed and its exit was
+      // announced then. This is the process finally seen to go.
+      console.info(
+        `[term] late exit witnessed for ${rec.bindingId}@${rec.epoch}` +
+          `${rec.pid === undefined ? "" : ` pid=${rec.pid}`}: no longer tracked`,
+      );
+      rec.unconfirmedStop = undefined;
+      rec.lease = undefined;
+      rec.exitWitness = undefined;
+      return;
+    }
+    const current = this.sessions.get(rec.bindingId);
+    rec.phase = SessionPhase.Closed({
+      surface: "native",
+      reason: signal !== undefined ? `signal_${signal}` : `exit_${code ?? "null"}`,
+    });
+    rec.lease = undefined;
+    rec.exitWitness = undefined;
+    // An agent seat says how its process ended, in plain words: stopped and
+    // by whom, killed by a signal, or exited by itself. Only a process that
+    // failed before its interface ever came up is quoted (that line is its
+    // error); a TUI's last line is a piece of its screen and explains nothing.
+    if (rec.harness) {
+      rec.exitMessage = seatExitMessage({
+        harness: rec.harness,
+        code,
+        signal,
+        ...(rec.killed ? { stopped: rec.stopCause ?? "junto" } : {}),
+        ...(rec.interfaceSeen ? {} : { startupError: rec.sessionCaptureTail }),
+      });
+    }
+    if (current !== rec) return;
+    rec.seq = rec.seq + 1n;
+    this.pushJournal(rec, { seq: rec.seq, type: "exit", code, signal });
+    this.safeEmitEvent({
+      type: "exit",
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      seq: rec.seq,
+      code,
+      signal,
+    });
+    this.safeEmitEvent({
+      type: "session",
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      status: "exited",
+      pid: rec.pid,
+    });
+    // Never fail-closed on resume: if the harness rejected -r, open a fresh pin.
+    // Some harnesses die with no printed proof when a session is already owned
+    // by another Junto process (prod + bun run dev side-by-side). Treat
+    // a quick empty exit after resume argv as the same class of miss.
+    if (
+      rec.resumeAttempt &&
+      !rec.resumeFailureSeen &&
+      rec.journalBytes === 0 &&
+      Date.now() - rec.createdAt < 4_000
+    ) {
+      rec.resumeFailureSeen = true;
+    }
+    this.maybeFailOpenAfterResumeFailure(rec);
+  }
+
+  /**
+   * One-shot fail-open: resume generation died with harness proof of a missing
+   * remote/local session → mint a new pin id and respawn. Explicit resumption
+   * UI (later) is the only path that may fail closed.
+   */
+  private maybeFailOpenAfterResumeFailure(rec: SessionRec): void {
+    if (rec.failOpenUsed || !rec.resumeAttempt || !rec.resumeFailureSeen) return;
+    if (rec.killed) return;
+    const seed = rec.failOpenSeed;
+    if (!seed || !rec.harness || !isPinSessionHarness(rec.harness)) return;
+    if (this.shuttingDown) return;
+
+    rec.failOpenUsed = true;
+    const freshId = randomUUID();
+    let freshLaunch = seed.launch;
+    try {
+      if (seed.resumeFallbackIntent) {
+        const plan = planFreshManagedSpawnIntent(
+          { harness: rec.harness, agentKey: seed.agentKey },
+          seed.resumeFallbackIntent,
+          freshId,
+        );
+        if (!plan) {
+          throw new Error(`could not resolve fresh ${rec.harness} launch`);
+        }
+        freshLaunch = plan.launch;
+      } else {
+        const plan = planFreshPinSession({
+          harness: rec.harness,
+          documentLaunch: seed.launch,
+          agentKey: seed.agentKey,
+          cwd: seed.launch?.cwd ?? rec.cwd,
+          sessionId: freshId,
+        });
+        freshLaunch = plan.launch;
+      }
+    } catch (err) {
+      console.error(
+        `[term] fail-open pin plan failed for ${rec.bindingId}; leaving exited:`,
+        err,
+      );
+      return;
+    }
+
+    rec.seq = rec.seq + 1n;
+    this.pushJournal(rec, {
+      seq: rec.seq,
+      type: "output",
+      data:
+        `\r\n[junto] resume failed for prior session; starting fresh session ${freshId}\r\n`,
+    });
+
+    // Spawn the replacement on this turn — not on a microtask. Exit bookkeeping
+    // above is complete; deferring let createAgentSeat return the dead resume
+    // summary while the live pin was still "about to" start. The renderer then
+    // painted Agent stopped, and Reopen only re-attached to the generation that
+    // was already running. Keep fail-open on the create/exit stack so ensure
+    // and attach see the live generation immediately.
+    if (this.shuttingDown) return;
+    const live = this.sessions.get(rec.bindingId);
+    if (live && live !== rec && sessionStatusOf(live) !== "exited") return;
+    try {
+      this.open(
+        {
+          kind: "agent",
+          harness: seed.harness,
+          agentKey: seed.agentKey,
+          ...(freshLaunch ? { launch: freshLaunch } : {}),
+        },
+        {
+          bindingId: seed.bindingId,
+          ...(seed.hostId ? { hostId: seed.hostId } : {}),
+          ...(seed.cols !== undefined ? { cols: seed.cols } : {}),
+          ...(seed.rows !== undefined ? { rows: seed.rows } : {}),
+          ...(seed.canvasName ? { canvasName: seed.canvasName } : {}),
+          ...(seed.nodeId ? { nodeId: seed.nodeId } : {}),
+          ...(seed.label ? { label: seed.label } : {}),
+          ...(seed.title ? { title: seed.title } : {}),
+          // The replacement is the same launch: same region environment.
+          ...(seed.regionEnvironment
+            ? { regionEnvironment: seed.regionEnvironment }
+            : {}),
+        },
+        {
+          resumeAttempt: false,
+          failOpenSeed: {
+            ...seed,
+            ...(freshLaunch ? { launch: freshLaunch } : {}),
+          },
+          failOpenUsed: true,
+        },
+      );
+    } catch (err) {
+      console.error(
+        `[term] fail-open respawn failed for ${rec.bindingId}:`,
+        err,
+      );
+    }
+  }
+
+  private failBeforeOwnership(rec: SessionRec, error: unknown): void {
+    // Its secrets stay registered: the spawn error is logged and encoded after
+    // this returns. The binding's next generation releases them.
+    this.removeLiveRecord(rec);
+    rec.phase = SessionPhase.Closed({ surface: "native", reason: "spawn_failed" });
+    const classified = classifySpawnFailure(error, rec.harness);
+    rec.exitReason = classified.reason;
+    rec.exitMessage = classified.message;
+    rec.seq = rec.seq + 1n;
+    this.pushJournal(rec, {
+      seq: rec.seq,
+      type: "output",
+      data: `\r\n[junto] ${classified.journal}\r\n`,
+    });
+    this.safeEmitEvent({
+      type: "exit",
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      seq: rec.seq,
+      code: 1,
+      signal: undefined,
+    });
+    this.safeEmitEvent({
+      type: "session",
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      status: "exited",
+    });
+  }
+
+  private recordPostSpawnFailure(rec: SessionRec, error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    rec.seq = rec.seq + 1n;
+    this.pushJournal(rec, {
+      seq: rec.seq,
+      type: "output",
+      data: `\r\n[junto] terminal setup failed; stopping central lease: ${message}\r\n`,
+    });
+    console.error(`[term] setup failed for ${rec.bindingId}@${rec.epoch}; stopping lease:`, error);
+  }
+
+  private observeWitnessFailure(rec: SessionRec, error: unknown): void {
+    if (!this.liveRecords.has(rec)) return;
+    console.error(
+      `[term] terminal witness rejected for ${rec.bindingId}@${rec.epoch}; retaining authority:`,
+      error,
+    );
+  }
+
+  private observeTerminalError(rec: SessionRec, error: Error): void {
+    if (!this.liveRecords.has(rec)) return;
+    if (sessionPhaseAllowsWrite(rec.phase)) {
+      rec.phase = SessionPhase.Broken({ surface: "native", reason: "io" });
+    }
+    console.error(
+      `[term] terminal process error for ${rec.bindingId}@${rec.epoch}; awaiting exact exit witness:`,
+      error,
+    );
+  }
+
+  /** Give up everything this exact generation holds on the seat's behalf. */
+  private releaseSeatSurfaces(rec: SessionRec): void {
+    // Drop headless grid and structured authority for this exact epoch.
+    this.observerPlane.detach(rec.bindingId, rec.epoch);
+    this.clearPrimeAgentReporterHook(rec, "generation_exited");
+    seatStateRuntime.unbind(
+      rec.bindingId,
+      rec.epoch,
+      "generation_exited",
+    );
+    // The captured-session store is binding-keyed rather than epoch-keyed. An
+    // old exact exit must never clear a replacement generation's session.
+    if (this.sessions.get(rec.bindingId) === rec) {
+      clearCapturedSessionId(rec.bindingId);
+    }
+  }
+
+  private removeLiveRecord(rec: SessionRec): void {
+    // A stop that went unconfirmed released these already, and the binding
+    // may belong to a fresh generation by now.
+    if (rec.unconfirmedStop === undefined) this.releaseSeatSurfaces(rec);
+    if (!this.liveRecords.delete(rec)) return;
+    this.notifyQuiescentWaiters();
+  }
+
+  private notifyQuiescentWaiters(): void {
+    for (const waiter of [...this.recordExitWaiters]) {
+      if (
+        !this.recordQuiescent(waiter.record) &&
+        !this.recordCleanupFailed(waiter.record)
+      ) continue;
+      this.recordExitWaiters.delete(waiter);
+      if (waiter.timer !== undefined) clearTimeout(waiter.timer);
+      waiter.resolve(this.recordQuiescent(waiter.record));
+    }
+    if (!this.shutdownQuiescent()) return;
+    const waiters = [...this.allExitedWaiters];
+    this.allExitedWaiters.clear();
+    for (const waiter of waiters) {
+      if (waiter.timer !== undefined) clearTimeout(waiter.timer);
+      waiter.resolve(true);
+    }
+  }
+
+  private safeEmitEvent(ev: LocalHostEvent): void {
+    try {
+      this.emitEvent(ev);
+    } catch (error) {
+      console.error(`[term] lifecycle listener failed for ${ev.bindingId}@${ev.epoch}:`, error);
+    }
+  }
+
+  private forceKill(rec: SessionRec, signal: NodeJS.Signals): void {
+    // Only the central plane can translate this opaque lease into OS signal
+    // authority. Generic dispatch failures retain the record and therefore
+    // fail the bounded shutdown receipt closed.
+    if (!rec.lease) return;
+    try {
+      if (signal === "SIGTERM") {
+        rec.termReceipt = this.processAuthority.terminate(
+          rec.lease,
+          `local-terminal-stop:${rec.bindingId}@${rec.epoch}`,
+        );
+      } else if (signal === "SIGKILL") {
+        rec.killReceipt = this.processAuthority.forceTerminate(
+          rec.lease,
+          `local-terminal-force-stop:${rec.bindingId}@${rec.epoch}`,
+        );
+      }
+    } catch (error) {
+      console.error(
+        `[term] ${signal} dispatch failed for ${rec.bindingId}@${rec.epoch}; retaining authority:`,
+        error,
+      );
+    }
+  }
+
+  private pushJournal(rec: SessionRec, entry: JournalEntry): void {
+    rec.journal.push(entry);
+    if (entry.type === "output") {
+      rec.journalBytes += Buffer.byteLength(entry.data, "utf8");
+    }
+    while (rec.journalBytes > MAX_JOURNAL_BYTES && rec.journal.length > 0) {
+      const dropped = rec.journal.shift();
+      if (dropped?.type === "output") {
+        rec.journalBytes -= Buffer.byteLength(dropped.data, "utf8");
+      }
+      if (rec.journal.length === 1 && rec.journalBytes > MAX_JOURNAL_BYTES) {
+        // Single oversized entry — drop it entirely.
+        const last = rec.journal.shift();
+        if (last?.type === "output") rec.journalBytes = 0;
+        break;
+      }
+    }
+  }
+
+  private processPrincipal(rec: SessionRec): ProcessPrincipal | undefined {
+    if (rec.canvasName === undefined || rec.nodeId === undefined) return undefined;
+    // Managed actor seats bind as agent so work-control process-bind matches the card.
+    return rec.agentKey
+      ? {
+          agentKey: rec.agentKey,
+          canvasName: rec.canvasName,
+          nodeId: rec.nodeId,
+        }
+      : {
+          bindingId: rec.bindingId,
+          canvasName: rec.canvasName,
+          nodeId: rec.nodeId,
+        };
+  }
+
+  private bindDaemonProcessIdentity(rec: SessionRec): boolean {
+    const daemon = rec.primeDaemon;
+    const principal = this.processPrincipal(rec);
+    if (principal === undefined || daemon === undefined) return true;
+    try {
+      const binding = getProcessIdentityMap().bindGeneration(
+        daemon.daemonPid,
+        principal,
+      );
+      if (binding === undefined) return false;
+      rec.daemonIdentityBinding = binding;
+      return true;
+    } catch (error) {
+      console.error(
+        `[term] daemon identity bind failed for ${rec.bindingId}@${rec.epoch}:`,
+        error,
+      );
+      return false;
+    }
+  }
+
+  private bindPtyProcessIdentity(rec: SessionRec): boolean {
+    const principal = this.processPrincipal(rec);
+    if (principal === undefined) return true;
+    if (rec.pid === undefined || sessionStatusOf(rec) !== "running") return false;
+    try {
+      const binding = getProcessIdentityMap().bindGeneration(rec.pid, principal);
+      if (binding === undefined) return false;
+      rec.ptyIdentityBinding = binding;
+      return true;
+    } catch (error) {
+      console.error(
+        `[term] terminal identity bind failed for ${rec.bindingId}@${rec.epoch}:`,
+        error,
+      );
+      return false;
+    }
+  }
+
+  private bindAllProcessIdentities(rec: SessionRec): boolean {
+    if (!this.bindDaemonProcessIdentity(rec)) return false;
+    if (this.bindPtyProcessIdentity(rec)) return true;
+    this.revokeProcessIdentities(rec);
+    return false;
+  }
+
+  /**
+   * Publish the seat generation credential once the lease is live and canvas
+   * anchors are known. Either completion point may arrive first; both call
+   * here and the call is idempotent. True when published or not yet publishable.
+   */
+  private publishSeatCredential(rec: SessionRec): boolean {
+    const mint = rec.seatCredential;
+    if (mint === undefined || rec.seatCredentialLive) return true;
+    if (rec.lease === undefined) return true;
+    const principal = this.processPrincipal(rec);
+    if (principal === undefined) return true;
+    const published = getSeatCredentialRegistry().publish(mint, principal);
+    if (published) rec.seatCredentialLive = true;
+    return published;
+  }
+
+  /** Canvas rebind moves a live credential to the new principal, same value. */
+  private reanchorSeatCredential(rec: SessionRec): boolean {
+    const mint = rec.seatCredential;
+    if (mint === undefined) return true;
+    const principal = this.processPrincipal(rec);
+    if (principal === undefined || rec.lease === undefined) return true;
+    if (getSeatCredentialRegistry().reanchor(mint.credential, principal)) {
+      rec.seatCredentialLive = true;
+      return true;
+    }
+    return this.publishSeatCredential(rec);
+  }
+
+  /** Canvas detach suspends the credential; calls fail closed until reattach. */
+  private suspendSeatCredential(rec: SessionRec): void {
+    const mint = rec.seatCredential;
+    if (mint === undefined || !rec.seatCredentialLive) return;
+    if (getSeatCredentialRegistry().suspend(mint.credential)) {
+      rec.seatCredentialLive = false;
+    }
+  }
+
+  /** Generation end retires the credential permanently with a tombstone. */
+  private revokeSeatCredential(
+    rec: SessionRec,
+    reason: "seat-closed" | "offboarded" | "replaced" = "seat-closed",
+  ): void {
+    const mint = rec.seatCredential;
+    if (mint === undefined) return;
+    rec.seatCredential = undefined;
+    rec.seatCredentialLive = false;
+    try {
+      getSeatCredentialRegistry().revoke(mint.credential, reason);
+    } catch (error) {
+      console.error(
+        `[term] seat credential revoke failed for ${rec.bindingId}@${rec.epoch}:`,
+        error,
+      );
+    }
+  }
+
+  private revokeProcessIdentities(rec: SessionRec, options?: { keepSeatCredential?: boolean }): void {
+    if (options?.keepSeatCredential !== true) {
+      this.revokeSeatCredential(rec);
+    }
+    const identities = getProcessIdentityMap();
+    const bindings = [
+      rec.daemonIdentityBinding,
+      rec.ptyIdentityBinding,
+    ].filter((binding): binding is ProcessIdentityBinding => binding !== undefined);
+    rec.daemonIdentityBinding = undefined;
+    rec.ptyIdentityBinding = undefined;
+    for (const binding of bindings) {
+      try {
+        // False means this exact capability is already stale/revoked. It never
+        // authorizes a numeric fallback that could erase a replacement.
+        identities.unbindGeneration(binding);
+      } catch (error) {
+        console.error(
+          `[term] exact identity revoke failed for ${rec.bindingId}@${rec.epoch}:`,
+          error,
+        );
+      }
+    }
+  }
+
+  private summaryOf(rec: SessionRec): TerminalSessionSummary {
+    // Prefer live OSC window title (shell/app set) over spawn basename.
+    const oscTitle =
+      this.observerPlane.snapshot(rec.bindingId)?.signals.title?.trim() ||
+      undefined;
+    const processName =
+      (oscTitle && oscTitle.length > 0 ? oscTitle : undefined) ||
+      rec.processName ||
+      (typeof rec.title === "string" && rec.title.trim().length > 0
+        ? rec.title.trim()
+        : undefined);
+    return {
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      hostId: rec.hostId,
+      status: sessionStatusOf(rec),
+      ...(rec.killed ? { stopping: true as const } : {}),
+      title: rec.title ?? oscTitle,
+      ...(processName ? { processName } : {}),
+      cwd: rec.cwd,
+      pid: rec.pid,
+      detached: rec.detached,
+      canvasName: rec.canvasName,
+      nodeId: rec.nodeId,
+      createdAt: rec.createdAt,
+      label: rec.label,
+      backend: rec.backend,
+      ...(rec.exitReason ? { exitReason: rec.exitReason } : {}),
+      ...(rec.exitMessage ? { exitMessage: rec.exitMessage } : {}),
+      ...(rec.harness && rec.resumeAttempt ? { resuming: true as const } : {}),
+      ...(rec.harness ? { harness: rec.harness } : {}),
+      ...(rec.agentKey ? { agentKey: rec.agentKey } : {}),
+    };
+  }
+
+  /** Domain phase for tests / Effect consumers (not canvas). */
+  phaseOf(bindingId: string): SessionPhaseT | undefined {
+    return this.sessions.get(bindingId)?.phase;
+  }
+
+  private emitEvent(ev: LocalHostEvent): void {
+    this.emit("event", ev);
+  }
+}
