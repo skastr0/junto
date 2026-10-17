@@ -4,10 +4,8 @@
  * machine's own core answers, and a machine no channel reaches yet answers a
  * typed unreachable.
  *
- * Until the keyed IPC lands, the window's own machine is answered by the
- * window's own core over the settings IPC it already has; every other
- * machine is unreachable. Values of credentials never come back: a read is
- * names and state only.
+ * A machine the link does not carry settings for yet answers unreachable.
+ * Values of credentials never come back: a read is names and state only.
  */
 import { Result } from "effect";
 import {
@@ -18,8 +16,6 @@ import {
   type MachineRecord,
 } from "@shared/machine-settings";
 import type { MachinePreferencesPatch, ProvidersPatch } from "@shared/settings";
-import { patchSettings, setMachinePreferences } from "./settings-state";
-import { state$ } from "./state";
 
 type Answer<A> = Promise<Result.Result<A, MachineSettingsUnavailableError>>;
 
@@ -31,41 +27,37 @@ export type MachineSettingsSource = {
   readonly writeRecord: (machine: string, patch: MachinePreferencesPatch) => Answer<MachineRecord>;
 };
 
-const unreachable = (machine: string) =>
-  Result.fail(
-    new MachineSettingsUnavailableError({
-      machine,
-      reason: "unreachable",
-      message: "Another machine's settings come over the link, which does not carry them yet",
-    }),
-  );
+type Keyed<A> =
+  | { readonly ok: true; readonly value: A }
+  | { readonly ok: false; readonly error: { readonly machine: string; readonly reason: "unreachable" | "failed"; readonly message: string } };
 
-const failed = (machine: string) =>
-  Result.fail(
-    new MachineSettingsUnavailableError({
-      machine,
-      reason: "failed",
-      message: state$.settingsError.peek() || "the settings write failed",
-    }),
-  );
+const answerOf = async <A>(machine: string, call: () => Promise<Keyed<A>>): Answer<A> => {
+  const answer = await call().catch((cause: unknown): Keyed<A> => ({
+    ok: false,
+    error: { machine, reason: "failed", message: cause instanceof Error ? cause.message : String(cause) },
+  }));
+  return answer.ok
+    ? Result.succeed(answer.value)
+    : Result.fail(new MachineSettingsUnavailableError({
+      machine: answer.error.machine || machine,
+      reason: answer.error.reason,
+      message: answer.error.message,
+    }));
+};
 
-const ownCore = (machine: string): boolean => machine === state$.settings.machine.name.peek();
+const noBridge = (machine: string): Promise<Keyed<never>> =>
+  Promise.resolve({ ok: false, error: { machine, reason: "failed", message: "This window has no Junto bridge" } });
 
+/** Every machine is asked by name through its own core; none is answered from this window's state. */
 export const coreMachineSettingsSource: MachineSettingsSource = {
-  providers: async (machine) =>
-    ownCore(machine) ? Result.succeed(machineProvidersOf(state$.settings.peek(), machine)) : unreachable(machine),
-  writeProviders: async (machine, patch) => {
-    if (!ownCore(machine)) return unreachable(machine);
-    return (await patchSettings({ providers: patch }))
-      ? Result.succeed(machineProvidersOf(state$.settings.peek(), machine))
-      : failed(machine);
-  },
-  record: async (machine) =>
-    ownCore(machine) ? Result.succeed(machineRecordOf(state$.settings.peek())) : unreachable(machine),
-  writeRecord: async (machine, patch) => {
-    if (!ownCore(machine)) return unreachable(machine);
-    return (await setMachinePreferences(patch)) ? Result.succeed(machineRecordOf(state$.settings.peek())) : failed(machine);
-  },
+  providers: (machine) =>
+    answerOf(machine, () => window.junto?.machineProviders(machine) ?? noBridge(machine)),
+  writeProviders: (machine, patch) =>
+    answerOf(machine, () => window.junto?.machineProvidersWrite({ machine, patch }) ?? noBridge(machine)),
+  record: (machine) =>
+    answerOf(machine, () => window.junto?.machineRecord(machine) ?? noBridge(machine)),
+  writeRecord: (machine, patch) =>
+    answerOf(machine, () => window.junto?.machineRecordWrite({ machine, patch }) ?? noBridge(machine)),
 };
 
 let source: MachineSettingsSource = coreMachineSettingsSource;

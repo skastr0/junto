@@ -1,5 +1,6 @@
 import type { MachineInventory } from "./harness-domain/inventory";
 import type { NativeSettingWrite } from "./harness-domain/native-config";
+import type { MachineProviders, MachineRecord } from "./machine-settings";
 import type { ChatChromeSnapshot, ChatChromeChanged } from "./chat-chrome";
 import type { WorkAttentionSnapshot } from "./work-attention";
 import type { WorkItemQuery, WorkActorQuery, WorkActorPage, WorkAttentionQuery, WorkLaneRow, WorkSinkQuery, WorkSinkPage, WorkSinkChanged } from "./work-sinks";
@@ -47,6 +48,7 @@ import type {
   SettingsPatch,
   SettingsSectionKey,
   MachinePreferencesPatch,
+  ProvidersPatch,
 } from "./settings";
 import type { UsageState } from "./usage";
 import type { AgentSeatStateEvent } from "./agent-seat-state";
@@ -392,6 +394,11 @@ export const IPC_CHANNELS = {
   nativeSettingsRead: "junto:native-settings-read",
   /** One declared key written by the machine's own Junto, answered as read back. */
   nativeSettingWrite: "junto:native-setting-write",
+  /** A machine's providers (names and state only) and its own record, keyed by machine. */
+  machineProviders: "junto:machine-providers",
+  machineProvidersWrite: "junto:machine-providers-write",
+  machineRecord: "junto:machine-record",
+  machineRecordWrite: "junto:machine-record-write",
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
   agentSeatStateSnapshot: "junto:agent-seat-state-snapshot",
   agentSeatStateChanged: "junto:agent-seat-state-changed",
@@ -1326,6 +1333,19 @@ export type NativeSettingWriteResult =
   | { readonly ok: true; readonly value: boolean | string | number }
   | { readonly ok: false; readonly error: NativeSettingFailure };
 
+/** A machine-scoped settings answer, from that machine's own core. */
+export type MachineSettingsResult<A> =
+  | { readonly ok: true; readonly value: A }
+  | {
+    readonly ok: false;
+    readonly error: {
+      readonly _tag: "MachineSettingsUnavailableError";
+      readonly machine: string;
+      readonly reason: "unreachable" | "failed";
+      readonly message: string;
+    };
+  };
+
 export interface ManagedTerminalModelsResult {
   readonly models: readonly ManagedTerminalModelOption[];
   readonly source: "cache" | "aliases" | "command" | "empty";
@@ -1482,6 +1502,18 @@ export interface JuntoTerminalApi {
   }) => Promise<NativeSettingsReadResult>;
   /** One declared key, written by the machine's own Junto. */
   readonly nativeSettingWrite: (write: NativeSettingWrite) => Promise<NativeSettingWriteResult>;
+  /** A machine's providers: credential names and whether each is set, never a value. */
+  readonly machineProviders: (machine: string) => Promise<MachineSettingsResult<MachineProviders>>;
+  readonly machineProvidersWrite: (input: {
+    readonly machine: string;
+    readonly patch: ProvidersPatch;
+  }) => Promise<MachineSettingsResult<MachineProviders>>;
+  /** A machine's own record: its name and how it is kept running. */
+  readonly machineRecord: (machine: string) => Promise<MachineSettingsResult<MachineRecord>>;
+  readonly machineRecordWrite: (input: {
+    readonly machine: string;
+    readonly patch: MachinePreferencesPatch;
+  }) => Promise<MachineSettingsResult<MachineRecord>>;
   /**
    * Fail-soft: the options the installed harness prints in `--help`, for the
    * launch-parameter editor, plus Amp plugin modes in the chosen folder.

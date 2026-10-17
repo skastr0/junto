@@ -1,7 +1,8 @@
 import type { IpcMain, SaveDialogOptions } from "electron";
 import { app, BrowserWindow, dialog, nativeTheme } from "electron";
 import { Effect, Result } from "effect";
-import { IPC_CHANNELS } from "@shared/ipc";
+import { IPC_CHANNELS, type MachineSettingsResult } from "@shared/ipc";
+import { machineProvidersOf, machineRecordOf } from "@shared/machine-settings";
 import { refreshThemeFromSystem, setThemePreference } from "../theme-state";
 import { themePublishDecision } from "./theme-publish";
 import { setInterfaceScale } from "../interface-scale";
@@ -135,6 +136,53 @@ export const registerSettingsIpc = (
       }),
     ),
   );
+
+  // Machine-scoped pages ask a machine by name. This core answers for its own
+  // machine; another machine answers over the link once it carries settings
+  // (docs/machines.md, Harness inventory: one path for every machine).
+  const forMachine = <A>(
+    machine: unknown,
+    answer: (settings: Settings) => A,
+    change?: (service: typeof SettingsService.Service) => Effect.Effect<unknown, { readonly message: string }>,
+  ): Promise<MachineSettingsResult<A>> =>
+    AppRuntime.runPromise(Effect.gen(function* () {
+      const service = yield* SettingsService;
+      const name = typeof machine === "string" ? machine : "";
+      const fail = (reason: "unreachable" | "failed", message: string): MachineSettingsResult<A> =>
+        ({ ok: false, error: { _tag: "MachineSettingsUnavailableError", machine: name, reason, message } });
+      const current = yield* Effect.result(service.get);
+      if (Result.isFailure(current)) return fail("failed", current.failure.message);
+      if (name === "" || name !== current.success.machine.name) {
+        return fail("unreachable", "Another machine's settings come over the link, which does not carry them yet");
+      }
+      if (change === undefined) return { ok: true, value: answer(current.success) };
+      const changed = yield* Effect.result(change(service));
+      if (Result.isFailure(changed)) return fail("failed", changed.failure.message);
+      const after = yield* Effect.result(service.get);
+      return Result.isSuccess(after) ? { ok: true, value: answer(after.success) } : fail("failed", after.failure.message);
+    }));
+  const plainObject = (value: unknown): value is Record<string, unknown> =>
+    value !== null && typeof value === "object" && !Array.isArray(value);
+  const keyedPatch = (input: unknown): { readonly machine: unknown; readonly patch: Record<string, unknown> } | undefined =>
+    plainObject(input) && plainObject(input.patch) ? { machine: input.machine, patch: input.patch } : undefined;
+
+  ipcMain.handle(IPC_CHANNELS.machineProviders, (_event, machine: unknown) =>
+    forMachine(machine, (settings) => machineProvidersOf(settings, settings.machine.name)));
+  ipcMain.handle(IPC_CHANNELS.machineProvidersWrite, (_event, input: unknown) => {
+    const request = keyedPatch(input);
+    return forMachine(request?.machine, (settings) => machineProvidersOf(settings, settings.machine.name),
+      (service) => request === undefined
+        ? Effect.fail({ message: "a providers write needs a machine and a patch" })
+        : service.patch({ providers: request.patch }));
+  });
+  ipcMain.handle(IPC_CHANNELS.machineRecord, (_event, machine: unknown) => forMachine(machine, machineRecordOf));
+  ipcMain.handle(IPC_CHANNELS.machineRecordWrite, (_event, input: unknown) => {
+    const request = keyedPatch(input);
+    return forMachine(request?.machine, machineRecordOf,
+      (service) => request === undefined
+        ? Effect.fail({ message: "a record write needs a machine and a patch" })
+        : service.setMachinePreferences(request.patch));
+  });
 
   ipcMain.handle(IPC_CHANNELS.settingsReset, (_event, section?: unknown) =>
     AppRuntime.runPromise(
