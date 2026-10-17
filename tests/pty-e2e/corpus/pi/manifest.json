@@ -131,12 +131,281 @@
       "reason": "a real permission dialog was not observed",
       "observed": {},
       "expectedScreen": {}
+    },
+    {
+      "harness": "pi",
+      "scenario": "retry-overloaded",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: overloaded }, then a completed turn",
+        "wiring": "a stub provider in the isolated PI_CODING_AGENT_DIR/models.json (openai-responses); --offline",
+        "stubServed": [
+          "/v1/responses 503",
+          "/v1/responses 503",
+          "/v1/responses 503",
+          "/v1/responses ok"
+        ],
+        "renderedLines": [
+          " say hi",
+          "── ⠙ Working ───────────────────────────────────────────────────────────────────────────────────────────────────────────",
+          "1.1%/128k (auto)                                                                                              stub-model",
+          " Error: capture API error (503): {\"type\":\"server_error\",\"message\":\"The server is overloaded. Please try again",
+          " later.\",\"code\":\"server_error\"}",
+          "── ⠙ Retrying (1/3) in 2s... (escape to cancel) ────────────────────────────────────────────────────────────────────────",
+          " Hello from the capture stub.",
+          "↑12 ↓8 0.0%/128k (auto)                                                                                       stub-model"
+        ],
+        "cliVersion": "1.1.0"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "pi",
+      "scenario": "retry-rate",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: rate }, then a completed turn",
+        "wiring": "a stub provider in the isolated PI_CODING_AGENT_DIR/models.json (openai-responses); --offline",
+        "stubServed": [
+          "/v1/responses 429",
+          "/v1/responses 429",
+          "/v1/responses 429",
+          "/v1/responses ok"
+        ],
+        "renderedLines": [
+          " say hi",
+          "── ⠙ Working ───────────────────────────────────────────────────────────────────────────────────────────────────────────",
+          "1.1%/128k (auto)                                                                                              stub-model",
+          " Error: capture API error (429): {\"type\":\"rate_limit_exceeded\",\"message\":\"Rate limit reached for requests per minute.",
+          " Please try again in 2s.\",\"code\":\"rate_limit_exceeded\"}",
+          "── ⠋ Retrying (1/3) in 2s... (escape to cancel) ────────────────────────────────────────────────────────────────────────",
+          " Hello from the capture stub.",
+          "↑12 ↓8 0.0%/128k (auto)                                                                                       stub-model"
+        ],
+        "cliVersion": "1.1.0"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "pi",
+      "scenario": "retry-network",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: network }, then a completed turn",
+        "wiring": "a stub provider in the isolated PI_CODING_AGENT_DIR/models.json (openai-responses); --offline",
+        "stubServed": [
+          "/v1/responses drop",
+          "/v1/responses drop",
+          "/v1/responses drop",
+          "/v1/responses ok"
+        ],
+        "renderedLines": [
+          " say hi",
+          "── ⠙ Working ───────────────────────────────────────────────────────────────────────────────────────────────────────────",
+          "1.1%/128k (auto)                                                                                              stub-model",
+          " Error: Connection error.",
+          "── ⠋ Retrying (1/3) in 2s... (escape to cancel) ────────────────────────────────────────────────────────────────────────",
+          " Hello from the capture stub.",
+          "↑12 ↓8 0.0%/128k (auto)                                                                                       stub-model"
+        ],
+        "cliVersion": "1.1.0"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "pi",
+      "scenario": "usage-limit",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: 5h, resetsAt }",
+        "wiring": "a stub provider in the isolated PI_CODING_AGENT_DIR/models.json (openai-responses); --offline",
+        "stubServed": [
+          "/v1/responses 429",
+          "/v1/responses 429",
+          "/v1/responses 429",
+          "/v1/responses 429"
+        ],
+        "renderedLines": [
+          " say hi",
+          " Error: capture API error (429): {\"type\":\"usage_limit_reached\",\"message\":\"The usage limit has been",
+          " reached\",\"code\":\"usage_limit_reached\",\"plan_type\":\"plus\",\"resets_at\":1792221021,\"resets_in_seconds\":11820}",
+          "── ⠋ Retrying (1/3) in 2s... (escape to cancel) ────────────────────────────────────────────────────────────────────────",
+          "1.1%/128k (auto)                                                                                              stub-model",
+          " Error: Retry failed after 3 attempts: capture API error (429): {\"type\":\"usage_limit_reached\",\"message\":\"The usage",
+          " limit has been"
+        ],
+        "cliVersion": "1.1.0"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "pi",
+      "scenario": "usage-limit-weekly",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: weekly, resetsAt }",
+        "wiring": "a stub provider in the isolated PI_CODING_AGENT_DIR/models.json (openai-responses); --offline",
+        "stubServed": [
+          "/v1/responses 429",
+          "/v1/responses 429",
+          "/v1/responses 429",
+          "/v1/responses 429"
+        ],
+        "renderedLines": [
+          " say hi",
+          " Error: capture API error (429): {\"type\":\"usage_limit_reached\",\"message\":\"The usage limit has been",
+          " reached\",\"code\":\"usage_limit_reached\",\"plan_type\":\"plus\",\"resets_at\":1792566645,\"resets_in_seconds\":357420}",
+          "── ⠋ Retrying (1/3) in 2s... (escape to cancel) ────────────────────────────────────────────────────────────────────────",
+          "1.1%/128k (auto)                                                                                              stub-model",
+          "── ⠋ Working ───────────────────────────────────────────────────────────────────────────────────────────────────────────",
+          " Error: Retry failed after 3 attempts: capture API error (429): {\"type\":\"usage_limit_reached\",\"message\":\"The usage",
+          " limit has been"
+        ],
+        "cliVersion": "1.1.0"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "pi",
+      "scenario": "error-auth",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: auth }",
+        "wiring": "a stub provider in the isolated PI_CODING_AGENT_DIR/models.json (openai-responses); --offline",
+        "stubServed": [
+          "/v1/responses 401"
+        ],
+        "renderedLines": [
+          " say hi",
+          " Error: capture API error (401): {\"type\":\"invalid_api_key\",\"message\":\"Incorrect API key",
+          " provided.\",\"code\":\"invalid_api_key\"}",
+          " If this looks like a pi bug, /bug sends a report to the developers.",
+          "1.1%/128k (auto)                                                                                              stub-model"
+        ],
+        "cliVersion": "1.1.0"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "pi",
+      "scenario": "error-server",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: provider } after retries run out",
+        "wiring": "a stub provider in the isolated PI_CODING_AGENT_DIR/models.json (openai-responses); --offline",
+        "stubServed": [
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500",
+          "/v1/responses 500"
+        ],
+        "renderedLines": [
+          " say hi",
+          "── ⠙ Working ───────────────────────────────────────────────────────────────────────────────────────────────────────────",
+          "1.1%/128k (auto)                                                                                              stub-model",
+          " Error: capture API error (500): {\"type\":\"server_error\",\"message\":\"Internal server error\",\"code\":\"server_error\"}",
+          "── ⠋ Retrying (1/3) in 2s... (escape to cancel) ────────────────────────────────────────────────────────────────────────",
+          " Error: Retry failed after 3 attempts: capture API error (500): {\"type\":\"server_error\",\"message\":\"Internal server",
+          " error\",\"code\":\"server_error\"}"
+        ],
+        "cliVersion": "1.1.0"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "pi",
+      "scenario": "error-context",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: contextOverflow }",
+        "wiring": "a stub provider in the isolated PI_CODING_AGENT_DIR/models.json (openai-responses); --offline",
+        "stubServed": [
+          "/v1/responses 400"
+        ],
+        "renderedLines": [
+          " say hi",
+          " Error: capture API error (400): {\"type\":\"context_length_exceeded\",\"message\":\"Your input exceeds the context window of",
+          " this model. Please adjust your input and try again.\",\"code\":\"context_length_exceeded\"}",
+          " If this looks like a pi bug, /bug sends a report to the developers.",
+          "1.1%/128k (auto)                                                                                              stub-model"
+        ],
+        "cliVersion": "1.1.0"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "pi",
+      "scenario": "compaction-auto",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "CompactionStarted { trigger: auto }, CompactionEnded { ok }, then a completed turn",
+        "wiring": "a stub provider in the isolated PI_CODING_AGENT_DIR/models.json (openai-responses); --offline",
+        "stubServed": [
+          "/v1/responses ok",
+          "/v1/responses ok",
+          "/v1/responses ok"
+        ],
+        "renderedLines": [
+          " say hi",
+          "── ⠋ Working ───────────────────────────────────────────────────────────────────────────────────────────────────────────",
+          "0.7%/200k (auto)                                                                                              stub-model",
+          " Line 1575 of a long capture answer, padding the conversation.",
+          "── ⠙ Auto-compacting... (escape to cancel) ─────────────────────────────────────────────────────────────────────────────",
+          "↑190k ↓8 95.0%/200k (auto)                                                                                    stub-model",
+          " [compaction]",
+          " Compacted from 190,008 tokens (ctrl+o to expand)",
+          "↑190k ↓16 ?/200k (auto)                                                                                       stub-model",
+          " say hi again",
+          " Hello from the capture stub."
+        ],
+        "cliVersion": "1.1.0"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "pi",
+      "scenario": "compaction-manual",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "CompactionStarted { trigger: manual }, CompactionEnded { ok }",
+        "wiring": "a stub provider in the isolated PI_CODING_AGENT_DIR/models.json (openai-responses); --offline",
+        "stubServed": [
+          "/v1/responses ok",
+          "/v1/responses ok",
+          "/v1/responses ok",
+          "/v1/responses ok"
+        ],
+        "renderedLines": [
+          " say hi",
+          "── ⠋ Working ───────────────────────────────────────────────────────────────────────────────────────────────────────────",
+          "0.7%/200k (auto)                                                                                              stub-model",
+          " Line 1575 of a long capture answer, padding the conversation.",
+          "↑30k ↓8 15.0%/200k (auto)                                                                                     stub-model",
+          "↑60k ↓16 15.0%/200k (auto)                                                                                    stub-model",
+          "── ⠙ Compacting context... (escape to cancel) ──────────────────────────────────────────────────────────────────────────",
+          " [compaction]",
+          " Compacted from 30,008 tokens (ctrl+o to expand)",
+          "↑60k ↓32 ?/200k (auto)                                                                                        stub-model"
+        ],
+        "cliVersion": "1.1.0"
+      },
+      "expectedScreen": {}
     }
   ],
   "sanitization": {
     "method": "decoded-jsonl-scan",
-    "fixtures": 2,
-    "decodedBytes": 54015,
+    "fixtures": 12,
+    "decodedBytes": 743618,
     "checks": [
       "home-path",
       "username",
@@ -148,5 +417,11 @@
   "redactions": [
     "installed skills/prompts/extensions inventory replaced with minimal neutral lists",
     "configured provider name and install doc paths neutralized"
-  ]
+  ],
+  "signalCaptureEvidence": {
+    "tool": "tests/pty-e2e/signal-capture.ts",
+    "capturedAt": "2026-10-17T04:34:55.172Z",
+    "harnessVersion": "1.1.0",
+    "provider": "scripted local stub; the binary and its rendering are real, the provider replies are not"
+  }
 }

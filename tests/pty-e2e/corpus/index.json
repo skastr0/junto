@@ -621,6 +621,56 @@
         "scenario": "permission-returns-idle",
         "status": "skip",
         "reason": "a real permission dialog was not observed"
+      },
+      {
+        "scenario": "retry-overloaded",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "retry-rate",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "retry-network",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "usage-limit",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "usage-limit-weekly",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "error-auth",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "error-server",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "error-context",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "compaction-auto",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "compaction-manual",
+        "status": "complete",
+        "reason": null
       }
     ],
     "session": {
