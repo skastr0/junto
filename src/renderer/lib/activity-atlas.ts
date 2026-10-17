@@ -4,8 +4,11 @@
  *
  * A mark on screen is one element whose background points into this atlas:
  * still rings, the outer band, and the rest pose a moving ring shows while
- * motion is paused. A moving ring on screen is painted live on every display
- * frame (activity-live.ts); the atlas never animates it.
+ * motion is paused. A moving ring is baked here as still parts (RING_MOTION
+ * in activity-rings.ts): its base is the mark's own background, and the part
+ * that turns or pulses is a child the compositor animates with transform and
+ * opacity alone. Nothing is repainted per frame and the main thread never
+ * runs the motion.
  *
  * Layers (20-unit box; see ActivityMark.tsx and activity-rings.ts):
  *   ring     control state, bent by the thread-health reading when it is trouble
@@ -23,6 +26,8 @@ import {
   LAND_FRAMES,
   LOOP_REST_FRAME,
   RING_CYCLE_FRAMES,
+  RING_FRAME_MS,
+  RING_MOTION,
   paintDone,
   paintFlag,
   paintGlow,
@@ -33,6 +38,8 @@ import {
   type RingGlow,
   type RingHalo,
   type RingPalette,
+  type RingPart,
+  type RingPulse,
   type StillRing,
 } from "./activity-rings";
 
@@ -91,8 +98,20 @@ const key = (a: string, b: string): string => `${a}:${b}`;
 const bandKey = (glow: string, halo: string, stale: boolean, flag: string): string =>
   `${glow}:${halo}:${stale ? "stale" : "fresh"}:${flag}`;
 
+/** Where a moving ring's still parts sit in the atlas, and how each runs. */
+export type RingParts = {
+  /** The still base: the mark's background while the ring moves; blank when absent. */
+  readonly base: AtlasCell;
+  readonly spin?: AtlasCell & { readonly ms: number; readonly ccw: boolean; readonly fade: boolean };
+  readonly pulse?: AtlasCell & { readonly ms: number; readonly kind: RingPulse["kind"] };
+  /** Done only: the sealed ring, faded and grown in once before the glint. */
+  readonly land?: AtlasCell;
+};
+
 type Layout = {
   readonly loop: ReadonlyMap<string, number>;
+  /** By loop row. */
+  readonly parts: ReadonlyMap<number, RingParts>;
   readonly stills: ReadonlyMap<string, AtlasCell>;
   readonly bands: ReadonlyMap<string, AtlasCell>;
   /** Left empty: a live ring's core points here so only its canvas shows. */
@@ -129,17 +148,34 @@ const buildLayout = (): Layout => {
       }
     }
   }
-  return { loop, stills, bands, blank, rows: row + 1 };
+  const parts = new Map<number, RingParts>();
+  LOOP_ROWS.forEach(([ring], loopRow) => {
+    const motion = RING_MOTION[ring];
+    const base = motion.base ? next() : blank;
+    const spin = motion.spin
+      ? { ...next(), ms: motion.spin.lapMs, ccw: motion.spin.ccw === true, fade: motion.spin.fade === true }
+      : undefined;
+    const pulse = motion.pulse ? { ...next(), ms: motion.pulse.ms, kind: motion.pulse.kind } : undefined;
+    parts.set(loopRow, {
+      base,
+      ...(spin ? { spin } : {}),
+      ...(pulse ? { pulse } : {}),
+      ...(ring === "glint" ? { land: base } : {}),
+    });
+  });
+  return { loop, parts, stills, bands, blank, rows: row + 1 };
 };
 
 const LAYOUT = buildLayout();
 export const MARK_ATLAS_ROWS = LAYOUT.rows;
 
 export type CoreCell = AtlasCell & {
-  /** loop = painted live while on screen; still = never moves. */
+  /** loop = moves on the compositor while on screen; still = never moves. */
   readonly motion: "loop" | "still";
-  /** What the live painter draws for a moving ring. */
+  /** The moving ring and the tone it is baked in. */
   readonly live?: { readonly ring: LoopRing; readonly tone: ActivityTone };
+  /** Its still parts and how each runs, while it moves. */
+  readonly parts?: RingParts;
   /** Atlas row of a one-shot draw-in played before the loop (done). */
   readonly land?: number;
 };
@@ -170,8 +206,9 @@ const loopCell = (ring: LoopRing, tone: ActivityTone, animate: boolean): CoreCel
     LAYOUT.loop.get(key(ring, LOOP_ROWS.find(([r]) => r === ring)?.[1] ?? "cyan")) ??
     0;
   const drawn = LOOP_ROWS[row]?.[1] ?? tone;
+  const parts = LAYOUT.parts.get(row);
   return animate
-    ? { col: LOOP_REST_FRAME[ring], row, motion: "loop", live: { ring, tone: drawn } }
+    ? { col: LOOP_REST_FRAME[ring], row, motion: "loop", live: { ring, tone: drawn }, ...(parts ? { parts } : {}) }
     : { col: LOOP_REST_FRAME[ring], row, motion: "still" };
 };
 
@@ -302,6 +339,17 @@ const paintAtlas = (ctx: Ctx, mode: ThemeMode): void => {
   for (let frame = 0; frame <= LAND_FRAMES; frame += 1) {
     cell({ col: frame, row: LAND_ROW }, (x) => paintDone(x, p, tones.green, frame));
   }
+  LOOP_ROWS.forEach(([ring, tone], row) => {
+    const parts = LAYOUT.parts.get(row);
+    const motion = RING_MOTION[ring];
+    if (!parts) return;
+    const bake = (at: AtlasCell | undefined, part: RingPart | undefined): void => {
+      if (at && part) cell(at, (x) => part(x, p, tones[tone]));
+    };
+    bake(motion.base ? parts.base : undefined, motion.base);
+    bake(parts.spin, motion.spin?.paint);
+    bake(parts.pulse, motion.pulse?.paint);
+  });
   for (const [ring, tone] of STILL_CELLS) {
     const at = LAYOUT.stills.get(key(ring, tone));
     if (at) cell(at, (x) => paintStill(x, p, ring, tones[tone]));
@@ -349,6 +397,47 @@ const renderAtlas = (mode: ThemeMode): string | undefined => {
   }
 };
 
+/** Every loop's phase restarts together this often: a multiple of every lap. */
+export const MARK_PHASE_MS = 896 * RING_FRAME_MS;
+
+const cellAt = (col: string, row: string): string =>
+  `calc(var(${col}) * var(--mark-u) * -1) calc(var(${row}) * var(--mark-u) * -1)`;
+
+/**
+ * Moving rings on the compositor. While motion is live, a moving mark's
+ * background is its still base and its parts show: a spin turns a full lap,
+ * a pulse fades or grows. Keyframes touch transform and opacity only, so
+ * nothing repaints and no frame runs on the main thread. Paused (hidden
+ * window, reduced motion) the parts hide and the rest pose shows. Parts show
+ * only on screen (data-mark-visible), so an offscreen mark holds no layer.
+ * `--mark-t0` puts every ring on one shared clock.
+ */
+const motionCss = (): readonly string[] => {
+  const live = `html:not([data-surface-motion="paused"])`;
+  return [
+    `${live} .junto-mark[data-mark-motion="loop"][data-mark-parts]{background-position:${cellAt("--mark-lcol", "--mark-lrow")}}`,
+    `${live} .junto-mark[data-mark-land]:not([data-mark-landed]){background-position:calc(${String(LAYOUT.blank.col)} * var(--mark-u) * -1) calc(${String(LAYOUT.blank.row)} * var(--mark-u) * -1)}`,
+    `.junto-mark__part{display:none;position:absolute;inset:0;pointer-events:none;background-image:inherit;background-repeat:no-repeat;background-size:inherit;background-position:${cellAt("--part-col", "--part-row")};animation-duration:var(--part-ms);animation-delay:var(--mark-t0,0ms);animation-iteration-count:infinite;will-change:transform,opacity}`,
+    `${live} .junto-mark[data-mark-visible]>.junto-mark__part{display:block}`,
+    `${live} .junto-mark[data-mark-landed]>.junto-mark__part[data-part="land"]{display:none}`,
+    `.junto-mark__part[data-spin]{animation-name:junto-mark-turn;animation-timing-function:linear}`,
+    `.junto-mark__part[data-spin="ccw"]{animation-direction:reverse}`,
+    `.junto-mark__part[data-spin][data-fade]{animation-name:junto-mark-turn,junto-mark-breathe;animation-timing-function:linear,ease-in-out}`,
+    `.junto-mark__part[data-pulse="beat"]{animation-name:junto-mark-beat;animation-timing-function:linear}`,
+    `.junto-mark__part[data-pulse="breathe"]{animation-name:junto-mark-breathe;animation-timing-function:ease-in-out}`,
+    `.junto-mark__part[data-pulse="send"]{animation-name:junto-mark-send;animation-timing-function:linear}`,
+    // Done lands once: the sealed ring fades and grows in, then rests.
+    `.junto-mark__part[data-part="land"]{animation:junto-mark-land ${String(LAND_FRAMES * RING_FRAME_MS)}ms cubic-bezier(.33,1,.68,1) both}`,
+    `@keyframes junto-mark-turn{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`,
+    // Two beats then a rest, as heartbeat() in activity-rings.ts, frame for frame.
+    `@keyframes junto-mark-beat{0%{opacity:0}18.75%{opacity:1}37.5%{opacity:0}50%{opacity:.55}68.75%{opacity:0}100%{opacity:0}}`,
+    `@keyframes junto-mark-breathe{0%{opacity:0}50%{opacity:1}100%{opacity:0}}`,
+    // The call wave: out from just past the ring to the band's edge in 13 of 16 frames.
+    `@keyframes junto-mark-send{0%{transform:scale(1);opacity:1;animation-timing-function:cubic-bezier(.33,1,.68,1)}81.25%{transform:scale(1.31);opacity:0}100%{transform:scale(1.31);opacity:0}}`,
+    `@keyframes junto-mark-land{from{transform:scale(.82);opacity:0}to{transform:scale(1);opacity:1}}`,
+  ];
+};
+
 /** Structural CSS for every mark. Exported so tests can read the real sheet. */
 export const markAtlasCss = (): string =>
   [
@@ -361,10 +450,7 @@ export const markAtlasCss = (): string =>
     `.junto-mark[data-mark-band]::after{content:"";position:absolute;inset:0;pointer-events:none;background-image:inherit;background-repeat:no-repeat;background-size:inherit;background-position:calc(var(--mark-bcol) * var(--mark-u) * -1) calc(var(--mark-brow) * var(--mark-u) * -1)}`,
     // A portrait sits in the ring's hole, centred.
     `.junto-mark__seat{position:absolute;inset:0;display:grid;place-items:center}`,
-    // A live ring (activity-live.ts) paints its own canvas; the core cell
-    // underneath goes blank so the rest pose never shows through.
-    `.junto-mark[data-mark-live]{background-position:calc(${String(LAYOUT.blank.col)} * var(--mark-u) * -1) calc(${String(LAYOUT.blank.row)} * var(--mark-u) * -1)}`,
-    `.junto-mark__live{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}`,
+    ...motionCss(),
     // Overseer crest: top of the ring, rimmed in ground so it cuts the ring.
     `.junto-mark__crest{position:absolute;left:50%;top:0;width:30%;height:21%;min-width:9px;min-height:6px;transform:translate(-50%,-4%);color:var(--color-indigo);pointer-events:none}`,
     `.junto-mark__crest path{fill:currentColor;stroke:var(--color-ground);stroke-width:1.6px;stroke-linejoin:round;paint-order:stroke}`,

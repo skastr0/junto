@@ -12,9 +12,12 @@ const attr = (html: string, name: string): string | undefined =>
   new RegExp(`${name}="([^"]*)"`).exec(html)?.[1];
 
 describe("ActivityMark structure", () => {
-  it("is a single element: no per-cell children", () => {
+  it("is one element plus the one part the compositor turns: no per-cell children", () => {
     const html = renderToStaticMarkup(<ActivityMark mode="wave" tone="cyan" label="working" />);
-    expect(html.match(/<span/g)?.length).toBe(1);
+    expect(html.match(/<span/g)?.length).toBe(2);
+    expect(html).toContain('data-part="spin"');
+    const still = renderToStaticMarkup(<ActivityMark mode="static" tone="steel" label="idle" />);
+    expect(still.match(/<span/g)?.length).toBe(1);
     expect(html).toContain('class="junto-mark"');
     expect(attr(html, "data-mark-ring")).toBe("work");
     expect(attr(html, "data-mark-motion")).toBe("loop");

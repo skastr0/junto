@@ -1,9 +1,9 @@
 /**
  * The ring language: how every activity mark is drawn. A seat's ring sits
  * around its portrait; a standalone mark is the same ring around a small hub.
- * Pure canvas-2D painters in a 20-unit box centered on (10, 10). A moving
- * ring is painted live every display frame at a continuous frame
- * (activity-live.ts); the atlas (activity-atlas.ts) bakes rest poses.
+ * Pure canvas-2D painters in a 20-unit box centered on (10, 10). The atlas
+ * (activity-atlas.ts) bakes rest poses and, per moving ring, the still parts
+ * of RING_MOTION that the compositor turns and fades at the display's rate.
  *
  *   work      an arc circles the ring, clockwise
  *   reverse   circling runs backwards (stuck)
@@ -116,18 +116,24 @@ const work = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
   comet(ctx, p, color, TOP + (frame / 16) * TAU, Math.PI * 0.75);
 };
 
-/** Stuck: the lap runs backwards, slower, as if against the grain. */
-const reverse = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
+const dashedTrack = (ctx: Ctx, p: RingPalette, color: string): void => {
   ctx.save();
   ctx.setLineDash([0.7, 1.1]);
   track(ctx, p, color);
   ctx.restore();
+};
+
+/** Stuck: the lap runs backwards, slower, as if against the grain. */
+const reverse = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
+  dashedTrack(ctx, p, color);
   comet(ctx, p, color, TOP - (frame / 32) * TAU, -Math.PI * 0.55);
 };
 
 /** Thrashing or looping: the ring itself zigzags, the wave travelling round. */
-const snake = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
-  const phase = (frame / 32) * TAU * 2;
+const snake = (ctx: Ctx, p: RingPalette, color: string, frame: number): void =>
+  snakeAt(ctx, p, color, (frame / 32) * TAU * 2);
+
+const snakeAt = (ctx: Ctx, p: RingPalette, color: string, phase: number): void => {
   const lobes = 7;
   const amp = 0.55;
   ctx.save();
@@ -155,17 +161,25 @@ const snake = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => 
 /** Wants the operator: a steady lit ring that keeps sending a ring outward. */
 const call = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
   const t = (frame % 16) / 13;
-  if (t < 1) {
-    ctx.save();
-    ctx.strokeStyle = color;
-    ctx.globalAlpha = 0.9 * (1 - t) ** 1.2;
-    circle(ctx, RING_R + 0.3 + ease(t) * 2.3, RING_W * (1 - 0.6 * t));
-    ctx.restore();
-  }
+  if (t < 1) callWave(ctx, color, t);
+  callRing(ctx, p, color, Math.max(0, 1 - t * 3));
+};
+
+/** The ring sent outward, `t` of the way out (0..1). */
+const callWave = (ctx: Ctx, color: string, t: number): void => {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.9 * (1 - t) ** 1.2;
+  circle(ctx, RING_R + 0.3 + ease(t) * 2.3, RING_W * (1 - 0.6 * t));
+  ctx.restore();
+};
+
+/** The steady lit ring, thickened by `bump` (0..1) as a wave leaves it. */
+const callRing = (ctx: Ctx, p: RingPalette, color: string, bump: number): void => {
   ctx.save();
   ctx.strokeStyle = color;
   glowOn(ctx, p, color, 5);
-  circle(ctx, RING_R, RING_W * (1.05 + 0.2 * Math.max(0, 1 - t * 3)));
+  circle(ctx, RING_R, RING_W * (1.05 + 0.2 * bump));
   ctx.restore();
 };
 
@@ -174,12 +188,19 @@ const call = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
  * each other. Patient where work hurries: half a lap per cycle, no tail.
  */
 const wait = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
+  waitRing(ctx, color);
+  waitBeads(ctx, p, color, TOP + (frame / 32) * Math.PI);
+};
+
+const waitRing = (ctx: Ctx, color: string): void => {
   ctx.save();
   ctx.strokeStyle = color;
   ctx.globalAlpha = 0.55;
   circle(ctx, RING_R, RING_W * 0.95);
   ctx.restore();
-  const head = TOP + (frame / 32) * Math.PI;
+};
+
+const waitBeads = (ctx: Ctx, p: RingPalette, color: string, head: number): void => {
   for (const a of [head, head + Math.PI]) {
     ctx.save();
     ctx.strokeStyle = color;
@@ -192,8 +213,11 @@ const wait = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
 };
 
 /** Blocked or failed: a heavy ring cut into four, on a steady double beat. */
-const halt = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
-  const beat = heartbeat(frame % 16);
+const halt = (ctx: Ctx, p: RingPalette, color: string, frame: number): void =>
+  haltAt(ctx, p, color, heartbeat(frame % 16));
+
+/** The four heavy quarters at a beat strength (0 at rest, 1 at the peak). */
+const haltAt = (ctx: Ctx, p: RingPalette, color: string, beat: number): void => {
   ctx.save();
   ctx.strokeStyle = color;
   ctx.lineCap = "butt";
@@ -237,9 +261,12 @@ export const paintDone = (ctx: Ctx, p: RingPalette, color: string, frame: number
 const glint = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
   paintDone(ctx, p, color, LAND_FRAMES);
   const t = frame / 32;
-  const light = Math.sin(Math.PI * t) ** 2;
+  glintArc(ctx, p, color, TOP + t * TAU, Math.sin(Math.PI * t) ** 2);
+};
+
+/** The glint alone, its head at `head`, at brightness `light` (0..1). */
+const glintArc = (ctx: Ctx, p: RingPalette, color: string, head: number, light: number): void => {
   if (light <= 0.01) return;
-  const head = TOP + t * TAU;
   ctx.save();
   ctx.strokeStyle = color;
   ctx.lineCap = "round";
@@ -257,8 +284,10 @@ const glint = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => 
 /** Trouble at rest: the ring broken at every quarter, grinding a quarter turn. */
 const fracture = (ctx: Ctx, _p: RingPalette, color: string, frame: number): void => {
   const t = frame / 32;
-  const turn = t * (Math.PI / 2);
-  const gap = 0.45 + 0.2 * Math.sin(TAU * t);
+  fractureAt(ctx, color, t * (Math.PI / 2), 0.45 + 0.2 * Math.sin(TAU * t));
+};
+
+const fractureAt = (ctx: Ctx, color: string, turn: number, gap: number): void => {
   ctx.save();
   ctx.strokeStyle = color;
   ctx.globalAlpha = 0.95;
@@ -271,8 +300,11 @@ const fracture = (ctx: Ctx, _p: RingPalette, color: string, frame: number): void
 };
 
 /** A settled fact (dot) or a warm session (live): the ring breathes. */
-const breathe = (ctx: Ctx, p: RingPalette, ring: "dot" | "live", color: string, frame: number): void => {
-  const b = 0.5 - 0.5 * Math.cos((TAU * frame) / 32);
+const breathe = (ctx: Ctx, p: RingPalette, ring: "dot" | "live", color: string, frame: number): void =>
+  breatheAt(ctx, p, ring, color, 0.5 - 0.5 * Math.cos((TAU * frame) / 32));
+
+/** The ring at breath `b` (0 out, 1 in). */
+const breatheAt = (ctx: Ctx, p: RingPalette, ring: "dot" | "live", color: string, b: number): void => {
   ctx.save();
   ctx.strokeStyle = color;
   if (ring === "dot") {
@@ -298,6 +330,78 @@ export const paintLoop = (ctx: Ctx, p: RingPalette, ring: LoopRing, color: strin
   else if (ring === "fracture") fracture(ctx, p, color, frame);
   else if (ring === "dot" || ring === "live") breathe(ctx, p, ring, color, frame);
   else halt(ctx, p, color, frame);
+};
+
+// --- motion on the compositor -------------------------------------------------
+
+/** One still part of a moving ring, painted once into the atlas. */
+export type RingPart = (ctx: Ctx, p: RingPalette, color: string) => void;
+
+/** A part the compositor turns a full lap, clockwise unless `ccw`. */
+export type RingSpin = {
+  readonly paint: RingPart;
+  readonly lapMs: number;
+  readonly ccw?: boolean;
+  /** Also fades in and out once a lap (the glint). */
+  readonly fade?: boolean;
+};
+
+/**
+ * A part the compositor fades or sends outward: `beat` is the halt's double
+ * heartbeat, `breathe` a slow in and out, `send` a ring growing out and away.
+ */
+export type RingPulse = {
+  readonly paint: RingPart;
+  readonly kind: "beat" | "breathe" | "send";
+  readonly ms: number;
+};
+
+/**
+ * How each moving ring runs: a still `base` under a part that turns or a
+ * part that pulses. Only transform and opacity ever animate, so the motion
+ * runs on the compositor at the display's rate and never on the main
+ * thread. A lap is the time the shape takes to come round to itself.
+ */
+export type RingMotion = {
+  readonly base?: RingPart;
+  readonly spin?: RingSpin;
+  readonly pulse?: RingPulse;
+};
+
+const F = RING_FRAME_MS;
+
+export const RING_MOTION: Readonly<Record<LoopRing, RingMotion>> = {
+  work: { base: track, spin: { paint: (c, p, col) => comet(c, p, col, TOP, Math.PI * 0.75), lapMs: 16 * F } },
+  reverse: {
+    base: dashedTrack,
+    spin: { paint: (c, p, col) => comet(c, p, col, TOP, -Math.PI * 0.55), lapMs: 32 * F, ccw: true },
+  },
+  // The wave crest travels 8/7 of a half-turn a cycle; the whole zigzag
+  // (its bulge baked in) turns at that speed, a full lap in 56 frames.
+  snake: { spin: { paint: (c, p, col) => snakeAt(c, p, col, 0), lapMs: 56 * F } },
+  call: {
+    base: (c, p, col) => callRing(c, p, col, 0),
+    pulse: { paint: (c, _p, col) => callWave(c, col, 0), kind: "send", ms: 16 * F },
+  },
+  wait: { base: (c, _p, col) => waitRing(c, col), spin: { paint: (c, p, col) => waitBeads(c, p, col, TOP), lapMs: 64 * F } },
+  halt: {
+    base: (c, p, col) => haltAt(c, p, col, 0),
+    pulse: { paint: (c, p, col) => haltAt(c, p, col, 1), kind: "beat", ms: 16 * F },
+  },
+  glint: {
+    base: (c, p, col) => paintDone(c, p, col, LAND_FRAMES),
+    spin: { paint: (c, p, col) => glintArc(c, p, col, TOP, 1), lapMs: 32 * F, fade: true },
+  },
+  // Four-fold: a quarter turn a cycle comes round to itself in four.
+  fracture: { spin: { paint: (c, _p, col) => fractureAt(c, col, 0, 0.45), lapMs: 128 * F } },
+  dot: {
+    base: (c, p, col) => breatheAt(c, p, "dot", col, 0),
+    pulse: { paint: (c, p, col) => breatheAt(c, p, "dot", col, 1), kind: "breathe", ms: 32 * F },
+  },
+  live: {
+    base: (c, p, col) => breatheAt(c, p, "live", col, 0),
+    pulse: { paint: (c, p, col) => breatheAt(c, p, "live", col, 1), kind: "breathe", ms: 32 * F },
+  },
 };
 
 /** Frame a frozen loop shows (reduced motion, offscreen, paused). */

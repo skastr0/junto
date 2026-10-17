@@ -1724,10 +1724,10 @@ html[data-surface-motion="paused"] *::after {
   transform: scale(1);
 }
 
-/* --- ActivityMark: sprite atlas + live rings ---------------------------------
-   Structure and the atlas image are generated with the atlas
+/* --- ActivityMark: sprite atlas + compositor rings ---------------------------
+   Structure, the atlas image and the ring motion are generated with the atlas
    (src/renderer/lib/activity-atlas.ts), so geometry has one source. Moving
-   rings are painted live every display frame (activity-live.ts). */
+   rings turn and pulse on the compositor every display frame. */
 
 /* Hidden/reduced-motion: freeze continuous status/edge motion entirely.
    ActivityMark loops fall to their rest pose when the clock stamp clears. */

@@ -149,10 +149,16 @@ describe("atlas layout", () => {
     }
   });
 
-  it("a live ring blanks its core cell so only the canvas shows", () => {
+  it("a moving ring shows its still base under its moving parts", () => {
     const css = markAtlasCss();
-    expect(css).toMatch(/\.junto-mark\[data-mark-live\]\{background-position:/);
-    expect(css).toContain(".junto-mark__live{position:absolute;inset:0;");
+    expect(css).toMatch(/\.junto-mark\[data-mark-motion="loop"\]\[data-mark-parts\]\{background-position:/);
+    const { parts } = ringCells({ glyph: "work", tone: "cyan", animate: true }).core;
+    expect(parts?.spin?.ms).toBe(1440);
+    for (const cell of [parts?.base, parts?.spin]) {
+      expect(cell?.row).toBeLessThan(MARK_ATLAS_ROWS);
+      expect(cell?.col).toBeLessThan(MARK_ATLAS_COLS);
+    }
+    expect(ringCells({ glyph: "work", tone: "cyan", animate: false }).core.parts).toBeUndefined();
   });
 
   it("moving rings name what the live painter draws", () => {

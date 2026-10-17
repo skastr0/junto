@@ -5,7 +5,7 @@
  *
  * Sets `document.documentElement.dataset.surfaceMotion` to `"live" | "paused"`.
  * CSS under `html[data-surface-motion="paused"]` holds animations at rest;
- * live rings (activity-live.ts) show their rest pose.
+ * moving rings (activity-atlas.ts) hide their parts and show their rest pose.
  *
  * This is independent of fleet WebGL loops (those gate on their own
  * visibility).

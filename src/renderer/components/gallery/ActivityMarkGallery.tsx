@@ -372,7 +372,7 @@ function Stress({ count, bare }: { readonly count: number; readonly bare: boolea
   const [visible, setVisible] = useState(0);
   useEffect(() => {
     const id = window.setInterval(() => {
-      setVisible(document.querySelectorAll(".junto-mark[data-mark-live]").length);
+      setVisible(document.querySelectorAll(".junto-mark[data-mark-visible]").length);
     }, 500);
     return () => window.clearInterval(id);
   }, []);

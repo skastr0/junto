@@ -11,9 +11,9 @@ import {
   type ActivitySpec,
   type ActivityTone,
 } from "../lib/activity";
-import { ensureMarkAtlas, ringCells } from "../lib/activity-atlas";
-import { startLiveRing, type LiveRing } from "../lib/activity-live";
+import { MARK_PHASE_MS, ensureMarkAtlas, ringCells, type RingParts } from "../lib/activity-atlas";
 import { canvasPerformance } from "../lib/performance/canvas-performance";
+import { surfaceMotionLive$ } from "../lib/surface-motion";
 import { themeMode$ } from "../lib/theme-mode";
 
 export type ActivityMarkProps = {
@@ -89,25 +89,40 @@ export function ActivityMarkFromSpec({
 // --- visibility: one observer for every looping mark -------------------------
 
 /**
- * A looping mark is painted live only while it intersects the window.
- * Offscreen marks drop `data-mark-visible` and their canvas, so a canvas
- * whose working seats are all out of view paints nothing. Toggled straight
- * on the DOM: visibility never re-renders React.
+ * A looping mark's parts show only while it intersects the window, so an
+ * offscreen mark holds no compositor layer and runs nothing. Toggled
+ * straight on the DOM: visibility never re-renders React.
  */
-type Watch = { readonly ring: LiveRing; release?: () => void };
-const watched = new WeakMap<Element, Watch>();
+const watched = new WeakSet<Element>();
+const visible = new Set<HTMLElement>();
 let observer: IntersectionObserver | undefined;
+let unsubMotion: (() => void) | undefined;
 
-const setVisible = (el: Element, visible: boolean): void => {
-  const watch = watched.get(el);
-  if (!watch || !(el instanceof HTMLElement)) return;
-  if (visible && !watch.release) {
+const now = (): number => (typeof performance === "undefined" ? Date.now() : performance.now());
+
+/**
+ * Every ring runs on one clock: a part starts its animation when it shows,
+ * so its delay is set to where that clock stands, as the live painter did.
+ */
+const syncPhase = (el: HTMLElement): void => {
+  el.style.setProperty("--mark-t0", `${String(-Math.round(now() % MARK_PHASE_MS))}ms`);
+};
+
+/** Motion back on (window shown again): the parts restart, so resync them. */
+const onMotion = (): void => {
+  if (surfaceMotionLive$.peek()) for (const el of visible) syncPhase(el);
+};
+
+const setVisible = (el: Element, on: boolean): void => {
+  if (!watched.has(el) || !(el instanceof HTMLElement)) return;
+  if (on && !visible.has(el)) {
+    syncPhase(el);
     el.setAttribute("data-mark-visible", "");
-    watch.release = startLiveRing(el, watch.ring);
-  } else if (!visible && watch.release) {
+    visible.add(el);
+    unsubMotion ??= surfaceMotionLive$.onChange(onMotion);
+  } else if (!on && visible.has(el)) {
     el.removeAttribute("data-mark-visible");
-    watch.release();
-    watch.release = undefined;
+    visible.delete(el);
   }
 };
 
@@ -123,9 +138,9 @@ const visibilityObserver = (): IntersectionObserver | undefined => {
   return observer;
 };
 
-const watchLoop = (el: Element, ring: LiveRing): (() => void) => {
+const watchLoop = (el: Element): (() => void) => {
   const io = visibilityObserver();
-  watched.set(el, { ring });
+  watched.add(el);
   if (io) io.observe(el);
   // No observer (tests, old engines): treat as visible so it still animates.
   else setVisible(el, true);
@@ -193,6 +208,44 @@ const hubTone = (ring: string, tone: ActivityTone): ActivityTone => {
   return tone;
 };
 
+/** A moving ring's still parts over its base; the compositor runs them. */
+function RingPartsView({ parts }: { readonly parts: RingParts }) {
+  const { spin, pulse, land } = parts;
+  return (
+    <>
+      {land ? (
+        <span
+          className="junto-mark__part"
+          data-part="land"
+          aria-hidden
+          style={{ "--part-col": land.col, "--part-row": land.row } as CSSProperties}
+          // Once landed the mark keeps its seal; set on the DOM, never a render.
+          onAnimationEnd={(event) => event.currentTarget.parentElement?.setAttribute("data-mark-landed", "")}
+        />
+      ) : null}
+      {spin ? (
+        <span
+          className="junto-mark__part"
+          data-part="spin"
+          data-spin={spin.ccw ? "ccw" : "cw"}
+          data-fade={spin.fade ? "" : undefined}
+          aria-hidden
+          style={{ "--part-col": spin.col, "--part-row": spin.row, "--part-ms": `${String(spin.ms)}ms` } as CSSProperties}
+        />
+      ) : null}
+      {pulse ? (
+        <span
+          className="junto-mark__part"
+          data-part="pulse"
+          data-pulse={pulse.kind}
+          aria-hidden
+          style={{ "--part-col": pulse.col, "--part-row": pulse.row, "--part-ms": `${String(pulse.ms)}ms` } as CSSProperties}
+        />
+      ) : null}
+    </>
+  );
+}
+
 /**
  * The status instrument every seat, card, chip and glance shares: a ring.
  *
@@ -200,10 +253,11 @@ const hubTone = (ring: string, tone: ActivityTone): ActivityTone => {
  * (activity-atlas.ts): the ring carries control state (bent by a trouble
  * reading), a ::after band carries the waiting glow, the good halo and the
  * declared-signal flag. Standalone it has a hub; at seat size a portrait sits
- * in the ring. Moving rings are painted live every display frame while on
- * screen and motion is live (activity-live.ts); done draws itself once and
- * then glints until read; only resting and stopped rings are still. No
- * visible text: the label is the accessible name.
+ * in the ring. A moving ring's base is its background and the part that
+ * turns or pulses is a child the compositor animates at the display's rate
+ * (activity-atlas.ts); done lands once and then glints until read; only
+ * resting and stopped rings are still. No visible text: the label is the
+ * accessible name.
  */
 export function ActivityMark({
   mode,
@@ -239,9 +293,7 @@ export function ActivityMark({
     signal,
   });
   const looping = core.motion === "loop";
-  const liveRing = core.live?.ring;
-  const liveTone = core.live?.tone;
-  const landing = core.land !== undefined;
+  const parts = core.parts;
   // Idempotent: paints the theme's atlas on first use so the very first
   // frame already has pixels; afterwards a map lookup.
   ensureMarkAtlas(theme);
@@ -251,15 +303,12 @@ export function ActivityMark({
     const animated = renderedMode !== "static";
     canvasPerformance.recordActivityMount(animated, renderedMode);
     const el = ref.current;
-    const unwatch =
-      looping && el && liveRing && liveTone
-        ? watchLoop(el, { ring: liveRing, tone: liveTone, theme, land: landing })
-        : undefined;
+    const unwatch = looping && el ? watchLoop(el) : undefined;
     return () => {
       unwatch?.();
       canvasPerformance.recordActivityUnmount(animated, renderedMode);
     };
-  }, [looping, liveRing, liveTone, landing, theme]);
+  }, [looping]);
 
   const named = accessibleName(label, healthLabel, signal, signalCount);
   const name = crest ? `Overseer, ${named}` : named;
@@ -268,6 +317,7 @@ export function ActivityMark({
     ...(unit !== undefined ? { "--mark-u": `${String(unit)}px` } : {}),
     "--mark-col": core.col,
     "--mark-row": core.row,
+    ...(parts ? { "--mark-lcol": parts.base.col, "--mark-lrow": parts.base.row } : {}),
     ...(band ? { "--mark-bcol": band.col, "--mark-brow": band.row } : {}),
     ...(hubMix !== undefined
       ? {
@@ -293,12 +343,14 @@ export function ActivityMark({
       data-mark-ring={ring}
       data-mark-motion={core.motion}
       data-mark-land={core.land !== undefined ? "" : undefined}
+      data-mark-parts={parts ? "" : undefined}
       data-mark-band={band ? "" : undefined}
       data-mark-hub={hubMix !== undefined ? "" : undefined}
       data-mark-health={health}
       data-mark-signal={signal}
       style={style}
     >
+      {parts ? <RingPartsView parts={parts} /> : null}
       {children !== undefined ? <span className="junto-mark__seat">{children}</span> : null}
       {crest ? <SeatCrest /> : null}
       {signal && onSignalOpen ? (
