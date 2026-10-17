@@ -6,6 +6,7 @@ import { Reactivity } from "effect/unstable/reactivity";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, it } from "vitest";
 import { InstallationId } from "../src/shared/installation-id";
+import { logMachine } from "../src/main/junto/observability/logger";
 import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
 import { MACHINE_STATE_SCHEMA_SQL } from "../src/main/junto/machines/state-schema";
 import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
@@ -127,6 +128,8 @@ describe("machine repository", () => {
       const repository = await f.runtime.runPromise(MachineRepository);
       await f.runtime.runPromise(repository.configureName("studio"));
       expect(await f.runtime.runPromise(repository.machineName)).toBe("studio");
+      // Log rows carry the new name at once, not after a restart.
+      expect(logMachine()).toBe("studio");
       expect(await f.runtime.runPromise(repository.installationId)).toBe("this-install");
       expect(f.database.prepare("SELECT id,label,effective_hermes_id FROM host_registry").get()).toEqual({ id: "studio", label: "This Mac", effective_hermes_id: "studio" });
     } finally { await f.close(); }

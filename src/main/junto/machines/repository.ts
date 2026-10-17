@@ -6,6 +6,7 @@ import { MachineName } from "@shared/machine-control";
 import { defaultMachineName } from "@shared/machine-name";
 import { StateTransactionOperation } from "../state/service";
 import { withSqlRead } from "../state/sql-read";
+import { setLogMachine } from "../observability/logger";
 import { MachineConfigurationRepository, MachineRefused, type StoredMachineConfiguration } from "./configuration";
 import { KnownInstallations } from "./known-installations";
 
@@ -126,7 +127,9 @@ export const makeMachineRepository = (options: MachineRepositoryOptions = {}) =>
       yield* sql`UPDATE host_registry SET id = ${name}, effective_hermes_id = coalesce(hermes_id, ${name})
         WHERE is_this_machine = 1 AND id = ${previous}`;
       return { configuration, configuredAt };
-    })).pipe(Effect.provideService(StateTransactionOperation, "machine.configure-name"));
+    })).pipe(Effect.provideService(StateTransactionOperation, "machine.configure-name"),
+      // Log rows name the machine from the moment its name is written, not from the next start.
+      Effect.tap((stored) => Effect.sync(() => setLogMachine(stored.configuration.name))));
   }, Effect.mapError(failure("configure-name")));
   return MachineRepository.of({ installationId: Effect.succeed(installationId), configuration,
     machineName: configuration.pipe(Effect.map((stored) => stored.configuration.name)), configureName, pinPeer, peer, peers, retirePeer });
