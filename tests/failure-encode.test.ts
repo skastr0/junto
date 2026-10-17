@@ -2,6 +2,7 @@ import { Cause, Schema } from "effect";
 import { expect, it } from "vitest";
 import { failureSentence, MAX_FAILURE_CAUSES } from "../src/shared/failure";
 import { decodeEncodedFailure, encodeError, encodeFailure } from "../src/main/junto/failure-encode";
+import { linkClosed } from "../src/main/junto/link/types";
 
 class SeatStart extends Schema.TaggedError<SeatStart>()("SeatStart", { message: Schema.String, cause: Schema.optionalKey(Schema.Unknown) }) {}
 
@@ -53,4 +54,13 @@ it("encodes an Effect Cause by its first failure, and an empty Cause to nothing"
   expect(encodeFailure(Cause.fail(new SeatStart({ message: "spawn failed" })), { machine: "mini" })).toEqual({ tag: "SeatStart", message: "spawn failed", machine: "mini", causes: [] });
   expect(encodeFailure(Cause.die(new Error("defect")), { machine: "mini" })?.message).toBe("defect");
   expect(encodeFailure(Cause.empty, { machine: "mini" })).toBeUndefined();
+});
+
+it("skips a cause link that adds no text when it reads the sentence", () => {
+  const empty = Object.assign(new Error(""), { _tag: "SshProcessError" });
+  const failure = encodeError(Object.assign(new Error("The link to mini closed, its SSH process ended: exit code 127"), { cause: Object.assign(new Error(""), { cause: empty }) }), { machine: "macbook" });
+  expect(failure.causes.map(link => link.message)).toEqual(["(no message)", "(no message)"]);
+  expect(failureSentence(failure)).toBe("The link to mini closed, its SSH process ended: exit code 127");
+  const closed = linkClosed({ machine: "mini", by: "process", reason: "process-exited", exitCode: 1, cause: new Error("") });
+  expect(closed.message).toBe("The link to mini closed, its SSH process ended: exit code 1");
 });

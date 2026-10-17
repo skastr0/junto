@@ -1,5 +1,5 @@
 import { Cause, Schema } from "effect";
-import { EncodedFailure, MAX_FAILURE_CAUSES, MAX_FAILURE_DETAIL_BYTES, type EncodedCause } from "@shared/failure";
+import { EncodedFailure, MAX_FAILURE_CAUSES, MAX_FAILURE_DETAIL_BYTES, NO_FAILURE_MESSAGE, type EncodedCause } from "@shared/failure";
 import { scrubMessage } from "./credentials/scrub";
 
 /**
@@ -9,7 +9,7 @@ import { scrubMessage } from "./credentials/scrub";
  */
 const decodeEncoded = Schema.decodeUnknownSync(EncodedFailure, { onExcessProperty: "error" });
 
-const NO_MESSAGE = "(no message)";
+const NO_MESSAGE = NO_FAILURE_MESSAGE;
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 const tagPattern = /^[A-Za-z][A-Za-z0-9_]*$/;
 

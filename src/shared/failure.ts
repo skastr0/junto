@@ -38,6 +38,10 @@ export const EncodedFailure = Schema.Struct({
 });
 export type EncodedFailure = typeof EncodedFailure.Type;
 
-/** "message: cause: first cause", the sentence a person reads. */
+/** What an encoded link holds when its error had no text; the wire keeps it, a sentence skips it. */
+export const NO_FAILURE_MESSAGE = "(no message)";
+
+/** "message: cause: first cause", the sentence a person reads; a link that adds no text is skipped. */
 export const failureSentence = (failure: Pick<EncodedFailure, "message" | "causes">): string =>
-  [failure.message, ...failure.causes.map(link => link.message)].filter((part, index, all) => all.indexOf(part) === index).join(": ");
+  [failure.message, ...failure.causes.map(link => link.message)]
+    .filter((part, index, all) => part !== NO_FAILURE_MESSAGE && part.trim() !== "" && all.indexOf(part) === index).join(": ");

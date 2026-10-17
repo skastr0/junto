@@ -122,7 +122,8 @@ export const linkClosed = (input: {
   const causes = chain.slice(0, 8);
   const exit = input.signal !== undefined ? `signal ${input.signal}` : input.exitCode !== undefined ? `exit code ${input.exitCode}` : undefined;
   const lastLine = input.stderrTail?.split("\n").map(line => line.trim()).filter(Boolean).at(-1);
-  const why = [exit, lastLine, causes.length === 0 ? (exit === undefined && lastLine === undefined ? REASON_TEXT[input.reason] : undefined) : failureSentence({ message: causes[0]!.message, causes: causes.slice(1) })].filter(Boolean).join(": ");
+  const said = causes.length === 0 ? "" : failureSentence({ message: causes[0]!.message, causes: causes.slice(1) });
+  const why = [exit, lastLine, said === "" ? (exit === undefined && lastLine === undefined ? REASON_TEXT[input.reason] : undefined) : said].filter(Boolean).join(": ");
   return new LinkClosed({
     ...(input.machine === undefined ? {} : { machine: input.machine }),
     by: input.by,
