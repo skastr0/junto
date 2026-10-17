@@ -1,6 +1,15 @@
 # Harness domain
 
-Status: proposal for operator review, 2026-10-16. Owner: pty-lead.
+Status: accepted 2026-10-16, building. Owner: pty-lead. The contract is code
+in `src/shared/harness-domain/` with tests in `tests/harness-domain.test.ts`;
+where this document and the code differ, the code wins.
+
+**Scope of this effort: the PTY stream only.** Signals come from what the
+seat's terminal emits: rendered screen text, titles, and in-band escapes such
+as OSC 7501. No plugins, hooks, HTTP APIs, daemons or transcript tailing are
+built in this effort. The vocabulary names those channels so they slot in
+later without a contract change, and the coverage matrix below records what
+they would add. The architecture lands first; channels expand after.
 
 Junto features need to know what a seat is doing and why it stopped: working,
 waiting on a permission, out of quota until 15:00, compacting, failed on an
@@ -44,8 +53,10 @@ Facts a seat reports. One tagged union inside one envelope.
 ```ts
 SeatSignal =
   | SessionIdentified { sessionId, transcriptPath? }
+  | ActivityObserved { activity: "idle" | "working" }   // a state seen, not an event
   | TurnStarted { turnId? }
   | TurnEnded { outcome: "completed" | "interrupted" | "failed" }
+  | ToolStarted { tool? }
   | PermissionRequested { tool?, detail?, requestId? }
   | PermissionResolved { decision? }
   | QuestionAsked { text? }
@@ -59,7 +70,7 @@ SeatSignal =
   | ErrorRaised { kind: "auth" | "network" | "provider" | "model" | "contextOverflow" | "outputLimit"
                         | "policy" | "tool" | "crash" | "unknown",
                   retryable?, message }
-  | ProcessExited { code?, signal? }
+  | ProcessExited { code?, signal?, expected }
 
 SignalEnvelope = { seat, at, source, fidelity, signal }
 source   = "screen" | "osc7501" | "hook" | "report" | "transcript" | "api" | "process"
@@ -255,20 +266,27 @@ mail delivery. In order of intrusion:
 
 ## Build order
 
-1. **Domain package.** Schemas, reducer and command errors in
-   `src/shared/harness-domain/`, with reducer tests. No harness changes.
-2. **Harness records.** One record per harness, declaring today's real
-   capabilities (mostly `screen`). Collapse the session locator, size and model
-   ladders and the five store walkers into record data. All fourteen migrate
-   with no behaviour change, proven by the existing tests and corpus.
-3. **Screen channel emits signals.** Rule packs gain signal emission and
-   captures. The old five-value state becomes a projection of `SeatStatus`.
-4. **Transcript channel.** Claude and codex first: the largest share of seats and
-   the richest data, including codex reset times.
-5. **osc7501 and report channels.** pi, omp, devin, agy, muse, fx, prime-agent.
-6. **Features on the contract.** `Blocked { UsageLimit, resetsAt }` in the feed,
-   wake at reset, mail held while compacting, retrying or blocked, re-login
-   prompt on auth errors.
+PTY stream only (see Scope). Each step lands with no behaviour change unless it
+says otherwise.
+
+1. **Domain package (landed).** Signals, envelope, status reducer with channel
+   precedence, needs and the urgency table, capabilities, commands with typed
+   refusals (`admitCommand`). Pure, no runtime wiring.
+2. **Screen channel emits signals.** Rule packs gain signal emission with named
+   captures (`resets (?<resetsAt>.+)`), and the engine emits `SignalEnvelope`s.
+   The five-value `AgentSeatState` becomes a projection of `SeatStatus`.
+3. **OSC 7501 in-band.** Parse the Program Status Protocol out of the PTY byte
+   stream and answer the `7501;?` query; env activation only (pi, omp, agy,
+   devin).
+4. **Harness records.** One record per harness with its capabilities, rule
+   pack and PTY profile. The `if`/`switch` ladders become record lookups.
+5. **Screen captures per harness.** Limit, retry, compaction and error
+   scenarios recorded into `tests/pty-e2e/corpus/` and covered by each pack.
+6. **Surfaces project from needs.** Occupancy, region rollup, feed and desktop
+   notifications read `NEED_CAUSES` instead of their own ladders; mail
+   delivery goes through `admitCommand`.
+
+Channels beyond the PTY (transcript, hook, report, api) are a later effort.
 
 ## Open questions for the operator
 
