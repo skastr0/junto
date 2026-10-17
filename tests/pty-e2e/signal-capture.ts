@@ -643,8 +643,6 @@ type Wiring = {
   readonly def: (base: HarnessDef, url: string) => HarnessDef;
   /** Files written into the isolated home after Session.spawn() resets it. */
   readonly seed?: (home: string, cwd: string) => void;
-  /** Keys through a first-run flow no seeded file skips; `screen` is the live grid. */
-  readonly prelude?: (sess: Session, screen: () => Promise<string>) => Promise<void>;
   readonly note: string;
 };
 
@@ -876,15 +874,12 @@ const WIRING: Readonly<Record<string, Wiring>> = {
   amp: {
     protocol: "amp",
     note: "AMP_URL points at the stub, which answers amp's internal API; the model runs server side, so only thread creation is scripted; HTTPS_PROXY refuses anything else",
-    prelude: async (sess, screen) => {
-      // Five welcome screens, each "Space to continue", then one that takes Enter.
-      for (let i = 0; i < 12; i++) {
-        const text = await screen();
-        if (/space to continue/i.test(text)) sess.write(" ");
-        else if (/enter to (?:continue|finish|start|get started)|press enter/i.test(text)) sess.write("\r");
-        else if (i > 0) return;
-        await wait(900);
-      }
+    // A dismissed welcome skips five animated screens, which would otherwise
+    // put megabytes of animation in every fixture.
+    seed: (home) => {
+      const dir = path.join(home, ".local/share/amp");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "session.json"), JSON.stringify({ agentMode: "medium", neoWelcomeDismissed: true, shortcutsHintUsed: true }));
     },
     def: (base, url) => ({
       ...base,
@@ -910,7 +905,7 @@ const WIRING: Readonly<Record<string, Wiring>> = {
     note: "a stub provider in the isolated PRIME_AGENT_CODING_AGENT_DIR/models.json (openai-responses); its daemon socket is per capture, never the operator's",
     def: (base) => ({
       ...base,
-      argv: () => ["--offline", "--model", "capture/stub-model", "--daemon-socket", PRIME_SOCKET],
+      argv: () => ["--offline", "--model", "capture/stub-model", "--daemon-socket", primeSocket()],
       modals: [],
       env: withEnv(base, (home) => ({
         PRIME_AGENT_CODING_AGENT_DIR: path.join(home, ".prime", "agent"),
@@ -949,18 +944,31 @@ const HERMES_INSTALLS = "/tmp/junto-capture-cache/hermes-installs";
  * by the capture home in their environment: the daemon rewrites its title.
  */
 function killDetached(home: string): void {
-  const ps = spawnSync("ps", ["-axE", "-o", "pid=,command="]).stdout?.toString() ?? "";
-  for (const line of ps.split("\n")) {
-    if (!line.includes(`HOME=${home} `) && !line.includes(`${home}/`)) continue;
-    const pid = Number(line.trim().split(/\s+/u)[0]);
-    if (pid && pid !== process.pid) {
-      try { process.kill(pid, "SIGKILL"); } catch { /* gone */ }
+  // A daemon can respawn a worker or still be flushing as it dies, so kill
+  // until none is left, then clear the home before Session.spawn() wipes it.
+  for (let round = 0; round < 20; round++) {
+    const ps = spawnSync("ps", ["-axE", "-o", "pid=,command="]).stdout?.toString() ?? "";
+    let found = 0;
+    for (const line of ps.split("\n")) {
+      if (!line.includes(`HOME=${home} `) && !line.includes(`${home}/`)) continue;
+      const pid = Number(line.trim().split(/\s+/u)[0]);
+      if (pid && pid !== process.pid) {
+        found++;
+        try { process.kill(pid, "SIGKILL"); } catch { /* gone */ }
+      }
     }
+    if (found === 0) break;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
   }
+  fs.rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 }
 
-/** Short enough for the 104-byte macOS socket path limit. */
-const PRIME_SOCKET = `/tmp/junto-capture-prime-${process.pid}.sock`;
+/**
+ * Short enough for the 104-byte macOS socket path limit. Each scenario gets
+ * its own: a client reusing the last scenario's path never reaches a composer.
+ */
+let primeRun = 0;
+const primeSocket = (): string => `/tmp/junto-capture-prime-${process.pid}-${primeRun}.sock`;
 
 /** Harnesses pty-capture.ts has no definition for. */
 const EXTRA_HARNESSES: readonly HarnessDef[] = [
@@ -1082,10 +1090,6 @@ async function runScenario(harness: string, scenario: Scenario, stub: StubProvid
   stub.script([OK]);
   try {
     sess.spawn();
-    if (wiring.prelude) {
-      await sess.waitQuiet(15_000);
-      await wiring.prelude(sess, async () => { await pump(); return screenLines(term).join("\n"); });
-    }
     const ready = await sess.waitPrompt(READY_CAP_MS);
     await sess.waitQuiet(8_000);
     await pump();
@@ -1141,12 +1145,13 @@ async function runScenario(harness: string, scenario: Scenario, stub: StubProvid
   const endEvent = sess.events.length;
   observed.stubServed = stub.served.map((s) => `${s.path} ${s.reply}`);
   observed.renderedLines = rendered;
-  observed.cliVersion = probeHarnessVersion(harness);
+  observed.cliVersion = probeHarnessVersion(BINARY[harness] ?? harness);
   for (const step of def.exitRecipe) { sess.write(step); await wait(500); }
   await sess.killTree();
   if (harness === "prime-agent") {
     killDetached(sess.home);
-    fs.rmSync(PRIME_SOCKET, { force: true });
+    fs.rmSync(primeSocket(), { force: true });
+    primeRun++;
   }
   term.dispose();
   const cwd = sess.cwd;
@@ -1180,7 +1185,7 @@ function mergeManifest(harness: string, results: readonly ScenarioResult[]): voi
   manifest.signalCaptureEvidence = {
     tool: "tests/pty-e2e/signal-capture.ts",
     capturedAt: new Date().toISOString(),
-    harnessVersion: probeHarnessVersion(harness),
+    harnessVersion: probeHarnessVersion(BINARY[harness] ?? harness),
     provider: "scripted local stub; the binary and its rendering are real, the provider replies are not",
   };
   fs.mkdirSync(path.dirname(file), { recursive: true });
