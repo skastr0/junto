@@ -1,4 +1,5 @@
 import type { MachineInventory } from "./harness-domain/inventory";
+import type { NativeSettingWrite } from "./harness-domain/native-config";
 import type { ChatChromeSnapshot, ChatChromeChanged } from "./chat-chrome";
 import type { WorkAttentionSnapshot } from "./work-attention";
 import type { WorkItemQuery, WorkActorQuery, WorkActorPage, WorkAttentionQuery, WorkLaneRow, WorkSinkQuery, WorkSinkPage, WorkSinkChanged } from "./work-sinks";
@@ -387,6 +388,10 @@ export const IPC_CHANNELS = {
   managedTerminalFlags: "junto:managed-terminal-flags",
   /** One machine's harness inventory snapshot (docs/machines.md, Harness inventory). */
   machineInventory: "junto:machine-inventory",
+  /** Declared keys of a harness's own config, read on the machine that holds it. */
+  nativeSettingsRead: "junto:native-settings-read",
+  /** One declared key written by the machine's own Junto, answered as read back. */
+  nativeSettingWrite: "junto:native-setting-write",
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
   agentSeatStateSnapshot: "junto:agent-seat-state-snapshot",
   agentSeatStateChanged: "junto:agent-seat-state-changed",
@@ -1283,17 +1288,43 @@ export interface ManagedTerminalModelOption {
 }
 
 /** A machine's harness snapshot, or why it cannot be read now. */
+export type MachineInventoryFailure = {
+  readonly _tag: "InventoryUnavailableError";
+  readonly machine: string;
+  readonly reason: "timeout" | "failed" | "unreachable" | "notInstalled";
+  readonly message: string;
+};
+
 export type MachineInventoryResult =
   | { readonly ok: true; readonly inventory: MachineInventory }
+  | { readonly ok: false; readonly error: MachineInventoryFailure };
+
+/** Why a native setting could not be read or written on its machine. */
+export type NativeSettingFailure =
+  | MachineInventoryFailure
   | {
-    readonly ok: false;
-    readonly error: {
-      readonly _tag: "InventoryUnavailableError";
-      readonly machine: string;
-      readonly reason: "timeout" | "failed" | "unreachable" | "notInstalled";
-      readonly message: string;
-    };
+    readonly _tag: "NativeSettingRefusedError";
+    readonly harness: string;
+    readonly key: string;
+    readonly reason: "undeclared" | "version" | "value";
+    readonly message: string;
+  }
+  | {
+    readonly _tag: "NativeConfigWriteError";
+    readonly machine: string;
+    readonly harness: string;
+    readonly key: string;
+    readonly reason: "conflict" | "unsupported" | "io";
+    readonly message: string;
   };
+
+export type NativeSettingsReadResult =
+  | { readonly ok: true; readonly values: Readonly<Record<string, boolean | string | number>> }
+  | { readonly ok: false; readonly error: NativeSettingFailure };
+
+export type NativeSettingWriteResult =
+  | { readonly ok: true; readonly value: boolean | string | number }
+  | { readonly ok: false; readonly error: NativeSettingFailure };
 
 export interface ManagedTerminalModelsResult {
   readonly models: readonly ManagedTerminalModelOption[];
@@ -1443,6 +1474,14 @@ export interface JuntoTerminalApi {
   readonly managedTerminalHarnesses: () => Promise<ManagedTerminalHarnessesResult>;
   /** One machine's harness inventory, answered at once from that machine's cache. */
   readonly machineInventory: (machine: string) => Promise<MachineInventoryResult>;
+  /** Declared keys of a harness's own config on a machine, read by that machine. */
+  readonly nativeSettingsRead: (input: {
+    readonly machine: string;
+    readonly harness: string;
+    readonly keys: readonly string[];
+  }) => Promise<NativeSettingsReadResult>;
+  /** One declared key, written by the machine's own Junto. */
+  readonly nativeSettingWrite: (write: NativeSettingWrite) => Promise<NativeSettingWriteResult>;
   /**
    * Fail-soft: the options the installed harness prints in `--help`, for the
    * launch-parameter editor, plus Amp plugin modes in the chosen folder.

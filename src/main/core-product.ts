@@ -32,6 +32,7 @@ import { SshTransportLive } from "./junto/ssh";
 import { makeStateEngineLive } from "./junto/state/engine";
 import { MachineRepositoryLive } from "./junto/machines/repository";
 import { HarnessInventoryLive } from "./junto/term/templates/harness-inventory";
+import { NativeConfigLive } from "./junto/native-config/service";
 import { WorkModelDependentsLive } from "./junto/work/model-dependents";
 import { ModelLive } from "./junto/model/layer";
 
@@ -73,7 +74,7 @@ export const makeCoreProductLayer = (home: string) => {
   const pause = Layer.provideMerge(PausePlaneLaunchPlayingLive, snapshots);
   const occupants = Layer.provideMerge(ActorSeatOccupyLive, pause);
   return Layer.provideMerge(
-    Layer.mergeAll(Layer.provideMerge(KernelLive, WorkLive), CanvasControlQueries.layer, HarnessInventoryLive),
+    Layer.mergeAll(Layer.provideMerge(KernelLive, WorkLive), CanvasControlQueries.layer, Layer.provideMerge(NativeConfigLive, HarnessInventoryLive)),
     occupants,
   );
 };

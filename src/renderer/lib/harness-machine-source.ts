@@ -13,11 +13,38 @@
 import { Result } from "effect";
 import {
   InventoryUnavailableError,
-  type NativeSettingRefusedError,
+  NativeSettingRefusedError,
   type MachineInventory,
   type NativeSettingWrite,
 } from "@shared/harness-domain";
+import { NativeConfigWriteError } from "@shared/harness-domain/native-config-write";
+import type { NativeSettingFailure } from "@shared/ipc";
 import type { HarnessId } from "@shared/managed-terminal-templates";
+
+/** Why a native setting could not be read or written on its machine. */
+export type NativeSettingError = InventoryUnavailableError | NativeSettingRefusedError | NativeConfigWriteError;
+
+const errorOf = (failure: NativeSettingFailure): NativeSettingError => {
+  switch (failure._tag) {
+    case "InventoryUnavailableError":
+      return new InventoryUnavailableError({ machine: failure.machine, reason: failure.reason, message: failure.message });
+    case "NativeSettingRefusedError":
+      return new NativeSettingRefusedError({
+        harness: failure.harness, key: failure.key, reason: failure.reason, message: failure.message,
+      });
+    case "NativeConfigWriteError":
+      return new NativeConfigWriteError({
+        machine: failure.machine, harness: failure.harness, key: failure.key, reason: failure.reason, message: failure.message,
+      });
+  }
+};
+
+const unreachableCall = (machine: string, cause: unknown): NativeSettingFailure => ({
+  _tag: "InventoryUnavailableError",
+  machine,
+  reason: "failed",
+  message: cause instanceof Error ? cause.message : String(cause),
+});
 
 export type HarnessMachineSource = {
   /** The machine's last inventory, cached; never a probe the caller waits on. */
@@ -30,11 +57,11 @@ export type HarnessMachineSource = {
     machine: string,
     harness: HarnessId,
     keys: readonly string[],
-  ) => Promise<Result.Result<Readonly<Record<string, NativeSettingWrite["value"]>>, InventoryUnavailableError>>;
+  ) => Promise<Result.Result<Readonly<Record<string, NativeSettingWrite["value"]>>, NativeSettingError>>;
   /** Written by the machine's own Junto; answers the value read back. */
   readonly writeNativeSetting: (
     write: NativeSettingWrite,
-  ) => Promise<Result.Result<NativeSettingWrite["value"], NativeSettingRefusedError | InventoryUnavailableError>>;
+  ) => Promise<Result.Result<NativeSettingWrite["value"], NativeSettingError>>;
 };
 
 const NOT_LANDED = "The machine inventory channel has not landed in this build.";
@@ -78,6 +105,20 @@ export const coreHarnessMachineSource: HarnessMachineSource = {
         reason: answer.error.reason,
         message: answer.error.message,
       }));
+  },
+  readNativeSettings: async (machine, harness, keys) => {
+    const api = window.junto;
+    if (api === undefined) return pendingHarnessMachineSource.readNativeSettings(machine, harness, keys);
+    const answer = await api.nativeSettingsRead({ machine, harness, keys })
+      .catch((cause: unknown) => ({ ok: false as const, error: unreachableCall(machine, cause) }));
+    return answer.ok ? Result.succeed(answer.values) : Result.fail(errorOf(answer.error));
+  },
+  writeNativeSetting: async (write) => {
+    const api = window.junto;
+    if (api === undefined) return pendingHarnessMachineSource.writeNativeSetting(write);
+    const answer = await api.nativeSettingWrite(write)
+      .catch((cause: unknown) => ({ ok: false as const, error: unreachableCall(write.machine, cause) }));
+    return answer.ok ? Result.succeed(answer.value) : Result.fail(errorOf(answer.error));
   },
 };
 

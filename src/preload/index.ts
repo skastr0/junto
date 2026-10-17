@@ -914,6 +914,10 @@ const terminalApi: JuntoTerminalApi = {
     invoke(IPC_CHANNELS.managedTerminalHarnesses, IPC_TIMEOUT_MS),
   machineInventory: (machine) =>
     invoke(IPC_CHANNELS.machineInventory, IPC_TIMEOUT_MS, machine),
+  nativeSettingsRead: (input) =>
+    invoke(IPC_CHANNELS.nativeSettingsRead, IPC_TIMEOUT_MS, input),
+  nativeSettingWrite: (write) =>
+    invoke(IPC_CHANNELS.nativeSettingWrite, IPC_TIMEOUT_MS, write),
   managedTerminalFlags: (harness, cwd) =>
     invoke(IPC_CHANNELS.managedTerminalFlags, IPC_TIMEOUT_MS, harness, cwd),
   agentSeatStateSnapshot: () =>
