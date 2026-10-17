@@ -104,11 +104,20 @@ export class SeatStateNotFromItsMachine extends Schema.TaggedError<SeatStateNotF
   "SeatStateNotFromItsMachine", { ...Where, peer: Id, message: Text },
 ) {}
 
+/**
+ * A seat state's status did not read as the seats wire status: that one
+ * event is refused and logged; the link stays open.
+ */
+export class SeatStatusInvalid extends Schema.TaggedError<SeatStatusInvalid>()(
+  "SeatStatusInvalid", { ...Where, peer: Id, message: Text },
+) {}
+
 /** The closed set the seats channel answers with. */
 export const SeatsFailure = Schema.Union([
   SeatSpawnFailed, SeatExited, SeatEpochChanged, SeatOccupantChanged, SeatStopping, SeatMissing,
   SeatChangedWhilePreparing, SeatNotOnThisMachine, SeatCanvasEditorMismatch, SeatPeerNotPinned,
   SeatSessionUnavailable, SeatStartRefused, SeatLinkClosed, SeatStopRefused, SeatStateNotFromItsMachine,
+  SeatStatusInvalid,
 ]);
 export type SeatsFailure = typeof SeatsFailure.Type;
 

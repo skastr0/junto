@@ -146,7 +146,7 @@ import {
   SEAT_AWARENESS_ENV,
 } from "./term/seat-awareness";
 import { isHarnessId } from "@shared/managed-terminal-templates";
-import { mergeSeatStateSnapshot } from "./term/remote-seat-state";
+import { mergeSeatStateSnapshot, remoteSeatStateEvents } from "./term/remote-seat-state";
 import { homedir } from "node:os";
 import {
   SeatSessionCapture,
@@ -417,8 +417,18 @@ export const registerJuntoIpc = (): void => {
     mergeSeatStateSnapshot(seatStateRuntime.currentEvents()),
   );
 
-  privilegedIpc.handle(IPC_CHANNELS.agentSeatViewed, (_event, bindingId: unknown) => {
-    if (typeof bindingId === "string" && bindingId.length > 0) seatStateRuntime.viewed(bindingId);
+  privilegedIpc.handle(IPC_CHANNELS.agentSeatViewed, async (_event, bindingId: unknown) => {
+    if (typeof bindingId !== "string" || bindingId.length === 0) return;
+    if (seatStateRuntime.snapshot(bindingId) !== undefined) {
+      seatStateRuntime.viewed(bindingId);
+      return;
+    }
+    // A seat on another machine: its machine holds the turn, so the view goes there.
+    const remote = remoteSeatStateEvents().find((event) => event.bindingId === bindingId);
+    if (remote === undefined || remote.state === "gone") return;
+    const { makeSeatsProcessClient, remoteSeatMachine } = await import("./term/seats-client");
+    const machine = await AppRuntime.runPromise(remoteSeatMachine(bindingId)).catch(() => undefined);
+    if (machine !== undefined) await makeSeatsProcessClient(machine).viewed(bindingId, remote.epoch).catch(() => false);
   });
 
   privilegedIpc.handle(IPC_CHANNELS.seatAwarenessSnapshot, () =>

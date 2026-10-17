@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { Cause, Effect, Schema } from "effect";
-import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
+import {
+  agentSeatStatusOf, encodeAgentSeatStatus, type AgentSeatStateEvent, type AgentSeatStatusWire,
+} from "@shared/agent-seat-state";
+import type { BindingId } from "@shared/harness-domain";
 import { CanvasName, NodeId, type NodeOf } from "@shared/model";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import { MachineName } from "@shared/machine-control";
@@ -17,8 +20,10 @@ import { runOnSeatStartTurn } from "./seat-start-turn";
 import {
   asSeatsFailure, clipText, type SeatsFailureWhere, SeatCanvasEditorMismatch, SeatChangedWhilePreparing, SeatEpochChanged, SeatExited,
   SeatLinkClosed, SeatMissing, SeatNotOnThisMachine, SeatOccupantChanged, SeatPeerNotPinned,
-  SeatSessionUnavailable, SeatsFailure, SeatSpawnFailed, SeatStateNotFromItsMachine, SeatStopping, SeatStopRefused,
+  SeatSessionUnavailable, SeatsFailure, SeatSpawnFailed, SeatStateNotFromItsMachine, SeatStatusInvalid, SeatStopping,
+  SeatStopRefused,
 } from "./seats-failure";
+import { decodeSeatsStatus, fromSeatsStatus, toSeatsStatus } from "./seats-status";
 import { seatStateRuntime } from "./agent-state/runtime";
 import { publishRemoteSeatState } from "./remote-seat-state";
 import type { LocalSessionHost } from "./local-host";
@@ -40,7 +45,12 @@ export const SeatsStop = Schema.Struct({
   _tag: Schema.Literal("Stop"), canvas: CanvasName, seatId: NodeId,
   generation: Schema.optionalKey(Generation),
 });
-export const SeatsRequest = Schema.Union([SeatsStart, SeatsGet, SeatsActivate, SeatsStop]);
+/** The operator viewed the seat's occupant: its finished turn is no longer unseen. */
+export const SeatsViewed = Schema.Struct({
+  _tag: Schema.Literal("Viewed"), canvas: CanvasName, seatId: NodeId,
+  generation: Generation,
+});
+export const SeatsRequest = Schema.Union([SeatsStart, SeatsGet, SeatsActivate, SeatsStop, SeatsViewed]);
 export const SeatsStarted = Schema.Struct({
   _tag: Schema.Literal("Started"), canvas: CanvasName, seatId: NodeId,
   machine: MachineName, handle: Generation, generation: Generation,
@@ -54,7 +64,12 @@ export const SeatsStopping = Schema.Struct({
   _tag: Schema.Literal("Stopping"), canvas: CanvasName, seatId: NodeId, machine: MachineName,
   generation: Generation,
 });
-export const SeatsResponse = Schema.Union([SeatsStarted, SeatsVacant, SeatsStopping]);
+/** A view landed on that generation; changed when it cleared anything. */
+export const SeatsSeen = Schema.Struct({
+  _tag: Schema.Literal("Seen"), canvas: CanvasName, seatId: NodeId, machine: MachineName,
+  generation: Generation, changed: Schema.Boolean,
+});
+export const SeatsResponse = Schema.Union([SeatsStarted, SeatsVacant, SeatsStopping, SeatsSeen]);
 
 /**
  * A seat's state, sent by the machine that runs it to the machine that edits
@@ -68,6 +83,11 @@ export const SeatsStateEvent = Schema.Struct({
   confidence: Schema.Literals(["high", "low"]),
   at: Schema.Number,
   reason: Schema.String.pipe(Schema.check(Schema.isPattern(/^(rule:[A-Za-z0-9_.:-]{1,128}|idle|working|attention|unknown|gone)$/))),
+  /**
+   * The seat's status (seats-status.ts). Read on arrival with its own closed
+   * schema, so a status that does not read refuses its event, not the link.
+   */
+  status: Schema.optionalKey(Schema.Unknown),
 });
 export type SeatsStateEvent = typeof SeatsStateEvent.Type;
 const RULE_REASON = /^rule:[A-Za-z0-9_.:-]{1,128}$/;
@@ -88,6 +108,8 @@ export type SeatsChannelOptions = {
   readonly seatStates?: {
     readonly subscribe: (listener: (event: AgentSeatStateEvent) => void) => () => void;
     readonly currentEvents: () => ReadonlyArray<AgentSeatStateEvent>;
+    /** The operator viewed the seat; returns null when nothing changed. */
+    readonly viewed?: (bindingId: string) => unknown;
   };
   /** Where a remote seat's state goes on arrival; the window by default. */
   readonly publishState?: (event: AgentSeatStateEvent) => void;
@@ -186,6 +208,17 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
       return { seat, seq: canvas.seq, name: where.machine };
     });
     const initial = yield* admit();
+    if (request._tag === "Viewed") {
+      const live = host.get(initial.seat.bindingId);
+      if (live === undefined || live.status === "exited" || live.status === "missing")
+        return { _tag: "Vacant", canvas: request.canvas, seatId: request.seatId, machine: initial.name };
+      if (request.generation !== live.epoch)
+        return yield* new SeatEpochChanged({ ...where, expectedEpoch: request.generation, actualEpoch: live.epoch,
+          message: "The seat's occupant changed before the view reached it." });
+      const changed = (seatStates.viewed?.(initial.seat.bindingId) ?? null) !== null;
+      return { _tag: "Seen", canvas: request.canvas, seatId: request.seatId, machine: initial.name,
+        generation: live.epoch, changed };
+    }
     if (request._tag === "Stop") {
       const live = host.get(initial.seat.bindingId);
       if (live === undefined || live.status === "exited" || live.status === "missing")
@@ -250,7 +283,8 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
     // A failed read of this machine's own name keeps its own typed error.
     const machine = yield* machines.machineName;
     const where = { machine, canvas: request.canvas, seatId: request.seatId };
-    const kind = request._tag === "Start" ? "start" : request._tag === "Stop" ? "stop" : "activation";
+    const kind = request._tag === "Start" ? "start" : request._tag === "Stop" ? "stop"
+      : request._tag === "Viewed" ? "view" : "activation";
     // Every start, activation and stop is logged on this machine with its outcome.
     const answered = answer(context, request, machine).pipe(
       Effect.mapError((cause) => asSeatsFailure(where, cause)));
@@ -271,9 +305,12 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
       if ((yield* records.canvasEditor(name)) !== context.peer.installationId) continue;
       for (const node of (yield* model.canvas(name)).nodes.values()) {
         if (node.kind !== "agent" || node.bindingId !== event.bindingId || !isThisMachine(node.host, machine)) continue;
+        const local = agentSeatStatusOf(event);
+        const status = local === undefined ? undefined : toSeatsStatus(local);
         const wire = yield* Schema.encodeUnknownEffect(SeatsStateEvent)({
           _tag: "SeatState", canvas: name, seatId: node.id, machine, epoch: event.epoch, state: event.state,
           confidence: event.confidence, at: event.at, reason: RULE_REASON.test(event.reason) ? event.reason : event.state,
+          ...(status === undefined ? {} : { status }),
         });
         yield* context.sendEvent("seats", wire);
       }
@@ -311,8 +348,21 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
     if (event.machine !== context.peer.machineName || seat?.kind !== "agent" || !isThisMachine(seat.host, event.machine))
       return yield* new SeatStateNotFromItsMachine({ ...where, peer: context.peer.machineName,
         message: "A seat's state came from a machine that does not run that seat." });
+    let status: AgentSeatStatusWire | undefined;
+    if (event.status !== undefined) {
+      try {
+        status = encodeAgentSeatStatus(fromSeatsStatus(decodeSeatsStatus(event.status), seat.bindingId as BindingId));
+      } catch (cause) {
+        // One event refused, logged with its tag; the link stays open.
+        const refused = new SeatStatusInvalid({ ...where, peer: context.peer.machineName,
+          message: clipText(`A seat state's status did not read: ${cause instanceof Error ? cause.message : String(cause)}`) });
+        yield* Effect.logWarning("seat state refused", refused).pipe(Effect.annotateLogs({
+          area: "seats", canvas: event.canvas, seat: event.seatId, peer: context.peer.machineName, failure: refused._tag }));
+        return;
+      }
+    }
     publishState({ bindingId: seat.bindingId, epoch: event.epoch, state: event.state, reason: event.reason,
-      confidence: event.confidence, at: event.at, harness: seat.harness });
+      confidence: event.confidence, at: event.at, harness: seat.harness, ...(status === undefined ? {} : { status }) });
   }).pipe(Effect.withSpan("SeatsLink.state"));
 
   return {

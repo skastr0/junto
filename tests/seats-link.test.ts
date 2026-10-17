@@ -19,7 +19,11 @@ import { noSeatEnvironment, type SeatEnvironmentResolver } from "../src/main/jun
 import { makeSeatsChannel, type SeatsChannelOptions } from "../src/main/junto/term/seats-link";
 import { makeSeatsProcessClient } from "../src/main/junto/term/seats-client";
 import { SeatsFailure } from "../src/main/junto/term/seats-failure";
-import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
+import {
+  agentSeatStatusOf, encodeAgentSeatStatus, type AgentSeatStateEvent, type AgentSeatStatusWire,
+} from "../src/shared/agent-seat-state";
+import { topNeed, type BindingId, type SeatSnapshot } from "../src/shared/harness-domain";
+import { toSeatsStatus } from "../src/main/junto/term/seats-status";
 import { closeMachineLog, installMachineLog, ObservabilityLoggerLive } from "../src/main/junto/observability/logger";
 import { machineLogDir } from "../src/main/junto/observability/log-file";
 import { readFileSync } from "node:fs";
@@ -228,6 +232,74 @@ describe("seats link state", () => {
     await f.runtime.runPromise(f.channel.handleEvent!(f.context,
       f.channel.decodeEvent({ ...wire, canvas: asCanvasName("not-held-here") })));
     expect(published).toHaveLength(1);
+  });
+});
+
+describe("seats link status", () => {
+  const blocked = (): AgentSeatStatusWire => {
+    const snapshot: SeatSnapshot = {
+      seat: localSeat.bindingId as BindingId,
+      status: { _tag: "Blocked", reason: { _tag: "Error", kind: "auth", message: "Not logged in" } },
+      since: 1_792_000_000_000, statusSource: "screen", statusFidelity: "screen", channels: ["screen"],
+      sessionId: "session-on-the-mini", transcriptPath: "/Users/mini/.claude/projects/t.jsonl",
+      turnUnseen: { outcome: "completed", since: 1_792_000_000_000 },
+      reports: [], awareness: [], updatedAt: 1_792_000_000_000,
+    };
+    return encodeAgentSeatStatus({ snapshot, need: topNeed(snapshot) });
+  };
+
+  it("a seat state carries its status, built from the approved fields", async () => {
+    const f = await fixture({ seatStates: {
+      subscribe: () => () => undefined,
+      currentEvents: () => [{ ...stateEvent("rule:claude.not_logged_in", "attention"), status: blocked() }],
+    } });
+    await f.runtime.runPromise(f.channel.opened!(f.context));
+    await eventually(() => expect(f.sent).toHaveBeenCalledTimes(1));
+    const wire = f.sent.mock.calls[0]?.[1] as { status: { snapshot: Record<string, unknown> } };
+    expect(wire.status.snapshot.status).toEqual({ _tag: "Blocked", reason: { _tag: "Error", kind: "auth" } });
+    expect(JSON.stringify(wire)).not.toMatch(/Not logged in|session-on-the-mini|\/Users\/mini/u);
+  });
+
+  it("the receiver publishes a status that reads, and refuses one that does not without failing", async () => {
+    const published: AgentSeatStateEvent[] = [];
+    const remote = seat("mac-seat", { host: "macbook", agentKey: "macbook:mac-seat" });
+    const f = await fixture({ nodes: [localSeat, remote], publishState: (event) => { published.push(event); } });
+    const status = toSeatsStatus(agentSeatStatusOf({ ...stateEvent("x"), status: blocked() })!)!;
+    const wire = { _tag: "SeatState", canvas, seatId: remote.id, machine: "macbook", epoch: "ep_9",
+      state: "attention", confidence: "high", at: 5, reason: "attention", status };
+    await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.channel.decodeEvent(wire)));
+    expect(agentSeatStatusOf(published[0])?.snapshot).toMatchObject({
+      seat: remote.bindingId, status: { _tag: "Blocked", reason: { _tag: "Error", kind: "auth" } },
+    });
+    expect(agentSeatStatusOf(published[0])?.snapshot.sessionId).toBeUndefined();
+    // A status with a field the wire does not name: that event is refused and logged, the link stays.
+    await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.channel.decodeEvent({
+      ...wire, status: { ...status, snapshot: { ...status.snapshot, transcriptPath: "/etc/passwd" } },
+    })).pipe(Effect.provide(ObservabilityLoggerLive)));
+    expect(published).toHaveLength(1);
+  });
+
+  it("a view lands on the occupant of that generation, and only from the canvas editor", async () => {
+    const viewed: string[] = [];
+    const f = await fixture({ seatStates: {
+      subscribe: () => () => undefined, currentEvents: () => [],
+      viewed: (bindingId) => { viewed.push(bindingId); return viewed.length === 1 ? {} : null; },
+    } });
+    const linked = linkedClient(f);
+    expect(await f.start({ ...request, _tag: "Viewed", generation: "ep_none" })).toEqual({
+      _tag: "Vacant", canvas, seatId: localSeat.id, machine: THIS_MACHINE,
+    });
+    const started = f.channel.decodeResponse(await f.start()) as { generation: string };
+    await expect(f.start({ ...request, _tag: "Viewed", generation: "old" }))
+      .rejects.toMatchObject({ _tag: "SeatEpochChanged", expectedEpoch: "old", actualEpoch: started.generation });
+    expect(await linked.client.viewed(localSeat.bindingId, started.generation, "op-view-1")).toBe(true);
+    expect(linked.requestLink.mock.calls.at(-1)?.[3]).toEqual({ operationId: "op-view-1" });
+    expect(await linked.client.viewed(localSeat.bindingId, started.generation, "op-view-2")).toBe(false);
+    expect(viewed).toEqual([localSeat.bindingId, localSeat.bindingId]);
+
+    const other = await fixture({ editor: "another-editor" });
+    await expect(other.start({ ...request, _tag: "Viewed", generation: "ep_1" }))
+      .rejects.toMatchObject({ _tag: "SeatCanvasEditorMismatch" });
   });
 });
 
