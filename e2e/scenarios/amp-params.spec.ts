@@ -103,7 +103,7 @@ for (const theme of ["Dark", "Bright"] as const) {
     const preview = fresh.getByTestId("seat-start-params-preview");
     await expect(fresh.getByRole("textbox", { name: "Model", exact: true })).toHaveCount(0);
     await expect(fresh.getByRole("button", { name: "Effort", exact: true })).toHaveCount(0);
-    await expect(fresh.getByText("Choices for this seat's next Amp thread. Mode and startup features are set when the private thread is created.", { exact: true })).toBeVisible();
+    await expect(fresh.getByText("Choices for this seat's next Amp session. Mode and startup flags are set when it is created.", { exact: true })).toBeVisible();
     await expect(preview).toHaveText("amp --no-ide -m low");
     await fresh.getByRole("button", { name: "Save", exact: true }).scrollIntoViewIfNeeded();
     await fresh.getByRole("button", { name: "Mode", exact: true }).click();
