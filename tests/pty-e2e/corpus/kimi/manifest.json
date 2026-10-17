@@ -149,12 +149,301 @@
       "reason": "a real permission dialog was not observed",
       "observed": {},
       "expectedScreen": {}
+    },
+    {
+      "harness": "kimi",
+      "scenario": "retry-overloaded",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: overloaded }, then a completed turn",
+        "wiring": "KIMI_MODEL_* env points at the stub (kimi provider type, chat completions); folder trust seeded under the isolated HOME",
+        "stubServed": [
+          "/v1/chat/completions 503",
+          "/v1/chat/completions 503",
+          "/v1/chat/completions 503",
+          "/v1/chat/completions ok"
+        ],
+        "renderedLines": [
+          " │  Session:   session_<SESSION>                                                           │",
+          " ✨ say hi",
+          "  🌑 · Tip: ! to run a shell command",
+          "  🌖 Retrying (2/10) · APIProviderOverloadedError · in 1s",
+          "     503 · 503 The server is overloaded. Please try again later.",
+          "  🌓 Retrying (2/10) · APIProviderOverloadedError",
+          " Ask When Needed  stub-model thinking  …<CWD>                            ! to run a shell command",
+          " ● Hello from the capture stub.",
+          "                                                                                                  context: 1% (20/256k)"
+        ],
+        "cliVersion": "2.1.1"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "kimi",
+      "scenario": "retry-rate",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: rate }, then a completed turn",
+        "wiring": "KIMI_MODEL_* env points at the stub (kimi provider type, chat completions); folder trust seeded under the isolated HOME",
+        "stubServed": [
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions ok"
+        ],
+        "renderedLines": [
+          " Ask When Needed  stub-model thinking  …<CWD>       /compact compresses context when it gets long",
+          " │  Session:   session_<SESSION>                                                           │",
+          " ✨ say hi",
+          "  🌑 · Tip: /sessions to browse and resume earlier sessions",
+          "  🌖 Retrying (2/10) · APIProviderRateLimitError · in 2s",
+          "     429 · 429 Rate limit reached for requests per minute. Please try again in 2s.",
+          "  🌖 Retrying (2/10) · APIProviderRateLimitError",
+          " Ask When Needed  stub-model thinking  …<CWD>",
+          " ● Hello from the capture stub.",
+          "                                                                                                  context: 1% (20/256k)"
+        ],
+        "cliVersion": "2.1.1"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "kimi",
+      "scenario": "retry-network",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "Retrying { cause: network }, then a completed turn",
+        "wiring": "KIMI_MODEL_* env points at the stub (kimi provider type, chat completions); folder trust seeded under the isolated HOME",
+        "stubServed": [
+          "/v1/chat/completions drop",
+          "/v1/chat/completions drop",
+          "/v1/chat/completions drop",
+          "/v1/chat/completions ok"
+        ],
+        "renderedLines": [
+          " │  Session:   session_<SESSION>                                                           │",
+          " ✨ say hi",
+          "  🌑 · Tip: ask Kimi to schedule tasks, e.g. \"remind me at 5pm\"",
+          "  🌖 Retrying (2/10) · APIConnectionError · in 1s",
+          "     Connection error.",
+          "  🌓 Retrying (2/10) · APIConnectionError",
+          " Ask When Needed  stub-model thinking  …<CWD>                                /model: switch model",
+          " ● Hello from the capture stub.",
+          "                                                                                                  context: 1% (20/256k)"
+        ],
+        "cliVersion": "2.1.1"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "kimi",
+      "scenario": "usage-limit",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: 5h, resetsAt }",
+        "wiring": "KIMI_MODEL_* env points at the stub (kimi provider type, chat completions); folder trust seeded under the isolated HOME",
+        "stubServed": [
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429"
+        ],
+        "renderedLines": [
+          " Ask When Needed  stub-model thinking  …<CWD>",
+          " │  Session:   session_<SESSION>                                                           │",
+          " ✨ say hi",
+          "  🌑 Retrying (2/10) · APIProviderRateLimitError · in 1s",
+          "     429 · 429 The usage limit has been reached",
+          "  🌒 Retrying (7/10) · APIProviderRateLimitError",
+          " Ask When Needed  stub-model thinking  …<CWD>                           /init: generate AGENTS.md",
+          " Ask When Needed  stub-model thinking  …<CWD>  /goal for multi-step work with a clear finish line"
+        ],
+        "cliVersion": "2.1.1"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "kimi",
+      "scenario": "usage-limit-weekly",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "UsageLimitHit { scope: weekly, resetsAt }",
+        "wiring": "KIMI_MODEL_* env points at the stub (kimi provider type, chat completions); folder trust seeded under the isolated HOME",
+        "stubServed": [
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429",
+          "/v1/chat/completions 429"
+        ],
+        "renderedLines": [
+          " │  Session:   session_<SESSION>                                                           │",
+          " ✨ say hi",
+          "  🌑 Retrying (2/10) · APIProviderRateLimitError · in 1s",
+          "     429 · 429 The usage limit has been reached",
+          " Ask When Needed  stub-model thinking  …<CWD>                            ! to run a shell command",
+          " Ask When Needed  stub-model thinking  …<CWD>       /compact compresses context when it gets long",
+          " Ask When Needed  stub-model thinking  …<CWD>",
+          " Ask When Needed  stub-model thinking  …<CWD>                                /model: switch model",
+          " Ask When Needed  stub-model thinking  …<CWD>     /sessions to browse and resume earlier sessions"
+        ],
+        "cliVersion": "2.1.1"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "kimi",
+      "scenario": "error-auth",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: auth }",
+        "wiring": "KIMI_MODEL_* env points at the stub (kimi provider type, chat completions); folder trust seeded under the isolated HOME",
+        "stubServed": [
+          "/v1/chat/completions 401"
+        ],
+        "renderedLines": [
+          " │  Session:   session_<SESSION>                                                           │",
+          " ✨ say hi",
+          "   Error: [provider.auth_error] 401 Incorrect API key provided.",
+          "   If this persists, run `/export-debug-zip` and share the file with us for diagnosis. Please don't share it publicly.",
+          "                                                                                                  context: 1% (64/256k)"
+        ],
+        "cliVersion": "2.1.1"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "kimi",
+      "scenario": "error-server",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: provider } after retries run out",
+        "wiring": "KIMI_MODEL_* env points at the stub (kimi provider type, chat completions); folder trust seeded under the isolated HOME",
+        "stubServed": [
+          "/v1/chat/completions 500",
+          "/v1/chat/completions 500",
+          "/v1/chat/completions 500",
+          "/v1/chat/completions 500",
+          "/v1/chat/completions 500",
+          "/v1/chat/completions 500",
+          "/v1/chat/completions 500"
+        ],
+        "renderedLines": [
+          " │  Session:   session_<SESSION>                                                           │",
+          " ✨ say hi",
+          "  🌑 · Tip: /plugins: manage plugins — try the \"Kimi Datasource\" for reliable financial, economic, and academic data",
+          "  🌖 Retrying (2/10) · APIStatusError · in 1s",
+          "     500 · 500 Internal server error",
+          " Ask When Needed  stub-model thinking  …<CWD>                                      ctrl+c: cancel",
+          "  🌒 Retrying (2/10) · APIStatusError",
+          " Ask When Needed  stub-model thinking  …<CWD>",
+          " Ask When Needed  stub-model thinking  …<CWD>              /theme to switch the terminal UI theme",
+          " Ask When Needed  stub-model thinking  …<CWD>                                /help: show commands"
+        ],
+        "cliVersion": "2.1.1"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "kimi",
+      "scenario": "error-context",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "ErrorRaised { kind: contextOverflow }",
+        "wiring": "KIMI_MODEL_* env points at the stub (kimi provider type, chat completions); folder trust seeded under the isolated HOME",
+        "stubServed": [
+          "/v1/chat/completions 400",
+          "/v1/chat/completions 400",
+          "/v1/chat/completions 400"
+        ],
+        "renderedLines": [
+          " │  Session:   session_<SESSION>                                                           │",
+          " ✨ say hi",
+          " ● Compaction cancelled",
+          "   Error: [compaction.failed] APIContextOverflowError: 400 Your input exceeds the context window of this model. Please",
+          " adjust your input and try again.",
+          "   If this persists, run `/export-debug-zip` and share the file with us for diagnosis. Please don't share it publicly.",
+          "                                                                                                  context: 1% (64/256k)"
+        ],
+        "cliVersion": "2.1.1"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "kimi",
+      "scenario": "compaction-auto",
+      "status": "skip",
+      "reason": "the screen never showed /compact/i",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "CompactionStarted { trigger: auto }, CompactionEnded { ok }, then a completed turn",
+        "wiring": "KIMI_MODEL_* env points at the stub (kimi provider type, chat completions); folder trust seeded under the isolated HOME",
+        "stubServed": [
+          "/v1/chat/completions ok",
+          "/v1/chat/completions ok"
+        ],
+        "renderedLines": [
+          " │  Session:   session_<SESSION>                                                           │",
+          " ╰────────────────────────────────────────────────────────────────────────────",
+          " ✨ say hi",
+          " ● Hello from the capture stub.",
+          "                                                                                               context: 73% (186k/256k)",
+          " ✨ say hi again",
+          "  🌑 · Tip: /sessions to browse and resume earlier sessions",
+          " ● Summary: the user greeted the assistant and the assistant replied.",
+          "                                                                                                  context: 1% (20/256k)"
+        ],
+        "cliVersion": "2.1.1"
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "kimi",
+      "scenario": "compaction-manual",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "CompactionStarted { trigger: manual }, CompactionEnded { ok }",
+        "wiring": "KIMI_MODEL_* env points at the stub (kimi provider type, chat completions); folder trust seeded under the isolated HOME",
+        "stubServed": [
+          "/v1/chat/completions ok",
+          "/v1/chat/completions ok"
+        ],
+        "renderedLines": [
+          " Ask When Needed  stub-model thinking  …<CWD>         @: mention files | ! to run a shell command",
+          " │  Session:   session_<SESSION>                                                           │",
+          " ✨ say hi",
+          " ● Hello from the capture stub.",
+          "                                                                                                  context: 1% (20/256k)",
+          " ● Compacting context… · Tip: ask Kimi to schedule tasks, e.g. \"remind me at 5pm\"",
+          "   Compacting context… · Tip: ask Kimi to schedule tasks, e.g. \"remind me at 5pm\"",
+          " ● Compaction complete (21169 → 21735 tokens) (Ctrl-O to show compaction summary)",
+          "                                                                                               context: 9% (21.2k/256k)"
+        ],
+        "cliVersion": "2.1.1"
+      },
+      "expectedScreen": {}
     }
   ],
   "sanitization": {
     "method": "decoded-jsonl-scan",
-    "fixtures": 2,
-    "decodedBytes": 19640,
+    "fixtures": 11,
+    "decodedBytes": 529103,
     "checks": [
       "home-path",
       "username",
@@ -173,5 +462,11 @@
     "authentication": "not configured: the captured welcome panel requests /login or /provider",
     "turnEvidence": "composer and missing-model errors only; no successful model turn was observed"
   },
-  "redactions": []
+  "redactions": [],
+  "signalCaptureEvidence": {
+    "tool": "tests/pty-e2e/signal-capture.ts",
+    "capturedAt": "2026-10-17T03:48:06.621Z",
+    "harnessVersion": "2.1.1",
+    "provider": "scripted local stub; the binary and its rendering are real, the provider replies are not"
+  }
 }
