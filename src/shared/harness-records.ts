@@ -5,6 +5,7 @@
  * pack (`src/main/junto/term/harness-record.ts`). Design: `docs/harness-domain.md`.
  */
 import { HARNESS_CAPABILITIES } from "./harness-capabilities";
+import { isProfileName } from "./profile-name";
 import {
   type HarnessCapabilities,
   type HarnessParamKey,
@@ -199,6 +200,16 @@ export const harnessRecordFor = (harness: string | undefined): HarnessRecord | u
  * key. `${host}:<harness>` is the no-profile key the node factory mints.
  */
 export const profileFromAgentKey = (harness: HarnessId, agentKey: string | undefined): string | undefined => {
+  const profile = agentKeyProfileSuffix(harness, agentKey);
+  return profile !== undefined && isProfileName(profile) ? profile : undefined;
+};
+
+/**
+ * What a seat's agent key names as its profile, whether or not it is a
+ * profile name: a launch refuses a key whose suffix is not one rather than
+ * starting the harness's default profile.
+ */
+export const agentKeyProfileSuffix = (harness: HarnessId, agentKey: string | undefined): string | undefined => {
   if (paramSpec(HARNESS_RECORDS[harness].params, "profile")?.inAgentKey !== true) return undefined;
   const separator = agentKey?.indexOf(":") ?? -1;
   const profile = separator >= 0 ? agentKey?.slice(separator + 1).trim() : undefined;

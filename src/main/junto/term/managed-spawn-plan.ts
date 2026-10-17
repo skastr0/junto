@@ -19,7 +19,8 @@ import {
   type HarnessId,
 } from "@shared/managed-terminal-templates";
 import type { TerminalLaunch } from "@shared/terminal";
-import { profileFromAgentKey } from "@shared/harness-records";
+import { agentKeyProfileSuffix } from "@shared/harness-records";
+import { isProfileName } from "@shared/profile-name";
 import { recoverDocumentLaunchChoices } from "@shared/launch-choices";
 import { usableJuntoHome } from "@shared/junto-home";
 import {
@@ -94,6 +95,22 @@ export const makeManagedSpawnIntent = (
   };
 };
 
+/** A seat whose profile is not a profile name: it does not launch, under that profile or the default. */
+export class SeatProfileRefused extends Error {
+  readonly _tag = "SeatProfileRefused";
+  constructor(readonly harness: HarnessId) {
+    super(`This seat's ${harness} profile is not a profile name, so it does not launch.`);
+    this.name = "SeatProfileRefused";
+  }
+}
+
+/** The seat's profile from its choices, its document launch or its agent key; one that could not cross the link cannot launch. */
+const seatProfile = (harness: HarnessId, chosen: string | undefined, agentKey: string | undefined): string | undefined => {
+  const profile = chosen ?? agentKeyProfileSuffix(harness, agentKey);
+  if (profile !== undefined && !isProfileName(profile)) throw new SeatProfileRefused(harness);
+  return profile;
+};
+
 /**
  * Build the spawn plan: recovered picker choices plus the session pin or
  * resume. Undefined for an unknown harness, and for a provisioned harness with
@@ -106,7 +123,7 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
 
   const sessionId = input.sessionId?.trim();
   const recovered = recoverDocumentLaunchChoices(harness, input.documentLaunch);
-  const profile = input.profile ?? recovered.profile ?? profileFromAgentKey(harness, input.agentKey);
+  const profile = seatProfile(harness, input.profile ?? recovered.profile, input.agentKey);
   const cwd =
     input.cwd?.trim() ||
     input.documentLaunch?.cwd?.trim() ||
@@ -262,7 +279,7 @@ export const planFreshPinSession = (input: {
   readonly sessionId: string;
 }): ManagedLaunchPlan => {
   const recovered = recoverDocumentLaunchChoices(input.harness, input.documentLaunch);
-  const profile = recovered.profile ?? profileFromAgentKey(input.harness, input.agentKey);
+  const profile = seatProfile(input.harness, recovered.profile, input.agentKey);
   const cwd = input.cwd?.trim() || input.documentLaunch?.cwd?.trim() || undefined;
   return resolveManagedLaunchPlan(input.harness, {
     sessionId: input.sessionId,

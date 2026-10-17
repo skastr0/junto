@@ -35,7 +35,8 @@ import {
 import { harnessRecordFor } from "@shared/harness-records";
 import { runCli } from "../../adapters/exec";
 import { MachineRepository } from "../../machines/repository";
-import { enumerateManagedModels } from "./enumerate-dispatch";
+import { profileNamesOf } from "@shared/profile-name";
+import { enumerateManagedModels, listManagedProfiles } from "./enumerate-dispatch";
 import { probeManagedHarnessInstalls, type HarnessInstallProbe } from "./harness-install";
 
 export const MODEL_LIST_TTL = Duration.hours(6);
@@ -82,6 +83,8 @@ const StoredModels = Schema.Struct({
   scannedAt: Schema.Number,
   version: Schema.optionalKey(Schema.String),
   result: ModelsResult,
+  /** Named profiles the harness listed, for a harness that keeps them. */
+  profiles: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 type StoredModels = typeof StoredModels.Type;
 
@@ -173,8 +176,10 @@ export const makeHarnessInventory = (options: {
 
   const persist = writePermit.withPermits(1)(Effect.gen(function* () {
     const harnesses: Record<string, StoredModels> = {};
-    for (const [harness, { fingerprint, scannedAt, version, result, failed }] of entries) {
-      if (!failed) harnesses[harness] = { fingerprint, scannedAt, ...(version === undefined ? {} : { version }), result };
+    for (const [harness, { fingerprint, scannedAt, version, result, failed, profiles }] of entries) {
+      if (!failed) harnesses[harness] = {
+        fingerprint, scannedAt, ...(version === undefined ? {} : { version }), result, ...(profiles === undefined ? {} : { profiles }),
+      };
     }
     const text = `${JSON.stringify({ version: CACHE_FILE_VERSION, harnesses }, null, 2)}\n`;
     const temp = `${options.cachePath}.${process.pid}.tmp`;
@@ -206,6 +211,15 @@ export const makeHarnessInventory = (options: {
       }),
     );
 
+  // Names that fit the profile shape only; a list that cannot be read is no list.
+  const readProfiles = (harness: string): Effect.Effect<readonly string[] | undefined> =>
+    isHarnessId(harness)
+      ? Effect.tryPromise((signal) => listManagedProfiles(harness, signal)).pipe(
+        Effect.map((names) => names === undefined ? undefined : profileNamesOf(names)),
+        Effect.orElseSucceed(() => undefined),
+      )
+      : Effect.succeed(undefined);
+
   const scan = (harness: string, executable: string, fingerprint: string): Effect.Effect<ManagedTerminalModelsResult> =>
     scanPermits.withPermits(1)(Effect.all([
       enumerate(harness).pipe(
@@ -219,12 +233,14 @@ export const makeHarnessInventory = (options: {
         })),
       ),
       readVersion(executable),
-    ], { concurrency: 2 })).pipe(
-      Effect.tap(([{ result, failure }, version]) => Effect.gen(function* () {
+      readProfiles(harness),
+    ], { concurrency: 3 })).pipe(
+      Effect.tap(([{ result, failure }, version, profiles]) => Effect.gen(function* () {
         entries.set(harness, {
           fingerprint,
           scannedAt: Date.now(),
           ...(version === undefined ? {} : { version }),
+          ...(profiles === undefined ? {} : { profiles }),
           result,
           failed: failure !== undefined,
           ...(failure === undefined ? {} : { failure }),
@@ -311,6 +327,7 @@ export const makeHarnessInventory = (options: {
         ...(model.efforts === undefined ? {} : { efforts: model.efforts.slice(0, MAX_EFFORTS).map((effort) => clip(effort, MAX_ID)) }),
       })),
       efforts: (result?.efforts ?? efforts).slice(0, MAX_EFFORTS).map((effort) => clip(effort, MAX_ID)),
+      ...(current?.profiles === undefined ? {} : { profiles: profileNamesOf(current.profiles) }),
       ...(current === undefined || current.failed ? {} : { scannedAt: current.scannedAt }),
       refreshing: inFlight.has(probe.harness),
       ...(failure === undefined ? {} : { lastFailure: failure }),

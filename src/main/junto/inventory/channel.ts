@@ -48,8 +48,8 @@ export const makeInventoryChannel = Effect.fn("InventoryLink.make")(function* ()
     // Decode here too: direct callers cannot bypass the transport decoder.
     const request = yield* Schema.decodeUnknownEffect(LinkInventoryRequest)(raw, { onExcessProperty: "error" });
     yield* admitCanvasEditor(context, request.canvas, yield* machines.machineName).pipe(Effect.provideContext(services));
-    const { snapshot, omittedModels } = wireSnapshot(yield* inventory.machine, Date.now());
-    if (omittedModels > 0) yield* Effect.logInfo("inventory models left out", { omittedModels });
+    const { snapshot, omittedModels, omittedProfiles } = wireSnapshot(yield* inventory.machine, Date.now());
+    if (omittedModels > 0 || omittedProfiles > 0) yield* Effect.logInfo("inventory entries left out", { omittedModels, omittedProfiles });
     return snapshot;
   }).pipe(
     Effect.tapCause((cause) => Effect.logError("inventory failed", cause)),

@@ -22,6 +22,7 @@ import { MachineName } from "@shared/machine-control";
 import { HARNESS_IDS, HarnessId, templateFor } from "@shared/managed-terminal-templates";
 import { CanvasName } from "@shared/model";
 import { MODEL_ID_PATTERN, MODEL_LABEL_PATTERN } from "@shared/model-id";
+import { MAX_PROFILES, PROFILE_NAME_PATTERN, profileNamesOf } from "@shared/profile-name";
 
 const bounded = (pattern: RegExp) => Schema.String.pipe(Schema.check(Schema.isPattern(pattern)));
 const list = <S extends Schema.Top>(item: S, max: number) => Schema.Array(item).pipe(Schema.check(Schema.isMaxLength(max)));
@@ -61,6 +62,8 @@ export const LinkInventoryHarness = Schema.Struct({
   verification: Schema.optionalKey(Schema.Struct({ verdict: VersionVerdict, from: RangeEnd, through: RangeEnd })),
   models: list(LinkInventoryModel, MAX_WIRE_MODELS),
   efforts: list(Effort, MAX_WIRE_EFFORTS),
+  /** Named profiles (Hermes): names only, the launch takes one as its argv value. */
+  profiles: Schema.optionalKey(list(bounded(PROFILE_NAME_PATTERN), MAX_PROFILES)),
   modes: list(Mode, MAX_WIRE_MODES),
   permissionModes: list(Mode, MAX_WIRE_PERMISSION_MODES),
   scannedAt: Schema.optionalKey(At),
@@ -131,12 +134,17 @@ const wireModel = (model: HarnessInventory["models"][number]): typeof LinkInvent
 };
 
 /** What one machine says about one harness, built field by field. */
-export const wireHarness = (row: HarnessInventory): { readonly harness: LinkInventoryHarness; readonly omittedModels: number } => {
+export const wireHarness = (row: HarnessInventory): {
+  readonly harness: LinkInventoryHarness;
+  readonly omittedModels: number;
+  readonly omittedProfiles: number;
+} => {
   const template = templateFor(row.harness);
   const models = row.models.map(wireModel).filter((model) => model !== undefined).slice(0, MAX_WIRE_MODELS);
   const verification = row.verification;
   return {
     omittedModels: Math.min(row.models.length, MAX_WIRE_MODELS) - models.length,
+    omittedProfiles: row.profiles === undefined ? 0 : Math.min(row.profiles.length, MAX_PROFILES) - profileNamesOf(row.profiles).length,
     harness: {
       harness: row.harness,
       installed: row.installed,
@@ -146,6 +154,7 @@ export const wireHarness = (row: HarnessInventory): { readonly harness: LinkInve
         : {}),
       models,
       efforts: row.efforts.filter(fits(WIRE_EFFORT)).slice(0, MAX_WIRE_EFFORTS),
+      ...(row.profiles === undefined ? {} : { profiles: profileNamesOf(row.profiles) }),
       modes: (template.modes ?? []).filter(fits(WIRE_MODE)).slice(0, MAX_WIRE_MODES),
       permissionModes: (template.permissionModes ?? []).filter(fits(WIRE_MODE)).slice(0, MAX_WIRE_PERMISSION_MODES),
       ...(row.scannedAt === undefined ? {} : { scannedAt: row.scannedAt }),
@@ -161,13 +170,14 @@ export const wireHarness = (row: HarnessInventory): { readonly harness: LinkInve
 export const wireSnapshot = (
   inventory: MachineInventory,
   takenAt: number,
-): { readonly snapshot: LinkInventorySnapshot; readonly omittedModels: number } => {
+): { readonly snapshot: LinkInventorySnapshot; readonly omittedModels: number; readonly omittedProfiles: number } => {
   const seen = new Set<string>();
   const rows = inventory.harnesses.filter((row) => !seen.has(row.harness) && seen.add(row.harness));
   const built = rows.map(wireHarness);
   return {
     snapshot: { machine: inventory.machine, takenAt, harnesses: built.map((entry) => entry.harness) },
     omittedModels: built.reduce((total, entry) => total + entry.omittedModels, 0),
+    omittedProfiles: built.reduce((total, entry) => total + entry.omittedProfiles, 0),
   };
 };
 
@@ -199,6 +209,7 @@ export const inventoryOfSnapshot = (snapshot: LinkInventorySnapshot): MachineInv
       ...(model.efforts === undefined ? {} : { efforts: [...model.efforts] }),
     })),
     efforts: [...row.efforts],
+    ...(row.profiles === undefined ? {} : { profiles: [...row.profiles] }),
     ...(row.scannedAt === undefined ? {} : { scannedAt: row.scannedAt }),
     refreshing: row.refreshing,
     ...(row.failure === undefined ? {} : { lastFailure: { reason: row.failure.reason, at: row.failure.at } }),

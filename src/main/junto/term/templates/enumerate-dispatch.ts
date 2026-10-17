@@ -17,6 +17,7 @@ import {
   enumerateCursorModels,
   enumerateDevinModels,
   enumerateHermesProfiles,
+  parseHermesProfileList,
   enumeratePiModels,
   enumeratePrimeAgentModels,
   type ModelEnumerateResult,
@@ -94,6 +95,24 @@ export const HARNESS_MODEL_LISTS: Readonly<Record<HarnessId, HarnessModelList>> 
   fx: command(["models", "--json"], enumerateFxModels),
   omp: NO_LIST,
   "junto-overseer": NO_LIST,
+};
+
+/**
+ * Harnesses that keep named profiles, and the CLI call that lists them. The
+ * binary is the template's. Names only: never a path, a file or its contents.
+ */
+export const HARNESS_PROFILE_LISTS: Partial<Readonly<Record<HarnessId, {
+  readonly args: readonly string[];
+  readonly parse: (stdout: string) => readonly string[];
+}>>> = {
+  hermes: { args: ["profile", "list"], parse: (stdout) => parseHermesProfileList(stdout).map((row) => row.name) },
+};
+
+/** The profile names a harness lists on this machine; undefined when it keeps none. */
+export const listManagedProfiles = async (harness: HarnessId, signal?: AbortSignal): Promise<readonly string[] | undefined> => {
+  const list = HARNESS_PROFILE_LISTS[harness];
+  if (list === undefined || !managedHarnessEnabled(harness)) return undefined;
+  return list.parse(await runCommand(templateFor(harness).argvSpec.binary, list.args, signal));
 };
 
 const listModels = (
