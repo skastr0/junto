@@ -146,6 +146,15 @@ let source: HarnessMachineSource = coreHarnessMachineSource;
 
 export const harnessMachineSource = (): HarnessMachineSource => source;
 
+/**
+ * What a picker offers for a seat placed on `machine`: its answer, else the
+ * last snapshot it sent, else nothing. Never this window's own CLIs.
+ */
+export const pickerInventory = async (machine: string): Promise<MachineInventory | undefined> => {
+  const answer = await source.inventory(machine);
+  return Result.isSuccess(answer) ? answer.success : answer.failure.last?.inventory;
+};
+
 /** The inventory channel installs its source here when it lands; tests swap one in. */
 export const setHarnessMachineSource = (next: HarnessMachineSource): void => {
   source = next;

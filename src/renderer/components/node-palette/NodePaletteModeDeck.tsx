@@ -241,6 +241,7 @@ export function NodePaletteModeDeck({
             query={query}
             listLabel="Agents"
             cwd={launchContext.cwd}
+            machine={launchContext.host}
             onConfigure={configureAgent}
             cascadeDismissRef={cascadeDismissRef}
           />

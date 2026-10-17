@@ -26,6 +26,7 @@ import { paramSpec } from "@shared/harness-domain";
 import { HARNESS_RECORDS } from "@shared/harness-records";
 import { state$ } from "../../lib/state";
 import { getJuntoApi } from "../../lib/junto-api";
+import { pickerInventory } from "../../lib/harness-machine-source";
 import { useHarnessLaunchOptions } from "../../lib/harness-launch-options";
 import {
   typeaheadAccept,
@@ -291,8 +292,11 @@ export function AgentCascadeMenu({
   /** Leave the cascade (ArrowLeft / Escape from the first column) — parent restores palette focus. */
   onExit,
   onTabExit,
+  machine,
 }: {
   readonly harness: HarnessId;
+  /** Another machine the seat is placed on: its models come from its inventory. */
+  readonly machine?: string;
   readonly cwd?: string;
   readonly anchor: HTMLElement;
   readonly onConfigure: (choices: AgentConfigurationChoices) => void;
@@ -349,7 +353,15 @@ export function AgentCascadeMenu({
   useEffect(() => {
     let live = true;
     const api = getJuntoApi();
-    void api
+    if (machine !== undefined) {
+      void pickerInventory(machine).then((inventory) => {
+        if (!live) return;
+        const row = inventory?.harnesses.find((entry) => entry.harness === harness);
+        setModels(row?.installed ? row.models : []);
+        setModelSource(row?.installed && row.models.length > 0 ? "cache" : "empty");
+        setEnumeratedEfforts(row?.efforts ?? []);
+      });
+    } else void api
       ?.managedTerminalModels?.(harness)
       .then((result) => {
         if (!live) return;
@@ -360,7 +372,7 @@ export function AgentCascadeMenu({
       .catch(() => {
         if (live) setModels([]);
       });
-    if (!api?.managedTerminalModels) setModels([]);
+    if (machine === undefined && !api?.managedTerminalModels) setModels([]);
 
     if (profileFirst) {
       void api
@@ -376,7 +388,7 @@ export function AgentCascadeMenu({
     return () => {
       live = false;
     };
-  }, [harness, profileFirst]);
+  }, [harness, profileFirst, machine]);
 
   const efforts = useMemo(() => {
     if (!activeModel) return [] as readonly string[];
