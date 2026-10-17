@@ -3,7 +3,7 @@
  * and after a ring change, so the two result sets compare.
  *
  *   bun scripts/probe-ring-cost.ts --app-root DIR [--label baseline]
- *     [--seats 24] [--seconds 6] [--port 9341] [--hold 0] [--out FILE]
+ *     [--seats 24] [--seconds 6] [--port 9341] [--hold 0] [--out FILE] [--ax-as-found]
  *
  * DIR is a checkout whose `out/` is a PRODUCTION build (electron-vite build,
  * not `bun run dev`: React dev and StrictMode skew every number). The script
@@ -28,6 +28,7 @@
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { loadavg } from "node:os";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { createSandbox, destroySandbox, writeFixtureModel } from "../e2e/harness/sandbox";
@@ -45,6 +46,7 @@ const seconds = Number(arg("seconds", "6"));
 const port = Number(arg("port", "9341"));
 const holdSeconds = Number(arg("hold", "0"));
 const outPath = arg("out", "");
+const forceAxOff = !process.argv.includes("--ax-as-found");
 const CANVAS = "ring-cost";
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
@@ -135,7 +137,7 @@ writeFileSync(join(sandbox.root, "probe-hook.cjs"), HOOK);
 
 const cols = 6;
 const seats = Array.from({ length: seatCount }, (_, i) =>
-  modelSeat({ id: `ring-seat-${String(i + 1).padStart(2, "0")}`, x: 40 + (i % cols) * 260, y: 40 + Math.floor(i / cols) * 150 }),
+  modelSeat({ id: `ring-seat-${String(i + 1).padStart(2, "0")}`, x: 40 + (i % cols) * 260, y: 190 + Math.floor(i / cols) * 150 }),
 );
 // A shell that waits for `go`, prints in a tight loop until `stop`.
 const stream = modelTerminal({
@@ -143,7 +145,7 @@ const stream = modelTerminal({
   bindingId: "local:ring-stream",
   label: "stream",
   x: 40,
-  y: 40 + Math.ceil(seatCount / cols) * 150,
+  y: 40,
   launch: {
     kind: "command",
     argv: [
@@ -171,6 +173,10 @@ const child: ChildProcess = spawn(
     `--remote-debugging-port=${port}`,
     `--inspect=${inspectPort}`,
     "--mute-audio",
+    // The OS keeps the accessibility tree on for a whole session once an
+    // assistive client has asked, and the app cannot switch it back off. The
+    // renderer flag does; it is recorded in the report.
+    ...(forceAxOff ? ["--disable-renderer-accessibility"] : []),
     // Keep a window behind other windows painting (PERF_LEDGER.md); the
     // visibility check below still refuses a hidden page.
     "--disable-backgrounding-occluded-windows",
@@ -221,6 +227,7 @@ type Scenario = {
   framesDropped: number | null;
   cpuPercent: Record<string, number>;
   ringsVisible: { moving: number; marks: number };
+  loadAverage1m: { before: number; after: number };
 };
 
 try {
@@ -268,7 +275,7 @@ try {
     const visible = await page!.evaluate<string>(`document.visibilityState`);
     if (visible !== "visible") problems.push(`window not visible (${visible}): an occluded window gives 0 frames`);
     const ax = await main!.evaluate<boolean>(`__probe.app.accessibilitySupportEnabled`);
-    if (ax) problems.push("renderer accessibility tree is on");
+    if (ax && !forceAxOff) problems.push("renderer accessibility tree is on");
     return problems;
   };
 
@@ -330,6 +337,7 @@ try {
     const stopTrace = await startFrameTrace();
     const metricsBefore = await metrics();
     const cpuBefore = await processCpu();
+    const loadBefore = loadavg()[0]!;
     const t0 = performance.now();
     await drive(seconds * 1000);
     const elapsed = (performance.now() - t0) / 1000;
@@ -366,10 +374,12 @@ try {
       framesDropped: states.length === 0 ? null : states.filter((s) => s === "STATE_DROPPED").length,
       cpuPercent,
       ringsVisible: rings,
+      loadAverage1m: { before: Math.round(loadBefore * 100) / 100, after: Math.round(loadavg()[0]! * 100) / 100 },
     };
   };
 
   const preflight = await checks();
+  const streamProblems: string[] = [];
   const results: Scenario[] = [];
   results.push(await measure("idle", async (ms) => { await sleep(ms); }));
   results.push(
@@ -393,20 +403,42 @@ try {
         writeFileSync(stopFile, "");
       },
       async () => {
-        // Open the stream terminal the way a double click does.
-        await page!.evaluate(`(() => {
+        // Open the stream terminal the way an operator does: a trusted double click.
+        const rect = await page!.evaluate<{ x: number; y: number } | null>(`(() => {
           const node = document.querySelector('.react-flow__node[data-id="ring-stream"]');
-          node?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true, view: window }));
+          if (!node) return null;
+          const r = node.getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
         })()`);
-        await waitFor("the stream terminal surface", 20_000, async () =>
-          page!.evaluate<boolean>(`Boolean(document.querySelector(".native-terminal-surface"))`),
-        );
+        const opened = () => page!.evaluate<boolean>(`Boolean(document.querySelector(".native-terminal-surface, .xterm"))`);
+        if (rect) {
+          for (const clickCount of [1, 2]) {
+            const at = { x: rect.x, y: rect.y, button: "left", clickCount };
+            await page!.send("Input.dispatchMouseEvent", { type: "mousePressed", ...at });
+            await page!.send("Input.dispatchMouseEvent", { type: "mouseReleased", ...at });
+          }
+        }
+        let surface = await waitFor("the stream terminal surface", 8_000, opened).catch(() => false);
+        if (!surface) {
+          await page!.evaluate(`document.querySelector('.react-flow__node[data-id="ring-stream"]')?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true, view: window }))`);
+          surface = await waitFor("the stream terminal surface", 8_000, opened).catch(() => false);
+        }
+        if (!surface) {
+          const seen = await page!.evaluate<string>(`JSON.stringify({
+            node: Boolean(document.querySelector('.react-flow__node[data-id="ring-stream"]')),
+            rect: ${JSON.stringify(rect)},
+            topElement: (() => { const el = document.elementFromPoint(${rect?.x ?? 0}, ${rect?.y ?? 0}); return el ? el.tagName + "." + String(el.className).slice(0, 80) : null; })(),
+            classes: [...new Set([...document.querySelectorAll("[class]")].flatMap((el) => [...el.classList]).filter((c) => /term|xterm|surface|modal/i.test(c)))].slice(0, 40),
+          })`);
+          streamProblems.push(`stream terminal did not open: ${seen}`);
+        }
       },
     ),
   );
   const streamed = await page.evaluate<number>(
     `(() => { const m = window.__juntoTermScreenText; const read = m && m.values().next().value; return read ? read().split("tick").length - 1 : -1; })()`,
   );
+  results[2]!.problems.push(...streamProblems);
   if (streamed < 1) results[2]!.problems.push(`stream terminal showed no output (ticks seen: ${streamed})`);
   results[2]!.valid = results[2]!.problems.length === 0;
 
@@ -416,7 +448,7 @@ try {
     appRoot,
     command: `bun scripts/probe-ring-cost.ts --app-root ${appRoot} --label ${label} --seats ${seatCount} --seconds ${seconds} --port ${port}`,
     when: new Date().toISOString(),
-    environment: { ...environment, seats: seatCount, preflightProblems: preflight },
+    environment: { ...environment, rendererAccessibilityForcedOff: forceAxOff, seats: seatCount, preflightProblems: preflight },
     valid: results.every((row) => row.valid),
     scenarios: results,
   };
