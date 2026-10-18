@@ -57,12 +57,12 @@ You are running inside **Junto** — a collaborative workspace where coding agen
 /** Seats — durable per-agent identity on the canvas, where grants accrue. */
 export const SEAT_DOCTRINE = `## Seats
 
-A **seat** is your identity on the canvas: the node you occupy, bound to your process. The seat is durable — it persists across sessions and restarts, and it is where grants, memory, and experience accumulate over time.
+A **seat** is your identity on the canvas: the node you occupy, bound to your process. The seat is durable — it persists across restarts and fresh starts, and it is where grants, memory, and experience accumulate over time.
 
 - **Grants** come from each authored edge verb and its operator mask. A mask only removes ports. A messages edge can grant mail, prompts, waits and terminal reads${REVIEWS_ENABLED ? "; a directed reviews edge grants \`verdict.post\` only from reviewer to author" : ""}.${TASKS_ENABLED ? " Task verbs differ on claiming and authoring." : ""} \`capabilities\` gives the actual held ports; a neighboring kind alone proves no permission.
 - **Identity** is process-bind: the OS proves who you are. You cannot claim another seat, and no env var makes you someone else.
 - **Orientation** is one command: \`junto onboard\` returns your seat, role, region briefing, connected targets ${TASKS_ENABLED ? "with grants and their board contracts" : "with their grants"}, and co-members. Re-run it whenever your view may be stale.
-${TASKS_ENABLED ? "- **Rulings** are operator precedent pinned to a region. They stand over every seat inside it: `junto rulings`.\n" : ""}\n**Connection messages are informational.** When the operator changes your edges, Junto sends a short message naming what you can now reach or no longer reach. It is not a command to re-run \`onboard\`/\`capabilities\` every time. Onboard once per session, and again only when you actually need the live map to act. Idle chatter (ack-for-ack) is wasteful: acknowledge once, then stay quiet until real work or a new request arrives.`;
+${TASKS_ENABLED ? "- **Rulings** are operator precedent pinned to a region. They stand over every seat inside it: `junto rulings`.\n" : ""}\n**Connection messages are informational.** When the operator changes your edges, Junto sends a short message naming what you can now reach or no longer reach. It is not a command to re-run \`onboard\`/\`capabilities\` every time. Onboard when your seat starts fresh, and again only when you actually need the live map to act. Idle chatter (ack-for-ack) is wasteful: acknowledge once, then stay quiet until real work or a new request arrives.`;
 
 // ── Worker doctrine (base) ─────────────────────────────────────────────────
 
@@ -279,8 +279,8 @@ columns, rows, and plain text cells, returned as JSON plus a markdown table.
 There is no write port — if a number in it is wrong, say so, do not fix it.`;
 
 const BROWSER_REFERENCE = `\`browser.automate\` is a live edge grant realized by \`junto browser\` from
-the managed agent's existing shell. Existing sessions may use it immediately
-after an edge appears — re-run \`junto capabilities\` for the current command.`;
+the managed agent's existing shell. A running seat may use it as soon as the
+edge appears, with no fresh start — re-run \`junto capabilities\` for the current command.`;
 
 /** The reference prose under a family's table, for the ports the group holds. */
 const referenceFor = (group: CommandGroup): string => {
@@ -340,7 +340,7 @@ export const buildEdgeContract = (
 
 export const EDGE_CONTRACTS_INTRO = `### Edge contracts
 
-A seat is only taught the commands its edges authorize. \`junto onboard\` compiles them from the ports the seat holds on each connection and returns them under \`instructions\`; the tables below are the same commands with their reference notes. When edges change mid-session, a compact map-change notice names the added and removed targets; the live command set is always \`junto onboard\` / \`junto capabilities\`.`;
+A seat is only taught the commands its edges authorize. \`junto onboard\` compiles them from the ports the seat holds on each connection and returns them under \`instructions\`; the tables below are the same commands with their reference notes. When your edges change, a compact map-change notice names the added and removed targets; the live command set is always \`junto onboard\` / \`junto capabilities\`.`;
 
 // ── Worked examples ────────────────────────────────────────────────────────
 

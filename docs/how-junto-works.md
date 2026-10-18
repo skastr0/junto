@@ -6,9 +6,9 @@ A canvas is a named place. Nodes are agents, terminals, notes, labels, git cards
 
 ## Seats
 
-An agent node bound to a harness gets a managed terminal: a PTY running that harness's own binary in the folder you chose. Junto pins or captures the harness's session id and stores it, so the seat resumes that session, never "whatever ran last".
+An agent node bound to a harness gets a managed terminal: a PTY running that harness's own binary in the folder you chose. Junto keeps the seat's place, so after a restart or a wake the seat picks up where it was, never "whatever ran last".
 
-Each harness has a template in `src/shared/managed-terminal-templates.ts` that records how it launches, how its session is named and resumed, and which settings it exposes (model, effort, permission mode). Fidelity varies by harness and version. Inside a seat, `junto capabilities` lists every harness Junto knows and whether it is installed on your machine.
+Each harness has a template in `src/shared/managed-terminal-templates.ts` that records how it launches, how it picks up where it was, and which settings it exposes (model, effort, permission mode). Fidelity varies by harness and version. Inside a seat, `junto capabilities` lists every harness Junto knows and whether it is installed on your machine.
 
 Supported: Claude Code, Codex, Grok, Pi, Devin, Cursor Agent, Antigravity, fx, Prime Agent, Hermes, Kimi Code, Muse, Amp, and Oh My Pi.
 
