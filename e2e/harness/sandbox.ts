@@ -14,6 +14,7 @@ import { WorkModelDependentsLive } from "../../src/main/junto/work/model-depende
 import { Command } from "../../src/shared/model";
 import { modelSeedCommands, type ModelFixture } from "./model";
 import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../../src/main/junto/seat-sessions/repository";
+import type { SeatClockRecord } from "../../src/main/junto/seat-sessions/operator-offboard";
 import {
   makeStateEngineLive,
 } from "../../src/main/junto/state/engine";
@@ -221,6 +222,20 @@ export const writeFixtureUsageState = async (
            last_live_at = excluded.last_live_at,
            updated_at = excluded.updated_at`,
     ));
+  } finally {
+    await runtime.dispose();
+  }
+};
+
+/** The operator offboard clock in junto.db, as Junto saved it before it closed. */
+export const writeFixtureOffboardClock = async (sandbox: Sandbox, record: SeatClockRecord): Promise<void> => {
+  const runtime = ManagedRuntime.make(
+    makeSeatSessionRepositoryLive().pipe(
+      Layer.provide(makeStateEngineLive(join(sandbox.homeDir, ".junto", "state", "junto.db"))),
+    ),
+  );
+  try {
+    await runtime.runPromise(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.saveOffboardClock(record)));
   } finally {
     await runtime.dispose();
   }

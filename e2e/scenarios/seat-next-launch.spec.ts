@@ -16,6 +16,7 @@ import { modelFixture, modelSeat, modelSeatSession } from "../harness/model";
 import { readSeatSession } from "../harness/seat-session";
 import { terminalRows } from "../harness/term-ready";
 import { expect, launchJunto, test } from "../harness/launch";
+import { writeFixtureOffboardClock } from "../harness/sandbox";
 
 const SHOTS = join(process.cwd(), "test-results", "seat-next-launch");
 const CANVAS = "seat-next-launch";
@@ -145,17 +146,13 @@ test("a seat whose harness has a shorter cache window says fresh next at its own
       await mkdir(join(sandbox.homeDir, ".claude", "projects", "-tmp"), { recursive: true });
       await writeFile(join(sandbox.homeDir, ".claude", "projects", "-tmp", `${LONG}.jsonl`), "{}\n");
       // The clock as Junto saves it: both seats still since `movedAt`, each with a session worth cutting.
-      await mkdir(join(sandbox.homeDir, ".junto", "seats"), { recursive: true });
-      await writeFile(
-        join(sandbox.homeDir, ".junto", "seats", "offboard-clock.json"),
-        JSON.stringify({
-          savedAt: movedAt,
-          seats: {
-            [short.bindingId]: { movedAt, workMs: WORKED_MS, sessionId: SHORT },
-            [long.bindingId]: { movedAt, workMs: WORKED_MS, sessionId: LONG },
-          },
-        }),
-      );
+      await writeFixtureOffboardClock(sandbox, {
+        savedAt: movedAt,
+        seats: {
+          [short.bindingId]: { idleSince: movedAt, workMs: WORKED_MS, sessionId: SHORT },
+          [long.bindingId]: { idleSince: movedAt, workMs: WORKED_MS, sessionId: LONG },
+        },
+      });
     },
   });
   try {
@@ -263,16 +260,12 @@ test("a running seat at rest says fresh next past its window, and not while held
       await installCrewSeatHarness(sandbox);
       await mkdir(join(sandbox.homeDir, ".codex", "sessions", "2026", "10", "17"), { recursive: true });
       for (const i of seats.keys()) await rollout(sandbox.homeDir, runningSessionOf(i));
-      await mkdir(join(sandbox.homeDir, ".junto", "seats"), { recursive: true });
-      await writeFile(
-        join(sandbox.homeDir, ".junto", "seats", "offboard-clock.json"),
-        JSON.stringify({
-          savedAt: restedAt,
-          seats: Object.fromEntries(seats.map((node, i) => [node.bindingId, {
-            activitySince: restedAt - WORKED_MS, idleSince: restedAt, workMs: WORKED_MS, sessionId: runningSessionOf(i),
-          }])),
-        }),
-      );
+      await writeFixtureOffboardClock(sandbox, {
+        savedAt: restedAt,
+        seats: Object.fromEntries(seats.map((node, i) => [node.bindingId, {
+          activitySince: restedAt - WORKED_MS, idleSince: restedAt, workMs: WORKED_MS, sessionId: runningSessionOf(i),
+        }])),
+      });
     },
   });
   try {

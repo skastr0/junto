@@ -1,14 +1,12 @@
 /**
  * Operator offboard in the running app: the ports of
  * `operator-offboard.ts` bound to the canvas, the terminal plane, the
- * offboard closer, settings and disk.
+ * offboard closer, settings and the seat sessions store.
  *
  * What sets a seat's clock here is its status alone (the seat-state plane):
  * when it leaves rest and when it comes back to it. Terminal output, a typed
  * key and a repainting prompt never do.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { Effect } from "effect";
 import { agentSeatStatusOf, type AgentSeatStateEvent } from "@shared/agent-seat-state";
 import { isThisMachine } from "@shared/machine-name";
@@ -33,12 +31,10 @@ import { operatorHold } from "../term/operator-holds";
 import { termPlane } from "../term/plane";
 import { sessionSizeOf } from "../term/session-size";
 import { remoteSeatLaunchOf } from "../term/seats-client";
-import { defaultSeatsRoot, seatSessionNotesPath, writeEndedMarker } from "./notes-file";
 import {
   OFFBOARD_TICK_MS,
   SeatStatusClock,
   makeOperatorOffboard,
-  parseSeatClockRecord,
   setOperatorOffboard,
   waitsOnOperator,
   type OffboardSeat,
@@ -70,26 +66,20 @@ export type OperatorOffboardLiveInput = {
   }) => Promise<{ readonly ok: boolean; readonly error?: string }>;
   /** Product automation is switched off (quit, maintenance): the rules rest. */
   readonly suspended: () => boolean;
-  /** Where the clock is kept. Default: beside the seats' session notes. */
-  readonly clockPath?: string;
 };
 
-/** `~/.junto/seats/offboard-clock.json` */
-export const offboardClockPath = (): string => join(defaultSeatsRoot(), "offboard-clock.json");
-
-const readClock = (path: string): SeatClockRecord | undefined => {
-  try {
-    return existsSync(path) ? parseSeatClockRecord(readFileSync(path, "utf8")) : undefined;
-  } catch {
+/** The clock as last saved in junto.db; undefined when it never was or cannot be read. */
+const readClock = (run: SeatSessionRun): Promise<SeatClockRecord | undefined> =>
+  run(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.offboardClock())).catch((error: unknown) => {
+    console.error("[offboard] could not read the clock:", error);
     return undefined;
-  }
-};
+  });
 
-const writeClock = (path: string, record: SeatClockRecord): void => {
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const temporary = `${path}.${process.pid}.tmp`;
-  writeFileSync(temporary, JSON.stringify(record), { mode: 0o600 });
-  renameSync(temporary, path);
+/** Save the clock in junto.db. Best effort: the next save carries it. */
+const writeClock = (run: SeatSessionRun, record: SeatClockRecord): void => {
+  void run(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.saveOffboardClock(record))).catch(
+    (error: unknown) => console.error("[offboard] could not save the clock:", error),
+  );
 };
 
 const titleOf = (node: Node): string | undefined => {
@@ -185,10 +175,10 @@ export const patchOffboardRules = (
  * Start operator offboard for this app: restore the clock, watch seats move,
  * and run the automatic rules once a minute. Returns the stop.
  */
-export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => void) => {
+export const startOperatorOffboard = async (input: OperatorOffboardLiveInput): Promise<() => void> => {
+  const restored = await readClock(input.run);
   started = input.run;
-  const clockPath = input.clockPath ?? offboardClockPath();
-  const clock = new SeatStatusClock(() => Date.now(), readClock(clockPath));
+  const clock = new SeatStatusClock(() => Date.now(), restored);
   let rules: OffboardRules = defaultOffboardRules();
   const refreshRules = async (): Promise<void> => {
     rules = await readOffboardRules();
@@ -251,8 +241,13 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
         input.closer.asked({ seatId: seat.seatId, canvasName: seat.canvasName }, mode);
         return { ok: true };
       },
-      markEnded: (seat, sessionId, by, at) =>
-        writeEndedMarker(seatSessionNotesPath(defaultSeatsRoot(), seat.seatId, sessionId), { by, at }),
+      // Who ended it is kept on the session's row (`junto onboard` tells the
+      // next session). The session is closed either way; only the "who" can be lost.
+      markEnded: (seat, sessionId, by) => {
+        void input.run(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.markEnded(seat.seatId, sessionId, by))).catch(
+          (error: unknown) => console.error(`[offboard] could not record who ended ${sessionId} for ${seat.seatId}:`, error),
+        );
+      },
       // The session's transcript as tokens (term/session-size.ts): a stat and
       // a bounded read, never the whole file. Undefined when the transcript
       // cannot be located, and the session is then judged on work time alone.
@@ -272,7 +267,7 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
       // A seat run elsewhere: what its own machine last said, for its row only.
       remote: async (seat) =>
         seat.machine === undefined ? undefined : (await remoteSeatLaunchOf({ bindingId: seat.bindingId, host: seat.machine }))?.offboard,
-      saveClock: (record) => writeClock(clockPath, record),
+      saveClock: (record) => writeClock(input.run, record),
       log: (message) => console.info(`[offboard] ${message}`),
     },
     clock,
@@ -337,11 +332,8 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
   return () => {
     clearInterval(timer);
     offState();
-    try {
-      writeClock(clockPath, clock.record());
-    } catch {
-      // Best effort: the last tick's save stands.
-    }
+    // Best effort: the last tick's save stands.
+    writeClock(input.run, clock.record());
     setOperatorOffboard(undefined);
     if (started === input.run) started = undefined;
   };

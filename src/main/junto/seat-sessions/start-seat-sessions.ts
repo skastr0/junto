@@ -199,8 +199,8 @@ export const startSeatSessions = async (input: SeatSessionsInput): Promise<SeatS
   closer.start();
   // Operator offboard: the buttons, the overseer command and the automatic
   // rules, all through the closer just started. It restores the motionless
-  // clock from disk and looks once a minute.
-  const stopOperatorOffboard = startOperatorOffboard({
+  // clock from junto.db and looks once a minute.
+  const stopOperatorOffboard = await startOperatorOffboard({
     run,
     closer,
     sendPrompt:

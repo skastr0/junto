@@ -25,7 +25,7 @@ import { type SeatOffboardProgress } from "../../src/shared/seat-sessions";
 import { seededHarnessBinDir } from "../harness/agent-harness-fixture";
 import { crewOccupySeat, crewPlayFactory, crewSeat, crewSeatDir, crewSeatsDir, installCrewSeatHarness, type CrewSeat, type WorkEnvelope } from "../harness/crew-fixture";
 import { expect, launchJunto, test, type JuntoHandle } from "../harness/launch";
-import { type Sandbox } from "../harness/sandbox";
+import { type Sandbox, writeFixtureOffboardClock } from "../harness/sandbox";
 
 // Only [A-Za-z0-9._-] in the canvas name and node ids: the wrapper turns the
 // one ":" of JUNTO_NODE_REF into the "--" the fake names its folder with.
@@ -1111,23 +1111,17 @@ test("S5r-cli [fake-tui] the overseer's CLI closes a resting seat that had a tur
  */
 const seedStillSeat = (nodeId: string, restedMinutes: number, workMinutes: number) => async (sandbox: Sandbox): Promise<void> => {
   const now = Date.now();
-  const dir = join(sandbox.homeDir, ".junto", "seats");
-  await mkdir(dir, { recursive: true });
-  await writeFile(
-    join(dir, "offboard-clock.json"),
-    JSON.stringify({
-      savedAt: now - 60_000,
-      seats: {
-        [bindingOf(nodeId)]: {
-          activitySince: now - (restedMinutes + workMinutes) * 60_000,
-          idleSince: now - restedMinutes * 60_000,
-          workMs: workMinutes * 60_000,
-          sessionId: sessionIdOf(nodeId),
-        },
+  await writeFixtureOffboardClock(sandbox, {
+    savedAt: now - 60_000,
+    seats: {
+      [bindingOf(nodeId)]: {
+        activitySince: now - (restedMinutes + workMinutes) * 60_000,
+        idleSince: now - restedMinutes * 60_000,
+        workMs: workMinutes * 60_000,
+        sessionId: sessionIdOf(nodeId),
       },
-    }),
-    "utf8",
-  );
+    },
+  });
 };
 
 test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next, and mail starts a fresh session that onboards after the cut", async ({}, testInfo) => {
