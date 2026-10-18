@@ -295,7 +295,7 @@ function ParamsForm({ harness, stored, cwd, hasSession, lead, onDraft, footer }:
               {shown.map((flag) => {
                 const why = reserved.get(flag.flag) ?? flag.aliases.map((alias) => reserved.get(alias)).find(Boolean)
                   ?? (sessionOwns && [flag.flag, ...flag.aliases].some((name) => facts.ownedFlags.has(name))
-                    ? `the session owns this; change it in ${template.displayName}`
+                    ? `the seat picks up where it was with this; change it in ${template.displayName}`
                     : undefined);
                 return (
                   <li key={flag.flag} className="customize-params__flag" data-reserved={why ? "true" : undefined}>
@@ -321,16 +321,16 @@ function ParamsForm({ harness, stored, cwd, hasSession, lead, onDraft, footer }:
       </div>
 
       <div className="agent-editor__field">
-        <span className="agent-editor__field-label">{sessionOwns ? "resumes as" : "starts as"}</span>
+        <span className="agent-editor__field-label">{sessionOwns ? "picks up as" : "starts as"}</span>
         <code className="customize-params__preview" data-testid="seat-start-params-preview">
           {formatExtraArgs(preview)}
         </code>
         <p className="agent-editor__hint">
           {facts.matters
             ? sessionOwns
-              ? `The session keeps its saved mode and startup flags; ${template.displayName} can change them inside it.`
-              : "Junto sets the mode and startup flags when it creates the session."
-            : "Junto adds the seat's session and instructions when it starts the harness."}
+              ? `The seat picks up where it was, with its saved mode and startup flags; ${template.displayName} can change them inside it.`
+              : "Junto sets the mode and startup flags when the seat starts fresh."
+            : "Junto adds where the seat was and its instructions when it starts the harness."}
         </p>
       </div>
 
@@ -387,7 +387,7 @@ function SeatParams({
     settle();
     setNotice(
       result.restarted
-        ? "Restarted on the new parameters. The session continues."
+        ? "Restarted on the new parameters. The seat picks up where it was."
         : "Saved. The next start uses these parameters.",
     );
   };
@@ -400,9 +400,9 @@ function SeatParams({
       hasSession={hasSession}
       lead={sessionMatters
         ? hasSession
-          ? `Client options for this ${templateFor(harness).displayName} seat. Saving restarts its viewer and resumes the same session.`
-          : `Choices for this seat's next ${templateFor(harness).displayName} session. Mode and startup flags are set when it is created.`
-        : `What ${templateFor(harness).displayName} is started with on this seat. Saving restarts a running agent on the new parameters and resumes the same session.`}
+          ? `Client options for this ${templateFor(harness).displayName} seat. Saving restarts its viewer, and the seat picks up where it was.`
+          : `Choices for the next time this ${templateFor(harness).displayName} seat starts fresh. Mode and startup flags are set then.`
+        : `What ${templateFor(harness).displayName} is started with on this seat. Saving restarts a running agent on the new parameters, and it picks up where it was.`}
       footer={({ params, changed, settle }) => {
         const changeError = seatLaunchParamsChangeError(node, params, hasSession);
         return (

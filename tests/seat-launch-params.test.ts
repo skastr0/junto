@@ -294,7 +294,7 @@ describe("seat start preview", () => {
         cwd: "/tmp",
         resumesSession: true,
       }),
-    ).toEqual(["amp", "--no-ide", "threads", "continue", "<saved thread>", "--no-color"]);
+    ).toEqual(["amp", "--no-ide", "threads", "continue", "<this seat>", "--no-color"]);
   });
 
   it("previews the planned launch when no session owns the dials", () => {

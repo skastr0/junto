@@ -103,7 +103,7 @@ for (const theme of ["Dark", "Bright"] as const) {
     const preview = fresh.getByTestId("seat-start-params-preview");
     await expect(fresh.getByRole("textbox", { name: "Model", exact: true })).toHaveCount(0);
     await expect(fresh.getByRole("button", { name: "Effort", exact: true })).toHaveCount(0);
-    await expect(fresh.getByText("Choices for this seat's next Amp session. Mode and startup flags are set when it is created.", { exact: true })).toBeVisible();
+    await expect(fresh.getByText("Choices for the next time this Amp seat starts fresh. Mode and startup flags are set then.", { exact: true })).toBeVisible();
     await expect(preview).toHaveText("amp --no-ide -m low");
     await fresh.getByRole("button", { name: "Save", exact: true }).scrollIntoViewIfNeeded();
     await fresh.getByRole("button", { name: "Mode", exact: true }).click();
@@ -142,7 +142,7 @@ for (const theme of ["Dark", "Bright"] as const) {
     await expect(existing.getByRole("button", { name: /^--execute/ })).toBeDisabled();
     await expect(existing.getByRole("button", { name: /^--visibility/ })).toBeDisabled();
     await expect(existing.getByTestId("seat-start-params-preview"))
-      .toHaveText('amp --no-ide threads continue "<saved thread>"');
+      .toHaveText('amp --no-ide threads continue "<this seat>"');
     await existing.getByRole("textbox", { name: "Filter options" }).fill("features");
     await page.screenshot({ path: join(SHOTS, `${tag}-same-thread.png`) });
 
@@ -156,7 +156,7 @@ for (const theme of ["Dark", "Bright"] as const) {
     await existing.getByRole("textbox", { name: "Extra arguments" }).fill("--features plaid --no-color");
     await expect(existing.getByRole("alert")).toHaveCount(0);
     await expect(existing.getByTestId("seat-start-params-preview"))
-      .toHaveText('amp --no-ide threads continue "<saved thread>" --no-color');
+      .toHaveText('amp --no-ide threads continue "<this seat>" --no-color');
     await existing.getByRole("button", { name: "Save", exact: true }).click();
     await expect.poll(async () => {
       const node = await readSeat(page, "amp-existing");
