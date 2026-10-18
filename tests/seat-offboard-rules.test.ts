@@ -1,7 +1,8 @@
 /**
- * The offboard rules: defaults, per-harness overrides, and the two checks
- * that tie them to the cache window. Also where they are stored (installation
- * settings) and the marker that records who ended a session without notes.
+ * The offboard rules: the cache window, the one setting, per machine and per
+ * harness. Also where they are stored (installation settings), how rules
+ * saved before the window was the one rule load, and the marker that records
+ * who ended a session without notes.
  */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,10 +10,11 @@ import { join } from "node:path";
 import { Result, Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  DEFAULT_OFFBOARD_RULES,
+  DEFAULT_CACHE_WINDOW_MINUTES,
   OFFBOARD_MINUTES_MAX,
   OFFBOARD_REFUSAL_CODES,
   OFFBOARD_REFUSAL_REASON,
+  OFFBOARD_WORTH,
   OffboardRules,
   OffboardRulesPatch,
   applyOffboardRulesPatch,
@@ -21,11 +23,11 @@ import {
   offboardRulesProblem,
   sessionWorthCutting,
   summarizeOffboardRun,
-  type OffboardRules as OffboardRulesType,
   wholeMinutesBetween,
 } from "../src/shared/seat-offboard";
-import { applySettingsPatch, defaultSettings, offboardRules } from "../src/shared/settings";
+import { SETTINGS_VERSION, applySettingsPatch, defaultSettings, offboardRules } from "../src/shared/settings";
 import { applyAndValidatePatch, decodePatchInput } from "../src/main/junto/settings/patch";
+import { decodeStoredSettings, preferencesFromSettings } from "../src/main/junto/settings/state-schema";
 import {
   endedPathOf,
   readEndedMarker,
@@ -34,109 +36,65 @@ import {
 } from "../src/main/junto/seat-sessions/notes-file";
 
 describe("offboard rules", () => {
-  it("default to: cache window 60, auto offboard on at 120, idle nudge off at 40", () => {
-    expect(defaultOffboardRules()).toEqual({
-      cacheWindowMinutes: 60,
-      auto: { enabled: true, minutes: 120 },
-      nudge: { enabled: false, minutes: 40 },
-      worth: { workMinutes: 30, tokens: 200_000 },
-    });
-    expect(offboardRulesProblem(DEFAULT_OFFBOARD_RULES)).toBeUndefined();
+  it("default to one cache window of 60 minutes, with no per-harness windows", () => {
+    expect(defaultOffboardRules()).toEqual({ cacheWindowMinutes: 60 });
+    expect(DEFAULT_CACHE_WINDOW_MINUTES).toBe(60);
+    expect(offboardRulesProblem(defaultOffboardRules())).toBeUndefined();
     // A fresh copy each time: nobody edits the shared default.
     expect(defaultOffboardRules()).not.toBe(defaultOffboardRules());
-    expect(offboardRules(undefined)).toEqual(DEFAULT_OFFBOARD_RULES);
-    expect(offboardRules(defaultSettings())).toEqual(DEFAULT_OFFBOARD_RULES);
+    expect(offboardRules(undefined)).toEqual(defaultOffboardRules());
+    expect(offboardRules(defaultSettings())).toEqual(defaultOffboardRules());
   });
 
-  it("the idle nudge must come before the cache window, even while it is off", () => {
-    const at = applyOffboardRulesPatch(defaultOffboardRules(), { nudge: { minutes: 60 } });
-    expect(at.nudge.enabled).toBe(false);
-    expect(offboardRulesProblem(at)).toBe(
-      "The idle nudge must come before the cache window (60 min): it asks the agent for a turn, which is only cheap while the cache is warm.",
-    );
-    expect(offboardRulesProblem(applyOffboardRulesPatch(defaultOffboardRules(), { nudge: { minutes: 59 } }))).toBeUndefined();
-  });
-
-  it("the auto offboard must come at or after the cache window", () => {
-    const early = applyOffboardRulesPatch(defaultOffboardRules(), { auto: { minutes: 59 } });
-    expect(offboardRulesProblem(early)).toBe(
-      "The auto offboard must come at or after the cache window (60 min): before that the session is still cheap to continue.",
-    );
-    expect(offboardRulesProblem(applyOffboardRulesPatch(defaultOffboardRules(), { auto: { minutes: 60 } }))).toBeUndefined();
-    // Moving the window alone can break either rule.
-    expect(offboardRulesProblem(applyOffboardRulesPatch(defaultOffboardRules(), { cacheWindowMinutes: 30 }))).toContain("idle nudge");
-    expect(offboardRulesProblem(applyOffboardRulesPatch(defaultOffboardRules(), { cacheWindowMinutes: 180 }))).toContain("auto offboard");
-  });
-
-  it("minutes are whole numbers from 1 to seven days", () => {
+  it("a cache window is a whole number of minutes from 1 to seven days, and any such window can be saved", () => {
     const decode = Schema.decodeUnknownResult(OffboardRules);
-    expect(Result.isSuccess(decode({ ...DEFAULT_OFFBOARD_RULES, nudge: { enabled: false, minutes: 1 } }))).toBe(true);
-    for (const minutes of [0, -5, 1.5, OFFBOARD_MINUTES_MAX + 1]) {
-      expect(Result.isFailure(decode({ ...DEFAULT_OFFBOARD_RULES, auto: { enabled: true, minutes } }))).toBe(true);
-      expect(offboardRulesProblem({ ...DEFAULT_OFFBOARD_RULES, cacheWindowMinutes: minutes })).toContain(
-        "whole number of minutes, from 1 to 10080",
-      );
+    for (const minutes of [1, 5, 60, 180, OFFBOARD_MINUTES_MAX]) {
+      expect(Result.isSuccess(decode({ cacheWindowMinutes: minutes }))).toBe(true);
+      expect(offboardRulesProblem({ cacheWindowMinutes: minutes })).toBeUndefined();
     }
+    for (const minutes of [0, -5, 1.5, OFFBOARD_MINUTES_MAX + 1]) {
+      expect(Result.isFailure(decode({ cacheWindowMinutes: minutes }))).toBe(true);
+      expect(offboardRulesProblem({ cacheWindowMinutes: minutes })).toContain("whole number of minutes, from 1 to 10080");
+    }
+    expect(offboardRulesProblem({ cacheWindowMinutes: 60, harness: { codex: { cacheWindowMinutes: 0 } } })).toBe(
+      "The cache window for codex must be a whole number of minutes, from 1 to 10080.",
+    );
     expect(OFFBOARD_MINUTES_MAX).toBe(10080);
   });
 
-  it("a harness override changes only what it names, for that harness only", () => {
-    const rules = applyOffboardRulesPatch(defaultOffboardRules(), {
-      harness: { codex: { cacheWindowMinutes: 10, nudge: { minutes: 5 }, auto: { minutes: 15 } } },
-    });
+  it("a harness window applies to that harness only; worth is the internal guard for every seat", () => {
+    const rules = applyOffboardRulesPatch(defaultOffboardRules(), { harness: { codex: { cacheWindowMinutes: 10 } } });
     expect(offboardRulesProblem(rules)).toBeUndefined();
-    expect(offboardRulesFor(rules, "codex")).toEqual({
-      cacheWindowMinutes: 10,
-      auto: { enabled: true, minutes: 15 },
-      nudge: { enabled: false, minutes: 5 },
-      worth: { workMinutes: 30, tokens: 200_000 },
-    });
-    expect(offboardRulesFor(rules, "claude")).toEqual(DEFAULT_OFFBOARD_RULES);
-    expect(offboardRulesFor(rules, undefined)).toEqual(DEFAULT_OFFBOARD_RULES);
-    expect(offboardRulesFor(rules, "not-a-harness")).toEqual(DEFAULT_OFFBOARD_RULES);
+    expect(offboardRulesFor(rules, "codex")).toEqual({ cacheWindowMinutes: 10, worth: OFFBOARD_WORTH });
+    for (const harness of ["claude", undefined, "not-a-harness"]) {
+      expect(offboardRulesFor(rules, harness)).toEqual({ cacheWindowMinutes: 60, worth: OFFBOARD_WORTH });
+    }
+    expect(OFFBOARD_WORTH).toEqual({ workMinutes: 30, tokens: 200_000 });
   });
 
-  it("an override is checked against the installation values it does not replace", () => {
-    // A short window for one harness leaves the installation's 40 min nudge outside it.
-    const rules = applyOffboardRulesPatch(defaultOffboardRules(), {
-      harness: { codex: { cacheWindowMinutes: 10 } },
-    });
-    expect(offboardRulesProblem(rules)).toBe(
-      "The idle nudge for codex must come before the cache window (10 min): it asks the agent for a turn, which is only cheap while the cache is warm.",
-    );
-  });
-
-  it("a patch merges into an override, null removes it, and an emptied one disappears", () => {
+  it("a patch sets a harness window, null removes it, and an emptied map disappears", () => {
     let rules = applyOffboardRulesPatch(defaultOffboardRules(), {
-      harness: { codex: { nudge: { minutes: 20 } }, claude: { auto: { enabled: false } } },
+      harness: { codex: { cacheWindowMinutes: 10 }, pi: { cacheWindowMinutes: 5 } },
     });
-    rules = applyOffboardRulesPatch(rules, { harness: { codex: { nudge: { enabled: true } } } });
-    expect(rules.harness).toEqual({
-      codex: { nudge: { minutes: 20, enabled: true } },
-      claude: { auto: { enabled: false } },
-    });
-    rules = applyOffboardRulesPatch(rules, { harness: { codex: null } });
-    expect(rules.harness).toEqual({ claude: { auto: { enabled: false } } });
-    rules = applyOffboardRulesPatch(rules, { harness: { claude: null, grok: {} } });
-    expect(rules).toEqual(DEFAULT_OFFBOARD_RULES);
+    rules = applyOffboardRulesPatch(rules, { cacheWindowMinutes: 90, harness: { codex: { cacheWindowMinutes: 20 } } });
+    expect(rules).toEqual({ cacheWindowMinutes: 90, harness: { codex: { cacheWindowMinutes: 20 }, pi: { cacheWindowMinutes: 5 } } });
+    rules = applyOffboardRulesPatch(rules, { harness: { codex: null, pi: null } });
+    expect(rules).toEqual({ cacheWindowMinutes: 90 });
     expect("harness" in rules).toBe(false);
-    expect(Result.isSuccess(Schema.decodeUnknownResult(OffboardRulesPatch)({ harness: { codex: null } }))).toBe(true);
+    const decode = Schema.decodeUnknownResult(OffboardRulesPatch);
+    expect(Result.isSuccess(decode({ harness: { codex: null } }))).toBe(true);
+    // A harness entry in a patch sets a window; an empty one sets nothing and is refused.
+    expect(Result.isFailure(decode({ harness: { codex: {} } }))).toBe(true);
+  });
+
+  it("an override saved without a window sets nothing, and the next change drops it", () => {
+    const rules: OffboardRules = { cacheWindowMinutes: 60, harness: { claude: {} } };
+    expect(offboardRulesFor(rules, "claude").cacheWindowMinutes).toBe(60);
+    expect(applyOffboardRulesPatch(rules, {})).toEqual({ cacheWindowMinutes: 60 });
   });
 });
 
-describe("worth cutting thresholds", () => {
-  it("default to 30 minutes of work or about 200,000 tokens, and rules saved before them read as the defaults", () => {
-    const old: OffboardRulesType = {
-      cacheWindowMinutes: 60,
-      auto: { enabled: true, minutes: 120 },
-      nudge: { enabled: false, minutes: 40 },
-    };
-    expect(Result.isSuccess(Schema.decodeUnknownResult(OffboardRules)(old))).toBe(true);
-    expect(offboardRulesProblem(old)).toBeUndefined();
-    expect(offboardRulesFor(old, "claude").worth).toEqual({ workMinutes: 30, tokens: 200_000 });
-    expect(applyOffboardRulesPatch(old, {}).worth).toEqual({ workMinutes: 30, tokens: 200_000 });
-  });
-
+describe("worth cutting", () => {
   it("a session qualifies on either measure, never with no work, and an unknown size does not count", () => {
     const worth = { workMinutes: 30, tokens: 200_000 };
     const MINUTE = 60_000;
@@ -147,60 +105,47 @@ describe("worth cutting thresholds", () => {
     expect(sessionWorthCutting(worth, { workMs: 0, tokens: 5_000_000 })).toBe(false);
     expect(sessionWorthCutting(worth, { workMs: MINUTE })).toBe(false);
   });
-
-  it("are changed by a patch, per installation and per harness, within their ranges", () => {
-    let rules = applyOffboardRulesPatch(defaultOffboardRules(), { worth: { tokens: 150_000 } });
-    expect(rules.worth).toEqual({ workMinutes: 30, tokens: 150_000 });
-    rules = applyOffboardRulesPatch(rules, { harness: { codex: { worth: { workMinutes: 10 } } } });
-    expect(offboardRulesFor(rules, "codex").worth).toEqual({ workMinutes: 10, tokens: 150_000 });
-    expect(offboardRulesFor(rules, "claude").worth).toEqual({ workMinutes: 30, tokens: 150_000 });
-    expect(offboardRulesProblem(rules)).toBeUndefined();
-    const decode = Schema.decodeUnknownResult(OffboardRulesPatch);
-    expect(Result.isFailure(decode({ worth: { tokens: 999 } }))).toBe(true);
-    expect(Result.isFailure(decode({ worth: { tokens: 100_000_001 } }))).toBe(true);
-    expect(Result.isFailure(decode({ worth: { workMinutes: 0 } }))).toBe(true);
-    expect(Result.isSuccess(decode({ worth: { tokens: 1_000, workMinutes: 1 } }))).toBe(true);
-    expect(offboardRulesProblem({ ...defaultOffboardRules(), worth: { workMinutes: 30, tokens: 10 } })).toBe(
-      "The session size that makes a session worth cutting must be a whole number of tokens, from 1000 to 100000000.",
-    );
-    expect(offboardRulesProblem({ ...defaultOffboardRules(), worth: { workMinutes: 0, tokens: 200_000 } })).toContain(
-      "The work time that makes a session worth cutting must be a whole number of minutes",
-    );
-  });
 });
 
 describe("offboard rules in installation settings", () => {
   it("a settings patch changes them and leaves every other section alone", () => {
     const current = defaultSettings();
-    const next = applySettingsPatch(current, { offboard: { nudge: { enabled: true, minutes: 30 } } });
-    expect(next.offboard).toEqual({
-      cacheWindowMinutes: 60,
-      auto: { enabled: true, minutes: 120 },
-      nudge: { enabled: true, minutes: 30 },
-      worth: { workMinutes: 30, tokens: 200_000 },
-    });
+    const next = applySettingsPatch(current, { offboard: { cacheWindowMinutes: 30, harness: { pi: { cacheWindowMinutes: 5 } } } });
+    expect(next.offboard).toEqual({ cacheWindowMinutes: 30, harness: { pi: { cacheWindowMinutes: 5 } } });
     expect({ ...next, offboard: undefined }).toEqual({ ...current, offboard: undefined });
   });
 
-  it("main refuses a patch that breaks a rule, with the shared sentence", () => {
-    const patch = decodePatchInput({ offboard: { auto: { minutes: 30 } } });
-    expect(Result.isSuccess(patch)).toBe(true);
-    if (!Result.isSuccess(patch)) return;
-    const applied = applyAndValidatePatch(defaultSettings(), patch.success);
-    expect(Result.isFailure(applied)).toBe(true);
-    if (!Result.isFailure(applied)) return;
-    expect(applied.failure.code).toBe("validation");
-    expect(applied.failure.message).toBe(
-      "The auto offboard must come at or after the cache window (60 min): before that the session is still cheap to continue.",
-    );
-    const fine = applyAndValidatePatch(defaultSettings(), { offboard: { auto: { enabled: false } } });
-    expect(Result.isSuccess(fine)).toBe(true);
+  it("main saves any window in range, and refuses minutes outside it and the retired fields at decode", () => {
+    for (const offboard of [{ cacheWindowMinutes: 5 }, { cacheWindowMinutes: 600 }]) {
+      const patch = decodePatchInput({ offboard });
+      expect(Result.isSuccess(patch)).toBe(true);
+      if (!Result.isSuccess(patch)) return;
+      expect(Result.isSuccess(applyAndValidatePatch(defaultSettings(), patch.success))).toBe(true);
+    }
+    expect(Result.isFailure(decodePatchInput({ offboard: { cacheWindowMinutes: 0 } }))).toBe(true);
+    expect(Result.isFailure(decodePatchInput({ offboard: { cacheWindowMinutes: 2.5 } }))).toBe(true);
+    expect(Result.isFailure(decodePatchInput({ offboard: { auto: { minutes: 120 } } }))).toBe(true);
+    expect(Result.isFailure(decodePatchInput({ offboard: { nudge: { enabled: true } } }))).toBe(true);
+    expect(Result.isFailure(decodePatchInput({ offboard: { worth: { tokens: 1_000 } } }))).toBe(true);
   });
 
-  it("refuses minutes outside the range at decode, and unknown fields", () => {
-    expect(Result.isFailure(decodePatchInput({ offboard: { auto: { minutes: 0 } } }))).toBe(true);
-    expect(Result.isFailure(decodePatchInput({ offboard: { auto: { minutes: 2.5 } } }))).toBe(true);
-    expect(Result.isFailure(decodePatchInput({ offboard: { idleNudge: { on: true } } }))).toBe(true);
+  it("rules saved with the auto offboard, the idle nudge and worth load as their window, and save clean", () => {
+    const stored = {
+      ...preferencesFromSettings(defaultSettings()),
+      offboard: {
+        cacheWindowMinutes: 45,
+        auto: { enabled: true, minutes: 120 },
+        nudge: { enabled: true, minutes: 30 },
+        worth: { workMinutes: 10, tokens: 50_000 },
+        harness: { codex: { cacheWindowMinutes: 10, auto: { minutes: 15 } }, claude: { nudge: { enabled: false } } },
+      },
+    };
+    const settings = decodeStoredSettings(SETTINGS_VERSION, stored, defaultSettings().machine);
+    expect(settings.offboard).toEqual({ cacheWindowMinutes: 45, harness: { codex: { cacheWindowMinutes: 10 }, claude: {} } });
+    expect(offboardRulesFor(offboardRules(settings), "codex").cacheWindowMinutes).toBe(10);
+    expect(offboardRulesFor(offboardRules(settings), "claude").cacheWindowMinutes).toBe(45);
+    // The next persist writes the row clean.
+    expect(preferencesFromSettings(settings).offboard).toEqual(settings.offboard);
   });
 });
 

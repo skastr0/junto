@@ -39,7 +39,7 @@ import { join } from "node:path";
 import type { Page, TestInfo } from "@playwright/test";
 import type { AgentSeatStateEvent } from "../../src/shared/agent-seat-state";
 import type { Seat } from "../../src/shared/model";
-import { DEFAULT_OFFBOARD_RULES, OFFBOARD_REFUSAL_REASON } from "../../src/shared/seat-offboard";
+import { defaultOffboardRules, OFFBOARD_REFUSAL_REASON, OFFBOARD_WORTH } from "../../src/shared/seat-offboard";
 import { composeOffboardAsk } from "../../src/shared/seat-sessions";
 import type { TerminalSessionSummary } from "../../src/shared/terminal";
 import {
@@ -63,17 +63,22 @@ const soft = expect.configure({ soft: true });
 
 // The walk's literals, as the CLI team wrote them. Compared once to what the
 // shared modules export, so a drift in either is named at the top of the run.
-const WALK_RULES = {
-  cacheWindowMinutes: 60,
-  auto: { enabled: true, minutes: 120 },
-  nudge: { enabled: false, minutes: 40 },
-  worth: { workMinutes: 30, tokens: 200_000 },
-} as const;
+/** The one setting: the cache window, per installation and per harness. */
+const WALK_RULES = { cacheWindowMinutes: 60 } as const;
+/** The worth guard every effective view carries: the product's, not a setting. */
+const WALK_WORTH = { workMinutes: 30, tokens: 200_000 } as const;
 const WALK_WORKING = "This seat is working. Offboard now only closes a seat that is idle, not running or resting.";
 const WALK_NOT_A_SEAT = "Junto could not find that seat.";
 const WALK_ASK_OPENS = "The operator asks you to offboard and continue in a fresh session.";
-const WALK_NUDGE_REFUSAL =
-  "The idle nudge must come before the cache window (60 min): it asks the agent for a turn, which is only cheap while the cache is warm.";
+/**
+ * A window out of range never reaches main: the CLI's own decode of the patch
+ * (shared/overseer-control.ts decodeOverseerArgs, the Minutes schema in
+ * shared/seat-offboard.ts) refuses it, naming the field and the bound.
+ */
+const OUT_OF_RANGE_AT = '["cacheWindowMinutes"]';
+const OUT_OF_RANGE_WHY = "greater than or equal to 1";
+/** A retired rule is an unknown key to the patch, refused at the same decode. */
+const RETIRED_AT = '["nudge"]';
 /** What a seat without the grant hears (main/junto/work/control.ts:3389). */
 const NOT_AN_OVERSEER = "only a human-enabled overseer seat may administer the canvas";
 /** Why `mode` is refused with `now` (shared/overseer-control.ts:692). */
@@ -160,11 +165,16 @@ type Ran = {
 
 type RuleSet = {
   readonly cacheWindowMinutes?: unknown;
-  readonly auto?: { readonly enabled?: unknown; readonly minutes?: unknown };
-  readonly nudge?: { readonly enabled?: unknown; readonly minutes?: unknown };
-  readonly worth?: { readonly workMinutes?: unknown; readonly tokens?: unknown };
   readonly harness?: Record<string, unknown>;
 };
+
+/** One harness's entry in `data.effective`: the window it runs on, and the worth guard. */
+type EffectiveSet = {
+  readonly cacheWindowMinutes?: unknown;
+  readonly worth?: { readonly workMinutes?: unknown; readonly tokens?: unknown };
+};
+
+const effectiveOf = (cacheWindowMinutes: number): EffectiveSet => ({ cacheWindowMinutes, worth: WALK_WORTH });
 
 // ===========================================================================
 
@@ -173,7 +183,8 @@ test("[fake-tui] the overseer's offboard commands: rules, status, now, ask, a re
   if (!CLI_BUILT) throw new Error(CLI_MISSING);
 
   // The walk's words and the product's, compared once.
-  expect(DEFAULT_OFFBOARD_RULES, "the walk's default rules are the product's (shared/seat-offboard.ts DEFAULT_OFFBOARD_RULES)").toEqual(WALK_RULES);
+  expect(defaultOffboardRules(), "the walk's default rules are the product's (shared/seat-offboard.ts defaultOffboardRules)").toEqual(WALK_RULES);
+  expect(OFFBOARD_WORTH, "the walk's worth guard is the product's (shared/seat-offboard.ts OFFBOARD_WORTH)").toEqual(WALK_WORTH);
   expect(OFFBOARD_REFUSAL_REASON.working, "the walk's working sentence is the product's").toBe(WALK_WORKING);
   expect(OFFBOARD_REFUSAL_REASON["not-a-seat"], "the walk's not-a-seat sentence is the product's").toBe(WALK_NOT_A_SEAT);
   expect(composeOffboardAsk("continue").split("\n")[0], "the walk's continue prompt opens as the product's does").toBe(WALK_ASK_OPENS);
@@ -225,12 +236,6 @@ test("[fake-tui] the overseer's offboard commands: rules, status, now, ask, a re
     soft(ran.err?.ok, `step ${step}: stderr is a failure envelope: ${ran.result.stderr.trim().slice(0, 400)}`).toBe(false);
     soft(ran.out, `step ${step}: nothing printed on stdout: ${ran.result.stdout.trim().slice(0, 400)}`).toBeUndefined();
   };
-  const baseOf = (set: RuleSet | undefined): unknown => ({
-    cacheWindowMinutes: set?.cacheWindowMinutes,
-    auto: set?.auto,
-    nudge: set?.nudge,
-    worth: set?.worth,
-  });
 
   try {
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
@@ -277,11 +282,11 @@ test("[fake-tui] the overseer's offboard commands: rules, status, now, ask, a re
     const rules1 = s1.data.rules as RuleSet | undefined;
     soft(rules1, "step 1: data.rules are the defaults, with no harness key").toEqual(WALK_RULES);
     soft(rules1 !== undefined && "harness" in rules1, "step 1: data.rules has no harness key").toBe(false);
-    const effective1 = (s1.data.effective ?? {}) as Record<string, RuleSet>;
+    const effective1 = (s1.data.effective ?? {}) as Record<string, EffectiveSet>;
     soft(Object.keys(effective1).length, "step 1: data.effective has an entry per harness the build offers").toBeGreaterThan(0);
     soft(Object.keys(effective1), "step 1: codex and claude are among them").toEqual(expect.arrayContaining(["codex", "claude"]));
     for (const [harness, set] of Object.entries(effective1)) {
-      soft(set, `step 1: data.effective.${harness} equals the base rules`).toEqual(WALK_RULES);
+      soft(set, `step 1: data.effective.${harness} is the base window, with the worth guard`).toEqual(effectiveOf(60));
     }
 
     // ── 2. offboard-status ─────────────────────────────────────────────────
@@ -360,74 +365,65 @@ test("[fake-tui] the overseer's offboard commands: rules, status, now, ask, a re
     soft(await i.stdinLog(), "step 6: nothing reached I").toBe(iInputBefore6);
     soft(isLive(await sessionOf(page, I.id)), "step 6: I was not started or stopped by it").toBe(iLiveBefore6);
 
-    // ── 7. offboard-configure: two fields ──────────────────────────────────
-    const s7 = await run("7", o, ["overseer", "agent", "offboard-configure", input({ auto: { minutes: 180 }, worth: { workMinutes: 20 } })]);
+    // ── 7. offboard-configure: the cache window ───────────────────────────
+    const s7 = await run("7", o, ["overseer", "agent", "offboard-configure", input({ cacheWindowMinutes: 90 })]);
     expectPass("7", s7, "overseer agent offboard-configure");
-    const expected7 = {
-      cacheWindowMinutes: 60,
-      auto: { enabled: true, minutes: 180 },
-      nudge: { enabled: false, minutes: 40 },
-      worth: { workMinutes: 20, tokens: 200_000 },
-    };
+    const expected7 = { cacheWindowMinutes: 90 };
     const rules7 = s7.data.rules as RuleSet | undefined;
-    soft(rules7?.auto?.minutes, "step 7: auto.minutes").toBe(180);
-    soft(rules7?.worth, "step 7: worth").toEqual({ workMinutes: 20, tokens: 200_000 });
-    soft(rules7, "step 7: everything else as in step 1, and no harness key").toEqual(expected7);
-    // The Offboard settings page shows them.
+    soft(rules7?.cacheWindowMinutes, "step 7: cacheWindowMinutes").toBe(90);
+    soft(rules7, "step 7: the one setting, and no harness key").toEqual(expected7);
+    const effective7 = (s7.data.effective ?? {}) as Record<string, EffectiveSet>;
+    soft(Object.keys(effective7), "step 7: data.effective lists the same harnesses as step 1").toEqual(Object.keys(effective1));
+    for (const [harness, set] of Object.entries(effective7)) {
+      soft(set, `step 7: data.effective.${harness} follows the new window`).toEqual(effectiveOf(90));
+    }
+    // The Offboard settings page shows it.
     await page.getByRole("button", { name: "Open settings" }).click();
     await page.locator(".settings-nav__item", { hasText: "Offboard" }).click();
     const settings = page.getByTestId("offboard-settings");
     await soft(settings, "step 7: the Offboard settings page opens").toBeVisible({ timeout: 10_000 });
-    await soft(settings.getByTestId("offboard-auto-minutes"), "step 7: Settings shows the auto offboard at 180").toHaveValue("180", { timeout: 10_000 });
-    await soft(settings.getByTestId("offboard-worth-work"), "step 7: Settings shows the work time at 20").toHaveValue("20", { timeout: 10_000 });
-    await soft(settings.getByTestId("offboard-cache-window"), "step 7: the cache window is untouched").toHaveValue("60");
-    await soft(settings.getByTestId("offboard-nudge-minutes"), "step 7: the idle nudge is untouched").toHaveValue("40");
-    await soft(settings.getByTestId("offboard-worth-tokens"), "step 7: the session size is untouched").toHaveValue("200000");
+    await soft(settings.getByTestId("offboard-cache-window"), "step 7: Settings shows the cache window at 90").toHaveValue("90", { timeout: 10_000 });
+    await soft(settings.locator("input[type='number']"), "step 7: the cache window is the only field").toHaveCount(1);
+    await soft(settings.locator(".offboard-settings__harness"), "step 7: no harness has a window of its own").toHaveCount(0);
     await shot("7-settings-offboard");
     await page.locator(".settings-panel__close").click();
 
-    // ── 8. a change the rules refuse, and nothing is saved ────────────────
-    const s8 = await run("8a", o, ["overseer", "agent", "offboard-configure", input({ nudge: { minutes: 60 } })]);
-    expectError("8", s8);
-    soft(s8.error.type, "step 8: error.type").toBe("InvalidArguments");
-    soft(s8.error.message, "step 8: error.message").toBe(WALK_NUDGE_REFUSAL);
-    const s8b = await run("8b", o, ["overseer", "agent", "offboard-rules"]);
-    expectPass("8 (rules again)", s8b, "overseer agent offboard-rules");
-    soft(s8b.data.rules, "step 8: the rules are exactly as step 7 left them").toEqual(expected7);
+    // ── 8. changes the rules refuse, and nothing is saved ─────────────────
+    // A window out of range, then a rule that is no longer one. Both are refused by the CLI's own decode.
+    const s8 = await run("8a", o, ["overseer", "agent", "offboard-configure", input({ cacheWindowMinutes: 0 })]);
+    expectError("8a", s8);
+    soft(s8.error.type, "step 8a: an InputError").toBe("InputError");
+    soft(String(s8.error.message ?? ""), "step 8a: it names the field").toContain(OUT_OF_RANGE_AT);
+    soft(String(s8.error.message ?? ""), "step 8a: and the bound").toContain(OUT_OF_RANGE_WHY);
+    const s8b = await run("8b", o, ["overseer", "agent", "offboard-configure", input({ nudge: { minutes: 60 } })]);
+    expectError("8b", s8b);
+    soft(s8b.error.type, "step 8b: an InputError").toBe("InputError");
+    soft(String(s8b.error.message ?? ""), "step 8b: the idle nudge is an unknown key").toContain(RETIRED_AT);
+    const s8c = await run("8c", o, ["overseer", "agent", "offboard-rules"]);
+    expectPass("8 (rules again)", s8c, "overseer agent offboard-rules");
+    soft(s8c.data.rules, "step 8: the rules are exactly as step 7 left them").toEqual(expected7);
 
-    // ── 9. an override for one harness, then everything back ──────────────
-    const s9 = await run("9a", o, [
-      "overseer",
-      "agent",
-      "offboard-configure",
-      input({ harness: { claude: { cacheWindowMinutes: 300, auto: { minutes: 300 } } } }),
-    ]);
+    // ── 9. a window for one harness, then everything back ─────────────────
+    const s9 = await run("9a", o, ["overseer", "agent", "offboard-configure", input({ harness: { claude: { cacheWindowMinutes: 300 } } })]);
     expectPass("9", s9, "overseer agent offboard-configure");
-    soft((s9.data.rules as RuleSet | undefined)?.harness?.claude, "step 9: data.rules.harness.claude is the override").toEqual({
-      cacheWindowMinutes: 300,
-      auto: { minutes: 300 },
-    });
-    const effective9 = (s9.data.effective ?? {}) as Record<string, RuleSet>;
-    soft(effective9.claude?.cacheWindowMinutes, "step 9: claude's cache window").toBe(300);
-    soft(effective9.claude?.auto?.minutes, "step 9: claude's auto offboard").toBe(300);
-    soft(baseOf(effective9.claude), "step 9: claude differs from the installation's rules").not.toEqual(expected7);
-    const untouched = Object.entries(effective9).filter(
-      ([harness, set]) => harness !== "claude" && set.cacheWindowMinutes === 60 && set.auto?.minutes === 180,
-    );
-    soft(untouched.length, `step 9: another harness still has 60 and 180 (${Object.keys(effective9).join(", ")})`).toBeGreaterThan(0);
-    for (const [harness, set] of Object.entries(effective9)) {
-      if (harness !== "claude") soft(baseOf(set), `step 9: ${harness} is not touched by claude's override`).toEqual(expected7);
+    const rules9 = s9.data.rules as RuleSet | undefined;
+    soft(rules9?.harness?.claude, "step 9: data.rules.harness.claude is the override").toEqual({ cacheWindowMinutes: 300 });
+    soft(rules9?.cacheWindowMinutes, "step 9: the installation's window is untouched").toBe(90);
+    const effective9 = (s9.data.effective ?? {}) as Record<string, EffectiveSet>;
+    soft(effective9.claude, "step 9: claude runs on its own window").toEqual(effectiveOf(300));
+    const others9 = Object.entries(effective9).filter(([harness]) => harness !== "claude");
+    soft(others9.length, `step 9: another harness is listed (${Object.keys(effective9).join(", ")})`).toBeGreaterThan(0);
+    for (const [harness, set] of others9) {
+      soft(set, `step 9: ${harness} is not touched by claude's window`).toEqual(effectiveOf(90));
     }
-    const s9b = await run("9b", o, [
-      "overseer",
-      "agent",
-      "offboard-configure",
-      input({ harness: { claude: null }, auto: { minutes: 120 }, worth: { workMinutes: 30 } }),
-    ]);
+    const s9b = await run("9b", o, ["overseer", "agent", "offboard-configure", input({ harness: { claude: null }, cacheWindowMinutes: 60 })]);
     expectPass("9 (restore)", s9b, "overseer agent offboard-configure");
     const rules9b = s9b.data.rules as RuleSet | undefined;
     soft(rules9b, "step 9: the rules are step 1's again").toEqual(WALK_RULES);
     soft(rules9b !== undefined && "harness" in rules9b, "step 9: with no harness key").toBe(false);
+    for (const [harness, set] of Object.entries((s9b.data.effective ?? {}) as Record<string, EffectiveSet>)) {
+      soft(set, `step 9: ${harness} is back on the base window`).toEqual(effectiveOf(60));
+    }
 
     // ── 10. a seat without the grant ───────────────────────────────────────
     const s10 = await run("10", n, ["overseer", "agent", "offboard-rules"]);

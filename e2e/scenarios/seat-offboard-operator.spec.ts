@@ -11,8 +11,12 @@ import type { Node, Seat, Wire } from "../../src/shared/model";
 import type { ModelFixture } from "../harness/model";
 import { templateFor, type HarnessId } from "../../src/shared/managed-terminal-templates";
 import {
-  DEFAULT_OFFBOARD_RULES,
+  DEFAULT_CACHE_WINDOW_MINUTES,
+  defaultOffboardRules,
+  OFFBOARD_MINUTES_MAX,
+  OFFBOARD_MINUTES_MIN,
   OFFBOARD_REFUSAL_REASON,
+  OFFBOARD_WORTH,
   type OffboardRules,
   type OffboardRulesPatch,
   type SeatOffboardStatus,
@@ -47,12 +51,14 @@ const LINE_ASKED_REST = "Asked to offboard and rest.";
 const SESSIONS_WHERE =
   "To end this agent's session, use Offboard on the seat: in the popup above its card, or in the bottom bar for one agent or a whole selection.";
 
-/** The rules every UI walk runs on: the shortest legal window, and no rule acting by itself. */
-const WALK_RULES: OffboardRulesPatch = {
-  cacheWindowMinutes: 2,
-  nudge: { enabled: false, minutes: 1 },
-  auto: { enabled: false },
-};
+/**
+ * The rules every UI walk runs on: a short window. The automatic cut is always
+ * on, at the window itself, and still never acts in these walks: it cuts only
+ * at a wake or a delivery, and only a session worth cutting, and none of
+ * theirs works 30 minutes or grows to 200,000 tokens (shared/seat-offboard.ts
+ * OFFBOARD_WORTH).
+ */
+const WALK_RULES: OffboardRulesPatch = { cacheWindowMinutes: 2 };
 
 // ---------------------------------------------------------------------------
 // Seats
@@ -459,8 +465,6 @@ const inside = (inner: Box | undefined, outer: Box | undefined, slack = 0.5): bo
   inner.y >= outer.y - slack &&
   inner.x + inner.width <= outer.x + outer.width + slack &&
   inner.y + inner.height <= outer.y + outer.height + slack;
-const overlap = (a: Box | undefined, b: Box | undefined): boolean =>
-  a !== undefined && b !== undefined && a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 
 /** The tooltip a `title` becomes on hover (TooltipLayer.tsx:96, 315; seat-message.spec.ts:82). */
 const expectTip = async (page: Page, target: Locator, text: string, message: string): Promise<void> => {
@@ -503,22 +507,21 @@ const typeMinutes = async (field: Locator, value: string): Promise<void> => {
 // W0 + S5a: Settings
 // ===========================================================================
 
-test("W0 S5a [fake-tui] Settings, Offboard: the defaults, what is refused and why, and the switch that stays off", async ({}, testInfo) => {
+test("W0 S5a [fake-tui] Settings, Offboard: the cache window is the one setting, a window out of range is refused, a window is saved and kept, and a window per harness", async ({}, testInfo) => {
   test.setTimeout(240_000);
   const doc = fixtureOf([seatNode("ada", "Ada", COLUMN[0], ROW[0])]);
   await walk(testInfo, "W0", { doc }, async ({ junto, shot, step }) => {
     const { page } = junto;
     let section = page.getByTestId("offboard-settings");
     const cacheWindow = (): Locator => section.getByTestId("offboard-cache-window");
-    const nudgeOn = (): Locator => section.getByTestId("offboard-nudge-on");
-    const nudgeMinutes = (): Locator => section.getByTestId("offboard-nudge-minutes");
-    const autoOn = (): Locator => section.getByTestId("offboard-auto-on");
-    const autoMinutes = (): Locator => section.getByTestId("offboard-auto-minutes");
     const problem = (): Locator => section.getByTestId("offboard-settings-problem");
+    const harnessRows = (): Locator => section.locator(".offboard-settings__harness");
+    const stored = async (): Promise<OffboardRules | undefined> =>
+      (await page.evaluate(async () => (await window.junto!.settingsGet()).settings?.offboard)) as OffboardRules | undefined;
 
     await step(
       "W0-1",
-      "open Settings, section Offboard: the defaults",
+      "open Settings, section Offboard: the cache window at its default, and no other setting",
       async () => {
         section = await openOffboardSettings(page);
         const labels = (await page.locator(".settings-nav__item").allTextContents()).map((text) => text.trim());
@@ -526,107 +529,42 @@ test("W0 S5a [fake-tui] Settings, Offboard: the defaults, what is refused and wh
         // Where Offboard sits among the sections is recorded, not judged: other sections come and go around it.
         soft(labels.some((text) => text.startsWith("Offboard")), "Settings lists an Offboard section").toBe(true);
         testInfo.annotations.push({ type: "W0-1-settings-sections", description: `${labels.join(" | ")} (Notifications at ${String(at)})` });
-        // The walk's three defaults, field by field (shared/seat-offboard.ts:138-143 at main d96ebd59f).
-        soft(DEFAULT_OFFBOARD_RULES.cacheWindowMinutes, "default cache window").toBe(60);
-        soft(DEFAULT_OFFBOARD_RULES.nudge, "default idle nudge").toEqual({ enabled: false, minutes: 40 });
-        soft(DEFAULT_OFFBOARD_RULES.auto, "default auto offboard").toEqual({ enabled: true, minutes: 120 });
-        // What makes a session worth cutting, as the source states it (shared/seat-offboard.ts:136).
-        soft((DEFAULT_OFFBOARD_RULES as { readonly worth?: unknown }).worth, "default worth thresholds").toEqual({ workMinutes: 30, tokens: 200_000 });
-        // Their two fields (settings/OffboardSettingsSection.tsx:197, 211).
-        await soft(section.getByTestId("offboard-worth-work"), "Worth cutting: work time").toHaveValue("30");
-        await soft(section.getByTestId("offboard-worth-tokens"), "Worth cutting: session size").toHaveValue("200000");
+        // The one default (shared/seat-offboard.ts defaultOffboardRules).
+        soft(defaultOffboardRules(), "the default rules").toEqual({ cacheWindowMinutes: 60 });
+        soft(DEFAULT_CACHE_WINDOW_MINUTES, "default cache window").toBe(60);
+        // What makes a session worth cutting is the product's guard, not a setting (shared/seat-offboard.ts OFFBOARD_WORTH).
+        soft(OFFBOARD_WORTH, "the worth guard").toEqual({ workMinutes: 30, tokens: 200_000 });
         await soft(cacheWindow(), "Cache window").toHaveValue("60");
-        await soft(nudgeOn(), "Idle nudge switch").not.toBeChecked();
-        await soft(nudgeMinutes(), "Idle nudge minutes").toHaveValue("40");
-        await soft(autoOn(), "Auto offboard switch").toBeChecked();
-        await soft(autoMinutes(), "Auto offboard minutes").toHaveValue("120");
+        // No idle nudge, no auto offboard switch or minutes, no worth fields: the cache window is the only field.
+        await soft(section.locator("input[type='number']"), "one minutes field").toHaveCount(1);
+        await soft(section.getByRole("switch"), "no switch").toHaveCount(0);
+        await soft(harnessRows(), "no harness has a window of its own").toHaveCount(0);
+        await soft(problem(), "no red line").toHaveCount(0);
         await shot(page, "W0-1", "offboard-settings-defaults");
       },
       "S5-1",
     );
 
-    await step("W0-1s", "the two switches at their defaults: pill shaped, off is grey with the knob left, on is amber with the knob right, and clear of the minutes field", async () => {
-      // c5349dfad (settings/offboard-settings.css): the switch is no longer squashed by its row. The knob is the
-      // switch's ::after (ui/Switch.tsx), so it has no box of its own: its transform and colour are read instead.
-      const read = async (name: "nudge" | "auto", toggle: Locator, minutes: Locator): Promise<{ readonly box?: Box; readonly knob: string; readonly track: string }> => {
-        const box = await boxOf(toggle);
-        const field = await boxOf(minutes);
-        const styles = await toggle
-          .evaluate((element) => {
-            const track = getComputedStyle(element);
-            const knob = getComputedStyle(element, "::after");
-            return { track: `${track.backgroundColor}, border ${track.borderTopColor}`, knob: `${knob.backgroundColor}, transform ${knob.transform}` };
-          })
-          .catch(() => ({ track: "unreadable", knob: "unreadable" }));
-        const checked = await toggle.isChecked().catch(() => false);
-        const gap = box !== undefined && field !== undefined ? Math.max(field.x - (box.x + box.width), box.x - (field.x + field.width)) : Number.NaN;
-        note(testInfo, `W0-switch-${name}`, JSON.stringify({ state: checked ? "on" : "off", switch: box, minutesField: field, gapPx: gap, ...styles }));
-        soft(box, `${name}: the switch has a box`).toBeDefined();
-        if (box !== undefined) {
-          soft(box.width / box.height, `${name}: the switch is about twice as wide as tall (width over height)`).toBeGreaterThanOrEqual(1.5);
-          soft(box.width / box.height, `${name}: the switch is about twice as wide as tall (width over height)`).toBeLessThanOrEqual(3);
-        }
-        soft(overlap(box, field), `${name}: the switch touches or covers the minutes field`).toBe(false);
-        soft(gap, `${name}: the gap between the switch and the minutes field (px)`).toBeGreaterThanOrEqual(4);
-        // A tight crop of the row (settings/FieldRow.tsx:27).
-        const row = await boxOf(toggle.locator("xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' settings-field ')][1]"));
-        if (row !== undefined && row.width > 0 && row.height > 0) {
-          await page.screenshot({ path: join(evidenceDir(testInfo), `W0-switch-${name}.png`), clip: row }).catch((error: unknown) => {
-            note(testInfo, `W0-switch-${name}-crop`, `not taken: ${String(error)}`);
-          });
-        } else {
-          note(testInfo, `W0-switch-${name}-crop`, "not taken: the row has no box");
-        }
-        return { ...(box !== undefined ? { box } : {}), ...styles };
-      };
-      const off = await read("nudge", nudgeOn(), nudgeMinutes());
-      const on = await read("auto", autoOn(), autoMinutes());
-      await soft(nudgeOn(), "the nudge switch is the off one").not.toBeChecked();
-      await soft(autoOn(), "the auto switch is the on one").toBeChecked();
-      soft(off.track, "off and on are painted differently (the track)").not.toBe(on.track);
-      soft(off.knob, "off and on differ in the knob (colour and position)").not.toBe(on.knob);
-      await shot(page, "W0-1s", "switches-at-their-defaults");
+    await step("W0-2", "type 0, then 10081, into Cache window, Tab: neither is saved, and the field shows 60 again", async () => {
+      // Whole minutes from 1 to 10080. The field drops a value out of range before the rules see it
+      // (lib/seat-offboard.ts parseOffboardMinutes), so no red line is shown for it.
+      for (const value of [String(OFFBOARD_MINUTES_MIN - 1), String(OFFBOARD_MINUTES_MAX + 1)]) {
+        await typeMinutes(cacheWindow(), value);
+        await soft(cacheWindow(), `after ${value}: the field shows 60 again`).toHaveValue("60");
+        await soft(problem(), `after ${value}: no red line`).toHaveCount(0);
+      }
+      soft((await stored())?.cacheWindowMinutes ?? 60, "the stored cache window").toBe(60);
+      await shot(page, "W0-2", "cache-window-out-of-range-refused");
     });
 
-    await step("S5-2", "idle nudge 70, then auto offboard 30: both refused, with the sentence for a 60 minute window", async () => {
-      await typeMinutes(nudgeMinutes(), "70");
-      await soft(problem(), "the refusal for a nudge at 70").toHaveText(
-        "Not saved. The idle nudge must come before the cache window (60 min): it asks the agent for a turn, which is only cheap while the cache is warm.",
-      );
-      await soft(nudgeMinutes(), "the nudge field shows the stored value again").toHaveValue("40");
-      await shot(page, "S5-2", "nudge-70-refused");
-      await typeMinutes(autoMinutes(), "30");
-      await soft(problem(), "the refusal for an auto offboard at 30").toHaveText(
-        "Not saved. The auto offboard must come at or after the cache window (60 min): before that the session is still cheap to continue.",
-      );
-      await soft(autoMinutes(), "the auto field shows the stored value again").toHaveValue("120");
-      await shot(page, "S5-2", "auto-30-refused");
-    });
-
-    await step("W0-2", "type 2 into Cache window, Tab: nothing saved", async () => {
-      await typeMinutes(cacheWindow(), "2");
-      await soft(problem(), "the red line").toHaveText(
-        "Not saved. The idle nudge must come before the cache window (2 min): it asks the agent for a turn, which is only cheap while the cache is warm.",
-      );
-      await soft(cacheWindow(), "the field shows 60 again").toHaveValue("60");
-      soft(
-        (await page.evaluate(async () => (await window.junto!.settingsGet()).settings?.offboard?.cacheWindowMinutes)) ?? 60,
-        "the stored cache window",
-      ).toBe(60);
-      await shot(page, "W0-2", "cache-window-2-refused");
-    });
-
-    await step("W0-3", "type 1 into the Idle nudge minutes, Tab: saved", async () => {
-      await typeMinutes(nudgeMinutes(), "1");
-      await soft(nudgeMinutes(), "the field shows 1").toHaveValue("1");
-      await soft(problem(), "the red line is gone").toHaveCount(0);
+    await step("W0-3", "type 1 into Cache window, Tab: saved, the shortest window, with no other rule to come before it", async () => {
+      await typeMinutes(cacheWindow(), String(OFFBOARD_MINUTES_MIN));
+      await soft(cacheWindow(), "the field shows 1").toHaveValue("1");
+      await soft(problem(), "no red line").toHaveCount(0);
       await soft
-        .poll(() => page.evaluate(async () => (await window.junto!.settingsGet()).settings?.offboard?.nudge.minutes), {
-          message: "the stored nudge minutes",
-          timeout: 10_000,
-        })
+        .poll(async () => (await stored())?.cacheWindowMinutes, { message: "the stored cache window", timeout: 10_000 })
         .toBe(1);
-      await shot(page, "W0-3", "nudge-1-saved");
+      await shot(page, "W0-3", "cache-window-1-saved");
     });
 
     await step("W0-4", "type 2 into Cache window, Tab: saved", async () => {
@@ -634,44 +572,23 @@ test("W0 S5a [fake-tui] Settings, Offboard: the defaults, what is refused and wh
       await soft(cacheWindow(), "the field shows 2").toHaveValue("2");
       await soft(problem(), "no red line").toHaveCount(0);
       await soft
-        .poll(() => page.evaluate(async () => (await window.junto!.settingsGet()).settings?.offboard?.cacheWindowMinutes), {
-          message: "the stored cache window",
-          timeout: 10_000,
-        })
+        .poll(async () => (await stored())?.cacheWindowMinutes, { message: "the stored cache window", timeout: 10_000 })
         .toBe(2);
       await shot(page, "W0-4", "cache-window-2-saved");
     });
 
-    await step("W0-5", "type 1 into Auto offboard minutes, Tab: not saved", async () => {
-      await typeMinutes(autoMinutes(), "1");
-      await soft(autoMinutes(), "the field shows 120").toHaveValue("120");
-      await soft(problem(), "the red line").toContainText(
-        "Not saved. The auto offboard must come at or after the cache window (2 min)",
-      );
-      soft(((await problem().textContent().catch(() => "")) ?? "").startsWith("Not saved. The auto offboard must come at or after the cache window (2 min)"), "the red line starts with that sentence").toBe(true);
-      await shot(page, "W0-5", "auto-1-refused");
-    });
-
-    await step("W0-6", "turn Auto offboard off: it stays off after reopening Settings", async () => {
-      await autoOn().click();
-      await soft(autoOn(), "the switch is off").not.toBeChecked();
-      await shot(page, "W0-6", "auto-switched-off");
+    await step("W0-5", "close Settings and reopen it: the cache window is still 2, and it is all the stored rules hold", async () => {
       await page.locator(".settings-panel__close").click();
       await expect(page.getByTestId("offboard-settings")).toHaveCount(0, { timeout: 5_000 });
       section = await openOffboardSettings(page);
-      await soft(autoOn(), "the switch after reopening Settings").not.toBeChecked();
       await soft(cacheWindow(), "the cache window after reopening Settings").toHaveValue("2");
-      await soft(nudgeMinutes(), "the nudge minutes after reopening Settings").toHaveValue("1");
-      soft(
-        await page.evaluate(async () => (await window.junto!.settingsGet()).settings?.offboard),
-        "the stored rules at the end of the walk",
-      ).toMatchObject({ cacheWindowMinutes: 2, nudge: { enabled: false, minutes: 1 }, auto: { enabled: false, minutes: 120 } });
-      await shot(page, "W0-6", "auto-still-off-after-reopen");
+      soft(await stored(), "the stored rules at the end of the walk").toEqual({ cacheWindowMinutes: 2 });
+      await shot(page, "W0-5", "cache-window-still-2-after-reopen");
     });
 
-    await step("W0-7", "Add a harness: a row with its own window, a switch and minutes for each rule, and Remove; then remove it", async () => {
-      // settings/OffboardSettingsSection.tsx:302-309 (the picker), :239-298 (the row).
-      const add = section.getByRole("button", { name: "Add an override for a harness" });
+    await step("W0-6", "Add a window for a harness: a row with its own window and Remove; give it its own value, then remove it", async () => {
+      // settings/OffboardSettingsSection.tsx: the picker (the Dropdown "Add a window for a harness") and the row.
+      const add = section.getByRole("button", { name: "Add a window for a harness" });
       await soft(add, "the Add a harness picker").toBeVisible();
       if (!(await add.isVisible().catch(() => false))) return;
       await add.click();
@@ -680,38 +597,43 @@ test("W0 S5a [fake-tui] Settings, Offboard: the defaults, what is refused and wh
       if (!(await option.isVisible().catch(() => false))) return;
       const name = ((await option.textContent()) ?? "").trim();
       await option.click();
-      const row = section.locator(".offboard-settings__harness").first();
+      const row = harnessRows().first();
       await soft(row, `the row for ${name}`).toBeVisible({ timeout: 10_000 });
+      const harness = ((await row.getAttribute("data-testid").catch(() => null)) ?? "").replace(/^offboard-harness-/u, "");
+      soft(harness, "the row names its harness in its test id").not.toBe("");
       const controls = await row
         .evaluate((element) => ({
           testId: element.getAttribute("data-testid"),
           name: element.querySelector(".offboard-settings__harness-name")?.textContent ?? "",
           fields: [...element.querySelectorAll("input[type='number']")].map((input) => `${input.getAttribute("aria-label") ?? ""} = ${(input as HTMLInputElement).value}`),
-          switches: [...element.querySelectorAll("input[role='switch']")].map(
-            (input) => `${input.getAttribute("aria-label") ?? ""} (${input.getAttribute("data-testid") ?? "no test id"}) = ${(input as HTMLInputElement).checked ? "on" : "off"}`,
-          ),
           buttons: [...element.querySelectorAll("button")].map((button) => `${button.getAttribute("aria-label") ?? ""}: ${button.textContent ?? ""}`),
         }))
         .catch(() => null);
-      note(testInfo, "W0-7-harness-row-controls", JSON.stringify(controls));
-      await shot(page, "W0-7", "harness-row-added");
-      // The row starts on what the installation runs on now (lib/seat-offboard.ts, seedHarnessOverride): window 2, nudge off at 1, auto off at 120.
+      note(testInfo, "W0-6-harness-row-controls", JSON.stringify(controls));
+      await shot(page, "W0-6", "harness-row-added");
+      // The row starts on the window the harness runs on now (lib/seat-offboard.ts, seedHarnessOverride): 2.
       await soft(row.locator(".offboard-settings__harness-name"), "the row's name").toHaveText(name);
-      await soft(row.getByLabel(`${name} cache window, minutes`), "the row's window").toHaveValue("2");
-      await soft(row.getByRole("switch", { name: `${name} idle nudge` }), "the row's nudge switch").not.toBeChecked();
-      await soft(row.getByLabel(`${name} idle nudge after, minutes`), "the row's nudge minutes").toHaveValue("1");
-      await soft(row.getByRole("switch", { name: `${name} auto offboard` }), "the row's auto switch").not.toBeChecked();
-      await soft(row.getByLabel(`${name} auto offboard after, minutes`), "the row's auto minutes").toHaveValue("120");
-      await soft(row.getByRole("switch"), "two switches in the row").toHaveCount(2);
-      const remove = row.getByRole("button", { name: `Remove the ${name} override` });
+      const own = row.getByLabel(`${name} cache window, minutes`);
+      await soft(own, "the row's window").toHaveValue("2");
+      await soft(row.locator("input[type='number']"), "one minutes field in the row").toHaveCount(1);
+      await soft(row.getByRole("switch"), "no switch in the row").toHaveCount(0);
+      await soft
+        .poll(async () => (await stored())?.harness?.[harness]?.cacheWindowMinutes, { message: `the stored window for ${harness}`, timeout: 10_000 })
+        .toBe(2);
+      // Its own value: 5 for this harness, while the installation's window stays 2.
+      await typeMinutes(own, "5");
+      await soft(own, "the row's window shows 5").toHaveValue("5");
+      await soft(cacheWindow(), "the installation's window is untouched").toHaveValue("2");
+      await soft
+        .poll(() => stored(), { message: "the stored rules, with the harness window", timeout: 10_000 })
+        .toEqual({ cacheWindowMinutes: 2, harness: { [harness]: { cacheWindowMinutes: 5 } } });
+      await shot(page, "W0-6", "harness-window-5-saved");
+      const remove = row.getByRole("button", { name: `Remove the ${name} window` });
       await soft(remove, "Remove").toBeVisible();
       if (await remove.isVisible().catch(() => false)) await remove.click();
-      await soft(section.locator(".offboard-settings__harness"), "no row once removed").toHaveCount(0, { timeout: 10_000 });
-      soft(
-        ((await page.evaluate(async () => (await window.junto!.settingsGet()).settings?.offboard)) ?? {}) as { readonly harness?: unknown },
-        "no override is left in the stored rules",
-      ).not.toHaveProperty("harness");
-      await shot(page, "W0-7", "harness-row-removed");
+      await soft(harnessRows(), "no row once removed").toHaveCount(0, { timeout: 10_000 });
+      soft(((await stored()) ?? {}) as { readonly harness?: unknown }, "no window is left for a harness in the stored rules").not.toHaveProperty("harness");
+      await shot(page, "W0-6", "harness-row-removed");
     });
   });
 });

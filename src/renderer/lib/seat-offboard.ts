@@ -1,8 +1,6 @@
 import {
   OFFBOARD_MINUTES_MAX,
   OFFBOARD_MINUTES_MIN,
-  OFFBOARD_TOKENS_MAX,
-  OFFBOARD_TOKENS_MIN,
   OFFBOARD_REFUSAL_REASON,
   applyOffboardRulesPatch,
   offboardRulesFor,
@@ -276,31 +274,13 @@ export const planOffboardRulesChange = (
 };
 
 /**
- * A new override for one harness, seeded with what that harness runs on
- * today: the window, and each rule's switch and minutes, so the row never
- * shows a blank and later installation changes do not move it.
+ * A new override for one harness, seeded with the window that harness runs
+ * on today, so the row never shows a blank and later changes to the
+ * machine's window do not move it.
  */
-export const seedHarnessOverride = (rules: OffboardRules, harness: string): OffboardRulesPatch => {
-  const set = offboardRulesFor(rules, harness);
-  return {
-    harness: {
-      [harness]: {
-        cacheWindowMinutes: set.cacheWindowMinutes,
-        auto: { enabled: set.auto.enabled, minutes: set.auto.minutes },
-        nudge: { enabled: set.nudge.enabled, minutes: set.nudge.minutes },
-        worth: { workMinutes: set.worth.workMinutes, tokens: set.worth.tokens },
-      },
-    },
-  };
-};
-
-/** A typed token count, or undefined when it is not a whole number in range. Takes "200000" and "200,000". */
-export const parseOffboardTokens = (raw: string): number | undefined => {
-  const text = raw.trim().replace(/[,_ ]/gu, "");
-  if (!/^\d+$/u.test(text)) return undefined;
-  const tokens = Number(text);
-  return tokens >= OFFBOARD_TOKENS_MIN && tokens <= OFFBOARD_TOKENS_MAX ? tokens : undefined;
-};
+export const seedHarnessOverride = (rules: OffboardRules, harness: string): OffboardRulesPatch => ({
+  harness: { [harness]: { cacheWindowMinutes: offboardRulesFor(rules, harness).cacheWindowMinutes } },
+});
 
 /** A typed minutes value, or undefined when it is not a whole number in range. */
 export const parseOffboardMinutes = (raw: string): number | undefined => {

@@ -21,7 +21,6 @@ import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { executeOverseer, type OverseerRuntime } from "../src/main/junto/overseer/dispatch";
 import type { OverseerOffboard } from "../src/main/junto/overseer/offboard-seam";
 import {
-  DEFAULT_OFFBOARD_RULES,
   applyOffboardRulesPatch,
   defaultOffboardRules,
   offboardRulesProblem,
@@ -242,13 +241,13 @@ describe("integrated overseer dispatcher", () => {
       .toMatchObject({ ok: true, data: [{ seatId: "idle", preferred: "now" }] });
 
     expect(await run_({ operation: "agent.offboard-rules" }))
-      .toMatchObject({ ok: true, operation: "agent.offboard-rules", data: { rules: DEFAULT_OFFBOARD_RULES } });
-    expect(await run_({ operation: "agent.offboard-configure", args: { auto: { enabled: false } } })).toMatchObject({
-      ok: true, data: { rules: { cacheWindowMinutes: 60, auto: { enabled: false, minutes: 120 } } },
+      .toMatchObject({ ok: true, operation: "agent.offboard-rules", data: { rules: defaultOffboardRules() } });
+    expect(await run_({ operation: "agent.offboard-configure", args: { cacheWindowMinutes: 30 } })).toMatchObject({
+      ok: true, data: { rules: { cacheWindowMinutes: 30 } },
     });
     expect(await run_({ operation: "agent.offboard-configure", args: { auto: { minutes: 30 } } }))
       .toMatchObject({ ok: false, error: { type: "InvalidArguments" } });
-    expect(rules.auto).toEqual({ enabled: false, minutes: 120 });
+    expect(rules.cacheWindowMinutes).toBe(30);
 
     expect(adapters.native).not.toHaveBeenCalled();
   });

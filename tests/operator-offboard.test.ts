@@ -264,7 +264,7 @@ describe("before the click", () => {
 
   it("uses the harness's own cache window", async () => {
     const rules = applyOffboardRulesPatch(defaultOffboardRules(), {
-      harness: { codex: { cacheWindowMinutes: 10, nudge: { minutes: 5 }, auto: { minutes: 15 } } },
+      harness: { codex: { cacheWindowMinutes: 10 } },
     });
     const w = world([seat("c", { harness: "codex" }), seat("a")], { rules });
     w.clock.note("bind-c");
@@ -278,23 +278,24 @@ describe("before the click", () => {
 const resting = (seatId: string, over: Partial<OffboardSeat> = {}): OffboardSeat =>
   seat(seatId, { running: false, state: undefined, ...over });
 
-describe("auto offboard (on by default, 2 hours): only as a seat is about to be woken", () => {
+describe("auto offboard at the cache window (60 minutes by default): only as a seat is about to be woken", () => {
   const wake = (w: ReturnType<typeof world>, seatId: string) =>
     w.offboard.beforeWake({ canvasName: CANVAS, seatId });
 
-  it("never ends a session on a timer, however long the seat has sat still", async () => {
+  it("never ends a session on a timer, and never asks for a turn, however long the seat has sat still", async () => {
     const w = world([seat("idle"), resting("rest")]);
     for (let hour = 0; hour < 48; hour += 1) {
       w.advance(60);
-      expect(await w.offboard.tick()).toMatchObject({ closed: 0 });
+      expect(await w.offboard.tick()).toMatchObject({ closed: 0, asked: 0 });
     }
     expect(w.closed).toEqual([]);
+    expect(w.asked).toEqual([]);
   });
 
-  it("a resting seat still for two hours is given a fresh session just before it wakes", async () => {
+  it("a resting seat still for its cache window is given a fresh session just before it wakes", async () => {
     const w = world([resting("a")]);
     w.clock.note("bind-a");
-    w.advance(119);
+    w.advance(59);
     expect(await wake(w, "a")).toBe(false);
     expect(w.closed).toEqual([]);
     w.advance(1);
@@ -345,16 +346,12 @@ describe("auto offboard (on by default, 2 hours): only as a seat is about to be 
     expect(w.closed).toEqual([]);
   });
 
-  it("can be turned off, and follows a harness override", async () => {
-    const off = world([resting("a")], { rules: applyOffboardRulesPatch(defaultOffboardRules(), { auto: { enabled: false } }) });
-    off.advance(1000);
-    expect(await wake(off, "a")).toBe(false);
-
+  it("follows the harness's own cache window", async () => {
     const rules = applyOffboardRulesPatch(defaultOffboardRules(), {
-      harness: { codex: { cacheWindowMinutes: 10, nudge: { minutes: 5 }, auto: { minutes: 15 } } },
+      harness: { codex: { cacheWindowMinutes: 10 } },
     });
     const w = world([resting("c", { harness: "codex" }), resting("a")], { rules });
-    w.advance(15);
+    w.advance(10);
     expect(await wake(w, "c")).toBe(true);
     expect(await wake(w, "a")).toBe(false);
   });
@@ -388,10 +385,10 @@ describe("auto offboard as mail is about to be typed into a running, idle seat",
   const mail = (w: ReturnType<typeof world>, seatId: string) =>
     w.offboard.beforeMail({ canvasName: CANVAS, seatId });
 
-  it("a seat idle past the interval gets a fresh session first; the mail then wakes it there", async () => {
+  it("a seat idle past its cache window gets a fresh session first; the mail then wakes it there", async () => {
     const w = world([seat("a")]);
     w.clock.note("bind-a");
-    w.advance(119);
+    w.advance(59);
     expect(await mail(w, "a")).toBe(false);
     w.advance(1);
     expect(await mail(w, "a")).toBe(true);
@@ -412,15 +409,12 @@ describe("auto offboard as mail is about to be typed into a running, idle seat",
     expect(w.closed).toEqual([]);
   });
 
-  it("is gated like every automatic cut: tiny sessions, paused canvases, the rule turned off", async () => {
+  it("is gated like every automatic cut: tiny sessions and paused canvases", async () => {
     const w = world([seat("tiny"), seat("paused", { paused: true })], { noWork: ["tiny"] });
     w.work("tiny", 3);
     w.advance(600);
     expect(await mail(w, "tiny")).toBe(false);
     expect(await mail(w, "paused")).toBe(false);
-    const off = world([seat("a")], { rules: applyOffboardRulesPatch(defaultOffboardRules(), { auto: { enabled: false } }) });
-    off.advance(600);
-    expect(await mail(off, "a")).toBe(false);
   });
 
   it("does not cut under the operator's own ask: that prompt is meant for this session", async () => {
@@ -451,9 +445,9 @@ describe("the seat's next turn: the same test as the cut", () => {
   it("an idle seat continues until its session goes cold, says when that is, then starts fresh as mail would", async () => {
     const w = world([seat("a")]);
     w.clock.note("bind-a");
-    expect(await next(w, "a")).toEqual({ fresh: false, freshAt: T0 + 120 * MIN });
-    w.advance(119);
-    expect(await next(w, "a")).toEqual({ fresh: false, freshAt: T0 + 120 * MIN });
+    expect(await next(w, "a")).toEqual({ fresh: false, freshAt: T0 + 60 * MIN });
+    w.advance(59);
+    expect(await next(w, "a")).toEqual({ fresh: false, freshAt: T0 + 60 * MIN });
     w.advance(1);
     expect(await next(w, "a")).toEqual({ fresh: true });
     // Asking never cuts.
@@ -486,67 +480,14 @@ describe("the seat's next turn: the same test as the cut", () => {
   });
 });
 
-describe("idle nudge (off by default, 40 minutes)", () => {
-  const nudging = () => applyOffboardRulesPatch(defaultOffboardRules(), { nudge: { enabled: true } });
-
-  it("is off unless turned on", async () => {
-    const w = world([seat("a")]);
-    w.advance(50);
-    expect(await w.offboard.tick()).toMatchObject({ asked: 0, closed: 0 });
-  });
-
-  it("asks a still, idle seat to offboard and continue, once per stretch", async () => {
-    const w = world([seat("a")], { rules: nudging() });
-    w.clock.note("bind-a");
-    w.advance(39);
-    expect((await w.offboard.tick()).asked).toBe(0);
-    w.advance(1);
-    expect((await w.offboard.tick()).asked).toBe(1);
-    expect(w.asked).toEqual([{ seatId: "a", mode: "continue" }]);
-    // Still idle a few minutes later: not asked again.
-    w.advance(10);
-    expect((await w.offboard.tick()).asked).toBe(0);
-    // It moved (the agent took its turn), then sat still again: a new stretch.
-    w.clock.note("bind-a");
-    w.advance(40);
-    expect((await w.offboard.tick()).asked).toBe(1);
-  });
-
-  it("does not ask a seat that is offline, on a paused canvas, working, or just given a fresh session", async () => {
-    const w = world(
-      [
-        seat("off", { running: false, state: undefined }),
-        seat("paused", { paused: true }),
-        seat("working", { state: "working" }),
-        seat("fresh"),
-      ],
-      { rules: nudging() },
-    );
-    w.clock.markOffboarded("bind-fresh");
-    w.advance(45);
-    expect((await w.offboard.tick()).asked).toBe(0);
-    expect(w.asked).toEqual([]);
-  });
-
-  it("an ask that cannot be delivered is not retried in the same stretch", async () => {
-    const w = world([seat("a")], { rules: nudging() });
-    w.fail.ask.add("a");
-    w.advance(40);
-    expect((await w.offboard.tick()).refused).toBe(1);
-    w.advance(5);
-    expect(await w.offboard.tick()).toMatchObject({ asked: 0, refused: 0 });
-  });
-});
-
 describe("worth cutting: the automatic rules never recycle an empty or tiny session", () => {
-  const nudging = () => applyOffboardRulesPatch(defaultOffboardRules(), { nudge: { enabled: true } });
   const wake = (w: ReturnType<typeof world>, seatId: string) =>
     w.offboard.beforeWake({ canvasName: CANVAS, seatId });
   /** The seat's process ends and it rests, as after an idle seat is stopped. */
   const rest = (w: ReturnType<typeof world>, seatId: string) => w.set(seatId, { running: false, state: undefined });
 
-  it("case 1: one small task, then hours of stillness: not cut at its wake, not nudged", async () => {
-    const w = world([seat("a")], { rules: nudging(), noWork: ["a"] });
+  it("case 1: one small task, then hours of stillness: not cut at its wake, not asked", async () => {
+    const w = world([seat("a")], { noWork: ["a"] });
     w.work("a", 5);
     w.advance(45);
     expect(await w.offboard.tick()).toMatchObject({ asked: 0, closed: 0 });
@@ -628,37 +569,6 @@ describe("worth cutting: the automatic rules never recycle an empty or tiny sess
     expect("sessionTokens" in status[1]!).toBe(false);
   });
 
-  it("the thresholds are settings, with a harness override", async () => {
-    const rules = applyOffboardRulesPatch(defaultOffboardRules(), {
-      worth: { workMinutes: 10 },
-      harness: { codex: { worth: { tokens: 50_000, workMinutes: 90 } } },
-    });
-    const w = world([seat("a"), seat("c", { harness: "codex" }), seat("c2", { harness: "codex" })], {
-      rules,
-      noWork: ["a", "c", "c2"],
-    });
-    for (const id of ["a", "c", "c2"]) {
-      w.work(id, 10);
-      rest(w, id);
-    }
-    w.sizes.set("c", 60_000);
-    w.advance(120);
-    expect(await wake(w, "a")).toBe(true); // ten minutes is enough for the installation
-    expect(await wake(w, "c")).toBe(true); // codex: by size
-    expect(await wake(w, "c2")).toBe(false); // codex: ten of ninety minutes, no size
-  });
-
-  it("the idle nudge is gated the same way", async () => {
-    const w = world([seat("tiny"), seat("real")], { rules: nudging(), noWork: ["tiny"] });
-    w.work("tiny", 3);
-    w.clock.note("bind-real");
-    w.advance(40);
-    expect(await w.offboard.tick()).toMatchObject({ asked: 1 });
-    w.advance(1);
-    expect(await w.offboard.tick()).toMatchObject({ asked: 0 });
-    expect(w.asked).toEqual([{ seatId: "real", mode: "continue" }]);
-  });
-
   it("work is counted per session: a seat that got a new session by any route starts from zero", async () => {
     const w = world([resting("a")]);
     expect((await w.offboard.status(CANVAS, ["a"]))[0]).toMatchObject({ workMinutes: 60 });
@@ -692,16 +602,16 @@ describe("the clock across a restart", () => {
   it("is saved on every pass and carries on where it was", async () => {
     const first = world([resting("a")]);
     first.clock.note("bind-a");
-    first.advance(90);
+    first.advance(30);
     await first.offboard.tick();
     const saved = first.saved.at(-1)!;
     expect(saved).toEqual({
-      savedAt: T0 + 90 * MIN,
+      savedAt: T0 + 30 * MIN,
       seats: { "bind-a": { movedAt: T0, workMs: 60 * MIN, sessionId: "session-a" } },
     });
 
-    // Restart one minute later: the seat is at 91 minutes, not at zero.
-    const second = world([resting("a")], { restored: parseSeatMotionRecord(JSON.stringify(saved)), at: T0 + 91 * MIN });
+    // Restart one minute later: the seat is at 31 minutes, not at zero.
+    const second = world([resting("a")], { restored: parseSeatMotionRecord(JSON.stringify(saved)), at: T0 + 31 * MIN });
     expect(await wake(second, "a")).toBe(false);
     second.advance(28);
     expect(await wake(second, "a")).toBe(false);
@@ -737,36 +647,6 @@ describe("the clock across a restart", () => {
     // Mail arrives for one seat: that seat, and only that seat, wakes fresh.
     expect(await wake(second, "b")).toBe(true);
     expect(second.closed).toEqual([{ seatId: "b", by: "automatic" }]);
-  });
-
-  it("the idle nudge waits five minutes after the app opens and asks one seat per pass", async () => {
-    const rules = applyOffboardRulesPatch(defaultOffboardRules(), { nudge: { enabled: true } });
-    const first = world([seat("a"), seat("b")], { rules });
-    first.clock.note("bind-b");
-    first.advance(1);
-    first.clock.note("bind-a");
-    first.advance(44);
-    await first.offboard.tick();
-    await first.offboard.tick();
-    expect(first.asked.map((entry) => entry.seatId)).toEqual(["b", "a"]);
-
-    const fresh = world([seat("a"), seat("b")], { rules, restored: { savedAt: T0, seats: {
-      "bind-a": { movedAt: T0 - 50 * MIN, workMs: 60 * MIN, sessionId: "session-a" },
-      "bind-b": { movedAt: T0 - 50 * MIN, workMs: 60 * MIN, sessionId: "session-b" },
-    } } });
-    for (let minute = 0; minute < 5; minute += 1) {
-      expect(await fresh.offboard.tick()).toMatchObject({ asked: 0 });
-      fresh.advance(1);
-    }
-    expect((await fresh.offboard.tick()).asked).toBe(1);
-  });
-
-  it("a seat cold past the auto offboard interval is not asked for an expensive turn", async () => {
-    const rules = applyOffboardRulesPatch(defaultOffboardRules(), { nudge: { enabled: true } });
-    const w = world([seat("a")], { rules });
-    w.advance(200);
-    expect(await w.offboard.tick()).toMatchObject({ asked: 0, closed: 0 });
-    expect(w.asked).toEqual([]);
   });
 
   it("remembers that a seat was already given a fresh session", async () => {

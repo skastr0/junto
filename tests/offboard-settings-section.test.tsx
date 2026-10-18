@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
- * Settings -> Offboard: a change is saved when it is entered, unless it
- * would break the order the cache window sets; then nothing is saved and the
- * section says why.
+ * Settings -> Offboard: the cache window, for the machine and per harness. A
+ * change is saved when it is entered; a value that is not whole minutes in
+ * range is not saved.
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -53,117 +53,53 @@ const enter = async (id: string, value: string) => {
   });
 };
 
-describe("the offboard rules in Settings", () => {
-  it("shows the defaults: a 60 minute window, the nudge off at 40, auto offboard on at 120", () => {
+describe("the cache window in Settings", () => {
+  it("shows the one setting: a 60 minute window, and no other rule", () => {
     expect(field("offboard-cache-window").value).toBe("60");
-    expect(field("offboard-nudge-minutes").value).toBe("40");
-    expect(field("offboard-nudge-on").checked).toBe(false);
-    expect(field("offboard-auto-minutes").value).toBe("120");
-    expect(field("offboard-auto-on").checked).toBe(true);
-    expect(host.querySelector('[data-testid="offboard-settings-problem"]')).toBeNull();
+    for (const retired of ["offboard-nudge-on", "offboard-nudge-minutes", "offboard-auto-on", "offboard-auto-minutes", "offboard-worth-work", "offboard-worth-tokens"]) {
+      expect(host.querySelector(`[data-testid="${retired}"]`)).toBeNull();
+    }
+    expect(host.textContent).not.toMatch(/nudge|auto offboard|worth/iu);
   });
 
-  it("saves a change that keeps the order", async () => {
-    await enter("offboard-nudge-minutes", "30");
-    expect(patchSettings).toHaveBeenCalledWith({ offboard: { nudge: { minutes: 30 } } });
-    expect(host.querySelector('[data-testid="offboard-settings-problem"]')).toBeNull();
+  it("saves any window in range, shorter or longer than before", async () => {
+    await enter("offboard-cache-window", "5");
+    expect(patchSettings).toHaveBeenLastCalledWith({ offboard: { cacheWindowMinutes: 5 } });
+    await enter("offboard-cache-window", "180");
+    expect(patchSettings).toHaveBeenLastCalledWith({ offboard: { cacheWindowMinutes: 180 } });
   });
 
-  it("does not save a nudge at the window: it says why and shows the stored value again", async () => {
-    await enter("offboard-nudge-minutes", "60");
-    expect(patchSettings).not.toHaveBeenCalled();
-    const problem = host.querySelector('[data-testid="offboard-settings-problem"]');
-    expect(problem?.getAttribute("role")).toBe("alert");
-    expect(problem?.textContent).toMatch(/^Not saved\. The idle nudge must come before the cache window \(60 min\)/u);
-    expect(field("offboard-nudge-minutes").value).toBe("40");
-  });
-
-  it("does not save an auto offboard inside the window, nor a window that would strand a rule", async () => {
-    await enter("offboard-auto-minutes", "45");
-    expect(host.querySelector('[data-testid="offboard-settings-problem"]')?.textContent).toContain(
-      "The auto offboard must come at or after the cache window",
-    );
-    await enter("offboard-cache-window", "30");
-    expect(host.querySelector('[data-testid="offboard-settings-problem"]')?.textContent).toContain("The idle nudge must come before");
-    expect(patchSettings).not.toHaveBeenCalled();
-  });
-
-  it("ignores a value that is not whole minutes", async () => {
-    await enter("offboard-cache-window", "2.5");
+  it("ignores a value that is not whole minutes in range", async () => {
+    for (const value of ["0", "2.5", "10081", "soon"]) await enter("offboard-cache-window", value);
     expect(patchSettings).not.toHaveBeenCalled();
     expect(field("offboard-cache-window").value).toBe("60");
-  });
-
-  it("shows the worth-cutting thresholds: 30 minutes of work, 200,000 tokens", () => {
-    expect(field("offboard-worth-work").value).toBe("30");
-    expect(field("offboard-worth-tokens").value).toBe("200000");
-  });
-
-  it("saves a threshold, and ignores a size outside 1,000 to 100,000,000", async () => {
-    await enter("offboard-worth-work", "45");
-    expect(patchSettings).toHaveBeenLastCalledWith({ offboard: { worth: { workMinutes: 45 } } });
-    await enter("offboard-worth-tokens", "350000");
-    expect(patchSettings).toHaveBeenLastCalledWith({ offboard: { worth: { tokens: 350_000 } } });
-    patchSettings.mockClear();
-    await enter("offboard-worth-tokens", "500");
-    expect(patchSettings).not.toHaveBeenCalled();
-    expect(field("offboard-worth-tokens").value).toBe("200000");
-  });
-
-  it("turns a rule on or off with its switch", async () => {
-    await act(async () => {
-      field("offboard-auto-on").click();
-    });
-    expect(patchSettings).toHaveBeenCalledWith({ offboard: { auto: { enabled: false } } });
-    await act(async () => {
-      field("offboard-nudge-on").click();
-    });
-    expect(patchSettings).toHaveBeenLastCalledWith({ offboard: { nudge: { enabled: true } } });
-  });
-
-  it("a saved good change clears an earlier problem", async () => {
-    await enter("offboard-nudge-minutes", "60");
-    expect(host.querySelector('[data-testid="offboard-settings-problem"]')).not.toBeNull();
-    await enter("offboard-nudge-minutes", "20");
-    expect(host.querySelector('[data-testid="offboard-settings-problem"]')).toBeNull();
   });
 });
 
-describe("a harness with its own rules", () => {
+describe("a harness with its own window", () => {
   beforeEach(async () => {
     state$.settings.set({
       ...defaultSettings(),
-      offboard: {
-        cacheWindowMinutes: 60,
-        auto: { enabled: true, minutes: 120 },
-        nudge: { enabled: false, minutes: 40 },
-        harness: { codex: { cacheWindowMinutes: 30, auto: { enabled: true, minutes: 90 }, nudge: { enabled: false, minutes: 20 } } },
-      },
+      offboard: { cacheWindowMinutes: 60, harness: { codex: { cacheWindowMinutes: 30 } } },
     });
     await act(async () => {});
   });
 
-  it("shows that harness's window, and each rule's switch and minutes", () => {
+  it("shows that harness's window", () => {
     const row = host.querySelector('[data-testid="offboard-harness-codex"]')!;
     expect(row.textContent).toContain("Codex");
-    expect(Array.from(row.querySelectorAll<HTMLInputElement>('input[type="number"]')).map((input) => input.value)).toEqual(["30", "20", "90", "30", "200000"]);
-    expect(field("offboard-harness-codex-nudge-on").checked).toBe(false);
-    expect(field("offboard-harness-codex-auto-on").checked).toBe(true);
+    expect(Array.from(row.querySelectorAll<HTMLInputElement>('input[type="number"]')).map((input) => input.value)).toEqual(["30"]);
   });
 
-  it("turns a rule on or off for that harness only", async () => {
-    await act(async () => {
-      field("offboard-harness-codex-auto-on").click();
-    });
-    expect(patchSettings).toHaveBeenLastCalledWith({ offboard: { harness: { codex: { auto: { enabled: false } } } } });
-    await act(async () => {
-      field("offboard-harness-codex-nudge-on").click();
-    });
-    expect(patchSettings).toHaveBeenLastCalledWith({ offboard: { harness: { codex: { nudge: { enabled: true } } } } });
+  it("saves that harness's window only", async () => {
+    const input = host.querySelector<HTMLInputElement>('[aria-label="Codex cache window, minutes"]')!;
+    input.setAttribute("data-testid", "codex-window");
+    await enter("codex-window", "10");
+    expect(patchSettings).toHaveBeenLastCalledWith({ offboard: { harness: { codex: { cacheWindowMinutes: 10 } } } });
   });
 
-  it("removes the harness's row, back to the installation's rules", async () => {
-    const remove = host.querySelector<HTMLButtonElement>('[aria-label="Remove the Codex override"]')!;
+  it("removes the harness's row, back to the machine's window", async () => {
+    const remove = host.querySelector<HTMLButtonElement>('[aria-label="Remove the Codex window"]')!;
     await act(async () => {
       remove.click();
     });

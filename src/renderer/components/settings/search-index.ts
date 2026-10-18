@@ -70,11 +70,7 @@ export const LISTED_SETTINGS: ReadonlyArray<SettingEntry> = [
   entry("notifications", "Badge", "Agents waiting on you, on the Junto icon"),
   entry("notifications", "Bounce when blocked", "The icon bounces once when an agent is blocked"),
 
-  entry("offboard", "Cache window", "How long a still agent stays cheap to resume"),
-  entry("offboard", "Idle nudge", "Asks a still agent to write its notes and offboard"),
-  entry("offboard", "Auto offboard", "Ends a still session with no notes, when the agent is next woken or mailed"),
-  entry("offboard", "Worth cutting: work time", "time spent working before a session is worth ending"),
-  entry("offboard", "Worth cutting: session size", "transcript size before a session is worth ending"),
+  entry("offboard", "Cache window", "How long a still agent's conversation stays cached"),
 
   entry("companion", "Pair a phone", "Answer agents and send them mail from your phone"),
   entry("companion", "Paired phones", "Phones that can reach this Mac"),

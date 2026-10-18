@@ -523,13 +523,12 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
   ): { readonly cold: boolean; readonly at?: number } => {
     if (seat.sessionId === undefined) return { cold: false };
     const set = offboardRulesFor(ports.rules(), seat.harness);
-    if (!set.auto.enabled) return { cold: false };
     if (clock.isFresh(seat.bindingId)) return { cold: false };
     if (!mayCloseNow(seat, address).allowed) return { cold: false };
     const still = stillness(seat, now());
     if (still.minutes === null) return { cold: false };
-    if (still.minutes < set.auto.minutes)
-      return still.since === undefined ? { cold: false } : { cold: false, at: still.since + set.auto.minutes * 60_000 };
+    if (still.minutes < set.cacheWindowMinutes)
+      return still.since === undefined ? { cold: false } : { cold: false, at: still.since + set.cacheWindowMinutes * 60_000 };
     // Never recycle an empty or tiny session. Asked last: the size reads the transcript.
     return { cold: worthOf(seat, false).worth };
   };
@@ -592,64 +591,18 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
   };
 
   /**
-   * The once-a-minute pass: save the clock, and run the idle nudge. The
-   * nudge asks a running, idle seat, still for its interval, to offboard and
-   * continue: once per stretch, one seat per pass, and only for a session
-   * worth cutting. It does nothing for the first minutes after the app opens.
-   * No session is ended from here (see `beforeWake`).
+   * The once-a-minute pass: save the clock, keeping each seat's work count on
+   * its current session. No session is ended from here (see `beforeWake`).
    */
   const tick = async (): Promise<SeatOffboardRunResult> => {
-    const rules = ports.rules();
-    const at = now();
-    const rows: SeatOffboardRunRow[] = [];
-    const save = (): void => {
-      try {
-        ports.saveClock?.(clock.record());
-      } catch {
-        ports.log?.("the offboard clock could not be saved");
-      }
-    };
     const seats = await ports.seats().catch(() => [] as ReadonlyArray<OffboardSeat>);
-    // Keep each seat's work count on its current session.
     for (const seat of seats) clock.syncSession(seat.bindingId, seat.sessionId);
-    if (at - clock.startedAt < OFFBOARD_START_GRACE_MS) {
-      save();
-      return summarizeOffboardRun(rows);
+    try {
+      ports.saveClock?.(clock.record());
+    } catch {
+      ports.log?.("the offboard clock could not be saved");
     }
-    const due: Array<{ readonly seat: OffboardSeat; readonly address: SeatAddress; readonly minutes: number }> = [];
-    for (const seat of seats) {
-      if (!seat.local) continue;
-      const set = offboardRulesFor(rules, seat.harness);
-      const minutes = stillness(seat, at).minutes;
-      if (minutes === null) continue;
-      const address = { canvasName: seat.canvasName, seatId: seat.seatId };
-      if (
-        set.nudge.enabled &&
-        seat.running &&
-        seat.state === "idle" &&
-        seat.paused !== true &&
-        minutes >= set.nudge.minutes &&
-        // Past the auto offboard interval a turn is the expensive choice.
-        !(set.auto.enabled && minutes >= set.auto.minutes) &&
-        !clock.wasNudged(seat.bindingId) &&
-        !clock.isFresh(seat.bindingId) &&
-        !ports.isClosing(address) &&
-        worthOf(seat, false).worth
-      ) {
-        due.push({ seat, address, minutes });
-      }
-    }
-    // Longest still first; one per pass.
-    due.sort((left, right) => right.minutes - left.minutes);
-    for (const { seat, address } of due.slice(0, OFFBOARD_ACTIONS_PER_PASS)) {
-      const row = await askOne(address, "continue");
-      // Marked whatever the outcome: no retry within a stretch.
-      clock.markNudged(seat.bindingId);
-      if (!row.ok) ports.log?.(`idle nudge could not ask ${seat.seatId}: ${row.reason}`);
-      rows.push(row);
-    }
-    save();
-    return summarizeOffboardRun(rows);
+    return summarizeOffboardRun([]);
   };
 
   return { run, status, tick, beforeWake, beforeMail, nextTurn, clock };
@@ -659,12 +612,6 @@ export type OperatorOffboard = ReturnType<typeof makeOperatorOffboard>;
 
 /** How often the automatic rules look. Rule intervals are whole minutes. */
 export const OFFBOARD_TICK_MS = 60_000;
-
-/** After the app opens, the idle nudge waits this long before asking anyone. */
-export const OFFBOARD_START_GRACE_MS = 5 * 60_000;
-
-/** Seats the idle nudge asks in one pass. */
-export const OFFBOARD_ACTIONS_PER_PASS = 1;
 
 // ── The process instance ───────────────────────────────────────────────────
 

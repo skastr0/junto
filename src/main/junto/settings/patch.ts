@@ -50,8 +50,8 @@ export const applyAndValidatePatch = (
   patch: SettingsPatchValue,
 ): Result.Result<SettingsValue, SettingsError> => {
   const merged = applySettingsPatch(current, patch);
-  // The offboard rules hang together (the nudge inside the cache window, the
-  // auto offboard at or after it), which a field-by-field schema cannot say.
+  // The offboard rules are judged whole, in the same words the renderer and
+  // the overseer show.
   if (patch.offboard !== undefined) {
     const problem = offboardRulesProblem(offboardRules(merged));
     if (problem !== undefined) {

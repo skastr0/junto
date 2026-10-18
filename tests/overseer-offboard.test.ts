@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Result } from "effect";
 import { decodeOverseerArgs, isOverseerMutation } from "../src/shared/overseer-control";
 import {
-  DEFAULT_OFFBOARD_RULES,
+  OFFBOARD_WORTH,
   OFFBOARD_REFUSAL_REASON,
   applyOffboardRulesPatch,
   defaultOffboardRules,
@@ -89,24 +89,21 @@ describe("offboard arg schemas", () => {
     expect(ok("agent.offboard-status", { nodeIds: ["a"], action: "now" })).toBe(false);
   });
 
-  it("takes the rules patch as the rules' own schema", () => {
-    expect(ok("agent.offboard-configure", { auto: { minutes: 180 } })).toBe(true);
-    expect(ok("agent.offboard-configure", { cacheWindowMinutes: 30, nudge: { enabled: true, minutes: 20 } })).toBe(true);
+  it("takes the rules patch as the rules' own schema: the cache window, and one per harness", () => {
+    expect(ok("agent.offboard-configure", { cacheWindowMinutes: 30 })).toBe(true);
     expect(ok("agent.offboard-configure", { harness: { claude: { cacheWindowMinutes: 300 }, codex: null } })).toBe(true);
     for (const minutes of [0, -5, 1.5, "120", 7 * 24 * 60 + 1]) {
-      expect(ok("agent.offboard-configure", { auto: { minutes } })).toBe(false);
+      expect(ok("agent.offboard-configure", { cacheWindowMinutes: minutes })).toBe(false);
     }
-    expect(ok("agent.offboard-configure", { auto: { minutes: 60 }, other: true })).toBe(false);
+    expect(ok("agent.offboard-configure", { cacheWindowMinutes: 60, other: true })).toBe(false);
     expect(ok("agent.offboard-configure", { harness: { claude: { instruction: "x" } } })).toBe(false);
   });
 
-  it("takes the worth-cutting thresholds, for the installation and for one harness", () => {
-    expect(ok("agent.offboard-configure", { worth: { workMinutes: 45 } })).toBe(true);
-    expect(ok("agent.offboard-configure", { worth: { tokens: 300_000 } })).toBe(true);
-    expect(ok("agent.offboard-configure", { harness: { claude: { worth: { workMinutes: 10, tokens: 500_000 } } } })).toBe(true);
-    for (const worth of [{ workMinutes: 0 }, { workMinutes: 1.5 }, { tokens: 999 }, { tokens: 100_000_001 }, { hours: 1 }]) {
-      expect(ok("agent.offboard-configure", { worth })).toBe(false);
-    }
+  it("refuses the retired rules: the auto offboard, the idle nudge and worth", () => {
+    expect(ok("agent.offboard-configure", { auto: { minutes: 180 } })).toBe(false);
+    expect(ok("agent.offboard-configure", { nudge: { enabled: true } })).toBe(false);
+    expect(ok("agent.offboard-configure", { worth: { workMinutes: 45 } })).toBe(false);
+    expect(ok("agent.offboard-configure", { harness: { claude: { worth: { tokens: 500_000 } } } })).toBe(false);
   });
 
   it("classifies the reads and the mutations", () => {
@@ -198,7 +195,7 @@ describe("offboard rules", () => {
     const outcome = await executeOverseerOffboard(caller, { operation: "agent.offboard-rules" }, offboard);
     expect(outcome).toMatchObject({
       ok: true,
-      data: { rules: DEFAULT_OFFBOARD_RULES, effective: { claude: DEFAULT_OFFBOARD_RULES } },
+      data: { rules: defaultOffboardRules(), effective: { claude: { cacheWindowMinutes: 60, worth: OFFBOARD_WORTH } } },
     });
   });
 
@@ -208,24 +205,18 @@ describe("offboard rules", () => {
       caller,
       {
         operation: "agent.offboard-configure",
-        args: { auto: { minutes: 180 }, nudge: { enabled: true }, harness: { claude: { cacheWindowMinutes: 50 } } },
+        args: { cacheWindowMinutes: 90, harness: { claude: { cacheWindowMinutes: 50 } } },
       },
       offboard,
     );
-    const expected: OffboardRules = {
-      cacheWindowMinutes: 60,
-      auto: { enabled: true, minutes: 180 },
-      nudge: { enabled: true, minutes: 40 },
-      worth: DEFAULT_OFFBOARD_RULES.worth,
-      harness: { claude: { cacheWindowMinutes: 50 } },
-    };
+    const expected: OffboardRules = { cacheWindowMinutes: 90, harness: { claude: { cacheWindowMinutes: 50 } } };
     expect(patchRules).toHaveBeenCalledTimes(1);
     expect(rules()).toEqual(expected);
     expect(outcome).toMatchObject({
       ok: true,
       data: {
         rules: expected,
-        effective: { claude: { cacheWindowMinutes: 50, auto: { enabled: true, minutes: 180 }, nudge: { enabled: true, minutes: 40 }, worth: DEFAULT_OFFBOARD_RULES.worth } },
+        effective: { claude: { cacheWindowMinutes: 50, worth: OFFBOARD_WORTH }, codex: { cacheWindowMinutes: 90, worth: OFFBOARD_WORTH } },
       },
     });
 
@@ -234,41 +225,17 @@ describe("offboard rules", () => {
     expect(rules()).not.toHaveProperty("harness");
   });
 
-  it("saves a worth-cutting threshold and answers with it for every harness", async () => {
+  it("refuses a window out of range, in the rules' own words, and saves nothing", async () => {
     const { offboard, rules } = fakeOffboard();
+    const direct = offboardRulesProblem({ cacheWindowMinutes: 60, harness: { claude: { cacheWindowMinutes: 0 } } });
+    expect(direct).toBe("The cache window for claude must be a whole number of minutes, from 1 to 10080.");
     const outcome = await executeOverseerOffboard(
       caller,
-      { operation: "agent.offboard-configure", args: { worth: { workMinutes: 45 }, harness: { claude: { worth: { tokens: 500_000 } } } } },
+      { operation: "agent.offboard-configure", args: { harness: { claude: { cacheWindowMinutes: 0 } } } },
       offboard,
     );
-    expect(rules().worth).toEqual({ workMinutes: 45, tokens: DEFAULT_OFFBOARD_RULES.worth.tokens });
-    expect(outcome).toMatchObject({
-      ok: true,
-      data: {
-        rules: { worth: { workMinutes: 45, tokens: DEFAULT_OFFBOARD_RULES.worth.tokens } },
-        effective: { claude: { worth: { workMinutes: 45, tokens: 500_000 } } },
-      },
-    });
-  });
-
-  it("refuses a combination the rules forbid, in the rules' own words, and saves nothing", async () => {
-    const { offboard, rules } = fakeOffboard();
-    for (const args of [
-      { nudge: { minutes: 60 } },
-      { auto: { minutes: 30 } },
-      { harness: { claude: { cacheWindowMinutes: 20 } } },
-    ]) {
-      const outcome = await executeOverseerOffboard(caller, { operation: "agent.offboard-configure", args }, offboard);
-      expect(outcome.ok).toBe(false);
-      if (!outcome.ok) {
-        expect(outcome.error.type).toBe("InvalidArguments");
-        expect(outcome.error.message.length).toBeGreaterThan(20);
-      }
-    }
-    const direct = offboardRulesProblem({ ...defaultOffboardRules(), nudge: { enabled: false, minutes: 60 } });
-    expect(await executeOverseerOffboard(caller, { operation: "agent.offboard-configure", args: { nudge: { minutes: 60 } } }, offboard))
-      .toEqual({ ok: false, error: { type: "InvalidArguments", message: direct } });
-    expect(rules()).toEqual(DEFAULT_OFFBOARD_RULES);
+    expect(outcome.ok).toBe(false);
+    expect(rules()).toEqual(defaultOffboardRules());
   });
 
   it("answers Unsupported with no entry point, and fixed words when main fails", async () => {
@@ -282,7 +249,7 @@ describe("offboard rules", () => {
     };
     for (const request of [
       { operation: "agent.offboard-rules" } as const,
-      { operation: "agent.offboard-configure", args: { auto: { minutes: 180 } } } as const,
+      { operation: "agent.offboard-configure", args: { cacheWindowMinutes: 180 } } as const,
     ]) {
       expect(await executeOverseerOffboard(caller, request, failing))
         .toEqual({ ok: false, error: { type: "InternalError", message: OFFBOARD_FAILED } });
@@ -332,7 +299,7 @@ describe("offboard exit rule", () => {
   it("tells the CLI to exit non-zero only when a seat was refused", () => {
     expect(offboardRefusedAny({ results: [], closed: 0, asked: 0, refused: 0 })).toBe(false);
     expect(offboardRefusedAny({ results: [], closed: 1, asked: 0, refused: 1 })).toBe(true);
-    expect(offboardRefusedAny({ rules: DEFAULT_OFFBOARD_RULES })).toBe(false);
+    expect(offboardRefusedAny({ rules: defaultOffboardRules() })).toBe(false);
     expect(offboardRefusedAny(undefined)).toBe(false);
   });
 });

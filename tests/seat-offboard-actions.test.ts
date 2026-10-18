@@ -11,11 +11,10 @@ import {
   offboardPreferred,
   offboardSessionLine,
   parseOffboardMinutes,
-  parseOffboardTokens,
   planOffboardRulesChange,
   seedHarnessOverride,
 } from "../src/renderer/lib/seat-offboard";
-import { DEFAULT_OFFBOARD_RULES } from "../src/shared/seat-offboard";
+import { defaultOffboardRules } from "../src/shared/seat-offboard";
 import type {
   OffboardRefusalCode,
   SeatOffboardRunRow,
@@ -149,42 +148,19 @@ describe("offboard now before the press", () => {
   });
 });
 
-describe("a change to the automatic rules, before it is saved", () => {
-  it("passes a change that keeps the order: nudge, then the cache window, then auto offboard", () => {
-    expect(planOffboardRulesChange(DEFAULT_OFFBOARD_RULES, { nudge: { enabled: true } })).toEqual({
+describe("a change to the cache window, before it is saved", () => {
+  it("passes any window in range, for the machine or one harness", () => {
+    expect(planOffboardRulesChange(defaultOffboardRules(), { cacheWindowMinutes: 5 })).toEqual({
       ok: true,
-      patch: { nudge: { enabled: true } },
+      patch: { cacheWindowMinutes: 5 },
     });
-    expect(planOffboardRulesChange(DEFAULT_OFFBOARD_RULES, { cacheWindowMinutes: 90 }).ok).toBe(true);
+    expect(planOffboardRulesChange(defaultOffboardRules(), { cacheWindowMinutes: 600 }).ok).toBe(true);
+    expect(planOffboardRulesChange(defaultOffboardRules(), { harness: { pi: { cacheWindowMinutes: 5 } } }).ok).toBe(true);
   });
-  it("refuses a nudge at or after the window, and an auto offboard before it, in plain words", () => {
-    const late = planOffboardRulesChange(DEFAULT_OFFBOARD_RULES, { nudge: { minutes: 60 } });
-    expect(late.ok).toBe(false);
-    expect(late.ok === false && late.problem).toMatch(/^The idle nudge must come before the cache window \(60 min\)/u);
-    const early = planOffboardRulesChange(DEFAULT_OFFBOARD_RULES, { auto: { minutes: 45 } });
-    expect(early.ok === false && early.problem).toMatch(/^The auto offboard must come at or after the cache window \(60 min\)/u);
-  });
-  it("refuses a window change that would strand a rule, even one that is off", () => {
-    // The nudge is off at 40 minutes; a 30 minute window would leave it after the window.
-    expect(planOffboardRulesChange(DEFAULT_OFFBOARD_RULES, { cacheWindowMinutes: 30 }).ok).toBe(false);
-    // And a 3 hour window would leave auto offboard (2 h) inside it.
-    expect(planOffboardRulesChange(DEFAULT_OFFBOARD_RULES, { cacheWindowMinutes: 180 }).ok).toBe(false);
-  });
-  it("judges a harness override against that harness's own window, and names the harness", () => {
-    const seeded = seedHarnessOverride(DEFAULT_OFFBOARD_RULES, "codex");
-    expect(seeded).toEqual({
-      harness: {
-        codex: {
-          cacheWindowMinutes: 60,
-          auto: { enabled: true, minutes: 120 },
-          nudge: { enabled: false, minutes: 40 },
-          worth: { workMinutes: 30, tokens: 200_000 },
-        },
-      },
-    });
-    expect(planOffboardRulesChange(DEFAULT_OFFBOARD_RULES, seeded).ok).toBe(true);
-    const bad = planOffboardRulesChange(DEFAULT_OFFBOARD_RULES, { harness: { codex: { cacheWindowMinutes: 30 } } });
-    expect(bad.ok === false && bad.problem).toContain("for codex");
+  it("seeds a harness's own window with the one it runs on today", () => {
+    const seeded = seedHarnessOverride({ cacheWindowMinutes: 45 }, "codex");
+    expect(seeded).toEqual({ harness: { codex: { cacheWindowMinutes: 45 } } });
+    expect(planOffboardRulesChange(defaultOffboardRules(), seeded).ok).toBe(true);
   });
 });
 
@@ -222,15 +198,6 @@ describe("what a seat's current session has done", () => {
     expect(offboardSessionLine([one, one])).toBe("");
     expect(offboardSessionLine([status()])).toBe("");
     expect(offboardSessionLine([])).toBe("");
-  });
-});
-
-describe("a session size field", () => {
-  it("takes a whole token count from 1,000 to 100,000,000, with or without separators", () => {
-    expect(parseOffboardTokens("200000")).toBe(200_000);
-    expect(parseOffboardTokens("200,000")).toBe(200_000);
-    expect(parseOffboardTokens(" 1000 ")).toBe(1_000);
-    for (const raw of ["", "999", "100000001", "2.5", "200k", "-1"]) expect(parseOffboardTokens(raw)).toBeUndefined();
   });
 });
 

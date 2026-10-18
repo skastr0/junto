@@ -313,9 +313,9 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
     void refreshRules()
       .then(() => offboard.tick())
       .then((result) => {
-        if (result.asked > 0 || result.refused > 0) {
+        if (result.closed > 0 || result.refused > 0) {
           console.info(
-            `[offboard] idle nudge: ${String(result.asked)} asked, ${String(result.refused)} not done`,
+            `[offboard] automatic pass: ${String(result.closed)} closed, ${String(result.refused)} not done`,
           );
         }
       })
