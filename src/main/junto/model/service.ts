@@ -432,7 +432,7 @@ export class ModelService extends Context.Service<ModelService>()(
                       )
                     ) {
                       return yield* refused(
-                        "A seat or terminal already uses this session binding on this canvas.",
+                        "A seat or terminal already uses this terminal binding on this canvas.",
                       );
                     }
                     if (node.kind === "sheet") sheetUpdates.set(node.id, { columns: [], rows: [] });
@@ -516,9 +516,9 @@ export class ModelService extends Context.Service<ModelService>()(
                   const node = yield* requireNode(step.id);
                   if (node.kind !== "agent") return yield* refused("Reseat requires an agent seat.");
                   yield* mayChange(node);
-                  if (node.bindingId === step.bindingId) return yield* refused("Reseat needs a fresh session binding.");
+                  if (node.bindingId === step.bindingId) return yield* refused("Reseat needs a fresh terminal binding.");
                   if ([...nodesById.values()].some((other) => other.id !== node.id && (other.kind === "agent" || other.kind === "terminal") && other.bindingId === step.bindingId))
-                    return yield* refused("A seat or terminal already uses this session binding on this canvas.");
+                    return yield* refused("A seat or terminal already uses this terminal binding on this canvas.");
                   yield* records.requireSeatHost(step.host);
                   reseatedBindings.add(JSON.stringify([node.host, node.bindingId]));
                   yield* saveNode(yield* decodeNode(patch(node, { agentKey: step.agentKey, bindingId: step.bindingId, harness: step.harness, host: step.host, launch: step.launch ?? null, overseer: false })));
