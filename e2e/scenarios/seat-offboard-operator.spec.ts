@@ -222,6 +222,8 @@ type WalkSetup = {
   readonly harnessInstalls?: ReadonlyArray<HarnessId>;
   /** Session ids to plant a transcript for. */
   readonly transcripts?: ReadonlyArray<string>;
+  /** More to plant in the sandbox before the app boots, after the fake harness. */
+  readonly seed?: (sandbox: Sandbox) => Promise<void>;
 };
 
 /** Everything after a walk's last check (closing apps, the harness teardown) gets this long, then is left behind. */
@@ -234,7 +236,10 @@ const walk = async (testInfo: TestInfo, id: string, setup: WalkSetup, body: (wal
     seedModels: { [CANVAS]: setup.doc },
     // Planted before afterSeed (harness/launch.ts:480-487), so the fake codex below is not overwritten.
     ...(setup.harnessInstalls !== undefined ? { seedHarnessInstalls: setup.harnessInstalls } : {}),
-    afterSeed: installSeatHarness(setup.transcripts ?? []),
+    afterSeed: async (sandbox) => {
+      await installSeatHarness(setup.transcripts ?? [])(sandbox);
+      await setup.seed?.(sandbox);
+    },
     extraEnv: { JUNTO_PTY_TRACE: "1" },
     windowContentSize: { width: 1440, height: 1000 },
   });
@@ -1093,6 +1098,110 @@ test("S5r-cli [fake-tui] the overseer's CLI closes a resting seat that had a tur
       soft(without?.ended_by, "ended by the overseer").toBe("overseer");
       soft(onboard.handoff, "no handoff block: the session ended without notes").toBeUndefined();
       await shot(page, "S5r-cli.2", "woken-on-a-fresh-session");
+    });
+  });
+});
+
+/**
+ * The seats clock as Junto saved it before it closed: the seat came to rest
+ * `restedMinutes` ago after `workMinutes` of work in its session. Time while
+ * Junto was closed counts (seat-sessions/operator-offboard.ts SeatStatusClock),
+ * so the walk gets a seat that is still past its window with no wait for
+ * product time (AGENTS.md, Testing).
+ */
+const seedStillSeat = (nodeId: string, restedMinutes: number, workMinutes: number) => async (sandbox: Sandbox): Promise<void> => {
+  const now = Date.now();
+  const dir = join(sandbox.homeDir, ".junto", "seats");
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, "offboard-clock.json"),
+    JSON.stringify({
+      savedAt: now - 60_000,
+      seats: {
+        [bindingOf(nodeId)]: {
+          activitySince: now - (restedMinutes + workMinutes) * 60_000,
+          idleSince: now - restedMinutes * 60_000,
+          workMs: workMinutes * 60_000,
+          sessionId: sessionIdOf(nodeId),
+        },
+      },
+    }),
+    "utf8",
+  );
+};
+
+test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next, and mail starts a fresh session that onboards with Junto's record of the last", async ({}, testInfo) => {
+  // No wait for product time: the seat arrives already still past the window (seedStillSeat), a seat
+  // inside its window is the control, and the minute pass (the eager cut) is held by tests/operator-offboard.test.ts.
+  test.skip(!CLI_BUILT, "SETUP: dist/junto is missing; the onboard in this walk is the CLI's. Build it with `bun run cli:build`.");
+  test.setTimeout(5 * 60_000);
+  const TIA = seatNode("tia", "Tia", COLUMN[0], ROW[0]);
+  const ZED = seatNode("zed", "Zed", COLUMN[1], ROW[0]);
+  const PAT = seatNode("pat", "Pat", COLUMN[2], ROW[0], false);
+  const doc = fixtureOf([TIA, ZED, PAT], [["pat", "tia"], ["pat", "zed"], ["tia", "pat"]]);
+  await walk(testInfo, "LOOP", { doc, transcripts: [sessionIdOf("tia"), sessionIdOf("zed")], seed: seedStillSeat("tia", 10, 31) }, async (ctx) => {
+    const { junto, sandbox, shot, step, mark, offboardLines } = ctx;
+    const { page } = junto;
+    let tia!: CrewSeat;
+    let zed!: CrewSeat;
+    let pat!: CrewSeat;
+    const REPORT = "LOOP report: the parser is wired";
+    const WAKE = "LOOP mail: are you there";
+
+    await step("LOOP.0", "the machine's window is 1 minute; Tia is idle and has been still for 10 minutes, Zed has just started", async () => {
+      const rules = await setRules(page, { cacheWindowMinutes: 1 });
+      expect(rules.cacheWindowMinutes, "the machine's window").toBe(1);
+      await crewPlayFactory(page);
+      tia = await startSeat(page, sandbox, TIA);
+      zed = await startSeat(page, sandbox, ZED);
+      pat = await startSeat(page, sandbox, PAT);
+      // Tia's session has something to record: she tells Pat. Outgoing mail is never cut under.
+      opData(await tia.op("msg.send", { target: "pat", text: REPORT }));
+      await expectSeatState(page, "tia", "idle");
+      expect(await launches(sandbox, "tia"), "Tia has had one process").toBe(1);
+      await shot(page, "LOOP.0", "tia-still-zed-warm");
+    });
+
+    await step("LOOP.1", "Tia's card says fresh next; Zed's, inside the window, does not", async () => {
+      await expect(card(page, "tia"), "a still seat past the window").toContainText("fresh next", { timeout: 20_000 });
+      await expect(card(page, "zed"), "a seat inside the window").not.toContainText("fresh next");
+      const status = await workStatusOf(page, "tia");
+      note(testInfo, "LOOP-status-tia", JSON.stringify(status ?? null));
+      await shot(page, "LOOP.1", "fresh-next-on-the-still-card");
+    });
+
+    await step("LOOP.2", "mail to Tia cuts her cold session with no turn and starts a fresh one; the same mail to Zed cuts nothing", async () => {
+      const before = await inputOf(sandbox, "tia", 1);
+      opData(await pat.op("msg.send", { target: "zed", text: WAKE }));
+      await expect.poll(() => inputOf(sandbox, "zed", 1), { message: "the mail on Zed's session", timeout: 60_000 }).toContain(WAKE);
+      expect(await launches(sandbox, "zed"), "Zed's session was kept").toBe(1);
+      opData(await pat.op("msg.send", { target: "tia", text: WAKE }));
+      await expect.poll(() => launches(sandbox, "tia"), { message: "a process starts for the mail", timeout: 90_000 }).toBe(2);
+      await expect.poll(() => inputOf(sandbox, "tia", 2), { message: "the mail on the fresh session's input", timeout: 60_000 }).toContain(WAKE);
+      expect(await inputOf(sandbox, "tia", 1), "nothing was typed into the cut session").toBe(before);
+      expect(await sessionPin(sandbox, "tia"), "Tia no longer names the cut session").not.toBe(sessionIdOf("tia"));
+      expect(offboardLines().join("\n"), "no [offboard] line says failed").not.toMatch(/failed/u);
+      mark("Tia woke on a fresh session");
+      await shot(page, "LOOP.2", "tia-on-a-fresh-session");
+    });
+
+    await step("LOOP.3", "junto onboard in the fresh session leads with Junto's record of the cut one: ended by the automatic rule, her mail out", async () => {
+      const onboard = opData(await tia.op("onboard", {}));
+      note(testInfo, "LOOP-onboard-payload", JSON.stringify(onboard).slice(0, 6000));
+      const without = onboard.previous_session_without_notes as { readonly session_id?: unknown; readonly ended_by?: unknown } | undefined;
+      expect(without?.session_id, "the cut session is named first").toBe(sessionIdOf("tia"));
+      expect(without?.ended_by, "ended by Junto's own rule").toBe("automatic");
+      expect(onboard.handoff, "no handoff: the session ended without a turn").toBeUndefined();
+      const past = ((onboard.sessions as { readonly past?: ReadonlyArray<Record<string, unknown>> } | undefined)?.past ?? []);
+      const record = past.find((entry) => entry.session_id === sessionIdOf("tia"))?.record as
+        | { readonly ended_by?: unknown; readonly mail_out?: { readonly read?: unknown; readonly items?: ReadonlyArray<{ readonly text?: string }> } }
+        | null
+        | undefined;
+      expect(record, "Junto's record of the cut session is inline").toBeTruthy();
+      expect(record?.ended_by, "the record says who ended it").toBe("automatic");
+      expect(record?.mail_out?.read, "her mail out was read").toBe(true);
+      expect(record?.mail_out?.items?.map((item) => item.text), "and holds what she sent").toContain(REPORT);
+      await shot(page, "LOOP.3", "onboard-with-the-record");
     });
   });
 });
