@@ -48,14 +48,19 @@ export type Launch = typeof Launch.Type;
 /**
  * What happens to the running terminal when the thing is removed: it keeps
  * running, or it stops. A document stored before the word was "stop" said
- * "kill-session"; it still decodes, and is written back as "stop".
+ * "kill-session"; it still decodes, to "stop".
+ *
+ * Encoded, "stop" is still "kill-session": a machine on an older build reads
+ * only "detach" or "kill-session", and would refuse a whole canvas copy that
+ * said "stop". Retire the old word on the wire in a release of its own, once
+ * no machine that links runs a build before this one.
  */
 export const TerminalOnRemove = Schema.Literals(["detach", "stop", "kill-session"]).pipe(
   Schema.decodeTo(
     Schema.Literals(["detach", "stop"]),
     SchemaTransformation.transform({
       decode: (stored) => (stored === "kill-session" ? "stop" : stored),
-      encode: (onRemove) => onRemove,
+      encode: (onRemove) => (onRemove === "stop" ? "kill-session" : onRemove),
     }),
   ),
 );

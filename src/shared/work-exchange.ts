@@ -172,6 +172,9 @@ export type ExchangeFrame = typeof ExchangeFrame.Type;
 
 export const decodeExchangeFrame = Schema.decodeUnknownResult(ExchangeFrame, { onExcessProperty: "error" });
 
+/** A frame as it goes on the wire, in the words an older build still reads. */
+export const encodeExchangeFrame = Schema.encodeSync(ExchangeFrame);
+
 /** Where the seats of one canvas live, as one machine holds it. */
 export type CanvasPlacement = {
   /** Which canvas of that name this is. */

@@ -9,7 +9,7 @@
  */
 import { Effect, Result, Schema } from "effect";
 import type { InstallationId } from "@shared/installation-id";
-import { decodeExchangeFrame, type ExchangeFrame } from "@shared/work-exchange";
+import { decodeExchangeFrame, encodeExchangeFrame, type ExchangeFrame } from "@shared/work-exchange";
 import type { RowExchange } from "./session";
 
 /** What this channel needs of a link: who is there and how to send it a frame. */
@@ -45,7 +45,7 @@ export const makeRowsChannel = (exchange: RowExchange) => ({
   opened: (context: RowsChannelContext): Effect.Effect<void, unknown> =>
     exchange.opened({
       peer: context.peer.installationId,
-      send: (frame) => context.sendEvent("rows", frame),
+      send: (frame) => context.sendEvent("rows", encodeExchangeFrame(frame)),
     }),
   closed: (context: RowsChannelContext): Effect.Effect<void, unknown> =>
     Effect.sync(() => exchange.closed(context.peer.installationId)),
