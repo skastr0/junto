@@ -140,7 +140,7 @@ describe("one seat", () => {
     expect(byId("seat-offboard-status")?.getAttribute("data-tone")).toBe("done");
   });
 
-  it("offboard now takes two presses: the first arms it, the second closes the session", async () => {
+  it("offboard now takes two presses: the first arms it, the second starts the seat fresh", async () => {
     const { ops, run } = fakeOps([status("a", { pastWindow: true, preferred: "now", idleMinutes: 90 })], (input) =>
       input.seatIds.map((seatId) => ({ seatId, ok: true, action: "now", outcome: "closed", pastWindow: true })),
     );
@@ -148,8 +148,8 @@ describe("one seat", () => {
     expect(byId("seat-offboard-now")?.textContent).toBe("Offboard now");
     await press("seat-offboard-now");
     expect(run).not.toHaveBeenCalled();
-    expect(byId("seat-offboard-now")?.textContent).toBe("Close this session?");
-    expect(byId("seat-offboard-now")?.getAttribute("aria-label")).toBe("Confirm: close this session without notes");
+    expect(byId("seat-offboard-now")?.textContent).toBe("Start this seat fresh?");
+    expect(byId("seat-offboard-now")?.getAttribute("aria-label")).toBe("Start this seat fresh, without notes?");
     await press("seat-offboard-now");
     expect(byId("seat-offboard-now")?.textContent).toBe("Offboard now");
     expect(run).toHaveBeenCalledWith({ canvasName: "factory", seatIds: ["a"], action: "now" });
@@ -189,7 +189,7 @@ describe("a selection", () => {
     expect(byId<HTMLButtonElement>("seat-offboard-now")?.disabled).toBe(false);
     await press("seat-offboard-now");
     // The armed button counts what the second press will close: the one idle seat.
-    expect(byId("seat-offboard-now")?.textContent).toBe("Close this session?");
+    expect(byId("seat-offboard-now")?.textContent).toBe("Start this seat fresh?");
     expect(run).not.toHaveBeenCalled();
     await press("seat-offboard-now");
     expect(run).toHaveBeenCalledTimes(1);
@@ -204,7 +204,7 @@ describe("a selection", () => {
       const { ops, run } = fakeOps([status("a", past), status("b", past)]);
       await open(["a", "b"], ops);
       await press("seat-offboard-now");
-      expect(byId("seat-offboard-now")?.textContent).toBe("Close 2 sessions?");
+      expect(byId("seat-offboard-now")?.textContent).toBe("Start 2 seats fresh?");
       expect(byId("seat-offboard-now")?.getAttribute("data-armed")).toBe("true");
       await act(async () => {
         vi.advanceTimersByTime(3_100);

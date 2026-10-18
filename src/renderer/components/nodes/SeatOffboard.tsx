@@ -156,7 +156,7 @@ export function SeatOffboardPanel({
   const disabled = busy !== undefined || count === 0;
   // What the second press will close: the seats main says can be closed now.
   const closable = statuses.length > 0 ? statuses.filter((entry) => entry.now.allowed).length : count;
-  const sessions = closable === 1 ? "this session" : `${closable} sessions`;
+  const closing = closable === 1 ? "this seat" : `${closable} seats`;
   return (
     <div className="seat-offboard-panel" data-testid="seat-offboard-panel" data-count={count}>
       <div className="seat-offboard-panel__head">
@@ -197,8 +197,8 @@ export function SeatOffboardPanel({
           </Button>
         </div>
         <p className="seat-offboard-panel__hint">
-          {many ? "Each agent" : "The agent"} writes its notes and ends the session. It continues in a fresh one
-          from its own note, unless you choose rest.
+          {many ? "Each agent" : "The agent"} writes its notes and picks up where it was,
+          unless you choose rest.
         </p>
       </div>
 
@@ -209,18 +209,18 @@ export function SeatOffboardPanel({
             size="sm"
             variant={armed ? "danger" : preferred === "now" ? "primary" : "chrome"}
             disabled={disabled || nowBlock !== undefined}
-            aria-label={armed ? `Confirm: close ${sessions} without notes` : undefined}
+            aria-label={armed ? `Start ${closing} fresh, without notes?` : undefined}
             aria-describedby={nowBlock !== undefined ? "seat-offboard-now-block" : undefined}
             title={
               armed
-                ? `Click again to close ${sessions} without notes`
-                : "Close without notes; click twice to confirm"
+                ? `Click again to start ${closing} fresh, without notes`
+                : "Start fresh without notes; click twice to confirm"
             }
             onClick={pressNow}
             data-testid="seat-offboard-now"
             data-armed={armed ? "true" : undefined}
           >
-            {armed ? `Close ${sessions}?` : "Offboard now"}
+            {armed ? `Start ${closing} fresh?` : "Offboard now"}
           </Button>
         </div>
         {nowBlock !== undefined ? (

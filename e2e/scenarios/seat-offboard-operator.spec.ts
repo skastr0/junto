@@ -49,7 +49,7 @@ const TIP_ONE = "Offboard: start this seat fresh";
 const LINE_ASKED_REST = "Asked to offboard and rest.";
 /** sessions/OffboardControls.tsx:64-65. */
 const SESSIONS_WHERE =
-  "To end this agent's session, use Offboard on the seat: in the popup above its card, or in the bottom bar for one agent or a whole selection.";
+  "To start this seat fresh, use Offboard on the seat: in the popup above its card, or in the bottom bar for one seat or a whole selection.";
 
 /**
  * The rules every UI walk runs on: a short window. The automatic cut is always

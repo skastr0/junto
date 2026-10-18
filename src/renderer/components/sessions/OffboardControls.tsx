@@ -61,8 +61,8 @@ export function OffboardControls({ seatId }: { readonly seatId: string }) {
   return (
     <section className="seat-offboard" aria-label="Offboard" data-testid="seat-offboard">
       <p className="agent-editor__hint" data-testid="seat-offboard-where">
-        To end this agent's session, use Offboard on the seat: in the popup above its card, or in the bottom bar
-        for one agent or a whole selection.
+        To start this seat fresh, use Offboard on the seat: in the popup above its card, or in the bottom bar
+        for one seat or a whole selection.
       </p>
       {progress ? (
         <div className="seat-offboard__progress" data-testid="seat-offboard-progress" data-stage={progress.stage} data-mode={progress.mode}>
