@@ -1,6 +1,6 @@
 # T10 acceptance, the cache-cold loop (2026-10-18)
 
-**Verdict: this machine passes items 1 to 8. Item 5 failed on a7d490f53 and passes on 7195b33ee, which holds pty-lead's fix 815dde913. On the mini, a parallel install at fd13f0111 passes item 1 and fails item 2. Items 3 to 8 there are blocked by two product gaps: the core gives its seats no Junto CLI, and it records a different session id than the one it launched (see Mini).**
+**Verdict: this machine passes items 1 to 8. Item 5 failed on a7d490f53 and passes on 7195b33ee, which holds pty-lead's fix 815dde913. On the mini, the rerun at a10d273b2 (which holds d7806b265 and 696cf5424) passes items 1, 2, 2b, 3, 4, 6 and 8, with 7 measured. Item 5 fails there: the mini core cuts a Blocked seat. The desktop's offboard status for remote seats still reads sessionId null (see Mini rerun). The record checks were dropped after the operator ordered the record reverted.**
 
 ## Setup
 
@@ -74,6 +74,50 @@
 ### Teardown
 
 The parallel install was removed with `machine uninstall-local`: its service definition was removed and the service no longer appears in `launchctl list`. `~/.junto-preview-t10` on the mini was deleted, and the production core is still running under its own labels.
+
+## Mini rerun (a10d273b2)
+
+### Setup
+
+- Main `a10d273b2` holds d7806b265 (cli-lead's CLI fix) and 696cf5424 (pty-lead's session-id fix). Payloads and the preview package were built in one lock hold.
+- The mini record is `mini-t10b`, with the same juntoHome and installRoot as before. The parallel core was build `87ad1b7d...`, pid 44648, under the same label.
+- Production stayed untouched: `c0f20e6dcbd48300` (7351) and `000515008554c211` (7382) kept their pids, and `current` stayed on `65a4b79e...`.
+- Canvas `t10-mini2` held seats n-reader, n-blocked, n-commit-a and n-commit-b.
+- The record checks are dropped, as the operator ordered the record reverted.
+- Receipts are in `~/junto-receipts/t10-20261018/mini2/`.
+
+### Both fixes, confirmed
+
+- Every mini seat has `JUNTO_CLI=<installRoot>/current/bin/junto`.
+- `seat_sessions` holds exactly the `--session-id` each claude was launched with, e.g. n10-blocked `81917e01...` (`mini2-check.txt`).
+
+### Per item
+
+| # | Result | Seat (context tokens) | Receipt |
+|---|---|---|---|
+| 1 | PASS | machine mini-t10b | Before `{60, harness:{}}`, after `{harness:{claude:2}}`, read back over the link. The mini database shows it at 21:27:21.465Z, and production there is unchanged since 2026-10-17. Restored at 21:59:22 and read back `{60, harness:{}}`. |
+| 2 | PASS | n-blocked (259,103) | Idle from 21:29:32, cut at 21:31:58: `81917e01...ended.json` `{"by":"automatic"}` on the mini. The old transcript's last assistant turn was 21:29:31, with none after. |
+| 2b | PASS | n-commit-a (small, workMs 19,368) | Idle from 21:28:47, never cut through teardown at 21:59. Its card shows "done, not read yet" and nothing about a fresh session (`shots/41-mini2-after-cut.png`). |
+| 3 | PASS | n-blocked (250,791) | On the mini clock, idleSince stayed 1792360440926 (21:54:00.9) across a viewport resize repaint at 21:56:38 (`mini2-item4.txt`). |
+| 4 | PASS | n-blocked (250,791) | View open from 21:53:14 (`shots/44`, `45`, `47`). Idle 21:54:00, window over 21:56:01, still no cut at 21:58:34. Released at 21:58:47 and cut at 21:58:58 (`3c286eeb...ended.json` by automatic). The open view hides the card, so "the card shows nothing" is not separately shown. |
+| 5 | FAIL | n-reader (253,424) | `junto blocked` succeeded (signal `01M58ENT4YJHG07AZV9JG5Q3A9`, open, 21:28:54). The seat went idle at 21:28:58 and was cut automatically at 21:31:58 (`seat_sessions` f4584fbc ended, offboard). The mini core does not see that the seat waits on the operator. The n-reader card still reads "blocked" after the cut (`shots/43`). |
+| 6 | PASS | n-blocked | n-commit-b's mail (`01M58EX1WZZCEBQ431RS0D8RTM`) woke fresh session `1bce8be7...` at 21:32:56. It answered there, and the cut session got no turn. |
+| 7 | Measured | n-blocked | The fresh session's first call wrote 17,762 cache tokens (read 30,048), and the whole wake turn wrote 26,061. A cold resume would rewrite most of the cut session's last context of 259,103 (inferred). |
+| 8 | PASS | n-commit-a, n-commit-b | `seat_commits` on the mini: repo-a `5d2ee59` is n10-commit-a's (session 8c530483), and repo-b `939b62d` is n10-commit-b's (session ffb67ed3). The repo hook refused BLOCKME, and `bad.txt` stayed staged. |
+
+### Still open
+
+- **Item 5 on the mini (pty-lead).** The machine core cuts a Blocked seat. The exemption in `waitsOnOperator` (`operator-offboard.ts:77`) reads the seat's status snapshot, which this core evidently lacks for a seat whose signal lives with the canvas editor. That last point is inference: I did not trace where the core gets it.
+- **Desktop status for remote seats (pty-lead, as product-lead asked).** It still reads wrong after 696cf5424: `seatOffboardStatus` gives sessionId null, sessionTokens null, worth false, and idleMinutes counted from seat start (34 at 21:56), while the mini core's own clock is correct (`mini2-monitor.jsonl` against `offboard-clock.json`). So it has a separate cause from 696cf5424.
+- **Setup note, not a product gap.** Deleting a parallel install's folder gives it a new installation id. The installer then correctly refuses the old record ("candidate identity changed"), and the peer pin keeps the old name, so a rerun needs a new record name.
+- **Tooling (automation-lead's note).** `scripts/preview.sh:82` always packages `refs/heads/main`, so on a busy main a preview cannot be pinned to the commit its payloads came from.
+
+### Teardown
+
+- Window restored and read back.
+- `machine uninstall-local`: the service is gone from `launchctl list`, and `~/.junto-preview-t10` on the mini is deleted.
+- Production labels and pids are unchanged, with no seat processes left.
+- Preview quit, worktree removed, live app (pid 6981) untouched.
 
 ## Findings beyond the items
 
