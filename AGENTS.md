@@ -45,7 +45,9 @@ connection for `junto.db`: the Junto core on that machine. Renderers, CLIs,
 helpers, and other machines use IPC, control APIs or a link and never open
 product or install-ops databases.
 Junto writes no canvas file: there is no JSON Canvas export or import, and no
-digest or SVG file beside a canvas.
+digest or SVG file beside a canvas. Seat and session data (notes, markers,
+clocks, ledgers) and product caches live in `junto.db`, never as files under
+`~/.junto`.
 
 **SQLite evolution law:** Version 1 is the baseline Junto schema, and
 `CURRENT_STATE_SCHEMA_VERSION` in `src/main/junto/state/migrations.ts` names
@@ -102,8 +104,16 @@ at start; import its ESM entry instead).
 - Sessions are internal to the seat. The operator never goes back to, picks,
   or switches sessions in a seat, and no UI surface shows session history,
   notes or transcripts. That data lives in the seat's own store and CLI only.
-- Continuity is Junto's job: a seat resumes its same session across restarts
-  and wakes.
+- **Seats, not sessions.** A harness session is explicit only inside the
+  seat's own machinery: onboarding, offboarding, and the cache-window cut (its
+  warning, its settings, the seat's own status detail). Nothing outside it
+  names, keys on, or chooses a session: not mail, signals or their answers,
+  tasks, the kernel, relays, the feed, notifications, other seat settings, or
+  link features. An answer goes to the seat; which session the seat runs is
+  the seat's business.
+- Continuity is Junto's job: a seat resumes its open session across restarts
+  and wakes, unless the cache-window rules start it fresh. An ended session is
+  never resumed.
 - Offboarding is self-service. The agent runs `junto offboard` (or
   `--continue`) at its own stopping points; `junto onboard` names the command
   and `junto docs doctrine` says how and when.
