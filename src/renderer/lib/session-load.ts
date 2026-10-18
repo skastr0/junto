@@ -42,21 +42,21 @@ export const sessionLoadPresentation = (input: {
       return {
         phase: "finding",
         tone: "cyan",
-        label: "finding session",
+        label: "finding the seat",
         hex: SESSION_LOAD_TONE_HEX.cyan,
       };
     case "starting":
       return {
         phase: "starting",
         tone: "amber",
-        label: "starting new session",
+        label: "starting fresh",
         hex: SESSION_LOAD_TONE_HEX.amber,
       };
     case "resuming":
       return {
         phase: "resuming",
         tone: "violet",
-        label: "resuming session",
+        label: "picking up where it was",
         hex: SESSION_LOAD_TONE_HEX.violet,
       };
     case "attaching":

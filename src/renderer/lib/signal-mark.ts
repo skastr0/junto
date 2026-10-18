@@ -97,7 +97,6 @@ export const signalMarkForMember = (member: Pick<MemberStatus, "severity" | "rea
   if (!reason) return base;
   // Map machine reasons to short aria/tooltips without inventing severity.
   if (reason === "permission:pending") return { ...base, label: "awaiting permission", symbol: "?" };
-  if (reason === "session:live") return { ...base, label: "session live" };
   if (reason === "activity:ready" || reason === "need:turn_unseen" || reason === "need:turn_failed") {
     return { ...base, label: "ready to read" };
   }

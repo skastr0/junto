@@ -14,17 +14,17 @@ describe("sessionLoadPresentation", () => {
     expect(sessionLoadPresentation({ phase: "stuck" }).tone).toBe("crimson");
   });
 
-  it("shows a violet resuming label", () => {
+  it("shows a violet pick-up label", () => {
     const p = sessionLoadPresentation({
       phase: "resuming",
     });
     expect(p.tone).toBe("violet");
-    expect(p.label).toBe("resuming session");
+    expect(p.label).toBe("picking up where it was");
   });
 
   it("resuming without id still labels resume", () => {
     expect(sessionLoadPresentation({ phase: "resuming" }).label).toBe(
-      "resuming session",
+      "picking up where it was",
     );
   });
 });

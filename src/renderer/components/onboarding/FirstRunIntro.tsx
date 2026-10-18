@@ -185,7 +185,7 @@ const statesChapter: TourChapter = {
       </p>
       {SEAT_AWARENESS_COMPILED ? (
         <p>
-          <strong>Experimental:</strong> an AI can also read how each session is
+          <strong>Experimental:</strong> an AI can also read how each seat is
           going and bend the ring: backwards when stuck, a wave when it goes in
           circles, a halo when it goes well. It is advice, marked AI, and stays
           off until you turn it on in Settings, under Experimental.

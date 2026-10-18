@@ -513,7 +513,7 @@ const deleteNodesInternal = async (
     if (!began.closeResults.every((result) => result.ok && result.clean)) {
       await finishDeleteLeases("aborted");
       state$.error.set(
-        "Agent session teardown failed or was unclean; the agent node was not deleted.",
+        "The seat did not close cleanly; the agent node was not deleted.",
       );
       return;
     }
