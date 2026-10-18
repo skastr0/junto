@@ -31,6 +31,7 @@ export const MAIN_AUTHORING_LABELS = [
   "control.work.msg-send",
   "control.work.signal",
   "control.work.offboard",
+  "control.work.commit-observed",
   "control.work.artifact-publish",
   "control.work.board-create-topic",
   "control.work.board-post",
@@ -161,6 +162,7 @@ const WORK_AUTHORING_LABELS = {
   // authorial family, so it carries the same label.
   "content.stage": "control.work.signal",
   offboard: "control.work.offboard",
+  "commit.observed": "control.work.commit-observed",
   "artifact.publish": "control.work.artifact-publish",
   "board.create_topic": "control.work.board-create-topic",
   "board.post": "control.work.board-post",
@@ -184,6 +186,7 @@ const WORK_AUTHORING_LABELS = {
     | "signal.clear"
     | "content.stage"
     | "offboard"
+    | "commit.observed"
     | "artifact.publish"
     | "board.create_topic"
     | "board.post"
