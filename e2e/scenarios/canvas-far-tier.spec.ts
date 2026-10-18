@@ -89,7 +89,18 @@ type FarLook = {
   readonly smallestNamePx: number;
   /** The most opaque region name on screen: names are ground, not figure. */
   readonly loudestNameAlpha: number;
+  /** Agents on screen, drawn or gathered into a cluster. */
+  readonly agentsOnScreen: number;
+  /** Agents on screen drawn as their own ring. */
   readonly seatsOnScreen: number;
+  readonly seatsGathered: number;
+  /** Agents neither drawn nor counted in a cluster: must be none. */
+  readonly seatsLost: ReadonlyArray<string>;
+  /** Gathered seats that need the operator: must be none. */
+  readonly needsYouGathered: ReadonlyArray<string>;
+  readonly clustersOnScreen: number;
+  /** Cluster badges without a ring, or whose ring is held still while a member works. */
+  readonly clustersStill: number;
   readonly seatsWithoutPortrait: number;
   readonly seatsWithoutRing: number;
   readonly seatsWithWords: number;
@@ -158,9 +169,28 @@ const readFar = (page: Page): Promise<FarLook> =>
         }
       }
     }
-    const seats = [...document.querySelectorAll<HTMLElement>('.react-flow__viewport .junto-node[data-node-kind="agent"]')].filter(
+    const agents = [...document.querySelectorAll<HTMLElement>('.react-flow__viewport .junto-node[data-node-kind="agent"]')].filter(
       (seat) => onScreen(seat.getBoundingClientRect()),
     );
+    const gathered = new Set(
+      [...document.querySelectorAll<HTMLElement>('[data-testid="seat-cluster-member"]')].map((el) => el.dataset.seatId!),
+    );
+    const idOf = (seat: HTMLElement): string => seat.closest(".react-flow__node")?.getAttribute("data-id") ?? "?";
+    const seats = agents.filter((seat) => getComputedStyle(seat).visibility !== "hidden");
+    const hidden = agents.filter((seat) => getComputedStyle(seat).visibility === "hidden");
+    const seatsLost = hidden.map(idOf).filter((id) => !gathered.has(id));
+    const needsYouGathered = hidden
+      .filter((seat) => ["call", "wait", "halt"].includes(seat.querySelector(".junto-mark")?.getAttribute("data-mark-ring") ?? ""))
+      .map(idOf);
+    const clusters = [...document.querySelectorAll<HTMLElement>('[data-testid="seat-cluster"]')].filter((cluster) =>
+      onScreen(cluster.querySelector(".junto-seat-cluster__stack")!.getBoundingClientRect()),
+    );
+    const clustersStill = clusters.filter((cluster) => {
+      const mark = cluster.querySelector<HTMLElement>(".junto-seat-cluster__stack > .junto-mark");
+      if (!mark) return true;
+      const turning = mark.getAnimations({ subtree: true }).some((a) => a.playState === "running");
+      return cluster.dataset.clusterState !== "rest" && !turning;
+    }).length;
     let withoutPortrait = 0;
     let withoutRing = 0;
     let withWords = 0;
@@ -233,7 +263,13 @@ const readFar = (page: Page): Promise<FarLook> =>
       collisions,
       smallestNamePx: Number.isFinite(smallest) ? smallest : 0,
       loudestNameAlpha: loudest,
+      agentsOnScreen: agents.length,
       seatsOnScreen: seats.length,
+      seatsGathered: hidden.length - seatsLost.length,
+      seatsLost,
+      needsYouGathered,
+      clustersOnScreen: clusters.length,
+      clustersStill,
       seatsWithoutPortrait: withoutPortrait,
       seatsWithoutRing: withoutRing,
       seatsWithWords: withWords,
@@ -354,7 +390,13 @@ test("far tier: every seat a portrait in its ring, every region coloured and nam
       expect(look.smallestNamePx, "smallest name on screen, px").toBeGreaterThanOrEqual(8);
       expect(look.loudestNameAlpha, "region names read as ground").toBeLessThanOrEqual(0.32);
       // Seats: a portrait in a ring, no words, big enough to tell apart.
-      expect(look.seatsOnScreen).toBeGreaterThanOrEqual(30);
+      // Past a screen's ring budget the closest gather into clusters that
+      // turn; none is lost and none that needs the operator is gathered.
+      expect(look.agentsOnScreen).toBeGreaterThanOrEqual(30);
+      expect(look.seatsLost, "agents neither drawn nor in a cluster").toEqual([]);
+      expect(look.needsYouGathered, "needs-you seats gathered").toEqual([]);
+      expect(look.clustersOnScreen, "clusters on a 200-seat board").toBeGreaterThan(0);
+      expect(look.clustersStill, "clusters whose ring is not turning").toBe(0);
       expect(look.seatsWithoutRing).toBe(0);
       expect(look.seatsWithoutPortrait).toBe(0);
       expect(look.seatsWithWords).toBe(0);
