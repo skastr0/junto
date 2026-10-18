@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Cause, Effect, Schema } from "effect";
+import { Cause, Effect, Option, Schema } from "effect";
 import {
   agentSeatStatusOf, encodeAgentSeatStatus, type AgentSeatStateEvent, type AgentSeatStatusWire,
 } from "@shared/agent-seat-state";
@@ -32,6 +32,8 @@ import {
   SeatStopRefused,
 } from "./seats-failure";
 import { decodeSeatsLaunch, fromSeatsLaunch, SeatsLaunchState, toSeatsLaunch, type SeatLaunchState } from "./seats-launch";
+import { seatLaunchState } from "./seat-launch-state";
+import { SeatSessionRepository } from "../seat-sessions/repository";
 import { decodeSeatsStatus, fromSeatsStatus, statusIssueAt, toSeatsStatus } from "./seats-status";
 import { forgetRemoteSeatLaunches, openedRemoteSeatLaunches, rememberRemoteSeatLaunch } from "./remote-seat-launch";
 import { seatStateRuntime } from "./agent-state/runtime";
@@ -158,8 +160,11 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
   const pin = options.pin ?? ensureSeatSessionId;
   const seatStates = options.seatStates ?? seatStateRuntime;
   const publishState = options.publishState ?? publishRemoteSeatState;
-  const launchState = options.launchState ??
-    ((canvas, seat) => import("./seat-launch-state").then((module) => module.seatLaunchStateOf(canvas, seat)));
+  // Read in this runtime, never through the window's: the core bundle must not reach Electron.
+  const sessions = yield* Effect.serviceOption(SeatSessionRepository);
+  const launchState = options.launchState ?? (Option.isNone(sessions) ? async () => undefined
+    : (canvas: string, seat: NodeOf<"agent">) =>
+      run(seatLaunchState(canvas, seat).pipe(Effect.provideService(SeatSessionRepository, sessions.value))));
   /** The launch state as it crosses now, or undefined when this machine cannot say. */
   const launchWire = (canvas: string, seat: NodeOf<"agent">) => Effect.promise(async () => {
     try {

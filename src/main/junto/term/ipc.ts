@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
 import { ModelService } from "../model/service";
-import { seatLaunchStateOf } from "./seat-launch-state";
+import { seatLaunchState } from "./seat-launch-state";
 import { remoteSeatLaunch } from "./remote-seat-launch";
 import { makeSeatsProcessClient } from "./seats-client";
 import type {
@@ -223,7 +223,7 @@ export const registerTerminalIpc = (
     assertTrusted(event);
     const node = await readSeat(input?.canvas, input?.id);
     if (node.kind !== "agent") return { hasSession: false, next: "fresh" };
-    if (router.isLocalHostId(node.host)) return seatLaunchStateOf(input.canvas, node);
+    if (router.isLocalHostId(node.host)) return AppRuntime.runPromise(seatLaunchState(input.canvas, node));
     // A seat on another machine: what that machine last said (seats-launch.ts).
     const last = remoteSeatStateEvents().find((event) => event.bindingId === node.bindingId);
     const launch = await remoteSeatLaunch({

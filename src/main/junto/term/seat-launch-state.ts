@@ -5,24 +5,27 @@
  * gives it, starts fresh. The card reads it here for this machine's seats,
  * and the seats link carries it to the machine that edits a seat's canvas
  * (seats-launch.ts).
+ *
+ * An effect over the seat's sessions, run in the runtime its process owns:
+ * the window's, or the windowless core's. It never imports a runtime, so the
+ * core bundle never reaches Electron through it.
  */
 import { Effect } from "effect";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 import type { NodeOf } from "@shared/model";
 import { seatNextLaunch } from "@shared/seat-next-launch";
-import { AppRuntime } from "../../runtime";
 import { seatNextTurnOf } from "../seat-sessions/operator-offboard";
 import { SeatSessionRepository } from "../seat-sessions/repository";
 import { shouldAvoidSharedHarnessResume } from "./managed-spawn-plan";
 import type { SeatLaunchState } from "./seats-launch";
 import { shouldResumeHarnessSession } from "./session-existence";
 
-export const seatLaunchStateOf = async (canvas: string, node: NodeOf<"agent">): Promise<SeatLaunchState> => {
-  const { session, history } = await AppRuntime.runPromise(Effect.flatMap(SeatSessionRepository,
-    (sessions) => Effect.all({
-      session: sessions.current(node.id, node.bindingId),
-      history: sessions.list(node.id).pipe(Effect.orElseSucceed(() => [])),
-    })));
+export const seatLaunchState = (canvas: string, node: NodeOf<"agent">) => Effect.gen(function* () {
+  const sessions = yield* SeatSessionRepository;
+  const { session, history } = yield* Effect.all({
+    session: sessions.current(node.id, node.bindingId),
+    history: sessions.list(node.id).pipe(Effect.orElseSucceed(() => [])),
+  });
   const lastEnded = history.find((row) => row.endedAt !== undefined)?.endReason;
   // The same proof a start asks for (managed-spawn-plan.ts): the harness's own
   // store holds the id, and this Junto is not an isolated home sharing the
@@ -36,6 +39,7 @@ export const seatLaunchStateOf = async (canvas: string, node: NodeOf<"agent">): 
       shouldResumeHarnessSession(true, { harness: node.harness, sessionId: session.sessionId, ...(cwd ? { cwd } : {}) }),
     ...(lastEnded ? { lastEnded } : {}),
   });
-  const nextTurn = await seatNextTurnOf({ canvasName: canvas, seatId: node.id }, next);
-  return { hasSession: session?.harness === node.harness, next, ...(nextTurn ? { nextTurn } : {}) };
-};
+  const nextTurn = yield* Effect.promise(() => seatNextTurnOf({ canvasName: canvas, seatId: node.id }, next));
+  const state: SeatLaunchState = { hasSession: session?.harness === node.harness, next, ...(nextTurn ? { nextTurn } : {}) };
+  return state;
+});

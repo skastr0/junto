@@ -105,6 +105,40 @@ export const stageMachinePty = async (output: string, target: keyof typeof NODE_
   } finally { await rm(scratch, { recursive: true, force: true }); }
 };
 
+/**
+ * The windowless core, bundled into `outdir/junto.cjs`. Refused when it
+ * reaches Electron or resolves packages from this machine's checkout: a
+ * machine that runs it has neither.
+ */
+export const bundleMachineCore = async (outdir: string, input: {
+  readonly build: string;
+  readonly version: string;
+  readonly features: ReturnType<typeof resolveBuildFeatures>;
+}): Promise<void> => {
+  // Bun.build throws an AggregateError on failure; its BuildMessages are the cause.
+  const result = await Bun.build({
+    entrypoints: [join(repoRoot, "src/main/headless.ts")], outdir, naming: "junto.cjs", target: "node", format: "cjs",
+    external: ["node-pty", "@xterm/headless", "@xterm/addon-serialize", "electron"],
+    // Bun otherwise replaces __filename with each source module's build path,
+    // and folds NODE_ENV to "development" for every package in the core.
+    banner: "const __JUNTO_CORE_FILENAME__ = __filename;",
+    define: { __filename: "__JUNTO_CORE_FILENAME__", "process.env.NODE_ENV": JSON.stringify("production"), __JUNTO_BUILD_ID__: JSON.stringify(input.build), __JUNTO_APP_VERSION__: JSON.stringify(input.version), __JUNTO_MAC_UPDATE_FEED_URL__: JSON.stringify(""), __JUNTO_MACHINE_RELEASE_CATALOG__: "undefined", ...featureViteDefines(input.features) },
+    plugins: [{name: "native-fs", setup(builder) {
+      builder.onResolve({filter: /^original-fs$/}, () => ({path: "native", namespace: "native-fs"}));
+      // jsonc-parser's UMD main requires ./impl/* at runtime, which a bundle cannot
+      // follow; its ESM entry is plain imports the bundler inlines. The app keeps
+      // the UMD main: Node loads it there, and cannot load the extensionless ESM.
+      builder.onResolve({filter: /^jsonc-parser$/}, () => ({path: join(repoRoot, "node_modules/jsonc-parser/lib/esm/main.js")}));
+      builder.onLoad({filter: /.*/, namespace: "native-fs"}, () => ({contents: 'module.exports = require("node:fs");', loader: "js"}));
+    }}],
+  }).catch((error: unknown) => { throw MachineBundleBuildFailed.from(error); });
+  if (!result.success) throw MachineBundleBuildFailed.from(new AggregateError(result.logs, "Bundle failed"));
+  const core = await readFile(join(outdir, "junto.cjs"), "utf8");
+  if (/(?:__require|require)\s*\(\s*["']electron["']\s*\)|\bBrowserWindow\b/.test(core)) throw new Error("the windowless core imports Electron");
+  // A baked source URL resolves packages from the build machine's checkout, absent on the target.
+  if (/createRequire\(\s*["']file:/.test(core)) throw new Error("the core resolves packages from a build-machine path");
+};
+
 export const buildMachine = async (input: BuildMachineInput) => {
   if (`${process.platform}-${process.arch}` !== input.target) throw new Error("native machine bundles must be built on their target architecture");
   const output = resolve(input.output);
@@ -117,28 +151,7 @@ export const buildMachine = async (input: BuildMachineInput) => {
     await mkdir(join(stage, "bin"), {recursive: true});
     await mkdir(join(stage, "core"), {recursive: true});
     await stageOfficialMachineNode(input.target, stage, resolve(input.cache ?? join(homedir(), ".cache/junto/node")));
-    // Bun.build throws an AggregateError on failure; its BuildMessages are the cause.
-    const result = await Bun.build({
-      entrypoints: [join(repoRoot, "src/main/headless.ts")], outdir: join(stage, "core"), naming: "junto.cjs", target: "node", format: "cjs",
-      external: ["node-pty", "@xterm/headless", "@xterm/addon-serialize", "electron"],
-      // Bun otherwise replaces __filename with each source module's build path,
-      // and folds NODE_ENV to "development" for every package in the core.
-      banner: "const __JUNTO_CORE_FILENAME__ = __filename;",
-      define: { __filename: "__JUNTO_CORE_FILENAME__", "process.env.NODE_ENV": JSON.stringify("production"), __JUNTO_BUILD_ID__: JSON.stringify(build), __JUNTO_APP_VERSION__: JSON.stringify(pkg.version), __JUNTO_MAC_UPDATE_FEED_URL__: JSON.stringify(""), __JUNTO_MACHINE_RELEASE_CATALOG__: "undefined", ...featureViteDefines(features) },
-      plugins: [{name: "native-fs", setup(builder) {
-        builder.onResolve({filter: /^original-fs$/}, () => ({path: "native", namespace: "native-fs"}));
-        // jsonc-parser's UMD main requires ./impl/* at runtime, which a bundle cannot
-        // follow; its ESM entry is plain imports the bundler inlines. The app keeps
-        // the UMD main: Node loads it there, and cannot load the extensionless ESM.
-        builder.onResolve({filter: /^jsonc-parser$/}, () => ({path: join(repoRoot, "node_modules/jsonc-parser/lib/esm/main.js")}));
-        builder.onLoad({filter: /.*/, namespace: "native-fs"}, () => ({contents: 'module.exports = require("node:fs");', loader: "js"}));
-      }}],
-    }).catch((error: unknown) => { throw MachineBundleBuildFailed.from(error); });
-    if (!result.success) throw MachineBundleBuildFailed.from(new AggregateError(result.logs, "Bundle failed"));
-    const core = await readFile(join(stage, "core/junto.cjs"), "utf8");
-    if (/(?:__require|require)\s*\(\s*["']electron["']\s*\)|\bBrowserWindow\b/.test(core)) throw new Error("the windowless core imports Electron");
-    // A baked source URL resolves packages from the build machine's checkout, absent on the target.
-    if (/createRequire\(\s*["']file:/.test(core)) throw new Error("the core resolves packages from a build-machine path");
+    await bundleMachineCore(join(stage, "core"), {build, version: pkg.version, features});
     for (const dependency of ["@xterm/headless", "@xterm/addon-serialize"]) {
       const source = join(repoRoot, "node_modules", dependency);
       const metadata = JSON.parse(await readFile(join(source, "package.json"), "utf8")) as {main:string};

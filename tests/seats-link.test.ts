@@ -31,6 +31,7 @@ import { machineLogDir } from "../src/main/junto/observability/log-file";
 import { readFileSync } from "node:fs";
 import { getSeatCredentialRegistry, setSeatCredentialRegistryForTests } from "../src/main/junto/work/seat-credentials";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { SeatSessionRepositoryLive } from "../src/main/junto/seat-sessions/repository";
 import { InstallationId } from "../src/shared/installation-id";
 import { asCanvasName, type Node } from "../src/shared/model";
 import { EMPTY_LAUNCH_RECORD } from "../src/shared/region-environment";
@@ -96,7 +97,7 @@ const fixture = async (options: {
   readonly spawnError?: Error;
   readonly seatStates?: SeatsChannelOptions["seatStates"];
   readonly publishState?: SeatsChannelOptions["publishState"];
-  readonly launchState?: SeatsChannelOptions["launchState"];
+  readonly launchState?: SeatsChannelOptions["launchState"] | "this runtime's";
 } = {}) => {
   const root = await mkdtemp(join(tmpdir(), "junto-seats-link-"));
   const fake = makeFakeTerminalProcessAuthority(() => ({ pid: 42_818, exitOnSignal: "SIGTERM" }));
@@ -108,6 +109,7 @@ const fixture = async (options: {
   });
   const repositories = Layer.provideMerge(Layer.mergeAll(
     WorkRepositoryLive,
+    SeatSessionRepositoryLive,
     makeMachineRepositoryLive({ defaultName: () => THIS_MACHINE }),
   ), makeStateEngineLive(join(root, "junto.db")));
   const actors = Layer.effect(ActorSeatOccupy, Effect.gen(function* () {
@@ -140,7 +142,7 @@ const fixture = async (options: {
   const channel = await runtime.runPromise(makeSeatsChannel({ host, pin,
     seatStates: options.seatStates ?? { subscribe: () => () => undefined, currentEvents: () => [] },
     publishState: options.publishState ?? (() => undefined),
-    launchState: options.launchState ?? (async () => undefined) }));
+    ...(options.launchState === "this runtime's" ? {} : { launchState: options.launchState ?? (async () => undefined) }) }));
   const sent = vi.fn((_channel: string, _payload: unknown) => Effect.void);
   const controller = new AbortController();
   const context: LinkChannelContext = {
@@ -344,6 +346,13 @@ describe("seats link launch state", () => {
     // A seat that cannot say answers bare.
     const silent = await fixture({ launchState: async () => { throw new Error("no repository"); } });
     expect(await silent.start({ ...request, _tag: "Get" })).toEqual({ _tag: "Vacant", canvas, seatId: localSeat.id, machine: THIS_MACHINE });
+  });
+
+  it("by default it is read from the sessions of the runtime the channel runs in", async () => {
+    const f = await fixture({ launchState: "this runtime's" });
+    expect(await f.start({ ...request, _tag: "Get" })).toEqual({
+      _tag: "Vacant", canvas, seatId: localSeat.id, machine: THIS_MACHINE, launch: { hasSession: false, next: "fresh" },
+    });
   });
 
   it("the receiver holds a launch state that reads, refuses one that does not, and drops it when the link closes", async () => {
