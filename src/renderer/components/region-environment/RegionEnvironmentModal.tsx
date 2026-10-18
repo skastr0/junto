@@ -6,7 +6,7 @@ import { getJuntoApi } from "../../lib/junto-api";
 import { thisMachineName } from "../../lib/machines";
 import { flushPendingCanvasSave, setRegionEnvironment } from "../../lib/mutations";
 import { regionEnvironmentPort } from "../../lib/region-environment-port";
-import { restartSeatOnSameSession } from "../../lib/seat-relaunch";
+import { restartSeat } from "../../lib/seat-relaunch";
 import { nodeAt, useNodeOf } from "../../lib/use-model";
 import { titleOf } from "@shared/model/title";
 import { state$ } from "../../lib/state";
@@ -41,7 +41,7 @@ export function RegionEnvironmentModal({
         canvasName: () => state$.canvasName.peek(),
         flushSave: flushPendingCanvasSave,
         findNode: (id) => nodeAt(state$.canvasName.peek(), id),
-        restartSeat: restartSeatOnSameSession,
+        restartSeat,
       }),
     [],
   );
