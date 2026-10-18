@@ -7,15 +7,15 @@
  *
  * The sender chooses the shape. A notice writes one short "mail from X" line
  * that points at `junto msg read`; a prompt writes the full text. Either way
- * the first line also points at `junto onboard` while the recipient has not
- * onboarded: nothing is sent at session start, so mail is where a fresh seat
- * learns the command that loads it.
+ * the first line also points at `junto onboard` while the recipient seat's
+ * agent has not onboarded: nothing is sent when a seat starts, so mail is
+ * where its agent learns the command that loads it.
  *
  * The only non-delivery is physical: the recipient seat does not exist, or
  * its terminal is not ready for input. That message waits in the mailbox and
  * is written the moment the seat is ready (`onSeatLive`), or at the boot
  * scan. Waiting mail starts its seat (`wakeSeat`): arriving work is the
- * reason to run the session, not an operator opening it. The wake keeps the
+ * reason to run the seat, not an operator opening it. The wake keeps the
  * pause law, so a paused canvas or seat keeps its mail queued until play
  * (`onResumed`). A sender may opt one message out of the wake.
  *
@@ -80,12 +80,12 @@ export type MessageDeliveryTransport = {
   /** The seat's terminal is up and ready to take a paste. */
   readonly seatLive: (bindingId: string) => boolean;
   /**
-   * `junto onboard` ran in the seat's current harness session. False puts the
-   * onboard pointer on the mail line. Absent = no pointer.
+   * This seat's agent has onboarded (`junto onboard`). False puts the onboard
+   * pointer on the mail line. Absent = no pointer.
    */
   readonly seatOnboarded?: (bindingId: string) => boolean;
   /**
-   * Start the seat's session headless so waiting mail can reach it. The
+   * Start the seat headless so waiting mail can reach it. The
    * implementation owns every refusal (not local, paused, restart budget)
    * and resolves false for them. Absent = mail never starts a seat.
    */
