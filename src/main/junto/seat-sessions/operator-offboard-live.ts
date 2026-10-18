@@ -287,6 +287,11 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
       await refreshRules();
       return offboard.status(canvasName, seatIds);
     },
+    // The card asks again when a cache window changes: answer from the new one.
+    nextTurn: async (seat, launch) => {
+      await refreshRules();
+      return offboard.nextTurn(seat, launch);
+    },
   });
 
   // Output is movement. So is a seat leaving idle.
