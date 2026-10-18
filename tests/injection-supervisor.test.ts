@@ -31,7 +31,7 @@ const seatEvent = (over: Partial<AgentSeatStateEvent> = {}): AgentSeatStateEvent
   ...over,
 });
 
-/** Let the session-record callbacks (always async) settle. */
+/** Let the onboarded marker's load and save (always async) settle. */
 const settled = async (): Promise<void> => {
   for (let i = 0; i < 4; i += 1) await Promise.resolve();
 };
