@@ -1,6 +1,6 @@
 # T10 acceptance, the cache-cold loop (2026-10-18)
 
-**Verdict: this machine passes items 1 to 8. Item 5 failed on a7d490f53 and passes on 7195b33ee, which holds pty-lead's fix 815dde913. The mini was not tested: its update is waiting on the operator (signal 01M584MGHP1TT5KEAEA2C8WSFG, still open), so every mini item is unverified.**
+**Verdict: this machine passes items 1 to 8. Item 5 failed on a7d490f53 and passes on 7195b33ee, which holds pty-lead's fix 815dde913. On the mini, a parallel install at fd13f0111 passes item 1 and fails item 2. Items 3 to 8 there are blocked by two product gaps: the core gives its seats no Junto CLI, and it records a different session id than the one it launched (see Mini).**
 
 ## Setup
 
@@ -40,7 +40,40 @@
 
 ## Mini
 
-The live link to the mini was already down before T10: `~/.junto/logs/app.jsonl` 16:49:33Z LinkBuildMismatch, "Update mac-mini before connecting Junto". Its core is a build of 65a4b79e from Oct 16. The live app has 1 seat there (quasar-lead, no session). Updating the mini's core is the operator's decision, so it waits on signal 01M584MGHP1TT5KEAEA2C8WSFG. Items 1 to 8 on the mini are unverified. The mini was not changed.
+**Verdict: item 1 passes, and item 2 fails. Items 3 to 8 are blocked behind two product gaps (A and B below). Production on the mini was never touched.**
+
+### Setup
+
+- The test used a parallel install, never the production core. The preview was built from `fd13f0111`, which has pty-lead's fix so that remote terminals reach the machine record's own Junto home.
+- `junto machine add` created a record `mini-t10` with juntoHome `/Users/guilhermecastro/.junto-preview-t10` and installRoot `.../.junto-preview-t10/machine`, then `machine send` installed it. The core was build `038866...` under service `dev.junto.machine.28dbe19ac31ac094` (pid 37837).
+- Production stayed untouched throughout. Its services `c0f20e6dcbd48300` (pid 7351) and `000515008554c211` (pid 7382) kept their pids, and `~/.junto/machine/current` stayed on `65a4b79e...`.
+- Four seats ran on canvas `t10-mini`. All four claude processes were children of pid 37837, which confirms fd13f0111.
+- Receipts are in `~/junto-receipts/t10-20261018/mini/`.
+
+### Per item
+
+| # | Result | Receipt |
+|---|---|---|
+| 1 | PASS | `mini-item1.json`: before `{60, harness:{}}`, after `{60, harness:{claude:2}}`, read back over the link. The mini preview database shows `{"claude":{"cacheWindowMinutes":2}}` at 20:57:14.439Z, and the production database there is unchanged since 2026-10-17. Restored at 21:11:55, read back `{60, harness:{}}`. |
+| 2 | FAIL (B) | m10-blocked had a 252,311-token context and was idle from 21:02:43 (`offboard-clock.json` idleSince). At 21:11 it had still not been cut, past its 2 min window. |
+| 2b | Not meaningful | Nothing is cut on the mini (B), so a seat being left alone proves nothing. |
+| 3 to 7 | Blocked | They need a cut (B), or a seat that can run `junto` (A). |
+| 8 | Partial | The repo's own hook still ran: `pre-commit: BLOCKME refused`, and `bad.txt` stayed staged. Attribution fails (A): `seat_commits` is empty after commit `efbab60`. |
+
+### Blockers
+
+- **(A) A windowless core gives its seats no Junto CLI (cli-lead).**
+  - Mini seats have no `JUNTO_CLI` and no `junto` on PATH.
+  - `juntoCliPathPrefixes` (`src/main/junto/term/templates/seat-env.ts:27-40`) only tries `<resources>/bin` and `<cwd>/dist`. The core runs `bin/node` from launchd, with no resources path and cwd `/`.
+  - Receipts: the post-commit hook printed "junto: this commit is not attributed to the seat: the junto CLI was not found", and `junto blocked` gave "zsh: command not found: junto" (`mini/transcripts/`).
+- **(B) The core records a different session id than the one it launches (pty-lead).**
+  - For m10-blocked, the process is `claude --session-id 19f242d7...`, but `seat_sessions` and `offboard-clock.json` hold `39f08e2b...`. For m10-reader, the process is `d39ffd4a...` and the records hold `a5f90d78...`.
+  - No transcript exists under the recorded ids, so the core cannot size the session, worth stays false, and the cut never fires (`mini/seat_sessions.txt`, `mini/offboard-clock.json`).
+  - The desktop's status for these seats also reads wrong: idleMinutes 16, sessionId null, nextTurn fresh true (`mini/mini-monitor.jsonl`).
+
+### Teardown
+
+The parallel install was removed with `machine uninstall-local`: its service definition was removed and the service no longer appears in `launchctl list`. `~/.junto-preview-t10` on the mini was deleted, and the production core is still running under its own labels.
 
 ## Findings beyond the items
 
