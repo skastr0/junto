@@ -47,6 +47,15 @@ export const shouldAvoidSharedHarnessResume = (
 ): boolean =>
   usableJuntoHome(juntoHomeEnv) !== undefined && ownsSessionsEnv !== "1";
 
+/**
+ * A machine core (headless.ts) owns every session in its home: its service
+ * sets JUNTO_HOME whether or not the home is the default, and nothing seeds it
+ * with another install's pins.
+ */
+export const declareMachineCoreOwnsSessions = (environment: NodeJS.ProcessEnv): void => {
+  environment.JUNTO_HOME_OWNS_SESSIONS = "1";
+};
+
 export type SpawnPlanInput = {
   readonly nodeId?: string;
   readonly harness?: string;

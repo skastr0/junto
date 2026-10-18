@@ -3,12 +3,18 @@ import { dirname, join, resolve } from "node:path";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { runningBuildIdentity } from "./junto/build-identity";
 import { startCore } from "./junto/core";
+import { declareMachineCoreOwnsSessions } from "./junto/term/managed-spawn-plan";
 import { armMainThreadBudget } from "./junto/observability/main-thread-budget";
 import { installMachineLog, installObservabilityConsoleHook } from "./junto/observability/logger";
 import { machineLogDir } from "./junto/observability/log-file";
 import { LinkUnavailable } from "./junto/link/types";
 
 const home = resolveJuntoHome();
+// A machine core's service always sets JUNTO_HOME, and every session pinned
+// in that home was pinned by this core. Without saying so, the core took the
+// dev build's isolation: it launched a fresh, unrecorded id instead of the
+// one it pinned, and never resumed a session.
+declareMachineCoreOwnsSessions(process.env);
 
 const main = async (): Promise<void> => {
   // The log file is this core's record. Its service stdio is an unbounded
