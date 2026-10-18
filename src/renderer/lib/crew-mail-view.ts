@@ -13,6 +13,7 @@ import {
 } from "@shared/message-delivery";
 import {
   readMailEvidenceRef,
+  readMailEvidenceRefs,
   readMailExtension,
   type MailEvidenceRef,
   type MailKind,
@@ -35,15 +36,7 @@ export const parseMailEvidenceRef = (
 
 export const parseMailEvidenceRefs = (
   value: unknown,
-): ReadonlyArray<MailEvidenceRef> => {
-  if (!Array.isArray(value)) return [];
-  const refs: MailEvidenceRef[] = [];
-  for (const entry of value) {
-    const parsed = parseMailEvidenceRef(entry);
-    if (parsed !== undefined) refs.push(parsed);
-  }
-  return refs;
-};
+): ReadonlyArray<MailEvidenceRef> => readMailEvidenceRefs(value);
 
 export const mailDeliveryOf = (message: Message): MailDelivery =>
   isMessageDelivered(message) ? "delivered" : "waiting";
@@ -72,8 +65,6 @@ export const mailEvidenceLabel = (ref: MailEvidenceRef): string => {
       return ref.taskId;
     case "seat":
       return ref.actorRef;
-    case "session-read":
-      return ref.sessionId;
     case "url":
       return ref.url;
   }

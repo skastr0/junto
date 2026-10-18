@@ -15,6 +15,7 @@ import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import { StateTransactionOperation } from "../state/service";
 import { unjournaledWorkMutationEffect } from "./mutation-seam";
 import {
+  readMailEvidenceRefs,
   ReviewVerdict,
   VERDICT_SUBJECT_HASH_DOMAIN,
 } from "../../../shared/crew";
@@ -168,7 +169,7 @@ const verdictFromRow = (row: VerdictRow): typeof ReviewVerdict.Type =>
     subjectHash: row.subject_hash,
     epoch: row.epoch,
     findings: JSON.parse(row.findings_json) as string[],
-    refs: JSON.parse(row.refs_json) as ReadonlyArray<unknown>,
+    refs: readMailEvidenceRefs(JSON.parse(row.refs_json)),
     postedAtMs: row.posted_at_ms,
   });
 

@@ -155,6 +155,7 @@ import {
   reviewersOfAuthor,
 } from "./reviews";
 import {
+  readMailEvidenceRefs,
   readMailExtension,
   type MailSenderStamp,
   type ReviewVerdict,
@@ -2351,9 +2352,9 @@ const loadTaskVerdictsMap = Effect.fn("work.loadTaskVerdictsMap")(function* (
       findings: (yield* Effect.try(
         parseJson.bind(undefined, row.findings_json),
       )) as ReviewVerdict["findings"],
-      refs: (yield* Effect.try(
-        parseJson.bind(undefined, row.refs_json),
-      )) as ReviewVerdict["refs"],
+      refs: readMailEvidenceRefs(
+        yield* Effect.try(parseJson.bind(undefined, row.refs_json)),
+      ),
       postedAtMs: row.posted_at_ms,
     };
     const chain = map.get(row.subject_task_item);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { canvasOf, note } from "./support/model-nodes";
 import type { Message } from "../src/shared/work-model";
+import { readReviewVerdict } from "../src/shared/crew";
 import {
   countMailViews,
   crewMailViewOf,
@@ -58,6 +59,35 @@ describe("crewMailViewOf", () => {
       kind: "url",
       url: "https://example.com",
     });
+  });
+
+  it("reads an old row that carries a retired ref kind and drops the ref", () => {
+    const retired = { kind: "session-read", sessionId: "s-1" };
+    const stamp = {
+      fromSeat: `seat_${"a".repeat(64)}`,
+      senderGeneration: "ep_1",
+      senderHarness: "claude",
+    };
+    const view = crewMailViewOf(
+      message({ mailKind: "notice", ...stamp, refs: [{ kind: "commit", sha: "abc" }, retired] }),
+    );
+    expect(view.kind).toBe("notice");
+    expect(view.refs).toEqual([{ kind: "commit", sha: "abc" }]);
+    expect(parseMailEvidenceRef(retired)).toBeUndefined();
+
+    const verdict = readReviewVerdict({
+      verdictId: "v1",
+      kind: "green",
+      reviewerSeatId: stamp.fromSeat,
+      authorSeatId: stamp.fromSeat,
+      subject: { kind: "commit", sha: "abc", subjectHash: "h" },
+      subjectHash: "h",
+      epoch: 0,
+      findings: [],
+      refs: [retired, { kind: "task", taskId: "t1" }],
+      postedAtMs: 1,
+    });
+    expect(verdict?.refs).toEqual([{ kind: "task", taskId: "t1" }]);
   });
 });
 
