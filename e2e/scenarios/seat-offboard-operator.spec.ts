@@ -1172,6 +1172,7 @@ test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next,
 
     await step("LOOP.2", "mail to Tia cuts her cold session with no turn and starts a fresh one; the same mail to Zed cuts nothing", async () => {
       const before = await inputOf(sandbox, "tia", 1);
+      const cutPid = (await tia.ready()).pid;
       opData(await pat.op("msg.send", { target: "zed", text: WAKE }));
       await expect.poll(() => inputOf(sandbox, "zed", 1), { message: "the mail on Zed's session", timeout: 60_000 }).toContain(WAKE);
       expect(await launches(sandbox, "zed"), "Zed's session was kept").toBe(1);
@@ -1180,6 +1181,9 @@ test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next,
       await expect.poll(() => inputOf(sandbox, "tia", 2), { message: "the mail on the fresh session's input", timeout: 60_000 }).toContain(WAKE);
       expect(await inputOf(sandbox, "tia", 1), "nothing was typed into the cut session").toBe(before);
       expect(await sessionPin(sandbox, "tia"), "Tia no longer names the cut session").not.toBe(sessionIdOf("tia"));
+      // The cut process winds down on its own; the seat's ops are answered by whichever process is alive.
+      await expect.poll(() => pidAlive(cutPid), { message: "the cut session's process is gone", timeout: 60_000 }).toBe(false);
+      await expect.poll(async () => (await tia.ready()).pid, { message: "the fresh process has registered", timeout: 30_000 }).not.toBe(cutPid);
       expect(offboardLines().join("\n"), "no [offboard] line says failed").not.toMatch(/failed/u);
       mark("Tia woke on a fresh session");
       await shot(page, "LOOP.2", "tia-on-a-fresh-session");
