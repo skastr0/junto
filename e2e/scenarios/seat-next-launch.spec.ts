@@ -109,3 +109,118 @@ test("a seat that is not running says fresh next only when its next turn starts 
     await junto.close();
   }
 });
+
+/**
+ * The cut's threshold is each harness's own cache window, and the card says
+ * so at that window. Two seats that are not running, each holding a session
+ * that has worked 31 minutes and sat still for 10 (the motion clock is seeded
+ * on disk, so no product time passes): a codex seat and a claude seat. The
+ * installation's window is 60 minutes, so both continue. A codex window of 5
+ * set in Settings turns the codex card to "fresh next" and leaves the claude
+ * card as it was; a codex window of 15 keeps it continuing until 15 minutes
+ * after it last moved; removing the window puts it back.
+ */
+const SHORT = "0198f2a1-0000-7000-8000-000000000003";
+const LONG = "0198f2a1-0000-7000-8000-000000000004";
+const short = seat("short", "short", 40);
+const long = modelSeat({ id: "long", label: "long", harness: "claude", cwd: "/tmp", x: 340 });
+const STILL_MS = 10 * 60_000;
+const WORKED_MS = 31 * 60_000;
+
+test("a seat whose harness has a shorter cache window says fresh next at its own window", async () => {
+  test.setTimeout(180_000);
+  await mkdir(SHOTS, { recursive: true });
+  const movedAt = Date.now() - STILL_MS;
+  const junto = await launchJunto({
+    seedModels: {
+      [CANVAS]: modelFixture([short, long], [], [modelSeatSession(short, SHORT), modelSeatSession(long, LONG)]),
+    },
+    seedHarnessInstalls: ["codex", "claude"],
+    afterSeed: async (sandbox) => {
+      await mkdir(join(sandbox.homeDir, ".codex", "sessions", "2026", "10", "17"), { recursive: true });
+      await rollout(sandbox.homeDir, SHORT);
+      // Claude keeps a session at ~/.claude/projects/<cwd, slashes as dashes>/<id>.jsonl.
+      await mkdir(join(sandbox.homeDir, ".claude", "projects", "-tmp"), { recursive: true });
+      await writeFile(join(sandbox.homeDir, ".claude", "projects", "-tmp", `${LONG}.jsonl`), "{}\n");
+      // The clock as Junto saves it: both seats still since `movedAt`, each with a session worth cutting.
+      await mkdir(join(sandbox.homeDir, ".junto", "seats"), { recursive: true });
+      await writeFile(
+        join(sandbox.homeDir, ".junto", "seats", "offboard-clock.json"),
+        JSON.stringify({
+          savedAt: movedAt,
+          seats: {
+            [short.bindingId]: { movedAt, workMs: WORKED_MS, sessionId: SHORT },
+            [long.bindingId]: { movedAt, workMs: WORKED_MS, sessionId: LONG },
+          },
+        }),
+      );
+    },
+  });
+  try {
+    const { page } = junto;
+    const launchState = (id: string) =>
+      page.evaluate((input) => window.junto!.modelSeatLaunchState(input), { canvas: CANVAS, id });
+    const setCodexWindow = async (minutes: number | null) => {
+      await page.getByRole("button", { name: "Open settings" }).click();
+      await page.locator(".settings-nav__item", { hasText: "Offboard" }).first().click();
+      const section = page.getByTestId("offboard-settings");
+      await expect(section).toBeVisible({ timeout: 10_000 });
+      const row = section.getByTestId("offboard-harness-codex");
+      if (minutes === null) {
+        await row.getByRole("button", { name: "Remove the Codex window" }).click();
+        await expect(row).toHaveCount(0, { timeout: 10_000 });
+      } else {
+        if ((await row.count()) === 0) {
+          await section.getByRole("button", { name: "Add a window for a harness" }).click();
+          await page.getByRole("option", { name: "Codex", exact: true }).click();
+          await expect(row).toBeVisible({ timeout: 10_000 });
+        }
+        const field = row.getByLabel("Codex cache window, minutes");
+        await field.click();
+        await field.fill(String(minutes));
+        await field.press("Tab");
+        await expect
+          .poll(async () => (await page.evaluate(async () => (await window.junto!.settingsGet()).settings?.offboard))?.harness?.codex?.cacheWindowMinutes, { timeout: 10_000 })
+          .toBe(minutes);
+      }
+      await page.screenshot({ path: join(SHOTS, `codex-window-${minutes ?? "removed"}-settings.png`) });
+      await page.locator(".settings-panel__close").click();
+      await page.getByRole("button", { name: /fit all/i }).first().click();
+    };
+
+    await expect(line(page, "short")).toBeVisible({ timeout: 30_000 });
+    await page.getByRole("button", { name: /fit all/i }).first().click();
+
+    // The installation's window, 60 minutes: both sessions are still warm and both resume.
+    await expect.poll(async () => (await launchState("short")).nextTurn, { timeout: 20_000 })
+      .toEqual({ fresh: false, freshAt: movedAt + 60 * 60_000 });
+    expect((await launchState("long")).nextTurn).toEqual({ fresh: false, freshAt: movedAt + 60 * 60_000 });
+    for (const id of ["short", "long"]) {
+      await expect(line(page, id)).toContainText("not running");
+      await expect(line(page, id)).not.toContainText("fresh next");
+    }
+
+    // Codex's own window, 5 minutes: the codex session has been still past it.
+    await setCodexWindow(5);
+    await expect(line(page, "short")).toContainText("fresh next", { timeout: 20_000 });
+    expect((await launchState("short")).nextTurn).toEqual({ fresh: true });
+    expect((await launchState("long")).nextTurn).toEqual({ fresh: false, freshAt: movedAt + 60 * 60_000 });
+    await expect(line(page, "long")).not.toContainText("fresh next");
+    await page.mouse.move(4, 600);
+    await page.screenshot({ path: join(SHOTS, "codex-window-5.png") });
+
+    // 15 minutes: still warm, and it goes cold 15 minutes after it last moved.
+    await setCodexWindow(15);
+    await expect(line(page, "short")).not.toContainText("fresh next", { timeout: 20_000 });
+    expect((await launchState("short")).nextTurn).toEqual({ fresh: false, freshAt: movedAt + 15 * 60_000 });
+
+    // No window of its own: codex follows the installation's again.
+    await setCodexWindow(null);
+    await expect.poll(async () => (await launchState("short")).nextTurn, { timeout: 20_000 })
+      .toEqual({ fresh: false, freshAt: movedAt + 60 * 60_000 });
+    await expect(line(page, "short")).not.toContainText("fresh next");
+    console.log("lines", JSON.stringify(await Promise.all(["short", "long"].map(async (id) => `${id}: ${(await line(page, id).innerText()).replace(/\n/g, " | ")}`))));
+  } finally {
+    await junto.close();
+  }
+});
