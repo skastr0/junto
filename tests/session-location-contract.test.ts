@@ -82,6 +82,24 @@ describe("a session lookup always answers", () => {
     });
   });
 
+  it("at the session's own folder, never a harness's hidden copy of it", () => {
+    const home = tempHome();
+    const id = "01a0faff-f98a-74c2-8205-170c119dfd2f";
+    const sessions = join(home, ".local", "share", "muse", "sessions");
+    // Muse's view cache sorts first and holds no transcript.
+    mkdirSync(join(sessions, ".msp-view-v1", id), { recursive: true });
+    writeFileSync(join(sessions, ".msp-view-v1", id, "HEAD.json"), "{}");
+    const own = join(sessions, "2026", "10", "02", id);
+    mkdirSync(own, { recursive: true });
+    writeFileSync(join(own, "session.jsonl"), "{}\n");
+    expect(locateHarnessSession({ harness: "muse", sessionId: id })).toEqual({
+      _tag: "Located",
+      location: { path: own, source: "store" },
+    });
+    rmSync(own, { recursive: true });
+    expect(locateHarnessSession({ harness: "muse", sessionId: id })).toEqual({ _tag: "Missing", missing: "none" });
+  });
+
   it("with none when the store has nothing under the id", () => {
     tempHome();
     expect(locateHarnessSession({ harness: "claude", sessionId: "s1", cwd })).toEqual({ _tag: "Missing", missing: "none" });

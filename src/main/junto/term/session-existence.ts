@@ -107,7 +107,9 @@ export type SessionWhere = {
  * - entryIncludes: a direct entry whose name contains the id.
  * - treeIncludes: any entry, at most `depth` levels down, whose name contains
  *   the id (rollout names embed it).
- * - dirNamed: a directory named exactly the id, at most `depth` levels down.
+ * - dirNamed: a directory named exactly the id, at most `depth` levels down,
+ *   never under a hidden one: Muse mirrors every session into `.msp-view-v1/<id>`,
+ *   a view cache without the transcript.
  * - database: a read-only query on the harness's own database; the first
  *   statement that prepares decides, so a column rename degrades to the next.
  */
@@ -440,7 +442,7 @@ const dirNamed = (path: string, id: string, depth: number, maxDepth: number): st
   if (depth > maxDepth) return undefined;
   for (const name of entriesOf(path)) {
     const child = join(path, name);
-    if (!isDir(child)) continue;
+    if (name.startsWith(".") || !isDir(child)) continue;
     if (name === id) return child;
     const found = dirNamed(child, id, depth + 1, maxDepth);
     if (found) return found;
