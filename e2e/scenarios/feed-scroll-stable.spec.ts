@@ -84,7 +84,7 @@ test("the needs-you list moves only when the operator moves it", async () => {
   });
   try {
     const { app, page } = junto;
-    await expect(page.locator(".react-flow__node", { hasText: "lea" })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("rf__node-lea")).toBeVisible({ timeout: 30_000 });
     await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
     await page.keyboard.press("Meta+I");
     const feed = page.getByTestId("operator-feed");
