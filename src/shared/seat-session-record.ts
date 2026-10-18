@@ -5,9 +5,9 @@
  * Provenance is the model. A past session is known through kinds of record
  * that are not interchangeable, and onboard keeps them apart:
  *
- *   record      Junto's observation (this file): commits in the seat's
- *               folder, mail in and out, signals and their answers, tasks,
- *               how the session ended. Facts, each one labelled as Junto's.
+ *   record      Junto's observation (this file): mail in and out, signals
+ *               and their answers, tasks, how the session ended. Facts, each
+ *               one labelled as Junto's.
  *   journal     the seat's own words, written with `junto offboard`: its
  *               perspective, present only when it wrote them.
  *   transcript  the harness's full record of the session.
@@ -40,22 +40,10 @@ export type Observed<T> =
   | { readonly read: true; readonly items: ReadonlyArray<T>; readonly more: number }
   | { readonly read: false; readonly reason: string };
 
-export type RecordedCommit = {
-  readonly sha: string;
-  readonly subject: string;
-  readonly authored_at: string;
-  /**
-   * The session's transcript names this commit. A folder can be shared by
-   * many seats, so a commit made there while the session ran is not
-   * necessarily this seat's. null: the transcript could not be searched.
-   */
-  readonly in_transcript: boolean | null;
-};
-
 export type RecordedMailIn = {
   readonly id: string;
-  /** The sending seat's title, or its node id. */
-  readonly from: string;
+  /** The sending seat's name, or its node id; null when the mail names no sender. */
+  readonly from: string | null;
   readonly at: string;
   readonly text: string;
   readonly read_at: string | null;
@@ -103,7 +91,6 @@ export type SessionRecord = {
     readonly cwd: string | null;
     readonly transcript_path: string | null;
   };
-  readonly commits: Observed<RecordedCommit>;
   readonly mail_in: Observed<RecordedMailIn>;
   readonly mail_out: Observed<RecordedMailOut>;
   readonly signals: Observed<RecordedSignal>;
