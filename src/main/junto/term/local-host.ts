@@ -113,6 +113,7 @@ import {
 import { configuredToolDirectories } from "../adapters/exec";
 import { launchSecretValues, registerKnownSecrets, releaseKnownSecrets } from "../credentials/scrub";
 import { buildManagedSeatInject } from "./templates/seat-env";
+import { withSeatGitHooks } from "../git/seat-hooks";
 import {
   PROGRAM_STATUS_ENV,
   PROGRAM_STATUS_QUERY_REPLY,
@@ -759,6 +760,9 @@ export const resolveLaunch = (
         delete env[key];
       }
     }
+    // The seat's commits are attributed to it: Junto's git hooks, which run
+    // the repo's own hooks first. Last, so no earlier layer can drop them.
+    Object.assign(env, withSeatGitHooks(env));
   }
   const argv = reclaimOrphanedHarnessArgv(
     launch?.argv?.filter((a) => typeof a === "string" && a.length > 0) ?? [],

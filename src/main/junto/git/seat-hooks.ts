@@ -29,12 +29,11 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveJuntoHome } from "@shared/junto-home";
+import { COMMIT_OBSERVED_COMMAND } from "../../../cli/protocol-command-names";
 
 /** Bump when the hook script changes; a new directory is written beside the old. */
 export const SEAT_GIT_HOOKS_VERSION = 1;
 
-/** The CLI entry the post-commit hook runs. Dispatch name only; agents never call it. */
-export const COMMIT_OBSERVED_COMMAND = "commit-observed";
 
 /** How long the post-commit report may take before the hook gives up on it. */
 export const SEAT_GIT_HOOKS_REPORT_DEADLINE_SECONDS = 3;

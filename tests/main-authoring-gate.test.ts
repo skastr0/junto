@@ -188,6 +188,7 @@ describe("work-control main authoring classification", () => {
       "signal.clear": "authorial",
       "signal.list": "read",
       "env.report": "read",
+      "commit.observed": "authorial",
       "logs.read": "read",
       "references.list": "read",
       "references.read": "read",

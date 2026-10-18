@@ -113,6 +113,11 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "signal.list",
 /** Universal seat-local: what this seat's regions resolve to (names and status, never values). */
 "env.report",
+/**
+ * Universal seat-local, not for agents: the seat's post-commit hook reports a
+ * commit it made, so Junto knows which seat made it (no edge, no port).
+ */
+"commit.observed",
 /** Universal seat-local: this machine's log, scoped to the caller (its rows, seats it may read, rows naming no seat). */
 "logs.read",
 /** Universal seat-local: the operator's references in this seat's scope (the app and its regions). */
@@ -694,6 +699,19 @@ export type SignalListArgs = typeof SignalListArgs.Type;
  * `SeatEnvironmentReport` (shared/region-environment): variable names, where
  * each comes from and whether it resolved. Never a value.
  */
+/**
+ * A commit the calling seat just made: the full commit id and the top level
+ * of the repo it is in, both as git reports them in the hook. The seat is the
+ * credential's; main checks the commit is in that repo before recording it.
+ */
+export const CommitObservedArgs = Schema.Struct({
+  sha: Schema.String.pipe(Schema.check(Schema.isPattern(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/))),
+  repo: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(4096))),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type CommitObservedArgs = typeof CommitObservedArgs.Type;
+
 export const EnvReportArgs = Schema.Struct({}).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
