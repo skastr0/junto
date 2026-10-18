@@ -385,49 +385,56 @@ export function OperatorFeed() {
   // rank it afresh; any other change keeps every card where the operator
   // sees it: a new card goes where the ranking puts it, and an answered or
   // dismissed one fades out in its place, its region with it, before it
-  // leaves. Worked out while rendering, so no commit ever draws the list
-  // without a card that is still fading: one that did remounted the card,
-  // a reply box open on it took focus again, and the list scrolled to it.
+  // leaves. Worked out while rendering, against what was last drawn, so no
+  // commit ever draws the list without a card that is still fading: one that
+  // did remounted the card, a reply box open on it took focus again, and the
+  // list scrolled to it.
   const pick = `${canvasName}\n${activeRegion ? (activeRegion.regionId ?? OPEN_FIELD) : ALL_REGIONS}\n${feedOrder}`;
-  const [shown, setShown] = useState(() => ({
-    view: viewSections,
-    pick,
-    sections: holdFeedPlaces([], viewSections, NO_IDS),
-    leaving: NO_IDS,
-  }));
-  if (shown.view !== viewSections || shown.pick !== pick) {
-    const held = shown.pick === pick ? shown.sections : [];
+  const drawn = useRef<{ readonly pick: string; readonly sections: ReadonlyArray<ShownFeedSection> }>({ pick, sections: [] });
+  // Cards whose fade is over: the next draw leaves them out.
+  const [faded, setFaded] = useState<ReadonlySet<string>>(NO_IDS);
+  const sections = useMemo(() => {
+    const held = drawn.current.pick === pick ? drawn.current.sections : [];
     const live = new Set(feedItemsInOrder(viewSections).map((item) => item.itemId));
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
     const leaving = new Set(
-      reduced ? [] : feedItemsInOrder(held).map((item) => item.itemId).filter((itemId) => !live.has(itemId)),
+      reduced
+        ? []
+        : feedItemsInOrder(held)
+            .map((item) => item.itemId)
+            .filter((itemId) => !live.has(itemId) && !faded.has(itemId)),
     );
-    setShown({ view: viewSections, pick, sections: holdFeedPlaces(held, viewSections, leaving), leaving });
-  }
-  const sections = shown.sections;
+    return holdFeedPlaces(held, viewSections, leaving);
+  }, [viewSections, pick, faded]);
+  useLayoutEffect(() => {
+    drawn.current = { pick, sections };
+  }, [pick, sections]);
   // One timer per fading card, kept through every change until it fires: the
   // feed re-renders often, and a card whose timer was dropped would never leave.
   const leaveTimers = useRef(new Map<string, number>());
   useEffect(() => {
     const timers = leaveTimers.current;
+    const leaving = new Set(sections.flatMap((section) => [...section.leavingIds]));
     for (const [itemId, timer] of timers) {
-      if (shown.leaving.has(itemId)) continue;
+      if (leaving.has(itemId)) continue;
       window.clearTimeout(timer);
       timers.delete(itemId);
     }
-    for (const itemId of shown.leaving) {
+    for (const itemId of leaving) {
       if (timers.has(itemId)) continue;
       const timer = window.setTimeout(() => {
         timers.delete(itemId);
-        setShown((current) => {
-          const leaving = new Set(current.leaving);
-          leaving.delete(itemId);
-          return { ...current, sections: holdFeedPlaces(current.sections, current.view, leaving), leaving };
-        });
+        setFaded((current) => new Set(current).add(itemId));
       }, LEAVE_MS);
       timers.set(itemId, timer);
     }
-  }, [shown.leaving]);
+    // Forget a faded card once it is off the list, so a card with the same id
+    // that comes back (a seat asking again) fades out again when it leaves.
+    const drawnIds = new Set(feedItemsInOrder(sections).map((item) => item.itemId));
+    if ([...faded].some((itemId) => !drawnIds.has(itemId))) {
+      setFaded((current) => new Set([...current].filter((itemId) => drawnIds.has(itemId))));
+    }
+  }, [sections, faded]);
   useEffect(() => {
     const timers = leaveTimers.current;
     return () => {
@@ -438,8 +445,8 @@ export function OperatorFeed() {
 
   // The cards still waiting, in the order they are drawn.
   const items = useMemo(
-    () => feedItemsInOrder(shown.sections).filter((item) => !shown.leaving.has(item.itemId)),
-    [shown],
+    () => sections.flatMap((section) => section.items.filter((item) => !section.leavingIds.has(item.itemId))),
+    [sections],
   );
   const itemsRef = useRef(items);
   // When the selected item leaves, for whatever reason, its neighbour takes over.
