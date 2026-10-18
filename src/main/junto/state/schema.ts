@@ -39,6 +39,7 @@ import {
   SEAT_SESSIONS_STATE_SCHEMA_SQL,
 } from "../seat-sessions/state-schema";
 import { APP_TEXTS_STATE_SCHEMA_SQL } from "../references/state-schema";
+import { SEAT_COMMITS_STATE_SCHEMA_SQL } from "../git/state-schema";
 
 /**
  * Schema identity table: `actual_schema_sha256` is the sole witness (live DDL
@@ -110,6 +111,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   APP_TEXTS_STATE_SCHEMA_SQL,
   WORK_EXCHANGE_STATE_SCHEMA_SQL,
   CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL,
+  SEAT_COMMITS_STATE_SCHEMA_SQL,
 ] as const;
 
 

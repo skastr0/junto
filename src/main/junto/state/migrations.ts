@@ -19,6 +19,7 @@ import {
   CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL,
   WORK_EXCHANGE_CURSORS_V16_STATE_SCHEMA_SQL,
 } from "../work/exchange/state-schema";
+import { SEAT_COMMITS_STATE_SCHEMA_SQL } from "../git/state-schema";
 import {
   MACHINE_NAMES_CORRECTED_TABLES,
   MACHINE_NAMES_REMOVED_TABLES,
@@ -328,7 +329,16 @@ export const STATE_SCHEMA_V21_IDENTITY = {
     "3f66bf3f3123345039d6bd1bd9eda6c4bed42ffb7d5bb1ade4ed7ae0d5903148",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 21;
+/**
+ * Version 22 adds the seat commits store: which seat made each commit, as
+ * the seat's post-commit hook reported it. Expand only.
+ */
+export const STATE_SCHEMA_V22_IDENTITY = {
+  actualSchemaSha256:
+    "dd4f941d66912550fba355c1b17dc38231dd217f9d0eefe395c0a87e3222a4d7",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 22;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -336,7 +346,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 21;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V21_IDENTITY;
+  STATE_SCHEMA_V22_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -573,6 +583,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     ],
     correctiveWriteTables: [...MACHINE_NAMES_CORRECTED_TABLES],
     migrate: (database) => migrateMachineNames(database),
+  },
+  {
+    fromVersion: 21,
+    toVersion: 22,
+    name: "remember which seat made each commit",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V21_IDENTITY,
+    migrate: (database) => {
+      database.exec(SEAT_COMMITS_STATE_SCHEMA_SQL);
+    },
   },
 ];
 
