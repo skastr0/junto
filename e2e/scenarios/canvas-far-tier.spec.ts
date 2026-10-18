@@ -620,6 +620,48 @@ test("overview tier: every agent stays, crowded ones gathered, none that needs y
       expect(look.cardsDrawn, "cards other than seats at the overview").toBe(0);
     }
 
+    // The cluster in hand rides over its neighbours: take one whose list
+    // reaches over a cluster drawn after it, and every row is hit where drawn.
+    const reach = await page.evaluate(() => {
+      const view = document.querySelector(".react-flow")!.getBoundingClientRect();
+      const inView = (r: DOMRect): boolean =>
+        r.width > 0 && r.left >= view.left && r.right <= view.right && r.top >= view.top && r.bottom <= view.bottom;
+      const within = (r: DOMRect, x: number, y: number): boolean => x > r.left && x < r.right && y > r.top && y < r.bottom;
+      const clusters = [...document.querySelectorAll<HTMLElement>('[data-testid="seat-cluster"]')];
+      for (let i = 0; i < clusters.length; i += 1) {
+        const stack = clusters[i]!.querySelector<HTMLElement>(".junto-seat-cluster__stack")!.getBoundingClientRect();
+        const list = clusters[i]!.querySelector<HTMLElement>(".junto-seat-cluster__list")!;
+        // Laid out for a moment to read where the rows land; never painted.
+        list.style.display = "grid";
+        const box = list.getBoundingClientRect();
+        const rows = [...list.querySelectorAll<HTMLElement>('[data-testid="seat-cluster-member"]')].map((row) => row.getBoundingClientRect());
+        list.style.display = "";
+        if (!inView(stack) || !inView(box)) continue;
+        const later = clusters.slice(i + 1).map((c) => c.querySelector<HTMLElement>(".junto-seat-cluster__body")!.getBoundingClientRect());
+        const covered = rows.filter((r) => later.some((b) => within(b, r.left + r.width / 2, r.top + r.height / 2))).length;
+        if (covered > 0) return { index: i, x: stack.left + stack.width / 2, y: stack.top + stack.height / 2, covered };
+      }
+      return undefined;
+    });
+    expect(reach, "a cluster whose list reaches over a later cluster").toBeDefined();
+    await page.mouse.move(reach!.x, reach!.y);
+    const held = page.locator('[data-testid="seat-cluster"]').nth(reach!.index);
+    await expect(held.locator('[data-testid="seat-cluster-member"]').first()).toBeVisible();
+    const buried = await held.evaluate((cluster) => {
+      const box = cluster.querySelector(".junto-seat-cluster__list")!.getBoundingClientRect();
+      return [...cluster.querySelectorAll<HTMLElement>('[data-testid="seat-cluster-member"]')]
+        .filter((row) => {
+          const r = row.getBoundingClientRect();
+          const x = r.left + r.width / 2;
+          const y = r.top + r.height / 2;
+          if (y < box.top || y > box.bottom) return false;
+          return document.elementFromPoint(x, y)?.closest('[data-testid="seat-cluster"]') !== cluster;
+        })
+        .map((row) => row.dataset.seatId!);
+    });
+    console.log(`CLUSTER-LIST ${JSON.stringify({ ...reach, buried })}`);
+    expect(buried, "list rows drawn under a neighbouring cluster").toEqual([]);
+
     // Work a cluster: hover lists its seats, a click on one selects it and
     // brings it out; a click on the badge brings the camera in until they part.
     const cluster = page.locator('[data-testid="seat-cluster"]').first();

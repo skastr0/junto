@@ -227,6 +227,11 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
   height: 0;
   pointer-events: none;
 }
+/* Every cluster is its own stacking context at the same level, so a later
+   one paints over an earlier one's list: the one in hand rides above. */
+.junto-seat-cluster:is(:hover, :focus-within) {
+  z-index: 3001;
+}
 .junto-seat-cluster__body {
   position: absolute;
   left: 0;
