@@ -203,7 +203,7 @@ replay.
 | `canvas.digest` | the model digest main also writes for the window and the canvas CLI (`readModelDigest`), read without adapter snapshot data |
 | `canvas.render` | an SVG of the canvas, with task rows marked on their boards |
 | Writes | one transaction: a batch all lands or none of it does |
-| Overseer seats | an overseer may rename, move, resize and recolor an overseer seat, its own included; changing what it runs (agent, session, harness, host, launch), removing it or reseating it is refused by the model as `Forbidden`: "Only the operator can change what an overseer seat runs or remove it." |
+| Overseer seats | an overseer may rename, move, resize and recolor an overseer seat, its own included; changing what it runs (agent, harness, host, launch), removing it or reseating it is refused by the model as `Forbidden`: "Only the operator can change what an overseer seat runs or remove it." |
 
 ## Human toggle (not a wire operation)
 
