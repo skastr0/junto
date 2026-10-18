@@ -11,6 +11,7 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { seededHarnessBinDir } from "../harness/agent-harness-fixture";
+import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { modelFixture, modelSeat, modelSeatSession } from "../harness/model";
 import { readSeatSession } from "../harness/seat-session";
 import { expect, launchJunto, test } from "../harness/launch";
@@ -225,6 +226,113 @@ test("a seat whose harness has a shorter cache window says fresh next at its own
       .toEqual({ fresh: false, freshAt: movedAt + 60 * 60_000 });
     await expect(line(page, "short")).not.toContainText("fresh next");
     console.log("lines", JSON.stringify(await Promise.all(["short", "long"].map(async (id) => `${id}: ${(await line(page, id).innerText()).replace(/\n/g, " | ")}`))));
+  } finally {
+    await junto.close();
+  }
+});
+
+/**
+ * A running seat at rest (T1, T2). Five fake codex seats, each on a session
+ * that worked 31 minutes and came to rest 10 minutes ago (the clock is seeded
+ * on disk; a start leaves it there). They start under the machine's 60
+ * minute window, so the wake cuts nothing, and the window then drops to 5:
+ *   rests   idle, nothing holds it: fresh next (cut at the minute pass or not)
+ *   viewed  its terminal is shown here: nothing, then fresh next once closed
+ *   typed   a key, then closed: nothing, and main names the moment 30 s after
+ *           the key (the card's timer at that moment is held by
+ *           tests/seat-fresh-next-timer.test.tsx; no test waits it out)
+ *   dialog  on a dialog, needs you: nothing
+ *   raised  its agent ran junto blocked: nothing
+ */
+const RUNNING = ["rests", "viewed", "typed", "dialog", "raised"] as const;
+const runningSeat = (id: string, i: number) =>
+  modelSeat({ id, label: id, harness: "codex", cwd: "/tmp", x: 40 + (i % 3) * 300, y: 40 + Math.floor(i / 3) * 200 });
+const runningSessionOf = (i: number) => `0198f2a1-0000-7000-8000-00000000001${String(i)}`;
+
+test("a running seat at rest says fresh next past its window, and not while held, blocked or waiting on you", async () => {
+  test.setTimeout(240_000);
+  await mkdir(SHOTS, { recursive: true });
+  const seats = RUNNING.map(runningSeat);
+  const restedAt = Date.now() - STILL_MS;
+  const junto = await launchJunto({
+    seedModels: {
+      [CANVAS]: modelFixture(seats, [], seats.map((node, i) => modelSeatSession(node, runningSessionOf(i)))),
+    },
+    afterSeed: async (sandbox) => {
+      await installCrewSeatHarness(sandbox);
+      await mkdir(join(sandbox.homeDir, ".codex", "sessions", "2026", "10", "17"), { recursive: true });
+      for (const i of seats.keys()) await rollout(sandbox.homeDir, runningSessionOf(i));
+      await mkdir(join(sandbox.homeDir, ".junto", "seats"), { recursive: true });
+      await writeFile(
+        join(sandbox.homeDir, ".junto", "seats", "offboard-clock.json"),
+        JSON.stringify({
+          savedAt: restedAt,
+          seats: Object.fromEntries(seats.map((node, i) => [node.bindingId, {
+            activitySince: restedAt - WORKED_MS, idleSince: restedAt, workMs: WORKED_MS, sessionId: runningSessionOf(i),
+          }])),
+        }),
+      );
+    },
+  });
+  try {
+    const { page, sandbox } = junto;
+    const launchState = (id: string) =>
+      page.evaluate((input) => window.junto!.modelSeatLaunchState(input), { canvas: CANVAS, id });
+    const seatState = async (id: string) =>
+      ((await page.evaluate(() => window.junto!.agentSeatStateSnapshot())) as ReadonlyArray<{ bindingId: string; state: string }>)
+        .find((event) => event.bindingId === `local:${id}`)?.state ?? "none";
+    const closeView = () => page.getByRole("button", { name: "Close view", exact: true }).click();
+    const crew = Object.fromEntries(RUNNING.map((id) => [id, crewSeat(sandbox, CANVAS, id)]));
+
+    await expect(line(page, "rests")).toBeVisible({ timeout: 30_000 });
+    await crewPlayFactory(page);
+    for (const [i, id] of RUNNING.entries()) {
+      await crewOccupySeat(page, CANVAS, seats[i]!, crew[id]!);
+      await expect.poll(() => seatState(id), { message: `${id} idle`, timeout: 30_000 }).toBe("idle");
+      expect((await crew[id]!.op("onboard", {})).ok, `${id} onboards`).toBe(true);
+    }
+    await page.getByRole("button", { name: /fit all/i }).first().click();
+
+    // The 60 minute window: every seat continues, and says nothing.
+    for (const id of RUNNING) await expect(line(page, id)).not.toContainText("fresh next");
+
+    await crew.dialog!.control({ screen: { mode: "attention" } });
+    await expect.poll(() => seatState("dialog"), { timeout: 30_000 }).toBe("attention");
+    const raised = await crew.raised!.cli(["blocked", "needs the prod password"]);
+    expect(raised.ok, `${raised.stdout}${raised.stderr}`).toBe(true);
+
+    // typed: shown, one key (Shift: nothing reaches the agent), closed. Its hold runs 30 s from the key.
+    await line(page, "typed").dblclick();
+    // Attached: the view holds its lease once the seat's screen is drawn, and only then is a key the operator's.
+    await expect(page.locator(".xterm-rows").first()).toContainText(/\S/, { timeout: 20_000 });
+    await page.locator(".xterm").first().click();
+    const typedAt = Date.now();
+    await page.keyboard.press("Shift");
+    await closeView();
+    // viewed: shown, and left open.
+    await line(page, "viewed").dblclick();
+    await expect(page.getByRole("button", { name: "Close view", exact: true })).toBeVisible({ timeout: 20_000 });
+
+    await page.evaluate(() => window.junto!.settingsPatch({ offboard: { cacheWindowMinutes: 5 } }));
+    const changedAt = Date.now();
+    await expect(line(page, "rests")).toContainText("fresh next", { timeout: 20_000 });
+    const typed = (await launchState("typed")).nextTurn;
+    console.log("typed", JSON.stringify({ typed, typedAt, changedAt }));
+    expect(Date.now() - typedAt, "the typed hold is still running").toBeLessThan(30_000);
+    expect(typed?.fresh).toBe(false);
+    expect(typed?.freshAt ?? 0).toBeGreaterThanOrEqual(typedAt + 30_000 - 1_000);
+    expect(typed?.freshAt ?? 0).toBeLessThanOrEqual(typedAt + 30_000 + 6_000);
+    expect((await launchState("viewed")).nextTurn).toEqual({ fresh: false });
+    for (const id of ["viewed", "typed", "dialog", "raised"]) await expect(line(page, id)).not.toContainText("fresh next");
+    await page.screenshot({ path: join(SHOTS, "running-held.png") });
+
+    // Closing the view lets go: viewed goes cold at once.
+    await closeView();
+    await expect(line(page, "viewed")).toContainText("fresh next", { timeout: 20_000 });
+    for (const id of ["dialog", "raised"]) await expect(line(page, id)).not.toContainText("fresh next");
+    await page.mouse.move(4, 600);
+    await page.screenshot({ path: join(SHOTS, "running-released.png") });
+    console.log("lines", JSON.stringify(await Promise.all(RUNNING.map(async (id) => `${id}: ${(await line(page, id).innerText()).replace(/\n/g, " | ")}`))));
   } finally {
     await junto.close();
   }
