@@ -34,7 +34,11 @@ import {
   SeatSessionRepository,
 } from "../src/main/junto/seat-sessions/repository";
 import { subscribeSeatOffboard, type SeatOffboardEvent } from "../src/main/junto/seat-sessions/service";
-import { CONTINUATION_FRAMING, SEAT_SESSION_CONTINUATION_MAX_CHARS } from "../src/shared/seat-sessions";
+import {
+  CONTINUATION_FRAMING,
+  describeTranscriptMissing,
+  SEAT_SESSION_CONTINUATION_MAX_CHARS,
+} from "../src/shared/seat-sessions";
 
 const CANVAS = "offboard-modes";
 
@@ -220,6 +224,7 @@ describe("junto onboard handoff", () => {
       notes: NOTES,
       notes_path: expect.stringMatching(/\/seats\/agent\/sessions\/s1\.md$/),
       transcript_path: null,
+      transcript_missing: describeTranscriptMissing("claude", "none"),
     });
     // Once: the note appears in the handoff only, and leads the payload.
     expect(occurrences(JSON.stringify(next.data), "Pick up the 429 retry")).toBe(1);

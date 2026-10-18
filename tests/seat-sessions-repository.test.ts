@@ -195,6 +195,61 @@ describe("SeatSessionRepository", () => {
   });
 });
 
+describe("a session's transcript at close", () => {
+  const cwd = "/Users/me/proj";
+  const opened = (sessionId: string, harness = "claude") =>
+    Effect.flatMap(repo, (r) => r.record({ seatId: "a", bindingId: "bind-a", harness, sessionId, cwd }));
+  const written = (sessionId: string) => {
+    const project = join(root, "home", ".claude", "projects", encodeClaudeProjectCwd(cwd));
+    mkdirSync(project, { recursive: true });
+    writeFileSync(join(project, `${sessionId}.jsonl`), "{}\n");
+    return join(project, `${sessionId}.jsonl`);
+  };
+  // The stored row, not a listing: a listing would look the path up itself.
+  const stored = async (sessionId: string) =>
+    (await run(Effect.flatMap(repo, (r) => r.list("a")))).find((s) => s.sessionId === sessionId);
+
+  beforeEach(() => __setSessionExistenceHomeForTest(join(root, "home")));
+
+  it.each([
+    ["a reseat to another harness", "reseat", recordCanvasChange({
+      previous: doc(seat("a", {})), next: doc(seat("a", { harness: "codex", bindingId: "bind-2" })),
+    })],
+    ["a pin under a new binding", "reseat", Effect.flatMap(repo, (r) => r.pin({ seatId: "a", bindingId: "bind-2", harness: "codex", sessionId: "next" }))],
+    ["a new id", "replaced", opened("next")],
+    ["a rotation", "offboard", Effect.flatMap(repo, (r) => r.end("a", "offboard", "s1"))],
+  ] as const)("is saved by %s", async (_how, reason, close) => {
+    await run(opened("s1"));
+    const path = written("s1");
+    await run(close as Effect.Effect<unknown, unknown, SeatSessionRepository>);
+    expect(await stored("s1")).toMatchObject({ endReason: reason, transcriptPath: path });
+  });
+
+  it("keeps a path already found", async () => {
+    await run(opened("s1"));
+    written("s1");
+    await run(Effect.flatMap(repo, (r) => r.noteTranscript("a", "s1", "/elsewhere/s1.jsonl")));
+    await run(Effect.flatMap(repo, (r) => r.end("a", "reseat")));
+    expect((await stored("s1"))?.transcriptPath).toBe("/elsewhere/s1.jsonl");
+  });
+
+  it("is none for a session the harness never wrote, and a listing says so", async () => {
+    await run(opened("s1"));
+    await run(Effect.flatMap(repo, (r) => r.end("a", "reseat")));
+    expect(await stored("s1")).not.toHaveProperty("transcriptPath");
+    const [listed] = await run(listSeatSessions("a"));
+    expect(listed).toMatchObject({ sessionId: "s1", transcriptMissing: "none" });
+    expect(listed).not.toHaveProperty("transcriptPath");
+  });
+
+  it("cannot be looked for under a harness whose sessions Junto cannot find", async () => {
+    await run(opened("s1", "junto-overseer"));
+    await run(Effect.flatMap(repo, (r) => r.end("a", "reseat")));
+    const [listed] = await run(listSeatSessions("a"));
+    expect(listed).toMatchObject({ sessionId: "s1", transcriptMissing: "unsearchable" });
+  });
+});
+
 describe("gistOfNotes", () => {
   it("takes the first line with text, without markdown markers, bounded", () => {
     expect(gistOfNotes("\n\n## Shipped the parser  \nmore")).toBe("Shipped the parser");

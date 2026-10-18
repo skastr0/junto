@@ -9,6 +9,7 @@ import {
   type SeatSessionEndReason,
 } from "@shared/seat-sessions";
 import { StateTransactionOperation } from "../state/service";
+import { harnessSessionLocation } from "../term/session-existence";
 import {
   continuationPathOf,
   defaultSeatsRoot,
@@ -87,7 +88,10 @@ export class SeatSessionRepository extends Context.Service<SeatSessionRepository
     readonly ownedByOtherSeat: (
       observation: SeatSessionObservation,
     ) => Effect.Effect<boolean, SeatSessionPersistenceError>;
-    /** End the seat's open session, when it is still `sessionId` if given. */
+    /**
+     * End the seat's open session, when it is still `sessionId` if given. Like
+     * every close, it saves where the harness keeps the session, if it does.
+     */
     readonly end: (
       seatId: string,
       reason: SeatSessionEndReason,
@@ -196,6 +200,11 @@ const bounded = (value: string | undefined, max: number): string | null => {
   return trimmed && trimmed.length <= max ? trimmed : null;
 };
 
+/** Where the harness keeps a closing session, when it keeps one at all. */
+const transcriptAtClose = (row: typeof SessionRow.Type): string | null =>
+  row.transcript_path ??
+  bounded(harnessSessionLocation({ harness: row.harness, sessionId: row.session_id, ...(row.cwd ? { cwd: row.cwd } : {}) }), 4096);
+
 /** `seatsRoot` defaults to `~/.junto/seats` under the Junto home at build time. */
 export const makeSeatSessionRepositoryLive = (
   seatsRoot?: string,
@@ -229,6 +238,14 @@ export const makeSeatSessionRepositoryLive = (
         execute: (seatId) => sql.unsafe(`SELECT ${COLUMNS} FROM ${SESSIONS} WHERE s.seat_id = ?`, [seatId]),
       });
 
+      // Every close, whatever ends the session, saves where the harness keeps
+      // it, so an ended session's record never waits on a later lookup.
+      const closeRow = (open: typeof SessionRow.Type, reason: SeatSessionEndReason, now: number) => sql`
+        UPDATE seat_sessions SET ended_at = ${Math.max(now, Number(open.started_at))}, end_reason = ${reason},
+          transcript_path = ${transcriptAtClose(open)}
+        WHERE seat_id = ${open.seat_id} AND session_id = ${open.session_id}
+      `;
+
       const recordIn = Effect.fn("seat-sessions.record-in")(function* (
         observation: SeatSessionObservation,
         now: number,
@@ -242,12 +259,7 @@ export const makeSeatSessionRepositoryLive = (
             yield* sql`UPDATE seat_sessions SET binding_id = ${observation.bindingId} WHERE seat_id = ${seatId} AND session_id = ${sessionId}`;
           return { started: false };
         }
-        if (open !== undefined) {
-          yield* sql`
-            UPDATE seat_sessions SET ended_at = ${Math.max(now, Number(open.started_at))}, end_reason = ${observation.endReason ?? "replaced"}
-            WHERE seat_id = ${seatId} AND session_id = ${open.session_id}
-          `;
-        }
+        if (open !== undefined) yield* closeRow(open, observation.endReason ?? "replaced", now);
         const known = yield* knownRow([seatId, sessionId]);
         if (known._tag === "Some") {
           yield* sql`
@@ -297,10 +309,7 @@ export const makeSeatSessionRepositoryLive = (
         const open = current.value;
         if (sessionId !== undefined && open.session_id !== sessionId) return undefined;
         if (bindingId !== undefined && open.binding_id !== bindingId) return undefined;
-        yield* sql`
-          UPDATE seat_sessions SET ended_at = ${Math.max(Date.now(), Number(open.started_at))}, end_reason = ${reason}
-          WHERE seat_id = ${seatId} AND session_id = ${open.session_id}
-        `;
+        yield* closeRow(open, reason, Date.now());
         return open.session_id;
       }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.end"),
       Effect.mapError(persistence("end")));

@@ -156,6 +156,7 @@ import {
   CONTINUATION_FRAMING,
   PREVIOUS_WITHOUT_NOTES_FRAMING,
   describeSessionDrain,
+  describeTranscriptMissing,
   sessionDrainCaution,
   type SeatSession,
   gistOfNotes,
@@ -983,6 +984,14 @@ const windDownOf = (session: SeatSession) => {
   };
 };
 
+/** A session's transcript, or a plain line on why it has none, never a bare null. */
+const transcriptOf = (session: SeatSession) => ({
+  transcript_path: session.transcriptPath ?? null,
+  ...(session.transcriptMissing === undefined
+    ? {}
+    : { transcript_missing: describeTranscriptMissing(session.harness, session.transcriptMissing) }),
+});
+
 const pastSessionsOf = (node: Node, pastNotes: number) =>
   Effect.gen(function* () {
     const store = yield* Effect.serviceOption(SeatSessionRepository);
@@ -1012,7 +1021,7 @@ const pastSessionsOf = (node: Node, pastNotes: number) =>
             gist: previous.gist ?? null,
             ...(handoffNotes === undefined ? {} : { notes: handoffNotes }),
             notes_path: previous.notesPath,
-            transcript_path: previous.transcriptPath ?? null,
+            ...transcriptOf(previous),
             ...windDownOf(previous),
           }
         : undefined;
@@ -1034,7 +1043,7 @@ const pastSessionsOf = (node: Node, pastNotes: number) =>
             // Who ended it, when Junto did so itself: the operator, an
             // overseer, or the idle rule. Absent when nothing recorded it.
             ...(endedBy === undefined ? {} : { ended_by: endedBy }),
-            transcript_path: previous.transcriptPath ?? null,
+            ...transcriptOf(previous),
             ...windDownOf(previous),
           }
         : undefined;
@@ -1054,7 +1063,7 @@ const pastSessionsOf = (node: Node, pastNotes: number) =>
         ...(session.endedAt === undefined ? {} : { ended_at: isoAt(session.endedAt), ended_because: session.endReason }),
         gist: session.gist ?? null,
         notes_path: offboarded ? session.notesPath : null,
-        transcript_path: session.transcriptPath ?? null,
+        ...transcriptOf(session),
         ...(notes === undefined ? {} : { notes }),
         ...(inHandoff ? { notes_in: "handoff" as const } : {}),
         ...(session.drain === undefined ? {} : { wind_down: describeSessionDrain(session.drain) }),

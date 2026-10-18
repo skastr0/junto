@@ -41,8 +41,10 @@ import {
 } from "../src/main/junto/seat-sessions/repository";
 import { subscribeSeatOffboard, type SeatOffboardEvent } from "../src/main/junto/seat-sessions/service";
 import { endedPathOf, writeEndedMarker } from "../src/main/junto/seat-sessions/notes-file";
+import { __setSessionExistenceHomeForTest } from "../src/main/junto/term/session-existence";
 import {
   CONTINUATION_FRAMING,
+  describeTranscriptMissing,
   PAST_SESSIONS_FRAMING,
   PREVIOUS_WITHOUT_NOTES_FRAMING,
 } from "../src/shared/seat-sessions";
@@ -505,10 +507,19 @@ describe("junto onboard after a session that ended without notes", () => {
   });
 
   it("says so when no transcript is known, and names none", async () => {
-    await endAsOffboard("s1");
-    await writeSession("s2");
-    const told = (await op("onboard", {})).data.previous_session_without_notes;
-    expect(told).toMatchObject({ session_id: "s1", transcript_path: null });
+    // A home with no harness sessions in it: claude never wrote s1.
+    __setSessionExistenceHomeForTest(join(root, "home"));
+    try {
+      await endAsOffboard("s1");
+      await writeSession("s2");
+      const data = (await op("onboard", {})).data;
+      const told = data.previous_session_without_notes;
+      expect(told).toMatchObject({ session_id: "s1", transcript_path: null });
+      expect(told.transcript_missing).toBe(describeTranscriptMissing("claude", "none"));
+      expect(data.sessions.past[0]).toMatchObject({ session_id: "s1", transcript_path: null, transcript_missing: told.transcript_missing });
+    } finally {
+      __setSessionExistenceHomeForTest(undefined);
+    }
   });
 
   it("covers a session that was replaced without notes for any other reason", async () => {

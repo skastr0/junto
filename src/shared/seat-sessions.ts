@@ -35,6 +35,8 @@ export type SeatSession = {
   readonly harness: string;
   /** Where the harness keeps this session: a transcript, directory, or database. */
   readonly transcriptPath?: string;
+  /** Why a listed session has no transcript path, from the lookup that listing made. Never stored. */
+  readonly transcriptMissing?: TranscriptMissing;
   /** Where this session's offboard notes live (the file exists once offboarded). */
   readonly notesPath: string;
   /** The notes' first line, once the session has offboarded. */
@@ -51,6 +53,20 @@ export type SeatSession = {
    */
   readonly drain?: SeatSessionDrain;
 };
+
+/**
+ * Why a session has no transcript path. none: Junto looked where the harness
+ * keeps its sessions and there is nothing under this id, as with a session
+ * that ended before the harness wrote anything. unsearchable: Junto does not
+ * know where this harness keeps its sessions, so it cannot look.
+ */
+export type TranscriptMissing = "none" | "unsearchable";
+
+/** What `junto onboard` says in place of a transcript path it does not have. */
+export const describeTranscriptMissing = (harness: string, missing: TranscriptMissing): string =>
+  missing === "none"
+    ? `${harness} has no transcript for this session: Junto looked where it keeps its sessions and found none under this id.`
+    : `Junto does not know where ${harness} keeps its sessions, so it cannot look for this session's transcript.`;
 
 /** How a detached session's process came to an end. */
 export const SEAT_SESSION_DRAIN_ENDS = ["settled", "cap", "crashed", "quit"] as const;

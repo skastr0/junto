@@ -2,10 +2,10 @@
  * Seat session transcript lookup, occupant retirement and offboard events.
  */
 import { Effect } from "effect";
-import type { OffboardMode, SeatSession } from "@shared/seat-sessions";
+import type { OffboardMode, SeatSession, TranscriptMissing } from "@shared/seat-sessions";
 import type { Canvas } from "@shared/model";
 import { ModelService } from "../model/service";
-import { harnessSessionLocation } from "../term/session-existence";
+import { harnessSessionLocation, sessionStoreFor } from "../term/session-existence";
 import { SeatSessionRepository } from "./repository";
 import { seatSessionTransitions } from "./transitions";
 
@@ -19,8 +19,8 @@ const locate = (session: SeatSession, cwd?: string): string | undefined =>
 
 /**
  * One seat's sessions, newest first, each with its transcript path when the
- * harness has written one. A path found here is remembered, so later listings
- * do not probe again.
+ * harness has written one, or why it has none. A path found here is
+ * remembered, so later listings do not probe again.
  */
 export const listSeatSessions = (
   seatId: string,
@@ -33,7 +33,10 @@ export const listSeatSessions = (
       Effect.gen(function* () {
         if (session.transcriptPath !== undefined) return session;
         const found = locate(session, cwd);
-        if (found === undefined) return session;
+        if (found === undefined) {
+          const transcriptMissing: TranscriptMissing = sessionStoreFor(session.harness.trim()) === undefined ? "unsearchable" : "none";
+          return { ...session, transcriptMissing };
+        }
         yield* repository.noteTranscript(seatId, session.sessionId, found).pipe(Effect.ignore);
         return { ...session, transcriptPath: found };
       }),
