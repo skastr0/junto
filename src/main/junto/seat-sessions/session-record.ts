@@ -15,6 +15,7 @@
  * `gatherSessionFacts`; shaping them into the record is `buildSessionRecord`,
  * pure.
  */
+import { readFileSync } from "node:fs";
 import { Duration, Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import type { SeatAddress } from "@shared/seat-sessions";
@@ -418,3 +419,13 @@ export const recordSessionAtClose = (
       Effect.sync(() => options.log?.(`the record of session ${close.sessionId} of ${close.seat.seatId} was not written: ${String(cause)}`)),
     ),
   );
+
+/** A session's record as written at its close; undefined when there is none or it cannot be read. */
+export const readSessionRecord = (notesPath: string): SessionRecord | undefined => {
+  try {
+    const parsed = JSON.parse(readFileSync(sessionRecordPathOf(notesPath), "utf8")) as Partial<SessionRecord>;
+    return parsed.kind === "junto_observation" && parsed.version === SESSION_RECORD_VERSION ? (parsed as SessionRecord) : undefined;
+  } catch {
+    return undefined;
+  }
+};

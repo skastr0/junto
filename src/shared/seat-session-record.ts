@@ -97,3 +97,15 @@ export type SessionRecord = {
   readonly tasks: Observed<RecordedTaskMove>;
   readonly written_at: string;
 };
+
+/**
+ * How `junto onboard` names each kind of record of a past session, once, so
+ * the session reading them weighs each for what it is.
+ */
+export const SESSION_PROVENANCE = {
+  record:
+    "Junto's observation, recorded when the session ended: the mail it received and sent, the signals it raised and their answers, the tasks it held, and how it ended. Facts, not the seat's words.",
+  journal:
+    "The seat's own words, written by that session with `junto offboard`: its perspective, present only when it wrote one.",
+  transcript: "The harness's full record of the session, to open when the rest is not enough.",
+} as const;
