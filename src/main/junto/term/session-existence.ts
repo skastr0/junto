@@ -22,7 +22,7 @@ import {
   type UsageReader,
 } from "./session-usage";
 import { AGY_SPAWNED_SESSIONS } from "./templates/agy-session";
-import { CODEX_SPAWNED_SESSIONS } from "./templates/codex-session";
+import { CODEX_SPAWNED_SESSIONS, isCodexSessionId } from "./templates/codex-session";
 import { FX_SPAWNED_SESSIONS, isFxSessionId } from "./templates/fx-session";
 import { MUSE_SPAWNED_SESSIONS } from "./templates/muse-session";
 import { isOmpSessionId, OMP_SPAWNED_SESSIONS, ompSessionsDir } from "./templates/omp-session";
@@ -220,9 +220,12 @@ export const HARNESS_SESSION_STORES: Readonly<Record<HarnessId, HarnessSessionSt
     ],
     size: { bytesPerToken: 8, usage: { kind: "jsonl", read: claudeUsage } },
   },
-  // Codex rollouts embed the thread id in the filename.
+  // Codex rollouts embed the thread id in the filename. The name is matched
+  // by inclusion, so only a whole id counts: a cut-short one is in some
+  // rollout's name too, and proved a session Codex never had.
   codex: {
     root: homeRoot([".codex", "sessions"]),
+    idShape: isCodexSessionId,
     places: [self({ kind: "treeIncludes", depth: 6 })],
     size: { bytesPerToken: 5, usage: { kind: "jsonl", read: codexUsage } },
     spawned: CODEX_SPAWNED_SESSIONS,

@@ -74,6 +74,11 @@ const HARNESS_SESSION_ORIGINS: Readonly<Partial<Record<HarnessId, HarnessSession
     printed: extractSessionIdFromText,
     fromProcess: { discover: discoverDevinSessionId, proofRetryDelaysMs: DEVIN_PROOF_RETRY_DELAYS_MS },
   },
+  // Codex's id is found in its own store, as the root rollout started after
+  // the spawn in the seat's workspace. Its screen is never read for one: the
+  // agent's tool output names other sessions (`junto onboard` lists the
+  // seat's past ones), and one taken from there was stored as the seat's own.
+  codex: { printed: () => undefined },
   // Kimi's welcome card prints a blank `Session:` line at spawn; its own
   // reader waits for a filled one.
   kimi: { printed: extractKimiSessionIdFromText },

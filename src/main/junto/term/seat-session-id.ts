@@ -49,6 +49,11 @@ export const recordSeatSessionId = Effect.fn("SeatSession.recordId")(function* (
       return yield* Effect.fail(new Error("capture cannot replace the seat's named session"));
     if (existing !== undefined && input.onlyIfAbsent)
       return yield* Effect.fail(new Error("the seat already has another named session"));
+    // A capture names the session the seat runs now. One the seat already
+    // ended is history it was shown (onboard lists them), never its own again.
+    if (input.capture !== undefined && (yield* sessions.list(target.id)).some((session) =>
+      session.sessionId === input.sessionId && session.endedAt !== undefined))
+      return yield* Effect.fail(new Error("capture cannot reopen a session this seat ended"));
     const observation = { seatId: target.id, bindingId, harness: target.harness, sessionId: input.sessionId,
       ...(input.cwd ?? target.launch?.cwd ? { cwd: input.cwd ?? target.launch?.cwd } : {}) };
     if (yield* sessions.ownedByOtherSeat(observation))

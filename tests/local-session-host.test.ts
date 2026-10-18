@@ -837,18 +837,35 @@ describe("LocalSessionHost", () => {
     const fake = makeFakeTerminalProcessAuthority(() => ({ pid: trackSyntheticPid(42_430) }));
     const host = hostWith(fake);
     host.createAgentSeat({
-      bindingId: "codex-session-capture",
+      bindingId: "hermes-session-capture",
+      harness: "hermes",
+      agentKey: "local:hermes",
+      launch: { kind: "harness", argv: ["hermes"], cwd: "/tmp" },
+    });
+
+    fake.controllers[0]?.emitData("tool id 550e8400-e29b-41d4-a716-446655440000\nHERMES_");
+    fake.controllers[0]?.emitData("SESSION_ID=3e6433af-b0ea-5718-8d29-27a68c9839fb\n");
+
+    expect(getCapturedSessionId("hermes-session-capture")).toBe(
+      "3e6433af-b0ea-5718-8d29-27a68c9839fb",
+    );
+  });
+
+  it("never reads a Codex seat's screen for its session id: tool output names other sessions", () => {
+    const fake = makeFakeTerminalProcessAuthority(() => ({ pid: trackSyntheticPid(42_431) }));
+    const host = hostWith(fake);
+    host.createAgentSeat({
+      bindingId: "codex-session-screen",
       harness: "codex",
       agentKey: "local:codex",
       launch: { kind: "harness", argv: ["/usr/local/bin/codex"], cwd: "/tmp" },
     });
 
-    fake.controllers[0]?.emitData("tool id 550e8400-e29b-41d4-a716-446655440000\nCODEX_");
-    fake.controllers[0]?.emitData("THREAD_ID=3e6433af-b0ea-5718-8d29-27a68c9839fb\n");
+    // `junto onboard` names the seat's past session; Codex's own id is found in its store.
+    fake.controllers[0]?.emitData('{"previous_session_without_notes":{"session_id":"01a11910-f9f3-7392-b27');
+    fake.controllers[0]?.emitData("b-5fec896a6d87\"}}\nCODEX_THREAD_ID=3e6433af-b0ea-5718-8d29-27a68c9839fb\n");
 
-    expect(getCapturedSessionId("codex-session-capture")).toBe(
-      "3e6433af-b0ea-5718-8d29-27a68c9839fb",
-    );
+    expect(getCapturedSessionId("codex-session-screen")).toBeUndefined();
   });
 
   it("kimi spawn welcome card is not a session id; a later Session: line is", () => {
@@ -2486,7 +2503,7 @@ describe("LocalSessionHost", () => {
     });
 
     /** A host with its own observer plane, one running seat, and its event log. */
-    const seated = (options: { exitOnSignal?: "SIGTERM" | "SIGKILL" | false } = {}) => {
+    const seated = (options: { exitOnSignal?: "SIGTERM" | "SIGKILL" | false; harness?: "hermes" } = {}) => {
       const plane = new TerminalObserverPlane();
       const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
         pid: trackSyntheticPid(71_000 + index),
@@ -2497,7 +2514,9 @@ describe("LocalSessionHost", () => {
       host.on("event", (event) => events.push(event as never));
       const ended: Array<{ drainKey: string; code: number | undefined }> = [];
       host.onDrainEnded((drainKey, code) => ended.push({ drainKey, code }));
-      const input = agentSeat("drain-seat");
+      const input = options.harness === undefined
+        ? agentSeat("drain-seat")
+        : { ...agentSeat("drain-seat"), harness: options.harness, launch: { kind: "harness" as const, argv: [options.harness], cwd: "/tmp" } };
       const first = host.createAgentSeat(input);
       return { plane, fake, host, events, ended, input, first };
     };
@@ -2610,7 +2629,8 @@ describe("LocalSessionHost", () => {
     });
 
     it("never names the fresh session: a session id it prints after the detach is not captured", () => {
-      const { fake, host, input } = seated();
+      // A harness whose screen is read for its id (Codex's never is).
+      const { fake, host, input } = seated({ harness: "hermes" });
       // What it printed before the detach was the seat's; it goes with it.
       fake.controllers[0]?.emitData("Session: 99999999-2222-3333-4444-555555555555\n");
       expect(getCapturedSessionId(input.bindingId)).toBe("99999999-2222-3333-4444-555555555555");

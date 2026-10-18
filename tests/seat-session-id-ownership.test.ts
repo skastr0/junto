@@ -146,6 +146,19 @@ describe("captured session persistence ownership", () => {
     expect(await f.sessionId("seat")).toBe(SESSION);
   });
 
+  it("never reopens a session the seat ended: a capture names the one it runs now", async () => {
+    const f = await fixture();
+    await f.write("first", agentDoc("a"));
+    expect(await capture("first", "a")).toEqual({ ok: true });
+    // The seat offboarded: its session ended, and onboard will name it as past.
+    await f.runtime.runPromise(Effect.flatMap(SeatSessionRepository, (repo) => repo.end("a", "offboard", SESSION)));
+    expect(await capture("first", "a")).toMatchObject({ ok: false, reason: expect.stringContaining("ended") });
+    expect(await f.sessionId("first")).toBeUndefined();
+    // The session it runs now is taken as before.
+    expect(await capture("first", "a", OTHER_SESSION)).toEqual({ ok: true });
+    expect(await f.sessionId("first")).toBe(OTHER_SESSION);
+  });
+
   it("retains the non-capture writer used by provisioned harnesses", async () => {
     const f = await fixture();
     await f.write("seat", agentDoc("a"));

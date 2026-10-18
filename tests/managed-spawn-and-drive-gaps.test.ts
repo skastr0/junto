@@ -248,14 +248,14 @@ describe("managed spawn plan", () => {
       const rolloutDir = join(home, ".codex", "sessions", "2026", "07", "30");
       mkdirSync(rolloutDir, { recursive: true });
       writeFileSync(
-        join(rolloutDir, "rollout-2026-07-30T00-00-00-thread_123.jsonl"),
+        join(rolloutDir, "rollout-2026-07-30T00-00-00-019a0000-0000-7000-8000-000000000123.jsonl"),
         "",
       );
       const { launch } = launchForManagedSpawn({
 
         nodeId: "worker",
         harness: "codex",
-        sessionId: "thread_123",
+        sessionId: "019a0000-0000-7000-8000-000000000123",
         resume: true,
         documentLaunch: {
           kind: "harness",
@@ -273,7 +273,7 @@ describe("managed spawn plan", () => {
       expect(launch?.argv).toEqual(
         expect.arrayContaining([
           "resume",
-          "thread_123",
+          "019a0000-0000-7000-8000-000000000123",
           "-m",
           "gpt-5",
           "-c",
