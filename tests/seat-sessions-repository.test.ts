@@ -3,7 +3,7 @@
  * ending and reopening them, writing offboard notes, and finding transcripts.
  * Every store and home lives under a temp root.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -240,6 +240,26 @@ describe("a session's transcript at close", () => {
     const [listed] = await run(listSeatSessions("a"));
     expect(listed).toMatchObject({ sessionId: "s1", transcriptMissing: "none" });
     expect(listed).not.toHaveProperty("transcriptPath");
+  });
+
+  it("is kept as the harness reports it, only inside its store and only while the row has none", async () => {
+    await run(opened("s1"));
+    const path = written("s1");
+    const report = (over: { path?: string; bindingId?: string; fidelity?: "native" | "screen" } = {}) =>
+      Effect.flatMap(repo, (r) => r.noteReportedTranscript({
+        bindingId: over.bindingId ?? "bind-a", sessionId: "s1", path: over.path ?? path, channel: "report", fidelity: over.fidelity ?? "native",
+      }));
+    // Another binding's report, a path outside the store, a screen read: none of them name this row's transcript.
+    expect(await run(report({ bindingId: "bind-other" }))).toBe(false);
+    expect(await run(report({ path: "/etc/passwd" }))).toBe(false);
+    expect(await run(report({ fidelity: "screen" }))).toBe(false);
+    expect((await stored("s1"))?.transcriptPath).toBeUndefined();
+    expect(await run(report())).toBe(true);
+    expect((await stored("s1"))?.transcriptPath).toBe(realpathSync(path));
+    // A path the row already has stands.
+    const other = written("s1-copy");
+    expect(await run(report({ path: other }))).toBe(false);
+    expect((await stored("s1"))?.transcriptPath).toBe(realpathSync(path));
   });
 
   it("cannot be looked for under a harness whose sessions Junto cannot find", async () => {

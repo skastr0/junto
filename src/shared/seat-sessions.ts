@@ -9,6 +9,7 @@
  * `junto offboard` writes those notes; `junto onboard` hands the latest back
  * to the next session so it knows what came before and where to look.
  */
+import type { SessionLocationMissing } from "./harness-domain";
 
 /**
  * Which seat, on which canvas. Named fields on purpose: both are plain
@@ -54,19 +55,14 @@ export type SeatSession = {
   readonly drain?: SeatSessionDrain;
 };
 
-/**
- * Why a session has no transcript path. none: Junto looked where the harness
- * keeps its sessions and there is nothing under this id, as with a session
- * that ended before the harness wrote anything. unsearchable: Junto does not
- * know where this harness keeps its sessions, so it cannot look.
- */
-export type TranscriptMissing = "none" | "unsearchable";
+/** Why a session has no transcript path: the harness contract's answer. */
+export type TranscriptMissing = SessionLocationMissing;
 
 /** What `junto onboard` says in place of a transcript path it does not have. */
 export const describeTranscriptMissing = (harness: string, missing: TranscriptMissing): string =>
   missing === "none"
     ? `${harness} has no transcript for this session: Junto looked where it keeps its sessions and found none under this id.`
-    : `Junto does not know where ${harness} keeps its sessions, so it cannot look for this session's transcript.`;
+    : `Junto cannot look where ${harness} keeps its sessions, so it cannot say where this session's transcript is.`;
 
 /** How a detached session's process came to an end. */
 export const SEAT_SESSION_DRAIN_ENDS = ["settled", "cap", "crashed", "quit"] as const;

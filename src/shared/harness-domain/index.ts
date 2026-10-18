@@ -11,4 +11,5 @@ export * from "./command";
 export * from "./params";
 export * from "./inventory";
 export * from "./native-config";
+export * from "./session-location";
 export { BindingId } from "../terminal-session-domain";

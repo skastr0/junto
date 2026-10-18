@@ -2,17 +2,19 @@
  * Seat session transcript lookup, occupant retirement and offboard events.
  */
 import { Effect } from "effect";
-import type { OffboardMode, SeatSession, TranscriptMissing } from "@shared/seat-sessions";
+import { HARNESS_CHANNELS, type HarnessChannel, type SessionLocated } from "@shared/harness-domain";
+import type { OffboardMode, SeatSession } from "@shared/seat-sessions";
 import type { Canvas } from "@shared/model";
 import { ModelService } from "../model/service";
-import { harnessSessionLocation, sessionStoreFor } from "../term/session-existence";
+import type { SessionReport } from "../term/agent-state/seat-state-machine";
+import { locateHarnessSession } from "../term/session-existence";
 import { SeatSessionRepository } from "./repository";
 import { recordSessionAtClose, type SessionClose, type SessionRecordSources } from "./session-record";
 import { seatSessionTransitions } from "./transitions";
 
-/** Where the harness keeps one recorded session, when it can be found now. */
-const locate = (session: SeatSession, cwd?: string): string | undefined =>
-  harnessSessionLocation({
+/** Where the harness keeps one recorded session now, or why it has none. */
+const locate = (session: SeatSession, cwd?: string): SessionLocated =>
+  locateHarnessSession({
     harness: session.harness,
     sessionId: session.sessionId,
     ...(cwd ? { cwd } : {}),
@@ -33,15 +35,31 @@ export const listSeatSessions = (
     return yield* Effect.forEach(sessions, (session) =>
       Effect.gen(function* () {
         if (session.transcriptPath !== undefined) return session;
-        const found = locate(session, cwd);
-        if (found === undefined) {
-          const transcriptMissing: TranscriptMissing = sessionStoreFor(session.harness.trim()) === undefined ? "unsearchable" : "none";
-          return { ...session, transcriptMissing };
-        }
+        const located = locate(session, cwd);
+        if (located._tag === "Missing") return { ...session, transcriptMissing: located.missing };
+        const found = located.location.path;
         yield* repository.noteTranscript(seatId, session.sessionId, found).pipe(Effect.ignore);
         return { ...session, transcriptPath: found };
       }),
     );
+  });
+
+const isHarnessChannel = (source: string): source is HarnessChannel =>
+  (HARNESS_CHANNELS as ReadonlyArray<string>).includes(source);
+
+/**
+ * A seat's harness named where its session lives (`SessionIdentified` with a
+ * path, on one of its own channels): the session's row keeps it when the
+ * harness contract admits it. A seat, awareness or system fact never names one.
+ */
+export const noteReportedSession = (report: SessionReport): Effect.Effect<boolean, never, SeatSessionRepository> =>
+  Effect.gen(function* () {
+    const { transcriptPath: path, source } = report;
+    if (path === undefined || !isHarnessChannel(source)) return false;
+    const repository = yield* SeatSessionRepository;
+    return yield* repository
+      .noteReportedTranscript({ bindingId: report.bindingId, sessionId: report.sessionId, path, channel: source, fidelity: report.fidelity })
+      .pipe(Effect.orElseSucceed(() => false));
   });
 
 /** Retire a replaced occupant without closing a newly pinned session; the sessions it ended. */

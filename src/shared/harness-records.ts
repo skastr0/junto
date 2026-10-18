@@ -1,6 +1,7 @@
 /**
  * One record per harness: the template that launches it, what it reports and
- * accepts, its params, and how its TUI behaves on a PTY. Code that branches on
+ * accepts, its params, how its TUI behaves on a PTY, and where it keeps its
+ * sessions. Code that branches on
  * a harness reads the record instead of naming one. Main joins the screen rule
  * pack (`src/main/junto/term/harness-record.ts`). Design: `docs/harness-domain.md`.
  */
@@ -11,8 +12,11 @@ import {
   type HarnessParamKey,
   type HarnessParams,
   type HarnessParamSpec,
+  NO_SESSION_STORE,
   paramSpec,
   paramsOfTemplate,
+  type SessionHolds,
+  type SessionStoreSupport,
   type VerifiedRange,
 } from "./harness-domain";
 import {
@@ -60,6 +64,8 @@ export type HarnessRecord = {
   readonly capabilities: HarnessCapabilities;
   readonly params: HarnessParams;
   readonly pty: HarnessPtyProfile;
+  /** Where the harness keeps its sessions; main supplies the locator over it. */
+  readonly sessions: SessionStoreSupport;
   readonly role: HarnessRole;
   /** The harness versions this record was checked against; undefined for Junto's own seat. */
   readonly verified: VerifiedRange | undefined;
@@ -120,6 +126,33 @@ export const HARNESS_PTY_PROFILES: Readonly<Record<HarnessId, HarnessPtyProfile>
   fx: PASTE,
   omp: PASTE,
   "junto-overseer": NO_PASTE,
+};
+
+const store = (...holds: readonly [SessionHolds, ...SessionHolds[]]): SessionStoreSupport => ({ level: "store", holds });
+
+/**
+ * What each harness's sessions are where it keeps them, as main's session
+ * store finds them (`src/main/junto/term/session-existence.ts`), which a test
+ * holds this to.
+ */
+export const HARNESS_SESSION_STORE_SUPPORT: Readonly<Record<HarnessId, SessionStoreSupport>> = {
+  grok: store("folder"),
+  // The jsonl, or the id-named folder of its sidecars.
+  claude: store("transcript", "folder"),
+  codex: store("transcript"),
+  hermes: store("database"),
+  pi: store("transcript"),
+  "prime-agent": store("transcript"),
+  kimi: store("folder"),
+  muse: store("folder"),
+  // A legacy transcript file, else the sessions database.
+  devin: store("transcript", "database"),
+  cursor: store("folder", "transcript"),
+  agy: store("transcript", "folder"),
+  amp: store("transcript"),
+  fx: store("folder"),
+  omp: store("transcript"),
+  "junto-overseer": NO_SESSION_STORE,
 };
 
 type ParamFacts = Partial<
@@ -184,6 +217,7 @@ export const HARNESS_RECORDS: Readonly<Record<HarnessId, HarnessRecord>> = Objec
         capabilities: HARNESS_CAPABILITIES[harness],
         params: harnessParamsOf(template),
         pty: HARNESS_PTY_PROFILES[harness],
+        sessions: HARNESS_SESSION_STORE_SUPPORT[harness],
         role: HARNESS_ROLES[harness] ?? "agent",
         verified: HARNESS_VERIFIED_VERSIONS[harness],
       },

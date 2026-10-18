@@ -104,8 +104,18 @@ type BindingSlot = {
 
 export type SeatStateListener = (event: AgentSeatStateEvent) => void;
 
+/** A session a seat's harness named, and where it says that session lives, as folded. */
+export type SessionReport = {
+  readonly bindingId: string;
+  readonly sessionId: string;
+  readonly transcriptPath?: string;
+  readonly source: SignalSource;
+  readonly fidelity: Fidelity;
+};
+
 export class SeatStateMachine {
   private readonly slots = new Map<string, BindingSlot>();
+  private readonly sessionReportListeners = new Set<(report: SessionReport) => void>();
   /**
    * Last published event of a retired generation, per binding.
    *
@@ -396,6 +406,14 @@ export class SeatStateMachine {
     };
   }
 
+  /** Every `SessionIdentified` a seat folds, with its channel and fidelity. */
+  subscribeSessionReports(listener: (report: SessionReport) => void): () => void {
+    this.sessionReportListeners.add(listener);
+    return () => {
+      this.sessionReportListeners.delete(listener);
+    };
+  }
+
   /**
    * Feed an observer snapshot. Returns the event if one was published, else null.
    */
@@ -654,6 +672,23 @@ export class SeatStateMachine {
       snapshot = reduceSeat(snapshot, envelope({ _tag: "HeartbeatResumed" }, "system", "native"));
     }
     slot.snapshot = reduceSeat(snapshot, envelope(fact.signal, fact.source, fact.fidelity));
+    if (fact.signal._tag === "SessionIdentified") {
+      const { sessionId, transcriptPath } = fact.signal;
+      const report: SessionReport = {
+        bindingId: slot.key,
+        sessionId,
+        ...(transcriptPath === undefined ? {} : { transcriptPath }),
+        source: fact.source,
+        fidelity: fact.fidelity,
+      };
+      for (const listener of this.sessionReportListeners) {
+        try {
+          listener(report);
+        } catch (err) {
+          console.error("[seat-state] session report listener failed:", err);
+        }
+      }
+    }
   }
 
   /**

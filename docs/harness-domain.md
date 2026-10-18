@@ -128,6 +128,27 @@ A conformance test per harness (spawn the real binary, run one scripted turn)
 asserts every declared `native` and `parsed` capability. Installed `--version`
 outside the record's supported range marks the seat "unverified version".
 
+### Session location
+
+Where a harness keeps one session is part of the contract
+(`session-location.ts`). Each record declares `sessions`: `none`, or a `store`
+and what a located session is (`transcript`, `folder`, `database`). A test
+holds the declaration to main's store table (`term/session-existence.ts`).
+A harness supplies the location two ways:
+
+- **Locator.** Main looks in the declared store by session id.
+  `locateHarnessSession` always answers: `Located { path, source: "store" }`,
+  or `Missing { none | unsearchable }` (nothing under the id, or Junto cannot
+  look).
+- **Report.** The harness names the path itself, as `SessionIdentified`'s
+  `transcriptPath` on a structured channel. The path comes from the seat's
+  own process, so main keeps it only when it resolves, links followed, inside
+  that harness's store on this machine and names the session. A path read off
+  the screen is refused.
+
+Every session close saves the location on the seat's session row, and
+`junto onboard` says why a session has none instead of leaving a bare null.
+
 ## Settings and params
 
 Harness configuration is part of the same domain (`params.ts`,

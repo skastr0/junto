@@ -6,9 +6,16 @@
  * not-proven (fail-open to pin / fresh session).
  */
 
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import {
+  type Fidelity,
+  type HarnessChannel,
+  reportedLocationAdmissible,
+  type SessionLocated,
+  type SessionLocation,
+} from "@shared/harness-domain";
 import { stripIdlessSessionContinue } from "@shared/managed-terminal-launch";
 import { withReadOnlyDatabase } from "./read-only-sqlite";
 import {
@@ -505,33 +512,75 @@ const locateIn = (root: string, place: SessionPlace, id: string, cwd: string | u
   return undefined;
 };
 
+const storeRoot = (store: HarnessSessionStore, probe: SessionExistenceProbe): string | undefined =>
+  store.root({
+    home: resolveHome(probe.home),
+    ...(probe.cwd === undefined ? {} : { cwd: probe.cwd }),
+    pinned: probe.home !== undefined || homeForTest !== undefined,
+  });
+
+const NOTHING_HERE: SessionLocated = { _tag: "Missing", missing: "none" };
+const CANNOT_LOOK: SessionLocated = { _tag: "Missing", missing: "unsearchable" };
+
 /**
- * Where the harness keeps this session on disk: the transcript file or session
- * directory an agent can open itself, or the harness's own session database
- * when that is the only record (Hermes, Devin). The same probe as
- * `harnessSessionExists`, which is this locator answering at all. Errors and
- * missing trees return undefined (not found).
+ * The harness contract's lookup (`SessionLocated`): where the harness keeps
+ * this session on disk, or why there is no answer. The location is the
+ * transcript file or session directory an agent can open itself, or the
+ * harness's own session database when that is the only record (Hermes,
+ * Devin). Unsearchable when the harness keeps no store Junto reads, its store
+ * needs a folder the probe does not name, or the look itself failed.
+ */
+export const locateHarnessSession = (probe: SessionExistenceProbe): SessionLocated => {
+  const store = sessionStoreFor(probe.harness.trim());
+  if (store === undefined) return CANNOT_LOOK;
+  const sessionId = probe.sessionId.trim();
+  if (!sessionId || (store.idShape && !store.idShape(sessionId))) return NOTHING_HERE;
+  try {
+    const root = storeRoot(store, probe);
+    if (root === undefined) return CANNOT_LOOK;
+    for (const place of store.places) {
+      const found = locateIn(root, place, sessionId, probe.cwd);
+      if (found) return { _tag: "Located", location: { path: found, source: "store" } };
+    }
+    return NOTHING_HERE;
+  } catch {
+    return CANNOT_LOOK;
+  }
+};
+
+/**
+ * Where the harness keeps this session, when the locator finds it. The same
+ * probe as `harnessSessionExists`, which is this locator answering at all.
  */
 export const harnessSessionLocation = (
   probe: SessionExistenceProbe,
 ): string | undefined => {
-  const sessionId = probe.sessionId.trim();
-  if (!sessionId) return undefined;
+  const located = locateHarnessSession(probe);
+  return located._tag === "Located" ? located.location.path : undefined;
+};
+
+/**
+ * A location the harness reported for its own session. The path comes from
+ * the seat's process, so it is kept only when it resolves, links followed,
+ * inside that harness's store on this machine and names the session: a seat
+ * can never make Junto read any file. Undefined when it does not.
+ */
+export const admitReportedSessionLocation = (
+  probe: SessionExistenceProbe,
+  report: { readonly path: string; readonly channel: HarnessChannel; readonly fidelity: Fidelity },
+): SessionLocation | undefined => {
+  if (!reportedLocationAdmissible(report)) return undefined;
   const store = sessionStoreFor(probe.harness.trim());
-  if (store === undefined) return undefined;
-  if (store.idShape && !store.idShape(sessionId)) return undefined;
+  const sessionId = probe.sessionId.trim();
+  if (store === undefined || !sessionId) return undefined;
   try {
-    const root = store.root({
-      home: resolveHome(probe.home),
-      ...(probe.cwd === undefined ? {} : { cwd: probe.cwd }),
-      pinned: probe.home !== undefined || homeForTest !== undefined,
-    });
+    const root = storeRoot(store, probe);
     if (root === undefined) return undefined;
-    for (const place of store.places) {
-      const found = locateIn(root, place, sessionId, probe.cwd);
-      if (found) return found;
-    }
-    return undefined;
+    const real = realpathSync(report.path);
+    const inside = relative(realpathSync(root), real);
+    if (!inside || inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside)) return undefined;
+    if (!inside.includes(sessionId)) return undefined;
+    return { path: real, source: report.channel };
   } catch {
     return undefined;
   }

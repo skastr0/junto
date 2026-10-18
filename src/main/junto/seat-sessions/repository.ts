@@ -9,7 +9,8 @@ import {
   type SeatSessionEndReason,
 } from "@shared/seat-sessions";
 import { StateTransactionOperation } from "../state/service";
-import { harnessSessionLocation } from "../term/session-existence";
+import { type Fidelity, type HarnessChannel, SESSION_LOCATION_PATH_MAX } from "@shared/harness-domain";
+import { admitReportedSessionLocation, harnessSessionLocation } from "../term/session-existence";
 import {
   continuationPathOf,
   defaultSeatsRoot,
@@ -139,7 +140,23 @@ export class SeatSessionRepository extends Context.Service<SeatSessionRepository
       sessionId: string,
       path: string,
     ) => Effect.Effect<void, SeatSessionPersistenceError>;
+    /**
+     * Where the harness says one of its sessions lives, under the harness
+     * contract. Kept on that session's row only while the row has no path,
+     * and only when the path resolves inside the harness's store here.
+     * Answers whether it was kept.
+     */
+    readonly noteReportedTranscript: (report: SeatSessionReport) => Effect.Effect<boolean, SeatSessionPersistenceError>;
   }>()("@junto/SeatSessionRepository") {}
+
+/** A seat's harness naming where one of its sessions lives, on a channel. */
+export type SeatSessionReport = {
+  readonly bindingId: string;
+  readonly sessionId: string;
+  readonly path: string;
+  readonly channel: HarnessChannel;
+  readonly fidelity: Fidelity;
+};
 
 const SessionRow = Schema.Struct({
   seat_id: Schema.String,
@@ -203,10 +220,12 @@ const bounded = (value: string | undefined, max: number): string | null => {
   return trimmed && trimmed.length <= max ? trimmed : null;
 };
 
+const probeOf = (row: typeof SessionRow.Type) =>
+  ({ harness: row.harness, sessionId: row.session_id, ...(row.cwd ? { cwd: row.cwd } : {}) });
+
 /** Where the harness keeps a closing session, when it keeps one at all. */
 const transcriptAtClose = (row: typeof SessionRow.Type): string | null =>
-  row.transcript_path ??
-  bounded(harnessSessionLocation({ harness: row.harness, sessionId: row.session_id, ...(row.cwd ? { cwd: row.cwd } : {}) }), 4096);
+  row.transcript_path ?? bounded(harnessSessionLocation(probeOf(row)), SESSION_LOCATION_PATH_MAX);
 
 /** `seatsRoot` defaults to `~/.junto/seats` under the Junto home at build time. */
 export const makeSeatSessionRepositoryLive = (
@@ -360,6 +379,26 @@ export const makeSeatSessionRepositoryLive = (
       }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.transcript"),
       Effect.mapError(persistence("transcript")));
 
+      const reportedRow = SqlSchema.findOneOption({
+        Request: Schema.Tuple([Schema.String, Schema.String]),
+        Result: SessionRow,
+        execute: ([bindingId, sessionId]) =>
+          sql.unsafe(`SELECT ${COLUMNS} FROM ${SESSIONS} WHERE s.binding_id = ? AND s.session_id = ?`, [bindingId, sessionId]),
+      });
+
+      const noteReportedTranscript = Effect.fn("seat-sessions.transcript.reported")(function* (report: SeatSessionReport) {
+        const found = yield* reportedRow([report.bindingId, report.sessionId]);
+        if (found._tag === "None" || found.value.transcript_path !== null) return false;
+        const row = found.value;
+        const location = admitReportedSessionLocation(probeOf(row), report);
+        const value = bounded(location?.path, SESSION_LOCATION_PATH_MAX);
+        if (value === null) return false;
+        yield* sql`UPDATE seat_sessions SET transcript_path = ${value}
+          WHERE seat_id = ${row.seat_id} AND session_id = ${row.session_id} AND transcript_path IS NULL`;
+        return true;
+      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.transcript.reported"),
+      Effect.mapError(persistence("transcript.reported")));
+
       const beginDrain = Effect.fn("seat-sessions.drain.begin")(function* (seatId: string, sessionId: string, at: number) {
         const known = yield* knownRow([seatId, sessionId]);
         if (known._tag === "None") return;
@@ -421,6 +460,7 @@ export const makeSeatSessionRepositoryLive = (
         list,
         offboard,
         noteTranscript,
+        noteReportedTranscript,
         beginDrain,
         endDrain,
         closeOpenDrains,

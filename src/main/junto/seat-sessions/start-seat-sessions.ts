@@ -28,7 +28,7 @@ import { startOperatorOffboard, type OperatorOffboardLiveInput } from "./operato
 import { SeatSessionRepository } from "./repository";
 import { offboardAndRotate, stopSeatProcess } from "./rotate";
 import type { SeatSessionRun } from "./run";
-import { startSeatSessionRecorder, subscribeSeatOffboard } from "./service";
+import { noteReportedSession, startSeatSessionRecorder, subscribeSeatOffboard } from "./service";
 import { recordSessionAtClose } from "./session-record";
 
 export type ManagedSeat = {
@@ -210,6 +210,12 @@ export const startSeatSessions = async (input: SeatSessionsInput): Promise<SeatS
     });
     if (event.state === "gone") capture.forget(event.bindingId);
   });
+  // A harness that names where its session lives supplies it under the
+  // harness contract; the session's row keeps it when the contract admits it.
+  const offReports = seatStateRuntime.machine.subscribeSessionReports((report) => {
+    void run(noteReportedSession(report)).catch((error: unknown) =>
+      console.error("[seat-sessions] could not keep a reported session location:", error));
+  });
 
   input.onSuspend(() => {
     suspended = true;
@@ -225,6 +231,7 @@ export const startSeatSessions = async (input: SeatSessionsInput): Promise<SeatS
       suspended = true;
       offHost();
       offState();
+      offReports();
       stopOperatorOffboard();
       closer.stop();
       drain.dispose();
