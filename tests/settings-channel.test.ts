@@ -12,6 +12,7 @@ import { ModelService } from "../src/main/junto/model/service";
 import { makePeerSettingsClient } from "../src/main/junto/settings/link-client";
 import { makeSettingsChannel } from "../src/main/junto/settings/link-channel";
 import {
+  decodeLinkCacheWindows,
   decodeLinkProviders,
   decodeLinkSettingsRequest,
   SettingsLinkFailure,
@@ -57,8 +58,22 @@ afterEach(async () => {
 const runtimeWith = async (nodes: ReadonlyArray<Node>, canvasEditor: "editor" | "self") => {
   const root = await mkdtemp(join(tmpdir(), "junto-settings-link-"));
   let state = stored() as Record<string, any>;
-  const patch = vi.fn((input: { readonly providers: Record<string, unknown> }) => Effect.sync(() => {
-    state = { ...state, providers: { ...state.providers, ...input.providers } };
+  const patch = vi.fn((input: Record<string, any>) => Effect.sync(() => {
+    if (input.providers) state = { ...state, providers: { ...state.providers, ...input.providers } };
+    if (input.offboard) {
+      const harness = { ...state.offboard?.harness };
+      for (const [id, over] of Object.entries(input.offboard.harness ?? {})) {
+        if (over === null) delete harness[id];
+        else harness[id] = over;
+      }
+      state = {
+        ...state,
+        offboard: {
+          cacheWindowMinutes: input.offboard.cacheWindowMinutes ?? state.offboard?.cacheWindowMinutes ?? 60,
+          harness,
+        },
+      };
+    }
     return state as never;
   }));
   const setMachinePreferences = vi.fn((input: Record<string, unknown>) => Effect.sync(() => {
@@ -131,6 +146,26 @@ describe("settings channel wire", () => {
     expect(() => decodeLinkSettingsRequest({ _tag: "StartupWrite", canvas, supervisedPreferred: true, name: "x" })).toThrow();
     expect(() => decodeLinkSettingsRequest({ _tag: "StartupToggle", canvas })).toThrow();
   });
+
+  it("decodes a cache windows change closed: an empty write, an undeclared harness or a window out of bounds is refused", () => {
+    expect(decodeLinkSettingsRequest({ _tag: "CacheWindowsRead", canvas })).toEqual({ _tag: "CacheWindowsRead", canvas });
+    expect(decodeLinkSettingsRequest({ _tag: "CacheWindowsWrite", canvas, harness: { codex: null } }))
+      .toEqual({ _tag: "CacheWindowsWrite", canvas, harness: { codex: null } });
+    expect(() => decodeLinkSettingsRequest({ _tag: "CacheWindowsWrite", canvas })).toThrow();
+    expect(() => decodeLinkSettingsRequest({ _tag: "CacheWindowsWrite", canvas, harness: {} })).toThrow();
+    expect(() => decodeLinkSettingsRequest({ _tag: "CacheWindowsWrite", canvas, harness: { "made-up": 5 } })).toThrow();
+    expect(() => decodeLinkSettingsRequest({ _tag: "CacheWindowsWrite", canvas, cacheWindowMinutes: 0 })).toThrow();
+    expect(() => decodeLinkSettingsRequest({ _tag: "CacheWindowsWrite", canvas, cacheWindowMinutes: 1.5 })).toThrow();
+    expect(() => decodeLinkSettingsRequest({ _tag: "CacheWindowsWrite", canvas, cacheWindowMinutes: 30, idleNudge: true })).toThrow();
+  });
+
+  it("decodes cache windows closed: an undeclared harness, an excess key or a window out of bounds is refused", () => {
+    const good = { machine: "mini", cacheWindowMinutes: 60, harness: { claude: 5 } };
+    expect(decodeLinkCacheWindows(good)).toEqual(good);
+    expect(() => decodeLinkCacheWindows({ ...good, harness: { "made-up": 5 } })).toThrow();
+    expect(() => decodeLinkCacheWindows({ ...good, harness: { claude: 0 } })).toThrow();
+    expect(() => decodeLinkCacheWindows({ ...good, idleNudge: true })).toThrow();
+  });
 });
 
 describe("settings channel answer", () => {
@@ -155,6 +190,30 @@ describe("settings channel answer", () => {
       channel.handleRequest!(context, { _tag: "StartupWrite", canvas, supervisedPreferred: true }));
     expect(f.setMachinePreferences).toHaveBeenCalledWith({ supervisedPreferred: true });
     expect(record).toEqual({ machine: THIS_MACHINE, supervisedPreferred: true });
+  });
+
+  it("answers the cache windows, and a write's windows read back", async () => {
+    const f = await runtimeWith([here], "editor");
+    const channel = await f.runtime.runPromise(makeSettingsChannel());
+    const ask = (request: Record<string, unknown>) =>
+      f.runtime.runPromise(channel.handleRequest!(context, { canvas, ...request } as never)).then(decodeLinkCacheWindows);
+    expect(await ask({ _tag: "CacheWindowsRead" })).toEqual({ machine: THIS_MACHINE, cacheWindowMinutes: 60, harness: {} });
+    const written = await ask({ _tag: "CacheWindowsWrite", cacheWindowMinutes: 30, harness: { claude: 5 } });
+    expect(f.patch).toHaveBeenCalledWith({ offboard: { cacheWindowMinutes: 30, harness: { claude: { cacheWindowMinutes: 5 } } } });
+    expect(written).toEqual({ machine: THIS_MACHINE, cacheWindowMinutes: 30, harness: { claude: 5 } });
+    expect(await ask({ _tag: "CacheWindowsRead" })).toEqual(written);
+    // A harness set to null follows the machine's window again.
+    expect(await ask({ _tag: "CacheWindowsWrite", harness: { claude: null } }))
+      .toEqual({ machine: THIS_MACHINE, cacheWindowMinutes: 30, harness: {} });
+  });
+
+  it("admits a cache windows write only as it admits any other, and changes nothing when it refuses", async () => {
+    const f = await runtimeWith([here], "editor");
+    const channel = await f.runtime.runPromise(makeSettingsChannel());
+    const stranger = { ...context, peer: { ...context.peer, installationId: installation("stranger-installation") } };
+    expect(await f.runtime.runPromise(Effect.flip(channel.handleRequest!(stranger,
+      { _tag: "CacheWindowsWrite", canvas, cacheWindowMinutes: 30 })))).toMatchObject({ _tag: "SettingsPeerNotPinned" });
+    expect(f.patch).not.toHaveBeenCalled();
   });
 
   it("refuses an unpinned peer, another canvas editor, and a canvas with no seat here, and changes nothing", async () => {
@@ -187,10 +246,11 @@ describe("settings channel request", () => {
     const request = vi.fn((_machine: string, _channel: string, payload: unknown, _options?: { readonly operationId?: string }) =>
       respond(payload));
     const unused = Effect.die("unused machine operation");
+    const disconnect = vi.fn(() => Effect.void);
     const links = MachineLink.of({
       setChannels: () => unused, listen: () => unused,
       connect: () => Effect.succeed({ machineName: PEER, installationId: editor, boundAt: "2026-10-17" }),
-      connectSetup: () => unused, disconnect: () => unused, peerBuild: () => unused,
+      connectSetup: () => unused, disconnect: disconnect as never, peerBuild: () => unused,
       sendEvent: () => unused, request: request as never,
     });
     const hosts = HostsService.of({
@@ -202,7 +262,7 @@ describe("settings channel request", () => {
       Effect.provideService(HostsService, hosts), Effect.provideService(MachineLink, links),
       Effect.provide(ObservabilityLoggerLive),
     ) as Effect.Effect<A>);
-    return { peer, run, request };
+    return { peer, run, request, disconnect };
   };
 
   const mini = { machine: PEER, supervisedPreferred: true };
@@ -223,6 +283,30 @@ describe("settings channel request", () => {
     expect(await bad.run(bad.peer.record(PEER, "op-3"))).toMatchObject({
       ok: false, error: { reason: "failed", failure: "SettingsAnswerRefused" },
     });
+  });
+
+  it("sends a cache windows change as minutes, a harness that follows again as null, and answers it read back", async () => {
+    const c = await client([remote], () => Effect.succeed({ machine: PEER, cacheWindowMinutes: 30, harness: { codex: 10 } }));
+    const answer = await c.run(c.peer.setCacheWindows(PEER, {
+      cacheWindowMinutes: 30, harness: { codex: { cacheWindowMinutes: 10 }, claude: null },
+    }, "op-cw-1"));
+    expect(c.request).toHaveBeenCalledWith(PEER, "settings",
+      { _tag: "CacheWindowsWrite", canvas, cacheWindowMinutes: 30, harness: { codex: 10, claude: null } }, { operationId: "op-cw-1" });
+    expect(answer).toEqual({ ok: true, value: { machine: PEER, cacheWindowMinutes: 30, harness: { codex: 10 } } });
+  });
+
+  it("refuses cache windows outside the shape as one typed failure, and keeps the link open", async () => {
+    for (const bad of [
+      { machine: PEER, cacheWindowMinutes: 60, harness: { "made-up": 5 } },
+      { machine: PEER, cacheWindowMinutes: 0, harness: {} },
+      { machine: PEER, cacheWindowMinutes: 60, harness: {}, idleNudge: true },
+    ]) {
+      const c = await client([remote], () => Effect.succeed(bad));
+      expect(await c.run(c.peer.cacheWindows(PEER, "op-cw-2"))).toMatchObject({
+        ok: false, error: { reason: "failed", failure: "SettingsAnswerRefused", operationId: "op-cw-2" },
+      });
+      expect(c.disconnect).not.toHaveBeenCalled();
+    }
   });
 
   it("carries the answering machine's typed refusal, and asks nothing with no seat there", async () => {
