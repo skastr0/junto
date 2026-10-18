@@ -1,6 +1,6 @@
 /**
- * What a seat's next start and next turn do (modelSeatLaunchState), as it
- * crosses the seats channel from the machine that runs the seat to the
+ * Whether a seat's settings are fixed and what its next turn does
+ * (modelSeatLaunchState), as it crosses the seats channel from the machine that runs the seat to the
  * machine that edits its canvas: on each state the seat's machine forwards,
  * and on Get's Vacant for a seat with no occupant. With it goes the seat's
  * cache window as that machine's offboard clock and rules read it, which the
@@ -17,11 +17,11 @@
  */
 import { Schema } from "effect";
 import type { JuntoApi } from "@shared/ipc";
-import { SEAT_NEXT_LAUNCHES, seatCacheWindow } from "@shared/seat-next-launch";
-import { OFFBOARD_MINUTES_MAX, OFFBOARD_MINUTES_MIN } from "@shared/seat-offboard";
+import { seatCacheWindow } from "@shared/seat-next-launch";
+import { CACHE_MODES, OFFBOARD_MINUTES_MAX, OFFBOARD_MINUTES_MIN } from "@shared/seat-offboard";
 import type { SeatOffboardFacts } from "../seat-sessions/operator-offboard";
 
-/** What a seat on its own machine answers about its next start and turn. */
+/** What a seat on its own machine answers about its settings and its next turn. */
 export type SeatLaunchState = Awaited<ReturnType<JuntoApi["modelSeatLaunchState"]>>;
 
 /** The launch state as the machine that edits the seat's canvas holds it, with the seat's cache window. */
@@ -51,8 +51,8 @@ export const clampMs = (ms: number, max: number): number =>
   Number.isFinite(ms) ? Math.min(max, Math.max(0, Math.round(ms))) : 0;
 
 export const SeatsLaunchState = Schema.Struct({
-  hasSession: Schema.Boolean,
-  next: Schema.Literals(SEAT_NEXT_LAUNCHES),
+  /** The seat picks up where it was, so the settings it started with hold. */
+  settingsFixed: Schema.Boolean,
   nextTurn: Schema.optionalKey(Schema.Struct({
     fresh: Schema.Boolean,
     /** While the turn continues: how long until the session goes cold if nothing moves. */
@@ -63,6 +63,8 @@ export const SeatsLaunchState = Schema.Struct({
     /** How long the seat has been at rest. Absent while it is not. */
     stillForMs: Schema.optionalKey(BoundedMs(ACTIVITY_AGO_MAX_MS)),
     windowMinutes: BoundedInt(OFFBOARD_MINUTES_MIN, OFFBOARD_MINUTES_MAX),
+    /** That machine's cache mode: for the card's warning only. */
+    cacheMode: Schema.optionalKey(Schema.Literals(CACHE_MODES)),
     workMs: BoundedMs(SESSION_WORK_MAX_MS),
     tokens: Schema.optionalKey(BoundedInt(0, SESSION_TOKENS_MAX)),
     worth: Schema.Boolean,
@@ -80,8 +82,7 @@ const clampInt = (value: number, min: number, max: number): number =>
 export const toSeatsLaunch = (launch: SeatLaunchState, now: number, offboard?: SeatOffboardFacts): SeatsLaunchState => {
   const turn = launch.nextTurn;
   return {
-    hasSession: launch.hasSession,
-    next: launch.next,
+    settingsFixed: launch.settingsFixed,
     ...(turn === undefined
       ? {}
       : {
@@ -96,6 +97,7 @@ export const toSeatsLaunch = (launch: SeatLaunchState, now: number, offboard?: S
           offboard: {
             ...(offboard.stillSince === undefined ? {} : { stillForMs: clampMs(now - offboard.stillSince, ACTIVITY_AGO_MAX_MS) }),
             windowMinutes: clampInt(offboard.windowMinutes, OFFBOARD_MINUTES_MIN, OFFBOARD_MINUTES_MAX),
+            ...(offboard.cacheMode === undefined ? {} : { cacheMode: offboard.cacheMode }),
             workMs: clampMs(offboard.workMs, SESSION_WORK_MAX_MS),
             ...(offboard.tokens === undefined ? {} : { tokens: clampInt(offboard.tokens, 0, SESSION_TOKENS_MAX) }),
             worth: offboard.worth,
@@ -109,8 +111,7 @@ export const fromSeatsLaunch = (wire: SeatsLaunchState, now: number): RemoteSeat
   const turn = wire.nextTurn;
   const offboard = wire.offboard;
   return {
-    hasSession: wire.hasSession,
-    next: wire.next,
+    settingsFixed: wire.settingsFixed,
     ...(turn === undefined
       ? {}
       : {
@@ -125,6 +126,7 @@ export const fromSeatsLaunch = (wire: SeatsLaunchState, now: number): RemoteSeat
           offboard: {
             ...(offboard.stillForMs === undefined ? {} : { stillSince: now - offboard.stillForMs }),
             windowMinutes: offboard.windowMinutes,
+            ...(offboard.cacheMode === undefined ? {} : { cacheMode: offboard.cacheMode }),
             workMs: offboard.workMs,
             ...(offboard.tokens === undefined ? {} : { tokens: offboard.tokens }),
             worth: offboard.worth,
@@ -140,10 +142,9 @@ export const fromSeatsLaunch = (wire: SeatsLaunchState, now: number): RemoteSeat
  * clock reads them.
  */
 export const cardSeatLaunch = (launch: RemoteSeatLaunch, now: number): SeatLaunchState => {
-  const cacheWindow = launch.offboard && seatCacheWindow(launch.next, launch.offboard, now);
+  const cacheWindow = launch.offboard && seatCacheWindow(launch.nextTurn, launch.offboard, now);
   return {
-    hasSession: launch.hasSession,
-    next: launch.next,
+    settingsFixed: launch.settingsFixed,
     ...(launch.nextTurn === undefined ? {} : { nextTurn: launch.nextTurn }),
     ...(cacheWindow === undefined ? {} : { cacheWindow }),
   };

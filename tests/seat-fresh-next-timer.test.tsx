@@ -22,15 +22,14 @@ function Probe({ still }: { readonly still: boolean }) {
 describe("useSeatFreshNext", () => {
   let root: Root;
   let host: HTMLElement;
-  const ask = vi.fn<() => Promise<{ hasSession: boolean; next: "resume"; nextTurn: SeatNextTurn }>>();
+  const ask = vi.fn<() => Promise<{ settingsFixed: boolean; nextTurn: SeatNextTurn }>>();
 
   beforeEach(() => {
     vi.useFakeTimers({ now: NOW });
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     // Main: warm until COLD_AT, cold after.
     ask.mockImplementation(async () => ({
-      hasSession: true,
-      next: "resume",
+      settingsFixed: true,
       nextTurn: Date.now() < COLD_AT ? { fresh: false, freshAt: COLD_AT } : { fresh: true },
     }));
     (window as unknown as { junto: unknown }).junto = { modelSeatLaunchState: ask };

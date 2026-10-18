@@ -29,7 +29,7 @@ const seat = modelSeat("amp-seat", {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(getJuntoApi).mockReturnValue({ modelSeatLaunchState: vi.fn(async () => ({ hasSession: true })) } as never);
+  vi.mocked(getJuntoApi).mockReturnValue({ modelSeatLaunchState: vi.fn(async () => ({ settingsFixed: true })) } as never);
 });
 
 describe("Amp parameter changes before restart", () => {

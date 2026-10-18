@@ -222,7 +222,7 @@ export const registerTerminalIpc = (
   ipcMain.handle(IPC_CHANNELS.modelSeatLaunchState, async (event, input: Parameters<JuntoApi["modelSeatLaunchState"]>[0]) => {
     assertTrusted(event);
     const node = await readSeat(input?.canvas, input?.id);
-    if (node.kind !== "agent") return { hasSession: false, next: "fresh" };
+    if (node.kind !== "agent") return { settingsFixed: false };
     if (router.isLocalHostId(node.host)) return AppRuntime.runPromise(seatLaunchState(input.canvas, node));
     // A seat on another machine: what that machine last said (seats-launch.ts).
     const launch = await remoteSeatLaunchOf(node);

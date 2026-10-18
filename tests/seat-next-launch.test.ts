@@ -53,21 +53,22 @@ describe("seatNextTurn", () => {
 describe("seatCacheWindow", () => {
   const T = 1_792_000_000_000;
   const MIN = 60_000;
+  const continues = { fresh: false };
 
-  it("tells a still seat that resumes when its window ends, and how far past it is", () => {
-    expect(seatCacheWindow("resume", { stillSince: T, windowMinutes: 5 }, T + 4 * MIN))
+  it("tells a still seat that picks up where it was when its window ends, and how far past it is", () => {
+    expect(seatCacheWindow(continues, { stillSince: T, windowMinutes: 5 }, T + 4 * MIN))
       .toEqual({ windowMinutes: 5, stillSince: T, windowEndsAt: T + 5 * MIN, pastWindow: false, pastByMs: 0 });
     // The moment the window ends, the seat is past it: the cut's own test.
-    expect(seatCacheWindow("resume", { stillSince: T, windowMinutes: 5 }, T + 5 * MIN)).toMatchObject({ pastWindow: true, pastByMs: 0 });
-    expect(seatCacheWindow("resume", { stillSince: T, windowMinutes: 5 }, T + 12 * MIN)).toMatchObject({ pastWindow: true, pastByMs: 7 * MIN });
+    expect(seatCacheWindow(continues, { stillSince: T, windowMinutes: 5 }, T + 5 * MIN)).toMatchObject({ pastWindow: true, pastByMs: 0 });
+    expect(seatCacheWindow(continues, { stillSince: T, windowMinutes: 5 }, T + 12 * MIN)).toMatchObject({ pastWindow: true, pastByMs: 7 * MIN });
     // The machine's mode goes with it when the machine said it.
-    expect(seatCacheWindow("resume", { stillSince: T, windowMinutes: 5, cacheMode: "auto" }, T)).toMatchObject({ cacheMode: "auto" });
-    expect(seatCacheWindow("resume", { stillSince: T, windowMinutes: 5 }, T)).not.toHaveProperty("cacheMode");
+    expect(seatCacheWindow(continues, { stillSince: T, windowMinutes: 5, cacheMode: "auto" }, T)).toMatchObject({ cacheMode: "auto" });
+    expect(seatCacheWindow(continues, { stillSince: T, windowMinutes: 5 }, T)).not.toHaveProperty("cacheMode");
   });
 
-  it("tells nothing for a seat in a turn, or one whose next start does not resume", () => {
-    expect(seatCacheWindow("resume", { windowMinutes: 5 }, T)).toBeUndefined();
-    expect(seatCacheWindow("fresh", { stillSince: T, windowMinutes: 5 }, T + 60 * MIN)).toBeUndefined();
-    expect(seatCacheWindow("offboarded", { stillSince: T, windowMinutes: 5 }, T + 60 * MIN)).toBeUndefined();
+  it("tells nothing for a seat in a turn, or one whose next turn starts fresh or is not known", () => {
+    expect(seatCacheWindow(continues, { windowMinutes: 5 }, T)).toBeUndefined();
+    expect(seatCacheWindow({ fresh: true }, { stillSince: T, windowMinutes: 5 }, T + 60 * MIN)).toBeUndefined();
+    expect(seatCacheWindow(undefined, { stillSince: T, windowMinutes: 5 }, T + 60 * MIN)).toBeUndefined();
   });
 });

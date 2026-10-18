@@ -144,20 +144,20 @@ export const performSeatRelaunch = async (
   seat: Seat,
   params: SeatLaunchParams,
 ): Promise<SeatRelaunchResult> => {
-  let hasSession = false;
+  let settingsFixed = false;
   if (seat.harness === "amp") {
     const api = getJuntoApi();
     if (!api?.modelSeatLaunchState) return { ok: false, message: "Junto cannot read this seat's start settings yet." };
     try {
       const canvas = terminal$.canvasByNodeId[seat.id].peek() ?? state$.canvasName.peek();
-      hasSession = (await api.modelSeatLaunchState({ canvas, id: seat.id })).hasSession;
+      settingsFixed = (await api.modelSeatLaunchState({ canvas, id: seat.id })).settingsFixed;
     } catch (cause) {
       return { ok: false, message: cause instanceof Error ? cause.message : "Junto could not read this seat's start settings." };
     }
   }
-  const changeError = seatLaunchParamsChangeError(seat, params, hasSession);
+  const changeError = seatLaunchParamsChangeError(seat, params, settingsFixed);
   if (changeError) return { ok: false, message: changeError };
-  const relaunched = seatRelaunch(seat, params, hasSession);
+  const relaunched = seatRelaunch(seat, params, settingsFixed);
   if (!relaunched) return { ok: false, message: "not a managed agent seat" };
   const node = seat;
   const next = { ...seat, launch: relaunched.launch };

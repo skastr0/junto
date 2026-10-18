@@ -1,11 +1,10 @@
 /**
  * What an agent seat on this machine answers about its next start
- * (modelSeatLaunchState): whether it holds a session that locks its creation
- * settings, what its next start does, whether its next turn, whoever gives
- * it, starts fresh, and how it stands against its cache window. The card
- * reads it here for this machine's seats,
- * and the seats link carries it to the machine that edits a seat's canvas
- * (seats-launch.ts).
+ * (modelSeatLaunchState): whether it picks up where it was, which fixes its
+ * creation settings, whether its next turn, whoever gives it, starts fresh,
+ * and how it stands against its cache window. The card reads it here for
+ * this machine's seats, and the seats link carries it to the machine that
+ * edits a seat's canvas (seats-launch.ts).
  *
  * An effect over the seat's sessions, run in the runtime its process owns:
  * the window's, or the windowless core's. It never imports a runtime, so the
@@ -43,10 +42,10 @@ export const seatLaunchState = (canvas: string, node: NodeOf<"agent">) => Effect
   const seat = { canvasName: canvas, seatId: node.id };
   const [nextTurn, offboard] = yield* Effect.promise(() => Promise.all([seatNextTurnOf(seat, next), seatOffboardFactsOf(seat)]));
   const now = yield* Clock.currentTimeMillis;
-  const cacheWindow = offboard && seatCacheWindow(next, offboard, now);
+  const cacheWindow = offboard && seatCacheWindow(nextTurn, offboard, now);
   const state: SeatLaunchState = {
-    hasSession: session?.harness === node.harness,
-    next,
+    // Its next start picks up where it was, on the settings it started with.
+    settingsFixed: next === "resume",
     ...(nextTurn ? { nextTurn } : {}),
     ...(cacheWindow ? { cacheWindow } : {}),
   };

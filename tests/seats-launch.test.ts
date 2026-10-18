@@ -26,21 +26,21 @@ import {
 import { OFFBOARD_MINUTES_MAX } from "../src/shared/seat-offboard";
 
 const NOW = 1_792_000_000_000;
-const warm: SeatLaunchState = { hasSession: true, next: "resume", nextTurn: { fresh: false, freshAt: NOW + 600_000 } };
+const warm: SeatLaunchState = { settingsFixed: true, nextTurn: { fresh: false, freshAt: NOW + 600_000 } };
 
 afterEach(() => resetRemoteSeatLaunches());
 
 describe("the seats wire launch state", () => {
   it("crosses freshAt as a duration and reads it on the receiver's clock", () => {
     const wire = toSeatsLaunch(warm, NOW);
-    expect(wire).toEqual({ hasSession: true, next: "resume", nextTurn: { fresh: false, freshInMs: 600_000 } });
+    expect(wire).toEqual({ settingsFixed: true, nextTurn: { fresh: false, freshInMs: 600_000 } });
     expect(decodeSeatsLaunch(wire)).toEqual(wire);
     // A receiver an hour ahead holds the same ten minutes, from its own now.
     const ahead = NOW + 3_600_000;
-    expect(fromSeatsLaunch(wire, ahead)).toEqual({ hasSession: true, next: "resume", nextTurn: { fresh: false, freshAt: ahead + 600_000 } });
-    expect(toSeatsLaunch({ hasSession: false, next: "fresh", nextTurn: { fresh: true } }, NOW))
-      .toEqual({ hasSession: false, next: "fresh", nextTurn: { fresh: true } });
-    expect(toSeatsLaunch({ hasSession: false, next: "offboarded" }, NOW)).toEqual({ hasSession: false, next: "offboarded" });
+    expect(fromSeatsLaunch(wire, ahead)).toEqual({ settingsFixed: true, nextTurn: { fresh: false, freshAt: ahead + 600_000 } });
+    expect(toSeatsLaunch({ settingsFixed: false, nextTurn: { fresh: true } }, NOW))
+      .toEqual({ settingsFixed: false, nextTurn: { fresh: true } });
+    expect(toSeatsLaunch({ settingsFixed: false }, NOW)).toEqual({ settingsFixed: false });
   });
 
   it("clamps on sending and refuses anything over the bound, open or not whole", () => {
@@ -52,12 +52,14 @@ describe("the seats wire launch state", () => {
     expect(() => decodeSeatsLaunch({ ...wire, nextTurn: { fresh: false, freshInMs: FRESH_IN_MAX_MS + 1 } })).toThrow();
     expect(() => decodeSeatsLaunch({ ...wire, nextTurn: { fresh: false, freshInMs: 2.5 } })).toThrow();
     expect(() => decodeSeatsLaunch({ ...wire, nextTurn: { fresh: false, freshAt: NOW } })).toThrow();
-    expect(() => decodeSeatsLaunch({ ...wire, next: "continue" })).toThrow();
+    // The seat's own start plan and whether it holds a harness session never cross.
+    expect(() => decodeSeatsLaunch({ ...wire, next: "resume" })).toThrow();
+    expect(() => decodeSeatsLaunch({ ...wire, hasSession: true })).toThrow();
     expect(() => decodeSeatsLaunch({ ...wire, sessionId: "s" })).toThrow();
   });
 });
 
-describe("the seat's session on the wire", () => {
+describe("the seat's cache window on the wire", () => {
   const facts = { stillSince: NOW - 70 * 60_000, windowMinutes: 2, workMs: 25 * 60_000, tokens: 250_791, worth: true };
 
   it("crosses its rest as a duration and reads it on the receiver's clock", () => {
@@ -70,6 +72,11 @@ describe("the seat's session on the wire", () => {
     // Not at rest, size unknown: both absent.
     expect(toSeatsLaunch(warm, NOW, { windowMinutes: 60, workMs: 0, worth: false }).offboard)
       .toEqual({ windowMinutes: 60, workMs: 0, worth: false });
+    // The seat's machine's cache mode goes with it, for the card's warning.
+    const moded = toSeatsLaunch(warm, NOW, { ...facts, cacheMode: "manual" });
+    expect(decodeSeatsLaunch(moded).offboard).toMatchObject({ cacheMode: "manual" });
+    expect(fromSeatsLaunch(moded, ahead).offboard).toMatchObject({ cacheMode: "manual" });
+    expect(cardSeatLaunch(fromSeatsLaunch(moded, ahead), ahead).cacheWindow).toMatchObject({ cacheMode: "manual" });
   });
 
   it("tells the card the seat against its cache window on the receiver's clock; the window itself never crosses", () => {
@@ -89,10 +96,12 @@ describe("the seat's session on the wire", () => {
       .toMatchObject({ pastWindow: true, pastByMs: 78 * 60_000 });
     expect(cardSeatLaunch(fromSeatsLaunch(toSeatsLaunch(warm, NOW, { ...facts, windowMinutes: 120 }), ahead), ahead).cacheWindow)
       .toMatchObject({ windowMinutes: 120, pastWindow: false, pastByMs: 0, windowEndsAt: ahead + 50 * 60_000 });
-    // In a turn, nothing to resume, or nothing said: no window told.
+    // In a turn, a next turn that starts fresh or is not known, or nothing said: no window told.
     expect(cardSeatLaunch(fromSeatsLaunch(toSeatsLaunch(warm, NOW, { windowMinutes: 2, workMs: 0, worth: false }), ahead), ahead))
       .not.toHaveProperty("cacheWindow");
-    expect(cardSeatLaunch(fromSeatsLaunch(toSeatsLaunch({ hasSession: false, next: "fresh" }, NOW, facts), ahead), ahead))
+    expect(cardSeatLaunch(fromSeatsLaunch(toSeatsLaunch({ settingsFixed: true, nextTurn: { fresh: true } }, NOW, facts), ahead), ahead))
+      .not.toHaveProperty("cacheWindow");
+    expect(cardSeatLaunch(fromSeatsLaunch(toSeatsLaunch({ settingsFixed: false }, NOW, facts), ahead), ahead))
       .not.toHaveProperty("cacheWindow");
     expect(cardSeatLaunch(fromSeatsLaunch(toSeatsLaunch(warm, NOW), ahead), ahead)).toEqual(fromSeatsLaunch(toSeatsLaunch(warm, NOW), ahead));
   });
@@ -110,6 +119,7 @@ describe("the seat's session on the wire", () => {
       { ...offboard, tokens: 2.5 },
       { ...offboard, stillSince: NOW },
       { ...offboard, sessionId: "s" },
+      { ...offboard, cacheMode: "sometimes" },
     ]) expect(() => decodeSeatsLaunch({ ...wire, offboard: bad })).toThrow();
   });
 });
@@ -121,7 +131,7 @@ describe("a remote seat's launch state on the editing machine", () => {
     rememberRemoteSeatLaunch({ ...seat, epoch: "ep_1", gone: false, launch: warm });
     expect(heldRemoteSeatLaunch(seat.bindingId, seat.machine, NOW)).toEqual(warm);
     expect(heldRemoteSeatLaunch(seat.bindingId, seat.machine, NOW + 600_000))
-      .toEqual({ hasSession: true, next: "resume", nextTurn: { fresh: true } });
+      .toEqual({ settingsFixed: true, nextTurn: { fresh: true } });
     // A state of the same occupant that carries none keeps the answer; a new occupant's drops it.
     rememberRemoteSeatLaunch({ ...seat, epoch: "ep_1", gone: false });
     expect(heldRemoteSeatLaunch(seat.bindingId, seat.machine, NOW)).toEqual(warm);
@@ -144,7 +154,7 @@ describe("a remote seat's launch state on the editing machine", () => {
   });
 
   it("asks a seat with no live state once per link and per state, and never a live one", async () => {
-    const vacant: SeatLaunchState = { hasSession: false, next: "fresh", nextTurn: { fresh: true } };
+    const vacant: SeatLaunchState = { settingsFixed: false, nextTurn: { fresh: true } };
     const ask = vi.fn(async () => vacant);
     const read = (live = false) => remoteSeatLaunch({ ...seat, live, ask, now: () => NOW });
     expect(await read(true)).toBeUndefined();
@@ -168,7 +178,7 @@ describe("a remote seat's launch state on the editing machine", () => {
   });
 
   it("asks again on the first link a seat asked before any link was up", async () => {
-    const vacant: SeatLaunchState = { hasSession: true, next: "resume", nextTurn: { fresh: true } };
+    const vacant: SeatLaunchState = { settingsFixed: true, nextTurn: { fresh: true } };
     const ask = vi.fn(async () => vacant);
     const read = () => remoteSeatLaunch({ ...seat, live: false, ask, now: () => NOW });
     // A window's card asks while the link to that machine is still opening.
@@ -186,7 +196,7 @@ describe("a remote seat's launch state on the editing machine", () => {
     const pending = remoteSeatLaunch({ ...seat, live: false, now: () => NOW,
       ask: () => new Promise<SeatLaunchState>((resolve) => { answer = resolve; }) });
     rememberRemoteSeatLaunch({ ...seat, epoch: "ep_1", gone: false, launch: warm });
-    answer({ hasSession: false, next: "fresh", nextTurn: { fresh: true } });
+    answer({ settingsFixed: false, nextTurn: { fresh: true } });
     expect(await pending).toEqual(warm);
   });
 });

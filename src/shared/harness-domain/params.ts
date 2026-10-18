@@ -207,8 +207,8 @@ export class ParamRefusedError extends Schema.TaggedError<ParamRefusedError>()(
 ) {}
 
 /**
- * Check one value against its declaration. `hasSession` is whether the seat
- * already holds a session; `current` is the value that session started with.
+ * Check one value against its declaration. `settingsFixed` is whether the
+ * seat picks up where it was; `current` is the value it started with.
  */
 export const checkParam = (
   params: HarnessParams,
@@ -216,7 +216,7 @@ export const checkParam = (
     readonly key: HarnessParamKey;
     readonly value: string;
     readonly layer: ParamLayer;
-    readonly hasSession?: boolean;
+    readonly settingsFixed?: boolean;
     readonly current?: string;
   },
 ): Result.Result<string, ParamRefusedError> => {
@@ -236,10 +236,10 @@ export const checkParam = (
   }
   if (
     spec.resume === "frozenWithSession" &&
-    input.hasSession === true &&
+    input.settingsFixed === true &&
     (input.current ?? "").trim().toLowerCase() !== value.toLowerCase()
   ) {
-    return refuse("frozen", `the session keeps its ${spec.label.toLowerCase()}; a change needs a new session`);
+    return refuse("frozen", `this seat keeps the ${spec.label.toLowerCase()} it started with until it starts fresh`);
   }
   return Result.succeed(value);
 };

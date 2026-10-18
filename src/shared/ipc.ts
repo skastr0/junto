@@ -118,7 +118,7 @@ import type {
   ProfilesChanged,
 } from "./agent-profiles";
 import type { NotifyCue, NotifyReport, NotifyTarget } from "./desktop-notifications";
-import type { SeatCacheWindow, SeatNextLaunch, SeatNextTurn } from "./seat-next-launch";
+import type { SeatCacheWindow, SeatNextTurn } from "./seat-next-launch";
 import type { OverseerLiveApi } from "./overseer-live";
 import type {
   ObservabilityLogEntry,
@@ -811,16 +811,16 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   /** Stop the session of a seat or terminal. The node stays on the canvas. */
   readonly modelStop: (input: { readonly canvas: string; readonly id: string }) => Promise<void>;
   /**
-   * Creation settings remain locked after a seat acquired its named session.
-   * `next`: what the seat's next start does, resume its session or begin a
-   * fresh one. `nextTurn`: whether its next turn, whoever gives it, starts
-   * fresh, running or not; absent before Junto is ready (seat-next-launch.ts).
-   * `cacheWindow`: the seat against its cache window, the soft warning's
-   * fact; told while the seat is still and its next start resumes.
+   * `settingsFixed`: the seat picks up where it was, so the mode and startup
+   * flags it started with hold until it next starts fresh; decided on the
+   * seat's machine. `nextTurn`: whether its next turn, whoever gives it,
+   * starts fresh, running or not; absent before Junto is ready
+   * (seat-next-launch.ts). `cacheWindow`: the seat against its cache window,
+   * the soft warning's fact; told while the seat is still and its next turn
+   * picks up where it was.
    */
   readonly modelSeatLaunchState: (input: { readonly canvas: string; readonly id: string }) => Promise<{
-    readonly hasSession: boolean;
-    readonly next: SeatNextLaunch;
+    readonly settingsFixed: boolean;
     readonly nextTurn?: SeatNextTurn;
     readonly cacheWindow?: SeatCacheWindow;
   }>;

@@ -69,9 +69,9 @@ describe("harness params", () => {
   it("freezes Amp's mode once the thread exists", () => {
     const amp = params("amp");
     expect(paramSpec(amp, "mode")?.resume).toBe("frozenWithSession");
-    const frozen = checkParam(amp, { key: "mode", value: "ultra", layer: "seat", hasSession: true, current: "low" });
+    const frozen = checkParam(amp, { key: "mode", value: "ultra", layer: "seat", settingsFixed: true, current: "low" });
     expect(Result.isFailure(frozen) && frozen.failure.reason).toBe("frozen");
-    expect(Result.isSuccess(checkParam(amp, { key: "mode", value: "ultra", layer: "seat", hasSession: false }))).toBe(true);
+    expect(Result.isSuccess(checkParam(amp, { key: "mode", value: "ultra", layer: "seat", settingsFixed: false }))).toBe(true);
   });
 
   it("refuses an effort off a fixed list and a param the harness lacks", () => {

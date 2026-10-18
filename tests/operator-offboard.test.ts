@@ -666,7 +666,7 @@ describe("the seat's next turn: the same test as the cut", () => {
 });
 
 describe("the seat against its cache window, as its card reads it", () => {
-  it("tells a still seat that resumes how far past its harness's window it is, by this machine's clock and rules", async () => {
+  it("tells a still seat that picks up where it was how far past its harness's window it is, by this machine's clock and rules", async () => {
     const { setOperatorOffboard } = await import("../src/main/junto/seat-sessions/operator-offboard");
     const { SeatSessionRepository } = await import("../src/main/junto/seat-sessions/repository");
     const { seatLaunchState } = await import("../src/main/junto/term/seat-launch-state");
@@ -692,15 +692,25 @@ describe("the seat against its cache window, as its card reads it", () => {
     try {
       // At rest since T0, under amp's own five minute window and this machine's mode.
       const told = { windowMinutes: 5, stillSince: T0, windowEndsAt: T0 + 5 * MIN, cacheMode: "manual" };
-      expect((await readAfter(3)).cacheWindow).toEqual({ ...told, pastWindow: false, pastByMs: 0 });
+      expect(await readAfter(3)).toMatchObject({ settingsFixed: true, cacheWindow: { ...told, pastWindow: false, pastByMs: 0 } });
+      // Past it, held in front of the operator: its next turn picks up where it was, told how far past.
+      w.held.set("a", {});
       expect((await readAfter(9)).cacheWindow).toEqual({ ...told, pastWindow: true, pastByMs: 7 * MIN });
+      // Let go, its next turn starts fresh: the fresh next line says so, not the warning.
+      w.held.delete("a");
+      const fresh = await readAfter(0);
+      expect(fresh.nextTurn).toEqual({ fresh: true });
+      expect(fresh).not.toHaveProperty("cacheWindow");
       // In a turn it is not still: nothing told.
+      w.held.set("a", {});
       w.seats.set("a", { ...w.seats.get("a")!, state: "working" });
       expect(await readAfter(1)).not.toHaveProperty("cacheWindow");
-      // Nothing to resume: nothing told, however long it rests.
-      w.seats.set("a", { ...w.seats.get("a")!, state: "idle" });
+      // Resting with nothing to pick up: its settings are free, and nothing is told however long it rests.
+      w.seats.set("a", { ...w.seats.get("a")!, running: false, state: undefined });
       open = undefined;
-      expect(await readAfter(60)).not.toHaveProperty("cacheWindow");
+      const rested = await readAfter(60);
+      expect(rested).toMatchObject({ settingsFixed: false, nextTurn: { fresh: true } });
+      expect(rested).not.toHaveProperty("cacheWindow");
     } finally {
       vi.useRealTimers();
       setOperatorOffboard(undefined);

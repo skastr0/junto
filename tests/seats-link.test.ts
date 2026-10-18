@@ -315,7 +315,7 @@ describe("seats link status", () => {
 });
 
 describe("seats link launch state", () => {
-  const warm = (): SeatLaunchState => ({ hasSession: true, next: "resume", nextTurn: { fresh: false, freshAt: Date.now() + 600_000 } });
+  const warm = (): SeatLaunchState => ({ settingsFixed: true, nextTurn: { fresh: false, freshAt: Date.now() + 600_000 } });
 
   it("a forwarded state carries the seat's launch state as a duration, and an exit carries none", async () => {
     const asked: string[] = [];
@@ -328,7 +328,7 @@ describe("seats link launch state", () => {
     await eventually(() => expect(f.sent).toHaveBeenCalledTimes(2));
     const wires = f.sent.mock.calls.map((call) => call[1] as { state: string; launch?: { nextTurn?: { freshInMs?: number } } });
     const idle = wires.find((wire) => wire.state === "idle")!;
-    expect(idle.launch).toMatchObject({ hasSession: true, next: "resume", nextTurn: { fresh: false } });
+    expect(idle.launch).toMatchObject({ settingsFixed: true, nextTurn: { fresh: false } });
     expect(idle.launch?.nextTurn?.freshInMs).toBeGreaterThan(590_000);
     expect(idle.launch?.nextTurn?.freshInMs).toBeLessThanOrEqual(600_000);
     expect(wires.find((wire) => wire.state === "gone")).not.toHaveProperty("launch");
@@ -338,12 +338,12 @@ describe("seats link launch state", () => {
   it("Get's Vacant carries it, read on the asking machine's clock; other answers stay bare", async () => {
     const f = await fixture({ launchState: async () => warm() });
     const vacant = await f.start({ ...request, _tag: "Get" }) as { launch?: unknown };
-    expect(vacant).toMatchObject({ _tag: "Vacant", launch: { hasSession: true, next: "resume", nextTurn: { fresh: false } } });
+    expect(vacant).toMatchObject({ _tag: "Vacant", launch: { settingsFixed: true, nextTurn: { fresh: false } } });
     expect(await f.start({ ...request, _tag: "Stop" })).toEqual({ _tag: "Vacant", canvas, seatId: localSeat.id, machine: THIS_MACHINE });
     expect(await f.start({ ...request, _tag: "Viewed", generation: "ep_none" }))
       .toEqual({ _tag: "Vacant", canvas, seatId: localSeat.id, machine: THIS_MACHINE });
     const read = await linkedClient(f).client.launch(localSeat.bindingId);
-    expect(read).toMatchObject({ hasSession: true, next: "resume", nextTurn: { fresh: false } });
+    expect(read).toMatchObject({ settingsFixed: true, nextTurn: { fresh: false } });
     expect(read?.nextTurn?.freshAt).toBeGreaterThan(Date.now() + 590_000);
     // A seat that cannot say answers bare.
     const silent = await fixture({ launchState: async () => { throw new Error("no repository"); } });
@@ -381,7 +381,7 @@ describe("seats link launch state", () => {
   it("by default it is read from the sessions of the runtime the channel runs in", async () => {
     const f = await fixture({ launchState: "this runtime's" });
     expect(await f.start({ ...request, _tag: "Get" })).toEqual({
-      _tag: "Vacant", canvas, seatId: localSeat.id, machine: THIS_MACHINE, launch: { hasSession: false, next: "fresh" },
+      _tag: "Vacant", canvas, seatId: localSeat.id, machine: THIS_MACHINE, launch: { settingsFixed: false },
     });
   });
 
@@ -394,10 +394,10 @@ describe("seats link launch state", () => {
     await f.runtime.runPromise(f.channel.opened!(f.context));
     await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.channel.decodeEvent(wire)));
     expect(published).toHaveLength(1);
-    expect(heldRemoteSeatLaunch(remote.bindingId, "macbook", Date.now())).toMatchObject({ next: "resume", nextTurn: { fresh: false } });
+    expect(heldRemoteSeatLaunch(remote.bindingId, "macbook", Date.now())).toMatchObject({ settingsFixed: true, nextTurn: { fresh: false } });
     // Over its bound: that event is refused and logged, the link stays and the answer held stays.
     await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.channel.decodeEvent({
-      ...wire, epoch: "ep_10", launch: { hasSession: true, next: "resume", nextTurn: { fresh: false, freshInMs: Number.MAX_SAFE_INTEGER } },
+      ...wire, epoch: "ep_10", launch: { settingsFixed: true, nextTurn: { fresh: false, freshInMs: Number.MAX_SAFE_INTEGER } },
     })).pipe(Effect.provide(ObservabilityLoggerLive)));
     expect(published).toHaveLength(1);
     expect(heldRemoteSeatLaunch(remote.bindingId, "macbook", Date.now())).toBeDefined();

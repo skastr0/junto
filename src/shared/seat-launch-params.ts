@@ -160,10 +160,10 @@ export const seatStartPreviewArgv = (input: {
 export const seatLaunchParamsChangeError = (
   seat: Seat,
   params: SeatLaunchParams,
-  hasSession: boolean,
+  settingsFixed: boolean,
 ): string | undefined => {
   const harness = harnessOf(seat);
-  if (harness === undefined || !hasSession) return undefined;
+  if (harness === undefined || !settingsFixed) return undefined;
   const record = HARNESS_RECORDS[harness];
   const name = record.template.displayName;
   const stored = recoverDocumentLaunchChoices(harness, seat.launch);
@@ -192,11 +192,11 @@ export const seatLaunchParamsChangeError = (
 export const seatRelaunch = (
   seat: Seat,
   params: SeatLaunchParams,
-  hasSession = false,
+  settingsFixed = false,
 ): { readonly launch: Launch; readonly rejected: readonly RejectedExtraArg[] } | undefined => {
   const harness = harnessOf(seat);
   if (!harness) return undefined;
-  if (seatLaunchParamsChangeError(seat, params, hasSession)) return undefined;
+  if (seatLaunchParamsChangeError(seat, params, settingsFixed)) return undefined;
   const recovered = recoverDocumentLaunchChoices(harness, seat.launch);
   const plan = planSeatLaunch({
     harness,

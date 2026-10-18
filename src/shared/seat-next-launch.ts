@@ -60,10 +60,10 @@ export const seatNextTurn = (input: {
 
 /**
  * The seat against its cache window: the soft warning's fact. Main tells it
- * and the card draws it. Told while the seat is still and its next start
- * resumes: past its window, that turn pays for the seat's whole history
- * again. Times are on the clock of the machine showing the card, whichever
- * machine runs the seat.
+ * and the card draws it. Told while the seat is still and its next turn picks
+ * up where it was (`SeatNextTurn` not fresh): past its window, that turn pays
+ * for the seat's whole history again. Times are on the clock of the machine
+ * showing the card, whichever machine runs the seat.
  */
 export type SeatCacheWindow = {
   /** The cache window for the seat's harness on the seat's machine, whole minutes. */
@@ -88,11 +88,11 @@ export type SeatCacheWindow = {
  * rules (`stillSince` is absent while the seat is not at rest).
  */
 export const seatCacheWindow = (
-  next: SeatNextLaunch,
+  nextTurn: SeatNextTurn | undefined,
   rest: { readonly stillSince?: number; readonly windowMinutes: number; readonly cacheMode?: CacheMode },
   now: number,
 ): SeatCacheWindow | undefined => {
-  if (next !== "resume" || rest.stillSince === undefined) return undefined;
+  if (nextTurn?.fresh !== false || rest.stillSince === undefined) return undefined;
   const windowEndsAt = rest.stillSince + rest.windowMinutes * 60_000;
   return {
     windowMinutes: rest.windowMinutes,
