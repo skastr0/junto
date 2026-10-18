@@ -1,17 +1,18 @@
 /**
  * Operator offboard over fakes: the one operation behind the buttons, the
- * overseer command and the automatic rules, and the durable motionless clock.
+ * overseer command and the automatic rules, and the durable status clock.
  * No app, no harness, no real seats: every port is scripted.
  */
 import { describe, expect, it } from "vitest";
 import {
-  SeatMotionClock,
+  SeatStatusClock,
   makeOperatorOffboard,
-  parseSeatMotionRecord,
+  parseSeatClockRecord,
   type OffboardSeat,
   type OperatorOffboardPorts,
-  type SeatMotionRecord,
+  type SeatClockRecord,
 } from "../src/main/junto/seat-sessions/operator-offboard";
+import type { SeatSnapshot, SeatStatus } from "../src/shared/harness-domain";
 import {
   OFFBOARD_REFUSAL_REASON,
   applyOffboardRulesPatch,
@@ -37,11 +38,22 @@ const seat = (seatId: string, over: Partial<OffboardSeat> = {}): OffboardSeat =>
   ...over,
 });
 
+/** A seat's status as the clock reads it. */
+const status = (
+  tag: SeatStatus["_tag"],
+  since: number,
+  activitySince?: number,
+): Pick<SeatSnapshot, "status" | "since" | "activitySince"> => ({
+  status: tag === "Working" ? { _tag: "Working", phase: "thinking" } : ({ _tag: tag } as SeatStatus),
+  since,
+  ...(activitySince === undefined ? {} : { activitySince }),
+});
+
 const world = (
   initial: OffboardSeat[],
   options: {
     rules?: OffboardRules;
-    restored?: SeatMotionRecord;
+    restored?: SeatClockRecord;
     at?: number;
     /** Seats whose session has done no work. Every other seat starts with an hour of it. */
     noWork?: ReadonlyArray<string>;
@@ -54,20 +66,20 @@ const world = (
   const closed: Array<{ seatId: string; by: OffboardBy }> = [];
   const asked: Array<{ seatId: string; mode: string }> = [];
   const ended: Array<{ seatId: string; sessionId: string; by: OffboardBy; at: number }> = [];
-  const saved: SeatMotionRecord[] = [];
+  const saved: SeatClockRecord[] = [];
   const fail = { close: new Set<string>(), ask: new Set<string>() };
   /** Transcript size per seat, in tokens. A seat not listed has no locatable transcript. */
   const sizes = new Map<string, number>();
   // A session worth cutting, unless the test says otherwise: an hour of work.
-  const seeded: SeatMotionRecord = {
+  const seeded: SeatClockRecord = {
     savedAt: at,
     seats: Object.fromEntries(
       initial
         .filter((s) => !(options.noWork ?? []).includes(s.seatId))
-        .map((s) => [s.bindingId, { movedAt: at, workMs: 60 * MIN, ...(s.sessionId ? { sessionId: s.sessionId } : {}) }]),
+        .map((s) => [s.bindingId, { idleSince: at, workMs: 60 * MIN, ...(s.sessionId ? { sessionId: s.sessionId } : {}) }]),
     ),
   };
-  const clock = new SeatMotionClock(() => at, options.restored ?? seeded);
+  const clock = new SeatStatusClock(() => at, options.restored ?? seeded);
   const ports: OperatorOffboardPorts = {
     locate: async ({ canvasName, seatId }) => (canvasName === CANVAS ? seats.get(seatId) : undefined),
     seats: async () => [...seats.values()],
@@ -109,11 +121,18 @@ const world = (
     work: (seatId: string, minutes: number) => {
       const bindingId = seats.get(seatId)!.bindingId;
       clock.syncSession(bindingId, seats.get(seatId)!.sessionId);
+      const began = at;
       clock.noteState(bindingId, "working");
-      clock.note(bindingId);
+      clock.noteStatus(bindingId, status("Working", began, began));
       at += minutes * MIN;
       clock.noteState(bindingId, "idle");
-      clock.note(bindingId);
+      clock.noteStatus(bindingId, status("Idle", at, began));
+    },
+    /** The seat takes a turn and comes back to rest now. */
+    settle: (seatId: string) => {
+      const bindingId = seats.get(seatId)!.bindingId;
+      clock.noteStatus(bindingId, status("Working", at, at));
+      clock.noteStatus(bindingId, status("Idle", at, at));
     },
     setRules: (next: OffboardRules) => {
       rules = next;
@@ -231,14 +250,14 @@ describe("ask to offboard", () => {
 describe("before the click", () => {
   it("says whether offboard now is allowed, how long the seat has sat still, and which action is preferred", async () => {
     const w = world([seat("a"), seat("b", { state: "working" }), seat("off", { running: false, state: undefined })]);
-    w.clock.note("bind-a");
-    w.clock.note("bind-off");
+    w.settle("a");
+    w.settle("off");
     w.advance(45);
     let status = await w.offboard.status(CANVAS, ["a", "b", "off", "ghost"]);
     expect(status[0]).toEqual({
       seatId: "a",
       now: { allowed: true },
-      motionlessSince: T0,
+      stillSince: T0,
       idleMinutes: 45,
       pastWindow: false,
       preferred: "ask",
@@ -267,8 +286,8 @@ describe("before the click", () => {
       harness: { codex: { cacheWindowMinutes: 10 } },
     });
     const w = world([seat("c", { harness: "codex" }), seat("a")], { rules });
-    w.clock.note("bind-c");
-    w.clock.note("bind-a");
+    w.settle("c");
+    w.settle("a");
     w.advance(12);
     const status = await w.offboard.status(CANVAS, ["c", "a"]);
     expect(status.map((row) => [row.pastWindow, row.preferred])).toEqual([[true, "now"], [false, "ask"]]);
@@ -294,7 +313,7 @@ describe("auto offboard at the cache window (60 minutes by default): only as a s
 
   it("a resting seat still for its cache window is given a fresh session just before it wakes", async () => {
     const w = world([resting("a")]);
-    w.clock.note("bind-a");
+    w.settle("a");
     w.advance(59);
     expect(await wake(w, "a")).toBe(false);
     expect(w.closed).toEqual([]);
@@ -375,7 +394,7 @@ describe("auto offboard at the cache window (60 minutes by default): only as a s
         markEnded: () => undefined,
         rules: () => defaultOffboardRules(),
       },
-      new SeatMotionClock(() => T0),
+      new SeatStatusClock(() => T0),
     );
     expect(await broken.beforeWake({ canvasName: CANVAS, seatId: "a" })).toBe(false);
   });
@@ -387,7 +406,7 @@ describe("auto offboard as mail is about to be typed into a running, idle seat",
 
   it("a seat idle past its cache window gets a fresh session first; the mail then wakes it there", async () => {
     const w = world([seat("a")]);
-    w.clock.note("bind-a");
+    w.settle("a");
     w.advance(59);
     expect(await mail(w, "a")).toBe(false);
     w.advance(1);
@@ -444,7 +463,7 @@ describe("the seat's next turn: the same test as the cut", () => {
 
   it("an idle seat continues until its session goes cold, says when that is, then starts fresh as mail would", async () => {
     const w = world([seat("a")]);
-    w.clock.note("bind-a");
+    w.settle("a");
     expect(await next(w, "a")).toEqual({ fresh: false, freshAt: T0 + 60 * MIN });
     w.advance(59);
     expect(await next(w, "a")).toEqual({ fresh: false, freshAt: T0 + 60 * MIN });
@@ -518,8 +537,8 @@ describe("worth cutting: the automatic rules never recycle an empty or tiny sess
 
   it("case 3: a new session that never really starts is never cut", async () => {
     const w = world([resting("never-ran"), seat("banner-only")], { noWork: ["never-ran", "banner-only"] });
-    // It printed a banner and sat at its prompt: output, but no work.
-    w.clock.note("bind-banner-only");
+    // It printed a banner and sat at its prompt: an Idle with no turn behind it.
+    w.clock.noteStatus("bind-banner-only", status("Idle", w.now()));
     rest(w, "banner-only");
     // A large transcript does not rescue a session that has done no work.
     w.sizes.set("never-ran", 900_000);
@@ -595,23 +614,89 @@ describe("worth cutting: the automatic rules never recycle an empty or tiny sess
   });
 });
 
+describe("the status clock", () => {
+  const clockAt = (start = T0, restored?: SeatClockRecord) => {
+    let at = start;
+    const clock = new SeatStatusClock(() => at, restored);
+    return { clock, at: (next: number) => { at = next; } };
+  };
+
+  it("comes to rest when the seat goes idle after a turn; tools, phases and blocks inside it do not move it", () => {
+    const { clock, at } = clockAt();
+    at(T0 + MIN);
+    clock.noteStatus("s", status("Working", T0 + MIN, T0 + MIN));
+    at(T0 + 2 * MIN);
+    clock.noteStatus("s", { status: { _tag: "Working", phase: "tool" }, since: T0 + 2 * MIN, activitySince: T0 + MIN });
+    clock.noteStatus("s", { status: { _tag: "Blocked", reason: { _tag: "Permission" } }, since: T0 + 2 * MIN, activitySince: T0 + MIN });
+    // Active since it last rested: still now, whatever the screen says.
+    expect(clock.stillSince("s")).toBe(T0 + 2 * MIN);
+    at(T0 + 5 * MIN);
+    clock.noteStatus("s", status("Idle", T0 + 5 * MIN, T0 + MIN));
+    at(T0 + 50 * MIN);
+    // A done seat's detail changes keep the Idle's time.
+    clock.noteStatus("s", status("Idle", T0 + 5 * MIN, T0 + MIN));
+    expect(clock.stillSince("s")).toBe(T0 + 5 * MIN);
+  });
+
+  it("a start's or a resume's idle does not warm the session; an exit from work is when it came to rest", () => {
+    const { clock, at } = clockAt();
+    at(T0 + 10 * MIN);
+    clock.noteStatus("s", status("Working", T0 + 10 * MIN, T0 + 10 * MIN));
+    clock.noteStatus("s", status("Idle", T0 + 20 * MIN, T0 + 10 * MIN));
+    // Its exit from rest changes nothing; a new process idles with no turn behind it.
+    at(T0 + 30 * MIN);
+    clock.noteStatus("s", status("Exited", T0 + 30 * MIN, T0 + 10 * MIN));
+    clock.noteStatus("s", status("Starting", T0 + 40 * MIN));
+    clock.noteStatus("s", status("Idle", T0 + 41 * MIN));
+    expect(clock.stillSince("s")).toBe(T0 + 20 * MIN);
+    // A turn, then the process exits mid-work: it came to rest at the exit.
+    at(T0 + 60 * MIN);
+    clock.noteStatus("s", status("Working", T0 + 60 * MIN, T0 + 60 * MIN));
+    at(T0 + 70 * MIN);
+    clock.noteStatus("s", status("Exited", T0 + 70 * MIN, T0 + 60 * MIN));
+    expect(clock.stillSince("s")).toBe(T0 + 70 * MIN);
+  });
+
+  it("a cut session stays fresh through a start's idle, until the seat next leaves rest", () => {
+    const { clock, at } = clockAt();
+    clock.noteStatus("s", status("Working", T0, T0));
+    clock.noteStatus("s", status("Idle", T0, T0));
+    clock.markOffboarded("s");
+    at(T0 + 5 * MIN);
+    clock.noteStatus("s", status("Idle", T0 + 5 * MIN));
+    expect(clock.isFresh("s")).toBe(true);
+    at(T0 + 6 * MIN);
+    clock.noteStatus("s", status("Working", T0 + 6 * MIN, T0 + 6 * MIN));
+    expect(clock.isFresh("s")).toBe(false);
+  });
+
+  it("a seat working when Junto closed came to rest by the last save", () => {
+    const { clock } = clockAt(T0 + 600 * MIN, {
+      savedAt: T0 + 30 * MIN,
+      seats: { s: { idleSince: T0, activitySince: T0 + 10 * MIN } },
+    });
+    expect(clock.stillSince("s")).toBe(T0 + 30 * MIN);
+    expect(clock.record().seats.s).toEqual({ idleSince: T0 + 30 * MIN, activitySince: T0 + 10 * MIN });
+  });
+});
+
 describe("the clock across a restart", () => {
   const wake = (w: ReturnType<typeof world>, seatId: string) =>
     w.offboard.beforeWake({ canvasName: CANVAS, seatId });
 
   it("is saved on every pass and carries on where it was", async () => {
     const first = world([resting("a")]);
-    first.clock.note("bind-a");
+    first.settle("a");
     first.advance(30);
     await first.offboard.tick();
     const saved = first.saved.at(-1)!;
     expect(saved).toEqual({
       savedAt: T0 + 30 * MIN,
-      seats: { "bind-a": { movedAt: T0, workMs: 60 * MIN, sessionId: "session-a" } },
+      seats: { "bind-a": { idleSince: T0, activitySince: T0, workMs: 60 * MIN, sessionId: "session-a" } },
     });
 
     // Restart one minute later: the seat is at 31 minutes, not at zero.
-    const second = world([resting("a")], { restored: parseSeatMotionRecord(JSON.stringify(saved)), at: T0 + 31 * MIN });
+    const second = world([resting("a")], { restored: parseSeatClockRecord(JSON.stringify(saved)), at: T0 + 31 * MIN });
     expect(await wake(second, "a")).toBe(false);
     second.advance(28);
     expect(await wake(second, "a")).toBe(false);
@@ -621,12 +706,12 @@ describe("the clock across a restart", () => {
 
   it("catches up: closed for eight hours means still for eight hours plus what it already had", async () => {
     const first = world([resting("a")]);
-    first.clock.note("bind-a");
+    first.settle("a");
     first.advance(30);
     await first.offboard.tick();
     const second = world([resting("a")], { restored: first.saved.at(-1)!, at: T0 + 30 * MIN + 480 * MIN });
     const [status] = await second.offboard.status(CANVAS, ["a"]);
-    expect(status).toMatchObject({ motionlessSince: T0, idleMinutes: 510, pastWindow: true, preferred: "now" });
+    expect(status).toMatchObject({ stillSince: T0, idleMinutes: 510, pastWindow: true, preferred: "now" });
     // So the first thing that wakes it finds a session to cut.
     expect(await wake(second, "a")).toBe(true);
   });
@@ -654,7 +739,7 @@ describe("the clock across a restart", () => {
     first.advance(200);
     expect(await wake(first, "a")).toBe(true);
     await first.offboard.tick();
-    const saved = parseSeatMotionRecord(JSON.stringify(first.saved.at(-1)!))!;
+    const saved = parseSeatClockRecord(JSON.stringify(first.saved.at(-1)!))!;
     expect(saved.seats["bind-a"]).toMatchObject({ offboarded: true });
     expect("workMs" in saved.seats["bind-a"]!).toBe(false);
 
@@ -669,7 +754,7 @@ describe("the clock across a restart", () => {
     first.clock.noteState("bind-a", "working");
     first.advance(15);
     await first.offboard.tick(); // saved mid-turn
-    const saved = parseSeatMotionRecord(JSON.stringify(first.saved.at(-1)!))!;
+    const saved = parseSeatClockRecord(JSON.stringify(first.saved.at(-1)!))!;
     expect(saved.seats["bind-a"]).toMatchObject({ workMs: 35 * MIN, sessionId: "session-a" });
     const second = world([resting("a")], { restored: saved, at: first.now() + 10 * MIN });
     // Not working any more after the restart: the count stands, it does not run.
@@ -686,14 +771,19 @@ describe("the clock across a restart", () => {
   });
 
   it("an unreadable saved clock is no clock", async () => {
-    expect(parseSeatMotionRecord("not json")).toBeUndefined();
-    expect(parseSeatMotionRecord('{"seats":{}}')).toBeUndefined();
-    expect(parseSeatMotionRecord('{"savedAt":1,"seats":{"x":{"movedAt":"soon"},"y":{"movedAt":5}}}')).toEqual({
+    expect(parseSeatClockRecord("not json")).toBeUndefined();
+    expect(parseSeatClockRecord('{"seats":{}}')).toBeUndefined();
+    expect(parseSeatClockRecord('{"savedAt":1,"seats":{"x":{"idleSince":"soon"},"y":{"idleSince":5,"activitySince":3}}}')).toEqual({
       savedAt: 1,
-      seats: { y: { movedAt: 5 } },
+      seats: { y: { idleSince: 5, activitySince: 3 } },
+    });
+    // A clock saved before the status fed it: when the seat last moved reads as when it came to rest.
+    expect(parseSeatClockRecord('{"savedAt":9,"seats":{"z":{"movedAt":7,"nudged":true}}}')).toEqual({
+      savedAt: 9,
+      seats: { z: { idleSince: 7 } },
     });
     // A clock from the future (a changed system time) is ignored for that seat.
-    const clock = new SeatMotionClock(() => T0, { savedAt: T0 - MIN, seats: { later: { movedAt: T0 + 5 * MIN } } });
+    const clock = new SeatStatusClock(() => T0, { savedAt: T0 - MIN, seats: { later: { idleSince: T0 + 5 * MIN } } });
     expect(clock.stillSince("later")).toBe(T0);
   });
 });

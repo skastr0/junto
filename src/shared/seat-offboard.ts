@@ -236,9 +236,9 @@ export type SeatOffboardStatus = {
   readonly now:
     | { readonly allowed: true }
     | { readonly allowed: false; readonly code: OffboardRefusalCode; readonly reason: string };
-  /** When the seat last moved (epoch ms). Absent while it is not motionless. */
-  readonly motionlessSince?: number;
-  /** Whole minutes the seat has sat still. Null while it is not motionless. */
+  /** When the seat last came to rest (epoch ms). Absent while it is not at rest. */
+  readonly stillSince?: number;
+  /** Whole minutes the seat has sat still. Null while it is not at rest. */
   readonly idleMinutes: number | null;
   readonly pastWindow: boolean;
   /** `now` once the cache window has passed, `ask` while a turn is still cheap. */

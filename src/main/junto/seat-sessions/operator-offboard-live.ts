@@ -3,13 +3,14 @@
  * `operator-offboard.ts` bound to the canvas, the terminal plane, the
  * offboard closer, settings and disk.
  *
- * What moves a seat's clock here: any terminal output of the seat (which is
- * also what a typed key, a delivered mail or a `junto` call from the agent
- * shows up as), and any seat-state change away from idle.
+ * What sets a seat's clock here is its status alone (the seat-state plane):
+ * when it leaves rest and when it comes back to it. Terminal output, a typed
+ * key and a repainting prompt never do.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Effect } from "effect";
+import { agentSeatStatusOf, type AgentSeatStateEvent } from "@shared/agent-seat-state";
 import { isThisMachine } from "@shared/machine-name";
 import { MachineRepository } from "../machines/repository";
 import type { Canvas, Node } from "@shared/model";
@@ -28,18 +29,17 @@ import { SeatSessionRepository } from "./repository";
 import { PausePlane } from "../pause-plane";
 import { SettingsService } from "../settings/service";
 import { seatStateRuntime } from "../term/agent-state/runtime";
-import { terminalObserverPlane } from "../term/observer";
 import { termPlane } from "../term/plane";
 import { sessionSizeOf } from "../term/session-size";
 import { defaultSeatsRoot, seatSessionNotesPath, writeEndedMarker } from "./notes-file";
 import {
   OFFBOARD_TICK_MS,
-  SeatMotionClock,
+  SeatStatusClock,
   makeOperatorOffboard,
-  parseSeatMotionRecord,
+  parseSeatClockRecord,
   setOperatorOffboard,
   type OffboardSeat,
-  type SeatMotionRecord,
+  type SeatClockRecord,
 } from "./operator-offboard";
 
 /** The closer, as this module uses it. */
@@ -74,15 +74,15 @@ export type OperatorOffboardLiveInput = {
 /** `~/.junto/seats/offboard-clock.json` */
 export const offboardClockPath = (): string => join(defaultSeatsRoot(), "offboard-clock.json");
 
-const readClock = (path: string): SeatMotionRecord | undefined => {
+const readClock = (path: string): SeatClockRecord | undefined => {
   try {
-    return existsSync(path) ? parseSeatMotionRecord(readFileSync(path, "utf8")) : undefined;
+    return existsSync(path) ? parseSeatClockRecord(readFileSync(path, "utf8")) : undefined;
   } catch {
     return undefined;
   }
 };
 
-const writeClock = (path: string, record: SeatMotionRecord): void => {
+const writeClock = (path: string, record: SeatClockRecord): void => {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const temporary = `${path}.${process.pid}.tmp`;
   writeFileSync(temporary, JSON.stringify(record), { mode: 0o600 });
@@ -183,7 +183,7 @@ export const patchOffboardRules = (
 export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => void) => {
   started = input.run;
   const clockPath = input.clockPath ?? offboardClockPath();
-  const clock = new SeatMotionClock(() => Date.now(), readClock(clockPath));
+  const clock = new SeatStatusClock(() => Date.now(), readClock(clockPath));
   let rules: OffboardRules = defaultOffboardRules();
   const refreshRules = async (): Promise<void> => {
     rules = await readOffboardRules();
@@ -294,22 +294,15 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
     },
   });
 
-  // Output is movement. So is a seat leaving idle.
-  const lastSeq = new Map<string, bigint>();
-  const offOutput = terminalObserverPlane.subscribeGlobal((snap) => {
-    if (lastSeq.get(snap.bindingId) === snap.seq) return;
-    lastSeq.set(snap.bindingId, snap.seq);
-    clock.note(snap.bindingId);
-  });
-  const offState = seatStateRuntime.subscribe((event) => {
-    // Time in `working` is the session's work; any other state ends a stretch.
+  // The status sets the clock; time in `working` is the session's work.
+  const noteSeat = (event: AgentSeatStateEvent): void => {
     clock.noteState(event.bindingId, event.state);
-    if (event.state === "gone") {
-      lastSeq.delete(event.bindingId);
-      return;
-    }
-    if (event.state !== "idle") clock.note(event.bindingId);
-  });
+    const status = agentSeatStatusOf(event);
+    if (status !== undefined) clock.noteStatus(event.bindingId, status.snapshot);
+  };
+  const offState = seatStateRuntime.subscribe(noteSeat);
+  // Seats already running when the rules start read where they are now.
+  for (const event of seatStateRuntime.currentEvents()) noteSeat(event);
 
   let ticking = false;
   const timer = setInterval(() => {
@@ -333,7 +326,6 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
 
   return () => {
     clearInterval(timer);
-    offOutput();
     offState();
     try {
       writeClock(clockPath, clock.record());

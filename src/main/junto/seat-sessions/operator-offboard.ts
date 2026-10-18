@@ -12,10 +12,10 @@
  * is the offboard closer's (`closeNow`), the same path an agent's own
  * offboard takes from the point its notes are saved.
  *
- * It also keeps the motionless clock: when each seat last moved, in real
- * time and saved to disk. A seat still for ninety minutes when Junto closed
- * for eight hours has been still for nine and a half when it opens: the
- * cache it would wake into is just as cold. Nothing is ever cut on a timer
+ * It also keeps the status clock: when each seat last came to rest, read
+ * from its status, in real time and saved to disk. A seat still for ninety
+ * minutes when Junto closed for eight hours has been still for nine and a
+ * half when it opens: the cache it would wake into is just as cold. Nothing is ever cut on a timer
  * or in a batch: auto offboard acts on one seat, at the moment that seat is
  * about to be given a turn on a cold session (woken, or mailed while idle).
  *
@@ -37,6 +37,7 @@ import {
   type SeatOffboardStatus,
 } from "@shared/seat-offboard";
 import { SEAT_OFFBOARD_MAX_SEATS } from "@shared/seat-offboard";
+import type { SeatSnapshot } from "@shared/harness-domain";
 import { seatNextTurn, type SeatNextLaunch, type SeatNextTurn } from "@shared/seat-next-launch";
 import type { OffboardMode, SeatAddress } from "@shared/seat-sessions";
 
@@ -89,22 +90,23 @@ export type OperatorOffboardPorts = {
   readonly sessionSize?: (seat: OffboardSeat) => { readonly tokens: number } | undefined;
   readonly rules: () => OffboardRules;
   /** Save the clock (called once per tick). */
-  readonly saveClock?: (record: SeatMotionRecord) => void;
+  readonly saveClock?: (record: SeatClockRecord) => void;
   readonly now?: () => number;
   readonly log?: (message: string) => void;
 };
 
 /** What the clock keeps on disk, so it carries on across a restart. */
-export type SeatMotionRecord = {
+export type SeatClockRecord = {
   readonly savedAt: number;
   readonly seats: Readonly<
     Record<
       string,
       {
-        /** When the seat last moved (epoch ms). */
-        readonly movedAt: number;
+        /** When the seat last came to rest after activity (epoch ms). */
+        readonly idleSince?: number;
+        /** When the seat last left rest (its status's `activitySince`). */
+        readonly activitySince?: number;
         readonly offboarded?: boolean;
-        readonly nudged?: boolean;
         /** Time the seat spent working in its current session (ms). */
         readonly workMs?: number;
         /** The session that work belongs to. */
@@ -114,10 +116,10 @@ export type SeatMotionRecord = {
   >;
 };
 
-type MotionEntry = {
-  movedAt: number;
+type ClockEntry = {
+  idleSince: number | undefined;
+  activitySince: number | undefined;
   offboarded: boolean;
-  nudged: boolean;
   /** Work finished so far in the current session. */
   workMs: number;
   /** Set while the seat is working: when this stretch of work began. */
@@ -125,54 +127,65 @@ type MotionEntry = {
   sessionId: string | undefined;
 };
 
+/** The seat left rest after it last came to rest: it is active, or was when last seen. */
+const activeAfterRest = (entry: Pick<ClockEntry, "idleSince" | "activitySince">): boolean =>
+  entry.activitySince !== undefined && (entry.idleSince === undefined || entry.activitySince > entry.idleSince);
+
 /**
  * Two things about each seat, kept together because they are saved together.
  *
- * When it last moved: produced output, left idle, was typed into, or had
- * mail written to it. Real time, and durable: time while Junto was closed
- * counts like any other. A session that sat still through the night is
- * exactly as cold as one that sat still with the app open.
+ * When it last came to rest, read from its status and nothing else: the
+ * moment it went Idle after activity, or exited from it. Activity is leaving
+ * rest (the status's `activitySince`: work or a block, from Idle or no
+ * reading yet). Output, typing and a repainting prompt are not. An Idle with
+ * no activity since the last rest (a start, a resume) leaves the time where
+ * it was: no turn has warmed the session. Real time, and durable: time while
+ * Junto was closed counts like any other.
  *
  * How long it has worked in its current session: the time its seat state
  * read working, summed. It starts again from zero whenever the seat gets a
  * fresh session, whoever caused that. This is what tells a session worth
  * cutting from one that is empty or tiny.
  *
- * A seat the clock has never seen has been still since the clock first
- * started in this run, and has done no work.
+ * A seat the clock has never seen at rest has been still since the clock
+ * first started in this run, and has done no work.
  */
-export class SeatMotionClock {
-  private readonly entries = new Map<string, MotionEntry>();
+export class SeatStatusClock {
+  private readonly entries = new Map<string, ClockEntry>();
   /** When this run's clock started: the moment the app opened. */
   readonly startedAt: number;
 
   constructor(
     private readonly now: () => number = () => Date.now(),
-    restored?: SeatMotionRecord,
+    restored?: SeatClockRecord,
   ) {
     this.startedAt = this.now();
+    // A time in the future (a changed system clock) is no evidence at all.
+    const past = (at: number | undefined): number | undefined =>
+      at !== undefined && Number.isFinite(at) && at <= this.startedAt ? at : undefined;
     for (const [bindingId, seat] of Object.entries(restored?.seats ?? {})) {
-      // A time in the future (a changed system clock) is no evidence at all.
-      if (!Number.isFinite(seat.movedAt) || seat.movedAt > this.startedAt) continue;
-      this.entries.set(bindingId, {
-        movedAt: seat.movedAt,
+      const entry: ClockEntry = {
+        idleSince: past(seat.idleSince),
+        activitySince: past(seat.activitySince),
         offboarded: seat.offboarded === true,
-        nudged: seat.nudged === true,
         workMs: Math.max(0, seat.workMs ?? 0),
         // Whatever was working when Junto closed is not working now.
         workingSince: undefined,
         sessionId: seat.sessionId,
-      });
+      };
+      // Active when Junto closed: it came to rest no later than the last save.
+      if (activeAfterRest(entry)) entry.idleSince = Math.min(this.startedAt, Math.max(entry.activitySince!, restored!.savedAt));
+      this.entries.set(bindingId, entry);
     }
   }
 
-  private entry(bindingId: string): MotionEntry {
+  private entry(bindingId: string): ClockEntry {
     let entry = this.entries.get(bindingId);
     if (entry === undefined) {
       entry = {
-        movedAt: this.startedAt,
+        idleSince: undefined,
+        activitySince: undefined,
         offboarded: false,
-        nudged: false,
         workMs: 0,
         workingSince: undefined,
         sessionId: undefined,
@@ -182,17 +195,30 @@ export class SeatMotionClock {
     return entry;
   }
 
-  /** The seat moved. A new stretch of stillness starts here. */
-  note(bindingId: string): void {
+  /**
+   * The seat's status, as its snapshot reads now. Leaving rest makes a cut
+   * session history; coming to rest after activity starts the stillness.
+   */
+  noteStatus(bindingId: string, snapshot: Pick<SeatSnapshot, "status" | "since" | "activitySince">): void {
     const entry = this.entry(bindingId);
-    entry.movedAt = this.now();
-    entry.offboarded = false;
-    entry.nudged = false;
+    const left = snapshot.activitySince;
+    if (left !== undefined && left <= this.now() && (entry.activitySince === undefined || left > entry.activitySince)) {
+      entry.activitySince = left;
+      entry.offboarded = false;
+    }
+    const tag = snapshot.status._tag;
+    if ((tag === "Idle" || tag === "Exited") && activeAfterRest(entry)) entry.idleSince = snapshot.since;
   }
 
-  /** When the seat last moved. */
+  /**
+   * When the seat came to rest. A seat whose status still reads active since
+   * then is still now; one never seen at rest, since this run's clock started.
+   */
   stillSince(bindingId: string): number {
-    return this.entries.get(bindingId)?.movedAt ?? this.startedAt;
+    const entry = this.entries.get(bindingId);
+    if (entry === undefined) return this.startedAt;
+    if (activeAfterRest(entry)) return this.now();
+    return entry.idleSince ?? this.startedAt;
   }
 
   /**
@@ -230,7 +256,7 @@ export class SeatMotionClock {
     entry.sessionId = sessionId;
   }
 
-  private resetWork(entry: MotionEntry): void {
+  private resetWork(entry: ClockEntry): void {
     entry.workMs = 0;
     // A turn running right now belongs to the new session from here.
     if (entry.workingSince !== undefined) entry.workingSince = this.now();
@@ -245,17 +271,9 @@ export class SeatMotionClock {
     entry.sessionId = undefined;
   }
 
-  /** Closed from outside, and still since: its session is already fresh. */
+  /** Closed from outside, and not active since: its session is already fresh. */
   isFresh(bindingId: string): boolean {
     return this.entries.get(bindingId)?.offboarded === true;
-  }
-
-  markNudged(bindingId: string): void {
-    this.entry(bindingId).nudged = true;
-  }
-
-  wasNudged(bindingId: string): boolean {
-    return this.entries.get(bindingId)?.nudged === true;
   }
 
   forget(bindingId: string): void {
@@ -263,14 +281,14 @@ export class SeatMotionClock {
   }
 
   /** The clock as it is saved. Call it on every pass. */
-  record(): SeatMotionRecord {
-    const seats: Record<string, SeatMotionRecord["seats"][string]> = {};
+  record(): SeatClockRecord {
+    const seats: Record<string, SeatClockRecord["seats"][string]> = {};
     for (const [bindingId, entry] of this.entries) {
       const workMs = this.workMs(bindingId);
       seats[bindingId] = {
-        movedAt: entry.movedAt,
+        ...(entry.idleSince !== undefined ? { idleSince: entry.idleSince } : {}),
+        ...(entry.activitySince !== undefined ? { activitySince: entry.activitySince } : {}),
         ...(entry.offboarded ? { offboarded: true } : {}),
-        ...(entry.nudged ? { nudged: true } : {}),
         ...(workMs > 0 ? { workMs } : {}),
         ...(entry.sessionId !== undefined ? { sessionId: entry.sessionId } : {}),
       };
@@ -279,26 +297,32 @@ export class SeatMotionClock {
   }
 }
 
+const finiteTime = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
+
 /** Read a saved clock; anything unreadable is no clock at all. */
-export const parseSeatMotionRecord = (text: string): SeatMotionRecord | undefined => {
+export const parseSeatClockRecord = (text: string): SeatClockRecord | undefined => {
   try {
     const parsed = JSON.parse(text) as { savedAt?: unknown; seats?: unknown };
     if (typeof parsed.savedAt !== "number" || !Number.isFinite(parsed.savedAt)) return undefined;
     if (typeof parsed.seats !== "object" || parsed.seats === null || Array.isArray(parsed.seats)) return undefined;
-    const seats: Record<string, SeatMotionRecord["seats"][string]> = {};
+    const seats: Record<string, SeatClockRecord["seats"][string]> = {};
     for (const [bindingId, value] of Object.entries(parsed.seats as Record<string, unknown>)) {
       const seat = value as {
+        idleSince?: unknown;
+        activitySince?: unknown;
         movedAt?: unknown;
         offboarded?: unknown;
-        nudged?: unknown;
         workMs?: unknown;
         sessionId?: unknown;
       };
-      if (typeof seat?.movedAt !== "number" || !Number.isFinite(seat.movedAt)) continue;
+      // A clock saved before the status fed it kept when the seat last moved.
+      const idleSince = finiteTime(seat?.idleSince) ? seat.idleSince : finiteTime(seat?.movedAt) ? seat.movedAt : undefined;
+      const activitySince = finiteTime(seat?.activitySince) ? seat.activitySince : undefined;
+      if (idleSince === undefined && activitySince === undefined) continue;
       seats[bindingId] = {
-        movedAt: seat.movedAt,
+        ...(idleSince !== undefined ? { idleSince } : {}),
+        ...(activitySince !== undefined ? { activitySince } : {}),
         ...(seat.offboarded === true ? { offboarded: true } : {}),
-        ...(seat.nudged === true ? { nudged: true } : {}),
         ...(typeof seat.workMs === "number" && Number.isFinite(seat.workMs) && seat.workMs > 0
           ? { workMs: seat.workMs }
           : {}),
@@ -328,7 +352,7 @@ const ASK_EXEMPT_MS = 10 * 60_000;
 
 const keyOf = (seat: SeatAddress): string => `${seat.canvasName}\u0000${seat.seatId}`;
 
-export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMotionClock) => {
+export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatStatusClock) => {
   const now = (): number => ports.now?.() ?? Date.now();
   /** Seats just asked to offboard, and until when their session is left alone for it. */
   const asking = new Map<string, number>();
@@ -361,8 +385,8 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
     seat: OffboardSeat,
     at: number,
   ): { readonly since?: number; readonly minutes: number | null; readonly pastWindow: boolean } => {
-    const motionless = !seat.running || seat.state === "idle";
-    if (!motionless) return { minutes: null, pastWindow: false };
+    const resting = !seat.running || seat.state === "idle";
+    if (!resting) return { minutes: null, pastWindow: false };
     const since = clock.stillSince(seat.bindingId);
     const minutes = wholeMinutesBetween(since, at);
     const window = offboardRulesFor(ports.rules(), seat.harness).cacheWindowMinutes;
@@ -412,7 +436,7 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
         return {
           seatId,
           now: allowed,
-          ...(still.since !== undefined ? { motionlessSince: still.since } : {}),
+          ...(still.since !== undefined ? { stillSince: still.since } : {}),
           idleMinutes: still.minutes,
           pastWindow: still.pastWindow,
           preferred: still.pastWindow ? "now" : "ask",
