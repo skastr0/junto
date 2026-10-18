@@ -18,7 +18,7 @@ You have Claude Code in one terminal and Codex in another, plus three more agent
 | --- | --- |
 | you copy one agent's output into another's terminal | agents mail each other: `junto msg send`, then `junto msg list` |
 | nothing limits which agent talks to which | only seats joined by a line you drew can talk; no line, no channel |
-| a session ends with its tab | a seat keeps its harness, folder, and session, and resumes it after a restart |
+| an agent ends with its tab | a seat keeps its harness and folder, and picks up where it was after a restart |
 | you switch tabs to see who is working | one canvas showing every seat as idle, working, or waiting for input |
 
 ## Where it fits
@@ -70,7 +70,7 @@ source=Notarized Developer ID
 
 ## How it works
 
-Each seat is an agent node on a canvas, running its harness in a managed PTY in the folder you chose. The harness templates in `src/shared/managed-terminal-templates.ts` (14, from Claude Code at :767 to Oh My Pi at :1719) record how each one launches and resumes its session. A `messages` line compiles into mail grants for the two seats (`MSG_OPS`, `src/main/junto/work/authz.ts:374-401`). The `junto` CLI calls the app over `~/.junto/work/control.sock`, and the app admits the generation credential it minted into that seat (`JUNTO_WORK_TOKEN`). The receiving seat gets one typed line in its terminal naming the sender and `junto msg read <id>` (one message) or `junto msg list` (several) (`src/shared/message-delivery.ts:170-209`), and reads the mail when it is ready. Everything lives in `~/.junto/state/junto.db`; Junto writes nothing to `~/.claude`, `~/.codex`, or other harness config (`docs/how-junto-works.md`, "What Junto changes in your setup").
+Each seat is an agent node on a canvas, running its harness in a managed PTY in the folder you chose. The harness templates in `src/shared/managed-terminal-templates.ts` (14, from Claude Code at :767 to Oh My Pi at :1719) record how each one launches and picks up where it was. A `messages` line compiles into mail grants for the two seats (`MSG_OPS`, `src/main/junto/work/authz.ts:374-401`). The `junto` CLI calls the app over `~/.junto/work/control.sock`, and the app admits the generation credential it minted into that seat (`JUNTO_WORK_TOKEN`). The receiving seat gets one typed line in its terminal naming the sender and `junto msg read <id>` (one message) or `junto msg list` (several) (`src/shared/message-delivery.ts:170-209`), and reads the mail when it is ready. Everything lives in `~/.junto/state/junto.db`; Junto writes nothing to `~/.claude`, `~/.codex`, or other harness config (`docs/how-junto-works.md`, "What Junto changes in your setup").
 
 Diagram spec:
 
@@ -131,11 +131,11 @@ Linux desktop: alpha, Ubuntu 24.04 x86-64 from source; the download page says th
 
 1. **Two seats talk** (20s clip): draw a line between a Claude Code seat and a Codex seat; Claude sends mail; the notice appears in Codex's terminal; Codex reads and replies. Shows the agents talking without you in between.
 2. **Erase the line** (10s): delete the line; the next send is refused. Shows that access is the line you drew.
-3. **Quit and reopen** (15s): quit with seats running and reopen; the canvas comes back playing, and a seat resumes its same session when work reaches it. Shows that seats survive a restart.
+3. **Quit and reopen** (15s): quit with seats running and reopen; the canvas comes back playing, and a seat picks up where it was when work reaches it. Shows that seats survive a restart.
 
 ## Copy bank
 
 - tagline: Your agents, one canvas, talking.
 - short description: A desktop canvas where every coding agent gets a permanent seat, and agents you connect with a line mail each other. Free, open source, macOS.
-- page lede: Each agent you run gets a permanent seat with its own folder and a session that survives restarts. Draw a line between two seats and those two agents can message each other. Free, for macOS on Apple silicon.
+- page lede: Each agent you run gets a permanent seat with its own folder, and it survives restarts. Draw a line between two seats and those two agents can message each other. Free, for macOS on Apple silicon.
 - X post: I kept pasting one agent's report into another agent's terminal. So I built Junto: every agent gets a seat on a canvas, and when I draw a line between two seats, they mail each other. No line, no channel.
