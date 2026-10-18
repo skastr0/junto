@@ -83,6 +83,8 @@ export function SeatCard({
   const machineLine = useSeatMachineLine(hostId, harness);
   // A seat on another machine is answered once the link to it is up.
   const reachable = use$(() => (hostId === undefined ? undefined : state$.machineFacts[hostId].reachable.get()));
+  // Shown here, the operator holds the seat's session; closing it lets go.
+  const viewed = use$(() => terminal$.openByNodeId[id].get() !== undefined);
   const facts = seatFactsForNode({
     nodeId: id,
     seatEvent,
@@ -100,7 +102,7 @@ export function SeatCard({
     canvas,
     id,
     notifyItem(facts) === null && ((mark.mode === "static" && mark.glyph === "off") || seatEvent?.state === "idle"),
-    `${bindingId ?? ""}:${seatEvent?.state ?? ""}:${seatEvent?.at ?? 0}:${session?.epoch ?? ""}:${session?.status ?? ""}:${String(reachable)}`,
+    `${bindingId ?? ""}:${seatEvent?.state ?? ""}:${seatEvent?.at ?? 0}:${session?.epoch ?? ""}:${session?.status ?? ""}:${String(reachable)}:${String(viewed)}`,
   );
   const activity = freshNext ? { ...mark, label: SEAT_FRESH_NEXT_LINE } : mark;
 
