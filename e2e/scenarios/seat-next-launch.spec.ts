@@ -14,6 +14,7 @@ import { seededHarnessBinDir } from "../harness/agent-harness-fixture";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { modelFixture, modelSeat, modelSeatSession } from "../harness/model";
 import { readSeatSession } from "../harness/seat-session";
+import { terminalRows } from "../harness/term-ready";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "seat-next-launch");
@@ -304,7 +305,10 @@ test("a running seat at rest says fresh next past its window, and not while held
     // typed: shown, one key (Shift: nothing reaches the agent), closed. Its hold runs 30 s from the key.
     await line(page, "typed").dblclick();
     // Attached: the view holds its lease once the seat's screen is drawn, and only then is a key the operator's.
-    await expect(page.locator(".xterm-rows").first()).toContainText(/\S/, { timeout: 20_000 });
+    // Under WebGL the DOM holds no rows; the surface's registered text does (harness/term-ready.ts).
+    await expect
+      .poll(async () => (await terminalRows(page, "local:typed")).join("").trim().length, { message: "typed's screen is drawn", timeout: 20_000 })
+      .toBeGreaterThan(0);
     await page.locator(".xterm").first().click();
     const typedAt = Date.now();
     await page.keyboard.press("Shift");
