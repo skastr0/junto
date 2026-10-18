@@ -16,6 +16,11 @@ import { startWorkControlServer, type WorkControlServer } from "./work/control";
 import { workControlDir } from "@shared/work-control";
 import { startCoreSeats } from "./term/core-seats";
 import { startSeatSessions, type SeatSessions } from "./seat-sessions/start-seat-sessions";
+import { wireSeatReports } from "./term/agent-state/seat-reports";
+import { seatStateRuntime } from "./term/agent-state/runtime";
+import { termPlane } from "./term/plane";
+import { AgentSignalRepository } from "./signals/repository";
+import { onAgentSignalChanged } from "./signals/changes";
 import { mainAuthoringGate } from "./main-authoring-gate";
 
 export type CoreOptions = Omit<MachineCoreOptions, "ready">;
@@ -52,6 +57,7 @@ export const startCore = async (options: CoreOptions) => {
   let seatProcesses: Awaited<ReturnType<typeof startCoreSeats>> | undefined;
   let mail: Context.Service.Shape<typeof MachineCoreMail> | undefined;
   let sessions: SeatSessions | undefined;
+  let stopSeatReports: (() => void) | undefined;
   let releaseRunner: (() => void) | undefined;
   const runtime = makeCoreRuntime({ ...options, ready: () => admitted && !stopping && owner?.ready() === true && listener?.ready() === true });
   let closeFlight: Promise<void> | undefined;
@@ -65,6 +71,7 @@ export const startCore = async (options: CoreOptions) => {
     work?.beginShutdown();
     mail?.seats.suspend();
     sessions?.stop();
+    stopSeatReports?.();
     seatProcesses?.beginShutdown();
     closeFlight = (async () => {
       if (owner !== undefined) {
@@ -113,6 +120,17 @@ export const startCore = async (options: CoreOptions) => {
     sessions = await startSeatSessions({
       run: effect => runtime.runPromise(effect),
       onSuspend: listener => { coreMail.seats.onSuspend(listener); },
+    });
+    // A seat's declared signals (blocked, escalate, feedback) ride its own
+    // snapshot, as in the window, so a seat waiting on the operator is
+    // exempt from the cut here too.
+    stopSeatReports = wireSeatReports({
+      sessions: () => termPlane.host.list(),
+      seatReported: (bindingId, report) => seatStateRuntime.seatReported(bindingId, report),
+      subscribeSeatState: (listener) => seatStateRuntime.subscribe(listener),
+      onSignalChanged: onAgentSignalChanged,
+      signalsOf: (canvasName, nodeId) =>
+        runtime.runPromise(Effect.flatMap(AgentSignalRepository, (signals) => signals.listSeat({ canvasName, nodeId }))),
     });
     admitted = true;
     return { runtime, close, ready: () => admitted && !stopping && owner!.ready() && listener!.ready() };
