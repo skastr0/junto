@@ -87,6 +87,7 @@ const rig = () => {
       });
     },
     kickoff: async () => true,
+    record: async () => {},
     publish: () => {},
     now: () => clock.now,
   };

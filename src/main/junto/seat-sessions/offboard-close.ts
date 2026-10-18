@@ -19,6 +19,10 @@
  * lifts with the process; if the close fails before the process was stopped,
  * the closer releases it.
  *
+ * A close that ended a session has the session's record written (who ended
+ * it: the agent, or whoever closed it from outside) before its stage is
+ * reported.
+ *
  * Each seat is its own: many seats offboarding in the same instant are all
  * stopped in that instant, and one that fails or hangs delays no other.
  *
@@ -29,6 +33,7 @@
 import type { OffboardMode, SeatAddress, SeatOffboardProgress, SeatOffboardStage } from "@shared/seat-sessions";
 import type { SeatRotateResult } from "./rotate";
 import type { SeatOffboardEvent } from "./service";
+import type { SessionClose } from "./session-record";
 
 export type OffboardClosePorts = {
   /**
@@ -38,6 +43,8 @@ export type OffboardClosePorts = {
   readonly close: (seat: SeatAddress, wake: boolean) => Promise<SeatRotateResult>;
   /** Have the fresh session of a continuing seat told to read its handoff. */
   readonly kickoff: (seat: SeatAddress) => Promise<boolean>;
+  /** Write the record of the session that just ended. Never rejects. */
+  readonly record: (close: SessionClose) => Promise<void>;
   /**
    * The close failed before the seat's process was stopped: the session goes
    * on, so lift the fence that was keeping everything out of it.
@@ -178,6 +185,8 @@ export class SeatOffboardCloser {
 
   private async close(seat: SeatAddress, mode: OffboardMode): Promise<void> {
     const wake = mode === "continue";
+    // The session ends when its close begins: the turn in flight is cut here.
+    const endedAt = this.now();
     let result: SeatRotateResult;
     try {
       // Called in the same turn of the event loop as the offboard arrived.
@@ -190,6 +199,12 @@ export class SeatOffboardCloser {
       this.ports.log?.(`closing ${seat.seatId} failed: ${result.reason}`);
       this.report(seat, mode, "failed", result.reason);
       return;
+    }
+    if (result.ended !== undefined) {
+      const endedBy = this.outside.get(keyOf(seat)) ?? "agent";
+      await this.ports
+        .record({ seat, sessionId: result.ended, endedAt, endedBy })
+        .catch((error: unknown) => this.ports.log?.(`the record of ${seat.seatId}'s session was not written: ${String(error)}`));
     }
     if (!wake) {
       this.ports.log?.(`${seat.seatId} offboarded; its session closed and the seat rests`);

@@ -29,6 +29,7 @@ import { SeatSessionRepository } from "./repository";
 import { offboardAndRotate, stopSeatProcess } from "./rotate";
 import type { SeatSessionRun } from "./run";
 import { startSeatSessionRecorder, subscribeSeatOffboard } from "./service";
+import { recordSessionAtClose } from "./session-record";
 
 export type ManagedSeat = {
   readonly bindingId: string;
@@ -83,7 +84,7 @@ export const startSeatSessions = async (input: SeatSessionsInput): Promise<SeatS
 
   // Each session id a seat is given joins its history, so onboard can hand
   // the next session what came before and where it is.
-  const stopRecorder = await run(startSeatSessionRecorder((effect) => void run(effect)));
+  const stopRecorder = await run(startSeatSessionRecorder((effect) => void run(effect), log));
 
   // Post-spawn session capture for harnesses that mint an id and never
   // print it (Muse, fx). Home is read lazily so a test seam can move it.
@@ -146,6 +147,7 @@ export const startSeatSessions = async (input: SeatSessionsInput): Promise<SeatS
     // what is owed across a restart. That is the only way in: a seat
     // started any other way opens to an empty composer and is told nothing.
     kickoff: async () => true,
+    record: (close) => run(recordSessionAtClose(close, { log })),
     // The close failed before the process was stopped: the session goes
     // on, so it may be typed into again.
     release: (address) => {

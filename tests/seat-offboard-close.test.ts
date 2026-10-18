@@ -14,6 +14,7 @@ import {
 import * as closerModule from "../src/main/junto/seat-sessions/offboard-close";
 import { rotateSeatSession, type RotatingSeat, type SeatRotatePorts } from "../src/main/junto/seat-sessions/rotate";
 import type { SeatOffboardEvent } from "../src/main/junto/seat-sessions/service";
+import type { SessionClose } from "../src/main/junto/seat-sessions/session-record";
 import type { OffboardMode, SeatOffboardProgress } from "../src/shared/seat-sessions";
 
 const harness = (over: Partial<OffboardClosePorts> = {}) => {
@@ -24,6 +25,7 @@ const harness = (over: Partial<OffboardClosePorts> = {}) => {
     kickoffs: [] as string[],
     released: [] as string[],
     progress: [] as SeatOffboardProgress[],
+    records: [] as SessionClose[],
     woke: true,
   };
   const ports: OffboardClosePorts = {
@@ -36,6 +38,10 @@ const harness = (over: Partial<OffboardClosePorts> = {}) => {
       h.order.push(`kickoff:${seatId}`);
       h.kickoffs.push(seatId);
       return true;
+    },
+    record: async (close) => {
+      h.order.push(`record:${close.seat.seatId}`);
+      h.records.push(close);
     },
     release: ({ seatId }) => {
       h.released.push(seatId);
@@ -83,6 +89,7 @@ describe("SeatOffboardCloser", () => {
     const ports: Record<keyof OffboardClosePorts, true> = {
       close: true,
       kickoff: true,
+      record: true,
       release: true,
       seal: true,
       publish: true,
@@ -90,7 +97,7 @@ describe("SeatOffboardCloser", () => {
       now: true,
       log: true,
     };
-    expect(Object.keys(ports).sort()).toEqual(["close", "kickoff", "log", "now", "onOffboard", "publish", "release", "seal"]);
+    expect(Object.keys(ports).sort()).toEqual(["close", "kickoff", "log", "now", "onOffboard", "publish", "record", "release", "seal"]);
     expect(closerModule).not.toHaveProperty("OFFBOARD_SETTLE_MS");
     expect(closerModule).not.toHaveProperty("OFFBOARD_CLOSE_TICK_MS");
     expect(closerModule).not.toHaveProperty("seatClosable");
@@ -126,7 +133,7 @@ describe("SeatOffboardCloser", () => {
   it("--continue restarts: the fresh session starts, then is told to read its handoff", async () => {
     const { h, closer } = harness();
     await closer.offboarded(offboard("continue"));
-    expect(h.order).toEqual(["close:a", "kickoff:a"]);
+    expect(h.order).toEqual(["close:a", "record:a", "kickoff:a"]);
     expect(h.closes).toEqual([{ seatId: "a", canvasName: "c", wake: true }]);
     expect(h.progress.map((p) => p.stage)).toEqual(["saved", "started"]);
   });
@@ -364,7 +371,7 @@ describe("closing a session from outside it (operator, overseer, a rule)", () =>
       },
     });
     await closer.closeNow(seat, { mode: "rest", by: "operator" });
-    expect(h.order).toEqual(["seal:a", "close:a"]);
+    expect(h.order).toEqual(["seal:a", "close:a", "record:a"]);
     expect(h.closes).toEqual([{ seatId: "a", canvasName: "c", wake: false }]);
     expect(h.progress.map(({ stage, by, notes }) => ({ stage, by, notes }))).toEqual([
       { stage: "saved", by: "operator", notes: false },
@@ -445,5 +452,80 @@ describe("closing a session from outside it (operator, overseer, a rule)", () =>
     });
     await closer.closeNow(seat, { mode: "rest", by: "operator" });
     expect(h.closes).toHaveLength(1);
+  });
+});
+
+describe("the record of the session a close ended", () => {
+  const seat = { seatId: "a", canvasName: "c" };
+
+  it("an agent's own offboard writes one record, ended by the agent, at the moment the close began", async () => {
+    const { h, closer } = harness();
+    const flight = closer.offboarded(offboard("rest"));
+    h.now = 9_000;
+    await flight;
+    expect(h.records).toEqual([{ seat, sessionId: "s1", endedAt: 1_000, endedBy: "agent" }]);
+  });
+
+  it.each(["operator", "overseer", "automatic"] as const)("a close by the %s writes one record that names it", async (by) => {
+    const { h, closer } = harness();
+    await closer.closeNow(seat, { mode: "continue", by });
+    expect(h.records).toEqual([{ seat, sessionId: "s1", endedAt: 1_000, endedBy: by }]);
+  });
+
+  it("closes that join one flight write one record, by whoever started it", async () => {
+    let finish: (() => void) | undefined;
+    const { h, closer } = harness({
+      close: () =>
+        new Promise((resolve) => {
+          finish = () => resolve({ ok: true, ended: "s1", woke: false });
+        }),
+    });
+    const first = closer.closeNow(seat, { mode: "rest", by: "overseer" });
+    const second = closer.closeNow(seat, { mode: "rest", by: "automatic" });
+    const agents = closer.offboarded(offboard("rest"));
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    finish?.();
+    await Promise.all([first, second, agents]);
+    expect(h.records.map((close) => close.endedBy)).toEqual(["overseer"]);
+  });
+
+  it("a close that failed, or ended no session, writes none", async () => {
+    const failed = harness({ close: async () => ({ ok: false, reason: "this seat runs on another installation" }) });
+    await failed.closer.offboarded(offboard("rest"));
+    await failed.closer.closeNow(seat, { mode: "rest", by: "operator" });
+    expect(failed.h.records).toEqual([]);
+    const unnamed = harness({ close: async () => ({ ok: true, woke: false }) });
+    await unnamed.closer.offboarded(offboard("rest"));
+    expect(unnamed.h.records).toEqual([]);
+  });
+
+  it("the stage is reported only once the record is written", async () => {
+    let written: (() => void) | undefined;
+    const { h, closer } = harness({
+      record: () =>
+        new Promise<void>((resolve) => {
+          written = resolve;
+        }),
+    });
+    const flight = closer.offboarded(offboard("continue"));
+    await vi.waitFor(() => expect(written).toBeDefined());
+    expect(h.progress.map((p) => p.stage)).toEqual(["saved"]);
+    expect(h.kickoffs).toEqual([]);
+    written?.();
+    await flight;
+    expect(h.progress.map((p) => p.stage)).toEqual(["saved", "started"]);
+  });
+
+  it("a record port that rejects is logged, and the close is reported all the same", async () => {
+    const logged: string[] = [];
+    const { h, closer } = harness({
+      record: async () => {
+        throw new Error("core is not running");
+      },
+      log: (message) => logged.push(message),
+    });
+    await closer.offboarded(offboard("rest"));
+    expect(h.progress.at(-1)?.stage).toBe("resting");
+    expect(logged.some((line) => line.includes("core is not running"))).toBe(true);
   });
 });
