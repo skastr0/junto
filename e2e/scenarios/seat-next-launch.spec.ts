@@ -326,9 +326,11 @@ test("a running seat at rest says fresh next past its window, and not while held
     for (const id of ["viewed", "typed", "dialog", "raised"]) await expect(line(page, id)).not.toContainText("fresh next");
     await page.screenshot({ path: join(SHOTS, "running-held.png") });
 
-    // Closing the view lets go: viewed goes cold at once.
+    // Closing the view lets go: viewed goes cold at once, the card asking on the close itself
+    // (a cut at the minute pass would also turn it; still idle means it was not that).
     await closeView();
-    await expect(line(page, "viewed")).toContainText("fresh next", { timeout: 20_000 });
+    await expect(line(page, "viewed")).toContainText("fresh next", { timeout: 5_000 });
+    console.log("viewed after close", await seatState("viewed"));
     for (const id of ["dialog", "raised"]) await expect(line(page, id)).not.toContainText("fresh next");
     await page.mouse.move(4, 600);
     await page.screenshot({ path: join(SHOTS, "running-released.png") });
