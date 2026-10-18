@@ -8,6 +8,7 @@ import { Effect } from "effect";
 import { decodeNode, type Node } from "../src/shared/model";
 import { SeatCard } from "../src/renderer/components/nodes/SeatCard";
 import { agentSeat$ } from "../src/renderer/lib/agent-seat-state";
+import { replaceAgentSignals } from "../src/renderer/lib/agent-signals-state";
 import { seatNextTurn$ } from "../src/renderer/lib/seat-next-launch";
 import { state$ } from "../src/renderer/lib/state";
 import { holdModelCanvas as holdCanvas } from "./support/hold-canvas";
@@ -103,6 +104,24 @@ describe("SeatCard", () => {
     expect(render("stuck", true)).not.toContain("fresh next");
     // Waiting on the operator.
     expect(render("asks")).not.toContain("fresh next");
+  });
+
+  it("never says fresh next while the seat's hand is raised blocked or escalated, and does for feedback", () => {
+    state$.canvasName.set("factory");
+    stop = holdCanvas("factory", [seat("stopped", "stopped"), seat("raised", "raised"), seat("review", "review")]);
+    const signal = (nodeId: string, kind: "blocked" | "escalate" | "feedback") =>
+      ({ signalId: `sig-${nodeId}`, canvasName: "factory", nodeId, kind, text: "needs the operator", createdAt: 1, state: "open" }) as never;
+    replaceAgentSignals("factory", [signal("stopped", "blocked"), signal("raised", "escalate"), signal("review", "feedback")]);
+    for (const id of ["stopped", "raised", "review"])
+      agentSeat$.byBindingId[`binding-${id}`].set({ bindingId: `binding-${id}`, epoch: "ep_1", state: "idle", reason: "", confidence: "high", at: 1 });
+    seatNextTurn$.set({ factory: { stopped: { fresh: true }, raised: { fresh: true }, review: { fresh: true } } });
+
+    expect(card("stopped")).not.toContain("fresh next");
+    expect(card("raised")).not.toContain("fresh next");
+    // Ready for review is a finished turn: the session is cut under it all the same.
+    expect(card("review")).toContain("fresh next");
+    replaceAgentSignals("", []);
+    state$.canvasName.set("");
   });
 
   it("renders nothing for an id the store does not hold as a seat", () => {

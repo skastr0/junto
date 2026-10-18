@@ -3,6 +3,7 @@ import { use$ } from "@legendapp/state/react";
 
 import { TASKS_ENABLED } from "@shared/features";
 import { agentSeat$ } from "../../lib/agent-seat-state";
+import { useSeatSignalRollup } from "../../lib/agent-signals-state";
 import { getJuntoApi } from "../../lib/junto-api";
 import { useSeatMachineLine } from "../../lib/machines";
 import { editText } from "../../lib/mutations";
@@ -85,6 +86,8 @@ export function SeatCard({
   const reachable = use$(() => (hostId === undefined ? undefined : state$.machineFacts[hostId].reachable.get()));
   // Shown here, the operator holds the seat's session; closing it lets go.
   const viewed = use$(() => terminal$.openByNodeId[id].get() !== undefined);
+  // A raised hand waits on the operator, whatever the screen says.
+  const hand = useSeatSignalRollup(canvas, id)?.kind;
   const facts = seatFactsForNode({
     nodeId: id,
     seatEvent,
@@ -101,7 +104,7 @@ export function SeatCard({
   const freshNext = useSeatFreshNext(
     canvas,
     id,
-    notifyItem(facts) === null && ((mark.mode === "static" && mark.glyph === "off") || seatEvent?.state === "idle"),
+    notifyItem(facts) === null && hand !== "blocked" && hand !== "escalate" && ((mark.mode === "static" && mark.glyph === "off") || seatEvent?.state === "idle"),
     `${bindingId ?? ""}:${seatEvent?.state ?? ""}:${seatEvent?.at ?? 0}:${session?.epoch ?? ""}:${session?.status ?? ""}:${String(reachable)}:${String(viewed)}`,
   );
   const activity = freshNext ? { ...mark, label: SEAT_FRESH_NEXT_LINE } : mark;
