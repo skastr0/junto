@@ -3,7 +3,7 @@
  */
 import { existsSync } from "node:fs";
 import { resolveJuntoHome } from "@shared/junto-home";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import {
   WORK_HOME_ENV,
   workControlDir,
@@ -17,21 +17,40 @@ export type SeatEnvInjectInput = {
 };
 
 /**
+ * The `bin` of the machine package this process runs from, when it runs from
+ * one: a windowless core is `<package>/bin/node <package>/core/junto.cjs`, and
+ * the package ships its CLI as `<package>/bin/junto`. The entry is taken as
+ * launched, not resolved, so an installed core names `<install>/current/bin`,
+ * which follows the selected build across updates.
+ */
+export const machinePackageCliDir = (
+  entry: string | undefined = process.argv[1],
+): string | undefined => {
+  if (entry === undefined || entry.length === 0) return undefined;
+  const root = dirname(dirname(resolve(entry)));
+  const bin = join(root, "bin");
+  return existsSync(join(root, "manifest.json")) && existsSync(join(bin, "junto")) ? bin : undefined;
+};
+
+/**
  * Directories that may hold the `junto` CLI binary. Fail-soft — missing dirs omitted.
  *
- * An app that ships its own CLI (`<resources>/bin/junto`) hands its seats only
- * that one: a packaged app started from inside a checkout must not pick up the
- * checkout's `dist/junto`, which can be older than the app. `<cwd>/dist` is
- * the CLI only when nothing is bundled, as in development.
+ * A Junto that ships its own CLI hands its seats only that one: the app's
+ * `<resources>/bin/junto`, or a windowless core's package `bin/junto`. A
+ * packaged app started from inside a checkout must not pick up the checkout's
+ * `dist/junto`, which can be older than the app. `<cwd>/dist` is the CLI only
+ * when nothing is bundled, as in development.
  */
 export const juntoCliPathPrefixes = (
   cwd: string = process.cwd(),
   resourcesPath: string | undefined = typeof process.resourcesPath === "string"
     ? process.resourcesPath
     : undefined,
+  packageBin: string | undefined = machinePackageCliDir(),
 ): readonly string[] => {
   const bin = resourcesPath ? join(resourcesPath, "bin") : undefined;
   if (bin !== undefined && existsSync(join(bin, "junto"))) return [bin];
+  if (packageBin !== undefined) return [packageBin];
   const out: string[] = [];
   const dist = join(cwd, "dist");
   if (existsSync(join(dist, "junto"))) out.push(dist);
