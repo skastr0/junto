@@ -487,10 +487,10 @@ const paint = (locator: Locator): Promise<string> =>
     return `background ${style.backgroundColor}, border ${style.borderTopColor}, text ${style.color}`;
   });
 
-/** Settings, section Offboard (TopBar.tsx:333, SettingsPanel.tsx:72 and :1192). */
+/** Settings, section Cache window, under the machine (SettingsPanel.tsx SECTIONS). */
 const openOffboardSettings = async (page: Page): Promise<Locator> => {
   await page.getByRole("button", { name: "Open settings" }).click();
-  await page.locator(".settings-nav__item", { hasText: "Offboard" }).first().click();
+  await page.locator(".settings-nav__item", { hasText: "Cache window" }).first().click();
   const section = page.getByTestId("offboard-settings");
   await expect(section).toBeVisible({ timeout: 10_000 });
   return section;
@@ -507,7 +507,7 @@ const typeMinutes = async (field: Locator, value: string): Promise<void> => {
 // W0 + S5a: Settings
 // ===========================================================================
 
-test("W0 S5a [fake-tui] Settings, Offboard: the cache window is the one setting, a window out of range is refused, a window is saved and kept, and a window per harness", async ({}, testInfo) => {
+test("W0 S5a [fake-tui] Settings, Cache window: the one setting, a window out of range is refused, a window is saved and kept, and a harness on its own window", async ({}, testInfo) => {
   test.setTimeout(240_000);
   const doc = fixtureOf([seatNode("ada", "Ada", COLUMN[0], ROW[0])]);
   await walk(testInfo, "W0", { doc }, async ({ junto, shot, step }) => {
@@ -521,13 +521,13 @@ test("W0 S5a [fake-tui] Settings, Offboard: the cache window is the one setting,
 
     await step(
       "W0-1",
-      "open Settings, section Offboard: the cache window at its default, and no other setting",
+      "open Settings, section Cache window: the window at its default, a row per harness following it, and no other setting",
       async () => {
         section = await openOffboardSettings(page);
         const labels = (await page.locator(".settings-nav__item").allTextContents()).map((text) => text.trim());
         const at = labels.findIndex((text) => text.startsWith("Notifications"));
-        // Where Offboard sits among the sections is recorded, not judged: other sections come and go around it.
-        soft(labels.some((text) => text.startsWith("Offboard")), "Settings lists an Offboard section").toBe(true);
+        // Where Cache window sits among the sections is recorded, not judged: other sections come and go around it.
+        soft(labels.some((text) => text.startsWith("Cache window")), "Settings lists a Cache window section").toBe(true);
         testInfo.annotations.push({ type: "W0-1-settings-sections", description: `${labels.join(" | ")} (Notifications at ${String(at)})` });
         // The one default (shared/seat-offboard.ts defaultOffboardRules).
         soft(defaultOffboardRules(), "the default rules").toEqual({ cacheWindowMinutes: 60 });
@@ -535,10 +535,11 @@ test("W0 S5a [fake-tui] Settings, Offboard: the cache window is the one setting,
         // What makes a session worth cutting is the product's guard, not a setting (shared/seat-offboard.ts OFFBOARD_WORTH).
         soft(OFFBOARD_WORTH, "the worth guard").toEqual({ workMinutes: 30, tokens: 200_000 });
         await soft(cacheWindow(), "Cache window").toHaveValue("60");
-        // No idle nudge, no auto offboard switch or minutes, no worth fields: the cache window is the only field.
+        // No idle nudge, no auto offboard, no worth fields: the cache window is the only minutes field while
+        // every harness follows it. Each harness the machine has is a row with one switch, off.
         await soft(section.locator("input[type='number']"), "one minutes field").toHaveCount(1);
-        await soft(section.getByRole("switch"), "no switch").toHaveCount(0);
-        await soft(harnessRows(), "no harness has a window of its own").toHaveCount(0);
+        await soft(section.getByRole("switch"), "one switch per harness row").toHaveCount(await harnessRows().count());
+        await soft(section.locator("input[role='switch']:checked"), "no harness has a window of its own").toHaveCount(0);
         await soft(problem(), "no red line").toHaveCount(0);
         await shot(page, "W0-1", "offboard-settings-defaults");
       },
@@ -586,54 +587,46 @@ test("W0 S5a [fake-tui] Settings, Offboard: the cache window is the one setting,
       await shot(page, "W0-5", "cache-window-still-2-after-reopen");
     });
 
-    await step("W0-6", "Add a window for a harness: a row with its own window and Remove; give it its own value, then remove it", async () => {
-      // settings/OffboardSettingsSection.tsx: the picker (the Dropdown "Add a window for a harness") and the row.
-      const add = section.getByRole("button", { name: "Add a window for a harness" });
-      await soft(add, "the Add a harness picker").toBeVisible();
-      if (!(await add.isVisible().catch(() => false))) return;
-      await add.click();
-      const option = page.getByRole("option").first();
-      await soft(option, "a harness to pick").toBeVisible({ timeout: 5_000 });
-      if (!(await option.isVisible().catch(() => false))) return;
-      const name = ((await option.textContent()) ?? "").trim();
-      await option.click();
+    await step("W0-6", "turn on a harness's own window: it starts at the default; give it its own value, then turn it off", async () => {
+      // settings/OffboardSettingsSection.tsx: one row per harness the machine has, each with a switch.
       const row = harnessRows().first();
-      await soft(row, `the row for ${name}`).toBeVisible({ timeout: 10_000 });
+      await soft(row, "a row for a harness this machine has").toBeVisible({ timeout: 10_000 });
+      if (!(await row.isVisible().catch(() => false))) return;
       const harness = ((await row.getAttribute("data-testid").catch(() => null)) ?? "").replace(/^offboard-harness-/u, "");
       soft(harness, "the row names its harness in its test id").not.toBe("");
+      const name = ((await row.locator(".offboard-settings__harness-name").textContent()) ?? "").trim();
+      await row.getByRole("switch").click();
       const controls = await row
         .evaluate((element) => ({
           testId: element.getAttribute("data-testid"),
           name: element.querySelector(".offboard-settings__harness-name")?.textContent ?? "",
           fields: [...element.querySelectorAll("input[type='number']")].map((input) => `${input.getAttribute("aria-label") ?? ""} = ${(input as HTMLInputElement).value}`),
-          buttons: [...element.querySelectorAll("button")].map((button) => `${button.getAttribute("aria-label") ?? ""}: ${button.textContent ?? ""}`),
+          switches: [...element.querySelectorAll("input[role='switch']")].map((input) => `${input.getAttribute("aria-label") ?? ""} = ${String((input as HTMLInputElement).checked)}`),
         }))
         .catch(() => null);
       note(testInfo, "W0-6-harness-row-controls", JSON.stringify(controls));
-      await shot(page, "W0-6", "harness-row-added");
+      await shot(page, "W0-6", "harness-own-window-on");
       // The row starts on the window the harness runs on now (lib/seat-offboard.ts, seedHarnessOverride): 2.
-      await soft(row.locator(".offboard-settings__harness-name"), "the row's name").toHaveText(name);
       const own = row.getByLabel(`${name} cache window, minutes`);
       await soft(own, "the row's window").toHaveValue("2");
       await soft(row.locator("input[type='number']"), "one minutes field in the row").toHaveCount(1);
-      await soft(row.getByRole("switch"), "no switch in the row").toHaveCount(0);
       await soft
         .poll(async () => (await stored())?.harness?.[harness]?.cacheWindowMinutes, { message: `the stored window for ${harness}`, timeout: 10_000 })
         .toBe(2);
-      // Its own value: 5 for this harness, while the installation's window stays 2.
+      // Its own value: 5 for this harness, while the machine's window stays 2.
       await typeMinutes(own, "5");
       await soft(own, "the row's window shows 5").toHaveValue("5");
-      await soft(cacheWindow(), "the installation's window is untouched").toHaveValue("2");
+      await soft(cacheWindow(), "the machine's window is untouched").toHaveValue("2");
       await soft
         .poll(() => stored(), { message: "the stored rules, with the harness window", timeout: 10_000 })
         .toEqual({ cacheWindowMinutes: 2, harness: { [harness]: { cacheWindowMinutes: 5 } } });
       await shot(page, "W0-6", "harness-window-5-saved");
-      const remove = row.getByRole("button", { name: `Remove the ${name} window` });
-      await soft(remove, "Remove").toBeVisible();
-      if (await remove.isVisible().catch(() => false)) await remove.click();
-      await soft(harnessRows(), "no row once removed").toHaveCount(0, { timeout: 10_000 });
-      soft(((await stored()) ?? {}) as { readonly harness?: unknown }, "no window is left for a harness in the stored rules").not.toHaveProperty("harness");
-      await shot(page, "W0-6", "harness-row-removed");
+      await row.getByRole("switch").click();
+      await soft(row.locator("input[type='number']"), "no minutes field once it follows the default").toHaveCount(0, { timeout: 10_000 });
+      await soft
+        .poll(async () => Object.keys(((await stored()) ?? {}).harness ?? {}), { message: "no window is left for a harness", timeout: 10_000 })
+        .toEqual([]);
+      await shot(page, "W0-6", "harness-follows-default-again");
     });
   });
 });

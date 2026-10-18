@@ -377,14 +377,14 @@ test("[fake-tui] the overseer's offboard commands: rules, status, now, ask, a re
     for (const [harness, set] of Object.entries(effective7)) {
       soft(set, `step 7: data.effective.${harness} follows the new window`).toEqual(effectiveOf(90));
     }
-    // The Offboard settings page shows it.
+    // The Cache window settings page, under the machine, shows it.
     await page.getByRole("button", { name: "Open settings" }).click();
-    await page.locator(".settings-nav__item", { hasText: "Offboard" }).click();
+    await page.locator(".settings-nav__item", { hasText: "Cache window" }).click();
     const settings = page.getByTestId("offboard-settings");
-    await soft(settings, "step 7: the Offboard settings page opens").toBeVisible({ timeout: 10_000 });
+    await soft(settings, "step 7: the Cache window settings page opens").toBeVisible({ timeout: 10_000 });
     await soft(settings.getByTestId("offboard-cache-window"), "step 7: Settings shows the cache window at 90").toHaveValue("90", { timeout: 10_000 });
     await soft(settings.locator("input[type='number']"), "step 7: the cache window is the only field").toHaveCount(1);
-    await soft(settings.locator(".offboard-settings__harness"), "step 7: no harness has a window of its own").toHaveCount(0);
+    await soft(settings.locator("input[role='switch']:checked"), "step 7: no harness has a window of its own").toHaveCount(0);
     await shot("7-settings-offboard");
     await page.locator(".settings-panel__close").click();
 
