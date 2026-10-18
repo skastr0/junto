@@ -13,7 +13,6 @@ import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V21_IDENTITY,
@@ -21,8 +20,7 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
-import { STATE_SCHEMA_V21_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V21_SQL, STATE_SCHEMA_V22_SQL } from "./fixtures/state-v1/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -63,7 +61,12 @@ const versionTwentyOnePlan = {
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 21).map(named),
 };
 
-const headPlan = { ...STATE_SCHEMA_MIGRATION_PLAN, migrations: STATE_SCHEMA_MIGRATIONS.map(named) };
+const versionTwentyTwoPlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 22,
+  currentSchemaSql: STATE_SCHEMA_V22_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 22).map(named),
+};
 
 /** Sessions as version 21 keeps them: one ended with notes, one open, one drained. */
 const seed = (database: DatabaseSync): void => {
@@ -81,10 +84,9 @@ const seed = (database: DatabaseSync): void => {
 };
 
 describe("state migration 21 -> 22 (seat session data in the database)", () => {
-  it("freezes the witness the step starts from and names the head", () => {
+  it("freezes the witnesses the step starts from and ends at", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V21_SQL)).toEqual(STATE_SCHEMA_V21_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V22_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(expectedStateSchemaIdentity(STATE_SCHEMA_SQL));
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V22_SQL)).toEqual(STATE_SCHEMA_V22_IDENTITY);
   });
 
   it.each(["command-center-v1.db", "remote-v1.db"])(
@@ -96,7 +98,7 @@ describe("state migration 21 -> 22 (seat session data in the database)", () => {
         seed(database);
         const before = snapshot(database);
 
-        const result = migrateStateSchema(database, headPlan);
+        const result = migrateStateSchema(database, versionTwentyTwoPlan);
         expect(result).toMatchObject({ previousVersion: 21, schemaVersion: 22 });
         expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V22_IDENTITY);
         expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
@@ -134,7 +136,7 @@ describe("state migration 21 -> 22 (seat session data in the database)", () => {
     const database = await openCopy("command-center-v1.db");
     try {
       migrateStateSchema(database, versionTwentyOnePlan);
-      migrateStateSchema(database, headPlan);
+      migrateStateSchema(database, versionTwentyTwoPlan);
       const insert = database.prepare(
         "INSERT INTO seat_sessions(seat_id, session_id, harness, started_at, notes, continuation, ended_at, end_reason, ended_by) VALUES ('a', ?, 'codex', 1, ?, ?, 2, 'offboard', ?)",
       );

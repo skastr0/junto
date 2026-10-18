@@ -36,6 +36,7 @@ import { AGENT_PROFILES_STATE_SCHEMA_SQL } from "../profiles/state-schema";
 import { SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL } from "../seat-sessions/state-schema";
 import { migrateSeatPins, SEAT_SESSIONS_V8_STATE_SCHEMA_SQL } from "./migrate-seat-pins";
 import { migrateSeatSessionData } from "./migrate-seat-session-data";
+import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-models-state-schema";
 import {
   PORTRAIT_OVERRIDES_COPY_FORWARD_SQL,
   PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL,
@@ -340,7 +341,17 @@ export const STATE_SCHEMA_V22_IDENTITY = {
     "de64a11924fec06cc193f2ae46d4730f22c923f132243d3aa396ae33c37e6eea",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 22;
+/**
+ * Version 23 keeps the model lists this machine's agent CLIs gave in
+ * `harness_model_cache`, a cache rebuilt from the CLIs; nothing is written to
+ * `~/.junto/state/harness-models.json` any more.
+ */
+export const STATE_SCHEMA_V23_IDENTITY = {
+  actualSchemaSha256:
+    "93e3510efd51bb9d7245ef1f4784395f6c932b3db01d98479423d6191744710a",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 23;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -348,7 +359,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 22;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V22_IDENTITY;
+  STATE_SCHEMA_V23_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -595,6 +606,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     replacesTables: ["seat_sessions"],
     retiresColumns: { seat_sessions: ["notes_path"] },
     migrate: (database) => migrateSeatSessionData(database),
+  },
+  {
+    fromVersion: 22,
+    toVersion: 23,
+    name: "add the harness model cache",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V22_IDENTITY,
+    migrate: (database) => {
+      database.exec(HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL);
+    },
   },
 ];
 

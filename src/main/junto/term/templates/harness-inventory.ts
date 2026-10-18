@@ -3,10 +3,11 @@
  *
  * Install discovery is cheap and already shared for a minute. Model lists are
  * not: each one is a CLI call that takes seconds, and the answer only changes
- * when the CLI changes. So model lists live on disk for six hours, keyed by
- * the executable they came from, and every reader gets the stored answer at
- * once. A list older than six hours is still served while a fresh scan runs
- * behind it; a changed executable is scanned before it is served.
+ * when the CLI changes. So model lists are kept in junto.db for six hours
+ * (`harness_model_cache`), keyed by the executable they came from, and every
+ * reader gets the stored answer at once. A list older than six hours is still
+ * served while a fresh scan runs behind it; a changed executable is scanned
+ * before it is served. Nothing is written under the Junto home.
  *
  * Scans run as fibers of this service, never of the caller: a closed settings
  * page does not cancel a scan another reader is waiting on, and closing the
@@ -19,11 +20,10 @@
  * Harness inventory). It carries no paths, and every list and string is cut
  * to a bound.
  */
-import { mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { Context, Deferred, Duration, Effect, Layer, Schema, Semaphore } from "effect";
+import { realpath, stat } from "node:fs/promises";
+import { Context, Deferred, Duration, Effect, Layer, Option, Schema, Semaphore } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import type { ManagedTerminalModelsResult } from "@shared/ipc";
-import { resolveJuntoHome } from "@shared/junto-home";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 import {
   InventoryProfile as InventoryProfileSchema,
@@ -38,6 +38,7 @@ import { harnessRecordFor } from "@shared/harness-records";
 import { type CliResult, runCli } from "../../adapters/exec";
 import { scrubMessage } from "../../credentials/scrub";
 import { MachineRepository } from "../../machines/repository";
+import { StateTransactionOperation } from "../../state/service";
 import { isModelId } from "@shared/model-id";
 import { isProfileName, MAX_PROFILES } from "@shared/profile-name";
 import { enumerateManagedModels, listManagedProfiles } from "./enumerate-dispatch";
@@ -50,8 +51,6 @@ const SCAN_DEADLINE = Duration.seconds(12);
 const SCAN_CONCURRENCY = 4;
 const WARM_DELAY = Duration.seconds(15);
 const VERSION_COMMAND_TIMEOUT_MS = 5_000;
-// 3: profiles carry their pinned model.
-const CACHE_FILE_VERSION = 3;
 
 // Bounds on what a snapshot carries, so a peer's answer has a fixed maximum size.
 const MAX_MODELS = 200;
@@ -91,17 +90,65 @@ const StoredModels = Schema.Struct({
   /** Named profiles the harness listed, for a harness that keeps them. */
   profiles: Schema.optionalKey(Schema.Array(InventoryProfileSchema)),
 });
-type StoredModels = typeof StoredModels.Type;
+export type StoredModels = typeof StoredModels.Type;
 
-const CacheFile = Schema.Struct({
-  version: Schema.Literal(CACHE_FILE_VERSION),
-  harnesses: Schema.Record(Schema.String, StoredModels),
+/** Where model lists are kept between runs. Losing one costs a scan, never an answer. */
+export interface HarnessModelCache {
+  readonly load: Effect.Effect<ReadonlyMap<string, StoredModels>>;
+  readonly save: (harness: string, stored: StoredModels) => Effect.Effect<void>;
+}
+
+const CacheRow = Schema.Struct({
+  harness: Schema.String,
+  fingerprint: Schema.String,
+  scanned_at: Schema.Number,
+  version: Schema.NullOr(Schema.String),
+  result: Schema.fromJsonString(ModelsResult),
+  profiles: Schema.NullOr(Schema.fromJsonString(Schema.Array(InventoryProfileSchema))),
 });
 
-const decodeCacheFile = Schema.decodeUnknownEffect(Schema.fromJsonString(CacheFile));
+const decodeCacheRow = Schema.decodeUnknownOption(CacheRow);
+
+/** The model cache as `harness_model_cache` rows in junto.db. */
+export const harnessModelCacheIn = (sql: SqlClient.SqlClient): HarnessModelCache => ({
+  load: sql`SELECT harness, fingerprint, scanned_at, version, result, profiles FROM harness_model_cache`.pipe(
+    Effect.map((rows) => {
+      const stored = new Map<string, StoredModels>();
+      for (const raw of rows) {
+        // A row that no longer reads is one scan away from a fresh one.
+        const row = decodeCacheRow(raw);
+        if (Option.isNone(row)) continue;
+        const { harness, fingerprint, scanned_at, version, result, profiles } = row.value;
+        stored.set(harness, {
+          fingerprint, scannedAt: scanned_at, ...(version === null ? {} : { version }), result, ...(profiles === null ? {} : { profiles }),
+        });
+      }
+      return stored;
+    }),
+    Effect.catch((error) => Effect.logWarning("harness model cache read failed", error).pipe(Effect.as(new Map()))),
+  ),
+  save: (harness, stored) => sql`
+    INSERT INTO harness_model_cache(harness, fingerprint, scanned_at, version, result, profiles)
+    VALUES (
+      ${harness}, ${stored.fingerprint}, ${stored.scannedAt}, ${stored.version ?? null},
+      ${JSON.stringify(stored.result)}, ${stored.profiles === undefined ? null : JSON.stringify(stored.profiles)}
+    )
+    ON CONFLICT(harness) DO UPDATE SET
+      fingerprint = excluded.fingerprint,
+      scanned_at = excluded.scanned_at,
+      version = excluded.version,
+      result = excluded.result,
+      profiles = excluded.profiles
+  `.pipe(
+    Effect.asVoid,
+    sql.withTransaction,
+    Effect.provideService(StateTransactionOperation, "harness-models.save"),
+    Effect.catch((error) => Effect.logWarning("harness model cache write failed", error)),
+  ),
+});
 
 type Entry = StoredModels & {
-  /** Failed scans are remembered briefly and never written to disk. */
+  /** Failed scans are remembered briefly and never stored. */
   readonly failed: boolean;
   readonly failure?: { readonly reason: "timeout" | "failed"; readonly message: string };
 };
@@ -122,9 +169,6 @@ export class HarnessInventory extends Context.Service<HarnessInventory, {
   /** This machine's snapshot, answered at once; stale or missing lists start a scan behind it. */
   readonly machine: Effect.Effect<MachineInventory, InventoryUnavailableError>;
 }>()("@junto/HarnessInventory") {}
-
-export const harnessModelCachePath = (): string =>
-  join(resolveJuntoHome(), ".junto", "state", "harness-models.json");
 
 const emptyResult = (harness: string, error?: string): ManagedTerminalModelsResult => ({
   models: [],
@@ -202,42 +246,19 @@ const fingerprintOf = (executable: string): Effect.Effect<string> =>
   }).pipe(Effect.orElseSucceed(() => executable));
 
 export const makeHarnessInventory = (options: {
-  readonly cachePath: string;
+  readonly cache: HarnessModelCache;
   readonly warm: boolean;
   /** This machine's name, as canvases and peers know it. */
   readonly machineName: Effect.Effect<string, unknown>;
 }) => Effect.gen(function* () {
   const scope = yield* Effect.scope;
   const scanPermits = yield* Semaphore.make(SCAN_CONCURRENCY);
-  const writePermit = yield* Semaphore.make(1);
   const entries = new Map<string, Entry>();
   const inFlight = new Map<string, Deferred.Deferred<ManagedTerminalModelsResult>>();
 
-  const stored = yield* Effect.tryPromise(() => readFile(options.cachePath, "utf8")).pipe(
-    Effect.flatMap(decodeCacheFile),
-    Effect.orElseSucceed(() => undefined),
-  );
-  for (const [harness, entry] of Object.entries(stored?.harnesses ?? {})) {
+  for (const [harness, entry] of yield* options.cache.load) {
     entries.set(harness, { ...entry, failed: false });
   }
-
-  const persist = writePermit.withPermits(1)(Effect.gen(function* () {
-    const harnesses: Record<string, StoredModels> = {};
-    for (const [harness, { fingerprint, scannedAt, version, result, failed, profiles }] of entries) {
-      if (!failed) harnesses[harness] = {
-        fingerprint, scannedAt, ...(version === undefined ? {} : { version }), result, ...(profiles === undefined ? {} : { profiles }),
-      };
-    }
-    const text = `${JSON.stringify({ version: CACHE_FILE_VERSION, harnesses }, null, 2)}\n`;
-    const temp = `${options.cachePath}.${process.pid}.tmp`;
-    yield* Effect.tryPromise(async () => {
-      await mkdir(dirname(options.cachePath), { recursive: true });
-      await writeFile(temp, text, "utf8");
-      await rename(temp, options.cachePath);
-    });
-  })).pipe(
-    Effect.catch((error) => Effect.logWarning("harness model cache write failed", error)),
-  );
 
   const enumerate = (harness: string): Effect.Effect<ManagedTerminalModelsResult, HarnessModelScanError> =>
     Effect.tryPromise({
@@ -283,16 +304,15 @@ export const makeHarnessInventory = (options: {
       readProfiles(harness),
     ], { concurrency: 3 })).pipe(
       Effect.tap(([{ result, failure }, version, profiles]) => Effect.gen(function* () {
-        entries.set(harness, {
+        const stored: StoredModels = {
           fingerprint,
           scannedAt: Date.now(),
           ...(version === undefined ? {} : { version }),
           ...(profiles === undefined ? {} : { profiles }),
           result,
-          failed: failure !== undefined,
-          ...(failure === undefined ? {} : { failure }),
-        });
-        if (failure === undefined) yield* persist;
+        };
+        entries.set(harness, { ...stored, failed: failure !== undefined, ...(failure === undefined ? {} : { failure }) });
+        if (failure === undefined) yield* options.cache.save(harness, stored);
       })),
       Effect.map(([{ result }]) => result),
     );
@@ -416,7 +436,7 @@ export const HarnessInventoryLive = Layer.effect(
   Effect.gen(function* () {
     const machines = yield* MachineRepository;
     return yield* makeHarnessInventory({
-      cachePath: harnessModelCachePath(),
+      cache: harnessModelCacheIn(yield* SqlClient.SqlClient),
       warm: process.env.JUNTO_E2E !== "1",
       machineName: machines.machineName,
     });
