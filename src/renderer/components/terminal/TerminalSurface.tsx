@@ -88,6 +88,7 @@ import { CustomizeAgentButton } from "../agent-editor/AgentEditor";
 import { START_PARAMS_SECTION_ID } from "../customize/ParamsSection";
 import { openAgentEditor } from "../../lib/agent-editor-state";
 import { GRID_CELL_CHROME } from "../../lib/terminal-grid";
+import { reportOperatorTyped } from "../../lib/operator-holds";
 
 type AttachResult = {
   readonly ok: boolean;
@@ -1512,6 +1513,15 @@ export function TerminalSurface({
       const lease = leaseRef.current;
       if (lease && !readOnly) void api.terminalWrite(lease, data);
     });
+    // The operator's own keys and pastes hold the seat's session for a short
+    // grace. Read off the DOM, not onData: onData also carries the terminal's
+    // replies to the seat's queries, which no one typed.
+    const keys = term.element;
+    const typedInto = (): void => {
+      if (leaseRef.current && !readOnly) reportOperatorTyped(bindingId);
+    };
+    keys?.addEventListener("keydown", typedInto);
+    keys?.addEventListener("paste", typedInto);
 
     const LEASE_ENDED: Readonly<Record<string, string>> = {
       replaced: "Another view has control of this seat. Reopen to take it back.",
@@ -1891,6 +1901,8 @@ export function TerminalSurface({
         }
       }
       offData.dispose();
+      keys?.removeEventListener("keydown", typedInto);
+      keys?.removeEventListener("paste", typedInto);
       offLeaseEnded?.();
       offEvent();
       offSeatState?.();

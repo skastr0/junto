@@ -29,6 +29,7 @@ import { startSettingsBridge } from "./lib/settings-state";
 import { startThemeMode } from "./lib/theme-mode";
 import { startUpdateBridge } from "./lib/update-state";
 import { subscribeAgentSeatState } from "./lib/agent-seat-state";
+import { startOperatorHolds } from "./lib/operator-holds";
 import { subscribeSeatAwareness } from "./lib/seat-awareness";
 import { KEY_ACTIONS } from "./lib/key-actions";
 import { installKeyDispatcher } from "./lib/key-dispatcher";
@@ -429,6 +430,8 @@ export function App() {
     // Managed-agent seat state (attention/working) — subscribe early so canvas
     // node chrome paints before any TerminalCard mounts.
     const stopAgentSeat = subscribeAgentSeatState();
+    // The operator's holds: which seats this window shows, so main keeps their sessions.
+    const stopOperatorHolds = startOperatorHolds();
     // Advisory seat awareness — same early subscription so a card that mounts
     // later already holds the latest judgment for its binding.
     const stopSeatAwareness = subscribeSeatAwareness();
@@ -487,6 +490,7 @@ export function App() {
       stopSettings?.();
       stopUpdate?.();
       stopAgentSeat?.();
+      stopOperatorHolds();
       stopSeatAwareness?.();
       stopSurfaceMotion();
     };

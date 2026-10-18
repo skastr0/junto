@@ -929,6 +929,10 @@ const terminalApi: JuntoTerminalApi = {
     invoke(IPC_CHANNELS.agentSeatStateSnapshot, IPC_TIMEOUT_MS),
   agentSeatViewed: (bindingId) =>
     invoke(IPC_CHANNELS.agentSeatViewed, IPC_TIMEOUT_MS, bindingId),
+  seatSurfacesOpen: (bindingIds) =>
+    invoke(IPC_CHANNELS.seatSurfacesOpen, IPC_TIMEOUT_MS, bindingIds),
+  seatOperatorTyped: (bindingId) =>
+    invoke(IPC_CHANNELS.seatOperatorTyped, IPC_TIMEOUT_MS, bindingId),
   onAgentSeatStateChanged: (listener) =>
     subscribe(IPC_CHANNELS.agentSeatStateChanged, listener),
   seatAwarenessSnapshot: () =>

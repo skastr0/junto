@@ -405,6 +405,9 @@ export const IPC_CHANNELS = {
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
   agentSeatStateSnapshot: "junto:agent-seat-state-snapshot",
   agentSeatViewed: "junto:agent-seat-viewed",
+  /** Renderer → main: the operator's holds on seats (surfaces shown, keys typed). */
+  seatSurfacesOpen: "junto:seat-surfaces-open",
+  seatOperatorTyped: "junto:seat-operator-typed",
   agentSeatStateChanged: "junto:agent-seat-state-changed",
   /** Renderer → main: seat-awareness hydration read (advisory sidecar). */
   seatAwarenessSnapshot: "junto:seat-awareness-snapshot",
@@ -1564,6 +1567,13 @@ export interface JuntoTerminalApi {
    * the binding, not the window, so a view from any window counts.
    */
   readonly agentSeatViewed: (bindingId: string) => Promise<void>;
+  /**
+   * Every binding this window shows a terminal for, as a whole list each time
+   * it changes. Main holds those seats' sessions while any window shows them.
+   */
+  readonly seatSurfacesOpen: (bindingIds: ReadonlyArray<string>) => Promise<void>;
+  /** The operator typed into a binding's terminal in this window. */
+  readonly seatOperatorTyped: (bindingId: string) => Promise<void>;
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
   readonly onAgentSeatStateChanged: (
     listener: (event: AgentSeatStateEvent) => void,

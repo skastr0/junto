@@ -147,6 +147,7 @@ import {
 } from "./term/seat-awareness";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { mergeSeatStateSnapshot, remoteSeatStateEvents } from "./term/remote-seat-state";
+import { registerOperatorHoldsIpc } from "./term/operator-holds";
 import { homedir } from "node:os";
 import {
   SeatSessionCapture,
@@ -434,6 +435,8 @@ export const registerJuntoIpc = (): void => {
     ));
     if (machine !== undefined) await makeSeatsProcessClient(machine).viewed(bindingId, remote.epoch).catch(() => false);
   });
+
+  registerOperatorHoldsIpc(privilegedIpc);
 
   privilegedIpc.handle(IPC_CHANNELS.seatAwarenessSnapshot, () =>
     seatAwarenessPlane.currentEvents(),

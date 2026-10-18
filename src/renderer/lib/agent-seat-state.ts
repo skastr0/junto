@@ -74,20 +74,26 @@ export const agentSeat$ = observable<AgentSeatStore>({
 /** Product presentation: engine states plus derived ready/complete. */
 export type AgentSeatPresentation = AgentSeatState | "done";
 
-/** True when a native terminal surface is open for this binding. */
-export const isBindingSurfaceOpen = (bindingId: string): boolean => {
-  const open = terminal$.openByNodeId.peek();
-  for (const node of Object.values(open)) {
+/** Every binding with a native terminal surface open, sorted. */
+export const openSurfaceBindingIds = (
+  open: Readonly<Record<string, Parameters<typeof terminalBindingOf>[0]>>,
+  bindingIdByNodeId: Readonly<Record<string, string | undefined>>,
+): string[] => {
+  const ids = new Set<string>();
+  for (const [nodeId, node] of Object.entries(open)) {
     if (!node) continue;
-    if (terminalBindingOf(node)?.bindingId === bindingId) return true;
+    const bindingId = terminalBindingOf(node)?.bindingId;
+    if (bindingId) ids.add(bindingId);
+    // Inventory join: nodeId → binding when surface was opened via node id key.
+    const joined = bindingIdByNodeId[nodeId];
+    if (joined) ids.add(joined);
   }
-  // Inventory join: nodeId → binding when surface was opened via node id key.
-  for (const [nodeId, openNode] of Object.entries(open)) {
-    if (!openNode) continue;
-    if (agentSeat$.bindingIdByNodeId[nodeId].peek() === bindingId) return true;
-  }
-  return false;
+  return [...ids].sort();
 };
+
+/** True when a native terminal surface is open for this binding. */
+export const isBindingSurfaceOpen = (bindingId: string): boolean =>
+  openSurfaceBindingIds(terminal$.openByNodeId.peek(), agentSeat$.bindingIdByNodeId.peek()).includes(bindingId);
 
 /** Idle + needsLook → done (ready/complete until the operator looks). */
 export const presentationForSeat = (
