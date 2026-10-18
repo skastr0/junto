@@ -1,6 +1,6 @@
 # T10 acceptance, the cache-cold loop (2026-10-18)
 
-**Verdict: this machine passes items 1 to 8. Item 5 failed on a7d490f53 and passes on 7195b33ee, which holds pty-lead's fix 815dde913. On the mini, the rerun at a10d273b2 (which holds d7806b265 and 696cf5424) passes items 1, 2, 2b, 3, 4, 6 and 8, with 7 measured. Item 5 fails there: the mini core cuts a Blocked seat. The desktop's offboard status for remote seats still reads sessionId null (see Mini rerun). The record checks were dropped after the operator ordered the record reverted.**
+**Verdict: T10 passes on both machines. This machine passes items 1 to 8: item 5 failed on a7d490f53 and passes on 7195b33ee, which holds pty-lead's fix 815dde913. On the mini, the rerun at a10d273b2 passes items 1, 2, 2b, 3, 4, 6 and 8, with 7 measured. Mini item 5 and the desktop status of a mini seat pass at 730ea3478 (see Mini rerun 3). The record checks were dropped after the operator ordered the record reverted.**
 
 ## Setup
 
@@ -123,3 +123,23 @@ The parallel install was removed with `machine uninstall-local`: its service def
 
 - **Seat CLI path (cli-lead).** A packaged app hands seats `<process cwd>/dist/junto` ahead of its bundled bin (`src/main/junto/term/templates/seat-env.ts:22-35`). Launched from a repo checkout, it gave seats a stale CLI that lacked `commit-observed`, so the first two commits went unattributed. `preview.sh` and the installed app are not affected.
 - **Compaction and the worth guard (pty-lead).** For claude, sessionTokens is the latest context size, so an auto-compacted session drops below the guard: t10-reader went from 341,752 to 139,391 tokens. A long session that compacted is never cut by size alone, only by its work minutes.
+
+## Mini rerun 3 (730ea3478)
+
+### Setup
+
+- Main `730ea3478` holds 99530a318 (a windowless core sees open signals) and 730ea3478 (the desktop shows a remote seat's idle time, work and size). Payloads and the preview package were built in one lock hold.
+- The mini record is `mini-t10c`, with the same juntoHome and installRoot. The parallel core was build `740c8b41...`, pid 49837.
+- Production was untouched: `c0f20e6dcbd48300` (7351) and `000515008554c211` (7382), `current` on `65a4b79e...`.
+- One seat, p-reader, on canvas `t10-mini3`, with claude's window at 2 min.
+- Load: this Mac 33 to 52 (the live app renderer plus Spotlight, per automation-lead). The mini was 0.9 to 1.7 at every check.
+- Receipts are in `~/junto-receipts/t10-20261018/mini3/`.
+
+| Check | Result | Receipt |
+|---|---|---|
+| 5, Blocked past its window is not cut | PASS | Session 698de3e3 had 251,509 tokens. `junto blocked` opened signal `01M58HK5T6PG8JFZ4GTXHJVKXN` at 22:19:54, and the seat was idle from 22:19:57.5 (mini `offboard-clock.json`). Its window passed at 22:21:57, and at 22:25:28 there was still no `ended.json` and `seat_sessions` showed no end. The card reads "blocked" with no "fresh next" (`shots/51`), and nextTurn stayed fresh false. |
+| 5, the answer lands in the session that asked | PASS | Answered at 22:25:46.9 (`agentSignalRespond`, not the open feed). The mail arrived in 698de3e3 at 22:25:47.6, with the same claude pid 50195 and no new `seat_sessions` row. The seat replied with `src/main/junto/hosts/tailscale-peers.ts`, the last file it read before the question. |
+| Desktop status of a mini seat | PASS | `seatOffboardStatus` showed sessionTokens 251,509 and stillSince 1792361997504, against the mini's idleSince 1792361997535. idleMinutes counted from that point (1, then 3, then 5), with worth true and pastWindow true after 2 min. |
+
+- **Correction to Mini rerun.** `seatOffboardStatus` carries no sessionId field for any seat, local seats included, so "sessionId null" there was my misreading, not a gap. The launch state gives `hasSession: true` for the mini seat, as for a local one. The mini's own `seat_sessions` holds the launched id `698de3e3...`.
+- **Teardown.** Window restored and read back `{60, harness:{}}`. `machine uninstall-local` was run: the service is gone from `launchctl list` and the folder is deleted. Production labels and pids are unchanged, with no seat processes left. Preview quit, worktree removed, live app (pid 6981) untouched.
