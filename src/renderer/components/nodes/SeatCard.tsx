@@ -8,8 +8,8 @@ import { useSeatMachineLine } from "../../lib/machines";
 import { editText } from "../../lib/mutations";
 import { useSeatAttentionReasons } from "../../lib/occupancy-feed";
 import { cardMark, seatFactsForNode } from "../../lib/seat-projections";
-import { useSeatNextLaunch } from "../../lib/seat-next-launch";
-import { SEAT_NEXT_LAUNCH_LINE } from "@shared/seat-next-launch";
+import { useSeatFreshNext } from "../../lib/seat-next-launch";
+import { SEAT_FRESH_NEXT_LINE } from "@shared/seat-next-launch";
 import { onTerminalEvent } from "../../lib/terminal-events";
 import {
   sessionChromeUnchanged,
@@ -91,15 +91,15 @@ export function SeatCard({
       managedSeat: true,
     }),
   );
-  // A seat with no process says what its next start does: resume the
-  // session it had, or begin fresh. Both used to read "not running".
-  const nextLaunch = useSeatNextLaunch(
+  // A still seat whose next turn starts fresh says so; one that continues
+  // says nothing more than its ring. Still: no process, or idle.
+  const freshNext = useSeatFreshNext(
     canvas,
     id,
-    mark.mode === "static" && mark.glyph === "off",
-    `${bindingId ?? ""}:${seatEvent?.at ?? 0}:${session?.epoch ?? ""}:${session?.status ?? ""}`,
+    (mark.mode === "static" && mark.glyph === "off") || seatEvent?.state === "idle",
+    `${bindingId ?? ""}:${seatEvent?.state ?? ""}:${seatEvent?.at ?? 0}:${session?.epoch ?? ""}:${session?.status ?? ""}`,
   );
-  const activity = nextLaunch ? { ...mark, label: SEAT_NEXT_LAUNCH_LINE[nextLaunch] } : mark;
+  const activity = freshNext ? { ...mark, label: SEAT_FRESH_NEXT_LINE } : mark;
 
   if (name === undefined) return null;
 

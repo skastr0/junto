@@ -111,23 +111,19 @@ describe("the colour of a result line", () => {
 });
 
 describe("what the operator reads before pressing", () => {
-  it("one seat: how long it has sat still and which side of the cache window", () => {
-    expect(offboardIdleLine([status({ idleMinutes: 12 })])).toBe("Idle 12m, inside the cache window: a turn is still cheap.");
-    expect(offboardIdleLine([status({ idleMinutes: 72, pastWindow: true })])).toBe(
-      "Idle 1h 12m, past the cache window: a turn now is expensive.",
-    );
-    expect(offboardIdleLine([status({ idleMinutes: 120, pastWindow: true })])).toMatch(/^Idle 2h, past/u);
+  it("one seat: how long it has sat still, and never a word about caches", () => {
+    expect(offboardIdleLine([status({ idleMinutes: 12 })])).toBe("Idle 12m.");
+    expect(offboardIdleLine([status({ idleMinutes: 72, pastWindow: true })])).toBe("Idle 1h 12m.");
+    expect(offboardIdleLine([status({ idleMinutes: 120, pastWindow: true })])).toBe("Idle 2h.");
   });
   it("one seat that is moving, or not known yet, gets no idle line", () => {
     expect(offboardIdleLine([status({ idleMinutes: null })])).toBe("");
     expect(offboardIdleLine([])).toBe("");
   });
-  it("a selection: how many are past the window", () => {
+  it("a selection gets no idle line", () => {
     const past = status({ pastWindow: true, preferred: "now" });
-    expect(offboardIdleLine([status(), status()])).toBe("None is past the cache window.");
-    expect(offboardIdleLine([past, status(), past])).toBe("2 of 3 are past the cache window.");
-    expect(offboardIdleLine([past, past])).toBe("Both are past the cache window.");
-    expect(offboardIdleLine([past, past, past])).toBe("All 3 are past the cache window.");
+    expect(offboardIdleLine([status(), status()])).toBe("");
+    expect(offboardIdleLine([past, status(), past])).toBe("");
   });
   it("marks a preferred action for one seat only", () => {
     expect(offboardPreferred([status({ preferred: "now" })])).toBe("now");

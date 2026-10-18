@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import { decodeNode, type Node } from "../src/shared/model";
 import { SeatCard } from "../src/renderer/components/nodes/SeatCard";
-import { seatNextLaunch$ } from "../src/renderer/lib/seat-next-launch";
+import { seatNextTurn$ } from "../src/renderer/lib/seat-next-launch";
 import { state$ } from "../src/renderer/lib/state";
 import { holdModelCanvas as holdCanvas } from "./support/hold-canvas";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
@@ -30,7 +30,7 @@ describe("SeatCard", () => {
     state$.machines.set([]);
     state$.machineFacts.set({});
     state$.settings.machine.name.set("");
-    seatNextLaunch$.set({});
+    seatNextTurn$.set({});
   });
 
   it("marks an overseer seat", () => {
@@ -72,17 +72,18 @@ describe("SeatCard", () => {
     expect(card("far")).not.toContain("data-machine-state");
   });
 
-  it("says whether a seat that is not running will resume its session or start fresh", () => {
-    stop = holdCanvas("factory", [seat("lead", "canvas-lead"), seat("scout", "scout"), seat("new", "new")]);
+  it("says fresh next only when a still seat's next turn starts fresh, and nothing when it continues", () => {
+    stop = holdCanvas("factory", [seat("lead", "canvas-lead"), seat("scout", "scout")]);
     // Before main answers, it says only that it is not running.
     expect(card("lead")).toContain("not running");
-    expect(card("lead")).not.toContain("will resume");
-    expect(card("lead")).not.toContain("starts fresh");
+    expect(card("lead")).not.toContain("fresh next");
 
-    seatNextLaunch$.set({ factory: { lead: "resume", scout: "offboarded", new: "fresh" } });
-    expect(card("lead")).toContain("will resume");
-    expect(card("scout")).toContain("offboarded, fresh");
-    expect(card("new")).toContain("starts fresh");
+    seatNextTurn$.set({ factory: { lead: { fresh: false, freshAt: Date.now() + 60_000 }, scout: { fresh: true } } });
+    expect(card("lead")).toContain("not running");
+    expect(card("lead")).not.toContain("fresh next");
+    expect(card("scout")).toContain("fresh next");
+    // No cache wording on the seat, ever.
+    expect(card("scout").toLowerCase()).not.toContain("cache");
   });
 
   it("renders nothing for an id the store does not hold as a seat", () => {

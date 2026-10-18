@@ -10,7 +10,8 @@
  *   now, if anything, has nothing behind it, so the start is fresh.
  * - fresh: no session to go back to.
  *
- * Pure: main gathers the facts.
+ * The seat itself only ever says whether its next turn is fresh
+ * (`seatNextTurn`). Pure: main gathers the facts.
  */
 import type { SeatSessionEndReason } from "./seat-sessions";
 
@@ -34,12 +35,29 @@ export const seatNextLaunch = (input: {
 };
 
 /**
- * The seat line for a seat that is not running, by what its next start does.
- * The ring already says it is not running, and a card line holds about twenty
- * characters at fit-all, so the outcome leads and nothing is cut.
+ * What the seat's next turn does, whoever gives it (mail, a prompt, a wake):
+ * continue its session, or begin a fresh one. `freshAt`, while it continues:
+ * when its session goes cold if nothing moves first.
  */
-export const SEAT_NEXT_LAUNCH_LINE: Readonly<Record<SeatNextLaunch, string>> = {
-  resume: "will resume",
-  offboarded: "offboarded, fresh",
-  fresh: "starts fresh",
-};
+export type SeatNextTurn = { readonly fresh: boolean; readonly freshAt?: number };
+
+/**
+ * A seat that is not running starts fresh when it has no session to resume.
+ * Otherwise the turn is fresh only when its session has gone cold, by the
+ * same test that cuts it (operator-offboard.ts `coldness`).
+ */
+export const seatNextTurn = (input: {
+  readonly running: boolean;
+  /** What a start does; read for a seat that is not running. */
+  readonly launch: SeatNextLaunch;
+  readonly cold: { readonly cold: boolean; readonly at?: number };
+}): SeatNextTurn =>
+  !input.running && input.launch !== "resume"
+    ? { fresh: true }
+    : { fresh: input.cold.cold, ...(!input.cold.cold && input.cold.at !== undefined ? { freshAt: input.cold.at } : {}) };
+
+/**
+ * The seat line when its next turn starts fresh. A turn that continues says
+ * nothing: that is the common case, and the seat never talks about caches.
+ */
+export const SEAT_FRESH_NEXT_LINE = "fresh next";

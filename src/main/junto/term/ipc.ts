@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
 import { ModelService } from "../model/service";
+import { seatNextTurnOf } from "../seat-sessions/operator-offboard";
 import { SeatSessionRepository } from "../seat-sessions/repository";
 import { shouldResumeHarnessSession } from "./session-existence";
 import { shouldAvoidSharedHarnessResume } from "./managed-spawn-plan";
@@ -246,7 +247,8 @@ export const registerTerminalIpc = (
         shouldResumeHarnessSession(true, { harness: node.harness, sessionId: session.sessionId, ...(cwd ? { cwd } : {}) }),
       ...(lastEnded ? { lastEnded } : {}),
     });
-    return { hasSession: session?.harness === node.harness, next };
+    const nextTurn = await seatNextTurnOf({ canvasName: input.canvas, seatId: node.id }, next);
+    return { hasSession: session?.harness === node.harness, next, ...(nextTurn ? { nextTurn } : {}) };
   });
 
   ipcMain.handle(IPC_CHANNELS.modelStart, async (event, input: Parameters<JuntoApi["modelStart"]>[0]) => {

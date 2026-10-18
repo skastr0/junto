@@ -92,7 +92,7 @@ describe("one seat", () => {
   it("inside the cache window: asking is marked preferred, and offboard now is still there", async () => {
     await open(["a"], fakeOps([status("a")]).ops);
     expect(host.textContent).toContain("Offboard Ada");
-    expect(byId("seat-offboard-idle")?.textContent).toBe("Idle 12m, inside the cache window: a turn is still cheap.");
+    expect(byId("seat-offboard-idle")?.textContent).toBe("Idle 12m.");
     const mark = byId("seat-offboard-preferred");
     expect(mark?.parentElement?.contains(byId("seat-offboard-ask-continue"))).toBe(true);
     expect(byId<HTMLButtonElement>("seat-offboard-now")?.disabled).toBe(false);
@@ -101,7 +101,7 @@ describe("one seat", () => {
 
   it("past the cache window: offboard now is the one marked preferred", async () => {
     await open(["a"], fakeOps([status("a", { idleMinutes: 130, pastWindow: true, preferred: "now" })]).ops);
-    expect(byId("seat-offboard-idle")?.textContent).toBe("Idle 2h 10m, past the cache window: a turn now is expensive.");
+    expect(byId("seat-offboard-idle")?.textContent).toBe("Idle 2h 10m.");
     expect(host.querySelectorAll('[data-testid="seat-offboard-preferred"]')).toHaveLength(1);
     expect(byId("seat-offboard-preferred")?.parentElement?.contains(byId("seat-offboard-now"))).toBe(true);
   });
@@ -171,10 +171,11 @@ describe("one seat", () => {
 describe("a selection", () => {
   const past = { idleMinutes: 130, pastWindow: true, preferred: "now" } as const;
 
-  it("counts the agents, says how many are past the window, and marks no preferred action", async () => {
+  it("counts the agents, says nothing about caches, and marks no preferred action", async () => {
     await open(["a", "b"], fakeOps([status("a", past), status("b")]).ops);
     expect(host.textContent).toContain("Offboard 2 agents");
-    expect(byId("seat-offboard-idle")?.textContent).toBe("1 of 2 are past the cache window.");
+    expect(byId("seat-offboard-idle")).toBeNull();
+    expect(host.textContent?.toLowerCase()).not.toContain("cache");
     expect(byId("seat-offboard-preferred")).toBeNull();
   });
 

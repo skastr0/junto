@@ -255,7 +255,7 @@ function PreferredMark() {
   return (
     <span
       className="seat-offboard-panel__preferred"
-      title="The better call for how long this seat has sat still, by the cache window in Settings"
+      title="The better call for how long this seat has sat still"
       data-testid="seat-offboard-preferred"
     >
       preferred

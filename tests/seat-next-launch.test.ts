@@ -4,7 +4,7 @@
  * session ended.
  */
 import { describe, expect, it } from "vitest";
-import { SEAT_NEXT_LAUNCH_LINE, seatNextLaunch } from "../src/shared/seat-next-launch";
+import { SEAT_FRESH_NEXT_LINE, seatNextLaunch, seatNextTurn } from "../src/shared/seat-next-launch";
 
 const open = (harness = "claude") => ({ harness, sessionId: "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed" });
 
@@ -30,12 +30,22 @@ describe("seatNextLaunch", () => {
     expect(seatNextLaunch({ harness: "claude", open: { harness: "claude", sessionId: " " }, provisioned: false, provenOnDisk: true })).toBe("fresh");
   });
 
-  it("says each outcome in words a seat line holds uncut at fit-all", () => {
-    expect(SEAT_NEXT_LAUNCH_LINE).toEqual({
-      resume: "will resume",
-      offboarded: "offboarded, fresh",
-      fresh: "starts fresh",
-    });
-    for (const line of Object.values(SEAT_NEXT_LAUNCH_LINE)) expect(line.length).toBeLessThanOrEqual(18);
+});
+
+describe("seatNextTurn", () => {
+  it("a seat that is not running and has nothing to resume starts fresh", () => {
+    expect(seatNextTurn({ running: false, launch: "offboarded", cold: { cold: false, at: 5 } })).toEqual({ fresh: true });
+    expect(seatNextTurn({ running: false, launch: "fresh", cold: { cold: false } })).toEqual({ fresh: true });
+  });
+
+  it("otherwise the session's coldness decides, running or not", () => {
+    expect(seatNextTurn({ running: false, launch: "resume", cold: { cold: true } })).toEqual({ fresh: true });
+    expect(seatNextTurn({ running: true, launch: "fresh", cold: { cold: false, at: 5 } })).toEqual({ fresh: false, freshAt: 5 });
+    expect(seatNextTurn({ running: true, launch: "resume", cold: { cold: false } })).toEqual({ fresh: false });
+  });
+
+  it("says only the fresh case, in words a seat line holds uncut at fit-all, and never names a cache", () => {
+    expect(SEAT_FRESH_NEXT_LINE).toBe("fresh next");
+    expect(SEAT_FRESH_NEXT_LINE.length).toBeLessThanOrEqual(18);
   });
 });

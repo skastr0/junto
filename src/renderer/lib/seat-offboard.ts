@@ -150,23 +150,14 @@ const minutesWords = (minutes: number): string => {
 };
 
 /**
- * What the operator reads above the buttons. One seat: how long it has sat
- * still and which side of the cache window that is. A selection: how many
- * are past the window. Empty when there is nothing to say.
+ * What the operator reads above the buttons: how long one seat has sat
+ * still. A selection gets no such line. Never a word about caches: that is
+ * Junto's to manage, not the operator's. Empty when there is nothing to say.
  */
 export const offboardIdleLine = (statuses: ReadonlyArray<SeatOffboardStatus>): string => {
-  if (statuses.length === 0) return "";
-  if (statuses.length === 1) {
-    const only = statuses[0]!;
-    if (only.idleMinutes === null) return "";
-    return only.pastWindow
-      ? `Idle ${minutesWords(only.idleMinutes)}, past the cache window: a turn now is expensive.`
-      : `Idle ${minutesWords(only.idleMinutes)}, inside the cache window: a turn is still cheap.`;
-  }
-  const past = statuses.filter((status) => status.pastWindow).length;
-  if (past === 0) return "None is past the cache window.";
-  if (past < statuses.length) return `${past} of ${statuses.length} are past the cache window.`;
-  return past === 2 ? "Both are past the cache window." : `All ${past} are past the cache window.`;
+  if (statuses.length !== 1) return "";
+  const only = statuses[0]!;
+  return only.idleMinutes === null ? "" : `Idle ${minutesWords(only.idleMinutes)}.`;
 };
 
 /** "180k", "1.2M", "850": a token estimate at the precision it has. */

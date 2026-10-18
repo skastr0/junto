@@ -444,6 +444,48 @@ describe("auto offboard as mail is about to be typed into a running, idle seat",
   });
 });
 
+describe("the seat's next turn: the same test as the cut", () => {
+  const next = (w: ReturnType<typeof world>, seatId: string, launch: "resume" | "offboarded" | "fresh" = "resume") =>
+    w.offboard.nextTurn({ canvasName: CANVAS, seatId }, launch);
+
+  it("an idle seat continues until its session goes cold, says when that is, then starts fresh as mail would", async () => {
+    const w = world([seat("a")]);
+    w.clock.note("bind-a");
+    expect(await next(w, "a")).toEqual({ fresh: false, freshAt: T0 + 120 * MIN });
+    w.advance(119);
+    expect(await next(w, "a")).toEqual({ fresh: false, freshAt: T0 + 120 * MIN });
+    w.advance(1);
+    expect(await next(w, "a")).toEqual({ fresh: true });
+    // Asking never cuts.
+    expect(w.closed).toEqual([]);
+    expect(await w.offboard.beforeMail({ canvasName: CANVAS, seatId: "a" })).toBe(true);
+  });
+
+  it("a seat in a turn, or one waiting on the operator, continues with no time to watch", async () => {
+    const w = world([seat("w", { state: "working" }), seat("d", { state: "attention" })]);
+    w.advance(600);
+    expect(await next(w, "w")).toEqual({ fresh: false });
+    expect(await next(w, "d")).toEqual({ fresh: false });
+  });
+
+  it("a resting seat starts fresh when it has no session to resume, and by the window when it has", async () => {
+    const w = world([resting("a")]);
+    expect(await next(w, "a", "offboarded")).toEqual({ fresh: true });
+    expect(await next(w, "a", "fresh")).toEqual({ fresh: true });
+    expect(await next(w, "a", "resume")).toMatchObject({ fresh: false });
+    w.advance(600);
+    expect(await next(w, "a", "resume")).toEqual({ fresh: true });
+  });
+
+  it("a tiny session never goes cold; a seat on another machine is answered by its own", async () => {
+    const w = world([seat("tiny"), seat("far", { local: false })], { noWork: ["tiny"] });
+    w.work("tiny", 3);
+    w.advance(600);
+    expect(await next(w, "tiny")).toEqual({ fresh: false });
+    expect(await next(w, "far")).toBeUndefined();
+  });
+});
+
 describe("idle nudge (off by default, 40 minutes)", () => {
   const nudging = () => applyOffboardRulesPatch(defaultOffboardRules(), { nudge: { enabled: true } });
 

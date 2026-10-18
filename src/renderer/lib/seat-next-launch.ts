@@ -1,42 +1,44 @@
 /**
- * What a seat that is not running will do when it next starts: resume its
- * session or begin fresh. Main answers from the seat's sessions and the
- * harness's own store (modelSeatLaunchState); the card asks again whenever
- * something that could change the answer moves (an exit, an offboard step,
- * a new binding). A seat on another machine gets no answer and says only
- * that it is not running.
+ * Whether a seat's next turn starts fresh. Main answers from the same test
+ * that cuts a cold session (modelSeatLaunchState, operator-offboard.ts), for a
+ * seat that is not running and for one sitting idle. The card asks again
+ * whenever something that could change the answer moves (an exit, a state
+ * change, an offboard step, a new binding), and once more at the moment main
+ * says the session goes cold. A seat in a turn continues; nothing is asked.
+ * A seat on another machine gets no answer and says nothing.
  */
 import { useEffect } from "react";
 import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
-import type { SeatNextLaunch } from "@shared/seat-next-launch";
+import type { SeatNextTurn } from "@shared/seat-next-launch";
 import { getJuntoApi } from "./junto-api";
 import { seatOffboard$, seatOffboardProgressOf, subscribeSeatOffboard } from "./seat-offboard-state";
 
 /** Canvas, then seat id. */
-export const seatNextLaunch$ = observable<Record<string, Record<string, SeatNextLaunch | undefined> | undefined>>({});
+export const seatNextTurn$ = observable<Record<string, Record<string, SeatNextTurn | undefined> | undefined>>({});
 
 /** Ask main once for this seat. A refusal (another machine) clears the answer. */
-export const askSeatNextLaunch = async (canvas: string, id: string): Promise<void> => {
+export const askSeatNextTurn = async (canvas: string, id: string): Promise<void> => {
   const read = getJuntoApi()?.modelSeatLaunchState;
   if (!read) return;
   try {
-    seatNextLaunch$[canvas][id].set((await read({ canvas, id })).next);
+    const { nextTurn } = await read({ canvas, id });
+    if (nextTurn) seatNextTurn$[canvas][id].set(nextTurn);
+    else seatNextTurn$[canvas][id].delete();
   } catch {
-    seatNextLaunch$[canvas][id].delete();
+    seatNextTurn$[canvas][id].delete();
   }
 };
 
+/** A timer's longest delay; a later moment is asked again when this one fires. */
+const MAX_DELAY_MS = 2_147_483_647;
+
 /**
- * The seat's next start, while `notRunning`. `moved` changes whenever the
- * answer may have: the card passes what it knows of the seat's process.
+ * True when the seat's next turn starts fresh, while `still` (not running, or
+ * idle). `moved` changes whenever the answer may have: the card passes what
+ * it knows of the seat's process and state.
  */
-export const useSeatNextLaunch = (
-  canvas: string,
-  id: string,
-  notRunning: boolean,
-  moved: string,
-): SeatNextLaunch | undefined => {
+export const useSeatFreshNext = (canvas: string, id: string, still: boolean, moved: string): boolean => {
   useEffect(() => {
     subscribeSeatOffboard();
   }, []);
@@ -46,10 +48,20 @@ export const useSeatNextLaunch = (
     return seatOffboardProgressOf(canvas, id)?.at;
   });
   useEffect(() => {
-    if (notRunning) void askSeatNextLaunch(canvas, id);
-    // A run makes the last answer stale: drop it, so the line never flashes it.
-    else seatNextLaunch$[canvas][id].delete();
-  }, [canvas, id, notRunning, moved, offboardAt]);
-  const next = use$(seatNextLaunch$[canvas][id]);
-  return notRunning ? next : undefined;
+    if (still) void askSeatNextTurn(canvas, id);
+    // A turn makes the last answer stale: drop it, so the line never flashes it.
+    else seatNextTurn$[canvas][id].delete();
+  }, [canvas, id, still, moved, offboardAt]);
+  const next = use$(seatNextTurn$[canvas][id]);
+  // Nothing moves when a still session goes cold: ask again at that moment.
+  const freshAt = still ? next?.freshAt : undefined;
+  useEffect(() => {
+    if (freshAt === undefined) return;
+    const timer = setTimeout(
+      () => void askSeatNextTurn(canvas, id),
+      Math.min(Math.max(freshAt - Date.now(), 0) + 1_000, MAX_DELAY_MS),
+    );
+    return () => clearTimeout(timer);
+  }, [canvas, id, freshAt]);
+  return still && next?.fresh === true;
 };

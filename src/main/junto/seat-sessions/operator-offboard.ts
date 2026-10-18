@@ -37,6 +37,7 @@ import {
   type SeatOffboardStatus,
 } from "@shared/seat-offboard";
 import { SEAT_OFFBOARD_MAX_SEATS } from "@shared/seat-offboard";
+import { seatNextTurn, type SeatNextLaunch, type SeatNextTurn } from "@shared/seat-next-launch";
 import type { OffboardMode, SeatAddress } from "@shared/seat-sessions";
 
 /** A seat as the operation needs it, read off its canvas and the terminal plane. */
@@ -511,6 +512,29 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
   };
 
   /**
+   * Has this seat's session gone cold, so that a turn given now would be cut
+   * to a fresh session first? The one test behind the cut and behind what the
+   * seat shows. When not cold yet, `at` is when it will be if nothing moves;
+   * absent, nothing but a move can make it cold.
+   */
+  const coldness = (
+    seat: OffboardSeat,
+    address: SeatAddress,
+  ): { readonly cold: boolean; readonly at?: number } => {
+    if (seat.sessionId === undefined) return { cold: false };
+    const set = offboardRulesFor(ports.rules(), seat.harness);
+    if (!set.auto.enabled) return { cold: false };
+    if (clock.isFresh(seat.bindingId)) return { cold: false };
+    if (!mayCloseNow(seat, address).allowed) return { cold: false };
+    const still = stillness(seat, now());
+    if (still.minutes === null) return { cold: false };
+    if (still.minutes < set.auto.minutes)
+      return still.since === undefined ? { cold: false } : { cold: false, at: still.since + set.auto.minutes * 60_000 };
+    // Never recycle an empty or tiny session. Asked last: the size reads the transcript.
+    return { cold: worthOf(seat, false).worth };
+  };
+
+  /**
    * Auto offboard. A seat is about to be given a turn on a session that has
    * gone cold: end that session first, so the turn happens in a fresh one.
    *
@@ -532,21 +556,14 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
   const cutIfCold = async (address: SeatAddress, moment: "wake" | "mail"): Promise<boolean> => {
     try {
       const seat = await ports.locate(address);
-      if (seat === undefined || !seat.local || seat.sessionId === undefined) return false;
+      if (seat === undefined || !seat.local) return false;
       if (moment === "wake" ? seat.running : !(seat.running && seat.state === "idle")) return false;
       // A paused canvas refuses the wake; a session is not cut for a turn that will not happen.
       if (seat.paused === true) return false;
       // The operator just asked this seat's agent to offboard: that mail is
       // meant for this session, and cutting under it would throw the ask away.
       if (moment === "mail" && (asking.get(keyOf(address)) ?? 0) > now()) return false;
-      const set = offboardRulesFor(ports.rules(), seat.harness);
-      if (!set.auto.enabled) return false;
-      const minutes = stillness(seat, now()).minutes;
-      if (minutes === null || minutes < set.auto.minutes) return false;
-      if (clock.isFresh(seat.bindingId)) return false;
-      if (!mayCloseNow(seat, address).allowed) return false;
-      // Never recycle an empty or tiny session.
-      if (!worthOf(seat, false).worth) return false;
+      if (!coldness(seat, address).cold) return false;
       const row = await closeOne(address, "automatic");
       if (!row.ok) ports.log?.(`auto offboard before ${moment} for ${address.seatId} did not go through: ${row.reason}`);
       return row.ok;
@@ -561,6 +578,18 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
 
   /** Mail is about to be typed into a seat whose agent is running. */
   const beforeMail = (address: SeatAddress): Promise<boolean> => cutIfCold(address, "mail");
+
+  /**
+   * Whether the seat's next turn starts on a fresh session, by the same test
+   * as the cut. `launch` is what a start does for a seat that is not running.
+   * Undefined for a seat this installation does not run: its own machine
+   * answers for it.
+   */
+  const nextTurn = async (address: SeatAddress, launch: SeatNextLaunch): Promise<SeatNextTurn | undefined> => {
+    const seat = await ports.locate(address).catch(() => undefined);
+    if (seat === undefined || !seat.local) return undefined;
+    return seatNextTurn({ running: seat.running, launch, cold: coldness(seat, address) });
+  };
 
   /**
    * The once-a-minute pass: save the clock, and run the idle nudge. The
@@ -623,7 +652,7 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
     return summarizeOffboardRun(rows);
   };
 
-  return { run, status, tick, beforeWake, beforeMail, clock };
+  return { run, status, tick, beforeWake, beforeMail, nextTurn, clock };
 };
 
 export type OperatorOffboard = ReturnType<typeof makeOperatorOffboard>;
@@ -689,6 +718,14 @@ export const cutBeforeWake = (seat: SeatAddress): Promise<boolean> =>
  */
 export const cutBeforeMail = (seat: SeatAddress): Promise<boolean> =>
   current ? current.beforeMail(seat).catch(failedCut("mail", seat)) : Promise.resolve(false);
+
+/**
+ * What the seat's next turn does: continue its session or start fresh.
+ * Undefined before the operation is installed, and for a seat on another
+ * machine.
+ */
+export const seatNextTurnOf = (seat: SeatAddress, launch: SeatNextLaunch): Promise<SeatNextTurn | undefined> =>
+  current ? current.nextTurn(seat, launch).catch(() => undefined) : Promise.resolve(undefined);
 
 export const seatOffboardStatus = (
   canvasName: string,

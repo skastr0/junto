@@ -1,5 +1,6 @@
 /**
- * A seat that is not running says what its next start does. Three codex seats
+ * A seat that is not running says "fresh next" when its next turn starts
+ * fresh, and nothing more when it continues. Three codex seats
  * in a sandboxed home: one with a captured session codex still holds on disk,
  * one offboarded with rest, one never started. The fake codex only records its
  * argv and stays up, so no model is reached. Frames land in
@@ -33,7 +34,7 @@ const rollout = (home: string, id: string) =>
 
 const line = (page: Page, id: string) => page.locator(`.react-flow__node[data-id="${id}"]`);
 
-test("a seat that is not running says whether it will resume or start fresh", async () => {
+test("a seat that is not running says fresh next only when its next turn starts fresh", async () => {
   test.setTimeout(180_000);
   await mkdir(SHOTS, { recursive: true });
   let argvLog = "";
@@ -57,9 +58,10 @@ test("a seat that is not running says whether it will resume or start fresh", as
     await expect(line(page, "holds")).toBeVisible({ timeout: 30_000 });
     await page.getByRole("button", { name: /fit all/i }).first().click();
 
-    await expect(line(page, "holds")).toContainText("will resume", { timeout: 20_000 });
-    await expect(line(page, "fresh")).toContainText("starts fresh");
-    await expect(line(page, "rested")).toContainText("will resume");
+    await expect(line(page, "fresh")).toContainText("fresh next", { timeout: 20_000 });
+    await expect(line(page, "holds")).toContainText("not running");
+    await expect(line(page, "holds")).not.toContainText("fresh next");
+    await expect(line(page, "rested")).not.toContainText("fresh next");
 
     // Offboard the third seat with rest: its session closes at an offboard.
     const result = await page.evaluate(
@@ -67,10 +69,10 @@ test("a seat that is not running says whether it will resume or start fresh", as
       { canvasName: CANVAS, seatIds: ["rested"], action: "now" as const },
     );
     console.log("offboard now", JSON.stringify(result));
-    await expect(line(page, "rested")).toContainText("offboarded, fresh", { timeout: 20_000 });
+    await expect(line(page, "rested")).toContainText("fresh next", { timeout: 20_000 });
 
     // At fit-all each line reads whole: none is cut by an ellipsis.
-    for (const [id, text] of [["holds", "will resume"], ["rested", "offboarded, fresh"], ["fresh", "starts fresh"]] as const) {
+    for (const [id, text] of [["holds", "not running"], ["rested", "fresh next"], ["fresh", "fresh next"]] as const) {
       const label = line(page, id).getByText(text, { exact: true });
       await expect(label).toBeVisible();
       expect(await label.evaluate((el) => el.scrollWidth <= el.clientWidth), `${id}: the line is not clipped`).toBe(true);
