@@ -21,6 +21,20 @@ type WindowHolds = {
   readonly typedAt: Map<string, number>;
 };
 
+/**
+ * The operator holds a seat: shown in a window (no `until`: it lasts until the
+ * window lets go), or typed into, lasting `until` the typing grace ends.
+ */
+export type OperatorHold = { readonly until?: number };
+
+/** The longer of two holds: shown outlasts any typing. */
+export const longerHold = (left: OperatorHold | undefined, right: OperatorHold | undefined): OperatorHold | undefined => {
+  if (left === undefined) return right;
+  if (right === undefined) return left;
+  if (left.until === undefined || right.until === undefined) return {};
+  return { until: Math.max(left.until, right.until) };
+};
+
 /** A binding's hold changed: shown in some window or not, or typed into just now. */
 export type OperatorHoldChange = { readonly bindingId: string; readonly open: boolean; readonly typed: boolean };
 
@@ -31,6 +45,8 @@ export type OperatorHolds = {
   readonly typed: (windowId: number, bindingId: string) => void;
   /** The window closed or reloaded: every hold it had goes. */
   readonly dropWindow: (windowId: number) => void;
+  /** The operator's hold on the seat at `now`, if any. Reads only. */
+  readonly hold: (bindingId: string, now: number) => OperatorHold | undefined;
   /** Whether the operator holds the seat at `now`. Reads only. */
   readonly holds: (bindingId: string, now: number) => boolean;
   /** Whether some window shows the binding's terminal. */
@@ -59,6 +75,16 @@ export const makeOperatorHolds = (clock: () => number = Date.now): OperatorHolds
       if (open !== was) emit({ bindingId, open, typed: false });
     }
   };
+  const hold = (bindingId: string, now: number): OperatorHold | undefined => {
+    let longest: OperatorHold | undefined;
+    for (const held of windows.values()) {
+      if (held.open.has(bindingId)) return {};
+      const at = held.typedAt.get(bindingId);
+      if (at !== undefined && now - at < OPERATOR_TYPING_GRACE_MS)
+        longest = longerHold(longest, { until: at + OPERATOR_TYPING_GRACE_MS });
+    }
+    return longest;
+  };
   const windowOf = (windowId: number): WindowHolds => {
     let held = windows.get(windowId);
     if (held === undefined) {
@@ -81,14 +107,8 @@ export const makeOperatorHolds = (clock: () => number = Date.now): OperatorHolds
       const held = windows.get(windowId);
       if (held !== undefined) reshow(held.open, () => { windows.delete(windowId); });
     },
-    holds: (bindingId, now) => {
-      for (const held of windows.values()) {
-        if (held.open.has(bindingId)) return true;
-        const at = held.typedAt.get(bindingId);
-        if (at !== undefined && now - at < OPERATOR_TYPING_GRACE_MS) return true;
-      }
-      return false;
-    },
+    hold,
+    holds: (bindingId, now) => hold(bindingId, now) !== undefined,
     shows,
     subscribe: (listener) => {
       listeners.add(listener);
@@ -102,7 +122,7 @@ const live = makeOperatorHolds();
 export const liveOperatorHolds: Pick<OperatorHolds, "shows" | "subscribe"> = live;
 
 /** Holds kept elsewhere: what this machine's peers hold on the seats it runs. */
-export type OperatorHoldSource = (bindingId: string, now: number) => boolean;
+export type OperatorHoldSource = (bindingId: string, now: number) => OperatorHold | undefined;
 const sources = new Set<OperatorHoldSource>();
 export const addOperatorHoldSource = (source: OperatorHoldSource): (() => void) => {
   sources.add(source);
@@ -110,15 +130,28 @@ export const addOperatorHoldSource = (source: OperatorHoldSource): (() => void) 
 };
 
 /**
- * Whether the operator is viewing or has just typed into the seat on this
- * binding, in a window here or on the machine that edits its canvas. The cut
- * at the cache window leaves a held seat's session alone.
+ * The operator's hold on the seat on this binding, from a window here or from
+ * the machine that edits its canvas: the longest of them.
  */
-export const operatorHolds = (bindingId: string, now: number): boolean => {
-  if (live.holds(bindingId, now)) return true;
-  for (const source of sources) if (source(bindingId, now)) return true;
-  return false;
+export const operatorHold = (bindingId: string, now: number): OperatorHold | undefined => {
+  let longest = live.hold(bindingId, now);
+  for (const source of sources) longest = longerHold(longest, source(bindingId, now));
+  return longest;
 };
+
+/**
+ * Whether the operator is viewing or has just typed into the seat. The cut at
+ * the cache window leaves a held seat's session alone.
+ */
+export const operatorHolds = (bindingId: string, now: number): boolean => operatorHold(bindingId, now) !== undefined;
+
+/**
+ * When the operator's hold on the seat ends, when only typing holds it.
+ * Undefined while a window shows the seat (its close is when), or when
+ * nothing holds it.
+ */
+export const operatorHeldUntil = (bindingId: string, now: number): number | undefined =>
+  operatorHold(bindingId, now)?.until;
 
 const BINDINGS_MAX = 1_024;
 const isBindingId = (value: unknown): value is string =>

@@ -13,6 +13,8 @@ import {
   type OperatorOffboardPorts,
   type SeatClockRecord,
 } from "../src/main/junto/seat-sessions/operator-offboard";
+import { makeOperatorHolds, type OperatorHolds } from "../src/main/junto/term/operator-holds";
+import { OPERATOR_TYPING_GRACE_MS } from "../src/shared/operator-hold";
 import { initialSnapshot, type SeatSnapshot, type SeatStatus } from "../src/shared/harness-domain";
 import type { BindingId } from "../src/shared/terminal-session-domain";
 import {
@@ -59,14 +61,17 @@ const world = (
     at?: number;
     /** Seats whose session has done no work. Every other seat starts with an hour of it. */
     noWork?: ReadonlyArray<string>;
+    /** The operator's real holds, on this world's clock, keyed by binding. */
+    holds?: (now: () => number) => OperatorHolds;
   } = {},
 ) => {
   let at = options.at ?? T0;
   let rules = options.rules ?? defaultOffboardRules();
   const seats = new Map(initial.map((s) => [s.seatId, s]));
   const closing = new Set<string>();
-  /** Seats the operator views or has just typed into. */
-  const held = new Set<string>();
+  /** Seats the operator views, by seat id: a scripted hold. */
+  const held = new Map<string, { readonly until?: number }>();
+  const holds = options.holds?.(() => at);
   const closed: Array<{ seatId: string; by: OffboardBy }> = [];
   const asked: Array<{ seatId: string; mode: string }> = [];
   const ended: Array<{ seatId: string; sessionId: string; by: OffboardBy; at: number }> = [];
@@ -103,7 +108,7 @@ const world = (
     markEnded: (s, sessionId, by, when) => ended.push({ seatId: s.seatId, sessionId, by, at: when }),
     sessionSize: (s) => (sizes.has(s.seatId) ? { tokens: sizes.get(s.seatId)! } : undefined),
     rules: () => rules,
-    held: (s) => held.has(s.seatId),
+    held: (s, when) => holds?.hold(s.bindingId, when) ?? held.get(s.seatId),
     saveClock: (record) => saved.push(record),
     now: () => at,
   };
@@ -114,6 +119,7 @@ const world = (
     seats,
     closing,
     held,
+    holds,
     closed,
     asked,
     ended,
@@ -492,7 +498,7 @@ describe("the eager cut: a running seat at rest is cut at the first pass past it
 
   it("leaves a seat held by the operator, and cuts it at the first pass after they let go", async () => {
     const w = world([seat("a")]);
-    w.held.add("a");
+    w.held.set("a", {});
     w.advance(180);
     expect(await tickAt(w)).toMatchObject({ closed: 0 });
     w.held.delete("a");
@@ -520,6 +526,29 @@ describe("the eager cut: a running seat at rest is cut at the first pass past it
     expect(w.closed).toEqual([]);
   });
 
+  it("past the window, a key at t holds the seat until t plus the grace, the card is told so, and it is cold after", async () => {
+    const w = world([seat("a")], { holds: (now) => makeOperatorHolds(now) });
+    w.advance(90);
+    const typedAt = w.now();
+    w.holds!.typed(1, "bind-a");
+    w.advance(0.25);
+    expect(await w.offboard.nextTurn({ canvasName: CANVAS, seatId: "a" }, "resume"))
+      .toEqual({ fresh: false, freshAt: typedAt + OPERATOR_TYPING_GRACE_MS });
+    expect(await w.offboard.tick()).toMatchObject({ closed: 0 });
+    w.advance(OPERATOR_TYPING_GRACE_MS / MIN);
+    expect(await w.offboard.nextTurn({ canvasName: CANVAS, seatId: "a" }, "resume")).toEqual({ fresh: true });
+    expect(await w.offboard.tick()).toMatchObject({ closed: 1 });
+  });
+
+  it("before the window, a key's hold never brings the cold time forward", async () => {
+    const w = world([seat("a")], { holds: (now) => makeOperatorHolds(now) });
+    w.settle("a");
+    w.advance(10);
+    w.holds!.typed(1, "bind-a");
+    expect(await w.offboard.nextTurn({ canvasName: CANVAS, seatId: "a" }, "resume"))
+      .toEqual({ fresh: false, freshAt: T0 + 60 * MIN });
+  });
+
   it("does not cut under the operator's own ask", async () => {
     const w = world([seat("a")]);
     w.advance(90);
@@ -529,8 +558,8 @@ describe("the eager cut: a running seat at rest is cut at the first pass past it
 
   it("the cut before mail or a wake leaves a held seat too, and its next turn continues", async () => {
     const w = world([seat("idle"), resting("rest")]);
-    w.held.add("idle");
-    w.held.add("rest");
+    w.held.set("idle", {});
+    w.held.set("rest", {});
     w.advance(120);
     expect(await w.offboard.beforeMail({ canvasName: CANVAS, seatId: "idle" })).toBe(false);
     expect(await w.offboard.beforeWake({ canvasName: CANVAS, seatId: "rest" })).toBe(false);

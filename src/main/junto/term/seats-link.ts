@@ -177,7 +177,7 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
   const stateSubscriptions = new Map<AbortSignal, () => void>();
   const attachments = makeSeatAttachments({ host, run, ...(options.now === undefined ? {} : { now: options.now }) });
   // A peer's view held by its operator holds the seat's session here, where it is cut.
-  (options.addHoldSource ?? addOperatorHoldSource)((bindingId, now) => attachments.holds(bindingId, now));
+  (options.addHoldSource ?? addOperatorHoldSource)((bindingId, now) => attachments.heldBy(bindingId, now));
   const handles = new Map<string, Handle>();
   const watched = new WeakSet<AbortSignal>();
   const forget = (context: LinkEventContext): void => {

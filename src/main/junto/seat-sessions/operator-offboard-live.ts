@@ -29,7 +29,7 @@ import { SeatSessionRepository } from "./repository";
 import { PausePlane } from "../pause-plane";
 import { SettingsService } from "../settings/service";
 import { seatStateRuntime } from "../term/agent-state/runtime";
-import { operatorHolds } from "../term/operator-holds";
+import { operatorHold } from "../term/operator-holds";
 import { termPlane } from "../term/plane";
 import { sessionSizeOf } from "../term/session-size";
 import { defaultSeatsRoot, seatSessionNotesPath, writeEndedMarker } from "./notes-file";
@@ -266,7 +266,7 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
       },
       rules: () => rules,
       // A window here, or a Hold from the machine editing the seat's canvas.
-      held: (seat, at) => operatorHolds(seat.bindingId, at),
+      held: (seat, at) => operatorHold(seat.bindingId, at),
       saveClock: (record) => writeClock(clockPath, record),
       log: (message) => console.info(`[offboard] ${message}`),
     },

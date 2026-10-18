@@ -45,6 +45,20 @@ describe("operator holds", () => {
     expect(holds.holds("b1", T0 + 10_000 + OPERATOR_TYPING_GRACE_MS)).toBe(false);
   });
 
+  it("says when a hold ends: never while shown, the latest key's grace when only typed", () => {
+    const { holds, at } = clocked();
+    expect(holds.hold("b1", T0)).toBeUndefined();
+    at(0);
+    holds.typed(1, "b1");
+    at(5_000);
+    holds.typed(2, "b1");
+    expect(holds.hold("b1", T0 + 6_000)).toEqual({ until: T0 + 5_000 + OPERATOR_TYPING_GRACE_MS });
+    holds.surfaces(1, ["b1"]);
+    expect(holds.hold("b1", T0 + 6_000)).toEqual({});
+    holds.surfaces(1, []);
+    expect(holds.hold("b1", T0 + 5_000 + OPERATOR_TYPING_GRACE_MS)).toBeUndefined();
+  });
+
   it("drops every hold of a window that goes, typing included, and only that window's", () => {
     const { holds } = clocked();
     holds.surfaces(1, ["b1"]);

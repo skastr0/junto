@@ -30,7 +30,7 @@ const T0 = Date.UTC(2026, 9, 18, 12, 0);
 const linked = async () => {
   let views: SeatViews | undefined;
   let miniNow = T0;
-  let source: OperatorHoldSource = () => false;
+  let source: OperatorHoldSource = () => undefined;
   const cores = await twoCores({
     cleanups,
     book: { attachStream: (context, frame) => views?.frame(context, frame), addHoldSource: () => () => undefined },
@@ -56,7 +56,8 @@ const linked = async () => {
   return {
     ...cores, router, windows, started, attach,
     at: (ms: number) => { miniNow = T0 + ms; },
-    held: (ms: number) => source(miniSeat.bindingId, T0 + ms),
+    held: (ms: number) => source(miniSeat.bindingId, T0 + ms) !== undefined,
+    hold: (ms: number) => source(miniSeat.bindingId, T0 + ms),
   };
 };
 
@@ -67,6 +68,8 @@ describe("the operator's hold across the link", () => {
     pair.windows.surfaces(1, [miniSeat.bindingId]);
     await pair.attach();
     await eventually(() => expect(pair.held(0)).toBe(true));
+    // Shown: no end to give, the window letting go is when.
+    expect(pair.hold(0)).toEqual({});
     pair.windows.surfaces(1, []);
     await eventually(() => expect(pair.held(0)).toBe(false));
     pair.windows.surfaces(2, [miniSeat.bindingId]);
@@ -81,6 +84,8 @@ describe("the operator's hold across the link", () => {
     pair.at(0);
     pair.windows.typed(1, miniSeat.bindingId);
     await eventually(() => expect(pair.held(0)).toBe(true));
+    // The seat's machine knows when typing's hold ends, so its card can say when it goes cold.
+    expect(pair.hold(0)).toEqual({ until: T0 + OPERATOR_TYPING_GRACE_MS });
     // A second key report 4 s later changes nothing there: the grace still runs from the first.
     pair.at(4_000);
     pair.windows.typed(1, miniSeat.bindingId);

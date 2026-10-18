@@ -11,6 +11,7 @@ import { Effect, Schema } from "effect";
 import { CanvasName, NodeId } from "@shared/model";
 import { MachineName } from "@shared/machine-control";
 import { OPERATOR_TYPED_REPORT_MS, OPERATOR_TYPING_GRACE_MS } from "@shared/operator-hold";
+import { longerHold, type OperatorHold } from "./operator-holds";
 import type { LinkChannelContext, LinkEventContext } from "../link/types";
 import type { ControlLease, LocalHostEvent, LocalSessionHost } from "./local-host";
 
@@ -314,14 +315,16 @@ export const makeSeatAttachments = (options: SeatAttachmentsOptions) => {
       if (attachment.typedAt === undefined || at - attachment.typedAt >= OPERATOR_TYPED_REPORT_MS) attachment.typedAt = at;
       return true;
     },
-    /** Whether a live view of the binding is held by its peer at `at`. */
-    holds: (bindingId: string, at: number): boolean => {
+    /** What the peers hold on the binding at `at` through their live views: the longest hold. */
+    heldBy: (bindingId: string, at: number): OperatorHold | undefined => {
+      let longest: OperatorHold | undefined;
       for (const attachment of live.values()) {
         if (attachment.ended || attachment.bindingId !== bindingId) continue;
-        if (attachment.open) return true;
-        if (attachment.typedAt !== undefined && at - attachment.typedAt < OPERATOR_TYPING_GRACE_MS) return true;
+        if (attachment.open) return {};
+        if (attachment.typedAt !== undefined && at - attachment.typedAt < OPERATOR_TYPING_GRACE_MS)
+          longest = longerHold(longest, { until: attachment.typedAt + OPERATOR_TYPING_GRACE_MS });
       }
-      return false;
+      return longest;
     },
     end,
     ack: (context: LinkEventContext, handle: string, upTo: bigint): void => {

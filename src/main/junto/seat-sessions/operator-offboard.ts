@@ -108,11 +108,12 @@ export type OperatorOffboardPorts = {
   readonly sessionSize?: (seat: OffboardSeat) => { readonly tokens: number } | undefined;
   readonly rules: () => OffboardRules;
   /**
-   * The operator views or has just typed into the seat, here or on the
-   * machine editing its canvas. A held seat's session is not cut. Absent
-   * port: nothing is ever held.
+   * The operator's hold on the seat, here or from the machine editing its
+   * canvas: undefined when not held, `until` when only recent typing holds it,
+   * no `until` while a window shows it. A held seat's session is not cut.
+   * Absent port: nothing is ever held.
    */
-  readonly held?: (seat: OffboardSeat, at: number) => boolean;
+  readonly held?: (seat: OffboardSeat, at: number) => { readonly until?: number } | undefined;
   /** Save the clock (called once per tick). */
   readonly saveClock?: (record: SeatClockRecord) => void;
   readonly now?: () => number;
@@ -573,12 +574,16 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
     const set = offboardRulesFor(ports.rules(), seat.harness);
     if (clock.isFresh(seat.bindingId)) return { cold: false };
     if (!mayCloseNow(seat, address).allowed) return { cold: false };
-    // Held: it goes cold only once the operator lets go, so there is no time to give.
-    if (ports.held?.(seat, now()) === true) return { cold: false };
-    const still = stillness(seat, now());
+    const at = now();
+    const still = stillness(seat, at);
     if (still.minutes === null) return { cold: false };
-    if (still.minutes < set.cacheWindowMinutes)
-      return still.since === undefined ? { cold: false } : { cold: false, at: still.since + set.cacheWindowMinutes * 60_000 };
+    const coldAt = still.since === undefined ? undefined : still.since + set.cacheWindowMinutes * 60_000;
+    // Held, it goes cold no sooner than the hold ends. A shown seat's hold
+    // ends when its window lets go, which asks again; typing's at a known time.
+    const hold = ports.held?.(seat, at);
+    if (hold !== undefined)
+      return hold.until === undefined || coldAt === undefined ? { cold: false } : { cold: false, at: Math.max(hold.until, coldAt) };
+    if (still.minutes < set.cacheWindowMinutes) return coldAt === undefined ? { cold: false } : { cold: false, at: coldAt };
     // Never recycle an empty or tiny session. Asked last: the size reads the transcript.
     return { cold: worthOf(seat, false).worth };
   };
