@@ -2,7 +2,7 @@
  * Canvas level of detail: seats, instruments, notes and cards at each camera
  * tier, in dark and bright. Near draws everything; mid keeps the ring and the
  * name; far draws a seat as its portrait in its ring, no words, and a card as
- * a faint block. Rings keep stepping at every tier. Frames land in
+ * a faint block. Moving rings keep turning at every tier. Frames land in
  * test-results/canvas-lod/.
  *
  *   bun run test:e2e:fast e2e/scenarios/canvas-lod.spec.ts
@@ -180,7 +180,21 @@ test("seats, instruments, notes and cards shed detail tier by tier", async () =>
               ? getComputedStyle(document.querySelector('.react-flow__node[data-id="n0"] .note-md > :nth-child(2)')!).display
               : "missing",
             noteVisible: note ? getComputedStyle(note.firstElementChild ?? note).visibility : "missing",
-            stamp: document.documentElement.hasAttribute("data-mark-frame"),
+            // Every moving ring drawn on screen turns on the compositor: one
+            // of its parts runs. A gathered seat is hidden and not counted.
+            ...(() => {
+              const moving = [
+                ...document.querySelectorAll<HTMLElement>(
+                  '.react-flow__viewport .junto-mark[data-mark-size="seat"][data-mark-motion="loop"][data-mark-visible]',
+                ),
+              ].filter((m) => getComputedStyle(m).visibility !== "hidden");
+              return {
+                ringsMoving: moving.length,
+                ringsStill: moving
+                  .filter((m) => !m.getAnimations({ subtree: true }).some((a) => a.playState === "running"))
+                  .map((m) => m.closest(".react-flow__node")?.getAttribute("data-id") ?? "?"),
+              };
+            })(),
             preambles: [...document.querySelectorAll(".react-flow__viewport .junto-preamble")].filter(
               (p) => getComputedStyle(p).display !== "none",
             ).length,
@@ -212,6 +226,8 @@ test("seats, instruments, notes and cards shed detail tier by tier", async () =>
             })(),
           };
         });
+        expect(look.ringsMoving, `moving rings on screen at ${tier}`).toBeGreaterThan(0);
+        expect(look.ringsStill, `moving rings held still at ${tier}`).toEqual([]);
         expect(look.badgesUnderParts, "badges a turning ring paints over").toBe(0);
         if (tier === "near") {
           expect(look.turning, "turning rings up close").toBeGreaterThan(0);
@@ -229,8 +245,6 @@ test("seats, instruments, notes and cards shed detail tier by tier", async () =>
           expect(look.atlas).toBe(true);
           expect(look.portrait).toBe(true);
           expect(look.noteBody).toBe("none");
-          // Working rings keep stepping at every tier.
-          expect(look.stamp).toBe(true);
           expect(look.preambles).toBe(0);
         } else {
           expect(look.atlas).toBe(true);
@@ -239,8 +253,6 @@ test("seats, instruments, notes and cards shed detail tier by tier", async () =>
             expect(look.words).toBe("hidden");
           }
           expect(look.noteVisible).toBe("hidden");
-          // Working rings keep stepping at every tier.
-          expect(look.stamp).toBe(true);
           expect(look.preambles).toBe(0);
         }
       }
