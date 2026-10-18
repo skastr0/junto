@@ -7,7 +7,7 @@ import { getJuntoApi } from "../../lib/junto-api";
 import { useSeatMachineLine } from "../../lib/machines";
 import { editText } from "../../lib/mutations";
 import { useSeatAttentionReasons } from "../../lib/occupancy-feed";
-import { cardMark, seatFactsForNode } from "../../lib/seat-projections";
+import { cardMark, notifyItem, seatFactsForNode } from "../../lib/seat-projections";
 import { useSeatFreshNext } from "../../lib/seat-next-launch";
 import { SEAT_FRESH_NEXT_LINE } from "@shared/seat-next-launch";
 import { state$ } from "../../lib/state";
@@ -83,23 +83,23 @@ export function SeatCard({
   const machineLine = useSeatMachineLine(hostId, harness);
   // A seat on another machine is answered once the link to it is up.
   const reachable = use$(() => (hostId === undefined ? undefined : state$.machineFacts[hostId].reachable.get()));
-  const mark = cardMark(
-    seatFactsForNode({
-      nodeId: id,
-      seatEvent,
-      session,
-      needsLook: needsLook === true,
-      graphBlocked,
-      attentionReasons,
-      managedSeat: true,
-    }),
-  );
+  const facts = seatFactsForNode({
+    nodeId: id,
+    seatEvent,
+    session,
+    needsLook: needsLook === true,
+    graphBlocked,
+    attentionReasons,
+    managedSeat: true,
+  });
+  const mark = cardMark(facts);
   // A still seat whose next turn starts fresh says so; one that continues
-  // says nothing more than its ring. Still: no process, or idle.
+  // says nothing more than its ring. Still: no process, or idle. A seat that
+  // is blocked or needs the operator says only that.
   const freshNext = useSeatFreshNext(
     canvas,
     id,
-    (mark.mode === "static" && mark.glyph === "off") || seatEvent?.state === "idle",
+    notifyItem(facts) === null && ((mark.mode === "static" && mark.glyph === "off") || seatEvent?.state === "idle"),
     `${bindingId ?? ""}:${seatEvent?.state ?? ""}:${seatEvent?.at ?? 0}:${session?.epoch ?? ""}:${session?.status ?? ""}:${String(reachable)}`,
   );
   const activity = freshNext ? { ...mark, label: SEAT_FRESH_NEXT_LINE } : mark;

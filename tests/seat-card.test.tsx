@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import { decodeNode, type Node } from "../src/shared/model";
 import { SeatCard } from "../src/renderer/components/nodes/SeatCard";
+import { agentSeat$ } from "../src/renderer/lib/agent-seat-state";
 import { seatNextTurn$ } from "../src/renderer/lib/seat-next-launch";
 import { state$ } from "../src/renderer/lib/state";
 import { holdModelCanvas as holdCanvas } from "./support/hold-canvas";
@@ -31,6 +32,7 @@ describe("SeatCard", () => {
     state$.machineFacts.set({});
     state$.settings.machine.name.set("");
     seatNextTurn$.set({});
+    agentSeat$.byBindingId.set({});
   });
 
   it("marks an overseer seat", () => {
@@ -84,6 +86,23 @@ describe("SeatCard", () => {
     expect(card("scout")).toContain("fresh next");
     // No cache wording on the seat, ever.
     expect(card("scout").toLowerCase()).not.toContain("cache");
+  });
+
+  it("never says fresh next on a seat that is blocked or needs the operator", () => {
+    stop = holdCanvas("factory", [seat("calm", "calm"), seat("stuck", "stuck"), seat("asks", "asks")]);
+    const idle = (id: string, state: "idle" | "attention") =>
+      agentSeat$.byBindingId[`binding-${id}`].set({ bindingId: `binding-${id}`, epoch: "ep_1", state, reason: "", confidence: "high", at: 1 });
+    for (const id of ["calm", "stuck"]) idle(id, "idle");
+    idle("asks", "attention");
+    seatNextTurn$.set({ factory: { calm: { fresh: true }, stuck: { fresh: true }, asks: { fresh: true } } });
+    const render = (id: string, graphBlocked = false) =>
+      renderToStaticMarkup(<SeatCard canvas="factory" id={id} graphBlocked={graphBlocked} />);
+
+    expect(render("calm")).toContain("fresh next");
+    // Blocked by the work it holds, though its screen is idle.
+    expect(render("stuck", true)).not.toContain("fresh next");
+    // Waiting on the operator.
+    expect(render("asks")).not.toContain("fresh next");
   });
 
   it("renders nothing for an id the store does not hold as a seat", () => {
