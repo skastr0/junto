@@ -198,7 +198,7 @@ export const COMMAND_FAMILIES: Readonly<Record<CommandFamily, FamilySpec>> = {
   browser: {
     label: "browser",
     docsKind: "page",
-    note: "The grant is live: a page edge works as soon as it appears, with no fresh start.",
+    note: "Off in this build: Junto refuses every `junto browser` call, so a page edge does nothing yet.",
     rows: [
       { port: "browser.automate", intent: "list granted pages", command: () => "junto browser pages --json" },
       { port: "browser.automate", intent: "open a granted page", command: () => "junto browser open <node-ref> --json" },
