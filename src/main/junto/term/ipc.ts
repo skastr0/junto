@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
 import { ModelService } from "../model/service";
 import { seatLaunchState } from "./seat-launch-state";
-import { remoteSeatLaunch } from "./remote-seat-launch";
-import { makeSeatsProcessClient } from "./seats-client";
+import { remoteSeatLaunchOf } from "./seats-client";
+import { cardSeatLaunch } from "./seats-launch";
 import type {
   JuntoApi,
   MachineInventoryResult,
@@ -22,7 +22,7 @@ import type { ControlLease, LocalHostEvent } from "./local-host";
 import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer";
 import type { TermPlane } from "./plane";
 import { injectionSupervisor } from "./injection-supervisor";
-import { onRemoteSeatState, rememberRemoteSeatState, remoteSeatStateEvents } from "./remote-seat-state";
+import { onRemoteSeatState, rememberRemoteSeatState } from "./remote-seat-state";
 import { AppRuntime } from "../../runtime";
 import { liveSeatEnvironment } from "../region-env/live";
 import { Effect } from "effect";
@@ -225,12 +225,8 @@ export const registerTerminalIpc = (
     if (node.kind !== "agent") return { hasSession: false, next: "fresh" };
     if (router.isLocalHostId(node.host)) return AppRuntime.runPromise(seatLaunchState(input.canvas, node));
     // A seat on another machine: what that machine last said (seats-launch.ts).
-    const last = remoteSeatStateEvents().find((event) => event.bindingId === node.bindingId);
-    const launch = await remoteSeatLaunch({
-      bindingId: node.bindingId, machine: node.host, live: last !== undefined && last.state !== "gone",
-      ask: () => makeSeatsProcessClient(node.host).launch(node.bindingId),
-    });
-    return launch ?? deny("This seat runs on another machine.");
+    const launch = await remoteSeatLaunchOf(node);
+    return launch === undefined ? deny("This seat runs on another machine.") : cardSeatLaunch(launch);
   });
 
   ipcMain.handle(IPC_CHANNELS.modelStart, async (event, input: Parameters<JuntoApi["modelStart"]>[0]) => {

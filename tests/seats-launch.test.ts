@@ -5,7 +5,11 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  ACTIVITY_AGO_MAX_MS,
   FRESH_IN_MAX_MS,
+  SESSION_TOKENS_MAX,
+  SESSION_WORK_MAX_MS,
+  cardSeatLaunch,
   decodeSeatsLaunch,
   fromSeatsLaunch,
   toSeatsLaunch,
@@ -19,6 +23,7 @@ import {
   remoteSeatLaunch,
   resetRemoteSeatLaunches,
 } from "../src/main/junto/term/remote-seat-launch";
+import { OFFBOARD_MINUTES_MAX } from "../src/shared/seat-offboard";
 
 const NOW = 1_792_000_000_000;
 const warm: SeatLaunchState = { hasSession: true, next: "resume", nextTurn: { fresh: false, freshAt: NOW + 600_000 } };
@@ -49,6 +54,39 @@ describe("the seats wire launch state", () => {
     expect(() => decodeSeatsLaunch({ ...wire, nextTurn: { fresh: false, freshAt: NOW } })).toThrow();
     expect(() => decodeSeatsLaunch({ ...wire, next: "continue" })).toThrow();
     expect(() => decodeSeatsLaunch({ ...wire, sessionId: "s" })).toThrow();
+  });
+});
+
+describe("the seat's session on the wire", () => {
+  const facts = { stillSince: NOW - 70 * 60_000, windowMinutes: 2, workMs: 25 * 60_000, tokens: 250_791, worth: true };
+
+  it("crosses its rest as a duration and reads it on the receiver's clock; the card is told the launch state alone", () => {
+    const wire = toSeatsLaunch(warm, NOW, facts);
+    expect(wire.offboard).toEqual({ stillForMs: 70 * 60_000, windowMinutes: 2, workMs: 25 * 60_000, tokens: 250_791, worth: true });
+    expect(decodeSeatsLaunch(wire)).toEqual(wire);
+    const ahead = NOW + 3_600_000;
+    const held = fromSeatsLaunch(wire, ahead);
+    expect(held.offboard).toEqual({ ...facts, stillSince: ahead - 70 * 60_000 });
+    expect(cardSeatLaunch(held)).toEqual(fromSeatsLaunch(toSeatsLaunch(warm, NOW), ahead));
+    // Not at rest, size unknown: both absent.
+    expect(toSeatsLaunch(warm, NOW, { windowMinutes: 60, workMs: 0, worth: false }).offboard)
+      .toEqual({ windowMinutes: 60, workMs: 0, worth: false });
+  });
+
+  it("clamps on sending and refuses anything over a bound or any other key", () => {
+    expect(toSeatsLaunch(warm, NOW, { stillSince: 0, windowMinutes: OFFBOARD_MINUTES_MAX + 1, workMs: Number.MAX_SAFE_INTEGER, tokens: 1e12, worth: true }).offboard)
+      .toEqual({ stillForMs: ACTIVITY_AGO_MAX_MS, windowMinutes: OFFBOARD_MINUTES_MAX, workMs: SESSION_WORK_MAX_MS, tokens: SESSION_TOKENS_MAX, worth: true });
+    const wire = toSeatsLaunch(warm, NOW, facts);
+    const offboard = wire.offboard!;
+    for (const bad of [
+      { ...offboard, stillForMs: ACTIVITY_AGO_MAX_MS + 1 },
+      { ...offboard, windowMinutes: 0 },
+      { ...offboard, workMs: -1 },
+      { ...offboard, tokens: SESSION_TOKENS_MAX + 1 },
+      { ...offboard, tokens: 2.5 },
+      { ...offboard, stillSince: NOW },
+      { ...offboard, sessionId: "s" },
+    ]) expect(() => decodeSeatsLaunch({ ...wire, offboard: bad })).toThrow();
   });
 });
 

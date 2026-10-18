@@ -12,6 +12,7 @@ import {
   type OffboardSeat,
   type OperatorOffboardPorts,
   type SeatClockRecord,
+  type SeatOffboardFacts,
 } from "../src/main/junto/seat-sessions/operator-offboard";
 import { makeOperatorHolds, type OperatorHolds } from "../src/main/junto/term/operator-holds";
 import { OPERATOR_TYPING_GRACE_MS } from "../src/shared/operator-hold";
@@ -79,6 +80,8 @@ const world = (
   const fail = { close: new Set<string>(), ask: new Set<string>() };
   /** Transcript size per seat, in tokens. A seat not listed has no locatable transcript. */
   const sizes = new Map<string, number>();
+  /** What a seat's own machine last said of it, for a seat run elsewhere. */
+  const told = new Map<string, SeatOffboardFacts>();
   // A session worth cutting, unless the test says otherwise: an hour of work.
   const seeded: SeatClockRecord = {
     savedAt: at,
@@ -109,6 +112,7 @@ const world = (
     sessionSize: (s) => (sizes.has(s.seatId) ? { tokens: sizes.get(s.seatId)! } : undefined),
     rules: () => rules,
     held: (s, when) => holds?.hold(s.bindingId, when) ?? held.get(s.seatId),
+    remote: async (s) => told.get(s.seatId),
     saveClock: (record) => saved.push(record),
     now: () => at,
   };
@@ -126,6 +130,7 @@ const world = (
     saved,
     fail,
     sizes,
+    told,
     advance: (minutes: number) => {
       at += minutes * MIN;
     },
@@ -303,6 +308,65 @@ describe("before the click", () => {
     w.advance(12);
     const status = await w.offboard.status(CANVAS, ["c", "a"]);
     expect(status.map((row) => [row.pastWindow, row.preferred])).toEqual([[true, "now"], [false, "ask"]]);
+  });
+});
+
+describe("a seat on another machine", () => {
+  it("shows the idle time, work and size its own machine reports, never this machine's count", async () => {
+    const w = world([seat("far", { local: false, machine: "mini" }), seat("unheard", { local: false, machine: "mini" })]);
+    // The mini said, five minutes ago here, that the seat came to rest 70 minutes ago, under a 2 minute window.
+    w.told.set("far", { stillSince: T0 - 70 * MIN, windowMinutes: 2, workMs: 25 * MIN, tokens: 250_791, worth: true });
+    w.advance(5);
+    const [far, unheard] = await w.offboard.status(CANVAS, ["far", "unheard"]);
+    expect(far).toEqual({
+      seatId: "far",
+      now: { allowed: false, code: "not-local", reason: OFFBOARD_REFUSAL_REASON["not-local"] },
+      stillSince: T0 - 70 * MIN,
+      idleMinutes: 75,
+      pastWindow: true,
+      // This machine refuses to close it, so the row never recommends that.
+      preferred: "ask",
+      workMinutes: 25,
+      sessionTokens: 250_791,
+      worthCutting: true,
+    });
+    // A machine that has said nothing: nothing is known, nothing counted here.
+    expect(unheard).toEqual({
+      seatId: "unheard",
+      now: { allowed: false, code: "not-local", reason: OFFBOARD_REFUSAL_REASON["not-local"] },
+      idleMinutes: null,
+      pastWindow: false,
+      preferred: "ask",
+    });
+    w.told.set("far", { windowMinutes: 2, workMs: 0, worth: false });
+    expect((await w.offboard.status(CANVAS, ["far"]))[0]).toMatchObject({ idleMinutes: null, pastWindow: false, workMinutes: 0, worthCutting: false });
+  });
+
+  it("what it reports never enters this clock or a cut here", async () => {
+    const w = world([seat("far", { local: false, machine: "mini" })], { noWork: ["far"] });
+    w.told.set("far", { stillSince: T0 - 600 * MIN, windowMinutes: 2, workMs: 600 * MIN, tokens: 900_000, worth: true });
+    await w.offboard.status(CANVAS, ["far"]);
+    expect(await w.offboard.tick()).toMatchObject({ closed: 0 });
+    expect(await w.offboard.beforeMail({ canvasName: CANVAS, seatId: "far" })).toBe(false);
+    expect(w.closed).toEqual([]);
+    expect(w.clock.workMs("bind-far")).toBe(0);
+    expect(w.clock.stillSince("bind-far")).toBe(T0);
+  });
+
+  it("is told by this machine for a seat it runs: its clock, its window, its size", async () => {
+    const w = world([seat("a"), seat("far", { local: false })]);
+    w.sizes.set("a", 180_000);
+    w.settle("a");
+    w.advance(7);
+    expect(await w.offboard.facts({ canvasName: CANVAS, seatId: "a" })).toEqual({
+      stillSince: T0, windowMinutes: 60, workMs: 60 * MIN, tokens: 180_000, worth: true,
+    });
+    w.set("a", { state: "working" });
+    expect(await w.offboard.facts({ canvasName: CANVAS, seatId: "a" })).toEqual({
+      windowMinutes: 60, workMs: 60 * MIN, tokens: 180_000, worth: true,
+    });
+    expect(await w.offboard.facts({ canvasName: CANVAS, seatId: "far" })).toBeUndefined();
+    expect(await w.offboard.facts({ canvasName: CANVAS, seatId: "ghost" })).toBeUndefined();
   });
 });
 

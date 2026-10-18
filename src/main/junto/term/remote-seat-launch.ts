@@ -1,8 +1,9 @@
 /**
  * What a remote seat's next start and next turn do, as its own machine last
  * said: on each state it forwards while the seat runs, and on Get's Vacant
- * when it has no occupant (seats-launch.ts). Advisory: the card shows it,
- * and nothing sends it back.
+ * when it has no occupant (seats-launch.ts), with the seat's session as that
+ * machine's offboard clock reads it. Advisory: the card and the seat's
+ * offboard row show it, nothing here cuts on it, and nothing sends it back.
  *
  * Dropped when the link to that machine closes, when the seat's occupant
  * changes (a new epoch, or its exit), and when the seat no longer runs on
@@ -11,9 +12,9 @@
  * here, at most once per link and per state the seat reports: never on a
  * timer.
  */
-import type { SeatLaunchState } from "./seats-launch";
+import type { RemoteSeatLaunch } from "./seats-launch";
 
-type Held = { readonly machine: string; readonly epoch: string | undefined; readonly launch: SeatLaunchState };
+type Held = { readonly machine: string; readonly epoch: string | undefined; readonly launch: RemoteSeatLaunch };
 
 const held = new Map<string, Held>();
 /** Per machine: seats asked since the link opened and since their last state. */
@@ -29,7 +30,7 @@ export const rememberRemoteSeatLaunch = (input: {
   readonly machine: string;
   readonly epoch: string;
   readonly gone: boolean;
-  readonly launch?: SeatLaunchState;
+  readonly launch?: RemoteSeatLaunch;
 }): void => {
   asked.get(input.machine)?.delete(input.bindingId);
   const prior = held.get(input.bindingId);
@@ -54,10 +55,11 @@ export const forgetRemoteSeatLaunches = (machine: string): void => {
 
 /**
  * What the seat's machine last said, read at `now`. Past `freshAt` the next
- * turn starts fresh: only motion keeps a session warm, and motion arrives as
- * a new state. Undefined, and dropped, when the seat now runs elsewhere.
+ * turn starts fresh: only activity keeps a session warm, and activity
+ * arrives as a new state. Undefined, and dropped, when the seat now runs
+ * elsewhere.
  */
-export const heldRemoteSeatLaunch = (bindingId: string, machine: string, now: number): SeatLaunchState | undefined => {
+export const heldRemoteSeatLaunch = (bindingId: string, machine: string, now: number): RemoteSeatLaunch | undefined => {
   const entry = held.get(bindingId);
   if (entry === undefined) return undefined;
   if (entry.machine !== machine) {
@@ -78,9 +80,9 @@ export const remoteSeatLaunch = async (input: {
   readonly bindingId: string;
   readonly machine: string;
   readonly live: boolean;
-  readonly ask: () => Promise<SeatLaunchState | undefined>;
+  readonly ask: () => Promise<RemoteSeatLaunch | undefined>;
   readonly now?: () => number;
-}): Promise<SeatLaunchState | undefined> => {
+}): Promise<RemoteSeatLaunch | undefined> => {
   const now = input.now ?? Date.now;
   const known = heldRemoteSeatLaunch(input.bindingId, input.machine, now());
   if (known !== undefined || input.live) return known;

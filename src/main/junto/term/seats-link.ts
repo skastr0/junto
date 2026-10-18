@@ -31,8 +31,11 @@ import {
   SeatSessionUnavailable, SeatsFailure, SeatSpawnFailed, SeatStateNotFromItsMachine, SeatStatusInvalid, SeatStopping,
   SeatStopRefused,
 } from "./seats-failure";
-import { decodeSeatsLaunch, fromSeatsLaunch, SeatsLaunchState, toSeatsLaunch, type SeatLaunchState } from "./seats-launch";
+import {
+  decodeSeatsLaunch, fromSeatsLaunch, SeatsLaunchState, toSeatsLaunch, type RemoteSeatLaunch, type SeatLaunchState,
+} from "./seats-launch";
 import { seatLaunchState } from "./seat-launch-state";
+import { seatOffboardFactsOf, type SeatOffboardFacts } from "../seat-sessions/operator-offboard";
 import { SeatSessionRepository } from "../seat-sessions/repository";
 import { decodeSeatsStatus, fromSeatsStatus, statusIssueAt, toSeatsStatus } from "./seats-status";
 import { forgetRemoteSeatLaunches, openedRemoteSeatLaunches, rememberRemoteSeatLaunch } from "./remote-seat-launch";
@@ -147,6 +150,8 @@ export type SeatsChannelOptions = {
   readonly grid?: SeatGrid;
   /** What one of this machine's seats answers about its next start; modelSeatLaunchState's own by default. */
   readonly launchState?: (canvas: string, seat: NodeOf<"agent">) => Promise<SeatLaunchState | undefined>;
+  /** The seat's session as this machine's offboard clock reads it; it crosses with the launch state. */
+  readonly offboardFacts?: (canvas: string, seat: NodeOf<"agent">) => Promise<SeatOffboardFacts | undefined>;
 };
 
 /** The peer names a seat; its own machine derives the whole launch. */
@@ -165,11 +170,16 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
   const launchState = options.launchState ?? (Option.isNone(sessions) ? async () => undefined
     : (canvas: string, seat: NodeOf<"agent">) =>
       run(seatLaunchState(canvas, seat).pipe(Effect.provideService(SeatSessionRepository, sessions.value))));
+  const offboardFacts = options.offboardFacts ??
+    ((canvas: string, seat: NodeOf<"agent">) => seatOffboardFactsOf({ canvasName: canvas, seatId: seat.id }));
   /** The launch state as it crosses now, or undefined when this machine cannot say. */
   const launchWire = (canvas: string, seat: NodeOf<"agent">) => Effect.promise(async () => {
     try {
-      const launch = await launchState(canvas, seat);
-      return launch === undefined ? undefined : toSeatsLaunch(launch, Date.now());
+      const [launch, offboard] = await Promise.all([
+        launchState(canvas, seat),
+        offboardFacts(canvas, seat).catch(() => undefined),
+      ]);
+      return launch === undefined ? undefined : toSeatsLaunch(launch, Date.now(), offboard);
     } catch {
       return undefined;
     }
@@ -515,7 +525,7 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
     }
     const receivedAt = Date.now();
     let status: AgentSeatStatusWire | undefined;
-    let launch: SeatLaunchState | undefined;
+    let launch: RemoteSeatLaunch | undefined;
     let reading = "status";
     try {
       if (event.status !== undefined)

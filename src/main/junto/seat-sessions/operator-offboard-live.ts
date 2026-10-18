@@ -32,6 +32,7 @@ import { seatStateRuntime } from "../term/agent-state/runtime";
 import { operatorHold } from "../term/operator-holds";
 import { termPlane } from "../term/plane";
 import { sessionSizeOf } from "../term/session-size";
+import { remoteSeatLaunchOf } from "../term/seats-client";
 import { defaultSeatsRoot, seatSessionNotesPath, writeEndedMarker } from "./notes-file";
 import {
   OFFBOARD_TICK_MS,
@@ -124,6 +125,7 @@ const seatOf = async (
     bindingId: surface.bindingId,
     harness: surface.harness,
     local: isThisMachine(surface.hostId, await run(Effect.flatMap(MachineRepository, (machine) => machine.machineName))),
+    machine: surface.hostId,
     ...(sessionId ? { sessionId } : {}),
     running,
     ...(state ? { state } : {}),
@@ -267,6 +269,9 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
       rules: () => rules,
       // A window here, or a Hold from the machine editing the seat's canvas.
       held: (seat, at) => operatorHold(seat.bindingId, at),
+      // A seat run elsewhere: what its own machine last said, for its row only.
+      remote: async (seat) =>
+        seat.machine === undefined ? undefined : (await remoteSeatLaunchOf({ bindingId: seat.bindingId, host: seat.machine }))?.offboard,
       saveClock: (record) => writeClock(clockPath, record),
       log: (message) => console.info(`[offboard] ${message}`),
     },
@@ -296,6 +301,10 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
     nextTurn: async (seat, launch) => {
       await refreshRules();
       return offboard.nextTurn(seat, launch);
+    },
+    facts: async (seat) => {
+      await refreshRules();
+      return offboard.facts(seat);
     },
   });
 

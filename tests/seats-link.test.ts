@@ -98,6 +98,7 @@ const fixture = async (options: {
   readonly seatStates?: SeatsChannelOptions["seatStates"];
   readonly publishState?: SeatsChannelOptions["publishState"];
   readonly launchState?: SeatsChannelOptions["launchState"] | "this runtime's";
+  readonly offboardFacts?: SeatsChannelOptions["offboardFacts"];
 } = {}) => {
   const root = await mkdtemp(join(tmpdir(), "junto-seats-link-"));
   const fake = makeFakeTerminalProcessAuthority(() => ({ pid: 42_818, exitOnSignal: "SIGTERM" }));
@@ -142,7 +143,8 @@ const fixture = async (options: {
   const channel = await runtime.runPromise(makeSeatsChannel({ host, pin,
     seatStates: options.seatStates ?? { subscribe: () => () => undefined, currentEvents: () => [] },
     publishState: options.publishState ?? (() => undefined),
-    ...(options.launchState === "this runtime's" ? {} : { launchState: options.launchState ?? (async () => undefined) }) }));
+    ...(options.launchState === "this runtime's" ? {} : { launchState: options.launchState ?? (async () => undefined) }),
+    ...(options.offboardFacts === undefined ? {} : { offboardFacts: options.offboardFacts }) }));
   const sent = vi.fn((_channel: string, _payload: unknown) => Effect.void);
   const controller = new AbortController();
   const context: LinkChannelContext = {
@@ -346,6 +348,34 @@ describe("seats link launch state", () => {
     // A seat that cannot say answers bare.
     const silent = await fixture({ launchState: async () => { throw new Error("no repository"); } });
     expect(await silent.start({ ...request, _tag: "Get" })).toEqual({ _tag: "Vacant", canvas, seatId: localSeat.id, machine: THIS_MACHINE });
+  });
+
+  it("carries the seat's session as its offboard clock reads it, and the receiver holds it on its own clock", async () => {
+    const restedAt = Date.now() - 70 * 60_000;
+    const facts = { stillSince: restedAt, windowMinutes: 2, workMs: 25 * 60_000, tokens: 250_791, worth: true };
+    const sender = await fixture({
+      seatStates: { subscribe: () => () => undefined, currentEvents: () => [stateEvent("rule:claude.prompt_box", "idle")] },
+      launchState: async () => warm(),
+      offboardFacts: async () => facts,
+    });
+    await sender.runtime.runPromise(sender.channel.opened!(sender.context));
+    await eventually(() => expect(sender.sent).toHaveBeenCalledTimes(1));
+    const launch = (sender.sent.mock.calls[0]![1] as { launch: { offboard: Record<string, unknown> } }).launch;
+    expect(launch.offboard).toMatchObject({ windowMinutes: 2, workMs: 25 * 60_000, tokens: 250_791, worth: true });
+    expect(launch.offboard.stillForMs).toBeGreaterThanOrEqual(70 * 60_000);
+    expect(launch.offboard.stillForMs).toBeLessThan(71 * 60_000);
+    // Get's Vacant carries it too.
+    expect(await sender.start({ ...request, _tag: "Get" })).toMatchObject({ launch: { offboard: { tokens: 250_791 } } });
+
+    const remote = seat("mac-seat", { host: "macbook", agentKey: "macbook:mac-seat" });
+    const receiver = await fixture({ nodes: [localSeat, remote] });
+    await receiver.runtime.runPromise(receiver.channel.handleEvent!(receiver.context, receiver.channel.decodeEvent({
+      _tag: "SeatState", canvas, seatId: remote.id, machine: "macbook", epoch: "ep_9",
+      state: "idle", confidence: "high", at: 5, reason: "idle", launch,
+    })));
+    const held = heldRemoteSeatLaunch(remote.bindingId, "macbook", Date.now())?.offboard;
+    expect(held).toMatchObject({ windowMinutes: 2, workMs: 25 * 60_000, tokens: 250_791, worth: true });
+    expect(Math.abs(held!.stillSince! - restedAt)).toBeLessThan(5_000);
   });
 
   it("by default it is read from the sessions of the runtime the channel runs in", async () => {

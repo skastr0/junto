@@ -51,6 +51,8 @@ export type OffboardSeat = SeatAddress & {
   readonly harness: string;
   /** This installation runs the seat. */
   readonly local: boolean;
+  /** The machine that runs the seat, as its canvas names it. */
+  readonly machine?: string;
   /** The session the seat names now, if it has one. */
   readonly sessionId?: string;
   /** A process is up for the seat. False: not running or resting. */
@@ -78,6 +80,24 @@ export const waitsOnOperator = (snapshot: SeatSnapshot | undefined): boolean =>
   snapshot !== undefined &&
   (snapshot.status._tag === "Blocked" ||
     deriveNeeds(snapshot).some((need) => need.actor === "operator" && !DONE_CAUSES.has(need.cause)));
+
+/**
+ * A seat's current session as the offboard clock and rules of the machine
+ * that runs it read it. That machine sends it to the one that edits the
+ * seat's canvas, whose row for the seat is built from it.
+ */
+export type SeatOffboardFacts = {
+  /** When the seat last came to rest (epoch ms, on the reader's clock). Absent while it is not at rest. */
+  readonly stillSince?: number;
+  /** The cache window for the seat's harness, in minutes. */
+  readonly windowMinutes: number;
+  /** Time spent working in its current session (ms). */
+  readonly workMs: number;
+  /** The session's transcript as a token estimate. Absent when it cannot be located. */
+  readonly tokens?: number;
+  /** The session has done enough for that machine's automatic rules to act on it. */
+  readonly worth: boolean;
+};
 
 export type OperatorOffboardPorts = {
   readonly locate: (seat: SeatAddress) => Promise<OffboardSeat | undefined>;
@@ -114,6 +134,11 @@ export type OperatorOffboardPorts = {
    * Absent port: nothing is ever held.
    */
   readonly held?: (seat: OffboardSeat, at: number) => { readonly until?: number } | undefined;
+  /**
+   * What the machine that runs a seat elsewhere last said of its session.
+   * Absent port, or undefined: nothing is known of it here.
+   */
+  readonly remote?: (seat: OffboardSeat) => Promise<SeatOffboardFacts | undefined>;
   /** Save the clock (called once per tick). */
   readonly saveClock?: (record: SeatClockRecord) => void;
   readonly now?: () => number;
@@ -446,6 +471,53 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
     };
   };
 
+  /** This machine's clock and rules on a seat it runs, read at `at`. */
+  const factsOf = (seat: OffboardSeat, at: number): SeatOffboardFacts => {
+    const still = stillness(seat, at);
+    const done = worthOf(seat, true);
+    return {
+      ...(still.since !== undefined ? { stillSince: still.since } : {}),
+      windowMinutes: offboardRulesFor(ports.rules(), seat.harness).cacheWindowMinutes,
+      workMs: done.workMs,
+      ...(done.tokens !== undefined ? { tokens: done.tokens } : {}),
+      worth: done.worth,
+    };
+  };
+
+  /** What this machine says of a seat it runs, for the machine that edits its canvas. */
+  const facts = async (address: SeatAddress): Promise<SeatOffboardFacts | undefined> => {
+    const seat = await ports.locate(address).catch(() => undefined);
+    return seat === undefined || !seat.local ? undefined : factsOf(seat, now());
+  };
+
+  /**
+   * A seat run elsewhere: the row its own machine's clock and rules give, as
+   * that machine last said. What it said never enters this clock or a cut
+   * here, and when it has said nothing the row knows nothing. It prefers ask:
+   * this machine refuses to close a seat it does not run.
+   */
+  const remoteRow = (
+    seatId: string,
+    allowed: SeatOffboardStatus["now"],
+    told: SeatOffboardFacts | undefined,
+    at: number,
+  ): SeatOffboardStatus => {
+    if (told === undefined) return { seatId, now: allowed, idleMinutes: null, pastWindow: false, preferred: "ask" };
+    const minutes = told.stillSince === undefined ? null : wholeMinutesBetween(told.stillSince, at);
+    const pastWindow = minutes !== null && minutes >= told.windowMinutes;
+    return {
+      seatId,
+      now: allowed,
+      ...(told.stillSince !== undefined ? { stillSince: told.stillSince } : {}),
+      idleMinutes: minutes,
+      pastWindow,
+      preferred: "ask",
+      workMinutes: Math.floor(told.workMs / 60_000),
+      ...(told.tokens !== undefined ? { sessionTokens: told.tokens } : {}),
+      worthCutting: told.worth,
+    };
+  };
+
   const status = async (
     canvasName: string,
     seatIds: ReadonlyArray<string>,
@@ -456,6 +528,8 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
         const address = { canvasName, seatId };
         const seat = await ports.locate(address).catch(() => undefined);
         const allowed = mayCloseNow(seat, address);
+        if (seat !== undefined && !seat.local)
+          return remoteRow(seatId, allowed, await ports.remote?.(seat).catch(() => undefined), at);
         const still = seat ? stillness(seat, at) : { minutes: null, pastWindow: false };
         const done = seat ? worthOf(seat, true) : { workMs: 0, worth: false };
         return {
@@ -686,7 +760,7 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
     return summarizeOffboardRun(rows);
   };
 
-  return { run, status, tick, beforeWake, beforeMail, nextTurn, clock };
+  return { run, status, facts, tick, beforeWake, beforeMail, nextTurn, clock };
 };
 
 export type OperatorOffboard = ReturnType<typeof makeOperatorOffboard>;
@@ -754,6 +828,14 @@ export const cutBeforeMail = (seat: SeatAddress): Promise<boolean> =>
  */
 export const seatNextTurnOf = (seat: SeatAddress, launch: SeatNextLaunch): Promise<SeatNextTurn | undefined> =>
   current ? current.nextTurn(seat, launch).catch(() => undefined) : Promise.resolve(undefined);
+
+/**
+ * What this machine's offboard clock and rules say of a seat it runs, for
+ * the machine that edits its canvas. Undefined before the operation is
+ * installed, and for a seat on another machine.
+ */
+export const seatOffboardFactsOf = (seat: SeatAddress): Promise<SeatOffboardFacts | undefined> =>
+  current ? current.facts(seat).catch(() => undefined) : Promise.resolve(undefined);
 
 export const seatOffboardStatus = (
   canvasName: string,

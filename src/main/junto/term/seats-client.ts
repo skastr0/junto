@@ -11,7 +11,9 @@ import { MachineRepository } from "../machines/repository";
 import { isThisMachine } from "@shared/machine-name";
 import type { RemoteSeatProcessClient } from "./seat-process";
 import { SeatsSeatResponse } from "./seats-link";
-import { fromSeatsLaunch, type SeatLaunchState } from "./seats-launch";
+import { fromSeatsLaunch, type RemoteSeatLaunch } from "./seats-launch";
+import { remoteSeatLaunch } from "./remote-seat-launch";
+import { remoteSeatStateEvents } from "./remote-seat-state";
 import { type SeatSpawnFailed, unwrapSeatsFailure } from "./seats-failure";
 
 type Services = HostsService | MachineLink | ModelService;
@@ -27,11 +29,12 @@ export type SeatsClient = RemoteSeatProcessClient & {
    */
   readonly viewed: (bindingId: string, generation: string, operationId?: string) => Promise<boolean>;
   /**
-   * What the seat's next start and turn do, as its machine answers a Get for
-   * a seat with no occupant, on this machine's clock. Undefined when the seat
-   * has an occupant (its states carry the answer) or its machine cannot say.
+   * What the seat's next start and turn do, and its session, as its machine
+   * answers a Get for a seat with no occupant, on this machine's clock.
+   * Undefined when the seat has an occupant (its states carry the answer) or
+   * its machine cannot say.
    */
-  readonly launch: (bindingId: string, operationId?: string) => Promise<SeatLaunchState | undefined>;
+  readonly launch: (bindingId: string, operationId?: string) => Promise<RemoteSeatLaunch | undefined>;
 };
 
 /** A remote process client sends seat identity only, never a launch plan. */
@@ -132,6 +135,20 @@ export const makeSeatsProcessClient = (
       return response._tag === "Vacant" && response.launch !== undefined ? fromSeatsLaunch(response.launch, Date.now()) : undefined;
     }).pipe(Effect.annotateLogs({ area: "seats", seat: bindingId }))),
   };
+};
+
+/**
+ * A seat that runs on another machine: what that machine last said of its
+ * next start, next turn and session. Its states carry the answer while it
+ * has an occupant; otherwise its machine is asked (Get) as remoteSeatLaunch
+ * allows.
+ */
+export const remoteSeatLaunchOf = (seat: { readonly bindingId: string; readonly host: string }): Promise<RemoteSeatLaunch | undefined> => {
+  const last = remoteSeatStateEvents().find((event) => event.bindingId === seat.bindingId);
+  return remoteSeatLaunch({
+    bindingId: seat.bindingId, machine: seat.host, live: last !== undefined && last.state !== "gone",
+    ask: () => makeSeatsProcessClient(seat.host).launch(seat.bindingId),
+  });
 };
 
 /**
