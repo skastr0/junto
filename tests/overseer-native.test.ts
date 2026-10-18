@@ -212,6 +212,10 @@ describe("overseer native adapters", () => {
     expect(agents.ok).toBe(true);
     if (!agents.ok) return;
     expect((agents.data as { agents: ReadonlyArray<{ nodeId: string }> }).agents.map((row) => row.nodeId)).toEqual(["a1"]);
+    // Seats, not sessions: a row carries its terminal, never a key named session.
+    const row = (agents.data as { agents: ReadonlyArray<Record<string, unknown>> }).agents[0];
+    expect(row).toHaveProperty("terminal");
+    expect(row).not.toHaveProperty("session");
 
     const pages = await run(native, "page.list", {});
     expect(pages.ok).toBe(true);

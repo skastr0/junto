@@ -570,8 +570,8 @@ const AgentPrompt = Schema.Struct({
 /**
  * Put another agent on the same seat, keeping its wires and mailbox, by
  * naming what it runs: the same choices a seat draft names. Main works out
- * the agent key, the launch and the new session; an agent never writes a
- * command line for a seat. The seat keeps the directory it starts in.
+ * the agent key and the launch, and the seat starts fresh; an agent never
+ * writes a command line for a seat. The seat keeps the directory it starts in.
  */
 const AgentReseat = Schema.Struct({
   ...NodeTarget,
