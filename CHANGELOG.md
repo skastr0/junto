@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.8.2 — 2026-10-18
+
+- Fix Restart and install doing nothing. A short command that exited before
+  Junto first read the process table was never marked finished, so quitting
+  reported a leftover process, the install stopped, and Junto reopened on the
+  old version. Quitting and installing now complete.
+
 ## 0.8.1 — 2026-10-18
 
 - Keep the canvas smooth with many seats. Rings turn and pulse on the
