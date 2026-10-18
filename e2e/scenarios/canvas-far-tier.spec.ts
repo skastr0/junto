@@ -438,6 +438,8 @@ test("far tier: every seat a portrait in its ring, every region coloured and nam
       let best: { id: string; x: number; y: number; d: number } | undefined;
       for (const node of document.querySelectorAll<HTMLElement>('.react-flow__viewport .react-flow__node')) {
         if (!node.querySelector('.junto-node[data-node-kind="agent"]')) continue;
+        // A seat gathered into a cluster is not drawn, so it cannot be hovered.
+        if (getComputedStyle(node).visibility === "hidden") continue;
         const mark = node.querySelector<HTMLElement>('.junto-mark[data-mark-size="seat"]')!.getBoundingClientRect();
         const x = mark.left + mark.width / 2;
         const y = mark.top + mark.height / 2;
