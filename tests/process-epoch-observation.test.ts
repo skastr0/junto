@@ -169,6 +169,14 @@ describe("asynchronous process-group observations", () => {
     await expect(pending).resolves.toMatchObject({
       observedMemberEpochs: [{ pid: 500, startKey: "leader-a" }, { pid: 501, startKey: "member-a" }],
     });
+    // A leader gone from the table with its group empty is verifiably empty.
+    const gone = captureProcessGroupObservationAsync(500, epoch);
+    complete([row(700, 700, 12, "unrelated")]);
+    await expect(gone).resolves.toEqual({
+      originalProcessGroupId: 500,
+      sessionId: 12,
+      observedMemberEpochs: [],
+    });
     for (const rows of [
       [row(500, 500, 12, "leader-reused")],
       [row(500, 500, 13, "leader-a")],

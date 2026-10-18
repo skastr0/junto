@@ -396,7 +396,20 @@ const groupObservationFromSnapshot = (
       candidate.sessionId === epoch.sessionId && candidate.startKey === epoch.startKey
     ))
   );
-  if (!leader) return undefined;
+  if (!leader) {
+    // A leader that exited before the table was read leaves nothing to enumerate.
+    // With no row in its group the pgid cannot be reused, so the group is
+    // verifiably empty; any remaining member keeps ownership unverified.
+    if (epoch === undefined || epoch.processGroupId !== leaderPid) return undefined;
+    if (snapshot.some((candidate) =>
+      candidate.pid === leaderPid || candidate.processGroupId === leaderPid
+    )) return undefined;
+    return {
+      originalProcessGroupId: leaderPid,
+      sessionId: epoch.sessionId,
+      observedMemberEpochs: [],
+    };
+  }
   const currentMembers = snapshot.filter((candidate) =>
     candidate.processGroupId === leader.processGroupId &&
     candidate.sessionId === leader.sessionId

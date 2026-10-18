@@ -503,7 +503,8 @@ const validCapturedGroupObservation = (
   Number.isSafeInteger(value.sessionId) && value.sessionId >= 0 &&
   Array.isArray(value.observedMemberEpochs) &&
   value.observedMemberEpochs.every(validMemberEpoch) &&
-  value.observedMemberEpochs.some((member) => member.pid === leaderPid);
+  (value.observedMemberEpochs.length === 0 ||
+    value.observedMemberEpochs.some((member) => member.pid === leaderPid));
 
 const validGroupRefresh = (
   previous: ProcessGroupObservation,

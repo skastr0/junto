@@ -1193,6 +1193,45 @@ describe("app process plane drain", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  const spawnLeaderGone = (orphan: boolean) => {
+    const child = new FakeChild();
+    const rows: ProcessEpochRow[][] = [
+      [epochRow(child.pid!, child.pid!, 91, "leader-a")],
+      orphan ? [epochRow(child.pid! + 1, child.pid!, 91, "orphan-a")] : [],
+    ];
+    setProcessEpochReaderForTests({ snapshot: () => rows.length > 1 ? rows.shift() : rows[0] });
+    mocks.spawnDetachedProcessGroup.mockReturnValue({
+      child,
+      process: mintOwned({ kill: child.kill.bind(child) }),
+      mode: "group",
+    });
+    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
+    const lease = plane.spawnGroup(spec("fast command"));
+    child.exitAndClose();
+    return { plane, lease };
+  };
+
+  it("verifies a group whose leader exited before enumeration as empty", async () => {
+    vi.useFakeTimers();
+    const { plane, lease } = spawnLeaderGone(false);
+    await lease.io.closed;
+    const draining = plane.drainOnQuit();
+    await vi.advanceTimersByTimeAsync(25);
+    await expect(draining).resolves.toEqual({ clean: true, stragglers: [] });
+  });
+
+  it("keeps a group unverified when its leader is gone but a member remains", async () => {
+    vi.useFakeTimers();
+    const { plane, lease } = spawnLeaderGone(true);
+    await lease.io.closed;
+    const draining = plane.drainOnQuit();
+    await vi.advanceTimersByTimeAsync(25);
+    await expect(draining).resolves.toMatchObject({
+      clean: false,
+      stragglers: [{ state: "ownership-unverified" }],
+    });
+  });
+
   it("keeps unavailable capture ownership explicitly unverified forever", async () => {
     vi.useFakeTimers();
     const child = new FakeChild();
