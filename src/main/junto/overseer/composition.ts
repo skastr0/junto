@@ -1,7 +1,7 @@
 
 import { Effect, Result } from "effect";
 import { OverseerLiveExecution, type OverseerLiveExecutionConstraint } from "./live/execution";
-import type { Canvas } from "@shared/model";
+import { asCanvasName, asNodeId, type Canvas } from "@shared/model";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import type {
@@ -16,6 +16,7 @@ import type { ModelActorRefs } from "../model/actor-refs";
 import type { ModelService } from "../model/service";
 import { ChatServiceContext } from "../chat/service";
 import { ActorSeatOccupy } from "../term/actor-seat-occupy";
+import { startSeat } from "../term/seat-control";
 import { termPlane } from "../term/plane";
 import { MachineRepository } from "../machines/repository";
 import type { BrowserSessionService } from "../browser/sessions";
@@ -35,6 +36,7 @@ import {
   type AgentReseatCommitInput,
   type ApplicationCaptureResult,
   type OverseerNative,
+  type OverseerSeatStart,
   type SchedulerConfigureApplyInput,
 } from "./native";
 import { managedTerminalDriveForOverseer } from "../term/managed-drive-holder";
@@ -203,6 +205,10 @@ const awaitAuthoringGatePromise = (
     );
   });
 
+/** An overseer's start is the seat's own start, as the window's Start is. */
+const startOverseerSeat = (seat: OverseerSeatStart) =>
+  startSeat({ canvas: asCanvasName(seat.canvasName), seatId: asNodeId(seat.nodeId) }, { plane: termPlane });
+
 export const composeOverseer = async (input: {
   readonly run: OverseerRunPromise;
   readonly captureApplicationPage: () => Promise<ApplicationCaptureResult>;
@@ -211,9 +217,6 @@ export const composeOverseer = async (input: {
 }): Promise<OverseerComposition> => {
   const chats = await input.run(Effect.gen(function* () {
     return yield* ChatServiceContext;
-  }));
-  const actorSeatOccupy = await input.run(Effect.gen(function* () {
-    return yield* ActorSeatOccupy;
   }));
   const pagesHolder: { current: BrowserSessionService | undefined } = {
     current: input.pages,
@@ -255,9 +258,9 @@ export const composeOverseer = async (input: {
     captureApplicationPage: input.captureApplicationPage,
     liveOverseerGrant: liveGrant,
     listCanvases: () => listCanvases(input.run),
-    occupySeat: (spec, signal) =>
+    occupySeat: (seat, signal) =>
       input
-        .run(actorSeatOccupy.occupy(spec), { signal })
+        .run(startOverseerSeat(seat), { signal })
         .then(() => true, () => false),
     managedDrive: lateBoundDrive(),
     commitAgentReseat: commitReseatHook,
@@ -311,9 +314,9 @@ export const composeOverseer = async (input: {
               captureApplicationPage: input.captureApplicationPage,
               liveOverseerGrant: dispatchGrant,
               listCanvases: () => listCanvases(input.run),
-              occupySeat: async (spec, occupySignal) => {
+              occupySeat: async (seat, occupySignal) => {
                 if (!await dispatchGrant(caller)) return false;
-                const effect = actorSeatOccupy.occupy(spec);
+                const effect = startOverseerSeat(seat);
                 return input.run(live === undefined ? effect :
                   Effect.provideService(effect, OverseerLiveExecution, live), { signal: occupySignal })
                   .then(() => true, () => false);

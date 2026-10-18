@@ -69,6 +69,19 @@ describe("actor seat production architecture", () => {
     expect(wire).not.toContain("STATION_PROTOCOL_BASELINE");
   });
 
+  it("starts an overseer's seat the way every start does, never on a spawn intent of its own", () => {
+    const native = source("src/main/junto/overseer/native.ts");
+    const composition = source("src/main/junto/overseer/composition.ts");
+
+    for (const [path, text] of [["native.ts", native], ["composition.ts", composition]] as const) {
+      expect(text, path).not.toContain("makeManagedSpawnIntent");
+      expect(text, path).not.toContain("actorSeatOccupy.occupy(");
+    }
+    expect(composition).toContain("startSeat({ canvas: asCanvasName(seat.canvasName), seatId: asNodeId(seat.nodeId) }");
+    // Both the dispatch grant and the live execution start through it.
+    expect(composition.match(/startOverseerSeat\(/gu)).toHaveLength(2);
+  });
+
   it("routes every managed wake through ActorSeatOccupy", () => {
     const ensure = source("src/main/junto/term/ensure-managed-seat.ts");
     const kernel = source("src/main/junto/kernel/service.ts");

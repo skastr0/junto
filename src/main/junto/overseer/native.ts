@@ -34,7 +34,6 @@ import { modelError } from "../model/records";
 import type { ModelNodeReader } from "../node-ref-resolver";
 import type { TermPlane } from "../term/plane";
 import type { ChatService } from "../chat/service";
-import type { ActorSeatOccupyApi } from "../term/actor-seat-occupy";
 import { terminalObserverPlane } from "../term/observer";
 import {
   BROWSER_UI_SESSION_OWNER,
@@ -51,7 +50,6 @@ import {
 } from "./authz";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import type { ManagedTerminalDrive } from "../term/drive";
-import { makeManagedSpawnIntent } from "../term/managed-spawn-plan";
 
 const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 
@@ -152,6 +150,14 @@ export type SchedulerConfigureApplyInput = {
   readonly change: OverseerArgsFor<"scheduler.configure">["change"];
 };
 
+/** The seat an overseer starts or wakes, as its canvas names it. */
+export type OverseerSeatStart = {
+  readonly bindingId: string;
+  readonly hostId: string;
+  readonly canvasName: string;
+  readonly nodeId: string;
+};
+
 export type OverseerNativeLiveOptions = {
   readonly termPlane: TermPlane;
   readonly chats: ChatService;
@@ -161,11 +167,13 @@ export type OverseerNativeLiveOptions = {
   /** Every canvas as the model holds it now, by name. */
   readonly listCanvases: () => Promise<ReadonlyMap<string, Canvas>>;
   /**
-   * Promise form of ActorSeatOccupy.occupy. Native never calls Effect.runPromise.
-   * Occupied seats activate; vacant seats occupy. Host comes from the node.
+   * Start the seat the way every start does (seat-control's startSeat), so
+   * its own start decides what it starts on. Native never calls
+   * Effect.runPromise. Occupied seats activate; vacant seats occupy. Host
+   * comes from the node.
    */
   readonly occupySeat: (
-    spec: Parameters<ActorSeatOccupyApi["occupy"]>[0],
+    seat: OverseerSeatStart,
     signal: AbortSignal,
   ) => Promise<boolean>;
   readonly managedDrive?: Pick<ManagedTerminalDrive, "writePrompt" | "interrupt">;
@@ -448,16 +456,6 @@ const occupySeat = async (
         hostId: node.host,
         canvasName,
         nodeId: node.id,
-        harness: node.harness,
-        agentKey: node.agentKey,
-        spawnIntent: makeManagedSpawnIntent({
-          nodeId: node.id,
-          harness: node.harness,
-          documentLaunch: node.launch,
-          agentKey: node.agentKey,
-          cwd: node.launch?.cwd,
-          resume: true,
-        }),
       },
       ctx.signal,
     );
