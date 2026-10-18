@@ -60,17 +60,41 @@ describe("the seats wire launch state", () => {
 describe("the seat's session on the wire", () => {
   const facts = { stillSince: NOW - 70 * 60_000, windowMinutes: 2, workMs: 25 * 60_000, tokens: 250_791, worth: true };
 
-  it("crosses its rest as a duration and reads it on the receiver's clock; the card is told the launch state alone", () => {
+  it("crosses its rest as a duration and reads it on the receiver's clock", () => {
     const wire = toSeatsLaunch(warm, NOW, facts);
     expect(wire.offboard).toEqual({ stillForMs: 70 * 60_000, windowMinutes: 2, workMs: 25 * 60_000, tokens: 250_791, worth: true });
     expect(decodeSeatsLaunch(wire)).toEqual(wire);
     const ahead = NOW + 3_600_000;
     const held = fromSeatsLaunch(wire, ahead);
     expect(held.offboard).toEqual({ ...facts, stillSince: ahead - 70 * 60_000 });
-    expect(cardSeatLaunch(held)).toEqual(fromSeatsLaunch(toSeatsLaunch(warm, NOW), ahead));
     // Not at rest, size unknown: both absent.
     expect(toSeatsLaunch(warm, NOW, { windowMinutes: 60, workMs: 0, worth: false }).offboard)
       .toEqual({ windowMinutes: 60, workMs: 0, worth: false });
+  });
+
+  it("tells the card the seat against its cache window on the receiver's clock; the window itself never crosses", () => {
+    const shown = { windowMinutes: 2, stillSince: NOW - 70 * 60_000, windowEndsAt: NOW - 68 * 60_000, pastWindow: true, pastByMs: 68 * 60_000 };
+    const wire = toSeatsLaunch({ ...warm, cacheWindow: shown }, NOW, facts);
+    expect(wire).not.toHaveProperty("cacheWindow");
+    expect(() => decodeSeatsLaunch({ ...wire, cacheWindow: shown })).toThrow();
+    const ahead = NOW + 3_600_000;
+    const card = cardSeatLaunch(fromSeatsLaunch(wire, ahead), ahead);
+    expect(card).toEqual({
+      ...fromSeatsLaunch(toSeatsLaunch(warm, NOW), ahead),
+      cacheWindow: { ...shown, stillSince: ahead - 70 * 60_000, windowEndsAt: ahead - 68 * 60_000 },
+    });
+    expect(card).not.toHaveProperty("offboard");
+    // Ten minutes later on this clock, ten minutes further past.
+    expect(cardSeatLaunch(fromSeatsLaunch(wire, ahead), ahead + 10 * 60_000).cacheWindow)
+      .toMatchObject({ pastWindow: true, pastByMs: 78 * 60_000 });
+    expect(cardSeatLaunch(fromSeatsLaunch(toSeatsLaunch(warm, NOW, { ...facts, windowMinutes: 120 }), ahead), ahead).cacheWindow)
+      .toMatchObject({ windowMinutes: 120, pastWindow: false, pastByMs: 0, windowEndsAt: ahead + 50 * 60_000 });
+    // In a turn, nothing to resume, or nothing said: no window told.
+    expect(cardSeatLaunch(fromSeatsLaunch(toSeatsLaunch(warm, NOW, { windowMinutes: 2, workMs: 0, worth: false }), ahead), ahead))
+      .not.toHaveProperty("cacheWindow");
+    expect(cardSeatLaunch(fromSeatsLaunch(toSeatsLaunch({ hasSession: false, next: "fresh" }, NOW, facts), ahead), ahead))
+      .not.toHaveProperty("cacheWindow");
+    expect(cardSeatLaunch(fromSeatsLaunch(toSeatsLaunch(warm, NOW), ahead), ahead)).toEqual(fromSeatsLaunch(toSeatsLaunch(warm, NOW), ahead));
   });
 
   it("clamps on sending and refuses anything over a bound or any other key", () => {

@@ -226,7 +226,7 @@ export const registerTerminalIpc = (
     if (router.isLocalHostId(node.host)) return AppRuntime.runPromise(seatLaunchState(input.canvas, node));
     // A seat on another machine: what that machine last said (seats-launch.ts).
     const launch = await remoteSeatLaunchOf(node);
-    return launch === undefined ? deny("This seat runs on another machine.") : cardSeatLaunch(launch);
+    return launch === undefined ? deny("This seat runs on another machine.") : cardSeatLaunch(launch, Date.now());
   });
 
   ipcMain.handle(IPC_CHANNELS.modelStart, async (event, input: Parameters<JuntoApi["modelStart"]>[0]) => {

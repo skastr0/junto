@@ -16,7 +16,7 @@
  */
 import { Schema } from "effect";
 import type { JuntoApi } from "@shared/ipc";
-import { SEAT_NEXT_LAUNCHES } from "@shared/seat-next-launch";
+import { SEAT_NEXT_LAUNCHES, seatCacheWindow } from "@shared/seat-next-launch";
 import { OFFBOARD_MINUTES_MAX, OFFBOARD_MINUTES_MIN } from "@shared/seat-offboard";
 import type { SeatOffboardFacts } from "../seat-sessions/operator-offboard";
 
@@ -132,9 +132,18 @@ export const fromSeatsLaunch = (wire: SeatsLaunchState, now: number): RemoteSeat
   };
 };
 
-/** What the card is told: the launch state alone. */
-export const cardSeatLaunch = (launch: RemoteSeatLaunch): SeatLaunchState => ({
-  hasSession: launch.hasSession,
-  next: launch.next,
-  ...(launch.nextTurn === undefined ? {} : { nextTurn: launch.nextTurn }),
-});
+/**
+ * What the card is told: the launch state, and the seat against its cache
+ * window, built here at `now` from what the seat's machine said of it. The
+ * window itself never crosses: the seat's machine sends the facts, and this
+ * clock reads them.
+ */
+export const cardSeatLaunch = (launch: RemoteSeatLaunch, now: number): SeatLaunchState => {
+  const cacheWindow = launch.offboard && seatCacheWindow(launch.next, launch.offboard, now);
+  return {
+    hasSession: launch.hasSession,
+    next: launch.next,
+    ...(launch.nextTurn === undefined ? {} : { nextTurn: launch.nextTurn }),
+    ...(cacheWindow === undefined ? {} : { cacheWindow }),
+  };
+};

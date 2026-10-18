@@ -3,7 +3,10 @@
  * overseer command and the automatic rules, and the durable status clock.
  * No app, no harness, no real seats: every port is scripted.
  */
-import { describe, expect, it } from "vitest";
+import { Effect } from "effect";
+import { describe, expect, it, vi } from "vitest";
+import type { NodeOf } from "../src/shared/model";
+import type { SeatSessionRepository as SeatSessions } from "../src/main/junto/seat-sessions/repository";
 import {
   SeatStatusClock,
   makeOperatorOffboard,
@@ -359,11 +362,11 @@ describe("a seat on another machine", () => {
     w.settle("a");
     w.advance(7);
     expect(await w.offboard.facts({ canvasName: CANVAS, seatId: "a" })).toEqual({
-      stillSince: T0, windowMinutes: 60, workMs: 60 * MIN, tokens: 180_000, worth: true,
+      stillSince: T0, windowMinutes: 60, cacheMode: "hybrid", workMs: 60 * MIN, tokens: 180_000, worth: true,
     });
     w.set("a", { state: "working" });
     expect(await w.offboard.facts({ canvasName: CANVAS, seatId: "a" })).toEqual({
-      windowMinutes: 60, workMs: 60 * MIN, tokens: 180_000, worth: true,
+      windowMinutes: 60, cacheMode: "hybrid", workMs: 60 * MIN, tokens: 180_000, worth: true,
     });
     expect(await w.offboard.facts({ canvasName: CANVAS, seatId: "far" })).toBeUndefined();
     expect(await w.offboard.facts({ canvasName: CANVAS, seatId: "ghost" })).toBeUndefined();
@@ -697,6 +700,49 @@ describe("the seat's next turn: the same test as the cut", () => {
     w.advance(600);
     expect(await next(w, "tiny")).toEqual({ fresh: false });
     expect(await next(w, "far")).toBeUndefined();
+  });
+});
+
+describe("the seat against its cache window, as its card reads it", () => {
+  it("tells a still seat that resumes how far past its harness's window it is, by this machine's clock and rules", async () => {
+    const { setOperatorOffboard } = await import("../src/main/junto/seat-sessions/operator-offboard");
+    const { SeatSessionRepository } = await import("../src/main/junto/seat-sessions/repository");
+    const { seatLaunchState } = await import("../src/main/junto/term/seat-launch-state");
+    const w = world([seat("a", { harness: "amp" })], {
+      rules: { ...defaultOffboardRules(), cacheMode: "manual", harness: { amp: { cacheWindowMinutes: 5 } } },
+    });
+    // Amp keeps its thread by id, so an open one resumes with nothing on disk.
+    let open: { harness: string; sessionId: string } | undefined = { harness: "amp", sessionId: "T-a" };
+    const sessions = {
+      current: () => Effect.succeed(open),
+      list: () => Effect.succeed([]),
+    } as unknown as SeatSessions["Service"];
+    const node = { kind: "agent", id: "a", bindingId: "bind-a", harness: "amp" } as unknown as NodeOf<"agent">;
+    let elapsed = 0;
+    const readAfter = (minutes: number) => {
+      w.advance(minutes);
+      elapsed += minutes;
+      vi.setSystemTime(T0 + elapsed * MIN);
+      return Effect.runPromise(seatLaunchState(CANVAS, node).pipe(Effect.provideService(SeatSessionRepository, sessions)));
+    };
+    setOperatorOffboard(w.offboard);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      // At rest since T0, under amp's own five minute window and this machine's mode.
+      const told = { windowMinutes: 5, stillSince: T0, windowEndsAt: T0 + 5 * MIN, cacheMode: "manual" };
+      expect((await readAfter(3)).cacheWindow).toEqual({ ...told, pastWindow: false, pastByMs: 0 });
+      expect((await readAfter(9)).cacheWindow).toEqual({ ...told, pastWindow: true, pastByMs: 7 * MIN });
+      // In a turn it is not still: nothing told.
+      w.seats.set("a", { ...w.seats.get("a")!, state: "working" });
+      expect(await readAfter(1)).not.toHaveProperty("cacheWindow");
+      // Nothing to resume: nothing told, however long it rests.
+      w.seats.set("a", { ...w.seats.get("a")!, state: "idle" });
+      open = undefined;
+      expect(await readAfter(60)).not.toHaveProperty("cacheWindow");
+    } finally {
+      vi.useRealTimers();
+      setOperatorOffboard(undefined);
+    }
   });
 });
 

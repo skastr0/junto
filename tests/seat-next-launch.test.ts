@@ -4,7 +4,7 @@
  * session ended.
  */
 import { describe, expect, it } from "vitest";
-import { SEAT_FRESH_NEXT_LINE, seatNextLaunch, seatNextTurn } from "../src/shared/seat-next-launch";
+import { SEAT_FRESH_NEXT_LINE, seatCacheWindow, seatNextLaunch, seatNextTurn } from "../src/shared/seat-next-launch";
 
 const open = (harness = "claude") => ({ harness, sessionId: "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed" });
 
@@ -47,5 +47,27 @@ describe("seatNextTurn", () => {
   it("says only the fresh case, in words a seat line holds uncut at fit-all, and never names a cache", () => {
     expect(SEAT_FRESH_NEXT_LINE).toBe("fresh next");
     expect(SEAT_FRESH_NEXT_LINE.length).toBeLessThanOrEqual(18);
+  });
+});
+
+describe("seatCacheWindow", () => {
+  const T = 1_792_000_000_000;
+  const MIN = 60_000;
+
+  it("tells a still seat that resumes when its window ends, and how far past it is", () => {
+    expect(seatCacheWindow("resume", { stillSince: T, windowMinutes: 5 }, T + 4 * MIN))
+      .toEqual({ windowMinutes: 5, stillSince: T, windowEndsAt: T + 5 * MIN, pastWindow: false, pastByMs: 0 });
+    // The moment the window ends, the seat is past it: the cut's own test.
+    expect(seatCacheWindow("resume", { stillSince: T, windowMinutes: 5 }, T + 5 * MIN)).toMatchObject({ pastWindow: true, pastByMs: 0 });
+    expect(seatCacheWindow("resume", { stillSince: T, windowMinutes: 5 }, T + 12 * MIN)).toMatchObject({ pastWindow: true, pastByMs: 7 * MIN });
+    // The machine's mode goes with it when the machine said it.
+    expect(seatCacheWindow("resume", { stillSince: T, windowMinutes: 5, cacheMode: "auto" }, T)).toMatchObject({ cacheMode: "auto" });
+    expect(seatCacheWindow("resume", { stillSince: T, windowMinutes: 5 }, T)).not.toHaveProperty("cacheMode");
+  });
+
+  it("tells nothing for a seat in a turn, or one whose next start does not resume", () => {
+    expect(seatCacheWindow("resume", { windowMinutes: 5 }, T)).toBeUndefined();
+    expect(seatCacheWindow("fresh", { stillSince: T, windowMinutes: 5 }, T + 60 * MIN)).toBeUndefined();
+    expect(seatCacheWindow("offboarded", { stillSince: T, windowMinutes: 5 }, T + 60 * MIN)).toBeUndefined();
   });
 });

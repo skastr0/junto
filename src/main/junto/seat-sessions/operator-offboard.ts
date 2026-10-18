@@ -31,6 +31,7 @@ import {
   summarizeOffboardRun,
   sessionWorthCutting,
   wholeMinutesBetween,
+  type CacheMode,
   type OffboardBy,
   type OffboardRefusalCode,
   type OffboardRules,
@@ -91,6 +92,8 @@ export type SeatOffboardFacts = {
   readonly stillSince?: number;
   /** The cache window for the seat's harness, in minutes. */
   readonly windowMinutes: number;
+  /** That machine's cache mode. Absent when that machine has not said it. */
+  readonly cacheMode?: CacheMode;
   /** Time spent working in its current session (ms). */
   readonly workMs: number;
   /** The session's transcript as a token estimate. Absent when it cannot be located. */
@@ -475,9 +478,11 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
   const factsOf = (seat: OffboardSeat, at: number): SeatOffboardFacts => {
     const still = stillness(seat, at);
     const done = worthOf(seat, true);
+    const set = offboardRulesFor(ports.rules(), seat.harness);
     return {
       ...(still.since !== undefined ? { stillSince: still.since } : {}),
-      windowMinutes: offboardRulesFor(ports.rules(), seat.harness).cacheWindowMinutes,
+      windowMinutes: set.cacheWindowMinutes,
+      cacheMode: set.cacheMode,
       workMs: done.workMs,
       ...(done.tokens !== undefined ? { tokens: done.tokens } : {}),
       worth: done.worth,

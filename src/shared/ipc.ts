@@ -118,7 +118,7 @@ import type {
   ProfilesChanged,
 } from "./agent-profiles";
 import type { NotifyCue, NotifyReport, NotifyTarget } from "./desktop-notifications";
-import type { SeatNextLaunch, SeatNextTurn } from "./seat-next-launch";
+import type { SeatCacheWindow, SeatNextLaunch, SeatNextTurn } from "./seat-next-launch";
 import type { OverseerLiveApi } from "./overseer-live";
 import type {
   ObservabilityLogEntry,
@@ -815,11 +815,14 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
    * `next`: what the seat's next start does, resume its session or begin a
    * fresh one. `nextTurn`: whether its next turn, whoever gives it, starts
    * fresh, running or not; absent before Junto is ready (seat-next-launch.ts).
+   * `cacheWindow`: the seat against its cache window, the soft warning's
+   * fact; told while the seat is still and its next start resumes.
    */
   readonly modelSeatLaunchState: (input: { readonly canvas: string; readonly id: string }) => Promise<{
     readonly hasSession: boolean;
     readonly next: SeatNextLaunch;
     readonly nextTurn?: SeatNextTurn;
+    readonly cacheWindow?: SeatCacheWindow;
   }>;
   readonly getSnapshots: () => Promise<SnapshotState>;
   // Kernel state and control (headless kernel in main process).
