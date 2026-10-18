@@ -36,6 +36,7 @@ import { AGENT_PROFILES_STATE_SCHEMA_SQL } from "../profiles/state-schema";
 import { SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL } from "../seat-sessions/state-schema";
 import { migrateSeatPins, SEAT_SESSIONS_V8_STATE_SCHEMA_SQL } from "./migrate-seat-pins";
 import { migrateSeatSessionData } from "./migrate-seat-session-data";
+import { migrateSeatRows } from "./migrate-seat-rows";
 import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-models-state-schema";
 import {
   PORTRAIT_OVERRIDES_COPY_FORWARD_SQL,
@@ -351,7 +352,16 @@ export const STATE_SCHEMA_V23_IDENTITY = {
     "93e3510efd51bb9d7245ef1f4784395f6c932b3db01d98479423d6191744710a",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 23;
+/**
+ * Version 24 retires `seats.session_id`, which nothing read after 19 -> 20,
+ * and says "stop" where a seat or terminal row said "kill-session".
+ */
+export const STATE_SCHEMA_V24_IDENTITY = {
+  actualSchemaSha256:
+    "03091422619a73a17db29649091164fbbbeb1fdd9062ead1c9cb119b1e1a19ae",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 24;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -359,7 +369,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 23;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V23_IDENTITY;
+  STATE_SCHEMA_V24_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -616,6 +626,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     migrate: (database) => {
       database.exec(HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL);
     },
+  },
+  {
+    fromVersion: 23,
+    toVersion: 24,
+    name: "retire the seat row's session column and say stop",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V23_IDENTITY,
+    replacesTables: ["seats", "terminals"],
+    retiresColumns: { seats: ["session_id"] },
+    migrate: (database) => migrateSeatRows(database),
   },
 ];
 

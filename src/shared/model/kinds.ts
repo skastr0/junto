@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Schema, SchemaTransformation } from "effect";
 import { HarnessId } from "../managed-terminal-templates";
 import { TasksContract } from "../work-model";
 import { ActorSeatId } from "../actor-seat";
@@ -45,8 +45,20 @@ export const Launch = Schema.Struct({
 });
 export type Launch = typeof Launch.Type;
 
-/** What happens to the running session when the thing is removed. */
-export const TerminalOnRemove = Schema.Literals(["detach", "kill-session"]);
+/**
+ * What happens to the running terminal when the thing is removed: it keeps
+ * running, or it stops. A document stored before the word was "stop" said
+ * "kill-session"; it still decodes, and is written back as "stop".
+ */
+export const TerminalOnRemove = Schema.Literals(["detach", "stop", "kill-session"]).pipe(
+  Schema.decodeTo(
+    Schema.Literals(["detach", "stop"]),
+    SchemaTransformation.transform({
+      decode: (stored) => (stored === "kill-session" ? "stop" : stored),
+      encode: (onRemove) => onRemove,
+    }),
+  ),
+);
 export type TerminalOnRemove = typeof TerminalOnRemove.Type;
 
 /** Stable identity of a terminal session across restarts. Not a process id. */

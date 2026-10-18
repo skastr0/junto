@@ -1,5 +1,5 @@
 /**
- * The frozen state schemas, version 1 through version 22, built only from
+ * The frozen state schemas, version 1 through version 23, built only from
  * frozen text and frozen steps so no later schema change can move a
  * historical witness.
  * Version 14 is its frozen fragments. Each earlier version is the next one
@@ -117,6 +117,12 @@ export const STATE_SCHEMA_V21_SQL = stepped(
 export const STATE_SCHEMA_V22_SQL = stepped(
   STATE_SCHEMA_V21_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 22)!.migrate,
+);
+
+// Version 23 added the harness model cache (22 -> 23).
+export const STATE_SCHEMA_V23_SQL = stepped(
+  STATE_SCHEMA_V22_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 23)!.migrate,
 );
 
 // Version 14 dropped this trigger (13 -> 14), so version 13 is version 14 with it.

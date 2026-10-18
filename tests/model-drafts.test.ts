@@ -63,7 +63,7 @@ describe("a node draft", () => {
   it("drafts a seat by its harness and dials, and nothing main works out", () => {
     expect(decodes(NodeDraft, {
       ...seat, label: "Builder", host: "studio", profile: "work", model: "opus", effort: "high",
-      mode: "ultra", permissionMode: "plan", cwd: "/repo", onRemove: "kill-session", color: "#aabbcc",
+      mode: "ultra", permissionMode: "plan", cwd: "/repo", onRemove: "stop", color: "#aabbcc",
     })).toBe(true);
     for (const field of SEAT_FIELDS_MAIN_WORKS_OUT) {
       const value = field === "overseer" ? false : field === "launch" ? { kind: "harness", argv: ["claude"] } : "x";

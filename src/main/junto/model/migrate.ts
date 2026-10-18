@@ -110,7 +110,7 @@ export const migrateCanvasKinds = (
       const occupied = bindings.get(old.canvas_name) ?? new Set<string>();
       if (occupied.has(node.bindingId)) {
         downgraded = { canvas: old.canvas_name, id: node.id, storedType: node.kind,
-          reason: "session binding already belongs to an earlier node; preserved as a note" };
+          reason: "terminal binding already belongs to an earlier node; preserved as a note" };
         node = convertLegacyRow({ ...old, type: "text", ether_json: null }, thisMachine).node;
       } else occupied.add(node.bindingId);
       bindings.set(old.canvas_name, occupied);
@@ -119,8 +119,13 @@ export const migrateCanvasKinds = (
       recordSystemLog(`Junto migrated stored object ${JSON.stringify(downgraded)}`, "warn");
     if (node.kind === "peer") throw new Error("a stored canvas never holds a peer");
     const table = KIND_TABLES_V13[node.kind];
+    const row = nodeToRow(old.canvas_name, node);
     insert(database, table, {
-      ...nodeToRow(old.canvas_name, node),
+      ...row,
+      // Version 13 said "kill-session" for a terminal that stops on removal.
+      ...((node.kind === "agent" || node.kind === "terminal") && row.on_remove === "stop"
+        ? { on_remove: "kill-session" }
+        : {}),
       created_at: old.created_at ?? old.updated_at,
       updated_at: old.updated_at,
     });

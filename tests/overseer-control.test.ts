@@ -123,7 +123,7 @@ describe("overseer command contract", () => {
     succeeds(decodeOverseerArgs("node.create", {
       node: {
         ...seat, id: "s1", color: "2", label: "Reviewer", host: THIS_MACHINE, profile: "work", model: "opus",
-        effort: "high", mode: "plan", permissionMode: "acceptEdits", cwd: "~/Projects/junto", onRemove: "kill-session",
+        effort: "high", mode: "plan", permissionMode: "acceptEdits", cwd: "~/Projects/junto", onRemove: "stop",
       },
     }));
     // A plain terminal is the kind drafted with a command.

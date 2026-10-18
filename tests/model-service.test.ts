@@ -415,7 +415,7 @@ it("refuses overseer occupant changes and rolls back presentation steps before t
     const events: Changed[] = [];
     const stop = model.subscribeChanges((event) => events.push(event));
     const prohibited = [
-      ...[{ launch: { kind: "harness", cwd: "/tmp" } }, { host: "other" }, { harness: "claude" }, { onRemove: "kill-session" }, { label: "Renamed", launch: null }].map((change) => ({
+      ...[{ launch: { kind: "harness", cwd: "/tmp" } }, { host: "other" }, { harness: "claude" }, { onRemove: "stop" }, { label: "Renamed", launch: null }].map((change) => ({
         _tag: "Edit", canvas: "factory", id: "seat", change: { kind: "agent", ...change },
       })),
       { _tag: "Remove", canvas: "factory", nodes: ["seat"], wires: [] },

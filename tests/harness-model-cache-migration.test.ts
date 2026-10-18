@@ -13,7 +13,6 @@ import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V22_IDENTITY,
@@ -21,8 +20,7 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
-import { STATE_SCHEMA_V22_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V22_SQL, STATE_SCHEMA_V23_SQL } from "./fixtures/state-v1/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -63,13 +61,17 @@ const versionTwentyTwoPlan = {
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 22).map(named),
 };
 
-const headPlan = { ...STATE_SCHEMA_MIGRATION_PLAN, migrations: STATE_SCHEMA_MIGRATIONS.map(named) };
+const versionTwentyThreePlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 23,
+  currentSchemaSql: STATE_SCHEMA_V23_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 23).map(named),
+};
 
 describe("state migration 22 -> 23 (harness model cache)", () => {
-  it("freezes the witness the step starts from and names the head", () => {
+  it("freezes the witnesses the step starts from and ends at", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V22_SQL)).toEqual(STATE_SCHEMA_V22_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V23_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(expectedStateSchemaIdentity(STATE_SCHEMA_SQL));
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V23_SQL)).toEqual(STATE_SCHEMA_V23_IDENTITY);
   });
 
   it.each(["command-center-v1.db", "remote-v1.db"])(
@@ -82,7 +84,7 @@ describe("state migration 22 -> 23 (harness model cache)", () => {
         expect((before.work_events as unknown[]).length).toBeGreaterThan(0);
         expect(before).not.toHaveProperty("harness_model_cache");
 
-        const result = migrateStateSchema(database, headPlan);
+        const result = migrateStateSchema(database, versionTwentyThreePlan);
         expect(result).toMatchObject({ previousVersion: 22, schemaVersion: 23 });
         expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V23_IDENTITY);
 
@@ -99,7 +101,7 @@ describe("state migration 22 -> 23 (harness model cache)", () => {
   it("holds one list per harness and refuses a row that is not one", async () => {
     const database = await openCopy("command-center-v1.db");
     try {
-      migrateStateSchema(database, headPlan);
+      migrateStateSchema(database, versionTwentyThreePlan);
       const insert = database.prepare(
         `INSERT INTO harness_model_cache(harness, fingerprint, scanned_at, version, result, profiles)
          VALUES (?, ?, ?, ?, ?, ?)`,
