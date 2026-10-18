@@ -7,10 +7,10 @@ import {
 } from "../src/shared/operator-feed";
 import {
   feedStatusLine,
+  holdFeedPlaces,
   reconcileSelection,
   stepFeedSelection,
   viewFeedSections,
-  withLeavingItems,
 } from "../src/renderer/lib/operator-feed";
 import { mergedQuickReplies, moveQuickReply, quickReplyForKey } from "../src/renderer/lib/quick-replies";
 
@@ -66,24 +66,53 @@ describe("stepFeedSelection", () => {
   });
 });
 
-describe("withLeavingItems", () => {
-  it("reinserts a leaving item at its old place, marked", () => {
-    const previous = [section("r", ["a", "b", "c"])];
-    const current = [section("r", ["a", "c"])];
-    const merged = withLeavingItems(previous, current, new Set(["b"]));
-    expect(merged[0]?.items.map((i) => i.itemId)).toEqual(["a", "b", "c"]);
-    expect([...(merged[0]?.leavingIds ?? [])]).toEqual(["b"]);
+describe("holdFeedPlaces", () => {
+  const shownOf = (...sections: ReadonlyArray<FeedSection>) => holdFeedPlaces([], sections, new Set());
+  const layout = (sections: ReturnType<typeof holdFeedPlaces>) =>
+    sections.map((s) => `${s.region.regionId}: ${s.items.map((i) => (s.leavingIds.has(i.itemId) ? `(${i.itemId})` : i.itemId)).join(" ")}`);
+
+  it("keeps a leaving item at its old place, marked", () => {
+    const held = holdFeedPlaces(shownOf(section("r", ["a", "b", "c"])), [section("r", ["a", "c"])], new Set(["b"]));
+    expect(layout(held)).toEqual(["r: a (b) c"]);
   });
 
-  it("keeps a section whose last item is leaving", () => {
-    const merged = withLeavingItems([section("x", ["z"])], [section("r", ["a"])], new Set(["z"]));
-    expect(merged.map((s) => s.region.regionId)).toEqual(["r", "x"]);
-    expect(merged[1]?.leavingIds.has("z")).toBe(true);
+  it("keeps a region whose last item is leaving where it was, not at the end", () => {
+    const shown = shownOf(section("x", ["z"]), section("r", ["a"]), section("s", ["b"]));
+    const held = holdFeedPlaces(shown, [section("r", ["a"]), section("s", ["b"])], new Set(["z"]));
+    expect(layout(held)).toEqual(["x: (z)", "r: a", "s: b"]);
   });
 
-  it("ignores items that are not leaving", () => {
-    const merged = withLeavingItems([section("r", ["a", "b"])], [section("r", ["a"])], new Set());
-    expect(merged[0]?.items.map((i) => i.itemId)).toEqual(["a"]);
+  it("drops a gone item once it is no longer leaving, and its empty region", () => {
+    const held = holdFeedPlaces(shownOf(section("x", ["z"]), section("r", ["a", "b"])), [section("r", ["a"])], new Set());
+    expect(layout(held)).toEqual(["r: a"]);
+  });
+
+  it("holds what is shown through a re-rank", () => {
+    const shown = shownOf(section("r", ["a", "b"]), section("x", ["c"]));
+    const held = holdFeedPlaces(shown, [section("x", ["c"]), section("r", ["b", "a"])], new Set());
+    expect(layout(held)).toEqual(["r: a b", "x: c"]);
+  });
+
+  it("puts a new item and a new region where the ranking puts them", () => {
+    const shown = shownOf(section("r", ["a", "c"]), section("x", ["d"]));
+    const held = holdFeedPlaces(
+      shown,
+      [section("n", ["m"]), section("r", ["p", "q", "a", "b", "c"]), section("x", ["d", "e"])],
+      new Set(),
+    );
+    expect(layout(held)).toEqual(["n: m", "r: p q a b c", "x: d e"]);
+  });
+
+  it("draws an item that moved region in its new one, not fading in the old", () => {
+    const shown = shownOf(section("r", ["a", "b"]), section("x", ["c"]));
+    const held = holdFeedPlaces(shown, [section("r", ["a"]), section("x", ["b", "c"])], new Set(["b"]));
+    expect(layout(held)).toEqual(["r: a", "x: b c"]);
+  });
+
+  it("draws the ranking's own copy of an item that stays", () => {
+    const fresh = { ...item("a"), text: "asked again" };
+    const ranked: FeedSection = { ...section("r", ["a"]), items: [fresh] };
+    expect(holdFeedPlaces(shownOf(section("r", ["a"])), [ranked], new Set())[0]?.items[0]).toBe(fresh);
   });
 });
 

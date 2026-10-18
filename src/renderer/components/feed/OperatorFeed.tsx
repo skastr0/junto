@@ -48,7 +48,6 @@ import {
   needsOperatorCount,
   type FeedItem,
   type FeedItemKind,
-  type FeedSection,
   type FeedSortOrder,
 } from "@shared/operator-feed";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
@@ -60,11 +59,12 @@ import {
   feedItemsInOrder,
   feedStatusLine,
   feedView$,
+  holdFeedPlaces,
   reconcileSelection,
   stepFeedSelection,
   useOperatorFeed,
   viewFeedSections,
-  withLeavingItems,
+  type ShownFeedSection,
 } from "../../lib/operator-feed";
 import { canReviewCommit, openCommitReview } from "../../lib/git-summary";
 import { closeOperatorModal, operatorModalPlace } from "../../lib/operator-modal";
@@ -85,6 +85,7 @@ import { Button, Dropdown, Kbd, StatusDot } from "../ui";
 import "./operator-feed.css";
 
 const LEAVE_MS = 280;
+const NO_IDS: ReadonlySet<string> = new Set();
 
 const closeOperatorFeed = (): void => closeOperatorModal("feed");
 
@@ -142,7 +143,7 @@ export function FeedCard({
   readonly nowMs: number;
   readonly quickReplies: ReadonlyArray<string>;
   readonly selected: boolean;
-  /** Scroll into view when selected: keyboard moves do, a pointer press does not. */
+  /** Scroll into view as it is selected: only a j/k step asks for it. */
   readonly reveal: boolean;
   readonly leaving: boolean;
   readonly replying: boolean;
@@ -304,7 +305,7 @@ function FeedRegionSection({
   section,
   children,
 }: {
-  readonly section: FeedSection & { readonly leavingIds: ReadonlySet<string> };
+  readonly section: ShownFeedSection;
   readonly children: ReactNode;
 }) {
   const live = needsOperatorCount(section.items.filter((item) => !section.leavingIds.has(item.itemId)));
@@ -356,9 +357,14 @@ export function OperatorFeed() {
     if (place && scrollRef.current) scrollRef.current.scrollTop = place.scrollTop;
   }, [place]);
   const [selected, setSelected] = useState<string | null>(place?.itemId ?? null);
-  // A press selects what is already under the pointer; scrolling it would
-  // move the row out from under the click.
-  const [reveal, setReveal] = useState(place === undefined);
+  // The list moves only when the operator moves it. A j/k step may bring the
+  // card it selects into view, once; nothing else scrolls a card in: not a
+  // press (it would move the row out from under the click), not an answer
+  // handing the selection on, not a card leaving or arriving.
+  const [revealId, setRevealId] = useState<string | null>(null);
+  useEffect(() => {
+    if (revealId !== null) setRevealId(null);
+  }, [revealId]);
   const [replyFor, setReplyFor] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(place?.expanded));
   // Quick replies in flight, by item: one per card, cards independent.
@@ -375,45 +381,66 @@ export function OperatorFeed() {
     [feed.sections, regionPick, canvasName, feedOrder],
   );
 
-  // Answered or dismissed items fade out in place before they leave.
-  const [ghost, setGhost] = useState<{ readonly previous: ReadonlyArray<FeedSection>; readonly ids: ReadonlySet<string> }>(
-    () => ({ previous: [], ids: new Set() }),
-  );
-  const previousSections = useRef(viewSections);
-  const leaveTimers = useRef(new Set<number>());
-  useEffect(() => {
-    const before = previousSections.current;
-    previousSections.current = viewSections;
-    const now = new Set(feedItemsInOrder(viewSections).map((item) => item.itemId));
-    const gone = feedItemsInOrder(before).filter((item) => !now.has(item.itemId)).map((item) => item.itemId);
-    if (gone.length === 0) return;
+  // What the feed draws. The operator's own picks (canvas, region, order)
+  // rank it afresh; any other change keeps every card where the operator
+  // sees it: a new card goes where the ranking puts it, and an answered or
+  // dismissed one fades out in its place, its region with it, before it
+  // leaves. Worked out while rendering, so no commit ever draws the list
+  // without a card that is still fading: one that did remounted the card,
+  // a reply box open on it took focus again, and the list scrolled to it.
+  const pick = `${canvasName}\n${activeRegion ? (activeRegion.regionId ?? OPEN_FIELD) : ALL_REGIONS}\n${feedOrder}`;
+  const [shown, setShown] = useState(() => ({
+    view: viewSections,
+    pick,
+    sections: holdFeedPlaces([], viewSections, NO_IDS),
+    leaving: NO_IDS,
+  }));
+  if (shown.view !== viewSections || shown.pick !== pick) {
+    const held = shown.pick === pick ? shown.sections : [];
+    const live = new Set(feedItemsInOrder(viewSections).map((item) => item.itemId));
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-    if (reduced) return;
-    setGhost((current) => ({ previous: before, ids: new Set([...current.ids, ...gone]) }));
-    // Not cleared by the next feed change: the feed re-renders often, and a
-    // ghost whose timer was dropped would never leave.
-    const timer = window.setTimeout(() => {
-      leaveTimers.current.delete(timer);
-      setGhost((current) => {
-        const ids = new Set(current.ids);
-        for (const id of gone) ids.delete(id);
-        return { previous: current.previous, ids };
-      });
-    }, LEAVE_MS);
-    leaveTimers.current.add(timer);
-  }, [viewSections]);
+    const leaving = new Set(
+      reduced ? [] : feedItemsInOrder(held).map((item) => item.itemId).filter((itemId) => !live.has(itemId)),
+    );
+    setShown({ view: viewSections, pick, sections: holdFeedPlaces(held, viewSections, leaving), leaving });
+  }
+  const sections = shown.sections;
+  // One timer per fading card, kept through every change until it fires: the
+  // feed re-renders often, and a card whose timer was dropped would never leave.
+  const leaveTimers = useRef(new Map<string, number>());
+  useEffect(() => {
+    const timers = leaveTimers.current;
+    for (const [itemId, timer] of timers) {
+      if (shown.leaving.has(itemId)) continue;
+      window.clearTimeout(timer);
+      timers.delete(itemId);
+    }
+    for (const itemId of shown.leaving) {
+      if (timers.has(itemId)) continue;
+      const timer = window.setTimeout(() => {
+        timers.delete(itemId);
+        setShown((current) => {
+          const leaving = new Set(current.leaving);
+          leaving.delete(itemId);
+          return { ...current, sections: holdFeedPlaces(current.sections, current.view, leaving), leaving };
+        });
+      }, LEAVE_MS);
+      timers.set(itemId, timer);
+    }
+  }, [shown.leaving]);
   useEffect(() => {
     const timers = leaveTimers.current;
     return () => {
-      for (const timer of timers) window.clearTimeout(timer);
+      for (const timer of timers.values()) window.clearTimeout(timer);
+      timers.clear();
     };
   }, []);
-  const sections = useMemo(
-    () => withLeavingItems(ghost.previous, viewSections, ghost.ids),
-    [ghost, viewSections],
-  );
 
-  const items = useMemo(() => feedItemsInOrder(viewSections), [viewSections]);
+  // The cards still waiting, in the order they are drawn.
+  const items = useMemo(
+    () => feedItemsInOrder(shown.sections).filter((item) => !shown.leaving.has(item.itemId)),
+    [shown],
+  );
   const itemsRef = useRef(items);
   // When the selected item leaves, for whatever reason, its neighbour takes over.
   useEffect(() => {
@@ -445,16 +472,11 @@ export function OperatorFeed() {
     // The region and order menus read letters as type-ahead: keys that land
     // inside a listbox are the menu's, never j/k movement.
     if (event.target instanceof Element && event.target.closest('[role="listbox"]')) return;
-    if (event.key === "j" || event.key === "ArrowDown") {
+    if (event.key === "j" || event.key === "ArrowDown" || event.key === "k" || event.key === "ArrowUp") {
       event.preventDefault();
-      setReveal(true);
-      setSelected(stepFeedSelection(items, selected, 1));
-      return;
-    }
-    if (event.key === "k" || event.key === "ArrowUp") {
-      event.preventDefault();
-      setReveal(true);
-      setSelected(stepFeedSelection(items, selected, -1));
+      const next = stepFeedSelection(items, selected, event.key === "j" || event.key === "ArrowDown" ? 1 : -1);
+      setSelected(next);
+      setRevealId(next);
       return;
     }
     const item = items.find((candidate) => candidate.itemId === selected);
@@ -595,16 +617,13 @@ export function OperatorFeed() {
                   nowMs={feed.generatedAt}
                   quickReplies={quickReplies}
                   selected={selected === item.itemId}
-                  reveal={reveal}
+                  reveal={revealId === item.itemId}
                   leaving={section.leavingIds.has(item.itemId)}
                   replying={replyFor === item.itemId}
                   expanded={expanded.has(item.itemId)}
                   sending={sending.get(item.itemId) ?? null}
                   error={failure?.itemId === item.itemId ? failure.message : null}
-                  onSelect={() => {
-                    setReveal(false);
-                    setSelected(item.itemId);
-                  }}
+                  onSelect={() => setSelected(item.itemId)}
                   onReply={(open) => setReplyFor(open ? item.itemId : null)}
                   onQuickReply={(text) => void sendQuick(item, text)}
                   onToggleDetail={() =>

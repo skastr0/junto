@@ -242,32 +242,63 @@ export const viewFeedSections = (
     order,
   );
 
+/** A section as the open feed draws it, with the items fading out of it. */
+export type ShownFeedSection = FeedSection & { readonly leavingIds: ReadonlySet<string> };
+
+const regionKey = (section: Pick<FeedSection, "region">): string => section.region.regionId ?? "";
+
 /**
- * Keep items that just left on screen for a moment so they can fade out: the
- * previous sections, with each vanished item reinserted at its old place and
- * marked leaving. Pure; the surface owns the timing.
+ * `kept` in its own order, with each entry of `ranked` it lacks put where the
+ * ranking puts it: just before the first entry ranked after it that is
+ * already placed, or last.
  */
-export const withLeavingItems = (
-  previous: ReadonlyArray<FeedSection>,
-  current: ReadonlyArray<FeedSection>,
-  leaving: ReadonlySet<string>,
-): ReadonlyArray<FeedSection & { readonly leavingIds: ReadonlySet<string> }> => {
-  const out = current.map((section) => ({ ...section, items: [...section.items], leavingIds: new Set<string>() }));
-  const bySection = new Map(out.map((section) => [section.region.regionId ?? "", section] as const));
-  for (const section of previous) {
-    const key = section.region.regionId ?? "";
-    section.items.forEach((item, index) => {
-      if (!leaving.has(item.itemId)) return;
-      let target = bySection.get(key);
-      if (!target) {
-        target = { ...section, items: [], leavingIds: new Set<string>() };
-        bySection.set(key, target);
-        out.push(target);
-      }
-      if (target.items.some((existing) => existing.itemId === item.itemId)) return;
-      target.items.splice(Math.min(index, target.items.length), 0, item);
-      target.leavingIds.add(item.itemId);
-    });
+const holdOrder = <T>(kept: ReadonlyArray<T>, ranked: ReadonlyArray<T>, keyOf: (entry: T) => string): T[] => {
+  const out = [...kept];
+  const placed = new Set(out.map(keyOf));
+  let after: string | undefined;
+  // From the end, so new neighbours keep their ranked order between them.
+  for (let index = ranked.length - 1; index >= 0; index -= 1) {
+    const entry = ranked[index]!;
+    const key = keyOf(entry);
+    if (!placed.has(key)) {
+      const at = after === undefined ? -1 : out.findIndex((placedEntry) => keyOf(placedEntry) === after);
+      out.splice(at === -1 ? out.length : at, 0, entry);
+      placed.add(key);
+    }
+    after = key;
   }
   return out;
+};
+
+/**
+ * What an open feed draws after a change: `ranked` held in the order the
+ * operator already sees in `shown`. A region or a card keeps its place, one
+ * that is new goes where the ranking puts it, and a card in `leaving` that
+ * is gone from `ranked` stays where it was, marked, so it can fade out
+ * there; its region stays with it. Pure; the surface owns the timing.
+ */
+export const holdFeedPlaces = (
+  shown: ReadonlyArray<ShownFeedSection>,
+  ranked: ReadonlyArray<FeedSection>,
+  leaving: ReadonlySet<string>,
+): ReadonlyArray<ShownFeedSection> => {
+  const live = new Set(feedItemsInOrder(ranked).map((item) => item.itemId));
+  const rankedByRegion = new Map(ranked.map((section) => [regionKey(section), section] as const));
+  const held = shown.flatMap((section): ShownFeedSection[] => {
+    const now = rankedByRegion.get(regionKey(section));
+    const nowById = new Map(now?.items.map((item) => [item.itemId, item] as const));
+    const leavingIds = new Set<string>();
+    const kept = section.items.flatMap((item): FeedItem[] => {
+      const current = nowById.get(item.itemId);
+      if (current) return [current];
+      // Moved to another region: it is drawn there, not faded out here.
+      if (live.has(item.itemId) || !leaving.has(item.itemId)) return [];
+      leavingIds.add(item.itemId);
+      return [item];
+    });
+    const items = holdOrder(kept, now?.items ?? [], (item) => item.itemId);
+    return items.length === 0 ? [] : [{ ...(now ?? section), items, leavingIds }];
+  });
+  const fresh = ranked.map((section): ShownFeedSection => ({ ...section, items: [...section.items], leavingIds: new Set() }));
+  return holdOrder(held, fresh, regionKey);
 };
