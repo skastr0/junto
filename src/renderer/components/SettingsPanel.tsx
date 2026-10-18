@@ -91,7 +91,6 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
   { key: "briefing", group: "Agents", label: "Briefing", blurb: "Every agent reads this when it starts." },
   { key: "references", group: "Agents", label: "References", blurb: "Named text an agent reads when it needs it." },
   { key: "feed", group: "Agents", label: "Quick replies", blurb: "" },
-  { key: "offboard", group: "Agents", label: "Offboard", blurb: "" },
   ...(HARNESS_SETTINGS_ENABLED
     ? [
         {
@@ -102,6 +101,8 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
         } as const,
       ]
     : []),
+  // Kept by each machine: a seat's session is cut on the machine it runs on.
+  { key: "offboard", group: "Machine", label: "Cache window", blurb: "" },
   // Usage credentials, the voice provider, and Hermes host access. Each is
   // flag-gated inside the section; with all three off there is nothing to show.
   ...(PROVIDERS_SECTION_ENABLED

@@ -1,29 +1,56 @@
 /**
- * Settings -> Offboard: the cache window, the one offboard setting.
+ * Settings -> Cache window, for the machine chosen in the sidebar. Once an
+ * agent has been still this long, Junto ends its session by itself and the
+ * next message starts a fresh one. The cut happens on the machine the seat
+ * runs on, so each machine keeps its own windows: a default, and one per
+ * harness that machine has, each following the default or set on its own.
  *
- * A harness's provider keeps a conversation cached for a while; once an agent
- * has been still that long, Junto ends its session by itself and the next
- * message starts a fresh one. One window for the installation, and one per
- * harness the operator gives its own (each provider keeps its cache for a
- * different time). A change is saved the moment it is entered.
+ * The page reads and writes through that machine's core
+ * (lib/machine-settings-source.ts), and its harnesses come from its
+ * inventory (lib/harness-machine-source.ts). A machine that does not answer
+ * shows what it last sent, read only. A write the link lost before it
+ * answered may have landed: the page says so and reads again.
  */
 import { use$ } from "@legendapp/state/react";
+import { Result } from "effect";
 import { useEffect, useState } from "react";
+import type { MachineInventory } from "@shared/harness-domain";
+import {
+  machineSettingsRefusal,
+  type MachineCacheWindows,
+  type MachineSettingsUnavailableError,
+} from "@shared/machine-settings";
 import { HARNESS_IDS, isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 import {
   OFFBOARD_MINUTES_MAX,
   OFFBOARD_MINUTES_MIN,
+  type OffboardRules,
   type OffboardRulesPatch,
 } from "@shared/seat-offboard";
-import { offboardRules } from "@shared/settings";
+import { formatSeatAwarenessAge } from "../../lib/seat-awareness";
+import { harnessMachineSource } from "../../lib/harness-machine-source";
+import { machineSettingsSource } from "../../lib/machine-settings-source";
 import { parseOffboardMinutes, planOffboardRulesChange, seedHarnessOverride } from "../../lib/seat-offboard";
-import { patchSettings } from "../../lib/settings-state";
+import { useSettingsMachine } from "../../lib/settings-machine";
 import { state$ } from "../../lib/state";
-import { Button, Dropdown } from "../ui";
+import { Switch } from "../ui";
 import { FieldRow } from "./FieldRow";
 import "./offboard-settings.css";
 
 const harnessName = (harness: string): string => (isHarnessId(harness) ? templateFor(harness).displayName : harness);
+
+/** What each machine last answered, and when: shown read only while it does not answer. */
+const lastAnswers = new Map<string, { readonly windows: MachineCacheWindows; readonly receivedAt: number }>();
+
+type WindowsRead =
+  | { readonly state: "unread" }
+  | { readonly state: "answered"; readonly windows: MachineCacheWindows }
+  | { readonly state: "refused"; readonly error: MachineSettingsUnavailableError };
+
+const rulesOf = (windows: MachineCacheWindows): OffboardRules => ({
+  cacheWindowMinutes: windows.cacheWindowMinutes,
+  harness: Object.fromEntries(Object.entries(windows.harness).map(([id, minutes]) => [id, { cacheWindowMinutes: minutes }])),
+});
 
 /** A whole number of minutes: commits on blur or Enter, Escape drops the edit. */
 function MinutesInput({
@@ -37,21 +64,18 @@ function MinutesInput({
   readonly value: number;
   readonly disabled?: boolean;
   readonly testId?: string;
-  readonly onCommit: (next: number) => Promise<boolean>;
+  readonly onCommit: (next: number) => void;
 }) {
   const [draft, setDraft] = useState<string>();
   // A landed change ends the edit: the stored value is what the field shows.
   useEffect(() => setDraft(undefined), [value]);
 
-  const commit = async (): Promise<void> => {
+  const commit = (): void => {
     if (draft === undefined) return;
     const next = parseOffboardMinutes(draft);
-    if (next === undefined || next === value) {
-      setDraft(undefined);
-      return;
-    }
-    // Not saved (refused, or the write failed): show the stored value again.
-    if (!(await onCommit(next))) setDraft(undefined);
+    setDraft(undefined);
+    if (next === undefined || next === value) return;
+    onCommit(next);
   };
 
   return (
@@ -67,11 +91,11 @@ function MinutesInput({
         aria-label={label}
         data-testid={testId}
         onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => void commit()}
+        onBlur={commit}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();
-            void commit();
+            commit();
           } else if (event.key === "Escape") {
             setDraft(undefined);
           }
@@ -83,81 +107,143 @@ function MinutesInput({
 }
 
 export function OffboardSettingsSection() {
-  const rules = use$(() => offboardRules(state$.settings.get()));
-  const [problem, setProblem] = useState<string>();
+  const machine = useSettingsMachine();
+  // The window's own core answers this machine; a change it saved is a reason to read again.
+  const own = use$(state$.settings.offboard);
+  const [read, setRead] = useState<WindowsRead>({ state: "unread" });
+  const [inventory, setInventory] = useState<MachineInventory>();
+  const [readCount, setReadCount] = useState(0);
+  const [problem, setProblem] = useState("");
 
-  /** Save a change, or say why it cannot be saved. True when it landed. */
-  const change = async (patch: OffboardRulesPatch): Promise<boolean> => {
-    const plan = planOffboardRulesChange(rules, patch);
+  useEffect(() => {
+    let current = true;
+    void machineSettingsSource()
+      .cacheWindows(machine.name)
+      .then((answer) => {
+        if (!current) return;
+        if (Result.isSuccess(answer)) {
+          lastAnswers.set(machine.name, { windows: answer.success, receivedAt: Date.now() });
+          setRead({ state: "answered", windows: answer.success });
+        } else {
+          setRead({ state: "refused", error: answer.failure });
+        }
+      });
+    return () => {
+      current = false;
+    };
+  }, [machine.name, own, readCount]);
+
+  useEffect(() => {
+    let current = true;
+    setInventory(undefined);
+    void harnessMachineSource()
+      .inventory(machine.name)
+      .then((answer) => {
+        if (!current) return;
+        setInventory(Result.isSuccess(answer) ? answer.success : answer.failure.last?.inventory);
+      });
+    return () => {
+      current = false;
+    };
+  }, [machine.name]);
+
+  const last = read.state === "refused" ? lastAnswers.get(machine.name) : undefined;
+  const windows = read.state === "answered" ? read.windows : last?.windows;
+  const disabled = read.state !== "answered";
+
+  const change = (patch: OffboardRulesPatch): void => {
+    if (windows === undefined) return;
+    const plan = planOffboardRulesChange(rulesOf(windows), patch);
     if (!plan.ok) {
-      setProblem(plan.problem);
-      return false;
+      setProblem(`Not saved. ${plan.problem}`);
+      return;
     }
-    setProblem(undefined);
-    return patchSettings({ offboard: plan.patch });
+    setProblem("");
+    void machineSettingsSource()
+      .writeCacheWindows(machine.name, plan.patch)
+      .then((answer) => {
+        if (Result.isSuccess(answer)) {
+          lastAnswers.set(machine.name, { windows: answer.success, receivedAt: Date.now() });
+          setRead({ state: "answered", windows: answer.success });
+          return;
+        }
+        const { failure, message, reason } = answer.failure;
+        if (reason === "unreachable" && failure !== "NoPathToMachine") {
+          // The link closed before the answer: the change may have landed. Read what is there; never write again blind.
+          setProblem(`May not have been saved on ${machine.label}: the link closed before it answered.`);
+          setReadCount((count) => count + 1);
+        } else {
+          setProblem(`Not saved on ${machine.label}: ${failure ? `${failure}: ${message}` : message}`);
+        }
+      });
   };
 
-  const overrides = Object.entries(rules.harness ?? {}).filter(
-    ([harness, over]) => isHarnessId(harness) && over.cacheWindowMinutes !== undefined,
-  );
-  const free = HARNESS_IDS.filter((harness) => rules.harness?.[harness]?.cacheWindowMinutes === undefined);
+  // One row per harness the machine has, and any harness still set on its own there.
+  const installed = new Set(inventory?.harnesses.filter((row) => row.installed).map((row) => row.harness));
+  const harnesses = HARNESS_IDS.filter((harness) => installed.has(harness) || windows?.harness[harness] !== undefined);
 
   return (
-    <div className="offboard-settings" data-testid="offboard-settings">
+    <div className="offboard-settings" data-testid="offboard-settings" data-machine={machine.name}>
+      {read.state === "refused" ? (
+        <p className="settings-note" role="status" data-testid="offboard-machine-refused">
+          {machineSettingsRefusal(machine.label, read.error)}.{" "}
+          {last ? `Showing what it sent ${formatSeatAwarenessAge(Date.now() - last.receivedAt)}.` : ""}
+        </p>
+      ) : null}
+      {problem ? (
+        <p className="settings-error" role="alert" data-testid="offboard-settings-problem">
+          {problem}
+        </p>
+      ) : null}
+
       <FieldRow
         label="Cache window"
-        hint="How long a still agent's conversation stays cached. After that, its next message starts fresh."
+        hint={`Once an agent on ${machine.isThisMachine ? "this machine" : machine.label} has been still this long, its next message starts a fresh session.`}
         group
       >
         <MinutesInput
           label="Cache window, minutes"
-          value={rules.cacheWindowMinutes}
+          value={windows?.cacheWindowMinutes ?? 0}
+          disabled={disabled}
           testId="offboard-cache-window"
           onCommit={(minutes) => change({ cacheWindowMinutes: minutes })}
         />
       </FieldRow>
 
-      {problem ? (
-        <p className="settings-error" role="alert" data-testid="offboard-settings-problem">
-          Not saved. {problem}
-        </p>
-      ) : null}
-
       <div className="offboard-settings__harnesses" role="group" aria-label="Per harness">
-        <p className="settings-note">Per harness: its own window. A harness not listed follows the one above.</p>
-        {overrides.map(([harness, over]) => {
+        {inventory === undefined && harnesses.length === 0 ? (
+          <p className="settings-note">The harnesses on {machine.label} show once it has listed them.</p>
+        ) : null}
+        {harnesses.map((harness) => {
           const name = harnessName(harness);
+          const minutes = windows?.harness[harness];
+          const ownWindow = minutes !== undefined;
           return (
             <div key={harness} className="offboard-settings__harness" data-testid={`offboard-harness-${harness}`}>
               <span className="offboard-settings__harness-name">{name}</span>
               <label>
-                <span>window</span>
+                <Switch
+                  checked={ownWindow}
+                  disabled={disabled}
+                  aria-label={`${name} has its own window`}
+                  onCheckedChange={(on) => {
+                    if (windows === undefined) return;
+                    change(on ? seedHarnessOverride(rulesOf(windows), harness) : { harness: { [harness]: null } });
+                  }}
+                />
+                <span>{ownWindow ? "its own" : "follows the default"}</span>
+              </label>
+              {ownWindow ? (
                 <MinutesInput
                   label={`${name} cache window, minutes`}
-                  value={over.cacheWindowMinutes ?? rules.cacheWindowMinutes}
-                  onCommit={(minutes) => change({ harness: { [harness]: { cacheWindowMinutes: minutes } } })}
+                  value={minutes}
+                  disabled={disabled}
+                  onCommit={(next) => change({ harness: { [harness]: { cacheWindowMinutes: next } } })}
                 />
-              </label>
-              <Button
-                size="xs"
-                variant="subtle"
-                aria-label={`Remove the ${name} window`}
-                onClick={() => void change({ harness: { [harness]: null } })}
-              >
-                Remove
-              </Button>
+              ) : null}
             </div>
           );
         })}
-        {free.length > 0 ? (
-          <Dropdown
-            value=""
-            options={free.map((harness) => ({ value: harness, label: harnessName(harness) }))}
-            onChange={(harness) => void change(seedHarnessOverride(rules, harness))}
-            aria-label="Add a window for a harness"
-            placeholder="Add a harness…"
-          />
-        ) : null}
       </div>
     </div>
   );

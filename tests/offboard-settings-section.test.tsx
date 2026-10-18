@@ -1,108 +1,179 @@
 // @vitest-environment jsdom
 /**
- * Settings -> Offboard: the cache window, for the machine and per harness. A
- * change is saved when it is entered; a value that is not whole minutes in
- * range is not saved.
+ * Settings -> Cache window, for the machine chosen in the sidebar: the
+ * default, and one row per harness that machine has, each following the
+ * default or set on its own. Read and written through that machine's core; a
+ * machine that does not answer shows what it last sent, read only.
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Result } from "effect";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { MachineInventory } from "../src/shared/harness-domain";
+import { MachineSettingsUnavailableError, type MachineCacheWindows } from "../src/shared/machine-settings";
+import type { OffboardRulesPatch } from "../src/shared/seat-offboard";
 import { defaultSettings } from "../src/shared/settings";
+import { OffboardSettingsSection } from "../src/renderer/components/settings/OffboardSettingsSection";
+import { harnessMachineSource, setHarnessMachineSource } from "../src/renderer/lib/harness-machine-source";
+import { coreMachineSettingsSource, setMachineSettingsSource } from "../src/renderer/lib/machine-settings-source";
+import { forgetSettingsMachine } from "../src/renderer/lib/settings-machine";
+import { state$ } from "../src/renderer/lib/state";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const patchSettings = vi.fn(async (_patch: unknown) => true);
-vi.mock("../src/renderer/lib/settings-state", () => ({ patchSettings: (patch: unknown) => patchSettings(patch) }));
-
-const { state$ } = await import("../src/renderer/lib/state");
-const { OffboardSettingsSection } = await import("../src/renderer/components/settings/OffboardSettingsSection");
+const realHarnessSource = harnessMachineSource();
 
 let host: HTMLDivElement;
 let root: Root;
+let windows: MachineCacheWindows;
+let writes: OffboardRulesPatch[];
+let answering: "yes" | "no" | "lost";
 
-beforeEach(async () => {
-  patchSettings.mockClear();
-  state$.settings.set(defaultSettings());
+const inventory = (...installed: string[]): MachineInventory => ({
+  machine: "desk",
+  harnesses: ["claude", "codex", "grok"].map((harness) => ({
+    harness, machine: "desk", installed: installed.includes(harness), models: [], efforts: [],
+  })),
+} as never);
+
+const unreachable = (machine: string, failure?: string) =>
+  new MachineSettingsUnavailableError({ machine, reason: "unreachable", message: "no link", ...(failure ? { failure } : {}) });
+
+const settle = async () => {
+  await act(async () => {
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+  });
+};
+
+const render = async () => {
+  await act(async () => root.render(<OffboardSettingsSection />));
+  await settle();
+};
+
+beforeEach(() => {
+  writes = [];
+  answering = "yes";
+  windows = { machine: "desk", cacheWindowMinutes: 60, harness: { codex: 30 } };
+  state$.settings.set({ ...defaultSettings(), machine: { ...defaultSettings().machine, name: "desk" } });
+  setMachineSettingsSource({
+    ...coreMachineSettingsSource,
+    cacheWindows: async (machine) =>
+      answering === "yes" ? Result.succeed(windows) : Result.fail(unreachable(machine)),
+    writeCacheWindows: async (machine, patch) => {
+      writes.push(patch);
+      if (answering === "lost") return Result.fail(unreachable(machine, "LinkClosed"));
+      if (answering === "no") return Result.fail(unreachable(machine, "NoPathToMachine"));
+      const harness = { ...windows.harness };
+      for (const [id, over] of Object.entries(patch.harness ?? {})) {
+        if (over === null) delete harness[id];
+        else harness[id] = over.cacheWindowMinutes;
+      }
+      windows = { ...windows, cacheWindowMinutes: patch.cacheWindowMinutes ?? windows.cacheWindowMinutes, harness };
+      return Result.succeed(windows);
+    },
+  });
+  setHarnessMachineSource({ ...realHarnessSource, inventory: async () => Result.succeed(inventory("claude", "codex")) });
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
-  act(() => root.render(<OffboardSettingsSection />));
-  await act(async () => {});
 });
 
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  forgetSettingsMachine();
+  setMachineSettingsSource(coreMachineSettingsSource);
+  setHarnessMachineSource(realHarnessSource);
+  state$.settings.set(defaultSettings());
 });
 
-const field = (id: string) => host.querySelector<HTMLInputElement>(`[data-testid="${id}"]`)!;
+const input = (label: string) => host.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)!;
+const row = (harness: string) => host.querySelector(`[data-testid="offboard-harness-${harness}"]`)!;
+const ownSwitch = (harness: string) => row(harness).querySelector<HTMLInputElement>('input[role="switch"]')!;
+const ownMinutes = (harness: string) => row(harness).querySelector<HTMLInputElement>('input[type="number"]');
 
 /** Type a value into a minutes field and leave it. */
-const enter = async (id: string, value: string) => {
-  const input = field(id);
+const enter = async (label: string, value: string) => {
+  const field = input(label);
   const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
   await act(async () => {
-    setValue.call(input, value);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
+    setValue.call(field, value);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
   });
   await act(async () => {
-    input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    field.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
   });
+  await settle();
+};
+
+const toggle = async (harness: string) => {
   await act(async () => {
-    for (let i = 0; i < 6; i += 1) await Promise.resolve();
+    ownSwitch(harness).click();
   });
+  await settle();
 };
 
 describe("the cache window in Settings", () => {
-  it("shows the one setting: a 60 minute window, and no other rule", () => {
-    expect(field("offboard-cache-window").value).toBe("60");
-    for (const retired of ["offboard-nudge-on", "offboard-nudge-minutes", "offboard-auto-on", "offboard-auto-minutes", "offboard-worth-work", "offboard-worth-tokens"]) {
-      expect(host.querySelector(`[data-testid="${retired}"]`)).toBeNull();
-    }
+  it("shows the machine's default and a row per harness it has, and no other rule", async () => {
+    await render();
+    expect(input("Cache window, minutes").value).toBe("60");
+    expect([...host.querySelectorAll(".offboard-settings__harness")].map((row) => row.getAttribute("data-testid")))
+      .toEqual(["offboard-harness-claude", "offboard-harness-codex"]);
+    expect(ownSwitch("claude").checked).toBe(false);
+    expect(ownSwitch("codex").checked).toBe(true);
+    expect(ownMinutes("codex")!.value).toBe("30");
     expect(host.textContent).not.toMatch(/nudge|auto offboard|worth/iu);
   });
 
-  it("saves any window in range, shorter or longer than before", async () => {
-    await enter("offboard-cache-window", "5");
-    expect(patchSettings).toHaveBeenLastCalledWith({ offboard: { cacheWindowMinutes: 5 } });
-    await enter("offboard-cache-window", "180");
-    expect(patchSettings).toHaveBeenLastCalledWith({ offboard: { cacheWindowMinutes: 180 } });
+  it("writes the default on the machine and shows what it read back", async () => {
+    await render();
+    await enter("Cache window, minutes", "5");
+    expect(writes).toEqual([{ cacheWindowMinutes: 5 }]);
+    expect(input("Cache window, minutes").value).toBe("5");
   });
 
   it("ignores a value that is not whole minutes in range", async () => {
-    for (const value of ["0", "2.5", "10081", "soon"]) await enter("offboard-cache-window", value);
-    expect(patchSettings).not.toHaveBeenCalled();
-    expect(field("offboard-cache-window").value).toBe("60");
+    await render();
+    for (const value of ["0", "2.5", "10081", "soon"]) await enter("Cache window, minutes", value);
+    expect(writes).toEqual([]);
+    expect(input("Cache window, minutes").value).toBe("60");
+  });
+
+  it("sets a harness on its own from the default, and back to following it", async () => {
+    await render();
+    await toggle("claude");
+    expect(writes).toEqual([{ harness: { claude: { cacheWindowMinutes: 60 } } }]);
+    await enter(ownMinutes("claude")!.getAttribute("aria-label")!, "10");
+    expect(writes.at(-1)).toEqual({ harness: { claude: { cacheWindowMinutes: 10 } } });
+    await toggle("codex");
+    expect(writes.at(-1)).toEqual({ harness: { codex: null } });
+    expect(ownMinutes("codex")).toBeNull();
   });
 });
 
-describe("a harness with its own window", () => {
-  beforeEach(async () => {
-    state$.settings.set({
-      ...defaultSettings(),
-      offboard: { cacheWindowMinutes: 60, harness: { codex: { cacheWindowMinutes: 30 } } },
-    });
-    await act(async () => {});
+describe("a machine that does not answer", () => {
+  it("shows what it last sent, read only", async () => {
+    await render();
+    answering = "no";
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await render();
+    expect(host.querySelector('[data-testid="offboard-machine-refused"]')!.textContent).toMatch(/desk did not answer.*Showing what it sent/u);
+    expect(input("Cache window, minutes").value).toBe("60");
+    expect(input("Cache window, minutes").disabled).toBe(true);
   });
 
-  it("shows that harness's window", () => {
-    const row = host.querySelector('[data-testid="offboard-harness-codex"]')!;
-    expect(row.textContent).toContain("Codex");
-    expect(Array.from(row.querySelectorAll<HTMLInputElement>('input[type="number"]')).map((input) => input.value)).toEqual(["30"]);
+  it("says a write the link lost may not have been saved, and reads again", async () => {
+    await render();
+    answering = "lost";
+    await enter("Cache window, minutes", "15");
+    expect(host.textContent).toContain("May not have been saved on desk");
   });
 
-  it("saves that harness's window only", async () => {
-    const input = host.querySelector<HTMLInputElement>('[aria-label="Codex cache window, minutes"]')!;
-    input.setAttribute("data-testid", "codex-window");
-    await enter("codex-window", "10");
-    expect(patchSettings).toHaveBeenLastCalledWith({ offboard: { harness: { codex: { cacheWindowMinutes: 10 } } } });
-  });
-
-  it("removes the harness's row, back to the machine's window", async () => {
-    const remove = host.querySelector<HTMLButtonElement>('[aria-label="Remove the Codex window"]')!;
-    await act(async () => {
-      remove.click();
-    });
-    expect(patchSettings).toHaveBeenLastCalledWith({ offboard: { harness: { codex: null } } });
+  it("says a write that never left was not saved", async () => {
+    await render();
+    answering = "no";
+    await enter("Cache window, minutes", "15");
+    expect(host.textContent).toContain("Not saved on desk");
   });
 });

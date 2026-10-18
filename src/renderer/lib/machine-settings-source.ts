@@ -1,5 +1,5 @@
 /**
- * Where Providers and Name and startup read and write one named machine's
+ * Where Providers, Name and startup, and Cache window read and write one named machine's
  * settings. One seam keyed by machine, like harness-machine-source.ts: a
  * machine's own core answers, and a machine no channel reaches yet answers a
  * typed unreachable.
@@ -12,9 +12,11 @@ import {
   MachineSettingsUnavailableError,
   machineProvidersOf,
   machineRecordOf,
+  type MachineCacheWindows,
   type MachineProviders,
   type MachineRecord,
 } from "@shared/machine-settings";
+import type { OffboardRulesPatch } from "@shared/seat-offboard";
 import type { MachinePreferencesPatch, ProvidersPatch } from "@shared/settings";
 
 type Answer<A> = Promise<Result.Result<A, MachineSettingsUnavailableError>>;
@@ -25,6 +27,9 @@ export type MachineSettingsSource = {
   readonly writeProviders: (machine: string, patch: ProvidersPatch) => Answer<MachineProviders>;
   readonly record: (machine: string) => Answer<MachineRecord>;
   readonly writeRecord: (machine: string, patch: MachinePreferencesPatch) => Answer<MachineRecord>;
+  readonly cacheWindows: (machine: string) => Answer<MachineCacheWindows>;
+  /** Written on that machine by its own core; answers its windows read back. */
+  readonly writeCacheWindows: (machine: string, patch: OffboardRulesPatch) => Answer<MachineCacheWindows>;
 };
 
 type Keyed<A> =
@@ -69,6 +74,10 @@ export const coreMachineSettingsSource: MachineSettingsSource = {
     answerOf(machine, () => window.junto?.machineRecord(machine) ?? noBridge(machine)),
   writeRecord: (machine, patch) =>
     answerOf(machine, () => window.junto?.machineRecordWrite({ machine, patch }) ?? noBridge(machine)),
+  cacheWindows: (machine) =>
+    answerOf(machine, () => window.junto?.machineCacheWindows(machine) ?? noBridge(machine)),
+  writeCacheWindows: (machine, patch) =>
+    answerOf(machine, () => window.junto?.machineCacheWindowsWrite({ machine, patch }) ?? noBridge(machine)),
 };
 
 let source: MachineSettingsSource = coreMachineSettingsSource;

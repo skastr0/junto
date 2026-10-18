@@ -70,7 +70,7 @@ export const LISTED_SETTINGS: ReadonlyArray<SettingEntry> = [
   entry("notifications", "Badge", "Agents waiting on you, on the Junto icon"),
   entry("notifications", "Bounce when blocked", "The icon bounces once when an agent is blocked"),
 
-  entry("offboard", "Cache window", "How long a still agent's conversation stays cached"),
+  entry("offboard", "Cache window", "How long an agent on a machine stays still before its next message starts fresh", "idle offboard session harness machine"),
 
   entry("companion", "Pair a phone", "Answer agents and send them mail from your phone"),
   entry("companion", "Paired phones", "Phones that can reach this Mac"),
