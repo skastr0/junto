@@ -5,9 +5,8 @@ import type { MachineRepository } from "./junto/machines/repository";
 import type { SeatSessionRepository } from "./junto/seat-sessions/repository";
 import type { MachineLink } from "./junto/link/service";
 import type { HostsService } from "./junto/hosts/service";
-import type { WorkService } from "./junto/work/service";
 
-type CoreServices = ModelService | MachineRepository | SeatSessionRepository | SqlClient.SqlClient | MachineLink | HostsService | WorkService;
+type CoreServices = ModelService | MachineRepository | SeatSessionRepository | SqlClient.SqlClient | MachineLink | HostsService;
 
 /** Promise callbacks enter the process's existing core, never a shell runtime. */
 export interface CoreRunner {

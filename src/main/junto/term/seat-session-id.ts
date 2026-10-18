@@ -5,7 +5,6 @@ import { coreRunner } from "../../core-runner";
 import { ModelService } from "../model/service";
 import { announcedSessionRefusal } from "../seat-sessions/announced-session";
 import { SeatSessionRepository } from "../seat-sessions/repository";
-import { recordSessionAtClose } from "../seat-sessions/session-record";
 import { MachineRepository } from "../machines/repository";
 
 export type SeatSessionIdInput = {
@@ -23,17 +22,13 @@ export type SeatSessionIdInput = {
   };
 };
 
-/**
- * Revalidate the occupant inside the same transaction that records its pin.
- * A session the new id replaced has its record written once that commits.
- */
+/** Revalidate the occupant inside the same transaction that records its pin. */
 export const recordSeatSessionId = Effect.fn("SeatSession.recordId")(function* (input: SeatSessionIdInput) {
   const model = yield* ModelService;
   const sessions = yield* SeatSessionRepository;
   const machines = yield* MachineRepository;
   const sql = yield* SqlClient.SqlClient;
-  const endedAt = Date.now();
-  const outcome = yield* sql.withTransaction(Effect.gen(function* () {
+  return yield* sql.withTransaction(Effect.gen(function* () {
     const target = (yield* model.canvas(input.canvasName)).nodes.get(input.nodeId as never);
     const bindingId = input.capture?.bindingId ?? input.bindingId;
     const harness = input.capture?.harness ?? input.harness;
@@ -45,7 +40,7 @@ export const recordSeatSessionId = Effect.fn("SeatSession.recordId")(function* (
     if (bindingId === undefined || target.bindingId !== bindingId || (harness !== undefined && target.harness !== harness))
       return yield* Effect.fail(new Error("session target binding or harness changed"));
     const existing = yield* sessions.current(target.id, bindingId);
-    if (existing?.sessionId === input.sessionId) return { stored: "already-stored" as const, ended: undefined };
+    if (existing?.sessionId === input.sessionId) return "already-stored" as const;
     if (existing !== undefined && input.capture !== undefined)
       return yield* Effect.fail(new Error("capture cannot replace the seat's named session"));
     if (existing !== undefined && input.onlyIfAbsent)
@@ -59,15 +54,9 @@ export const recordSeatSessionId = Effect.fn("SeatSession.recordId")(function* (
       ? yield* announcedSessionRefusal(sessions, observation)
       : (yield* sessions.ownedByOtherSeat(observation)) ? "harness session already belongs to another seat" : undefined;
     if (refusal !== undefined) return yield* Effect.fail(new Error(refusal));
-    const { ended } = yield* sessions.record(observation);
-    return { stored: "written" as const, ended: ended === undefined ? undefined : { seatId: target.id, sessionId: ended } };
+    yield* sessions.record(observation);
+    return "written" as const;
   }));
-  if (outcome.ended !== undefined)
-    yield* recordSessionAtClose(
-      { seat: { canvasName: input.canvasName, seatId: outcome.ended.seatId }, sessionId: outcome.ended.sessionId, endedAt, endedBy: "replaced" },
-      { log: (message) => console.error(`[term] ${message}`) },
-    );
-  return outcome.stored;
 });
 
 /** PTY and provisioning callbacks enter the machine's existing core. */

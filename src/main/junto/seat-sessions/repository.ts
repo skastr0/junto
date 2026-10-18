@@ -81,13 +81,10 @@ export class SeatSessionRepository extends Context.Service<SeatSessionRepository
       seatId: string,
       bindingId: string,
     ) => Effect.Effect<SeatSessionObservation | undefined, SeatSessionPersistenceError>;
-    /**
-     * Atomically keep this occupant's pin, or record one before its process
-     * starts; `ended` is a former occupant's session the new pin ended.
-     */
+    /** Atomically keep this occupant's pin, or record one before its process starts. */
     readonly pin: (
       observation: SeatSessionObservation & { readonly bindingId: string },
-    ) => Effect.Effect<{ readonly sessionId: string; readonly minted: boolean; readonly ended?: string }, SeatSessionPersistenceError>;
+    ) => Effect.Effect<{ readonly sessionId: string; readonly minted: boolean }, SeatSessionPersistenceError>;
     /** A capture cannot take another seat's session, including its ended history. */
     readonly ownedByOtherSeat: (
       observation: SeatSessionObservation,
@@ -314,8 +311,8 @@ export const makeSeatSessionRepositoryLive = (
         const existing = yield* current(observation.seatId, observation.bindingId);
         if (existing !== undefined && existing.harness === observation.harness)
           return { sessionId: existing.sessionId, minted: false };
-        const { ended } = yield* recordIn({ ...observation, endReason: "reseat" }, Date.now());
-        return { sessionId: observation.sessionId, minted: true, ...(ended !== undefined ? { ended } : {}) };
+        yield* recordIn({ ...observation, endReason: "reseat" }, Date.now());
+        return { sessionId: observation.sessionId, minted: true };
       }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.pin"),
       Effect.mapError((cause) => cause instanceof SeatSessionPersistenceError ? cause : persistence("pin")(cause)));
 

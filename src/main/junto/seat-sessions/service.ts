@@ -9,7 +9,6 @@ import { ModelService } from "../model/service";
 import type { SessionReport } from "../term/agent-state/seat-state-machine";
 import { locateHarnessSession } from "../term/session-existence";
 import { SeatSessionRepository } from "./repository";
-import { recordSessionAtClose, type SessionClose, type SessionRecordSources } from "./session-record";
 import { seatSessionTransitions } from "./transitions";
 
 /** Where the harness keeps one recorded session now, or why it has none. */
@@ -62,42 +61,24 @@ export const noteReportedSession = (report: SessionReport): Effect.Effect<boolea
       .pipe(Effect.orElseSucceed(() => false));
   });
 
-/** Retire a replaced occupant without closing a newly pinned session; the sessions it ended. */
+/** Retire a replaced occupant without closing a newly pinned session. */
 export const recordCanvasChange = (
   detail: { readonly previous?: Canvas; readonly next?: Canvas } | undefined,
-): Effect.Effect<ReadonlyArray<SessionClose>, never, SeatSessionRepository> =>
+): Effect.Effect<void, never, SeatSessionRepository> =>
   Effect.gen(function* () {
-    const canvasName = detail?.next?.name ?? detail?.previous?.name;
-    if (detail === undefined || canvasName === undefined) return [];
+    if (detail === undefined) return;
     const repository = yield* SeatSessionRepository;
-    const closes: SessionClose[] = [];
     for (const transition of seatSessionTransitions(detail.previous, detail.next)) {
-      const endedAt = Date.now();
-      const ended = yield* repository.end(transition.seatId, "reseat", undefined, transition.bindingId).pipe(
-        Effect.orElseSucceed(() => undefined),
-      );
-      if (ended !== undefined)
-        closes.push({ seat: { canvasName, seatId: transition.seatId }, sessionId: ended, endedAt, endedBy: "reseat" });
+      yield* repository.end(transition.seatId, "reseat", undefined, transition.bindingId).pipe(Effect.ignore);
     }
-    return closes;
   });
-
-/** Retire a replaced occupant, then write the record of each session that ended. */
-const retireAndRecord = (
-  detail: { readonly previous?: Canvas; readonly next?: Canvas },
-  log: ((message: string) => void) | undefined,
-): Effect.Effect<void, never, SessionRecordSources> =>
-  Effect.flatMap(recordCanvasChange(detail), (closes) =>
-    Effect.forEach(closes, (close) => recordSessionAtClose(close, log ? { log } : {}), { discard: true }),
-  );
 
 /**
  * Follow occupant changes only. Session pins are written by execution, never
  * reconstructed from a canvas copy or from the newest historical session.
  */
 export const startSeatSessionRecorder = (
-  run: (effect: Effect.Effect<void, never, SessionRecordSources>) => void,
-  log?: (message: string) => void,
+  run: (effect: Effect.Effect<void, never, SeatSessionRepository>) => void,
 ): Effect.Effect<() => void, never, ModelService | SeatSessionRepository> =>
   Effect.gen(function* () {
     const model = yield* ModelService;
@@ -110,13 +91,13 @@ export const startSeatSessionRecorder = (
     const changed = model.subscribeChanges((event, next) => {
       const before = previous.get(event.canvas);
       previous.set(event.canvas, next);
-      run(retireAndRecord({ previous: before, next }, log));
+      run(recordCanvasChange({ previous: before, next }));
     });
     const canvasesChanged = model.subscribeCanvasesChanges((event, next) => {
       if (event._tag === "Removed") previous.delete(event.canvas);
       else if (next) {
         previous.set(event.canvas, next);
-        run(retireAndRecord({ next }, log));
+        run(recordCanvasChange({ next }));
       }
     });
     return () => { changed(); canvasesChanged(); };
