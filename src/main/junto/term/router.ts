@@ -10,7 +10,6 @@ import { EventEmitter } from "node:events";
 import { isThisMachine } from "@shared/machine-name";
 import { thisMachineName } from "./machine-name";
 import { randomBytes } from "node:crypto";
-import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { Context, Effect, Exit, Result, Scope } from "effect";
 import {
@@ -22,7 +21,6 @@ import { FLEET_UI_ENABLED } from "@shared/features";
 import { isLocalHost, TERMINAL_HOST_CAPABILITY } from "@shared/remote-hosts";
 import {
   isTermMaintenanceObservationId,
-  TERM_REMOTE_SOCK_REL,
   type TermMaintenanceDenialReason,
   type TermMaintenanceEvidence,
   type TermMaintenanceQuiescenceEvidence,
@@ -44,12 +42,9 @@ import {
   operatorRemoteWorkDetail,
 } from "@shared/operator-remote-copy";
 import type { HostDirectorySnapshot } from "@shared/host-directory";
-import {
-  parseRemoteUnixSocketPath,
-  parseHostSshRoute,
-} from "../ssh/domain";
-import { homeDirectoryLookup, oneShot, unixForward } from "../ssh/program";
-import { remoteCat } from "../ssh/read-commands";
+import { parseHostSshRoute } from "../ssh/domain";
+import { oneShot, unixForward } from "../ssh/program";
+import { remoteTermControl } from "./remote-term-route";
 import type { SshForwardLease } from "../ssh/service";
 import { SshTransport } from "../ssh/service";
 import type {
@@ -112,6 +107,8 @@ type RemoteEntry = {
   forward: SshForwardLease;
   /** Registry endpoint used to establish this connection. */
   endpoint: string;
+  /** The record's juntoHome its socket and token came from; a change drops them both. */
+  juntoHome: string | undefined;
   /** Snapshot generation used to establish this connection. */
   generation: number;
   /** Forked Effect scope that owns the SSH forward finalizers. */
@@ -277,6 +274,7 @@ export class TerminalRouter extends EventEmitter {
     string,
     {
       readonly endpoint: string;
+      readonly juntoHome: string | undefined;
       readonly promise: Promise<RemoteEntry>;
       readonly maintenanceCut?: HostMaintenanceCut;
     }
@@ -1063,10 +1061,12 @@ export class TerminalRouter extends EventEmitter {
       throw new Error(`host ${hostId} is not a remote SSH endpoint`);
     }
     const endpoint = host.sshEndpoint;
+    const juntoHome = host.juntoHome;
     const existing = this.remotes.get(hostId);
     if (existing) {
       if (
         existing.endpoint === endpoint &&
+        existing.juntoHome === juntoHome &&
         existing.generation === this.generation &&
         existing.client.isLive()
       ) {
@@ -1079,6 +1079,7 @@ export class TerminalRouter extends EventEmitter {
     const inflight = this.connecting.get(hostId);
     if (
       inflight?.endpoint === endpoint &&
+      inflight.juntoHome === juntoHome &&
       inflight.maintenanceCut === maintenanceCut
     ) {
       return inflight.promise;
@@ -1087,13 +1088,14 @@ export class TerminalRouter extends EventEmitter {
 
     let promise!: Promise<RemoteEntry>;
     const generation = this.generation;
-    const dialing = this.connectRemote(hostId, endpoint, generation, () =>
+    const admit = (): boolean =>
       this.routeAdmissionOpen(hostId, maintenanceCut) &&
       this.connecting.get(hostId)?.promise === promise &&
       findHostById(hostId)?.isThisMachine === false &&
       findHostById(hostId)?.sshEndpoint === endpoint &&
-      generation === this.generation,
-    );
+      findHostById(hostId)?.juntoHome === juntoHome &&
+      generation === this.generation;
+    const dialing = this.connectRemote(hostId, endpoint, generation, admit, juntoHome);
     promise = dialing.finally(() => {
       this.inFlight.delete(promise);
       this.inFlightHosts.delete(promise);
@@ -1102,6 +1104,7 @@ export class TerminalRouter extends EventEmitter {
     this.inFlightHosts.set(promise, hostId);
     this.connecting.set(hostId, {
       endpoint,
+      juntoHome,
       promise,
       ...(maintenanceCut === undefined ? {} : { maintenanceCut }),
     });
@@ -1119,6 +1122,7 @@ export class TerminalRouter extends EventEmitter {
     endpoint: string,
     generation: number,
     admit: () => boolean,
+    juntoHome: string | undefined,
   ): Promise<RemoteEntry> {
 
     // Own a forked scope so the SSH forward finalizers stay alive until we
@@ -1146,25 +1150,24 @@ export class TerminalRouter extends EventEmitter {
         Effect.gen(function* () {
           const ssh = yield* SshTransport;
           const host = findHostById(hostId);
-          if (!host || host.isThisMachine || host.sshEndpoint !== endpoint) {
+          if (
+            !host ||
+            host.isThisMachine ||
+            host.sshEndpoint !== endpoint ||
+            host.juntoHome !== juntoHome
+          ) {
             return yield* Effect.fail(
               new Error(`host ${hostId} SSH route changed before dial`),
             );
           }
           const sshEndpoint = yield* parseHostSshRoute(host);
-          const homeResult = yield* ssh.run(homeDirectoryLookup(sshEndpoint));
-          const home = homeResult.stdout.trim() || ".";
-          const remoteSock = yield* parseRemoteUnixSocketPath(
-            join(home, TERM_REMOTE_SOCK_REL),
-          );
+          // Socket and token from this one read of the record.
+          const control = yield* remoteTermControl(host, sshEndpoint);
           const forward = yield* ssh
-            .forward(unixForward(sshEndpoint, remoteSock))
+            .forward(unixForward(sshEndpoint, control.socket))
             .pipe(Scope.provide(scope));
-          const tokenCmd = yield* remoteCat(
-            join(home, ".junto", "term", "token"),
-          );
           const tokenRes = yield* ssh.run(
-            oneShot(sshEndpoint, tokenCmd, { budget: "short" }),
+            oneShot(sshEndpoint, control.token, { budget: "short" }),
           );
           const token = tokenRes.stdout.trim();
           if (!token) {
@@ -1201,6 +1204,7 @@ export class TerminalRouter extends EventEmitter {
         client,
         forward: pair.forward,
         endpoint,
+        juntoHome,
         generation,
         scope,
         rootScope,
@@ -1252,6 +1256,7 @@ export class TerminalRouter extends EventEmitter {
     if (
       host?.isThisMachine === false &&
       host.sshEndpoint === entry.endpoint &&
+      host.juntoHome === entry.juntoHome &&
       entry.generation === this.generation &&
       !this.quiescing &&
       entry.client.isLive()

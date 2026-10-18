@@ -29,8 +29,10 @@ export const termControlSocketPath = (home = resolveJuntoHome()): string =>
   join(termControlDir(home), "control.sock");
 export const termControlTokenPath = (home = resolveJuntoHome()): string =>
   join(termControlDir(home), "token");
-/** Relative to remote $HOME — used for SSH unix forward. */
+/** Relative to the remote Junto home — used for SSH unix forward. */
 export const TERM_REMOTE_SOCK_REL = ".junto/term/control.sock";
+/** Relative to the remote Junto home — the token beside that socket. */
+export const TERM_REMOTE_TOKEN_REL = ".junto/term/token";
 
 type TermControlActorSeatBase = {
   readonly bindingId: string;
