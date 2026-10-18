@@ -125,11 +125,11 @@ describe("terminal IPC node-delete admission", () => {
     const occupied = { bindingId: "codex-mini", status: "running" };
     vi.spyOn(AppRuntime, "runPromise").mockResolvedValueOnce(node).mockResolvedValueOnce(occupied);
     expect(await runtime.handler(IPC_CHANNELS.modelStart)(event, {
-      id: node.id, canvas: "factory", resume: false,
+      id: node.id, canvas: "factory",
     })).toEqual(occupied);
     expect(start).toHaveBeenCalledTimes(1);
     expect(start).toHaveBeenCalledWith(
-      { canvas: "factory", seatId: node.id, resume: false },
+      { canvas: "factory", seatId: node.id },
       { plane: expect.anything(), ensureHostAvailable: expect.any(Function) },
     );
     expect(runtime.router.create).not.toHaveBeenCalled();

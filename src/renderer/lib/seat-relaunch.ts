@@ -110,7 +110,7 @@ const restartRunningSeat = async (
     await openTerminal(next, "focus");
     return { ok: true, restarted: true };
   }
-  const started = await ensureTerminalRunning(next, { resume: true });
+  const started = await ensureTerminalRunning(next);
   if (!started.ok) return { ok: false, message: started.message };
   return { ok: true, restarted: true };
 };

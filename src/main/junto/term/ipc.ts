@@ -234,9 +234,8 @@ export const registerTerminalIpc = (
     const node = await readSeat(input?.canvas, input?.id);
     if (node.kind === "agent") {
       const { startSeat } = await import("./seat-control");
-      return AppRuntime.runPromise(startSeat({ canvas: asCanvasName(input.canvas), seatId: node.id,
-        ...(input.resume === undefined ? {} : { resume: input.resume }) },
-      { plane, ensureHostAvailable }));
+      return AppRuntime.runPromise(startSeat({ canvas: asCanvasName(input.canvas), seatId: node.id },
+        { plane, ensureHostAvailable }));
     }
     const createAdmission = nodeDelete.admitCreate(node.bindingId, node.host);
     await ensureHostAvailable(node.host);

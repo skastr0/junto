@@ -27,7 +27,7 @@ const between = (source: string, start: string, end: string): string => {
 };
 
 describe("terminal actor entry", () => {
-  it("carries only the stored canvas and node identity plus resume choice", () => {
+  it("carries only the stored canvas and node identity", () => {
     const source = readSource(IPC_CONTRACT);
     const body = between(
       source,
@@ -37,7 +37,8 @@ describe("terminal actor entry", () => {
 
     expect(body).toMatch(/readonly canvas: string;/u);
     expect(body).toMatch(/readonly id: string;/u);
-    expect(body).toMatch(/readonly resume\?: boolean;/u);
+    // A start is a start: the seat's own start decides what it starts on.
+    expect(body).not.toMatch(/readonly (?:resume|fresh)\??:/u);
     for (const field of [
       "bindingId",
       "hostId",
@@ -138,7 +139,7 @@ describe("terminal actor entry", () => {
     expect(source).toContain('node?.kind !== "agent" && node?.kind !== "terminal"');
     expect(source).toContain("return current.nodes.get(id as never);");
     // An agent seat starts through the one path the owner commands share.
-    expect(agent).toContain("startSeat({ canvas: asCanvasName(input.canvas), seatId: node.id,");
+    expect(agent).toContain("startSeat({ canvas: asCanvasName(input.canvas), seatId: node.id },");
     const control = readSource(SEAT_CONTROL);
     expect(control).toContain("const seats = yield* ActorSeatOccupy;");
     expect(control).toContain("yield* seats.occupy({");

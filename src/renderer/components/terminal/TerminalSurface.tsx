@@ -1845,7 +1845,7 @@ export function TerminalSurface({
           await new Promise((resolve) => setTimeout(resolve, 150));
         }
       };
-      void ensureTerminalRunning(nodeRef.current, { resume: true, canvas: canvasName }).then(
+      void ensureTerminalRunning(nodeRef.current, { canvas: canvasName }).then(
         async (result) => {
           if (!alive) return;
           if (!result.ok) {
@@ -1985,7 +1985,7 @@ export function TerminalSurface({
           sessionLoadPresentation({ phase: "starting" })
             .label,
         );
-        const result = await ensureTerminalRunning(node, { resume: false, canvas: canvasName });
+        const result = await ensureTerminalRunning(node, { canvas: canvasName });
         if (!result.ok) {
           setStatus(result.message);
           setKillPhase("stopped");

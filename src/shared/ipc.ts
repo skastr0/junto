@@ -799,14 +799,13 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   /** A sheet's grid was written; whoever shows it reads it again. */
   readonly onModelSheetChanged: (listener: (event: SheetChanged) => void) => () => void;
   /**
-   * Start the session of a seat or terminal, named by canvas and id. Main reads
-   * the node itself, so the window sends no launch. `resume` false starts a
-   * fresh session where one could be resumed.
+   * Start a seat or terminal, named by canvas and id. Main reads the node
+   * itself, so the window sends no launch, and the seat's own start decides
+   * what it starts on.
    */
   readonly modelStart: (input: {
     readonly canvas: string;
     readonly id: string;
-    readonly resume?: boolean;
   }) => Promise<TerminalSessionSummary>;
   /** Stop the session of a seat or terminal. The node stays on the canvas. */
   readonly modelStop: (input: { readonly canvas: string; readonly id: string }) => Promise<void>;

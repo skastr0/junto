@@ -26,7 +26,7 @@ type TerminalActionResult =
 
 export const ensureTerminalRunning = async (
   node: Seat | Terminal,
-  options?: { readonly resume?: boolean; readonly canvas?: string },
+  options?: { readonly canvas?: string },
 ): Promise<TerminalActionResult> => {
   const entityKind = node.kind;
 
@@ -49,7 +49,6 @@ export const ensureTerminalRunning = async (
       let next = await api.modelStart({
         canvas: options?.canvas ?? state$.canvasName.peek(),
         id: node.id,
-        resume: options?.resume ?? true,
       });
       if (!sessionActorMatches(next, node)) {
         return {
@@ -154,32 +153,28 @@ export function openTerminal(
   canvas: string,
   id: string,
   zone?: WorkZone,
-  options?: { readonly resume?: boolean },
 ): Promise<void>;
 /** Open a model seat or terminal already held by the caller. */
 export function openTerminal(
   node: Seat | Terminal,
   zone?: WorkZone,
-  options?: { readonly resume?: boolean },
 ): Promise<void>;
 export function openTerminal(
   first: string | Seat | Terminal,
   second?: string | WorkZone,
-  third?: WorkZone | { readonly resume?: boolean },
-  fourth?: { readonly resume?: boolean },
+  third?: WorkZone,
 ): Promise<void> {
   if (typeof first !== "string") {
-    return openTerminalNode(first, (second as WorkZone | undefined) ?? "focus", third as { readonly resume?: boolean } | undefined);
+    return openTerminalNode(first, (second as WorkZone | undefined) ?? "focus");
   }
   const row = nodeAt(first, second ?? "");
   if (row?.kind !== "agent" && row?.kind !== "terminal") return Promise.resolve();
-  return openTerminalNode(row, (third as WorkZone | undefined) ?? "focus", fourth, first);
+  return openTerminalNode(row, third ?? "focus", first);
 }
 
 const openTerminalNode = async (
   node: Seat | Terminal,
   zone: WorkZone = "focus",
-  options?: { readonly resume?: boolean },
   canvas = state$.canvasName.peek(),
 ): Promise<void> => {
   const entityKind = node.kind;
@@ -195,7 +190,7 @@ const openTerminalNode = async (
     return;
   }
 
-  const result = await ensureTerminalRunning(node, { ...options, canvas });
+  const result = await ensureTerminalRunning(node, { canvas });
   if (!result.ok) {
     console.error("[terminal] open failed", result.message);
     state$.error.set(`terminal / ${result.message}`);
