@@ -53,6 +53,12 @@ describe("main authoring architecture", () => {
         join(mainRoot, "core-runtime.ts"),
         new Set(["mainAuthoringGate.run"]),
       ),
+      // Prompt mail to a seat, sent the same way by the window and the
+      // windowless core.
+      ...stringArgumentsForCalls(
+        join(mainRoot, "junto", "work", "seat-prompt.ts"),
+        new Set(["mainAuthoringGate.run"]),
+      ),
     ];
     expect([...labels].sort()).toEqual([
       "delivery.message-stamp",
@@ -127,6 +133,8 @@ describe("main authoring architecture", () => {
       "src/main/junto/work/edge-map-notify.ts",
       // Seat waits re-read topology and the selected task; they never mutate.
       "src/main/junto/work/seat-observation-live.ts",
+      // Prompt mail to a seat, written only under ipc.work.message-append.
+      "src/main/junto/work/seat-prompt.ts",
     ]);
 
     const companion = source("src/main/junto/companion/operator-actions.ts");
