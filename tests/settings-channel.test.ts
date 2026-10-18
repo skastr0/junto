@@ -71,6 +71,8 @@ const runtimeWith = async (nodes: ReadonlyArray<Node>, canvasEditor: "editor" | 
         offboard: {
           cacheWindowMinutes: input.offboard.cacheWindowMinutes ?? state.offboard?.cacheWindowMinutes ?? 60,
           harness,
+          ...((input.offboard.cacheMode ?? state.offboard?.cacheMode) === undefined
+            ? {} : { cacheMode: input.offboard.cacheMode ?? state.offboard?.cacheMode }),
         },
       };
     }
@@ -157,6 +159,10 @@ describe("settings channel wire", () => {
     expect(() => decodeLinkSettingsRequest({ _tag: "CacheWindowsWrite", canvas, cacheWindowMinutes: 0 })).toThrow();
     expect(() => decodeLinkSettingsRequest({ _tag: "CacheWindowsWrite", canvas, cacheWindowMinutes: 1.5 })).toThrow();
     expect(() => decodeLinkSettingsRequest({ _tag: "CacheWindowsWrite", canvas, cacheWindowMinutes: 30, idleNudge: true })).toThrow();
+    // The cache mode alone is a change; a mode that is not one of the four is refused.
+    expect(decodeLinkSettingsRequest({ _tag: "CacheWindowsWrite", canvas, cacheMode: "manual" }))
+      .toEqual({ _tag: "CacheWindowsWrite", canvas, cacheMode: "manual" });
+    expect(() => decodeLinkSettingsRequest({ _tag: "CacheWindowsWrite", canvas, cacheMode: "never" })).toThrow();
   });
 
   it("decodes cache windows closed: an undeclared harness, an excess key or a window out of bounds is refused", () => {
@@ -165,6 +171,9 @@ describe("settings channel wire", () => {
     expect(() => decodeLinkCacheWindows({ ...good, harness: { "made-up": 5 } })).toThrow();
     expect(() => decodeLinkCacheWindows({ ...good, harness: { claude: 0 } })).toThrow();
     expect(() => decodeLinkCacheWindows({ ...good, idleNudge: true })).toThrow();
+    // A machine on a build from before the cache mode answers without one.
+    expect(decodeLinkCacheWindows({ ...good, cacheMode: "auto" })).toEqual({ ...good, cacheMode: "auto" });
+    expect(() => decodeLinkCacheWindows({ ...good, cacheMode: "never" })).toThrow();
   });
 });
 
@@ -197,14 +206,18 @@ describe("settings channel answer", () => {
     const channel = await f.runtime.runPromise(makeSettingsChannel());
     const ask = (request: Record<string, unknown>) =>
       f.runtime.runPromise(channel.handleRequest!(context, { canvas, ...request } as never)).then(decodeLinkCacheWindows);
-    expect(await ask({ _tag: "CacheWindowsRead" })).toEqual({ machine: THIS_MACHINE, cacheWindowMinutes: 60, harness: {} });
+    expect(await ask({ _tag: "CacheWindowsRead" })).toEqual({ machine: THIS_MACHINE, cacheWindowMinutes: 60, harness: {}, cacheMode: "hybrid" });
     const written = await ask({ _tag: "CacheWindowsWrite", cacheWindowMinutes: 30, harness: { claude: 5 } });
     expect(f.patch).toHaveBeenCalledWith({ offboard: { cacheWindowMinutes: 30, harness: { claude: { cacheWindowMinutes: 5 } } } });
-    expect(written).toEqual({ machine: THIS_MACHINE, cacheWindowMinutes: 30, harness: { claude: 5 } });
+    expect(written).toEqual({ machine: THIS_MACHINE, cacheWindowMinutes: 30, harness: { claude: 5 }, cacheMode: "hybrid" });
     expect(await ask({ _tag: "CacheWindowsRead" })).toEqual(written);
     // A harness set to null follows the machine's window again.
     expect(await ask({ _tag: "CacheWindowsWrite", harness: { claude: null } }))
-      .toEqual({ machine: THIS_MACHINE, cacheWindowMinutes: 30, harness: {} });
+      .toEqual({ machine: THIS_MACHINE, cacheWindowMinutes: 30, harness: {}, cacheMode: "hybrid" });
+    // The mode is the machine's, set on its own and read back.
+    expect(await ask({ _tag: "CacheWindowsWrite", cacheMode: "auto" }))
+      .toEqual({ machine: THIS_MACHINE, cacheWindowMinutes: 30, harness: {}, cacheMode: "auto" });
+    expect(f.patch).toHaveBeenLastCalledWith({ offboard: { cacheMode: "auto" } });
   });
 
   it("admits a cache windows write only as it admits any other, and changes nothing when it refuses", async () => {

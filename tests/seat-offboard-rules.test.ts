@@ -10,6 +10,8 @@ import { join } from "node:path";
 import { Result, Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  CACHE_MODES,
+  DEFAULT_CACHE_MODE,
   DEFAULT_CACHE_WINDOW_MINUTES,
   OFFBOARD_MINUTES_MAX,
   OFFBOARD_REFUSAL_CODES,
@@ -65,9 +67,9 @@ describe("offboard rules", () => {
   it("a harness window applies to that harness only; worth is the internal guard for every seat", () => {
     const rules = applyOffboardRulesPatch(defaultOffboardRules(), { harness: { codex: { cacheWindowMinutes: 10 } } });
     expect(offboardRulesProblem(rules)).toBeUndefined();
-    expect(offboardRulesFor(rules, "codex")).toEqual({ cacheWindowMinutes: 10, worth: OFFBOARD_WORTH });
+    expect(offboardRulesFor(rules, "codex")).toEqual({ cacheWindowMinutes: 10, cacheMode: "hybrid", worth: OFFBOARD_WORTH });
     for (const harness of ["claude", undefined, "not-a-harness"]) {
-      expect(offboardRulesFor(rules, harness)).toEqual({ cacheWindowMinutes: 60, worth: OFFBOARD_WORTH });
+      expect(offboardRulesFor(rules, harness)).toEqual({ cacheWindowMinutes: 60, cacheMode: "hybrid", worth: OFFBOARD_WORTH });
     }
     expect(OFFBOARD_WORTH).toEqual({ workMinutes: 30, tokens: 200_000 });
   });
@@ -91,6 +93,25 @@ describe("offboard rules", () => {
     const rules: OffboardRules = { cacheWindowMinutes: 60, harness: { claude: {} } };
     expect(offboardRulesFor(rules, "claude").cacheWindowMinutes).toBe(60);
     expect(applyOffboardRulesPatch(rules, {})).toEqual({ cacheWindowMinutes: 60 });
+  });
+
+  it("the cache mode is off, manual, auto or hybrid, one per machine; rules without one are hybrid", () => {
+    expect(CACHE_MODES).toEqual(["off", "manual", "auto", "hybrid"]);
+    expect(DEFAULT_CACHE_MODE).toBe("hybrid");
+    expect(offboardRulesFor(defaultOffboardRules(), "claude").cacheMode).toBe("hybrid");
+    const decode = Schema.decodeUnknownResult(OffboardRules);
+    for (const cacheMode of CACHE_MODES) expect(Result.isSuccess(decode({ cacheWindowMinutes: 60, cacheMode }))).toBe(true);
+    expect(Result.isFailure(decode({ cacheWindowMinutes: 60, cacheMode: "never" }))).toBe(true);
+    expect(Result.isFailure(Schema.decodeUnknownResult(OffboardRulesPatch)({ cacheMode: "never" }))).toBe(true);
+  });
+
+  it("a patch sets the mode for every harness, and a later window change keeps it", () => {
+    let rules = applyOffboardRulesPatch(defaultOffboardRules(), { cacheMode: "manual", harness: { codex: { cacheWindowMinutes: 10 } } });
+    expect(rules).toEqual({ cacheWindowMinutes: 60, harness: { codex: { cacheWindowMinutes: 10 } }, cacheMode: "manual" });
+    for (const harness of ["codex", "claude"]) expect(offboardRulesFor(rules, harness).cacheMode).toBe("manual");
+    rules = applyOffboardRulesPatch(rules, { cacheWindowMinutes: 90, harness: { codex: null } });
+    expect(rules).toEqual({ cacheWindowMinutes: 90, cacheMode: "manual" });
+    expect(offboardRulesProblem(rules)).toBeUndefined();
   });
 });
 
@@ -122,6 +143,13 @@ describe("offboard rules in installation settings", () => {
       if (!Result.isSuccess(patch)) return;
       expect(Result.isSuccess(applyAndValidatePatch(defaultSettings(), patch.success))).toBe(true);
     }
+    const mode = decodePatchInput({ offboard: { cacheMode: "auto" } });
+    expect(Result.isSuccess(mode)).toBe(true);
+    if (Result.isSuccess(mode)) {
+      const saved = applyAndValidatePatch(defaultSettings(), mode.success);
+      expect(Result.isSuccess(saved) && offboardRules(saved.success)).toEqual({ cacheWindowMinutes: 60, cacheMode: "auto" });
+    }
+    expect(Result.isFailure(decodePatchInput({ offboard: { cacheMode: "never" } }))).toBe(true);
     expect(Result.isFailure(decodePatchInput({ offboard: { cacheWindowMinutes: 0 } }))).toBe(true);
     expect(Result.isFailure(decodePatchInput({ offboard: { cacheWindowMinutes: 2.5 } }))).toBe(true);
     expect(Result.isFailure(decodePatchInput({ offboard: { auto: { minutes: 120 } } }))).toBe(true);

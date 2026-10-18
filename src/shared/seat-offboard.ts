@@ -7,8 +7,10 @@
  * seat has been still for its cache window, Junto ends its session by itself,
  * with no turn, no notes and no tokens, and the next message starts a fresh
  * one. The cache window is the one rule: one for every harness, and one per
- * harness where it differs. It is declared and set, never inferred. Each
- * machine keeps its own, because a seat's session is cut where it runs.
+ * harness where it differs. It is declared and set, never inferred. What
+ * Junto does once a session is past it is the machine's cache mode: off,
+ * manual, auto or hybrid. Each machine keeps its own window and mode, because
+ * a seat's session is cut where it runs.
  *
  * The operator can also cut sessions two ways, on one seat or many:
  *
@@ -42,6 +44,26 @@ export const CacheWindowMinutes = Schema.Number.pipe(
 );
 
 /**
+ * What Junto does with a seat past its cache window, per machine:
+ *
+ *   off     nothing: the seat always continues, and nothing is shown.
+ *   manual  never starts the seat fresh by itself: the seat shows that its
+ *           cache expired, and the operator starts it fresh by hand.
+ *   auto    starts a seat that is off screen fresh, and a cold seat starts
+ *           fresh on any start. A seat open in front of the operator is asked
+ *           first, and never started fresh without an answer.
+ *   hybrid  as auto, except that a seat open in front of the operator is
+ *           neither started fresh nor asked: it shows that its cache expired,
+ *           and opening a cold seat continues it.
+ *
+ * In every mode the operator's typing holds the seat and warms its cache.
+ */
+export const CACHE_MODES = ["off", "manual", "auto", "hybrid"] as const;
+export const CacheMode = Schema.Literals(CACHE_MODES);
+export type CacheMode = typeof CacheMode.Type;
+export const DEFAULT_CACHE_MODE: CacheMode = "hybrid";
+
+/**
  * When a session is worth cutting by itself: it worked for `workMinutes`, or
  * its transcript has grown to about `tokens`. Either is enough. A session that
  * has not worked at all never qualifies, and size does not count when the
@@ -69,21 +91,24 @@ export type OffboardHarnessOverride = typeof OffboardHarnessOverride.Type;
 
 /**
  * A machine's offboard rules: its cache window, with an override per harness
- * (each harness has its own cache lifetime). Override keys are harness ids;
- * an unknown key is ignored when the rules are applied. Rules saved before
- * this shape also carry `auto`, `nudge` and `worth`; the stored row decodes
- * dropping them, and the next save writes it clean.
+ * (each harness has its own cache lifetime), and its cache mode. Override
+ * keys are harness ids; an unknown key is ignored when the rules are applied.
+ * Rules saved before this shape also carry `auto`, `nudge` and `worth`; the
+ * stored row decodes dropping them, and the next save writes it clean.
  */
 export const OffboardRules = Schema.Struct({
   /** How long a still seat stays cheap to give a turn. */
   cacheWindowMinutes: CacheWindowMinutes,
   harness: Schema.optionalKey(Schema.Record(Schema.String, OffboardHarnessOverride)),
+  /** Absent: `DEFAULT_CACHE_MODE`. */
+  cacheMode: Schema.optionalKey(CacheMode),
 });
 export type OffboardRules = typeof OffboardRules.Type;
 
-/** The effective rules for one seat: its harness's cache window, and the worth guard. */
+/** The effective rules for one seat: its harness's cache window, the machine's mode, and the worth guard. */
 export type OffboardRuleSet = {
   readonly cacheWindowMinutes: number;
+  readonly cacheMode: CacheMode;
   readonly worth: OffboardWorth;
 };
 
@@ -96,6 +121,7 @@ export const OffboardRulesPatch = Schema.Struct({
   harness: Schema.optionalKey(
     Schema.Record(Schema.String, Schema.NullOr(Schema.Struct({ cacheWindowMinutes: CacheWindowMinutes }))),
   ),
+  cacheMode: Schema.optionalKey(CacheMode),
 });
 export type OffboardRulesPatch = typeof OffboardRulesPatch.Type;
 
@@ -116,6 +142,7 @@ export const offboardRulesFor = (
   cacheWindowMinutes:
     (harness !== undefined && isHarness(harness) ? rules.harness?.[harness]?.cacheWindowMinutes : undefined) ??
     rules.cacheWindowMinutes,
+  cacheMode: rules.cacheMode ?? DEFAULT_CACHE_MODE,
   worth: OFFBOARD_WORTH,
 });
 
@@ -133,9 +160,11 @@ export const applyOffboardRulesPatch = (
     if (over === null) delete harness[key];
     else harness[key] = { cacheWindowMinutes: over.cacheWindowMinutes };
   }
+  const cacheMode = patch.cacheMode ?? rules.cacheMode;
   return {
     cacheWindowMinutes: patch.cacheWindowMinutes ?? rules.cacheWindowMinutes,
     ...(Object.keys(harness).length > 0 ? { harness } : {}),
+    ...(cacheMode === undefined ? {} : { cacheMode }),
   };
 };
 

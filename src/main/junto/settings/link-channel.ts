@@ -81,6 +81,7 @@ export const makeSettingsChannel = Effect.fn("SettingsLink.make")(function* () {
             harness: Object.fromEntries(harness.map(([id, minutes]) =>
               [id, minutes === null ? null : { cacheWindowMinutes: minutes as number }])),
           }),
+          ...(request.cacheMode === undefined ? {} : { cacheMode: request.cacheMode }),
         };
         yield* settings.patch({ offboard });
         return wireCacheWindows(machineCacheWindowsOf(yield* settings.get, machine));

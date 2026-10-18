@@ -10,6 +10,7 @@
  */
 import { Schema } from "effect";
 import { NativeUsageProvider } from "./usage";
+import { CacheMode, DEFAULT_CACHE_MODE } from "./seat-offboard";
 import {
   PROVIDER_SECRET_FIELDS,
   PROVIDER_SECTION_KEYS,
@@ -36,15 +37,18 @@ export const MachineRecord = Schema.Struct({
 export type MachineRecord = typeof MachineRecord.Type;
 
 /**
- * A machine's cache windows: its own, and each harness's that differs. A
- * still seat's session is cut on its own machine once it has been still this
- * long (shared/seat-offboard.ts), so each machine keeps and answers its own.
+ * A machine's cache windows: its own, and each harness's that differs, and
+ * its cache mode. A still seat's session is cut on its own machine once it has
+ * been still this long (shared/seat-offboard.ts), so each machine keeps and
+ * answers its own.
  */
 export const MachineCacheWindows = Schema.Struct({
   machine: Schema.String,
   cacheWindowMinutes: Schema.Number,
   /** Harness id to minutes, for each harness with a window of its own. */
   harness: Schema.Record(Schema.String, Schema.Number),
+  /** Absent: a linked machine on a build from before the cache mode. */
+  cacheMode: Schema.optionalKey(CacheMode),
 });
 export type MachineCacheWindows = typeof MachineCacheWindows.Type;
 
@@ -108,5 +112,6 @@ export const machineCacheWindowsOf = (settings: Settings, machine: string): Mach
       Object.entries(rules.harness ?? {}).flatMap(([harness, over]) =>
         over.cacheWindowMinutes === undefined ? [] : [[harness, over.cacheWindowMinutes]]),
     ),
+    cacheMode: rules.cacheMode ?? DEFAULT_CACHE_MODE,
   };
 };

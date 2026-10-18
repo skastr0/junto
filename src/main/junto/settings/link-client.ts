@@ -175,6 +175,7 @@ export const makePeerSettingsClient = () => {
         harness: Object.fromEntries(Object.entries(change.harness).map(([harness, over]) =>
           [harness, over === null ? null : over.cacheWindowMinutes])),
       }),
+      ...(change.cacheMode === undefined ? {} : { cacheMode: change.cacheMode }),
     }), decodeLinkCacheWindows).pipe(
       Effect.map(cacheWindowsOfWire),
       (effect) => answered(machine, operationId, effect),

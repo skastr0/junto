@@ -20,7 +20,7 @@ import type { MachineCacheWindows, MachineProviders, MachineRecord } from "@shar
 import { HARNESS_IDS } from "@shared/managed-terminal-templates";
 import { CanvasName } from "@shared/model";
 import { PROVIDER_SECRET_FIELDS, PROVIDER_SECTION_KEYS } from "@shared/settings";
-import { CacheWindowMinutes } from "@shared/seat-offboard";
+import { CacheMode, CacheWindowMinutes } from "@shared/seat-offboard";
 import { NATIVE_USAGE_PROVIDERS, NativeUsageProvider } from "@shared/usage";
 
 const Sources = Schema.Array(NativeUsageProvider).pipe(
@@ -47,6 +47,7 @@ export const CacheWindowsWrite = Schema.TaggedStruct("CacheWindowsWrite", {
   harness: Schema.optionalKey(Schema.Struct(Object.fromEntries(
     HARNESS_IDS.map((harness) => [harness, Schema.optionalKey(Schema.NullOr(CacheWindowMinutes))]),
   ))),
+  cacheMode: Schema.optionalKey(CacheMode),
 });
 
 export const LinkSettingsRequest = Schema.Union([
@@ -72,8 +73,8 @@ export const decodeLinkSettingsRequest = (raw: unknown): LinkSettingsRequest => 
     throw new Error("a source is named twice");
   }
   if (request._tag === "CacheWindowsWrite" && request.cacheWindowMinutes === undefined
-    && Object.keys(request.harness ?? {}).length === 0) {
-    throw new Error("a cache windows write sets the machine's window or a harness's");
+    && Object.keys(request.harness ?? {}).length === 0 && request.cacheMode === undefined) {
+    throw new Error("a cache windows write sets the machine's window, a harness's, or the cache mode");
   }
   return request;
 };
@@ -96,10 +97,12 @@ export const LinkRecord = Schema.Struct({ machine: MachineName, supervisedPrefer
 export type LinkRecord = typeof LinkRecord.Type;
 
 // The harness map is closed: each declared harness, at most once, as minutes.
+// A machine on a build from before the cache mode answers without one.
 export const LinkCacheWindows = Schema.Struct({
   machine: MachineName,
   cacheWindowMinutes: CacheWindowMinutes,
   harness: Schema.Struct(Object.fromEntries(HARNESS_IDS.map((harness) => [harness, Schema.optionalKey(CacheWindowMinutes)]))),
+  cacheMode: Schema.optionalKey(CacheMode),
 });
 export type LinkCacheWindows = typeof LinkCacheWindows.Type;
 
@@ -181,6 +184,7 @@ export const wireCacheWindows = (windows: MachineCacheWindows): LinkCacheWindows
       return minutes === undefined ? [] : [[harness, minutes]];
     }),
   ),
+  ...(windows.cacheMode === undefined ? {} : { cacheMode: windows.cacheMode }),
 });
 
 export const decodeLinkProviders = Schema.decodeUnknownSync(LinkProviders, { onExcessProperty: "error" });
@@ -198,6 +202,7 @@ export const cacheWindowsOfWire = (wire: LinkCacheWindows): MachineCacheWindows 
   machine: wire.machine,
   cacheWindowMinutes: wire.cacheWindowMinutes,
   harness: { ...wire.harness } as Record<string, number>,
+  ...(wire.cacheMode === undefined ? {} : { cacheMode: wire.cacheMode }),
 });
 
 /** A linked machine's record; its name is the label the editing machine knows it by. */

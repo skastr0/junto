@@ -236,7 +236,7 @@ export const registerSettingsIpc = (
     const request = keyedPatch(input);
     const decoded = request === undefined ? undefined : decodeCacheWindowsPatch(request.patch);
     const patch = decoded !== undefined && Result.isSuccess(decoded) ? decoded.success : undefined;
-    const why = "A cache windows change sets the machine's window or a harness's, in whole minutes from 1 to 10080";
+    const why = "A cache windows change sets the machine's window or a harness's, in whole minutes from 1 to 10080, or the cache mode: off, manual, auto or hybrid";
     return forMachine(request?.machine, (settings) => machineCacheWindowsOf(settings, settings.machine.name),
       (service) => patch === undefined ? Effect.fail({ message: why }) : service.patch({ offboard: patch }),
       (client, name) => patch === undefined ? refused(name, why) : client.setCacheWindows(name, patch));
