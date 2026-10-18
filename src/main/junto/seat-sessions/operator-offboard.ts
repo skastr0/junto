@@ -15,9 +15,12 @@
  * It also keeps the status clock: when each seat last came to rest, read
  * from its status, in real time and saved to disk. A seat still for ninety
  * minutes when Junto closed for eight hours has been still for nine and a
- * half when it opens: the cache it would wake into is just as cold. Nothing is ever cut on a timer
- * or in a batch: auto offboard acts on one seat, at the moment that seat is
- * about to be given a turn on a cold session (woken, or mailed while idle).
+ * half when it opens: the cache it would wake into is just as cold.
+ *
+ * Auto offboard cuts a session once it has gone cold: at the minute pass for
+ * a running seat at rest past its cache window (the eager cut), and at the
+ * moment a resting or idle seat is about to be given a turn (woken, or
+ * mailed). Never while the operator views or has just typed into the seat.
  *
  * Everything it touches comes in through ports, so it runs the same against
  * the app and a test.
@@ -37,7 +40,7 @@ import {
   type SeatOffboardStatus,
 } from "@shared/seat-offboard";
 import { SEAT_OFFBOARD_MAX_SEATS } from "@shared/seat-offboard";
-import type { SeatSnapshot } from "@shared/harness-domain";
+import { deriveNeeds, type NeedCause, type SeatSnapshot } from "@shared/harness-domain";
 import { seatNextTurn, type SeatNextLaunch, type SeatNextTurn } from "@shared/seat-next-launch";
 import type { OffboardMode, SeatAddress } from "@shared/seat-sessions";
 
@@ -59,7 +62,22 @@ export type OffboardSeat = SeatAddress & {
   readonly state?: "idle" | "working" | "attention" | "unknown";
   /** The seat's canvas is paused. */
   readonly paused?: boolean;
+  /** Blocked, or asking the operator for something other than a look at a finished turn. */
+  readonly waitsOnOperator?: boolean;
 };
+
+/** A turn that ended unseen is done: the session may still be cut under it. */
+const DONE_CAUSES: ReadonlySet<NeedCause> = new Set(["turn_unseen", "turn_failed"]);
+
+/**
+ * Whether the seat waits on the operator: Blocked, or with any need the
+ * operator is to act on other than a finished turn. Such a seat keeps its
+ * session through the eager cut.
+ */
+export const waitsOnOperator = (snapshot: SeatSnapshot | undefined): boolean =>
+  snapshot !== undefined &&
+  (snapshot.status._tag === "Blocked" ||
+    deriveNeeds(snapshot).some((need) => need.actor === "operator" && !DONE_CAUSES.has(need.cause)));
 
 export type OperatorOffboardPorts = {
   readonly locate: (seat: SeatAddress) => Promise<OffboardSeat | undefined>;
@@ -89,6 +107,12 @@ export type OperatorOffboardPorts = {
    */
   readonly sessionSize?: (seat: OffboardSeat) => { readonly tokens: number } | undefined;
   readonly rules: () => OffboardRules;
+  /**
+   * The operator views or has just typed into the seat, here or on the
+   * machine editing its canvas. A held seat's session is not cut. Absent
+   * port: nothing is ever held.
+   */
+  readonly held?: (seat: OffboardSeat, at: number) => boolean;
   /** Save the clock (called once per tick). */
   readonly saveClock?: (record: SeatClockRecord) => void;
   readonly now?: () => number;
@@ -549,6 +573,8 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
     const set = offboardRulesFor(ports.rules(), seat.harness);
     if (clock.isFresh(seat.bindingId)) return { cold: false };
     if (!mayCloseNow(seat, address).allowed) return { cold: false };
+    // Held: it goes cold only once the operator lets go, so there is no time to give.
+    if (ports.held?.(seat, now()) === true) return { cold: false };
     const still = stillness(seat, now());
     if (still.minutes === null) return { cold: false };
     if (still.minutes < set.cacheWindowMinutes)
@@ -567,11 +593,9 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
    *         idle. The seat then rests on its fresh session, and the mail
    *         wakes it there.
    *
-   * This is the only way a session is ever ended without someone asking.
-   * Nothing is cut on a timer and nothing is cut in a batch: a cold session
-   * costs nothing while its seat sits, and it is dealt with at the moment it
-   * would start to cost, one seat at a time. What the operator types into a
-   * terminal themselves is never intercepted.
+   * A running seat at rest is cut sooner, at the minute pass (`tick`); this
+   * catches the rest, and a seat that was never cold at a pass. What the
+   * operator types into a terminal themselves is never intercepted.
    *
    * Resolves true when the session was cut. Never throws: neither a wake nor
    * a delivery is ever held up by a failure here.
@@ -615,18 +639,43 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
   };
 
   /**
-   * The once-a-minute pass: save the clock, keeping each seat's work count on
-   * its current session. No session is ended from here (see `beforeWake`).
+   * The eager cut, for one seat at the minute pass: a running seat at rest
+   * (idle, or done with a turn unseen) whose session has gone cold, on a
+   * canvas that is playing, not waiting on the operator and not just asked to
+   * offboard. Undefined when the seat is not due. Never throws.
+   */
+  const cutIfDue = async (seat: OffboardSeat): Promise<SeatOffboardRunRow | undefined> => {
+    const address = { canvasName: seat.canvasName, seatId: seat.seatId };
+    try {
+      if (!seat.local || !seat.running || seat.state !== "idle") return undefined;
+      if (seat.paused === true || seat.waitsOnOperator === true) return undefined;
+      if ((asking.get(keyOf(address)) ?? 0) > now()) return undefined;
+      if (!coldness(seat, address).cold) return undefined;
+      const row = await closeOne(address, "automatic");
+      if (!row.ok) ports.log?.(`auto offboard at the cache window for ${address.seatId} did not go through: ${row.reason}`);
+      return row;
+    } catch (error) {
+      ports.log?.(`auto offboard at the cache window for ${address.seatId} failed: ${String(error)}`);
+      return undefined;
+    }
+  };
+
+  /**
+   * The once-a-minute pass: keep each seat's work count on its current
+   * session, cut every seat this machine runs that is due (`cutIfDue`), each
+   * on its own, then save the clock. A seat on another machine is cut by
+   * that machine's own pass.
    */
   const tick = async (): Promise<SeatOffboardRunResult> => {
     const seats = await ports.seats().catch(() => [] as ReadonlyArray<OffboardSeat>);
     for (const seat of seats) clock.syncSession(seat.bindingId, seat.sessionId);
+    const rows = (await Promise.all(seats.map(cutIfDue))).filter((row) => row !== undefined);
     try {
       ports.saveClock?.(clock.record());
     } catch {
       ports.log?.("the offboard clock could not be saved");
     }
-    return summarizeOffboardRun([]);
+    return summarizeOffboardRun(rows);
   };
 
   return { run, status, tick, beforeWake, beforeMail, nextTurn, clock };

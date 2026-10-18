@@ -8,11 +8,13 @@ import {
   SeatStatusClock,
   makeOperatorOffboard,
   parseSeatClockRecord,
+  waitsOnOperator,
   type OffboardSeat,
   type OperatorOffboardPorts,
   type SeatClockRecord,
 } from "../src/main/junto/seat-sessions/operator-offboard";
-import type { SeatSnapshot, SeatStatus } from "../src/shared/harness-domain";
+import { initialSnapshot, type SeatSnapshot, type SeatStatus } from "../src/shared/harness-domain";
+import type { BindingId } from "../src/shared/terminal-session-domain";
 import {
   OFFBOARD_REFUSAL_REASON,
   applyOffboardRulesPatch,
@@ -63,6 +65,8 @@ const world = (
   let rules = options.rules ?? defaultOffboardRules();
   const seats = new Map(initial.map((s) => [s.seatId, s]));
   const closing = new Set<string>();
+  /** Seats the operator views or has just typed into. */
+  const held = new Set<string>();
   const closed: Array<{ seatId: string; by: OffboardBy }> = [];
   const asked: Array<{ seatId: string; mode: string }> = [];
   const ended: Array<{ seatId: string; sessionId: string; by: OffboardBy; at: number }> = [];
@@ -99,6 +103,7 @@ const world = (
     markEnded: (s, sessionId, by, when) => ended.push({ seatId: s.seatId, sessionId, by, at: when }),
     sessionSize: (s) => (sizes.has(s.seatId) ? { tokens: sizes.get(s.seatId)! } : undefined),
     rules: () => rules,
+    held: (s) => held.has(s.seatId),
     saveClock: (record) => saved.push(record),
     now: () => at,
   };
@@ -108,6 +113,7 @@ const world = (
     clock,
     seats,
     closing,
+    held,
     closed,
     asked,
     ended,
@@ -301,8 +307,8 @@ describe("auto offboard at the cache window (60 minutes by default): only as a s
   const wake = (w: ReturnType<typeof world>, seatId: string) =>
     w.offboard.beforeWake({ canvasName: CANVAS, seatId });
 
-  it("never ends a session on a timer, and never asks for a turn, however long the seat has sat still", async () => {
-    const w = world([seat("idle"), resting("rest")]);
+  it("the minute pass never ends a resting seat's session, and never asks for a turn, however long it has sat still", async () => {
+    const w = world([resting("rest"), resting("other")]);
     for (let hour = 0; hour < 48; hour += 1) {
       w.advance(60);
       expect(await w.offboard.tick()).toMatchObject({ closed: 0, asked: 0 });
@@ -454,6 +460,100 @@ describe("auto offboard as mail is about to be typed into a running, idle seat",
     w.advance(600);
     expect(await mail(w, "a")).toBe(false);
     expect(await w.offboard.beforeWake({ canvasName: CANVAS, seatId: "a" })).toBe(true);
+  });
+});
+
+describe("the eager cut: a running seat at rest is cut at the first pass past its cache window", () => {
+  const tickAt = async (w: ReturnType<typeof world>) => w.offboard.tick();
+
+  it("cuts an idle seat once its session goes cold, not a minute before, and records the automatic end", async () => {
+    const w = world([seat("a")]);
+    w.settle("a");
+    w.advance(59);
+    expect(await tickAt(w)).toMatchObject({ closed: 0 });
+    w.advance(1);
+    expect(await tickAt(w)).toMatchObject({ closed: 1 });
+    expect(w.closed).toEqual([{ seatId: "a", by: "automatic" }]);
+    expect(w.ended[0]).toMatchObject({ by: "automatic", sessionId: "session-a" });
+    expect(w.asked).toEqual([]);
+    // Fresh now: later passes leave it alone.
+    w.advance(120);
+    expect(await tickAt(w)).toMatchObject({ closed: 0 });
+  });
+
+  it("cuts every due seat in one pass, each on its own: one that fails costs no other", async () => {
+    const w = world([seat("a"), seat("b"), seat("c")]);
+    w.fail.close.add("b");
+    w.advance(60);
+    const result = await tickAt(w);
+    expect(w.closed.map((entry) => entry.seatId).sort()).toEqual(["a", "c"]);
+    expect(result).toMatchObject({ closed: 2 });
+  });
+
+  it("leaves a seat held by the operator, and cuts it at the first pass after they let go", async () => {
+    const w = world([seat("a")]);
+    w.held.add("a");
+    w.advance(180);
+    expect(await tickAt(w)).toMatchObject({ closed: 0 });
+    w.held.delete("a");
+    expect(await tickAt(w)).toMatchObject({ closed: 1 });
+  });
+
+  it("exempts a seat that waits on the operator, a paused canvas, a turn, another machine, a close under way, a tiny session and a fresh one", async () => {
+    const w = world(
+      [
+        seat("waits", { waitsOnOperator: true }),
+        seat("paused", { paused: true }),
+        seat("working", { state: "working" }),
+        seat("attention", { state: "attention" }),
+        seat("unread", { state: "unknown" }),
+        seat("remote", { local: false }),
+        seat("closing"),
+        seat("tiny"),
+        resting("rest"),
+      ],
+      { noWork: ["tiny"] },
+    );
+    w.closing.add("closing");
+    w.advance(600);
+    expect(await tickAt(w)).toMatchObject({ closed: 0 });
+    expect(w.closed).toEqual([]);
+  });
+
+  it("does not cut under the operator's own ask", async () => {
+    const w = world([seat("a")]);
+    w.advance(90);
+    await w.offboard.run({ canvasName: CANVAS, seatIds: ["a"], action: "ask" }, "operator");
+    expect(await tickAt(w)).toMatchObject({ closed: 0 });
+  });
+
+  it("the cut before mail or a wake leaves a held seat too, and its next turn continues", async () => {
+    const w = world([seat("idle"), resting("rest")]);
+    w.held.add("idle");
+    w.held.add("rest");
+    w.advance(120);
+    expect(await w.offboard.beforeMail({ canvasName: CANVAS, seatId: "idle" })).toBe(false);
+    expect(await w.offboard.beforeWake({ canvasName: CANVAS, seatId: "rest" })).toBe(false);
+    expect(await w.offboard.nextTurn({ canvasName: CANVAS, seatId: "idle" }, "resume")).toEqual({ fresh: false });
+    expect(w.closed).toEqual([]);
+  });
+});
+
+describe("waits on the operator", () => {
+  const at = (over: Partial<SeatSnapshot>): SeatSnapshot => ({
+    ...initialSnapshot("seat-a" as BindingId, T0),
+    status: { _tag: "Idle" },
+    ...over,
+  });
+
+  it("a blocked seat, an open signal or an escalation waits; a plain or done seat does not", () => {
+    expect(waitsOnOperator(undefined)).toBe(false);
+    expect(waitsOnOperator(at({}))).toBe(false);
+    expect(waitsOnOperator(at({ turnUnseen: { outcome: "completed", since: T0 } }))).toBe(false);
+    expect(waitsOnOperator(at({ turnUnseen: { outcome: "failed", since: T0 } }))).toBe(false);
+    expect(waitsOnOperator(at({ status: { _tag: "Blocked", reason: { _tag: "Permission" } } as SeatStatus }))).toBe(true);
+    for (const kind of ["blocked", "escalate", "feedback"] as const)
+      expect(waitsOnOperator(at({ reports: [{ kind, signalId: "s1", since: T0 }] }))).toBe(true);
   });
 });
 
