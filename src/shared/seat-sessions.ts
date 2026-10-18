@@ -10,6 +10,7 @@
  * to the next session so it knows what came before and where to look.
  */
 import type { SessionLocationMissing } from "./harness-domain";
+import type { OffboardBy } from "./seat-offboard";
 
 /**
  * Which seat, on which canvas. Named fields on purpose: both are plain
@@ -45,6 +46,12 @@ export type SeatSession = {
   readonly startedAt: number;
   readonly endedAt?: number;
   readonly endReason?: SeatSessionEndReason;
+  /**
+   * Who ended the session from outside it, without notes: the operator, an
+   * overseer, or the automatic rule. Absent when its own agent offboarded or
+   * nothing recorded who.
+   */
+  readonly endedBy?: OffboardBy;
   /** Last time the agent wrote notes for this session. */
   readonly offboardedAt?: number;
   /**

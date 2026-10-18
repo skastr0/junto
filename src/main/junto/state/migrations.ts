@@ -35,6 +35,7 @@ import { SEAT_GUIDANCE_STATE_SCHEMA_SQL } from "../seat-guidance/state-schema";
 import { AGENT_PROFILES_STATE_SCHEMA_SQL } from "../profiles/state-schema";
 import { SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL } from "../seat-sessions/state-schema";
 import { migrateSeatPins, SEAT_SESSIONS_V8_STATE_SCHEMA_SQL } from "./migrate-seat-pins";
+import { migrateSeatSessionData } from "./migrate-seat-session-data";
 import {
   PORTRAIT_OVERRIDES_COPY_FORWARD_SQL,
   PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL,
@@ -328,7 +329,18 @@ export const STATE_SCHEMA_V21_IDENTITY = {
     "3f66bf3f3123345039d6bd1bd9eda6c4bed42ffb7d5bb1ade4ed7ae0d5903148",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 21;
+/**
+ * Version 22 keeps everything about a seat session in this database: its
+ * notes, the note for its next session, who ended it and when it onboarded
+ * are on its row, and the continuation ledger and the offboard clock have
+ * tables. Nothing lives under `~/.junto/seats` any more.
+ */
+export const STATE_SCHEMA_V22_IDENTITY = {
+  actualSchemaSha256:
+    "de64a11924fec06cc193f2ae46d4730f22c923f132243d3aa396ae33c37e6eea",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 22;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -336,7 +348,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 21;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V21_IDENTITY;
+  STATE_SCHEMA_V22_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -573,6 +585,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     ],
     correctiveWriteTables: [...MACHINE_NAMES_CORRECTED_TABLES],
     migrate: (database) => migrateMachineNames(database),
+  },
+  {
+    fromVersion: 21,
+    toVersion: 22,
+    name: "keep seat session notes and marks in the database",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V21_IDENTITY,
+    replacesTables: ["seat_sessions"],
+    retiresColumns: { seat_sessions: ["notes_path"] },
+    migrate: (database) => migrateSeatSessionData(database),
   },
 ];
 

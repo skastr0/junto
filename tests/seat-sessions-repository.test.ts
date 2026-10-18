@@ -21,7 +21,11 @@ import {
   __setSessionExistenceHomeForTest,
   encodeClaudeProjectCwd,
 } from "../src/main/junto/term/session-existence";
-import { gistOfNotes } from "../src/shared/seat-sessions";
+import {
+  gistOfNotes,
+  SEAT_SESSION_CONTINUATION_MAX_CHARS,
+  SEAT_SESSION_NOTES_MAX_CHARS,
+} from "../src/shared/seat-sessions";
 import { canvasOf, note, seat as seatNode } from "./support/model-nodes";
 import type { Canvas, Node } from "../src/shared/model";
 import type { HarnessId } from "../src/shared/managed-terminal-templates";
@@ -382,5 +386,52 @@ describe("what became of an offboarded session's process", () => {
     await run(repository.endDrain("a", "s1", "settled", 2_000));
     await run(repository.beginDrain("a", "s1", 5_000));
     expect((await run(sessionOf("a", "s1")))?.drain).toEqual({ detachedAt: 5_000 });
+  });
+});
+
+describe("a session's notes and marks, kept on its row", () => {
+  const offboard = (sessionId: string, notes: string, continuation?: string) =>
+    run(Effect.flatMap(repo, (r) =>
+      r.offboard({ seatId: "a", sessionId, harness: "claude", notes, gist: gistOfNotes(notes)!, ...(continuation ? { continuation } : {}) }),
+    ));
+  const notesOf = (sessionIds: ReadonlyArray<string>, seatId = "a") => run(Effect.flatMap(repo, (r) => r.notesOf(seatId, sessionIds)));
+  const listed = (sessionId: string) =>
+    run(Effect.flatMap(repo, (r) => r.list("a"))).then((sessions) => sessions.find((session) => session.sessionId === sessionId));
+
+  it("hands back the notes and continuation of the sessions asked for, and nothing for one that never offboarded", async () => {
+    await offboard("s1", "# First\n\n- done\n", "Pick up the retry");
+    await run(Effect.flatMap(repo, (r) => r.record({ seatId: "a", sessionId: "s2", harness: "claude" })));
+    await offboard("s3", "Third");
+    const found = await notesOf(["s1", "s2", "s3", "s1"]);
+    expect(Object.fromEntries(found)).toEqual({
+      s1: { notes: "# First\n\n- done", continuation: "Pick up the retry" },
+      s3: { notes: "Third" },
+    });
+    expect(Object.fromEntries(await notesOf(["s3"]))).toEqual({ s3: { notes: "Third" } });
+    expect((await notesOf([])).size).toBe(0);
+    // Another seat's session of the same id is not this seat's.
+    expect((await notesOf(["s1"], "b")).size).toBe(0);
+  });
+
+  it("the latest offboard decides: notes are replaced whole, and a plain one withdraws a continuation", async () => {
+    await offboard("s1", "First pass", "Next: retry");
+    await offboard("s1", "Second pass");
+    expect(Object.fromEntries(await notesOf(["s1"]))).toEqual({ s1: { notes: "Second pass" } });
+  });
+
+  it("bounds the text as before: notes and continuation cut at their limits", async () => {
+    await offboard("s1", `  ${"n".repeat(SEAT_SESSION_NOTES_MAX_CHARS + 50)}  `, "c".repeat(SEAT_SESSION_CONTINUATION_MAX_CHARS + 50));
+    const kept = (await notesOf(["s1"])).get("s1")!;
+    expect(kept.notes).toHaveLength(SEAT_SESSION_NOTES_MAX_CHARS);
+    expect(kept.continuation).toHaveLength(SEAT_SESSION_CONTINUATION_MAX_CHARS);
+  });
+
+  it("records who ended a session from outside it, and forgets it when the session is the seat's again", async () => {
+    await run(Effect.flatMap(repo, (r) => r.record({ seatId: "a", sessionId: "s1", harness: "claude" })));
+    await run(Effect.flatMap(repo, (r) => r.end("a", "replaced", "s1")));
+    await run(Effect.flatMap(repo, (r) => r.markEnded("a", "s1", "automatic")));
+    expect((await listed("s1"))?.endedBy).toBe("automatic");
+    await run(Effect.flatMap(repo, (r) => r.record({ seatId: "a", sessionId: "s1", harness: "claude" })));
+    expect((await listed("s1"))?.endedBy).toBeUndefined();
   });
 });

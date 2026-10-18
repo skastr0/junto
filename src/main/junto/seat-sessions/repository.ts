@@ -1,9 +1,12 @@
 import { Cause, Context, Effect, Layer, Schema } from "effect";
 import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
+import { OFFBOARD_BY, type OffboardBy } from "@shared/seat-offboard";
 import {
   newestSessionsFirst,
+  SEAT_SESSION_CONTINUATION_MAX_CHARS,
   SEAT_SESSION_DRAIN_ENDS,
   SEAT_SESSION_END_REASONS,
+  SEAT_SESSION_NOTES_MAX_CHARS,
   type SeatSession,
   type SeatSessionDrainEnd,
   type SeatSessionEndReason,
@@ -59,6 +62,12 @@ export type SeatSessionOffboard = SeatSessionObservation & {
   readonly continuation?: string;
 };
 
+/** What a session's agent left at its offboard: its notes, and the note for the next session. */
+export type SeatSessionNotes = {
+  readonly notes: string;
+  readonly continuation?: string;
+};
+
 /**
  * Every harness session each agent seat has run (`seat_sessions`), and the
  * notes the seat's agent left for each. The open row is its durable resume
@@ -101,8 +110,23 @@ export class SeatSessionRepository extends Context.Service<SeatSessionRepository
     ) => Effect.Effect<string | undefined, SeatSessionPersistenceError>;
     /** The seat's sessions, newest first. */
     readonly list: (seatId: string) => Effect.Effect<ReadonlyArray<SeatSession>, SeatSessionPersistenceError>;
-    /** Write the session's notes (and continuation) files, then record it as offboarded. */
+    /** Keep the session's notes (and continuation) on its row, and record it as offboarded. */
     readonly offboard: (input: SeatSessionOffboard) => Effect.Effect<SeatSession, SeatSessionPersistenceError>;
+    /**
+     * The notes of these sessions of the seat, by session id. A session that
+     * never offboarded has none and is absent. Read only for the few sessions
+     * shown in full, so a long history never loads every session's text.
+     */
+    readonly notesOf: (
+      seatId: string,
+      sessionIds: ReadonlyArray<string>,
+    ) => Effect.Effect<ReadonlyMap<string, SeatSessionNotes>, SeatSessionPersistenceError>;
+    /** Who ended this session from outside it (the operator, an overseer, the automatic rule). */
+    readonly markEnded: (
+      seatId: string,
+      sessionId: string,
+      by: OffboardBy,
+    ) => Effect.Effect<void, SeatSessionPersistenceError>;
     /**
      * The session offboarded and its process was detached from the seat: it
      * is winding down from `at`. Recording it again starts the wind-down over.
@@ -162,11 +186,11 @@ const SessionRow = Schema.Struct({
   binding_id: Schema.NullOr(Schema.String),
   cwd: Schema.NullOr(Schema.String),
   transcript_path: Schema.NullOr(Schema.String),
-  notes_path: Schema.String,
   gist: Schema.NullOr(Schema.String),
   started_at: Schema.Number,
   ended_at: Schema.NullOr(Schema.Number),
   end_reason: Schema.NullOr(Schema.String),
+  ended_by: Schema.NullOr(Schema.String),
   offboarded_at: Schema.NullOr(Schema.Number),
   drain_detached_at: Schema.NullOr(Schema.Number),
   drain_ended_at: Schema.NullOr(Schema.Number),
@@ -174,7 +198,7 @@ const SessionRow = Schema.Struct({
 });
 
 const COLUMNS =
-  "s.seat_id, s.session_id, s.harness, s.binding_id, s.cwd, s.transcript_path, s.notes_path, s.gist, s.started_at, s.ended_at, s.end_reason, s.offboarded_at, " +
+  "s.seat_id, s.session_id, s.harness, s.binding_id, s.cwd, s.transcript_path, s.gist, s.started_at, s.ended_at, s.end_reason, s.ended_by, s.offboarded_at, " +
   "d.detached_at AS drain_detached_at, d.ended_at AS drain_ended_at, d.ended_how AS drain_ended_how";
 
 /** A session with what became of its process after it offboarded, if it did. */
@@ -187,16 +211,20 @@ const isDrainEnd = (value: string | null): value is SeatSessionDrainEnd =>
 const isEndReason = (value: string | null): value is SeatSessionEndReason =>
   value !== null && (SEAT_SESSION_END_REASONS as ReadonlyArray<string>).includes(value);
 
-const fromRow = (row: typeof SessionRow.Type): SeatSession => ({
+const isEndedBy = (value: string | null): value is OffboardBy =>
+  value !== null && (OFFBOARD_BY as ReadonlyArray<string>).includes(value);
+
+const fromRow = (row: typeof SessionRow.Type, notesPath: string): SeatSession => ({
   seatId: row.seat_id,
   sessionId: row.session_id,
   harness: row.harness,
   ...(row.transcript_path ? { transcriptPath: row.transcript_path } : {}),
-  notesPath: row.notes_path,
+  notesPath,
   ...(row.gist ? { gist: row.gist } : {}),
   startedAt: Number(row.started_at),
   ...(row.ended_at === null ? {} : { endedAt: Number(row.ended_at) }),
   ...(isEndReason(row.end_reason) ? { endReason: row.end_reason } : {}),
+  ...(isEndedBy(row.ended_by) ? { endedBy: row.ended_by } : {}),
   ...(row.offboarded_at === null ? {} : { offboardedAt: Number(row.offboarded_at) }),
   ...(row.drain_detached_at === null
     ? {}
@@ -217,6 +245,12 @@ const bounded = (value: string | undefined, max: number): string | null => {
   return trimmed && trimmed.length <= max ? trimmed : null;
 };
 
+/** Markdown an agent wrote, trimmed and cut at its bound; null when empty. */
+const text = (value: string | undefined, max: number): string | null => {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed.slice(0, max).trimEnd() : null;
+};
+
 const probeOf = (row: typeof SessionRow.Type) =>
   ({ harness: row.harness, sessionId: row.session_id, ...(row.cwd ? { cwd: row.cwd } : {}) });
 
@@ -235,6 +269,7 @@ export const makeSeatSessionRepositoryLive = (
       const root = seatsRoot ?? defaultSeatsRoot();
       const notesPathFor = (seatId: string, sessionId: string) =>
         seatSessionNotesPath(root, seatId, sessionId);
+      const sessionOf = (row: typeof SessionRow.Type) => fromRow(row, notesPathFor(row.seat_id, row.session_id));
 
       const openRow = SqlSchema.findOneOption({
         Request: Schema.String,
@@ -282,13 +317,13 @@ export const makeSeatSessionRepositoryLive = (
         const known = yield* knownRow([seatId, sessionId]);
         if (known._tag === "Some") {
           yield* sql`
-            UPDATE seat_sessions SET ended_at = NULL, end_reason = NULL, harness = ${harness}, binding_id = ${observation.bindingId ?? null}, cwd = COALESCE(${cwd}, cwd)
+            UPDATE seat_sessions SET ended_at = NULL, end_reason = NULL, ended_by = NULL, harness = ${harness}, binding_id = ${observation.bindingId ?? null}, cwd = COALESCE(${cwd}, cwd)
             WHERE seat_id = ${seatId} AND session_id = ${sessionId}
           `;
         } else {
           yield* sql`
-            INSERT INTO seat_sessions(seat_id, session_id, harness, binding_id, cwd, notes_path, started_at)
-            VALUES (${seatId}, ${sessionId}, ${harness}, ${observation.bindingId ?? null}, ${cwd}, ${notesPathFor(seatId, sessionId)}, ${now})
+            INSERT INTO seat_sessions(seat_id, session_id, harness, binding_id, cwd, started_at)
+            VALUES (${seatId}, ${sessionId}, ${harness}, ${observation.bindingId ?? null}, ${cwd}, ${now})
           `;
         }
         return { started: true, ...(open ? { ended: open.session_id } : {}) };
@@ -334,7 +369,7 @@ export const makeSeatSessionRepositoryLive = (
       Effect.mapError(persistence("end")));
 
       const list = Effect.fn("seat-sessions.list")(function* (seatId: string) {
-        return newestSessionsFirst((yield* seatRows(seatId)).map(fromRow));
+        return newestSessionsFirst((yield* seatRows(seatId)).map(sessionOf));
       }, Effect.mapError(persistence("list")));
 
       const offboard = Effect.fn("seat-sessions.offboard")(function* (input: SeatSessionOffboard) {
@@ -359,15 +394,38 @@ export const makeSeatSessionRepositoryLive = (
           // id the recorder has not seen yet starts its history here.
           yield* recordIn(input, now);
           yield* sql`
-            UPDATE seat_sessions SET gist = ${bounded(input.gist, 200)}, offboarded_at = ${now}, notes_path = ${path}
+            UPDATE seat_sessions SET gist = ${bounded(input.gist, 200)}, offboarded_at = ${now},
+              notes = ${text(input.notes, SEAT_SESSION_NOTES_MAX_CHARS)},
+              continuation = ${text(input.continuation, SEAT_SESSION_CONTINUATION_MAX_CHARS)}
             WHERE seat_id = ${input.seatId} AND session_id = ${input.sessionId}
           `;
-          return fromRow(yield* oneRow([input.seatId, input.sessionId]));
+          return sessionOf(yield* oneRow([input.seatId, input.sessionId]));
         })).pipe(
           Effect.provideService(StateTransactionOperation, "seat-sessions.offboard"),
           Effect.mapError(persistence("offboard")),
         );
       });
+
+      const notesRows = SqlSchema.findAll({
+        Request: Schema.Tuple([Schema.String, Schema.Array(Schema.String)]),
+        Result: Schema.Struct({ session_id: Schema.String, notes: Schema.String, continuation: Schema.NullOr(Schema.String) }),
+        execute: ([seatId, sessionIds]) =>
+          sql`SELECT session_id, notes, continuation FROM seat_sessions
+            WHERE seat_id = ${seatId} AND notes IS NOT NULL AND ${sql.in("session_id", sessionIds)}`,
+      });
+
+      const notesOf = Effect.fn("seat-sessions.notes")(function* (seatId: string, sessionIds: ReadonlyArray<string>) {
+        const found = new Map<string, SeatSessionNotes>();
+        if (sessionIds.length === 0) return found;
+        for (const row of yield* notesRows([seatId, [...new Set(sessionIds)]]))
+          found.set(row.session_id, { notes: row.notes, ...(row.continuation === null ? {} : { continuation: row.continuation }) });
+        return found;
+      }, Effect.mapError(persistence("notes")));
+
+      const markEnded = Effect.fn("seat-sessions.ended-by")(function* (seatId: string, sessionId: string, by: OffboardBy) {
+        yield* sql`UPDATE seat_sessions SET ended_by = ${by} WHERE seat_id = ${seatId} AND session_id = ${sessionId}`;
+      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.ended-by"),
+      Effect.mapError(persistence("ended-by")));
 
       const noteTranscript = Effect.fn("seat-sessions.transcript")(function* (seatId: string, sessionId: string, path: string) {
         const value = bounded(path, 4096);
@@ -456,6 +514,8 @@ export const makeSeatSessionRepositoryLive = (
         end,
         list,
         offboard,
+        notesOf,
+        markEnded,
         noteTranscript,
         noteReportedTranscript,
         beginDrain,
