@@ -169,17 +169,38 @@ test("seats, instruments, notes and cards shed detail tier by tier", async () =>
           const line = el.querySelector(".junto-seat__line");
           const mark = el.querySelector('.junto-mark[data-mark-size="seat"]');
           const portrait = el.querySelector(".junto-mark__seat img, .junto-mark__seat svg");
-          const words = el.querySelector(".junto-seat__text");
           const note = document.querySelector('.react-flow__node[data-id="n0"] .junto-node');
           return {
             line: line ? getComputedStyle(line).display : "missing",
             atlas: mark ? getComputedStyle(mark).backgroundImage !== "none" : false,
             portrait: portrait ? getComputedStyle(portrait).visibility !== "hidden" : false,
-            words: words ? getComputedStyle(words).visibility : "missing",
             noteBody: document.querySelector('.react-flow__node[data-id="n0"] .note-md > :nth-child(2)')
               ? getComputedStyle(document.querySelector('.react-flow__node[data-id="n0"] .note-md > :nth-child(2)')!).display
               : "missing",
             noteVisible: note ? getComputedStyle(note.firstElementChild ?? note).visibility : "missing",
+            // From far, a seat that is drawn (not gathered into a cluster)
+            // is its portrait in its ring, with no words.
+            ...(() => {
+              const drawn = [...document.querySelectorAll<HTMLElement>('.react-flow__viewport .junto-node[data-node-kind="agent"]')]
+                .map((card) => card.closest<HTMLElement>(".react-flow__node")!)
+                .filter((node) => getComputedStyle(node).visibility !== "hidden");
+              const idOf = (node: HTMLElement): string => node.getAttribute("data-id") ?? "?";
+              return {
+                seatsDrawn: drawn.length,
+                drawnWithoutPortrait: drawn
+                  .filter((node) => {
+                    const face = node.querySelector(".junto-mark__seat img, .junto-mark__seat svg");
+                    return !face || getComputedStyle(face).visibility === "hidden";
+                  })
+                  .map(idOf),
+                drawnWithWords: drawn
+                  .filter((node) => {
+                    const text = node.querySelector(".junto-seat__text");
+                    return text !== null && getComputedStyle(text).visibility !== "hidden";
+                  })
+                  .map(idOf),
+              };
+            })(),
             // Every moving ring drawn on screen turns on the compositor: one
             // of its parts runs. A gathered seat is hidden and not counted.
             ...(() => {
@@ -249,8 +270,10 @@ test("seats, instruments, notes and cards shed detail tier by tier", async () =>
         } else {
           expect(look.atlas).toBe(true);
           if (tier === "far") {
-            expect(look.portrait).toBe(true);
-            expect(look.words).toBe("hidden");
+            // The tracked seat may be gathered here: read the seats drawn.
+            expect(look.seatsDrawn, "seats drawn at far").toBeGreaterThan(0);
+            expect(look.drawnWithoutPortrait, "drawn seats without their portrait").toEqual([]);
+            expect(look.drawnWithWords, "drawn seats with words").toEqual([]);
           }
           expect(look.noteVisible).toBe("hidden");
           expect(look.preambles).toBe(0);
