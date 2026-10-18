@@ -19,8 +19,9 @@ import { termPlane } from "./plane";
 import { runOnSeatStartTurn } from "./seat-start-turn";
 import {
   ATTACH_LIMIT, makeSeatAttachments, SeatsAttach, SeatsAttachEvent, SeatsAttachRequest, SeatsAttachResponse,
-  SeatsDetach, SeatsInput, SeatsResize, type SeatsStreamFrame,
+  SeatsDetach, SeatsHold, SeatsInput, SeatsResize, type SeatsStreamFrame,
 } from "./seat-attach";
+import { addOperatorHoldSource, type OperatorHoldSource } from "./operator-holds";
 import { readLocalWindow, type SeatGrid, SeatsRead, SeatsReadWindow } from "./seat-read-window";
 import { deliverSeatViewFrame } from "./seat-views";
 import {
@@ -58,7 +59,7 @@ export const SeatsViewed = Schema.Struct({
   generation: Generation,
 });
 export const SeatsRequest = Schema.Union([SeatsStart, SeatsGet, SeatsActivate, SeatsStop, SeatsViewed, SeatsRead,
-  SeatsAttach, SeatsInput, SeatsResize, SeatsDetach]);
+  SeatsAttach, SeatsInput, SeatsResize, SeatsDetach, SeatsHold]);
 export const SeatsStarted = Schema.Struct({
   _tag: Schema.Literal("Started"), canvas: CanvasName, seatId: NodeId,
   machine: MachineName, handle: Generation, generation: Generation,
@@ -129,6 +130,10 @@ export type SeatsChannelOptions = {
   };
   /** Where a remote seat's state goes on arrival; the window by default. */
   readonly publishState?: (event: AgentSeatStateEvent) => void;
+  /** Where what peers hold on this machine's seats is added; the live operator holds by default. */
+  readonly addHoldSource?: (source: OperatorHoldSource) => () => void;
+  /** The clock a peer's typing is received on. */
+  readonly now?: () => number;
   readonly pin?: typeof ensureSeatSessionId;
   /** The seat's settled grid for a Read; this process's observer by default. */
   readonly grid?: SeatGrid;
@@ -146,7 +151,9 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
   const seatStates = options.seatStates ?? seatStateRuntime;
   const publishState = options.publishState ?? publishRemoteSeatState;
   const stateSubscriptions = new Map<AbortSignal, () => void>();
-  const attachments = makeSeatAttachments({ host, run });
+  const attachments = makeSeatAttachments({ host, run, ...(options.now === undefined ? {} : { now: options.now }) });
+  // A peer's view held by its operator holds the seat's session here, where it is cut.
+  (options.addHoldSource ?? addOperatorHoldSource)((bindingId, now) => attachments.holds(bindingId, now));
   const handles = new Map<string, Handle>();
   const watched = new WeakSet<AbortSignal>();
   const forget = (context: LinkEventContext): void => {
@@ -226,8 +233,8 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
   });
 
   /**
-   * Attach, Input, Resize and Detach. Terminal bytes never enter a failure or
-   * a log row here: Input is counted at debug, never its data or its length.
+   * Attach, Input, Resize, Hold and Detach. Terminal bytes never enter a failure
+   * or a log row here: Input and Hold are counted at debug, never their data.
    */
   const answerAttach = Effect.fn("SeatsLink.attach")(function* (context: LinkChannelContext,
     request: typeof SeatsAttachRequest.Type, machine: string) {
@@ -256,10 +263,15 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
       return { _tag: "Detached" as const, handle: request.handle };
     }
     const where = { machine, canvas: attachment.canvas, seatId: attachment.seatId };
-    if (attachment.mode === "observe")
+    // An observing view may be shown, but nothing is typed into it.
+    if (attachment.mode === "observe" && (request._tag !== "Hold" || request.typed))
       return yield* new SeatAttachObserveOnly({ ...where, message: "An observing view cannot type into or resize the seat." });
     // Participation is checked on every frame; a view that lost it ends at once.
     yield* admitSeat(context, where).pipe(Effect.tapError(() => Effect.sync(() => attachments.end(attachment, "admission-lost"))));
+    if (request._tag === "Hold") {
+      yield* Effect.logDebug("seat attach hold");
+      return { _tag: "Held" as const, handle: request.handle, accepted: attachments.hold(attachment, request.open, request.typed) };
+    }
     if (request._tag === "Input") {
       yield* Effect.logDebug("seat attach input");
       return { _tag: "Written" as const, handle: request.handle, accepted: attachments.write(attachment, request.data) };
@@ -372,9 +384,10 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
     const request = yield* Schema.decodeUnknownEffect(SeatsRequest)(raw, { onExcessProperty: "error" });
     // A failed read of this machine's own name keeps its own typed error.
     const machine = yield* machines.machineName;
-    if (request._tag === "Attach" || request._tag === "Input" || request._tag === "Resize" || request._tag === "Detach")
+    if (request._tag === "Attach" || request._tag === "Input" || request._tag === "Resize" || request._tag === "Detach"
+      || request._tag === "Hold")
       return yield* answerAttach(context, request, machine).pipe(
-        Effect.tapCause((cause) => request._tag === "Input" || request._tag === "Resize" ? Effect.void
+        Effect.tapCause((cause) => request._tag === "Input" || request._tag === "Resize" || request._tag === "Hold" ? Effect.void
           : Effect.logWarning(`seat attach ${request._tag === "Attach" ? "refused" : "detach failed"}`, cause)),
         Effect.annotateLogs({ area: "seats", request: request._tag, peer: context.peer.machineName,
           ...(request._tag === "Attach" ? { seat: request.seatId, canvas: request.canvas } : {}),

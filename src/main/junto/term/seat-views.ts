@@ -5,6 +5,9 @@
  * back is display only: Screen and Output go to the view's lease as router
  * output, never into seat state, a log row or disk. A reloaded window attaches
  * again and gets a fresh Screen.
+ *
+ * The operator's hold on a seat (operator-holds.ts) goes to its machine on the
+ * view's handle as a Hold, since that machine is where its session is cut.
  */
 import { randomBytes } from "node:crypto";
 import { Effect } from "effect";
@@ -18,6 +21,7 @@ import type { LinkEventContext } from "../link/types";
 import { MachineRepository } from "../machines/repository";
 import { ModelService } from "../model/service";
 import { unwrapSeatsFailure } from "./seats-failure";
+import { liveOperatorHolds, type OperatorHolds } from "./operator-holds";
 import type { AttachOk, AttachResult } from "./router";
 import type { ControlLease, LocalHostEvent } from "./local-host";
 import { ATTACH_CREDITS, CHUNK_UNITS, chunkUnits, SCREEN_LIMIT_UNITS, type SeatsStreamFrame } from "./seat-attach";
@@ -63,6 +67,9 @@ type View = {
   /** The size asked for while a Resize is in flight; only the latest is sent. */
   size: { readonly cols: number; readonly rows: number; readonly waiters: Array<(resized: boolean) => void> } | undefined;
   sizing: boolean;
+  /** The hold to send while a Hold is in flight: the latest shown, and any typing meanwhile. */
+  hold: { readonly open: boolean; readonly typed: boolean } | undefined;
+  holding: boolean;
 };
 
 /** How long an attach waits for the seat's screen before showing what comes next. */
@@ -78,7 +85,10 @@ const TYPED_LIMIT_UNITS = SCREEN_LIMIT_UNITS;
 const tagOf = (cause: unknown): string =>
   typeof cause === "object" && cause !== null && "_tag" in cause && typeof cause._tag === "string" ? cause._tag : "Error";
 
-export const makeSeatViews = (transport: SeatViewTransport) => {
+export const makeSeatViews = (
+  transport: SeatViewTransport,
+  holds: Pick<OperatorHolds, "shows" | "subscribe"> = liveOperatorHolds,
+) => {
   const byLease = new Map<string, View>();
   const byHandle = new Map<string, View>();
   // Frames that beat their Attached answer; credits bound them to a few per handle.
@@ -205,6 +215,31 @@ export const makeSeatViews = (transport: SeatViewTransport) => {
     view.sizing = false;
   };
 
+  const sendHold = async (view: View): Promise<void> => {
+    view.holding = true;
+    while (view.hold !== undefined && byLease.has(view.lease.leaseId)) {
+      const { open, typed } = view.hold;
+      view.hold = undefined;
+      try {
+        await transport.request(view.machine, { _tag: "Hold", handle: view.handle, open, typed }, randomBytes(16).toString("hex"));
+      } catch (cause) {
+        if (tagOf(cause) === "SeatAttachUnknown") drop(view);
+        log("seat view hold refused", { machine: view.machine, failure: tagOf(cause) });
+      }
+    }
+    view.holding = false;
+  };
+
+  /** Queue a hold for the view; typing is kept until sent, and an observing view sends none. */
+  const hold = (view: View, open: boolean, typed: boolean): void => {
+    view.hold = { open, typed: (view.hold?.typed ?? false) || (typed && view.lease.mode === "control") };
+    if (!view.holding) void sendHold(view);
+  };
+
+  holds.subscribe((change) => {
+    for (const view of byLease.values()) if (view.bindingId === change.bindingId) hold(view, change.open, change.typed);
+  });
+
   return {
     onEvent: (listener: (event: LocalHostEvent) => void): (() => void) => {
       listeners.add(listener);
@@ -266,7 +301,7 @@ export const makeSeatViews = (transport: SeatViewTransport) => {
           epoch: attached.generation, mode: input.mode };
         const view: View = { machine: seat.machine, canvas: seat.canvas, seatId: seat.seatId, harness: seat.harness, handle: attached.handle, bindingId: input.bindingId,
           epoch: attached.generation, lease, parts: [], screenUnits: 0, seq: 0n, screen: undefined,
-          typed: "", typedWaiters: [], typing: false, size: undefined, sizing: false };
+          typed: "", typedWaiters: [], typing: false, size: undefined, sizing: false, hold: undefined, holding: false };
         const screen = new Promise<string | undefined>((resolve) => {
           const timer = setTimeout(() => resolve(undefined), SCREEN_WAIT_MS);
           view.screen = (serialized) => { clearTimeout(timer); view.screen = undefined; resolve(serialized); };
@@ -278,6 +313,8 @@ export const makeSeatViews = (transport: SeatViewTransport) => {
         const serialized = await screen;
         if (!byLease.has(lease.leaseId)) return { ok: false, message: "The seat's machine ended the view before it showed." };
         log("seat view opened", { machine: seat.machine, seat: seat.seatId, canvas: seat.canvas, mode: input.mode, operationId });
+        // A window may have said it shows the seat before its view reached the seat's machine.
+        if (holds.shows(input.bindingId)) hold(view, true, false);
         const ok: AttachOk = {
           ok: true, lease, cols: attached.cols, rows: attached.rows, journal: [], status: attached.status,
           ...(serialized === undefined ? {} : { screen: { bindingId: input.bindingId, epoch: attached.generation,

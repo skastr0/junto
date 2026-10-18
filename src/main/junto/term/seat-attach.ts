@@ -10,6 +10,7 @@ import { randomBytes } from "node:crypto";
 import { Effect, Schema } from "effect";
 import { CanvasName, NodeId } from "@shared/model";
 import { MachineName } from "@shared/machine-control";
+import { OPERATOR_TYPED_REPORT_MS, OPERATOR_TYPING_GRACE_MS } from "@shared/operator-hold";
 import type { LinkChannelContext, LinkEventContext } from "../link/types";
 import type { ControlLease, LocalHostEvent, LocalSessionHost } from "./local-host";
 
@@ -32,7 +33,16 @@ export const SeatsResize = Schema.Struct({
   _tag: Schema.Literal("Resize"), handle: AttachHandle, cols: Int(2, 1000), rows: Int(1, 500),
 });
 export const SeatsDetach = Schema.Struct({ _tag: Schema.Literal("Detach"), handle: AttachHandle });
-export const SeatsAttachRequest = Schema.Union([SeatsAttach, SeatsInput, SeatsResize, SeatsDetach]);
+/**
+ * The operator's hold on the seat, from the machine editing its canvas: a
+ * window there shows this view (open), or the operator just typed into it
+ * (typed). The seat's session is not cut at the cache window while held.
+ * Closed: exactly these fields, nothing added without remote-security.
+ */
+export const SeatsHold = Schema.Struct({
+  _tag: Schema.Literal("Hold"), handle: AttachHandle, open: Schema.Boolean, typed: Schema.Boolean,
+});
+export const SeatsAttachRequest = Schema.Union([SeatsAttach, SeatsInput, SeatsResize, SeatsDetach, SeatsHold]);
 export type SeatsAttachRequest = typeof SeatsAttachRequest.Type;
 
 export const SeatsAttached = Schema.Struct({
@@ -43,7 +53,8 @@ export const SeatsAttached = Schema.Struct({
 export const SeatsWritten = Schema.Struct({ _tag: Schema.Literal("Written"), handle: AttachHandle, accepted: Schema.Boolean });
 export const SeatsResized = Schema.Struct({ _tag: Schema.Literal("Resized"), handle: AttachHandle, accepted: Schema.Boolean });
 export const SeatsDetached = Schema.Struct({ _tag: Schema.Literal("Detached"), handle: AttachHandle });
-export const SeatsAttachResponse = Schema.Union([SeatsAttached, SeatsWritten, SeatsResized, SeatsDetached]);
+export const SeatsHeld = Schema.Struct({ _tag: Schema.Literal("Held"), handle: AttachHandle, accepted: Schema.Boolean });
+export const SeatsAttachResponse = Schema.Union([SeatsAttached, SeatsWritten, SeatsResized, SeatsDetached, SeatsHeld]);
 
 export const SeatsScreen = Schema.Struct({
   _tag: Schema.Literal("Screen"), handle: AttachHandle, seq: Seq, part: Int(0, 1023), last: Schema.Boolean, data: Bytes,
@@ -104,6 +115,13 @@ type Attachment = AttachBinding & {
   sending: boolean;
   timer: ReturnType<typeof setTimeout> | undefined;
   ended: boolean;
+  /**
+   * The operator's hold, kept on the attach itself so it ends with it: a
+   * window on the peer shows this view, and when the last key was received
+   * here (this machine's clock, never a sent time).
+   */
+  open: boolean;
+  typedAt: number | undefined;
 };
 
 export const mintAttachHandle = (): string => randomBytes(16).toString("base64url");
@@ -125,11 +143,14 @@ export type SeatAttachmentsOptions = {
   readonly host: AttachHost;
   /** Runs a send on the channel's runtime. */
   readonly run: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
+  /** The clock a Hold's typing is received on. */
+  readonly now?: () => number;
 };
 
 /** The seat machine's live attaches: one handle per peer view, bound to its link session and generation. */
 export const makeSeatAttachments = (options: SeatAttachmentsOptions) => {
   const { host, run } = options;
+  const now = options.now ?? Date.now;
   const live = new Map<string, Attachment>();
   const inFlight = new Map<string, number>();
   let unsubscribe: (() => void) | undefined;
@@ -267,7 +288,7 @@ export const makeSeatAttachments = (options: SeatAttachmentsOptions) => {
           if (other.bindingId === binding.bindingId && other.mode === "control") end(other, "replaced");
       const attachment: Attachment = { ...binding, handle: mintAttachHandle(), context, generation: leased.lease.epoch,
         mode: request.mode, lease: leased.lease, operationId: context.operationId, queue: [], out: "", screenSeq: 0n, sent: 0n, acked: 0n,
-        sending: false, timer: undefined, ended: false };
+        sending: false, timer: undefined, ended: false, open: false, typedAt: undefined };
       live.set(attachment.handle, attachment);
       queueScreen(attachment, leased.screen?.serialized, leased.screen?.seq ?? 0n);
       pump(attachment);
@@ -281,6 +302,27 @@ export const makeSeatAttachments = (options: SeatAttachmentsOptions) => {
     write: (attachment: Attachment, data: string): boolean => held(attachment, host.write(attachment.lease, data)),
     resize: (attachment: Attachment, cols: number, rows: number): boolean =>
       held(attachment, host.resize(attachment.lease, cols, rows)),
+    /**
+     * The peer's hold on this view. Typing is received at most once per report
+     * interval, whatever rate the peer sends at: one sooner is accepted and
+     * changes nothing.
+     */
+    hold: (attachment: Attachment, open: boolean, typed: boolean): boolean => {
+      attachment.open = open;
+      if (!typed) return true;
+      const at = now();
+      if (attachment.typedAt === undefined || at - attachment.typedAt >= OPERATOR_TYPED_REPORT_MS) attachment.typedAt = at;
+      return true;
+    },
+    /** Whether a live view of the binding is held by its peer at `at`. */
+    holds: (bindingId: string, at: number): boolean => {
+      for (const attachment of live.values()) {
+        if (attachment.ended || attachment.bindingId !== bindingId) continue;
+        if (attachment.open) return true;
+        if (attachment.typedAt !== undefined && at - attachment.typedAt < OPERATOR_TYPING_GRACE_MS) return true;
+      }
+      return false;
+    },
     end,
     ack: (context: LinkEventContext, handle: string, upTo: bigint): void => {
       const attachment = live.get(handle);

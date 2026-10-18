@@ -7,6 +7,10 @@
  * shows as a whole list each time it changes, so a missed message heals at the
  * next one. A window that closes, crashes or reloads drops every hold it had,
  * typing included.
+ *
+ * A seat that runs on another machine is cut there, so its holds cross the
+ * link: the views of it (seat-views.ts) send each change as a Hold, and the
+ * seat's machine adds what its peers hold (seat-attach.ts) as a hold source.
  */
 import type { IpcMain, WebContents } from "electron";
 import { IPC_CHANNELS } from "@shared/ipc";
@@ -17,6 +21,9 @@ type WindowHolds = {
   readonly typedAt: Map<string, number>;
 };
 
+/** A binding's hold changed: shown in some window or not, or typed into just now. */
+export type OperatorHoldChange = { readonly bindingId: string; readonly open: boolean; readonly typed: boolean };
+
 export type OperatorHolds = {
   /** The bindings one window shows now, replacing what it said before. */
   readonly surfaces: (windowId: number, bindingIds: ReadonlyArray<string>) => void;
@@ -26,10 +33,32 @@ export type OperatorHolds = {
   readonly dropWindow: (windowId: number) => void;
   /** Whether the operator holds the seat at `now`. Reads only. */
   readonly holds: (bindingId: string, now: number) => boolean;
+  /** Whether some window shows the binding's terminal. */
+  readonly shows: (bindingId: string) => boolean;
+  /** Told when a binding comes to be shown or stops being shown anywhere, and on every key report. */
+  readonly subscribe: (listener: (change: OperatorHoldChange) => void) => () => void;
 };
 
 export const makeOperatorHolds = (clock: () => number = Date.now): OperatorHolds => {
   const windows = new Map<number, WindowHolds>();
+  const listeners = new Set<(change: OperatorHoldChange) => void>();
+  const emit = (change: OperatorHoldChange): void => {
+    for (const listener of listeners) listener(change);
+  };
+  const shows = (bindingId: string): boolean => {
+    for (const held of windows.values()) if (held.open.has(bindingId)) return true;
+    return false;
+  };
+  /** Run a change to the windows, then tell each binding whose shown-anywhere flipped. */
+  const reshow = (touched: Iterable<string>, change: () => void): void => {
+    const before = new Map<string, boolean>();
+    for (const bindingId of touched) before.set(bindingId, shows(bindingId));
+    change();
+    for (const [bindingId, was] of before) {
+      const open = shows(bindingId);
+      if (open !== was) emit({ bindingId, open, typed: false });
+    }
+  };
   const windowOf = (windowId: number): WindowHolds => {
     let held = windows.get(windowId);
     if (held === undefined) {
@@ -40,13 +69,17 @@ export const makeOperatorHolds = (clock: () => number = Date.now): OperatorHolds
   };
   return {
     surfaces: (windowId, bindingIds) => {
-      windowOf(windowId).open = new Set(bindingIds);
+      const held = windowOf(windowId);
+      const next = new Set(bindingIds);
+      reshow([...held.open, ...next], () => { held.open = next; });
     },
     typed: (windowId, bindingId) => {
       windowOf(windowId).typedAt.set(bindingId, clock());
+      emit({ bindingId, open: shows(bindingId), typed: true });
     },
     dropWindow: (windowId) => {
-      windows.delete(windowId);
+      const held = windows.get(windowId);
+      if (held !== undefined) reshow(held.open, () => { windows.delete(windowId); });
     },
     holds: (bindingId, now) => {
       for (const held of windows.values()) {
@@ -56,16 +89,36 @@ export const makeOperatorHolds = (clock: () => number = Date.now): OperatorHolds
       }
       return false;
     },
+    shows,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    },
   };
 };
 
 const live = makeOperatorHolds();
+/** The live holds of this process's windows, for the views that carry them to a seat's own machine. */
+export const liveOperatorHolds: Pick<OperatorHolds, "shows" | "subscribe"> = live;
+
+/** Holds kept elsewhere: what this machine's peers hold on the seats it runs. */
+export type OperatorHoldSource = (bindingId: string, now: number) => boolean;
+const sources = new Set<OperatorHoldSource>();
+export const addOperatorHoldSource = (source: OperatorHoldSource): (() => void) => {
+  sources.add(source);
+  return () => { sources.delete(source); };
+};
 
 /**
  * Whether the operator is viewing or has just typed into the seat on this
- * binding. The cut at the cache window leaves a held seat's session alone.
+ * binding, in a window here or on the machine that edits its canvas. The cut
+ * at the cache window leaves a held seat's session alone.
  */
-export const operatorHolds = (bindingId: string, now: number): boolean => live.holds(bindingId, now);
+export const operatorHolds = (bindingId: string, now: number): boolean => {
+  if (live.holds(bindingId, now)) return true;
+  for (const source of sources) if (source(bindingId, now)) return true;
+  return false;
+};
 
 const BINDINGS_MAX = 1_024;
 const isBindingId = (value: unknown): value is string =>
