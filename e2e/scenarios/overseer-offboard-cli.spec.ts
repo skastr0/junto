@@ -39,7 +39,7 @@ import { join } from "node:path";
 import type { Page, TestInfo } from "@playwright/test";
 import type { AgentSeatStateEvent } from "../../src/shared/agent-seat-state";
 import type { Seat } from "../../src/shared/model";
-import { defaultOffboardRules, OFFBOARD_REFUSAL_REASON, OFFBOARD_WORTH } from "../../src/shared/seat-offboard";
+import { DEFAULT_CACHE_MODE, defaultOffboardRules, OFFBOARD_REFUSAL_REASON, OFFBOARD_WORTH } from "../../src/shared/seat-offboard";
 import { composeOffboardAsk } from "../../src/shared/seat-sessions";
 import type { TerminalSessionSummary } from "../../src/shared/terminal";
 import {
@@ -168,13 +168,15 @@ type RuleSet = {
   readonly harness?: Record<string, unknown>;
 };
 
-/** One harness's entry in `data.effective`: the window it runs on, and the worth guard. */
+/** One harness's entry in `data.effective`: the window it runs on, the machine's cache mode, and the worth guard. */
 type EffectiveSet = {
   readonly cacheWindowMinutes?: unknown;
+  readonly cacheMode?: unknown;
   readonly worth?: { readonly workMinutes?: unknown; readonly tokens?: unknown };
 };
 
-const effectiveOf = (cacheWindowMinutes: number): EffectiveSet => ({ cacheWindowMinutes, worth: WALK_WORTH });
+// The walk never sets a mode, so every harness runs on the default.
+const effectiveOf = (cacheWindowMinutes: number): EffectiveSet => ({ cacheWindowMinutes, cacheMode: DEFAULT_CACHE_MODE, worth: WALK_WORTH });
 
 // ===========================================================================
 
