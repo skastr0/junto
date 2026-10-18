@@ -306,8 +306,8 @@ export function SeatOffboardMenuRows({
           armed
             ? `Confirm: ${armedNowLabel(now.closable)} No notes are written`
             : count === 1
-              ? "Offboard now: close this agent's session without notes"
-              : `Offboard now: close the sessions of ${agents} without notes`
+              ? "Offboard now: start this seat fresh without notes"
+              : `Offboard now: start ${count} seats fresh without notes`
         }
         disabled={now.disabled}
         aria-busy={busy !== undefined}
@@ -342,7 +342,7 @@ export function SeatOffboardToolbarAction({ canvas, id }: { readonly canvas: str
       <IconButton
         className="nodrag nopan"
         aria-label="Offboard agent"
-        title="Offboard: end this agent's session"
+        title="Offboard: start this seat fresh"
         aria-haspopup="dialog"
         aria-expanded={anchor !== null}
         data-testid="seat-offboard-open"

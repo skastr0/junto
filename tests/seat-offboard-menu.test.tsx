@@ -136,7 +136,7 @@ describe("a multi-selection", () => {
     await open(["a", "b", "c"], ops);
     await press("now");
     expect(run).not.toHaveBeenCalled();
-    expect(label("now")).toBe("close 2 sessions?");
+    expect(label("now")).toBe("start 2 seats fresh?");
     expect(detail("now")).toBe("press again to close, no notes");
     expect(row("now").getAttribute("data-armed")).toBe("true");
     await press("now");
@@ -153,7 +153,7 @@ describe("a multi-selection", () => {
       const { ops, run } = fakeOps([status("a"), status("b")]);
       await open(["a", "b"], ops);
       await press("now");
-      expect(label("now")).toBe("close 2 sessions?");
+      expect(label("now")).toBe("start 2 seats fresh?");
       await act(async () => {
         vi.advanceTimersByTime(3_100);
       });
@@ -168,7 +168,7 @@ describe("a multi-selection", () => {
 describe("one agent", () => {
   it("says what each row does", async () => {
     await open(["a"], fakeOps([status("a")]).ops);
-    expect(detail("ask")).toBe("continue in a fresh session");
+    expect(detail("ask")).toBe("picks up where it was");
     expect(detail("now")).toBe("no notes, the seat rests");
   });
 
@@ -184,7 +184,7 @@ describe("one agent", () => {
     ]);
     await open(["a"], ops);
     await press("now");
-    expect(label("now")).toBe("close this session?");
+    expect(label("now")).toBe("start this seat fresh?");
     await press("now");
     expect(run).toHaveBeenCalledWith({ canvasName: "factory", seatIds: ["a"], action: "now" });
     expect(detail("now")).toBe("Session closed. The seat is resting.");

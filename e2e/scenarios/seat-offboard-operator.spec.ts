@@ -45,7 +45,7 @@ const WALK_REFUSED_ATTENTION =
   "This seat is waiting on you. Offboard now only closes a seat that is idle, not running or resting.";
 
 /** nodes/SeatOffboard.tsx:252 and rts/SeatOffboardKey.tsx:21. */
-const TIP_ONE = "Offboard: end this agent's session";
+const TIP_ONE = "Offboard: start this seat fresh";
 const LINE_ASKED_REST = "Asked to offboard and rest.";
 /** sessions/OffboardControls.tsx:64-65. */
 const SESSIONS_WHERE =
