@@ -24,6 +24,8 @@ import {
 } from "../src/shared/agent-seat-state";
 import { topNeed, type BindingId, type SeatSnapshot } from "../src/shared/harness-domain";
 import { toSeatsStatus } from "../src/main/junto/term/seats-status";
+import { toSeatsLaunch, type SeatLaunchState } from "../src/main/junto/term/seats-launch";
+import { heldRemoteSeatLaunch, resetRemoteSeatLaunches } from "../src/main/junto/term/remote-seat-launch";
 import { closeMachineLog, installMachineLog, ObservabilityLoggerLive, withMachineLogger } from "../src/main/junto/observability/logger";
 import { machineLogDir } from "../src/main/junto/observability/log-file";
 import { readFileSync } from "node:fs";
@@ -83,6 +85,7 @@ afterEach(async () => {
   setProcessIdentityMapForTests(undefined);
   setProcessEpochReaderForTests(undefined);
   clearMachines();
+  resetRemoteSeatLaunches();
 });
 
 const fixture = async (options: {
@@ -93,6 +96,7 @@ const fixture = async (options: {
   readonly spawnError?: Error;
   readonly seatStates?: SeatsChannelOptions["seatStates"];
   readonly publishState?: SeatsChannelOptions["publishState"];
+  readonly launchState?: SeatsChannelOptions["launchState"];
 } = {}) => {
   const root = await mkdtemp(join(tmpdir(), "junto-seats-link-"));
   const fake = makeFakeTerminalProcessAuthority(() => ({ pid: 42_818, exitOnSignal: "SIGTERM" }));
@@ -135,7 +139,8 @@ const fixture = async (options: {
   const pin = vi.fn(options.pin ?? (async () => ({ ok: true as const, sessionId: "named-session", minted: true })));
   const channel = await runtime.runPromise(makeSeatsChannel({ host, pin,
     seatStates: options.seatStates ?? { subscribe: () => () => undefined, currentEvents: () => [] },
-    publishState: options.publishState ?? (() => undefined) }));
+    publishState: options.publishState ?? (() => undefined),
+    launchState: options.launchState ?? (async () => undefined) }));
   const sent = vi.fn((_channel: string, _payload: unknown) => Effect.void);
   const controller = new AbortController();
   const context: LinkChannelContext = {
@@ -266,7 +271,7 @@ describe("seats link status", () => {
     const published: AgentSeatStateEvent[] = [];
     const remote = seat("mac-seat", { host: "macbook", agentKey: "macbook:mac-seat" });
     const f = await fixture({ nodes: [localSeat, remote], publishState: (event) => { published.push(event); } });
-    const status = toSeatsStatus(agentSeatStatusOf({ ...stateEvent("x"), status: blocked() })!)!;
+    const status = toSeatsStatus(agentSeatStatusOf({ ...stateEvent("x"), status: blocked() })!, Date.now())!;
     const wire = { _tag: "SeatState", canvas, seatId: remote.id, machine: "macbook", epoch: "ep_9",
       state: "attention", confidence: "high", at: 5, reason: "attention", status };
     await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.channel.decodeEvent(wire)));
@@ -302,6 +307,63 @@ describe("seats link status", () => {
     const other = await fixture({ editor: "another-editor" });
     await expect(other.start({ ...request, _tag: "Viewed", generation: "ep_1" }))
       .rejects.toMatchObject({ _tag: "SeatCanvasEditorMismatch" });
+  });
+});
+
+describe("seats link launch state", () => {
+  const warm = (): SeatLaunchState => ({ hasSession: true, next: "resume", nextTurn: { fresh: false, freshAt: Date.now() + 600_000 } });
+
+  it("a forwarded state carries the seat's launch state as a duration, and an exit carries none", async () => {
+    const asked: string[] = [];
+    const f = await fixture({
+      seatStates: { subscribe: () => () => undefined,
+        currentEvents: () => [stateEvent("rule:claude.prompt_box", "idle"), { ...stateEvent("gone", "gone"), bindingId: localSeat.bindingId }] },
+      launchState: async (name, node) => { asked.push(`${name}/${node.id}`); return warm(); },
+    });
+    await f.runtime.runPromise(f.channel.opened!(f.context));
+    await eventually(() => expect(f.sent).toHaveBeenCalledTimes(2));
+    const wires = f.sent.mock.calls.map((call) => call[1] as { state: string; launch?: { nextTurn?: { freshInMs?: number } } });
+    const idle = wires.find((wire) => wire.state === "idle")!;
+    expect(idle.launch).toMatchObject({ hasSession: true, next: "resume", nextTurn: { fresh: false } });
+    expect(idle.launch?.nextTurn?.freshInMs).toBeGreaterThan(590_000);
+    expect(idle.launch?.nextTurn?.freshInMs).toBeLessThanOrEqual(600_000);
+    expect(wires.find((wire) => wire.state === "gone")).not.toHaveProperty("launch");
+    expect(asked).toEqual([`${canvas}/${localSeat.id}`]);
+  });
+
+  it("Get's Vacant carries it, read on the asking machine's clock; other answers stay bare", async () => {
+    const f = await fixture({ launchState: async () => warm() });
+    const vacant = await f.start({ ...request, _tag: "Get" }) as { launch?: unknown };
+    expect(vacant).toMatchObject({ _tag: "Vacant", launch: { hasSession: true, next: "resume", nextTurn: { fresh: false } } });
+    expect(await f.start({ ...request, _tag: "Stop" })).toEqual({ _tag: "Vacant", canvas, seatId: localSeat.id, machine: THIS_MACHINE });
+    expect(await f.start({ ...request, _tag: "Viewed", generation: "ep_none" }))
+      .toEqual({ _tag: "Vacant", canvas, seatId: localSeat.id, machine: THIS_MACHINE });
+    const read = await linkedClient(f).client.launch(localSeat.bindingId);
+    expect(read).toMatchObject({ hasSession: true, next: "resume", nextTurn: { fresh: false } });
+    expect(read?.nextTurn?.freshAt).toBeGreaterThan(Date.now() + 590_000);
+    // A seat that cannot say answers bare.
+    const silent = await fixture({ launchState: async () => { throw new Error("no repository"); } });
+    expect(await silent.start({ ...request, _tag: "Get" })).toEqual({ _tag: "Vacant", canvas, seatId: localSeat.id, machine: THIS_MACHINE });
+  });
+
+  it("the receiver holds a launch state that reads, refuses one that does not, and drops it when the link closes", async () => {
+    const published: AgentSeatStateEvent[] = [];
+    const remote = seat("mac-seat", { host: "macbook", agentKey: "macbook:mac-seat" });
+    const f = await fixture({ nodes: [localSeat, remote], publishState: (event) => { published.push(event); } });
+    const wire = { _tag: "SeatState", canvas, seatId: remote.id, machine: "macbook", epoch: "ep_9",
+      state: "idle", confidence: "high", at: 5, reason: "idle", launch: toSeatsLaunch(warm(), Date.now()) };
+    await f.runtime.runPromise(f.channel.opened!(f.context));
+    await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.channel.decodeEvent(wire)));
+    expect(published).toHaveLength(1);
+    expect(heldRemoteSeatLaunch(remote.bindingId, "macbook", Date.now())).toMatchObject({ next: "resume", nextTurn: { fresh: false } });
+    // Over its bound: that event is refused and logged, the link stays and the answer held stays.
+    await f.runtime.runPromise(f.channel.handleEvent!(f.context, f.channel.decodeEvent({
+      ...wire, epoch: "ep_10", launch: { hasSession: true, next: "resume", nextTurn: { fresh: false, freshInMs: Number.MAX_SAFE_INTEGER } },
+    })).pipe(Effect.provide(ObservabilityLoggerLive)));
+    expect(published).toHaveLength(1);
+    expect(heldRemoteSeatLaunch(remote.bindingId, "macbook", Date.now())).toBeDefined();
+    f.controller.abort();
+    expect(heldRemoteSeatLaunch(remote.bindingId, "macbook", Date.now())).toBeUndefined();
   });
 });
 

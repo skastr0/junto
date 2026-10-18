@@ -9,10 +9,11 @@
  * Crosses: the status (Permission with its tool name and request id,
  * Question bare, Dialog kind, UsageLimit scope, reset and auto-resume, Error
  * kind, Exited code, signal name and expectation), its time, source and
- * fidelity, the activity owner's view, open channels, usage numbers, the
- * last error's kind and time, compaction, the unseen turn, declared signals
- * by kind and id, awareness readings, stall and wake times, the last
- * delivery's id and outcome, and the top need.
+ * fidelity, how long ago the seat last left rest (a duration, read against
+ * the receiver's clock), the activity owner's view, open channels, usage
+ * numbers, the last error's kind and time, compaction, the unseen turn,
+ * declared signals by kind and id, awareness readings, stall and wake times,
+ * the last delivery's id and outcome, and the top need.
  *
  * Stays home: Question text, every error message, declared signal text,
  * a delivery failure's reason, sessionId and transcriptPath. The encoder
@@ -38,6 +39,7 @@ import {
   type SeatStatus,
 } from "@shared/harness-domain";
 import { AgentSignalKind } from "@shared/wire/agent-signals";
+import { ACTIVITY_AGO_MAX_MS, BoundedMs, clampMs } from "./seats-launch";
 
 const ID = /^[A-Za-z0-9_.:-]{1,128}$/;
 const TOOL = /^[A-Za-z][A-Za-z0-9_.:-]{0,63}$/;
@@ -86,6 +88,8 @@ const WireSnapshot = Schema.Struct({
   since: Ms,
   statusSource: SignalSource,
   statusFidelity: Fidelity,
+  /** How long before sending the seat last left rest (`activitySince`). */
+  activityAgoMs: Schema.optionalKey(BoundedMs(ACTIVITY_AGO_MAX_MS)),
   activity: Schema.optionalKey(Schema.Struct({ status: WireStatus, source: SignalSource, fidelity: Fidelity })),
   channels: Schema.Array(HarnessChannel).pipe(Schema.check(Schema.isMaxLength(8))),
   usage: Schema.optionalKey(
@@ -203,15 +207,17 @@ const wireUsage = (usage: NonNullable<SeatSnapshot["usage"]>) => ({
  * The approved fields of a seat's status, and nothing else. An id or name
  * outside its pattern is left out; an entry that cannot cross without one
  * (a declared signal, an awareness reading, a delivery) is left out whole.
- * Undefined when what remains still does not read as the wire schema.
+ * Durations are measured at `now`. Undefined when what remains still does
+ * not read as the wire schema.
  */
-export const toSeatsStatus = ({ snapshot, need }: AgentSeatStatus): SeatsStatus | undefined => {
+export const toSeatsStatus = ({ snapshot, need }: AgentSeatStatus, now: number): SeatsStatus | undefined => {
   const wire = {
     snapshot: {
       status: wireStatus(snapshot.status),
       since: snapshot.since,
       statusSource: snapshot.statusSource,
       statusFidelity: snapshot.statusFidelity,
+      ...(ms(snapshot.activitySince) ? { activityAgoMs: clampMs(now - snapshot.activitySince, ACTIVITY_AGO_MAX_MS) } : {}),
       ...(snapshot.activity === undefined
         ? {}
         : {
@@ -291,10 +297,13 @@ export const statusIssueAt = (cause: unknown): string => {
 };
 
 /**
- * The status as the receiving machine holds it, on its own node's binding.
- * What stayed home stays absent.
+ * The status as the receiving machine holds it, on its own node's binding
+ * and its own clock at `now`. What stayed home stays absent.
  */
-export const fromSeatsStatus = (wire: SeatsStatus, seat: BindingId): AgentSeatStatus => ({
-  snapshot: { ...wire.snapshot, seat },
-  need: wire.need,
-});
+export const fromSeatsStatus = (wire: SeatsStatus, seat: BindingId, now: number): AgentSeatStatus => {
+  const { activityAgoMs, ...snapshot } = wire.snapshot;
+  return {
+    snapshot: { ...snapshot, seat, ...(activityAgoMs === undefined ? {} : { activitySince: Math.max(0, now - activityAgoMs) }) },
+    need: wire.need,
+  };
+};

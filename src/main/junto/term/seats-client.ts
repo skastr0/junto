@@ -11,6 +11,7 @@ import { MachineRepository } from "../machines/repository";
 import { isThisMachine } from "@shared/machine-name";
 import type { RemoteSeatProcessClient } from "./seat-process";
 import { SeatsSeatResponse } from "./seats-link";
+import { fromSeatsLaunch, type SeatLaunchState } from "./seats-launch";
 import { type SeatSpawnFailed, unwrapSeatsFailure } from "./seats-failure";
 
 type Services = HostsService | MachineLink | ModelService;
@@ -25,6 +26,12 @@ export type SeatsClient = RemoteSeatProcessClient & {
    * cleared a finished turn there, false when nothing changed or no occupant.
    */
   readonly viewed: (bindingId: string, generation: string, operationId?: string) => Promise<boolean>;
+  /**
+   * What the seat's next start and turn do, as its machine answers a Get for
+   * a seat with no occupant, on this machine's clock. Undefined when the seat
+   * has an occupant (its states carry the answer) or its machine cannot say.
+   */
+  readonly launch: (bindingId: string, operationId?: string) => Promise<SeatLaunchState | undefined>;
 };
 
 /** A remote process client sends seat identity only, never a launch plan. */
@@ -116,6 +123,14 @@ export const makeSeatsProcessClient = (
       Effect.tapCause((cause) => Effect.logWarning("seat view failed", cause)),
       Effect.annotateLogs({ area: "seats", seat: bindingId, machine, operationId }),
     )),
+    launch: (bindingId, operationId) => run(Effect.gen(function* () {
+      const held = yield* locate(bindingId);
+      if (held === undefined) return undefined;
+      const response = yield* request({ _tag: "Get", canvas: held.canvas, seatId: held.seat.id }, operationId);
+      if (response.canvas !== held.canvas || response.seatId !== held.seat.id || response.machine !== machine)
+        return yield* Effect.fail(new Error("The machine answered for another seat."));
+      return response._tag === "Vacant" && response.launch !== undefined ? fromSeatsLaunch(response.launch, Date.now()) : undefined;
+    }).pipe(Effect.annotateLogs({ area: "seats", seat: bindingId }))),
   };
 };
 

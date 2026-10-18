@@ -1,11 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
 import { ModelService } from "../model/service";
-import { seatNextTurnOf } from "../seat-sessions/operator-offboard";
-import { SeatSessionRepository } from "../seat-sessions/repository";
-import { shouldResumeHarnessSession } from "./session-existence";
-import { shouldAvoidSharedHarnessResume } from "./managed-spawn-plan";
-import { seatNextLaunch } from "@shared/seat-next-launch";
+import { seatLaunchStateOf } from "./seat-launch-state";
+import { remoteSeatLaunch } from "./remote-seat-launch";
+import { makeSeatsProcessClient } from "./seats-client";
 import type {
   JuntoApi,
   MachineInventoryResult,
@@ -18,16 +16,13 @@ import {
   type TerminalFinishNodeDeleteOutcome,
   type TerminalNodeDeleteResource,
 } from "@shared/ipc";
-import {
-  isHarnessId,
-  templateFor,
-} from "@shared/managed-terminal-templates";
+import { isHarnessId } from "@shared/managed-terminal-templates";
 import { asCanvasName } from "@shared/model";
 import type { ControlLease, LocalHostEvent } from "./local-host";
 import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer";
 import type { TermPlane } from "./plane";
 import { injectionSupervisor } from "./injection-supervisor";
-import { onRemoteSeatState, rememberRemoteSeatState } from "./remote-seat-state";
+import { onRemoteSeatState, rememberRemoteSeatState, remoteSeatStateEvents } from "./remote-seat-state";
 import { AppRuntime } from "../../runtime";
 import { liveSeatEnvironment } from "../region-env/live";
 import { Effect } from "effect";
@@ -228,27 +223,14 @@ export const registerTerminalIpc = (
     assertTrusted(event);
     const node = await readSeat(input?.canvas, input?.id);
     if (node.kind !== "agent") return { hasSession: false, next: "fresh" };
-    if (!router.isLocalHostId(node.host)) return deny("This seat runs on another machine.");
-    const { session, history } = await AppRuntime.runPromise(Effect.flatMap(SeatSessionRepository,
-      (sessions) => Effect.all({
-        session: sessions.current(node.id, node.bindingId),
-        history: sessions.list(node.id).pipe(Effect.orElseSucceed(() => [])),
-      })));
-    const lastEnded = history.find((row) => row.endedAt !== undefined)?.endReason;
-    // The same proof a start asks for (managed-spawn-plan.ts): the harness's own
-    // store holds the id, and this Junto is not an isolated home sharing the
-    // harness's sessions, where every start is fresh.
-    const cwd = node.launch?.cwd?.trim();
-    const next = seatNextLaunch({
-      harness: node.harness,
-      ...(session ? { open: { harness: session.harness, sessionId: session.sessionId } } : {}),
-      provisioned: isHarnessId(node.harness) && templateFor(node.harness).capabilityBadges.sessionId === "provision",
-      provenOnDisk: session !== undefined && session.harness === node.harness && !shouldAvoidSharedHarnessResume() &&
-        shouldResumeHarnessSession(true, { harness: node.harness, sessionId: session.sessionId, ...(cwd ? { cwd } : {}) }),
-      ...(lastEnded ? { lastEnded } : {}),
+    if (router.isLocalHostId(node.host)) return seatLaunchStateOf(input.canvas, node);
+    // A seat on another machine: what that machine last said (seats-launch.ts).
+    const last = remoteSeatStateEvents().find((event) => event.bindingId === node.bindingId);
+    const launch = await remoteSeatLaunch({
+      bindingId: node.bindingId, machine: node.host, live: last !== undefined && last.state !== "gone",
+      ask: () => makeSeatsProcessClient(node.host).launch(node.bindingId),
     });
-    const nextTurn = await seatNextTurnOf({ canvasName: input.canvas, seatId: node.id }, next);
-    return { hasSession: session?.harness === node.harness, next, ...(nextTurn ? { nextTurn } : {}) };
+    return launch ?? deny("This seat runs on another machine.");
   });
 
   ipcMain.handle(IPC_CHANNELS.modelStart, async (event, input: Parameters<JuntoApi["modelStart"]>[0]) => {

@@ -5,16 +5,20 @@
  */
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import { ACTIVITY_AGO_MAX_MS } from "../src/main/junto/term/seats-launch";
 import { decodeSeatsStatus, fromSeatsStatus, statusIssueAt, toSeatsStatus } from "../src/main/junto/term/seats-status";
 import { AgentSeatStatus } from "../src/shared/agent-seat-state";
 import { topNeed, type BindingId, type SeatSnapshot } from "../src/shared/harness-domain";
 
 const AT = 1_792_000_000_000;
+/** When the seat's machine sends. */
+const NOW = AT + 100_000;
 
 const full = (extra: Partial<SeatSnapshot> = {}): SeatSnapshot => ({
   seat: "mini-binding" as BindingId,
   status: { _tag: "Blocked", reason: { _tag: "Error", kind: "auth", message: "401 for key sk-live-abc at /Users/me/.env" } },
   since: AT,
+  activitySince: AT - 90_000,
   statusSource: "screen",
   statusFidelity: "screen",
   activity: { status: { _tag: "Working", phase: "tool" }, source: "osc7501", fidelity: "native" },
@@ -45,13 +49,13 @@ const full = (extra: Partial<SeatSnapshot> = {}): SeatSnapshot => ({
 const statusOf = (snapshot: SeatSnapshot) => ({ snapshot, need: topNeed(snapshot) });
 
 const APPROVED_SNAPSHOT_KEYS = [
-  "status", "since", "statusSource", "statusFidelity", "activity", "channels", "usage", "lastError",
+  "status", "since", "activityAgoMs", "statusSource", "statusFidelity", "activity", "channels", "usage", "lastError",
   "compaction", "turnUnseen", "reports", "awareness", "stalledSince", "wakeAt", "lastDelivery", "updatedAt",
 ];
 
 describe("the seats wire status", () => {
   it("carries the approved fields and leaves what stays home out", () => {
-    const wire = toSeatsStatus(statusOf(full()))!;
+    const wire = toSeatsStatus(statusOf(full()), NOW)!;
     expect(Object.keys(wire.snapshot).sort()).toEqual([...APPROVED_SNAPSHOT_KEYS].sort());
     expect(wire.snapshot.status).toEqual({ _tag: "Blocked", reason: { _tag: "Error", kind: "auth" } });
     expect(wire.snapshot.lastError).toEqual({ kind: "auth", at: AT });
@@ -70,7 +74,7 @@ describe("the seats wire status", () => {
       status: { _tag: "Blocked", reason: { _tag: "Permission", tool: "Bash", command: "cat ~/.ssh/id_rsa" } },
       usage: { at: AT, contextPct: 10, apiKey: "sk-live-abc" },
     } as unknown as SeatSnapshot;
-    const wire = toSeatsStatus(statusOf(grown))!;
+    const wire = toSeatsStatus(statusOf(grown), NOW)!;
     expect(Object.keys(wire.snapshot).sort()).toEqual([...APPROVED_SNAPSHOT_KEYS].sort());
     expect(wire.snapshot.status).toEqual({ _tag: "Blocked", reason: { _tag: "Permission", tool: "Bash" } });
     expect(wire.snapshot.usage).toEqual({ contextPct: 10, at: AT });
@@ -86,28 +90,47 @@ describe("the seats wire status", () => {
           lastDelivery: { messageId: "../../etc", ok: true, at: AT },
         }),
       ),
+      NOW,
     )!;
     expect(wire.snapshot.status).toEqual({ _tag: "Blocked", reason: { _tag: "Permission" } });
     expect(wire.snapshot.reports).toEqual([]);
     expect(wire.snapshot.lastDelivery).toBeUndefined();
 
-    const exited = toSeatsStatus(statusOf(full({ status: { _tag: "Exited", code: 143, signal: "SIGTERM", expected: false } })))!;
+    const exited = toSeatsStatus(statusOf(full({ status: { _tag: "Exited", code: 143, signal: "SIGTERM", expected: false } })), NOW)!;
     expect(exited.snapshot.status).toEqual({ _tag: "Exited", code: 143, signal: "SIGTERM", expected: false });
-    const odd = toSeatsStatus(statusOf(full({ status: { _tag: "Exited", signal: "kill me" } })))!;
+    const odd = toSeatsStatus(statusOf(full({ status: { _tag: "Exited", signal: "kill me" } })), NOW)!;
     expect(odd.snapshot.status).toEqual({ _tag: "Exited" });
   });
 
   it("the receiver holds a status that reads, on its own binding", () => {
-    const wire = toSeatsStatus(statusOf(full({ status: { _tag: "Blocked", reason: { _tag: "Question", text: "which key?" } } })))!;
-    const held = fromSeatsStatus(wire, "edit-binding" as BindingId);
+    const wire = toSeatsStatus(statusOf(full({ status: { _tag: "Blocked", reason: { _tag: "Question", text: "which key?" } } })), NOW)!;
+    const held = fromSeatsStatus(wire, "edit-binding" as BindingId, NOW);
     expect(Schema.is(AgentSeatStatus)(held)).toBe(true);
     expect(held.snapshot.seat).toBe("edit-binding");
     expect(held.snapshot.status).toEqual({ _tag: "Blocked", reason: { _tag: "Question" } });
     expect(held.snapshot.turnUnseen).toEqual({ outcome: "completed", since: AT });
   });
 
+  it("tells when the seat last left rest as a duration, read on the receiver's clock", () => {
+    const wire = toSeatsStatus(statusOf(full()), NOW)!;
+    expect(wire.snapshot.activityAgoMs).toBe(190_000);
+    // A receiver whose clock runs an hour ahead holds the same distance, on its own clock.
+    const ahead = NOW + 3_600_000;
+    expect(fromSeatsStatus(wire, "edit-binding" as BindingId, ahead).snapshot.activitySince).toBe(ahead - 190_000);
+    expect(fromSeatsStatus(wire, "edit-binding" as BindingId, ahead).snapshot).not.toHaveProperty("activityAgoMs");
+    // The sender clamps: older than the bound reads as the bound, a time ahead of it as now.
+    expect(toSeatsStatus(statusOf(full({ activitySince: 0 })), NOW)!.snapshot.activityAgoMs).toBe(ACTIVITY_AGO_MAX_MS);
+    expect(toSeatsStatus(statusOf(full({ activitySince: NOW + 5_000 })), NOW)!.snapshot.activityAgoMs).toBe(0);
+    const { activitySince: _never, ...rested } = full();
+    expect(toSeatsStatus(statusOf(rested), NOW)!.snapshot).not.toHaveProperty("activityAgoMs");
+    // The receiver refuses anything over the bound, or not whole.
+    expect(() => decodeSeatsStatus({ ...wire, snapshot: { ...wire.snapshot, activityAgoMs: ACTIVITY_AGO_MAX_MS + 1 } })).toThrow();
+    expect(() => decodeSeatsStatus({ ...wire, snapshot: { ...wire.snapshot, activityAgoMs: 1.5 } })).toThrow();
+    expect(() => decodeSeatsStatus({ ...wire, snapshot: { ...wire.snapshot, activitySince: AT } })).toThrow();
+  });
+
   it("where a status failed to read names the path and kind, never a peer value", () => {
-    const wire = toSeatsStatus(statusOf(full()))!;
+    const wire = toSeatsStatus(statusOf(full()), NOW)!;
     const failed = (value: unknown): string => {
       try {
         decodeSeatsStatus(value);
@@ -125,7 +148,7 @@ describe("the seats wire status", () => {
   });
 
   it("the wire decodes closed and bounded", () => {
-    const wire = toSeatsStatus(statusOf(full()))!;
+    const wire = toSeatsStatus(statusOf(full()), NOW)!;
     expect(() => decodeSeatsStatus({ ...wire, extra: 1 })).toThrow();
     expect(() => decodeSeatsStatus({ ...wire, snapshot: { ...wire.snapshot, sessionId: "s" } })).toThrow();
     expect(() => decodeSeatsStatus({ ...wire, snapshot: { ...wire.snapshot, transcriptPath: "/etc/passwd" } })).toThrow();
