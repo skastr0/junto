@@ -132,7 +132,6 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         return {
           canvas, seatId, hostId: summary.hostId, bindingId: summary.bindingId, status: summary.status,
           ...(summary.stopping === true ? { stopping: true } : {}),
-          ...(summary.resuming === true ? { resuming: true } : {}),
           ...(summary.exitReason === undefined ? {} : { exitReason: summary.exitReason }),
           // Without an exitReason the message is built from the seat's terminal output, which never leaves.
           ...(summary.exitReason !== undefined && summary.exitMessage !== undefined ? { exitMessage: scrubMessage(summary.exitMessage) } : {}),

@@ -1179,7 +1179,7 @@ describe("LocalSessionHost", () => {
     }
   });
 
-  it("reports resuming only for a generation whose launch resumes a session", () => {
+  it("says nothing of whether a start picks up a harness session", () => {
     const priorHome = process.env.JUNTO_HOME;
     delete process.env.JUNTO_HOME;
     try {
@@ -1199,7 +1199,7 @@ describe("LocalSessionHost", () => {
         },
       });
       expect(fresh.status).toBe("running");
-      expect(fresh.resuming).toBeUndefined();
+      expect(fresh).not.toHaveProperty("resuming");
 
       const resumed = host.createAgentSeat({
         bindingId: "proven-resume",
@@ -1211,7 +1211,8 @@ describe("LocalSessionHost", () => {
           cwd: "/tmp",
         },
       });
-      expect(resumed.resuming).toBe(true);
+      expect(resumed.status).toBe("running");
+      expect(resumed).not.toHaveProperty("resuming");
     } finally {
       if (priorHome === undefined) delete process.env.JUNTO_HOME;
       else process.env.JUNTO_HOME = priorHome;

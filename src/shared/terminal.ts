@@ -206,12 +206,6 @@ export type TerminalSessionSummary = {
    * line it printed.
    */
   readonly exitMessage?: string;
-  /**
-   * This agent generation's launch resumes a harness session the host proved
-   * exists. Absent on a fresh session, including a seat's first start with a
-   * pinned id.
-   */
-  readonly resuming?: true;
   /** Actor identity stamped when this generation was occupied as a seat. */
   readonly harness?: string;
   readonly agentKey?: string;

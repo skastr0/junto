@@ -3230,7 +3230,6 @@ export class LocalSessionHost extends EventEmitter {
       backend: rec.backend,
       ...(rec.exitReason ? { exitReason: rec.exitReason } : {}),
       ...(rec.exitMessage ? { exitMessage: rec.exitMessage } : {}),
-      ...(rec.harness && rec.resumeAttempt ? { resuming: true as const } : {}),
       ...(rec.harness ? { harness: rec.harness } : {}),
       ...(rec.agentKey ? { agentKey: rec.agentKey } : {}),
     };

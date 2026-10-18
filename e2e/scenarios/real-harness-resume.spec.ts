@@ -12,8 +12,8 @@ import { readModelSeat } from "../harness/model";
  * For each harness CLI installed on this machine: seat it on a playing canvas,
  * send it a code word as operator prompt mail, capture the seat's session id,
  * kill the PTY, then send a second prompt. Delivery cold-wakes the seat, the
- * host must report the generation as `resuming`, and the reply must recall the
- * code word — the same conversation, not a fresh one that guessed.
+ * seat keeps its session id, and the reply must recall the code word — the
+ * same conversation, not a fresh one that guessed.
  *
  * Harness CLIs run on the operator's real HOME so they keep their own logins.
  * Junto state is a throwaway tree (JUNTO_HOME) that owns every session on it
@@ -165,7 +165,6 @@ type Verdict = {
   cause: string;
   sessionId?: string;
   resumedSessionId?: string;
-  resuming?: boolean;
   /** How the resumed generation ended, when it died before replying. */
   resumedExit?: string;
   recalled?: boolean;
@@ -377,8 +376,6 @@ for (const c of CASES) {
           return live?.status === "running" && live.epoch !== firstGen?.epoch;
         }, { timeout: 120_000 })
         .toBe(true);
-      const resumedGen = await get();
-      verdict.resuming = resumedGen?.resuming === true;
 
       let recalled = false;
       try {
@@ -396,7 +393,6 @@ for (const c of CASES) {
       verdict.resumedSessionId = await sessionPin();
 
       const causes: string[] = [];
-      if (!verdict.resuming) causes.push("host did not report the second generation as resuming");
       if (!recalled) causes.push("reply did not recall the code word");
       if (verdict.resumedSessionId !== sessionId) {
         causes.push(`private session pin changed ${sessionId} -> ${String(verdict.resumedSessionId)}`);

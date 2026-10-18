@@ -3,7 +3,6 @@ import {
   initialSessionLoadPhase,
   isSessionLoadActive,
   sessionLoadPresentation,
-  startedSessionLoadPhase,
 } from "../src/renderer/lib/session-load";
 
 describe("sessionLoadPresentation", () => {
@@ -14,18 +13,9 @@ describe("sessionLoadPresentation", () => {
     expect(sessionLoadPresentation({ phase: "stuck" }).tone).toBe("crimson");
   });
 
-  it("shows a violet pick-up label", () => {
-    const p = sessionLoadPresentation({
-      phase: "resuming",
-    });
-    expect(p.tone).toBe("violet");
-    expect(p.label).toBe("picking up where it was");
-  });
-
-  it("resuming without id still labels resume", () => {
-    expect(sessionLoadPresentation({ phase: "resuming" }).label).toBe(
-      "picking up where it was",
-    );
+  it("finds the seat, then says it is starting, however it picks up", () => {
+    expect(sessionLoadPresentation({ phase: "finding" }).label).toBe("finding the seat");
+    expect(sessionLoadPresentation({ phase: "starting" }).label).toBe("starting");
   });
 });
 
@@ -36,15 +26,8 @@ describe("initialSessionLoadPhase", () => {
     ).toBe("attaching");
   });
 
-  it("finds the machine's session before deciding how to start", () => {
+  it("finds the seat on its machine before it starts", () => {
     expect(initialSessionLoadPhase({ agentSeat: true })).toBe("finding");
-  });
-});
-
-describe("startedSessionLoadPhase", () => {
-  it("resumes only when the host resumed a session", () => {
-    expect(startedSessionLoadPhase({ resuming: true })).toBe("resuming");
-    expect(startedSessionLoadPhase({ resuming: false })).toBe("starting");
   });
 });
 

@@ -62,7 +62,6 @@ import {
   isSessionLoadActive,
   SESSION_LOAD_STUCK_MS,
   sessionLoadPresentation,
-  startedSessionLoadPhase,
   type SessionLoadPhase,
 } from "../../lib/session-load";
 import {
@@ -1855,11 +1854,8 @@ export function TerminalSurface({
             setKillPhase("stopped");
             return;
           }
-          // Only the host knows whether a session exists: a pinned id on a
-          // brand-new seat is a fresh start, not a resume.
-          const started = startedSessionLoadPhase({
-            resuming: result.resuming === true,
-          });
+          // The seat starting is one state, however it picks up.
+          const started: SessionLoadPhase = "starting";
           setLoadPhase((prev) => (prev === "stuck" ? "stuck" : started));
           setStatus(
             sessionLoadPresentation({

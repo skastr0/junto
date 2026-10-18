@@ -17,8 +17,6 @@ import { openGridTerminalSurface, terminal$ } from "./terminal-state";
 type TerminalActionResult =
   | {
       readonly ok: true;
-      /** The host resumed a session it proved exists; else a fresh session. */
-      readonly resuming?: boolean;
       /** Generation the host started or reused for an agent seat. */
       readonly epoch?: string;
     }
@@ -77,7 +75,7 @@ export const ensureTerminalRunning = async (
           message: next.exitMessage ?? "agent exited immediately after spawn",
         };
       }
-      return { ok: true, resuming: next.resuming === true, epoch: next.epoch };
+      return { ok: true, epoch: next.epoch };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       return { ok: false, message: message || "start failed" };

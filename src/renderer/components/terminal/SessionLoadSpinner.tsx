@@ -1,6 +1,6 @@
 /**
  * Compact 16×16 session-load spinner + label for actor seat open.
- * Tone colors map load phases (finding / starting / resuming / attaching / stuck).
+ * Tone colors map load phases (finding / starting / attaching / stuck).
  *
  * `pill` — centered stage chrome (bordered chip); it announces the phase
  * `inline` — header status row (no chip chrome); shown beside the pill, so it

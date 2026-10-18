@@ -24,7 +24,6 @@ export const MachineSeatStarted = Schema.Struct({
   bindingId: Text,
   status: TerminalSessionStatus,
   stopping: Schema.optionalKey(Schema.Literal(true)),
-  resuming: Schema.optionalKey(Schema.Literal(true)),
   exitReason: Schema.optionalKey(Schema.Literals(["cli-missing", "spawn_failed"])),
   exitMessage: Schema.optionalKey(Text),
 });

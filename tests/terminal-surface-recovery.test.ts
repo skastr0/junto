@@ -438,21 +438,12 @@ describe("TerminalSurface load label on a pinned seat", () => {
     expect(hooks.states[LOAD_PHASE]).toBe("finding");
   });
 
-  it("reads as starting fresh on the first start, after the machine answered", async () => {
-    ensureMock.mockResolvedValue({ ok: true, resuming: false, epoch: "gen-1" });
+  it("reads as starting once the machine answered, however the seat picks up", async () => {
+    ensureMock.mockResolvedValue({ ok: true, epoch: "gen-1" });
     stallBeforeAttach().render();
     await vi.advanceTimersByTimeAsync(10);
 
     expect(hooks.states[LOAD_PHASE]).toBe("starting");
-    expect(hooks.states[STATUS]).toBe("starting fresh");
-  });
-
-  it("picks up where it was only when the host proved it", async () => {
-    ensureMock.mockResolvedValue({ ok: true, resuming: true, epoch: "gen-1" });
-    stallBeforeAttach().render();
-    await vi.advanceTimersByTimeAsync(10);
-
-    expect(hooks.states[LOAD_PHASE]).toBe("resuming");
-    expect(hooks.states[STATUS]).toBe("picking up where it was");
+    expect(hooks.states[STATUS]).toBe("starting");
   });
 });

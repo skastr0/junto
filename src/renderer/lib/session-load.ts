@@ -9,11 +9,10 @@ import { HUE } from "./theme";
 export type SessionLoadPhase =
   | "finding"
   | "starting"
-  | "resuming"
   | "attaching"
   | "stuck";
 
-export type SessionLoadTone = "cyan" | "amber" | "violet" | "crimson" | "steel";
+export type SessionLoadTone = "cyan" | "amber" | "crimson" | "steel";
 
 export type SessionLoadPresentation = {
   readonly phase: SessionLoadPhase;
@@ -25,7 +24,6 @@ export type SessionLoadPresentation = {
 export const SESSION_LOAD_TONE_HEX: Record<SessionLoadTone, string> = {
   cyan: HUE.cyan,
   amber: HUE.amber,
-  violet: HUE.violet,
   crimson: HUE.crimson,
   steel: HUE.steel,
 };
@@ -49,15 +47,8 @@ export const sessionLoadPresentation = (input: {
       return {
         phase: "starting",
         tone: "amber",
-        label: "starting fresh",
+        label: "starting",
         hex: SESSION_LOAD_TONE_HEX.amber,
-      };
-    case "resuming":
-      return {
-        phase: "resuming",
-        tone: "violet",
-        label: "picking up where it was",
-        hex: SESSION_LOAD_TONE_HEX.violet,
       };
     case "attaching":
       return {
@@ -76,15 +67,10 @@ export const sessionLoadPresentation = (input: {
   }
 };
 
-/** The machine resolves its pin before reporting start or resume. */
+/** The machine finds the seat before reporting its start. */
 export const initialSessionLoadPhase = (input: {
   readonly agentSeat: boolean;
 }): SessionLoadPhase => input.agentSeat ? "finding" : "attaching";
-
-/** Load phase once the host started a generation: resume only when it proved one. */
-export const startedSessionLoadPhase = (input: {
-  readonly resuming: boolean;
-}): SessionLoadPhase => (input.resuming ? "resuming" : "starting");
 
 /** True while the stage should show the load spinner (not live, not dead). */
 export const isSessionLoadActive = (
