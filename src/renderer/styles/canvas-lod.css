@@ -85,6 +85,11 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat > .junto-mark {
   transform: scale(var(--seat-s));
 }
+/* Wires are read from here, not made: the handles go. Each one sat over a
+   turning ring and cost the pan a compositor layer of its own. */
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__handle {
+  visibility: hidden;
+}
 /* The seat's hover card is drawn in canvas units: unreadable from here. The
    name tag and the ring's own tooltip speak for the seat instead. */
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport [data-collaboration-overlay] {

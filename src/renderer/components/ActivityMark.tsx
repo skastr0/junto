@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { AgentSignalKind } from "@shared/agent-signals";
 import type { ThreadHealthTone, ThreadHealthValue } from "@shared/thread-health";
@@ -13,6 +13,7 @@ import {
 } from "../lib/activity";
 import { MARK_PHASE_MS, ensureMarkAtlas, ringCells, type RingParts } from "../lib/activity-atlas";
 import { canvasPerformance } from "../lib/performance/canvas-performance";
+import { canvasTier$ } from "../lib/canvas-tier";
 import { surfaceMotionLive$ } from "../lib/surface-motion";
 import { themeMode$ } from "../lib/theme-mode";
 
@@ -288,6 +289,7 @@ export function ActivityMark({
   crest = false,
 }: ActivityMarkProps) {
   const theme = use$(themeMode$);
+  const tier = use$(canvasTier$);
   const ref = useRef<HTMLSpanElement>(null);
   const drawn = resolveActivityGlyph(mode, tone, glyph);
   const { core, band, ring } = ringCells({
@@ -318,6 +320,15 @@ export function ActivityMark({
       canvasPerformance.recordActivityUnmount(animated, renderedMode);
     };
   }, [looping]);
+
+  // The parts are made anew at each tier (keyed below): cc keeps a turning
+  // layer at the raster scale it started with, so a part made at near would
+  // stay rastered at near zoomed out. The new parts start on the shared
+  // clock, where the old ones stood, so the swap does not show.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el?.hasAttribute("data-mark-visible")) syncPhase(el);
+  }, [tier]);
 
   const named = accessibleName(label, healthLabel, signal, signalCount);
   const name = crest ? `Overseer, ${named}` : named;
@@ -359,8 +370,10 @@ export function ActivityMark({
       data-mark-signal={signal}
       style={style}
     >
-      {parts ? <RingPartsView parts={parts} /> : null}
+      {/* The portrait paints under the parts: over them it would cost the
+          pan a compositor layer of its own for every turning ring. */}
       {children !== undefined ? <span className="junto-mark__seat">{children}</span> : null}
+      {parts ? <RingPartsView key={tier} parts={parts} /> : null}
       {crest ? <SeatCrest /> : null}
       {signal && onSignalOpen ? (
         <button
