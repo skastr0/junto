@@ -43,6 +43,8 @@ export type ActivityMarkProps = {
   readonly onSignalOpen?: () => void;
   /** Seat size: the portrait that sits in the ring's hole (replaces the hub). */
   readonly children?: ReactNode;
+  /** What rides over the ring, painted after its parts: the portrait's harness badge. */
+  readonly over?: ReactNode;
   /** Exact box in px, overriding the size's default (ringed portraits fit their slot). */
   readonly unit?: number;
   /** An overseer seat wears a crest at the top of its ring. */
@@ -59,6 +61,7 @@ export type MarkOverlayProps = Pick<
   | "signalCount"
   | "onSignalOpen"
   | "children"
+  | "over"
   | "unit"
   | "crest"
 >;
@@ -285,6 +288,7 @@ export function ActivityMark({
   signalCount,
   onSignalOpen,
   children,
+  over,
   unit,
   crest = false,
 }: ActivityMarkProps) {
@@ -374,6 +378,9 @@ export function ActivityMark({
           pan a compositor layer of its own for every turning ring. */}
       {children !== undefined ? <span className="junto-mark__seat">{children}</span> : null}
       {parts ? <RingPartsView key={tier} parts={parts} /> : null}
+      {/* The badge paints over the parts, so a turning ring gives it a layer
+          of its own: a badge's worth, where the canvas shows badges. */}
+      {over !== undefined ? <span className="junto-mark__over">{over}</span> : null}
       {crest ? <SeatCrest /> : null}
       {signal && onSignalOpen ? (
         <button

@@ -453,6 +453,8 @@ export const markAtlasCss = (): string =>
     // A portrait sits in the ring's hole, centred.
     `.junto-mark__seat{position:absolute;inset:0;display:grid;place-items:center}`,
     ...motionCss(),
+    // The portrait's badge, over the ring's parts, in a box the portrait's size.
+    `.junto-mark__over{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}`,
     // Overseer crest: top of the ring, rimmed in ground so it cuts the ring.
     `.junto-mark__crest{position:absolute;left:50%;top:0;width:30%;height:21%;min-width:9px;min-height:6px;transform:translate(-50%,-4%);color:var(--color-indigo);pointer-events:none}`,
     `.junto-mark__crest path{fill:currentColor;stroke:var(--color-ground);stroke-width:1.6px;stroke-linejoin:round;paint-order:stroke}`,

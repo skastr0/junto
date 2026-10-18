@@ -14,7 +14,7 @@ import { useEffect } from "react";
 import { resolveActivityGlyph } from "../../lib/activity";
 import { publishSeatUrgency, seatUrgencyOfRing } from "../../lib/region-urgency";
 import { ActivityMarkFromSpec } from "../ActivityMark";
-import { AgentPortrait } from "../AgentPortrait";
+import { AgentPortrait, PortraitBadge } from "../AgentPortrait";
 
 /** Portrait inside the 52px seat ring: fits the ring's hole with a hairline gap. */
 export const SEAT_PORTRAIT_PX = 34;
@@ -142,13 +142,13 @@ export function AgentSeatView({
         signalCount={signal.openCount}
         onSignalOpen={open ? onSignalOpen : undefined}
         crest={overseer}
+        over={harness !== undefined ? <PortraitBadge size={SEAT_PORTRAIT_PX} frame="round" harness={harness} /> : undefined}
       >
         <AgentPortrait
           identity={identity}
           size={SEAT_PORTRAIT_PX}
           frame="round"
           outline={false}
-          harness={harness}
           mood={seatPortraitMood(activity, health, open?.kind)}
         />
       </ActivityMarkFromSpec>

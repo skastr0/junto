@@ -29,7 +29,9 @@ import "./AgentPortrait.css";
 //   <AgentPortrait identity={node.id} size={40} frame="round" outline={false} />
 // The box is exactly size x size; a round portrait fills the inscribed circle,
 // so a ring drawn outside that box never covers the face. The badge sits on
-// the circle's lower-right edge (45 degrees) and may overlap the ring.
+// the circle's lower-right edge (45 degrees) and may overlap the ring; a ring
+// that turns paints over the portrait, so its seat draws the badge apart
+// (PortraitBadge) over the ring.
 //
 // Character: the operator's saved override (junto.db portrait_overrides) laid
 // over the identity genome. Expression: `mood` (the seat's ring inputs) picks
@@ -123,11 +125,7 @@ export function AgentPortrait({
   const round = frame === "round";
   // A bare critter stands on the caller's ground: nothing to round off.
   const radius = round ? "50%" : frame === "bare" ? 0 : Math.round(size * 0.26);
-  // The badge names the harness; past ~26px it starts to cover the face.
-  const badgeSize = Math.min(26, Math.max(11, Math.round(size * (round ? 0.42 : 0.5))));
   const showBadge = badge && harness !== undefined;
-  // Round: badge centre on the circle at 45 degrees. Tile: tucked in the corner.
-  const badgeOffset = round ? Math.round(size * (0.5 + Math.SQRT1_2 / 2) - badgeSize / 2) : size - badgeSize + 3;
   return (
     <span
       aria-hidden
@@ -161,18 +159,53 @@ export function AgentPortrait({
         className={`agent-portrait__face${shown.prev ? " agent-portrait__face--enter" : ""}`}
         style={{ borderRadius: radius }}
       />
-      {showBadge ? (
-        <span
-          className="agent-portrait__badge"
-          style={{
-            left: badgeOffset,
-            top: badgeOffset,
-            borderRadius: Math.round((badgeSize * 8) / 28) + 1.5,
-          }}
-        >
-          <HarnessMark agent={harness} size={badgeSize} title={false} />
-        </span>
-      ) : null}
+      {showBadge ? <Badge size={size} frame={frame} harness={harness} /> : null}
+    </span>
+  );
+}
+
+function Badge({ size, frame, harness }: { readonly size: number; readonly frame: PortraitFrame; readonly harness: string }) {
+  const round = frame === "round";
+  // The badge names the harness; past ~26px it starts to cover the face.
+  const badgeSize = Math.min(26, Math.max(11, Math.round(size * (round ? 0.42 : 0.5))));
+  // Round: badge centre on the circle at 45 degrees. Tile: tucked in the corner.
+  const badgeOffset = round ? Math.round(size * (0.5 + Math.SQRT1_2 / 2) - badgeSize / 2) : size - badgeSize + 3;
+  return (
+    <span
+      className="agent-portrait__badge"
+      style={{
+        left: badgeOffset,
+        top: badgeOffset,
+        borderRadius: Math.round((badgeSize * 8) / 28) + 1.5,
+      }}
+    >
+      <HarnessMark agent={harness} size={badgeSize} title={false} />
+    </span>
+  );
+}
+
+/**
+ * A portrait's badge alone, where the portrait's box would be: for a ring
+ * that paints between the face and the badge (ActivityMark's `over`). Pair
+ * it with an AgentPortrait of the same size and frame and no badge.
+ */
+export function PortraitBadge({
+  size,
+  frame = "tile",
+  harness,
+}: {
+  readonly size: number;
+  readonly frame?: PortraitFrame;
+  readonly harness: string;
+}) {
+  return (
+    <span
+      aria-hidden
+      className="agent-portrait pointer-events-none relative inline-block shrink-0 select-none"
+      data-frame={frame}
+      style={{ width: size, height: size }}
+    >
+      <Badge size={size} frame={frame} harness={harness} />
     </span>
   );
 }

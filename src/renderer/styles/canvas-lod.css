@@ -47,6 +47,11 @@ html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="o
 html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="text"] .note-md > :not(:first-child) {
   display: none;
 }
+/* The harness badge reads up close only. It paints over a turning ring, so
+   wherever it shows it costs the pan a small compositor layer per seat. */
+html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-mark__over {
+  visibility: hidden;
+}
 
 /* --- far and overview: portraits in rings, and blocks ----------------- */
 

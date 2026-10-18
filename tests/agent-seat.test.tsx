@@ -87,6 +87,17 @@ describe("AgentSeatView line", () => {
     expect(html).toContain('data-mark-size="seat"');
     expect(html).toContain('class="junto-mark__seat"');
   });
+
+  it("the harness badge paints over a turning ring, the face under it", () => {
+    const html = seat({ harness: "claude" });
+    const face = html.indexOf("agent-portrait__face");
+    const part = html.indexOf('data-part="spin"');
+    const badge = html.indexOf("agent-portrait__badge");
+    expect(face).toBeGreaterThan(-1);
+    expect(part).toBeGreaterThan(face);
+    expect(badge).toBeGreaterThan(html.lastIndexOf('class="junto-mark__part"'));
+    expect(html.slice(html.indexOf('class="junto-mark__seat"'), part)).not.toContain("agent-portrait__badge");
+  });
 });
 
 describe("AgentSeatView onboarding", () => {

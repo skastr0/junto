@@ -184,8 +184,41 @@ test("seats, instruments, notes and cards shed detail tier by tier", async () =>
             preambles: [...document.querySelectorAll(".react-flow__viewport .junto-preamble")].filter(
               (p) => getComputedStyle(p).display !== "none",
             ).length,
+            // The harness badge paints after a turning ring's parts, never
+            // under them in the portrait, and shows only up close.
+            ...(() => {
+              const marks = [...document.querySelectorAll<HTMLElement>('.react-flow__viewport .junto-mark[data-mark-size="seat"]')];
+              const turning = marks.filter((m) =>
+                [...m.querySelectorAll<HTMLElement>(":scope > .junto-mark__part")].some((p) => getComputedStyle(p).display !== "none"),
+              );
+              const badgeOf = (m: HTMLElement) => m.querySelector<HTMLElement>(":scope > .junto-mark__over .agent-portrait__badge");
+              return {
+                turning: turning.length,
+                turningWithoutBadge: turning.filter((m) => {
+                  const badge = badgeOf(m);
+                  return !badge || getComputedStyle(badge).visibility === "hidden";
+                }).length,
+                badgesUnderParts: marks.filter((m) => {
+                  const badge = badgeOf(m);
+                  const parts = [...m.querySelectorAll(":scope > .junto-mark__part")];
+                  const buried = m.querySelector(".junto-mark__seat .agent-portrait__badge") !== null;
+                  return buried || (badge !== null && parts.some((p) => !(p.compareDocumentPosition(badge) & globalThis.Node.DOCUMENT_POSITION_FOLLOWING)));
+                }).length,
+                badgesShown: marks.filter((m) => {
+                  const badge = badgeOf(m);
+                  return badge !== null && getComputedStyle(badge).visibility !== "hidden";
+                }).length,
+              };
+            })(),
           };
         });
+        expect(look.badgesUnderParts, "badges a turning ring paints over").toBe(0);
+        if (tier === "near") {
+          expect(look.turning, "turning rings up close").toBeGreaterThan(0);
+          expect(look.turningWithoutBadge, "turning seats without their badge up close").toBe(0);
+        } else {
+          expect(look.badgesShown, `badges drawn at ${tier}`).toBe(0);
+        }
         if (tier === "near") {
           expect(look.line).not.toBe("none");
           expect(look.atlas).toBe(true);

@@ -16,7 +16,7 @@ import { terminal$ } from "../lib/terminal-state";
 import { useThreadHealthMark, type ThreadHealthMark } from "../lib/thread-health";
 import { seatPortraitMood } from "../lib/portrait-mood";
 import { ActivityMarkFromSpec } from "./ActivityMark";
-import { AgentPortrait } from "./AgentPortrait";
+import { AgentPortrait, PortraitBadge } from "./AgentPortrait";
 
 /**
  * The even portrait size that fills the ring's hole at a given box: the hole
@@ -117,14 +117,13 @@ export function SeatRingView({
       signal={signal?.kind}
       signalCount={signal?.openCount}
       crest={node.overseer}
+      over={portrait >= 28 && harness !== undefined ? <PortraitBadge size={portrait} frame="round" harness={harness} /> : undefined}
     >
       <AgentPortrait
         identity={node.id}
         size={portrait}
         frame="round"
         outline={false}
-        badge={portrait >= 28}
-        harness={harness}
         mood={seatPortraitMood(activity, health, signal?.kind)}
       />
     </ActivityMarkFromSpec>
