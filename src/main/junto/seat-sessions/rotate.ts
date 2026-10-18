@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import { isThisMachine } from "@shared/machine-name";
 import { SqlClient } from "effect/unstable/sql";
+import type { SeatSessionRun } from "./run";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 
 export type SeatRotateResult =
@@ -141,16 +142,16 @@ export const stopSeatProcess = async (bindingId: string): Promise<void> => {
   }
 };
 
-/** Rotate one seat (its canvas node id) in the running app. */
+/** Rotate one seat (its canvas node id) on this machine, in the runtime it owns. */
 export const offboardAndRotate = async (
   seatId: string,
+  run: SeatSessionRun,
   options: SeatRotateOptions = {},
 ): Promise<SeatRotateResult> => {
   // Imported at call time: this module is reached from app composition, and
   // the runtime graph imports the terminal plane and canvases in turn.
-  const [{ AppRuntime }, { ModelService }, { MachineRepository }, { SeatSessionRepository }] =
+  const [{ ModelService }, { MachineRepository }, { SeatSessionRepository }] =
     await Promise.all([
-      import("../../runtime"),
       import("../model/service"),
       import("../machines/repository"),
       import("./repository"),
@@ -165,7 +166,7 @@ export const offboardAndRotate = async (
     seatId,
     {
       locate: (id, canvasName) =>
-        AppRuntime.runPromise(
+        run(
           Effect.gen(function* () {
             const model = yield* ModelService;
             for (const name of yield* model.listCanvases()) {
@@ -188,13 +189,13 @@ export const offboardAndRotate = async (
           }),
         ),
       endSession: (id, sessionId) =>
-        AppRuntime.runPromise(
+        run(
           Effect.flatMap(SeatSessionRepository, (sessions) => sessions.end(id, "offboard", sessionId)).pipe(
             Effect.ignore,
           ),
         ),
       reopenSession: (id, sessionId, harness, bindingId) =>
-        AppRuntime.runPromise(Effect.gen(function* () {
+        run(Effect.gen(function* () {
           const model = yield* ModelService;
           const sql = yield* SqlClient.SqlClient;
           const sessions = yield* SeatSessionRepository;
@@ -208,7 +209,7 @@ export const offboardAndRotate = async (
           }));
         })),
       writeSessionId: (seat, id, next) =>
-        AppRuntime.runPromise(Effect.gen(function* () {
+        run(Effect.gen(function* () {
           const model = yield* ModelService;
           const sql = yield* SqlClient.SqlClient;
           const sessions = yield* SeatSessionRepository;
@@ -236,7 +237,7 @@ export const offboardAndRotate = async (
       },
       wake: (seat, id) => {
         forgetAutoRestartSpend(seat.bindingId);
-        return AppRuntime.runPromise(
+        return run(
           Effect.flatMap(KernelService, (kernel) => Effect.promise(() => kernel.wakeManagedSeat(seat.canvasName, id))),
         );
       },

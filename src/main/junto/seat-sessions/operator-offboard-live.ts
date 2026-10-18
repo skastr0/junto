@@ -22,7 +22,7 @@ import {
   type SeatOffboardProgress,
 } from "@shared/seat-sessions";
 import { offboardRules } from "@shared/settings";
-import { AppRuntime } from "../../runtime";
+import type { SeatSessionRun } from "./run";
 import { ModelService } from "../model/service";
 import { SeatSessionRepository } from "./repository";
 import { PausePlane } from "../pause-plane";
@@ -55,6 +55,8 @@ export type OffboardCloserPort = {
 };
 
 export type OperatorOffboardLiveInput = {
+  /** The runtime this process owns: the window's, or the windowless core's. */
+  readonly run: SeatSessionRun;
   readonly closer: OffboardCloserPort;
   /** Send a prompt to a seat on the ordinary mail path. */
   readonly sendPrompt: (input: {
@@ -92,6 +94,7 @@ const titleOf = (node: Node): string | undefined => {
 };
 
 const seatOf = async (
+  run: SeatSessionRun,
   canvasName: string,
   node: Node,
   paused: boolean,
@@ -100,7 +103,7 @@ const seatOf = async (
   const surface = { ...node, hostId: node.host };
   const live = termPlane.host.get(surface.bindingId);
   const running = live !== undefined && live.status !== "exited";
-  const sessionId = await AppRuntime.runPromise(
+  const sessionId = await run(
     Effect.flatMap(SeatSessionRepository, (sessions) => sessions.current(node.id, node.bindingId)),
   ).then((session) => session?.sessionId);
   const title = titleOf(node);
@@ -118,7 +121,7 @@ const seatOf = async (
     ...(title ? { title } : {}),
     bindingId: surface.bindingId,
     harness: surface.harness,
-    local: isThisMachine(surface.hostId, await AppRuntime.runPromise(Effect.flatMap(MachineRepository, (machine) => machine.machineName))),
+    local: isThisMachine(surface.hostId, await run(Effect.flatMap(MachineRepository, (machine) => machine.machineName))),
     ...(sessionId ? { sessionId } : {}),
     running,
     ...(state ? { state } : {}),
@@ -126,8 +129,8 @@ const seatOf = async (
   };
 };
 
-const pausedOn = (canvasName: string): Promise<boolean> =>
-  AppRuntime.runPromise(
+const pausedOn = (run: SeatSessionRun, canvasName: string): Promise<boolean> =>
+  run(
     Effect.map(PausePlane, (plane) => !plane.stateFor(canvasName).playing),
   ).catch(() => false);
 
@@ -136,9 +139,15 @@ const cwdOf = (doc: Canvas, seatId: string): string | undefined => {
   return node?.kind === "agent" ? node.launch?.cwd?.trim() || undefined : undefined;
 };
 
+/**
+ * The runtime operator offboard was started in. The rules are read and saved
+ * through it; before it starts, the defaults stand and nothing is saved.
+ */
+let started: SeatSessionRun | undefined;
+
 /** The rules in force, read from installation settings. */
 export const readOffboardRules = (): Promise<OffboardRules> =>
-  AppRuntime.runPromise(
+  started === undefined ? Promise.resolve(defaultOffboardRules()) : started(
     Effect.flatMap(SettingsService, (settings) => settings.get).pipe(
       Effect.map((current) => offboardRules(current)),
       Effect.orElseSucceed(() => defaultOffboardRules()),
@@ -153,7 +162,7 @@ export const patchOffboardRules = (
 ): Promise<
   { readonly ok: true; readonly rules: OffboardRules } | { readonly ok: false; readonly message: string }
 > =>
-  AppRuntime.runPromise(
+  started === undefined ? Promise.resolve({ ok: false as const, message: NOT_SAVED }) : started(
     Effect.flatMap(SettingsService, (settings) => settings.patch({ offboard: patch })).pipe(
       Effect.match({
         onSuccess: (next) => ({ ok: true as const, rules: offboardRules(next) }),
@@ -172,6 +181,7 @@ export const patchOffboardRules = (
  * and run the automatic rules once a minute. Returns the stop.
  */
 export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => void) => {
+  started = input.run;
   const clockPath = input.clockPath ?? offboardClockPath();
   const clock = new SeatMotionClock(() => Date.now(), readClock(clockPath));
   let rules: OffboardRules = defaultOffboardRules();
@@ -182,7 +192,7 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
   const cwds = new Map<string, string | undefined>();
 
   const documents = (): Promise<ReadonlyArray<{ readonly canvasName: string; readonly doc: Canvas }>> =>
-    AppRuntime.runPromise(
+    input.run(
       Effect.flatMap(ModelService, (model) => Effect.gen(function* () {
         const rows = [];
         for (const canvasName of yield* model.listCanvases()) rows.push({ canvasName, doc: yield* model.canvas(canvasName) });
@@ -196,16 +206,16 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
         const found = (await documents()).find((entry) => entry.canvasName === canvasName);
         const node = found?.doc.nodes.get(seatId as never);
         if (!found || !node) return undefined;
-        const seat = await seatOf(canvasName, node, await pausedOn(canvasName));
+        const seat = await seatOf(input.run, canvasName, node, await pausedOn(input.run, canvasName));
         if (seat) cwds.set(seat.bindingId, cwdOf(found.doc, seatId));
         return seat;
       },
       seats: async () => {
         const out: OffboardSeat[] = [];
         for (const { canvasName, doc } of await documents()) {
-          const paused = await pausedOn(canvasName);
+          const paused = await pausedOn(input.run, canvasName);
           for (const node of doc.nodes.values()) {
-            const seat = await seatOf(canvasName, node, paused);
+            const seat = await seatOf(input.run, canvasName, node, paused);
             if (!seat) continue;
             cwds.set(seat.bindingId, cwdOf(doc, node.id));
             out.push(seat);
@@ -326,5 +336,6 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
       // Best effort: the last tick's save stands.
     }
     setOperatorOffboard(undefined);
+    if (started === input.run) started = undefined;
   };
 };

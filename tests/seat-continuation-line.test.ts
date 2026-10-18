@@ -455,9 +455,11 @@ describe("nothing else starts a session with a message", () => {
       "main/junto/seat-sessions/continuation-pending.ts",
     ]);
     const owing = callersOf(/\browing: *|\brotateOwing\(\{/g);
-    expect(owing.map((caller) => caller.file)).toEqual(["main/junto/ipc.ts"]);
-    expect(owing[0]?.before).toMatch(/const seat = wake \? await managedSeatOn\(address\) : undefined;/);
-    expect(callersOf(/\bnew ContinuationLedger\(/g).map((caller) => caller.file)).toEqual(["main/junto/ipc.ts"]);
+    expect(owing.map((caller) => caller.file)).toEqual(["main/junto/seat-sessions/start-seat-sessions.ts"]);
+    expect(owing[0]?.before).toMatch(/const seat = wake \? await seatOn\(address\) : undefined;/);
+    expect(callersOf(/\bnew ContinuationLedger\(/g).map((caller) => caller.file)).toEqual([
+      "main/junto/seat-sessions/start-seat-sessions.ts",
+    ]);
     // And the line itself is typed from one place.
     const users = sources
       .filter((path) => /\bCONTINUATION_LINE\b/.test(readFileSync(path, "utf8")))

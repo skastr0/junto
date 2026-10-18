@@ -15,6 +15,7 @@ import { installCoreRunner } from "../core-runner";
 import { startWorkControlServer, type WorkControlServer } from "./work/control";
 import { workControlDir } from "@shared/work-control";
 import { startCoreSeats } from "./term/core-seats";
+import { startSeatSessions, type SeatSessions } from "./seat-sessions/start-seat-sessions";
 import { mainAuthoringGate } from "./main-authoring-gate";
 
 export type CoreOptions = Omit<MachineCoreOptions, "ready">;
@@ -50,6 +51,7 @@ export const startCore = async (options: CoreOptions) => {
   let work: WorkControlServer | undefined;
   let seatProcesses: Awaited<ReturnType<typeof startCoreSeats>> | undefined;
   let mail: Context.Service.Shape<typeof MachineCoreMail> | undefined;
+  let sessions: SeatSessions | undefined;
   let releaseRunner: (() => void) | undefined;
   const runtime = makeCoreRuntime({ ...options, ready: () => admitted && !stopping && owner?.ready() === true && listener?.ready() === true });
   let closeFlight: Promise<void> | undefined;
@@ -62,6 +64,7 @@ export const startCore = async (options: CoreOptions) => {
     listener?.beginShutdown(cause);
     work?.beginShutdown();
     mail?.seats.suspend();
+    sessions?.stop();
     seatProcesses?.beginShutdown();
     closeFlight = (async () => {
       if (owner !== undefined) {
@@ -105,6 +108,12 @@ export const startCore = async (options: CoreOptions) => {
       runPromise: effect => runtime.runPromise(effect),
       runFork: effect => { runtime.runFork(effect); },
     }));
+    // The seats this machine runs keep their sessions here: an agent's own
+    // offboard is closed, and the cut runs, with no window.
+    sessions = await startSeatSessions({
+      run: effect => runtime.runPromise(effect),
+      onSuspend: listener => { coreMail.seats.onSuspend(listener); },
+    });
     admitted = true;
     return { runtime, close, ready: () => admitted && !stopping && owner!.ready() && listener!.ready() };
   } catch (cause) {
