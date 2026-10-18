@@ -146,11 +146,11 @@ export const createCoreMailTransport = (options: Options) => {
     seatOnboarded: (bindingId) => policy.seatOnboarded?.(bindingId) ?? supervisor.isOnboarded(bindingId),
     cutColdSession: (_bindingId, canvas, nodeId) => suspended ? Promise.resolve(false) :
       policy.cutColdSession?.(_bindingId, canvas, nodeId) ?? cutBeforeMail({ canvasName: canvas, seatId: nodeId }),
-    wakeSeat: (bindingId, canvas, nodeId, wake) => {
+    wakeSeat: (bindingId, canvas, nodeId) => {
       if (suspended) return Promise.resolve(false);
       const live = host.get(bindingId);
       if (live?.status === "running" || live?.status === "starting") return Promise.resolve(true);
-      return options.wakeSeat(bindingId, canvas, nodeId, wake);
+      return options.wakeSeat(bindingId, canvas, nodeId);
     },
     writeMail: async (bindingId, text) => {
       if (suspended) return "lost";
@@ -192,7 +192,7 @@ export type CoreMailSeats = ReturnType<typeof createCoreMailTransport>;
 /** Built by the common runtime, over its already-owned kernel and seats. */
 export const makeCoreMailTransport = Effect.fn("CoreMail.makeTransport")(function* () {
   const kernel = yield* KernelService;
-  const seats = createCoreMailTransport({ wakeSeat: (_binding, canvas, nodeId, wake) => kernel.wakeManagedSeat(canvas, nodeId, wake) });
+  const seats = createCoreMailTransport({ wakeSeat: (_binding, canvas, nodeId) => kernel.wakeManagedSeat(canvas, nodeId) });
   yield* Effect.addFinalizer(() => Effect.sync(seats.suspend));
   return seats;
 });

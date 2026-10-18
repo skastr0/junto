@@ -7,7 +7,6 @@ import {
   MAIL_HELD_RETRY_MS,
   MessageDeliveryService,
   type MessageDeliveryStore,
-  type WakeSeatOptions,
 } from "../src/main/junto/work/message-delivery";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 
@@ -64,7 +63,7 @@ const rig = (
   const writes: string[] = [];
   let writing = 0;
   let overlapped = false;
-  const wakes: Array<{ bindingId: string; canvas: string; nodeId: string; options?: WakeSeatOptions }> = [];
+  const wakes: Array<{ bindingId: string; canvas: string; nodeId: string }> = [];
   const store: MessageDeliveryStore = {
     listCanvasNames: async () => [canvas],
     readModel: async () => {
@@ -89,8 +88,8 @@ const rig = (
       seatLive: (id) => id === bindingId && live,
       ...(options.onboarded ? { seatOnboarded: options.onboarded } : {}),
       ...(options.cut ? { cutColdSession: options.cut } : {}),
-      wakeSeat: async (id, wakeCanvas, wakeNode, wakeOptions) => {
-        wakes.push({ bindingId: id, canvas: wakeCanvas, nodeId: wakeNode, ...(wakeOptions ? { options: wakeOptions } : {}) });
+      wakeSeat: async (id, wakeCanvas, wakeNode) => {
+        wakes.push({ bindingId: id, canvas: wakeCanvas, nodeId: wakeNode });
         await new Promise((resolve) => setTimeout(resolve, 1));
         return options.wake?.() ?? false;
       },
@@ -276,37 +275,6 @@ describe("mail delivery", () => {
     expect(seat.writes[0]).toContain("junto msg read 01A");
     expect(seat.writes[1]).toContain("junto msg read 01B");
     expect(seat.overlapped()).toBe(false);
-  });
-
-  it("the operator's answer to a seat's signal is typed into the session that asked, past its window", async () => {
-    const cuts: string[] = [];
-    const seat = rig({
-      cut: async (id) => {
-        cuts.push(id);
-        return true;
-      },
-    });
-    const answer = mail("01A", "Use the second option.", "prompt");
-    seat.append({ ...answer, metadata: { ...answer.metadata, agentSignalId: "signal-1" } });
-    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("delivered");
-    expect(cuts).toEqual([]);
-    expect(seat.writes).toHaveLength(1);
-    expect(seat.wakes).toEqual([]);
-  });
-
-  it("the answer to a resting seat's signal wakes the session that asked; other mail wakes as usual", async () => {
-    const seat = rig({ live: false, wake: () => true });
-    const answer = mail("01A", "Use the second option.", "prompt");
-    seat.append({ ...answer, metadata: { ...answer.metadata, agentSignalId: "signal-1" } });
-    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
-    await settle();
-    expect(seat.wakes).toEqual([{ bindingId, canvas, nodeId, options: { keepSession: true } }]);
-
-    const plain = rig({ live: false, wake: () => true });
-    plain.append(mail("01B", "Please review the contract."));
-    expect(await plain.service.deliver(canvas, nodeId, "01B")).toBe("waiting");
-    await settle();
-    expect(plain.wakes).toEqual([{ bindingId, canvas, nodeId }]);
   });
 
   it("a session that is not cold, or a check that fails, changes nothing: the mail is typed as usual", async () => {

@@ -88,14 +88,11 @@ export type MessageDeliveryTransport = {
    * Start the seat's session headless so waiting mail can reach it. The
    * implementation owns every refusal (not local, paused, restart budget)
    * and resolves false for them. Absent = mail never starts a seat.
-   * `keepSession`: the mail is for the session the seat names, so the wake
-   * resumes it and is not cut to a fresh one first.
    */
   readonly wakeSeat?: (
     bindingId: string,
     canvas: string,
     nodeId: string,
-    options?: WakeSeatOptions,
   ) => Promise<boolean>;
   /**
    * Auto offboard at delivery: mail is about to give this seat a turn. True
@@ -153,8 +150,6 @@ type PendingResponse = {
   readonly response: string;
 };
 
-export type WakeSeatOptions = { readonly keepSession?: boolean };
-
 const mailKey = (canvas: string, nodeId: string, messageId: string): string =>
   `${canvas}::${nodeId}::${messageId}`;
 
@@ -163,9 +158,6 @@ export const mailPayloadOf = (message: Message, options?: MailLineOptions): stri
   readMailExtension(message.metadata)?.mailKind === "prompt"
     ? composeImmediatePromptPayload(message, options)
     : composeMessageDeliveryPayload(message, options);
-
-/** The operator's answer to one of the seat's signals (signals/operator.ts). */
-const answersSignal = (message: Message): boolean => typeof message.metadata?.agentSignalId === "string";
 
 /** A lookup that fails must never cost a delivery: no answer means no pointer. */
 const onboardedOf = (
@@ -382,15 +374,10 @@ export class MessageDeliveryService {
     this.waiting.set(key, { canvas, nodeId, messageId, bindingId: target.bindingId });
     if (!transport.seatLive(target.bindingId)) {
       if (this.noWake.has(messageId)) return waiting("no-wake message, seat is not ready");
-      // An answer to the seat's signal wakes the session that asked.
-      const keep = answersSignal(message) ? { keepSession: true } : undefined;
-      return waiting(`seat is not ready, ${this.wake(transport, target.bindingId, canvas, nodeId, generation, messageId, keep)}`);
+      return waiting(`seat is not ready, ${this.wake(transport, target.bindingId, canvas, nodeId, generation, messageId)}`);
     }
     // A message that opted out of waking a seat does not get to restart one.
-    // The operator's answer to a seat's signal is for the session that asked:
-    // answering closes the signal before this runs, so the seat no longer
-    // reads as waiting, and a cut here would hand the answer to a stranger.
-    if (transport.cutColdSession && !this.noWake.has(messageId) && !answersSignal(message)) {
+    if (transport.cutColdSession && !this.noWake.has(messageId)) {
       const cut = await transport
         .cutColdSession(target.bindingId, canvas, nodeId)
         .catch(() => false);
@@ -514,13 +501,13 @@ export class MessageDeliveryService {
     nodeId: string,
     generation: number,
     messageId: string,
-    options?: WakeSeatOptions,
   ): string {
     if (transport.wakeSeat === undefined || this.waking.has(bindingId)) {
       return transport.wakeSeat === undefined ? "wake transport missing" : "wake already in flight";
     }
     this.waking.add(bindingId);
-    void (options === undefined ? transport.wakeSeat(bindingId, canvas, nodeId) : transport.wakeSeat(bindingId, canvas, nodeId, options))
+    void transport
+      .wakeSeat(bindingId, canvas, nodeId)
       .catch((error: unknown) => {
         console.error(`[delivery] wake failed for ${canvas}/${nodeId}/${messageId} (${bindingId}): ${String(error)}`);
         return false;

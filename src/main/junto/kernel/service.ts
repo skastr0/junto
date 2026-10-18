@@ -125,9 +125,6 @@ export class KernelService extends Context.Service<KernelService,
     readonly wakeManagedSeat: (
       canvasName: string,
       nodeId: string,
-      // The wake is for the session the seat names (an answer to its
-      // signal): resume it, never cut it to a fresh one first.
-      options?: { readonly keepSession?: boolean },
     ) => Promise<boolean>;
     // Begin hydration + the evaluation loop. Idempotent, matching
     // SnapshotsService.start().
@@ -1194,14 +1191,12 @@ const makeKernelService = (
   const wakeManagedSeat = (
     canvasName: string,
     nodeId: string,
-    options?: { readonly keepSession?: boolean },
   ): Promise<boolean> =>
     // Auto offboard: a resting seat whose session has gone cold and is worth
     // cutting gets a fresh one first, so it wakes into that. Before the wake
     // reads the node, because the wake starts the session the node names. It
-    // never throws and never refuses the wake. A wake that keeps the session
-    // is not cut.
-    (options?.keepSession === true ? Promise.resolve(false) : cutBeforeWake({ canvasName, seatId: nodeId }))
+    // never throws and never refuses the wake.
+    cutBeforeWake({ canvasName, seatId: nodeId })
       .then(() => {
         // Said once per wake, so a log with no wake line means nobody asked.
         console.info(`[wake] asked ${canvasName}/${nodeId}`);
