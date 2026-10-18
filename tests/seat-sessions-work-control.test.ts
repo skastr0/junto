@@ -388,6 +388,7 @@ describe("junto onboard past sessions by provenance", () => {
     mail_out: { read: true, items: [], more: 0 },
     signals: { read: false, reason: "this seat's signals could not be read" },
     tasks: { read: true, items: [], more: 0 },
+    commits: { read: true, items: [{ sha: "a".repeat(40), subject: "fix the sync bug", at: "2026-10-18T10:40:00.000Z", repo: "/work/repo" }], more: 0 },
     written_at: "2026-10-18T11:00:00.000Z",
   });
   const writeRecord = (sessionId: string) => {
@@ -411,11 +412,24 @@ describe("junto onboard past sessions by provenance", () => {
       mail_out: recordOf("s2").mail_out,
       signals: { read: false, reason: "this seat's signals could not be read" },
       tasks: recordOf("s2").tasks,
+      commits: recordOf("s2").commits,
     });
     expect(s2.journal).toBeNull();
     // Older sessions point at their record.
     expect(s1).not.toHaveProperty("record");
     expect(s1.record_path).toBe(join(root, "seats", "agent", "sessions", "s1.record.json"));
+  });
+
+  it("reads a record written before Junto kept commits as saying nothing about them", async () => {
+    await writeSession("s2");
+    const { commits: _commits, ...older } = recordOf("s1");
+    const path = sessionRecordPathOf(join(root, "seats", "agent", "sessions", "s1.md"));
+    mkdirSync(join(root, "seats", "agent", "sessions"), { recursive: true });
+    writeFileSync(path, JSON.stringify(older));
+    expect((await op("onboard", {})).data.sessions.past[0].record.commits).toEqual({
+      read: false,
+      reason: "recorded before Junto kept commits",
+    });
   });
 
   it("says a session has no record when none was written, or it cannot be read", async () => {

@@ -16,6 +16,7 @@ const factsOf = (record: SessionRecord) => ({
   mail_out: record.mail_out,
   signals: record.signals,
   tasks: record.tasks,
+  commits: record.commits,
 });
 
 /**

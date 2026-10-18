@@ -1,8 +1,10 @@
 /**
  * The session record at close: what Junto observed while a seat session ran,
- * read from the real stores (mail, signals, the session row) and written
+ * read from the real stores (mail, signals, commits, the session row) and written
  * beside the session's notes. The shaping is pure and tested apart.
  */
+import { spawnSync } from "node:child_process";
+import { mkdirSync, realpathSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,6 +24,7 @@ import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/
 import { SettingsLive, SettingsService } from "../src/main/junto/settings/service";
 import { AgentSignalRepository, AgentSignalRepositoryLive } from "../src/main/junto/signals/repository";
 import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../src/main/junto/seat-sessions/repository";
+import { recordSeatCommit } from "../src/main/junto/git/seat-commits";
 import {
   buildSessionRecord,
   recordSessionAtClose,
@@ -158,6 +161,65 @@ describe("the session record at close", () => {
       items: [{ kind: "blocked", text: "Which store?", state: "answered", answer: { text: "Use sqlite" } }],
     });
     expect(record.tasks).toEqual({ read: true, items: [], more: 0 });
+    expect(record.commits).toEqual({ read: true, items: [], more: 0 });
+  });
+
+  it("records the commits the seat's hook reported for this session, with git's subject, and no one else's", async () => {
+    const repo = join(realpathSync(root), "repo");
+    mkdirSync(repo);
+    const env = {
+      PATH: process.env.PATH ?? "/usr/bin:/bin",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_AUTHOR_NAME: "shared",
+      GIT_AUTHOR_EMAIL: "shared@example.com",
+      GIT_COMMITTER_NAME: "shared",
+      GIT_COMMITTER_EMAIL: "shared@example.com",
+    };
+    const git = (...args: string[]) => spawnSync("git", args, { cwd: repo, env, encoding: "utf8" }).stdout.trim();
+    git("init", "-q", "-b", "main");
+    const commit = (subject: string) => {
+      git("commit", "-q", "--allow-empty", "-m", subject);
+      return git("rev-parse", "HEAD");
+    };
+    await runtime.runPromise(
+      Effect.flatMap(SeatSessionRepository, (sessions) =>
+        sessions.record({ seatId: "agent", bindingId: "bind-agent", sessionId: "s1", harness: "claude" }),
+      ),
+    );
+    const startedAt = Date.now();
+    const report = (sha: string, seatId: string, sessionId: string | null, observedAt: number) =>
+      runtime.runPromise(recordSeatCommit({ repo, sha, canvasName: CANVAS, seatId, sessionId, observedAt }));
+    // Same folder, same author: only the store says whose each commit is.
+    const mine = commit("parse the sync config");
+    const early = commit("before the id was known");
+    const peers = commit("the peer's fix");
+    const other = commit("an earlier session");
+    await report(mine, "agent", "s1", startedAt + 2_000);
+    await report(early, "agent", null, startedAt + 1_000);
+    await report(peers, "peer", null, startedAt + 3_000);
+    await report(other, "agent", "s0", startedAt + 4_000);
+    await report("e".repeat(40), "agent", "s1", startedAt + 5_000);
+
+    const endedAt = startedAt + 10_000;
+    await runtime.runPromise(
+      recordSessionAtClose(
+        { seat: { canvasName: CANVAS, seatId: "agent" }, sessionId: "s1", endedAt, endedBy: "agent" },
+        { now: () => endedAt },
+      ),
+    );
+    const notesPath = await runtime.runPromise(Effect.map(SeatSessionRepository, (sessions) => sessions.notesPathFor("agent", "s1")));
+    const record = JSON.parse(await readFile(sessionRecordPathOf(notesPath), "utf8")) as SessionRecord;
+    expect(record.commits).toEqual({
+      read: true,
+      more: 0,
+      items: [
+        { sha: early, subject: "before the id was known", at: new Date(startedAt + 1_000).toISOString(), repo },
+        { sha: mine, subject: "parse the sync config", at: new Date(startedAt + 2_000).toISOString(), repo },
+        // Reported, but git no longer has it.
+        { sha: "e".repeat(40), subject: null, at: new Date(startedAt + 5_000).toISOString(), repo },
+      ],
+    });
   });
 });
 
@@ -168,6 +230,7 @@ describe("buildSessionRecord", () => {
     mailOut: { read: true, items: [] },
     signals: { read: true, items: [] },
     tasks: { read: true, items: [] },
+    commits: { read: true, items: [] },
     ...overrides,
   });
 

@@ -8,10 +8,11 @@
  * the close up for long; a source it cannot read is recorded as unread.
  *
  * Facts only, no model: the session's row (harness, folder, transcript,
- * start), mail in and out, signals raised or answered, and moves of the tasks
- * it held. Commits are not recorded yet: every seat may share one worktree
- * and one git author, so a commit made in the folder while the session ran is
- * not evidence that this seat made it. Reading them is
+ * start), mail in and out, signals raised or answered, moves of the tasks it
+ * held, and the commits it made. Every seat may share one worktree and one
+ * git author, so a commit is this session's only when the seat's own
+ * post-commit hook reported it under the seat's credential (`seat_commits`);
+ * git supplies only its subject. Reading them is
  * `gatherSessionFacts`; shaping them into the record is `buildSessionRecord`,
  * pure.
  */
@@ -27,6 +28,7 @@ import {
   type RecordedMailIn,
   type RecordedMailOut,
   type RecordedSignal,
+  type RecordedCommit,
   type RecordedTaskMove,
   type SessionEndedBy,
   type SessionRecord,
@@ -34,6 +36,7 @@ import {
 import { nodeTitle } from "../work/authz";
 import { mailboxMessageReadId } from "../work/mailbox-receipts";
 import { WorkService } from "../work/service";
+import { commitSubject, seatSessionCommits } from "../git/seat-commits";
 import { SeatSessionRepository } from "./repository";
 import { writeNotesFile } from "./notes-file";
 
@@ -88,6 +91,7 @@ export type SessionFacts = {
   readonly mailOut: Read<MailOutFact>;
   readonly signals: Read<RecordedSignal>;
   readonly tasks: Read<RecordedTaskMove>;
+  readonly commits: Read<RecordedCommit>;
 };
 
 // ── The record (pure) ──────────────────────────────────────────────────────
@@ -156,6 +160,7 @@ export const buildSessionRecord = (facts: SessionFacts, writtenAt: number): Sess
       (signal) => ({ ...signal, text: clip(signal.text), answer: signal.answer && { ...signal.answer, text: clip(signal.answer.text) } }),
     ),
     tasks: observe(facts.tasks, (move) => move.at, (move) => move),
+    commits: observe(facts.commits, (commit) => commit.at, (commit) => ({ ...commit, subject: commit.subject && clip(commit.subject) })),
     written_at: iso(writtenAt),
   };
 };
@@ -375,10 +380,31 @@ export const gatherSessionFacts = (close: SessionClose) =>
       }),
     );
 
+    const commits = bounded<RecordedCommit>(
+      "this seat's commits",
+      Effect.gen(function* () {
+        const made = yield* seatSessionCommits({ canvasName, seatId, sessionId: close.sessionId, startedAt, endedAt: close.endedAt });
+        // Git is asked only for the commits the record keeps; the rest are counted.
+        const kept = made.slice(-SESSION_RECORD_LIST_MAX);
+        const subjects = yield* Effect.forEach(
+          kept,
+          (commit) => Effect.promise(() => commitSubject(commit.repo, commit.sha).catch(() => undefined)),
+          { concurrency: 4 },
+        );
+        const items = made.map((commit): RecordedCommit => ({
+          sha: commit.sha,
+          subject: subjects[kept.indexOf(commit)]?.subject ?? null,
+          at: iso(commit.observedAt),
+          repo: commit.repo,
+        }));
+        return { read: true as const, items };
+      }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+    );
+
     const cwd = row?.cwd ?? null;
     const transcriptPath = row?.transcript_path ?? null;
-    const [inbox, sent, raised, held] = yield* Effect.all(
-      [mailIn, mailOut, signals, tasks],
+    const [inbox, sent, raised, held, made] = yield* Effect.all(
+      [mailIn, mailOut, signals, tasks, commits],
       { concurrency: "unbounded" },
     );
     const facts: SessionFacts = {
@@ -395,6 +421,7 @@ export const gatherSessionFacts = (close: SessionClose) =>
       mailOut: sent,
       signals: raised,
       tasks: held,
+      commits: made,
     };
     return facts;
   });
@@ -424,7 +451,9 @@ export const recordSessionAtClose = (
 export const readSessionRecord = (notesPath: string): SessionRecord | undefined => {
   try {
     const parsed = JSON.parse(readFileSync(sessionRecordPathOf(notesPath), "utf8")) as Partial<SessionRecord>;
-    return parsed.kind === "junto_observation" && parsed.version === SESSION_RECORD_VERSION ? (parsed as SessionRecord) : undefined;
+    if (parsed.kind !== "junto_observation" || parsed.version !== SESSION_RECORD_VERSION) return undefined;
+    // A record written before Junto kept commits says nothing about them.
+    return { ...(parsed as SessionRecord), commits: parsed.commits ?? { read: false, reason: "recorded before Junto kept commits" } };
   } catch {
     return undefined;
   }

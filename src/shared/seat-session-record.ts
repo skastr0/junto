@@ -6,8 +6,8 @@
  * that are not interchangeable, and onboard keeps them apart:
  *
  *   record      Junto's observation (this file): mail in and out, signals
- *               and their answers, tasks, how the session ended. Facts, each
- *               one labelled as Junto's.
+ *               and their answers, tasks, commits, how the session ended.
+ *               Facts, each one labelled as Junto's.
  *   journal     the seat's own words, written with `junto offboard`: its
  *               perspective, present only when it wrote them.
  *   transcript  the harness's full record of the session.
@@ -79,6 +79,20 @@ export type RecordedTaskMove = {
   readonly at: string;
 };
 
+/**
+ * A commit the seat made while the session ran. Attributed by Junto's store
+ * alone: the seat's post-commit hook reported it under the seat's credential.
+ * The subject is git's, read at the close; null when git no longer has it.
+ */
+export type RecordedCommit = {
+  readonly sha: string;
+  readonly subject: string | null;
+  /** When Junto observed the commit. */
+  readonly at: string;
+  /** The top level of the repo the commit is in. */
+  readonly repo: string;
+};
+
 export type SessionRecord = {
   readonly version: typeof SESSION_RECORD_VERSION;
   readonly kind: "junto_observation";
@@ -95,6 +109,7 @@ export type SessionRecord = {
   readonly mail_out: Observed<RecordedMailOut>;
   readonly signals: Observed<RecordedSignal>;
   readonly tasks: Observed<RecordedTaskMove>;
+  readonly commits: Observed<RecordedCommit>;
   readonly written_at: string;
 };
 
@@ -104,7 +119,7 @@ export type SessionRecord = {
  */
 export const SESSION_PROVENANCE = {
   record:
-    "Junto's observation, recorded when the session ended: the mail it received and sent, the signals it raised and their answers, the tasks it held, and how it ended. Facts, not the seat's words.",
+    "Junto's observation, recorded when the session ended: the mail it received and sent, the signals it raised and their answers, the tasks it held, the commits it made, and how it ended. Facts, not the seat's words.",
   journal:
     "The seat's own words, written by that session with `junto offboard`: its perspective, present only when it wrote one.",
   transcript: "The harness's full record of the session, to open when the rest is not enough.",
