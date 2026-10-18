@@ -153,8 +153,6 @@ import { SqlClient } from "effect/unstable/sql";
 import { commitExists, recordSeatCommit } from "../git/seat-commits";
 import { announceSeatOffboard, listSeatSessions } from "../seat-sessions/service";
 import { continuationPathOf, readNotesFile, readEndedMarker } from "../seat-sessions/notes-file";
-import { pastJournalOf, pastRecordOf } from "../seat-sessions/onboard-past";
-import { SESSION_PROVENANCE } from "@shared/seat-session-record";
 import type { SeatSessionObservation } from "../seat-sessions/repository";
 import { offeredCapturedSessionId } from "../term/session-id-store";
 import { harnessSessionExists } from "../term/session-existence";
@@ -1031,14 +1029,16 @@ const pastSessionsOf = (node: Node, pastNotes: number) =>
             from_session: previous.sessionId,
             left_at: isoAt(previous.offboardedAt ?? previous.endedAt),
             continuation,
-            ...pastJournalOf(previous, { inline: true, inHandoff: false }),
+            gist: previous.gist ?? null,
+            ...(handoffNotes === undefined ? {} : { notes: handoffNotes }),
+            notes_path: previous.notesPath,
             ...transcriptOf(previous),
             ...windDownOf(previous),
           }
         : undefined;
-    // A session that follows one which ended with no journal (Junto or the
-    // operator ended it without an agent turn, or its id just changed) is
-    // told so first: Junto's record of it leads the past sessions.
+    // A session that follows one which ended with no notes at all (Junto or
+    // the operator ended it without an agent turn, or its id just changed) is
+    // told so, with the one reference there is: the previous transcript.
     const endedBy =
       previous === undefined ? undefined : readEndedMarker(previous.notesPath)?.by;
     const previousWithoutNotes =
@@ -1060,31 +1060,33 @@ const pastSessionsOf = (node: Node, pastNotes: number) =>
         : undefined;
     let inline = 0;
     const listed = past.slice(0, ONBOARD_PAST_SESSIONS_MAX).map((session) => {
-      // The handoff already carries its session's journal in full; the list
-      // points there instead of printing it a second time.
+      const offboarded = session.offboardedAt !== undefined;
+      // The handoff already carries its session's notes in full; the list
+      // points there instead of printing them a second time.
       const inHandoff = session === previous && handoffNotes !== undefined;
-      const journal = pastJournalOf(session, { inline: inline < pastNotes, inHandoff });
-      if (journal.journal !== null && "text" in journal.journal) inline += 1;
+      const notes =
+        offboarded && !inHandoff && inline < pastNotes ? readNotesFile(session.notesPath) : undefined;
+      if (notes !== undefined) inline += 1;
       return {
         session_id: session.sessionId,
         harness: session.harness,
         started_at: isoAt(session.startedAt),
         ...(session.endedAt === undefined ? {} : { ended_at: isoAt(session.endedAt), ended_because: session.endReason }),
-        // Junto's record, in full for the session just before this one.
-        ...pastRecordOf(session, session === previous),
-        ...journal,
+        gist: session.gist ?? null,
+        notes_path: offboarded ? session.notesPath : null,
         ...transcriptOf(session),
+        ...(notes === undefined ? {} : { notes }),
+        ...(inHandoff ? { notes_in: "handoff" as const } : {}),
         ...(session.drain === undefined ? {} : { wind_down: describeSessionDrain(session.drain) }),
       };
     });
     const sessions = {
       note: PAST_SESSIONS_FRAMING,
-      provenance: SESSION_PROVENANCE,
       current: current
         ? {
             session_id: current.sessionId,
             harness: current.harness,
-            journal_path: mine?.notesPath ?? store.value.notesPathFor(node.id, current.sessionId),
+            notes_path: mine?.notesPath ?? store.value.notesPathFor(node.id, current.sessionId),
             transcript_path: mine?.transcriptPath ?? null,
             offboarded: mine?.offboardedAt !== undefined,
           }

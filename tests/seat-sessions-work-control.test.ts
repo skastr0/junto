@@ -41,8 +41,6 @@ import {
 } from "../src/main/junto/seat-sessions/repository";
 import { subscribeSeatOffboard, type SeatOffboardEvent } from "../src/main/junto/seat-sessions/service";
 import { endedPathOf, writeEndedMarker } from "../src/main/junto/seat-sessions/notes-file";
-import { sessionRecordPathOf } from "../src/main/junto/seat-sessions/session-record";
-import { SESSION_PROVENANCE, SESSION_RECORD_VERSION, type SessionRecord } from "../src/shared/seat-session-record";
 import { __setSessionExistenceHomeForTest } from "../src/main/junto/term/session-existence";
 import {
   CONTINUATION_FRAMING,
@@ -345,99 +343,28 @@ describe("junto onboard past sessions", () => {
     const sessions = onboard.data.sessions;
     expect(sessions.note).toBe(PAST_SESSIONS_FRAMING);
     expect(sessions.current).toMatchObject({ session_id: "s4", offboarded: false });
-    expect(sessions.current.journal_path).toBe(join(root, "seats", "agent", "sessions", "s4.md"));
+    expect(sessions.current.notes_path).toBe(join(root, "seats", "agent", "sessions", "s4.md"));
     expect(sessions.past.map((s: { session_id: string }) => s.session_id)).toEqual(["s3", "s2", "s1"]);
     const [s3, s2, s1] = sessions.past;
-    // A session that never offboarded wrote no journal.
-    expect(s3).toMatchObject({ journal: null, ended_because: "replaced" });
+    // A session that never offboarded has no notes to point at.
+    expect(s3).toMatchObject({ gist: null, notes_path: null, ended_because: "replaced" });
+    expect(s3).not.toHaveProperty("notes");
     expect(s2).toMatchObject({
-      journal: {
-        gist: "Second session: wired the parser",
-        path: join(root, "seats", "agent", "sessions", "s2.md"),
-        text: "Second session: wired the parser",
-      },
+      gist: "Second session: wired the parser",
+      notes_path: join(root, "seats", "agent", "sessions", "s2.md"),
+      notes: "Second session: wired the parser",
     });
-    expect(s1.journal.text).toBe("First session: set up the repo");
+    expect(s1.notes).toBe("First session: set up the repo");
 
     // The inline count is configurable; older notes keep their paths.
     const one = await op("onboard", { past_notes: 1 });
     const [, t2, t1] = one.data.sessions.past;
-    expect(t2.journal.text).toBe("Second session: wired the parser");
-    expect(t1.journal).not.toHaveProperty("text");
-    expect(t1.journal.path).toBe(join(root, "seats", "agent", "sessions", "s1.md"));
+    expect(t2.notes).toBe("Second session: wired the parser");
+    expect(t1).not.toHaveProperty("notes");
+    expect(t1.notes_path).toBe(join(root, "seats", "agent", "sessions", "s1.md"));
 
     const tooMany = await op("onboard", { past_notes: 99 });
     expect(tooMany).toMatchObject({ ok: false, error: { type: "InputError" } });
-  });
-});
-
-describe("junto onboard past sessions by provenance", () => {
-  const recordOf = (sessionId: string): SessionRecord => ({
-    version: SESSION_RECORD_VERSION,
-    kind: "junto_observation",
-    session: {
-      id: sessionId,
-      harness: "claude",
-      started_at: "2026-10-18T10:00:00.000Z",
-      ended_at: "2026-10-18T11:00:00.000Z",
-      ended_by: "automatic",
-      cwd: null,
-      transcript_path: null,
-    },
-    mail_in: { read: true, items: [{ id: `in-${sessionId}`, from: "peer", at: "2026-10-18T10:30:00.000Z", text: "Look at the sync bug.", read_at: null, answered: false }], more: 0 },
-    mail_out: { read: true, items: [], more: 0 },
-    signals: { read: false, reason: "this seat's signals could not be read" },
-    tasks: { read: true, items: [], more: 0 },
-    commits: { read: true, items: [{ sha: "a".repeat(40), subject: "fix the sync bug", at: "2026-10-18T10:40:00.000Z", repo: "/work/repo" }], more: 0 },
-    written_at: "2026-10-18T11:00:00.000Z",
-  });
-  const writeRecord = (sessionId: string) => {
-    const path = sessionRecordPathOf(join(root, "seats", "agent", "sessions", `${sessionId}.md`));
-    mkdirSync(join(root, "seats", "agent", "sessions"), { recursive: true });
-    writeFileSync(path, JSON.stringify(recordOf(sessionId)));
-  };
-
-  it("names each kind of record once, and keeps Junto's record apart from the seat's journal", async () => {
-    await writeSession("s2");
-    await writeSession("s3");
-    writeRecord("s1");
-    writeRecord("s2");
-    const sessions = (await op("onboard", {})).data.sessions;
-    expect(sessions.provenance).toEqual(SESSION_PROVENANCE);
-    const [s2, s1] = sessions.past;
-    // The session just before this one: its record in full, never its own words.
-    expect(s2.record).toEqual({
-      ended_by: "automatic",
-      mail_in: recordOf("s2").mail_in,
-      mail_out: recordOf("s2").mail_out,
-      signals: { read: false, reason: "this seat's signals could not be read" },
-      tasks: recordOf("s2").tasks,
-      commits: recordOf("s2").commits,
-    });
-    expect(s2.journal).toBeNull();
-    // Older sessions point at their record.
-    expect(s1).not.toHaveProperty("record");
-    expect(s1.record_path).toBe(join(root, "seats", "agent", "sessions", "s1.record.json"));
-  });
-
-  it("reads a record written before Junto kept commits as saying nothing about them", async () => {
-    await writeSession("s2");
-    const { commits: _commits, ...older } = recordOf("s1");
-    const path = sessionRecordPathOf(join(root, "seats", "agent", "sessions", "s1.md"));
-    mkdirSync(join(root, "seats", "agent", "sessions"), { recursive: true });
-    writeFileSync(path, JSON.stringify(older));
-    expect((await op("onboard", {})).data.sessions.past[0].record.commits).toEqual({
-      read: false,
-      reason: "recorded before Junto kept commits",
-    });
-  });
-
-  it("says a session has no record when none was written, or it cannot be read", async () => {
-    await writeSession("s2");
-    expect((await op("onboard", {})).data.sessions.past[0]).toMatchObject({ session_id: "s1", record: null });
-    mkdirSync(join(root, "seats", "agent", "sessions"), { recursive: true });
-    writeFileSync(sessionRecordPathOf(join(root, "seats", "agent", "sessions", "s1.md")), "{not json");
-    expect((await op("onboard", {})).data.sessions.past[0]).toMatchObject({ session_id: "s1", record: null });
   });
 });
 
@@ -469,11 +396,13 @@ describe("junto onboard after an offboard that continues", () => {
     const { handoff } = onboard.data;
     expect(handoff.note).toBe(CONTINUATION_FRAMING);
     // What to do next comes before what happened.
-    expect(Object.keys(handoff).indexOf("continuation")).toBeLessThan(Object.keys(handoff).indexOf("journal"));
+    expect(Object.keys(handoff).indexOf("continuation")).toBeLessThan(Object.keys(handoff).indexOf("notes"));
     expect(handoff).toMatchObject({
       from_session: "s1",
       continuation: CONTINUATION,
-      journal: { gist: "Parser half done", text: NOTES, path: join(root, "seats", "agent", "sessions", "s1.md") },
+      gist: "Parser half done",
+      notes: NOTES,
+      notes_path: join(root, "seats", "agent", "sessions", "s1.md"),
       transcript_path: "/harness/sessions/s1.jsonl",
     });
     expect(typeof handoff.left_at).toBe("string");
@@ -488,9 +417,11 @@ describe("junto onboard after an offboard that continues", () => {
     expect(previous).toMatchObject({
       session_id: "s1",
       ended_because: "offboard",
-      journal: { gist: "Parser half done", path: join(root, "seats", "agent", "sessions", "s1.md"), in: "handoff" },
+      gist: "Parser half done",
+      notes_path: join(root, "seats", "agent", "sessions", "s1.md"),
+      notes_in: "handoff",
     });
-    expect(previous.journal).not.toHaveProperty("text");
+    expect(previous).not.toHaveProperty("notes");
     expect(JSON.stringify(onboard.data).split("the 429 retry in sync.ts, then run").length - 1).toBe(1);
     expect(JSON.stringify(onboard.data).split("shipped: tokenizer").length - 1).toBe(1);
   });
@@ -498,7 +429,7 @@ describe("junto onboard after an offboard that continues", () => {
   it("carries the notes even when the caller asked for no past notes inline", async () => {
     await handOver();
     const onboard = await op("onboard", { past_notes: 0 });
-    expect(onboard.data.handoff.journal.text).toBe(NOTES);
+    expect(onboard.data.handoff.notes).toBe(NOTES);
   });
 
   it("only the very next session gets the handoff", async () => {
@@ -508,8 +439,8 @@ describe("junto onboard after an offboard that continues", () => {
     expect(onboard.data).not.toHaveProperty("handoff");
     // The notes are history now, inline like any other.
     const s1 = onboard.data.sessions.past.find((s: { session_id: string }) => s.session_id === "s1");
-    expect(s1.journal.text).toBe(NOTES);
-    expect(s1.journal).not.toHaveProperty("in");
+    expect(s1.notes).toBe(NOTES);
+    expect(s1).not.toHaveProperty("notes_in");
   });
 
   it("an offboard that rests leaves notes as history and no handoff", async () => {
@@ -519,7 +450,7 @@ describe("junto onboard after an offboard that continues", () => {
     const onboard = await op("onboard", {});
     expect(onboard.data).not.toHaveProperty("handoff");
     expect(onboard.data).not.toHaveProperty("previous_session_without_notes");
-    expect(onboard.data.sessions.past[0]).toMatchObject({ session_id: "s1", journal: { text: NOTES } });
+    expect(onboard.data.sessions.past[0]).toMatchObject({ session_id: "s1", notes: NOTES });
   });
 });
 
@@ -543,8 +474,7 @@ describe("junto onboard after a session that ended without notes", () => {
     });
     expect(typeof told.ended_at).toBe("string");
     // History to read if needed, never a task: the framing says both.
-    expect(PREVIOUS_WITHOUT_NOTES_FRAMING).toMatch(/without writing a journal/);
-    expect(PREVIOUS_WITHOUT_NOTES_FRAMING).toMatch(/Junto's record/);
+    expect(PREVIOUS_WITHOUT_NOTES_FRAMING).toMatch(/without (leaving )?notes/);
     expect(PREVIOUS_WITHOUT_NOTES_FRAMING).toMatch(/history/i);
     expect(PREVIOUS_WITHOUT_NOTES_FRAMING).toMatch(/if you need/i);
   });

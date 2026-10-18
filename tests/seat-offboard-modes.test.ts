@@ -220,11 +220,9 @@ describe("junto onboard handoff", () => {
       from_session: "s1",
       left_at: expect.any(String),
       continuation: CONTINUATION,
-      journal: {
-        gist: "Parser shipped",
-        path: expect.stringMatching(/\/seats\/agent\/sessions\/s1\.md$/),
-        text: NOTES,
-      },
+      gist: "Parser shipped",
+      notes: NOTES,
+      notes_path: expect.stringMatching(/\/seats\/agent\/sessions\/s1\.md$/),
       transcript_path: null,
       transcript_missing: describeTranscriptMissing("claude", "none"),
     });
@@ -232,7 +230,7 @@ describe("junto onboard handoff", () => {
     expect(occurrences(JSON.stringify(next.data), "Pick up the 429 retry")).toBe(1);
     expect(Object.keys(next.data)[0]).toBe("handoff");
     // The notes stay history, beside it.
-    expect(next.data.sessions.past[0]).toMatchObject({ session_id: "s1", journal: { gist: "Parser shipped" } });
+    expect(next.data.sessions.past[0]).toMatchObject({ session_id: "s1", gist: "Parser shipped" });
 
     // Re-orienting after a compaction still finds it.
     expect((await op("onboard", {})).data.handoff.continuation).toBe(CONTINUATION);
@@ -248,7 +246,7 @@ describe("junto onboard handoff", () => {
     await rotateTo("s2");
     const next = await op("onboard", {});
     expect(next.data).not.toHaveProperty("handoff");
-    expect(next.data.sessions.past[0]).toMatchObject({ session_id: "s1", journal: { text: NOTES } });
+    expect(next.data.sessions.past[0]).toMatchObject({ session_id: "s1", notes: NOTES });
   });
 
   it("a session replaced for any other reason hands nothing over", async () => {
