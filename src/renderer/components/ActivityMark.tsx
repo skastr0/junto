@@ -113,6 +113,15 @@ const onMotion = (): void => {
   if (surfaceMotionLive$.peek()) for (const el of visible) syncPhase(el);
 };
 
+/**
+ * A ring's parts that were taken off the page and put back restart from
+ * zero: put the visible marks under `root` back on the shared clock. Call it
+ * in the same task that shows them.
+ */
+export const resyncMarks = (root: ParentNode): void => {
+  for (const el of root.querySelectorAll<HTMLElement>(".junto-mark[data-mark-visible]")) syncPhase(el);
+};
+
 const setVisible = (el: Element, on: boolean): void => {
   if (!watched.has(el) || !(el instanceof HTMLElement)) return;
   if (on && !visible.has(el)) {

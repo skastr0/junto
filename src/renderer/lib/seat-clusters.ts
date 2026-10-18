@@ -1,10 +1,14 @@
-// Seat clusters at the overview tier.
+// Seat clusters at the far and overview tiers.
 //
-// Pulled all the way back, a seat is still its portrait in its ring, held at
-// a screen size (canvas-tier.ts). Where seats sit closer than a ring at the
-// floor size, they cannot all be drawn: those seats gather into one stacked
-// badge with a count, which parts again as the camera comes in. Seats that
-// need the operator and seats the operator selected are never gathered.
+// Pulled back, a seat is still its portrait in its turning ring, held at a
+// screen size (canvas-tier.ts). Two things gather seats into one stacked
+// badge with a count and a turning ring of its own, which parts again as the
+// camera comes in. Where seats sit closer than a ring at the floor size,
+// they cannot all be drawn. And a screenful of the board draws at most
+// RINGS_PER_SCREEN rings: every turning ring is a compositor layer the pan
+// pays for each frame, and from this far a hundred of them read as noise,
+// so past the budget the closest seats gather first. Seats that need the
+// operator and seats the operator selected are never gathered.
 //
 // Single linkage per region: two seats of the same innermost region share a
 // cluster when a chain of seats joins them, each link closer on screen than
@@ -37,6 +41,13 @@ export const SEAT_FLOOR_SCREEN_PX = 22;
 /** Screen gap two floor rings keep before they gather. */
 export const CLUSTER_GAP_PX = 4;
 
+/**
+ * Rings a screenful of the zoomed-out board draws, clusters and seats alike:
+ * canvas-tier-budget.spec.ts holds the board at far and overview under its
+ * layer budget with this many turning.
+ */
+export const RINGS_PER_SCREEN = 12;
+
 /** Flow distance under which two seats gather at this zoom. */
 export const clusterSpan = (zoom: number): number =>
   zoom > 0 && Number.isFinite(zoom) ? (SEAT_FLOOR_SCREEN_PX + CLUSTER_GAP_PX) / zoom : 0;
@@ -47,6 +58,11 @@ export type ClusterIndex = {
   readonly seats: ReadonlyMap<string, ClusterSeat>;
   /** Spanning-tree links of every region, shortest first. */
   readonly links: ReadonlyArray<Link>;
+  /** Seats never gathered: each draws its own ring. */
+  readonly apart: number;
+  /** Width and height in flow units of the box round every seat. */
+  readonly width: number;
+  readonly height: number;
 };
 
 const find = (parent: Map<string, string>, id: string): string => {
@@ -75,6 +91,16 @@ export const buildClusterIndex = (
     list.push(seat);
     byRegion.set(seat.region, list);
   }
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const seat of seats) {
+    minX = Math.min(minX, seat.x);
+    minY = Math.min(minY, seat.y);
+    maxX = Math.max(maxX, seat.x);
+    maxY = Math.max(maxY, seat.y);
+  }
   const links: Link[] = [];
   for (const members of byRegion.values()) {
     const pairs: Link[] = [];
@@ -96,7 +122,13 @@ export const buildClusterIndex = (
     }
   }
   links.sort((p, q) => p.d - q.d);
-  return { seats: kept, links };
+  return {
+    seats: kept,
+    links,
+    apart: seats.length - kept.size,
+    width: seats.length > 0 ? maxX - minX : 0,
+    height: seats.length > 0 ? maxY - minY : 0,
+  };
 };
 
 /** How many links are short enough to hold at this zoom. */
@@ -110,6 +142,28 @@ export const linksHeldAt = (index: ClusterIndex, zoom: number): number => {
     else hi = mid;
   }
   return lo;
+};
+
+/** How many screens of `view` (px) the board covers at this zoom, one at least. */
+export const screensAt = (index: ClusterIndex, zoom: number, view: { readonly width: number; readonly height: number }): number => {
+  if (!(zoom > 0) || view.width <= 0 || view.height <= 0) return 1;
+  return Math.max(1, (index.width * zoom) / view.width) * Math.max(1, (index.height * zoom) / view.height);
+};
+
+/**
+ * How many links to hold at this zoom: those short enough to gather (a floor
+ * ring does not fit between), and then more, shortest first, until the board
+ * draws no more than RINGS_PER_SCREEN rings a screen. Each held link joins two
+ * groups, so the board draws its seats less the links held.
+ */
+export const linksHeldFor = (
+  index: ClusterIndex,
+  zoom: number,
+  view: { readonly width: number; readonly height: number },
+): number => {
+  const budget = Math.floor(RINGS_PER_SCREEN * screensAt(index, zoom, view));
+  const over = index.seats.size + index.apart - budget;
+  return Math.max(linksHeldAt(index, zoom), Math.min(index.links.length, over));
 };
 
 /** The clusters formed by the shortest `held` links: groups of two or more seats. */

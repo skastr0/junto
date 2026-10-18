@@ -14,12 +14,13 @@
      leave room, with no card and no words. The ring says working, done
      or resting in the same marks and motion as up close; a seat that
      needs the operator wears a heavy amber or crimson halo.
-     Hover or select one and its name shows under it. A note or card is a
-     faint block marked with its kind's glyph.
+     Hover or select one and its name shows under it. Past a screen's
+     budget of turning rings the closest seats gather into counted
+     clusters (SeatClusterLayer); a seat that needs the operator is never
+     gathered. A note or card is a faint block marked with its kind's glyph.
    - overview: agents stay, drawn as at far, shrinking toward a 22px floor
-     where crowded and gathered into counted clusters below it; a seat
-     that needs the operator is never gathered. Other cards and wires go
-     (canvas-lod-regions.css).
+     where crowded and gathered into counted clusters below it or past the
+     ring budget. Other cards and wires go (canvas-lod-regions.css).
 
    Hidden detail uses visibility or display inside fixed-size shells, so no
    node changes size and no wire moves when the tier changes. Scoped to the
@@ -200,12 +201,13 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
   outline-offset: 2px;
 }
 
-/* --- overview: seat clusters (SeatClusterLayer) ------------------------ */
+/* --- far and overview: seat clusters (SeatClusterLayer) ---------------- */
 
 /* A cluster sits at its seats' centroid in canvas units and scales with the
-   far seat scale, so it reads at a fixed size on screen, no wider than a
-   seat: a portrait on a stack of rings (the ring behind says there are
-   more), its busiest state on the rim, and a count. Hover lists the seats. */
+   far seat scale, so it reads at a fixed size on screen, the size of a
+   seat: a portrait in a turning ring in its busiest state, on a stack of
+   rings (the rings behind say there are more), and a count. Hover lists the
+   seats. */
 .junto-seat-cluster {
   position: absolute;
   top: 0;
@@ -223,15 +225,17 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
   transform-origin: 50% 50%;
   pointer-events: auto;
 }
+/* The button is the front ring's disc (a 52-unit seat ring is 40 across);
+   the turning ring is the seat's own mark, centred over it. */
 .junto-seat-cluster__stack {
   --cluster-rim: color-mix(in oklab, var(--color-steel) 70%, transparent);
   position: relative;
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   padding: 0;
-  border: 3px solid var(--cluster-rim);
+  border: 0;
   border-radius: 50%;
   background: var(--color-raise);
   /* The stack: two rings offset behind the front one. */
@@ -248,13 +252,11 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
 .junto-seat-cluster[data-cluster-state="done"] .junto-seat-cluster__stack {
   --cluster-rim: color-mix(in oklab, var(--color-green) 85%, transparent);
 }
-.junto-seat-cluster__face {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  overflow: hidden;
+.junto-seat-cluster__stack > .junto-mark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  margin: -26px 0 0 -26px;
 }
 .junto-seat-cluster__count {
   position: absolute;

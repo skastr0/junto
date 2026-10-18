@@ -1,37 +1,45 @@
 import { useEffect, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { useReactFlow, useStoreApi, ViewportPortal } from "@xyflow/react";
-import { canvasTier$ } from "../lib/canvas-tier";
+import { canvasTier$, TIER_HYSTERESIS, TIER_MID_MIN } from "../lib/canvas-tier";
 import type { FlowEdge, FlowNode } from "../lib/convert";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
 import { titleAt } from "../lib/use-model";
 import {
   buildClusterIndex,
   clustersOf,
-  linksHeldAt,
+  linksHeldFor,
   type ClusterIndex,
   type ClusterSeat,
   type SeatCluster,
 } from "../lib/seat-clusters";
+import { ActivityMark, resyncMarks } from "./ActivityMark";
 import { AgentPortrait } from "./AgentPortrait";
+import { portraitFor } from "./SeatRing";
 
 /**
- * Seat clusters at the overview tier (seat-clusters.ts). Every agent stays on
- * the board however far the camera pulls back; where seats sit closer than a
- * floor-size ring, they gather into one badge the size of a seat: a portrait
- * on a stack of rings, and a count. Hover lists them (click one to select it); click the badge and the
- * camera comes in until they part. A seat that needs the operator, and a
- * selected seat, is never gathered.
+ * Seat clusters at the far and overview tiers (seat-clusters.ts). Every agent
+ * stays on the board however far the camera pulls back; where seats crowd,
+ * or the screen already draws its budget of rings, they gather into one
+ * badge the size of a seat: a portrait in a turning ring, in the busiest
+ * state among them, on a stack of rings, and a count. Hover lists them
+ * (click one to select it); click the badge and the camera comes in until
+ * they part. A seat that needs the operator, and a selected seat, is never
+ * gathered.
  *
  * Membership is recomputed when the board, a seat's ring or the selection
- * changes, and on zoom only when the number of links held changes: most
- * zoom frames do no work. Gathered seats are hidden by one generated style
- * rule, so a remounted node stays hidden without a render.
+ * changes, and on zoom or resize only when the number of links held
+ * changes: most zoom frames do no work. Gathered seats are hidden, their
+ * ring parts off the page, by one generated style rule, so a remounted node
+ * stays hidden without a render.
  *
  * Must be mounted inside <ReactFlow>.
  */
 
 const STYLE_ID = "junto-seat-clusters";
+const ZOOMED_OUT = `html:is([data-canvas-tier="far"], [data-canvas-tier="overview"])`;
+/** Where every cluster has parted: mid, past its hysteresis. */
+const PARTED_ZOOM = TIER_MID_MIN + TIER_HYSTERESIS + 0.01;
 /** Rings that mean the seat needs the operator: needs input, waiting on you, blocked. */
 const NEEDS_YOU: ReadonlySet<string> = new Set(["call", "wait", "halt"]);
 
@@ -42,21 +50,45 @@ type Seen = {
 
 const EMPTY: Seen = { clusters: [], rings: new Map() };
 
+let hidden: ReadonlySet<string> = new Set();
+
+/**
+ * Hide the gathered seats. A seat that leaves a cluster shows its parts
+ * again, restarted, so it rejoins the shared clock in the same task.
+ */
 const writeHidden = (ids: ReadonlyArray<string>): void => {
   if (typeof document === "undefined") return;
+  const next = new Set(ids);
+  const parted = [...hidden].filter((id) => !next.has(id));
+  hidden = next;
   let el = document.getElementById(STYLE_ID);
-  if (ids.length === 0) {
-    el?.remove();
-    return;
+  if (ids.length === 0) el?.remove();
+  else {
+    if (!el) {
+      el = document.createElement("style");
+      el.id = STYLE_ID;
+      document.head.appendChild(el);
+    }
+    const nodes = ids.map((id) => `${ZOOMED_OUT} .react-flow__node[data-id="${CSS.escape(id)}"]`);
+    el.textContent = [
+      `${nodes.join(",\n")} { visibility: hidden !important; }`,
+      `${nodes.map((node) => `${node} .junto-mark__part`).join(",\n")} { display: none !important; }`,
+    ].join("\n");
   }
-  if (!el) {
-    el = document.createElement("style");
-    el.id = STYLE_ID;
-    document.head.appendChild(el);
+  for (const id of parted) {
+    const node = document.querySelector(`.react-flow__node[data-id="${CSS.escape(id)}"]`);
+    if (node) resyncMarks(node);
   }
-  const selectors = ids.map((id) => `html[data-canvas-tier="overview"] .react-flow__node[data-id="${CSS.escape(id)}"]`);
-  el.textContent = `${selectors.join(",\n")} { visibility: hidden !important; }`;
 };
+
+/** Rings that count as working for the badge: trouble bends a working ring. */
+const WORKING: ReadonlySet<string> = new Set(["work", "reverse", "snake"]);
+
+const CLUSTER_MARK = {
+  work: { mode: "wave", tone: "cyan", label: "working" },
+  done: { mode: "pulse", tone: "green", label: "done" },
+  rest: { mode: "static", tone: "steel", label: "resting" },
+} as const;
 
 type Store = ReturnType<typeof useStoreApi<FlowNode, FlowEdge>>;
 
@@ -93,11 +125,12 @@ function ClusterBadge({ cluster, rings }: { readonly cluster: SeatCluster; reado
     const data = store.getState().nodeLookup.get(id)?.data;
     return data ? titleAt(data.canvas, id) : id;
   };
-  const busiest = cluster.members.some((id) => rings.get(id) === "work")
+  const busiest = cluster.members.some((id) => WORKING.has(rings.get(id) ?? ""))
     ? "work"
     : cluster.members.some((id) => rings.get(id) === "done")
       ? "done"
       : "rest";
+  const mark = CLUSTER_MARK[busiest];
   return (
     <div
       className="junto-seat-cluster nopan"
@@ -114,13 +147,15 @@ function ClusterBadge({ cluster, rings }: { readonly cluster: SeatCluster; reado
           title={`${String(count)} seats, show them apart`}
           onClick={(event) => {
             event.stopPropagation();
-            const zoom = Math.min(1, Math.max(store.getState().transform[2], cluster.partsAt * 1.08));
+            // A ring budget may hold a cluster past the zoom its spacing
+            // parts at: mid parts every one.
+            const zoom = Math.min(1, Math.max(store.getState().transform[2], cluster.partsAt * 1.08, PARTED_ZOOM));
             void rf.setCenter(cluster.x, cluster.y, { zoom, duration: 260 });
           }}
         >
-          <span className="junto-seat-cluster__face">
-            <AgentPortrait identity={cluster.members[0]!} size={34} frame="round" outline={false} />
-          </span>
+          <ActivityMark mode={mark.mode} tone={mark.tone} glyph={busiest} label={mark.label} size="seat">
+            <AgentPortrait identity={cluster.members[0]!} size={portraitFor(52)} frame="round" outline={false} />
+          </ActivityMark>
           <span className="junto-seat-cluster__count">{count}</span>
         </button>
         <div className="junto-seat-cluster__list" role="list" aria-label="Seats here">
@@ -154,17 +189,18 @@ export function SeatClusterLayer() {
   const [seen, setSeen] = useState<Seen>(EMPTY);
 
   useEffect(() => {
-    if (tier !== "overview") {
+    if (tier !== "far" && tier !== "overview") {
       writeHidden([]);
       setSeen(EMPTY);
       return;
     }
-    let index: ClusterIndex = { seats: new Map(), links: [] };
+    let index: ClusterIndex = { seats: new Map(), links: [], apart: 0, width: 0, height: 0 };
     let rings: ReadonlyMap<string, string> = new Map();
     let held = -1;
     let frame = 0;
     const regroup = (force: boolean): void => {
-      const next = linksHeldAt(index, store.getState().transform[2]);
+      const { transform, width, height } = store.getState();
+      const next = linksHeldFor(index, transform[2], { width, height });
       if (!force && next === held) return;
       held = next;
       const clusters = clustersOf(index, held);
@@ -187,13 +223,15 @@ export function SeatClusterLayer() {
     rebuild();
     let nodes = store.getState().nodes;
     let zoom = store.getState().transform[2];
+    let area = store.getState().width * store.getState().height;
     const unsubscribe = store.subscribe((state) => {
       if (state.nodes !== nodes) {
         nodes = state.nodes;
         schedule();
       }
-      if (state.transform[2] !== zoom) {
+      if (state.transform[2] !== zoom || state.width * state.height !== area) {
         zoom = state.transform[2];
+        area = state.width * state.height;
         regroup(false);
       }
     });

@@ -6,8 +6,9 @@
 //
 //   near      full seats, preambles, card text
 //   mid       ring and name; no lines, no bubbles
-//   far       a seat is its portrait in its ring at a screen size; cards are
-//             faint blocks with their kind's glyph
+//   far       a seat is its portrait in its ring at a screen size; past a
+//             screen's budget of rings the closest seats gather into
+//             clusters; cards are faint blocks with their kind's glyph
 //   overview  regions and seats; crowded seats gather into clusters
 //
 // Rings move at every tier (on the compositor): a seat moves wherever it is
