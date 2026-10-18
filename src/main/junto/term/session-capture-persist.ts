@@ -9,6 +9,7 @@ import {
   templateFor,
 } from "@shared/managed-terminal-templates";
 import { harnessSessionExists } from "./session-existence";
+import { refuseCapturedSessionId } from "./session-id-store";
 
 export type CapturedSeatSession = {
   readonly canvasName: string;
@@ -149,8 +150,11 @@ export const scheduleCapturedSessionPersist = async (
     for (const delay of delays) {
       await sleep(delay);
       last = await persistCapturedSessionId(input);
-      if (last !== "unverified") return last;
+      if (last !== "unverified") break;
     }
+    // The store would not take it (another seat's, one this seat ended, a
+    // seat that names another): it is never offered as this seat's session.
+    if (last === "failed") refuseCapturedSessionId(input.bindingId, input.sessionId);
     return last;
   } finally {
     inFlight.delete(key);

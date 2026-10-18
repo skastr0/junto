@@ -3,6 +3,7 @@ import { SqlClient } from "effect/unstable/sql";
 import { isThisMachine } from "@shared/machine-name";
 import { coreRunner } from "../../core-runner";
 import { ModelService } from "../model/service";
+import { announcedSessionRefusal } from "../seat-sessions/announced-session";
 import { SeatSessionRepository } from "../seat-sessions/repository";
 import { recordSessionAtClose } from "../seat-sessions/session-record";
 import { MachineRepository } from "../machines/repository";
@@ -49,15 +50,15 @@ export const recordSeatSessionId = Effect.fn("SeatSession.recordId")(function* (
       return yield* Effect.fail(new Error("capture cannot replace the seat's named session"));
     if (existing !== undefined && input.onlyIfAbsent)
       return yield* Effect.fail(new Error("the seat already has another named session"));
-    // A capture names the session the seat runs now. One the seat already
-    // ended is history it was shown (onboard lists them), never its own again.
-    if (input.capture !== undefined && (yield* sessions.list(target.id)).some((session) =>
-      session.sessionId === input.sessionId && session.endedAt !== undefined))
-      return yield* Effect.fail(new Error("capture cannot reopen a session this seat ended"));
     const observation = { seatId: target.id, bindingId, harness: target.harness, sessionId: input.sessionId,
       ...(input.cwd ?? target.launch?.cwd ? { cwd: input.cwd ?? target.launch?.cwd } : {}) };
-    if (yield* sessions.ownedByOtherSeat(observation))
-      return yield* Effect.fail(new Error("harness session already belongs to another seat"));
+    // A capture names the session the seat runs now: never another seat's,
+    // never one it ended. A write Junto made itself (a fail-open, a
+    // provisioned thread) is only kept from another seat's.
+    const refusal = input.capture !== undefined
+      ? yield* announcedSessionRefusal(sessions, observation)
+      : (yield* sessions.ownedByOtherSeat(observation)) ? "harness session already belongs to another seat" : undefined;
+    if (refusal !== undefined) return yield* Effect.fail(new Error(refusal));
     const { ended } = yield* sessions.record(observation);
     return { stored: "written" as const, ended: ended === undefined ? undefined : { seatId: target.id, sessionId: ended } };
   }));

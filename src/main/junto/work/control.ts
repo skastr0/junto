@@ -148,6 +148,7 @@ import {
 import { PausePlane } from "../pause-plane";
 import { SeatGuidanceRepository } from "../seat-guidance/repository";
 import { SeatSessionRepository } from "../seat-sessions/repository";
+import { announcedSessionRefusal } from "../seat-sessions/announced-session";
 import { SqlClient } from "effect/unstable/sql";
 import { commitExists, recordSeatCommit } from "../git/seat-commits";
 import { announceSeatOffboard, listSeatSessions } from "../seat-sessions/service";
@@ -155,7 +156,7 @@ import { continuationPathOf, readNotesFile, readEndedMarker } from "../seat-sess
 import { pastJournalOf, pastRecordOf } from "../seat-sessions/onboard-past";
 import { SESSION_PROVENANCE } from "@shared/seat-session-record";
 import type { SeatSessionObservation } from "../seat-sessions/repository";
-import { getCapturedSessionId } from "../term/session-id-store";
+import { offeredCapturedSessionId } from "../term/session-id-store";
 import { harnessSessionExists } from "../term/session-existence";
 import {
   CONTINUATION_FRAMING,
@@ -917,7 +918,10 @@ const seatConfigurationOf = (node: Node) =>
 
 /**
  * The caller seat's current harness session: its store pin, or an id
- * the seat announced that the harness's own files already prove.
+ * the seat announced that the harness's own files already prove. An
+ * announced id the capture path refused, or would refuse (another seat's,
+ * one this seat ended), is never offered: notes, a record or a commit
+ * saved under it would belong to a session that is not this seat's.
  */
 const currentSeatSession = (node: Node, repository: SeatSessionRepository["Service"]) => Effect.gen(function* () {
   const named = node.kind === "agent"
@@ -926,11 +930,15 @@ const currentSeatSession = (node: Node, repository: SeatSessionRepository["Servi
   if (named?.harness === (node.kind === "agent" ? node.harness : undefined)) return named;
   const surface = node.kind === "agent" ? node : undefined;
   if (surface === undefined) return undefined;
-  const captured = getCapturedSessionId(surface.bindingId);
+  const captured = offeredCapturedSessionId(surface.bindingId);
   const cwd = surface?.launch?.cwd?.trim();
   if (!captured || !harnessSessionExists({ harness: surface.harness, sessionId: captured, ...(cwd ? { cwd } : {}) })) {
     return undefined;
   }
+  const refusal = yield* announcedSessionRefusal(repository, { seatId: node.id, harness: surface.harness, sessionId: captured }).pipe(
+    Effect.orElseSucceed(() => "the seat's sessions could not be read"),
+  );
+  if (refusal !== undefined) return undefined;
   return { seatId: node.id, bindingId: surface.bindingId, sessionId: captured, harness: surface.harness, ...(cwd ? { cwd } : {}) };
 });
 

@@ -10,6 +10,12 @@
  */
 
 const byBinding = new Map<string, string>();
+/**
+ * Candidates the capture path refused. A refused one is kept (the first
+ * candidate still wins, so the screen is not read again for one), but it is
+ * never offered as the seat's session.
+ */
+const refused = new Map<string, string>();
 
 export const recordCapturedSessionId = (
   bindingId: string,
@@ -21,15 +27,32 @@ export const recordCapturedSessionId = (
   byBinding.set(id, sid);
 };
 
+/** The candidate this binding announced, refused or not: whether to keep reading its screen. */
 export const getCapturedSessionId = (bindingId: string): string | undefined =>
   byBinding.get(bindingId.trim());
 
+/** The capture path refused this candidate: it is not the seat's session. */
+export const refuseCapturedSessionId = (bindingId: string, sessionId: string): void => {
+  const id = bindingId.trim();
+  const sid = sessionId.trim();
+  if (byBinding.get(id) === sid) refused.set(id, sid);
+};
+
+/** The candidate a reader may offer as the seat's session: never a refused one. */
+export const offeredCapturedSessionId = (bindingId: string): string | undefined => {
+  const id = bindingId.trim();
+  const sid = byBinding.get(id);
+  return sid === undefined || refused.get(id) === sid ? undefined : sid;
+};
+
 export const clearCapturedSessionId = (bindingId: string): void => {
   byBinding.delete(bindingId.trim());
+  refused.delete(bindingId.trim());
 };
 
 export const resetSessionIdStoreForTest = (): void => {
   byBinding.clear();
+  refused.clear();
 };
 
 // Every pattern below is compiled once at module load instead of per call.
