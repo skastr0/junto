@@ -1,4 +1,4 @@
-/* Settings -> Offboard: three intervals, and the same three per harness. */
+/* Settings -> Cache window: the cache mode, the window, and one row per harness. */
 .offboard-settings {
   display: flex;
   flex-direction: column;
@@ -57,6 +57,37 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+}
+.offboard-settings__modes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+.offboard-settings__mode {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-stroke);
+  background: var(--color-shadow-2);
+  text-align: left;
+  cursor: pointer;
+}
+.offboard-settings__mode.is-active {
+  border-color: var(--color-ink);
+}
+.offboard-settings__mode:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.offboard-settings__mode-label {
+  color: var(--color-ink);
+  font-size: var(--text-body-lg);
+}
+.offboard-settings__mode-line {
   color: var(--color-dim);
   font-size: var(--text-body);
 }

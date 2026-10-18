@@ -70,7 +70,11 @@ export const LISTED_SETTINGS: ReadonlyArray<SettingEntry> = [
   entry("notifications", "Badge", "Agents waiting on you, on the Junto icon"),
   entry("notifications", "Bounce when blocked", "The icon bounces once when an agent is blocked"),
 
-  entry("offboard", "Cache window", "How long an agent on a machine stays still before its next message starts fresh", "idle offboard session harness machine"),
+  entry("offboard", "Cache window", "How long a seat can stay still before its cache expires", "idle offboard session harness machine"),
+  entry("offboard", "Off", "Junto never acts on the cache window. Seats always continue", "cache mode"),
+  entry("offboard", "Manual", "A seat past its window shows it, and you start it fresh yourself", "cache mode"),
+  entry("offboard", "Auto", "A seat off screen past its window starts fresh. A seat open in front of you asks first", "cache mode"),
+  entry("offboard", "Hybrid", "A seat open in front of you is never started fresh or asked; it shows the warning", "cache mode"),
 
   entry("companion", "Pair a phone", "Answer agents and send them mail from your phone"),
   entry("companion", "Paired phones", "Phones that can reach this Mac"),

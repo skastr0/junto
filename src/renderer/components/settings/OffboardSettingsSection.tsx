@@ -4,6 +4,9 @@
  * next message starts a fresh one. The cut happens on the machine the seat
  * runs on, so each machine keeps its own windows: a default, and one per
  * harness that machine has, each following the default or set on its own.
+ * Above them, the machine's cache mode: what Junto does once a seat is past
+ * its window. A linked machine on a build from before the mode answers
+ * without one, and the page offers no choice for it.
  *
  * The page reads and writes through that machine's core
  * (lib/machine-settings-source.ts), and its harnesses come from its
@@ -22,8 +25,10 @@ import {
 } from "@shared/machine-settings";
 import { HARNESS_IDS, isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 import {
+  CACHE_MODES,
   OFFBOARD_MINUTES_MAX,
   OFFBOARD_MINUTES_MIN,
+  type CacheMode,
   type OffboardRules,
   type OffboardRulesPatch,
 } from "@shared/seat-offboard";
@@ -35,7 +40,19 @@ import { useSettingsMachine } from "../../lib/settings-machine";
 import { state$ } from "../../lib/state";
 import { Switch } from "../ui";
 import { FieldRow } from "./FieldRow";
+import { radioGroupKeys, radioTabIndex } from "./radio-keys";
 import "./offboard-settings.css";
+
+/** Each cache mode in a word and a line. The names are also the search index's. */
+export const CACHE_MODE_COPY: Readonly<Record<CacheMode, { readonly label: string; readonly line: string }>> = {
+  off: { label: "Off", line: "Junto never acts on the cache window. Seats always continue." },
+  manual: { label: "Manual", line: "A seat past its window shows it, and you start it fresh yourself." },
+  auto: { label: "Auto", line: "A seat off screen past its window starts fresh. A seat open in front of you asks first." },
+  hybrid: {
+    label: "Hybrid",
+    line: "Like auto, but a seat open in front of you is never started fresh or asked; it shows the warning.",
+  },
+};
 
 const harnessName = (harness: string): string => (isHarnessId(harness) ? templateFor(harness).displayName : harness);
 
@@ -49,6 +66,7 @@ type WindowsRead =
 
 const rulesOf = (windows: MachineCacheWindows): OffboardRules => ({
   cacheWindowMinutes: windows.cacheWindowMinutes,
+  ...(windows.cacheMode === undefined ? {} : { cacheMode: windows.cacheMode }),
   harness: Object.fromEntries(Object.entries(windows.harness).map(([id, minutes]) => [id, { cacheWindowMinutes: minutes }])),
 });
 
@@ -196,9 +214,46 @@ export function OffboardSettingsSection() {
         </p>
       ) : null}
 
+      {windows !== undefined && windows.cacheMode === undefined ? (
+        <p className="settings-note" role="status" data-testid="offboard-cache-mode-old">
+          Update this machine to choose a mode.
+        </p>
+      ) : windows !== undefined ? (
+        <div
+          className="offboard-settings__modes"
+          role="radiogroup"
+          aria-label="Cache mode"
+          data-testid="offboard-cache-mode"
+          // Arrows only move here: a mode changes what happens to seats.
+          onKeyDown={radioGroupKeys(false)}
+        >
+          {CACHE_MODES.map((mode) => {
+            const active = windows.cacheMode === mode;
+            return (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                tabIndex={radioTabIndex(active)}
+                disabled={disabled}
+                data-testid={`offboard-cache-mode-${mode}`}
+                className={`offboard-settings__mode${active ? " is-active" : ""}`}
+                onClick={() => {
+                  if (!active) change({ cacheMode: mode });
+                }}
+              >
+                <span className="offboard-settings__mode-label">{CACHE_MODE_COPY[mode].label}</span>
+                <span className="offboard-settings__mode-line">{CACHE_MODE_COPY[mode].line}</span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
       <FieldRow
         label="Cache window"
-        hint={`Once an agent on ${machine.isThisMachine ? "this machine" : machine.label} has been still this long, its next message starts a fresh session.`}
+        hint={`How long a seat on ${machine.isThisMachine ? "this machine" : machine.label} can stay still before its cache expires.`}
         group
       >
         <MinutesInput

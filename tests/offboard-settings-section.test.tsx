@@ -53,7 +53,7 @@ const render = async () => {
 beforeEach(() => {
   writes = [];
   answering = "yes";
-  windows = { machine: "desk", cacheWindowMinutes: 60, harness: { codex: 30 } };
+  windows = { machine: "desk", cacheWindowMinutes: 60, harness: { codex: 30 }, cacheMode: "hybrid" };
   state$.settings.set({ ...defaultSettings(), machine: { ...defaultSettings().machine, name: "desk" } });
   setMachineSettingsSource({
     ...coreMachineSettingsSource,
@@ -68,7 +68,12 @@ beforeEach(() => {
         if (over === null) delete harness[id];
         else harness[id] = over.cacheWindowMinutes;
       }
-      windows = { ...windows, cacheWindowMinutes: patch.cacheWindowMinutes ?? windows.cacheWindowMinutes, harness };
+      windows = {
+        ...windows,
+        cacheWindowMinutes: patch.cacheWindowMinutes ?? windows.cacheWindowMinutes,
+        harness,
+        ...(patch.cacheMode === undefined ? {} : { cacheMode: patch.cacheMode }),
+      };
       return Result.succeed(windows);
     },
   });
@@ -148,6 +153,47 @@ describe("the cache window in Settings", () => {
     await toggle("codex");
     expect(writes.at(-1)).toEqual({ harness: { codex: null } });
     expect(ownMinutes("codex")).toBeNull();
+  });
+});
+
+describe("the cache mode", () => {
+  const mode = (name: string) => host.querySelector<HTMLButtonElement>(`[data-testid="offboard-cache-mode-${name}"]`)!;
+  const checked = () =>
+    [...host.querySelectorAll('[role="radio"][aria-checked="true"]')].map((radio) => radio.getAttribute("data-testid"));
+
+  it("shows the machine's mode as one choice of four, each with its line", async () => {
+    await render();
+    expect([...host.querySelectorAll('[role="radiogroup"][aria-label="Cache mode"] [role="radio"]')].map((radio) => radio.textContent))
+      .toEqual([
+        "OffJunto never acts on the cache window. Seats always continue.",
+        "ManualA seat past its window shows it, and you start it fresh yourself.",
+        "AutoA seat off screen past its window starts fresh. A seat open in front of you asks first.",
+        "HybridLike auto, but a seat open in front of you is never started fresh or asked; it shows the warning.",
+      ]);
+    expect(checked()).toEqual(["offboard-cache-mode-hybrid"]);
+    expect(host.textContent).not.toContain("\u00b7");
+  });
+
+  it("writes the mode on the machine and shows what it read back", async () => {
+    await render();
+    await act(async () => mode("manual").click());
+    await settle();
+    expect(writes).toEqual([{ cacheMode: "manual" }]);
+    expect(checked()).toEqual(["offboard-cache-mode-manual"]);
+    await act(async () => mode("manual").click());
+    await settle();
+    expect(writes).toHaveLength(1);
+  });
+
+  it("asks a linked machine from before the mode to be updated, and offers no choice", async () => {
+    const { cacheMode: _gone, ...old } = windows;
+    windows = old;
+    await render();
+    expect(host.querySelector('[data-testid="offboard-cache-mode-old"]')!.textContent).toBe("Update this machine to choose a mode.");
+    expect(host.querySelector('[role="radiogroup"]')).toBeNull();
+    // Its windows still read and write.
+    await enter("Cache window, minutes", "20");
+    expect(writes).toEqual([{ cacheWindowMinutes: 20 }]);
   });
 });
 
