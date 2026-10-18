@@ -101,7 +101,7 @@ export const startSeat = Effect.fn("SeatControl.start")(function* (input: {
       .some((session) => session.bindingId === node.bindingId && session.status !== "exited");
   const provisioned = local
     ? yield* Effect.promise(() => (options.pin ?? ensureSeatSessionId)({ canvasName: canvas, nodeId: node.id,
-      bindingId: node.bindingId, harness: node.harness, documentLaunch: node.launch,
+      bindingId: node.bindingId, harness: node.harness, documentLaunch: node.launch, cause: "operator",
       ...(node.launch?.cwd ? { cwd: node.launch.cwd } : {}), ...(fresh ? { fresh } : {}) }))
     : { ok: true as const, sessionId: "", minted: false };
   if (!provisioned.ok)

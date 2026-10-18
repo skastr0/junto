@@ -8,7 +8,7 @@ import { ModelService } from "../src/main/junto/model/service";
 import { MachineRepository } from "../src/main/junto/machines/repository";
 import { SeatSessionRepository } from "../src/main/junto/seat-sessions/repository";
 import { announceSeatOffboard } from "../src/main/junto/seat-sessions/service";
-import { cutBeforeMail, seatOffboardStatus } from "../src/main/junto/seat-sessions/operator-offboard";
+import { coldSessionStartsFresh, seatOffboardStatus } from "../src/main/junto/seat-sessions/operator-offboard";
 import { Command } from "../src/shared/model";
 
 it("a windowless core closes a session on the agent's own offboard, and answers the cut", async () => {
@@ -33,8 +33,8 @@ it("a windowless core closes a session on the agent's own offboard, and answers 
     // Operator offboard is installed: a resting seat on this machine may be closed now.
     const [status] = await seatOffboardStatus("rest", ["own-seat"]);
     expect(status?.now).toEqual({ allowed: true });
-    // The cut answers before mail; a seat that is not running has no live session to cut.
-    expect(await cutBeforeMail({ canvasName: "rest", seatId: "own-seat" })).toBe(false);
+    // The start decision answers too: a session that has done no work resumes.
+    expect(await coldSessionStartsFresh({ canvasName: "rest", seatId: "own-seat" }, "mail")).toBe(false);
 
     // The agent's own `junto offboard` was answered: the closer ends the session.
     announceSeatOffboard({ seatId: "own-seat", canvasName: "rest", sessionId: "session-one", at: Date.now(), mode: "rest" });

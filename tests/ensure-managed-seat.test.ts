@@ -258,6 +258,7 @@ describe("managed-seat occupation", () => {
         harness: "amp",
         cwd: "/work",
         documentLaunch: launch,
+        cause: "mail",
       });
       expect(occupy).toHaveBeenCalledOnce();
     } finally {

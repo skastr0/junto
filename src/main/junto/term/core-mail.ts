@@ -2,7 +2,6 @@ import { Effect } from "effect";
 import { harnessCapabilitiesFor } from "../../../shared/harness-capabilities";
 import type { HarnessCapabilities, SeatSnapshot } from "../../../shared/harness-domain";
 import { KernelService } from "../kernel/service";
-import { cutBeforeMail } from "../seat-sessions/operator-offboard";
 import { messageDelivery, type MessageDeliveryTransport } from "../work/message-delivery";
 import { seatStateRuntime, type SeatStateRuntime } from "./agent-state";
 import { closingFence, fencedWriter, type ClosingFence } from "./closing-fence";
@@ -40,7 +39,6 @@ type Options = {
 export type CoreMailPolicy = {
   readonly seatLive?: MessageDeliveryTransport["seatLive"];
   readonly seatOnboarded?: MessageDeliveryTransport["seatOnboarded"];
-  readonly cutColdSession?: MessageDeliveryTransport["cutColdSession"];
   readonly mailWritten?: (bindingId: string) => void;
 };
 
@@ -144,8 +142,6 @@ export const createCoreMailTransport = (options: Options) => {
     seatLive: (bindingId) => !suspended && !fence.sealed(bindingId) &&
       mailReadyNow(bindingId) && !supervisor.continuationHoldsMail(bindingId) && (policy.seatLive?.(bindingId) ?? true),
     seatOnboarded: (bindingId) => policy.seatOnboarded?.(bindingId) ?? supervisor.isOnboarded(bindingId),
-    cutColdSession: (_bindingId, canvas, nodeId) => suspended ? Promise.resolve(false) :
-      policy.cutColdSession?.(_bindingId, canvas, nodeId) ?? cutBeforeMail({ canvasName: canvas, seatId: nodeId }),
     wakeSeat: (bindingId, canvas, nodeId) => {
       if (suspended) return Promise.resolve(false);
       const live = host.get(bindingId);

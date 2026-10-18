@@ -138,7 +138,7 @@ describe("seat start and stop", () => {
     await f.runtime.runPromise(startSeat({ canvas, seatId: localSeat.id }, { ...f.options, pin }));
     expect(pin).toHaveBeenCalledTimes(1);
     expect(pin).toHaveBeenCalledWith({ canvasName: canvas, nodeId: localSeat.id,
-      bindingId: localSeat.bindingId, harness: localSeat.harness, documentLaunch: localSeat.launch, cwd: tmpdir() });
+      bindingId: localSeat.bindingId, harness: localSeat.harness, documentLaunch: localSeat.launch, cwd: tmpdir(), cause: "operator" });
   });
 
   it("a fresh start ends the session of a stopped seat, never of a running one", async () => {

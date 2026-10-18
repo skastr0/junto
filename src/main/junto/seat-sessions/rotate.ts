@@ -238,7 +238,8 @@ export const offboardAndRotate = async (
       wake: (seat, id) => {
         forgetAutoRestartSpend(seat.bindingId);
         return run(
-          Effect.flatMap(KernelService, (kernel) => Effect.promise(() => kernel.wakeManagedSeat(seat.canvasName, id))),
+          Effect.flatMap(KernelService, (kernel) =>
+            Effect.promise(() => kernel.wakeManagedSeat(seat.canvasName, id, { cause: "restart" }))),
         );
       },
     },

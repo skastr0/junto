@@ -388,7 +388,7 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
     const prepared = yield* Effect.tryPromise({
       try: () => pin({ canvasName: request.canvas, nodeId: initial.seat.id,
         bindingId: initial.seat.bindingId, harness: initial.seat.harness,
-        documentLaunch: initial.seat.launch,
+        documentLaunch: initial.seat.launch, cause: "operator",
         ...(initial.seat.launch?.cwd ? { cwd: initial.seat.launch.cwd } : {}) }),
       catch: (cause) => asSeatsFailure(where, cause),
     });

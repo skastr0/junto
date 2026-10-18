@@ -54,8 +54,6 @@ const rig = (
     wake?: () => boolean;
     /** The supervisor's answer to "did this seat run junto onboard". */
     onboarded?: (bindingId: string) => boolean;
-    /** Auto offboard at delivery: true when the seat's cold session was just ended. */
-    cut?: (bindingId: string, canvas: string, nodeId: string) => Promise<boolean>;
   } = {},
 ) => {
   const messages: Message[] = [];
@@ -87,7 +85,6 @@ const rig = (
     transport: {
       seatLive: (id) => id === bindingId && live,
       ...(options.onboarded ? { seatOnboarded: options.onboarded } : {}),
-      ...(options.cut ? { cutColdSession: options.cut } : {}),
       wakeSeat: async (id, wakeCanvas, wakeNode) => {
         wakes.push({ bindingId: id, canvas: wakeCanvas, nodeId: wakeNode });
         await new Promise((resolve) => setTimeout(resolve, 1));
@@ -209,89 +206,22 @@ describe("mail delivery", () => {
     });
   });
 
-  it("mail to a seat whose cold session was just ended is not typed into it: it wakes the fresh one", async () => {
-    let cold = true;
-    const cuts: Array<[string, string, string]> = [];
-    const seat = rig({
-      cut: async (id, cutCanvas, cutNode) => {
-        cuts.push([id, cutCanvas, cutNode]);
-        if (!cold) return false;
-        cold = false;
-        // The old session is gone: the seat is no longer up.
-        seat.setLive(false);
-        return true;
-      },
-      wake: () => true,
-    });
-    seat.append(mail("01A", "Please review the contract."));
-    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
-    expect(cuts).toEqual([[bindingId, canvas, nodeId]]);
-    expect(seat.writes).toEqual([]);
-    await settle();
-    expect(seat.wakes).toEqual([{ bindingId, canvas, nodeId }]);
-    // The fresh session comes up: the same mail is written there, once.
-    seat.setLive(true);
-    seat.service.onSeatLive(bindingId);
-    await settle();
-    expect(seat.writes).toHaveLength(1);
-    expect(seat.writes[0]).toContain("junto msg read 01A");
-    expect(seat.messages[0]?.metadata?.deliveredAt).toBeTypeOf("number");
-  });
+  it("runs no cut at delivery: a running seat takes the mail in the session it has, a resting one is only asked to start", async () => {
+    const running = rig({ live: true });
+    running.append(mail("01A", "Please review the contract."));
+    expect(await running.service.deliver(canvas, nodeId, "01A")).toBe("delivered");
+    expect(running.writes).toHaveLength(1);
+    expect(running.wakes).toEqual([]);
 
-  it("two messages arriving together for one cold seat: neither is typed until the fresh session is up, then both in order", async () => {
-    let calls = 0;
-    const seat = rig({
-      cut: async () => {
-        calls += 1;
-        const mine = calls;
-        // The first asker cuts the session; the second finds it already cut.
-        await new Promise((resolve) => setTimeout(resolve, mine === 1 ? 1 : 3));
-        if (mine === 1) {
-          seat.setLive(false);
-          return true;
-        }
-        return false;
-      },
-      wake: () => true,
-    });
-    seat.append(mail("01A", "First."));
-    seat.append(mail("01B", "Second."));
-    const [first, second] = await Promise.all([
-      seat.service.deliver(canvas, nodeId, "01A"),
-      seat.service.deliver(canvas, nodeId, "01B"),
-    ]);
-    expect([first, second]).toEqual(["waiting", "waiting"]);
+    // An answer to the seat's signal is mail to the seat like any other.
+    const resting = rig({ live: false, wake: () => true });
+    const answer = mail("01B", "Use the second option.", "prompt");
+    resting.append({ ...answer, metadata: { ...answer.metadata, agentSignalId: "signal-1" } });
+    resting.append(mail("01C", "Please review the contract."));
+    expect(await resting.service.deliver(canvas, nodeId, "01B")).toBe("waiting");
     await settle();
-    // Nothing was typed into a seat that is down, and nothing reads as lost.
-    expect(seat.writes).toEqual([]);
-    // Each waiting message may ask for the wake; the transport answers a
-    // seat that is already starting without starting it twice.
-    expect(seat.wakes.length).toBeGreaterThanOrEqual(1);
-    expect(seat.wakes.every((wake) => wake.bindingId === bindingId)).toBe(true);
-    seat.setLive(true);
-    seat.service.onSeatLive(bindingId);
-    await settle();
-    expect(seat.writes).toHaveLength(2);
-    expect(seat.writes[0]).toContain("junto msg read 01A");
-    expect(seat.writes[1]).toContain("junto msg read 01B");
-    expect(seat.overlapped()).toBe(false);
-  });
-
-  it("a session that is not cold, or a check that fails, changes nothing: the mail is typed as usual", async () => {
-    const warm = rig({ cut: async () => false });
-    warm.append(mail("01A", "Please review the contract."));
-    expect(await warm.service.deliver(canvas, nodeId, "01A")).toBe("delivered");
-    expect(warm.writes).toHaveLength(1);
-    expect(warm.wakes).toEqual([]);
-
-    const broken = rig({
-      cut: async () => {
-        throw new Error("offboard gone");
-      },
-    });
-    broken.append(mail("01B", "Please review the contract."));
-    expect(await broken.service.deliver(canvas, nodeId, "01B")).toBe("delivered");
-    expect(broken.writes).toHaveLength(1);
+    expect(resting.wakes).toEqual([{ bindingId, canvas, nodeId }]);
+    expect(resting.writes).toEqual([]);
   });
 
   it("adds the onboard pointer to the line while the seat has not onboarded, and drops it after", async () => {

@@ -285,13 +285,9 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
       await refreshRules();
       return offboard.run(runInput, by);
     },
-    beforeWake: async (seat) => {
+    coldAtStart: async (seat) => {
       await refreshRules();
-      return offboard.beforeWake(seat);
-    },
-    beforeMail: async (seat) => {
-      await refreshRules();
-      return offboard.beforeMail(seat);
+      return offboard.coldAtStart(seat);
     },
     status: async (canvasName, seatIds) => {
       await refreshRules();

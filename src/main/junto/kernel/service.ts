@@ -22,7 +22,7 @@ import { canvasReceiptBasis, recordDeliveryReceiptRefusal } from "../work/delive
 // (circular: RootLayer includes KernelLive).
 
 import { createHash } from "node:crypto";
-import { cutBeforeWake } from "../seat-sessions/operator-offboard";
+import type { SeatStartCause } from "../term/seat-start-cause";
 import { Cause, Context, Effect, Layer, Schema } from "effect";
 import { asNodeId } from "@shared/model/base";
 import { nodeOf, nodesOf } from "@shared/model/canvas";
@@ -125,6 +125,8 @@ export class KernelService extends Context.Service<KernelService,
     readonly wakeManagedSeat: (
       canvasName: string,
       nodeId: string,
+      // Why the seat starts: mail by default.
+      options?: { readonly cause?: SeatStartCause },
     ) => Promise<boolean>;
     // Begin hydration + the evaluation loop. Idempotent, matching
     // SnapshotsService.start().
@@ -1129,6 +1131,7 @@ const makeKernelService = (
   const wakeManagedSeatProgram = (
     canvasName: string,
     nodeId: string,
+    cause: SeatStartCause,
   ): Effect.Effect<boolean, unknown> =>
     Effect.gen(function* () {
       // Every refusal names itself: a silent false here previously left mail
@@ -1185,22 +1188,20 @@ const makeKernelService = (
         seat,
         authority,
         actorSeatOccupy,
+        cause,
       );
     });
 
   const wakeManagedSeat = (
     canvasName: string,
     nodeId: string,
+    options?: { readonly cause?: SeatStartCause },
   ): Promise<boolean> =>
-    // Auto offboard: a resting seat whose session has gone cold and is worth
-    // cutting gets a fresh one first, so it wakes into that. Before the wake
-    // reads the node, because the wake starts the session the node names. It
-    // never throws and never refuses the wake.
-    cutBeforeWake({ canvasName, seatId: nodeId })
+    Promise.resolve()
       .then(() => {
         // Said once per wake, so a log with no wake line means nobody asked.
         console.info(`[wake] asked ${canvasName}/${nodeId}`);
-        return run(wakeManagedSeatProgram(canvasName, nodeId));
+        return run(wakeManagedSeatProgram(canvasName, nodeId, options?.cause ?? "mail"));
       })
       .then(
         (started) => {

@@ -9,6 +9,7 @@ import type { Node } from "@shared/model";
 import type { InstallationId } from "@shared/installation-id";
 import type { ActorRef } from "@shared/work-protocol";
 import { deriveActorSeatId } from "../actor-seat-id";
+import type { SeatStartCause } from "./seat-start-cause";
 import { ensureSeatSessionId } from "./seat-session-before-start";
 import { makeManagedSpawnIntent } from "./managed-spawn-plan";
 import { termPlane } from "./plane";
@@ -175,6 +176,8 @@ export const ensureManagedSeatRunning = (
   node: Node,
   authority: ManagedSeatRuntimeAuthority,
   actorSeatOccupy: ActorSeatOccupyApi,
+  /** Why the seat is starting, for the start decision: mail or work by default. */
+  cause: SeatStartCause = "mail",
 ): Effect.Effect<boolean> =>
   Effect.gen(function* () {
     if (!isManagedSeatRuntimeLocal(canvasName, node, authority)) {
@@ -220,6 +223,7 @@ export const ensureManagedSeatRunning = (
         harness: surface.harness,
         documentLaunch: surface.launch,
         ...(surface.launch?.cwd ? { cwd: surface.launch.cwd } : {}),
+        cause,
       }),
     );
     if (!provisioned.ok) {
