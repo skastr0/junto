@@ -14,6 +14,7 @@ import {
 import { StateTransactionOperation } from "../state/service";
 import { type Fidelity, type HarnessChannel, SESSION_LOCATION_PATH_MAX } from "@shared/harness-domain";
 import { admitReportedSessionLocation, harnessSessionLocation } from "../term/session-existence";
+import type { SeatClockRecord } from "./operator-offboard";
 import {
   continuationPathOf,
   defaultSeatsRoot,
@@ -146,6 +147,10 @@ export class SeatSessionRepository extends Context.Service<SeatSessionRepository
     readonly owedContinuations: () => Effect.Effect<ReadonlyArray<OwedContinuation>, SeatSessionPersistenceError>;
     /** The line was typed, or is owed no more. */
     readonly settleContinuation: (bindingId: string) => Effect.Effect<void, SeatSessionPersistenceError>;
+    /** The operator offboard clock as last saved; undefined before it ever was. */
+    readonly offboardClock: () => Effect.Effect<SeatClockRecord | undefined, SeatSessionPersistenceError>;
+    /** Save the operator offboard clock whole: it replaces the one saved before. */
+    readonly saveOffboardClock: (record: SeatClockRecord) => Effect.Effect<void, SeatSessionPersistenceError>;
     /** Who ended this session from outside it (the operator, an overseer, the automatic rule). */
     readonly markEnded: (
       seatId: string,
@@ -502,6 +507,53 @@ export const makeSeatSessionRepositoryLive = (
       }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.continuation.settle"),
       Effect.mapError(persistence("continuation.settle")));
 
+      const clockRows = SqlSchema.findAll({
+        Request: Schema.Void,
+        Result: Schema.Struct({
+          binding_id: Schema.String,
+          idle_since: Schema.NullOr(Schema.Number),
+          activity_since: Schema.NullOr(Schema.Number),
+          offboarded: Schema.Number,
+          work_ms: Schema.Number,
+          session_id: Schema.NullOr(Schema.String),
+          saved_at: Schema.Number,
+        }),
+        execute: () => sql`SELECT binding_id, idle_since, activity_since, offboarded, work_ms, session_id, saved_at
+          FROM seat_offboard_clock ORDER BY binding_id`,
+      });
+
+      const offboardClock = Effect.fn("seat-sessions.clock")(function* () {
+        const rows = yield* clockRows(undefined);
+        if (rows.length === 0) return undefined;
+        const seats: Record<string, SeatClockRecord["seats"][string]> = {};
+        for (const row of rows) {
+          seats[row.binding_id] = {
+            ...(row.idle_since === null ? {} : { idleSince: Number(row.idle_since) }),
+            ...(row.activity_since === null ? {} : { activitySince: Number(row.activity_since) }),
+            ...(row.offboarded === 1 ? { offboarded: true } : {}),
+            ...(row.work_ms > 0 ? { workMs: Number(row.work_ms) } : {}),
+            ...(row.session_id === null ? {} : { sessionId: row.session_id }),
+          };
+        }
+        return { savedAt: Math.max(...rows.map((row) => Number(row.saved_at))), seats } satisfies SeatClockRecord;
+      }, Effect.mapError(persistence("clock")));
+
+      /** An epoch time as the clock table keeps it: whole, never negative. */
+      const at = (value: number | undefined): number | null =>
+        value === undefined || !Number.isFinite(value) ? null : Math.max(0, Math.floor(value));
+
+      const saveOffboardClock = Effect.fn("seat-sessions.clock.save")(function* (record: SeatClockRecord) {
+        const savedAt = at(record.savedAt) ?? 0;
+        yield* sql`DELETE FROM seat_offboard_clock`;
+        for (const [bindingId, seat] of Object.entries(record.seats)) {
+          if (!bindingId) continue;
+          yield* sql`INSERT INTO seat_offboard_clock(binding_id, idle_since, activity_since, offboarded, work_ms, session_id, saved_at)
+            VALUES (${bindingId}, ${at(seat.idleSince)}, ${at(seat.activitySince)}, ${seat.offboarded === true ? 1 : 0},
+              ${at(seat.workMs) ?? 0}, ${seat.sessionId?.trim() ? seat.sessionId.trim() : null}, ${savedAt})`;
+        }
+      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.clock.save"),
+      Effect.mapError(persistence("clock.save")));
+
       const noteTranscript = Effect.fn("seat-sessions.transcript")(function* (seatId: string, sessionId: string, path: string) {
         const value = bounded(path, 4096);
         if (value === null) return;
@@ -596,6 +648,8 @@ export const makeSeatSessionRepositoryLive = (
         oweContinuation,
         owedContinuations,
         settleContinuation,
+        offboardClock,
+        saveOffboardClock,
         noteTranscript,
         noteReportedTranscript,
         beginDrain,

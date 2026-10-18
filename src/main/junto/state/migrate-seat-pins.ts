@@ -1,5 +1,5 @@
+import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
-import { seatSessionNotesPath } from "../seat-sessions/notes-file";
 import type { StateSchemaMigrationDatabase } from "./migrations";
 
 /**
@@ -11,6 +11,19 @@ import type { StateSchemaMigrationDatabase } from "./migrations";
  *
  * The DDL below is this step's own copy. It never follows the head schema.
  */
+
+const SAFE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+/**
+ * Where version 20 said a session's notes would be, as this step wrote it
+ * into the row's `notes_path`. Only a string in the row: nothing is written
+ * there, and step 21 -> 22 retires the column.
+ */
+export const notesPathAtVersion20 = (seatsRoot: string, seatId: string, sessionId: string): string => {
+  const segment = (id: string) =>
+    SAFE_SEGMENT.test(id) && !id.includes("..") ? id : `id-${createHash("sha256").update(id).digest("hex").slice(0, 32)}`;
+  return join(seatsRoot, segment(seatId), "sessions", `${segment(sessionId)}.md`);
+};
 
 /** The seat sessions table exactly as state migration 7 -> 8 creates it. */
 export const SEAT_SESSIONS_V8_STATE_SCHEMA_SQL = `
@@ -124,7 +137,7 @@ export const migrateSeatPins = (
         harness: seat.harness,
         cwd: null,
         transcript_path: null,
-        notes_path: seatSessionNotesPath(seatsRoot, seat.id, seat.session_id),
+        notes_path: notesPathAtVersion20(seatsRoot, seat.id, seat.session_id),
         gist: null,
         started_at: now(),
         ended_at: null,

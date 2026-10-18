@@ -11,7 +11,6 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { seatSessionNotesPath } from "../src/main/junto/seat-sessions/notes-file";
 import {
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
@@ -19,6 +18,7 @@ import {
   STATE_SCHEMA_V20_IDENTITY,
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
+import { notesPathAtVersion20 } from "../src/main/junto/state/migrate-seat-pins";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
 import { STATE_SCHEMA_V19_SQL, STATE_SCHEMA_V20_SQL } from "./fixtures/state-v1/schema";
 
@@ -141,7 +141,7 @@ describe("state migration 19 -> 20 (seat session pins)", () => {
           {
             seat_id: "pinned",
             session_id: "pin-never-recorded",
-            notes_path: seatSessionNotesPath(seatsRoot, "pinned", "pin-never-recorded"),
+            notes_path: notesPathAtVersion20(seatsRoot, "pinned", "pin-never-recorded"),
             started_at: expect.any(Number),
             ended_at: null,
             end_reason: null,

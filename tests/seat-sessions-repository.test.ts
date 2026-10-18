@@ -441,6 +441,26 @@ describe("a session's notes and marks, kept on its row", () => {
     expect(await onboarded("never-seen")).toBe(false);
   });
 
+  it("saves the operator offboard clock whole and reads it back", async () => {
+    expect(await run(Effect.flatMap(repo, (r) => r.offboardClock()))).toBeUndefined();
+    const first = {
+      savedAt: 5_000,
+      seats: {
+        "bind-a": { idleSince: 1_000, activitySince: 900, offboarded: true, workMs: 1_234, sessionId: "s1" },
+        "bind-b": { activitySince: 2_000 },
+      },
+    };
+    await run(Effect.flatMap(repo, (r) => r.saveOffboardClock(first)));
+    expect(await run(Effect.flatMap(repo, (r) => r.offboardClock()))).toEqual(first);
+    // A later save replaces it: a seat it no longer names is gone.
+    const second = { savedAt: 6_000, seats: { "bind-b": { idleSince: 5_500, workMs: 10.6 } } };
+    await run(Effect.flatMap(repo, (r) => r.saveOffboardClock(second)));
+    expect(await run(Effect.flatMap(repo, (r) => r.offboardClock()))).toEqual({
+      savedAt: 6_000,
+      seats: { "bind-b": { idleSince: 5_500, workMs: 10 } },
+    });
+  });
+
   it("records who ended a session from outside it, and forgets it when the session is the seat's again", async () => {
     await run(Effect.flatMap(repo, (r) => r.record({ seatId: "a", sessionId: "s1", harness: "claude" })));
     await run(Effect.flatMap(repo, (r) => r.end("a", "replaced", "s1")));
