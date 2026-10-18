@@ -1,6 +1,6 @@
 /**
- * Machine-scoped Settings pages other than Agents: Providers and Name and
- * startup. Each is about one named machine and is answered by that
+ * Machine-scoped Settings pages other than Agents: Providers, Name and
+ * startup, and the cache windows. Each is about one named machine and is answered by that
  * machine's own core, the window's own machine included (docs/machines.md,
  * Harness inventory: one path for every machine).
  *
@@ -13,6 +13,7 @@ import { NativeUsageProvider } from "./usage";
 import {
   PROVIDER_SECRET_FIELDS,
   PROVIDER_SECTION_KEYS,
+  offboardRules,
   type ProviderSectionKey,
   type Settings,
 } from "./settings";
@@ -33,6 +34,19 @@ export const MachineRecord = Schema.Struct({
   supervisedPreferred: Schema.Boolean,
 });
 export type MachineRecord = typeof MachineRecord.Type;
+
+/**
+ * A machine's cache windows: its own, and each harness's that differs. A
+ * still seat's session is cut on its own machine once it has been still this
+ * long (shared/seat-offboard.ts), so each machine keeps and answers its own.
+ */
+export const MachineCacheWindows = Schema.Struct({
+  machine: Schema.String,
+  cacheWindowMinutes: Schema.Number,
+  /** Harness id to minutes, for each harness with a window of its own. */
+  harness: Schema.Record(Schema.String, Schema.Number),
+});
+export type MachineCacheWindows = typeof MachineCacheWindows.Type;
 
 export class MachineSettingsUnavailableError extends Schema.TaggedError<MachineSettingsUnavailableError>()(
   "MachineSettingsUnavailableError",
@@ -84,3 +98,15 @@ export const credentialIsSet = (
   section: ProviderSectionKey,
   field: string,
 ): boolean => providers.credentials[section]?.[field] === true;
+
+export const machineCacheWindowsOf = (settings: Settings, machine: string): MachineCacheWindows => {
+  const rules = offboardRules(settings);
+  return {
+    machine,
+    cacheWindowMinutes: rules.cacheWindowMinutes,
+    harness: Object.fromEntries(
+      Object.entries(rules.harness ?? {}).flatMap(([harness, over]) =>
+        over.cacheWindowMinutes === undefined ? [] : [[harness, over.cacheWindowMinutes]]),
+    ),
+  };
+};

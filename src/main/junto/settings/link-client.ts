@@ -11,6 +11,7 @@ import { Effect, Schema } from "effect";
 import type { MachineSettingsResult } from "@shared/ipc";
 import { isThisMachine } from "@shared/machine-name";
 import type { MachineProviders, MachineRecord } from "@shared/machine-settings";
+import type { OffboardRulesPatch } from "@shared/seat-offboard";
 import type { NativeUsageProvider } from "@shared/usage";
 import { describeCause } from "../failure-encode";
 import { HostsService } from "../hosts/service";
@@ -19,6 +20,8 @@ import { MachineRepository } from "../machines/repository";
 import { ModelRecords } from "../model/records";
 import { ModelService } from "../model/service";
 import {
+  cacheWindowsOfWire,
+  decodeLinkCacheWindows,
   decodeLinkProviders,
   decodeLinkRecord,
   providersOfWire,
@@ -157,7 +160,27 @@ export const makePeerSettingsClient = () => {
       (effect) => answered(machine, operationId, effect),
     );
 
-  return { providers, setProviders, record, setStartup };
+  const cacheWindows = (machine: string, operationId: string = randomUUID()) =>
+    ask(machine, operationId, (canvas) => ({ _tag: "CacheWindowsRead", canvas }), decodeLinkCacheWindows).pipe(
+      Effect.map(cacheWindowsOfWire),
+      (effect) => answered(machine, operationId, effect),
+    );
+
+  const setCacheWindows = (machine: string, change: OffboardRulesPatch, operationId: string = randomUUID()) =>
+    ask(machine, operationId, (canvas) => ({
+      _tag: "CacheWindowsWrite",
+      canvas,
+      ...(change.cacheWindowMinutes === undefined ? {} : { cacheWindowMinutes: change.cacheWindowMinutes }),
+      ...(change.harness === undefined ? {} : {
+        harness: Object.fromEntries(Object.entries(change.harness).map(([harness, over]) =>
+          [harness, over === null ? null : over.cacheWindowMinutes])),
+      }),
+    }), decodeLinkCacheWindows).pipe(
+      Effect.map(cacheWindowsOfWire),
+      (effect) => answered(machine, operationId, effect),
+    );
+
+  return { providers, setProviders, record, setStartup, cacheWindows, setCacheWindows };
 };
 
 export type PeerSettingsClient = ReturnType<typeof makePeerSettingsClient>;

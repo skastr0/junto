@@ -7,7 +7,8 @@
  */
 import { Effect, Schema } from "effect";
 import { isThisMachine } from "@shared/machine-name";
-import { machineProvidersOf, machineRecordOf } from "@shared/machine-settings";
+import { machineCacheWindowsOf, machineProvidersOf, machineRecordOf } from "@shared/machine-settings";
+import type { OffboardRulesPatch } from "@shared/seat-offboard";
 import type { LinkChannelHandler } from "../link/types";
 import { logMachine } from "../observability/logger";
 import { MachineRepository } from "../machines/repository";
@@ -24,6 +25,7 @@ import {
   SettingsPeerNotPinned,
   type LinkSettingsRequest,
   type SettingsLinkFailure as SettingsLinkFailureType,
+  wireCacheWindows,
   wireProviders,
   wireRecord,
 } from "./link-wire";
@@ -69,6 +71,20 @@ export const makeSettingsChannel = Effect.fn("SettingsLink.make")(function* () {
       case "StartupWrite":
         yield* settings.setMachinePreferences({ supervisedPreferred: request.supervisedPreferred });
         return wireRecord({ ...machineRecordOf(yield* settings.get), machine });
+      case "CacheWindowsRead":
+        return wireCacheWindows(machineCacheWindowsOf(yield* settings.get, machine));
+      case "CacheWindowsWrite": {
+        const harness = Object.entries(request.harness ?? {}).filter(([, minutes]) => minutes !== undefined);
+        const offboard: OffboardRulesPatch = {
+          ...(request.cacheWindowMinutes === undefined ? {} : { cacheWindowMinutes: request.cacheWindowMinutes }),
+          ...(harness.length === 0 ? {} : {
+            harness: Object.fromEntries(harness.map(([id, minutes]) =>
+              [id, minutes === null ? null : { cacheWindowMinutes: minutes as number }])),
+          }),
+        };
+        yield* settings.patch({ offboard });
+        return wireCacheWindows(machineCacheWindowsOf(yield* settings.get, machine));
+      }
     }
   });
 

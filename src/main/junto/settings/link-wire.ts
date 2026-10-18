@@ -6,16 +6,21 @@
  * Providers cross as source names and, per declared secret field, whether a
  * value is set. A value, an id or a length never crosses: a credential is set
  * on its own machine. The record crosses as the startup preference only; the
- * machine's name is the editing machine's own label for it. Every request
+ * machine's name is the editing machine's own label for it. Cache windows
+ * cross as minutes, the machine's and each declared harness's that differs:
+ * a seat's session is cut on the machine it runs on, by that machine's
+ * windows. Every request
  * names the canvas and nothing about the asker, and every write sets a value,
  * so a retried write lands the same.
  */
 import { Schema } from "effect";
 import { OperationId } from "@shared/failure";
 import { MachineName } from "@shared/machine-control";
-import type { MachineProviders, MachineRecord } from "@shared/machine-settings";
+import type { MachineCacheWindows, MachineProviders, MachineRecord } from "@shared/machine-settings";
+import { HARNESS_IDS } from "@shared/managed-terminal-templates";
 import { CanvasName } from "@shared/model";
 import { PROVIDER_SECRET_FIELDS, PROVIDER_SECTION_KEYS } from "@shared/settings";
+import { CacheWindowMinutes } from "@shared/seat-offboard";
 import { NATIVE_USAGE_PROVIDERS, NativeUsageProvider } from "@shared/usage";
 
 const Sources = Schema.Array(NativeUsageProvider).pipe(
@@ -34,7 +39,24 @@ export const StartupWrite = Schema.TaggedStruct("StartupWrite", {
   supervisedPreferred: Schema.Boolean,
 });
 
-export const LinkSettingsRequest = Schema.Union([ProvidersRead, ProvidersWrite, RecordRead, StartupWrite]);
+export const CacheWindowsRead = Schema.TaggedStruct("CacheWindowsRead", { canvas: CanvasName });
+/** A harness set to null follows the machine's window again. Only declared harnesses may be named. */
+export const CacheWindowsWrite = Schema.TaggedStruct("CacheWindowsWrite", {
+  canvas: CanvasName,
+  cacheWindowMinutes: Schema.optionalKey(CacheWindowMinutes),
+  harness: Schema.optionalKey(Schema.Struct(Object.fromEntries(
+    HARNESS_IDS.map((harness) => [harness, Schema.optionalKey(Schema.NullOr(CacheWindowMinutes))]),
+  ))),
+});
+
+export const LinkSettingsRequest = Schema.Union([
+  ProvidersRead,
+  ProvidersWrite,
+  RecordRead,
+  StartupWrite,
+  CacheWindowsRead,
+  CacheWindowsWrite,
+]);
 export type LinkSettingsRequest = typeof LinkSettingsRequest.Type;
 
 const decodeRequest = Schema.decodeUnknownSync(LinkSettingsRequest, { onExcessProperty: "error" });
@@ -48,6 +70,10 @@ export const decodeLinkSettingsRequest = (raw: unknown): LinkSettingsRequest => 
   if (request._tag === "ProvidersWrite" && request.enabledSources !== undefined
     && new Set(request.enabledSources).size !== request.enabledSources.length) {
     throw new Error("a source is named twice");
+  }
+  if (request._tag === "CacheWindowsWrite" && request.cacheWindowMinutes === undefined
+    && Object.keys(request.harness ?? {}).length === 0) {
+    throw new Error("a cache windows write sets the machine's window or a harness's");
   }
   return request;
 };
@@ -68,6 +94,14 @@ export type LinkProviders = typeof LinkProviders.Type;
 
 export const LinkRecord = Schema.Struct({ machine: MachineName, supervisedPreferred: Schema.Boolean });
 export type LinkRecord = typeof LinkRecord.Type;
+
+// The harness map is closed: each declared harness, at most once, as minutes.
+export const LinkCacheWindows = Schema.Struct({
+  machine: MachineName,
+  cacheWindowMinutes: CacheWindowMinutes,
+  harness: Schema.Struct(Object.fromEntries(HARNESS_IDS.map((harness) => [harness, Schema.optionalKey(CacheWindowMinutes)]))),
+});
+export type LinkCacheWindows = typeof LinkCacheWindows.Type;
 
 // ── Failures ───────────────────────────────────────────────────────────────
 
@@ -137,7 +171,20 @@ export const wireRecord = (record: MachineRecord): LinkRecord => ({
   supervisedPreferred: record.supervisedPreferred === true,
 });
 
+/** This machine's cache windows as they may cross: declared harnesses only. */
+export const wireCacheWindows = (windows: MachineCacheWindows): LinkCacheWindows => ({
+  machine: windows.machine,
+  cacheWindowMinutes: windows.cacheWindowMinutes,
+  harness: Object.fromEntries(
+    HARNESS_IDS.flatMap((harness) => {
+      const minutes = windows.harness[harness];
+      return minutes === undefined ? [] : [[harness, minutes]];
+    }),
+  ),
+});
+
 export const decodeLinkProviders = Schema.decodeUnknownSync(LinkProviders, { onExcessProperty: "error" });
+export const decodeLinkCacheWindows = Schema.decodeUnknownSync(LinkCacheWindows, { onExcessProperty: "error" });
 export const decodeLinkRecord = Schema.decodeUnknownSync(LinkRecord, { onExcessProperty: "error" });
 
 export const providersOfWire = (wire: LinkProviders): MachineProviders => ({
@@ -145,6 +192,12 @@ export const providersOfWire = (wire: LinkProviders): MachineProviders => ({
   enabledSources: [...wire.enabledSources],
   hermesHostSnapshots: wire.hermesHostSnapshots,
   credentials: Object.fromEntries(Object.entries(wire.credentials).map(([section, fields]) => [section, { ...fields }])),
+});
+
+export const cacheWindowsOfWire = (wire: LinkCacheWindows): MachineCacheWindows => ({
+  machine: wire.machine,
+  cacheWindowMinutes: wire.cacheWindowMinutes,
+  harness: { ...wire.harness } as Record<string, number>,
 });
 
 /** A linked machine's record; its name is the label the editing machine knows it by. */

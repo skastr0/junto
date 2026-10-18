@@ -923,6 +923,8 @@ const terminalApi: JuntoTerminalApi = {
   machineProvidersWrite: (input) => invoke(IPC_CHANNELS.machineProvidersWrite, IPC_TIMEOUT_MS, input),
   machineRecord: (machine) => invoke(IPC_CHANNELS.machineRecord, IPC_TIMEOUT_MS, machine),
   machineRecordWrite: (input) => invoke(IPC_CHANNELS.machineRecordWrite, IPC_TIMEOUT_MS, input),
+  machineCacheWindows: (machine) => invoke(IPC_CHANNELS.machineCacheWindows, IPC_TIMEOUT_MS, machine),
+  machineCacheWindowsWrite: (input) => invoke(IPC_CHANNELS.machineCacheWindowsWrite, IPC_TIMEOUT_MS, input),
   managedTerminalFlags: (harness, cwd) =>
     invoke(IPC_CHANNELS.managedTerminalFlags, IPC_TIMEOUT_MS, harness, cwd),
   agentSeatStateSnapshot: () =>

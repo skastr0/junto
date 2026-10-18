@@ -2,7 +2,8 @@ import type { IpcMain, SaveDialogOptions } from "electron";
 import { app, BrowserWindow, dialog, nativeTheme } from "electron";
 import { Effect, Result } from "effect";
 import { IPC_CHANNELS, type MachineSettingsResult } from "@shared/ipc";
-import { machineProvidersOf, machineRecordOf } from "@shared/machine-settings";
+import { machineCacheWindowsOf, machineProvidersOf, machineRecordOf } from "@shared/machine-settings";
+import { OffboardRulesPatch } from "@shared/seat-offboard";
 import { refreshThemeFromSystem, setThemePreference } from "../theme-state";
 import { themePublishDecision } from "./theme-publish";
 import { setInterfaceScale } from "../interface-scale";
@@ -224,6 +225,21 @@ export const registerSettingsIpc = (
           ? refused(name, "Over the link a machine's record changes only its startup preference")
           : client.setStartup(name, preferred);
       });
+  });
+
+  // A cache windows change is the offboard rules' own patch, decoded closed.
+  const decodeCacheWindowsPatch = Schema.decodeUnknownResult(OffboardRulesPatch, { onExcessProperty: "error" });
+  ipcMain.handle(IPC_CHANNELS.machineCacheWindows, (_event, machine: unknown) =>
+    forMachine(machine, (settings) => machineCacheWindowsOf(settings, settings.machine.name), undefined,
+      (client, name) => client.cacheWindows(name)));
+  ipcMain.handle(IPC_CHANNELS.machineCacheWindowsWrite, (_event, input: unknown) => {
+    const request = keyedPatch(input);
+    const decoded = request === undefined ? undefined : decodeCacheWindowsPatch(request.patch);
+    const patch = decoded !== undefined && Result.isSuccess(decoded) ? decoded.success : undefined;
+    const why = "A cache windows change sets the machine's window or a harness's, in whole minutes from 1 to 10080";
+    return forMachine(request?.machine, (settings) => machineCacheWindowsOf(settings, settings.machine.name),
+      (service) => patch === undefined ? Effect.fail({ message: why }) : service.patch({ offboard: patch }),
+      (client, name) => patch === undefined ? refused(name, why) : client.setCacheWindows(name, patch));
   });
 
   ipcMain.handle(IPC_CHANNELS.settingsReset, (_event, section?: unknown) =>

@@ -1,12 +1,13 @@
 import type { MachineInventory } from "./harness-domain/inventory";
 import type { NativeSettingWrite } from "./harness-domain/native-config";
-import type { MachineProviders, MachineRecord } from "./machine-settings";
+import type { MachineCacheWindows, MachineProviders, MachineRecord } from "./machine-settings";
 import type { ChatChromeSnapshot, ChatChromeChanged } from "./chat-chrome";
 import type { WorkAttentionSnapshot } from "./work-attention";
 import type { WorkItemQuery, WorkActorQuery, WorkActorPage, WorkAttentionQuery, WorkLaneRow, WorkSinkQuery, WorkSinkPage, WorkSinkChanged } from "./work-sinks";
 import type { CanvasesChanged, Changed, Command, Opened, SheetChanged, SheetGrid } from "./model";
 import type { WorkMailQuery, WorkMailPage, WorkMailChanged } from "./work-mail";
 import type {
+  OffboardRulesPatch,
   SeatOffboardRunInput,
   SeatOffboardRunResult,
   SeatOffboardStatus,
@@ -402,6 +403,8 @@ export const IPC_CHANNELS = {
   machineProvidersWrite: "junto:machine-providers-write",
   machineRecord: "junto:machine-record",
   machineRecordWrite: "junto:machine-record-write",
+  machineCacheWindows: "junto:machine-cache-windows",
+  machineCacheWindowsWrite: "junto:machine-cache-windows-write",
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
   agentSeatStateSnapshot: "junto:agent-seat-state-snapshot",
   agentSeatViewed: "junto:agent-seat-viewed",
@@ -1551,6 +1554,12 @@ export interface JuntoTerminalApi {
     readonly machine: string;
     readonly patch: MachinePreferencesPatch;
   }) => Promise<MachineSettingsResult<MachineRecord>>;
+  /** A machine's cache windows: its own, and each harness's that differs. */
+  readonly machineCacheWindows: (machine: string) => Promise<MachineSettingsResult<MachineCacheWindows>>;
+  readonly machineCacheWindowsWrite: (input: {
+    readonly machine: string;
+    readonly patch: OffboardRulesPatch;
+  }) => Promise<MachineSettingsResult<MachineCacheWindows>>;
   /**
    * Fail-soft: the options the installed harness prints in `--help`, for the
    * launch-parameter editor, plus Amp plugin modes in the chosen folder.
