@@ -18,6 +18,11 @@ export type SeatEnvInjectInput = {
 
 /**
  * Directories that may hold the `junto` CLI binary. Fail-soft — missing dirs omitted.
+ *
+ * An app that ships its own CLI (`<resources>/bin/junto`) hands its seats only
+ * that one: a packaged app started from inside a checkout must not pick up the
+ * checkout's `dist/junto`, which can be older than the app. `<cwd>/dist` is
+ * the CLI only when nothing is bundled, as in development.
  */
 export const juntoCliPathPrefixes = (
   cwd: string = process.cwd(),
@@ -25,13 +30,12 @@ export const juntoCliPathPrefixes = (
     ? process.resourcesPath
     : undefined,
 ): readonly string[] => {
+  const bin = resourcesPath ? join(resourcesPath, "bin") : undefined;
+  if (bin !== undefined && existsSync(join(bin, "junto"))) return [bin];
   const out: string[] = [];
   const dist = join(cwd, "dist");
   if (existsSync(join(dist, "junto"))) out.push(dist);
-  if (resourcesPath) {
-    const bin = join(resourcesPath, "bin");
-    if (existsSync(bin)) out.push(bin);
-  }
+  if (bin !== undefined && existsSync(bin)) out.push(bin);
   return out;
 };
 
