@@ -526,6 +526,14 @@ describe("the eager cut: a running seat at rest is cut at the first pass past it
     expect(w.closed).toEqual([]);
   });
 
+  it("a seat that waits on the operator is not cold for mail either, and its card says nothing", async () => {
+    const w = world([seat("waits", { waitsOnOperator: true })]);
+    w.advance(600);
+    expect(await w.offboard.beforeMail({ canvasName: CANVAS, seatId: "waits" })).toBe(false);
+    expect(await w.offboard.nextTurn({ canvasName: CANVAS, seatId: "waits" }, "resume")).toEqual({ fresh: false });
+    expect(w.closed).toEqual([]);
+  });
+
   it("past the window, a key at t holds the seat until t plus the grace, the card is told so, and it is cold after", async () => {
     const w = world([seat("a")], { holds: (now) => makeOperatorHolds(now) });
     w.advance(90);

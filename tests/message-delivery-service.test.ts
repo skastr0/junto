@@ -277,6 +277,22 @@ describe("mail delivery", () => {
     expect(seat.overlapped()).toBe(false);
   });
 
+  it("the operator's answer to a seat's signal is typed into the session that asked, past its window", async () => {
+    const cuts: string[] = [];
+    const seat = rig({
+      cut: async (id) => {
+        cuts.push(id);
+        return true;
+      },
+    });
+    const answer = mail("01A", "Use the second option.", "prompt");
+    seat.append({ ...answer, metadata: { ...answer.metadata, agentSignalId: "signal-1" } });
+    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("delivered");
+    expect(cuts).toEqual([]);
+    expect(seat.writes).toHaveLength(1);
+    expect(seat.wakes).toEqual([]);
+  });
+
   it("a session that is not cold, or a check that fails, changes nothing: the mail is typed as usual", async () => {
     const warm = rig({ cut: async () => false });
     warm.append(mail("01A", "Please review the contract."));

@@ -571,6 +571,9 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
     address: SeatAddress,
   ): { readonly cold: boolean; readonly at?: number } => {
     if (seat.sessionId === undefined) return { cold: false };
+    // Blocked or needs-you: the session waits on the operator and is kept,
+    // by the pass, the wake and mail cuts and the card alike.
+    if (seat.waitsOnOperator === true) return { cold: false };
     const set = offboardRulesFor(ports.rules(), seat.harness);
     if (clock.isFresh(seat.bindingId)) return { cold: false };
     if (!mayCloseNow(seat, address).allowed) return { cold: false };
@@ -653,7 +656,7 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
     const address = { canvasName: seat.canvasName, seatId: seat.seatId };
     try {
       if (!seat.local || !seat.running || seat.state !== "idle") return undefined;
-      if (seat.paused === true || seat.waitsOnOperator === true) return undefined;
+      if (seat.paused === true) return undefined;
       if ((asking.get(keyOf(address)) ?? 0) > now()) return undefined;
       if (!coldness(seat, address).cold) return undefined;
       const row = await closeOne(address, "automatic");

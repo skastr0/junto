@@ -159,6 +159,9 @@ export const mailPayloadOf = (message: Message, options?: MailLineOptions): stri
     ? composeImmediatePromptPayload(message, options)
     : composeMessageDeliveryPayload(message, options);
 
+/** The operator's answer to one of the seat's signals (signals/operator.ts). */
+const answersSignal = (message: Message): boolean => typeof message.metadata?.agentSignalId === "string";
+
 /** A lookup that fails must never cost a delivery: no answer means no pointer. */
 const onboardedOf = (
   transport: MessageDeliveryTransport,
@@ -377,7 +380,10 @@ export class MessageDeliveryService {
       return waiting(`seat is not ready, ${this.wake(transport, target.bindingId, canvas, nodeId, generation, messageId)}`);
     }
     // A message that opted out of waking a seat does not get to restart one.
-    if (transport.cutColdSession && !this.noWake.has(messageId)) {
+    // The operator's answer to a seat's signal is for the session that asked:
+    // answering closes the signal before this runs, so the seat no longer
+    // reads as waiting, and a cut here would hand the answer to a stranger.
+    if (transport.cutColdSession && !this.noWake.has(messageId) && !answersSignal(message)) {
       const cut = await transport
         .cutColdSession(target.bindingId, canvas, nodeId)
         .catch(() => false);
