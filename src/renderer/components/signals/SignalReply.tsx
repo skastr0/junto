@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { AgentSignalAnswerOptions } from "@shared/ipc";
 import type { SignalActionResult } from "../../lib/agent-signals-view";
-import { claimFocusOnMount } from "../../lib/focus-ownership";
+import { claimFocus } from "../../lib/focus-ownership";
 import { modKeyGlyph } from "../../lib/platform";
 import { useQuickReplies } from "../../lib/quick-replies";
 import { Button } from "../ui";
@@ -9,9 +9,10 @@ import { Textarea } from "../ui/Field";
 import { QuickReplies } from "./QuickReplies";
 import { keyAria, keyIs } from "../../lib/key-match";
 
-// Stable callback ref: the reply field takes focus when the form mounts.
+// Stable callback ref: the reply field takes focus when the form mounts,
+// without scrolling it in. The list it sits in moves only for the operator.
 const claimReplyFocus = (wrapper: HTMLDivElement | null): void => {
-  claimFocusOnMount(wrapper?.querySelector("textarea") ?? null);
+  claimFocus(wrapper?.querySelector("textarea"), "open", { preventScroll: true });
 };
 
 /**
