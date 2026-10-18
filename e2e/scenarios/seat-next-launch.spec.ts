@@ -161,21 +161,26 @@ test("a seat whose harness has a shorter cache window says fresh next at its own
     const launchState = (id: string) =>
       page.evaluate((input) => window.junto!.modelSeatLaunchState(input), { canvas: CANVAS, id });
     const setCodexWindow = async (minutes: number | null) => {
+      // Settings, Cache window, under this machine: a row per harness it has, each with a switch.
       await page.getByRole("button", { name: "Open settings" }).click();
-      await page.locator(".settings-nav__item", { hasText: "Offboard" }).first().click();
+      await page.locator(".settings-nav__item", { hasText: "Cache window" }).first().click();
       const section = page.getByTestId("offboard-settings");
       await expect(section).toBeVisible({ timeout: 10_000 });
       const row = section.getByTestId("offboard-harness-codex");
+      await expect(row).toBeVisible({ timeout: 10_000 });
+      const own = row.getByRole("switch", { name: "Codex has its own window" });
+      const field = row.getByLabel("Codex cache window, minutes");
       if (minutes === null) {
-        await row.getByRole("button", { name: "Remove the Codex window" }).click();
-        await expect(row).toHaveCount(0, { timeout: 10_000 });
+        await own.click();
+        await expect(field).toHaveCount(0, { timeout: 10_000 });
+        await expect
+          .poll(async () => (await page.evaluate(async () => (await window.junto!.settingsGet()).settings?.offboard))?.harness?.codex, { timeout: 10_000 })
+          .toBeUndefined();
       } else {
-        if ((await row.count()) === 0) {
-          await section.getByRole("button", { name: "Add a window for a harness" }).click();
-          await page.getByRole("option", { name: "Codex", exact: true }).click();
-          await expect(row).toBeVisible({ timeout: 10_000 });
+        if ((await field.count()) === 0) {
+          await own.click();
+          await expect(field).toBeVisible({ timeout: 10_000 });
         }
-        const field = row.getByLabel("Codex cache window, minutes");
         await field.click();
         await field.fill(String(minutes));
         await field.press("Tab");
