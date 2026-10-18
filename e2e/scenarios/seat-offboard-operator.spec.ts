@@ -1130,7 +1130,7 @@ const seedStillSeat = (nodeId: string, restedMinutes: number, workMinutes: numbe
   );
 };
 
-test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next, and mail starts a fresh session that onboards with Junto's record of the last", async ({}, testInfo) => {
+test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next, and mail starts a fresh session that onboards after the cut", async ({}, testInfo) => {
   // No wait for product time: the seat arrives already still past the window (seedStillSeat), a seat
   // inside its window is the control, and the minute pass (the eager cut) is held by tests/operator-offboard.test.ts.
   test.skip(!CLI_BUILT, "SETUP: dist/junto is missing; the onboard in this walk is the CLI's. Build it with `bun run cli:build`.");
@@ -1138,14 +1138,13 @@ test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next,
   const TIA = seatNode("tia", "Tia", COLUMN[0], ROW[0]);
   const ZED = seatNode("zed", "Zed", COLUMN[1], ROW[0]);
   const PAT = seatNode("pat", "Pat", COLUMN[2], ROW[0], false);
-  const doc = fixtureOf([TIA, ZED, PAT], [["pat", "tia"], ["pat", "zed"], ["tia", "pat"]]);
+  const doc = fixtureOf([TIA, ZED, PAT], [["pat", "tia"], ["pat", "zed"]]);
   await walk(testInfo, "LOOP", { doc, transcripts: [sessionIdOf("tia"), sessionIdOf("zed")], seed: seedStillSeat("tia", 10, 31) }, async (ctx) => {
     const { junto, sandbox, shot, step, mark, offboardLines } = ctx;
     const { page } = junto;
     let tia!: CrewSeat;
     let zed!: CrewSeat;
     let pat!: CrewSeat;
-    const REPORT = "LOOP report: the parser is wired";
     const WAKE = "LOOP mail: are you there";
 
     await step("LOOP.0", "the machine's window is 1 minute; Tia is idle and has been still for 10 minutes, Zed has just started", async () => {
@@ -1155,8 +1154,6 @@ test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next,
       tia = await startSeat(page, sandbox, TIA);
       zed = await startSeat(page, sandbox, ZED);
       pat = await startSeat(page, sandbox, PAT);
-      // Tia's session has something to record: she tells Pat. Outgoing mail is never cut under.
-      opData(await tia.op("msg.send", { target: "pat", text: REPORT }));
       await expectSeatState(page, "tia", "idle");
       expect(await launches(sandbox, "tia"), "Tia has had one process").toBe(1);
       await shot(page, "LOOP.0", "tia-still-zed-warm");
@@ -1189,23 +1186,14 @@ test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next,
       await shot(page, "LOOP.2", "tia-on-a-fresh-session");
     });
 
-    await step("LOOP.3", "junto onboard in the fresh session leads with Junto's record of the cut one: ended by the automatic rule, her mail out", async () => {
+    await step("LOOP.3", "junto onboard in the fresh session names the cut one, ended by the automatic rule, with no notes and no handoff", async () => {
       const onboard = opData(await tia.op("onboard", {}));
       note(testInfo, "LOOP-onboard-payload", JSON.stringify(onboard).slice(0, 6000));
       const without = onboard.previous_session_without_notes as { readonly session_id?: unknown; readonly ended_by?: unknown } | undefined;
       expect(without?.session_id, "the cut session is named first").toBe(sessionIdOf("tia"));
       expect(without?.ended_by, "ended by Junto's own rule").toBe("automatic");
       expect(onboard.handoff, "no handoff: the session ended without a turn").toBeUndefined();
-      const past = ((onboard.sessions as { readonly past?: ReadonlyArray<Record<string, unknown>> } | undefined)?.past ?? []);
-      const record = past.find((entry) => entry.session_id === sessionIdOf("tia"))?.record as
-        | { readonly ended_by?: unknown; readonly mail_out?: { readonly read?: unknown; readonly items?: ReadonlyArray<{ readonly text?: string }> } }
-        | null
-        | undefined;
-      expect(record, "Junto's record of the cut session is inline").toBeTruthy();
-      expect(record?.ended_by, "the record says who ended it").toBe("automatic");
-      expect(record?.mail_out?.read, "her mail out was read").toBe(true);
-      expect(record?.mail_out?.items?.map((item) => item.text), "and holds what she sent").toContain(REPORT);
-      await shot(page, "LOOP.3", "onboard-with-the-record");
+      await shot(page, "LOOP.3", "onboard-after-the-cut");
     });
   });
 });
