@@ -426,6 +426,21 @@ describe("a session's notes and marks, kept on its row", () => {
     expect(kept.continuation).toHaveLength(SEAT_SESSION_CONTINUATION_MAX_CHARS);
   });
 
+  it("keeps whether a session onboarded on that session alone, so a fresh one starts without it", async () => {
+    const onboarded = (sessionId: string) => run(Effect.flatMap(repo, (r) => r.onboarded("a", sessionId)));
+    await run(Effect.flatMap(repo, (r) => r.record({ seatId: "a", sessionId: "s1", harness: "claude" })));
+    expect(await onboarded("s1")).toBe(false);
+    await run(Effect.flatMap(repo, (r) => r.markOnboarded("a", "s1", 1_000)));
+    await run(Effect.flatMap(repo, (r) => r.markOnboarded("a", "s1", 2_000)));
+    expect(await onboarded("s1")).toBe(true);
+    await run(Effect.flatMap(repo, (r) => r.record({ seatId: "a", sessionId: "s2", harness: "claude" })));
+    expect(await onboarded("s2")).toBe(false);
+    // Resumed, the earlier session reads its own mark back.
+    await run(Effect.flatMap(repo, (r) => r.record({ seatId: "a", sessionId: "s1", harness: "claude" })));
+    expect(await onboarded("s1")).toBe(true);
+    expect(await onboarded("never-seen")).toBe(false);
+  });
+
   it("records who ended a session from outside it, and forgets it when the session is the seat's again", async () => {
     await run(Effect.flatMap(repo, (r) => r.record({ seatId: "a", sessionId: "s1", harness: "claude" })));
     await run(Effect.flatMap(repo, (r) => r.end("a", "replaced", "s1")));

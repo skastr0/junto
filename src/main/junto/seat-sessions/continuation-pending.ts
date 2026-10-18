@@ -2,28 +2,16 @@
  * The continuation a seat is still owed: after `junto offboard --continue`,
  * the fresh session is told once to read its handoff. The seat may not start
  * for a long time (a paused canvas), and Junto may quit in between, so what
- * is owed is written beside the seat's session notes and armed again when
- * Junto next starts.
- *
- * `<seats root>/<seat>/continuation.pending`: present from the rotation until
- * the line is typed (or the session onboards without it).
+ * is owed is kept in junto.db (`seat_continuations_owed`) and armed again
+ * when Junto next starts, from the line's owing until it is typed (or the
+ * session onboards without it).
  *
  * This is the only module that arms the supervisor's continuation. `owe` is
- * for the offboard closer; `restore` re-arms only what `owe` wrote.
+ * for the offboard closer; `restore` re-arms only what `owe` kept.
  */
-import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
-import { defaultSeatsRoot, pathSegment } from "./notes-file";
-
-const PENDING_FILE = "continuation.pending";
-
-type Pending = {
-  readonly bindingId: string;
-  /** The generation that offboarded: never the one to tell. */
-  readonly offboarded?: string;
-  readonly at: number;
-};
+import { Effect } from "effect";
+import { SeatSessionRepository, type OwedContinuation } from "./repository";
+import type { SeatSessionRun } from "./run";
 
 /** The supervisor, as this ledger needs it. */
 export type ContinuationTarget = {
@@ -33,53 +21,41 @@ export type ContinuationTarget = {
   readonly disarmContinuation: (bindingId: string) => void;
 };
 
-const decode = (text: string): Pending | undefined => {
-  try {
-    const raw: unknown = JSON.parse(text);
-    if (typeof raw !== "object" || raw === null) return undefined;
-    const { bindingId, offboarded, at } = raw as Record<string, unknown>;
-    if (typeof bindingId !== "string" || !bindingId) return undefined;
-    if (offboarded !== undefined && typeof offboarded !== "string") return undefined;
-    return {
-      bindingId,
-      ...(offboarded ? { offboarded } : {}),
-      at: typeof at === "number" && Number.isFinite(at) ? at : 0,
-    };
-  } catch {
-    return undefined;
-  }
+/** Where what is owed is kept. */
+export type ContinuationStore = {
+  readonly keep: (owed: OwedContinuation) => Promise<void>;
+  readonly owed: () => Promise<ReadonlyArray<OwedContinuation>>;
+  readonly settle: (bindingId: string) => Promise<void>;
 };
 
+/** The ledger's store: the seat sessions store, in the runtime this process owns. */
+export const continuationStoreIn = (run: SeatSessionRun): ContinuationStore => ({
+  keep: (owed) => run(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.oweContinuation(owed))),
+  owed: () => run(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.owedContinuations())),
+  settle: (bindingId) => run(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.settleContinuation(bindingId))),
+});
+
 export class ContinuationLedger {
-  /** bindingId → the file that says the seat is owed its continuation. */
-  private readonly owed = new Map<string, string>();
+  /** Bindings this run knows to be owed their line. */
+  private readonly owed = new Set<string>();
 
   constructor(
     private readonly target: ContinuationTarget,
-    private readonly seatsRoot: string = defaultSeatsRoot(),
+    private readonly store: ContinuationStore,
     private readonly now: () => number = Date.now,
   ) {
     target.setContinuationSettled((bindingId) => this.settle(bindingId));
   }
 
-  private pathFor(seatId: string): string {
-    return join(this.seatsRoot, pathSegment(seatId), PENDING_FILE);
-  }
-
   /**
    * The seat offboarded with `--continue` and its session was rotated: its
-   * fresh session is owed the continuation line. Written before it is armed,
+   * fresh session is owed the continuation line. Kept before it is armed,
    * so a quit between the two loses nothing.
    */
-  owe(seatId: string, bindingId: string, offboarded: string | undefined): void {
-    const path = this.pathFor(seatId);
-    const pending: Pending = { bindingId, ...(offboarded ? { offboarded } : {}), at: this.now() };
+  async owe(seatId: string, bindingId: string, offboarded: string | undefined): Promise<void> {
     try {
-      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-      const temporary = `${path}.${randomUUID()}.tmp`;
-      writeFileSync(temporary, `${JSON.stringify(pending)}\n`, { mode: 0o600 });
-      renameSync(temporary, path);
-      this.owed.set(bindingId, path);
+      await this.store.keep({ seatId, bindingId, ...(offboarded ? { offboarded } : {}), at: this.now() });
+      this.owed.add(bindingId);
     } catch (error) {
       // Still owed for this run; only a restart would lose it.
       console.error("[seat-sessions] could not record a pending continuation:", error);
@@ -88,32 +64,19 @@ export class ContinuationLedger {
   }
 
   /** Arm again every continuation a previous run recorded and never delivered. */
-  restore(): number {
-    let seats: string[];
+  async restore(): Promise<number> {
+    let owed: ReadonlyArray<OwedContinuation>;
     try {
-      seats = readdirSync(this.seatsRoot);
-    } catch {
+      owed = await this.store.owed();
+    } catch (error) {
+      console.error("[seat-sessions] could not read the pending continuations:", error);
       return 0;
     }
-    let restored = 0;
-    for (const seat of seats) {
-      const path = join(this.seatsRoot, seat, PENDING_FILE);
-      let text: string;
-      try {
-        text = readFileSync(path, "utf8");
-      } catch {
-        continue;
-      }
-      const pending = decode(text);
-      if (pending === undefined) {
-        rmSync(path, { force: true });
-        continue;
-      }
-      this.owed.set(pending.bindingId, path);
-      this.target.armContinuation(pending.bindingId, pending.offboarded);
-      restored += 1;
+    for (const entry of owed) {
+      this.owed.add(entry.bindingId);
+      this.target.armContinuation(entry.bindingId, entry.offboarded);
     }
-    return restored;
+    return owed.length;
   }
 
   /**
@@ -127,10 +90,10 @@ export class ContinuationLedger {
 
   /** The line was typed, or the session onboarded without it: nothing is owed. */
   private settle(bindingId: string): void {
-    const path = this.owed.get(bindingId);
-    if (path === undefined) return;
-    this.owed.delete(bindingId);
-    rmSync(path, { force: true });
+    if (!this.owed.delete(bindingId)) return;
+    void this.store.settle(bindingId).catch((error: unknown) =>
+      console.error("[seat-sessions] could not settle a pending continuation:", error),
+    );
   }
 }
 
@@ -149,7 +112,7 @@ export const rotateOwing = async <Result extends { readonly ok: boolean }>(input
   readonly offboarded: string | undefined;
   readonly rotate: () => Promise<Result>;
 }): Promise<Result> => {
-  input.ledger.owe(input.seatId, input.bindingId, input.offboarded);
+  await input.ledger.owe(input.seatId, input.bindingId, input.offboarded);
   let result: Result;
   try {
     result = await input.rotate();

@@ -4,12 +4,25 @@
  * is up and empty. Nothing else starts a session with a message: not a plain
  * offboard, and not a seat the operator opens.
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ContinuationLedger, rotateOwing } from "../src/main/junto/seat-sessions/continuation-pending";
+import {
+  ContinuationLedger,
+  continuationStoreIn,
+  rotateOwing,
+  type ContinuationStore,
+} from "../src/main/junto/seat-sessions/continuation-pending";
+import {
+  makeSeatSessionRepositoryLive,
+  SeatSessionRepository,
+  type OwedContinuation,
+} from "../src/main/junto/seat-sessions/repository";
+import type { SeatSessionRun } from "../src/main/junto/seat-sessions/run";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import {
   SeatOffboardCloser,
   type OffboardClosePorts,
@@ -24,6 +37,18 @@ import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import { CONTINUATION_LINE, type OffboardMode } from "../src/shared/seat-sessions";
 
 const BINDING = "bind-a";
+
+/** A store that forgets everything when the test ends: what one run keeps. */
+const memoryStore = (): ContinuationStore => {
+  const owed = new Map<string, OwedContinuation>();
+  return {
+    keep: async (entry) => void owed.set(entry.seatId, entry),
+    owed: async () => [...owed.values()],
+    settle: async (bindingId) => {
+      for (const [seatId, entry] of owed) if (entry.bindingId === bindingId) owed.delete(seatId);
+    },
+  };
+};
 
 const settled = async (): Promise<void> => {
   for (let i = 0; i < 6; i += 1) await Promise.resolve();
@@ -58,9 +83,7 @@ const rig = () => {
     await settled();
   };
   const clock = { now: 1_000 };
-  const seatsRoot = mkdtempSync(join(tmpdir(), "junto-continuation-rig-"));
-  roots.push(seatsRoot);
-  const ledger = new ContinuationLedger(supervisor, seatsRoot, () => clock.now);
+  const ledger = new ContinuationLedger(supervisor, memoryStore(), () => clock.now);
   /** What the fresh generation does as it comes up, and what happens to it meanwhile. */
   const wake = { steps: ["unknown", "idle"] as ReadonlyArray<AgentSeatStateEvent["state"]>, during: () => {} };
   const rotation = { ok: true };
@@ -103,10 +126,8 @@ const rig = () => {
   return { supervisor, typed, composer, epoch, state, boot, offboard, turn, wake, rotation };
 };
 
-const roots: string[] = [];
 afterEach(() => {
   vi.useRealTimers();
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
 describe("continuing after junto offboard --continue", () => {
@@ -471,13 +492,21 @@ describe("nothing else starts a session with a message", () => {
 
 describe("a continuation owed across a restart", () => {
   let dir: string | undefined;
-  afterEach(() => {
+  const runtimes: Array<{ dispose: () => Promise<void> }> = [];
+  afterEach(async () => {
+    for (const runtime of runtimes.splice(0)) await runtime.dispose();
     if (dir) rmSync(dir, { recursive: true, force: true });
     dir = undefined;
   });
 
-  /** One run of the app: a supervisor and a ledger over the same seats root. */
-  const run = (seatsRoot: string) => {
+  /** One run of the app: a supervisor and a ledger over the same junto.db. The run before it has quit. */
+  const run = async (root: string) => {
+    for (const runtime of runtimes.splice(0)) await runtime.dispose();
+    const runtime = ManagedRuntime.make(
+      makeSeatSessionRepositoryLive().pipe(Layer.provide(makeStateEngineLive(join(root, "junto.db")))),
+    );
+    runtimes.push(runtime);
+    const runIn = ((effect) => runtime.runPromise(effect as never)) as SeatSessionRun;
     const supervisor = new InjectionSupervisor();
     const typed: string[] = [];
     supervisor.setContinuationWriter((_b, text) => {
@@ -485,84 +514,90 @@ describe("a continuation owed across a restart", () => {
       return true;
     });
     supervisor.setWriter(() => true);
-    const ledger = new ContinuationLedger(supervisor, seatsRoot);
+    const ledger = new ContinuationLedger(supervisor, continuationStoreIn(runIn));
     const boot = async (epoch: string) => {
       for (const state of ["unknown", "idle"] as const) {
         supervisor.noteSeatState({ bindingId: BINDING, epoch, state, reason: "test", confidence: "high", at: 0 });
       }
       await settled();
     };
-    return { supervisor, ledger, typed, boot };
+    /** What junto.db says is owed, as this run reads it. */
+    const owed = () => runIn(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.owedContinuations()));
+    return { supervisor, ledger, typed, boot, owed };
   };
-
-  const pendingFile = (seatsRoot: string) => join(seatsRoot, "seat-a", "continuation.pending");
 
   it("survives Junto quitting before the seat ever started", async () => {
     dir = mkdtempSync(join(tmpdir(), "junto-continuation-"));
     // Run 1: the seat offboards with --continue on a paused canvas. The
     // session is rotated, nothing wakes the seat, and Junto quits.
-    const first = run(dir);
-    first.ledger.owe("seat-a", BINDING, "e1");
+    const first = await run(dir);
+    await first.ledger.owe("seat-a", BINDING, "e1");
     expect(first.supervisor.continuationPending(BINDING)).toBe(true);
     expect(first.typed).toEqual([]);
-    expect(existsSync(pendingFile(dir))).toBe(true);
+    expect(await first.owed()).toMatchObject([{ seatId: "seat-a", bindingId: BINDING, offboarded: "e1" }]);
 
     // Run 2: a new process with nothing in memory.
-    const second = run(dir);
+    const second = await run(dir);
     expect(second.supervisor.continuationPending(BINDING)).toBe(false);
-    expect(second.ledger.restore()).toBe(1);
+    expect(await second.ledger.restore()).toBe(1);
     expect(second.supervisor.continuationPending(BINDING)).toBe(true);
     // The canvas plays and the fresh session comes up.
     await second.boot("e2");
     expect(second.typed).toEqual([CONTINUATION_LINE]);
-    expect(existsSync(pendingFile(dir))).toBe(false);
+    await settled();
+    expect(await second.owed()).toEqual([]);
 
     // Run 3: delivered means delivered. Nothing is owed any more.
-    const third = run(dir);
-    expect(third.ledger.restore()).toBe(0);
+    const third = await run(dir);
+    expect(await third.ledger.restore()).toBe(0);
     await third.boot("e3");
     expect(third.typed).toEqual([]);
   });
 
   it("is still owed after a restart that ends before the seat starts again", async () => {
     dir = mkdtempSync(join(tmpdir(), "junto-continuation-"));
-    run(dir).ledger.owe("seat-a", BINDING, "e1");
-    const second = run(dir);
-    expect(second.ledger.restore()).toBe(1);
-    const third = run(dir);
-    expect(third.ledger.restore()).toBe(1);
+    await (await run(dir)).ledger.owe("seat-a", BINDING, "e1");
+    const second = await run(dir);
+    expect(await second.ledger.restore()).toBe(1);
+    const third = await run(dir);
+    expect(await third.ledger.restore()).toBe(1);
     await third.boot("e2");
     expect(third.typed).toEqual([CONTINUATION_LINE]);
   });
 
   it("a restart never tells the generation that offboarded", async () => {
     dir = mkdtempSync(join(tmpdir(), "junto-continuation-"));
-    run(dir).ledger.owe("seat-a", BINDING, "e1");
-    const second = run(dir);
-    second.ledger.restore();
+    await (await run(dir)).ledger.owe("seat-a", BINDING, "e1");
+    const second = await run(dir);
+    await second.ledger.restore();
     await second.boot("e1");
     expect(second.typed).toEqual([]);
-    expect(existsSync(pendingFile(dir))).toBe(true);
+    expect(await second.owed()).toHaveLength(1);
   });
 
   it("a session that onboards on its own is owed nothing", async () => {
     dir = mkdtempSync(join(tmpdir(), "junto-continuation-"));
-    const first = run(dir);
-    first.ledger.owe("seat-a", BINDING, "e1");
+    const first = await run(dir);
+    await first.ledger.owe("seat-a", BINDING, "e1");
     first.supervisor.noteOnboarded(BINDING);
     await first.boot("e2");
     expect(first.typed).toEqual([]);
-    expect(existsSync(pendingFile(dir))).toBe(false);
+    await settled();
+    expect(await first.owed()).toEqual([]);
   });
 
-  it("restores nothing from a run that owed nothing, and drops a file it cannot read", () => {
+  it("restores nothing from a run that owed nothing", async () => {
     dir = mkdtempSync(join(tmpdir(), "junto-continuation-"));
-    expect(run(dir).ledger.restore()).toBe(0);
-    mkdirSync(join(dir, "seat-a"), { recursive: true });
-    writeFileSync(pendingFile(dir), "not json");
-    const next = run(dir);
-    expect(next.ledger.restore()).toBe(0);
-    expect(next.supervisor.continuationPending(BINDING)).toBe(false);
-    expect(existsSync(pendingFile(dir))).toBe(false);
+    const first = await run(dir);
+    expect(await first.ledger.restore()).toBe(0);
+    expect(first.supervisor.continuationPending(BINDING)).toBe(false);
+  });
+
+  it("a later continuation for the seat replaces the one it was owed", async () => {
+    dir = mkdtempSync(join(tmpdir(), "junto-continuation-"));
+    const first = await run(dir);
+    await first.ledger.owe("seat-a", BINDING, "e1");
+    await first.ledger.owe("seat-a", BINDING, "e2");
+    expect(await first.owed()).toMatchObject([{ seatId: "seat-a", bindingId: BINDING, offboarded: "e2" }]);
   });
 });

@@ -69,6 +69,17 @@ export type SeatSessionNotes = {
 };
 
 /**
+ * A seat owed its continuation line: which binding is told, and the
+ * generation that offboarded, which never is.
+ */
+export type OwedContinuation = {
+  readonly seatId: string;
+  readonly bindingId: string;
+  readonly offboarded?: string;
+  readonly at: number;
+};
+
+/**
  * Every harness session each agent seat has run (`seat_sessions`), and the
  * notes the seat's agent left for each. The open row is its durable resume
  * pin, independent of whether its process is running.
@@ -121,6 +132,20 @@ export class SeatSessionRepository extends Context.Service<SeatSessionRepository
       seatId: string,
       sessionIds: ReadonlyArray<string>,
     ) => Effect.Effect<ReadonlyMap<string, SeatSessionNotes>, SeatSessionPersistenceError>;
+    /** Whether the seat's agent ran `junto onboard` in this session. */
+    readonly onboarded: (seatId: string, sessionId: string) => Effect.Effect<boolean, SeatSessionPersistenceError>;
+    /** The seat's agent ran `junto onboard` in this session. The first time stands. */
+    readonly markOnboarded: (
+      seatId: string,
+      sessionId: string,
+      at: number,
+    ) => Effect.Effect<void, SeatSessionPersistenceError>;
+    /** The seat is owed its continuation line; it replaces whatever it was owed before. */
+    readonly oweContinuation: (owed: OwedContinuation) => Effect.Effect<void, SeatSessionPersistenceError>;
+    /** Every continuation still owed, oldest first. */
+    readonly owedContinuations: () => Effect.Effect<ReadonlyArray<OwedContinuation>, SeatSessionPersistenceError>;
+    /** The line was typed, or is owed no more. */
+    readonly settleContinuation: (bindingId: string) => Effect.Effect<void, SeatSessionPersistenceError>;
     /** Who ended this session from outside it (the operator, an overseer, the automatic rule). */
     readonly markEnded: (
       seatId: string,
@@ -427,6 +452,56 @@ export const makeSeatSessionRepositoryLive = (
       }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.ended-by"),
       Effect.mapError(persistence("ended-by")));
 
+      const onboardedRow = SqlSchema.findOneOption({
+        Request: Schema.Tuple([Schema.String, Schema.String]),
+        Result: Schema.Struct({ onboarded_at: Schema.NullOr(Schema.Number) }),
+        execute: ([seatId, sessionId]) =>
+          sql`SELECT onboarded_at FROM seat_sessions WHERE seat_id = ${seatId} AND session_id = ${sessionId}`,
+      });
+
+      const onboarded = Effect.fn("seat-sessions.onboarded")(function* (seatId: string, sessionId: string) {
+        const row = yield* onboardedRow([seatId, sessionId]);
+        return row._tag === "Some" && row.value.onboarded_at !== null;
+      }, Effect.mapError(persistence("onboarded")));
+
+      const markOnboarded = Effect.fn("seat-sessions.onboarded.mark")(function* (seatId: string, sessionId: string, at: number) {
+        yield* sql`UPDATE seat_sessions SET onboarded_at = COALESCE(onboarded_at, ${Math.max(0, Math.floor(at))})
+          WHERE seat_id = ${seatId} AND session_id = ${sessionId}`;
+      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.onboarded.mark"),
+      Effect.mapError(persistence("onboarded.mark")));
+
+      const oweContinuation = Effect.fn("seat-sessions.continuation.owe")(function* (owed: OwedContinuation) {
+        // One owed line per seat and per binding: a later one replaces it.
+        yield* sql`INSERT OR REPLACE INTO seat_continuations_owed(seat_id, binding_id, offboarded_generation, owed_at)
+          VALUES (${owed.seatId}, ${owed.bindingId}, ${owed.offboarded ?? null}, ${Math.max(0, Math.floor(owed.at))})`;
+      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.continuation.owe"),
+      Effect.mapError(persistence("continuation.owe")));
+
+      const owedRows = SqlSchema.findAll({
+        Request: Schema.Void,
+        Result: Schema.Struct({
+          seat_id: Schema.String,
+          binding_id: Schema.String,
+          offboarded_generation: Schema.NullOr(Schema.String),
+          owed_at: Schema.Number,
+        }),
+        execute: () => sql`SELECT seat_id, binding_id, offboarded_generation, owed_at FROM seat_continuations_owed ORDER BY owed_at, seat_id`,
+      });
+
+      const owedContinuations = Effect.fn("seat-sessions.continuation.owed")(function* () {
+        return (yield* owedRows(undefined)).map((row): OwedContinuation => ({
+          seatId: row.seat_id,
+          bindingId: row.binding_id,
+          ...(row.offboarded_generation === null ? {} : { offboarded: row.offboarded_generation }),
+          at: Number(row.owed_at),
+        }));
+      }, Effect.mapError(persistence("continuation.owed")));
+
+      const settleContinuation = Effect.fn("seat-sessions.continuation.settle")(function* (bindingId: string) {
+        yield* sql`DELETE FROM seat_continuations_owed WHERE binding_id = ${bindingId}`;
+      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.continuation.settle"),
+      Effect.mapError(persistence("continuation.settle")));
+
       const noteTranscript = Effect.fn("seat-sessions.transcript")(function* (seatId: string, sessionId: string, path: string) {
         const value = bounded(path, 4096);
         if (value === null) return;
@@ -516,6 +591,11 @@ export const makeSeatSessionRepositoryLive = (
         offboard,
         notesOf,
         markEnded,
+        onboarded,
+        markOnboarded,
+        oweContinuation,
+        owedContinuations,
+        settleContinuation,
         noteTranscript,
         noteReportedTranscript,
         beginDrain,

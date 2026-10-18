@@ -21,7 +21,7 @@ import { termPlane } from "../term/plane";
 import { SeatSessionCapture, discoversSessionAfterSpawn } from "../term/seat-session-capture";
 import { setSeatSessionLookup } from "../work/control";
 import { appendSeatPrompt } from "../work/seat-prompt";
-import { ContinuationLedger, rotateOwing } from "./continuation-pending";
+import { ContinuationLedger, continuationStoreIn, rotateOwing } from "./continuation-pending";
 import { composeSeatDrain, type SeatDrain } from "./drain-seat";
 import { SeatOffboardCloser } from "./offboard-close";
 import { startOperatorOffboard, type OperatorOffboardLiveInput } from "./operator-offboard-live";
@@ -95,9 +95,42 @@ export const startSeatSessions = async (input: SeatSessionsInput): Promise<SeatS
   // What a previous run still owed: a seat rotated on a paused canvas
   // that had not started when Junto quit.
   injectionSupervisor.setContinuationLog(log);
-  const continuationLedger = new ContinuationLedger(injectionSupervisor);
-  const owedContinuations = continuationLedger.restore();
+  const continuationLedger = new ContinuationLedger(injectionSupervisor, continuationStoreIn(run));
+  const owedContinuations = await continuationLedger.restore();
   if (owedContinuations > 0) log(`${owedContinuations} seat(s) still owed their continuation line`);
+  // Onboarding status follows the harness session: it is kept on the
+  // session's row, so a resumed session reads it back and a fresh one starts
+  // without it. A seat whose session id is not known yet cannot be recorded;
+  // the supervisor asks again at the next completed turn.
+  /**
+   * The binding's current harness session. "unreadable": cannot be told yet
+   * (the terminal is not bound to its seat, or the canvas cannot be read, as
+   * right after a start). null: the seat is known and its session has no id.
+   */
+  const sessionOfBinding = async (
+    bindingId: string,
+  ): Promise<{ readonly seatId: string; readonly sessionId: string } | null | "unreadable"> => {
+    const live = termPlane.host.get(bindingId);
+    if (!live?.canvasName || !live.nodeId) return "unreadable";
+    const seat = await seatOn({ canvasName: live.canvasName, seatId: live.nodeId });
+    if (seat === undefined || seat.bindingId !== bindingId) return "unreadable";
+    return seat.sessionId ? { seatId: live.nodeId, sessionId: seat.sessionId } : null;
+  };
+  injectionSupervisor.setOnboardedRecord({
+    load: async (bindingId) => {
+      const session = await sessionOfBinding(bindingId);
+      if (session === "unreadable") return undefined;
+      if (session === null) return false;
+      return run(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.onboarded(session.seatId, session.sessionId)));
+    },
+    save: async (bindingId) => {
+      const session = await sessionOfBinding(bindingId);
+      if (session === null || session === "unreadable") return false;
+      await run(Effect.flatMap(SeatSessionRepository, (sessions) =>
+        sessions.markOnboarded(session.seatId, session.sessionId, Date.now())));
+      return true;
+    },
+  });
   // An offboarded session is not killed: its process is detached from
   // the seat and left to finish its turn, read but never written to, then
   // stopped when it settles (or at the cap). What a previous run left
