@@ -3,8 +3,9 @@
  * crosses the seats channel from the machine that runs the seat to the
  * machine that edits its canvas: on each state the seat's machine forwards,
  * and on Get's Vacant for a seat with no occupant. With it goes the seat's
- * session as that machine's offboard clock reads it, which the receiver's
- * offboard row for the seat shows; it never drives a cut there.
+ * cache window as that machine's offboard clock and rules read it, which the
+ * receiver's offboard row and card for the seat show; it never drives a cut
+ * there.
  *
  * Advisory: the receiving machine shows it and never sends it back. A start's
  * resume is decided on the seat's machine.
@@ -23,7 +24,7 @@ import type { SeatOffboardFacts } from "../seat-sessions/operator-offboard";
 /** What a seat on its own machine answers about its next start and turn. */
 export type SeatLaunchState = Awaited<ReturnType<JuntoApi["modelSeatLaunchState"]>>;
 
-/** The launch state as the machine that edits the seat's canvas holds it, with the seat's session. */
+/** The launch state as the machine that edits the seat's canvas holds it, with the seat's cache window. */
 export type RemoteSeatLaunch = SeatLaunchState & { readonly offboard?: SeatOffboardFacts };
 
 /** The longest a still session stays warm: the cache window's own bound. */
@@ -57,7 +58,7 @@ export const SeatsLaunchState = Schema.Struct({
     /** While the turn continues: how long until the session goes cold if nothing moves. */
     freshInMs: Schema.optionalKey(BoundedMs(FRESH_IN_MAX_MS)),
   })),
-  /** The seat's session, as its machine's offboard clock and rules read it. */
+  /** The seat's cache window, as its machine's offboard clock and rules read it. */
   offboard: Schema.optionalKey(Schema.Struct({
     /** How long the seat has been at rest. Absent while it is not. */
     stillForMs: Schema.optionalKey(BoundedMs(ACTIVITY_AGO_MAX_MS)),

@@ -1,8 +1,8 @@
 /**
  * What a remote seat's next start and next turn do, as its own machine last
  * said: on each state it forwards while the seat runs, and on Get's Vacant
- * when it has no occupant (seats-launch.ts), with the seat's session as that
- * machine's offboard clock reads it. Advisory: the card and the seat's
+ * when it has no occupant (seats-launch.ts), with the seat's cache window as
+ * that machine's offboard clock reads it. Advisory: the card and the seat's
  * offboard row show it, nothing here cuts on it, and nothing sends it back.
  *
  * Dropped when the link to that machine closes, when the seat's occupant
