@@ -334,8 +334,6 @@ export const requiresConnection = (op: WorkOpName | "overseer"): boolean => {
     case "signal.list":
     // A seat reads only its own region environment report. No edge, no port.
     case "env.report":
-    // A seat reports only its own commits: the seat is the credential's.
-    case "commit.observed":
     // A seat reads this machine's log within its own scope. No edge, no port.
     case "logs.read":
     // A seat reads the references in its own scope. No edge, no port.

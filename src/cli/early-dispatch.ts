@@ -4,7 +4,7 @@
  * Stdio relays and browser control bypass the Effect CLI tree.
  */
 import { CONTENT_TRANSFER_COMMAND } from "../main/junto/content/helper-contract";
-import { COMMIT_OBSERVED_COMMAND, COMPANION_STDIO_COMMAND } from "./protocol-command-names";
+import { COMPANION_STDIO_COMMAND } from "./protocol-command-names";
 import { ownerCommandRefusal } from "./core/owner-access";
 
 export type EarlyDispatch =
@@ -13,7 +13,6 @@ export type EarlyDispatch =
   | { readonly kind: "browser"; readonly args: ReadonlyArray<string> }
   | { readonly kind: "content-transfer"; readonly args: ReadonlyArray<string> }
   | { readonly kind: "companion-stdio"; readonly args: ReadonlyArray<string> }
-  | { readonly kind: "commit-observed" }
   | { readonly kind: "link"; readonly args: ReadonlyArray<string> }
   | { readonly kind: "cli"; readonly args: ReadonlyArray<string> };
 
@@ -39,7 +38,6 @@ export const earlyDispatchFromArgv = (
   if (user[0] === COMPANION_STDIO_COMMAND) {
     return { kind: "companion-stdio", args: user.slice(1) };
   }
-  if (user[0] === COMMIT_OBSERVED_COMMAND && user.length === 1) return { kind: "commit-observed" };
   if (user[0] === CONTENT_TRANSFER_COMMAND) {
     return { kind: "content-transfer", args: user.slice(1) };
   }

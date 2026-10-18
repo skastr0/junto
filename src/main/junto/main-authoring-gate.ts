@@ -119,8 +119,6 @@ const WORK_OPERATION_CLASSIFICATION = {
   "signal.clear": "authorial",
   "signal.list": "read",
   "env.report": "read",
-  // Writes the seat's own seat_commits row.
-  "commit.observed": "authorial",
   "logs.read": "read",
   "references.list": "read",
   "references.read": "read",

@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { machineNameAtMigration } from "../src/main/junto/state/machine-name-at-migration";
 import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
 import {
+  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V20_IDENTITY,
@@ -22,7 +23,8 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_V20_SQL, STATE_SCHEMA_V21_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
+import { STATE_SCHEMA_V20_SQL } from "./fixtures/state-v1/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -63,9 +65,7 @@ const versionTwentyPlan = {
 /** The real step, with the name first boot would give fixed so the proof does not depend on where it runs. */
 const namedPlan = (firstBootName: string) => ({
   ...STATE_SCHEMA_MIGRATION_PLAN,
-  currentVersion: 21,
-  currentSchemaSql: STATE_SCHEMA_V21_SQL,
-  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 21).map((step) =>
+  migrations: STATE_SCHEMA_MIGRATIONS.map((step) =>
     step.toVersion === 21
       ? { ...step, migrate: (database: Parameters<typeof step.migrate>[0]) => migrateMachineNames(database, firstBootName) }
       : step,
@@ -162,9 +162,10 @@ const hosts = (database: DatabaseSync, table: string) =>
   database.prepare(`SELECT id, host FROM ${table} WHERE id LIKE '%-local' OR id LIKE '%-mini' ORDER BY id`).all();
 
 describe("state migration 20 -> 21 (machine names)", () => {
-  it("freezes the witnesses the step starts from and ends at", () => {
+  it("freezes the version-twenty witness the step starts from and names the head", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V20_SQL)).toEqual(STATE_SCHEMA_V20_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V21_SQL)).toEqual(STATE_SCHEMA_V21_IDENTITY);
+    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V21_IDENTITY);
+    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(expectedStateSchemaIdentity(STATE_SCHEMA_SQL));
   });
 
   it.each(["command-center-v1.db", "remote-v1.db"])(

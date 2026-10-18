@@ -93,7 +93,6 @@ import {
   SignalClearArgs,
   SignalListArgs,
   EnvReportArgs,
-  CommitObservedArgs,
   LogsReadArgs,
   SignalRaiseArgs,
   OffboardArgs,
@@ -149,8 +148,6 @@ import { PausePlane } from "../pause-plane";
 import { SeatGuidanceRepository } from "../seat-guidance/repository";
 import { SeatSessionRepository } from "../seat-sessions/repository";
 import { announcedSessionRefusal } from "../seat-sessions/announced-session";
-import { SqlClient } from "effect/unstable/sql";
-import { commitExists, recordSeatCommit } from "../git/seat-commits";
 import { announceSeatOffboard, listSeatSessions } from "../seat-sessions/service";
 import { continuationPathOf, readNotesFile, readEndedMarker } from "../seat-sessions/notes-file";
 import type { SeatSessionObservation } from "../seat-sessions/repository";
@@ -2151,55 +2148,6 @@ const dispatchOp = (
 
     if (op === "references.list" || op === "references.read") {
       return yield* handleSeatReferences(op, args, { canvasName: caller.canvasName, nodeId: caller.nodeId });
-    }
-
-    if (op === "commit.observed") {
-      const decoded = decodeArgs(CommitObservedArgs, args ?? {});
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const { sha, repo } = decoded.success;
-      // The seat is the credentialed caller, never an argument; the commit
-      // must be one Junto can find in that repo.
-      const found = yield* Effect.promise(() => commitExists(repo, sha).catch(() => false));
-      if (!found) {
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "InputError",
-          message: "that commit is not in that repository",
-          details: { path: "args.sha", retryable: false },
-        });
-      }
-      const sql = yield* Effect.serviceOption(SqlClient.SqlClient);
-      if (Option.isNone(sql)) {
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "RuntimeDown",
-          message: "the commit store is unavailable in this Junto runtime",
-          details: { retryable: false },
-        });
-      }
-      const self = findNode(board, caller.nodeId)!;
-      const store = yield* Effect.serviceOption(SeatSessionRepository);
-      const session = Option.isNone(store) ? undefined : yield* currentSeatSession(self, store.value);
-      const held = yield* recordSeatCommit({
-        repo,
-        sha,
-        canvasName: caller.canvasName,
-        seatId: caller.nodeId,
-        sessionId: session?.sessionId ?? null,
-        observedAt: Date.now(),
-      }).pipe(
-        Effect.provideService(SqlClient.SqlClient, sql.value),
-        Effect.mapError((error): WorkErrorBody => ({
-          type: "InternalError",
-          message: error.message,
-          details: { retryable: true },
-        })),
-      );
-      return {
-        sha,
-        repo,
-        // False when another seat reported this commit first and keeps it.
-        attributed: held.canvasName === caller.canvasName && held.seatId === caller.nodeId,
-        session_id: held.sessionId,
-      };
     }
 
     if (op === "env.report") {

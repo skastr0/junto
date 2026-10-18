@@ -61,8 +61,6 @@ if (import.meta.main) {
     process.exitCode = 2;
   } else if (dispatch.kind === "content-transfer") {
     await (await import("./content-transfer")).runContentTransfer(dispatch.args);
-  } else if (dispatch.kind === "commit-observed") {
-    await (await import("./commit-observed")).runCommitObserved();
   } else if (dispatch.kind === "companion-stdio") {
     await (await import("./companion-stdio")).runCompanionStdio(dispatch.args);
   } else if (dispatch.args.length === 1 && dispatch.args[0] === "--version") {
