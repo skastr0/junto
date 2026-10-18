@@ -10,6 +10,7 @@ import { useSeatAttentionReasons } from "../../lib/occupancy-feed";
 import { cardMark, seatFactsForNode } from "../../lib/seat-projections";
 import { useSeatFreshNext } from "../../lib/seat-next-launch";
 import { SEAT_FRESH_NEXT_LINE } from "@shared/seat-next-launch";
+import { state$ } from "../../lib/state";
 import { onTerminalEvent } from "../../lib/terminal-events";
 import {
   sessionChromeUnchanged,
@@ -80,6 +81,8 @@ export function SeatCard({
   }, [bindingId, hostId]);
   const attentionReasons = useSeatAttentionReasons(agentKey);
   const machineLine = useSeatMachineLine(hostId, harness);
+  // A seat on another machine is answered once the link to it is up.
+  const reachable = use$(() => (hostId === undefined ? undefined : state$.machineFacts[hostId].reachable.get()));
   const mark = cardMark(
     seatFactsForNode({
       nodeId: id,
@@ -97,7 +100,7 @@ export function SeatCard({
     canvas,
     id,
     (mark.mode === "static" && mark.glyph === "off") || seatEvent?.state === "idle",
-    `${bindingId ?? ""}:${seatEvent?.state ?? ""}:${seatEvent?.at ?? 0}:${session?.epoch ?? ""}:${session?.status ?? ""}`,
+    `${bindingId ?? ""}:${seatEvent?.state ?? ""}:${seatEvent?.at ?? 0}:${session?.epoch ?? ""}:${session?.status ?? ""}:${String(reachable)}`,
   );
   const activity = freshNext ? { ...mark, label: SEAT_FRESH_NEXT_LINE } : mark;
 

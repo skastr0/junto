@@ -38,6 +38,14 @@ export const rememberRemoteSeatLaunch = (input: {
   else if (prior !== undefined && (prior.machine !== input.machine || prior.epoch !== input.epoch)) held.delete(input.bindingId);
 };
 
+/**
+ * A link to that machine opened. A seat asked while there was no link (a
+ * window's cards ask before its links are up) has not been asked on this one.
+ */
+export const openedRemoteSeatLaunches = (machine: string): void => {
+  asked.delete(machine);
+};
+
 /** The link to that machine closed: everything it said goes. */
 export const forgetRemoteSeatLaunches = (machine: string): void => {
   for (const [bindingId, entry] of held) if (entry.machine === machine) held.delete(bindingId);

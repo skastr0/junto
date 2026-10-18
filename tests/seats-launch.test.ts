@@ -14,6 +14,7 @@ import {
 import {
   forgetRemoteSeatLaunches,
   heldRemoteSeatLaunch,
+  openedRemoteSeatLaunches,
   rememberRemoteSeatLaunch,
   remoteSeatLaunch,
   resetRemoteSeatLaunches,
@@ -102,6 +103,20 @@ describe("a remote seat's launch state on the editing machine", () => {
     expect(ask).toHaveBeenCalledTimes(3);
     forgetRemoteSeatLaunches(seat.machine);
     expect(await read()).toEqual(vacant);
+  });
+
+  it("asks again on the first link a seat asked before any link was up", async () => {
+    const vacant: SeatLaunchState = { hasSession: true, next: "resume", nextTurn: { fresh: true } };
+    const ask = vi.fn(async () => vacant);
+    const read = () => remoteSeatLaunch({ ...seat, live: false, ask, now: () => NOW });
+    // A window's card asks while the link to that machine is still opening.
+    ask.mockRejectedValueOnce(new Error("no path to the machine"));
+    expect(await read()).toBeUndefined();
+    expect(await read()).toBeUndefined();
+    expect(ask).toHaveBeenCalledTimes(1);
+    openedRemoteSeatLaunches(seat.machine);
+    expect(await read()).toEqual(vacant);
+    expect(ask).toHaveBeenCalledTimes(2);
   });
 
   it("keeps a state that arrives while a Get is out over the Get's answer", async () => {

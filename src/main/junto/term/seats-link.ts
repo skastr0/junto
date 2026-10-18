@@ -33,7 +33,7 @@ import {
 } from "./seats-failure";
 import { decodeSeatsLaunch, fromSeatsLaunch, SeatsLaunchState, toSeatsLaunch, type SeatLaunchState } from "./seats-launch";
 import { decodeSeatsStatus, fromSeatsStatus, statusIssueAt, toSeatsStatus } from "./seats-status";
-import { forgetRemoteSeatLaunches, rememberRemoteSeatLaunch } from "./remote-seat-launch";
+import { forgetRemoteSeatLaunches, openedRemoteSeatLaunches, rememberRemoteSeatLaunch } from "./remote-seat-launch";
 import { seatStateRuntime } from "./agent-state/runtime";
 import { publishRemoteSeatState } from "./remote-seat-state";
 import type { LocalSessionHost } from "./local-host";
@@ -469,6 +469,7 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
 
   const opened: NonNullable<LinkChannelHandler["opened"]> = (context) => Effect.sync(() => {
     if (stateSubscriptions.has(context.signal)) return;
+    openedRemoteSeatLaunches(context.peer.machineName);
     const send = (event: AgentSeatStateEvent) => { void run(forwardState(context, event)); };
     const unsubscribe = seatStates.subscribe(send);
     stateSubscriptions.set(context.signal, unsubscribe);
