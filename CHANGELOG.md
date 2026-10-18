@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.8.1 — 2026-10-18
+
+- Keep the canvas smooth with many seats. Rings turn and pulse on the
+  compositor instead of a main-thread loop, each turning ring and the card
+  that holds it is its own layer, and zoomed out, seats past a screen's ring
+  budget gather into clusters whose rings still turn.
+- Start with the renderer accessibility tree off, which cuts pan and idle cost.
+
 ## 0.8.0 — 2026-10-17
 
 - Set up each machine from Settings. Providers, Name and startup, and each
