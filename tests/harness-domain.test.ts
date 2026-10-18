@@ -14,6 +14,7 @@ import {
   NEED_URGENCY,
   NO_COMMAND,
   NO_SIGNAL,
+  reduceSeat,
   reduceSeatSignals,
   topNeed,
   type CommandSupport,
@@ -201,6 +202,72 @@ describe("harness domain: status", () => {
       at("screen", { _tag: "UsageLimitHit", scope: "weekly", resetsAt: 7_000, message: "limit" }),
     ]);
     expect(refined.since).toBe(first.since);
+  });
+
+  describe("activitySince", () => {
+    const on = (ms: number, source: SignalSource, signal: SeatSignal): SignalEnvelope => ({
+      seat,
+      at: ms,
+      source,
+      fidelity: source === "screen" ? "screen" : "native",
+      signal,
+    });
+    const steps = (...envelopes: SignalEnvelope[]): Array<number | undefined> => {
+      let snapshot = initialSnapshot(seat, 0);
+      return envelopes.map((envelope) => (snapshot = reduceSeat(snapshot, envelope)).activitySince);
+    };
+
+    it("is absent until the seat first leaves rest", () => {
+      expect(initialSnapshot(seat, 0).activitySince).toBeUndefined();
+      expect(steps(on(100, "screen", { _tag: "ActivityObserved", activity: "idle" }))).toEqual([undefined]);
+    });
+
+    it("moves when the seat leaves idle, and nothing inside the work moves it", () => {
+      expect(
+        steps(
+          on(100, "screen", { _tag: "ActivityObserved", activity: "working" }),
+          on(200, "screen", { _tag: "ToolStarted", tool: "Bash" }),
+          on(250, "screen", { _tag: "Retrying", cause: "overloaded" }),
+          on(300, "screen", { _tag: "PermissionRequested", tool: "Bash" }),
+          on(400, "screen", { _tag: "PermissionResolved", decision: "allowed" }),
+          on(450, "screen", { _tag: "CompactionStarted", trigger: "auto" }),
+          on(500, "screen", { _tag: "TurnEnded", outcome: "completed" }),
+          on(600, "screen", { _tag: "TurnStarted" }),
+        ),
+      ).toEqual([100, 100, 100, 100, 100, 100, 100, 600]);
+    });
+
+    it("counts a block raised from idle as leaving it, and keeps it through an exit", () => {
+      expect(
+        steps(
+          on(100, "screen", { _tag: "ActivityObserved", activity: "idle" }),
+          on(200, "screen", { _tag: "DialogShown", kind: "unknown" }),
+          on(300, "screen", { _tag: "ActivityObserved", activity: "idle" }),
+          on(400, "process", { _tag: "ProcessExited", code: 0, expected: true }),
+          on(500, "screen", { _tag: "ActivityObserved", activity: "working" }),
+        ),
+      ).toEqual([undefined, 200, 200, 200, 200]);
+    });
+
+    it("reads Unknown as no reading: it never moves the clock, and leaving it for work does", () => {
+      expect(
+        steps(
+          on(100, "screen", { _tag: "ActivityObserved", activity: "idle" }),
+          on(200, "system", { _tag: "ActivityObserved", activity: "unknown" }),
+          on(300, "screen", { _tag: "ActivityObserved", activity: "working" }),
+        ),
+      ).toEqual([undefined, undefined, 300]);
+    });
+
+    it("ignores what a poorer channel cannot change", () => {
+      expect(
+        steps(
+          on(100, "osc7501", { _tag: "TurnStarted" }),
+          on(200, "osc7501", { _tag: "TurnEnded", outcome: "completed" }),
+          on(300, "screen", { _tag: "ActivityObserved", activity: "working" }),
+        ),
+      ).toEqual([100, 100, 100]);
+    });
   });
 
   it("ignores envelopes for another seat", () => {

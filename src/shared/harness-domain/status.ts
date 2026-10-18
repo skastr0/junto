@@ -95,6 +95,12 @@ export const SeatSnapshot = Schema.Struct({
   status: SeatStatus,
   /** When the status last changed kind (detail updates keep it). */
   since: EpochMs,
+  /**
+   * When the seat last left rest: a move from Idle, or from no reading yet
+   * (Starting, Unknown), to Working or Blocked. Tool calls, phase changes and
+   * Working to Blocked and back keep it, and so does an exit.
+   */
+  activitySince: Schema.optionalKey(EpochMs),
   statusSource: SignalSource,
   statusFidelity: Fidelity,
   /**
@@ -236,6 +242,12 @@ const statusKey = (status: SeatStatus): string => {
   }
 };
 
+/** Idle, or no reading yet: what a seat leaves when it takes up work. */
+const atRest = (status: SeatStatus): boolean =>
+  status._tag === "Idle" || status._tag === "Starting" || status._tag === "Unknown";
+
+const engaged = (status: SeatStatus): boolean => status._tag === "Working" || status._tag === "Blocked";
+
 const withStatus = (
   snapshot: SeatSnapshot,
   envelope: SignalEnvelope,
@@ -255,6 +267,7 @@ const withStatus = (
     ...(activity === undefined ? {} : { activity }),
     status: shown.status,
     since: statusKey(shown.status) === statusKey(snapshot.status) ? snapshot.since : envelope.at,
+    ...(atRest(snapshot.status) && engaged(shown.status) ? { activitySince: envelope.at } : {}),
     statusSource: shown.source,
     statusFidelity: shown.fidelity,
   };
