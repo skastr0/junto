@@ -444,6 +444,6 @@ describe("TerminalSurface load label on a pinned seat", () => {
     await vi.advanceTimersByTimeAsync(10);
 
     expect(hooks.states[LOAD_PHASE]).toBe("starting");
-    expect(hooks.states[STATUS]).toBe("starting");
+    expect(hooks.states[STATUS]).toBe("starting session");
   });
 });
