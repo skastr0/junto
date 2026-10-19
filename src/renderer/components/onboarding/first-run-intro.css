@@ -311,6 +311,8 @@
 }
 .intro-shell__faint { color: var(--color-dim); }
 .intro-shell__foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* The change line wraps; the button never does. */
+.intro-shell__foot > button { flex: none; white-space: nowrap; }
 
 .tour-switch { display: flex; justify-content: center; }
 
