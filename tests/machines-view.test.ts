@@ -5,7 +5,7 @@
  */
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { MachineListData, MachineOwnStatus, MachinePeerStatus } from "../src/shared/machine-control";
+import { MachineListData, MachineOwnStatus, MachinePeerStatus, type MachineHarness } from "../src/shared/machine-control";
 import {
   harnessSignInLine,
   harnessesSeatsLack,
@@ -15,6 +15,7 @@ import {
   machineDownloadStepLines,
   machineFigureState,
   machineForm,
+  machineHarnessGroups,
   machineHarnesses,
   machineMissingSecrets,
   machineNamed,
@@ -456,5 +457,28 @@ describe("a machine on Boat", () => {
   it("still sends and updates as any machine, the wake being the owner's", () => {
     expect(machineCondition(listed({ setUp: false }), undefined, undefined, boat({ power: "asleep" }))).toBe("not-set-up");
     expect(machineCondition(listed({ needsUpdate: true }), undefined, undefined, boat({ power: "asleep" }))).toBe("needs-update");
+  });
+});
+
+describe("how a machine's harnesses are listed", () => {
+  const found = (harness: MachineHarness["harness"]): MachineHarness => ({ harness, installed: true, signIn: "sign-in-unverified" });
+
+  it("says the state most share once, names them, and gives each one that differs its own line", () => {
+    const rows = [found("claude"), found("codex"), found("amp"), { harness: "grok", installed: false, signIn: "not-installed" } satisfies MachineHarness, found("pi")];
+    const groups = machineHarnessGroups(rows);
+    expect(groups.shared).toMatchObject({ state: "unverified", line: "4 found. Sign-in not checked" });
+    expect(groups.shared?.harnesses.map((row) => row.harness)).toEqual(["claude", "codex", "amp", "pi"]);
+    expect(groups.apart.map((row) => row.harness)).toEqual(["grok"]);
+  });
+
+  it("says all when every one shares the state", () => {
+    const groups = machineHarnessGroups((["claude", "codex", "amp"] as const).map(found));
+    expect(groups.shared?.line).toBe("All 3 found. Sign-in not checked");
+    expect(groups.apart).toEqual([]);
+  });
+
+  it("lists each one apart when no state is shared by three", () => {
+    const rows = [found("claude"), found("codex"), { harness: "amp", installed: false, signIn: "not-installed" } satisfies MachineHarness];
+    expect(machineHarnessGroups(rows)).toEqual({ apart: rows });
   });
 });

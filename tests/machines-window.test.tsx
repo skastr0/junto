@@ -164,6 +164,7 @@ const fakeOwner = () => {
     },
     ok,
     refuse,
+    harnesses,
     ops: () => requests.map((request) => request.op),
     last: (op: string) => requests.filter((request) => request.op === op).at(-1)!,
     step: (id: string, step: string) =>
@@ -286,6 +287,16 @@ it("shows this machine's build and harnesses, and no way to remove it", () => {
     "Amp: found. Sign-in not checked",
   ]);
   expect(byTest("machine-action-remove")).toBeNull();
+});
+
+it("lists many harnesses in one state as one line and their names, and apart only the one that differs", async () => {
+  owner.harnesses.splice(0, owner.harnesses.length,
+    ...["claude", "codex", "grok", "pi"].map((harness) => ({ harness, installed: true, signIn: "sign-in-unverified" })),
+    { harness: "amp", installed: false, signIn: "not-installed" });
+  await act(async () => { await refreshMachines(); await flush(); });
+  expect(byTest("machine-harnesses-shared")?.textContent).toBe("4 found. Sign-in not checked");
+  expect([...byTest("machine-harnesses-shared-names")!.children].map((item) => item.textContent)).toEqual(["Claude Code", "Codex", "Grok", "Pi"]);
+  expect([...byTest("machine-harnesses")!.children].map((item) => item.textContent)).toEqual(["Amp: not found"]);
 });
 
 it("names a machine's missing secrets and shows no value", async () => {

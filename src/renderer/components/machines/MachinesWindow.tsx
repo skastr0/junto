@@ -31,6 +31,7 @@ import {
   machineDownloadStepLines,
   machineFigureState,
   machineForm,
+  machineHarnessGroups,
   machineHarnesses,
   machineMissingSecrets,
   machineNamed,
@@ -189,6 +190,7 @@ function MachineDetail({
   const where = machineNamed(item);
   const steps = [...machineDownloadStepLines(copy), ...machineCopyStepLines(copy), ...machineStepLines(copy)];
   const harnesses = machineHarnesses(read);
+  const harnessGroups = harnesses ? machineHarnessGroups(harnesses) : undefined;
   const lacking = harnessesSeatsLack(read, placed.harnesses);
   const missingSecrets = machineMissingSecrets(read);
 
@@ -268,20 +270,38 @@ function MachineDetail({
         {read?.kind === "own" ? <Fact name="Build">{read.status.build.slice(0, 12)}</Fact> : null}
         {harnesses ? (
           <Fact name="Harnesses">
-            {harnesses.length === 0 ? (
+            {harnesses.length === 0 || harnessGroups === undefined ? (
               `None found. Install a harness on ${where} to run seats on it.`
             ) : (
-              <ul className="grid gap-0.5" data-testid="machine-harnesses">
-                {harnesses.map((row) => {
-                  const signIn = harnessSignInLine(row);
-                  return (
-                    <li key={row.harness} data-harness={row.harness} data-installed={row.installed} data-sign-in={row.signIn}>
-                      {harnessName(row.harness)}: {row.installed ? "found" : "not found"}
-                      {signIn ? <span data-testid="machine-harness-sign-in">. {signIn}</span> : null}
-                    </li>
-                  );
-                })}
-              </ul>
+              <div className="grid gap-1.5">
+                {harnessGroups.shared ? (
+                  <>
+                    <p data-testid="machine-harnesses-shared" data-harness-state={harnessGroups.shared.state}>
+                      {harnessGroups.shared.line}
+                    </p>
+                    <ul className="grid grid-cols-2 gap-x-6 gap-y-0.5 text-dim" data-testid="machine-harnesses-shared-names">
+                      {harnessGroups.shared.harnesses.map((row) => (
+                        <li key={row.harness} data-harness={row.harness} data-installed={row.installed} data-sign-in={row.signIn}>
+                          {harnessName(row.harness)}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
+                {harnessGroups.apart.length > 0 ? (
+                  <ul className="grid gap-0.5" data-testid="machine-harnesses">
+                    {harnessGroups.apart.map((row) => {
+                      const signIn = harnessSignInLine(row);
+                      return (
+                        <li key={row.harness} data-harness={row.harness} data-installed={row.installed} data-sign-in={row.signIn}>
+                          {harnessName(row.harness)}: {row.installed ? "found" : "not found"}
+                          {signIn ? <span data-testid="machine-harness-sign-in">. {signIn}</span> : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : null}
+              </div>
             )}
           </Fact>
         ) : null}

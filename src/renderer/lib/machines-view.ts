@@ -498,6 +498,60 @@ export const harnessSignInLine = (row: MachineHarness): string | undefined => {
   return undefined;
 };
 
+/** Where one harness stands on a machine, as far as Junto can tell without launching it. */
+export type HarnessState = "found" | "unverified" | "keychain" | "missing";
+
+export const harnessState = (row: MachineHarness): HarnessState =>
+  !row.installed
+    ? "missing"
+    : row.signIn === "keychain-login-unavailable"
+      ? "keychain"
+      : row.signIn === "sign-in-unverified"
+        ? "unverified"
+        : "found";
+
+/** Below this many harnesses in one state, each keeps a line of its own. */
+const HARNESS_GROUP_MIN = 3;
+
+/**
+ * A machine's harnesses as the window lists them: the state most of them
+ * share said once, with their names, and a line of its own for each one
+ * whose state differs. With no state shared widely enough, every one is apart.
+ */
+export type MachineHarnessGroups = {
+  readonly shared?: { readonly state: HarnessState; readonly line: string; readonly harnesses: ReadonlyArray<MachineHarness> };
+  readonly apart: ReadonlyArray<MachineHarness>;
+};
+
+const sharedLine = (state: HarnessState, count: number, total: number): string => {
+  const many = count === total ? `All ${count}` : `${count}`;
+  switch (state) {
+    case "found":
+      return `${many} found`;
+    case "unverified":
+      return `${many} found. Sign-in not checked`;
+    case "keychain":
+      return `${many} found. A sign-in kept in this Mac's keychain cannot be used here. Log in to its desktop, then update Junto.`;
+    case "missing":
+      return `${many} not found`;
+  }
+};
+
+export const machineHarnessGroups = (rows: ReadonlyArray<MachineHarness>): MachineHarnessGroups => {
+  const byState = new Map<HarnessState, MachineHarness[]>();
+  for (const row of rows) byState.set(harnessState(row), [...(byState.get(harnessState(row)) ?? []), row]);
+  // The largest group; on a tie, the one met first.
+  const [state, members] = [...byState].reduce<[HarnessState, MachineHarness[]] | undefined>(
+    (best, next) => (best === undefined || next[1].length > best[1].length ? next : best),
+    undefined,
+  ) ?? ["found", []];
+  if (members.length < HARNESS_GROUP_MIN) return { apart: rows };
+  return {
+    shared: { state, line: sharedLine(state, members.length, rows.length), harnesses: members },
+    apart: rows.filter((row) => harnessState(row) !== state),
+  };
+};
+
 /** Names of the secrets a machine lacks. Names only: a value never reaches the window. */
 export const machineMissingSecrets = (read: MachineRead | undefined): ReadonlyArray<string> =>
   read?.kind === "peer" && read.status.reachable ? read.status.missingSecrets : [];
