@@ -95,21 +95,26 @@
   background: var(--machine-tile);
 }
 
-.machine-stage::before {
-  content: "";
-  position: absolute;
-  top: -45px;
-  left: 60px;
-  width: 420px;
-  height: 420px;
-  border-radius: 50%;
-  background: var(--machine-halo);
-}
-
 .machine-stage__figure {
   position: relative;
+  isolation: isolate;
   flex: none;
   margin-left: 70px;
+}
+
+/* The halo is centred on the figure and fits inside the band at its least
+   height, so it is never cut off. */
+.machine-stage__figure::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 50%;
+  left: 50%;
+  width: 310px;
+  height: 310px;
+  border-radius: 50%;
+  background: var(--machine-halo);
+  transform: translate(-50%, -50%);
 }
 
 .machine-stage__words {
