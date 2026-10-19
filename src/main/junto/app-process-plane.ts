@@ -33,6 +33,8 @@ const require = createRequire(typeof __filename === "string" ? __filename : impo
 
 export const APP_PROCESS_TERM_GRACE_MS = 1_000;
 export const APP_PROCESS_KILL_GRACE_MS = 1_500;
+const GROUP_DRAIN_POLL_FIRST_MS = 25;
+const GROUP_DRAIN_POLL_MAX_MS = 250;
 
 type AppProcessMode = "child" | "group";
 type AppOwnedMode = AppProcessMode | "terminal";
@@ -1212,6 +1214,30 @@ export const createAppProcessPlane = (
     });
   };
 
+  /**
+   * One drain phase. A group record retires only on close plus a verified
+   * empty group, which no event announces, so while a closed group waits the
+   * phase re-reads the process table on a backoff. A group that dies at once
+   * costs one read, not the whole grace. Each read is one synchronous `ps`.
+   */
+  const waitForDrainPhase = async (timeoutMs: number): Promise<boolean> => {
+    const deadline = Date.now() + timeoutMs;
+    let pollMs = GROUP_DRAIN_POLL_FIRST_MS;
+    while (records.size > 0) {
+      if ([...records].some((record) =>
+        record.mode === "group" && record.closeEvent !== undefined && record.groupObservation !== undefined
+      )) {
+        refreshObservedGroups();
+        if (records.size === 0) return true;
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return false;
+      await waitForRegistryEmpty(Math.min(pollMs, remaining));
+      pollMs = Math.min(pollMs * 2, GROUP_DRAIN_POLL_MAX_MS);
+    }
+    return true;
+  };
+
   const beginShutdown = (): void => {
     quiescing = true;
   };
@@ -1236,7 +1262,7 @@ export const createAppProcessPlane = (
         }
       }
 
-      await waitForRegistryEmpty(termGraceMs);
+      await waitForDrainPhase(termGraceMs);
       refreshObservedGroups();
       if (records.size === 0) {
         return { clean: true, stragglers: [] };
@@ -1248,7 +1274,7 @@ export const createAppProcessPlane = (
         }
       }
 
-      await waitForRegistryEmpty(killGraceMs);
+      await waitForDrainPhase(killGraceMs);
       refreshObservedGroups();
       if (records.size === 0) {
         return { clean: true, stragglers: [] };
