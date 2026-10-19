@@ -70,6 +70,7 @@ export const liveSeatObservation = (): Effect.Effect<
       },
       readGrid: (bindingId, lines) => terminalObserverPlane.readWindow(bindingId, lines),
       subscribeGrid: (listener) => terminalObserverPlane.subscribeAll(listener),
+      lastOutputAt: (bindingId) => terminalObserverPlane.lastOutputAt(bindingId),
       now: () => Date.now(),
     });
   });

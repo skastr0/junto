@@ -55,6 +55,8 @@ export class TerminalObserverPlane {
    * already bought. The lease outlives the epoch; the grid does not.
    */
   private readonly surfacesByBinding = new Map<string, number>();
+  /** When each binding's terminal last printed anything: `seat read`'s last activity. */
+  private readonly lastFedAt = new Map<string, number>();
 
   attach(opts: SessionObserverOptions): SessionObserver {
     const prior = this.byBinding.get(opts.bindingId);
@@ -153,7 +155,15 @@ export class TerminalObserverPlane {
   }
 
   feed(bindingId: string, data: string, seq: bigint): void {
-    this.byBinding.get(bindingId)?.feed(data, seq);
+    const observer = this.byBinding.get(bindingId);
+    if (observer === undefined) return;
+    this.lastFedAt.set(bindingId, Date.now());
+    observer.feed(data, seq);
+  }
+
+  /** When the binding's terminal last printed anything, across generations. */
+  lastOutputAt(bindingId: string): number | undefined {
+    return this.lastFedAt.get(bindingId);
   }
 
   resize(bindingId: string, cols: number, rows: number): void {
@@ -257,6 +267,7 @@ export class TerminalObserverPlane {
     }
     this.byBinding.clear();
     this.surfacesByBinding.clear();
+    this.lastFedAt.clear();
     this.globalListeners.clear();
   }
 }

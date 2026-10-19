@@ -38,6 +38,7 @@
 
 import { Effect, Result } from "effect";
 import type { Canvas, Node, Seat } from "@shared/model";
+import { seatIdentity } from "@shared/model/seat-identity";
 import type { Task } from "@shared/work-model";
 import {
   agentSeatStatusOf,
@@ -52,6 +53,7 @@ import {
   clampReadLines,
   clipReadText,
   utf8ByteLength,
+  type SeatPeer,
   type SeatReadArgs,
   type SeatReadResult,
   type SeatWaitArgs,
@@ -108,6 +110,8 @@ export type SeatObservationDeps = {
   ) => Promise<ObserverGridWindow | undefined>;
   /** Grid settled-write subscription, used by `seat.read --follow`. */
   readonly subscribeGrid: (listener: (snapshot: ObserverGridSnapshot) => void) => () => void;
+  /** When the binding's terminal last printed anything, or undefined before its first output. */
+  readonly lastOutputAt?: (bindingId: string) => number | undefined;
   readonly now?: () => number;
 };
 
@@ -288,19 +292,22 @@ const resolveSeatTargets = (
   return Result.succeed(authorized.map(seatTargetOf));
 };
 
+/** A read target carries who the seat is, from the document that admitted it. */
+type ReadTarget = SeatTarget & { readonly peer: SeatPeer };
+
 /** One explicit read target: same authority, port `terminal.read`. */
 const resolveReadTarget = (
   doc: Canvas,
   callerId: string,
   targetId: string,
-): Result.Result<SeatTarget, WorkErrorBody> => {
+): Result.Result<ReadTarget, WorkErrorBody> => {
   const admitted = admitWorkTarget(doc, callerId, targetId, "seat.read");
   if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
   const node = admitted.success.node;
   if (node.kind !== "agent") {
     return Result.fail(notASeat(targetId, nodeKind(node)));
   }
-  return Result.succeed(seatTargetOf(node));
+  return Result.succeed({ ...seatTargetOf(node), peer: seatIdentity(doc, node) });
 };
 
 const seatStateOf = (
@@ -549,7 +556,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
       const deadlineAt = now() + maxSeconds * 1_000;
 
       /** Re-derive authority from the live document, or fail ScopeError. */
-      const authorize = (): Effect.Effect<SeatTarget, WorkErrorBody> =>
+      const authorize = (): Effect.Effect<ReadTarget, WorkErrorBody> =>
         Effect.gen(function* () {
           const doc = yield* deps.readTopology(caller.canvasName);
           const resolved = resolveReadTarget(doc, caller.nodeId, args.target);
@@ -600,6 +607,12 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
           session !== undefined &&
           session.epoch !== windowEpoch;
         const status = seatDescribesWindow ? agentSeatStatusOf(seat) : undefined;
+        // The status snapshot dates the state it projects; a bare event dates
+        // its own publication.
+        const since = seatDescribesWindow && seat !== undefined
+          ? (status?.snapshot.since ?? seat.at)
+          : undefined;
+        const lastActivityAt = deps.lastOutputAt?.(target.bindingId);
         return {
           target: target.nodeId,
           state: seatDescribesWindow
@@ -627,6 +640,9 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
                   need: status.need,
                 },
               }),
+          peer: target.peer,
+          ...(since === undefined ? {} : { since }),
+          ...(lastActivityAt === undefined ? {} : { lastActivityAt }),
         };
       };
 

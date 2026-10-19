@@ -243,6 +243,18 @@ export const SeatReadStatus = Schema.Struct({
 });
 export type SeatReadStatus = typeof SeatReadStatus.Type;
 
+/**
+ * Who the read seat is: its id, its name, and every region around it,
+ * outermost first — the one seat identity (seat-identity.ts) every other
+ * surface reads.
+ */
+export const SeatPeer = Schema.Struct({
+  nodeId: Schema.String,
+  name: Schema.String,
+  regions: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })),
+});
+export type SeatPeer = typeof SeatPeer.Type;
+
 export const SeatReadResult = Schema.Struct({
   target: Schema.String,
   state: SeatState,
@@ -259,6 +271,11 @@ export const SeatReadResult = Schema.Struct({
   stopped: SeatReadStopped,
   /** Present when the seat state describes this window and carries a status. */
   status: Schema.optionalKey(SeatReadStatus),
+  peer: SeatPeer,
+  /** When the seat entered `state`, ms since epoch; absent when no state was published. */
+  since: Schema.optionalKey(Schema.Number),
+  /** When the seat's terminal last printed anything, ms since epoch; absent before its first output. */
+  lastActivityAt: Schema.optionalKey(Schema.Number),
 });
 export type SeatReadResult = typeof SeatReadResult.Type;
 

@@ -260,7 +260,9 @@ A task that arrives back with an epoch bump was sent back to you: prior claims a
 
 const MSG_REFERENCE = `Own inbox: \`junto msg list\` marks listed mail read; \`junto msg react '{"messageId":"<msgId>"}'\` acknowledges without a reply. Mail is never refused and never needs a retry: it is typed into the recipient's input at once, whatever the recipient is doing, and a recipient whose seat is not up gets it when the seat starts. The one wait is the input box: mail is never typed over a message the operator is composing in that seat, into a dialog, or onto a screen Junto cannot read, and goes in once the box is free. Kinds are \`notice\`, \`prompt\`, and \`receipt\`; a typed notice says \`mail from <seat>\`, and adds a pointer to \`junto onboard\` when the recipient has not onboarded yet. Threads: every mail names its \`threadId\`, the id of the mail that started it; \`junto msg reply\` joins the parent's thread, \`junto msg send\` joins one with \`threadId\`, \`junto msg list '{"threadId":"<id>"}'\` reads one, and a reply with target \`operator\` answers mail the operator sent you. Avoid acknowledgement loops.
 
-Seat wait and seat read require a local peer, and are unavailable for Remote seats.`;
+Seat wait and seat read require a local peer, and are unavailable for Remote seats.
+
+\`junto seat read <peer>\` names the peer (name, regions), its state and since when, and when its terminal last printed, beside its screen tail.`;
 
 const MSG_SEND_REFERENCE =
   "A send answers `delivered` (typed into their input) or `waiting` (their seat is not up yet, or its input box is not free: the operator is composing, or a dialog is up). Inspect delivered, read and reply facts with `junto msg sent`; each is separate evidence.";
