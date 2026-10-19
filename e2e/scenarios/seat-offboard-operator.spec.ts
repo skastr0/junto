@@ -1146,6 +1146,20 @@ const holdSessionsOnDisk = async (sandbox: Sandbox, nodeIds: ReadonlyArray<strin
   }
 };
 
+/**
+ * Why a seat's card says what it says: main's own launch state for the seat
+ * (modelSeatLaunchState) and the facts the resume proof reads
+ * (term/seat-launch-state.ts provenOnDisk: the seat's open session, the
+ * isolated-home flag, and whether Codex's store holds that id).
+ */
+const launchWhy = async (page: Page, sandbox: Sandbox, nodeId: string): Promise<string> => {
+  const state = await page.evaluate((id) => window.junto!.modelSeatLaunchState({ canvas: "operator-offboard", id }), nodeId).catch((error: unknown) => `unreadable: ${String(error)}`);
+  const pin = await sessionPin(sandbox, nodeId);
+  const store = join(sandbox.homeDir, ".codex", "sessions", "2026", "10", "17");
+  const held = (await readdir(store).catch(() => [] as string[])).filter((name) => pin !== undefined && name.includes(pin));
+  return JSON.stringify({ state, pin, rolloutFilesNamingThePin: held, storeDir: store, JUNTO_HOME_OWNS_SESSIONS: "1 (walk env)", seatCwdIsTmpdir: tmpdir() });
+};
+
 test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next, and mail to it at rest starts a fresh session that onboards after the cut", async ({}, testInfo) => {
   // No wait for product time: the seat arrives already still past the window (seedStillSeat), a seat
   // inside its window is the control, and the minute pass (the eager cut) is held by tests/operator-offboard.test.ts.
@@ -1197,7 +1211,13 @@ test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next,
       await stopSeat(ctx, "tia", cutPid);
       await stopSeat(ctx, "zed", (await zed.ready()).pid);
       await expect(card(page, "tia"), "a resting seat past the window still says it").toContainText("fresh next", { timeout: 20_000 });
-      await expect(card(page, "zed"), "and one inside the window does not").not.toContainText("fresh next");
+      await expect(card(page, "zed"), "and one inside the window does not").not.toContainText("fresh next").catch(async (error: unknown) => {
+        // Say why before stopping: main's own answer for the card and the inputs of the resume proof.
+        const why = await launchWhy(page, sandbox, "zed");
+        note(testInfo, "LOOP-zed-launch-why", why);
+        console.log(`LOOP-zed-launch-why ${why}`);
+        throw error;
+      });
       opData(await pat.op("msg.send", { target: "zed", text: WAKE }));
       await expect.poll(() => launches(sandbox, "zed"), { message: "a process starts for the mail to Zed", timeout: 90_000 }).toBe(2);
       await expect.poll(() => inputOf(sandbox, "zed", 2), { message: "the mail on Zed's session", timeout: 60_000 }).toContain(WAKE);
