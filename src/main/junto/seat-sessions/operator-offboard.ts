@@ -122,7 +122,7 @@ export type SeatOffboardFacts = {
   readonly worth: boolean;
 };
 
-/** A session's size: either basis judges `worth`, only `recorded` is shown past this machine. */
+/** A session's size: either basis judges `worth`, only `recorded` is ever shown. */
 export type SessionSizeRead = { readonly tokens: number; readonly basis: "recorded" | "estimated" };
 
 /** The tokens a size shows when its basis is the harness's own count. */
@@ -603,6 +603,7 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
           return remoteRow(seatId, allowed, await ports.remote?.(seat).catch(() => undefined), at);
         const still = seat ? stillness(seat, at) : { minutes: null, pastWindow: false };
         const done = seat ? worthOf(seat, true) : { workMs: 0, worth: false };
+        const tokens = recordedTokens(done.size);
         return {
           seatId,
           now: allowed,
@@ -611,7 +612,7 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
           pastWindow: still.pastWindow,
           preferred: still.pastWindow ? "now" : "ask",
           workMinutes: Math.floor(done.workMs / 60_000),
-          ...(done.size !== undefined ? { sessionTokens: done.size.tokens } : {}),
+          ...(tokens !== undefined ? { sessionTokens: tokens } : {}),
           worthCutting: done.worth,
         };
       }),

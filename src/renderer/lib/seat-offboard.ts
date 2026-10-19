@@ -166,9 +166,9 @@ export const tokensWords = (tokens: number): string => {
 };
 
 /**
- * What one seat's current session has done: time spent working, and the
- * size of its transcript as a token estimate (unknown when the transcript
- * cannot be found). When that is not yet enough for the automatic rules to
+ * What one seat's current session has done: time spent working, and its
+ * context in tokens as its harness recorded it (unknown when it has not).
+ * When that is not yet enough for the automatic rules to
  * act on it, the line says so: the buttons still work. A selection gets no
  * such line.
  */

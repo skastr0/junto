@@ -278,9 +278,9 @@ export type SeatOffboardStatus = {
    */
   readonly workMinutes?: number;
   /**
-   * The session's size in tokens. For a seat this machine runs: its
-   * harness's own count, or else a transcript estimate. For a seat run
-   * elsewhere: only its harness's own count. Absent when nothing is known.
+   * The session's context in tokens, as its harness recorded it on its
+   * latest model call. Absent when the harness has not recorded it: a
+   * transcript estimate still judges `worthCutting` but is never shown.
    */
   readonly sessionTokens?: number;
   /**

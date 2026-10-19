@@ -406,7 +406,7 @@ describe("a seat on another machine", () => {
     expect(await w.offboard.facts({ canvasName: CANVAS, seatId: "ghost" })).toBeUndefined();
   });
 
-  it("tells a size only when its harness recorded it: an estimate judges worth and shows on this machine's row alone", async () => {
+  it("tells a size only when its harness recorded it: an estimate judges worth but is never shown", async () => {
     const w = world([seat("a")], { noWork: ["a"] });
     w.work("a", 2);
     w.sizes.set("a", 200_000);
@@ -415,10 +415,13 @@ describe("a seat on another machine", () => {
     expect(await w.offboard.facts({ canvasName: CANVAS, seatId: "a" })).toEqual({
       stillSince: T0 + 2 * MIN, windowMinutes: 60, cacheMode: "hybrid", workMs: 2 * MIN, worth: true,
     });
-    expect((await w.offboard.status(CANVAS, ["a"]))[0]).toMatchObject({ sessionTokens: 200_000, worthCutting: true });
-    // The harness's own count is told.
+    const row = (await w.offboard.status(CANVAS, ["a"]))[0]!;
+    expect(row).toMatchObject({ worthCutting: true });
+    expect(row).not.toHaveProperty("sessionTokens");
+    // The harness's own count is told, and shown.
     w.estimated.delete("a");
     expect(await w.offboard.facts({ canvasName: CANVAS, seatId: "a" })).toMatchObject({ tokens: 200_000, worth: true });
+    expect((await w.offboard.status(CANVAS, ["a"]))[0]).toMatchObject({ sessionTokens: 200_000, worthCutting: true });
   });
 });
 
