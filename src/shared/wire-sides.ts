@@ -15,7 +15,7 @@
  *
  * Paint and geometry only. Pure: no React / xyflow / observables.
  */
-import type { WireDirection } from "@shared/wire-route";
+import type { WireDirection } from "./wire-route";
 
 export type WireSideRect = {
   readonly x: number;

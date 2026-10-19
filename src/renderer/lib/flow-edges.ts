@@ -5,7 +5,7 @@ import type { Canvas } from "@shared/model/canvas";
 import { VERB_COLOR_TOKEN, type Verb } from "@shared/physics";
 import { physicsKind } from "./model-kind";
 import { renderedNodeSize } from "./node-geometry";
-import { wireSides, type WireSideRect } from "./wire-sides";
+import { wireSides, type WireSideRect } from "@shared/wire-sides";
 
 // A canvas's wires as React Flow draws them, worked out from the model. A
 // wire says one thing, its verb, and paints one way: the verb picks a colour

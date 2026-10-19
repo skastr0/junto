@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { wireSides } from "../src/renderer/lib/wire-sides";
+import { wireSides } from "../src/shared/wire-sides";
 
 const seat = (x: number, y: number) => ({ x, y, width: 184, height: 56 });
 
