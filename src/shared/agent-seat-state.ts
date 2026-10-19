@@ -8,13 +8,10 @@
 
 import { Schema } from "effect";
 import { Need, SeatSnapshot } from "./harness-domain";
+import type { AgentSeatState } from "./wire/seat-activity";
 
-export type AgentSeatState =
-  | "idle"
-  | "working"
-  | "attention"
-  | "unknown"
-  | "gone";
+// The state vocabulary is a wire module, so the phone reads the same states.
+export type { AgentSeatState } from "./wire/seat-activity";
 
 export type AgentSeatConfidence = "high" | "low";
 

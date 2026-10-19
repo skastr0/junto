@@ -6,40 +6,23 @@
  * offline) outrank a reading, because a reading about a seat that is not
  * running is stale by construction.
  *
- * The ring is the desktop card's own: the seat grammar (`terminalActivity`)
- * for a managed seat, then `ringState`, the rule the canvas paints from.
+ * The ring is the desktop card's own (wire/seat-ring.ts).
  *
  * Pure: main and the demo both build a `CompanionSeatInput` from their own
  * stores and read the same answer.
  */
 
-import type { AgentSeatState } from "./agent-seat-state";
 import type { AgentSignalKind } from "./agent-signals";
 import type { CompanionSeat, CompanionSeatState } from "./companion-protocol";
-import { attentionText, type FeedHealth, type FeedRegion, type FeedSeat } from "./operator-feed";
-import { ringState, type RingState } from "./rings";
-import { resolveActivityGlyph, terminalActivity } from "./seat-activity";
+import { attentionText, type FeedRegion, type FeedSeat } from "./operator-feed";
+import { companionSeatRing, type CompanionSeatRingInput } from "./wire/seat-ring";
 
-export type CompanionSeatInput = {
+// The ring half is a wire module, so the phone syncs the same ring.
+export { companionSeatRing, type CompanionSeatRingInput } from "./wire/seat-ring";
+
+export type CompanionSeatInput = CompanionSeatRingInput & {
   readonly seat: FeedSeat;
   readonly region: FeedRegion;
-  /** The seat state machine's latest reading for the seat's binding. */
-  readonly control?: { readonly state: AgentSeatState; readonly reason: string; readonly at: number };
-  /** The occupant process. Absent: no binding at all (offline). */
-  readonly process?: "running" | "starting" | "stopped";
-  /** Finished work nobody has looked at yet. */
-  readonly doneUnread?: boolean;
-  readonly signal?: { readonly kind: AgentSignalKind; readonly signalId: string; readonly openCount: number };
-  readonly health?: FeedHealth;
-  /** What only the ring reads; absent, no ring is sent. */
-  readonly ring?: {
-    /** The kernel holds the seat behind a stoppage. */
-    readonly graphBlocked?: boolean;
-    /** The harness failed before it ran. */
-    readonly exitReason?: "cli-missing" | "spawn_failed";
-    /** When the seat's shown status began, ms. */
-    readonly since?: number;
-  };
 };
 
 const SIGNAL_STATE: Readonly<Record<AgentSignalKind, readonly [CompanionSeatState, string]>> = {
@@ -66,35 +49,6 @@ const pick = (input: CompanionSeatInput): readonly [CompanionSeatState, string] 
   if (control?.state === "working") return ["working", good ?? "working"];
   if (input.doneUnread) return ["done_unread", good ?? "done, not read yet"];
   return ["resting", good ?? "resting"];
-};
-
-/**
- * The ring the desktop card draws. A declared blocked or escalate drops a
- * "waiting" reading and fades a good one, as the card's health mark does.
- */
-export const companionSeatRing = (input: CompanionSeatInput): RingState => {
-  const facts = input.ring ?? {};
-  const spec = terminalActivity({
-    seatState: input.control?.state ?? null,
-    seatReason: input.control?.reason ?? null,
-    needsLook: input.doneUnread === true,
-    running: input.process === "running" || input.process === "starting",
-    starting: input.process === "starting",
-    graphBlocked: facts.graphBlocked === true,
-    exitReason: facts.exitReason ?? null,
-    managedSeat: true,
-  });
-  const signal = input.signal?.kind;
-  const declared = signal === "blocked" || signal === "escalate";
-  const health = input.health && !(declared && input.health.tone === "waiting") ? input.health : undefined;
-  return ringState({
-    glyph: resolveActivityGlyph(spec.mode, spec.tone, spec.glyph),
-    tone: spec.tone,
-    ...(health
-      ? { health: health.tone, healthValue: health.value, healthStale: health.stale || (declared && health.tone === "good") }
-      : {}),
-    ...(signal ? { signal } : {}),
-  });
 };
 
 export const companionSeat = (input: CompanionSeatInput): CompanionSeat => {

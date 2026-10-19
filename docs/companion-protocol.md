@@ -430,7 +430,10 @@ Every schema a phone needs lives in modules whose import closure is only
 attachments use, `src/shared/wire/thread-health.ts`,
 `src/shared/wire/mail-threads.ts` (MailParty, MailThreadMessage,
 MailThreadSummary), `src/shared/wire/rings.ts` (the ring rule and its
-timing), `src/shared/wire/companion-protocol.ts`. The desktop's builders import these;
+timing), `src/shared/wire/seat-activity.ts` (the seat grammar,
+`terminalActivity`, and the seat states it reads),
+`src/shared/wire/seat-ring.ts` (`companionSeatRing`, the ring a seat
+carries), `src/shared/wire/companion-protocol.ts`. The desktop's builders import these;
 the wire modules never import the builders. A test fails the build if any
 wire module's closure grows past `effect`.
 
