@@ -11,6 +11,7 @@ import type { ShellEnvironmentChange, ShellEnvironmentStatus } from "../src/shar
 import {
   RESOLVING_ESCAPE,
   changeSummary,
+  escapeSnippet,
   failureWords,
   readShellStep,
   reloadShellStep,
@@ -70,7 +71,9 @@ describe("what the step says", () => {
     const broken = shellStepView(failed({ _tag: "Exited", code: 1 }, true));
     expect(broken.cause).toBe("Your shell exited with code 1 before it printed its environment. An rc file likely stopped on an error.");
     expect(broken.fallback).toBe("Seats keep the environment Junto read before.");
-    expect(broken.escape).toBe(true);
+    // An rc that stopped on an error is not heavy work: the escape would not help.
+    expect(broken.escape).toBe(false);
+    expect(shellStepView(failed({ _tag: "OutputTooLarge", maxBytes: 1024 })).escape).toBe(true);
 
     // No shell, or one that cannot start: an rc escape would not help.
     expect(shellStepView(failed({ _tag: "NoShell" })).escape).toBe(false);
@@ -78,6 +81,12 @@ describe("what the step says", () => {
     expect(failureWords({ _tag: "Exited", signal: "SIGKILL" })).toContain("exited on SIGKILL");
     expect(failureWords({ _tag: "NoEnvironment" })).toContain("could not read the environment");
     expect(failureWords({ _tag: "OutputTooLarge", maxBytes: 4 * 1024 * 1024 })).toContain("4096 KB");
+  });
+
+  it("the escape is written in the shell's own syntax", () => {
+    expect(escapeSnippet("/bin/zsh")).toBe(`if [ -z "$${RESOLVING_ESCAPE}" ]; then\n  # heavy work: version managers, completions\nfi`);
+    expect(escapeSnippet(undefined)).toContain("fi");
+    expect(escapeSnippet("/opt/homebrew/bin/fish")).toBe(`if test -z "$${RESOLVING_ESCAPE}"\n  # heavy work: version managers, completions\nend`);
   });
 
   it("reading and inherited never show a value", () => {
@@ -196,6 +205,31 @@ describe("the panel", () => {
     expect(panel().textContent).toContain("took longer than 10 s");
     expect(panel().textContent).toContain(`${RESOLVING_ESCAPE}=1`);
     expect(host.querySelector<HTMLButtonElement>("[data-testid='shell-environment-reload']")!.disabled).toBe(false);
+  });
+
+  it("a first read that fails says so in one sentence, and Reload can still retry", async () => {
+    vi.stubGlobal("junto", {
+      shellEnvironment: {
+        status: vi.fn(async () => ({ _tag: "Resolved", shell: 7 })),
+        refresh: vi.fn(async () => resolved()),
+        onChange: vi.fn(() => () => undefined),
+      },
+      managedTerminalHarnesses: vi.fn(async () => harnesses(["Codex"])),
+    });
+    await act(async () => root.render(<ShellEnvironmentPanel />));
+    expect(panel().textContent).toContain("Junto could not read the shell status.");
+    expect(panel().textContent).not.toContain("Expected");
+    const reload = host.querySelector<HTMLButtonElement>("[data-testid='shell-environment-reload']")!;
+    expect(reload.disabled).toBe(false);
+    await act(async () => reload.click());
+    expect(panel().dataset.tone).toBe("resolved");
+  });
+
+  it("with no shell environment bridge it says so instead of reading for good", async () => {
+    vi.stubGlobal("junto", { managedTerminalHarnesses: vi.fn() });
+    await act(async () => root.render(<ShellEnvironmentPanel />));
+    expect(panel().textContent).toContain("This build cannot show what Junto read from your shell");
+    expect(host.querySelector<HTMLButtonElement>("[data-testid='shell-environment-reload']")!.disabled).toBe(true);
   });
 
   it("no value reaches the panel, even when main's answer carries a secret-shaped name", async () => {

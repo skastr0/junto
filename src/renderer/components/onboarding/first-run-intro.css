@@ -245,7 +245,6 @@
   background: color-mix(in oklab, var(--color-cyan) 22%, transparent);
 }
 
-/* The top bar's real pause switch, lifted onto the stage. */
 /* Shell chapter: what Junto read, live. A quiet inset panel like the
    permission prompt art; directories in mono, never a value. */
 .intro-art--shell {
@@ -314,6 +313,7 @@
 /* The change line wraps; the button never does. */
 .intro-shell__foot > button { flex: none; white-space: nowrap; }
 
+/* The top bar's real pause switch, lifted onto the stage. */
 .tour-switch { display: flex; justify-content: center; }
 
 .first-run-intro__foot {

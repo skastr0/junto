@@ -8,9 +8,9 @@
  *     step never holds the tour up
  *   - an rc edit, then Reload shell environment: the new PATH directory shows,
  *     and the change is counted, never listed with a value
- *   - a shell that exits before printing: the step says why, that seats use
- *     the PATH Junto was started with, and offers the
- *     JUNTO_RESOLVING_ENVIRONMENT escape
+ *   - a shell that exits before printing: the step says why and that seats
+ *     use the PATH Junto was started with (the JUNTO_RESOLVING_ENVIRONMENT
+ *     escape is for a slow read, so it is not offered here)
  *   - no variable value from the rc appears anywhere in the step
  */
 import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
@@ -83,7 +83,7 @@ test("the shell chapter shows what Junto read, and Reload picks up an rc edit", 
   }
 });
 
-test("a shell that exits explains itself and offers the escape", async () => {
+test("a shell that exits explains itself, and the tour still finishes", async () => {
   await mkdir(SHOTS, { recursive: true });
   const dir = await mkdtemp(join(tmpdir(), "junto-broken-shell-"));
   const broken = join(dir, "broken-shell");
@@ -97,7 +97,8 @@ test("a shell that exits explains itself and offers the escape", async () => {
     await expect(step).toHaveAttribute("data-tone", "failed", { timeout: 15_000 });
     await expect(step).toContainText("exited with code 3 before it printed its environment");
     await expect(step).toContainText("Seats start with the PATH Junto itself was started with.");
-    await expect(step).toContainText("JUNTO_RESOLVING_ENVIRONMENT=1");
+    // An rc that stopped on an error is not heavy work: no escape offered.
+    await expect(step).not.toContainText("JUNTO_RESOLVING_ENVIRONMENT=1");
     // Never a gate: the tour still finishes from here.
     await expect(intro.getByTestId("first-run-intro-done")).toBeEnabled();
     await shot(page, "shell-failed-dark.png");

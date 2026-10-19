@@ -91,7 +91,9 @@ export const shellStepView = (status: ShellEnvironmentStatus): ShellStepView => 
         fallback: status.usingPrevious
           ? "Seats keep the environment Junto read before."
           : "Seats start with the PATH Junto itself was started with.",
-        escape: status.cause._tag !== "NoShell" && status.cause._tag !== "SpawnFailed",
+        // The escape skips heavy rc work: it answers a slow or overlong read,
+        // not an rc that stopped on an error.
+        escape: status.cause._tag === "TimedOut" || status.cause._tag === "OutputTooLarge",
       };
     case "Inherited":
       return {
@@ -103,6 +105,12 @@ export const shellStepView = (status: ShellEnvironmentStatus): ShellStepView => 
       };
   }
 };
+
+/** The escape in the shell's own syntax: fish has no `[ ]` or `fi`. */
+export const escapeSnippet = (shell: string | undefined): string =>
+  shell !== undefined && shellName(shell) === "fish"
+    ? `if test -z "$${RESOLVING_ESCAPE}"\n  # heavy work: version managers, completions\nend`
+    : `if [ -z "$${RESOLVING_ESCAPE}" ]; then\n  # heavy work: version managers, completions\nfi`;
 
 /** What a reload changed, counted: names are never listed, values never sent. */
 export const changeSummary = (change: ShellEnvironmentChange | undefined): string => {
