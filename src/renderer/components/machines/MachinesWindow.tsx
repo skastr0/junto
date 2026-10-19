@@ -666,25 +666,27 @@ function MachinesWindowOpen() {
       ) : null}
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-[340px] shrink-0 flex-col overflow-y-auto border-r border-stroke" aria-label="Machines">
-          <ul className="machine-shelf" role="listbox" aria-label="Machines">
-            {shown.map((entry) => (
-              <MachineRow
-                key={entry.item.machine.id}
-                item={entry.item}
-                read={reads[entry.item.machine.id]}
-                copy={copies[entry.item.machine.id]}
-                boat={boatOf(entry)}
-                placed={placed.get(entry.item.machine.id) ?? NOTHING_PLACED}
-                selected={entry.item.machine.id === current?.item.machine.id}
-                onSelect={() => setSelected(entry.item.machine.id)}
-              />
-            ))}
-          </ul>
-          {shown.length > 0 && others.length === 0 ? (
-            <p className="machine-shelf__empty mx-3 mb-3" data-testid="machines-empty">
-              No other machine yet. Add one by its name and SSH target, or make one on Boat.
-            </p>
-          ) : null}
+          <div className="machine-shelf">
+            <ul className="machine-shelf__list" role="listbox" aria-label="Machines">
+              {shown.map((entry) => (
+                <MachineRow
+                  key={entry.item.machine.id}
+                  item={entry.item}
+                  read={reads[entry.item.machine.id]}
+                  copy={copies[entry.item.machine.id]}
+                  boat={boatOf(entry)}
+                  placed={placed.get(entry.item.machine.id) ?? NOTHING_PLACED}
+                  selected={entry.item.machine.id === current?.item.machine.id}
+                  onSelect={() => setSelected(entry.item.machine.id)}
+                />
+              ))}
+            </ul>
+            {shown.length > 0 && others.length === 0 ? (
+              <p className="machine-shelf__empty" data-testid="machines-empty">
+                No other machine yet. Add one by its name and SSH target, or make one on Boat.
+              </p>
+            ) : null}
+          </div>
         </aside>
         {current ? (
           <MachineDetail

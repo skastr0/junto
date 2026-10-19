@@ -3,12 +3,18 @@
    one is given room. Colour comes from theme tokens and from the machine's
    own tile; nothing here moves at rest. */
 
+/* Two columns of one width; a long name ellipsizes instead of widening its
+   column. The empty card is a cell of the same grid, beside this machine. */
 .machine-shelf {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-content: start;
   gap: 8px;
   padding: 12px;
+}
+
+.machine-shelf__list {
+  display: contents;
 }
 
 .machine-shelf__place {
@@ -63,7 +69,7 @@
 
 .machine-shelf__empty {
   display: grid;
-  min-height: 170px;
+  min-width: 0;
   place-items: center;
   align-content: center;
   gap: 6px;
