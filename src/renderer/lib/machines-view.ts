@@ -4,6 +4,7 @@ import type {
   MachineOwnStatus,
   MachinePeerStatus,
 } from "@shared/machine-control";
+import type { BoatStatusData } from "@shared/boat";
 import { resolveMachineForm, type MachineFigureState, type MachineForm } from "@shared/machine-figure";
 import type { MachineInstallError, MachineInstallTransition } from "@shared/machine-install";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
@@ -17,7 +18,14 @@ import { MACHINE_COPY_STALL_MS, type MachineCopyProgress, type MachineDownloadPr
 /** One machine as `machine.list` answers it. */
 export type MachineListItem = MachineListData["machines"][number];
 export type MachineInstallStep = MachineInstallTransition["step"];
-export type MachineCopyOp = "send" | "update";
+/** A send, an update, or a Boat add: making the machine on Boat, then its send. */
+export type MachineCopyOp = "send" | "update" | "add";
+
+/**
+ * A Boat machine as `machine.boat-status` answered it. `listed` is false for
+ * one Boat made that never reached the machine list.
+ */
+export type MachineBoat = BoatStatusData["machines"][number] & { readonly listed: boolean };
 /** Where a failed install left a machine, as the owner said it. */
 export type MachineInstallDisposition = MachineInstallError["disposition"];
 
@@ -61,6 +69,14 @@ export type MachineCopy =
 /** The one state a machine is in, as the operator would name it. */
 export type MachineCondition =
   | "this-machine"
+  | "adding"
+  | "add-failed"
+  | "boat-unfinished"
+  | "asleep"
+  | "waking"
+  | "falling-asleep"
+  | "boat-failed"
+  | "gone"
   | "not-set-up"
   | "sending"
   | "updating"
@@ -80,9 +96,11 @@ export const machineCondition = (
   item: MachineListItem,
   read: MachineRead | undefined,
   copy: MachineCopy | undefined,
+  boat?: MachineBoat,
 ): MachineCondition => {
-  if (copy?.kind === "running") return copy.op === "send" ? "sending" : "updating";
+  if (copy?.kind === "running") return copy.op === "add" ? "adding" : copy.op === "send" ? "sending" : "updating";
   if (copy?.kind === "failed") {
+    if (copy.op === "add") return "add-failed";
     const sent = copy.op === "send";
     if (copy.installed) return sent ? "sent-not-ready" : "updated-not-ready";
     // Only the owner saying the machine was left as it was makes this a plain
@@ -91,22 +109,66 @@ export const machineCondition = (
     return sent ? "send-unconfirmed" : "update-unconfirmed";
   }
   if (item.machine.isThisMachine) return "this-machine";
+  // Boat could not be asked about it: its power is not known, so it is not said.
+  const power = boat === undefined || boat.unreadable ? undefined : boat.power;
+  if (power === "gone") return "gone";
+  if (power === "failed") return "boat-failed";
+  if (boat !== undefined && !boat.listed) return "boat-unfinished";
   if (!item.setUp) return "not-set-up";
   // A machine on another build refuses the link, so nothing else can be read from it.
   if (item.needsUpdate) return "needs-update";
+  // A sleeping machine is not asked anything: asking would be refused, never a fault.
+  if (power === "asleep") return "asleep";
+  if (power === "waking") return "waking";
+  if (power === "falling-asleep") return "falling-asleep";
   if (read === undefined || read.kind === "reading") return "checking";
   if (read.kind === "failed") return "check-failed";
   if (read.kind === "peer" && !read.status.reachable) return "unreachable";
   return "ready";
 };
 
-export type MachineAction = "send" | "update" | "check" | "remove";
+export type MachineAction = "send" | "update" | "check" | "wake" | "sleep" | "finish" | "remove" | "delete";
 
-/** What the operator can do to a machine in each state, most likely first. */
-export const machineActions = (condition: MachineCondition): ReadonlyArray<MachineAction> => {
+/** Conditions in which a Boat machine that is awake can be put to sleep. */
+const CAN_SLEEP: ReadonlySet<MachineCondition> = new Set(["ready", "check-failed", "unreachable", "needs-update", "not-set-up"]);
+
+/**
+ * What the operator can do to a machine in each state, most likely first. A
+ * Boat machine can also be put to sleep while awake, and deleted on Boat.
+ */
+export const machineActions = (
+  condition: MachineCondition,
+  boat?: MachineBoat,
+  /** False for a machine only this window or Boat knows of: there is nothing to remove yet. */
+  listed = true,
+): ReadonlyArray<MachineAction> => {
+  const actions = conditionActions(condition);
+  if (!listed) {
+    const kept = actions.filter((action) => action !== "remove");
+    return condition === "add-failed" && boat !== undefined ? [...kept, "finish"] : kept;
+  }
+  if (boat === undefined || condition === "adding" || condition === "gone") return actions;
+  const sleep = boat.power === "awake" && !boat.unreadable && CAN_SLEEP.has(condition) ? (["sleep"] as const) : [];
+  return [...actions.filter((action) => action !== "remove"), ...sleep, "remove", "delete"];
+};
+
+const conditionActions = (condition: MachineCondition): ReadonlyArray<MachineAction> => {
   switch (condition) {
     case "this-machine":
       return ["check"];
+    case "adding":
+      return [];
+    case "add-failed":
+      return ["check", "remove"];
+    case "boat-unfinished":
+      return ["finish"];
+    case "asleep":
+      return ["wake", "remove"];
+    case "waking":
+    case "falling-asleep":
+    case "boat-failed":
+    case "gone":
+      return ["remove"];
     case "not-set-up":
     case "send-failed":
       return ["send", "remove"];
@@ -138,7 +200,11 @@ export const MACHINE_ACTION_LABEL: Readonly<Record<MachineAction, string>> = {
   send: "Send Junto",
   update: "Update Junto",
   check: "Check again",
+  wake: "Wake",
+  sleep: "Put to sleep",
+  finish: "Finish adding",
   remove: "Remove",
+  delete: "Delete on Boat",
 };
 
 /** The steps of a send, in the order they happen. */
@@ -250,6 +316,10 @@ export type MachineSummary = {
 const reason = (message: string | undefined, fallback: string): string => message?.trim() || fallback;
 
 const CONDITIONS_THAT_NEED_YOU: ReadonlySet<MachineCondition> = new Set([
+  "add-failed",
+  "boat-unfinished",
+  "boat-failed",
+  "gone",
   "not-set-up",
   "send-failed",
   "update-failed",
@@ -305,8 +375,9 @@ export const machineSummary = (
   copy: MachineCopy | undefined,
   /** The harnesses the seats placed on this machine use. */
   placed: { readonly harnesses: ReadonlyArray<string> } = { harnesses: [] },
+  boat?: MachineBoat,
 ): MachineSummary => {
-  const condition = machineCondition(item, read, copy);
+  const condition = machineCondition(item, read, copy, boat);
   const lacking =
     condition === "ready" || condition === "this-machine"
       ? lackingLine(item, harnessesSeatsLack(read, placed.harnesses), machineMissingSecrets(read))
@@ -328,6 +399,28 @@ const conditionLine = (
   switch (condition) {
     case "this-machine":
       return read?.kind === "failed" ? { headline: "This machine", advice: read.message } : { headline: "This machine" };
+    // Boat says nothing while it makes and wakes the machine; the send's first step ends that.
+    case "adding":
+      return copy?.kind === "running" && copy.steps.length === 0 && copy.download === undefined && copy.transfer === undefined
+        ? { headline: "Making it on Boat" }
+        : { headline: "Sending Junto", advice: "This takes a few minutes." };
+    case "add-failed":
+      return { headline: "Could not finish adding it on Boat", advice: reason(said, "Check it, then add it again or remove it.") };
+    case "boat-unfinished":
+      return { headline: "Made on Boat, not added yet", advice: "Finish adding it to send Junto to it." };
+    case "asleep":
+      return {
+        headline: "Asleep",
+        advice: "It wakes for work: a seat starting on it, or mail for one of its seats. Wake it to check it now.",
+      };
+    case "waking":
+      return { headline: "Waking" };
+    case "falling-asleep":
+      return { headline: "Going to sleep" };
+    case "boat-failed":
+      return { headline: "Boat says it failed", advice: "Delete it on Boat, or remove it." };
+    case "gone":
+      return { headline: "No longer on Boat", advice: "Remove it from your machines." };
     case "not-set-up":
       return { headline: "Added. Junto is not on it yet.", advice: "Send Junto to set it up." };
     case "sending":
@@ -443,14 +536,15 @@ export const machineFigureState = (
   read: MachineRead | undefined,
   copy: MachineCopy | undefined,
   placed: { readonly seats: number; readonly harnesses: ReadonlyArray<string> },
+  boat?: MachineBoat,
 ): MachineFigureState => {
-  const condition = machineCondition(item, read, copy);
+  const condition = machineCondition(item, read, copy, boat);
   const answered = read?.kind === "own" || (read?.kind === "peer" && read.status.reachable);
   return {
     setUp: item.setUp,
     reach: condition === "unreachable" ? "unreachable" : answered ? "reachable" : "unknown",
     install:
-      condition === "sending"
+      condition === "sending" || condition === "adding"
         ? "sending"
         : condition === "updating"
           ? "updating"

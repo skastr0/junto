@@ -22,6 +22,7 @@ import {
   machineSummary,
   machinesNeedingAttention,
   withInstallStep,
+  type MachineBoat,
   type MachineCopy,
   type MachineListItem,
   type MachineRead,
@@ -386,5 +387,73 @@ describe("how many machines want the operator", () => {
       machineSummary(listed(), peer({ missingSecrets: ["GH_TOKEN"] }), undefined),
     ];
     expect(machinesNeedingAttention([...fine, ...wanting])).toBe(5);
+  });
+});
+
+describe("a machine on Boat", () => {
+  const boat = (more: Partial<MachineBoat> = {}): MachineBoat =>
+    ({ machineName: OTHER_MACHINE, sandboxId: "bx_atlas01", size: "small", power: "awake", listed: true, ...more });
+  const adding = (more: Partial<Extract<MachineCopy, { kind: "running" }>> = {}): MachineCopy =>
+    ({ kind: "running", op: "add", id: "add-1", steps: [], ...more });
+
+  it("is being made on Boat until the send's first step arrives, then is sending, with nothing to press", () => {
+    const item = listed({ setUp: false });
+    expect(machineCondition(item, undefined, adding())).toBe("adding");
+    expect(machineSummary(item, undefined, adding()).headline).toBe("Making it on Boat");
+    expect(machineSummary(item, undefined, adding({ steps: ["verified"] })).headline).toBe("Sending Junto");
+    expect(machineSummary(item, undefined, adding({ transfer: { event: "machine-copy", copiedBytes: 1, totalBytes: 9, state: "copying" } })).headline)
+      .toBe("Sending Junto");
+    expect(machineActions("adding", boat())).toEqual([]);
+    expect(machineFigureState(item, undefined, adding(), NOTHING).install).toBe("sending");
+  });
+
+  it("says why an add failed in the owner's words, and offers no remove before the list has it", () => {
+    const failed: MachineCopy = { kind: "failed", op: "add", id: "add-1", message: "Boat could not make the machine.", steps: [], installed: false };
+    const item = listed({ setUp: false });
+    expect(machineCondition(item, undefined, failed)).toBe("add-failed");
+    expect(machineSummary(item, undefined, failed)).toMatchObject({ headline: "Could not finish adding it on Boat", advice: "Boat could not make the machine.", needsYou: true });
+    expect(machineActions("add-failed", undefined, false)).toEqual(["check"]);
+    expect(machineActions("add-failed", boat({ listed: false }), false)).toEqual(["check", "finish"]);
+    expect(machineActions("add-failed", boat())).toEqual(["check", "remove", "delete"]);
+  });
+
+  it("is asleep, not unreachable, and offers a wake", () => {
+    const item = listed();
+    expect(machineCondition(item, peer({ reachable: false }), undefined, boat({ power: "asleep" }))).toBe("asleep");
+    const summary = machineSummary(item, undefined, undefined, NOTHING, boat({ power: "asleep" }));
+    expect(summary).toMatchObject({ headline: "Asleep", needsYou: false });
+    expect(machineActions("asleep", boat({ power: "asleep" }))).toEqual(["wake", "remove", "delete"]);
+  });
+
+  it("is waking, going to sleep, failed or gone as Boat says", () => {
+    const item = listed();
+    expect(machineCondition(item, undefined, undefined, boat({ power: "waking" }))).toBe("waking");
+    expect(machineCondition(item, undefined, undefined, boat({ power: "falling-asleep" }))).toBe("falling-asleep");
+    expect(machineCondition(item, undefined, undefined, boat({ power: "failed" }))).toBe("boat-failed");
+    expect(machineCondition(item, undefined, undefined, boat({ power: "gone" }))).toBe("gone");
+    expect(machineSummary(item, undefined, undefined, NOTHING, boat({ power: "gone" }))).toMatchObject({ headline: "No longer on Boat", needsYou: true });
+    expect(machineActions("gone", boat({ power: "gone" }))).toEqual(["remove"]);
+  });
+
+  it("is read as any machine when Boat could not be asked about it", () => {
+    expect(machineCondition(listed(), peer(), undefined, boat({ power: "asleep", unreadable: true }))).toBe("ready");
+    expect(machineActions("ready", boat({ power: "asleep", unreadable: true }))).toEqual(["check", "remove", "delete"]);
+  });
+
+  it("offers sleep only while it is awake", () => {
+    expect(machineActions("ready", boat())).toEqual(["check", "sleep", "remove", "delete"]);
+    expect(machineActions("not-set-up", boat())).toEqual(["send", "sleep", "remove", "delete"]);
+    expect(machineActions("waking", boat({ power: "waking" }))).toEqual(["remove", "delete"]);
+  });
+
+  it("is made on Boat and not added yet when the list does not have it", () => {
+    const item = listed({ setUp: false });
+    expect(machineCondition(item, undefined, undefined, boat({ listed: false }))).toBe("boat-unfinished");
+    expect(machineActions("boat-unfinished", boat({ listed: false }), false)).toEqual(["finish"]);
+  });
+
+  it("still sends and updates as any machine, the wake being the owner's", () => {
+    expect(machineCondition(listed({ setUp: false }), undefined, undefined, boat({ power: "asleep" }))).toBe("not-set-up");
+    expect(machineCondition(listed({ needsUpdate: true }), undefined, undefined, boat({ power: "asleep" }))).toBe("needs-update");
   });
 });

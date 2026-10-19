@@ -44,6 +44,10 @@ const fakeOwner = () => {
   /** A send waits here until the test lets it finish. */
   const copies = new Map<string, (answer: unknown) => void>();
   let anotherBuildOnCheck: string | undefined;
+  /** Boat, when the test turns it on: the account and the machines made there. */
+  let boat: { connected: boolean; connectRefusal?: string; machines: Array<Record<string, unknown>> } | undefined;
+  /** A Boat add waits here until the test lets it finish. */
+  let boatAdd: ((answer: unknown) => void) | undefined;
   const ok = (request: Request, data: unknown) =>
     ({ protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: true, data });
   const refuse = (request: Request, type: string, message: string, details: Record<string, unknown> = {}) =>
@@ -107,6 +111,27 @@ const fakeOwner = () => {
         rows.splice(index, 1);
         return ok(request, { machineName: name, removed: true });
       }
+      case "machine.boat-status":
+        if (boat === undefined) return refuse(request, "validation", "unsupported machine operation");
+        return ok(request, { connected: boat.connected, ...(boat.connected ? { keyId: "0123abcd" } : {}), unrevokedKeyIds: [], machines: boat.machines });
+      case "machine.boat-connect":
+        if (boat?.connectRefusal) return refuse(request, "io", boat.connectRefusal);
+        boat!.connected = true;
+        return ok(request, { connected: true, keyId: "0123abcd", unrevokedKeyIds: [] });
+      case "machine.boat-add":
+        boat!.machines.push({ machineName: name, sandboxId: "bx_made01", size: request.args.size ?? "small", power: "waking" });
+        return new Promise((resolve) => { boatAdd = resolve; });
+      case "machine.wake":
+      case "machine.sleep": {
+        const view = boat!.machines.find((machine) => machine.machineName === name)!;
+        view.power = request.op === "machine.wake" ? "awake" : "asleep";
+        return ok(request, view);
+      }
+      case "machine.boat-delete": {
+        rows.splice(rows.findIndex((entry) => entry.machine.id === name), 1);
+        boat!.machines = boat!.machines.filter((machine) => machine.machineName !== name);
+        return ok(request, { machineName: name, removed: true });
+      }
       default:
         return refuse(request, "validation", "unsupported machine operation");
     }
@@ -122,6 +147,21 @@ const fakeOwner = () => {
     requests,
     rows,
     anotherBuildOnCheck: (name: string) => { anotherBuildOnCheck = name; },
+    /** Turn Boat on for this owner. */
+    useBoat: (connected: boolean, machines: Array<Record<string, unknown>> = [], connectRefusal?: string) => {
+      boat = { connected, machines, ...(connectRefusal === undefined ? {} : { connectRefusal }) };
+    },
+    /** The Boat add reached machine.add: the list has the machine, not set up yet. */
+    boatAdded: (name: string) => { rows.push(row(name, { setUp: false, installationId: undefined })); },
+    /** The Boat add ends with the owner's answer. */
+    finishBoatAdd: (answer: (request: Request) => unknown) => boatAdd!(answer(requests.filter((entry) => entry.op === "machine.boat-add").at(-1)!)),
+    setUpRow: (name: string) => {
+      const entry = rows.find((candidate) => candidate.machine.id === name)!;
+      entry.setUp = true; entry.installationId = `inst-${name}`;
+      boat!.machines.find((machine) => machine.machineName === name)!.power = "awake";
+    },
+    ok,
+    refuse,
     ops: () => requests.map((request) => request.op),
     last: (op: string) => requests.filter((request) => request.op === op).at(-1)!,
     step: (id: string, step: string) =>
@@ -183,7 +223,7 @@ beforeEach(async () => {
   owner = fakeOwner();
   oldApi = window.junto;
   (window as unknown as { junto: unknown }).junto = owner.api;
-  machines$.set({ loading: false, error: "", items: [], reads: {}, copies: {} });
+  machines$.set({ loading: false, error: "", items: [], reads: {}, copies: {}, boat: undefined, adding: {}, power: {} });
   state$.canvasName.set("machines-window");
   state$.machinesOpen.set(true);
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
@@ -437,10 +477,122 @@ it("removes a machine only after the operator confirms", async () => {
 it("reaches machines through the owner commands and nothing else", async () => {
   await select("ghost");
   await click(byTest("machine-action-check"));
-  expect(new Set(owner.ops())).toEqual(new Set(["machine.list", "machine.status", "machine.harnesses"]));
+  expect(new Set(owner.ops())).toEqual(new Set(["machine.list", "machine.boat-status", "machine.status", "machine.harnesses"]));
   for (const request of owner.requests) {
     expect(Object.keys(request).sort()).toEqual(["args", "id", "op", "protocol"]);
     expect(request.id).toMatch(/^window-[0-9A-Z]{26}$/);
   }
   expect(Object.keys(owner.api).sort()).toEqual(["machineCommand", "onMachineProgress"]);
+});
+
+it("connects Boat in the add dialog, showing the owner's refusal as it came", async () => {
+  owner.useBoat(false, [], "The boat CLI is signed out. Run boat login in a terminal, then connect again.");
+  await act(async () => { await refreshMachines(); await flush(); });
+  await click(byTest("machines-add"));
+  await click(byTest("machine-add-way-boat"));
+  expect(document.querySelector('input[aria-label="Machine name"]')).toBeNull();
+  await click(byTest("machine-boat-connect"));
+  expect(byTest("machine-add-error")?.textContent).toBe("The boat CLI is signed out. Run boat login in a terminal, then connect again.");
+
+  owner.useBoat(false);
+  await click(byTest("machine-boat-connect"));
+  expect(byTest("machine-add-error")).toBeNull();
+  expect(document.querySelector('input[aria-label="Machine name"]')).toBeTruthy();
+  expect(document.querySelector('input[aria-label="SSH target"]')).toBeNull();
+});
+
+it("makes a machine on Boat: on the shelf at once, then the send's steps, then set up", async () => {
+  owner.useBoat(true);
+  await act(async () => { await refreshMachines(); await flush(); });
+  await click(byTest("machines-add"));
+  await click(byTest("machine-add-way-boat"));
+  await type("Machine name", "boat-one");
+  await type("Machine label", "Linux box");
+  await click(byTest("machine-add-size-default"));
+  await click(submitAdd());
+  expect(owner.last("machine.boat-add").args).toEqual({ name: "boat-one", label: "Linux box", size: "default" });
+  // No environment: a Boat machine gets none of the account's secrets from the window.
+  expect(owner.last("machine.boat-add").args).not.toHaveProperty("environment");
+  expect(byTest("machine-add")).toBeNull();
+  expect(condition("boat-one")).toBe("adding");
+  expect(byTest("machine-headline")?.textContent).toBe("Making it on Boat");
+  expect(byTest("machine-detail")?.querySelector('[data-testid^="machine-action-"]')).toBeNull();
+
+  // The send's first step is the first word from the add.
+  owner.boatAdded("boat-one");
+  await act(async () => { owner.step(owner.last("machine.boat-add").id, "verified"); await flush(); });
+  expect(byTest("machine-headline")?.textContent).toBe("Sending Junto");
+  expect(phases()[0]).toBe("done");
+
+  // A refresh while it runs keeps it on the shelf.
+  await act(async () => { await refreshMachines(); await flush(); });
+  expect(condition("boat-one")).toBe("adding");
+
+  owner.setUpRow("boat-one");
+  await act(async () => {
+    owner.finishBoatAdd((request) => owner.ok(request, {
+      machine: { machineName: "boat-one", sandboxId: "bx_made01", size: "default", power: "awake" },
+      installed: owner.receipt("boat-one"),
+    }));
+    await flush();
+  });
+  expect(condition("boat-one")).toBe("ready");
+  expect(byTest("machine-boat")?.textContent).toContain("Default size");
+  expect(button("Put to sleep")).toBeTruthy();
+  expect(button("Delete on Boat")).toBeTruthy();
+});
+
+it("keeps a failed Boat add on the shelf with its reason, and offers no remove the list cannot do", async () => {
+  owner.useBoat(true);
+  await act(async () => { await refreshMachines(); await flush(); });
+  await click(byTest("machines-add"));
+  await click(byTest("machine-add-way-boat"));
+  await type("Machine name", "boat-two");
+  await click(submitAdd());
+  await act(async () => {
+    owner.finishBoatAdd((request) => owner.refuse(request, "io", "Boat did not wake the machine in time.", { retryable: false }));
+    await flush();
+  });
+  expect(condition("boat-two")).toBe("add-failed");
+  expect(byTest("machine-advice")?.textContent).toBe("Boat did not wake the machine in time.");
+  expect(byTest("machine-action-remove")).toBeNull();
+  expect(byTest("machine-action-finish")).toBeTruthy();
+  // Check again: the failure is dismissed and the row says what Boat knows.
+  await click(byTest("machine-action-check"));
+  expect(condition("boat-two")).toBe("boat-unfinished");
+});
+
+it("shows a sleeping Boat machine as asleep, never asks it, and wakes it on request", async () => {
+  owner.useBoat(true, [{ machineName: "ghost", sandboxId: "bx_ghost01", size: "small", power: "asleep", diskKeptUntil: "2026-11-02T00:00:00.000Z" }]);
+  const asked = () => owner.requests.filter((request) => request.op === "machine.status" && request.args.name === "ghost").length;
+  await act(async () => { await refreshMachines(); await flush(); });
+  const before = asked();
+  await act(async () => { await refreshMachines(); await flush(); });
+  expect(asked()).toBe(before);
+  expect(condition("ghost")).toBe("asleep");
+  await select("ghost");
+  expect(byTest("machine-headline")?.textContent).toBe("Asleep");
+  expect(byTest("machine-detail")?.textContent).not.toContain("Cannot be reached");
+  expect(byTest("machine-boat")?.textContent).toContain("Boat keeps its disk until");
+
+  await click(byTest("machine-action-remove"));
+  expect(byTest("confirm-dialog")?.textContent).toContain("stays on Boat, asleep, and Boat keeps its disk until");
+  await click(button("Cancel"));
+
+  await click(byTest("machine-action-wake"));
+  expect(owner.last("machine.wake").args).toEqual({ name: "ghost" });
+  expect(asked()).toBeGreaterThan(before);
+  expect(condition("ghost")).toBe("unreachable");
+});
+
+it("deletes a Boat machine only after the operator confirms", async () => {
+  owner.useBoat(true, [{ machineName: OTHER_MACHINE, sandboxId: "bx_atlas01", size: "small", power: "awake" }]);
+  await act(async () => { await refreshMachines(); await flush(); });
+  await select(OTHER_MACHINE);
+  await click(byTest("machine-action-delete"));
+  expect(byTest("confirm-dialog")?.textContent).toContain("Delete Atlas on Boat?");
+  expect(owner.ops()).not.toContain("machine.boat-delete");
+  await click([...byTest("confirm-dialog")!.querySelectorAll("button")].find((candidate) => candidate.textContent?.trim() === "Delete on Boat"));
+  expect(owner.last("machine.boat-delete").args).toEqual({ name: OTHER_MACHINE });
+  expect(byTest(`machine-row-${OTHER_MACHINE}`)).toBeNull();
 });

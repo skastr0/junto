@@ -1,4 +1,5 @@
 import { observable } from "@legendapp/state";
+import type { BoatAddInput, BoatStatusData } from "@shared/boat";
 import type { MachineAddInput } from "@shared/machine-control";
 import type { MachineCommandProgress } from "@shared/machine-progress";
 import {
@@ -10,6 +11,7 @@ import {
 import { noteMachineStatus, readMachineList } from "./machine-list";
 import {
   withInstallStep,
+  type MachineBoat,
   type MachineCopy,
   type MachineCopyOp,
   type MachineListItem,
@@ -28,9 +30,37 @@ export const machines$ = observable({
   items: [] as ReadonlyArray<MachineListItem>,
   /** By machine name: what it last said about itself. */
   reads: {} as Record<string, MachineRead>,
-  /** By machine name: a send or an update in flight, or the one that failed. */
+  /** By machine name: a send, an update or a Boat add in flight, or the one that failed. */
   copies: {} as Record<string, MachineCopy>,
+  /** What Boat last said about the account and its machines. Absent when it could not be asked. */
+  boat: undefined as BoatStatusData | undefined,
+  /** By machine name: the label of a Boat add this window started, until the list has it. */
+  adding: {} as Record<string, string>,
+  /** By machine name: a wake or a sleep this window asked for and is waiting on. */
+  power: {} as Record<string, "wake" | "sleep">,
 });
+
+/**
+ * What Boat said about one machine, with whether the machine list has it. A
+ * wake or a sleep in flight reads as the power it is going to.
+ */
+export const boatMachine = (
+  boat: BoatStatusData | undefined,
+  power: Readonly<Record<string, "wake" | "sleep">>,
+  name: string,
+  listed: boolean,
+): MachineBoat | undefined => {
+  const view = boat?.machines.find((machine) => machine.machineName === name);
+  if (view === undefined) return undefined;
+  const asked = power[name];
+  return { ...view, listed, ...(asked === undefined ? {} : { power: asked === "wake" ? "waking" : "falling-asleep" }) };
+};
+
+/** Only an awake Boat machine is asked about itself; any other machine always is. */
+const canAsk = (name: string): boolean => {
+  const view = boatMachine(machines$.boat.peek(), machines$.power.peek(), name, true);
+  return view === undefined || view.unreadable === true || view.power === "awake";
+};
 
 const setRead = (name: string, read: MachineRead): void => {
   machines$.reads[name].set(read);
@@ -76,8 +106,10 @@ export const checkMachine = async (item: MachineListItem): Promise<void> => {
 export const refreshMachines = async (): Promise<void> => {
   machines$.loading.set(true);
   try {
-    // The pickers on the canvas read the same list, from the same read.
-    const listed = await readMachineList();
+    // The pickers on the canvas read the same list, from the same read. A
+    // Boat status read never wakes a machine.
+    const [listed, boat] = await Promise.all([readMachineList(), machineCommand("machine.boat-status", {})]);
+    machines$.boat.set(boat.ok ? boat.data : undefined);
     if (!listed.ok) {
       machines$.error.set(listed.message);
       return;
@@ -86,15 +118,21 @@ export const refreshMachines = async (): Promise<void> => {
     machines$.error.set("");
     machines$.items.set(items);
     const names = new Set(items.map((item) => item.machine.id));
-    for (const name of Object.keys(machines$.reads.peek())) {
-      if (!names.has(name)) machines$.reads[name].delete();
+    for (const name of Object.keys(machines$.adding.peek())) {
+      if (names.has(name)) machines$.adding[name].delete();
     }
+    // What is not answered for here: a machine no longer listed, or a
+    // sleeping one, whose last answer is not what it is now.
+    for (const name of Object.keys(machines$.reads.peek())) {
+      if (!names.has(name) || !canAsk(name)) machines$.reads[name].delete();
+    }
+    const kept = new Set([...names, ...Object.keys(machines$.adding.peek())]);
     for (const name of Object.keys(machines$.copies.peek())) {
-      if (!names.has(name)) machines$.copies[name].delete();
+      if (!kept.has(name)) machines$.copies[name].delete();
     }
     await Promise.all(
       items
-        .filter((item) => item.machine.isThisMachine || (item.setUp && !item.needsUpdate))
+        .filter((item) => item.machine.isThisMachine || (item.setUp && !item.needsUpdate && canAsk(item.machine.id)))
         .map((item) => checkMachine(item)),
     );
   } finally {
@@ -115,33 +153,84 @@ export const addMachine = async (input: MachineAddInput): Promise<MachineCommand
  * main copies the build this machine runs and, on a first send, sets the
  * machine up. The window then reads the list again and shows what it says.
  */
-export const copyJunto = async (name: string, op: MachineCopyOp): Promise<void> => {
+export const copyJunto = async (name: string, op: Exclude<MachineCopyOp, "add">): Promise<void> => {
   if (machines$.copies[name].peek()?.kind === "running") return;
   const id = newMachineCommandId();
   machines$.copies[name].set({ kind: "running", op, id, steps: [] });
   const answer = await machineCommand(op === "send" ? "machine.send" : "machine.update", { name }, id);
+  if (!answer.ok) return keepFailedCopy(name, op, id, answer);
+  machines$.copies[name].delete();
+  await refreshMachines();
+};
+
+/** Keep a failed command on its row, with what the owner confirmed of it. */
+const keepFailedCopy = (name: string, op: MachineCopyOp, id: string, answer: MachineCommandRefusal): void => {
+  const running = machines$.copies[name].peek();
+  const seen = running?.kind === "running" ? running.steps : [];
+  // What is kept is what was confirmed: the steps seen, the steps the owner
+  // listed, and where it said the install left the machine. Nothing is sent
+  // again from here; the operator decides.
+  const confirmed = [...answer.transitions, ...(answer.installed?.transitions ?? [])];
+  machines$.copies[name].set({
+    kind: "failed",
+    op,
+    id,
+    message: answer.message,
+    steps: confirmed.reduce((steps, transition) => withInstallStep(steps, transition.step), seen),
+    ...(running?.download === undefined ? {} : { download: running.download }),
+    ...(running?.transfer === undefined ? {} : { transfer: running.transfer }),
+    ...(answer.disposition === undefined ? {} : { disposition: answer.disposition }),
+    installed: answer.installed !== undefined,
+  });
+};
+
+/** Connect this machine to the operator's Boat account. The refusal, when there is one, is for the form. */
+export const connectBoat = async (): Promise<MachineCommandRefusal | undefined> => {
+  const connected = await machineCommand("machine.boat-connect", {});
+  if (!connected.ok) return connected;
+  await refreshMachines();
+  return undefined;
+};
+
+/**
+ * Make a machine on Boat, add it and send Junto to it: one owner command that
+ * takes minutes. The machine is on the shelf from the start; the send's steps
+ * arrive on it as they would for any send.
+ */
+export const addBoatMachine = async (input: BoatAddInput): Promise<void> => {
+  const name = input.name;
+  if (machines$.copies[name].peek()?.kind === "running") return;
+  const id = newMachineCommandId();
+  machines$.adding[name].set(input.label ?? name);
+  machines$.copies[name].set({ kind: "running", op: "add", id, steps: [] });
+  const answer = await machineCommand("machine.boat-add", input, id);
   if (!answer.ok) {
-    const running = machines$.copies[name].peek();
-    const seen = running?.kind === "running" ? running.steps : [];
-    // What is kept is what was confirmed: the steps seen, the steps the owner
-    // listed, and where it said the install left the machine. Nothing is sent
-    // again from here; the operator decides.
-    const confirmed = [...answer.transitions, ...(answer.installed?.transitions ?? [])];
-    machines$.copies[name].set({
-      kind: "failed",
-      op,
-      id,
-      message: answer.message,
-      steps: confirmed.reduce((steps, transition) => withInstallStep(steps, transition.step), seen),
-      ...(running?.download === undefined ? {} : { download: running.download }),
-      ...(running?.transfer === undefined ? {} : { transfer: running.transfer }),
-      ...(answer.disposition === undefined ? {} : { disposition: answer.disposition }),
-      installed: answer.installed !== undefined,
-    });
+    keepFailedCopy(name, "add", id, answer);
+    // How far it got is the list's to say.
+    await refreshMachines();
     return;
   }
   machines$.copies[name].delete();
+  machines$.adding[name].delete();
   await refreshMachines();
+};
+
+/** Wake a Boat machine, or put one to sleep. Resolves to the owner's refusal, or nothing. */
+export const setBoatPower = async (name: string, to: "wake" | "sleep"): Promise<MachineCommandRefusal | undefined> => {
+  if (machines$.power[name].peek() !== undefined) return undefined;
+  machines$.power[name].set(to);
+  const answer = await machineCommand(to === "wake" ? "machine.wake" : "machine.sleep", { name });
+  machines$.power[name].delete();
+  await refreshMachines();
+  return answer.ok ? undefined : answer;
+};
+
+/** Remove a Boat machine and delete it on Boat. The refusal, when there is one, is for the dialog. */
+export const deleteBoatMachine = async (name: string): Promise<MachineCommandRefusal | undefined> => {
+  const deleted = await machineCommand("machine.boat-delete", { name });
+  if (!deleted.ok) return deleted;
+  await refreshMachines();
+  return undefined;
 };
 
 /** Forget a failed send, so the row shows the machine as it is. */
@@ -155,8 +244,10 @@ export const dismissCopy = (name: string): void => {
  * the list's to say, not the failed command's.
  */
 export const checkMachineAgain = async (item: MachineListItem): Promise<void> => {
-  if (machines$.copies[item.machine.id].peek()?.kind !== "failed") return checkMachine(item);
-  dismissCopy(item.machine.id);
+  const name = item.machine.id;
+  if (machines$.copies[name].peek()?.kind !== "failed") return canAsk(name) ? checkMachine(item) : refreshMachines();
+  dismissCopy(name);
+  machines$.adding[name].delete();
   await refreshMachines();
 };
 

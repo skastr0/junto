@@ -47,7 +47,7 @@ export type MachineCommandAnswer<Op extends MachineOpName> =
   | MachineCommandRefusal;
 
 /** Reads change nothing, so asking again is always safe. */
-const READS: ReadonlySet<MachineOpName> = new Set(["machine.list", "machine.status", "machine.harnesses"]);
+const READS: ReadonlySet<MachineOpName> = new Set(["machine.list", "machine.status", "machine.harnesses", "machine.boat-status"]);
 
 const refusal = (
   type: MachineCommandRefusal["type"],
