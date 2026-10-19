@@ -219,7 +219,7 @@ export function CommandBar() {
   // Catalog is rebuilt once per open so labels reflect live state.
   const actions = useMemo(() => buildCommandBarActions(), []);
   const mode = commandBarMode(query, tabMode);
-  // Agents lead the list in the palette's one order (PALETTE_RANK). Live: a
+  // Agents lead the list in the palette's one order (the Palette view). Live: a
   // seat's state change re-ranks the list while it is open, and the cursor
   // stays on its row.
   const standingById = use$(
