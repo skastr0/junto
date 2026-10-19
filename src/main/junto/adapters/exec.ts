@@ -637,6 +637,7 @@ export const resolvedSpawnEnv = (): Promise<NodeJS.ProcessEnv> => {
     inheritedPath ??= process.env.PATH;
     const shell = process.env[SHELL_ENVIRONMENT_SWITCH_KEY] === "inherit" ? undefined : operatorShell();
     if (shell !== undefined) {
+      const startedAt = Date.now();
       const probe = await probeShellEnvironment({
         shell,
         cwd: await shellEnvironmentCwd(),
@@ -646,6 +647,9 @@ export const resolvedSpawnEnv = (): Promise<NodeJS.ProcessEnv> => {
         const { PATH: probedPath, ...variables } = probe.environment;
         shellPath = probedPath;
         Object.assign(process.env, variables);
+        console.log(
+          `[env] ${shell} gave its environment in ${Date.now() - startedAt}ms (${Object.keys(probe.environment).length} variables)`,
+        );
       } else {
         console.warn(
           `[env] ${shell} gave no environment (${probe.reason}); seats use the inherited PATH and the floor`,
