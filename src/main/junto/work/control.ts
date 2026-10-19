@@ -2952,7 +2952,7 @@ const revokedProcessIdentity = (): WorkErrorBody => ({
     retryable: false,
     missing: "current process identity",
     next_step:
-      "run the command again from the process your seat runs now",
+      "run the command again from the current Junto agent session",
   },
 });
 
