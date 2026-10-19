@@ -1,0 +1,281 @@
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Plus, X } from "lucide-react";
+import {
+  betweenLine,
+  groupSeatThreads,
+  markSeatThreadSeen,
+  participantsLine,
+  threadTime,
+  unreadThreadCount,
+  useSeatThreadMessages,
+  useSeatThreads,
+  type SeatAddress,
+  type SeatThreadSummary,
+} from "../../lib/seat-threads";
+import { Button } from "../ui/Button";
+import { Chip } from "../ui/Chip";
+import { Dialog } from "../ui/Dialog";
+import { Eyebrow } from "../ui/Eyebrow";
+import { IconButton } from "../ui/IconButton";
+import { StatusDot } from "../ui/StatusDot";
+import "./seat-threads.css";
+
+/**
+ * The Threads button in a seat's header, left of Params. Its count is the
+ * threads with something new for the operator; with none it is plain.
+ */
+export function SeatThreadsButton({ seat, name }: { readonly seat: SeatAddress; readonly name: string }) {
+  const { threads } = useSeatThreads(seat);
+  const [open, setOpen] = useState(false);
+  const unread = unreadThreadCount(threads);
+  return (
+    <>
+      <Button
+        size="xs"
+        variant="chrome"
+        title={unread > 0 ? `Threads, ${unread} with something new for you` : "Threads"}
+        aria-label={unread > 0 ? `Threads, ${unread} new` : "Threads"}
+        aria-haspopup="dialog"
+        data-testid="seat-threads-button"
+        data-unread={unread > 0 ? unread : undefined}
+        className={unread > 0 ? "seat-threads-button--unread" : undefined}
+        onClick={() => setOpen(true)}
+      >
+        Threads
+        {unread > 0 ? (
+          <span className="seat-threads-button__count" data-testid="seat-threads-count">
+            {unread}
+          </span>
+        ) : null}
+      </Button>
+      {open ? <SeatThreadsPopup seat={seat} name={name} onClose={() => setOpen(false)} /> : null}
+    </>
+  );
+}
+
+type Selection = { readonly kind: "thread"; readonly threadId: string } | { readonly kind: "new" };
+
+/** The first thread to show: the newest with something new, else the newest with you, else the newest. */
+const firstThread = (threads: ReadonlyArray<SeatThreadSummary>): string | undefined => {
+  const { withYou, betweenSeats } = groupSeatThreads(threads);
+  const all = [...withYou, ...betweenSeats];
+  return (all.find((thread) => thread.unread) ?? all[0])?.threadId;
+};
+
+/**
+ * The seat's threads: the list on the left fifth in two groups, With you and
+ * Between seats, under New thread; the chat on the rest, oldest at the top,
+ * the operator's own on the right. A thread between seats is read only.
+ */
+export function SeatThreadsPopup({
+  seat,
+  name,
+  onClose,
+}: {
+  readonly seat: SeatAddress;
+  readonly name: string;
+  readonly onClose: () => void;
+}) {
+  const { threads, loaded, error } = useSeatThreads(seat);
+  const [selection, setSelection] = useState<Selection>();
+  const { withYou, betweenSeats } = groupSeatThreads(threads);
+
+  // Nothing picked yet: pick once the list arrives. A thread that left the list is let go.
+  const shown: Selection | undefined =
+    selection?.kind === "new" || (selection && threads.some((thread) => thread.threadId === selection.threadId))
+      ? selection
+      : (() => {
+          const threadId = firstThread(threads);
+          return threadId === undefined ? undefined : { kind: "thread", threadId };
+        })();
+  const thread = shown?.kind === "thread" ? threads.find((candidate) => candidate.threadId === shown.threadId) : undefined;
+
+  useEffect(() => {
+    if (thread?.unread) markSeatThreadSeen(seat, thread.threadId);
+  }, [thread?.threadId, thread?.unread]);
+
+  const row = (item: SeatThreadSummary) => (
+    <li key={item.threadId}>
+      <button
+        type="button"
+        className="seat-threads__row"
+        data-selected={shown?.kind === "thread" && shown.threadId === item.threadId ? "true" : undefined}
+        data-testid="seat-threads-row"
+        data-thread-id={item.threadId}
+        aria-current={shown?.kind === "thread" && shown.threadId === item.threadId ? "true" : undefined}
+        onClick={() => setSelection({ kind: "thread", threadId: item.threadId })}
+      >
+        <span className="seat-threads__row-title">{item.title}</span>
+        <span className="seat-threads__row-meta">
+          {item.unread ? <StatusDot tone="cyan" title="Something new for you" /> : null}
+          <span className="seat-threads__row-who">{participantsLine(item.participants)}</span>
+          <span className="seat-threads__row-time">{threadTime(item.lastAt)}</span>
+        </span>
+      </button>
+    </li>
+  );
+
+  return (
+    <Dialog
+      title={
+        <span className="seat-threads__title">
+          <span>Threads</span>
+          <span className="seat-threads__seat">{name}</span>
+          <IconButton size="sm" aria-label="Close threads" title="Close" className="ml-auto" onClick={onClose}>
+            <X size={15} strokeWidth={1.8} />
+          </IconButton>
+        </span>
+      }
+      onClose={onClose}
+      width={1180}
+      className="seat-threads"
+      testId="seat-threads"
+    >
+      <div className="seat-threads__panes">
+        <nav className="seat-threads__list" aria-label={`Threads of ${name}`}>
+          <Button
+            size="sm"
+            variant="chrome"
+            className="seat-threads__new"
+            data-selected={shown?.kind === "new" ? "true" : undefined}
+            data-testid="seat-threads-new"
+            onClick={() => setSelection({ kind: "new" })}
+          >
+            <Plus size={13} strokeWidth={1.8} /> New thread
+          </Button>
+          {error ? (
+            <p className="seat-threads__note seat-threads__note--error" role="alert">
+              {error}
+            </p>
+          ) : null}
+          {loaded && threads.length === 0 && !error ? <p className="seat-threads__note">No threads yet.</p> : null}
+          {withYou.length > 0 ? (
+            <section aria-label="With you">
+              <Eyebrow tone="steel">With you</Eyebrow>
+              <ul className="seat-threads__group" data-testid="seat-threads-with-you">
+                {withYou.map(row)}
+              </ul>
+            </section>
+          ) : null}
+          {betweenSeats.length > 0 ? (
+            <section aria-label="Between seats">
+              <Eyebrow tone="steel">Between seats</Eyebrow>
+              <ul className="seat-threads__group" data-testid="seat-threads-between-seats">
+                {betweenSeats.map(row)}
+              </ul>
+            </section>
+          ) : null}
+        </nav>
+        <div className="seat-threads__chat">
+          {shown?.kind === "new" ? (
+            <NewThread seat={seat} onCancel={() => setSelection(undefined)} onSent={(threadId) => setSelection({ kind: "thread", threadId })} />
+          ) : thread ? (
+            <ThreadChat seat={seat} thread={thread} />
+          ) : (
+            <p className="seat-threads__empty">{loaded ? "Pick a thread, or start one." : "Reading threads…"}</p>
+          )}
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+function ThreadChat({ seat, thread }: { readonly seat: SeatAddress; readonly thread: SeatThreadSummary }) {
+  const { messages, loaded, error } = useSeatThreadMessages(seat, thread.threadId);
+  const streamRef = useRef<HTMLDivElement>(null);
+  // The newest at the bottom, in view: on open and as messages arrive.
+  useLayoutEffect(() => {
+    const stream = streamRef.current;
+    if (stream) stream.scrollTop = stream.scrollHeight;
+  }, [thread.threadId, messages.length]);
+  const count = `${thread.messageCount} ${thread.messageCount === 1 ? "message" : "messages"}`;
+  const lastId = messages.at(-1)?.messageId;
+  return (
+    <>
+      <header className="seat-threads__chat-head">
+        <h3 className="seat-threads__chat-title">{thread.title}</h3>
+        <div className="seat-threads__chat-meta">
+          {thread.participants.map((who) => (
+            <Chip key={who} tone={who === "you" ? "cyan" : "steel"}>
+              {who}
+            </Chip>
+          ))}
+          <span>
+            {count}, started {threadTime(thread.startedAt)}
+          </span>
+        </div>
+      </header>
+      <div ref={streamRef} className="seat-threads__stream" data-testid="seat-threads-stream">
+        {error ? (
+          <p className="seat-threads__note seat-threads__note--error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        {loaded && messages.length === 0 && !error ? <p className="seat-threads__empty">Nothing sent yet.</p> : null}
+        {messages.map((message) => (
+          <article
+            key={message.messageId}
+            className="seat-threads__message"
+            data-mine={message.mine ? "true" : undefined}
+            data-testid="seat-threads-message"
+          >
+            <div className="seat-threads__message-head">
+              <strong>{message.author}</strong> {threadTime(message.at)}
+            </div>
+            <div className="seat-threads__bubble">{message.text}</div>
+          </article>
+        ))}
+      </div>
+      {thread.canReply ? (
+        <ThreadComposerSlot seat={seat} mode="reply" threadId={thread.threadId} inReplyTo={lastId} />
+      ) : (
+        <footer className="seat-threads__readonly" data-testid="seat-threads-readonly">
+          <Chip tone="steel">read only</Chip>
+          <span>
+            {betweenLine(thread.participants)} You are not in this thread, so you read it and do not write in it.
+          </span>
+        </footer>
+      )}
+    </>
+  );
+}
+
+function NewThread({
+  seat,
+  onCancel,
+  onSent,
+}: {
+  readonly seat: SeatAddress;
+  readonly onCancel: () => void;
+  readonly onSent: (threadId: string) => void;
+}) {
+  return (
+    <>
+      <header className="seat-threads__chat-head">
+        <h3 className="seat-threads__chat-title">New thread</h3>
+        <div className="seat-threads__chat-meta">
+          <span>Its first line becomes the thread's name in the list.</span>
+        </div>
+      </header>
+      <div className="seat-threads__stream">
+        <p className="seat-threads__empty">Nothing sent yet.</p>
+      </div>
+      <ThreadComposerSlot seat={seat} mode="new" onCancel={onCancel} onSent={onSent} />
+    </>
+  );
+}
+
+/**
+ * Where canvas-writers' ThreadComposer mounts, across the chat's width at its
+ * foot: replying in a thread the operator is in, or starting a new one.
+ */
+function ThreadComposerSlot(props: {
+  readonly seat: SeatAddress;
+  readonly mode: "reply" | "new";
+  readonly threadId?: string;
+  readonly inReplyTo?: string;
+  readonly onCancel?: () => void;
+  readonly onSent?: (threadId: string) => void;
+}) {
+  return <div className="seat-threads__composer" data-testid="seat-threads-composer" data-mode={props.mode} />;
+}

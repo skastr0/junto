@@ -89,6 +89,7 @@ import { openAgentEditor } from "../../lib/agent-editor-state";
 import { GRID_CELL_CHROME } from "../../lib/terminal-grid";
 import { reportOperatorTyped } from "../../lib/operator-holds";
 import { SeatCacheDuePopup } from "./SeatCacheDuePopup";
+import { SeatThreadsButton } from "../threads/SeatThreads";
 
 type AttachResult = {
   readonly ok: boolean;
@@ -2182,6 +2183,9 @@ export function TerminalSurface({
                   harness: harness ?? "",
                 }}
               />
+            ) : null}
+            {agentSeat && !grid ? (
+              <SeatThreadsButton seat={{ canvasName, seatId: node.id }} name={label.split("\n")[0] ?? label} />
             ) : null}
             {agentSeat && !grid ? (
               <Button
