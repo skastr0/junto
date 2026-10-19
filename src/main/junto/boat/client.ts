@@ -44,15 +44,17 @@ const failed = (check: BoatApiCheck, extra: { readonly code?: string; readonly s
   return new BoatApiFailed({ check, message: SENTENCES[check], ...(code === undefined ? {} : { code }), ...(extra.status === undefined ? {} : { status: extra.status }) });
 };
 
-const FIXED_SENTENCE_TAGS: ReadonlySet<string> = new Set([
+const PASSED_ON_TAGS: ReadonlySet<string> = new Set([
   "BoatApiFailed", "BoatKeyFailed", "BoatMachineRefused", "BoatFileRefused", "LinkUnavailable", "BoatMachineCommandFailed",
 ]);
 /**
- * What a Boat failure may say in an answer or a log row: the sentence of one
- * of Boat's own errors, whose words are fixed, or else `fallback`.
+ * What a Boat failure may say in an answer or a log row, else `fallback`.
+ * Boat's own errors carry fixed sentences. BoatMachineCommandFailed carries the
+ * machine command's own answer (machine-owner.ts), the same words that command
+ * gives the operator when called directly; a log row still scrubs it as a detail.
  */
 export const boatFailureMessage = (cause: unknown, fallback = "The Boat machine command failed"): string =>
-  cause instanceof Error && FIXED_SENTENCE_TAGS.has((cause as { _tag?: string })._tag ?? "") ? cause.message.slice(0, 1024) : fallback;
+  cause instanceof Error && PASSED_ON_TAGS.has((cause as { _tag?: string })._tag ?? "") ? cause.message.slice(0, 1024) : fallback;
 
 /** The core's runner: a Boat request is run in the warm runtime, never a bare one. */
 export type BoatRun = <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
