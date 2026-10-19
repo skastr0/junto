@@ -154,16 +154,22 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
   /**
    * The context for work in a channel's event queue: handleEvent, opened and
    * closed. Its request is refused, typed, before anything is sent, so a cast
-   * cannot bring it back.
+   * cannot bring it back. A windowed send that would wait is refused only while
+   * that work runs; a fiber it leaves behind may wait, as the queue moves on.
    */
-  const eventContext = (): LinkEventContext => {
+  const eventContext = (running: () => boolean = () => true): LinkEventContext => {
     const refusing: LinkChannelContext = {
       ...context(),
-      sendEvent: (channel, payload) => Effect.tryPromise({ try: () => sendEvent(channel, payload, true), catch: classify }),
+      sendEvent: (channel, payload) => Effect.tryPromise({ try: () => sendEvent(channel, payload, running()), catch: classify }),
       request: () => Effect.fail(new LinkUnavailable({ ...(peerName() === undefined ? {} : { machine: peerName()! }),
         reason: "request-from-event", message: "An event handler cannot send a request on its own link" })),
     };
     return refusing;
+  };
+  /** Runs one item of a channel's event queue with a context whose waits are refused until it returns. */
+  const inQueue = async (work: (ctx: LinkEventContext) => Promise<void>): Promise<void> => {
+    let running = true;
+    try { await work(eventContext(() => running)); } finally { running = false; }
   };
   const classify = (cause: unknown): MachineLinkError => isMachineLinkError(cause) ? cause :
     linkClosed({ ...(peerName() === undefined ? {} : { machine: peerName()! }), by: "this-end", reason: "failed", cause });
@@ -405,9 +411,8 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
       clearTimeout(helloTimer);
       resolveReady(peer);
       log("Info", "link opened", { peerBuild: peer.build, peerInstallationId: peer.installationId });
-      const ctx = eventContext();
       for (const [name, channel] of Object.entries(channels)) if (channel?.opened !== undefined) {
-        enqueue(name as LinkChannel, "event", async () => { await checkAdmission(); await runOwned(channel.opened!(ctx)); });
+        enqueue(name as LinkChannel, "event", () => inQueue(async ctx => { await checkAdmission(); await runOwned(channel.opened!(ctx)); }));
       }
       return;
     }
@@ -453,7 +458,7 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
         if (window.held + counted > limits.eventWindow) { finish(thisEnd("bound-exceeded", [bound("Link channel exceeds its window")])); return; }
         window.held += counted;
       }
-      enqueue(frame.channel, "event", async () => { await checkAdmission(); await runOwned(selected.handleEvent!(eventContext(), payload)); }, counted);
+      enqueue(frame.channel, "event", () => inQueue(async ctx => { await checkAdmission(); await runOwned(selected.handleEvent!(ctx, payload)); }), counted);
       return;
     }
     const payload = decoded("payload", `The ${frame.channel} request does not match its schema`, () => selected.decodeRequest(frame.payload));

@@ -154,7 +154,9 @@ export interface LinkChannelContext {
  * What an event handler gets: no request. The session may stop reading while
  * events back up, and a handler awaiting an answer on its own link would wait
  * on a reader that waits on it. The session also refuses one at run time, and
- * refuses a send on a windowed channel that would wait for the peer's credit.
+ * refuses a send on a windowed channel that would wait for the peer's credit
+ * while the hook or handler runs. A fiber it leaves behind may wait, so a
+ * handler never calls such a fiber's send inline: only the fiber sends.
  */
 export type LinkEventContext = Omit<LinkChannelContext, "request">;
 

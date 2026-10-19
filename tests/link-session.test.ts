@@ -483,3 +483,25 @@ it("keeps a rows channel's opened hook out of its window, so no empty credit goe
   await new Promise(resolve => setTimeout(resolve, 5));
   expect(closed).toBe(false);
 }, 5_000);
+
+it("lets a fiber an opened hook leaves behind wait for credit, while the hook itself is refused", async () => {
+  let send!: (value: string) => Promise<unknown>;
+  let refusedInHook: unknown;
+  const rows: LinkChannelHandler = { ...channel(), opened: (context) => Effect.gen(function* () {
+    send = value => Effect.runPromise(context.sendEvent("rows", { value }).pipe(Effect.as("sent"), Effect.catch(error => Effect.succeed(error))));
+    // Fills the window from inside the hook, then one more would wait: refused here.
+    yield* context.sendEvent("rows", { value: "x".repeat(195) });
+    refusedInHook = yield* Effect.flip(context.sendEvent("rows", { value: "y".repeat(100) }));
+  }) };
+  const f = raw({ limits: { frameBytes: 256, eventWindow: 300 }, channels: { status: channel(), rows } });
+  f.send({ type: "hello", ...hello("mini") }); await f.session.ready;
+  await until(() => refusedInHook !== undefined);
+  expect(refusedInHook).toMatchObject({ _tag: "LinkUnavailable", reason: "send-from-event" });
+  // After the hook returned, the same context waits for credit instead.
+  const later = send("z".repeat(100));
+  await new Promise(resolve => setTimeout(resolve, 20));
+  expect(f.frames.filter(frame => frame.type === "event")).toHaveLength(1);
+  f.send({ type: "credit", channel: "rows", bytes: lineBytes({ type: "event", channel: "rows", payload: { value: "x".repeat(195) } }) });
+  expect(await later).toBe("sent");
+  expect(f.frames.filter(frame => frame.type === "event")).toHaveLength(2);
+}, 5_000);
