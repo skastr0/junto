@@ -195,6 +195,14 @@ still closes it. Bound frame size, buffered bytes, clients, outstanding
 requests and transfer size; terminal output and reconnects must not exhaust
 the core or block its local work indefinitely.
 
+A windowed channel is bounded by credit. The receiver credits only bytes it
+read and finished handling. Credit for bytes never sent, or for a channel
+without a window, closes the link, and so do events past the window. A sender
+waits for credit before its write queue, so one channel's backlog never stands
+in front of another's request. Waiting is bounded in bytes and in time: past
+either bound the send is refused, typed, or the link closes, never hangs. An
+event handler that would wait is refused.
+
 The transport is symmetric. Authority depends on the bound peer and the
 canvas, never on which end opened the connection:
 
