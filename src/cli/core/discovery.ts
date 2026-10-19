@@ -224,7 +224,7 @@ export const msgSendSchema: CommandSchemaContract = {
   command: "msg send",
   schema_id: "msg.send.input/v1",
   description:
-    "Mail a connected seat. The mail is typed whole into its input at once, up to 2,500 characters, under a \"mail from\" header with its id and the reply command, and marked read; longer mail is cut with a pointer to msg read. A seat that is not up gets it when it starts. threadId posts into an existing thread this seat can read.",
+    "Mail a connected seat, named by its name or its node id. The mail is typed whole into its input at once, up to 2,500 characters, under a \"mail from\" header with its id and the reply command, and marked read; longer mail is cut with a pointer to msg read. A seat that is not up gets it when it starts. threadId posts into an existing thread this seat can read.",
   schema: MsgSendArgs,
   accepts_batch: true,
   input_modes: inputModes,
@@ -235,7 +235,7 @@ export const msgPromptSchema: CommandSchemaContract = {
   command: "msg send --prompt",
   schema_id: "msg.prompt.input/v1",
   description:
-    "Mail a connected seat as a prompt: the full text is typed into its input and submitted at once as steering. While a turn is running, that harness's follow-up contract says how many Enters that takes. A seat that is not up gets it when it starts.",
+    "Mail a connected seat as a prompt, named by its name or its node id: the full text is typed into its input and submitted at once as steering. While a turn is running, that harness's follow-up contract says how many Enters that takes. A seat that is not up gets it when it starts.",
   schema: MsgPromptArgs,
   accepts_batch: true,
   input_modes: inputModes,
@@ -298,7 +298,7 @@ export const msgReplySchema: CommandSchemaContract = {
   command: "msg reply",
   schema_id: "msg.reply.input/v1",
   description:
-    "Reply to mail: send text to target and mark inReplyTo read on own mailbox. The reply joins the parent's thread. Target \"operator\" answers mail the operator sent this seat.",
+    "Reply to mail: send text to target (a seat's name or its node id) and mark inReplyTo read on own mailbox. The reply joins the parent's thread. Target \"operator\" answers mail the operator sent this seat.",
   schema: MsgReplyArgs,
   accepts_batch: true,
   input_modes: inputModes,
