@@ -539,6 +539,24 @@ describe("SeatStateMachine — transitions without flapping", () => {
     ]);
   });
 
+  it("a seat back at rest at the instant it left keeps when it last left", () => {
+    let t = 1_000;
+    const m = new SeatStateMachine({ now: () => t });
+    m.bind("b1", { harness: "claude", epoch: "e1" });
+    m.force("b1", "working", "rule:osc_title_working");
+    m.force("b1", "idle", "hook:osc9_idle");
+    expect(m.snapshot("b1")).not.toHaveProperty("activitySince");
+    t += 10;
+    m.force("b1", "working", "rule:osc_title_working");
+    t += 10;
+    m.force("b1", "idle", "hook:osc9_idle");
+    expect(m.snapshot("b1")?.activitySince).toBe(1_010);
+    t += 10;
+    m.force("b1", "working", "rule:osc_title_working");
+    m.force("b1", "idle", "hook:osc9_idle");
+    expect(m.snapshot("b1")?.activitySince).toBe(1_010);
+  });
+
   it("projects the current published state for renderer hydration", () => {
     let t = 1_000;
     const m = new SeatStateMachine({ now: () => t });

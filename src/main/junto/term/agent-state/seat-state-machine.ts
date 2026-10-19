@@ -100,6 +100,8 @@ type BindingSlot = {
   snapshot: SeatSnapshot;
   /** The screen facts the last frame showed, so each folds once, on appearing. */
   factKeys: ReadonlySet<string>;
+  /** The seat left rest at `at`; `was` is when it had left before (absent: never). */
+  departure?: { readonly at: number; readonly was?: number };
 };
 
 export type SeatStateListener = (event: AgentSeatStateEvent) => void;
@@ -654,6 +656,30 @@ export class SeatStateMachine {
   }
 
   /**
+   * A seat that leaves rest and is back at rest at the same instant never
+   * left it: a write split between reads (a braille title read before the
+   * idle flag written with it) leaves `activitySince` where it was.
+   */
+  private keepRestThrough(slot: BindingSlot, before: SeatSnapshot, after: SeatSnapshot, at: number): SeatSnapshot {
+    if (after.activitySince === at && before.activitySince !== at) {
+      slot.departure = { at, ...(before.activitySince === undefined ? {} : { was: before.activitySince }) };
+      return after;
+    }
+    const left = slot.departure;
+    if (left === undefined) return after;
+    if (left.at !== at) {
+      slot.departure = undefined;
+      return after;
+    }
+    const tag = after.status._tag;
+    if (tag !== "Idle" && tag !== "Starting" && tag !== "Unknown") return after;
+    slot.departure = undefined;
+    if (left.was !== undefined) return { ...after, activitySince: left.was };
+    const { activitySince: _left, ...rest } = after;
+    return rest;
+  }
+
+  /**
    * Fold one fact into the slot's snapshot. A fresh decision supersedes a
    * stalled-turn latch, so any fact but the stall itself resumes the
    * heartbeat first: the latch reads only until the next judgment.
@@ -671,7 +697,7 @@ export class SeatStateMachine {
     if (snapshot.stalledSince !== undefined && fact.signal._tag !== "HeartbeatStalled" && isStatusFact(fact.signal)) {
       snapshot = reduceSeat(snapshot, envelope({ _tag: "HeartbeatResumed" }, "system", "native"));
     }
-    slot.snapshot = reduceSeat(snapshot, envelope(fact.signal, fact.source, fact.fidelity));
+    slot.snapshot = this.keepRestThrough(slot, snapshot, reduceSeat(snapshot, envelope(fact.signal, fact.source, fact.fidelity)), at);
     if (fact.signal._tag === "SessionIdentified") {
       const { sessionId, transcriptPath } = fact.signal;
       const report: SessionReport = {
