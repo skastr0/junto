@@ -18,7 +18,7 @@ export function SeatOffboardKindKey({ nodeIds }: { readonly nodeIds: ReadonlyArr
     <>
       <KindKey
         label={label}
-        title={count === 1 ? "Offboard: start this seat fresh" : `Offboard: start ${count} seats fresh`}
+        title={count === 1 ? "Offboard: end this agent's session" : `Offboard: end the sessions of ${agentCountLabel(count)}`}
         active={anchor !== null}
         testId="rts-seat-offboard"
         onClick={(event) => {

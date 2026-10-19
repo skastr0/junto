@@ -208,11 +208,11 @@ export const offboardNowBlock = (statuses: ReadonlyArray<SeatOffboardStatus>): s
 
 /** Under "ask to offboard". */
 export const askMenuDetail = (count: number): string =>
-  count === 1 ? "picks up where it was" : `${agentCountLabel(count)}, continue`;
+  count === 1 ? "continue in a fresh session" : `${agentCountLabel(count)}, continue`;
 
 /** What the second press of an armed "offboard now" closes. */
 export const armedNowLabel = (closable: number): string =>
-  closable === 1 ? "start this seat fresh?" : `start ${closable} seats fresh?`;
+  closable === 1 ? "close this session?" : `close ${closable} sessions?`;
 
 /** One agent's reason in a few words; main's own sentence when there is no short form. */
 const ONE_BLOCK: Readonly<Partial<Record<OffboardRefusalCode, string>>> = {

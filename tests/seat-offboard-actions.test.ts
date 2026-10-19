@@ -205,7 +205,7 @@ describe("the offboard rows of the canvas menu", () => {
   const blocked = (code: OffboardRefusalCode): SeatOffboardStatus["now"] => ({ allowed: false, code, reason: "x" });
 
   it("ask to offboard: the count, and that the agents continue", () => {
-    expect(askMenuDetail(1)).toBe("picks up where it was");
+    expect(askMenuDetail(1)).toBe("continue in a fresh session");
     expect(askMenuDetail(2)).toBe("2 agents, continue");
   });
 
@@ -250,7 +250,7 @@ describe("the offboard rows of the canvas menu", () => {
   });
 
   it("the armed row names what the second press closes", () => {
-    expect(armedNowLabel(1)).toBe("start this seat fresh?");
-    expect(armedNowLabel(4)).toBe("start 4 seats fresh?");
+    expect(armedNowLabel(1)).toBe("close this session?");
+    expect(armedNowLabel(4)).toBe("close 4 sessions?");
   });
 });
