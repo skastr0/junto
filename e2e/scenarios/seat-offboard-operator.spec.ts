@@ -1220,14 +1220,16 @@ test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next,
       await shot(page, "LOOP.1", "fresh-next-on-the-still-card");
     });
 
-    await step("LOOP.2", "both seats are stopped and rest; mail to Tia starts a fresh session with no turn on the cold one, the same mail to Zed resumes hers", async () => {
+    await step("LOOP.2", "both seats are stopped and rest; Tia warns that her cache expired, and mail to her starts a fresh session with no turn, while the same mail to Zed resumes hers", async () => {
       // A running seat keeps its session at a mail; the start decides (seat-sessions/operator-offboard.ts coldSessionStartsFresh).
       const before = await inputOf(sandbox, "loop-tia", 1);
       const zedPin = await sessionPin(sandbox, "loop-zed");
       const cutPid = (await tia.ready()).pid;
       await stopSeat(ctx, "loop-tia", cutPid);
       await stopSeat(ctx, "loop-zed", (await zed.ready()).pid);
-      await expect(card(page, "loop-tia"), "a resting seat past the window still says it").toContainText("fresh next", { timeout: 20_000 }).catch(async (error: unknown) => {
+      // Hybrid, the default: the card predicts what the operator's own open does, which continues a cold seat
+      // with a warning (operator-offboard.ts coldForStart). Mail is a different cause and starts her fresh, below.
+      await expect(card(page, "loop-tia"), "a resting seat past the window warns that its cache expired").toContainText("cache expired", { timeout: 20_000 }).catch(async (error: unknown) => {
         // Say why before stopping: the card's own answer, the resume proof's inputs, and main's account of the cut (still minutes, work, worth).
         const why = await launchWhy(page, sandbox, "loop-tia");
         const status = await workStatusOf(page, "loop-tia");
@@ -1235,7 +1237,8 @@ test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next,
         console.log(`LOOP-tia-launch-why ${why} status ${JSON.stringify(status ?? null)}`);
         throw error;
       });
-      await expect(card(page, "loop-zed"), "and one inside the window does not").not.toContainText("fresh next").catch(async (error: unknown) => {
+      await expect(card(page, "loop-tia"), "and does not say fresh next, which the operator's open would not do").not.toContainText("fresh next");
+      await expect(card(page, "loop-zed"), "one inside the window says neither").not.toContainText(/fresh next|cache expired/u).catch(async (error: unknown) => {
         // Say why before stopping: main's own answer for the card and the inputs of the resume proof.
         const why = await launchWhy(page, sandbox, "loop-zed");
         note(testInfo, "LOOP-zed-launch-why", why);
