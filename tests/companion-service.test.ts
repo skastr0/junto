@@ -22,7 +22,7 @@ vi.mock("electron", () => ({
 import { COMPANION_PROTOCOL } from "../src/shared/companion-protocol";
 import { decodeCompanionPairingUrl } from "../src/shared/companion-protocol";
 import { OPERATOR_PROTOCOL_VERSION, type OperatorRequestEnvelope } from "../src/shared/operator-control";
-import { companionDevicesIn } from "../src/main/junto/companion/authorized-keys";
+import { companionAuthorizedKeysPath, companionDevicesIn, companionKeyLine } from "../src/main/junto/companion/authorized-keys";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { outcomeFail, outcomeOk, type CompanionBackend } from "../src/shared/companion-core";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
@@ -172,6 +172,27 @@ describe("companion service", () => {
     expect(await missing.startPairing()).toMatchObject({ ok: false, message: expect.stringContaining("junto command") });
     void decodeCompanionPairingUrl;
   }, 60_000);
+
+  describe("a Junto with its own home (a preview, a dev run)", () => {
+    it("edits authorized_keys only when its home is the user's home", () => {
+      expect(companionAuthorizedKeysPath("/Users/me", "/Users/me")).toBe("/Users/me/.ssh/authorized_keys");
+      expect(companionAuthorizedKeysPath("/Users/me/", "/Users/me")).toBe("/Users/me/.ssh/authorized_keys");
+      expect(companionAuthorizedKeysPath("/Users/me/.junto-preview-pty", "/Users/me")).toBeUndefined();
+    });
+
+    it("never prunes the real phones' lines, and refuses to pair", async () => {
+      // A phone paired by the Junto at the user's home: not in this process's database.
+      const realPhone = companionKeyLine({ juntoPath: environment.juntoPath!, deviceId: "dev_01M594P2JVSWRGRSHY8GWTJN5B", publicKey: PHONE_KEY });
+      const before = `${OPERATOR_LINE}\n${realPhone}\n`;
+      writeFileSync(authorizedKeysPath, before, { mode: 0o600 });
+      const preview = makeCompanionService({ appVersion: "9.9.9", environment: async () => environment, authorizedKeysPath: null, runRepository, backend });
+      await preview.reconcile();
+      expect(readFileSync(authorizedKeysPath, "utf8")).toBe(before);
+      expect(await preview.startPairing()).toMatchObject({ ok: false, message: expect.stringContaining("own home") });
+      expect(readFileSync(authorizedKeysPath, "utf8")).toBe(before);
+      writeFileSync(authorizedKeysPath, `${OPERATOR_LINE}\n`, { mode: 0o600 });
+    }, 60_000);
+  });
 
   describe("Copy link", () => {
     afterEach(() => vi.useRealTimers());

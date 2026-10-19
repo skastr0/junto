@@ -45,7 +45,7 @@ import {
 import { AppRuntime } from "../../runtime";
 import {
   companionKeyLine,
-  defaultAuthorizedKeysPath,
+  companionAuthorizedKeysPath,
   editAuthorizedKeys,
   pruneCompanionKeys,
   removeCompanionKey,
@@ -77,7 +77,8 @@ export type CompanionClipboard = {
 export type CompanionServiceOptions = {
   readonly appVersion: string;
   readonly environment: () => Promise<CompanionEnvironment>;
-  readonly authorizedKeysPath?: string;
+  /** Default: the user's own, only when Junto's home is the user's home. null: none. */
+  readonly authorizedKeysPath?: string | null;
   /** Settings' device list changed (paired, removed, swept, seen). */
   readonly onDevicesChanged?: (devices: ReadonlyArray<CompanionDeviceRecord>) => void;
   /** The first device exists: the operator socket must be listening. */
@@ -124,7 +125,10 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
   const repo = <A, E>(use: (repository: CompanionDeviceRepository["Service"]) => Effect.Effect<A, E>): Promise<A> =>
     runRepository(Effect.flatMap(CompanionDeviceRepository, use));
   const changes = makeCompanionChanges();
-  const authorizedKeysPath = options.authorizedKeysPath ?? defaultAuthorizedKeysPath();
+  // null: this process may not edit authorized_keys at all (a Junto with its own home).
+  const authorizedKeysPath = options.authorizedKeysPath === undefined ? companionAuthorizedKeysPath() : options.authorizedKeysPath ?? undefined;
+  const editKeys = (edit: (text: string) => string): Promise<void> =>
+    authorizedKeysPath === undefined ? Promise.resolve() : editAuthorizedKeys(edit, authorizedKeysPath).then(() => undefined);
   const limiters = new Map<string, () => boolean>();
   const contentGates = new Map<string, () => (() => void) | undefined>();
   const expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -168,7 +172,7 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
       clearTimeout(expiryTimers.get(device.deviceId));
       expiryTimers.delete(device.deviceId);
       forgetLink(device.deviceId);
-      await editAuthorizedKeys((text) => removeCompanionKey(text, device.deviceId), authorizedKeysPath).catch(() => undefined);
+      await editKeys((text) => removeCompanionKey(text, device.deviceId)).catch(() => undefined);
     }
     announce();
   };
@@ -205,12 +209,12 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
     const line = companionKeyLine({ juntoPath, deviceId: input.deviceId, publicKey: input.publicKey });
     // The phone's key replaces the one-time key's line; the open pairing
     // session keeps working, and from now on only the phone's key does.
-    await editAuthorizedKeys((text) => upsertCompanionKey(text, input.deviceId, line), authorizedKeysPath);
+    await editKeys((text) => upsertCompanionKey(text, input.deviceId, line));
     const completed = await repo((r) =>
       r.completePairing({ deviceId: input.deviceId, publicKey: input.publicKey, name: input.deviceName, now: Date.now() }),
     );
     if (!completed.ok) {
-      await editAuthorizedKeys((text) => removeCompanionKey(text, input.deviceId), authorizedKeysPath).catch(() => undefined);
+      await editKeys((text) => removeCompanionKey(text, input.deviceId)).catch(() => undefined);
       return outcomeFail<{ deviceId: string }>("revoked", "This pairing code expired. Pair again from Junto on your Mac.");
     }
     clearTimeout(expiryTimers.get(input.deviceId));
@@ -276,6 +280,8 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
   };
 
   const startPairing = async () => {
+    if (authorizedKeysPath === undefined)
+      return { ok: false as const, message: "This Junto runs from its own home, so it cannot pair phones. Pair from the Junto you use every day." };
     const environment = await options.environment();
     stationName = environment.station;
     if (!environment.juntoPath) return { ok: false as const, message: "The junto command is not installed on this Mac." };
@@ -290,7 +296,7 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
     await repo((r) => r.createPairing({ deviceId, pairingPublicKey: key.publicKey, expiresAt, now }));
     try {
       const line = companionKeyLine({ juntoPath: environment.juntoPath, deviceId, publicKey: key.publicKey });
-      await editAuthorizedKeys((text) => upsertCompanionKey(text, deviceId, line), authorizedKeysPath);
+      await editKeys((text) => upsertCompanionKey(text, deviceId, line));
     } catch (error) {
       await repo((r) => r.remove(deviceId)).catch(() => undefined);
       return { ok: false as const, message: error instanceof Error ? `Could not update authorized_keys: ${error.message}` : "Could not update authorized_keys." };
@@ -321,7 +327,7 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
     clearTimeout(expiryTimers.get(deviceId));
     expiryTimers.delete(deviceId);
     forgetLink(deviceId);
-    await editAuthorizedKeys((text) => removeCompanionKey(text, deviceId), authorizedKeysPath);
+    await editKeys((text) => removeCompanionKey(text, deviceId));
     const removed = await repo((r) => r.remove(deviceId));
     limiters.delete(deviceId);
     contentGates.delete(deviceId);
@@ -358,7 +364,7 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
           );
         }
       }
-      await editAuthorizedKeys((text) => pruneCompanionKeys(text, keep), authorizedKeysPath).catch(() => undefined);
+      await editKeys((text) => pruneCompanionKeys(text, keep)).catch(() => undefined);
     },
     environment: options.environment,
   };

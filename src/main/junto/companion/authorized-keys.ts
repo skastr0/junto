@@ -26,7 +26,8 @@ import {
   writeSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { resolveJuntoHome } from "@shared/junto-home";
 
 export const COMPANION_KEY_TAG = "junto-companion:";
 
@@ -36,6 +37,18 @@ const PUBLIC_KEY = /^(?:ecdsa-sha2-nistp256|ssh-ed25519) [A-Za-z0-9+/]{16,}={0,3
 const SAFE_PATH = /^\/[^'"\\\n\r\u0000]*$/u;
 
 export const defaultAuthorizedKeysPath = (): string => join(homedir(), ".ssh", "authorized_keys");
+
+/**
+ * The authorized_keys this process may edit, or undefined: none. Only a Junto
+ * whose home is the user's own home pairs phones. One with its own JUNTO_HOME
+ * (a preview, a dev run) shares the user's ~/.ssh but not the phones in the
+ * real database, so a reconcile there would prune every real phone's line.
+ * A phone's forced command reaches the Junto at the user's home in any case.
+ */
+export const companionAuthorizedKeysPath = (
+  juntoHome: string = resolveJuntoHome(),
+  home: string = homedir(),
+): string | undefined => (resolve(juntoHome) === resolve(home) ? join(home, ".ssh", "authorized_keys") : undefined);
 
 export class AuthorizedKeysError extends Error {
   readonly reason: "invalid" | "symlink" | "io";
