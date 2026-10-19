@@ -147,12 +147,19 @@ type Owed = {
   have: boolean;
   /** Every canvas the peer said it holds: the peer's have arrived. */
   offerAll: boolean;
-  /** Canvases committed to here: their copy when it changed, then their rows and signals. */
-  readonly canvases: Set<string>;
+  /** Canvases committed to here: their copy when the canvas changed, then their rows and signals. */
+  readonly canvases: Map<string, ExchangeChange>;
   readonly refusals: Array<CopyRefusedFrame>;
 };
 
-const nothingOwed = (): Owed => ({ hello: false, have: false, offerAll: false, canvases: new Set(), refusals: [] });
+/**
+ * What a commit changed. `canvas`: the canvas itself, its play state, or what
+ * its copy carries (guidance, the briefing, references); a seat moving machine
+ * is one, and a copy is cut. `rows`: the work log or a signal; no copy is cut.
+ */
+export type ExchangeChange = "canvas" | "rows";
+
+const nothingOwed = (): Owed => ({ hello: false, have: false, offerAll: false, canvases: new Map(), refusals: [] });
 
 const owesNothing = (owed: Owed): boolean =>
   !owed.hello && !owed.have && !owed.offerAll && owed.canvases.size === 0 && owed.refusals.length === 0;
@@ -350,8 +357,8 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       }
       for (const refusal of owed.refusals) yield* send(state, refusal);
       if (owed.have) yield* sendHave(state);
-      for (const canvasName of owed.canvases) {
-        if (yield* sendCopy(state, canvasName)) yield* sendHave(state);
+      for (const [canvasName, change] of owed.canvases) {
+        if (change === "canvas" && (yield* sendCopy(state, canvasName))) yield* sendHave(state);
         if (owed.offerAll) continue;
         yield* offer(state, canvasName);
         yield* sendSignals(state, canvasName);
@@ -373,8 +380,12 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
     Effect.gen(function* () {
       for (;;) {
         yield* state.wake.await;
+        // Waking resumes this worker inside the commit that woke it: give
+        // the rest of that commit's changes (a frame's rows, a burst of mail)
+        // a turn to be owed too, so they go in this one round.
+        yield* Effect.sleep(0);
         state.wake.closeUnsafe();
-        const owed = { ...state.owed, canvases: new Set(state.owed.canvases), refusals: [...state.owed.refusals] };
+        const owed = { ...state.owed, canvases: new Map(state.owed.canvases), refusals: [...state.owed.refusals] };
         state.owed.hello = state.owed.have = state.owed.offerAll = false;
         state.owed.canvases.clear();
         state.owed.refusals.length = 0;
@@ -441,7 +452,7 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       state.rows.set(frame.canvasName, counts);
       for (const mail of applied.mail) deps.mailArrived(mail.canvasName, mail.nodeId, mail.message);
       // Rows taken from one machine go on to the others entitled to them.
-      if (applied.taken > 0) committed(frame.canvasName, peer);
+      if (applied.taken > 0) committed(frame.canvasName, "rows", peer);
     });
 
   /**
@@ -479,13 +490,14 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
 
   /**
    * A local commit, or rows just taken, on a canvas: owed to every other open
-   * link. A canvas this machine edits goes first as its copy, when it changed.
+   * link. When the canvas changed, a canvas this machine edits goes first as
+   * its copy, if that differs from the one sent.
    */
-  const committed = (canvasName: string, except?: InstallationId): void => {
+  const committed = (canvasName: string, change: ExchangeChange, except?: InstallationId): void => {
     for (const state of links.values()) {
       if (state.link.peer === except) continue;
       owe(state, (owed) => {
-        owed.canvases.add(canvasName);
+        if (owed.canvases.get(canvasName) !== "canvas") owed.canvases.set(canvasName, change);
       });
     }
   };
@@ -523,7 +535,8 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       }),
     closed: stop,
     receive,
-    committed: (canvasName: string): Effect.Effect<void> => Effect.sync(() => committed(canvasName)),
+    committed: (canvasName: string, change: ExchangeChange = "canvas"): Effect.Effect<void> =>
+      Effect.sync(() => committed(canvasName, change)),
     /** Every link's worker has sent all it owes. */
     quiet: Effect.suspend(() => Effect.forEach([...links.values()], (state) => state.quiet.await, { discard: true })),
     /** Is a link open to that machine right now. */

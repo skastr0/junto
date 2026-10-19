@@ -58,6 +58,8 @@ type Machine = {
   readonly repository: Context.Service.Shape<typeof WorkRepository>;
   readonly exchange: RowExchange;
   readonly arrived: Array<{ nodeId: string; messageId: string }>;
+  /** How often the exchange looked for a copy to send, and where a canvas's seats are. */
+  readonly calls: { cuts: number; placements: number };
 };
 
 const queue: Queued[] = [];
@@ -83,21 +85,29 @@ const boot = async (self: InstallationId, canvases: ReadonlyArray<string> = ["fa
     }),
   );
   const arrived: Machine["arrived"] = [];
+  const calls: Machine["calls"] = { cuts: 0, placements: 0 };
   const exchange = makeRowExchange({
     self,
     repository,
     canvases: Effect.succeed(canvases),
     placement: (canvasName) =>
-      Effect.succeed(!canvases.includes(canvasName) ? undefined : canvasName === "private" ? privatePlacement : placement),
+      Effect.sync(() => {
+        calls.placements += 1;
+        return !canvases.includes(canvasName) ? undefined : canvasName === "private" ? privatePlacement : placement;
+      }),
     mailArrived: (_canvas, nodeId, message: Message) => arrived.push({ nodeId, messageId: message.messageId }),
     // These machines already hold their canvases; tests/work-exchange-copy.test.ts sends copies.
-    cutCopy: () => Effect.succeed(undefined),
+    cutCopy: () =>
+      Effect.sync(() => {
+        calls.cuts += 1;
+        return undefined;
+      }),
     copySent: () => Effect.void,
     installCopy: () => Effect.die("no copy is sent between these machines"),
     signals: () => Effect.succeed([]),
     takeSignal: () => Effect.die("no signal is stated between these machines"),
   });
-  const machine: Machine = { self, root, runtime, repository, exchange, arrived };
+  const machine: Machine = { self, root, runtime, repository, exchange, arrived, calls };
   machines.set(self, machine);
   return machine;
 };
@@ -599,5 +609,38 @@ describe("a rows frame the link refuses", () => {
     await quiet();
     expect(carried).toContain("refused-once");
     editor.exchange.closed(OTHER);
+  });
+});
+
+describe("a frame of rows taken", () => {
+  it("is passed on in one round, and cuts no copy: what it changed is the work log", async () => {
+    // Fresh machines: earlier tests left cursors past rows the mini never wrote.
+    for (const machine of [editor, mini]) {
+      unlink(editor, mini);
+      await machine.runtime.dispose();
+      await rm(machine.root, { recursive: true, force: true });
+    }
+    editor = await boot(EDITOR, ["factory", "private"]);
+    mini = await boot(MINI);
+    await copySent(1);
+    await link(editor, mini);
+    await settle();
+    // As the app follows local commits: every row written here, taken rows too, is owed to the links.
+    const off = editor.repository.subscribeChanges((canvasName) => {
+      Effect.runFork(editor.exchange.committed(canvasName, "rows"));
+    });
+    try {
+      for (let index = 0; index < 64; index += 1) await send(mini, "peer", "lead", `one-frame-${index}`);
+      await mini.runtime.runPromise(mini.exchange.committed("factory", "rows"));
+      editor.calls.cuts = 0;
+      editor.calls.placements = 0;
+      await settle();
+      expect((await inbox(editor, "lead")).filter((id) => id.startsWith("one-frame-"))).toHaveLength(64);
+      // One frame, 64 rows: the frame's own check, then one round, not one per row.
+      expect(editor.calls.cuts).toBe(0);
+      expect(editor.calls.placements).toBeLessThanOrEqual(4);
+    } finally {
+      off();
+    }
   });
 });

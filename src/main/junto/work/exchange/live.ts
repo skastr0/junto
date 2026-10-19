@@ -34,7 +34,7 @@ import { onAgentSignalChanged } from "../../signals/changes";
 import { raisedHands } from "../../signals/raised-hands";
 import { AgentSignalRepository } from "../../signals/repository";
 import { WorkRepository } from "../repository";
-import { makeRowExchange, type CopyInstalled, type RowExchange } from "./session";
+import { makeRowExchange, type CopyInstalled, type ExchangeChange, type RowExchange } from "./session";
 import { encodeFailure } from "../../failure-encode";
 import { logMachine } from "../../observability/logger";
 
@@ -307,14 +307,16 @@ export const followLocalCommits = (
     const records = yield* ModelRecords;
     const repository = yield* WorkRepository;
     const pause = yield* PausePlane;
-    const push = (canvasName: string): void => {
-      Effect.runFork(exchange.committed(canvasName));
+    const push = (canvasName: string, change: ExchangeChange): void => {
+      Effect.runFork(exchange.committed(canvasName, change));
     };
     /** Guidance and app-wide texts name no canvas: every canvas is looked at again. */
     const pushAll = (): void => {
       Effect.runFork(
         records.listCanvases().pipe(
-          Effect.flatMap((canvases) => Effect.forEach(canvases, exchange.committed, { discard: true })),
+          Effect.flatMap((canvases) =>
+            Effect.forEach(canvases, (canvasName) => exchange.committed(canvasName, "canvas"), { discard: true }),
+          ),
           // Nothing is pushed this time; the next commit pushes again. Never silent.
           Effect.catchCause((cause) => Effect.logWarning("canvases could not be listed to push to linked machines").pipe(
             Effect.annotateLogs({ area: "exchange", failure: encodeFailure(cause, { machine: logMachine() }) }))),
@@ -322,13 +324,14 @@ export const followLocalCommits = (
       );
     };
     const offs = [
-      model.subscribeChanges((event) => push(event.canvas)),
-      repository.subscribeChanges((canvasName) => push(canvasName)),
-      pause.subscribe((canvasName) => push(canvasName)),
-      onAgentSignalChanged((signal) => push(signal.canvasName)),
+      // The canvas, play and what a copy carries cut a copy; the work log and signals do not.
+      model.subscribeChanges((event) => push(event.canvas, "canvas")),
+      repository.subscribeChanges((canvasName) => push(canvasName, "rows")),
+      pause.subscribe((canvasName) => push(canvasName, "canvas")),
+      onAgentSignalChanged((signal) => push(signal.canvasName, "rows")),
       onSeatGuidanceChanged(pushAll),
       onReferencesChanged((event) =>
-        event.kind === "reference" && event.canvasName !== undefined ? push(event.canvasName) : pushAll(),
+        event.kind === "reference" && event.canvasName !== undefined ? push(event.canvasName, "canvas") : pushAll(),
       ),
     ];
     return () => {
