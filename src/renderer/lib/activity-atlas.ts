@@ -337,8 +337,6 @@ const renderAtlas = (mode: ThemeMode): string | undefined => {
   }
 };
 
-/** Every loop's phase restarts together this often: a multiple of every lap. */
-export const MARK_PHASE_MS = 896 * RING_FRAME_MS;
 
 const cellAt = (col: string, row: string): string =>
   `calc(var(${col}) * var(--mark-u) * -1) calc(var(${row}) * var(--mark-u) * -1)`;

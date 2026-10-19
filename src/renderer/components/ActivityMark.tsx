@@ -11,7 +11,8 @@ import {
   type ActivitySpec,
   type ActivityTone,
 } from "../lib/activity";
-import { MARK_PHASE_MS, ensureMarkAtlas, ringCells, type RingParts } from "../lib/activity-atlas";
+import { MARK_PHASE_MS } from "@shared/rings";
+import { ensureMarkAtlas, ringCells, type RingParts } from "../lib/activity-atlas";
 import { canvasPerformance } from "../lib/performance/canvas-performance";
 import { canvasTier$ } from "../lib/canvas-tier";
 import { surfaceMotionLive$ } from "../lib/surface-motion";
@@ -102,14 +103,13 @@ const visible = new Set<HTMLElement>();
 let observer: IntersectionObserver | undefined;
 let unsubMotion: (() => void) | undefined;
 
-const now = (): number => (typeof performance === "undefined" ? Date.now() : performance.now());
-
 /**
  * Every ring runs on one clock: a part starts its animation when it shows,
- * so its delay is set to where that clock stands, as the live painter did.
+ * so its delay is set to where that clock stands. The clock is wall time,
+ * so every screen showing a seat (the phone too) is in the same phase.
  */
 const syncPhase = (el: HTMLElement): void => {
-  el.style.setProperty("--mark-t0", `${String(-Math.round(now() % MARK_PHASE_MS))}ms`);
+  el.style.setProperty("--mark-t0", `${String(-Math.round(Date.now() % MARK_PHASE_MS))}ms`);
 };
 
 /** Motion back on (window shown again): the parts restart, so resync them. */

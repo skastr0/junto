@@ -59,6 +59,12 @@ export const RING_FRAME_MS = 90;
 export const RING_CYCLE_FRAMES = 32;
 /** Frames of the done draw-in; frame LAND_FRAMES is the resting pose. */
 export const LAND_FRAMES = 8;
+/**
+ * Every loop's phase restarts together this often: a multiple of every lap.
+ * A ring's phase is wall time modulo this, so a desktop and a phone showing
+ * the same seat turn and pulse in step.
+ */
+export const MARK_PHASE_MS = 896 * RING_FRAME_MS;
 
 /** A part that turns a full lap, clockwise unless `ccw`. */
 export type RingSpinTiming = {
