@@ -117,13 +117,15 @@ are Markdown. Names below match `src/shared/companion-protocol.ts`.
 | `signal.answer` | `{ "signalId": string, "text": string }` (1 to 8000 chars) | `{ "signal": AgentSignal }` |
 | `signal.dismiss` | `{ "signalId": string }` | `{ "signal": AgentSignal }` |
 | `mail.list` | `{ "canvasName": string, "nodeId": string, "limit"?: number }` (default 50, max 200) | `{ "messages": Mail[] }` newest first |
-| `mail.send` | `{ "canvasName": string, "nodeId": string, "text": string }` (1 to 8000 chars) | `{ "message": Mail }` |
+| `mail.send` | `{ "canvasName": string, "nodeId": string, "text": string, "threadId"?: ULID, "inReplyTo"?: ULID, "mentions"?: string[] }` (text 1 to 8000 chars, at most 32 mentions; closed: any other key is `invalid`) | `{ "message": Mail }` |
 | `quickReplies.get` | `{}` | `{ "replies": string[] }` (the operator's quick replies from desktop Settings) |
 | `portrait.get` | `{ "portraitIdentity": string, "size": number, "theme": "bright" \| "dark" }` | `{ "svg": string }` |
 | `content.get` | `{ "sha256": string, "offset": number, "length": number }` (closed: any other key is `invalid`) | `{ "sha256": string, "offset": number, "length": number, "byteLength": number, "data": string }` |
 | `machines.list` | `{}` | `{ "machines": Machine[] }` (at most 32) |
 | `machine.get` | `{ "name": string, "minLevel"?: "trace" \| "debug" \| "info" \| "warn" \| "error" \| "fatal" }` | `{ "machine": Machine, "status": MachineStatus, "logs": MachineLogs }` |
 | `tailnet.peers` | `{}` | `{ "available": boolean, "peers": TailnetPeer[] }` (at most 128) |
+| `threads.list` | `{ "canvasName": string, "nodeId": string }` (closed) | `{ "threads": ThreadSummary[], "cut": boolean }` newest activity first, at most 200 |
+| `thread.get` | `{ "canvasName": string, "nodeId": string, "threadId": ULID }` (closed) | `{ "messages": ThreadMessage[], "cut": boolean }` oldest first, at most 200 |
 
 Semantics:
 
@@ -132,7 +134,24 @@ Semantics:
   Answering a signal that is no longer `open` returns `error` `conflict` with
   the current signal in `error.signal`.
 - `mail.send` is operator mail to that seat, through the same delivery path as
-  desktop (a stopped seat on a playing canvas is started to receive it).
+  desktop (a stopped seat on a playing canvas is started to receive it). It
+  goes to that seat and no one else. With neither id it starts a thread (its
+  own id is the thread); with `inReplyTo`, it is a reply in that mail's
+  thread; with `threadId` alone, a mail into that thread. Either must be one
+  of this seat's threads (`not-found` otherwise; `invalid` when the two
+  disagree). `mentions` are references only: seats wired to this one by an
+  edge (`SeatDetail.connected`), kept on the mail; they are sent nothing. A
+  seat not wired here is `invalid`, "A mentioned seat is not connected to
+  this one." Every refusal is a fixed sentence.
+- `threads.list` and `thread.get` are the desktop's Threads: the mail that
+  hangs off one root, between the operator and a seat or between seats, and a
+  seat's replies to the operator. A summary's `last.text` is a preview of at
+  most 280 characters (`textCut: true` when cut); one mail's text is cut at
+  32,000. An answer that would not fit one frame leaves out the oldest
+  threads or messages and says `cut: true`. Bodies, titles and names are the
+  operator's and the seats' own words, sent as stored: show them as plain
+  text, never as markup or links that act. There is no read state for
+  threads.
 - `portrait.get` returns the seat's portrait as the desktop draws it,
   including any customisation, as a self-contained SVG. Cache it by
   `(portraitIdentity, size, theme)`; it changes only when the operator edits
@@ -270,6 +289,26 @@ type Mail = {
   from: { kind: "operator" } | { kind: "seat"; nodeId: string; name: string };
   text: string; at: number;
   delivery: "delivered" | "waiting_for_seat" | "failed";
+  threadId?: string;                          // its thread: the root mail's id, its own when it starts one
+  inReplyTo?: string;
+};
+
+type ThreadParty = { kind: "operator" } | { kind: "seat"; nodeId: string; name: string };
+type ThreadMessage = {
+  messageId: string; threadId: string; inReplyTo?: string;
+  from: ThreadParty; to: ThreadParty[];       // to: always the one recipient
+  mine: boolean;                              // the operator wrote it
+  text: string; textCut?: true; at: number;
+  mentions?: { kind: "seat"; nodeId: string; name: string }[];  // references; not recipients
+};
+type ThreadSummary = {
+  threadId: string;
+  title: string;                              // the root's first line, at most 280 characters
+  participants: ThreadParty[];                // in order of first appearance, at most 64
+  startedAt: number; lastAt: number;
+  last: ThreadMessage;                        // its text a preview, at most 280 characters
+  messageCount: number;
+  canReply: boolean;                          // the operator wrote in it, or mail in it is to the operator
 };
 ```
 
@@ -287,6 +326,7 @@ type SeatDetail = Seat & {
   preambles: Preamble[];                      // only the ones still live; newest first
   signals: AgentSignal[];                     // every state, newest first, last 50
   activity: Activity[];                       // the seat sidebar's Activity list, newest first, last 50
+  connected?: { nodeId: string; name: string }[];  // agent seats wired to this one: who a mail may mention (at most 64)
 };
 
 type Activity = {

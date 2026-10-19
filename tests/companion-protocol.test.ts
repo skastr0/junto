@@ -155,6 +155,8 @@ describe("request decoding", () => {
     "machines.list": {},
     "machine.get": { name: "mini", minLevel: "warn" },
     "tailnet.peers": {},
+    "threads.list": { canvasName: "main", nodeId: "planner" },
+    "thread.get": { canvasName: "main", nodeId: "planner", threadId: "01KAZ3Q8X4V6W2N5R7T9Y1B3D5" },
   };
 
   it("accepts every op with valid arguments", () => {

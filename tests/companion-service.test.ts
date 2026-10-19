@@ -73,6 +73,8 @@ const backend: CompanionServiceOptions["backend"] = ({ pairComplete }) => {
     machines: none,
     machine: none,
     tailnetPeers: none,
+    threads: none,
+    thread: none,
   };
   return stub;
 };

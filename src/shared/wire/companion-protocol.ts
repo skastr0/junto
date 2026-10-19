@@ -78,6 +78,10 @@ export const CompanionRequestId = Schema.String.pipe(
 const CanvasName = bounded(1, 256);
 const NodeId = bounded(1, 256);
 const Text = bounded(1, COMPANION_MAX_TEXT);
+/** A mail id a phone sends: a ULID. */
+const MailId = Schema.String.pipe(Schema.check(Schema.isPattern(/^[0-9A-HJKMNP-TV-Z]{26}$/u)));
+/** A mail id as the Mac answers it: a ULID, or an older row's longer id. */
+const MailRef = bounded(1, 128);
 
 /**
  * A phone public key, exactly `<type> <base64>`: no options, no comment, no
@@ -170,6 +174,10 @@ export const CompanionSeatDetail = Schema.Struct({
   signals: Schema.Array(AgentSignal),
   /** Last 50. */
   activity: Schema.Array(CompanionActivity),
+  /** Agent seats wired to this one: who a mail may mention. A hint; the Mac checks. */
+  connected: Schema.optionalKey(
+    Schema.Array(Schema.Struct({ nodeId: NodeId, name: bounded(0, 256) })).pipe(Schema.check(Schema.isMaxLength(64))),
+  ),
 });
 export type CompanionSeatDetail = typeof CompanionSeatDetail.Type;
 
@@ -190,8 +198,62 @@ export const CompanionMail = Schema.Struct({
   text: Schema.String,
   at: Schema.Number,
   delivery: Schema.Literals(["delivered", "waiting_for_seat", "failed"]),
+  /** The thread it is in: the root mail's id, its own when it starts one. */
+  threadId: Schema.optionalKey(MailRef),
+  inReplyTo: Schema.optionalKey(MailRef),
 });
 export type CompanionMail = typeof CompanionMail.Type;
+
+// --- threads -----------------------------------------------------------------
+// The desktop's own derivation (src/shared/mail-threads.ts), bounded for the
+// phone. Bodies, titles and names are the operator's content: plain text on
+// the phone, never scrubbed and never rendered as anything else.
+
+/** Threads one `threads.list` carries at most, newest activity first. */
+export const COMPANION_THREADS_MAX = 200;
+/** Messages one `thread.get` carries at most, newest kept. */
+export const COMPANION_THREAD_MESSAGES_MAX = 200;
+/** A summary's last mail is a preview this long. */
+export const COMPANION_THREAD_PREVIEW_MAX = 280;
+/** One mail's text, cut to this for the phone. */
+export const COMPANION_THREAD_TEXT_MAX = 32_000;
+/** Seats one mail may mention. */
+export const COMPANION_MENTIONS_MAX = 32;
+
+const ThreadSeat = Schema.Struct({ kind: Schema.Literal("seat"), nodeId: NodeId, name: bounded(0, 256) });
+export const CompanionThreadParty = Schema.Union([Schema.Struct({ kind: Schema.Literal("operator") }), ThreadSeat]);
+export type CompanionThreadParty = typeof CompanionThreadParty.Type;
+
+export const CompanionThreadMessage = Schema.Struct({
+  messageId: MailRef,
+  threadId: MailRef,
+  inReplyTo: Schema.optionalKey(MailRef),
+  from: CompanionThreadParty,
+  to: Schema.Array(CompanionThreadParty).pipe(Schema.check(Schema.isMaxLength(32))),
+  /** The operator wrote it. */
+  mine: Schema.Boolean,
+  text: Schema.String.pipe(Schema.check(Schema.isMaxLength(COMPANION_THREAD_TEXT_MAX))),
+  /** The text was cut to its bound: a summary's preview, or a very long mail. */
+  textCut: Schema.optionalKey(Schema.Literal(true)),
+  at: Schema.Number,
+  /** Seats it names as a reference; they were not sent it. */
+  mentions: Schema.optionalKey(Schema.Array(ThreadSeat).pipe(Schema.check(Schema.isMaxLength(COMPANION_MENTIONS_MAX)))),
+});
+export type CompanionThreadMessage = typeof CompanionThreadMessage.Type;
+
+export const CompanionThreadSummary = Schema.Struct({
+  threadId: MailRef,
+  title: Schema.String.pipe(Schema.check(Schema.isMaxLength(COMPANION_THREAD_PREVIEW_MAX))),
+  participants: Schema.Array(CompanionThreadParty).pipe(Schema.check(Schema.isMaxLength(64))),
+  startedAt: Schema.Number,
+  lastAt: Schema.Number,
+  /** Its text is a preview of at most 280 characters. */
+  last: CompanionThreadMessage,
+  messageCount: Schema.Number,
+  /** The operator wrote in it, or mail in it is addressed to the operator. */
+  canReply: Schema.Boolean,
+});
+export type CompanionThreadSummary = typeof CompanionThreadSummary.Type;
 
 // --- machines ----------------------------------------------------------------
 // Read only. No endpoint, path, key, pin or installation id reaches the phone.
@@ -328,6 +390,8 @@ export const COMPANION_OPS = [
   "machines.list",
   "machine.get",
   "tailnet.peers",
+  "threads.list",
+  "thread.get",
 ] as const;
 export const CompanionOpName = Schema.Literals(COMPANION_OPS);
 export type CompanionOpName = typeof CompanionOpName.Type;
@@ -357,7 +421,19 @@ export const CompanionArgs = {
     nodeId: NodeId,
     limit: Schema.optionalKey(intBetween(1, COMPANION_MAIL_MAX_LIMIT)),
   }),
-  "mail.send": Schema.Struct({ canvasName: CanvasName, nodeId: NodeId, text: Text }),
+  /**
+   * With neither id, a new thread to the seat; `inReplyTo`, a reply in that
+   * mail's thread; `threadId` alone, a mail into that thread. `mentions` are
+   * references only: the mail goes to this seat and no one else.
+   */
+  "mail.send": Schema.Struct({
+    canvasName: CanvasName,
+    nodeId: NodeId,
+    text: Text,
+    threadId: Schema.optionalKey(MailId),
+    inReplyTo: Schema.optionalKey(MailId),
+    mentions: Schema.optionalKey(Schema.Array(NodeId).pipe(Schema.check(Schema.isMaxLength(COMPANION_MENTIONS_MAX)))),
+  }),
   "quickReplies.get": Empty,
   "portrait.get": Schema.Struct({
     portraitIdentity: bounded(1, 256),
@@ -373,6 +449,8 @@ export const CompanionArgs = {
   /** `minLevel`: only log rows at or above it, so noise never pushes an error off the page. */
   "machine.get": Schema.Struct({ name: bounded(1, 64), minLevel: Schema.optionalKey(CompanionMachineLogLevel) }),
   "tailnet.peers": Empty,
+  "threads.list": Schema.Struct({ canvasName: CanvasName, nodeId: NodeId }),
+  "thread.get": Schema.Struct({ canvasName: CanvasName, nodeId: NodeId, threadId: MailId }),
 } as const satisfies Record<CompanionOpName, Schema.Top>;
 
 /**
@@ -380,7 +458,12 @@ export const CompanionArgs = {
  * `invalid`. Decoded with the option passed explicitly, never left to an
  * annotation, whose reach on a nested struct differs between Effect builds.
  */
-export const COMPANION_CLOSED_ARGS_OPS: ReadonlySet<CompanionOpName> = new Set(["content.get"]);
+export const COMPANION_CLOSED_ARGS_OPS: ReadonlySet<CompanionOpName> = new Set([
+  "content.get",
+  "mail.send",
+  "threads.list",
+  "thread.get",
+]);
 
 export type CompanionArgsByOp = { readonly [Op in CompanionOpName]: (typeof CompanionArgs)[Op]["Type"] };
 
@@ -417,6 +500,16 @@ export const CompanionResults = {
     /** False when Tailscale is absent or could not be read; never an error. */
     available: Schema.Boolean,
     peers: Schema.Array(CompanionTailnetPeer).pipe(Schema.check(Schema.isMaxLength(128))),
+  }),
+  "threads.list": Schema.Struct({
+    threads: Schema.Array(CompanionThreadSummary).pipe(Schema.check(Schema.isMaxLength(COMPANION_THREADS_MAX))),
+    /** Older threads were left out to fit. */
+    cut: Schema.Boolean,
+  }),
+  "thread.get": Schema.Struct({
+    /** Oldest first; the oldest are left out first to fit. */
+    messages: Schema.Array(CompanionThreadMessage).pipe(Schema.check(Schema.isMaxLength(COMPANION_THREAD_MESSAGES_MAX))),
+    cut: Schema.Boolean,
   }),
 } as const satisfies Record<CompanionOpName, Schema.Top>;
 

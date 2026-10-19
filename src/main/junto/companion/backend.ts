@@ -56,6 +56,10 @@ import { AppRuntime } from "../../runtime";
 import { ContentService } from "../content/service";
 import { readContentObjectRange } from "../content/store";
 import { companionMachineBackend } from "./machines";
+import { companionThreadBackend } from "./threads";
+import { companionConnected } from "@shared/companion-threads";
+import { mailThreadOf } from "@shared/crew";
+import { mentionableSeats } from "../work/operator-threads";
 import { ModelService } from "../model/service";
 import { getExecutionByCanvas } from "../kernel/cycle";
 import { PausePlane } from "../pause-plane";
@@ -69,7 +73,7 @@ import { mergeSeatStateSnapshot, remoteSeatOccupied } from "../term/remote-seat-
 import { seatAwarenessPlane } from "../term/seat-awareness";
 import { WorkService } from "../work/service";
 import { desktopActiveCanvas, desktopDoneUnread } from "./desktop-report";
-import { answerSignalAsOperator, dismissSignalAsOperator, sendOperatorMail, type OperatorActionResult } from "./operator-actions";
+import { answerSignalAsOperator, dismissSignalAsOperator, type OperatorActionResult } from "./operator-actions";
 import { livePreambles } from "./preambles";
 
 // Portraits wear the packs this build bundles, as the renderer's do.
@@ -277,6 +281,18 @@ const mailFor = (canvasName: string, canvas: Canvas, nodeId: string, mailboxes: 
   if (!node) return [];
   const delivery = (messageId: string, state: "delivered" | "waiting"): CompanionMail["delivery"] =>
     failedMail.has(messageId) ? "failed" : state === "delivered" ? "delivered" : "waiting_for_seat";
+  const held = new Map([...mailboxes.values()].flat().map((message) => [message.messageId, message] as const));
+  /** Its thread, as the desktop's threads read it; ids too long for the wire are left off. */
+  const threadOf = (messageId: string): Pick<CompanionMail, "threadId" | "inReplyTo"> => {
+    const message = held.get(messageId);
+    if (message === undefined) return {};
+    const threadId = mailThreadOf(message);
+    const inReplyTo = message.metadata?.inReplyTo;
+    return {
+      ...(threadId.length <= 128 ? { threadId } : {}),
+      ...(typeof inReplyTo === "string" && inReplyTo.length > 0 && inReplyTo.length <= 128 ? { inReplyTo } : {}),
+    };
+  };
   const inbound = mailboxRows(canvas, mailboxes.get(node.id) ?? [])
     .filter((row) => row.direction === "in")
     .map(
@@ -292,6 +308,7 @@ const mailFor = (canvasName: string, canvas: Canvas, nodeId: string, mailboxes: 
         text: row.body,
         at: row.sentAtMs ?? 0,
         delivery: delivery(row.messageId, row.delivery),
+        ...threadOf(row.messageId),
       }),
     );
   const name = nodeTitle(node);
@@ -310,6 +327,7 @@ const mailFor = (canvasName: string, canvas: Canvas, nodeId: string, mailboxes: 
             text: row.body,
             at: row.sentAtMs ?? 0,
             delivery: delivery(row.messageId, row.delivery),
+            ...threadOf(row.messageId),
           }),
         ),
     );
@@ -386,6 +404,7 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
       preambles: livePreambles(canvasName, nodeId),
       signals: [...signals].sort((a, b) => b.createdAt - a.createdAt).slice(0, COMPANION_SEAT_HISTORY_LIMIT),
       activity: await activityFor(canvasName, view.canvas, nodeId),
+      connected: companionConnected(await AppRuntime.runPromise(mentionableSeats(canvasName, nodeId))),
     });
   },
 
@@ -408,18 +427,6 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
     }));
     return outcomeOk(mailFor(canvasName, view.canvas, nodeId, mailboxes).slice(0, limit));
   },
-
-  mailSend: async (canvasName, nodeId, text) =>
-    fromAction(await sendOperatorMail(canvasName, nodeId, text), (sent) => ({
-      messageId: sent.messageId,
-      canvasName,
-      nodeId,
-      direction: "to_seat" as const,
-      from: { kind: "operator" as const },
-      text: text.trim(),
-      at: sent.at,
-      delivery: sent.delivery,
-    })),
 
   quickReplies: async () => {
     const settings = await AppRuntime.runPromise(Effect.flatMap(SettingsService, (service) => service.get));
@@ -450,4 +457,5 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
   },
 
   ...companionMachineBackend,
+  ...companionThreadBackend,
 });

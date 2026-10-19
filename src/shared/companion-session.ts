@@ -161,7 +161,7 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
   const followMail = async (canvasName: string, nodeId: string): Promise<void> => {
     const sent = new Map<string, string>();
     const response = await io.host.call(internal("mail.list", { canvasName, nodeId, limit: COMPANION_MAIL_MAX_LIMIT }));
-    if (response.ok && "messages" in response.result) {
+    if (response.ok && "messages" in response.result && !("cut" in response.result)) {
       for (const message of response.result.messages) sent.set(message.messageId, mailKey(message));
     }
     // Only a seeded focus is followed, so a refresh never replays the history.
@@ -243,7 +243,7 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
     if (mailFocus) {
       const { canvasName, nodeId, sent } = mailFocus;
       const response = await io.host.call(internal("mail.list", { canvasName, nodeId, limit: COMPANION_MAIL_MAX_LIMIT }));
-      if (response.ok && "messages" in response.result) {
+      if (response.ok && "messages" in response.result && !("cut" in response.result)) {
         for (const message of [...response.result.messages].reverse()) {
           const key = mailKey(message);
           if (sent.get(message.messageId) === key) continue;

@@ -17,6 +17,7 @@ import type {
   CompanionMail,
   CompanionPreamble,
   CompanionTailnetPeer,
+  CompanionThreadMessage,
 } from "./companion-protocol";
 import type { ThreadHealthValue } from "./thread-health";
 
@@ -223,6 +224,39 @@ export const DEMO_MAIL: ReadonlyArray<DemoMail> = [
   { messageId: "01J9DEMOMAIL0000000000000A3", nodeId: "atlas", direction: "from_seat", from: { kind: "seat", nodeId: "atlas", name: "Atlas" }, text: "Relay, hold the deploy until the migration lands.", at: DEMO_T0 - 20 * MIN, delivery: "delivered" },
   { messageId: "01J9DEMOMAIL0000000000000B1", nodeId: "quill", direction: "to_seat", from: { kind: "operator" }, text: "Design the empty state for the inbox.", at: DEMO_T0 - 30 * MIN, delivery: "delivered" },
   { messageId: "01J9DEMOMAIL0000000000000C1", nodeId: "lumen", direction: "to_seat", from: { kind: "operator" }, text: "Summarize the three papers when you are back.", at: DEMO_T0 - 5 * MIN, delivery: "waiting_for_seat" },
+];
+
+const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/** A real ULID for demo mail: its time is `at`, its tail a fixed tag and sequence. */
+export const demoMailId = (at: number, tag: "D3M0" | "SENT", seq: number): string => {
+  let time = "";
+  let rest = Math.max(0, Math.floor(at));
+  for (let i = 0; i < 10; i += 1) {
+    time = CROCKFORD[rest % 32] + time;
+    rest = Math.floor(rest / 32);
+  }
+  return `${time}${tag}${String(seq).padStart(12, "0")}`;
+};
+
+/** Agent seats wired to each other on the demo canvas: who a mail may mention. */
+export const DEMO_CONNECTED: Readonly<Record<string, ReadonlyArray<string>>> = {
+  atlas: ["relay"],
+  relay: ["atlas"],
+};
+
+const OP = { kind: "operator" } as const;
+const seatParty = (nodeId: string, name: string) => ({ kind: "seat", nodeId, name }) as const;
+const THREAD_A = demoMailId(DEMO_T0 - 40 * MIN, "D3M0", 1);
+const THREAD_B = demoMailId(DEMO_T0 - 30 * MIN, "D3M0", 4);
+
+/** Thread mail, oldest first: operator mail, seat replies to it, and seat mail in its threads. */
+export const DEMO_THREAD_MAIL: ReadonlyArray<CompanionThreadMessage> = [
+  { messageId: THREAD_A, threadId: THREAD_A, from: OP, to: [seatParty("atlas", "Atlas")], mine: true, text: "Run the schema migration against staging.\nUse the rollback script if the dry run fails.", at: DEMO_T0 - 40 * MIN, mentions: [seatParty("relay", "Relay")] },
+  { messageId: demoMailId(DEMO_T0 - 15 * MIN, "D3M0", 2), threadId: THREAD_A, inReplyTo: THREAD_A, from: seatParty("atlas", "Atlas"), to: [OP], mine: false, text: "Dry run passed. Waiting on the staging password before the real run.", at: DEMO_T0 - 15 * MIN },
+  { messageId: demoMailId(DEMO_T0 - 12 * MIN, "D3M0", 3), threadId: THREAD_A, from: seatParty("relay", "Relay"), to: [seatParty("atlas", "Atlas")], mine: false, text: "The API tests pass on my branch. I will hold the deploy until the migration lands.", at: DEMO_T0 - 12 * MIN },
+  { messageId: THREAD_B, threadId: THREAD_B, from: OP, to: [seatParty("quill", "Quill")], mine: true, text: "Design the empty state for the inbox.", at: DEMO_T0 - 30 * MIN },
+  { messageId: demoMailId(DEMO_T0 - 8 * MIN, "D3M0", 5), threadId: THREAD_B, inReplyTo: THREAD_B, from: seatParty("quill", "Quill"), to: [OP], mine: false, text: "Two drafts are in the inbox folder. Warm or plain?", at: DEMO_T0 - 8 * MIN },
 ];
 
 export const DEMO_QUICK_REPLIES: ReadonlyArray<string> = ["Yes, go ahead.", "No, stop here.", "Use your judgment.", "I'll look at it shortly."];

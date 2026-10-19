@@ -43,6 +43,13 @@ export const outcomeFail = <A = never>(
   signal?: AgentSignal,
 ): CompanionOutcome<A> => ({ ok: false, error: companionError(code, message ?? COMPANION_ERROR_COPY[code], signal) });
 
+/** Where a phone's mail goes in a seat's threads (`mail.send`'s optional args). */
+export type CompanionMailThread = {
+  readonly threadId?: string;
+  readonly inReplyTo?: string;
+  readonly mentions?: ReadonlyArray<string>;
+};
+
 export type CompanionBackend = {
   readonly now: () => number;
   readonly pairComplete: (input: {
@@ -63,7 +70,21 @@ export type CompanionBackend = {
     nodeId: string,
     limit: number,
   ) => Promise<CompanionOutcome<ReadonlyArray<CompanionMail>>>;
-  readonly mailSend: (canvasName: string, nodeId: string, text: string) => Promise<CompanionOutcome<CompanionMail>>;
+  /** To this seat alone; `thread` places it in a thread, and its mentions are references only. */
+  readonly mailSend: (
+    canvasName: string,
+    nodeId: string,
+    text: string,
+    thread?: CompanionMailThread,
+  ) => Promise<CompanionOutcome<CompanionMail>>;
+  /** A seat's threads, fitted to one frame. */
+  readonly threads: (canvasName: string, nodeId: string) => Promise<CompanionOutcome<CompanionResultByOp["threads.list"]>>;
+  /** One of a seat's threads, fitted to one frame; not-found when the seat is not in it. */
+  readonly thread: (
+    canvasName: string,
+    nodeId: string,
+    threadId: string,
+  ) => Promise<CompanionOutcome<CompanionResultByOp["thread.get"]>>;
   readonly quickReplies: () => Promise<CompanionOutcome<ReadonlyArray<string>>>;
   readonly portrait: (
     portraitIdentity: string,
@@ -260,9 +281,19 @@ export const handleCompanionRequest = async (
         backend.mailList(frame.args.canvasName, frame.args.nodeId, frame.args.limit ?? COMPANION_MAIL_DEFAULT_LIMIT),
         (messages) => companionOk(id, "mail.list", { messages }),
       );
-    case "mail.send":
-      return respond(id, backend.mailSend(frame.args.canvasName, frame.args.nodeId, frame.args.text), (message) =>
+    case "mail.send": {
+      const { canvasName, nodeId, text, ...thread } = frame.args;
+      return respond(id, backend.mailSend(canvasName, nodeId, text, thread), (message) =>
         companionOk(id, "mail.send", { message }),
+      );
+    }
+    case "threads.list":
+      return respond(id, backend.threads(frame.args.canvasName, frame.args.nodeId), (value) =>
+        companionOk(id, "threads.list", value),
+      );
+    case "thread.get":
+      return respond(id, backend.thread(frame.args.canvasName, frame.args.nodeId, frame.args.threadId), (value) =>
+        companionOk(id, "thread.get", value),
       );
     case "quickReplies.get":
       return respond(id, backend.quickReplies(), (replies) => companionOk(id, "quickReplies.get", { replies }));

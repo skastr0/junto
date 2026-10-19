@@ -22,7 +22,13 @@ import {
   outcomeFail,
   outcomeOk,
   type CompanionBackend,
+  type CompanionMailThread,
 } from "./companion-core";
+import { companionConnected, companionThreadMessages, companionThreads } from "./companion-threads";
+import { seatMailThreadMessages, seatMailThreads, type MailThreadsInput } from "./mail-threads";
+import { makeAgentMessage, makeUserMessage } from "./task";
+import type { Message } from "./work-model";
+import { OPERATOR_SEAT_ID } from "./work-reference";
 import { companionPortraitSvg } from "./companion-portrait";
 import type { CompanionChange, CompanionHost } from "./companion-session";
 import { companionSeat } from "./companion-seats";
@@ -34,8 +40,33 @@ import {
   type CompanionMail,
   type CompanionRequestFrame,
   type CompanionResponseFrame,
+  type CompanionThreadMessage,
 } from "./companion-protocol";
 import { buildOperatorFeed, feedSeatsFromCanvas, type FeedHealth } from "./operator-feed";
+
+/** One thread mail as the store holds it: the mailbox it sits in, and the row. */
+const demoThreadRow = (message: CompanionThreadMessage): { readonly nodeId: string; readonly row: Message } => {
+  const operator = message.from.kind === "operator";
+  const metadata = {
+    factoryMail: true,
+    mailKind: "prompt",
+    fromSeat: message.from.kind === "operator" ? OPERATOR_SEAT_ID : `seat_demo_${message.from.nodeId}`,
+    senderNodeId: message.from.kind === "operator" ? "operator" : message.from.nodeId,
+    senderName: message.from.kind === "operator" ? "operator" : message.from.name,
+    senderGeneration: operator ? "operator" : "demo",
+    senderHarness: "unknown",
+    // A thread's root carries no threadId; its id is the thread.
+    ...(message.threadId === message.messageId ? {} : { threadId: message.threadId }),
+    ...(message.inReplyTo === undefined ? {} : { inReplyTo: message.inReplyTo }),
+    ...(message.mentions === undefined ? {} : { mentions: message.mentions.map((seat) => seat.nodeId) }),
+  };
+  const to = message.to[0]!;
+  const base = { messageId: message.messageId, text: message.text, contextId: DEMO_CANVAS };
+  if (to.kind === "operator" && message.from.kind === "seat") {
+    return { nodeId: message.from.nodeId, row: makeAgentMessage({ ...base, metadata: { ...metadata, toNodeId: "operator" } }) };
+  }
+  return { nodeId: to.kind === "seat" ? to.nodeId : "", row: makeUserMessage({ ...base, metadata }) };
+};
 
 const DEMO_LOG_LEVELS: ReadonlyArray<CompanionMachineLogLevel> = ["trace", "debug", "info", "warn", "error", "fatal"];
 import { THREAD_HEALTH_LABEL, THREAD_HEALTH_TONE, type ThreadHealthReading, type ThreadHealthValue } from "./thread-health";
@@ -45,6 +76,7 @@ import {
   DEMO_BRIEFINGS,
   DEMO_CANVAS,
   DEMO_CANVAS_TITLE,
+  DEMO_CONNECTED,
   DEMO_CONTENT,
   DEMO_DEVICE_ID,
   DEMO_DEVICE_NAME,
@@ -52,6 +84,8 @@ import {
   DEMO_HEALTH_OBSERVED_AT,
   DEMO_MACHINES,
   DEMO_MAIL,
+  DEMO_THREAD_MAIL,
+  demoMailId,
   DEMO_PREAMBLES,
   DEMO_QUICK_REPLIES,
   DEMO_REGIONS,
@@ -110,6 +144,14 @@ export const makeDemoBackend = (machineName: string): CompanionBackend & {
     activity.set(nodeId, [line, ...(activity.get(nodeId) ?? [])]);
   };
   let mailSeq = 0;
+  const threadRows = DEMO_THREAD_MAIL.map(demoThreadRow);
+  const threadsInput = (): MailThreadsInput => ({
+    mailboxes: SEATS.map((seat) => ({
+      nodeId: seat.id,
+      messages: threadRows.filter((entry) => entry.nodeId === seat.id).map((entry) => entry.row),
+    })),
+    nameOf: (nodeId) => SEATS.find((seat) => seat.id === nodeId)?.name,
+  });
   const now = (): number => clock;
   const tick = (): number => {
     clock += 1_000;
@@ -180,19 +222,43 @@ export const makeDemoBackend = (machineName: string): CompanionBackend & {
   const regionIdOf = (nodeId: string): string | null =>
     feedSeatsFromCanvas(CANVAS).find((entry) => entry.seat.nodeId === nodeId)?.region.regionId ?? null;
   const seatExists = (nodeId: string) => SEATS.some((seat) => seat.id === nodeId);
-  const appendOperatorMail = (nodeId: string, text: string, at: number): CompanionMail => {
+  const appendOperatorMail = (
+    nodeId: string,
+    text: string,
+    at: number,
+    thread: { readonly threadId?: string; readonly inReplyTo?: string; readonly mentions?: ReadonlyArray<string> } = {},
+  ): CompanionMail => {
     const seat = SEATS.find((candidate) => candidate.id === nodeId)!;
     mailSeq += 1;
+    const messageId = demoMailId(at, "SENT", mailSeq);
+    const threadId = thread.threadId ?? messageId;
     const message: DemoMail = {
-      messageId: `01J9DEMOSENT${String(mailSeq).padStart(14, "0")}`,
+      messageId,
       nodeId,
       direction: "to_seat",
       from: { kind: "operator" },
       text,
       at,
       delivery: seat.process === "stopped" ? "waiting_for_seat" : "delivered",
+      threadId,
+      ...(thread.inReplyTo === undefined ? {} : { inReplyTo: thread.inReplyTo }),
     };
     mail.push(message);
+    const name = (id: string) => SEATS.find((candidate) => candidate.id === id)?.name ?? id;
+    const mentions = (thread.mentions ?? []).map((id) => ({ kind: "seat" as const, nodeId: id, name: name(id) }));
+    threadRows.push(
+      demoThreadRow({
+        messageId,
+        threadId,
+        ...(thread.inReplyTo === undefined ? {} : { inReplyTo: thread.inReplyTo }),
+        from: { kind: "operator" },
+        to: [{ kind: "seat", nodeId, name: seat.name }],
+        mine: true,
+        text,
+        at,
+        ...(mentions.length === 0 ? {} : { mentions }),
+      }),
+    );
     noteActivity(nodeId, { at, label: "got your mail", kind: "mail" });
     return { ...message, canvasName: DEMO_CANVAS };
   };
@@ -226,6 +292,9 @@ export const makeDemoBackend = (machineName: string): CompanionBackend & {
           .sort((a, b) => b.createdAt - a.createdAt)
           .slice(0, COMPANION_SEAT_HISTORY_LIMIT),
         activity: [...(activity.get(nodeId) ?? [])].slice(0, COMPANION_SEAT_HISTORY_LIMIT),
+        connected: companionConnected(
+          (DEMO_CONNECTED[nodeId] ?? []).map((id) => ({ nodeId: id, name: SEATS.find((peer) => peer.id === id)?.name ?? id })),
+        ),
       });
     },
     answerSignal: async (signalId, text) => {
@@ -258,9 +327,48 @@ export const makeDemoBackend = (machineName: string): CompanionBackend & {
           .map((message) => ({ ...message, canvasName: DEMO_CANVAS })),
       );
     },
-    mailSend: async (canvasName, nodeId, text) => {
+    mailSend: async (canvasName, nodeId, text, thread: CompanionMailThread = {}) => {
       if (!known(canvasName) || !seatExists(nodeId)) return outcomeFail("not-found", "No such seat.");
-      return outcomeOk(appendOperatorMail(nodeId, text, tick()));
+      const body = text.trim();
+      if (!body) return outcomeFail("invalid", "Mail needs some text.");
+      const mentions = [...new Set(thread.mentions ?? [])].filter((id) => id !== nodeId);
+      if (mentions.some((id) => !(DEMO_CONNECTED[nodeId] ?? []).includes(id))) {
+        return outcomeFail("invalid", "A mentioned seat is not connected to this one.");
+      }
+      const threads = seatMailThreads(threadsInput(), nodeId);
+      let threadId: string | undefined;
+      if (thread.inReplyTo !== undefined) {
+        const parent = threads
+          .flatMap((held) => seatMailThreadMessages(threadsInput(), nodeId, held.threadId))
+          .find((message) => message.messageId === thread.inReplyTo);
+        if (parent === undefined) return outcomeFail("not-found", "That mail is not in this seat's threads.");
+        if (thread.threadId !== undefined && thread.threadId !== parent.threadId) {
+          return outcomeFail("invalid", "That mail is in another thread.");
+        }
+        threadId = parent.threadId;
+      } else if (thread.threadId !== undefined) {
+        if (!threads.some((held) => held.threadId === thread.threadId)) {
+          return outcomeFail("not-found", "That thread is not one of this seat's.");
+        }
+        threadId = thread.threadId;
+      }
+      return outcomeOk(
+        appendOperatorMail(nodeId, body, tick(), {
+          ...(threadId === undefined ? {} : { threadId }),
+          ...(thread.inReplyTo === undefined ? {} : { inReplyTo: thread.inReplyTo }),
+          mentions,
+        }),
+      );
+    },
+    threads: async (canvasName, nodeId) => {
+      if (!known(canvasName) || !seatExists(nodeId)) return outcomeFail("not-found", "No such seat.");
+      return outcomeOk(companionThreads(seatMailThreads(threadsInput(), nodeId)));
+    },
+    thread: async (canvasName, nodeId, threadId) => {
+      if (!known(canvasName) || !seatExists(nodeId)) return outcomeFail("not-found", "No such seat.");
+      const messages = seatMailThreadMessages(threadsInput(), nodeId, threadId);
+      if (messages.length === 0) return outcomeFail("not-found", "That thread is not one of this seat's.");
+      return outcomeOk(companionThreadMessages(messages));
     },
     quickReplies: async () => outcomeOk(DEMO_QUICK_REPLIES),
     portrait: async (portraitIdentity, size, theme) => outcomeOk(companionPortraitSvg({ portraitIdentity, size, theme })),

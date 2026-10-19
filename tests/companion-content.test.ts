@@ -114,6 +114,8 @@ describe("content.get through the request core", () => {
     machines: async () => outcomeOk([]),
     machine: async () => outcomeFail("not-found"),
     tailnetPeers: async () => outcomeOk({ available: false, peers: [] }),
+    threads: async () => outcomeOk({ threads: [], cut: false }),
+    thread: async () => outcomeFail("not-found"),
     ...over,
   });
   const call = (backend: CompanionBackend, args: object, gates = makeCompanionGates()) =>
