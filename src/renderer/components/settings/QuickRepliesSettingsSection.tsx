@@ -1,32 +1,65 @@
 /**
  * Settings -> Quick replies: the one-click answers offered on open agent
- * signals (feed cards and the seat sidebar). Every edit writes the whole list
- * through settingsPatch, so the StateEngine row stays the only copy; a row
- * holds its own text only while it is being typed.
+ * signals (feed cards and the seat sidebar), and next to them the quiet notes
+ * that answer a signal without waking the seat. Both lists share one editor.
+ * Every edit writes the whole list through settingsPatch, so the StateEngine
+ * row stays the only copy; a row holds its own text only while it is being
+ * typed.
  */
 import { use$ } from "@legendapp/state/react";
 import { ArrowDown, ArrowUp, Plus, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { QUICK_REPLY_BOUNDS, feedSettings, sanitizeQuickReplies } from "@shared/settings";
+import { QUICK_REPLY_BOUNDS, feedSettings, quietNotesOf, sanitizeQuickReplies } from "@shared/settings";
 import { moveQuickReply } from "../../lib/quick-replies";
 import { patchSettings } from "../../lib/settings-state";
 import { state$ } from "../../lib/state";
 import { Button, IconButton, Input } from "../ui";
+import { SettingGroup } from "./FieldRow";
 import "../signals/quick-replies.css";
 
-const save = (replies: ReadonlyArray<string>): Promise<boolean> =>
-  patchSettings({ feed: { quickReplies: sanitizeQuickReplies(replies) } });
+/** What differs between the two lists; the editor is the same. */
+interface ListKind {
+  readonly title: string;
+  readonly noun: string;
+  readonly plural: string;
+  readonly many: string;
+  readonly keyPrefix: string;
+  readonly testId: string;
+  readonly save: (items: ReadonlyArray<string>) => Promise<boolean>;
+}
 
-function ReplyRow({
+const QUICK_REPLIES: ListKind = {
+  title: "Quick replies",
+  noun: "quick reply",
+  plural: "replies",
+  many: "quick replies",
+  keyPrefix: "",
+  testId: "settings-quick-replies-section",
+  save: (items) => patchSettings({ feed: { quickReplies: sanitizeQuickReplies(items) } }),
+};
+
+const QUIET_NOTES: ListKind = {
+  title: "Quiet notes",
+  noun: "quiet note",
+  plural: "notes",
+  many: "quiet notes",
+  keyPrefix: "Shift+",
+  testId: "settings-quiet-notes-section",
+  save: (items) => patchSettings({ feed: { quietNotes: sanitizeQuickReplies(items) } }),
+};
+
+const capitalized = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
+
+function ItemRow({
+  kind,
   text,
   index,
-  count,
-  replies,
+  items,
 }: {
+  readonly kind: ListKind;
   readonly text: string;
   readonly index: number;
-  readonly count: number;
-  readonly replies: ReadonlyArray<string>;
+  readonly items: ReadonlyArray<string>;
 }) {
   const [draft, setDraft] = useState<string>();
   useEffect(() => setDraft(undefined), [text]);
@@ -34,25 +67,28 @@ function ReplyRow({
   const commit = (): void => {
     if (draft === undefined) return;
     const next = draft.trim();
-    // An emptied row keeps its reply; removing is the X.
+    // An emptied row keeps its text; removing is the X.
     if (next.length === 0 || next === text) {
       setDraft(undefined);
       return;
     }
-    void save(replies.map((reply, at) => (at === index ? next : reply))).then((ok) => {
+    void kind.save(items.map((item, at) => (at === index ? next : item))).then((ok) => {
       if (!ok) setDraft(undefined);
     });
   };
 
   return (
     <li className="quick-replies-settings__row">
-      <span className="quick-replies-settings__key" title={index < 9 ? `Key ${index + 1} on the selected feed card` : undefined}>
-        {index < 9 ? index + 1 : ""}
+      <span
+        className="quick-replies-settings__key"
+        title={index < 9 ? `${kind.keyPrefix}${index + 1} on the selected feed card` : undefined}
+      >
+        {index < 9 ? `${kind.keyPrefix === "" ? "" : "⇧"}${index + 1}` : ""}
       </span>
       <Input
         value={draft ?? text}
         maxLength={QUICK_REPLY_BOUNDS.maxChars}
-        aria-label={`Quick reply ${index + 1}`}
+        aria-label={`${capitalized(kind.noun)} ${index + 1}`}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commit}
         onKeyDown={(event) => {
@@ -71,15 +107,15 @@ function ReplyRow({
           size="sm"
           aria-label={`Move "${text}" up`}
           disabled={index === 0}
-          onClick={() => void save(moveQuickReply(replies, index, -1))}
+          onClick={() => void kind.save(moveQuickReply(items, index, -1))}
         >
           <ArrowUp size={13} />
         </IconButton>
         <IconButton
           size="sm"
           aria-label={`Move "${text}" down`}
-          disabled={index === count - 1}
-          onClick={() => void save(moveQuickReply(replies, index, 1))}
+          disabled={index === items.length - 1}
+          onClick={() => void kind.save(moveQuickReply(items, index, 1))}
         >
           <ArrowDown size={13} />
         </IconButton>
@@ -87,7 +123,7 @@ function ReplyRow({
           size="sm"
           tone="danger"
           aria-label={`Remove "${text}"`}
-          onClick={() => void save(replies.filter((_, at) => at !== index))}
+          onClick={() => void kind.save(items.filter((_, at) => at !== index))}
         >
           <X size={13} />
         </IconButton>
@@ -96,32 +132,37 @@ function ReplyRow({
   );
 }
 
-export function QuickRepliesSettingsSection() {
-  const replies = use$(() => feedSettings(state$.settings.get()).quickReplies);
+function ListEditor({
+  kind,
+  items,
+  intro,
+}: {
+  readonly kind: ListKind;
+  readonly items: ReadonlyArray<string>;
+  readonly intro: string;
+}) {
   const [draft, setDraft] = useState("");
-  const full = replies.length >= QUICK_REPLY_BOUNDS.maxCount;
+  const full = items.length >= QUICK_REPLY_BOUNDS.maxCount;
   const text = draft.replace(/\s+/g, " ").trim();
-  const duplicate = replies.some((reply) => reply.toLowerCase() === text.toLowerCase());
+  const duplicate = items.some((item) => item.toLowerCase() === text.toLowerCase());
   const canAdd = !full && text.length > 0 && !duplicate;
 
   const add = (): void => {
     if (!canAdd) return;
-    void save([...replies, text]).then((ok) => {
+    void kind.save([...items, text]).then((ok) => {
       if (ok) setDraft("");
     });
   };
 
   return (
-    <div className="settings-section quick-replies-settings" data-testid="settings-quick-replies-section">
-      <p className="settings-note quick-replies-settings__intro">
-        One-click answers when an agent is waiting on you. Keys 1 to 9 send them.
-      </p>
-      {replies.length === 0 ? (
-        <p className="settings-note">No quick replies. Add one below.</p>
+    <div className="settings-section quick-replies-settings" data-testid={kind.testId} data-setting={kind.title}>
+      <p className="settings-note quick-replies-settings__intro">{intro}</p>
+      {items.length === 0 ? (
+        <p className="settings-note">No {kind.many}. Add one below.</p>
       ) : (
         <ol className="quick-replies-settings__list">
-          {replies.map((reply, index) => (
-            <ReplyRow key={reply} text={reply} index={index} count={replies.length} replies={replies} />
+          {items.map((item, index) => (
+            <ItemRow key={item} kind={kind} text={item} index={index} items={items} />
           ))}
         </ol>
       )}
@@ -135,9 +176,9 @@ export function QuickRepliesSettingsSection() {
         <Input
           value={draft}
           maxLength={QUICK_REPLY_BOUNDS.maxChars}
-          placeholder={full ? `The list holds ${QUICK_REPLY_BOUNDS.maxCount} replies` : "Add a quick reply"}
+          placeholder={full ? `The list holds ${QUICK_REPLY_BOUNDS.maxCount} ${kind.plural}` : `Add a ${kind.noun}`}
           disabled={full}
-          aria-label="New quick reply"
+          aria-label={`New ${kind.noun}`}
           onChange={(event) => setDraft(event.target.value)}
         />
         <Button type="submit" size="md" variant="chrome" disabled={!canAdd}>
@@ -147,9 +188,33 @@ export function QuickRepliesSettingsSection() {
       </form>
       <p className="settings-note">
         {duplicate && text.length > 0
-          ? "That reply is already in the list."
-          : `${replies.length} of ${QUICK_REPLY_BOUNDS.maxCount}`}
+          ? `That ${kind.noun} is already in the list.`
+          : `${items.length} of ${QUICK_REPLY_BOUNDS.maxCount}`}
       </p>
     </div>
+  );
+}
+
+export function QuickRepliesSettingsSection() {
+  const replies = use$(() => feedSettings(state$.settings.get()).quickReplies);
+  const notes = use$(() => quietNotesOf(state$.settings.get()));
+
+  return (
+    <>
+      <SettingGroup title={QUICK_REPLIES.title}>
+        <ListEditor
+          kind={QUICK_REPLIES}
+          items={replies}
+          intro="One-click answers when an agent is waiting on you. Keys 1 to 9 send them."
+        />
+      </SettingGroup>
+      <SettingGroup title={QUIET_NOTES.title}>
+        <ListEditor
+          kind={QUIET_NOTES}
+          items={notes}
+          intro="Shift+1 to 9 sends them. They answer the signal without waking the seat."
+        />
+      </SettingGroup>
+    </>
   );
 }

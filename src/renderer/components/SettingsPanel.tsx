@@ -91,7 +91,7 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
   },
   { key: "briefing", group: "Agents", label: "Briefing", blurb: "Every agent reads this when it starts." },
   { key: "references", group: "Agents", label: "References", blurb: "Named text an agent reads when it needs it." },
-  { key: "feed", group: "Agents", label: "Quick replies", blurb: "" },
+  { key: "feed", group: "Agents", label: "Replies", blurb: "" },
   ...(HARNESS_SETTINGS_ENABLED
     ? [
         {

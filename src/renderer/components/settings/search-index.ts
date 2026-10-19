@@ -60,7 +60,8 @@ export const LISTED_SETTINGS: ReadonlyArray<SettingEntry> = [
   entry("briefing", "App briefing", "The text every agent reads when it starts", "AGENTS.md CLAUDE.md instructions import"),
   entry("references", "New reference", "Named text an agent reads when it needs it", "knowledge notes import"),
 
-  entry("feed", "New quick reply", "One-click answers offered when an agent is waiting on you"),
+  entry("feed", "Quick replies", "One-click answers offered when an agent is waiting on you"),
+  entry("feed", "Quiet notes", "Answers that close a signal without waking the seat, sent with Shift+1 to 9", "acknowledge silent"),
 
   entry("notifications", "Send notifications", "Whether Junto reaches you while it is in the background"),
   entry("notifications", "Blocked", "An agent cannot go on without you"),
