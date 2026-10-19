@@ -227,7 +227,6 @@ function MachineDetail({
         state={machineFigureState(item, read, copy, placed, boat)}
         seatIds={placed.seatIds}
       >
-        <div className="machine-stage__eyebrow">{name}</div>
         <h2 className="machine-stage__label">{label}</h2>
         <p className="machine-stage__headline" role="status" data-testid="machine-headline">
           {summary.headline}

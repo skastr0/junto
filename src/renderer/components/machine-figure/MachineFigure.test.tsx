@@ -30,3 +30,12 @@ describe("MachineFigure", () => {
     expect(new Set([dark, bright, asleep]).size).toBe(3);
   });
 });
+
+describe("machineStageEyebrow", () => {
+  it("names the form, and the short name only when the label differs", async () => {
+    const { machineStageEyebrow } = await import("./MachineStage");
+    expect(machineStageEyebrow({ ...machine, label: "mac-mini" })).toBe("Mac mini");
+    expect(machineStageEyebrow(machine)).toBe("Mac mini, mac-mini");
+    expect(machineStageEyebrow({ name: "box", label: "box", form: "server", isThisMachine: false })).toBe("Server");
+  });
+});

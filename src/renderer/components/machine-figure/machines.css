@@ -93,6 +93,9 @@
 .machine-stage {
   position: relative;
   display: flex;
+  /* A narrow window puts the words under the figure, never beside it at a
+     width where the name cannot be read. */
+  flex-wrap: wrap;
   flex: none;
   align-items: center;
   min-height: 330px;
@@ -105,7 +108,8 @@
   position: relative;
   isolation: isolate;
   flex: none;
-  margin-left: 70px;
+  /* Room above and below for the halo, which is wider than the figure. */
+  margin: 10px 0 10px 70px;
 }
 
 /* The halo is centred on the figure and fits inside the band at its least
@@ -126,7 +130,7 @@
 .machine-stage__words {
   position: relative;
   min-width: 0;
-  flex: 1;
+  flex: 1 1 300px;
   padding: 24px 32px 24px 36px;
 }
 

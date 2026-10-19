@@ -1,6 +1,6 @@
 import { use$ } from "@legendapp/state/react";
 import type { CSSProperties, ReactNode } from "react";
-import { machineStage, type MachineFigureState } from "@shared/machine-figure";
+import { machineStage, type MachineFigureState, type MachineForm } from "@shared/machine-figure";
 import type { ThemeMode } from "@shared/theme";
 import { portraitOverrides$, startPortraitOverrides } from "../../lib/portrait-overrides-state";
 import { themeMode$ } from "../../lib/theme-mode";
@@ -13,13 +13,28 @@ import "./machines.css";
 
 const STAGE_FIGURE = 290;
 
+/** What each form is called, the small line over the name. */
+export const MACHINE_FORM_WORD: Readonly<Record<MachineForm, string>> = {
+  macbook: "MacBook",
+  "mac-mini": "Mac mini",
+  "mac-studio": "Mac Studio",
+  "linux-box": "Linux box",
+  server: "Server",
+};
+
+/** The form, and the short name too when the operator labelled it otherwise. */
+export const machineStageEyebrow = (machine: MachineFigureMachine): string =>
+  machine.label === machine.name
+    ? MACHINE_FORM_WORD[machine.form]
+    : `${MACHINE_FORM_WORD[machine.form]}, ${machine.name}`;
+
 export interface MachineStageProps {
   readonly machine: MachineFigureMachine;
   readonly state: MachineFigureState;
   /** Node ids of the seats placed on the machine; they stand on its roof. */
   readonly seatIds?: ReadonlyArray<string>;
   readonly theme?: ThemeMode;
-  /** The label, the state lines and the actions. */
+  /** The label, the state lines and the actions. The stage says the form above them. */
   readonly children: ReactNode;
 }
 
@@ -35,7 +50,10 @@ export function MachineStage({ machine, state, seatIds = [], theme, children }: 
       <div className="machine-stage__figure">
         <MachineFigure machine={machine} state={state} size={STAGE_FIGURE} theme={mode} crew={crew} />
       </div>
-      <div className="machine-stage__words">{children}</div>
+      <div className="machine-stage__words">
+        <div className="machine-stage__eyebrow" data-testid="machine-form">{machineStageEyebrow(machine)}</div>
+        {children}
+      </div>
     </div>
   );
 }
