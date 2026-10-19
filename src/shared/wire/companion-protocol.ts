@@ -252,8 +252,15 @@ export const CompanionArgs = {
     sha256: ContentSha256,
     offset: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }))),
     length: intBetween(1, COMPANION_CONTENT_CHUNK_MAX),
-  }).annotate({ parseOptions: { onExcessProperty: "error" } }),
+  }),
 } as const satisfies Record<CompanionOpName, Schema.Top>;
+
+/**
+ * Ops whose arguments are closed: any key the schema does not name is
+ * `invalid`. Decoded with the option passed explicitly, never left to an
+ * annotation, whose reach on a nested struct differs between Effect builds.
+ */
+export const COMPANION_CLOSED_ARGS_OPS: ReadonlySet<CompanionOpName> = new Set(["content.get"]);
 
 export type CompanionArgsByOp = { readonly [Op in CompanionOpName]: (typeof CompanionArgs)[Op]["Type"] };
 
@@ -523,8 +530,12 @@ export const decodeCompanionRequestLine = (
   if (!(COMPANION_OPS as ReadonlyArray<string>).includes(envelope.success.op)) {
     return Result.fail({ id, error: companionError("invalid", "Unknown operation."), close: false });
   }
-  const frame = decodeRequestFrame({ ...(raw as object), args: envelope.success.args ?? {} });
-  if (Result.isFailure(frame)) {
+  const args = envelope.success.args ?? {};
+  const op = envelope.success.op as CompanionOpName;
+  const closed = !COMPANION_CLOSED_ARGS_OPS.has(op) ||
+    Result.isSuccess(Schema.decodeUnknownResult(CompanionArgs[op], { onExcessProperty: "error" })(args));
+  const frame = decodeRequestFrame({ ...(raw as object), args });
+  if (!closed || Result.isFailure(frame)) {
     // Never echo the parse issue: it can quote the submitted text.
     return Result.fail({ id, error: companionError("invalid", "The arguments were not valid."), close: false });
   }
