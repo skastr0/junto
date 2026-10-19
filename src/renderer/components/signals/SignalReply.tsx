@@ -3,7 +3,7 @@ import type { AgentSignalAnswerOptions } from "@shared/ipc";
 import type { SignalActionResult } from "../../lib/agent-signals-view";
 import { claimFocus } from "../../lib/focus-ownership";
 import { modKeyGlyph } from "../../lib/platform";
-import { useQuickReplies } from "../../lib/quick-replies";
+import { answerLabel, useQuickReplies, useQuietNotes } from "../../lib/quick-replies";
 import { Button } from "../ui";
 import { Textarea } from "../ui/Field";
 import { QuickReplies } from "./QuickReplies";
@@ -40,9 +40,11 @@ export const useSignalAction = (onDone: () => void) => {
 };
 
 /**
- * Answer or dismiss one open agent signal. The answer, typed or quick, is
- * delivered to the seat as operator mail. Shared by the seat sidebar popover
- * and the feed.
+ * Answer or dismiss one open agent signal. Send reply (Cmd+Enter, or a quick
+ * reply pill) delivers the answer to the seat as operator mail and wakes it;
+ * Send quietly (Shift+Cmd+Enter, or a quiet note pill) records it on the
+ * signal with no mail, and with no text it acknowledges; Dismiss closes it
+ * and the seat is not told. Shared by the seat sidebar popover and the feed.
  */
 export function SignalReply({
   signalId,
@@ -67,14 +69,17 @@ export function SignalReply({
 }) {
   const [reply, setReply] = useState("");
   const quickReplies = useQuickReplies();
+  const quietNotes = useQuietNotes();
   const { pending, error, act } = useSignalAction(onDone);
   const canSend = pending === null && reply.trim().length > 0;
   const send = (): void => {
     if (canSend) void act("", () => respond(signalId, reply.trim()));
   };
+  // Empty is allowed: a quiet answer with no note acknowledges.
   const sendQuietly = (): void => {
-    if (canSend) void act("", () => respond(signalId, reply.trim(), { silent: true }));
+    if (pending === null) void act("", () => respond(signalId, reply.trim(), { silent: true }));
   };
+  const mod = modKeyGlyph();
 
   return (
     <div ref={claimReplyFocus} className={className}>
@@ -84,34 +89,56 @@ export function SignalReply({
         pending={pending}
         onPick={(text) => void act(text, () => respond(signalId, text))}
       />
+      <QuickReplies
+        replies={quietNotes}
+        quiet
+        pending={pending}
+        onPick={(text) => void act(answerLabel({ kind: "quiet", text }), () => respond(signalId, text, { silent: true }))}
+      />
       <Textarea
         value={reply}
         onChange={(event) => setReply(event.target.value)}
         onKeyDown={(event) => {
-          if (!keyIs(event, "message.send")) return;
-          event.preventDefault();
-          send();
+          if (keyIs(event, "message.sendQuietly")) {
+            event.preventDefault();
+            sendQuietly();
+          } else if (keyIs(event, "message.send")) {
+            event.preventDefault();
+            send();
+          }
         }}
         placeholder="Or write a reply…"
         rows={3}
         aria-label="Your reply"
-        aria-keyshortcuts={keyAria("message.send")}
+        aria-keyshortcuts={[keyAria("message.send"), keyAria("message.sendQuietly")].filter(Boolean).join(" ")}
       />
       {error ? <p className="seat-signal-popover__error" role="alert">{error}</p> : null}
       <div className="seat-signal-popover__actions">
-        <Button size="xs" variant="subtle" disabled={pending !== null} onClick={() => void act("", () => dismiss(signalId))}>
+        <Button
+          size="xs"
+          variant="subtle"
+          disabled={pending !== null}
+          title="Dismiss: closes it, the seat is not told"
+          onClick={() => void act("", () => dismiss(signalId))}
+        >
           Dismiss
         </Button>
         <Button
           size="xs"
           variant="subtle"
-          disabled={!canSend}
-          title="Record the answer on the signal without typing it into the seat"
+          disabled={pending !== null}
+          title={`Send quietly: answered, the seat is not woken (⇧${mod}↵)`}
           onClick={sendQuietly}
         >
           Send quietly
         </Button>
-        <Button size="xs" variant="primary" disabled={!canSend} title={`${modKeyGlyph()}+↵`} onClick={send}>
+        <Button
+          size="xs"
+          variant="primary"
+          disabled={!canSend}
+          title={`Send reply: mails and wakes the seat (${mod}↵)`}
+          onClick={send}
+        >
           Send reply
         </Button>
       </div>

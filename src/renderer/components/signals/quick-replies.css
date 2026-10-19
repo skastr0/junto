@@ -58,6 +58,24 @@
   background: color-mix(in oklab, var(--color-amber) 22%, transparent);
 }
 
+/* A quiet note answers without waking the seat: no fill, a dashed hairline
+   and a muted bell, so it never reads as one of the waking replies above. */
+.quick-reply--quiet {
+  border: 1px dashed color-mix(in oklab, var(--color-ink) 22%, transparent);
+  background: transparent;
+  color: var(--color-dim);
+}
+
+.quick-reply--quiet:hover {
+  border-color: color-mix(in oklab, var(--color-ink) 34%, transparent);
+  background: color-mix(in oklab, var(--color-ink) 5%, transparent);
+  color: var(--color-ink-2);
+}
+
+.quick-reply--quiet:active {
+  background: color-mix(in oklab, var(--color-ink) 9%, transparent);
+}
+
 .quick-reply[aria-busy="true"] {
   background: color-mix(in oklab, var(--color-amber) 16%, transparent);
   color: var(--color-amber-fg);
