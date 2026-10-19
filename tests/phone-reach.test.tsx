@@ -222,9 +222,15 @@ describe("in the open feed", () => {
     expect(mac.textContent).toContain(TEXT);
     expect(cards().filter((card) => card !== mac)).toEqual(before);
 
-    await act(async () => mac.querySelector<HTMLButtonElement>("button")!.click());
+    // Actions belong to the selected item, in the detail pane: select it first.
+    await act(async () => mac.click());
+    const pane = document.body.querySelector<HTMLElement>("[data-testid='operator-feed-detail']")!;
+    expect(pane.dataset.itemId).toBe(REMOTE_LOGIN_ITEM_ID);
+    const open = [...pane.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("Open Remote Login settings"),
+    )!;
+    await act(async () => open.click());
     expect(openSettings).toHaveBeenCalledTimes(1);
-    expect(mac.querySelector("button")!.textContent).toContain("Open Remote Login settings");
 
     // Back from System Settings with Remote Login on: it fades out in place.
     await act(async () => phoneReach$.remoteLogin.set("on"));
