@@ -468,6 +468,25 @@ let skipQuitConfirm = false;
 let quitConfirmGeneration = 0;
 /** True while a native confirm dialog is open — blocks a second dialog, not signal force. */
 let quitConfirmPending = false;
+/**
+ * Who asked for the quit, for the `[quit]` log only; it never gates the
+ * sequence. In-app callers name themselves through quitFor, and each
+ * before-quit consumes the name. A before-quit nobody named came from the
+ * menu, Cmd+Q, the Dock, an Apple Event or a logout.
+ */
+let quitRequestSource: string | undefined;
+const quitFor = (source: string): void => {
+  quitRequestSource ??= source;
+  app.quit();
+};
+const takeQuitRequestSource = (): string => {
+  const source = quitRequestSource ??
+    `menu, Cmd+Q, the Dock, an Apple Event or a logout (${
+      BrowserWindow.getFocusedWindow() === null ? "no Junto window focused" : "a Junto window focused"
+    })`;
+  quitRequestSource = undefined;
+  return source;
+};
 
 const CANVAS_FLUSH_TIMEOUT_MS = 10_000;
 /** Bound on awaiting already-admitted main-process authoring during quit. */
@@ -1154,7 +1173,7 @@ const createRendererFailureWindow = (): BrowserWindow => {
     // to prove clean. app.exit after a clean drain bypasses this event.
     if (runtimeDisposed) return;
     event.preventDefault();
-    app.quit();
+    quitFor("renderer failure window closed");
   });
   failureWindow.on("closed", () => {
     if (rendererFailureWindow === failureWindow) rendererFailureWindow = undefined;
@@ -1218,7 +1237,7 @@ const ensureSupervised = async (): Promise<boolean> => {
   // Handoff failed — reclaim the lock and run unsupervised
   // rather than leaving the operator with nothing.
   if (!app.requestSingleInstanceLock()) {
-    app.quit();
+    quitFor("supervisor handoff failed and another instance holds the lock");
     return false;
   }
   console.error(`[${supervisor.metadata.provider}] handoff failed — running unsupervised this session`);
@@ -1249,7 +1268,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     exitAfterDetach(1, "packaged-sandbox-policy");
   });
 } else if (!gotSingleInstanceLock) {
-  app.quit();
+  quitFor("another instance holds the lock");
 } else {
   app.on("second-instance", (_event, commandLine) => {
     const uri = latestNodeRefUri(commandLine);
@@ -1874,7 +1893,7 @@ const quitWhenNoOperatorWindow = (): void => {
     !rendererRecoveryDestroyInProgress &&
     !signalQuitState.rendererQuiesced() &&
     !quitPreparationArbiter.committed()
-  ) app.quit();
+  ) quitFor("last window closed");
 };
 
 const beginShutdownAdmission = (reason: string): void => {
@@ -2285,7 +2304,8 @@ const invalidateQuitConfirm = (): void => {
 };
 
 app.on("before-quit", (event) => {
-  quitPhases.mark(runtimeDisposed ? "before-quit (runtime disposed)" : "before-quit");
+  const quitSource = takeQuitRequestSource();
+  quitPhases.mark(runtimeDisposed ? "before-quit (runtime disposed)" : `before-quit, asked by ${quitSource}`);
   if (runtimeDisposed) return;
   event.preventDefault();
   // A signal owns the global quit sequence until its terminal + renderer
@@ -2325,7 +2345,7 @@ app.on("before-quit", (event) => {
         if (!mayFinish) return;
         runtimeDisposed = true;
         closeWindowsWithoutCanvasFlush = true;
-        app.quit();
+        quitFor("quit preparation finished");
       })
       .catch((error) => {
         if (quitPreparationArbiter.normalCommitted(preparationGeneration)) {
@@ -2436,6 +2456,12 @@ app.on("will-quit", () => {
   detachRuntimeOnQuit("will-quit");
 });
 
+// The last event before the process exits; a log that ends at will-quit with
+// no quit row means the native loop did not finish.
+app.on("quit", (_event, exitCode) => {
+  quitPhases.mark(`quit, exit code ${exitCode}`);
+});
+
 // Registered SIGTERM/SIGINT listeners suppress Node's default process exit.
 // Detach authority first, request Electron's normal quit sequence, and retain
 // a bounded hard-exit fallback if another listener prevents that sequence.
@@ -2443,6 +2469,7 @@ const processSignalTermination = installProcessSignalTermination({
   app,
   cleanup: async (signal) => {
     quitPhases.mark(`signal ${signal}`);
+    quitRequestSource ??= `signal ${signal}`;
     const signalClaim = quitPreparationArbiter.claimSignal();
     if (signalClaim === "joined-normal") {
       // Normal quit already committed renderer destruction + runtime detach
