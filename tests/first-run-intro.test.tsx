@@ -137,10 +137,11 @@ const chapterAt = (id: string, mac = true): string => {
 };
 
 describe("what the tour says", () => {
-  it("opens on the seats, ends on permissions, and offers a way out on every chapter", () => {
+  it("opens on the seats, ends on the shell after permissions, and offers a way out on every chapter", () => {
     const chapters = tourChapters(true);
     expect(chapters[0]!.id).toBe("seats");
-    expect(chapters.at(-1)!.id).toBe("permissions");
+    expect(chapters.at(-2)!.id).toBe("permissions");
+    expect(chapters.at(-1)!.id).toBe("shell");
     for (let step = 0; step < chapters.length; step += 1) {
       const html = renderToStaticMarkup(<FirstRunIntroSurface onDone={() => {}} mac initialStep={step} />);
       expect(html).toContain('data-testid="first-run-intro-skip"');
@@ -223,6 +224,16 @@ describe("what the tour says", () => {
     expect(copy).toContain("the prompt names Junto because Junto started the agent");
     expect(copy).toContain("Allow or deny each one");
     expect(copy).toContain("Privacy & Security");
+    expect(html).not.toContain('data-testid="first-run-intro-done"');
+  });
+
+  it("ends on the shell Junto read, with Reload, and opens the canvas from there", () => {
+    const html = chapterAt("shell");
+    const copy = text(html);
+    expect(copy).toContain("Your agents get your shell");
+    expect(copy).toContain("Reload shell environment");
+    expect(copy).toContain("Seats already running keep the environment they started with");
+    expect(html).toContain('data-testid="shell-environment-step"');
     expect(html).toContain('data-testid="first-run-intro-done"');
   });
 

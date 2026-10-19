@@ -30,6 +30,7 @@ import { Level } from "@shared/wire/urgency";
 import { portraitFor } from "../SeatRing";
 import { PauseSwitchFace } from "../TopBar";
 import { squadsChapter } from "./tour-squads";
+import { shellChapter } from "./tour-shell";
 import "./first-run-intro.css";
 import { claimFocusOnMount, isOperatorTyping } from "../../lib/focus-ownership";
 
@@ -652,7 +653,11 @@ const permissionsChapter = (mac: boolean): TourChapter => ({
 const isMac = (): boolean =>
   typeof document !== "undefined" && document.documentElement.dataset.juntoPlatform === "darwin";
 
-/** The tour, in order. `mac` picks the permissions chapter's wording. */
+/**
+ * The tour, in order. `mac` picks the permissions chapter's wording. The
+ * shell chapter closes it: what Junto read from your shell, just before the
+ * first seats start.
+ */
 export const tourChapters = (mac: boolean): ReadonlyArray<TourChapter> => [
   seatsChapter,
   statesChapter,
@@ -662,6 +667,7 @@ export const tourChapters = (mac: boolean): ReadonlyArray<TourChapter> => [
   organizeChapter,
   playChapter,
   permissionsChapter(mac),
+  shellChapter,
 ];
 
 export function FirstRunIntro() {
