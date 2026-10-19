@@ -31,6 +31,13 @@ const openShellChapter = async (page: Page) => {
   return { intro, step: slide.getByTestId("shell-environment-step") };
 };
 
+/** Pointer off the rail (its tooltip) and motion settled before a shot. */
+const shot = async (page: Page, name: string): Promise<void> => {
+  await page.mouse.move(4, 4);
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: join(SHOTS, name) });
+};
+
 const setTheme = async (page: Page, theme: "dark" | "bright"): Promise<void> => {
   await page.evaluate((mode) => window.junto!.settingsPatch({ appearance: { theme: mode } }), theme);
   if (theme === "bright") await expect(page.locator("html")).toHaveAttribute("data-theme", "bright");
@@ -55,7 +62,7 @@ test("the shell chapter shows what Junto read, and Reload picks up an rc edit", 
     await expect(step).toContainText(/read in \d/);
     await expect(step).toContainText("Agents found");
     await expect(intro.getByTestId("first-run-intro-done")).toBeVisible();
-    await page.screenshot({ path: join(SHOTS, "shell-resolved-dark.png") });
+    await shot(page, "shell-resolved-dark.png");
 
     // The operator edits their rc: a new tool folder and a secret. Not a
     // JUNTO_ name: the probe keeps Junto's own names out of the read.
@@ -67,10 +74,10 @@ test("the shell chapter shows what Junto read, and Reload picks up an rc edit", 
     await expect(step).toContainText(/variables? changed/);
     await expect(step).not.toContainText(SECRET);
     expect(await page.content()).not.toContain(SECRET);
-    await page.screenshot({ path: join(SHOTS, "shell-reloaded-dark.png") });
+    await shot(page, "shell-reloaded-dark.png");
 
     await setTheme(page, "bright");
-    await page.screenshot({ path: join(SHOTS, "shell-reloaded-bright.png") });
+    await shot(page, "shell-reloaded-bright.png");
   } finally {
     await junto.close();
   }
@@ -93,7 +100,7 @@ test("a shell that exits explains itself and offers the escape", async () => {
     await expect(step).toContainText("JUNTO_RESOLVING_ENVIRONMENT=1");
     // Never a gate: the tour still finishes from here.
     await expect(intro.getByTestId("first-run-intro-done")).toBeEnabled();
-    await page.screenshot({ path: join(SHOTS, "shell-failed-dark.png") });
+    await shot(page, "shell-failed-dark.png");
   } finally {
     await junto.close();
   }
