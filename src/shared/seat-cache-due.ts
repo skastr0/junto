@@ -26,8 +26,10 @@ export type SeatCacheDue = {
   /** When its cache window ended (epoch ms, this machine's clock). */
   readonly windowEndsAt: number;
   /**
-   * The estimated tokens the seat re-reads if it continues, from the same
-   * estimate as the offboard status. Absent when there is no estimate.
+   * The tokens the seat re-reads if it continues, as its harness recorded
+   * them on its latest model call. Absent when the harness has not recorded
+   * them: a transcript estimate overcounts a compacted session, so it is
+   * never shown here.
    */
   readonly tokens?: number;
 };

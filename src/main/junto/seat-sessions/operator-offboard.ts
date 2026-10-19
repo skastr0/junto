@@ -112,11 +112,22 @@ export type SeatOffboardFacts = {
   readonly cacheMode?: CacheMode;
   /** Time spent working in its current session (ms). */
   readonly workMs: number;
-  /** The session's transcript as a token estimate. Absent when it cannot be located. */
+  /**
+   * The session's context in tokens, as its harness recorded it on its
+   * latest model call. Absent when the harness has not recorded it: a
+   * transcript estimate decides `worth` there but is never sent.
+   */
   readonly tokens?: number;
   /** The session has done enough for that machine's automatic rules to act on it. */
   readonly worth: boolean;
 };
+
+/** A session's size: either basis judges `worth`, only `recorded` is shown past this machine. */
+export type SessionSizeRead = { readonly tokens: number; readonly basis: "recorded" | "estimated" };
+
+/** The tokens a size shows when its basis is the harness's own count. */
+const recordedTokens = (size: SessionSizeRead | undefined): number | undefined =>
+  size?.basis === "recorded" ? size.tokens : undefined;
 
 export type OperatorOffboardPorts = {
   readonly locate: (seat: SeatAddress) => Promise<OffboardSeat | undefined>;
@@ -140,11 +151,13 @@ export type OperatorOffboardPorts = {
   /** Record who ended this session without notes. */
   readonly markEnded: (seat: SeatAddress, sessionId: string, by: OffboardBy, at: number) => void;
   /**
-   * The session's transcript as a token estimate. Undefined when the
-   * transcript cannot be located: the session is then judged on work time
-   * alone. Absent port: no size is known for any seat.
+   * The session's size in tokens, and its basis (term/session-size.ts):
+   * `recorded` is the harness's own count, `estimated` is the transcript's
+   * bytes and overcounts a compacted session. Undefined when the transcript
+   * cannot be located: the session is then judged on work time alone.
+   * Absent port: no size is known for any seat.
    */
-  readonly sessionSize?: (seat: OffboardSeat) => { readonly tokens: number } | undefined;
+  readonly sessionSize?: (seat: OffboardSeat) => SessionSizeRead | undefined;
   readonly rules: () => OffboardRules;
   /**
    * The operator's hold on the seat, here or from the machine editing its
@@ -506,23 +519,23 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
   const worthOf = (
     seat: OffboardSeat,
     withSize: boolean,
-  ): { readonly workMs: number; readonly tokens?: number; readonly worth: boolean } => {
+  ): { readonly workMs: number; readonly size?: SessionSizeRead; readonly worth: boolean } => {
     clock.syncSession(seat.bindingId, seat.sessionId);
     const workMs = clock.workMs(seat.bindingId);
     const threshold = offboardRulesFor(ports.rules(), seat.harness).worth;
     const byWork = sessionWorthCutting(threshold, { workMs });
-    let tokens: number | undefined;
+    let size: SessionSizeRead | undefined;
     if (seat.sessionId !== undefined && (withSize || (workMs > 0 && !byWork))) {
       try {
-        tokens = ports.sessionSize?.(seat)?.tokens;
+        size = ports.sessionSize?.(seat);
       } catch {
-        tokens = undefined;
+        size = undefined;
       }
     }
     return {
       workMs,
-      ...(tokens !== undefined ? { tokens } : {}),
-      worth: byWork || sessionWorthCutting(threshold, { workMs, ...(tokens !== undefined ? { tokens } : {}) }),
+      ...(size !== undefined ? { size } : {}),
+      worth: byWork || sessionWorthCutting(threshold, { workMs, ...(size !== undefined ? { tokens: size.tokens } : {}) }),
     };
   };
 
@@ -531,12 +544,13 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
     const still = stillness(seat, at);
     const done = worthOf(seat, true);
     const set = offboardRulesFor(ports.rules(), seat.harness);
+    const tokens = recordedTokens(done.size);
     return {
       ...(still.since !== undefined ? { stillSince: still.since } : {}),
       windowMinutes: set.cacheWindowMinutes,
       cacheMode: set.cacheMode,
       workMs: done.workMs,
-      ...(done.tokens !== undefined ? { tokens: done.tokens } : {}),
+      ...(tokens !== undefined ? { tokens } : {}),
       worth: done.worth,
     };
   };
@@ -597,7 +611,7 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
           pastWindow: still.pastWindow,
           preferred: still.pastWindow ? "now" : "ask",
           workMinutes: Math.floor(done.workMs / 60_000),
-          ...(done.tokens !== undefined ? { sessionTokens: done.tokens } : {}),
+          ...(done.size !== undefined ? { sessionTokens: done.size.tokens } : {}),
           worthCutting: done.worth,
         };
       }),
@@ -813,7 +827,7 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
           const since = stillness(seat, at).since ?? at;
           // Due since the last pass on the same process: the same question. Otherwise a new one.
           const standing = due.get(key);
-          const tokens = ports.sessionSize?.(seat)?.tokens;
+          const tokens = recordedTokens(ports.sessionSize?.(seat));
           asks.set(key, {
             canvasName: seat.canvasName,
             seatId: seat.seatId,

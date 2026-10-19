@@ -95,6 +95,8 @@ const world = (
   const fail = { close: new Set<string>(), ask: new Set<string>() };
   /** Transcript size per seat, in tokens. A seat not listed has no locatable transcript. */
   const sizes = new Map<string, number>();
+  /** Seats whose size is only a transcript estimate. The rest, the harness recorded. */
+  const estimated = new Set<string>();
   /** What a seat's own machine last said of it, for a seat run elsewhere. */
   const told = new Map<string, SeatOffboardFacts>();
   // A session worth cutting, unless the test says otherwise: an hour of work.
@@ -124,7 +126,8 @@ const world = (
       return { ok: true };
     },
     markEnded: (s, sessionId, by, when) => ended.push({ seatId: s.seatId, sessionId, by, at: when }),
-    sessionSize: (s) => (sizes.has(s.seatId) ? { tokens: sizes.get(s.seatId)! } : undefined),
+    sessionSize: (s) =>
+      sizes.has(s.seatId) ? { tokens: sizes.get(s.seatId)!, basis: estimated.has(s.seatId) ? "estimated" : "recorded" } : undefined,
     rules: () => rules,
     held: (s, when) => holds?.hold(s.bindingId, when) ?? held.get(s.seatId),
     remote: async (s) => told.get(s.seatId),
@@ -148,6 +151,7 @@ const world = (
     dues,
     fail,
     sizes,
+    estimated,
     told,
     advance: (minutes: number) => {
       at += minutes * MIN;
@@ -400,6 +404,21 @@ describe("a seat on another machine", () => {
     });
     expect(await w.offboard.facts({ canvasName: CANVAS, seatId: "far" })).toBeUndefined();
     expect(await w.offboard.facts({ canvasName: CANVAS, seatId: "ghost" })).toBeUndefined();
+  });
+
+  it("tells a size only when its harness recorded it: an estimate judges worth and shows on this machine's row alone", async () => {
+    const w = world([seat("a")], { noWork: ["a"] });
+    w.work("a", 2);
+    w.sizes.set("a", 200_000);
+    w.estimated.add("a");
+    // Two minutes of work: the estimate alone makes it worth cutting.
+    expect(await w.offboard.facts({ canvasName: CANVAS, seatId: "a" })).toEqual({
+      stillSince: T0 + 2 * MIN, windowMinutes: 60, cacheMode: "hybrid", workMs: 2 * MIN, worth: true,
+    });
+    expect((await w.offboard.status(CANVAS, ["a"]))[0]).toMatchObject({ sessionTokens: 200_000, worthCutting: true });
+    // The harness's own count is told.
+    w.estimated.delete("a");
+    expect(await w.offboard.facts({ canvasName: CANVAS, seatId: "a" })).toMatchObject({ tokens: 200_000, worth: true });
   });
 });
 
@@ -710,10 +729,15 @@ describe("the seat against its cache window, as its card reads it", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
       // At rest since T0, under amp's own five minute window and this machine's mode,
-      // with the offboard status's estimate of what it re-reads.
+      // with what its harness recorded it re-reads.
       w.sizes.set("a", 251_000);
       const told = { windowMinutes: 5, stillSince: T0, windowEndsAt: T0 + 5 * MIN, cacheMode: "hybrid", tokens: 251_000 };
       expect(await readAfter(3)).toMatchObject({ settingsFixed: true, cacheWindow: { ...told, pastWindow: false, pastByMs: 0 } });
+      // Only a transcript estimate: the window is told without a size.
+      w.estimated.add("a");
+      const { tokens: _tokens, ...unsized } = told;
+      expect((await readAfter(0)).cacheWindow).toEqual({ ...unsized, pastWindow: false, pastByMs: 0 });
+      w.estimated.delete("a");
       // Past it, held in front of the operator: its next turn picks up where it was, told how far past.
       w.held.set("a", {});
       expect((await readAfter(9)).cacheWindow).toEqual({ ...told, pastWindow: true, pastByMs: 7 * MIN });
@@ -1148,6 +1172,23 @@ describe("the cache mode, case by case", () => {
     expect(await w.offboard.tick()).toMatchObject({ closed: 0 });
     expect(w.offboard.dueList()).toEqual([]);
     expect(w.dues).toEqual([]);
+  });
+
+  it("auto's question shows a size only when the harness recorded it, and tells the change", async () => {
+    const w = world([seat("a")], { rules: inMode("auto") });
+    w.sizes.set("a", 251_000);
+    w.estimated.add("a");
+    w.held.set("a", {});
+    w.advance(60);
+    await w.offboard.tick();
+    expect(w.offboard.dueList()).toEqual([asked("a", qid(1), T0 + 60 * MIN)]);
+    // The harness records its count: the same question, now with the size.
+    w.estimated.delete("a");
+    w.advance(1);
+    await w.offboard.tick();
+    expect(w.offboard.dueList()).toEqual([asked("a", qid(1), T0 + 60 * MIN, 251_000)]);
+    expect(w.dues).toHaveLength(2);
+    expect(w.closed).toEqual([]);
   });
 
   it("auto asks about a seat on screen, once, with its size, never cuts it without an answer, and the first answer settles it", async () => {

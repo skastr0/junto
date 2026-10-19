@@ -252,9 +252,9 @@ export const startOperatorOffboard = async (input: OperatorOffboardLiveInput): P
           (error: unknown) => console.error(`[offboard] could not record who ended ${sessionId} for ${seat.seatId}:`, error),
         );
       },
-      // The session's transcript as tokens (term/session-size.ts): a stat and
-      // a bounded read, never the whole file. Undefined when the transcript
-      // cannot be located, and the session is then judged on work time alone.
+      // The session's size as tokens, with its basis (term/session-size.ts): a
+      // stat and a bounded read, never the whole file. Undefined when the
+      // transcript cannot be located, and the session is then judged on work time alone.
       sessionSize: (seat) => {
         if (seat.sessionId === undefined) return undefined;
         const cwd = cwds.get(seat.bindingId);
@@ -263,7 +263,7 @@ export const startOperatorOffboard = async (input: OperatorOffboardLiveInput): P
           sessionId: seat.sessionId,
           ...(cwd ? { cwd } : {}),
         });
-        return size ? { tokens: size.tokens } : undefined;
+        return size ? { tokens: size.tokens, basis: size.basis } : undefined;
       },
       rules: () => rules,
       // A window here, or a Hold from the machine editing the seat's canvas.

@@ -82,8 +82,9 @@ export type SeatCacheWindow = {
    */
   readonly cacheMode?: CacheMode;
   /**
-   * The tokens the seat re-reads if it picks up where it was: the offboard
-   * status's estimate, read on the seat's machine. Absent when there is none.
+   * The tokens the seat re-reads if it picks up where it was, as its harness
+   * recorded them, read on the seat's machine. Absent when the harness has
+   * not recorded them.
    */
   readonly tokens?: number;
 };

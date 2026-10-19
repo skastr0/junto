@@ -36,7 +36,7 @@ export const ACTIVITY_AGO_MAX_MS = 7 * 24 * 60 * 60_000;
 /** The most work time told for one session: anything longer reads the same on a card. */
 export const SESSION_WORK_MAX_MS = 7 * 24 * 60 * 60_000;
 
-/** The largest transcript told, in tokens: far past any harness's context. */
+/** The largest session told, in tokens: far past any harness's context. */
 export const SESSION_TOKENS_MAX = 100_000_000;
 
 /** A whole number from `min` to `max`. */
@@ -66,6 +66,7 @@ export const SeatsLaunchState = Schema.Struct({
     /** That machine's cache mode: for the card's warning only. */
     cacheMode: Schema.optionalKey(Schema.Literals(CACHE_MODES)),
     workMs: BoundedMs(SESSION_WORK_MAX_MS),
+    /** The session's context as its harness recorded it. Absent when the harness has not. */
     tokens: Schema.optionalKey(BoundedInt(0, SESSION_TOKENS_MAX)),
     worth: Schema.Boolean,
   })),

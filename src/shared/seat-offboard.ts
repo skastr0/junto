@@ -277,7 +277,11 @@ export type SeatOffboardStatus = {
    * minutes. Main always sends it.
    */
   readonly workMinutes?: number;
-  /** The session's transcript as a token estimate. Absent when it cannot be located. */
+  /**
+   * The session's size in tokens. For a seat this machine runs: its
+   * harness's own count, or else a transcript estimate. For a seat run
+   * elsewhere: only its harness's own count. Absent when nothing is known.
+   */
   readonly sessionTokens?: number;
   /**
    * The session has done enough for the automatic rules to act on it. The
