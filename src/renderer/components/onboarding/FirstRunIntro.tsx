@@ -26,6 +26,7 @@ import { DEFAULT_QUICK_REPLIES } from "@shared/settings";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { ScriptedCommandGroupChip } from "../command-groups/CommandGroupChip";
 import type { Node } from "@shared/model";
+import { Level } from "@shared/wire/urgency";
 import { portraitFor } from "../SeatRing";
 import { PauseSwitchFace } from "../TopBar";
 import { squadsChapter } from "./tour-squads";
@@ -442,7 +443,7 @@ const CREW_NODES: ReadonlyArray<Node> = CREW.map(
     }) as Node,
 );
 const NOTES_NODE = { kind: "note", id: "tour-notes", text: "notes", x: 0, y: 0, width: 200, height: 80, z: 0 } as Node;
-const CREW_TONE = { source: "control", tone: "cyan", stale: false, reason: "working" } as const;
+const CREW_TONE = { source: "control", tone: "cyan", level: Level.working, stale: false, reason: "working" } as const;
 
 function OrganizeDemo() {
   // Select the crew, save it to slot 1, open it as a grid; then again.
