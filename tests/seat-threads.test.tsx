@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
 /**
- * A seat's threads in its open view: the Threads button counts what is new
- * for the operator and is plain with nothing new; the popup lists the seat's
+ * A seat's threads in its open view: a plain Threads button (mail has no
+ * operator read state, so it counts nothing); the popup lists the seat's
  * threads in two groups and shows one as a chat, oldest first, the operator's
  * own on the right. A thread between seats is read only. The data comes
- * through one typed source and is read again when the source says so.
+ * from main's threads IPC and is read again on any mail change in the canvas.
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { MailThreadMessage, MailThreadSummary } from "../src/shared/wire/mail-threads";
 import {
   betweenLine,
   groupSeatThreads,
@@ -33,7 +34,6 @@ const thread = (over: Partial<SeatThreadSummary> & { threadId: string }): SeatTh
   lastAt: at(1, 12),
   messageCount: 2,
   canReply: true,
-  unread: false,
   ...over,
 });
 
@@ -41,7 +41,6 @@ const notes = thread({
   threadId: "notes",
   title: "Session notes out of ~/.junto: get it done now",
   participants: ["you", "pty-lead", "product-lead"],
-  unread: true,
 });
 const banner = thread({ threadId: "banner", title: "Cache banner: look A, under the header", lastAt: at(0, 58) });
 const reader = thread({
@@ -63,7 +62,6 @@ const fake = () => {
       ],
       reader: [{ messageId: "r1", author: "cli-lead", mine: false, text: "Switch the reader.", at: at(0, 31) }],
     } as Record<string, SeatThreadMessage[]>,
-    seen: [] as string[],
     lists: 0,
   };
   const source: SeatThreadsSource = {
@@ -75,9 +73,6 @@ const fake = () => {
     onChanged: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
-    },
-    markSeen: async ({ threadId }) => {
-      state.seen.push(threadId);
     },
   };
   const change = (seatId?: string) => listeners.forEach((listener) => listener({ canvasName: "factory", seatId }));
@@ -134,31 +129,55 @@ describe("the seat's threads, in words", () => {
 });
 
 describe("the Threads button", () => {
-  it("is plain with no source and with nothing new", async () => {
-    await render();
-    expect(q("seat-threads-button")?.textContent).toBe("Threads");
-    const { source, state } = fake();
-    state.threads = [banner, reader];
-    act(() => setSeatThreadsSource(source));
-    await flush();
-    expect(q("seat-threads-button")?.textContent).toBe("Threads");
-    expect(q("seat-threads-count")).toBeNull();
-  });
-
-  it("counts the threads with something new, and follows a change", async () => {
-    const { source, state, change } = fake();
+  it("is plain, with no count and no new mark", async () => {
+    const { source } = fake();
     setSeatThreadsSource(source);
     await render();
-    expect(q("seat-threads-count")?.textContent).toBe("1");
-    state.threads = [{ ...notes, unread: true }, { ...banner, unread: true }, reader];
-    change("seat-1");
+    expect(q("seat-threads-button")?.textContent).toBe("Threads");
+    await click(q("seat-threads-button"));
+    expect(document.querySelector("[data-testid=seat-threads] [aria-hidden][style]")).toBeNull();
+  });
+});
+
+describe("main's threads IPC as the source", () => {
+  afterEach(() => {
+    delete (window as { junto?: unknown }).junto;
+  });
+
+  it("names parties, reads a seat's threads and messages, and reads again on any mail change in the canvas", async () => {
+    const operator = { kind: "operator" } as const;
+    const ptyLead = { kind: "seat", nodeId: "seat-1", name: "pty-lead" } as const;
+    const first: MailThreadMessage = {
+      messageId: "m1", threadId: "t1", from: operator, to: [ptyLead], mine: true, text: "Move them.", at: at(1, 2),
+    };
+    const summary: MailThreadSummary = {
+      threadId: "t1", title: "Move them.", participants: [operator, ptyLead], startedAt: at(1, 2), lastAt: at(1, 2),
+      last: first, messageCount: 1, canReply: true,
+    };
+    const mail = new Set<(event: { canvasName: string; nodeId: string }) => void>();
+    const seatThreadsList = vi.fn(async () => [summary]);
+    (window as { junto?: unknown }).junto = {
+      seatThreadsList,
+      seatThreadMessages: vi.fn(async () => [first]),
+      onWorkMailChanged: (listener: (event: { canvasName: string; nodeId: string }) => void) => {
+        mail.add(listener);
+        return () => mail.delete(listener);
+      },
+    };
+    await render();
+    await click(q("seat-threads-button"));
+    expect(seatThreadsList).toHaveBeenCalledWith({ canvasName: "factory", nodeId: "seat-1" });
+    expect(q("seat-threads-with-you")?.textContent).toContain("you, pty-lead");
+    expect(all("seat-threads-message")[0]?.textContent).toContain("you 01:02");
+    // A change in another seat's mailbox can change this seat's threads.
+    const calls = seatThreadsList.mock.calls.length;
+    mail.forEach((listener) => listener({ canvasName: "factory", nodeId: "seat-9" }));
     await flush();
-    expect(q("seat-threads-count")?.textContent).toBe("2");
-    // Another seat's change does not read this one again.
-    const lists = state.lists;
-    change("seat-2");
+    expect(seatThreadsList.mock.calls.length).toBeGreaterThan(calls);
+    const settled = seatThreadsList.mock.calls.length;
+    mail.forEach((listener) => listener({ canvasName: "other", nodeId: "seat-1" }));
     await flush();
-    expect(state.lists).toBe(lists);
+    expect(seatThreadsList.mock.calls.length).toBe(settled);
   });
 });
 
@@ -188,8 +207,8 @@ describe("the Threads popup", () => {
     expect(withYou.textContent).toContain("01:12");
   });
 
-  it("opens on the thread with something new, oldest first, the operator's own on the right, and marks it seen", async () => {
-    const { state } = await open();
+  it("opens on the newest thread with you, oldest first, the operator's own on the right", async () => {
+    await open();
     const messages = all("seat-threads-message");
     expect(messages.map((message) => message.querySelector(".seat-threads__bubble")?.textContent)).toEqual([
       "Move them into junto.db.",
@@ -199,7 +218,6 @@ describe("the Threads popup", () => {
     expect(messages[1]?.getAttribute("data-mine")).toBeNull();
     expect(q("seat-threads-composer")?.getAttribute("data-mode")).toBe("reply");
     expect(q("seat-threads-readonly")).toBeNull();
-    expect(state.seen).toEqual(["notes"]);
   });
 
   it("shows a thread between seats read only, with no composer and a line saying why", async () => {

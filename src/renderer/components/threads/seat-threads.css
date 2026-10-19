@@ -1,25 +1,6 @@
 /* A seat's threads: the list on the left fifth, the chat on the rest.
    The dialog shell owns the backdrop, the layer, focus and Escape. */
 
-.seat-threads-button--unread {
-  border-color: color-mix(in oklab, var(--color-cyan) 55%, transparent);
-  background: color-mix(in oklab, var(--color-cyan) 12%, transparent);
-}
-
-.seat-threads-button__count {
-  display: inline-grid;
-  place-items: center;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: var(--radius-pill);
-  background: var(--color-cyan);
-  color: var(--color-ground);
-  font-size: var(--text-label);
-  letter-spacing: var(--tracking-flat);
-  font-variant-numeric: tabular-nums;
-}
-
 .junto-dialog__card.seat-threads {
   gap: 0;
   padding: 0;

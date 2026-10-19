@@ -7,13 +7,17 @@
  * list and each opened thread's messages, and reads again when the source
  * says something changed. Never writes the canvas.
  *
- * The source's IPC is cli-lead's; until it lands, `seatThreadsSource` reads
- * whatever is installed with `setSeatThreadsSource`, and with none the
- * button stays plain and the popup says there is nothing yet.
+ * The source is main's threads IPC on `window.junto` (types in
+ * src/shared/wire/mail-threads.ts, imported as types only: no Effect runtime
+ * here). Main pushes nothing for threads: any mailbox can change a seat's
+ * threads, so a mail change anywhere on the canvas reads its seats again.
+ * Mail has no operator read state, so nothing here says what is new.
  */
 import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import { useEffect } from "react";
+import type { MailParty } from "@shared/wire/mail-threads";
+import { getJuntoApi } from "./junto-api";
 
 export type SeatAddress = { readonly canvasName: string; readonly seatId: string };
 
@@ -31,8 +35,6 @@ export type SeatThreadSummary = {
   readonly messageCount: number;
   /** The operator is in it and may write in it. */
   readonly canReply: boolean;
-  /** Something in it is new for the operator. */
-  readonly unread: boolean;
 };
 
 /** One message in a thread. */
@@ -47,24 +49,60 @@ export type SeatThreadMessage = {
   readonly at: number;
 };
 
-/** What reads a seat's threads. Implemented over cli-lead's IPC once it lands. */
+/** What reads a seat's threads. */
 export type SeatThreadsSource = {
   readonly list: (seat: SeatAddress) => Promise<ReadonlyArray<SeatThreadSummary>>;
   /** Oldest first. */
   readonly messages: (seat: SeatAddress & { readonly threadId: string }) => Promise<ReadonlyArray<SeatThreadMessage>>;
   /** Something changed in this canvas's threads; no seat means any. */
   readonly onChanged: (listener: (change: { readonly canvasName: string; readonly seatId?: string }) => void) => () => void;
-  /** The operator has seen the thread. Optional: a source without it leaves `unread` to main. */
-  readonly markSeen?: (seat: SeatAddress & { readonly threadId: string }) => Promise<void>;
 };
 
-let source: SeatThreadsSource | undefined;
+/** A party by name, as the popup says it: the operator is "you". */
+const partyName = (party: MailParty): string => (party.kind === "operator" ? "you" : party.name);
 
-/** Install the source (or drop it with undefined). Every retained seat reads again. */
+/** The source over main's threads IPC, or undefined while the bridge lacks it. */
+export const juntoSeatThreadsSource = (): SeatThreadsSource | undefined => {
+  const api = getJuntoApi();
+  const list = api?.seatThreadsList;
+  const messages = api?.seatThreadMessages;
+  const onMail = api?.onWorkMailChanged;
+  if (typeof list !== "function" || typeof messages !== "function" || typeof onMail !== "function") return undefined;
+  return {
+    list: async ({ canvasName, seatId }) =>
+      (await list({ canvasName, nodeId: seatId })).map((thread) => ({
+        threadId: thread.threadId,
+        title: thread.title,
+        participants: thread.participants.map(partyName),
+        startedAt: thread.startedAt,
+        lastAt: thread.lastAt,
+        messageCount: thread.messageCount,
+        canReply: thread.canReply,
+      })),
+    messages: async ({ canvasName, seatId, threadId }) =>
+      (await messages({ canvasName, nodeId: seatId, threadId })).map((message) => ({
+        messageId: message.messageId,
+        author: partyName(message.from),
+        mine: message.mine,
+        text: message.text,
+        at: message.at,
+      })),
+    // Any mailbox can change a seat's threads: the canvas alone decides.
+    onChanged: (listener) => onMail((event) => listener({ canvasName: event.canvasName })),
+  };
+};
+
+let installed: SeatThreadsSource | undefined;
+let bridged: SeatThreadsSource | undefined;
+
+/** The installed source, else main's over the bridge. */
+const activeSource = (): SeatThreadsSource | undefined => installed ?? (bridged ??= juntoSeatThreadsSource());
+
+/** Install a source over main's (or drop it with undefined). Every retained seat reads again. */
 export const setSeatThreadsSource = (next: SeatThreadsSource | undefined): void => {
   offChanged?.();
   offChanged = undefined;
-  source = next;
+  installed = next;
   if (retained.size > 0) listenForChanges();
   for (const key of retained.keys()) void refreshSeat(key);
   for (const key of Object.keys(seatThreads$.messages.peek())) void refreshThread(key);
@@ -119,11 +157,11 @@ const coalesce = async (key: string, read: () => Promise<void>): Promise<void> =
 
 const refreshSeat = (key: string): Promise<void> =>
   coalesce(key, async () => {
-    const read = source;
+    const read = activeSource();
     if (!read || !retained.has(key)) return;
     try {
       const threads = await read.list(seatOfKey(key));
-      if (source !== read || !retained.has(key)) return;
+      if (activeSource() !== read || !retained.has(key)) return;
       seatThreads$.seats[key].set({ threads: [...threads], loaded: true, error: "" });
     } catch (error) {
       const prior = seatThreads$.seats[key].peek();
@@ -133,12 +171,12 @@ const refreshSeat = (key: string): Promise<void> =>
 
 const refreshThread = (key: string): Promise<void> =>
   coalesce(key, async () => {
-    const read = source;
+    const read = activeSource();
     const [canvasName = "", seatId = "", threadId = ""] = key.split("\u0000");
     if (!read || !openThreads.has(key)) return;
     try {
       const messages = await read.messages({ canvasName, seatId, threadId });
-      if (source !== read || !openThreads.has(key)) return;
+      if (activeSource() !== read || !openThreads.has(key)) return;
       seatThreads$.messages[key].set({ messages: [...messages], loaded: true, error: "" });
     } catch (error) {
       const prior = seatThreads$.messages[key].peek();
@@ -153,8 +191,9 @@ const openThreads = new Map<string, number>();
 let offChanged: (() => void) | undefined;
 
 const listenForChanges = (): void => {
-  if (offChanged || !source) return;
-  offChanged = source.onChanged((change) => {
+  const read = activeSource();
+  if (offChanged || !read) return;
+  offChanged = read.onChanged((change) => {
     for (const key of retained.keys()) {
       const seat = seatOfKey(key);
       if (seat.canvasName !== change.canvasName) continue;
@@ -207,11 +246,6 @@ export const openSeatThread = (seat: SeatAddress, threadId: string): (() => void
   };
 };
 
-/** Tell the source the operator has seen the thread. Failures are left to the next read. */
-export const markSeatThreadSeen = (seat: SeatAddress, threadId: string): void => {
-  void source?.markSeen?.({ ...seat, threadId }).catch(() => undefined);
-};
-
 /** The seat's threads, retained while mounted. */
 export const useSeatThreads = (seat: SeatAddress, enabled = true): SeatState => {
   const { canvasName, seatId } = seat;
@@ -237,10 +271,6 @@ export const useSeatThreadMessages = (seat: SeatAddress, threadId: string | unde
 
 const NO_THREADS: SeatState = { threads: [], loaded: false, error: "" };
 const NO_MESSAGES: ThreadState = { messages: [], loaded: false, error: "" };
-
-/** How many threads have something new for the operator: the button's count. */
-export const unreadThreadCount = (threads: ReadonlyArray<SeatThreadSummary>): number =>
-  threads.filter((thread) => thread.unread).length;
 
 /** The list's two groups, newest first in each. */
 export const groupSeatThreads = (
@@ -278,7 +308,8 @@ export const threadTime = (at: number): string => {
 export const resetSeatThreads = (): void => {
   offChanged?.();
   offChanged = undefined;
-  source = undefined;
+  installed = undefined;
+  bridged = undefined;
   retained.clear();
   openThreads.clear();
   flights.clear();

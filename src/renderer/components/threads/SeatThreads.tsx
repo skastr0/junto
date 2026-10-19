@@ -1,12 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import {
   betweenLine,
   groupSeatThreads,
-  markSeatThreadSeen,
   participantsLine,
   threadTime,
-  unreadThreadCount,
   useSeatThreadMessages,
   useSeatThreads,
   type SeatAddress,
@@ -17,36 +15,25 @@ import { Chip } from "../ui/Chip";
 import { Dialog } from "../ui/Dialog";
 import { Eyebrow } from "../ui/Eyebrow";
 import { IconButton } from "../ui/IconButton";
-import { StatusDot } from "../ui/StatusDot";
 import "./seat-threads.css";
 
 /**
- * The Threads button in a seat's header, left of Params. Its count is the
- * threads with something new for the operator; with none it is plain.
+ * The Threads button in a seat's header, left of Params. Plain: mail has no
+ * operator read state, so it counts nothing.
  */
 export function SeatThreadsButton({ seat, name }: { readonly seat: SeatAddress; readonly name: string }) {
-  const { threads } = useSeatThreads(seat);
   const [open, setOpen] = useState(false);
-  const unread = unreadThreadCount(threads);
   return (
     <>
       <Button
         size="xs"
         variant="chrome"
-        title={unread > 0 ? `Threads, ${unread} with something new for you` : "Threads"}
-        aria-label={unread > 0 ? `Threads, ${unread} new` : "Threads"}
+        title="Threads"
         aria-haspopup="dialog"
         data-testid="seat-threads-button"
-        data-unread={unread > 0 ? unread : undefined}
-        className={unread > 0 ? "seat-threads-button--unread" : undefined}
         onClick={() => setOpen(true)}
       >
         Threads
-        {unread > 0 ? (
-          <span className="seat-threads-button__count" data-testid="seat-threads-count">
-            {unread}
-          </span>
-        ) : null}
       </Button>
       {open ? <SeatThreadsPopup seat={seat} name={name} onClose={() => setOpen(false)} /> : null}
     </>
@@ -55,11 +42,10 @@ export function SeatThreadsButton({ seat, name }: { readonly seat: SeatAddress; 
 
 type Selection = { readonly kind: "thread"; readonly threadId: string } | { readonly kind: "new" };
 
-/** The first thread to show: the newest with something new, else the newest with you, else the newest. */
+/** The first thread to show: the newest with you, else the newest between seats. */
 const firstThread = (threads: ReadonlyArray<SeatThreadSummary>): string | undefined => {
   const { withYou, betweenSeats } = groupSeatThreads(threads);
-  const all = [...withYou, ...betweenSeats];
-  return (all.find((thread) => thread.unread) ?? all[0])?.threadId;
+  return (withYou[0] ?? betweenSeats[0])?.threadId;
 };
 
 /**
@@ -90,10 +76,6 @@ export function SeatThreadsPopup({
         })();
   const thread = shown?.kind === "thread" ? threads.find((candidate) => candidate.threadId === shown.threadId) : undefined;
 
-  useEffect(() => {
-    if (thread?.unread) markSeatThreadSeen(seat, thread.threadId);
-  }, [thread?.threadId, thread?.unread]);
-
   const row = (item: SeatThreadSummary) => (
     <li key={item.threadId}>
       <button
@@ -107,7 +89,6 @@ export function SeatThreadsPopup({
       >
         <span className="seat-threads__row-title">{item.title}</span>
         <span className="seat-threads__row-meta">
-          {item.unread ? <StatusDot tone="cyan" title="Something new for you" /> : null}
           <span className="seat-threads__row-who">{participantsLine(item.participants)}</span>
           <span className="seat-threads__row-time">{threadTime(item.lastAt)}</span>
         </span>
