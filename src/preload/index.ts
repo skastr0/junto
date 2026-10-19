@@ -575,6 +575,8 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   companionDeviceRemove: (deviceId) => invoke(IPC_CHANNELS.companionDeviceRemove, IPC_TIMEOUT_MS, deviceId),
   onCompanionDevicesChanged: (listener) =>
     subscribe<ReadonlyArray<CompanionDeviceRecord>>(IPC_CHANNELS.companionDevicesChanged, listener),
+  companionRemoteLogin: () => invoke(IPC_CHANNELS.companionRemoteLogin, IPC_TIMEOUT_MS),
+  companionOpenRemoteLoginSettings: () => invoke(IPC_CHANNELS.companionOpenRemoteLoginSettings, IPC_TIMEOUT_MS),
   onSnapshotsChanged: (listener) =>
     subscribe<SnapshotState>(IPC_CHANNELS.snapshotsChanged, listener),
   onKernelChanged: (listener) => subscribe<KernelSnapshot>(IPC_CHANNELS.kernelChanged, listener),
@@ -947,6 +949,10 @@ const terminalApi: JuntoTerminalApi = {
     subscribe(IPC_CHANNELS.seatAwarenessChanged, listener),
   seatCollaborationAsk: (input) =>
     invoke(IPC_CHANNELS.seatCollaborationAsk, IPC_TIMEOUT_MS, input),
+  seatThreadsList: (query) => invoke(IPC_CHANNELS.seatThreadsList, IPC_TIMEOUT_MS, query),
+  seatThreadMessages: (query) => invoke(IPC_CHANNELS.seatThreadMessages, IPC_TIMEOUT_MS, query),
+  seatThreadSend: (input) => invoke(IPC_CHANNELS.seatThreadSend, IPC_TIMEOUT_MS, input),
+  seatThreadMentionables: (query) => invoke(IPC_CHANNELS.seatThreadMentionables, IPC_TIMEOUT_MS, query),
 };
 
 const gitApi: JuntoGitApi = {

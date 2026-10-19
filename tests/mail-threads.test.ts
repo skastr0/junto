@@ -32,6 +32,13 @@ import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { SettingsLive } from "../src/main/junto/settings/service";
 import { nameThisMachine } from "./support/name-this-machine";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
+import {
+  mentionableSeats,
+  seatThreadMessages,
+  seatThreads,
+  sendOperatorThreadMail,
+} from "../src/main/junto/work/operator-threads";
+import type { MailThreadMessage, MailThreadSummary, OperatorThreadSend } from "../src/shared/wire/mail-threads";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 
 const CANVAS = "threads";
@@ -255,5 +262,83 @@ describe("mail threads", () => {
     const noReply = await call("agent", "msg.send", { target: "operator", text: "hello" });
     expect(noReply.ok).toBe(false);
     expect((await mailbox("agent")).map((message) => message.messageId)).toEqual([fromPeer]);
+  });
+});
+
+describe("operator threads", () => {
+  const send = (input: Omit<OperatorThreadSend, "canvasName">) =>
+    runtime.runPromise(sendOperatorThreadMail({ canvasName: CANVAS, ...input }) as Effect.Effect<any, unknown, never>);
+  const threadsOf = (nodeId: string) =>
+    runtime.runPromise(seatThreads(CANVAS, nodeId) as Effect.Effect<ReadonlyArray<MailThreadSummary>, unknown, never>);
+  const messagesOf = (nodeId: string, threadId: string) =>
+    runtime.runPromise(
+      seatThreadMessages(CANVAS, nodeId, threadId) as Effect.Effect<ReadonlyArray<MailThreadMessage>, unknown, never>,
+    );
+
+  it("starts a thread to a seat, and the seat's answer lands in it", async () => {
+    const started = await send({ nodeId: "agent", text: "What is left?\nDetails follow." });
+    expect(started.leadId).toBe(started.threadId);
+    const answered = await call("agent", "msg.reply", { target: "operator", text: "nothing", inReplyTo: started.leadId });
+    expect(answered.ok).toBe(true);
+
+    const [thread] = await threadsOf("agent");
+    expect(thread).toMatchObject({
+      threadId: started.threadId,
+      title: "What is left?",
+      messageCount: 2,
+      canReply: true,
+      participants: [{ kind: "operator" }, { kind: "seat", nodeId: "agent", name: "agent" }],
+    });
+    expect((await messagesOf("agent", started.threadId)).map((message) => [message.mine, message.from.kind, message.text])).toEqual([
+      [true, "operator", "What is left?\nDetails follow."],
+      [false, "seat", "nothing"],
+    ]);
+  });
+
+  it("a reply in a thread derives its thread from the parent", async () => {
+    const started = await send({ nodeId: "agent", text: "first" });
+    const answer = await call("agent", "msg.reply", { target: "operator", text: "ok", inReplyTo: started.leadId });
+    const followUp = await send({ nodeId: "agent", text: "and then?", inReplyTo: answer.data.messageId });
+    expect(followUp.threadId).toBe(started.threadId);
+    expect((await stored("agent", followUp.leadId)).metadata).toMatchObject({
+      threadId: started.threadId,
+      inReplyTo: answer.data.messageId,
+    });
+    expect(await send({ nodeId: "agent", text: "?", inReplyTo: "01NOSUCHMAIL0000000000000A" })).toMatchObject({ ok: false, reason: "not-found" });
+    expect(await send({ nodeId: "agent", text: "?", threadId: "01NOSUCHMAIL0000000000000A" })).toMatchObject({ ok: false, reason: "not-found" });
+  });
+
+  it("mentions write the same mail in the same thread to each wired seat, and read as one mail", async () => {
+    const started = await send({ nodeId: "agent", text: "both of you", mentions: ["peer"] });
+    const copy = (await mailbox("peer")).find((message) => message.metadata?.sendId === started.leadId);
+    expect(copy?.metadata).toMatchObject({ threadId: started.threadId, sendId: started.leadId });
+
+    const answered = await call("peer", "msg.reply", { target: "operator", text: "peer here", inReplyTo: copy!.messageId });
+    expect(answered.data.threadId).toBe(started.threadId);
+
+    for (const seat of ["agent", "peer"]) {
+      const messages = await messagesOf(seat, started.threadId);
+      expect(messages.map((message) => message.text)).toEqual(["both of you", "peer here"]);
+      expect(messages[0]!.to.map((party) => (party.kind === "seat" ? party.nodeId : "operator"))).toEqual(["agent", "peer"]);
+    }
+  });
+
+  it("refuses a mention of a seat not wired to the seat, writing nothing", async () => {
+    const refused = await send({ nodeId: "agent", text: "hi", mentions: ["loner"] });
+    expect(refused).toEqual({ ok: false, reason: "invalid", message: "loner is not connected to agent, so it cannot be mentioned here." });
+    expect(await mailbox("agent")).toEqual([]);
+    expect(await mailbox("loner")).toEqual([]);
+    expect(await runtime.runPromise(mentionableSeats(CANVAS, "agent") as Effect.Effect<any, unknown, never>)).toEqual([
+      { nodeId: "peer", name: "peer" },
+    ]);
+  });
+
+  it("seat to seat threads show to the operator without a reply", async () => {
+    const root: string = (await call("peer", "msg.send", { target: "agent", text: "between us" })).data.messageId;
+    await call("agent", "msg.reply", { target: "peer", text: "sure", inReplyTo: root });
+    const [thread] = await threadsOf("agent");
+    expect(thread).toMatchObject({ threadId: root, canReply: false, messageCount: 2 });
+    expect(await threadsOf("loner")).toEqual([]);
+    expect(await messagesOf("loner", root)).toEqual([]);
   });
 });

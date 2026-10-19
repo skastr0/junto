@@ -83,6 +83,8 @@ describe("main authoring architecture", () => {
       "ipc.work.task-promote",
       "ipc.work.task-respond",
       "ipc.work.task-transition",
+      // Mail threads: the operator writes in a seat's thread, mentions included.
+      "ipc.work.thread-send",
       "review.checkout",
       "startup.canvas.ensure-seed",
     ].sort());
@@ -128,6 +130,9 @@ describe("main authoring architecture", () => {
       // notice per seat; this is the classified authoring listener, not a
       // renderer/control ingress.
       "src/main/junto/work/edge-map-notify.ts",
+      // Mail threads read the mailboxes; the operator's send runs only under
+      // the classified ipc.work.thread-send handler in ipc.ts.
+      "src/main/junto/work/operator-threads.ts",
       // Seat waits re-read topology and the selected task; they never mutate.
       "src/main/junto/work/seat-observation-live.ts",
       // Prompt mail to a seat, written only under ipc.work.message-append.

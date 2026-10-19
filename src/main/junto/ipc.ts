@@ -4,6 +4,19 @@ import { WorkMailQuery } from "@shared/work-mail";
 import { app, BrowserWindow, clipboard, ipcMain, nativeImage, shell } from "electron";
 import { Effect, Result, Schema, Stream } from "effect";
 import {
+  OperatorThreadSend,
+  SeatThreadQuery,
+  SeatThreadsQuery,
+  type OperatorThreadSent,
+} from "@shared/wire/mail-threads";
+import {
+  deliverOperatorThreadMail,
+  mentionableSeats,
+  seatThreadMessages,
+  seatThreads,
+  sendOperatorThreadMail,
+} from "./work/operator-threads";
+import {
   IPC_CHANNELS,
   type BindingHint,
   type AgentSignalAnswerOptions,
@@ -521,6 +534,39 @@ export const registerJuntoIpc = (): void => {
       }));
     },
   );
+
+  // Mail threads, for a seat's Threads popup: reads through the shared
+  // derivation, and the operator's send into a thread with mentions.
+  privilegedIpc.handle(IPC_CHANNELS.seatThreadsList, (_event, input: unknown) =>
+    AppRuntime.runPromise(Effect.gen(function* () {
+      const query = yield* Schema.decodeUnknownEffect(SeatThreadsQuery, { onExcessProperty: "error" })(input);
+      return yield* seatThreads(query.canvasName, query.nodeId);
+    })),
+  );
+  privilegedIpc.handle(IPC_CHANNELS.seatThreadMessages, (_event, input: unknown) =>
+    AppRuntime.runPromise(Effect.gen(function* () {
+      const query = yield* Schema.decodeUnknownEffect(SeatThreadQuery, { onExcessProperty: "error" })(input);
+      return yield* seatThreadMessages(query.canvasName, query.nodeId, query.threadId);
+    })),
+  );
+  privilegedIpc.handle(IPC_CHANNELS.seatThreadMentionables, (_event, input: unknown) =>
+    AppRuntime.runPromise(Effect.gen(function* () {
+      const query = yield* Schema.decodeUnknownEffect(SeatThreadsQuery, { onExcessProperty: "error" })(input);
+      return yield* mentionableSeats(query.canvasName, query.nodeId);
+    })),
+  );
+  privilegedIpc.handle(IPC_CHANNELS.seatThreadSend, async (_event, input: unknown): Promise<OperatorThreadSent> => {
+    const decoded = Schema.decodeUnknownResult(OperatorThreadSend, { onExcessProperty: "error" })(input);
+    if (Result.isFailure(decoded)) return { ok: false, reason: "invalid", message: "That mail could not be read." };
+    try {
+      const written = await runMainAuthoring("ipc.work.thread-send", () =>
+        AppRuntime.runPromise(sendOperatorThreadMail(decoded.success)),
+      );
+      return await deliverOperatorThreadMail(decoded.success.canvasName, written);
+    } catch (error) {
+      return { ok: false, reason: "failed", message: error instanceof Error ? error.message : "mail failed" };
+    }
+  });
 
   // Portrait overrides: the operator's per-seat character customization. An
   // install-local preference like settings (no canvas authoring), so it runs

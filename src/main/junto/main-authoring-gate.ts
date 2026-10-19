@@ -43,6 +43,7 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.work.board-notify",
   "ipc.work.pad-patch",
   "ipc.work.collaboration-ask",
+  "ipc.work.thread-send",
   "companion.signal-answer",
   "companion.signal-dismiss",
   "companion.mail-send",

@@ -7,6 +7,15 @@ import type { WorkItemQuery, WorkActorQuery, WorkActorPage, WorkAttentionQuery, 
 import type { CanvasesChanged, Changed, Command, Opened, SheetChanged, SheetGrid } from "./model";
 import type { WorkMailQuery, WorkMailPage, WorkMailChanged } from "./work-mail";
 import type {
+  MailThreadMessage,
+  MailThreadSummary,
+  MentionableSeat,
+  OperatorThreadSend,
+  OperatorThreadSent,
+  SeatThreadQuery,
+  SeatThreadsQuery,
+} from "./wire/mail-threads";
+import type {
   OffboardRulesPatch,
   SeatOffboardRunInput,
   SeatOffboardRunResult,
@@ -252,6 +261,9 @@ export const IPC_CHANNELS = {
   companionDevices: "junto:companion-devices",
   companionDeviceRemove: "junto:companion-device-remove",
   companionDevicesChanged: "junto:companion-devices-changed",
+  /** Is sshd listening: the one probe a paired phone's reach depends on. */
+  companionRemoteLogin: "junto:companion-remote-login",
+  companionOpenRemoteLoginSettings: "junto:companion-open-remote-login-settings",
   chatOpen: "junto:chat-open",
   chatPrompt: "junto:chat-prompt",
   chatPermission: "junto:chat-permission",
@@ -426,6 +438,14 @@ export const IPC_CHANNELS = {
    * answers with ordinary crew mail. Operator-originated, not model-owned.
    */
   seatCollaborationAsk: "junto:seat-collaboration-ask",
+  /** Renderer → main: a seat's mail threads, newest activity first. */
+  seatThreadsList: "junto:seat-threads-list",
+  /** Renderer → main: one of a seat's threads, oldest first. */
+  seatThreadMessages: "junto:seat-thread-messages",
+  /** Renderer → main: the operator writes in a seat's threads. */
+  seatThreadSend: "junto:seat-thread-send",
+  /** Renderer → main: the seats a mention may name (wired to the seat). */
+  seatThreadMentionables: "junto:seat-thread-mentionables",
   browserSessionChanged: "junto:browser-session-changed",
   // Developer observability ring (process-local; UI gated by advanced.logsExplorer)
   observabilityQuery: "junto:observability-query",
@@ -1197,6 +1217,10 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly onCompanionDevicesChanged?: (
     listener: (devices: ReadonlyArray<CompanionDeviceRecord>) => void,
   ) => () => void;
+  /** Remote Login alone, without the rest of the readiness check: cheap to ask on every focus. */
+  readonly companionRemoteLogin?: () => Promise<CompanionStatus["remoteLogin"]>;
+  /** Open System Settings at Sharing, Remote Login (macOS). */
+  readonly companionOpenRemoteLoginSettings?: () => Promise<{ readonly ok: boolean }>;
   readonly onSnapshotsChanged: (listener: (state: SnapshotState) => void) => () => void;
   readonly onKernelChanged: (listener: (snapshot: KernelSnapshot) => void) => () => void;
   // User settings document (main owns the SQLite row; renderer holds a live projection).
@@ -1622,6 +1646,15 @@ export interface JuntoTerminalApi {
   readonly seatCollaborationAsk: (
     input: SeatCollaborationDraft,
   ) => Promise<SeatCollaborationAskResult>;
+  /**
+   * Mail threads, for a seat's Threads popup. Read again on
+   * `onWorkMailChanged` for the canvas: any mailbox can change a seat's threads.
+   */
+  readonly seatThreadsList: (query: SeatThreadsQuery) => Promise<ReadonlyArray<MailThreadSummary>>;
+  readonly seatThreadMessages: (query: SeatThreadQuery) => Promise<ReadonlyArray<MailThreadMessage>>;
+  /** No threadId and no inReplyTo starts a thread; mentions name wired seats. */
+  readonly seatThreadSend: (input: OperatorThreadSend) => Promise<OperatorThreadSent>;
+  readonly seatThreadMentionables: (query: SeatThreadsQuery) => Promise<ReadonlyArray<MentionableSeat>>;
 }
 
 // --- demo/scripting engine (--junto-demo only) ------------------------------
