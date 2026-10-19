@@ -14,6 +14,7 @@ import type { CompanionCanvasDrawn } from "./companion-core";
 import { wirePath } from "./canvas-wire-path";
 import type { Canvas, Node } from "./model";
 import { titleOf } from "./model/title";
+import { renderedNodeSize } from "./node-geometry";
 
 const KINDS: ReadonlySet<string> = new Set(COMPANION_CANVAS_NODE_KINDS);
 const LABEL_MAX = 256;
@@ -75,7 +76,8 @@ export const companionCanvasNodes = (canvas: Canvas): ReadonlyArray<CompanionCan
     nodes.push({
       nodeId: node.id,
       kind: node.kind as CompanionCanvasNodeKind,
-      frame: { x: node.x, y: node.y, width: node.width, height: node.height },
+      // A seat, terminal or git card is drawn at its fixed size, whatever is stored.
+      frame: { x: node.x, y: node.y, ...renderedNodeSize(node.kind, node) },
       z: node.z,
       ...(label === undefined ? {} : { label }),
       ...(node.color === undefined ? {} : { color: node.color }),

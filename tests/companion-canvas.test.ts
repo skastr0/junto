@@ -75,8 +75,10 @@ describe("companion canvas projection", () => {
     expect(drawn.wires).toHaveLength(1);
     const wire = drawn.wires[0]!;
     expect(wire).toMatchObject({ wireId: "w1", from: "a1", to: "a2", radius: 8 });
-    expect(wire.path[0]).toEqual({ x: 280, y: 148 });
-    expect(wire.path.at(-1)).toEqual({ x: 400, y: 148 });
+    // Seats are drawn at 216x56 whatever their stored 240x96, and wires meet the drawn card.
+    expect(drawn.nodes.find((node) => node.nodeId === "a1")?.frame).toEqual({ x: 40, y: 100, width: 216, height: 56 });
+    expect(wire.path[0]).toEqual({ x: 256, y: 128 });
+    expect(wire.path.at(-1)).toEqual({ x: 400, y: 128 });
     expect(Result.isSuccess(Schema.decodeUnknownResult(CompanionCanvasScene)({ seq: 1, ...drawn }))).toBe(true);
   });
 
