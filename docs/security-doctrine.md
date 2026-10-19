@@ -483,6 +483,54 @@ their result and report uncertainty. These controls prevent confused code and
 partial failures from harming the machine; they do not pretend to constrain
 its account owner.
 
+## Boat machines
+
+A Boat sandbox ([machines.md](machines.md), Boat machines) is a machine under
+every rule above. Boat runs it with root, so the operator trusts Boat with
+whatever a seat there can reach. Boat adds three credentials, and each one
+keeps its own place.
+
+**The account key** lives only on the editing machine, in its platform secret
+store, under one fixed id. The operator's browser-signed-in `boat` CLI mints
+it, and the core runs that CLI with fixed argv. For this call the CLI is a
+secret tool: its stdout is parsed in memory and only the key reaches the
+store; its stdout and stderr are never a tail, a log or a failure, only a
+closed classification. The key's actions are exactly `sandbox.create`,
+`sandbox.read`, `sandbox.update`, `sandbox.stop`, `sandbox.resume`,
+`sandbox.delete-own` and `ssh`, checked against the CLI's answer after
+minting. A key with any other action, such as minting keys or an admin or
+account action, is refused. No key rides an owner request. Junto calls Boat
+only for sandbox ids in its machine list. A reconnect revokes the old key by
+its id.
+
+**The machine key** is minted, each time, by the operator's CLI on the editing
+machine, for one sandbox and only `sandbox.read`, `sandbox.update` and
+`sandbox.stop`. Its scope is checked after minting, as the account key's is.
+It is the one credential that crosses machines, and only at setup:
+- it is written over the dialled SSH session, after strict host-key checking;
+- it travels on stdin, never in argv, an environment value or a command string;
+- it is written atomically to that machine's Junto home, at mode 0600, with
+  owned-path proof.
+
+It never enters a canvas copy, a row exchange, status, a log, a failure or a
+seat's child environment. The machine core searches for its value as a known
+value in the scrub. A seat on that machine runs as the same user and can read
+it. That is accepted, because the key can only keep that one sandbox awake or
+stop it, which a busy seat already causes. An update, a remove and a delete
+each revoke the old key, and a revocation that failed is shown.
+
+**The host key** is pinned from Boat's API over HTTPS at every wake, because
+the address and sometimes the key change on resume. Each wake rewrites that
+machine's own known-hosts file with exactly the one key Boat answered, under
+a fixed host key alias. The dial uses strict host-key checking and Junto's
+own identity, which is used for nothing else. Boat's API is the trust anchor
+for the key, and that adds no party Boat was not already.
+
+The client calls only the compiled origin `https://boat.dev`. It follows no
+redirect and bounds every answer. A failure carries a fixed sentence, Boat's
+status and a code that matches a pattern, never the key or a response body.
+Sandbox and key ids are typed fields. The scrub carries Boat's key shapes.
+
 ## Evidence before a security claim
 
 A finding names the boundary, attacker or failure, reachable path, consequence,
