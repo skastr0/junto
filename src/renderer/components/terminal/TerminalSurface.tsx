@@ -88,6 +88,7 @@ import { START_PARAMS_SECTION_ID } from "../customize/ParamsSection";
 import { openAgentEditor } from "../../lib/agent-editor-state";
 import { GRID_CELL_CHROME } from "../../lib/terminal-grid";
 import { reportOperatorTyped } from "../../lib/operator-holds";
+import { SeatCacheDuePopup } from "./SeatCacheDuePopup";
 
 type AttachResult = {
   readonly ok: boolean;
@@ -2261,6 +2262,8 @@ export function TerminalSurface({
               .join(" ")}
             aria-hidden={showDeadOverlay || showLoadOverlay || undefined}
           />
+          {/* Not in a grid cell: React never hears a press there. */}
+          {agentSeat && !grid ? <SeatCacheDuePopup canvasName={canvasName} seatId={node.id} /> : null}
           {showLoadOverlay && loadPresentation ? (
             <div className="native-terminal-surface__load">
               <SessionLoadSpinner

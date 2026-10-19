@@ -2844,6 +2844,29 @@ button.actor-ledger__item-row:focus-visible {
   margin-top: 4px;
 }
 /* Actor session load — centered 16×16 ring + short phase label. */
+/* The auto cache mode's question: a band across the top of the stage. */
+.seat-cache-due {
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-amber) 35%, var(--color-stroke));
+  background: color-mix(in srgb, var(--color-amber) 10%, var(--color-raise));
+  color: var(--color-ink);
+}
+.seat-cache-due__text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.seat-cache-due__failure {
+  color: var(--color-crimson-fg);
+}
 .native-terminal-surface__load {
   position: absolute;
   inset: 0;
