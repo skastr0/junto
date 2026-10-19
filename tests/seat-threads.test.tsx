@@ -316,7 +316,7 @@ describe("the thread composer", () => {
     expect(field().value).toBe("");
   });
 
-  it("opens the wired seats on @, puts the chosen one in the draft and in mentions", async () => {
+  it("opens the wired seats on @, puts the chosen one in the draft and in mentions, never in To", async () => {
     await open();
     await type("Thanks. @c");
     expect(all("thread-composer-option").map((option) => option.textContent)).toEqual(["cli-lead", "canvas-lead"]);
@@ -352,8 +352,12 @@ describe("the thread composer", () => {
     const { state, change } = await open();
     await click(q("seat-threads-new"));
     expect(q("thread-composer")?.getAttribute("data-mode")).toBe("new");
+    await type("Check it, @canvas-lead");
+    await key("Enter");
+    expect(q("thread-composer-to")?.textContent).toBe("Topty-lead");
     reply = { ok: true, messageId: "fresh", threadId: "fresh", delivery: [] };
     await type("The loader's start phase reads starting session.");
+    sends.length = 0;
     await click(q("thread-composer-send"));
     expect(sends.at(-1)).toEqual({
       canvasName: "factory",
@@ -367,5 +371,18 @@ describe("the thread composer", () => {
     expect(document.querySelector('[data-thread-id="fresh"]')?.getAttribute("data-selected")).toBe("true");
     expect(q("thread-composer")?.getAttribute("data-mode")).toBe("reply");
   });
-});
 
+  it("shows an @name in a message as a reference, not a participant", async () => {
+    const { state, change } = await open();
+    state.messages.notes = [
+      { messageId: "m1", author: "you", mine: true, text: "Thanks. @cli-lead check it, and @nobody.", at: at(1, 2) },
+    ];
+    change();
+    await flush();
+    expect(all("seat-threads-mention").map((mention) => mention.textContent)).toEqual(["@cli-lead"]);
+    expect(all("seat-threads-message")[0]?.querySelector(".seat-threads__bubble")?.textContent).toBe(
+      "Thanks. @cli-lead check it, and @nobody.",
+    );
+    expect(q("seat-threads")?.querySelector(".seat-threads__chat-meta")?.textContent).not.toContain("cli-lead");
+  });
+});

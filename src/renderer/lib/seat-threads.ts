@@ -388,6 +388,28 @@ export const mentionsIn = (
     draft.split(/\s+/u).some((word) => word.replace(/[,.;:!?)]+$/u, "") === `@${seat.name}`),
   );
 
+/**
+ * A message's text cut at its @names: each @ that names a known seat is a
+ * reference, the rest is plain text.
+ */
+export const mentionParts = (
+  text: string,
+  names: ReadonlyArray<string>,
+): ReadonlyArray<{ readonly text: string; readonly mention?: true }> => {
+  const known = new Set(names);
+  const parts: Array<{ text: string; mention?: true }> = [];
+  let plain = "";
+  for (const piece of text.split(/(@[\w.-]*[\w-])/u)) {
+    if (piece.startsWith("@") && known.has(piece.slice(1))) {
+      if (plain) parts.push({ text: plain });
+      plain = "";
+      parts.push({ text: piece, mention: true });
+    } else plain += piece;
+  }
+  if (plain) parts.push({ text: plain });
+  return parts;
+};
+
 /** Test helper: forget every seat, thread and source. */
 export const resetSeatThreads = (): void => {
   offChanged?.();

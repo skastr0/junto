@@ -16,8 +16,9 @@ import { Textarea } from "../ui/Field";
 /**
  * The operator writes in a seat's threads: a reply in a thread they are in,
  * or a new thread to the seat. Enter sends, Shift+Enter is a new line, and @
- * opens the seats wired to this one; a chosen seat gets the same mail in the
- * same thread. A refused send says main's message as is and keeps the draft.
+ * opens the seats wired to this one. The mail goes to this seat alone: an @
+ * is a reference, its seat gets no copy and does not join the thread. A
+ * refused send says main's message as is and keeps the draft.
  */
 export function ThreadComposer({
   seat,
@@ -29,7 +30,7 @@ export function ThreadComposer({
   onCancel,
 }: {
   readonly seat: SeatAddress;
-  /** The seat's name, for the hint and the To line. */
+  /** The seat's name: the one recipient, for the hint and the To line. */
   readonly name: string;
   readonly mode: "reply" | "new";
   /** Reply: the thread written in. */
@@ -142,19 +143,13 @@ export function ThreadComposer({
     }
   };
 
-  const wired = `@ adds a seat connected to ${name}`;
+  const wired = `@ names a seat connected to ${name}, who gets no copy`;
   return (
     <div className="thread-composer" data-testid="thread-composer" data-mode={mode}>
       {mode === "new" ? (
         <div className="thread-composer__to" data-testid="thread-composer-to">
           <span>To</span>
           <Chip tone="steel">{name}</Chip>
-          {mentions.map((seat) => (
-            <Chip key={seat.nodeId} tone="steel">
-              {seat.name}
-            </Chip>
-          ))}
-          {mentions.length > 0 ? <span>added by its @</span> : null}
         </div>
       ) : null}
       <div className="thread-composer__field">

@@ -3,8 +3,10 @@ import { Plus, X } from "lucide-react";
 import {
   betweenLine,
   groupSeatThreads,
+  mentionParts,
   participantsLine,
   threadTime,
+  useSeatThreadMentionables,
   useSeatThreadMessages,
   useSeatThreads,
   type SeatAddress,
@@ -189,6 +191,9 @@ function ThreadChat({
   readonly thread: SeatThreadSummary;
 }) {
   const { messages, loaded, error } = useSeatThreadMessages(seat, thread.threadId);
+  // An @ names a seat as a reference: those wired to this seat, and those in the thread.
+  const mentionables = useSeatThreadMentionables(seat);
+  const names = [...mentionables.map((candidate) => candidate.name), ...thread.participants, name];
   const streamRef = useRef<HTMLDivElement>(null);
   // The newest at the bottom, in view: on open and as messages arrive.
   useLayoutEffect(() => {
@@ -229,7 +234,17 @@ function ThreadChat({
             <div className="seat-threads__message-head">
               <strong>{message.author}</strong> {threadTime(message.at)}
             </div>
-            <div className="seat-threads__bubble">{message.text}</div>
+            <div className="seat-threads__bubble">
+              {mentionParts(message.text, names).map((part, index) =>
+                part.mention ? (
+                  <span key={index} className="seat-threads__mention" data-testid="seat-threads-mention">
+                    {part.text}
+                  </span>
+                ) : (
+                  part.text
+                ),
+              )}
+            </div>
           </article>
         ))}
       </div>
