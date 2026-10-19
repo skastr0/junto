@@ -1165,7 +1165,16 @@ const launchWhy = async (page: Page, sandbox: Sandbox, nodeId: string): Promise<
   const pin = await sessionPin(sandbox, nodeId);
   const store = join(sandbox.homeDir, ".codex", "sessions", "2026", "10", "17");
   const held = (await readdir(store).catch(() => [] as string[])).filter((name) => pin !== undefined && name.includes(pin));
-  return JSON.stringify({ state, pin, rolloutFilesNamingThePin: held, storeDir: store, JUNTO_HOME_OWNS_SESSIONS: "1 (walk env)", seatCwdIsTmpdir: tmpdir() });
+  // The operator's hold is a window showing the seat's terminal (term/operator-holds.ts): what the page shows now.
+  const cacheMode = await page.evaluate(async () => (await window.junto!.settingsGet()).settings?.offboard?.cacheMode ?? "(unset, default hybrid)");
+  const shown = await page.evaluate(() => ({
+    openPanes: [...document.querySelectorAll(".workbench-pane:not(.workbench-pane--parked)")].map((pane) => ({
+      data: Object.fromEntries([...pane.attributes].filter((attr) => attr.name.startsWith("data-") || attr.name.startsWith("aria-")).map((attr) => [attr.name, attr.value])),
+      text: (pane.textContent ?? "").slice(0, 80),
+    })),
+    terminalSurfaces: document.querySelectorAll(".native-terminal-surface").length,
+  }));
+  return JSON.stringify({ cacheMode, shown, state, pin, rolloutFilesNamingThePin: held, storeDir: store, JUNTO_HOME_OWNS_SESSIONS: "1 (walk env)", seatCwdIsTmpdir: tmpdir() });
 };
 
 test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next, and mail to it at rest starts a fresh session that onboards after the cut", async ({}, testInfo) => {
