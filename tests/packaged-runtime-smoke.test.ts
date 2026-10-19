@@ -86,9 +86,8 @@ const tempRoots = new Set<string>();
 const epochRow = (
   pid: number,
   processGroupId: number,
-  sessionId: number,
   startKey: string,
-): ProcessEpochRow => ({ pid, processGroupId, sessionId, startKey });
+): ProcessEpochRow => ({ pid, processGroupId, startKey });
 
 const spawnGroupLease = (
   child: FakeRuntimeChild,
@@ -121,7 +120,7 @@ beforeEach(() => {
     owned.released = true;
   });
   setProcessEpochReaderForTests({
-    snapshot: () => [epochRow(42_900, 42_900, 77, "runtime-a")],
+    snapshot: () => [epochRow(42_900, 42_900, "runtime-a")],
   });
 });
 
@@ -474,7 +473,7 @@ describe("packaged runtime smoke child lifecycle", () => {
     vi.useFakeTimers();
     const child = new FakeRuntimeChild();
     let snapshot: readonly ProcessEpochRow[] = [
-      epochRow(child.pid!, child.pid!, 77, "runtime-a"),
+      epochRow(child.pid!, child.pid!, "runtime-a"),
     ];
     setProcessEpochReaderForTests({ snapshot: () => snapshot });
     const { plane, lease } = spawnGroupLease(child);

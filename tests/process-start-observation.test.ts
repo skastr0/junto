@@ -10,7 +10,7 @@ import {
 } from "../src/main/junto/process-identity";
 
 const line = (pid: number): string =>
-  `${pid} ${pid} 7 Wed Jul 22 04:36:13 2026`;
+  `${pid} ${pid} Wed Jul 22 04:36:13 2026`;
 
 afterEach(() => {
   setProcessEpochReaderForTests(undefined);

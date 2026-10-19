@@ -1,16 +1,20 @@
 import { execFile, spawnSync } from "node:child_process";
 import { resolveSystemPs } from "./platform-executables";
 
-/** One row from one `ps` observation; never compose identity from multiple reads. */
+/**
+ * One row from one `ps` observation; never compose identity from multiple reads.
+ * Identity is pid plus start time, and a group is its pgid. There is no
+ * session column: macOS `ps -o sess=` prints 0 for every process, so it can
+ * never be evidence.
+ */
 export type ProcessEpochRow = {
   readonly pid: number;
   readonly processGroupId: number;
-  readonly sessionId: number;
   readonly startKey: string;
 };
 
 export type ChildProcessEpoch = Pick<ProcessEpochRow, "pid" | "startKey">;
-export type ProcessGroupEpoch = Pick<ProcessEpochRow, "processGroupId" | "sessionId" | "startKey">;
+export type ProcessGroupEpoch = Pick<ProcessEpochRow, "processGroupId" | "startKey">;
 export type ProcessEpochCapture = {
   readonly child: ChildProcessEpoch;
   readonly group: ProcessGroupEpoch | undefined;
@@ -33,8 +37,8 @@ export type ProcessEpochReader = {
  * validated safe integer.
  */
 export type ProcessEpochPsArgs =
-  | readonly ["-axo", "pid=,pgid=,sess=,lstart="]
-  | readonly ["-p", string, "-o", "pid=,pgid=,sess=,lstart="];
+  | readonly ["-axo", "pid=,pgid=,lstart="]
+  | readonly ["-p", string, "-o", "pid=,pgid=,lstart="];
 
 export type ProcessEpochPsRequest = {
   readonly command: string;
@@ -62,11 +66,10 @@ export type ProcessEpochPsAsyncRunner = (
 /**
  * Capability-free observation retained after an original process-group leader
  * exits. This is deliberately not a process tree: exact member epochs are
- * learned only while a row is still in the original pgid + session.
+ * learned only while a row is still in the original pgid.
  */
 export type ProcessGroupObservation = {
   readonly originalProcessGroupId: number;
-  readonly sessionId: number;
   readonly observedMemberEpochs: readonly ChildProcessEpoch[];
 };
 
@@ -79,7 +82,7 @@ const PS_TIMEOUT_MS = 500;
 const PS_MAX_BUFFER = 16 * 1024 * 1024;
 /** One row cannot approach this; a runaway single-pid read fails closed. */
 const PS_ROW_MAX_BUFFER = 64 * 1024;
-const PS_COLUMNS = "pid=,pgid=,sess=,lstart=" as const;
+const PS_COLUMNS = "pid=,pgid=,lstart=" as const;
 const PS_FULL_ARGS = ["-axo", PS_COLUMNS] as const;
 // `lstart` includes wall-clock time. Pin both locale and timezone so an
 // operator timezone change cannot make one live pid look like a new epoch.
@@ -89,7 +92,7 @@ const C_LSTART = "(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\\s+" +
   "(?:[1-9]|[12][0-9]|3[01])\\s+" +
   "(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\s+[0-9]{4}";
 const PS_ROW = new RegExp(
-  `^\\s*([1-9][0-9]*)\\s+(0|[1-9][0-9]*)\\s+(0|[1-9][0-9]*)\\s+(${C_LSTART})\\s*$`,
+  `^\\s*([1-9][0-9]*)\\s+(0|[1-9][0-9]*)\\s+(${C_LSTART})\\s*$`,
   "u",
 );
 
@@ -144,20 +147,18 @@ const parseProcessEpochRows = (
     const match = PS_ROW.exec(line);
     if (!match) return undefined;
     const pid = parseSafeInteger(match[1]!, 1);
-    // Linux exposes kernel threads with PGID/SID 0 in an otherwise complete
+    // Linux exposes kernel threads with PGID 0 in an otherwise complete
     // `ps` table. Preserve those rows as observations so they cannot make the
     // whole snapshot unavailable. Group authority remains positive-only:
     // capture requires processGroupId === the positive child pid.
     const processGroupId = parseSafeInteger(match[2]!, 0);
-    const sessionId = parseSafeInteger(match[3]!, 0);
     if (
       pid === undefined ||
       processGroupId === undefined ||
-      sessionId === undefined ||
       seenPids.has(pid)
     ) return undefined;
     seenPids.add(pid);
-    rows.push({ pid, processGroupId, sessionId, startKey: match[4]! });
+    rows.push({ pid, processGroupId, startKey: match[3]! });
   }
   return rows;
 };
@@ -329,7 +330,7 @@ export const captureProcessEpoch = (pid: number): ProcessEpochCapture | undefine
   return {
     child: { pid: row.pid, startKey: row.startKey },
     group: row.processGroupId === pid
-      ? { processGroupId: row.processGroupId, sessionId: row.sessionId, startKey: row.startKey }
+      ? { processGroupId: row.processGroupId, startKey: row.startKey }
       : undefined,
   };
 };
@@ -355,7 +356,6 @@ export const processGroupEpochIsCurrent = (pid: number, epoch: ProcessGroupEpoch
   const leader = snapshot.find((row) => row.pid === pid);
   return leader !== undefined
     && leader.processGroupId === pid
-    && leader.sessionId === epoch.sessionId
     && leader.startKey === epoch.startKey;
 };
 
@@ -392,8 +392,7 @@ const groupObservationFromSnapshot = (
   const leader = snapshot.find((candidate) =>
     candidate.pid === leaderPid && candidate.processGroupId === leaderPid &&
     (epoch === undefined || (
-      epoch.processGroupId === leaderPid &&
-      candidate.sessionId === epoch.sessionId && candidate.startKey === epoch.startKey
+      epoch.processGroupId === leaderPid && candidate.startKey === epoch.startKey
     ))
   );
   if (!leader) {
@@ -406,17 +405,14 @@ const groupObservationFromSnapshot = (
     )) return undefined;
     return {
       originalProcessGroupId: leaderPid,
-      sessionId: epoch.sessionId,
       observedMemberEpochs: [],
     };
   }
   const currentMembers = snapshot.filter((candidate) =>
-    candidate.processGroupId === leader.processGroupId &&
-    candidate.sessionId === leader.sessionId
+    candidate.processGroupId === leader.processGroupId
   );
   return {
     originalProcessGroupId: leader.processGroupId,
-    sessionId: leader.sessionId,
     observedMemberEpochs: unionMemberEpochs([], currentMembers),
   };
 };
@@ -451,8 +447,7 @@ export const refreshProcessGroupObservations = (
   if (!snapshot) return undefined;
   return observations.map((observation) => {
     const currentMembers = snapshot.filter((candidate) =>
-      candidate.processGroupId === observation.originalProcessGroupId &&
-      candidate.sessionId === observation.sessionId
+      candidate.processGroupId === observation.originalProcessGroupId
     );
     const observedMemberEpochs = unionMemberEpochs(
       observation.observedMemberEpochs,
@@ -465,7 +460,6 @@ export const refreshProcessGroupObservations = (
       clean: currentMembers.length === 0 && !anyExactMemberRemains,
       observation: {
         originalProcessGroupId: observation.originalProcessGroupId,
-        sessionId: observation.sessionId,
         observedMemberEpochs,
       },
     };

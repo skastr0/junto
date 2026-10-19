@@ -24,16 +24,14 @@ const RESTARTED = "Thu Jul 23 11:02:44 2026";
 const row = (
   pid: number,
   processGroupId: number,
-  sessionId: number,
   startKey = `${START}:${pid}`,
-): ProcessEpochRow => ({ pid, processGroupId, sessionId, startKey });
+): ProcessEpochRow => ({ pid, processGroupId, startKey });
 
 const psLine = (
   pid: number,
   processGroupId: number,
-  sessionId: number,
   startKey = START,
-): string => `${pid} ${processGroupId} ${sessionId} ${startKey}`;
+): string => `${pid} ${processGroupId} ${startKey}`;
 
 afterEach(() => {
   setProcessEpochReaderForTests(undefined);
@@ -47,7 +45,7 @@ describe("full process epoch snapshots", () => {
         request = next;
         return {
           status: 0,
-          stdout: `${psLine(51, 51, 9)}\n${psLine(77, 51, 9)}\n`,
+          stdout: `${psLine(51, 51)}\n${psLine(77, 51)}\n`,
           stderr: "",
         };
       },
@@ -56,16 +54,16 @@ describe("full process epoch snapshots", () => {
 
     expect(request).toMatchObject({
       command: expect.stringMatching(/^\/.*\/ps$/u),
-      args: ["-axo", "pid=,pgid=,sess=,lstart="],
+      args: ["-axo", "pid=,pgid=,lstart="],
       env: { LC_ALL: "C", TZ: "UTC" },
     });
     expect(snapshot).toEqual([
-      row(51, 51, 9, START),
-      row(77, 51, 9, START),
+      row(51, 51, START),
+      row(77, 51, START),
     ]);
 
     expect(readFullProcessEpochSnapshot(
-      () => ({ status: 0, stdout: `${psLine(77, 51, 9)}\n`, stderr: "" }),
+      () => ({ status: 0, stdout: `${psLine(77, 51)}\n`, stderr: "" }),
       51,
     )).toBeUndefined();
   });
@@ -74,15 +72,15 @@ describe("full process epoch snapshots", () => {
     const snapshot = readFullProcessEpochSnapshot(
       () => ({
         status: 0,
-        stdout: `${psLine(2, 0, 0)}\n${psLine(51, 51, 9)}\n`,
+        stdout: `${psLine(2, 0)}\n${psLine(51, 51)}\n`,
         stderr: "",
       }),
       51,
     );
 
     expect(snapshot).toEqual([
-      row(2, 0, 0, START),
-      row(51, 51, 9, START),
+      row(2, 0, START),
+      row(51, 51, START),
     ]);
     setProcessEpochReaderForTests({ snapshot: () => snapshot });
     expect(captureProcessGroupObservation(2)).toBeUndefined();
@@ -95,7 +93,7 @@ describe("full process epoch snapshots", () => {
     expect(readFullProcessEpochSnapshot(
       () => ({
         status: 0,
-        stdout: `${psLine(51, 51, 9)}\nthis row is malformed\n${psLine(77, 51, 9)}\n`,
+        stdout: `${psLine(51, 51)}\nthis row is malformed\n${psLine(77, 51)}\n`,
         stderr: "",
       }),
       51,
@@ -104,17 +102,17 @@ describe("full process epoch snapshots", () => {
 
   it("treats failed, truncated-looking, and duplicate-pid tables as unavailable", () => {
     expect(readFullProcessEpochSnapshot(
-      () => ({ status: 1, stdout: psLine(51, 51, 9), stderr: "ps failed" }),
+      () => ({ status: 1, stdout: psLine(51, 51), stderr: "ps failed" }),
       51,
     )).toBeUndefined();
     expect(readFullProcessEpochSnapshot(
-      () => ({ status: 0, stdout: psLine(51, 51, 9), stderr: "partial read" }),
+      () => ({ status: 0, stdout: psLine(51, 51), stderr: "partial read" }),
       51,
     )).toBeUndefined();
     expect(readFullProcessEpochSnapshot(
       () => ({
         status: 0,
-        stdout: `${psLine(51, 51, 9)}\n${psLine(51, 88, 10)}\n`,
+        stdout: `${psLine(51, 51)}\n${psLine(51, 88)}\n`,
         stderr: "",
       }),
       51,
@@ -134,22 +132,22 @@ describe("asynchronous process-group observations", () => {
     await Promise.resolve();
     expect(settled).toBe(false);
     expect(requests[0]).toMatchObject({
-      args: ["-axo", "pid=,pgid=,sess=,lstart="],
+      args: ["-axo", "pid=,pgid=,lstart="],
       env: { LC_ALL: "C", TZ: "UTC" },
       timeoutMs: 500,
       maxBuffer: 16 * 1024 * 1024,
     });
-    complete({ status: 0, stdout: `${psLine(51, 51, 9)}\n`, stderr: "" });
-    await expect(pending).resolves.toEqual([row(51, 51, 9, START)]);
+    complete({ status: 0, stdout: `${psLine(51, 51)}\n`, stderr: "" });
+    await expect(pending).resolves.toEqual([row(51, 51, START)]);
 
     for (const result of [
-      { status: 0, stdout: psLine(77, 77, 9), stderr: "" },
-      { status: 0, stdout: `${psLine(51, 51, 9)}\nmalformed`, stderr: "" },
-      { status: 0, stdout: `${psLine(51, 51, 9)}\n${psLine(51, 51, 9)}`, stderr: "" },
-      { status: 0, stdout: psLine(51, 51, 9), stderr: "partial" },
-      { status: 1, stdout: psLine(51, 51, 9), stderr: "" },
+      { status: 0, stdout: psLine(77, 77), stderr: "" },
+      { status: 0, stdout: `${psLine(51, 51)}\nmalformed`, stderr: "" },
+      { status: 0, stdout: `${psLine(51, 51)}\n${psLine(51, 51)}`, stderr: "" },
+      { status: 0, stdout: psLine(51, 51), stderr: "partial" },
+      { status: 1, stdout: psLine(51, 51), stderr: "" },
       { status: 0, stdout: undefined, stderr: "" },
-      { status: 0, stdout: psLine(51, 51, 9), stderr: "", error: new Error("timeout") },
+      { status: 0, stdout: psLine(51, 51), stderr: "", error: new Error("timeout") },
     ]) {
       await expect(readFullProcessEpochSnapshotAsync(async () => result, 51)).resolves.toBeUndefined();
     }
@@ -157,31 +155,29 @@ describe("asynchronous process-group observations", () => {
       .resolves.toBeUndefined();
   });
 
-  it("anchors delayed member capture to the admitted generation and session", async () => {
+  it("anchors delayed member capture to the admitted generation", async () => {
     let complete!: (rows: readonly ProcessEpochRow[] | undefined) => void;
     setProcessEpochReaderForTests({
       snapshot: () => { throw new Error("synchronous table read"); },
       snapshotAsync: () => new Promise((resolve) => { complete = resolve; }),
     });
-    const epoch = { processGroupId: 500, sessionId: 12, startKey: "leader-a" };
+    const epoch = { processGroupId: 500, startKey: "leader-a" };
     const pending = captureProcessGroupObservationAsync(500, epoch);
-    complete([row(500, 500, 12, "leader-a"), row(501, 500, 12, "member-a")]);
+    complete([row(500, 500, "leader-a"), row(501, 500, "member-a")]);
     await expect(pending).resolves.toMatchObject({
       observedMemberEpochs: [{ pid: 500, startKey: "leader-a" }, { pid: 501, startKey: "member-a" }],
     });
     // A leader gone from the table with its group empty is verifiably empty.
     const gone = captureProcessGroupObservationAsync(500, epoch);
-    complete([row(700, 700, 12, "unrelated")]);
+    complete([row(700, 700, "unrelated")]);
     await expect(gone).resolves.toEqual({
       originalProcessGroupId: 500,
-      sessionId: 12,
       observedMemberEpochs: [],
     });
     for (const rows of [
-      [row(500, 500, 12, "leader-reused")],
-      [row(500, 500, 13, "leader-a")],
-      [row(500, 900, 12, "leader-a")],
-      [row(501, 500, 12, "member-a")],
+      [row(500, 500, "leader-reused")],
+      [row(500, 900, "leader-a")],
+      [row(501, 500, "member-a")],
       undefined,
     ]) {
       const next = captureProcessGroupObservationAsync(500, epoch);
@@ -194,23 +190,21 @@ describe("asynchronous process-group observations", () => {
 describe("original process-group observations", () => {
   it("unions newly observed group members and follows their exact epochs after they move", () => {
     let snapshot: readonly ProcessEpochRow[] | undefined = [
-      row(500, 500, 12, "leader-a"),
+      row(500, 500, "leader-a"),
     ];
     setProcessEpochReaderForTests({ snapshot: () => snapshot });
     const captured = captureProcessGroupObservation(500);
     expect(captured).toEqual({
       originalProcessGroupId: 500,
-      sessionId: 12,
       observedMemberEpochs: [{ pid: 500, startKey: "leader-a" }],
     });
 
-    snapshot = [row(501, 500, 12, "member-a")];
+    snapshot = [row(501, 500, "member-a")];
     const withMember = refreshProcessGroupObservations([captured!]);
     expect(withMember).toEqual([{
       clean: false,
       observation: {
         originalProcessGroupId: 500,
-        sessionId: 12,
         observedMemberEpochs: [
           { pid: 500, startKey: "leader-a" },
           { pid: 501, startKey: "member-a" },
@@ -218,23 +212,23 @@ describe("original process-group observations", () => {
       },
     }]);
 
-    snapshot = [row(501, 900, 12, "member-a")];
+    snapshot = [row(501, 900, "member-a")];
     expect(refreshProcessGroupObservations([withMember![0]!.observation]))
       .toEqual([{ clean: false, observation: withMember![0]!.observation }]);
 
-    snapshot = [row(501, 900, 12, "member-reused")];
+    snapshot = [row(501, 900, "member-reused")];
     expect(refreshProcessGroupObservations([withMember![0]!.observation]))
       .toEqual([{ clean: true, observation: withMember![0]!.observation }]);
   });
 
   it("lets reused original group identity delay clean observation but never prove it", () => {
     let snapshot: readonly ProcessEpochRow[] | undefined = [
-      row(600, 600, 14, "leader-a"),
+      row(600, 600, "leader-a"),
     ];
     setProcessEpochReaderForTests({ snapshot: () => snapshot });
     const captured = captureProcessGroupObservation(600)!;
 
-    snapshot = [row(777, 600, 14, "unrelated-a")];
+    snapshot = [row(777, 600, "unrelated-a")];
     const delayed = refreshProcessGroupObservations([captured]);
     expect(delayed?.[0]).toMatchObject({ clean: false });
     expect(delayed?.[0]?.observation.observedMemberEpochs).toContainEqual({
@@ -249,8 +243,8 @@ describe("original process-group observations", () => {
 
   it("keeps every observation unclean when the one refresh snapshot is unavailable", () => {
     let snapshot: readonly ProcessEpochRow[] | undefined = [
-      row(700, 700, 16, "leader-a"),
-      row(701, 700, 16, "member-a"),
+      row(700, 700, "leader-a"),
+      row(701, 700, "member-a"),
     ];
     setProcessEpochReaderForTests({ snapshot: () => snapshot });
     const captured = captureProcessGroupObservation(700)!;
@@ -265,19 +259,19 @@ describe("single-pid process epoch reads", () => {
     const requests: ProcessEpochPsRequest[] = [];
     const rows = readSingleProcessEpochSnapshot(4242, (request) => {
       requests.push(request);
-      return { status: 0, stdout: `${psLine(4242, 4242, 9)}\n`, stderr: "" };
+      return { status: 0, stdout: `${psLine(4242, 4242)}\n`, stderr: "" };
     });
 
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({
       command: expect.stringMatching(/^\/.*\/ps$/u),
-      args: ["-p", "4242", "-o", "pid=,pgid=,sess=,lstart="],
+      args: ["-p", "4242", "-o", "pid=,pgid=,lstart="],
       env: { LC_ALL: "C", TZ: "UTC" },
     });
     // The whole-table flag is what made every epoch question cost the
     // machine's process count. It must not appear on a single-pid read.
     expect(requests[0]?.args).not.toContain("-axo");
-    expect(rows).toEqual([row(4242, 4242, 9, START)]);
+    expect(rows).toEqual([row(4242, 4242, START)]);
   });
 
   it("separates a clean absent read from an unavailable observation", () => {
@@ -308,7 +302,7 @@ describe("single-pid process epoch reads", () => {
       4242,
       () => ({
         status: 0,
-        stdout: `${psLine(4242, 4242, 9)}\n`,
+        stdout: `${psLine(4242, 4242)}\n`,
         stderr: "",
         error: new Error("spawn failed"),
       }),
@@ -320,13 +314,13 @@ describe("single-pid process epoch reads", () => {
     // A single-pid query that answered about anything else is incoherent.
     expect(readSingleProcessEpochSnapshot(
       4242,
-      () => ({ status: 0, stdout: `${psLine(77, 77, 9)}\n`, stderr: "" }),
+      () => ({ status: 0, stdout: `${psLine(77, 77)}\n`, stderr: "" }),
     )).toBeUndefined();
     expect(readSingleProcessEpochSnapshot(
       4242,
       () => ({
         status: 0,
-        stdout: `${psLine(4242, 4242, 9)}\n${psLine(77, 77, 9)}\n`,
+        stdout: `${psLine(4242, 4242)}\n${psLine(77, 77)}\n`,
         stderr: "",
       }),
     )).toBeUndefined();
@@ -346,7 +340,7 @@ describe("single-pid process epoch reads", () => {
 
   it("routes exact-pid questions narrow and member enumeration wide", () => {
     const hints: (number | undefined)[] = [];
-    const table = [row(900, 900, 11, "leader-a"), row(901, 900, 11, "member-a")];
+    const table = [row(900, 900, "leader-a"), row(901, 900, "member-a")];
     setProcessEpochReaderForTests({
       snapshot: (pidHint) => {
         hints.push(pidHint);
@@ -366,7 +360,7 @@ describe("single-pid process epoch reads", () => {
   });
 
   it("still refuses a reused pid and an absent one from single-pid reads", () => {
-    let stdout = `${psLine(4242, 4242, 9, START)}\n`;
+    let stdout = `${psLine(4242, 4242, START)}\n`;
     let status = 0;
     setProcessEpochReaderForTests({
       snapshot: (pidHint) =>
@@ -380,14 +374,13 @@ describe("single-pid process epoch reads", () => {
     expect(captured.child).toEqual({ pid: 4242, startKey: START });
     expect(captured.group).toEqual({
       processGroupId: 4242,
-      sessionId: 9,
       startKey: START,
     });
     expect(childProcessEpochIsCurrent(4242, captured.child)).toBe(true);
     expect(processGroupEpochIsCurrent(4242, captured.group!)).toBe(true);
 
     // Same pid number, new process: `lstart` is the reuse defeater.
-    stdout = `${psLine(4242, 4242, 9, RESTARTED)}\n`;
+    stdout = `${psLine(4242, 4242, RESTARTED)}\n`;
     expect(childProcessEpochIsCurrent(4242, captured.child)).toBe(false);
     expect(processGroupEpochIsCurrent(4242, captured.group!)).toBe(false);
 
@@ -401,7 +394,7 @@ describe("single-pid process epoch reads", () => {
 
   it("captures a group only when the pid leads its own group", () => {
     setProcessEpochReaderForTests({
-      snapshot: () => [row(4243, 4242, 9, START)],
+      snapshot: () => [row(4243, 4242, START)],
     });
     const captured = captureProcessEpoch(4243);
     expect(captured?.child).toEqual({ pid: 4243, startKey: START });

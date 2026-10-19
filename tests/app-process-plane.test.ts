@@ -250,16 +250,15 @@ const terminalSpec = (purpose = "test terminal") => ({
 const epochRow = (
   pid: number,
   processGroupId: number,
-  sessionId: number,
   startKey: string,
-): ProcessEpochRow => ({ pid, processGroupId, sessionId, startKey });
+): ProcessEpochRow => ({ pid, processGroupId, startKey });
 
 describe("app process plane admission", () => {
   it("registers lifecycle and closes admission while member observation is pending", async () => {
     vi.useFakeTimers();
     let complete!: (rows: readonly ProcessEpochRow[] | undefined) => void;
     const child = new FakeChild();
-    const leader = epochRow(child.pid!, child.pid!, 77, "leader-a");
+    const leader = epochRow(child.pid!, child.pid!, "leader-a");
     const snapshot = vi.fn((pidHint?: number) => {
       if (pidHint === undefined) throw new Error("blocking member enumeration");
       return [leader];
@@ -913,8 +912,8 @@ describe("app process plane drain", () => {
     const child = new FakeChild();
     const descendantPid = child.pid! + 1;
     let snapshot: readonly ProcessEpochRow[] | undefined = [
-      epochRow(child.pid!, child.pid!, 77, "leader-a"),
-      epochRow(descendantPid, child.pid!, 77, "descendant-a"),
+      epochRow(child.pid!, child.pid!, "leader-a"),
+      epochRow(descendantPid, child.pid!, "descendant-a"),
     ];
     setProcessEpochReaderForTests({ snapshot: () => snapshot });
     const owned = mintOwned({ kill: child.kill.bind(child) });
@@ -928,7 +927,7 @@ describe("app process plane drain", () => {
       return successfulSignal("group");
     });
     child.kill.mockImplementation((signal) => {
-      snapshot = [epochRow(descendantPid, child.pid!, 77, "descendant-a")];
+      snapshot = [epochRow(descendantPid, child.pid!, "descendant-a")];
       child.exitAndClose(null, signal ?? null);
       setTimeout(() => {
         snapshot = [];
@@ -956,7 +955,7 @@ describe("app process plane drain", () => {
     vi.useFakeTimers();
     const child = new FakeChild();
     let snapshot: readonly ProcessEpochRow[] = [
-      epochRow(child.pid!, child.pid!, 82, "leader-a"),
+      epochRow(child.pid!, child.pid!, "leader-a"),
     ];
     setProcessEpochReaderForTests({ snapshot: () => snapshot });
     const owned = mintOwned({ kill: child.kill.bind(child) });
@@ -999,8 +998,8 @@ describe("app process plane drain", () => {
     const child = new FakeChild();
     const descendantPid = child.pid! + 1;
     let snapshot: readonly ProcessEpochRow[] = [
-      epochRow(child.pid!, child.pid!, 83, "leader-a"),
-      epochRow(descendantPid, child.pid!, 83, "descendant-a"),
+      epochRow(child.pid!, child.pid!, "leader-a"),
+      epochRow(descendantPid, child.pid!, "descendant-a"),
     ];
     setProcessEpochReaderForTests({ snapshot: () => snapshot });
     const owned = mintOwned({ kill: child.kill.bind(child) });
@@ -1010,7 +1009,7 @@ describe("app process plane drain", () => {
       mode: "group",
     });
     child.kill.mockImplementation(() => {
-      snapshot = [epochRow(descendantPid, child.pid!, 83, "descendant-a")];
+      snapshot = [epochRow(descendantPid, child.pid!, "descendant-a")];
       child.exitAndClose(0, null);
       return true;
     });
@@ -1046,8 +1045,8 @@ describe("app process plane drain", () => {
     const child = new FakeChild();
     const descendantPid = child.pid! + 1;
     let snapshot: readonly ProcessEpochRow[] = [
-      epochRow(child.pid!, child.pid!, 84, "leader-a"),
-      epochRow(descendantPid, child.pid!, 84, "descendant-a"),
+      epochRow(child.pid!, child.pid!, "leader-a"),
+      epochRow(descendantPid, child.pid!, "descendant-a"),
     ];
     setProcessEpochReaderForTests({ snapshot: () => snapshot });
     const owned = mintOwned({ kill: child.kill.bind(child) });
@@ -1057,7 +1056,7 @@ describe("app process plane drain", () => {
       mode: "group",
     });
     child.kill.mockImplementation(() => {
-      snapshot = [epochRow(descendantPid, child.pid!, 84, "descendant-a")];
+      snapshot = [epochRow(descendantPid, child.pid!, "descendant-a")];
       child.exitAndClose(0, null);
       setTimeout(() => {
         snapshot = [];
@@ -1084,8 +1083,8 @@ describe("app process plane drain", () => {
     const child = new FakeChild();
     const descendantPid = child.pid! + 1;
     let snapshot: readonly ProcessEpochRow[] | undefined = [
-      epochRow(child.pid!, child.pid!, 78, "leader-a"),
-      epochRow(descendantPid, child.pid!, 78, "descendant-a"),
+      epochRow(child.pid!, child.pid!, "leader-a"),
+      epochRow(descendantPid, child.pid!, "descendant-a"),
     ];
     setProcessEpochReaderForTests({ snapshot: () => snapshot });
     const owned = mintOwned({ kill: child.kill.bind(child) });
@@ -1099,7 +1098,7 @@ describe("app process plane drain", () => {
       return successfulSignal("group");
     });
     child.kill.mockImplementation((signal) => {
-      snapshot = [epochRow(descendantPid, child.pid!, 78, "descendant-a")];
+      snapshot = [epochRow(descendantPid, child.pid!, "descendant-a")];
       child.exitAndClose(null, signal ?? null);
       return true;
     });
@@ -1127,8 +1126,8 @@ describe("app process plane drain", () => {
     const second = new FakeChild();
     second.pid = 42_002;
     let snapshot: readonly ProcessEpochRow[] = [
-      epochRow(first.pid!, first.pid!, 80, "first-leader"),
-      epochRow(second.pid!, second.pid!, 81, "second-leader"),
+      epochRow(first.pid!, first.pid!, "first-leader"),
+      epochRow(second.pid!, second.pid!, "second-leader"),
     ];
     setProcessEpochReaderForTests({ snapshot: () => snapshot });
     mocks.spawnDetachedProcessGroup
@@ -1197,8 +1196,8 @@ describe("app process plane drain", () => {
   const spawnLeaderGone = (orphan: boolean) => {
     const child = new FakeChild();
     const rows: ProcessEpochRow[][] = [
-      [epochRow(child.pid!, child.pid!, 91, "leader-a")],
-      orphan ? [epochRow(child.pid! + 1, child.pid!, 91, "orphan-a")] : [],
+      [epochRow(child.pid!, child.pid!, "leader-a")],
+      orphan ? [epochRow(child.pid! + 1, child.pid!, "orphan-a")] : [],
     ];
     setProcessEpochReaderForTests({ snapshot: () => rows.length > 1 ? rows.shift() : rows[0] });
     mocks.spawnDetachedProcessGroup.mockReturnValue({
@@ -1277,7 +1276,7 @@ describe("app process plane drain", () => {
     vi.useFakeTimers();
     const child = new FakeChild();
     let snapshot: readonly ProcessEpochRow[] | undefined = [
-      epochRow(child.pid!, child.pid!, 79, "leader-a"),
+      epochRow(child.pid!, child.pid!, "leader-a"),
     ];
     setProcessEpochReaderForTests({ snapshot: () => snapshot });
     const owned = mintOwned({ kill: child.kill.bind(child) });

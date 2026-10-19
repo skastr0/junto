@@ -28,8 +28,7 @@ const row = (
   pid: number,
   startKey: string,
   processGroupId = pid,
-  sessionId = 7,
-): ProcessEpochRow => ({ pid, processGroupId, sessionId, startKey });
+): ProcessEpochRow => ({ pid, processGroupId, startKey });
 
 afterEach(() => {
   setProcessEpochReaderForTests(undefined);
@@ -75,7 +74,7 @@ describe("process-signal authority", () => {
 
   it("signals a numeric child only while its captured start epoch is current", () => {
     const pid = 41_001;
-    setProcessEpochReaderForTests({ snapshot: () => [row(pid, "child-a", 91, 12)] });
+    setProcessEpochReaderForTests({ snapshot: () => [row(pid, "child-a", 91)] });
     const kill = vi.fn(() => true);
     const owned = admitChildProcess({ source: "numeric", child: { pid, kill } });
 
@@ -264,7 +263,7 @@ describe("process-signal authority", () => {
     const spy = vi.spyOn(process, "kill").mockImplementation(() => true);
     const spawned = spawnDetachedProcessGroup({ source: "test", command: "/bin/sh", args: ["-c", "sleep 0.2"] });
     const closed = once(spawned.child, "close");
-    setProcessEpochReaderForTests({ snapshot: () => [{ pid: spawned.child.pid!, processGroupId: spawned.child.pid!, sessionId: 42, startKey: "epoch-b" }] });
+    setProcessEpochReaderForTests({ snapshot: () => [{ pid: spawned.child.pid!, processGroupId: spawned.child.pid!, startKey: "epoch-b" }] });
     expect(signalOwned(spawned.process, "SIGTERM").via).toBe("none");
     expect(spy).not.toHaveBeenCalled();
     await closed;
@@ -284,7 +283,6 @@ describe("process-signal authority", () => {
       snapshot: () => [{
         pid: spawned.child.pid!,
         processGroupId: spawned.child.pid!,
-        sessionId: 42,
         startKey: "epoch-b",
       }],
     });
@@ -300,14 +298,14 @@ describe("process-signal authority", () => {
   });
 
   it("refuses a leaderless group even when members remain", () => {
-    let members: readonly { pid: number; processGroupId: number; sessionId: number; startKey: string }[] = [];
+    let members: readonly { pid: number; processGroupId: number; startKey: string }[] = [];
     setProcessEpochReaderForTests({ snapshot: () => members });
-    const epoch = { startKey: "old", processGroupId: 77, sessionId: 9 };
-    members = [{ pid: 88, processGroupId: 77, sessionId: 9, startKey: "member" }];
+    const epoch = { startKey: "old", processGroupId: 77 };
+    members = [{ pid: 88, processGroupId: 77, startKey: "member" }];
     expect(processGroupEpochIsCurrent(77, epoch)).toBe(false);
     members = [];
     expect(processGroupEpochIsCurrent(77, epoch)).toBe(false);
-    members = [{ pid: 77, processGroupId: 77, sessionId: 9, startKey: "reused" }];
+    members = [{ pid: 77, processGroupId: 77, startKey: "reused" }];
     expect(processGroupEpochIsCurrent(77, epoch)).toBe(false);
   });
 
@@ -316,8 +314,8 @@ describe("process-signal authority", () => {
     setProcessEpochReaderForTests({ snapshot: () => {
       phase += 1;
       return phase === 1
-        ? [{ pid: 55, processGroupId: 55, sessionId: 2, startKey: "a" }]
-        : [{ pid: 55, processGroupId: 55, sessionId: 2, startKey: "b" }];
+        ? [{ pid: 55, processGroupId: 55, startKey: "a" }]
+        : [{ pid: 55, processGroupId: 55, startKey: "b" }];
     } });
     const epoch = captureProcessGroupEpoch(55)!;
     expect(processGroupEpochIsCurrent(55, epoch)).toBe(false);
@@ -325,7 +323,7 @@ describe("process-signal authority", () => {
 
   it("captures and revalidates one child epoch from coherent snapshots", () => {
     let startKey = "child-a";
-    setProcessEpochReaderForTests({ snapshot: () => [row(56, startKey, 44, 3)] });
+    setProcessEpochReaderForTests({ snapshot: () => [row(56, startKey, 44)] });
     const epoch = captureChildProcessEpoch(56)!;
     expect(childProcessEpochIsCurrent(56, epoch)).toBe(true);
     startKey = "child-b";
@@ -334,7 +332,7 @@ describe("process-signal authority", () => {
 
   it("reuses a verified child epoch when detached group identity is unavailable", async () => {
     setProcessEpochReaderForTests({
-      snapshot: (pid) => pid === undefined ? [] : [row(pid, "verified-child", pid + 1, 3)],
+      snapshot: (pid) => pid === undefined ? [] : [row(pid, "verified-child", pid + 1)],
     });
     const spawned = spawnDetachedProcessGroup({ source: "fallback", command: "/bin/sh", args: ["-c", "sleep 0.2"] });
     const closed = once(spawned.child, "close");

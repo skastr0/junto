@@ -553,7 +553,6 @@ const validCapturedGroupObservation = (
   leaderPid: number,
 ): value is ProcessGroupObservation => value !== undefined &&
   value.originalProcessGroupId === leaderPid &&
-  Number.isSafeInteger(value.sessionId) && value.sessionId >= 0 &&
   Array.isArray(value.observedMemberEpochs) &&
   value.observedMemberEpochs.every(validMemberEpoch) &&
   (value.observedMemberEpochs.length === 0 ||
@@ -567,7 +566,6 @@ const validGroupRefresh = (
   typeof value.clean === "boolean" &&
   typeof value.observation === "object" && value.observation !== null &&
   value.observation.originalProcessGroupId === previous.originalProcessGroupId &&
-  value.observation.sessionId === previous.sessionId &&
   Array.isArray(value.observation.observedMemberEpochs) &&
   value.observation.observedMemberEpochs.every(validMemberEpoch) &&
   previous.observedMemberEpochs.every((prior) =>
