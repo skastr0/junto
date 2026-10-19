@@ -65,8 +65,8 @@ import {
 } from "../src/shared/work-protocol";
 
 import { AgentSignalRepositoryLive } from "../src/main/junto/signals/repository";
-import { answerAgentSignal } from "../src/main/junto/signals/operator";
-import type { AgentSignal } from "../src/shared/agent-signals";
+import { answerAgentSignal, dismissAgentSignal } from "../src/main/junto/signals/operator";
+import { AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE, type AgentSignal } from "../src/shared/agent-signals";
 import { THIS_MACHINE } from "./support/machines";
 import { closeMachineLog, installMachineLog, setLogMachine, writeLog } from "../src/main/junto/observability/logger";
 import { __resetJuntoHomeCache } from "../src/shared/junto-home";
@@ -1129,6 +1129,58 @@ describe("work control transport", () => {
       args: {},
     })) as { ok: true; data: { signals: AgentSignal[] } };
     expect(listed.data.signals[0]?.response?.text).toBe("thanks, this one is stale");
+  });
+
+  it("acknowledges with no note: answered, no mail, the seat reads it in signal list", async () => {
+    const server = servers[0]!;
+    const raised = (await call(server.socketPath, {
+      token: token(),
+      op: "signal.raise",
+      args: { kind: "feedback", text: "the migration is done" },
+    })) as { ok: true; data: { signal: AgentSignal } };
+    const runtime = runtimes[runtimes.length - 1]!;
+    // A typed answer still needs text; only the quiet path may be empty.
+    expect(await runtime.runPromise(answerAgentSignal(raised.data.signal.signalId, "  "))).toEqual({
+      ok: false,
+      message: "an answer needs some text",
+    });
+    const answered = await runtime.runPromise(
+      answerAgentSignal(raised.data.signal.signalId, "", { silent: true }),
+    );
+    expect(answered.ok).toBe(true);
+    if (!answered.ok) return;
+    expect(answered.signal.state).toBe("answered");
+    expect(answered.signal.response?.text).toBe(AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE);
+    expect(answered.messageId).toBeUndefined();
+    const repository = await runtime.runPromise(WorkRepository);
+    expect(await runtime.runPromise(repository.mailbox("work-cli", "agent"))).toHaveLength(0);
+
+    const listed = (await call(server.socketPath, {
+      token: token(),
+      op: "signal.list",
+      args: {},
+    })) as { ok: true; data: { signals: AgentSignal[] } };
+    const seen = listed.data.signals.find((signal) => signal.signalId === raised.data.signal.signalId);
+    expect(seen?.state).toBe("answered");
+    expect(seen?.response?.text).toBe(AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE);
+  });
+
+  it("dismisses with no answer and no mail: the seat is not told", async () => {
+    const server = servers[0]!;
+    const raised = (await call(server.socketPath, {
+      token: token(),
+      op: "signal.raise",
+      args: { kind: "escalate", text: "a question that no longer applies" },
+    })) as { ok: true; data: { signal: AgentSignal } };
+    const runtime = runtimes[runtimes.length - 1]!;
+    const dismissed = await runtime.runPromise(dismissAgentSignal(raised.data.signal.signalId));
+    expect(dismissed.ok).toBe(true);
+    if (!dismissed.ok) return;
+    expect(dismissed.signal.state).toBe("dismissed");
+    expect(dismissed.signal.response).toBeUndefined();
+    expect("messageId" in dismissed).toBe(false);
+    const repository = await runtime.runPromise(WorkRepository);
+    expect(await runtime.runPromise(repository.mailbox("work-cli", "agent"))).toHaveLength(0);
   });
 
   it("refuses an over-long signal sentence and points at --detail", async () => {

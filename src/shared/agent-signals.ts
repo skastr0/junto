@@ -57,6 +57,13 @@ const KIND_WORDS: Readonly<Record<AgentSignalKind, string>> = {
 };
 
 /**
+ * What an acknowledgement records: a quiet answer the operator sent with no
+ * note. The store holds every answer with text, so main writes this in its
+ * place; the seat reads it in `signal list` and is never woken by it.
+ */
+export const AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE = "Acknowledged, no note";
+
+/**
  * The operator's answer as the seat reads it: typed into the seat as operator
  * mail, naming which of its signals it answers so the agent can match it.
  */

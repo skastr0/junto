@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { ulid } from "ulid";
 import {
+  AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE,
   AGENT_SIGNAL_MAX_RESPONSE_LENGTH,
   composeSignalAnswerMail,
   type AgentSignal,
@@ -17,7 +18,9 @@ import { AgentSignalRepository } from "./repository";
  * operator prompt mail (the ordinary mailbox path) and only then records the
  * signal answered; a silent answer records the response without mail, so the
  * seat is never typed into or started and reads the answer later through
- * `signal list`; dismissing records it without mail or a response.
+ * `signal list`; a silent answer with no text acknowledges, recorded as
+ * AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE; dismissing records it without mail or a
+ * response.
  */
 
 export type SignalOperatorResult =
@@ -34,8 +37,10 @@ export const answerAgentSignal = (
   options?: { readonly silent?: boolean },
 ) =>
   Effect.gen(function* () {
-    const text = response.trim();
-    if (!text) return refused("an answer needs some text");
+    const silent = options?.silent === true;
+    const typed = response.trim();
+    if (!typed && !silent) return refused("an answer needs some text");
+    const text = typed || AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE;
     if (text.length > AGENT_SIGNAL_MAX_RESPONSE_LENGTH) {
       return refused(`an answer is at most ${AGENT_SIGNAL_MAX_RESPONSE_LENGTH} characters`);
     }
@@ -46,7 +51,7 @@ export const answerAgentSignal = (
     if (signal.state !== "open") return refused(`this signal is already ${signal.state}`);
 
     let messageId: string | undefined;
-    if (options?.silent !== true) {
+    if (!silent) {
       const sender = operatorActorRef(signal.canvasName);
       const id = ulid();
       const work = yield* WorkService;
