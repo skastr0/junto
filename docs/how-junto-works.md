@@ -62,7 +62,7 @@ In 0.3.2, `junto msg send`, `junto seat wait`, and `junto seat read` stop with "
 
 ## Mail
 
-`junto msg send` stores the message and types it into the receiving seat's input at once, as steering. While a turn is running, that harness's follow-up contract says how many Enters that takes: Cursor and Devin send two, and the others send one. An idle seat gets one Enter. A plain send types one short line naming the sender and `junto msg read <id>`. With `--prompt`, the full text is typed instead. Nothing is refused and nothing needs a retry: a seat that is not running gets its mail when it starts, and the command answers `delivered` or `waiting`.
+`junto msg send` stores the message and types it into the receiving seat's input, as steering. While a turn is running, that harness's follow-up contract says how many Enters that takes: Cursor and Devin send two, and the others send one. An idle seat gets one Enter. A plain send types the mail whole, up to 2,500 characters, under one header naming the sender, the mail's id and the `junto msg reply` that answers it; longer mail is cut there with a pointer to `junto msg read <id>`, and mail typed whole is marked read. Mail for one seat that arrives together is typed as one turn, so a harness is never hammered: it waits 2 seconds for more, never past 10 seconds after the first, and past 6,000 characters each further mail is one line with its id. With `--prompt`, the full text is typed at once, as its own turn. Nothing is refused and nothing needs a retry: a seat that is not running gets its mail when it starts, and the command answers `delivered` or `waiting`.
 
 ## State
 

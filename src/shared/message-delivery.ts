@@ -216,6 +216,69 @@ export const mailTypedWhole = (message: Message): boolean => {
   return !shouldSummarizeMessageForPty(message);
 };
 
+/**
+ * At most this many characters of mail bodies go into one typed turn: two
+ * full-size mails. Past it, each further mail is one line naming its id.
+ */
+export const MAIL_BATCH_BODY_MAX = 6_000;
+
+/** One mail in a batch, and its sender as the canvas names it at delivery. */
+export type BatchedMail = { readonly message: Message; readonly sender?: MailSender };
+
+/** A batch as typed, and, in its order, which of its mails went in whole. */
+export type MailBatch = { readonly text: string; readonly whole: ReadonlyArray<boolean> };
+
+/** The characters of a mail's body that a batch types. */
+const typedLength = (message: Message): number =>
+  isFactoryMailMessage(message)
+    ? Math.min([...(typedBody(message) || "(empty)")].length, MAIL_TYPED_BODY_MAX)
+    : [...composeMailLine(message)].length;
+
+/** A mail past the batch's cap: who sent it, and how to read it. */
+const composeMailPointer = (message: Message, sender: MailSender | undefined): string => {
+  const id = sanitizeDeliveryLine(message.messageId);
+  return `mail from ${sanitizeDeliveryLine((sender ?? stampedSender(message)).label)}, id ${id} — junto msg read ${id}`;
+};
+
+/**
+ * Mail for one seat, oldest first, as one typed turn. One mail is typed
+ * exactly as it is alone. More open with a count line, then each mail under
+ * its own header, whole while their bodies stay within MAIL_BATCH_BODY_MAX;
+ * past that, each further mail is one line with its id, and stays unread.
+ * The onboard pointer rides the first line. Prompts are never batched: the
+ * delivery types each one as its own turn.
+ */
+export const composeMailBatch = (
+  mails: ReadonlyArray<BatchedMail>,
+  options?: Pick<MailLineOptions, "onboarded">,
+): MailBatch => {
+  const [only] = mails;
+  if (mails.length === 1 && only !== undefined) {
+    return {
+      text: composeMessageDeliveryPayload(only.message, { ...options, ...(only.sender === undefined ? {} : { sender: only.sender }) }),
+      whole: [mailTypedWhole(only.message)],
+    };
+  }
+  let room = MAIL_BATCH_BODY_MAX;
+  let past = 0;
+  const sections: string[] = [];
+  const whole: boolean[] = [];
+  for (const { message, sender } of mails) {
+    const length = typedLength(message);
+    if (past > 0 || length > room) {
+      past += 1;
+      sections.push(composeMailPointer(message, sender));
+      whole.push(false);
+      continue;
+    }
+    room -= length;
+    sections.push(composeMessageDeliveryPayload(message, sender === undefined ? {} : { sender }));
+    whole.push(mailTypedWhole(message));
+  }
+  const cap = past === 0 ? "" : `; the last ${String(past)} are past the ${String(MAIL_BATCH_BODY_MAX)}-character cap, by id only`;
+  return { text: [withOnboardPointer(`${String(mails.length)} mails, oldest first${cap}`, options), ...sections].join("\n\n"), whole };
+};
+
 const composeMailLine = (message: Message): string => {
   if (!shouldSummarizeMessageForPty(message)) {
     const sender = messageSenderLabel(message);

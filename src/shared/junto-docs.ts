@@ -36,7 +36,7 @@ export const PORT_DESCRIPTIONS: Readonly<Record<Port, string>> = {
   "tasks.claim": "Claim a submitted task (submitted → working).",
   "tasks.update": "Transition a task state (working/completed/failed/canceled/input-required).",
   "msg.list": "List messages on the connected node's mailbox.",
-  "msg.send": "Mail the connected node: a short notice line is typed into its input at once.",
+  "msg.send": "Mail the connected node: it is typed whole into its input, up to 2,500 characters, and mail sent together arrives as one turn.",
   "msg.prompt": "Mail the peer as a prompt: the full text is typed into its input at once, idle or mid-turn.",
   "seat.wait": "Wait for a connected peer state with a bounded timeout.",
   "terminal.read": "Read settled terminal output from a connected peer; no input, resize or signal authority.",

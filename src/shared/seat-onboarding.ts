@@ -101,21 +101,21 @@ export const COMMAND_FAMILIES: Readonly<Record<CommandFamily, FamilySpec>> = {
     label: "messages",
     docsKind: "agent",
     note:
-      "`junto msg list` with no target reads your own inbox. Mail is typed into the recipient's input at once: never retry it, and do not acknowledge an acknowledgement.",
+      "`junto msg list` with no target reads your own inbox. Mail is typed into the recipient's input within seconds: never retry it, and do not acknowledge an acknowledgement.",
     rows: [
       { port: "msg.list", intent: "read target thread", command: (t) => `junto msg list '{"target":"${t}"}'` },
       {
         port: "msg.send",
         intent: "send mail",
         command: (t) => `junto msg send '{"target":"${t}","text":"..."}'`,
-        detail: "a short `mail from <you>` line lands in their input at once, pointing at `junto msg read`",
+        detail: "it lands in their input whole, under a `mail from <you>` header with the reply command; mail sent together arrives as one turn",
       },
       { port: "msg.send", intent: "reply", command: (t) => `junto msg reply '{"target":"${t}","text":"...","inReplyTo":"<msgId>"}'` },
       {
         port: "msg.prompt",
         intent: "prompt",
         command: (t) => `junto msg send --prompt '{"target":"${t}","text":"..."}'`,
-        detail: "the full text lands in their input at once as steering, idle or mid-turn. A running turn uses that harness's follow-up contract",
+        detail: "the full text lands in their input at once as steering, as its own turn, idle or mid-turn. A running turn uses that harness's follow-up contract",
       },
       {
         port: "seat.wait",

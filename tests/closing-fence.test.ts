@@ -209,7 +209,8 @@ describe("mail that arrives between the offboard and the exit", () => {
         return true;
       },
     };
-    const service = new MessageDeliveryService(() => THIS_MACHINE);
+    // Mail gathers for a few milliseconds here, not the app's seconds.
+    const service = new MessageDeliveryService(() => THIS_MACHINE, { quietMs: 5, maxWaitMs: 20 });
     service.configure({
       store,
       transport: {
@@ -285,8 +286,9 @@ describe("mail that arrives between the offboard and the exit", () => {
     box.seat.epoch = "e2";
     box.fence.release(BINDING);
     await box.settle();
-    expect(box.written.map((write) => write.into)).toEqual(["e2", "e2"]);
-    expect(box.written.map((write) => /, id (\w+)/u.exec(write.text)?.[1])).toEqual(["01A", "01B"]);
+    // Both waited out the rotation, so they go in as one turn, oldest first.
+    expect(box.written.map((write) => write.into)).toEqual(["e2"]);
+    expect([...box.written[0]!.text.matchAll(/, id (\w+)/gu)].map((match) => match[1])).toEqual(["01A", "01B"]);
     box.service.suspend();
   });
 

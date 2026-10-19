@@ -321,7 +321,7 @@ const msgSendCommand = Command.make(
       }),
     ),
 ).pipe(Command.withDescription(
-  "Send mail, typed into the seat's input at once: a short notice line, or with --prompt the full text (batch-capable)",
+  "Send mail, typed into the seat's input: whole up to 2,500 characters, with mail sent together as one turn, or with --prompt the full text at once, as its own turn (batch-capable)",
 ));
 
 const msgSentCommand = Command.make(

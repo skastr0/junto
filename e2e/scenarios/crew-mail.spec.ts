@@ -31,7 +31,7 @@ import { readSeatMailbox } from "../harness/work-mail";
 import type { Page } from "@playwright/test";
 import type { Message } from "../../src/shared/work-model";
 import { readMailExtension } from "../../src/shared/crew";
-import { composeMessageDeliveryPayload, MAIL_ONBOARD_POINTER } from "../../src/shared/message-delivery";
+import { composeMailBatch, composeMessageDeliveryPayload, MAIL_ONBOARD_POINTER } from "../../src/shared/message-delivery";
 import { expect, launchJunto, test } from "../harness/launch";
 import { crewMessageCount, crewReceipts, crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness, type CrewSeat, type WorkEnvelope } from "../harness/crew-fixture";
 
@@ -193,6 +193,36 @@ test("mail [fake-tui]: sent mail is delivered at once with one PTY paste", async
     const afterSent = (await crewReceipts(page, CANVAS, B)).find((row) => row.messageId === messageId);
     expect(afterSent).toBeDefined();
     expect(afterSent?.readAt).toBe(beforeSent?.readAt);
+  } finally {
+    await junto.close();
+  }
+});
+
+test("crew mail [fake-tui]: mail sent together is typed as one turn, never one each", async () => {
+  test.setTimeout(240_000);
+  const junto = await launch();
+  try {
+    const { page, seatAHandle, seatBHandle } = await boot(junto);
+
+    // Five sends at once, each its own op on A's socket, well inside the 2 s quiet.
+    const texts = ["one", "two", "three", "four", "five"].map((word) => `peer mail: burst ${word}`);
+    const sends = await Promise.all(texts.map((text) => seatAHandle.op("msg.send", { target: B, text })));
+    expect(sends.map((send) => opData(send).delivery), JSON.stringify(sends)).toEqual(texts.map(() => "delivered"));
+    const ids = sends.map((send) => opData(send).messageId as string).sort();
+
+    // One paste: a count line, then each mail under its own header, oldest first.
+    const messages = await Promise.all(ids.map((id) => projectedMessage(page, id)));
+    const turn = composeMailBatch(messages.map((message) => ({ message })), { onboarded: false }).text;
+    expect(turn.startsWith(`5 mails, oldest first — ${MAIL_ONBOARD_POINTER}\n\nmail from ${A}, id ${ids[0]!}`)).toBe(true);
+    await expect.poll(async () => pastesOf(await seatBHandle.stdinLog(), turn), { timeout: 10_000 }).toBe(1);
+    // No other paste carries any of them (the seat's onboard nudge is its own paste).
+    const pastes = [...(await seatBHandle.stdinLog()).matchAll(/\x1b\[200~([^]*?)\x1b\[201~/gu)].map((match) => match[1]!);
+    expect(pastes.filter((paste) => paste.includes("peer mail: burst")), JSON.stringify(pastes)).toEqual([turn]);
+
+    // Typed whole, so each is delivered and read.
+    const receipts = (await crewReceipts(page, CANVAS, B)).filter((row) => ids.includes(row.messageId));
+    expect(receipts).toHaveLength(5);
+    expect(receipts.every((row) => row.deliveredAt !== undefined && row.readAt !== undefined)).toBe(true);
   } finally {
     await junto.close();
   }

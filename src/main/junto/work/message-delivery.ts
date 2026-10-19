@@ -30,6 +30,13 @@
  * on the seat: once for a draft, every minute for a dialog or an unreadable
  * box, which only the operator can clear.
  *
+ * A harness is never typed into turn after turn. Notices for one seat gather
+ * into one turn (`MAIL_BATCHING`): typed after 2 s with no new mail, and at
+ * most 10 s after the first. A batch keeps gathering until its write starts,
+ * so mail that comes while an earlier turn is being typed, while the box is
+ * held, or while the seat is down rides the next turn. A prompt is a turn its
+ * sender asked for: typed alone, after the mail already gathering.
+ *
  * Delivery is at-most-once per process: one flight per message, shared by
  * every caller that asks, and a delivered message is remembered until its
  * receipt reaches the mailbox. The durable receipt (`deliveredAt`) is the
@@ -47,13 +54,11 @@ import type { Message } from "@shared/work-model";
 import { readMailExtension } from "@shared/crew";
 import {
   composeImmediatePromptPayload,
-  composeMessageDeliveryPayload,
+  composeMailBatch,
   deliveryTargetOf,
   isPendingDelivery,
-  mailTypedWhole,
   MESSAGE_PTY_FULL_BODY_MAX,
   sanitizeDeliveryLine,
-  type MailLineOptions,
   type MailSender,
 } from "@shared/message-delivery";
 import { seatIdentity, seatLabel } from "@shared/model/seat-identity";
@@ -69,6 +74,21 @@ import {
  * told again on the seat.
  */
 export const MAIL_HELD_RETRY_MS = 60_000;
+
+/** How notices for one seat gather into one typed turn. */
+export type MailBatching = {
+  /** A batch is typed once no mail has joined it for this long. */
+  readonly quietMs: number;
+  /** And at most this long after its first mail, however steadily mail comes. */
+  readonly maxWaitMs: number;
+};
+
+/**
+ * 2 s of quiet: a burst of `junto msg send`, one CLI process each, lands
+ * inside it, and a lone mail is late by less than a harness turn takes. 10 s
+ * at most, so a steady trickle never holds mail longer than that.
+ */
+export const MAIL_BATCHING: MailBatching = { quietMs: 2_000, maxWaitMs: 10_000 };
 
 /** Whether a message reached its seat now, or waits for the seat to come up. */
 /**
@@ -152,11 +172,36 @@ type PendingResponse = {
 const mailKey = (canvas: string, nodeId: string, messageId: string): string =>
   `${canvas}::${nodeId}::${messageId}`;
 
-/** The text a message puts on the seat's input, by the sender's chosen kind. */
-export const mailPayloadOf = (message: Message, options?: MailLineOptions): string =>
-  readMailExtension(message.metadata)?.mailKind === "prompt"
-    ? composeImmediatePromptPayload(message, options)
-    : composeMessageDeliveryPayload(message, options);
+/** One mail on its way into its seat; `settle` answers its flight. */
+type Gathered = {
+  readonly key: string;
+  readonly canvas: string;
+  readonly nodeId: string;
+  readonly message: Message;
+  readonly sender: MailSender | undefined;
+  readonly settle: (state: MailDeliveryState) => void;
+};
+
+/** Notices gathering for one seat's next turn. */
+type SeatBatch = {
+  readonly bindingId: string;
+  readonly generation: number;
+  readonly firstAt: number;
+  readonly mail: Gathered[];
+  timer: ReturnType<typeof setTimeout> | undefined;
+  /** Its quiet is over: it waits only for the seat's earlier writes. */
+  due: boolean;
+};
+
+/** One write into a seat, and the mail it carried, oldest first. */
+type Typed = {
+  readonly mail: ReadonlyArray<Gathered>;
+  /** Whether each mail went in whole, so is read. */
+  readonly whole: ReadonlyArray<boolean>;
+  readonly written: "written" | "lost" | MailHold;
+};
+
+const oldestFirst = (a: Gathered, b: Gathered): number => a.message.messageId.localeCompare(b.message.messageId);
 
 /**
  * The sender as the canvas names it now: its name and every region around
@@ -182,8 +227,11 @@ const onboardedOf = (
 };
 
 export class MessageDeliveryService {
-  /** This machine's name, read at each decision. */
-  constructor(private readonly thisMachine: () => string = thisMachineName) {}
+  /** This machine's name, read at each decision; how notices gather. */
+  constructor(
+    private readonly thisMachine: () => string = thisMachineName,
+    private readonly batching: MailBatching = MAIL_BATCHING,
+  ) {}
 
   /**
    * The seat mail is typed into here: an agent seat on this machine.
@@ -215,6 +263,8 @@ export class MessageDeliveryService {
   private readonly delivered = new Set<string>();
   /** Writes into one seat land in order, one at a time. */
   private readonly seatChains = new Map<string, Promise<unknown>>();
+  /** Each seat's gathering batch, by binding; it leaves here as its write starts. */
+  private readonly batches = new Map<string, SeatBatch>();
   /** Operator answers to requests, waiting for the raising seat. */
   private readonly responses = new Map<string, PendingResponse>();
   /** Messages whose sender asked that they never start a seat. */
@@ -257,6 +307,11 @@ export class MessageDeliveryService {
   }
 
   private clear(): void {
+    for (const batch of this.batches.values()) {
+      if (batch.timer !== undefined) clearTimeout(batch.timer);
+      for (const mail of batch.mail) mail.settle("waiting");
+    }
+    this.batches.clear();
     this.waiting.clear();
     this.flights.clear();
     this.delivered.clear();
@@ -387,56 +442,163 @@ export class MessageDeliveryService {
       return waiting(`seat is not ready, ${this.wake(transport, target.bindingId, canvas, nodeId, generation, messageId)}`);
     }
     const sender = senderOn(doc, message);
-    const payload = mailPayloadOf(message, {
+    const mail = { key, canvas, nodeId, message, sender };
+    if (readMailExtension(message.metadata)?.mailKind !== "prompt") {
+      return this.gather(target.bindingId, mail, generation);
+    }
+    // A prompt is its own turn. The batch gathering now is typed first and
+    // closed, so mail sent after the prompt is typed after it.
+    const open = this.batches.get(target.bindingId);
+    if (open !== undefined) {
+      this.batches.delete(target.bindingId);
+      void this.typeBatch(open);
+    }
+    const payload = composeImmediatePromptPayload(message, {
       onboarded: onboardedOf(transport, target.bindingId),
       ...(sender === undefined ? {} : { sender }),
     });
-    const written = await this.inSeatOrder(target.bindingId, () =>
-      transport.writeMail(target.bindingId, payload),
+    let state: MailDeliveryState = "waiting";
+    const written = await this.inSeatOrder(target.bindingId, () => transport.writeMail(target.bindingId, payload));
+    await this.landed(
+      { mail: [{ ...mail, settle: (answer) => { state = answer; } }], whole: [true], written },
+      store,
+      generation,
     );
-    if (!this.active(generation)) return waiting("delivery generation ended during mail write");
+    return state;
+  }
+
+  /**
+   * Add a notice to its seat's batch. Each arrival restarts the quiet; the
+   * first mail's maximum wait does not move. Answers once the batch is typed,
+   * or once its mail goes back to waiting.
+   */
+  private gather(
+    bindingId: string,
+    mail: Omit<Gathered, "settle">,
+    generation: number,
+  ): Promise<MailDeliveryState> {
+    return new Promise((settle) => {
+      const open = this.batches.get(bindingId);
+      const batch: SeatBatch = open ?? { bindingId, generation, firstAt: Date.now(), mail: [], timer: undefined, due: false };
+      if (open === undefined) this.batches.set(bindingId, batch);
+      batch.mail.push({ ...mail, settle });
+      if (batch.due) return;
+      if (batch.timer !== undefined) clearTimeout(batch.timer);
+      const wait = Math.min(this.batching.quietMs, batch.firstAt + this.batching.maxWaitMs - Date.now());
+      batch.timer = setTimeout(() => void this.typeBatch(batch), Math.max(0, wait));
+      batch.timer.unref?.();
+    });
+  }
+
+  /**
+   * Type a seat's batch as one turn, after every earlier write into it. Until
+   * that write starts the batch keeps gathering. Whatever happens, every mail
+   * in it is answered.
+   */
+  private async typeBatch(batch: SeatBatch): Promise<void> {
+    if (batch.due) return;
+    batch.due = true;
+    if (batch.timer !== undefined) clearTimeout(batch.timer);
+    batch.timer = undefined;
+    const store = this.store;
+    try {
+      const typed = await this.inSeatOrder(batch.bindingId, () => this.writeBatch(batch));
+      if (typed !== undefined && store !== undefined) await this.landed(typed, store, batch.generation);
+    } catch (error) {
+      console.error(`[delivery] batch for ${batch.bindingId} failed: ${String(error)}`);
+    } finally {
+      for (const mail of batch.mail) mail.settle("waiting");
+    }
+  }
+
+  /**
+   * The batch's write. It closes the batch: mail from here on gathers for
+   * the next turn. Mail read while it gathered is not typed, and a seat that
+   * went down leaves it all waiting for `onSeatLive`.
+   */
+  private async writeBatch(batch: SeatBatch): Promise<Typed | undefined> {
+    if (this.batches.get(batch.bindingId) === batch) this.batches.delete(batch.bindingId);
+    const transport = this.transport;
+    const store = this.store;
+    if (!this.active(batch.generation) || !transport || !store) return undefined;
+    if (!transport.seatLive(batch.bindingId)) return undefined;
+    const pending: Gathered[] = [];
+    for (const mail of [...batch.mail].sort(oldestFirst)) {
+      const now = await store.readMessage(mail.canvas, mail.nodeId, mail.message.messageId);
+      if (now !== undefined && isPendingDelivery(now)) {
+        pending.push(mail);
+      } else {
+        this.waiting.delete(mail.key);
+        mail.settle("delivered");
+      }
+    }
+    if (pending.length === 0 || !this.active(batch.generation)) return undefined;
+    const { text, whole } = composeMailBatch(
+      pending.map(({ message, sender }) => ({ message, ...(sender === undefined ? {} : { sender }) })),
+      { onboarded: onboardedOf(transport, batch.bindingId) },
+    );
+    return { mail: pending, whole, written: await transport.writeMail(batch.bindingId, text) };
+  }
+
+  /** What one write did to each mail it carried, told and stamped. */
+  private async landed(typed: Typed, store: MessageDeliveryStore, generation: number): Promise<void> {
+    const { mail, whole, written } = typed;
+    if (!this.active(generation)) return;
     // The seat's input box was not available. Nothing was typed and nothing
     // failed: the transport says when it is available again, and a retry
     // every minute does not depend on that signal.
     if (written !== "written" && written !== "lost") {
-      this.tellHeld(canvas, nodeId, message, key, written);
-      this.retryHeld(canvas, nodeId, messageId, key, generation);
-      return waiting(`composer held: ${written}`);
+      for (const one of mail) {
+        console.info(`[delivery] waiting for ${one.canvas}/${one.nodeId}/${one.message.messageId}: composer held: ${written}`);
+        this.tellHeld(one.canvas, one.nodeId, one.message, one.key, written);
+        this.retryHeld(one.canvas, one.nodeId, one.message.messageId, one.key, generation);
+        one.settle("waiting");
+      }
+      return;
     }
     if (written !== "written") {
       // The seat was live but the text did not land (it restarted or
       // exited mid-write). The mail waits for the seat's next ready moment;
       // say so once, since a silent wait here is what the operator misses.
-      if (!this.failedTold.has(key)) {
-        this.failedTold.add(key);
-        this.emitDelivered({
-          ...wireTrafficOfMail({ canvasName: canvas, toNodeId: nodeId, message, at: Date.now() }),
-          failed: true,
-        });
+      for (const one of mail) {
+        console.info(`[delivery] waiting for ${one.canvas}/${one.nodeId}/${one.message.messageId}: seat lost during mail write`);
+        if (!this.failedTold.has(one.key)) {
+          this.failedTold.add(one.key);
+          this.emitDelivered({
+            ...wireTrafficOfMail({ canvasName: one.canvas, toNodeId: one.nodeId, message: one.message, at: Date.now() }),
+            failed: true,
+          });
+        }
+        one.settle("waiting");
       }
-      return waiting("seat lost during mail write");
+      return;
     }
-    this.failedTold.delete(key);
-    this.heldTold.delete(key);
-    const retry = this.heldRetries.get(key);
-    if (retry !== undefined) clearTimeout(retry);
-    this.heldRetries.delete(key);
-    this.delivered.add(key);
-    this.waiting.delete(key);
-    this.noWake.delete(messageId);
-    this.emitDelivered(
-      wireTrafficOfMail({ canvasName: canvas, toNodeId: nodeId, message, at: Date.now() }),
-    );
-    const accepted = await store.acceptMessageDelivery(canvas, nodeId, messageId, mailTypedWhole(message)).catch((cause: unknown) => {
-      // The text is on the seat. A lost receipt only leaves the document
-      // showing it waiting; this process will not type it twice.
-      console.error(
-        `[delivery] receipt stamp failed for ${canvas}/${nodeId}/${messageId}: ${String(cause)}`,
+    for (const one of mail) {
+      this.failedTold.delete(one.key);
+      this.heldTold.delete(one.key);
+      const retry = this.heldRetries.get(one.key);
+      if (retry !== undefined) clearTimeout(retry);
+      this.heldRetries.delete(one.key);
+      this.delivered.add(one.key);
+      this.waiting.delete(one.key);
+      this.noWake.delete(one.message.messageId);
+      this.emitDelivered(
+        wireTrafficOfMail({ canvasName: one.canvas, toNodeId: one.nodeId, message: one.message, at: Date.now() }),
       );
-      return undefined;
-    });
-    if (accepted === false) console.error(`[delivery] receipt refused for ${canvas}/${nodeId}/${messageId}`);
-    return "delivered";
+    }
+    for (const [index, one] of mail.entries()) {
+      const { canvas, nodeId, message } = one;
+      const accepted = await store.acceptMessageDelivery(canvas, nodeId, message.messageId, whole[index] === true).catch((cause: unknown) => {
+        // The text is on the seat. A lost receipt only leaves the document
+        // showing it waiting; this process will not type it twice.
+        console.error(
+          `[delivery] receipt stamp failed for ${canvas}/${nodeId}/${message.messageId}: ${String(cause)}`,
+        );
+        return undefined;
+      });
+      if (accepted === false) console.error(`[delivery] receipt refused for ${canvas}/${nodeId}/${message.messageId}`);
+      one.settle("delivered");
+    }
   }
 
   /**

@@ -4,11 +4,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "../src/shared/work-model";
 import { mailExtensionMetadata, type MailExtension, type MailKind } from "../src/shared/crew";
 import {
+  MAIL_BATCHING,
   MAIL_HELD_RETRY_MS,
   MessageDeliveryService,
+  type MailBatching,
   type MessageDeliveryStore,
 } from "../src/main/junto/work/message-delivery";
-import { MAIL_TYPED_BODY_MAX } from "../src/shared/message-delivery";
+import { composeMailBatch, MAIL_BATCH_BODY_MAX, MAIL_TYPED_BODY_MAX } from "../src/shared/message-delivery";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 
 const canvas = "crew";
@@ -55,6 +57,10 @@ const rig = (
     wake?: () => boolean;
     /** The supervisor's answer to "did this seat run junto onboard". */
     onboarded?: (bindingId: string) => boolean;
+    /** How mail gathers; a short window unless the test is about gathering. */
+    batching?: MailBatching;
+    /** How long one write takes to type. */
+    writeMs?: number;
   } = {},
 ) => {
   const messages: Message[] = [];
@@ -80,7 +86,7 @@ const rig = (
       return true;
     },
   };
-  const service = new MessageDeliveryService(() => THIS_MACHINE);
+  const service = new MessageDeliveryService(() => THIS_MACHINE, options.batching ?? { quietMs: 10, maxWaitMs: 50 });
   service.configure({
     store,
     transport: {
@@ -94,7 +100,7 @@ const rig = (
       writeMail: async (_id, text) => {
         writing += 1;
         if (writing > 1) overlapped = true;
-        await new Promise((resolve) => setTimeout(resolve, 2));
+        await new Promise((resolve) => setTimeout(resolve, options.writeMs ?? 2));
         writing -= 1;
         const hold = options.held?.();
         if (hold !== undefined) return hold;
@@ -355,7 +361,7 @@ describe("mail delivery", () => {
     expect(seat.writes).toHaveLength(1);
   });
 
-  it("waits for a seat that is not up and types the mail when it starts", async () => {
+  it("waits for a seat that is not up and types the mail when it starts, as one turn", async () => {
     const seat = rig({ live: false });
     seat.append(mail("01A", "first"));
     seat.append(mail("01B", "second"));
@@ -368,8 +374,8 @@ describe("mail delivery", () => {
     seat.service.onSeatLive(bindingId);
     await settle();
 
-    expect(seat.writes.map((text) => text.includes("01A") ? "A" : "B")).toEqual(["A", "B"]);
-    expect(seat.overlapped()).toBe(false);
+    expect(seat.writes).toHaveLength(1);
+    expect(seat.writes[0]).toMatch(/^2 mails, oldest first\n\nmail from Claude Code, id 01A\b[^]*\n\nmail from Claude Code, id 01B\b/u);
     expect(seat.messages.every((m) => typeof m.metadata?.deliveredAt === "number")).toBe(true);
   });
 
@@ -386,11 +392,12 @@ describe("mail delivery", () => {
     expect(seat.wakes).toEqual([{ bindingId, canvas, nodeId }]);
     expect(seat.writes).toHaveLength(0);
 
-    // The started seat's TUI comes up: the mail is typed then, in order.
+    // The started seat's TUI comes up: the mail is typed then, one turn, in order.
     seat.setLive(true);
     seat.service.onSeatLive(bindingId);
     await settle();
-    expect(seat.writes.map((text) => text.includes("01A") ? "A" : "B")).toEqual(["A", "B"]);
+    expect(seat.writes).toHaveLength(1);
+    expect(seat.writes[0]!.indexOf("id 01A")).toBeLessThan(seat.writes[0]!.indexOf("id 01B"));
   });
 
   it("never starts a seat for mail its sender held back from waking", async () => {
@@ -440,17 +447,18 @@ describe("mail delivery", () => {
     expect(seat.writes).toHaveLength(1);
   });
 
-  it("writes into one seat one message at a time, in send order", async () => {
+  it("types mail sent together into one seat as one turn, in send order", async () => {
     const seat = rig();
-    for (const id of ["01A", "01B", "01C"]) seat.append(mail(id, id));
+    for (const id of ["01C", "01A", "01B"]) seat.append(mail(id, id));
 
     const states = await Promise.all(
-      ["01A", "01B", "01C"].map((id) => seat.service.deliver(canvas, nodeId, id)),
+      ["01C", "01A", "01B"].map((id) => seat.service.deliver(canvas, nodeId, id)),
     );
 
     expect(states).toEqual(["delivered", "delivered", "delivered"]);
     expect(seat.overlapped()).toBe(false);
-    expect(seat.writes.map((text) => text.match(/01[ABC]/)?.[0])).toEqual(["01A", "01B", "01C"]);
+    expect(seat.writes).toHaveLength(1);
+    expect([...seat.writes[0]!.matchAll(/, id (01[ABC])\b/gu)].map((match) => match[1])).toEqual(["01A", "01B", "01C"]);
   });
 
   it("delivers the backlog at boot and leaves mail for a seat that is not up waiting", async () => {
@@ -538,9 +546,8 @@ describe("mail delivery", () => {
     drafting = false;
     seat.service.onSeatLive(bindingId);
     await settle();
-    expect(seat.writes).toHaveLength(2);
-    expect(seat.writes[0]).toMatch(/, id 01A\b/u);
-    expect(seat.writes[1]).toMatch(/, id 01B\b/u);
+    expect(seat.writes).toHaveLength(1);
+    expect([...seat.writes[0]!.matchAll(/, id (01[AB])\b/gu)].map((match) => match[1])).toEqual(["01A", "01B"]);
     expect(events.map((event) => event.messageId)).toEqual(["01A", "01B"]);
   });
 
@@ -575,6 +582,174 @@ describe("mail delivery", () => {
     expect(events.at(-1)?.held).toBeUndefined();
     expect(seat.messages[0]?.metadata?.deliveredAt).toBeTypeOf("number");
     vi.useRealTimers();
+  });
+
+  describe("gathering mail for one seat into one turn", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+    const gathering = (options: Parameters<typeof rig>[0] = {}) => {
+      vi.useFakeTimers();
+      return rig({ batching: MAIL_BATCHING, ...options });
+    };
+    const send = (seat: ReturnType<typeof rig>, message: Message): void => {
+      seat.append(message);
+      seat.service.notifyAppended(canvas, nodeId, message);
+    };
+    const ids = (text: string | undefined): ReadonlyArray<string> =>
+      [...(text ?? "").matchAll(/^mail from [^\n]*?, id (\w+)/gmu)].map((match) => match[1]!);
+
+    it("waits 2 s of quiet, then types a lone mail exactly as it is alone", async () => {
+      const seat = gathering();
+      send(seat, mail("01A", "alone"));
+      await vi.advanceTimersByTimeAsync(MAIL_BATCHING.quietMs - 100);
+      expect(seat.writes).toEqual([]);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(seat.writes).toEqual([composeMailBatch([{ message: mail("01A", "alone") }], { onboarded: true }).text]);
+      expect(seat.messages[0]?.metadata?.readAt).toBeTypeOf("number");
+    });
+
+    it("types a burst of five sends inside 2 s as exactly one turn: a count line, then each mail under its own header, oldest first", async () => {
+      const seat = gathering();
+      const burst = ["01A", "01B", "01C", "01D", "01E"].map((id) => mail(id, `burst ${id}`));
+      for (const [index, message] of burst.entries()) {
+        if (index > 0) await vi.advanceTimersByTimeAsync(400);
+        send(seat, message);
+      }
+      await vi.advanceTimersByTimeAsync(MAIL_BATCHING.quietMs - 100);
+      expect(seat.writes).toEqual([]);
+      await vi.advanceTimersByTimeAsync(MAIL_BATCHING.maxWaitMs);
+
+      expect(seat.writes).toEqual([composeMailBatch(burst.map((message) => ({ message }))).text]);
+      expect(seat.writes[0]!.startsWith("5 mails, oldest first\n\n")).toBe(true);
+      expect(seat.messages.every((message) => typeof message.metadata?.readAt === "number")).toBe(true);
+    });
+
+    it("types a steady trickle at most 10 s after its first mail", async () => {
+      const seat = gathering();
+      const every = MAIL_BATCHING.quietMs - 500;
+      for (let index = 0; index < 10; index += 1) {
+        send(seat, mail(`01${String.fromCharCode(65 + index)}`, `tick ${String(index)}`));
+        await vi.advanceTimersByTimeAsync(every);
+      }
+      // 15 s of mail 1.5 s apart: the first turn left at 10 s, with what had come.
+      expect(seat.writes).toHaveLength(1);
+      expect(ids(seat.writes[0])).toEqual(["01A", "01B", "01C", "01D", "01E", "01F", "01G"]);
+      await vi.advanceTimersByTimeAsync(MAIL_BATCHING.quietMs + 100);
+      expect(seat.writes).toHaveLength(2);
+      expect(ids(seat.writes[1])).toEqual(["01H", "01I", "01J"]);
+    });
+
+    it("past the cap, types each further mail as one line with its id and leaves it unread", async () => {
+      const seat = gathering();
+      const third = MAIL_BATCH_BODY_MAX / 3;
+      for (const [id, fill] of [["01A", "a"], ["01B", "b"], ["01C", "c"]] as const) send(seat, mail(id, fill.repeat(third)));
+      send(seat, mail("01D", "one more"));
+      await vi.advanceTimersByTimeAsync(MAIL_BATCHING.quietMs + 100);
+
+      expect(seat.writes).toHaveLength(1);
+      expect(seat.writes[0]!.endsWith("\n\nmail from Claude Code, id 01D — junto msg read 01D")).toBe(true);
+      expect(seat.messages.map((message) => [typeof message.metadata?.deliveredAt, typeof message.metadata?.readAt])).toEqual([
+        ["number", "number"],
+        ["number", "number"],
+        ["number", "number"],
+        ["number", "undefined"],
+      ]);
+    });
+
+    it("gathers mail that arrives while a turn is being typed into the next turn, not one each", async () => {
+      const seat = gathering({ writeMs: 5_000 });
+      send(seat, mail("01A", "first"));
+      await vi.advanceTimersByTimeAsync(MAIL_BATCHING.quietMs + 1_000);
+      // 01A is being typed until 7 s. 01B's quiet ends at 5 s, behind that write;
+      // 01C comes at 6 s and rides the same turn.
+      send(seat, mail("01B", "second"));
+      await vi.advanceTimersByTimeAsync(3_000);
+      send(seat, mail("01C", "third"));
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      expect(seat.writes.map(ids)).toEqual([["01A"], ["01B", "01C"]]);
+      expect(seat.overlapped()).toBe(false);
+    });
+
+    it("holds every mail while the operator drafts, and types them as one turn once the box is free", async () => {
+      let drafting = true;
+      const seat = gathering({ held: () => (drafting ? "draft" : undefined) });
+      send(seat, mail("01A", "first"));
+      await vi.advanceTimersByTimeAsync(MAIL_BATCHING.quietMs + 100);
+      send(seat, mail("01B", "second"));
+      await vi.advanceTimersByTimeAsync(MAIL_BATCHING.quietMs + 100);
+      send(seat, mail("01C", "third"));
+      await vi.advanceTimersByTimeAsync(MAIL_BATCHING.quietMs + 100);
+      expect(seat.writes).toEqual([]);
+
+      drafting = false;
+      seat.service.onSeatLive(bindingId);
+      await vi.advanceTimersByTimeAsync(MAIL_BATCHING.quietMs + 100);
+      expect(seat.writes.map(ids)).toEqual([["01A", "01B", "01C"]]);
+    });
+
+    it("types a prompt as its own turn, after the mail already gathering, and never into a batch", async () => {
+      const seat = gathering();
+      send(seat, mail("01A", "notice before"));
+      await vi.advanceTimersByTimeAsync(500);
+      send(seat, mail("01B", "the prompt", "prompt"));
+      await vi.advanceTimersByTimeAsync(100);
+      send(seat, mail("01C", "notice after"));
+      await vi.advanceTimersByTimeAsync(MAIL_BATCHING.quietMs + 100);
+
+      expect(seat.writes).toHaveLength(3);
+      expect(ids(seat.writes[0])).toEqual(["01A"]);
+      expect(seat.writes[1]).toBe("mail from Claude Code\nthe prompt");
+      expect(ids(seat.writes[2])).toEqual(["01C"]);
+    });
+
+    it("never types mail that was read while it gathered", async () => {
+      const seat = gathering();
+      send(seat, mail("01A", "read in time"));
+      send(seat, mail("01B", "still new"));
+      await vi.advanceTimersByTimeAsync(500);
+      seat.messages[0] = { ...seat.messages[0]!, metadata: { ...seat.messages[0]!.metadata, readAt: Date.now() } };
+      await vi.advanceTimersByTimeAsync(MAIL_BATCHING.quietMs + 100);
+
+      expect(seat.writes.map(ids)).toEqual([["01B"]]);
+    });
+
+    it("types a gathered mail once, however many callers ask for it", async () => {
+      const seat = gathering();
+      send(seat, mail("01A", "once"));
+      const asked = [seat.service.deliver(canvas, nodeId, "01A"), seat.service.deliver(canvas, nodeId, "01A")];
+      seat.service.onSeatLive(bindingId);
+      await vi.advanceTimersByTimeAsync(MAIL_BATCHING.quietMs + 100);
+
+      expect(await Promise.all(asked)).toEqual(["delivered", "delivered"]);
+      expect(seat.writes).toHaveLength(1);
+    });
+
+    it("answers the sender `delivered` once its turn is typed", async () => {
+      const seat = gathering();
+      seat.append(mail("01A", "waits for its turn"));
+      let state: string | undefined;
+      void seat.service.deliver(canvas, nodeId, "01A").then((answer) => {
+        state = answer;
+      });
+      await vi.advanceTimersByTimeAsync(MAIL_BATCHING.quietMs - 100);
+      expect(state).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(200);
+      expect(state).toBe("delivered");
+    });
+
+    it("types nothing gathered after suspend, and answers its sender", async () => {
+      const seat = gathering();
+      seat.append(mail("01A", "gathering"));
+      const asked = seat.service.deliver(canvas, nodeId, "01A");
+      await vi.advanceTimersByTimeAsync(500);
+      seat.service.suspend();
+      await vi.advanceTimersByTimeAsync(MAIL_BATCHING.quietMs + 100);
+
+      expect(await asked).toBe("waiting");
+      expect(seat.writes).toEqual([]);
+    });
   });
 
   it("writes nothing after suspend", async () => {

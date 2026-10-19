@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ulid } from "ulid";
 import type { Message } from "../src/shared/work-model";
 import {
+  composeMailBatch,
   composeMessageDeliveryPayload,
   composeImmediatePromptPayload,
   composeMessageDeliverySummary,
@@ -11,6 +12,7 @@ import {
   isForeignMessage,
   isMessageDelivered,
   isPendingDelivery,
+  MAIL_BATCH_BODY_MAX,
   MAIL_ONBOARD_POINTER,
   MAIL_TYPED_BODY_MAX,
   mailTypedWhole,
@@ -280,6 +282,75 @@ describe("message-delivery pure helpers", () => {
     expect(deliveryTargetOf(terminal("terminal"))).toBeUndefined();
     expect(deliveryTargetOf(note("x"))).toBeUndefined();
   });
+});
 
+describe("a batch of mail for one seat", () => {
+  const notice = (messageId: string, text: string, sender = "agent-a"): Message =>
+    userMsg({
+      messageId,
+      metadata: { factoryMail: true, fromSeat: "seat_hash", senderNodeId: sender, senderName: sender },
+      parts: [{ kind: "text", text }],
+    });
+  const header = (message: Message): string => composeMessageDeliveryPayload(message).split("\n")[0]!;
 
+  it("types one mail exactly as it is alone, with no count line", () => {
+    const only = notice("01A", "one thing");
+    const sender = { label: "cli-lead (Junto / CLI)", replyTarget: "agent-a" };
+    expect(composeMailBatch([{ message: only, sender }], { onboarded: false })).toEqual({
+      text: composeMessageDeliveryPayload(only, { onboarded: false, sender }),
+      whole: [true],
+    });
+  });
+
+  it("opens more with a count line, then each mail whole under its own header, oldest first", () => {
+    const first = notice("01A", "first\nwith a second line");
+    const second = notice("01B", "second", "agent-c");
+    const batch = composeMailBatch([{ message: first }, { message: second, sender: { label: "Reviewer (Junto)", replyTarget: "agent-c" } }]);
+    expect(batch.text).toBe(
+      [
+        "2 mails, oldest first",
+        composeMessageDeliveryPayload(first),
+        composeMessageDeliveryPayload(second, { sender: { label: "Reviewer (Junto)", replyTarget: "agent-c" } }),
+      ].join("\n\n"),
+    );
+    expect(batch.whole).toEqual([true, true]);
+  });
+
+  it("carries the onboard pointer once, on the count line", () => {
+    const batch = composeMailBatch([{ message: notice("01A", "a") }, { message: notice("01B", "b") }], { onboarded: false });
+    expect(batch.text.split("\n")[0]).toBe(`2 mails, oldest first — ${MAIL_ONBOARD_POINTER}`);
+    expect(batch.text.split(MAIL_ONBOARD_POINTER)).toHaveLength(2);
+  });
+
+  it("types bodies whole up to the cap; past it each further mail is one line with its id, unread", () => {
+    const body = (fill: string): string => fill.repeat(MAIL_BATCH_BODY_MAX / 3);
+    const mails = [notice("01A", body("a")), notice("01B", body("b")), notice("01C", body("c")), notice("01D", "short, but past the cap"), notice("01E", "e")];
+    const batch = composeMailBatch(mails.map((message) => ({ message })));
+    expect(batch.whole).toEqual([true, true, true, false, false]);
+    const sections = batch.text.split("\n\n");
+    expect(sections[0]).toBe("5 mails, oldest first; the last 2 are past the 6000-character cap, by id only");
+    expect(sections.slice(1, 4)).toEqual(mails.slice(0, 3).map((message) => composeMessageDeliveryPayload(message)));
+    expect(sections.slice(4)).toEqual([
+      "mail from agent-a, id 01D — junto msg read 01D",
+      "mail from agent-a, id 01E — junto msg read 01E",
+    ]);
+  });
+
+  it("counts a cut mail at the cut, and keeps it unread", () => {
+    // Counted whole, 01A's 3,400 characters would push 01C past the cap.
+    const long = notice("01A", "x".repeat(MAIL_TYPED_BODY_MAX + 900));
+    const rest = MAIL_BATCH_BODY_MAX - 2 * MAIL_TYPED_BODY_MAX;
+    const batch = composeMailBatch([long, notice("01B", "y".repeat(MAIL_TYPED_BODY_MAX)), notice("01C", "z".repeat(rest))].map((message) => ({ message })));
+    expect(batch.whole).toEqual([false, true, true]);
+    expect(batch.text).toContain(`(cut at ${String(MAIL_TYPED_BODY_MAX)} characters; the rest: junto msg read 01A)`);
+    expect(batch.text).not.toContain("by id only");
+  });
+
+  it("names the sender of a one-line mail as the canvas does", () => {
+    const mails = [notice("01A", "z".repeat(MAIL_TYPED_BODY_MAX)), notice("01B", "w".repeat(MAIL_TYPED_BODY_MAX)), notice("01C", "v".repeat(MAIL_BATCH_BODY_MAX - 2 * MAIL_TYPED_BODY_MAX + 1))];
+    const batch = composeMailBatch([{ message: mails[0]! }, { message: mails[1]! }, { message: mails[2]!, sender: { label: "pty-lead (Junto / PTY)" } }]);
+    expect(batch.whole).toEqual([true, true, false]);
+    expect(batch.text.endsWith("\n\nmail from pty-lead (Junto / PTY), id 01C — junto msg read 01C")).toBe(true);
+    expect(header(mails[0]!)).toBe("mail from agent-a, id 01A — reply: junto msg reply '{\"target\":\"agent-a\",\"inReplyTo\":\"01A\",\"text\":\"...\"}'");
+  });
 });
