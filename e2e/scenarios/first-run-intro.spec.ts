@@ -47,10 +47,11 @@ test("a fresh install shows the tour once and keeps it on request", async () => 
     await expect(slide.locator(".junto-mark[data-mark-size='seat']").first()).toBeVisible();
 
     const count = await captureChapters(page, "dark");
+    await expect(slide).toHaveAttribute("data-slide", "shell");
+    await expect(intro).toContainText("Your agents get your shell");
+    await page.keyboard.press("ArrowLeft");
     await expect(slide).toHaveAttribute("data-slide", "permissions");
     await expect(intro).toContainText("run with your permissions");
-    await page.keyboard.press("ArrowLeft");
-    await expect(slide).not.toHaveAttribute("data-slide", "permissions");
 
     await intro.getByTestId("first-run-intro-skip").click();
     await expect(intro).toBeHidden();
