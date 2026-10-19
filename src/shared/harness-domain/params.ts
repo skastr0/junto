@@ -239,7 +239,7 @@ export const checkParam = (
     input.settingsFixed === true &&
     (input.current ?? "").trim().toLowerCase() !== value.toLowerCase()
   ) {
-    return refuse("frozen", `this seat keeps the ${spec.label.toLowerCase()} it started with until it starts fresh`);
+    return refuse("frozen", `the session keeps its ${spec.label.toLowerCase()}; a change needs a new session`);
   }
   return Result.succeed(value);
 };
