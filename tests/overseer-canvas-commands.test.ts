@@ -307,6 +307,7 @@ describe("executeOverseerCanvas", () => {
       ["bindingId", "bind-overseer"],
       ["agentKey", "local:other"],
       ["overseer", true],
+      ["sessionId", "s-1"],
     ] as const) {
       const refused = await expectErr(
         { operation: "node.create", args: { node: { ...seatDraft, [field]: value } } } as never,

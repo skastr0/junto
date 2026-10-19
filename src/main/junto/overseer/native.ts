@@ -326,13 +326,13 @@ const resolveTargetNode = async (
   return { canvasName, canvas, node };
 };
 
-/** The terminal binding a seat or a terminal node holds. */
+/** The session a seat or a terminal holds. */
 const bindingOf = (node: Node): { readonly bindingId: string; readonly hostId: string } | undefined =>
   node.kind === "agent" || node.kind === "terminal"
     ? { bindingId: node.bindingId, hostId: node.host }
     : undefined;
 
-const terminalSummary = async (
+const sessionSummary = async (
   ctx: NativeContext,
   bindingId: string,
   hostId: string,
@@ -484,9 +484,9 @@ const startOrWakeAgent = async (
   }
   const still = ctx.signal.aborted ? abortedGrant() : undefined;
   if (still) return still;
-  let summary: Awaited<ReturnType<typeof terminalSummary>>;
+  let summary: Awaited<ReturnType<typeof sessionSummary>>;
   try {
-    summary = await terminalSummary(ctx, surface.bindingId, surface.hostId);
+    summary = await sessionSummary(ctx, surface.bindingId, surface.hostId);
   } catch {
     summary = undefined;
   }
@@ -494,7 +494,7 @@ const startOrWakeAgent = async (
   return ok({
     started: true,
     hostId: surface.hostId,
-    terminal: summary ?? { bindingId: surface.bindingId, hostId: surface.hostId },
+    session: summary ?? { bindingId: surface.bindingId, hostId: surface.hostId },
   });
 };
 
@@ -511,15 +511,15 @@ const handleAgent = async (
     const agents = [];
     for (const node of inPaintOrder(canvas)) {
       if (!isAgentNode(node)) continue;
-      const terminal = await terminalSummary(ctx, node.bindingId, node.host);
+      const session = await sessionSummary(ctx, node.bindingId, node.host);
       agents.push({
         nodeId: node.id,
         agentKey: node.agentKey,
         bindingId: node.bindingId,
         hostId: node.host,
         harness: node.harness,
-        live: terminal?.status === "running" || terminal?.status === "starting",
-        terminal,
+        live: session?.status === "running" || session?.status === "starting",
+        session,
       });
     }
     return ok({ canvas: canvasName, agents });
@@ -538,9 +538,9 @@ const handleAgent = async (
 
   switch (operation) {
     case "agent.get": {
-      const terminal = binding === undefined
+      const session = binding === undefined
         ? undefined
-        : await terminalSummary(ctx, binding.bindingId, binding.hostId);
+        : await sessionSummary(ctx, binding.bindingId, binding.hostId);
       return ok({
         nodeId: node.id,
         canvas: canvasName,
@@ -548,7 +548,7 @@ const handleAgent = async (
         bindingId: binding.bindingId,
         hostId: binding.hostId,
         harness: node.harness,
-        terminal,
+        session,
         chatLive: agentKey !== undefined ? ctx.chats.isLive(agentKey) : false,
       });
     }
@@ -708,8 +708,8 @@ const handleTerminal = async (
       if ("error" in targeted) return targeted;
       const binding = bindingOf(targeted.node);
       if (binding === undefined) return fail("InvalidArguments", "node has no terminal binding");
-      const terminal = await terminalSummary(ctx, binding.bindingId, binding.hostId);
-      return ok({ canvas: canvasName, terminals: terminal === undefined ? [] : [terminal] });
+      const session = await sessionSummary(ctx, binding.bindingId, binding.hostId);
+      return ok({ canvas: canvasName, terminals: session === undefined ? [] : [session] });
     }
     const canvas = (await ctx.listCanvases()).get(canvasName);
     if (canvas === undefined) return fail("NotFound", `canvas not found: ${canvasName}`);
@@ -717,13 +717,13 @@ const handleTerminal = async (
     for (const node of inPaintOrder(canvas)) {
       const binding = bindingOf(node);
       if (binding === undefined) continue;
-      const terminal = await terminalSummary(ctx, binding.bindingId, binding.hostId);
+      const session = await sessionSummary(ctx, binding.bindingId, binding.hostId);
       terminals.push({
         nodeId: node.id,
         kind: node.kind,
         bindingId: binding.bindingId,
         hostId: binding.hostId,
-        terminal,
+        session,
       });
     }
     return ok({ canvas: canvasName, terminals });
@@ -741,9 +741,9 @@ const handleTerminal = async (
 
   switch (operation) {
     case "terminal.get": {
-      const terminal = await terminalSummary(ctx, binding.bindingId, binding.hostId);
-      if (terminal === undefined) return fail("NotFound", `no live terminal for ${binding.bindingId}`);
-      return ok(terminal);
+      const session = await sessionSummary(ctx, binding.bindingId, binding.hostId);
+      if (session === undefined) return fail("NotFound", `no live terminal for ${binding.bindingId}`);
+      return ok(session);
     }
     case "terminal.start": {
       if (node.kind === "agent") {

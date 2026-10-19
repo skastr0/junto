@@ -74,7 +74,7 @@ export const OVERSEER_UNAVAILABLE: ReadonlyArray<{
   {
     capability: "change what an overseer seat runs, remove it, or reseat it",
     reason:
-      "Operator only, for any overseer seat, this one included: agent, harness, host and launch. Renaming, moving, resizing and recoloring an overseer seat are allowed.",
+      "Operator only, for any overseer seat, this one included: agent, session, harness, host and launch. Renaming, moving, resizing and recoloring an overseer seat are allowed.",
   },
   {
     capability: "operator viewport mutation",
@@ -713,7 +713,7 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     command_id: commandIdFor("node.create"),
     command: "overseer node create",
     name: "create a seat",
-    description: "Create a seat by naming what it runs: harness is the only required choice; profile, model, effort, mode, permissionMode, cwd, host, label and onRemove are optional. Never a command line: main builds the launch and the agent key. A seat draft that carries any of these is refused: " + SEAT_FIELDS_MAIN_WORKS_OUT.join(", ") + ".",
+    description: "Create a seat by naming what it runs: harness is the only required choice; profile, model, effort, mode, permissionMode, cwd, host, label and onRemove are optional. Never a command line: main builds the launch, the agent key and the session. A seat draft that carries any of these is refused: " + SEAT_FIELDS_MAIN_WORKS_OUT.join(", ") + ".",
     args: ["overseer", "node", "create"],
     input: {
       node: { kind: "agent", harness: "claude", model: "opus", effort: "high", label: "Reviewer", x: 0, y: 200, width: 260, height: 120 },
@@ -800,7 +800,7 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     command_id: commandIdFor("agent.reseat"),
     command: "overseer agent reseat",
     name: "put another agent on a seat",
-    description: "Name what the seat now runs: harness, and optionally profile, model, effort, mode, permissionMode and host. Never a command line: main builds the launch. The seat keeps its wires, its mailbox and the directory it starts in, and starts fresh. Reseat does not inherit the overseer grant.",
+    description: "Name what the seat now runs: harness, and optionally profile, model, effort, mode, permissionMode and host. Never a command line: main builds the launch. The seat keeps its wires, its mailbox and the directory it starts in, and gets a new session. Reseat does not inherit the overseer grant.",
     args: ["overseer", "agent", "reseat"],
     input: { nodeId: "agent-1", harness: "codex", model: "gpt-5", effort: "high" },
   },

@@ -175,11 +175,9 @@ describe("a seat draft that names what main works out", () => {
     const base = { kind: "agent", x: 0, y: 0, width: 1, height: 1, harness: "claude" };
     expect(seatDraftRefusal(base)).toBeUndefined();
     expect(seatDraftRefusal({ kind: "note", launch: {} })).toBeUndefined();
-    for (const field of ["agentKey", "bindingId", "launch", "overseer"]) {
+    for (const field of ["agentKey", "bindingId", "launch", "sessionId", "overseer"]) {
       expect(seatDraftRefusal({ ...base, [field]: "x" })).toContain(field);
     }
-    // A seat has no session field to name: decoding refuses it as unknown.
-    expect(seatDraftRefusal({ ...base, sessionId: "x" })).toBeUndefined();
     expect(seatDraftRefusal({ ...base, overseer: true })).toMatch(/Only the operator/u);
   });
 });

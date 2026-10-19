@@ -44,9 +44,9 @@ const Choice = Schema.String.pipe(Schema.check(Schema.isMinLength(1)));
 /**
  * A seat to add, by naming what it runs. This is not the model's seat with
  * fields left out: a sender says the harness and its dials, and main works out
- * the rest with the one set of seat launch rules (the agent key, the binding
- * and the launch). So it has no `agentKey`, `bindingId` or `launch`, and no
- * `overseer`, which is the
+ * the rest with the one set of seat launch rules (the agent key, the session
+ * binding, the launch and a pinned session). So it has no `agentKey`,
+ * `bindingId`, `launch` or `sessionId`, and no `overseer`, which is the
  * operator's grant with its own command. A plain terminal, by contrast, is
  * drafted with its launch: a command is what the sender means there.
  */
@@ -88,6 +88,7 @@ export const SEAT_FIELDS_MAIN_WORKS_OUT = [
   "agentKey",
   "bindingId",
   "launch",
+  "sessionId",
   "overseer",
 ] as const;
 

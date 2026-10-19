@@ -194,7 +194,7 @@ replay.
 | `canvas.read` | `{name, seq, nodes, wires}`, nodes in paint order; `seq` is a number |
 | `canvas.read`, `node.list`, `node.get`, `wire.list`, `wire.get` | structure only; no tasks, requests, artifacts, mail or board topics ride on a node; work is read with its own command |
 | `node.create`, `wire.connect` | a draft: `id` optional and minted by main, no `z`; the answer carries the node or wire with its id |
-| Seats | created and reseated by naming what they run: `harness` required, `profile`, `model`, `effort`, `mode`, `permissionMode`, `host` optional (and `cwd`, `label`, `onRemove` on create); main builds the launch and agent key; a seat draft carrying `launch`, `agentKey`, `bindingId` or `overseer` is `InputError`; a terminal draft keeps `launch` |
+| Seats | created and reseated by naming what they run: `harness` required, `profile`, `model`, `effort`, `mode`, `permissionMode`, `host` optional (and `cwd`, `label`, `onRemove` on create); main builds the launch, agent key and session; a seat draft carrying `launch`, `agentKey`, `bindingId`, `sessionId` or `overseer` is `InvalidArguments`; a terminal draft keeps `launch` |
 | `node.configure`, `scheduler.configure` | `change` is the model edit for the node's kind; a kind that is not the node's is `InvalidArguments` naming the actual kind |
 | `node.recolor`, `node.delete` | take `nodeIds`, one or many |
 | `canvas.batch` | `{canvas?, expectedSeq?, steps}`; a canvas that moved since `expectedSeq` is `Conflict` |
@@ -203,7 +203,7 @@ replay.
 | `canvas.digest` | the model digest main also writes for the window and the canvas CLI (`readModelDigest`), read without adapter snapshot data |
 | `canvas.render` | an SVG of the canvas, with task rows marked on their boards |
 | Writes | one transaction: a batch all lands or none of it does |
-| Overseer seats | an overseer may rename, move, resize and recolor an overseer seat, its own included; changing what it runs (agent, harness, host, launch), removing it or reseating it is refused by the model as `Forbidden`: "Only the operator can change what an overseer seat runs or remove it." |
+| Overseer seats | an overseer may rename, move, resize and recolor an overseer seat, its own included; changing what it runs (agent, session, harness, host, launch), removing it or reseating it is refused by the model as `Forbidden`: "Only the operator can change what an overseer seat runs or remove it." |
 
 ## Human toggle (not a wire operation)
 

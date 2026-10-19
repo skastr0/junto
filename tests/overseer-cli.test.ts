@@ -598,7 +598,7 @@ describe("overseer region environment and secrets CLI", { timeout: SPAWNING_TEST
       [["overseer", "node", "create", '{"node":{"kind":"agent","harness":"claude","launch":{"kind":"harness","argv":["claude"]},"x":0,"y":0,"width":260,"height":120}}'], ["launch"]],
       [["overseer", "node", "create", '{"node":{"kind":"agent","harness":"claude","overseer":true,"agentKey":"local:claude","x":0,"y":0,"width":260,"height":120}}'], ["agentKey", "overseer"]],
       [["overseer", "agent", "reseat", '{"nodeId":"a1","harness":"codex","launch":{"kind":"harness","argv":["codex"]}}'], ["launch"]],
-      [["overseer", "canvas", "batch", '{"steps":[{"operation":"node.create","node":{"kind":"agent","harness":"claude","bindingId":"b","x":0,"y":0,"width":260,"height":120}}]}'], ["bindingId"]],
+      [["overseer", "canvas", "batch", '{"steps":[{"operation":"node.create","node":{"kind":"agent","harness":"claude","sessionId":"s","x":0,"y":0,"width":260,"height":120}}]}'], ["sessionId"]],
     ] as const) {
       const refused = await runCli(args, { workHome });
       expect(refused.code).toBe(1);
@@ -654,11 +654,9 @@ describe("overseer region environment and secrets CLI", { timeout: SPAWNING_TEST
       .filter((example) => /agent\.reseat|node\.create/u.test(example.command_id))
       .map((example) => example.input);
     expect(JSON.stringify(seatInputs)).not.toMatch(/argv|agentKey|bindingId|sessionId|overseer|launch/u);
-    for (const field of ["agentKey", "bindingId", "launch", "overseer"]) {
+    for (const field of ["agentKey", "bindingId", "launch", "sessionId", "overseer"]) {
       expect(OVERSEER_SKILL_MARKDOWN).toContain(`\`${field}\``);
     }
-    // Seats, not sessions: the skill never teaches a harness session.
-    expect(OVERSEER_SKILL_MARKDOWN).not.toMatch(/sessionId|new session|agent, session/u);
     expect(OVERSEER_SKILL_MARKDOWN).not.toMatch(/ether\.|edge connect|expectedRevision` from/u);
     const help = await runCli(["overseer", "--help"]);
     expect(`${help.stdout}${help.stderr}`).toMatch(/\bwire\b/u);

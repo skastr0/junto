@@ -358,12 +358,12 @@ test("[fake-tui] the overseer's model-kind commands: read, node, wire, the retir
     await soft(card(R), "step 8: a seat named Reviewer appears").toContainText("Reviewer", { timeout: 15_000 });
     await soft(card(R).locator(".junto-node"), "step 8: it carries no overseer mark").not.toHaveAttribute("data-overseer", "true");
     soft(await seatState(page, R), "step 8: it is not started").toMatch(/^(none|gone)$/u);
-    // `agent get` prints nodeId, canvas, agentKey, bindingId, hostId, harness, terminal, chatLive (overseer/native.ts:542-556): no grant among them.
+    // `agent get` prints nodeId, canvas, agentKey, bindingId, hostId, harness, session, chatLive (overseer/native.ts:547-559): no grant among them.
     const s8get = await run("8b", o, ["overseer", "agent", "get", input({ nodeId: R })]);
     expectPass("8 (agent get)", s8get);
     soft(s8get.data.harness, "step 8: agent get shows its harness").toBe(CREATE_HARNESS);
     soft(/"overseer"\s*:\s*true/u.test(s8get.result.stdout), "step 8: agent get shows no grant").toBe(false);
-    soft((s8get.data.terminal as { readonly status?: unknown } | undefined)?.status ?? "none", "step 8: agent get shows no live process").not.toBe("running");
+    soft((s8get.data.session as { readonly status?: unknown } | undefined)?.status ?? "none", "step 8: agent get shows no live process").not.toBe("running");
     await shot("8-seat-created");
 
     const before8 = await counts();
