@@ -1,5 +1,7 @@
 import { Schema } from "effect";
-import { mailThreadOf } from "./crew";
+import { MailMessageId, mailThreadOf } from "./crew";
+import { CanvasName, NodeId } from "./model/base";
+import { COMPANION_MAX_TEXT } from "./wire/companion-protocol";
 import { messageIdTimeMs } from "./message-delivery";
 import type { Message } from "./work-model";
 import { OPERATOR_SEAT_ID } from "./work-reference";
@@ -12,10 +14,10 @@ import type { MailParty, MailThreadMessage, MailThreadSummary } from "./wire/mai
  *
  * A mail's thread is its `threadId`, or its own id when it starts one. Mail
  * reaches a thread three ways: seat mail and replies (each a row in the
- * recipient's mailbox), operator mail (a row in each addressed seat's
- * mailbox, one per seat, sharing a `sendId`), and a seat's reply to the
- * operator (an agent-role row in the seat's own mailbox naming
- * `toNodeId: "operator"`). Nothing here reads or writes anything else.
+ * recipient's mailbox), operator mail (a row in the one seat it is written
+ * to), and a seat's reply to the operator (an agent-role row in the seat's
+ * own mailbox naming `toNodeId: "operator"`). A mention is a reference the
+ * mail carries, never a recipient. Nothing here reads or writes anything else.
  *
  * There is no operator read state for mail, so a summary says nothing about
  * what the operator has seen.
@@ -43,18 +45,21 @@ const stringField = (message: Message, key: string): string | undefined => {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
 };
 
-const sameParty = (a: MailParty, b: MailParty): boolean =>
-  a.kind === b.kind && (a.kind === "operator" || (b.kind === "seat" && a.nodeId === b.nodeId));
-
 const partyKey = (party: MailParty): string => (party.kind === "operator" ? "operator" : `seat:${party.nodeId}`);
 
-type Entry = MailThreadMessage & { readonly sendKey: string };
+type Entry = MailThreadMessage;
+type SeatParty = Extract<MailParty, { kind: "seat" }>;
+
+const mentionsOf = (row: Message, seat: (nodeId: string) => SeatParty): ReadonlyArray<SeatParty> => {
+  const held = row.metadata?.mentions;
+  return Array.isArray(held) ? held.filter((id): id is string => typeof id === "string").map(seat) : [];
+};
 
 /**
  * One mailbox row as thread mail, or undefined when it is not conversation:
  * task comments, receipts, Junto's own prompts, and a seat's private notes.
  */
-const entryOf = (row: Message, mailbox: string, seat: (nodeId: string) => MailParty): Entry | undefined => {
+const entryOf = (row: Message, mailbox: string, seat: (nodeId: string) => SeatParty): Entry | undefined => {
   if (row.metadata?.factoryMail !== true || row.taskId !== undefined) return undefined;
   if (stringField(row, "mailKind") === "receipt") return undefined;
   const fromSeat = stringField(row, "fromSeat");
@@ -76,6 +81,7 @@ const entryOf = (row: Message, mailbox: string, seat: (nodeId: string) => MailPa
     to = seat(mailbox);
   }
   const inReplyTo = stringField(row, "inReplyTo");
+  const mentions = mentionsOf(row, seat);
   return {
     messageId: row.messageId,
     threadId: mailThreadOf(row),
@@ -85,36 +91,20 @@ const entryOf = (row: Message, mailbox: string, seat: (nodeId: string) => MailPa
     mine: from.kind === "operator",
     text: text(row),
     at: messageIdTimeMs(row.messageId) ?? 0,
-    sendKey: stringField(row, "sendId") ?? row.messageId,
+    ...(mentions.length === 0 ? {} : { mentions }),
   };
 };
 
-/** Every thread mail held, one entry per send, recipients merged. */
+/** Every thread mail held, oldest first. */
 const entriesOf = (input: MailThreadsInput): ReadonlyArray<Entry> => {
-  const seat = (nodeId: string): MailParty => ({ kind: "seat", nodeId, name: input.nameOf(nodeId) ?? nodeId });
-  const bySend = new Map<string, Entry>();
-  for (const mailbox of input.mailboxes) {
-    for (const row of mailbox.messages) {
-      const entry = entryOf(row, mailbox.nodeId, seat);
-      if (entry === undefined) continue;
-      const held = bySend.get(entry.sendKey);
-      if (held === undefined) {
-        bySend.set(entry.sendKey, entry);
-        continue;
-      }
-      // The copy whose id is the send's own id speaks for it.
-      const lead = entry.messageId === entry.sendKey ? entry : held;
-      const to = [...held.to, ...entry.to.filter((party) => !held.to.some((known) => sameParty(known, party)))];
-      bySend.set(entry.sendKey, { ...lead, to });
-    }
-  }
-  return [...bySend.values()].sort((a, b) => a.at - b.at || a.messageId.localeCompare(b.messageId));
+  const seat = (nodeId: string): SeatParty => ({ kind: "seat", nodeId, name: input.nameOf(nodeId) ?? nodeId });
+  return input.mailboxes
+    .flatMap((mailbox) => mailbox.messages.flatMap((row) => entryOf(row, mailbox.nodeId, seat) ?? []))
+    .sort((a, b) => a.at - b.at || a.messageId.localeCompare(b.messageId));
 };
 
 const involves = (entry: Entry, nodeId: string): boolean =>
   [entry.from, ...entry.to].some((party) => party.kind === "seat" && party.nodeId === nodeId);
-
-const strip = ({ sendKey: _sendKey, ...message }: Entry): MailThreadMessage => message;
 
 const summaryOf = (threadId: string, entries: ReadonlyArray<Entry>): MailThreadSummary => {
   const first = entries[0]!;
@@ -132,7 +122,7 @@ const summaryOf = (threadId: string, entries: ReadonlyArray<Entry>): MailThreadS
     participants: [...participants.values()],
     startedAt: first.at,
     lastAt: last.at,
-    last: strip(last),
+    last,
     messageCount: entries.length,
     canReply: entries.some((entry) => entry.mine || entry.to.some((party) => party.kind === "operator")),
   };
@@ -162,37 +152,39 @@ export const seatMailThreadMessages = (
   input: MailThreadsInput,
   nodeId: string,
   threadId: string,
-): ReadonlyArray<MailThreadMessage> => (threadsTouching(input, nodeId).get(threadId) ?? []).map(strip);
+): ReadonlyArray<MailThreadMessage> => threadsTouching(input, nodeId).get(threadId) ?? [];
 
 // ---- Operator send ----
 
+/** The most seats one mail may mention. */
+export const MAIL_MENTIONS_MAX = 32;
+/** Operator mail text, the same bound as the phone's and a signal answer. */
+export const OPERATOR_MAIL_MAX_TEXT = COMPANION_MAX_TEXT;
+
 /**
- * The operator writes in a seat's threads: with neither id, a new thread to
- * the seat; with `inReplyTo`, a reply in that mail's thread; with `threadId`
- * alone, a mail into that thread. `mentions` are seats wired to this seat;
- * each gets the same mail in the same thread.
+ * The operator writes in a seat's threads, always to that seat alone: with
+ * neither id, a new thread; with `inReplyTo`, a reply in that mail's thread;
+ * with `threadId` alone, a mail into that thread. `mentions` are references
+ * only, seats wired to this seat, kept on the mail; they receive nothing.
  */
 export const OperatorThreadSend = Schema.Struct({
-  canvasName: Schema.NonEmptyString,
-  nodeId: Schema.NonEmptyString,
-  text: Schema.NonEmptyString,
-  threadId: Schema.optionalKey(Schema.NonEmptyString),
-  inReplyTo: Schema.optionalKey(Schema.NonEmptyString),
-  mentions: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
+  canvasName: CanvasName,
+  nodeId: NodeId,
+  text: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(OPERATOR_MAIL_MAX_TEXT))),
+  threadId: Schema.optionalKey(MailMessageId),
+  inReplyTo: Schema.optionalKey(MailMessageId),
+  mentions: Schema.optionalKey(Schema.Array(NodeId).pipe(Schema.check(Schema.isMaxLength(MAIL_MENTIONS_MAX)))),
 });
-export type OperatorThreadSend = typeof OperatorThreadSend.Type;
+/** As a caller sends it; main decodes it to `OperatorThreadSendDecoded`. */
+export type OperatorThreadSend = typeof OperatorThreadSend.Encoded;
+export type OperatorThreadSendDecoded = typeof OperatorThreadSend.Type;
 
 export type OperatorThreadSent =
   | {
       readonly ok: true;
-      /** The mail to the seat; each mentioned seat holds its own copy. */
       readonly messageId: string;
       readonly threadId: string;
-      readonly delivery: ReadonlyArray<{
-        readonly nodeId: string;
-        readonly messageId: string;
-        readonly state: "delivered" | "waiting_for_seat" | "failed";
-      }>;
+      readonly delivery: "delivered" | "waiting_for_seat" | "failed";
     }
   | { readonly ok: false; readonly reason: "not-found" | "invalid" | "failed"; readonly message: string };
 
@@ -200,14 +192,18 @@ export type OperatorThreadSent =
 export type MentionableSeat = { readonly nodeId: string; readonly name: string };
 
 export const SeatThreadsQuery = Schema.Struct({
-  canvasName: Schema.NonEmptyString,
-  nodeId: Schema.NonEmptyString,
+  canvasName: CanvasName,
+  nodeId: NodeId,
 });
-export type SeatThreadsQuery = typeof SeatThreadsQuery.Type;
+/** As a caller sends it; main decodes it to `SeatThreadsQueryDecoded`. */
+export type SeatThreadsQuery = typeof SeatThreadsQuery.Encoded;
+export type SeatThreadsQueryDecoded = typeof SeatThreadsQuery.Type;
 
 export const SeatThreadQuery = Schema.Struct({
-  canvasName: Schema.NonEmptyString,
-  nodeId: Schema.NonEmptyString,
-  threadId: Schema.NonEmptyString,
+  canvasName: CanvasName,
+  nodeId: NodeId,
+  threadId: MailMessageId,
 });
-export type SeatThreadQuery = typeof SeatThreadQuery.Type;
+/** As a caller sends it; main decodes it to `SeatThreadQueryDecoded`. */
+export type SeatThreadQuery = typeof SeatThreadQuery.Encoded;
+export type SeatThreadQueryDecoded = typeof SeatThreadQuery.Type;

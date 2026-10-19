@@ -4,9 +4,12 @@
  * a mention may name, and the operator's send into a thread.
  *
  * Operator mail is what the desktop and the phone already write: one row in
- * each addressed seat's mailbox through `workSystemMailboxNotify`, handed to
- * `messageDelivery`. A send with mentions writes one row per seat, sharing a
- * `sendId` and the thread, so the derivation reads it as one mail.
+ * the browsed seat's mailbox through `workSystemMailboxNotify`, handed to
+ * `messageDelivery`. Mentions are references kept on that row; a mentioned
+ * seat is sent nothing.
+ *
+ * Mail text never enters a refusal: every refusal here is fixed words and
+ * typed ids, and a failed write is reported without the store's message.
  */
 import { Effect } from "effect";
 import { ulid } from "ulid";
@@ -19,7 +22,7 @@ import {
   seatMailThreads,
   type MailThreadsInput,
   type MentionableSeat,
-  type OperatorThreadSend,
+  type OperatorThreadSendDecoded,
   type OperatorThreadSent,
 } from "@shared/mail-threads";
 import { operatorActorRef } from "@shared/work-reference";
@@ -66,19 +69,15 @@ export const mentionableSeats = (canvasName: string, nodeId: string) =>
   Effect.map(Effect.flatMap(ModelService, (model) => model.canvas(canvasName)), (canvas) => mentionableIn(canvas, nodeId));
 
 type Refused = Extract<OperatorThreadSent, { ok: false }>;
-/** Rows written, before delivery. */
-export type OperatorThreadWritten = {
-  readonly leadId: string;
-  readonly threadId: string;
-  readonly written: ReadonlyArray<{ readonly nodeId: string; readonly messageId: string; readonly ok: boolean }>;
-};
+/** The row written, before delivery. */
+export type OperatorThreadWritten = { readonly messageId: string; readonly threadId: string };
 const refused = (reason: Refused["reason"], message: string): Refused => ({ ok: false, reason, message });
 
 /**
- * Write the operator's mail into the seat's thread and to each mentioned
- * seat, then hand every row to delivery. Every check runs before any write.
+ * Write the operator's mail into the seat's thread, to that seat alone. Every
+ * check runs before the write.
  */
-export const sendOperatorThreadMail = (send: OperatorThreadSend) =>
+export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
   Effect.gen(function* (): Effect.fn.Return<Refused | OperatorThreadWritten, unknown, ModelService | WorkService> {
     const { canvasName, nodeId } = send;
     const { canvas, input } = yield* threadsInput(canvasName);
@@ -117,58 +116,49 @@ export const sendOperatorThreadMail = (send: OperatorThreadSend) =>
     }
 
     const sender = operatorActorRef(canvasName);
-    const leadId = ulid();
-    const thread = threadId ?? leadId;
-    const work = yield* WorkService;
-    const written: Array<{ nodeId: string; messageId: string; ok: boolean }> = [];
-    for (const target of [nodeId, ...mentions]) {
-      const messageId = target === nodeId ? leadId : ulid();
-      const result = yield* work.workSystemMailboxNotify(
-        canvasName,
-        target,
-        makeUserMessage({
-          messageId,
-          text,
-          contextId: canvasName,
-          metadata: {
-            factoryMail: true,
-            ...mailExtensionMetadata({
-              mailKind: "prompt",
-              fromSeat: sender.seatId,
-              senderNodeId: sender.nodeId,
-              senderName: "operator",
-              senderGeneration: "operator",
-              senderHarness: "unknown",
-            }),
-            // A new thread's root carries no threadId; its id is the thread.
-            ...(messageId === thread ? {} : { threadId: thread }),
-            ...(send.inReplyTo === undefined ? {} : { inReplyTo: send.inReplyTo }),
-            ...(mentions.length === 0 ? {} : { sendId: leadId }),
-          },
-        }),
-      );
-      if (!result.ok && target === nodeId) return refused("failed", result.message);
-      written.push({ nodeId: target, messageId: result.ok ? result.data.messageId : messageId, ok: result.ok });
-    }
-    return { leadId, threadId: thread, written };
+    const messageId = ulid();
+    const result = yield* (yield* WorkService).workSystemMailboxNotify(
+      canvasName,
+      nodeId,
+      makeUserMessage({
+        messageId,
+        text,
+        contextId: canvasName,
+        metadata: {
+          factoryMail: true,
+          ...mailExtensionMetadata({
+            mailKind: "prompt",
+            fromSeat: sender.seatId,
+            senderNodeId: sender.nodeId,
+            senderName: "operator",
+            senderGeneration: "operator",
+            senderHarness: "unknown",
+          }),
+          // A new thread's root carries no threadId; its id is the thread.
+          ...(threadId === undefined ? {} : { threadId }),
+          ...(send.inReplyTo === undefined ? {} : { inReplyTo: send.inReplyTo }),
+          ...(mentions.length === 0 ? {} : { mentions }),
+        },
+      }),
+    );
+    // The store's message is not passed on: it is not the operator's to read,
+    // and nothing may carry the mail's text out of the mailbox.
+    if (!result.ok) return refused("failed", "The mail could not be written.");
+    return { messageId: result.data.messageId, threadId: threadId ?? result.data.messageId };
   });
 
-/** After the writes: delivery for each row, in the protocol's three words. */
+/** After the write: delivery, in the protocol's three words. */
 export const deliverOperatorThreadMail = async (
   canvasName: string,
+  nodeId: string,
   sent: Refused | OperatorThreadWritten,
 ): Promise<OperatorThreadSent> => {
   if ("ok" in sent) return sent;
-  const delivery = await Promise.all(
-    sent.written.map(async ({ nodeId, messageId, ok }) => {
-      if (!ok) return { nodeId, messageId, state: "failed" as const };
-      const state = await messageDelivery.deliver(canvasName, nodeId, messageId).catch(() => "failed" as const);
-      return {
-        nodeId,
-        messageId,
-        state: state === "delivered" ? ("delivered" as const) : state === "failed" ? ("failed" as const) : ("waiting_for_seat" as const),
-      };
-    }),
-  );
-  return { ok: true, messageId: sent.leadId, threadId: sent.threadId, delivery };
+  const state = await messageDelivery.deliver(canvasName, nodeId, sent.messageId).catch(() => "failed" as const);
+  return {
+    ok: true,
+    messageId: sent.messageId,
+    threadId: sent.threadId,
+    delivery: state === "delivered" ? "delivered" : state === "failed" ? "failed" : "waiting_for_seat",
+  };
 };

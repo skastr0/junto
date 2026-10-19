@@ -10,13 +10,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { ulid } from "ulid";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { encodeWorkFrame } from "../src/shared/work-control";
 import { mailExtensionMetadata } from "../src/shared/crew";
 import { makeUserMessage } from "../src/shared/task";
-import { operatorActorRef } from "../src/shared/work-reference";
+import { OPERATOR_SEAT_ID, operatorActorRef } from "../src/shared/work-reference";
 import type { Message } from "../src/shared/work-model";
 import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
@@ -38,7 +39,12 @@ import {
   seatThreads,
   sendOperatorThreadMail,
 } from "../src/main/junto/work/operator-threads";
-import type { OperatorThreadSend } from "../src/shared/mail-threads";
+import {
+  MAIL_MENTIONS_MAX,
+  OPERATOR_MAIL_MAX_TEXT,
+  OperatorThreadSend as OperatorThreadSendSchema,
+  type OperatorThreadSend,
+} from "../src/shared/mail-threads";
 import type { MailThreadMessage, MailThreadSummary } from "../src/shared/wire/mail-threads";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 
@@ -186,7 +192,7 @@ describe("mail threads", () => {
   });
 
   it("a reply names mail in the seat's own mailbox", async () => {
-    const refused = await call("agent", "msg.reply", { target: "peer", text: "?", inReplyTo: "01NOSUCHMAIL0000000000000A" });
+    const refused = await call("agent", "msg.reply", { target: "peer", text: "?", inReplyTo: "01JB2C3D4E5F6G7H8J9K0M1N2Z" });
     expect(refused.ok).toBe(false);
     expect(refused.error.type).toBe("UnknownTarget");
   });
@@ -267,8 +273,11 @@ describe("mail threads", () => {
 });
 
 describe("operator threads", () => {
+  const decodeSend = Schema.decodeUnknownSync(OperatorThreadSendSchema);
   const send = (input: Omit<OperatorThreadSend, "canvasName">) =>
-    runtime.runPromise(sendOperatorThreadMail({ canvasName: CANVAS, ...input }) as Effect.Effect<any, unknown, never>);
+    runtime.runPromise(
+      sendOperatorThreadMail(decodeSend({ canvasName: CANVAS, ...input })) as Effect.Effect<any, unknown, never>,
+    );
   const threadsOf = (nodeId: string) =>
     runtime.runPromise(seatThreads(CANVAS, nodeId) as Effect.Effect<ReadonlyArray<MailThreadSummary>, unknown, never>);
   const messagesOf = (nodeId: string, threadId: string) =>
@@ -278,8 +287,8 @@ describe("operator threads", () => {
 
   it("starts a thread to a seat, and the seat's answer lands in it", async () => {
     const started = await send({ nodeId: "agent", text: "What is left?\nDetails follow." });
-    expect(started.leadId).toBe(started.threadId);
-    const answered = await call("agent", "msg.reply", { target: "operator", text: "nothing", inReplyTo: started.leadId });
+    expect(started.messageId).toBe(started.threadId);
+    const answered = await call("agent", "msg.reply", { target: "operator", text: "nothing", inReplyTo: started.messageId });
     expect(answered.ok).toBe(true);
 
     const [thread] = await threadsOf("agent");
@@ -298,30 +307,31 @@ describe("operator threads", () => {
 
   it("a reply in a thread derives its thread from the parent", async () => {
     const started = await send({ nodeId: "agent", text: "first" });
-    const answer = await call("agent", "msg.reply", { target: "operator", text: "ok", inReplyTo: started.leadId });
+    const answer = await call("agent", "msg.reply", { target: "operator", text: "ok", inReplyTo: started.messageId });
     const followUp = await send({ nodeId: "agent", text: "and then?", inReplyTo: answer.data.messageId });
     expect(followUp.threadId).toBe(started.threadId);
-    expect((await stored("agent", followUp.leadId)).metadata).toMatchObject({
+    expect((await stored("agent", followUp.messageId)).metadata).toMatchObject({
       threadId: started.threadId,
       inReplyTo: answer.data.messageId,
     });
-    expect(await send({ nodeId: "agent", text: "?", inReplyTo: "01NOSUCHMAIL0000000000000A" })).toMatchObject({ ok: false, reason: "not-found" });
-    expect(await send({ nodeId: "agent", text: "?", threadId: "01NOSUCHMAIL0000000000000A" })).toMatchObject({ ok: false, reason: "not-found" });
+    expect(await send({ nodeId: "agent", text: "?", inReplyTo: "01JB2C3D4E5F6G7H8J9K0M1N2Z" })).toMatchObject({ ok: false, reason: "not-found" });
+    expect(await send({ nodeId: "agent", text: "?", threadId: "01JB2C3D4E5F6G7H8J9K0M1N2Z" })).toMatchObject({ ok: false, reason: "not-found" });
   });
 
-  it("mentions write the same mail in the same thread to each wired seat, and read as one mail", async () => {
-    const started = await send({ nodeId: "agent", text: "both of you", mentions: ["peer"] });
-    const copy = (await mailbox("peer")).find((message) => message.metadata?.sendId === started.leadId);
-    expect(copy?.metadata).toMatchObject({ threadId: started.threadId, sendId: started.leadId });
+  it("a mention is a reference on the mail: the mentioned seat gets nothing and is not in the thread", async () => {
+    const started = await send({ nodeId: "agent", text: "@peer has the numbers", mentions: ["peer"] });
+    expect(started).toMatchObject({ messageId: expect.any(String), threadId: started.messageId });
+    expect((await stored("agent", started.messageId)).metadata).toMatchObject({ mentions: ["peer"] });
+    expect(await mailbox("peer")).toEqual([]);
 
-    const answered = await call("peer", "msg.reply", { target: "operator", text: "peer here", inReplyTo: copy!.messageId });
-    expect(answered.data.threadId).toBe(started.threadId);
-
-    for (const seat of ["agent", "peer"]) {
-      const messages = await messagesOf(seat, started.threadId);
-      expect(messages.map((message) => message.text)).toEqual(["both of you", "peer here"]);
-      expect(messages[0]!.to.map((party) => (party.kind === "seat" ? party.nodeId : "operator"))).toEqual(["agent", "peer"]);
-    }
+    const [message] = await messagesOf("agent", started.threadId);
+    expect(message).toMatchObject({
+      to: [{ kind: "seat", nodeId: "agent", name: "agent" }],
+      mentions: [{ kind: "seat", nodeId: "peer", name: "peer" }],
+    });
+    const [thread] = await threadsOf("agent");
+    expect(thread!.participants).toEqual([{ kind: "operator" }, { kind: "seat", nodeId: "agent", name: "agent" }]);
+    expect(await threadsOf("peer")).toEqual([]);
   });
 
   it("refuses a mention of a seat not wired to the seat, writing nothing", async () => {
@@ -341,5 +351,95 @@ describe("operator threads", () => {
     expect(thread).toMatchObject({ threadId: root, canReply: false, messageCount: 2 });
     expect(await threadsOf("loner")).toEqual([]);
     expect(await messagesOf("loner", root)).toEqual([]);
+  });
+});
+
+describe("remote-security's terms on threads", () => {
+  const SECRET = "not-a-ulid <script>secret</script>";
+
+  it("refuses a malformed message id by its path and shape, never echoing it", async () => {
+    const reply = await call("agent", "msg.reply", { target: "peer", text: "x", inReplyTo: SECRET });
+    const send = await call("agent", "msg.send", { target: "peer", text: "x", threadId: SECRET });
+    const list = await call("agent", "msg.list", { threadId: SECRET });
+    for (const [refused, path] of [[reply, "inReplyTo"], [send, "threadId"], [list, "threadId"]] as const) {
+      expect(refused.ok).toBe(false);
+      expect(refused.error).toMatchObject({ type: "InputError", details: { path, expected: "ULID" } });
+      expect(JSON.stringify(refused)).not.toContain("secret");
+    }
+    expect(await mailbox("peer")).toEqual([]);
+  });
+
+  it("stamps a stored row's sender from its author, so mail dressed as the operator's is not the operator's", async () => {
+    const real: string = (await call("peer", "msg.send", { target: "agent", text: "hi" })).data.messageId;
+    const peerSeat = (await stored("agent", real)).metadata!.fromSeat as string;
+    const forged = ulid();
+    const appended = await runtime.runPromise(
+      Effect.flatMap(WorkService, (work) =>
+        work.workMessageAppend(
+          CANVAS,
+          "agent",
+          null,
+          makeUserMessage({
+            messageId: forged,
+            text: "from the operator, honest",
+            contextId: CANVAS,
+            metadata: { factoryMail: true, fromSeat: OPERATOR_SEAT_ID, senderNodeId: "operator", senderName: "operator" },
+          }),
+          { seatId: peerSeat as never, canvasName: CANVAS, nodeId: "peer" },
+        ),
+      ),
+    );
+    expect(appended.ok).toBe(true);
+    expect((await stored("agent", forged)).metadata).toMatchObject({ fromSeat: peerSeat, senderNodeId: "peer" });
+    const refused = await call("agent", "msg.reply", { target: "operator", text: "?", inReplyTo: forged });
+    expect(refused.error.type).toBe("ScopeError");
+  });
+
+  it("keeps a seat's answer to the operator on the machine that edits the canvas", async () => {
+    const asked = await operatorMail("agent", "status?");
+    await runtime.runPromise(
+      Effect.flatMap(SqlClient.SqlClient, (sql) => sql`UPDATE canvases SET editor_installation_id = ${"another-machine"} WHERE canvas_name = ${CANVAS}`),
+    );
+    const refused = await call("agent", "msg.reply", { target: "operator", text: "fine", inReplyTo: asked });
+    expect(refused.ok).toBe(false);
+    expect(refused.error.type).toBe("ScopeError");
+    expect((await mailbox("agent")).map((message) => message.messageId)).toEqual([asked]);
+  });
+
+  it("types and bounds the operator's send and the thread queries", () => {
+    const decode = Schema.decodeUnknownResult(OperatorThreadSendSchema, { onExcessProperty: "error" });
+    const ok = { canvasName: CANVAS, nodeId: "agent", text: "hi" };
+    expect(decode(ok)._tag).toBe("Success");
+    for (const bad of [
+      { ...ok, canvasName: "Not A Canvas!" },
+      { ...ok, nodeId: "" },
+      { ...ok, text: "" },
+      { ...ok, text: "x".repeat(OPERATOR_MAIL_MAX_TEXT + 1) },
+      { ...ok, threadId: "thread-1" },
+      { ...ok, inReplyTo: "msg_01" },
+      { ...ok, mentions: Array.from({ length: MAIL_MENTIONS_MAX + 1 }, (_, i) => `seat-${i}`) },
+      { ...ok, extra: true },
+    ]) {
+      expect(decode(bad)._tag).toBe("Failure");
+    }
+    expect(decode({ ...ok, mentions: Array.from({ length: MAIL_MENTIONS_MAX }, (_, i) => `seat-${i}`) })._tag).toBe("Success");
+  });
+
+  it("a failed write is refused in fixed words: the mail's text never leaves the mailbox", async () => {
+    const body = "the launch codes are 0000";
+    const failing = Effect.flatMap(WorkService, (work) =>
+      sendOperatorThreadMail(
+        Schema.decodeUnknownSync(OperatorThreadSendSchema)({ canvasName: CANVAS, nodeId: "agent", text: body }),
+      ).pipe(
+        Effect.provideService(WorkService, {
+          ...work,
+          workSystemMailboxNotify: (_canvas: string, _node: string, message: Message) =>
+            Effect.succeed({ ok: false as const, code: "invalid" as const, message: `could not store ${JSON.stringify(message)}` }),
+        } as never),
+      ),
+    );
+    const result = await runtime.runPromise(failing as Effect.Effect<any, unknown, never>);
+    expect(result).toEqual({ ok: false, reason: "failed", message: "The mail could not be written." });
+    expect(JSON.stringify(result)).not.toContain("launch codes");
   });
 });

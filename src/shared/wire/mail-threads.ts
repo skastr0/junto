@@ -18,13 +18,15 @@ export const MailThreadMessage = Schema.Struct({
   threadId: Schema.String,
   inReplyTo: Schema.optionalKey(Schema.String),
   from: MailParty,
-  /** Every recipient; operator mail with mentions has several. */
+  /** Who it was written to: always one. */
   to: Schema.Array(MailParty),
   /** The operator wrote it. */
   mine: Schema.Boolean,
   text: Schema.String,
   /** Epoch ms, from the ULID. */
   at: Schema.Number,
+  /** Seats the mail names as a reference; they are not sent it. */
+  mentions: Schema.optionalKey(Schema.Array(Schema.Struct({ kind: Schema.Literal("seat"), nodeId: Schema.String, name: Schema.String }))),
 });
 export type MailThreadMessage = typeof MailThreadMessage.Type;
 

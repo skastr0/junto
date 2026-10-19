@@ -31,7 +31,13 @@ import {
 } from "@shared/overseer-host-control";
 import type { OverseerHostIdentity, OverseerLiveExecutionConstraint } from "../overseer/live/execution";
 import { sortMessagesNewestFirst } from "@shared/message-delivery";
-import { mailExtensionMetadata, mailThreadOf, type MailSenderStamp } from "@shared/crew";
+import {
+  MAIL_MESSAGE_ID_SHAPE,
+  isMailMessageId,
+  mailExtensionMetadata,
+  mailThreadOf,
+  type MailSenderStamp,
+} from "@shared/crew";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
 import { seatStateRuntime } from "../term/agent-state";
 import { probeManagedHarnessInstalls } from "../term/templates/harness-install";
@@ -386,6 +392,21 @@ const withThread = <M extends Message>(message: M): M & { readonly threadId: str
     threadId: mailThreadOf(message),
     ...(typeof inReplyTo === "string" ? { inReplyTo } : {}),
   };
+};
+
+/**
+ * A message id argument. A refusal names the path and the shape it wants and
+ * never echoes what the caller sent.
+ */
+const mailIdArg = (path: string, value: string): Result.Result<string, WorkErrorBody> => {
+  const trimmed = value.trim();
+  return isMailMessageId(trimmed)
+    ? Result.succeed(trimmed)
+    : Result.fail({
+        type: "InputError",
+        message: `${path} must be ${MAIL_MESSAGE_ID_SHAPE}`,
+        details: { path, expected: "ULID", retryable: false },
+      });
 };
 
 /** The thread metadata a reply to `parent` carries. One rule for all mail. */
@@ -1830,7 +1851,12 @@ const dispatchOp = (
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const targetId = resolveMailboxTarget(decoded.success.target, caller);
       const own = isOwnMailboxTarget(targetId, caller.nodeId);
-      const threadId = decoded.success.threadId?.trim() || undefined;
+      let threadId: string | undefined;
+      if (decoded.success.threadId !== undefined) {
+        const id = mailIdArg("threadId", decoded.success.threadId);
+        if (Result.isFailure(id)) return yield* Effect.fail(id.failure);
+        threadId = id.success;
+      }
       const inThread = threadOnly(threadId);
       const threadField = threadId === undefined ? {} : { threadId };
 
@@ -1995,9 +2021,11 @@ const dispatchOp = (
       }
       const sentBy = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(sentBy)) return yield* Effect.fail(sentBy.failure);
-      const askedThread = decoded.success.threadId?.trim();
       let threadId: string | undefined;
-      if (askedThread !== undefined) {
+      if (decoded.success.threadId !== undefined) {
+        const asked = mailIdArg("threadId", decoded.success.threadId);
+        if (Result.isFailure(asked)) return yield* Effect.fail(asked.failure);
+        const askedThread = asked.success;
         if (decoded.success.taskId !== undefined) {
           return yield* Effect.fail({
             type: "InputError" as const,
@@ -2159,14 +2187,9 @@ const dispatchOp = (
           details: { path: "text", retryable: false },
         });
       }
-      const inReplyTo = decoded.success.inReplyTo.trim();
-      if (!inReplyTo) {
-        return yield* Effect.fail({
-          type: "InputError" as const,
-          message: "inReplyTo must be non-empty",
-          details: { path: "inReplyTo", retryable: false },
-        });
-      }
+      const parentId = mailIdArg("inReplyTo", decoded.success.inReplyTo);
+      if (Result.isFailure(parentId)) return yield* Effect.fail(parentId.failure);
+      const inReplyTo = parentId.success;
       const sentBy = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(sentBy)) return yield* Effect.fail(sentBy.failure);
       // The parent is mail to this seat, and its thread is the reply's.
@@ -2183,6 +2206,11 @@ const dispatchOp = (
           },
         });
       }
+      // A stored row's fromSeat is its authenticated author, never what the
+      // sender wrote: the repository stamps it from sentBy on every mailbox
+      // row (admitMailboxMessage), and the exchange takes a row authored as
+      // the operator only from the machine that edits the canvas
+      // (writtenByItsAuthor, writtenByTheOperator).
       if (toOperator && !(parent.metadata?.fromSeat === OPERATOR_SEAT_ID && parent.metadata?.senderName === "operator")) {
         return yield* Effect.fail({
           type: "ScopeError" as const,

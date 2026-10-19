@@ -562,9 +562,10 @@ export const registerJuntoIpc = (): void => {
       const written = await runMainAuthoring("ipc.work.thread-send", () =>
         AppRuntime.runPromise(sendOperatorThreadMail(decoded.success)),
       );
-      return await deliverOperatorThreadMail(decoded.success.canvasName, written);
-    } catch (error) {
-      return { ok: false, reason: "failed", message: error instanceof Error ? error.message : "mail failed" };
+      return await deliverOperatorThreadMail(decoded.success.canvasName, decoded.success.nodeId, written);
+    } catch {
+      // Fixed words: a thrown error may carry the mail's text.
+      return { ok: false, reason: "failed", message: "The mail could not be sent." };
     }
   });
 

@@ -557,6 +557,11 @@ export interface WorkServiceShape {
      * A seat's reply to mail the operator sent it. The operator has no inbox:
      * the reply is an agent-role row in the seat's own mailbox, so it is never
      * typed back into the seat, and it carries the thread it answers.
+     *
+     * It stays on this machine. It is written only on the machine that edits
+     * the canvas, where the operator reads it, and the exchange gives any other
+     * machine only mail addressed to its own seats, which this row is not. A
+     * seat on another machine is refused until its row kind is reviewed.
      */
     readonly workOperatorReply: (
       canvas: string,
@@ -2515,6 +2520,16 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const read = yield* readTopology(canvas);
             yield* requireActor(read, sentBy, nodeId, "msg.reply");
+            const self = yield* machines.installationId.pipe(Effect.mapError(toWorkServiceError));
+            const editor = (yield* modelRecords.canvasEditor(canvas).pipe(Effect.mapError(toWorkServiceError))) ?? self;
+            if (editor !== self) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "scope_error",
+                  message: "a seat answers the operator only on the machine that edits its canvas",
+                }),
+              );
+            }
             if (message.role !== "agent" || message.taskId != null) {
               return yield* Effect.fail(
                 new WorkServiceError({

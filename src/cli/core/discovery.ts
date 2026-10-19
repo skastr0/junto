@@ -894,8 +894,8 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     command_id: "msg.send",
     command: "msg send",
     name: "post into a thread",
-    input: { target: "seat-b", text: "one more thing", threadId: "msg_01" },
-    args: ["msg", "send", '{"target":"seat-b","text":"one more thing","threadId":"msg_01"}'],
+    input: { target: "seat-b", text: "one more thing", threadId: "01JB2C3D4E5F6G7H8J9K0M1N2P" },
+    args: ["msg", "send", '{"target":"seat-b","text":"one more thing","threadId":"01JB2C3D4E5F6G7H8J9K0M1N2P"}'],
   },
   {
     command_id: "msg.prompt",
@@ -984,20 +984,20 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     input: {
       target: "seat-b",
       text: "ack, starting",
-      inReplyTo: "msg_01",
+      inReplyTo: "01JB2C3D4E5F6G7H8J9K0M1N2P",
     },
     args: [
       "msg",
       "reply",
-      '{"target":"seat-b","text":"ack, starting","inReplyTo":"msg_01"}',
+      '{"target":"seat-b","text":"ack, starting","inReplyTo":"01JB2C3D4E5F6G7H8J9K0M1N2P"}',
     ],
   },
   {
     command_id: "msg.reply",
     command: "msg reply",
     name: "answer the operator",
-    input: { target: "operator", text: "done, see 1a2b3c4", inReplyTo: "msg_02" },
-    args: ["msg", "reply", '{"target":"operator","text":"done, see 1a2b3c4","inReplyTo":"msg_02"}'],
+    input: { target: "operator", text: "done, see 1a2b3c4", inReplyTo: "01JB2C3D4E5F6G7H8J9K0M1N2Q" },
+    args: ["msg", "reply", '{"target":"operator","text":"done, see 1a2b3c4","inReplyTo":"01JB2C3D4E5F6G7H8J9K0M1N2Q"}'],
   },
   {
     command_id: "msg.list",
@@ -1010,8 +1010,8 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     command_id: "msg.list",
     command: "msg list",
     name: "read one thread",
-    input: { threadId: "msg_01" },
-    args: ["msg", "list", '{"threadId":"msg_01"}'],
+    input: { threadId: "01JB2C3D4E5F6G7H8J9K0M1N2P" },
+    args: ["msg", "list", '{"threadId":"01JB2C3D4E5F6G7H8J9K0M1N2P"}'],
   },
   {
     command_id: "msg.react",

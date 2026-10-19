@@ -125,6 +125,15 @@ export const mailExtensionMetadata = (
   senderHarness: ext.senderHarness,
 });
 
+/** What a mail id is, said in a refusal instead of the string that failed. */
+export const MAIL_MESSAGE_ID_SHAPE = "a message id: 26 characters of Crockford base32 (a ULID)";
+
+/** A mail's id. Every mailbox row is minted with a ULID. */
+export const MailMessageId = Schema.String.pipe(Schema.check(Schema.isPattern(/^[0-9A-HJKMNP-TV-Z]{26}$/u)));
+export type MailMessageId = typeof MailMessageId.Type;
+
+export const isMailMessageId = Schema.is(MailMessageId);
+
 /**
  * The thread a mail belongs to. A reply carries its root's id as `threadId`;
  * a mail that carries none starts its own thread, so its id is the thread.
