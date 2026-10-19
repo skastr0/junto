@@ -2598,6 +2598,43 @@ const readCompanionMail = Effect.fn("work.mail.companion")(function* (
       ORDER BY (length(mail.message_id)=26 AND mail.message_id NOT GLOB '*[^0-9A-HJKMNP-TV-Z]*') DESC,
         mail.message_id DESC,mail.node_id LIMIT ?`, bindings),
   })([canvasName, nodeId, nodeId, limit]);
+  return yield* mailRowsWithReceipts(reader, canvasName, rows);
+});
+
+/**
+ * The newest mail two seats sent each other, both ways, with its receipts:
+ * the peer read's view of a conversation. Selected before any payload is
+ * decoded, and bounded.
+ */
+const readMailBetween = Effect.fn("work.mail.between")(function* (
+  reader: SqlClient.SqlClient,
+  canvasName: string,
+  a: string,
+  b: string,
+  requestedLimit: number,
+): Effect.fn.Return<ReadonlyArray<{ readonly nodeId: string; readonly message: MessageValue }>, WorkSqlFailure> {
+  const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(200, Math.trunc(requestedLimit))) : WORK_MAIL_PAGE_SIZE;
+  const rows = yield* SqlSchema.findAll({
+    Request: WorkSqlBindings,
+    Result: Schema.Struct({ ...MessageRowSchema.fields, node_id: Schema.String }),
+    execute: (bindings) => reader.unsafe(`SELECT mail.node_id,mail.message_id,mail.role,mail.parts_json,
+      mail.task_id,mail.context_id,mail.reference_task_ids_json,mail.metadata_json
+      FROM work_messages AS mail
+      WHERE mail.canvas_name=? AND mail.role='user'
+        AND ((mail.node_id=? AND json_extract(mail.metadata_json,'$.senderNodeId')=?)
+          OR (mail.node_id=? AND json_extract(mail.metadata_json,'$.senderNodeId')=?))
+      ORDER BY (length(mail.message_id)=26 AND mail.message_id NOT GLOB '*[^0-9A-HJKMNP-TV-Z]*') DESC,
+        mail.message_id DESC,mail.node_id LIMIT ?`, bindings),
+  })([canvasName, a, b, b, a, limit]);
+  return yield* mailRowsWithReceipts(reader, canvasName, rows);
+});
+
+/** Mail rows from several mailboxes, each with its delivery, read and ack stamps. */
+const mailRowsWithReceipts = Effect.fn("work.mail.receipts")(function* (
+  reader: SqlClient.SqlClient,
+  canvasName: string,
+  rows: ReadonlyArray<typeof MessageRowSchema.Type & { readonly node_id: string }>,
+): Effect.fn.Return<ReadonlyArray<{ readonly nodeId: string; readonly message: MessageValue }>, WorkSqlFailure> {
   const ids = rows.flatMap((row) => [
     mailboxMessageDeliveryId(canvasName, row.node_id, row.message_id),
     mailboxMessageReadId(canvasName, row.node_id, row.message_id),
@@ -5162,6 +5199,8 @@ export interface WorkRepositoryShape {
   readonly mailPage: (query: WorkMailQuery) => Effect.Effect<WorkMailPage, WorkRepositoryError>;
   readonly mailbox: (canvasName: string, nodeId: string) => Effect.Effect<ReadonlyArray<MessageValue>, WorkRepositoryError>;
   readonly companionMail: (canvasName: string, nodeId: string, limit: number) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly message: MessageValue }>, WorkRepositoryError>;
+  /** The newest mail seats `a` and `b` sent each other, both ways; `nodeId` is the mailbox it sits in. */
+  readonly mailBetween: (canvasName: string, a: string, b: string, limit: number) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly message: MessageValue }>, WorkRepositoryError>;
   readonly mailMessage: (canvasName: string, nodeId: string, messageId: string) => Effect.Effect<MessageValue | undefined, WorkRepositoryError>;
   readonly recentOpsForSeat: (input: {
     readonly canvasName: string;
@@ -8457,6 +8496,10 @@ export const WorkRepositoryLive = Layer.effect(
       companionMail: Effect.fn("WorkRepository.companionMail")((canvasName: string, nodeId: string, limit: number) =>
         withSqlRead(sql, readCompanionMail(sql, canvasName, nodeId, limit)).pipe(
           Effect.mapError((error) => toRepositoryError("work.mail.companion", error)),
+        )),
+      mailBetween: Effect.fn("WorkRepository.mailBetween")((canvasName: string, a: string, b: string, limit: number) =>
+        withSqlRead(sql, readMailBetween(sql, canvasName, a, b, limit)).pipe(
+          Effect.mapError((error) => toRepositoryError("work.mail.between", error)),
         )),
       mailMessage: Effect.fn("WorkRepository.mailMessage")((canvasName: string, nodeId: string, messageId: string) =>
         withSqlRead(sql, readWorkMailPage(sql, { canvasName, nodeId, limit: 1 }, messageId)).pipe(

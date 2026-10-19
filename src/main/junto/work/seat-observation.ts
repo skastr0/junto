@@ -39,7 +39,9 @@
 import { Effect, Result } from "effect";
 import type { Canvas, Node, Seat } from "@shared/model";
 import { seatIdentity } from "@shared/model/seat-identity";
-import type { Task } from "@shared/work-model";
+import type { Message, Task } from "@shared/work-model";
+import { mailThreadOf } from "@shared/crew";
+import { messageIdTimeMs } from "@shared/message-delivery";
 import {
   agentSeatStatusOf,
   type AgentSeatState,
@@ -47,6 +49,8 @@ import {
 } from "@shared/agent-seat-state";
 import { describeSeatStatus } from "@shared/seat-status-text";
 import {
+  SEAT_READ_MAIL_GIST_CHARS,
+  SEAT_READ_MAIL_LIMIT,
   SEAT_WAIT_DEFAULT_MS,
   TASK_WAIT_DEFAULT_MS,
   clampFollowSeconds,
@@ -55,6 +59,7 @@ import {
   utf8ByteLength,
   type SeatPeer,
   type SeatReadArgs,
+  type SeatReadMail,
   type SeatReadResult,
   type SeatWaitArgs,
   type SeatWaitResult,
@@ -113,6 +118,16 @@ export type SeatObservationDeps = {
   /** When the binding's terminal last printed anything, or undefined before its first output. */
   readonly lastOutputAt?: (bindingId: string) => number | undefined;
   /** The seat's own last preamble while it is live. */
+  /**
+   * The newest mail seats `a` and `b` sent each other, both ways, each with
+   * the mailbox it sits in. A pure read: nothing is marked read.
+   */
+  readonly mailBetween?: (
+    canvasName: string,
+    a: string,
+    b: string,
+    limit: number,
+  ) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly message: Message }>, WorkErrorBody>;
   readonly preambleOf?: (
     canvasName: string,
     nodeId: string,
@@ -297,6 +312,9 @@ const resolveSeatTargets = (
   return Result.succeed(authorized.map(seatTargetOf));
 };
 
+/** A seat read before the mail between caller and peer is added. */
+type SeatReadWindow = Omit<SeatReadResult, "mail">;
+
 /** A read target carries who the seat is, from the document that admitted it. */
 type ReadTarget = SeatTarget & { readonly peer: SeatPeer };
 
@@ -340,6 +358,35 @@ const sameSeatTargets = (
       .sort()
       .join("\u0001");
   return key(left) === key(right);
+};
+
+/** A mail as the peer read gives it, from the caller's side. */
+export const seatReadMailOf = (
+  callerId: string,
+  mailbox: string,
+  message: Message,
+): SeatReadMail => {
+  const metadata = message.metadata ?? {};
+  const stamp = (key: string): number | undefined =>
+    typeof metadata[key] === "number" ? (metadata[key] as number) : undefined;
+  const sentAt = messageIdTimeMs(message.messageId);
+  const deliveredAt = stamp("deliveredAt");
+  const readAt = stamp("readAt");
+  const text = message.parts
+    .flatMap((part) => (part.kind === "text" ? [part.text] : []))
+    .join(" ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return {
+    messageId: message.messageId,
+    threadId: mailThreadOf(message),
+    direction: mailbox === callerId ? "received" : "sent",
+    kind: typeof metadata.mailKind === "string" ? metadata.mailKind : message.role,
+    ...(sentAt === undefined ? {} : { sentAt }),
+    ...(deliveredAt === undefined ? {} : { deliveredAt }),
+    ...(readAt === undefined ? {} : { readAt }),
+    gist: text.slice(0, SEAT_READ_MAIL_GIST_CHARS),
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -550,10 +597,36 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
       }
     });
 
+  /** The newest mail between caller and peer, both ways, newest first. */
+  const mailBetween = (
+    caller: SeatObservationCaller,
+    peerId: string,
+  ): Effect.Effect<ReadonlyArray<SeatReadMail>, WorkErrorBody> =>
+    deps.mailBetween === undefined
+      ? Effect.succeed([])
+      : deps.mailBetween(caller.canvasName, caller.nodeId, peerId, SEAT_READ_MAIL_LIMIT).pipe(
+          Effect.map((rows) => rows.map((row) => seatReadMailOf(caller.nodeId, row.nodeId, row.message))),
+        );
+
   const readSeat = (
     args: SeatReadArgs,
     caller: SeatObservationCaller,
   ): Effect.Effect<SeatReadResult, WorkErrorBody> =>
+    Effect.gen(function* () {
+      const window = yield* readSeatWindow(args, caller);
+      const mail = yield* mailBetween(caller, window.target);
+      // The mail answers under the same authority as the screen: re-derived
+      // after it was read.
+      const doc = yield* deps.readTopology(caller.canvasName);
+      const still = resolveReadTarget(doc, caller.nodeId, args.target);
+      if (Result.isFailure(still)) return yield* Effect.fail(still.failure);
+      return { ...window, mail };
+    });
+
+  const readSeatWindow = (
+    args: SeatReadArgs,
+    caller: SeatObservationCaller,
+  ): Effect.Effect<SeatReadWindow, WorkErrorBody> =>
     Effect.gen(function* () {
       const lines = clampReadLines(args.lines);
       const follow = args.follow === true;
@@ -587,7 +660,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
         stopped: SeatReadResult["stopped"],
         empty: boolean,
         replacedOverride?: boolean,
-      ): SeatReadResult => {
+      ): SeatReadWindow => {
         const session = deps.sessionOf(target.bindingId);
         const seat = seatStateOf(deps.seatStates.current(), target.bindingId);
         const clip = clipReadText(empty ? [] : (window?.lines ?? []));

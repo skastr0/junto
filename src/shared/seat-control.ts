@@ -33,6 +33,10 @@ export const SEAT_READ_MAX_BYTES = 64 * 1024;
 /** Longest bounded follow. */
 export const SEAT_READ_MAX_SECONDS = 600;
 export const SEAT_READ_DEFAULT_FOLLOW_SECONDS = 30;
+/** Mail between caller and peer a read returns, newest first. */
+export const SEAT_READ_MAIL_LIMIT = 5;
+/** Characters of each mail's text a read returns. */
+export const SEAT_READ_MAIL_GIST_CHARS = 200;
 /** Budget a single (non-follow) read gets before the transport gives up. */
 export const SEAT_READ_DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -255,6 +259,23 @@ export const SeatPeer = Schema.Struct({
 });
 export type SeatPeer = typeof SeatPeer.Type;
 
+/**
+ * One mail between the caller and the read seat. `direction` is from the
+ * caller's side: `sent` went to the peer, `received` came from it. Reading it
+ * here marks nothing read.
+ */
+export const SeatReadMail = Schema.Struct({
+  messageId: Schema.String,
+  threadId: Schema.String,
+  direction: Schema.Literals(["sent", "received"]),
+  kind: Schema.String,
+  sentAt: Schema.optionalKey(Schema.Number),
+  deliveredAt: Schema.optionalKey(Schema.Number),
+  readAt: Schema.optionalKey(Schema.Number),
+  gist: Schema.String,
+});
+export type SeatReadMail = typeof SeatReadMail.Type;
+
 export const SeatReadResult = Schema.Struct({
   target: Schema.String,
   state: SeatState,
@@ -278,6 +299,8 @@ export const SeatReadResult = Schema.Struct({
   lastActivityAt: Schema.optionalKey(Schema.Number),
   /** The seat's own last `junto preamble` while it is live. */
   preamble: Schema.optionalKey(Schema.Struct({ text: Schema.String, expiresAt: Schema.Number })),
+  /** The newest mail between the caller and this seat, both ways, newest first. */
+  mail: Schema.Array(SeatReadMail),
 });
 export type SeatReadResult = typeof SeatReadResult.Type;
 

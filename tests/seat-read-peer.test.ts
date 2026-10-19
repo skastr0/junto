@@ -1,21 +1,22 @@
 /**
  * Reading a peer in one call, over the real work-control socket: `seat read`
  * names who the peer is, since when it has been in its state, when its
- * terminal last printed, and its live preamble. Every store, home and socket lives under a temp root.
+ * terminal last printed, its live preamble, and the newest mail between the
+ * two seats. Every store, home and socket lives under a temp root.
  */
 import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Layer, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { encodeWorkFrame } from "../src/shared/work-control";
 import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
 import { region, seat as seatNode, wire } from "./support/model-nodes";
 import { startWorkControlServer, type WorkControlServer } from "../src/main/junto/work/control";
-import { WorkLive } from "../src/main/junto/work/service";
+import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
@@ -93,7 +94,11 @@ beforeEach(async () => {
         seat("peer", 160),
         seat("loner", 2000),
       ],
-      [wire("agent-peer", "agent", "peer", "messages"), wire("peer-agent", "peer", "agent", "messages")],
+      [
+        wire("agent-peer", "agent", "peer", "messages"),
+        wire("peer-agent", "peer", "agent", "messages"),
+        wire("loner-peer", "loner", "peer", "messages"),
+      ],
     ),
   );
 });
@@ -174,5 +179,49 @@ describe("seat read gives the peer's live preamble", () => {
     expect(liveSeatPreamble(CANVAS, "ghost", 999)).toEqual({ text: "gone soon", expiresAt: 1_000 });
     expect(liveSeatPreamble(CANVAS, "ghost", 1_000)).toBeUndefined();
     expect(liveSeatPreamble(CANVAS, "ghost", 0)).toBeUndefined();
+  });
+});
+
+describe("seat read gives the newest mail between the two seats", () => {
+  const send = async (as: string, target: string, text: string, extra: object = {}) => {
+    const sent = await call(as, "msg.send", { target, text, ...extra });
+    expect(sent.ok).toBe(true);
+    return sent.data.messageId as string;
+  };
+
+  it("returns the five newest both ways, newest first, with threads, and marks nothing read", async () => {
+    const ids: string[] = [];
+    for (let index = 0; index < 4; index++) ids.push(await send("agent", "peer", `ask ${index}`));
+    const reply = await call("peer", "msg.reply", { target: "agent", text: "answer to ask 3", inReplyTo: ids[3] });
+    expect(reply.ok).toBe(true);
+    const replyId = reply.data.messageId as string;
+    await send("loner", "peer", "not between agent and peer");
+    ids.push(await send("agent", "peer", "x".repeat(300)));
+    const readStamps = async () => Object.fromEntries((await Promise.all(["agent", "peer"].map((nodeId) =>
+      runtime.runPromise(Effect.flatMap(WorkService, (work) => work.readMailbox(CANVAS, nodeId))))))
+      .flat().map((message) => [message.messageId, message.metadata?.readAt]));
+    const stampsBefore = await readStamps();
+
+    const read = await call("agent", "seat.read", { target: "peer" });
+    expect(read.ok).toBe(true);
+    const mail = read.data.mail as Array<Record<string, any>>;
+    expect(mail.map((item) => item.messageId)).toEqual([ids[4], replyId, ids[3], ids[2], ids[1]]);
+    expect(mail.map((item) => item.direction)).toEqual(["sent", "received", "sent", "sent", "sent"]);
+    expect(mail[1]).toMatchObject({ threadId: ids[3], kind: "notice", gist: "answer to ask 3" });
+    expect(mail[0]!.gist).toBe("x".repeat(200));
+    expect(mail[0]!.sentAt).toBeGreaterThan(0);
+    // Replying read the parent; the others are unread.
+    expect(mail.map((item) => item.readAt !== undefined)).toEqual([false, false, true, false, false]);
+
+    // The peer reads the same conversation from its side.
+    const back = await call("peer", "seat.read", { target: "agent" });
+    expect(back.data.mail[0]).toMatchObject({ messageId: ids[4], direction: "received" });
+
+    // Reading marked nothing read on either side.
+    expect(await readStamps()).toEqual(stampsBefore);
+  });
+
+  it("is empty for two seats that never wrote", async () => {
+    expect((await call("agent", "seat.read", { target: "peer" })).data.mail).toEqual([]);
   });
 });

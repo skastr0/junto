@@ -73,6 +73,9 @@ export const liveSeatObservation = (): Effect.Effect<
       subscribeGrid: (listener) => terminalObserverPlane.subscribeAll(listener),
       lastOutputAt: (bindingId) => terminalObserverPlane.lastOutputAt(bindingId),
       preambleOf: (canvasName, nodeId) => liveSeatPreamble(canvasName, nodeId),
+      mailBetween: (canvasName, a, b, limit) => work.readMailBetween(canvasName, a, b, limit).pipe(
+        Effect.mapError((error): WorkErrorBody => ({ type: "InternalError", message: error.message, details: { retryable: true } })),
+      ),
       now: () => Date.now(),
     });
   });
