@@ -1,8 +1,8 @@
 /**
  * Restart a managed seat with new starting parameters.
  *
- * Unlike a re-seat this keeps the seat whole: same binding, and its own
- * start decides what it starts on, the new parameters included. The stored
+ * Unlike a re-seat this keeps the seat whole: same binding, same session id,
+ * so the harness resumes its conversation on the new parameters. The stored
  * launch is committed BEFORE the old process is stopped, so nothing that
  * wakes the seat in between can start it on the old parameters.
  */
@@ -64,10 +64,10 @@ type RestartOutcome =
   | { readonly ok: false; readonly message: string };
 
 /**
- * Stop the seat's running harness and start it again on the same binding.
- * `next` is the node the seat starts from: the same node, or one whose stored
- * launch has just been committed. `savedForNextStart` finishes the sentence
- * when the old process will not stop in time.
+ * Stop the seat's running harness and start it again on the same binding and
+ * the same session. `next` is the node the seat starts from: the same node,
+ * or one whose stored launch has just been committed. `savedForNextStart`
+ * finishes the sentence when the old process will not stop in time.
  *
  * A seat that is not running is left alone: its next start reads whatever is
  * current by itself.
@@ -106,7 +106,7 @@ const restartRunningSeat = async (
   }
 
   if (surfaceWasOpen) {
-    // The surface owns ensure + attach.
+    // The surface owns ensure + attach, and resumes the seat's session.
     await openTerminal(next, "focus");
     return { ok: true, restarted: true };
   }
@@ -124,10 +124,10 @@ const isRunning = async (seat: Seat): Promise<boolean> => {
 
 /**
  * Restart a running seat as it is, so it picks up what is read at launch (its
- * regions' environment). Same binding, and nothing about its stored launch
- * changes; its own start decides what it starts on.
+ * regions' environment). Same binding, same session: the harness resumes its
+ * conversation. Nothing about the seat's stored launch changes.
  */
-export const restartSeat = async (
+export const restartSeatOnSameSession = async (
   seat: Seat,
 ): Promise<RestartOutcome> => {
   const node = seat;

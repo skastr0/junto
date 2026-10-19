@@ -29,7 +29,7 @@ export type RegionEnvironmentHost = {
    */
   readonly flushSave: () => Promise<unknown>;
   readonly findNode: (id: string) => Node | undefined;
-  /** The one seat restart: same binding; the seat's own start decides the rest. */
+  /** The one seat restart: same binding, same session. */
   readonly restartSeat: (
     node: Seat,
   ) => Promise<{ readonly ok: true; readonly restarted: boolean } | { readonly ok: false; readonly message: string }>;
