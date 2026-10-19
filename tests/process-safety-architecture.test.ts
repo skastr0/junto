@@ -360,6 +360,8 @@ describe("machine-safety architecture", () => {
       "src/main/junto/app-process-plane.ts:forbidden-reference:record.kill",
       "src/main/junto/app-process-plane.ts:forbidden-reference:record.kill",
       "src/main/junto/app-process-plane.ts:forbidden-reference:record.kill",
+      // Log formatting of a frozen KILL receipt; a straggler carries no process authority.
+      "src/main/junto/app-process-plane.ts:forbidden-reference:straggler.kill",
       // Live-granted node targets resolve bindings, never PIDs. Router delegates
       // to the same owned-session stop capability as terminal IPC.
       "src/main/junto/overseer/native.ts:ctx.termPlane.router.kill",
