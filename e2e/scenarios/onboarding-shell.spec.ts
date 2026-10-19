@@ -57,10 +57,11 @@ test("the shell chapter shows what Junto read, and Reload picks up an rc edit", 
     await expect(intro.getByTestId("first-run-intro-done")).toBeVisible();
     await page.screenshot({ path: join(SHOTS, "shell-resolved-dark.png") });
 
-    // The operator edits their rc: a new tool folder and a secret.
+    // The operator edits their rc: a new tool folder and a secret. Not a
+    // JUNTO_ name: the probe keeps Junto's own names out of the read.
     const tools = join(sandbox.homeDir, "tools", "bin");
     await mkdir(tools, { recursive: true });
-    await writeFile(zshrc, `export PATH="${tools}:$PATH"\nexport JUNTO_E2E_SECRET="${SECRET}"\n`);
+    await writeFile(zshrc, `export PATH="${tools}:$PATH"\nexport E2E_API_TOKEN="${SECRET}"\n`);
     await step.getByTestId("shell-environment-reload").click();
     await expect(step).toContainText(tools, { timeout: 15_000 });
     await expect(step).toContainText(/variables? changed/);
