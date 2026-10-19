@@ -11,3 +11,4 @@ export * from "./drafts";
 export * from "./events";
 export * from "./canvas";
 export * from "./title";
+export * from "./seat-identity";
