@@ -42,6 +42,7 @@ describe("wire module import closure", () => {
         "content-ref.ts",
         "mail-threads.ts",
         "operator-feed.ts",
+        "rings.ts",
         "thread-health.ts",
         // Not protocol: the --demo data, synced by junto-app's in-app demo.
         "companion-demo-fixture.ts",
