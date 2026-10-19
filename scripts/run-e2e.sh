@@ -27,6 +27,21 @@ elif [[ $# -eq 0 ]]; then
   set -- e2e/scenarios/free-startup.spec.ts
 fi
 
+# The specs launch out/ as built. A build of another commit (a failed rebuild
+# leaves the old one in place) runs stale code against newer state, so refuse
+# unless out/ was built from this worktree's HEAD.
+provenance="$repo_root/out/package-runtime-provenance.json"
+head_commit="$(git -C "$repo_root" rev-parse HEAD)"
+if [[ ! -f "$provenance" ]]; then
+  printf 'junto: error: out/ has no build provenance — run scripts/build-app.sh first\n' >&2
+  exit 1
+fi
+built_commit="$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).sourceCommit ?? ""))' "$provenance")"
+if [[ "$built_commit" != "$head_commit" ]]; then
+  printf 'junto: error: out/ was built from %s, but HEAD is %s — rebuild with scripts/build-app.sh before running e2e\n' "${built_commit:-an unknown commit}" "$head_commit" >&2
+  exit 1
+fi
+
 command=("$playwright" test --config e2e/playwright.config.ts "$@")
 
 # One app run at a time on the machine; released when this shell exits.
