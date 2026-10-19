@@ -316,7 +316,7 @@ export type SeatSession = {
 };
 
 const SESSION_ROWS: ReadonlyArray<readonly [keyof SeatSession, string]> = [
-  ["status", "status"],
+  ["status", "terminal"],
   ["size", "size"],
   ["host", "host"],
   ["harness", "harness"],
@@ -671,12 +671,12 @@ function SeatDetails({ node, session }: { readonly node: SeatFace; readonly sess
           <Button size="xs" variant="subtle" disabled={mail.loading} onClick={() => { void mail.loadMore(); }}>Older mail</Button>
         ) : null}
       </DetailsGroup>
-      <DetailsGroup title="terminal" testId="seat-terminal">
+      <DetailsGroup title="session" testId="seat-session">
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-label">
           {SESSION_ROWS.filter(([key]) => session[key] !== "").map(([key, name]) => (
             <div key={key} className="contents">
               <dt className="text-faint">{name}</dt>
-              <dd className="min-w-0 truncate font-mono text-dim" data-terminal={key} title={session[key]}>
+              <dd className="min-w-0 truncate font-mono text-dim" data-session={key} title={session[key]}>
                 {session[key]}
               </dd>
             </div>
@@ -713,7 +713,7 @@ export function SeatDetailsButton({
     <span ref={setHost} className="inline-flex">
       <IconButton
         size="sm"
-        title="Seat details: mail, signals, onboarding, terminal"
+        title="Seat details: mail, signals, onboarding, session"
         aria-label="Seat details"
         aria-haspopup="dialog"
         aria-expanded={anchor !== null}

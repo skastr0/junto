@@ -76,8 +76,8 @@ export const reservedLaunchFlags = (
   reserve(spec.permissionModeFlag, "set by the permission mode choice");
   reserve(spec.profileFlag, "set by the profile choice");
   reserve(spec.providerFlag, "set by the provider choice");
-  reserve(spec.sessionIdFlag, "Junto sets this when the seat starts fresh");
-  reserve(spec.resumeFlag, "Junto sets this when the seat picks up where it was");
+  reserve(spec.sessionIdFlag, "Junto pins the seat's session");
+  reserve(spec.resumeFlag, "Junto resumes the seat's session");
   for (const flag of spec.prefix) reserve(flag, "always part of this launch");
   for (const flag of spec.hostProbedFlags ?? []) {
     reserve(flag, "always part of this launch");
@@ -112,7 +112,7 @@ export const sanitizeExtraArgs = (
     }
     const name = flagNameOf(token);
     if (LATEST_SESSION_FLAGS.has(name)) {
-      rejected.push({ token, reason: "a seat always picks up where it was" });
+      rejected.push({ token, reason: "a seat always resumes its own session" });
       continue;
     }
     const why = reserved.get(name);

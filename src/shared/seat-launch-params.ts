@@ -125,8 +125,8 @@ export const planSeatLaunch = (input: {
   };
 };
 
-/** Stands in for where the seat was, an id the renderer never holds. */
-export const SEAT_PLACE_PLACEHOLDER = "<this seat>";
+/** Stands in for the saved session id, which the renderer never holds. */
+export const SAVED_SESSION_PLACEHOLDER = "<saved thread>";
 
 /**
  * The argv the seat's next start runs, for the Params preview. A seat whose
@@ -145,7 +145,7 @@ export const seatStartPreviewArgv = (input: {
   return (
     resolveManagedLaunch(
       harness,
-      { ...params, ...(cwd ? { cwd } : {}), resumeId: SEAT_PLACE_PLACEHOLDER },
+      { ...params, ...(cwd ? { cwd } : {}), resumeId: SAVED_SESSION_PLACEHOLDER },
       {},
     ).argv ?? []
   );
