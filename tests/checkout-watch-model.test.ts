@@ -13,7 +13,7 @@ import { makeCheckoutWatchComposition, type CheckoutWatchCompositionOptions } fr
 import { THIS_MACHINE } from "./support/machines";
 
 const seatId = Schema.decodeUnknownSync(ActorSeatId)(`seat_${"a".repeat(64)}`);
-const seat = Schema.decodeUnknownSync(Node)({ kind: "agent", id: "seat", label: "Worker", x: 0, y: 0, width: 200, height: 100, z: 0, agentKey: "local:codex", host: THIS_MACHINE, bindingId: "binding", harness: "codex", overseer: false, onRemove: "detach" });
+const seat = Schema.decodeUnknownSync(Node)({ kind: "agent", id: "seat", label: "Worker", x: 0, y: 0, width: 200, height: 100, z: 0, agentKey: "local:codex", host: THIS_MACHINE, bindingId: "binding", harness: "codex", overseer: false });
 const board = Schema.decodeUnknownSync(Node)({ kind: "task", id: "queue", x: 0, y: 0, width: 200, height: 100, z: 1 });
 
 const fixture = async () => {

@@ -13,7 +13,7 @@ const at = { x: 0, y: 0, width: 10, height: 10, z: 0 };
 const seat = (id: string): Node =>
   ({
     kind: "agent", id: asNodeId(id), ...at, agentKey: `local:${id}`, label: id, host: "local",
-    overseer: false, bindingId: `bind-${id}`, harness: "claude", onRemove: "detach",
+    overseer: false, bindingId: `bind-${id}`, harness: "claude",
   }) as Node;
 
 const thing = (kind: "board" | "pad" | "task", id: string): Node =>

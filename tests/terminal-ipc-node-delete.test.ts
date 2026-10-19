@@ -80,11 +80,11 @@ const harness = (options: {
 
 const geographyNode = (bindingId: string, host: string): ModelNode => Schema.decodeUnknownSync(Node)({
   id: `node-${bindingId}`, kind: "terminal", x: 0, y: 0, width: 200, height: 80, z: 0,
-  host, bindingId, onRemove: "detach",
+  host, bindingId,
 });
 const agentNode = (bindingId: string, host: string, harness: HarnessId, agentKey: string): ModelNode => Schema.decodeUnknownSync(Node)({
   id: `node-${bindingId}`, kind: "agent", label: bindingId, x: 0, y: 0, width: 200, height: 80, z: 0,
-  host, bindingId, harness, agentKey, overseer: false, onRemove: "detach",
+  host, bindingId, harness, agentKey, overseer: false,
   launch: { kind: "harness", argv: [harness] },
 });
 afterEach(() => vi.restoreAllMocks());

@@ -57,7 +57,6 @@ export const nodeToRow = (canvas: string, node: Node): SqlValues => {
         host: node.host,
         binding_id: node.bindingId,
         harness: node.harness,
-        on_remove: node.onRemove,
         overseer: Number(node.overseer),
         ...launchColumns(node.launch),
       };
@@ -67,7 +66,6 @@ export const nodeToRow = (canvas: string, node: Node): SqlValues => {
         label: node.label ?? null,
         host: node.host,
         binding_id: node.bindingId,
-        on_remove: node.onRemove,
         ...launchColumns(node.launch),
       };
     case "page":
@@ -163,7 +161,6 @@ export const nodeFromRow = (kind: NodeKind, row: SqlRow): Node => {
         host: row.host,
         bindingId: row.binding_id,
         harness: row.harness,
-        onRemove: row.on_remove,
         overseer: row.overseer === 1,
         ...launchFromRow(row),
       };
@@ -173,7 +170,6 @@ export const nodeFromRow = (kind: NodeKind, row: SqlRow): Node => {
         ...label,
         host: row.host,
         bindingId: row.binding_id,
-        onRemove: row.on_remove,
         ...launchFromRow(row),
       };
       break;

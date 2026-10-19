@@ -113,7 +113,7 @@ describe("managed-seat wake decision", () => {
 const managedNode = (): Seat => Schema.decodeUnknownSync(Node)({
   id: "actor", kind: "agent", x: 0, y: 0, width: 240, height: 100, z: 0,
   label: "actor", agentKey: "box-a:codex", host: "box-a", bindingId: "binding-alpha", harness: "codex",
-  overseer: false, onRemove: "detach",
+  overseer: false,
 }) as Seat;
 
 const managedFixture = () => {

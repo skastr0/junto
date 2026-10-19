@@ -63,7 +63,6 @@ describe("pure old-row conversion", () => {
       overseer: false,
       bindingId: "bound",
       harness: "codex",
-      onRemove: "detach",
       launch,
     });
   });

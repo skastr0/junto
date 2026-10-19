@@ -13,7 +13,7 @@ const at = { x: 0, y: 0, width: 200, height: 100 };
 const seat = { kind: "agent", ...at, harness: "claude" };
 /** The same seat as the model holds it once main has worked it out. */
 const seated = {
-  ...seat, agentKey: "local:claude", label: "Builder", host: THIS_MACHINE, onRemove: "detach",
+  ...seat, agentKey: "local:claude", label: "Builder", host: THIS_MACHINE,
   overseer: false, bindingId: "seat-1",
 };
 
@@ -21,7 +21,7 @@ describe("a node draft", () => {
   it("is every model kind without an id or a place in the stack", () => {
     const drafts: ReadonlyArray<Record<string, unknown>> = [
       seat,
-      { kind: "terminal", ...at, host: THIS_MACHINE, bindingId: "term-1", onRemove: "detach" },
+      { kind: "terminal", ...at, host: THIS_MACHINE, bindingId: "term-1" },
       { kind: "page", ...at, host: THIS_MACHINE, url: "https://example.com", profile: "default", onRemove: "kill-session" },
       { kind: "task", ...at },
       { kind: "requests", ...at },
@@ -63,7 +63,7 @@ describe("a node draft", () => {
   it("drafts a seat by its harness and dials, and nothing main works out", () => {
     expect(decodes(NodeDraft, {
       ...seat, label: "Builder", host: "studio", profile: "work", model: "opus", effort: "high",
-      mode: "ultra", permissionMode: "plan", cwd: "/repo", onRemove: "stop", color: "#aabbcc",
+      mode: "ultra", permissionMode: "plan", cwd: "/repo", color: "#aabbcc",
     })).toBe(true);
     for (const field of SEAT_FIELDS_MAIN_WORKS_OUT) {
       const value = field === "overseer" ? false : field === "launch" ? { kind: "harness", argv: ["claude"] } : "x";
@@ -74,7 +74,7 @@ describe("a node draft", () => {
   });
 
   it("drafts a terminal with the command it runs", () => {
-    const shell = { kind: "terminal", ...at, host: THIS_MACHINE, onRemove: "detach" };
+    const shell = { kind: "terminal", ...at, host: THIS_MACHINE };
     expect(decodes(NodeDraft, shell)).toBe(true);
     expect(decodes(NodeDraft, { ...shell, bindingId: "term-1", launch: { kind: "command", argv: ["htop"] } })).toBe(true);
   });

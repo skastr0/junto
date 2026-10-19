@@ -92,7 +92,6 @@ export const MODEL_STATE_SCHEMA_SQL = `
     host TEXT NOT NULL DEFAULT 'local',
     binding_id TEXT NOT NULL,
     harness TEXT NOT NULL,
-    on_remove TEXT NOT NULL CHECK (on_remove IN ('detach', 'stop')),
     overseer INTEGER NOT NULL CHECK (overseer IN (0, 1)),
     ${launch}`,
   )}
@@ -104,7 +103,6 @@ export const MODEL_STATE_SCHEMA_SQL = `
     label TEXT,
     host TEXT NOT NULL DEFAULT 'local',
     binding_id TEXT NOT NULL,
-    on_remove TEXT NOT NULL CHECK (on_remove IN ('detach', 'stop')),
     ${launch}`,
   )}
   CREATE UNIQUE INDEX IF NOT EXISTS terminals_canvas_binding ON terminals(canvas_name, binding_id);

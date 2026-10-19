@@ -1,8 +1,8 @@
 /**
- * A seat or terminal that stops on removal says "stop" here, and "kill-session"
- * on the wire until a later release retires the old word: a machine on an
- * older build reads only "detach" or "kill-session", and would refuse the whole
- * canvas copy. This machine reads both words, as "stop".
+ * Seats and terminals have no `onRemove` any more, but a canvas copy still
+ * carries one on the wire: a machine on an older build requires it, as
+ * "detach" or "kill-session", and would refuse the whole copy without it.
+ * This machine reads a copy with or without it, and drops it.
  */
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
@@ -17,13 +17,12 @@ const id = Schema.decodeUnknownSync(InstallationId);
 const EDITOR = id("macbook-installation");
 const MINI = id("mini-installation");
 
-/** What a build before "stop" accepts for a seat or terminal's onRemove. */
+/** What a build before this one requires for a seat or terminal's onRemove. */
 const olderOnRemove = Schema.decodeUnknownResult(Schema.Literals(["detach", "kill-session"]));
 
 const nodes: ReadonlyArray<Node> = [
-  seat("stops", { host: "mini" as never, agentKey: "mini:claude", onRemove: "stop" }),
-  seat("detaches", { host: "mini" as never, agentKey: "mini:codex", onRemove: "detach" }),
-  { kind: "terminal", id: asNodeId("shell"), x: 0, y: 0, width: 100, height: 60, z: 0, host: "mini" as never, bindingId: "binding-shell" as never, onRemove: "stop" },
+  seat("lead", { host: "mini" as never, agentKey: "mini:claude" }),
+  { kind: "terminal", id: asNodeId("shell"), x: 0, y: 0, width: 100, height: 60, z: 0, host: "mini" as never, bindingId: "binding-shell" as never },
 ];
 
 const copy = (): CanvasCopy => {
@@ -39,7 +38,7 @@ const copy = (): CanvasCopy => {
       briefing: undefined,
       references: [],
       playing: true,
-      seatIdOf: (node) => Schema.decodeUnknownSync(ActorSeatId)(`seat_${(node.id === "stops" ? "1" : "2").repeat(64)}`),
+      seatIdOf: () => Schema.decodeUnknownSync(ActorSeatId)(`seat_${"1".repeat(64)}`),
     },
     { installationId: MINI, machineName: "mini" },
   );
@@ -47,33 +46,31 @@ const copy = (): CanvasCopy => {
   return result.copy;
 };
 
-/** The frame as JSON carries it to the other machine. */
-const sent = (frame: ExchangeFrame) =>
-  JSON.parse(JSON.stringify(encodeExchangeFrame(frame))) as {
-    readonly copy: { readonly seats: ReadonlyArray<{ readonly onRemove: unknown }>; readonly terminals: ReadonlyArray<{ readonly onRemove: unknown }> };
-  };
+type WireRow = Record<string, unknown>;
+type WireCopy = { readonly kind: "copy"; readonly copy: { readonly seats: ReadonlyArray<WireRow>; readonly terminals: ReadonlyArray<WireRow> } };
 
-const onRemoves = (wire: ReturnType<typeof sent>) => [...wire.copy.seats, ...wire.copy.terminals].map((row) => row.onRemove);
+/** The frame as JSON carries it to the other machine. */
+const sent = (frame: ExchangeFrame): WireCopy => JSON.parse(JSON.stringify(encodeExchangeFrame(frame))) as WireCopy;
+
+const withRows = (wire: WireCopy, row: (value: WireRow) => WireRow): WireCopy => ({
+  ...wire,
+  copy: { ...wire.copy, seats: wire.copy.seats.map(row), terminals: wire.copy.terminals.map(row) },
+});
 
 describe("a seat's onRemove on the wire", () => {
-  it("is a word an older peer's decoder accepts", () => {
+  it("is still sent, as a word an older peer's decoder accepts", () => {
     const wire = sent({ kind: "copy", copy: copy() });
-    expect(onRemoves(wire).sort()).toEqual(["detach", "kill-session", "kill-session"]);
-    for (const value of onRemoves(wire)) expect(Result.isSuccess(olderOnRemove(value))).toBe(true);
+    const values = [...wire.copy.seats, ...wire.copy.terminals].map((row) => row.onRemove);
+    expect(values).toEqual(["detach", "detach"]);
+    for (const value of values) expect(Result.isSuccess(olderOnRemove(value))).toBe(true);
   });
 
-  it("reads back as stop, from this build and from an older one", () => {
+  it("is read and dropped from an older peer, whatever it says, and not needed from a newer one", () => {
     const wire = sent({ kind: "copy", copy: copy() });
-    const fromOlder = decodeExchangeFrame(wire);
-    const fromNewer = decodeExchangeFrame({
-      ...wire,
-      copy: {
-        ...wire.copy,
-        seats: wire.copy.seats.map((row) => ({ ...row, onRemove: row.onRemove === "kill-session" ? "stop" : row.onRemove })),
-        terminals: wire.copy.terminals.map((row) => ({ ...row, onRemove: "stop" })),
-      },
-    });
-    for (const decoded of [fromOlder, fromNewer]) {
+    const fromOlder = withRows(wire, (row) => ({ ...row, onRemove: "kill-session" }));
+    const fromNewer = withRows(wire, ({ onRemove: _gone, ...row }) => row);
+    for (const frame of [wire, fromOlder, fromNewer]) {
+      const decoded = decodeExchangeFrame(frame);
       if (Result.isFailure(decoded)) throw new Error(String(decoded.failure));
       expect(decoded.success).toEqual({ kind: "copy", copy: copy() });
     }

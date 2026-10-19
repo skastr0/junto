@@ -13,7 +13,6 @@ import {
   Page,
   PageOnRemove,
   Seat,
-  TerminalOnRemove,
   type NodeKind,
 } from "./kinds";
 import {
@@ -54,13 +53,11 @@ export const NodeEdit = Schema.Union([
     host: set(HostId),
     harness: set(HarnessId),
     launch: setOrClear(Launch),
-    onRemove: set(TerminalOnRemove),
   }),
   edit("terminal", {
     label,
     host: set(HostId),
     launch: setOrClear(Launch),
-    onRemove: set(TerminalOnRemove),
   }),
   edit("page", {
     url: set(Schema.String),

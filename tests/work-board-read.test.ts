@@ -34,7 +34,7 @@ it("reads the selected board topic without decoding another topic's contents", a
     }, {
       kind: "agent", id: "seat", x: 0, y: 0, width: 200, height: 100, z: 1,
       agentKey: "local:claude", label: "Seat", host: THIS_MACHINE, overseer: false,
-      bindingId: "board-seat-binding", harness: "claude", onRemove: "detach",
+      bindingId: "board-seat-binding", harness: "claude",
     }], wires: [{ id: "participates", from: "seat", to: "board", verb: "participates" }] }), "operator"));
     const repo = await runtime.runPromise(WorkRepository);
     const sink = { canvasName: "factory", nodeId: "board" };

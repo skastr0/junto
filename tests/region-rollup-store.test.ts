@@ -18,7 +18,7 @@ const region = (id: string, x: number, width = 200) => node({ kind: "region", id
 const note = (id: string, x: number) => node({ kind: "note", id, x, text: id });
 const agent = (id: string, x = 10) => node({
   kind: "agent", id, x, label: id, agentKey: `local:${id}`, bindingId: `binding-${id}`,
-  host: THIS_MACHINE, harness: "codex", overseer: false, onRemove: "detach",
+  host: THIS_MACHINE, harness: "codex", overseer: false,
 });
 const wire = (id: string, from: string, to: string) => ({ id, from, to, verb: "contributes" }) as Wire;
 

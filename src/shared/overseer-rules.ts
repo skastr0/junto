@@ -262,7 +262,7 @@ const nodeOfDraft = (
     return { ...draft, ...placed, bindingId: draft.bindingId ?? newBinding() };
   }
   if (draft.kind !== "agent") return { ...draft, ...placed } as Node;
-  const { harness, host: named, profile, model, effort, mode, permissionMode, cwd, label, onRemove, ...frame } = draft;
+  const { harness, host: named, profile, model, effort, mode, permissionMode, cwd, label, ...frame } = draft;
   const host = named ?? machineName;
   if (host === undefined) return { refusal: "this machine's name is not loaded yet; name the seat's machine" };
   try {
@@ -281,7 +281,6 @@ const nodeOfDraft = (
         ...(label === undefined ? {} : { label }),
       }),
       overseer: false,
-      onRemove: onRemove ?? "detach",
     };
     return seat;
   } catch (error) {

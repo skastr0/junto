@@ -1,4 +1,4 @@
-import { Schema, SchemaTransformation } from "effect";
+import { Schema } from "effect";
 import { HarnessId } from "../managed-terminal-templates";
 import { TasksContract } from "../work-model";
 import { ActorSeatId } from "../actor-seat";
@@ -45,27 +45,6 @@ export const Launch = Schema.Struct({
 });
 export type Launch = typeof Launch.Type;
 
-/**
- * What happens to the running terminal when the thing is removed: it keeps
- * running, or it stops. A document stored before the word was "stop" said
- * "kill-session"; it still decodes, to "stop".
- *
- * Encoded, "stop" is still "kill-session": a machine on an older build reads
- * only "detach" or "kill-session", and would refuse a whole canvas copy that
- * said "stop". Retire the old word on the wire in a release of its own, once
- * no machine that links runs a build before this one.
- */
-export const TerminalOnRemove = Schema.Literals(["detach", "stop", "kill-session"]).pipe(
-  Schema.decodeTo(
-    Schema.Literals(["detach", "stop"]),
-    SchemaTransformation.transform({
-      decode: (stored) => (stored === "kill-session" ? "stop" : stored),
-      encode: (onRemove) => (onRemove === "stop" ? "kill-session" : onRemove),
-    }),
-  ),
-);
-export type TerminalOnRemove = typeof TerminalOnRemove.Type;
-
 /** Stable identity of a terminal session across restarts. Not a process id. */
 export const BindingId = NonEmpty.pipe(Schema.brand("BindingId"));
 export type BindingId = typeof BindingId.Type;
@@ -91,7 +70,6 @@ export const Seat = Schema.Struct({
   bindingId: BindingId,
   harness: HarnessId,
   launch: Schema.optionalKey(Launch),
-  onRemove: TerminalOnRemove,
 });
 export type Seat = typeof Seat.Type;
 
@@ -118,7 +96,6 @@ export const Terminal = Schema.Struct({
   host: HostId,
   bindingId: BindingId,
   launch: Schema.optionalKey(Launch),
-  onRemove: TerminalOnRemove,
 });
 export type Terminal = typeof Terminal.Type;
 

@@ -64,6 +64,18 @@ const legacySessionOf = (ether: string | null | undefined): string | undefined =
   }
 };
 
+/** What a stored seat or terminal row said happens when it is removed, as version 13 spells it. */
+const legacyOnRemoveOf = (ether: string | null | undefined): "detach" | "kill-session" => {
+  if (!ether) return "detach";
+  try {
+    return (JSON.parse(ether) as { terminal?: { onDelete?: unknown } }).terminal?.onDelete === "kill-session"
+      ? "kill-session"
+      : "detach";
+  } catch {
+    return "detach";
+  }
+};
+
 /** Copy forward and prove each domain row, without constructing a document. */
 export const migrateCanvasKinds = (
   database: StateSchemaMigrationDatabase,
@@ -119,13 +131,10 @@ export const migrateCanvasKinds = (
       recordSystemLog(`Junto migrated stored object ${JSON.stringify(downgraded)}`, "warn");
     if (node.kind === "peer") throw new Error("a stored canvas never holds a peer");
     const table = KIND_TABLES_V13[node.kind];
-    const row = nodeToRow(old.canvas_name, node);
     insert(database, table, {
-      ...row,
-      // Version 13 said "kill-session" for a terminal that stops on removal.
-      ...((node.kind === "agent" || node.kind === "terminal") && row.on_remove === "stop"
-        ? { on_remove: "kill-session" }
-        : {}),
+      ...nodeToRow(old.canvas_name, node),
+      // Version 13 kept what a seat or terminal did on removal; the model no longer holds it.
+      ...(node.kind === "agent" || node.kind === "terminal" ? { on_remove: legacyOnRemoveOf(old.ether_json) } : {}),
       created_at: old.created_at ?? old.updated_at,
       updated_at: old.updated_at,
     });

@@ -37,6 +37,7 @@ import { SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL } from "../seat-sessions/state-sch
 import { migrateSeatPins, SEAT_SESSIONS_V8_STATE_SCHEMA_SQL } from "./migrate-seat-pins";
 import { migrateSeatSessionData } from "./migrate-seat-session-data";
 import { migrateSeatRows } from "./migrate-seat-rows";
+import { migrateRetireOnRemove } from "./migrate-retire-on-remove";
 import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-models-state-schema";
 import {
   PORTRAIT_OVERRIDES_COPY_FORWARD_SQL,
@@ -362,7 +363,16 @@ export const STATE_SCHEMA_V24_IDENTITY = {
     "cd1ce156f1fdc15029f634a6c3fa6bc71e44f30ac85cd09937a7d54015454934",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 24;
+/**
+ * Version 25 retires `on_remove` from seats and terminals: nothing read it for
+ * either. Pages keep theirs.
+ */
+export const STATE_SCHEMA_V25_IDENTITY = {
+  actualSchemaSha256:
+    "9085d0034ef3430d45329a97b9b31b9512f15254d0f2785edebc935bd165d18c",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 25;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -370,7 +380,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 24;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V24_IDENTITY;
+  STATE_SCHEMA_V25_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -637,6 +647,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     replacesTables: ["seats", "terminals"],
     retiresColumns: { seats: ["session_id"] },
     migrate: (database) => migrateSeatRows(database),
+  },
+  {
+    fromVersion: 24,
+    toVersion: 25,
+    name: "retire on_remove from seats and terminals",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V24_IDENTITY,
+    replacesTables: ["seats", "terminals"],
+    retiresColumns: { seats: ["on_remove"], terminals: ["on_remove"] },
+    migrate: (database) => migrateRetireOnRemove(database),
   },
 ];
 

@@ -32,7 +32,6 @@ const seat = (id: string, x = 10, y = 10): Node => ({
   overseer: false,
   bindingId: `b-${id}` as never,
   harness: "claude",
-  onRemove: "detach",
 });
 
 const region = (id: string, x: number, y: number, width: number, height: number): Node => ({

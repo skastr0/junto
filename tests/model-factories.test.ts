@@ -95,7 +95,7 @@ describe("new nodes", () => {
 describe("a new seat", () => {
   it("is never an overseer and detaches when removed", () => {
     expect(newSeat(spot, { harness: "claude", host: "studio" })).toMatchObject({
-      kind: "agent", overseer: false, onRemove: "detach", host: "studio", harness: "claude",
+      kind: "agent", overseer: false, host: "studio", harness: "claude",
       agentKey: "studio:claude",
     });
   });

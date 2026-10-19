@@ -13,7 +13,6 @@ const seat = {
   overseer: false,
   bindingId: "01M46VAYSKXYFKW4QX1NHBXCCP",
   harness: "claude",
-  onRemove: "detach",
 };
 
 const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runSyncExit(effect);

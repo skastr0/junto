@@ -37,7 +37,7 @@ it("reads kernel lanes and compact watch counts without decoding mail, board pos
     { kind: "artifacts", id: "artifacts", x: 0, y: 0, width: 200, height: 100, z: 3 },
     { kind: "agent", id: "seat", x: 0, y: 0, width: 200, height: 100, z: 4,
       agentKey: "local:claude", label: "Seat", host: THIS_MACHINE, overseer: false,
-      bindingId: "seat-binding", harness: "claude", onRemove: "detach" }], wires: [] }), "operator"));
+      bindingId: "seat-binding", harness: "claude" }], wires: [] }), "operator"));
     const repo = await runtime.runPromise(WorkRepository);
     const sink = { canvasName: "factory", nodeId: "board" };
     const basis = Schema.decodeUnknownSync(CanvasFactBasis)({ kind: "canvas", canvasName: "factory", seq: 1 });

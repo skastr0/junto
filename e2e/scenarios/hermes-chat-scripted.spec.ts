@@ -20,7 +20,7 @@ const hermesAgentNode = (input: {
   readonly id: string; readonly key: string; readonly label: string;
 }) => modelNode({
   kind: "agent", id: input.id, agentKey: input.key, label: input.label,
-  bindingId: input.key, harness: "hermes", host: THIS_MACHINE, overseer: false, onRemove: "detach",
+  bindingId: input.key, harness: "hermes", host: THIS_MACHINE, overseer: false,
   x: 0, y: 0, width: 240, height: 96, z: 0,
 });
 

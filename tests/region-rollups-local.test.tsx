@@ -19,7 +19,7 @@ it("hydrates already-pending ACP permission without ChatView and reads no rollup
   const canvas = asCanvasName("local-rollup-hook");
   const decode = Schema.decodeUnknownSync(Node);
   const frame = { x: 10, y: 10, width: 40, height: 40, z: 0 };
-  const seat = decode({ ...frame, kind: "agent", id: "seat", label: "Seat", agentKey: `${THIS_MACHINE}:hook-seat`, bindingId: "hook-binding", host: THIS_MACHINE, overseer: false, harness: "codex", onRemove: "detach" });
+  const seat = decode({ ...frame, kind: "agent", id: "seat", label: "Seat", agentKey: `${THIS_MACHINE}:hook-seat`, bindingId: "hook-binding", host: THIS_MACHINE, overseer: false, harness: "codex" });
   let change!: (event: Changed) => void;
   let chrome!: (event: ChatChromeChanged) => void;
   const regionRollups = vi.fn(), chatOpen = vi.fn();

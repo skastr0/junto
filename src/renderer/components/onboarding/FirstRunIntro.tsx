@@ -445,7 +445,6 @@ const CREW_NODES: ReadonlyArray<Node> = CREW.map(
       bindingId: `tour:${seat.name}`,
       harness: seat.harness,
       overseer: false,
-      onRemove: "detach",
       x: 0,
       y: 0,
       ...AGENT_NODE_SIZE,

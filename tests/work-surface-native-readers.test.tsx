@@ -43,7 +43,7 @@ const decodeNode = Schema.decodeUnknownSync(Node);
 const decodeWire = Schema.decodeUnknownSync(Wire);
 const agent = (label: string) => ({
   kind: "agent", label, agentKey: `${THIS_MACHINE}:worker`, harness: "codex",
-  host: THIS_MACHINE, bindingId: "binding", overseer: false, onRemove: "detach",
+  host: THIS_MACHINE, bindingId: "binding", overseer: false,
 });
 const flush = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
 const publish = (id: string, fields: Record<string, unknown>) => {

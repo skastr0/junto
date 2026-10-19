@@ -189,7 +189,7 @@ it("reads explicit Work waits and authored verbs from model rows", async () => {
   const { Node, asCanvasName, asWireId } = await import("../src/shared/model");
   const { ActorSeatId } = await import("../src/shared/actor-seat");
   const seatId = Schema.decodeUnknownSync(ActorSeatId)(`seat_${"b".repeat(64)}`);
-  const worker = Schema.decodeUnknownSync(Node)({ kind: "agent", id: "worker", label: "Worker", agentKey: "local:worker", host: THIS_MACHINE, bindingId: "worker", harness: "codex", overseer: false, onRemove: "detach", x: 0, y: 0, width: 100, height: 50, z: 0 });
+  const worker = Schema.decodeUnknownSync(Node)({ kind: "agent", id: "worker", label: "Worker", agentKey: "local:worker", host: THIS_MACHINE, bindingId: "worker", harness: "codex", overseer: false, x: 0, y: 0, width: 100, height: 50, z: 0 });
   const queue = Schema.decodeUnknownSync(Node)({ kind: "task", id: "queue", name: "Queue", x: 200, y: 0, width: 100, height: 50, z: 1 });
   const id = asWireId("contribution");
   const canvas = { name: asCanvasName("factory"), seq: 7, nodes: new Map([worker, queue].map((node) => [node.id, node])), wires: new Map([[id, { id, from: worker.id, to: queue.id, verb: "contributes" as const }]]) };

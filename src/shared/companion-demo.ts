@@ -70,7 +70,7 @@ const seatNode = (seat: DemoSeat, z: number, machineName: string): NodeOf<"agent
   id: asNodeId(seat.id), kind: "agent", label: seat.name,
   ...demoSeatPosition(seat), width: 240, height: 96, z,
   agentKey: `local:demo-${seat.id}`, host: machineName as NodeOf<"agent">["host"], overseer: false,
-  bindingId: `demo-${seat.id}` as BindingId, harness: seat.harness, onRemove: "detach",
+  bindingId: `demo-${seat.id}` as BindingId, harness: seat.harness,
 });
 
 const SEATS = DEMO_SEATS;

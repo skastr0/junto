@@ -41,7 +41,7 @@ const serve = async (root: string) => {
   await runtime.runPromise(model.command(Schema.decodeUnknownSync(Command)({ _tag: "CreateCanvas", canvas: "cli-performance" }), "operator"));
   await runtime.runPromise(model.command(Schema.decodeUnknownSync(Command)({ _tag: "Add", canvas: "cli-performance", nodes: [{
     kind: "agent", id: "agent", label: "qualification", x: 0, y: 0, width: 120, height: 48, z: 0,
-    agentKey: "local:qualification", host: "qualification", overseer: false, bindingId: "qualification", harness: "codex", onRemove: "detach",
+    agentKey: "local:qualification", host: "qualification", overseer: false, bindingId: "qualification", harness: "codex",
     launch: { kind: "harness", argv: ["codex"] },
   }], wires: [] }), "operator"));
   const credentials = makeSeatCredentialRegistry();

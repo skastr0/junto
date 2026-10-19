@@ -4,7 +4,7 @@ import { THIS_MACHINE } from "../../tests/support/machines";
 
 const worker = modelNode({
   kind: "agent", id: "worker", agentKey: "local:worker", label: "Scanner worker",
-  bindingId: "local:worker", harness: "codex", host: THIS_MACHINE, overseer: false, onRemove: "detach",
+  bindingId: "local:worker", harness: "codex", host: THIS_MACHINE, overseer: false,
   x: 0, y: 0, width: 240, height: 120, z: 0,
 });
 

@@ -863,7 +863,6 @@ const decodeStoredKind = (row: LegacyNodeRow, thisMachine: string): Node => {
         overseer: old.overseer ?? false,
         bindingId: old.terminal?.bindingId,
         harness: old.terminal?.harness,
-        onRemove: old.terminal?.onDelete ?? "detach",
         ...present("launch", old.terminal?.launch),
       });
     case "terminal":
@@ -872,7 +871,6 @@ const decodeStoredKind = (row: LegacyNodeRow, thisMachine: string): Node => {
         kind: "terminal",
         host,
         bindingId: old.terminal?.bindingId,
-        onRemove: old.terminal?.onDelete ?? "detach",
         ...present("launch", old.terminal?.launch),
       });
     case "page":

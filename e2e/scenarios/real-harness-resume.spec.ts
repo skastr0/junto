@@ -317,7 +317,7 @@ for (const c of CASES) {
     try {
       await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
       const fixture = modelFixture([modelNode({
-        kind: "agent", id: seatId, ...seat, overseer: false, onRemove: "detach",
+        kind: "agent", id: seatId, ...seat, overseer: false,
         x: 360, y: 40, width: 240, height: 96, z: 0,
       })]);
       canvas = await installModelFixture(page, fixture);

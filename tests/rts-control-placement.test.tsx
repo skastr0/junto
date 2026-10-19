@@ -59,7 +59,7 @@ const assertPlacement = () => {
   expect(modelStore.node$(canvas, frame.id).peek()).toMatchObject({ ...moved, color: frame.color });
   expect(modelStore.node$(canvas, frame.id).peek()?.kind).toBeTruthy();
 };
-const agent = { kind: "agent", label: "Worker", agentKey: `${THIS_MACHINE}:worker`, bindingId: "worker-binding", host: THIS_MACHINE, harness: "codex", launch: { kind: "harness", argv: ["codex"] }, overseer: false, onRemove: "detach" };
+const agent = { kind: "agent", label: "Worker", agentKey: `${THIS_MACHINE}:worker`, bindingId: "worker-binding", host: THIS_MACHINE, harness: "codex", launch: { kind: "harness", argv: ["codex"] }, overseer: false };
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);

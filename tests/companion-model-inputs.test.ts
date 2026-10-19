@@ -12,7 +12,7 @@ import { THIS_MACHINE } from "./support/machines";
 const seatId = Schema.decodeUnknownSync(ActorSeatId)(`seat_${"d".repeat(64)}`);
 const decode = Schema.decodeUnknownSync(Node);
 const region = decode({ kind: "region", id: "region", label: "Ops", x: 0, y: 0, width: 700, height: 400, z: 0, defaults: {}, hold: false });
-const seat = decode({ kind: "agent", id: "worker", label: "Worker", agentKey: "local:worker", host: THIS_MACHINE, bindingId: "worker", harness: "codex", overseer: false, onRemove: "detach", x: 20, y: 20, width: 100, height: 50, z: 1 });
+const seat = decode({ kind: "agent", id: "worker", label: "Worker", agentKey: "local:worker", host: THIS_MACHINE, bindingId: "worker", harness: "codex", overseer: false, x: 20, y: 20, width: 100, height: 50, z: 1 });
 const task = decode({ kind: "task", id: "queue", name: "Queue", x: 200, y: 20, width: 100, height: 50, z: 2 });
 const id = asWireId("contributes");
 const canvas = { name: asCanvasName("factory"), seq: 2, nodes: new Map([region, seat, task].map((node) => [node.id, node])), wires: new Map([[id, { id, from: seat.id, to: task.id, verb: "contributes" as const }]]) };

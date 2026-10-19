@@ -36,7 +36,6 @@ export const seat = (id: string, more: Partial<NodeOf<"agent">> = {}): NodeOf<"a
   overseer: false,
   bindingId: `binding-${id}` as NodeOf<"agent">["bindingId"],
   harness: "claude",
-  onRemove: "detach",
   ...more,
 });
 
@@ -45,7 +44,6 @@ export const terminal = (id: string, more: Partial<NodeOf<"terminal">> = {}): No
   ...placed(id),
   host: THIS_MACHINE,
   bindingId: `terminal-${id}` as NodeOf<"terminal">["bindingId"],
-  onRemove: "detach",
   ...more,
 });
 

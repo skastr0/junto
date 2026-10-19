@@ -70,8 +70,6 @@ export const SeatDraft = Schema.Struct({
   permissionMode: Schema.optionalKey(Choice),
   /** The directory the seat starts in. */
   cwd: Schema.optionalKey(Choice),
-  /** Defaults to detach. */
-  onRemove: Schema.optionalKey(Seat.fields.onRemove),
 });
 export type SeatDraft = typeof SeatDraft.Type;
 

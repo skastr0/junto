@@ -40,7 +40,7 @@ it("a delivered mail commits its receipt against the live canvas sequence and su
     await runtime.runPromise(model.command(command({ _tag: "CreateCanvas", canvas: "factory" }), "operator"));
     await runtime.runPromise(model.command(command({ _tag: "Add", canvas: "factory", nodes: ["sender", "inbox"].map((id) => ({
       kind: "agent", id, x: 0, y: 0, width: 200, height: 100, z: 0, label: id,
-      agentKey: `local:${id}`, bindingId: `binding-${id}`, host: THIS_MACHINE, harness: "claude", overseer: false, onRemove: "detach",
+      agentKey: `local:${id}`, bindingId: `binding-${id}`, host: THIS_MACHINE, harness: "claude", overseer: false,
     })), wires: [] }), "operator"));
     const actors = await runtime.runPromise(refs.read("factory"));
     await runtime.runPromise(repo.appendMessage({

@@ -41,7 +41,7 @@ const MIDDLE_DOT = "\u00B7";
 
 const terminalNode = (id: string, bindingId: string): Node => Effect.runSync(decodeNode({
   kind: "terminal", id, label: id, x: 0, y: 0, width: 220, height: 90, z: 0,
-  host: THIS_MACHINE, bindingId, onRemove: "detach",
+  host: THIS_MACHINE, bindingId,
 }));
 
 const seatEvent = (state: AgentSeatStateEvent["state"]): AgentSeatStateEvent => ({

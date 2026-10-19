@@ -1792,7 +1792,7 @@ const main = async (): Promise<void> => {
     {
       kind: "agent", id: "probe-agent" as Node["id"], label: "browser-containment-probe",
       agentKey: "browser-containment-probe", bindingId: Schema.decodeUnknownSync(BindingId)("browser-containment-probe"),
-      harness: "codex", host: "local", overseer: false, onRemove: "detach",
+      harness: "codex", host: "local", overseer: false,
       x: 840, y: -180, width: 320, height: 96, z: 0,
     },
     ...pageTargets.map(({ nodeId, profile, url }, index): Node => ({

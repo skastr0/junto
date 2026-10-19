@@ -32,7 +32,6 @@ const seat = node("seat", "agent", {
   overseer: false,
   bindingId: "binding",
   harness: "codex",
-  onRemove: "detach",
 });
 const decode = Schema.decodeUnknownSync(Command);
 const run = (
@@ -415,7 +414,7 @@ it("refuses overseer occupant changes and rolls back presentation steps before t
     const events: Changed[] = [];
     const stop = model.subscribeChanges((event) => events.push(event));
     const prohibited = [
-      ...[{ launch: { kind: "harness", cwd: "/tmp" } }, { host: "other" }, { harness: "claude" }, { onRemove: "stop" }, { label: "Renamed", launch: null }].map((change) => ({
+      ...[{ launch: { kind: "harness", cwd: "/tmp" } }, { host: "other" }, { harness: "claude" }, { label: "Renamed", launch: null }].map((change) => ({
         _tag: "Edit", canvas: "factory", id: "seat", change: { kind: "agent", ...change },
       })),
       { _tag: "Remove", canvas: "factory", nodes: ["seat"], wires: [] },
@@ -470,7 +469,6 @@ it("refuses protected-seat edits, runtime commands, duplicate bindings and dupli
               node("terminal", "terminal", {
                 host: THIS_MACHINE,
                 bindingId: "binding",
-                onRemove: "detach",
               }),
             ],
             wires: [],

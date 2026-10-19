@@ -41,7 +41,7 @@ const node = (kind: string, id: string, over: Record<string, unknown> = {}): Nod
 const seat = (id: string, over: Record<string, unknown> = {}): Node =>
   node("agent", id, {
     agentKey: `local:${id}`, label: id, host: "local", overseer: false,
-    bindingId: `binding-${id}`, harness: "claude", onRemove: "detach", ...over,
+    bindingId: `binding-${id}`, harness: "claude", ...over,
   });
 const board = (id: string, over: Record<string, unknown> = {}): Node => node("task", id, over);
 const note = (id: string, over: Record<string, unknown> = {}): Node => node("note", id, { text: "hello", ...over });
@@ -63,7 +63,7 @@ const sent = (commands: ReadonlyArray<Command>): ReadonlyArray<Command> => {
 
 describe("renaming", () => {
   const canvas = canvasOf([
-    seat("lead"), board("tasks", { name: "Backlog" }), node("terminal", "term", { host: "local", bindingId: "b", onRemove: "detach", label: "shell" }),
+    seat("lead"), board("tasks", { name: "Backlog" }), node("terminal", "term", { host: "local", bindingId: "b", label: "shell" }),
     region("room", { label: "canvas" }), note("plan"), node("label", "north", { text: "North" }),
   ]);
 

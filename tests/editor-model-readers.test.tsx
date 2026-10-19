@@ -98,7 +98,7 @@ it("a mounted cron follows its native schedule and connected actions", async () 
 it("the mounted pad mention picker follows inbound native seats and wires", async () => {
   publish({ ...rect, kind: "pad", label: "Sketch" });
   const seat = { ...rect, id: "worker", kind: "agent", label: "Scout", agentKey: `${THIS_MACHINE}:scout`,
-    harness: "codex", host: THIS_MACHINE, bindingId: "binding", overseer: false, onRemove: "detach" };
+    harness: "codex", host: THIS_MACHINE, bindingId: "binding", overseer: false };
   publish(seat);
   publishWire({ id: "edits", from: "worker", to: "subject", verb: "edits" });
   const pin = Schema.decodeUnknownSync(PadPin)({ id: "pin", x: 0, y: 0, z: 0, mentions: [], posts: [], unread: false });
@@ -146,7 +146,7 @@ it("the mounted command bar finds native region paths and opens current note con
 });
 
 it("the command bar's native seat ring and line follow binding facts", async () => {
-  publish({ ...rect, kind: "agent", label: "Scout", agentKey: `${THIS_MACHINE}:scout`, harness: "codex", host: THIS_MACHINE, bindingId: "native-bar-seat", overseer: true, onRemove: "detach" });
+  publish({ ...rect, kind: "agent", label: "Scout", agentKey: `${THIS_MACHINE}:scout`, harness: "codex", host: THIS_MACHINE, bindingId: "native-bar-seat", overseer: true });
   await act(async () => root.render(<CommandBar />));
   expect(document.body.textContent).toContain("Scout");
   expect(document.body.textContent).not.toContain("wants your input");

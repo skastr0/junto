@@ -13,7 +13,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { nodeFromRow } from "../src/main/junto/model/rows";
 import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V23_IDENTITY,
@@ -21,8 +20,7 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
-import { STATE_SCHEMA_V23_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V23_SQL, STATE_SCHEMA_V24_SQL } from "./fixtures/state-v1/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -63,7 +61,12 @@ const versionTwentyThreePlan = {
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 23).map(named),
 };
 
-const headPlan = { ...STATE_SCHEMA_MIGRATION_PLAN, migrations: STATE_SCHEMA_MIGRATIONS.map(named) };
+const versionTwentyFourPlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 24,
+  currentSchemaSql: STATE_SCHEMA_V24_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 24).map(named),
+};
 
 const geometry = (id: string) => ({
   id, x: 0, y: 0, width: 10, height: 10, z_index: 1, color: null, created_at: "t", updated_at: "t",
@@ -91,10 +94,9 @@ const firstCanvas = (database: DatabaseSync): string => {
 };
 
 describe("state migration 23 -> 24 (seat rows)", () => {
-  it("freezes the witness the step starts from and names the head", () => {
+  it("freezes the witnesses the step starts from and ends at", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V23_SQL)).toEqual(STATE_SCHEMA_V23_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V24_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(expectedStateSchemaIdentity(STATE_SCHEMA_SQL));
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V24_SQL)).toEqual(STATE_SCHEMA_V24_IDENTITY);
   });
 
   it.each(["command-center-v1.db", "remote-v1.db"])(
@@ -106,7 +108,7 @@ describe("state migration 23 -> 24 (seat rows)", () => {
         seed(database, firstCanvas(database));
         const before = Object.fromEntries(tables(database).map((table) => [table, rows(database, table)]));
 
-        const result = migrateStateSchema(database, headPlan);
+        const result = migrateStateSchema(database, versionTwentyFourPlan);
         expect(result).toMatchObject({ previousVersion: 23, schemaVersion: 24 });
         expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V24_IDENTITY);
         expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
@@ -122,7 +124,7 @@ describe("state migration 23 -> 24 (seat rows)", () => {
         expect(terminals).toEqual(terminalsBefore!.map((row) => ({ ...row, on_remove: word(row.on_remove) })));
         expect(seats!.some((row) => row.id === "seat-stops" && row.on_remove === "stop")).toBe(true);
         expect(terminals!.some((row) => row.id === "term-stops" && row.on_remove === "stop")).toBe(true);
-        for (const row of seats!) expect(nodeFromRow("agent", row)).toMatchObject({ onRemove: word(row.on_remove) });
+        for (const row of seats!) expect(nodeFromRow("agent", row)).toMatchObject({ id: row.id });
       } finally {
         database.close();
       }
@@ -132,7 +134,7 @@ describe("state migration 23 -> 24 (seat rows)", () => {
   it("refuses the old word once the step has run", async () => {
     const database = await openCopy("command-center-v1.db");
     try {
-      migrateStateSchema(database, headPlan);
+      migrateStateSchema(database, versionTwentyFourPlan);
       const canvas = firstCanvas(database);
       expect(() =>
         database

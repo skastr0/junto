@@ -123,12 +123,12 @@ describe("overseer command contract", () => {
     succeeds(decodeOverseerArgs("node.create", {
       node: {
         ...seat, id: "s1", color: "2", label: "Reviewer", host: THIS_MACHINE, profile: "work", model: "opus",
-        effort: "high", mode: "plan", permissionMode: "acceptEdits", cwd: "~/Projects/junto", onRemove: "stop",
+        effort: "high", mode: "plan", permissionMode: "acceptEdits", cwd: "~/Projects/junto",
       },
     }));
     // A plain terminal is the kind drafted with a command.
     succeeds(decodeOverseerArgs("node.create", {
-      node: { kind: "terminal", host: THIS_MACHINE, onRemove: "detach", launch: { kind: "command", argv: ["htop"] }, x: 0, y: 0, width: 400, height: 300 },
+      node: { kind: "terminal", host: THIS_MACHINE, launch: { kind: "command", argv: ["htop"] }, x: 0, y: 0, width: 400, height: 300 },
     }));
     succeeds(decodeOverseerArgs("node.create", {
       node: { kind: "region", label: "CLI", hold: false, x: 0, y: 0, width: 800, height: 600 },

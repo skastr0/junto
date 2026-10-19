@@ -37,7 +37,7 @@ const publish = (id: string, fields: Record<string, unknown>) => {
 };
 const agent = (label: string, bindingId = "binding") => ({
   kind: "agent", label, agentKey: `${THIS_MACHINE}:worker`, harness: "codex", host: THIS_MACHINE,
-  bindingId, overseer: false, onRemove: "detach",
+  bindingId, overseer: false,
 });
 const mount = async (content: ReactNode) => act(async () => { root.render(content); await flush(); });
 

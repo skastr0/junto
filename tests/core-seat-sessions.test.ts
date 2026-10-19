@@ -23,7 +23,7 @@ it("a windowless core closes a session on the agent's own offboard, and answers 
     await run(Effect.flatMap(ModelService, (model) => model.command(command({ _tag: "Add", canvas: "rest", nodes: [{
       kind: "agent", id: "own-seat", x: 0, y: 0, width: 200, height: 100, z: 0,
       label: "Own", agentKey: "local:own", bindingId: "own-binding", host: machineName,
-      harness: "codex", overseer: false, onRemove: "detach",
+      harness: "codex", overseer: false,
     }], wires: [] }), "operator")));
     await run(Effect.flatMap(SeatSessionRepository, (sessions) =>
       sessions.record({ seatId: "own-seat", bindingId: "own-binding", sessionId: "session-one", harness: "codex" })));

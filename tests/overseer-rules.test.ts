@@ -107,7 +107,7 @@ describe("planning an overseer's steps", () => {
     for (const canvas of ["ops", "other"]) {
       expect(refusal([{
         operation: "node.create",
-        node: { kind: "terminal", x: 0, y: 0, width: 10, height: 10, host: THIS_MACHINE, onRemove: "detach", bindingId: "bind-boss" },
+        node: { kind: "terminal", x: 0, y: 0, width: 10, height: 10, host: THIS_MACHINE, bindingId: "bind-boss" },
       }], canvas).type).toBe("Forbidden");
     }
   });

@@ -87,7 +87,6 @@ export const newSeat = (spot: Spot, choices: SeatChoices): NodeOf<"agent"> => ({
   ...placed("agent", spot, AGENT_NODE_SIZE),
   ...seatParts(choices),
   overseer: false,
-  onRemove: "detach",
 });
 
 /** A plain terminal on the machine named `host`. Its session starts when it is opened. */
@@ -101,7 +100,6 @@ export const newTerminal = (
   host: requireHostId(options.host),
   bindingId: newBinding(),
   ...(options.launch ? { launch: options.launch } : {}),
-  onRemove: "detach",
 });
 
 // ── Surfaces agents work against ────────────────────────────────────────────

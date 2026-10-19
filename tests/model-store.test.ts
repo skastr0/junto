@@ -21,7 +21,6 @@ const seat = (id: string, over: Record<string, unknown> = {}): Node =>
     bindingId: `binding-${id}`,
     harness: "claude",
     launch: { kind: "harness", argv: ["claude"] },
-    onRemove: "detach",
     ...over,
   }) as unknown as Node;
 

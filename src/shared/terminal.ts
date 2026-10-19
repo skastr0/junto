@@ -3,7 +3,7 @@
 // Never put PIDs, sockets, tokens, scrollback, or engine handles in the document.
 
 import { Schema } from "effect";
-import type { Launch, Node, TerminalOnRemove } from "./model";
+import type { Launch, Node } from "./model";
 
 /** The launch a seat or terminal stores, as the runtime reads it. */
 export type TerminalLaunch = Launch;
@@ -127,7 +127,6 @@ export type ResolvedTerminalBinding =
       readonly kind: "native";
       readonly hostId: string;
       readonly bindingId: string;
-      readonly onDelete: TerminalOnRemove;
       readonly launch?: TerminalLaunch;
       readonly label?: string;
       /** Managed harness when authored via the picker. */
@@ -148,7 +147,6 @@ export const terminalBindingOf = (node: Node | undefined): ResolvedTerminalBindi
       kind: "native",
       hostId: node.host,
       bindingId: node.bindingId,
-      onDelete: node.onRemove,
       ...(node.launch === undefined ? {} : { launch: node.launch }),
       ...(node.label === undefined ? {} : { label: node.label }),
     };
@@ -158,7 +156,6 @@ export const terminalBindingOf = (node: Node | undefined): ResolvedTerminalBindi
       kind: "native",
       hostId: node.host,
       bindingId: node.bindingId,
-      onDelete: node.onRemove,
       ...(node.launch === undefined ? {} : { launch: node.launch }),
       ...(node.label === undefined ? {} : { label: node.label }),
       harness: node.harness,

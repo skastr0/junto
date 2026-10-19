@@ -15,7 +15,7 @@ const seat = (id: string, over: Record<string, unknown> = {}): Node =>
   ({
     kind: "agent", id, x: 0, y: 0, width: 216, height: 96, z: 0,
     agentKey: `local:${id}`, label: id, host: "workbench", overseer: false,
-    bindingId: `binding-${id}`, harness: "claude", onRemove: "detach", ...over,
+    bindingId: `binding-${id}`, harness: "claude", ...over,
   }) as unknown as Node;
 
 const note = (id: string, over: Record<string, unknown> = {}): Node =>

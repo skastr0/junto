@@ -17,7 +17,7 @@ import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 const seat = (id: string, label: string, extra: Record<string, unknown> = {}): Node =>
   Effect.runSync(decodeNode({
     kind: "agent", id, label, x: 0, y: 0, width: 216, height: 96, z: 0,
-    agentKey: `${THIS_MACHINE}:${id}`, host: THIS_MACHINE, overseer: false, onRemove: "detach",
+    agentKey: `${THIS_MACHINE}:${id}`, host: THIS_MACHINE, overseer: false,
     bindingId: `binding-${id}`, harness: "claude", ...extra,
   }));
 

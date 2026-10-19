@@ -109,9 +109,9 @@ describe("real canvas shape from a database copy", () => {
       INSERT INTO regions (${geometry}, label, hold) VALUES
         ('factory', 'outer', 0, 0, 0, 2000, 1200, '4', ${times}, 'Secret outer', 0),
         ('factory', 'inner', 1, 100, 100, 900, 600, NULL, ${times}, 'Secret inner', 0);
-      INSERT INTO seats (${geometry}, agent_key,label,host,binding_id,harness,on_remove,overseer) VALUES
-        ('factory', 'a1', 2, 150, 200, 300, 96, '2', ${times}, 'local:x', 'secret seat', 'local', 'x', 'codex', 'detach', 0),
-        ('factory', 'a2', 3, 500, 200, 240, 96, NULL, ${times}, 'local:y', 'secret seat', 'local', 'y', 'codex', 'detach', 0);
+      INSERT INTO seats (${geometry}, agent_key,label,host,binding_id,harness,overseer) VALUES
+        ('factory', 'a1', 2, 150, 200, 300, 96, '2', ${times}, 'local:x', 'secret seat', 'local', 'x', 'codex', 0),
+        ('factory', 'a2', 3, 500, 200, 240, 96, NULL, ${times}, 'local:y', 'secret seat', 'local', 'y', 'codex', 0);
       INSERT INTO notes (${geometry},text) VALUES
         ('factory', 'n1', 4, 1200, 200, 300, 400, NULL, ${times}, 'secret note');
       INSERT INTO pages (${geometry},url,profile,on_remove) VALUES

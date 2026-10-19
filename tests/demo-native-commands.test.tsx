@@ -28,7 +28,7 @@ let command: ReturnType<typeof vi.fn>;
 const scenario: DemoScenario = { id: "native-proof", title: "Native proof", bpm: 120, beats: [] };
 const decodeNode = Schema.decodeUnknownSync(Node);
 const note = (id: string, text: string) => decodeNode({ id, kind: "note", text, x: 110, y: 220, width: 240, height: 96, z: 0 });
-const seat = decodeNode({ id: "seat", kind: "agent", label: "Planner", agentKey: `${DEMO_THIS_MACHINE}:planner`, host: DEMO_THIS_MACHINE, bindingId: "binding", harness: "codex", overseer: false, onRemove: "detach", x: 110, y: 220, width: 240, height: 96, z: 0 });
+const seat = decodeNode({ id: "seat", kind: "agent", label: "Planner", agentKey: `${DEMO_THIS_MACHINE}:planner`, host: DEMO_THIS_MACHINE, bindingId: "binding", harness: "codex", overseer: false, x: 110, y: 220, width: 240, height: 96, z: 0 });
 const flush = async () => { await flushPendingCanvasSave(); for (let i = 0; i < 30; i++) await Promise.resolve(); };
 
 beforeEach(() => {

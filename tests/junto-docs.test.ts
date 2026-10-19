@@ -16,7 +16,7 @@ describe("junto docs catalog", () => {
   });
 
   it.each([
-    ["agent", ["agentKey", "bindingId", "harness", "onRemove"]],
+    ["agent", ["agentKey", "bindingId", "harness"]],
     ["task", ["name", "contract"]],
     ["requests", ["name"]],
     ["board", ["label"]],

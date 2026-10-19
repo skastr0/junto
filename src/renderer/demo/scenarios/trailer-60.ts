@@ -179,7 +179,6 @@ const crewNode = (spec: CrewSpec): NodeOf<"terminal"> => {
     height: 110,
     host: spec.host,
     bindingId: spec.terminalId as BindingId,
-    onRemove: "detach",
   };
 };
 
@@ -302,7 +301,6 @@ const demoAgent: NodeOf<"agent"> = {
   bindingId: "demo-profile-13" as BindingId,
   harness: "hermes",
   overseer: false,
-  onRemove: "detach",
 };
 
 // --- beat map --------------------------------------------------------------------

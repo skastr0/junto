@@ -14,7 +14,6 @@ describe("the binding of a node as the model holds it", () => {
       kind: "native",
       hostId: "remote-a",
       bindingId: "bind-w",
-      onDelete: "detach",
       label: "worker",
       harness: "codex",
       agentKey: "local:worker",

@@ -7,7 +7,7 @@
  * every region as a rectangle, and the private text only where it applies to
  * that machine's seats. This module is the cut, and nothing else.
  */
-import { Schema } from "effect";
+import { Schema, SchemaTransformation } from "effect";
 import type { ActorSeatId } from "./actor-seat";
 import { InstallationId } from "./installation-id";
 import {
@@ -43,6 +43,39 @@ const CopiedReference = Schema.Struct({
 });
 export type CopiedReference = typeof CopiedReference.Type;
 
+/**
+ * A seat or terminal on the wire still carries `onRemove`, which this build
+ * no longer has: a machine on a build before 2026-10-19 requires it, as
+ * "detach" or "kill-session", and refuses a whole copy without it. Sent as
+ * "detach"; whatever an older machine sends is read and dropped. Retire it in
+ * a release of its own, once no machine that links runs such a build.
+ */
+const OldOnRemove = Schema.optionalKey(Schema.Literals(["detach", "stop", "kill-session"]));
+
+const CopiedSeatFields = Schema.Struct({ ...Seat.fields, onRemove: OldOnRemove });
+const CopiedSeat = CopiedSeatFields.pipe(
+  Schema.decodeTo(
+    Seat,
+    SchemaTransformation.transform({
+      // The same fields on both sides; only `onRemove` differs.
+      decode: ({ onRemove: _dropped, ...seat }) => seat as typeof Seat.Encoded,
+      encode: (seat) => ({ ...seat, onRemove: "detach" }) as typeof CopiedSeatFields.Type,
+    }),
+  ),
+);
+
+const CopiedTerminalFields = Schema.Struct({ ...Terminal.fields, onRemove: OldOnRemove });
+const CopiedTerminal = CopiedTerminalFields.pipe(
+  Schema.decodeTo(
+    Terminal,
+    SchemaTransformation.transform({
+      // The same fields on both sides; only `onRemove` differs.
+      decode: ({ onRemove: _dropped, ...terminal }) => terminal as typeof Terminal.Encoded,
+      encode: (terminal) => ({ ...terminal, onRemove: "detach" }) as typeof CopiedTerminalFields.Type,
+    }),
+  ),
+);
+
 export const CanvasCopy = Schema.Struct({
   canvasName: CanvasName,
   canvasId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
@@ -51,9 +84,9 @@ export const CanvasCopy = Schema.Struct({
   editor: InstallationId,
   /** The machine this copy was cut for. A copy cut for another machine is not this machine's. */
   target: InstallationId,
-  seats: Schema.Array(Seat),
+  seats: Schema.Array(CopiedSeat),
   peers: Schema.Array(Peer),
-  terminals: Schema.Array(Terminal),
+  terminals: Schema.Array(CopiedTerminal),
   regions: Schema.Array(Region),
   wires: Schema.Array(Wire),
   guidance: Schema.Array(CopiedGuidance),

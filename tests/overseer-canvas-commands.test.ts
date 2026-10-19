@@ -294,7 +294,7 @@ describe("executeOverseerCanvas", () => {
     // Main worked out everything the agent did not name.
     expect(made.node).toMatchObject({
       kind: "agent", label: "Builder", harness: "claude", host: THIS_MACHINE, agentKey: `${THIS_MACHINE}:claude`,
-      overseer: false, onRemove: "detach",
+      overseer: false,
     });
     expect(made.node.bindingId).toMatch(/\S/u);
     const argv = made.node.launch?.argv ?? [];
@@ -332,12 +332,12 @@ describe("executeOverseerCanvas", () => {
     await boot();
     const refused = await expectErr({
       operation: "node.create",
-      args: { node: { kind: "terminal", x: 0, y: 200, width: 200, height: 100, host: THIS_MACHINE, onRemove: "detach", bindingId: "bind-overseer" } },
+      args: { node: { kind: "terminal", x: 0, y: 200, width: 200, height: 100, host: THIS_MACHINE, bindingId: "bind-overseer" } },
     } as never, "AuthError");
     expect(refused.message).toMatch(/share a session/u);
     const shell = (await expectOk({
       operation: "node.create",
-      args: { node: { kind: "terminal", x: 0, y: 200, width: 200, height: 100, host: THIS_MACHINE, onRemove: "detach" } },
+      args: { node: { kind: "terminal", x: 0, y: 200, width: 200, height: 100, host: THIS_MACHINE } },
     } as never)) as { node: NodeOf<"terminal"> };
     expect(shell.node.bindingId).toMatch(/\S/u);
   });
@@ -380,10 +380,10 @@ describe("executeOverseerCanvas", () => {
     await expectOk({ operation: "node.move", args: { nodeId: "overseer", x: 40, y: 60 } });
     expect(await nodeAt("ops", "overseer")).toMatchObject({ label: "still me", x: 40, y: 60, overseer: true });
     const refused = await expectErr(
-      { operation: "node.configure", args: { nodeId: "overseer", change: { kind: "agent", onRemove: "kill-session" } } },
+      { operation: "node.configure", args: { nodeId: "overseer", change: { kind: "agent", host: "remote" } } },
       "AuthError",
     );
-    expect(refused.message).toMatch(/Only the operator/u);
+    expect(refused.message).toMatch(/does not change a seat's host/u);
     setOverseerNativeDeleteHooks(NATIVE_OK);
     await expectErr({ operation: "node.delete", args: { nodeIds: ["region"], canvas: "nowhere" } }, "UnknownTarget");
     await expectOk({ operation: "node.delete", args: { nodeIds: ["region"] } });
@@ -584,7 +584,7 @@ describe("executeOverseerCanvas", () => {
       // What only the operator changes on an overseer seat: the model refuses the batch whole.
       [[
         { operation: "node.move", nodeId: "n1", x: 999, y: 999 },
-        { operation: "node.configure", nodeId: "overseer", change: { kind: "agent", onRemove: "kill-session" } },
+        { operation: "node.configure", nodeId: "overseer", change: { kind: "agent", host: "remote" } },
       ], "AuthError"],
     ] as const) {
       await expectErr({ operation: "canvas.batch", args: { steps } } as never, type);

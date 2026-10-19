@@ -311,7 +311,7 @@ const seed = () => Schema.decodeUnknownSync(Command)({
   nodes: [
     { kind: "agent", id: AGENT, x: 40, y: 40, width: 140, height: 56, z: 0,
       label: "agent", agentKey: "local:default", host: "acceptance", overseer: false,
-      bindingId: "work-acceptance-agent", harness: "claude", onRemove: "detach" },
+      bindingId: "work-acceptance-agent", harness: "claude" },
     { kind: "task", id: TASKS, x: 240, y: 40, width: 160, height: 80, z: 1 },
     { kind: "requests", id: REQS, x: 440, y: 40, width: 160, height: 80, z: 2 },
     { kind: "artifacts", id: ARTS, x: 640, y: 40, width: 160, height: 80, z: 3 },

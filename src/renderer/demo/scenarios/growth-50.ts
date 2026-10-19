@@ -89,7 +89,6 @@ const crewNode = (spec: CrewSpec): NodeOf<"terminal"> => ({
   height: 110,
   host: spec.host,
   bindingId: spec.terminalId as BindingId,
-  onRemove: "detach",
 });
 
 /** Spawn = the crew card entering on its beat. */

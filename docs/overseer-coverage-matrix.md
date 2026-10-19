@@ -194,7 +194,7 @@ replay.
 | `canvas.read` | `{name, seq, nodes, wires}`, nodes in paint order; `seq` is a number |
 | `canvas.read`, `node.list`, `node.get`, `wire.list`, `wire.get` | structure only; no tasks, requests, artifacts, mail or board topics ride on a node; work is read with its own command |
 | `node.create`, `wire.connect` | a draft: `id` optional and minted by main, no `z`; the answer carries the node or wire with its id |
-| Seats | created and reseated by naming what they run: `harness` required, `profile`, `model`, `effort`, `mode`, `permissionMode`, `host` optional (and `cwd`, `label`, `onRemove` on create); main builds the launch, agent key and session; a seat draft carrying `launch`, `agentKey`, `bindingId`, `sessionId` or `overseer` is `InvalidArguments`; a terminal draft keeps `launch` |
+| Seats | created and reseated by naming what they run: `harness` required, `profile`, `model`, `effort`, `mode`, `permissionMode`, `host` optional (and `cwd`, `label` on create); main builds the launch, agent key and session; a seat draft carrying `launch`, `agentKey`, `bindingId`, `sessionId` or `overseer` is `InvalidArguments`; a terminal draft keeps `launch` |
 | `node.configure`, `scheduler.configure` | `change` is the model edit for the node's kind; a kind that is not the node's is `InvalidArguments` naming the actual kind |
 | `node.recolor`, `node.delete` | take `nodeIds`, one or many |
 | `canvas.batch` | `{canvas?, expectedSeq?, steps}`; a canvas that moved since `expectedSeq` is `Conflict` |

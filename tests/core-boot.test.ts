@@ -83,7 +83,7 @@ it("starts the core and closes within the bound with a link open and mail in fli
     await core.runtime.runPromise(model.command(command({ _tag: "Add", canvas: "delivery", nodes: [{
       kind: "agent", id: "peer-seat", x: 0, y: 0, width: 200, height: 100, z: 0,
       label: "Peer", agentKey: "local:peer", bindingId: "peer-binding", host: "other-mail-core",
-      harness: "codex", overseer: false, onRemove: "detach",
+      harness: "codex", overseer: false,
     }], wires: [] }), "operator"));
     const refs = await core.runtime.runPromise(ModelActorRefs);
     const repository = await core.runtime.runPromise(WorkRepository);

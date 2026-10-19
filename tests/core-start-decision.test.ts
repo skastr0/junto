@@ -22,7 +22,7 @@ it("a windowless core's start asks the start decision, with why it starts: a col
     await run(Effect.flatMap(ModelService, (model) => model.command(command({ _tag: "CreateCanvas", canvas: "rest" }), "operator")));
     const agent = (id: string, harness: string) => ({
       kind: "agent", id, x: 0, y: 0, width: 200, height: 100, z: 0, label: id, agentKey: `local:${id}`,
-      bindingId: `${id}-binding`, host: machineName, harness, overseer: false, onRemove: "detach",
+      bindingId: `${id}-binding`, host: machineName, harness, overseer: false,
     });
     await run(Effect.flatMap(ModelService, (model) => model.command(command({ _tag: "Add", canvas: "rest",
       nodes: [agent("pinned", "claude"), agent("captured", "codex")], wires: [] }), "operator")));

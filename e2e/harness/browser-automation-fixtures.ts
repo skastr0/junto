@@ -14,7 +14,7 @@ export const browserAgentNode = (input: {
   readonly y?: number;
 }) => modelNode({
   kind: "agent", id: input.id, agentKey: input.agentKey, label: input.label,
-  bindingId: input.agentKey, harness: "codex", host: THIS_MACHINE, overseer: false, onRemove: "detach",
+  bindingId: input.agentKey, harness: "codex", host: THIS_MACHINE, overseer: false,
   x: input.x ?? 0, y: input.y ?? 0, width: 240, height: 96, z: 0,
 });
 

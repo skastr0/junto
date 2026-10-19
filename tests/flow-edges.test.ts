@@ -12,7 +12,7 @@ const name = asCanvasName("factory");
 const seat = (id: string, x: number, y: number): Node =>
   ({
     kind: "agent", id, x, y, width: 216, height: 96, z: 0, agentKey: `local:${id}`, label: id, host: "local",
-    overseer: false, bindingId: `binding-${id}`, harness: "claude", onRemove: "detach",
+    overseer: false, bindingId: `binding-${id}`, harness: "claude",
   }) as unknown as Node;
 const wire = (id: string, from: string, to: string, over: Record<string, unknown> = {}): Wire =>
   ({ id, from, to, verb: "messages", ...over }) as unknown as Wire;

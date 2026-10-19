@@ -31,7 +31,7 @@ const { decodeCosmeticPacks } = await import("../src/shared/cosmetics/load");
 
 const seat = Effect.runSync(decodeNode({
   kind: "agent", id: "seat-1", label: "planner", x: 0, y: 0, width: 240, height: 96, z: 0,
-  agentKey: `${THIS_MACHINE}:planner`, host: THIS_MACHINE, overseer: false, onRemove: "detach",
+  agentKey: `${THIS_MACHINE}:planner`, host: THIS_MACHINE, overseer: false,
   bindingId: "bind-local-planner", harness: "claude", launch: { kind: "harness", argv: ["claude"] },
 }));
 

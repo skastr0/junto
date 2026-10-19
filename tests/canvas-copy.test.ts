@@ -56,8 +56,8 @@ const nodes: ReadonlyArray<Node> = [
   seat("lead", "macbook", { x: 50, y: 50 }),
   seat("peer", "mini", { x: 300, y: 50 }),
   seat("solo", "macbook", { x: 2050, y: 50 }),
-  { kind: "terminal", id: asNodeId("mini-shell"), x: 500, y: 50, width: 100, height: 60, z: 0, host: "mini" as never, bindingId: "binding-mini-shell" as never, onRemove: "detach" },
-  { kind: "terminal", id: asNodeId("macbook-shell"), x: 700, y: 50, width: 100, height: 60, z: 0, host: "macbook" as never, bindingId: "binding-macbook-shell" as never, onRemove: "detach" },
+  { kind: "terminal", id: asNodeId("mini-shell"), x: 500, y: 50, width: 100, height: 60, z: 0, host: "mini" as never, bindingId: "binding-mini-shell" as never },
+  { kind: "terminal", id: asNodeId("macbook-shell"), x: 700, y: 50, width: 100, height: 60, z: 0, host: "macbook" as never, bindingId: "binding-macbook-shell" as never },
   { kind: "note", id: asNodeId("a-note"), x: 50, y: 200, width: 100, height: 60, z: 0, text: "written by the operator" } as Node,
 ];
 

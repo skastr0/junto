@@ -41,7 +41,7 @@ export const modelSeat = (input: {
   return Schema.decodeUnknownSync(Seat, { onExcessProperty: "error" })({
     kind: "agent", id: input.id, agentKey: input.key ?? `local:${input.id}`, label: input.label ?? input.id,
     bindingId: input.bindingId ?? input.key ?? `local:${input.id}`, harness, host: input.host ?? THIS_MACHINE,
-    overseer: false, onRemove: "detach", x: input.x ?? 0, y: input.y ?? 0,
+    overseer: false, x: input.x ?? 0, y: input.y ?? 0,
     width: 240, height: 96, z: input.z ?? 0,
     launch: input.launch ?? { ...resolveManagedLaunch(harness, { cwd }, {}), cwd },
   });
@@ -59,7 +59,7 @@ export const modelTerminal = (input: {
   readonly x?: number; readonly y?: number;
 }): Terminal => Schema.decodeUnknownSync(Terminal, { onExcessProperty: "error" })({
   kind: "terminal", id: input.id, bindingId: input.bindingId, label: input.label,
-  host: input.host ?? THIS_MACHINE, onRemove: "detach", launch: input.launch ?? { kind: "shell" },
+  host: input.host ?? THIS_MACHINE, launch: input.launch ?? { kind: "shell" },
   x: input.x ?? 0, y: input.y ?? 0, width: 260, height: 110, z: 0,
 });
 
