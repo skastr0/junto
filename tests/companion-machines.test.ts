@@ -125,7 +125,7 @@ describe("typed fields are checked, not scrubbed", () => {
     );
     expect(status.missingSecrets).toEqual(["OPENAI_API_KEY"]);
     expect(status.failure!.tag).toBe("Failure");
-    const logs = companionMachineLogs(logRead([{ canvas: "demo", seat: "atlas" }, { canvas: "../x" as never, seat: "a b" as never }]), 50, scrub);
+    const logs = companionMachineLogs(logRead([{ canvas: "demo" as never, seat: "atlas" as never }, { canvas: "../x" as never, seat: "a b" as never }]), 50, scrub);
     if (!("rows" in logs)) throw new Error("rows expected");
     expect(logs.rows[0]).toMatchObject({ canvas: "demo", seat: "atlas" });
     expect(logs.rows[1]!.canvas).toBeUndefined();
