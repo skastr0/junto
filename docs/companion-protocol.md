@@ -84,8 +84,16 @@ The Mac sends a `hello` event first, before any request is read:
 ```json
 { "v": "junto-companion/1", "type": "event", "event": "hello",
   "data": { "appVersion": "0.3.4", "deviceId": "dev_01J...", "deviceName": "Guilherme's iPhone",
-            "station": "Guilherme's MacBook Pro", "serverTime": 1790000000000 } }
+            "station": "Guilherme's MacBook Pro", "serverTime": 1790000000000,
+            "hosts": ["guilhermes-mbp.tail1234.ts.net", "100.101.102.103", "guilhermes-mbp.local"] } }
 ```
+
+`hosts` (optional, at most 8) is where this Mac answers now, in the pairing
+QR's order, MagicDNS name first. The phone replaces its stored list with it
+on every hello that carries it, so a changed address or name heals without
+pairing again; when it is absent the phone keeps its own list. It never
+carries or changes the host key: a different host key still needs the
+operator.
 
 Requests may be pipelined; responses may arrive out of order and are matched
 by `id`. Heartbeat: the phone sends `ping` at most every 30 s while in the

@@ -278,12 +278,21 @@ export const CompanionTailnetPeer = Schema.Struct({
 });
 export type CompanionTailnetPeer = typeof CompanionTailnetPeer.Type;
 
+/** Addresses one hello may carry, the pairing QR's list. */
+export const COMPANION_HELLO_HOSTS_MAX = 8;
+
 export const CompanionHello = Schema.Struct({
   appVersion: Schema.String,
   deviceId: Schema.String,
   deviceName: Schema.String,
   station: Schema.String,
   serverTime: Schema.Number,
+  /**
+   * Where this Mac answers now, in the pairing QR's order (MagicDNS name
+   * first). The phone replaces its stored list with it; absent, it keeps its
+   * own. Never the host key: a changed key still needs the operator.
+   */
+  hosts: Schema.optionalKey(Schema.Array(bounded(1, 253)).pipe(Schema.check(Schema.isMaxLength(COMPANION_HELLO_HOSTS_MAX)))),
 });
 export type CompanionHello = typeof CompanionHello.Type;
 

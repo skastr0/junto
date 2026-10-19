@@ -115,7 +115,7 @@ describe("companion service", () => {
 
     // Hello works while pairing; nothing but pair.complete does.
     const hello = await service.dispatch(op({ op: "companion.hello", args: { deviceId } }));
-    expect(hello).toMatchObject({ ok: true, data: { ok: true, hello: { appVersion: "9.9.9", deviceId, station: "Test Mac" } } });
+    expect(hello).toMatchObject({ ok: true, data: { ok: true, hello: { appVersion: "9.9.9", deviceId, station: "Test Mac", hosts: environment.hosts } } });
     const early = await service.dispatch(call(deviceId, "r1", "ping", {}));
     expect(early).toMatchObject({ ok: true, data: { response: { id: "r1", ok: false, error: { code: "invalid" } } } });
     const eventsWhilePairing = await service.dispatch(op({ op: "companion.events", args: { deviceId, waitMs: 0 } }));

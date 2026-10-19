@@ -29,6 +29,7 @@ import {
 } from "@shared/companion-core";
 import type { CompanionDeviceRecord } from "@shared/companion-devices";
 import {
+  COMPANION_HELLO_HOSTS_MAX,
   COMPANION_PAIRING_TTL_MS,
   COMPANION_PROTOCOL,
   COMPANION_ERROR_COPY,
@@ -121,6 +122,8 @@ const success = (
 
 const decodePublicKey = Schema.decodeUnknownResult(CompanionPublicKey);
 
+const HELLO_ENVIRONMENT_TTL_MS = 60_000;
+
 export const makeCompanionService = (options: CompanionServiceOptions): CompanionService => {
   const runRepository = options.runRepository ?? runOnApp;
   const repo = <A, E>(use: (repository: CompanionDeviceRepository["Service"]) => Effect.Effect<A, E>): Promise<A> =>
@@ -150,6 +153,15 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
     }
   };
   let stationName: string | undefined;
+  // A hello reads where this Mac answers now, at most once a minute.
+  let helloRead: { readonly at: number; readonly environment: Promise<CompanionEnvironment | undefined> } | undefined;
+  const helloEnvironment = (): Promise<CompanionEnvironment | undefined> => {
+    const now = Date.now();
+    if (helloRead === undefined || now - helloRead.at >= HELLO_ENVIRONMENT_TTL_MS) {
+      helloRead = { at: now, environment: options.environment().catch(() => undefined) };
+    }
+    return helloRead.environment;
+  };
 
   const devices = async (): Promise<ReadonlyArray<CompanionDeviceRecord>> =>
     (await repo((r) => r.list())).map(publicRecord);
@@ -234,7 +246,9 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
       const device = await admit(request.args.deviceId);
       if (!device) return success(request, { ok: false, error: revoked });
       touch(device);
-      if (stationName === undefined) stationName = (await options.environment().catch(() => undefined))?.station;
+      const environment = await helloEnvironment();
+      if (environment !== undefined) stationName = environment.station;
+      const hosts = environment?.hosts.filter((host) => host.length > 0 && host.length <= 253).slice(0, COMPANION_HELLO_HOSTS_MAX) ?? [];
       return success(request, {
         ok: true,
         hello: {
@@ -242,6 +256,7 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
           deviceId: device.deviceId,
           deviceName: device.name,
           station: stationName ?? "Junto",
+          ...(hosts.length === 0 ? {} : { hosts }),
           serverTime: Date.now(),
         },
       });
