@@ -39,8 +39,8 @@ describe("urgency order", () => {
 });
 
 describe("needs the operator", () => {
-  it("is true for blocked, waiting and review, and false for the rest", () => {
-    expect([SEAT_URGENCY.blocked, SEAT_URGENCY.waiting, SEAT_URGENCY.review].map(needsOperator)).toEqual([true, true, true]);
+  it("is true for blocked, waiting, review and done, and false for the rest", () => {
+    expect([SEAT_URGENCY.blocked, SEAT_URGENCY.waiting, SEAT_URGENCY.review, SEAT_URGENCY.done].map(needsOperator)).toEqual([true, true, true, true]);
     expect([SEAT_URGENCY.working, SEAT_URGENCY.resting, SEAT_URGENCY.offline].map(needsOperator)).toEqual([false, false, false]);
   });
 });

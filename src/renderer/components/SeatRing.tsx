@@ -117,7 +117,7 @@ export type SeatStanding = { readonly rank: PaletteRank; readonly since: number 
  */
 export function seatStandingOf(seat: Seat): SeatStanding {
   const { control, seatEvent, rollup, doneAt } = seatReadOf(seat, true);
-  const rank = paletteRank(seatUrgency({ ...control, signal: rollup?.kind }), rollup?.kind);
+  const rank = paletteRank(seatUrgency({ ...control, signal: rollup?.kind }));
   const fromSignal =
     (rank === PALETTE_RANK.blocked && rollup?.kind === "blocked") ||
     (rank === PALETTE_RANK.waiting && rollup?.kind === "escalate") ||

@@ -30,5 +30,5 @@ const ordered = <N extends { readonly id: string }>(
   );
 };
 
-/** A seat that wants the operator now: blocked, waiting on them, or ready for review. */
-export const needsOperator = (urgency: SeatUrgency): boolean => urgency <= SEAT_URGENCY.review;
+/** A seat that wants the operator now: blocked, waiting on them, ready for review, or done and unread. */
+export const needsOperator = (urgency: SeatUrgency): boolean => urgency <= SEAT_URGENCY.done;

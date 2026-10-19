@@ -37,7 +37,7 @@ import { modelStore } from "./use-model";
 export const ALERT_URGENCY: Readonly<Record<AlertKind, SeatUrgency>> = {
   blocked: SEAT_URGENCY.blocked,
   attention: SEAT_URGENCY.waiting,
-  ready: SEAT_URGENCY.review,
+  ready: SEAT_URGENCY.done,
   working: SEAT_URGENCY.working,
 };
 

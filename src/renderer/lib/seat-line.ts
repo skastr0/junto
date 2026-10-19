@@ -88,17 +88,20 @@ export const seatSaying = (input: {
 
 /**
  * How soon a seat wants the operator, most urgent first: a blocked or failed
- * seat, then one waiting on the operator, then work ready for review, then
- * work in flight, then a resting seat, then an offline one. Lists that put
- * agents first (cmd+K) sort by this; it reads the same facts the seat line does.
+ * seat, then one waiting on the operator, then work the seat asked to have
+ * reviewed (a feedback signal), then work that only settled and has not been
+ * read (done), then work in flight, then a resting seat, then an offline one.
+ * The rail, the step keys and the alerts sort by this; it reads the same facts
+ * the seat line does. cmd+K keeps its own order (PALETTE_RANK).
  */
 export const SEAT_URGENCY = {
   blocked: 0,
   waiting: 1,
   review: 2,
-  working: 3,
-  resting: 4,
-  offline: 5,
+  done: 3,
+  working: 4,
+  resting: 5,
+  offline: 6,
 } as const;
 
 export type SeatUrgency = (typeof SEAT_URGENCY)[keyof typeof SEAT_URGENCY];
@@ -112,7 +115,8 @@ export const seatUrgency = (input: {
   const { mode, tone } = activity;
   if (signal === "blocked" || (mode === "wave" && tone === "crimson")) return SEAT_URGENCY.blocked;
   if (signal === "escalate" || failure || (mode === "wave" && tone === "amber")) return SEAT_URGENCY.waiting;
-  if (signal === "feedback" || (mode === "pulse" && tone === "green")) return SEAT_URGENCY.review;
+  if (signal === "feedback") return SEAT_URGENCY.review;
+  if (mode === "pulse" && tone === "green") return SEAT_URGENCY.done;
   if (mode === "wave") return SEAT_URGENCY.working;
   // Offline, stopped and gone seats draw the "off" ring.
   return activity.glyph === "off" ? SEAT_URGENCY.offline : SEAT_URGENCY.resting;
@@ -122,7 +126,7 @@ export const seatUrgency = (input: {
  * The palette's own order of seats, top first: blocked, waiting on the
  * operator, working, ready for review (a feedback signal), done and not read
  * yet, resting, not running. It splits SEAT_URGENCY's review in two and puts
- * working above both; the rail and the switcher keep SEAT_URGENCY.
+ * working above both; it is SEAT_URGENCY with working moved up.
  */
 export const PALETTE_RANK = {
   blocked: 0,
@@ -136,7 +140,7 @@ export const PALETTE_RANK = {
 
 export type PaletteRank = (typeof PALETTE_RANK)[keyof typeof PALETTE_RANK];
 
-export const paletteRank = (urgency: SeatUrgency, signal?: AgentSignalKind): PaletteRank => {
+export const paletteRank = (urgency: SeatUrgency): PaletteRank => {
   switch (urgency) {
     case SEAT_URGENCY.blocked:
       return PALETTE_RANK.blocked;
@@ -145,7 +149,9 @@ export const paletteRank = (urgency: SeatUrgency, signal?: AgentSignalKind): Pal
     case SEAT_URGENCY.working:
       return PALETTE_RANK.working;
     case SEAT_URGENCY.review:
-      return signal === "feedback" ? PALETTE_RANK.review : PALETTE_RANK.done;
+      return PALETTE_RANK.review;
+    case SEAT_URGENCY.done:
+      return PALETTE_RANK.done;
     case SEAT_URGENCY.resting:
       return PALETTE_RANK.resting;
     case SEAT_URGENCY.offline:

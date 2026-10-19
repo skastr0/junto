@@ -35,7 +35,7 @@ describe("how urgent each kind is", () => {
     expect(ALERT_URGENCY).toEqual({
       blocked: SEAT_URGENCY.blocked,
       attention: SEAT_URGENCY.waiting,
-      ready: SEAT_URGENCY.review,
+      ready: SEAT_URGENCY.done,
       working: SEAT_URGENCY.working,
     });
   });
