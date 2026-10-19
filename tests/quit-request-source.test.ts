@@ -31,4 +31,13 @@ describe("quit request source wiring", () => {
     expect(block).toContain("before-quit, asked by ${quitSource}");
     expect(source).toMatch(/app\.on\("quit", \(_event, exitCode\) => \{\s*quitPhases\.mark\(`quit, exit code \$\{exitCode\}`\);/);
   });
+
+  it("leaves a quit marker on the quit event and asks for the instance lock once, after the marker wait", () => {
+    const start = source.indexOf('app.on("quit"');
+    const quit = source.slice(start, source.indexOf("\n});", start));
+    expect(quit).toContain("writeQuitMarker(quitMarkerPath(resolveJuntoHome()), { pid: process.pid, startKey })");
+    expect(source).toMatch(/packagedSandboxDisablingSwitch === undefined &&\s*requestLockAfterQuittingHolder\(\{/);
+    // The other request is the supervisor handoff reclaim, after ready; no request is retried.
+    expect(source.match(/app\.requestSingleInstanceLock\(\)/g)).toHaveLength(2);
+  });
 });

@@ -123,6 +123,9 @@ import {
   runNormalQuitPreparation,
 } from "./junto/process-signal-termination";
 import { createQuitPhaseLog } from "./junto/quit-phase-log";
+import { quitMarkerPath, requestLockAfterQuittingHolder, writeQuitMarker } from "./junto/quit-marker";
+import { readProcessStartKey } from "./junto/process-identity";
+import { readUnsharedProcessStartKey } from "./junto/process-epoch";
 import {
   isTrustedMainWebContents,
   setTrustedMainWebContents,
@@ -1253,9 +1256,16 @@ const packagedSandboxDisablingSwitch = findPackagedSandboxDisablingSwitch({
   packaged: app.isPackaged,
   hasSwitch: (name) => app.commandLine.hasSwitch(name),
 });
+// A Junto still in its native quit teardown holds the lock for a few seconds;
+// a relaunch waits for it only while its quit marker names a live process,
+// then asks once (a request retried after a refusal never reaches ready).
 const gotSingleInstanceLock =
   packagedSandboxDisablingSwitch === undefined &&
-  app.requestSingleInstanceLock();
+  requestLockAfterQuittingHolder({
+    markerPath: quitMarkerPath(resolveJuntoHome()),
+    requestLock: () => app.requestSingleInstanceLock(),
+    startKeyOf: readUnsharedProcessStartKey,
+  });
 if (packagedSandboxDisablingSwitch !== undefined) {
   console.error(
     `[sandbox] packaged startup rejected --${packagedSandboxDisablingSwitch}`,
@@ -2460,6 +2470,10 @@ app.on("will-quit", () => {
 // no quit row means the native loop did not finish.
 app.on("quit", (_event, exitCode) => {
   quitPhases.mark(`quit, exit code ${exitCode}`);
+  // Native teardown can still hold the instance lock for seconds; name this
+  // process so a relaunch waits for it rather than quitting.
+  const startKey = readProcessStartKey(process.pid);
+  if (startKey !== undefined) writeQuitMarker(quitMarkerPath(resolveJuntoHome()), { pid: process.pid, startKey });
 });
 
 // Registered SIGTERM/SIGINT listeners suppress Node's default process exit.

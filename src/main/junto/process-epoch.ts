@@ -313,6 +313,16 @@ export const readSingleProcessEpochSnapshot = (
   return rows;
 };
 
+/**
+ * A fresh start time that never shares this turn's single-pid observation,
+ * for a synchronous wait that never yields (the relaunch wait).
+ */
+export const readUnsharedProcessStartKey = (pid: number): string | undefined => {
+  const startKey = readSingleProcessEpochSnapshot(pid, (request) => systemPsRunner(request))
+    ?.find((row) => row.pid === pid)?.startKey;
+  return startKey === undefined || startKey.length === 0 ? undefined : startKey;
+};
+
 const systemReader: ProcessEpochReader = {
   snapshotAsync: () => readFullProcessEpochSnapshotAsync(),
   snapshot: (pidHint) =>
