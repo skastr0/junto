@@ -1,13 +1,13 @@
 import { BellOff, Sparkle } from "lucide-react";
 import { answerLabel, mergedQuickReplies } from "../../lib/quick-replies";
-import { Button } from "../ui";
+import { Button, Kbd } from "../ui";
 import "./quick-replies.css";
 
 /**
  * One-click answers for an open signal: the seat's suggested replies first,
  * then the operator's quick replies, as a row of quiet pills. Picking one
  * sends it as the reply through the ordinary answer path. With `numbered`,
- * each pill shows the 1..9 key that picks it.
+ * each pill leads with the 1..9 key that picks it, as a key cap.
  *
  * With `quiet`, the row is the operator's quiet notes instead: each pill
  * answers without mail, so the seat is not woken, and is drawn apart from
@@ -76,9 +76,9 @@ export function QuickReplies({
             onClick={() => onPick(entry.text)}
           >
             {key ? (
-              <span className="quick-reply__key" aria-hidden>
+              <Kbd className="quick-reply__key" aria-hidden>
                 {key}
-              </span>
+              </Kbd>
             ) : null}
             {entry.suggested ? <Sparkle size={10} aria-hidden /> : null}
             {quiet ? <BellOff size={11} aria-hidden /> : null}

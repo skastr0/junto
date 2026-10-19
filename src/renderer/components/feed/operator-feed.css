@@ -436,20 +436,8 @@
   align-self: stretch;
 }
 
-/* Room for each pill's hanging key, so selecting one never shifts its
-   pills; the quiet row's keys carry a Shift mark and want a little more. */
 .operator-feed__quick {
-  column-gap: 15px;
-  padding-left: 12px;
-}
-
-.operator-feed__quick.quick-replies--quiet {
-  column-gap: 24px;
-  padding-left: 20px;
-}
-
-.operator-feed__quick .quick-reply {
-  padding: 0 10px;
+  gap: 8px;
 }
 
 .operator-feed__card.is-selected .quick-reply:not(:hover):not(.quick-reply--quiet) {
