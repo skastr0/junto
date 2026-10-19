@@ -280,6 +280,13 @@ export type CompanionTailnetPeer = typeof CompanionTailnetPeer.Type;
 
 /** Addresses one hello may carry, the pairing QR's list. */
 export const COMPANION_HELLO_HOSTS_MAX = 8;
+/**
+ * A host name, an IPv4 address, or a bracket-free IPv6 address with an
+ * optional zone: no leading "-", whitespace, "@" or "/", so no value can be
+ * read as an SSH option or a user@ prefix by any client.
+ */
+export const COMPANION_HOST_PATTERN = /^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?|[0-9A-Fa-f:]+(?:%[A-Za-z0-9]+)?)$/u;
+export const isCompanionHost = (host: string): boolean => host.length <= 253 && COMPANION_HOST_PATTERN.test(host);
 
 export const CompanionHello = Schema.Struct({
   appVersion: Schema.String,
@@ -292,7 +299,11 @@ export const CompanionHello = Schema.Struct({
    * first). The phone replaces its stored list with it; absent, it keeps its
    * own. Never the host key: a changed key still needs the operator.
    */
-  hosts: Schema.optionalKey(Schema.Array(bounded(1, 253)).pipe(Schema.check(Schema.isMaxLength(COMPANION_HELLO_HOSTS_MAX)))),
+  hosts: Schema.optionalKey(
+    Schema.Array(bounded(1, 253).pipe(Schema.check(Schema.isPattern(COMPANION_HOST_PATTERN)))).pipe(
+      Schema.check(Schema.isMaxLength(COMPANION_HELLO_HOSTS_MAX)),
+    ),
+  ),
 });
 export type CompanionHello = typeof CompanionHello.Type;
 

@@ -176,6 +176,16 @@ describe("companion service", () => {
     void decodeCompanionPairingUrl;
   }, 60_000);
 
+  it("sends on hello only hosts that cannot read as an SSH option or a user, in order", async () => {
+    const hosts = ["mac.tail1234.ts.net", "-oProxyCommand=evil", "me@mac.local", "100.101.102.103", "a b", "fe80::1%en0", "mac.local/x", "mac.local"];
+    const service = makeCompanionService({ appVersion: "9.9.9", environment: async () => ({ ...environment, hosts }), authorizedKeysPath, runRepository, backend });
+    const started = await service.startPairing();
+    if (!started.ok) throw new Error(started.message);
+    const hello = await service.dispatch(op({ op: "companion.hello", args: { deviceId: started.deviceId } }));
+    expect(hello).toMatchObject({ data: { ok: true, hello: { hosts: ["mac.tail1234.ts.net", "100.101.102.103", "fe80::1%en0", "mac.local"] } } });
+    await service.cancelPairing(started.deviceId);
+  }, 60_000);
+
   describe("a Junto with its own home (a preview, a dev run)", () => {
     it("edits authorized_keys only when its home is the user's home", () => {
       expect(companionAuthorizedKeysPath("/Users/me", "/Users/me")).toBe("/Users/me/.ssh/authorized_keys");

@@ -31,6 +31,7 @@ import type { CompanionDeviceRecord } from "@shared/companion-devices";
 import {
   COMPANION_HELLO_HOSTS_MAX,
   COMPANION_PAIRING_TTL_MS,
+  isCompanionHost,
   COMPANION_PROTOCOL,
   COMPANION_ERROR_COPY,
   CompanionPublicKey,
@@ -248,7 +249,7 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
       touch(device);
       const environment = await helloEnvironment();
       if (environment !== undefined) stationName = environment.station;
-      const hosts = environment?.hosts.filter((host) => host.length > 0 && host.length <= 253).slice(0, COMPANION_HELLO_HOSTS_MAX) ?? [];
+      const hosts = environment?.hosts.filter(isCompanionHost).slice(0, COMPANION_HELLO_HOSTS_MAX) ?? [];
       return success(request, {
         ok: true,
         hello: {
