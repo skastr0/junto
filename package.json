@@ -85,6 +85,7 @@
   },
   "dependencies": {
     "@electron/asar": "3.4.1",
+    "@resvg/resvg-wasm": "2.6.2",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
     "electron-updater": "6.8.9",
