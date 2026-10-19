@@ -5,11 +5,14 @@
  * contract says how many Enters that takes. Junto adds no admission,
  * no refusal, no retry budget, and no hold.
  *
- * The sender chooses the shape. A notice writes one short "mail from X" line
- * that points at `junto msg read`; a prompt writes the full text. Either way
- * the first line also points at `junto onboard` while the recipient has not
- * onboarded: nothing is sent at session start, so mail is where a fresh seat
- * learns the command that loads it.
+ * The sender chooses the shape. A notice is typed whole, up to 2,500
+ * characters, under one header that names the sender as the canvas does, the
+ * mail's id and thread, and the `junto msg reply` that answers it; past that
+ * it is cut, with a pointer to `junto msg read`. A prompt writes the full
+ * text. Mail typed whole is marked read as it is typed. Either way the first
+ * line also points at `junto onboard` while the recipient has not onboarded:
+ * nothing is sent at session start, so mail is where a fresh seat learns the
+ * command that loads it.
  *
  * The only non-delivery is physical: the recipient seat does not exist, or
  * its terminal is not ready for input. That message waits in the mailbox and
@@ -47,10 +50,13 @@ import {
   composeMessageDeliveryPayload,
   deliveryTargetOf,
   isPendingDelivery,
+  mailTypedWhole,
   MESSAGE_PTY_FULL_BODY_MAX,
   sanitizeDeliveryLine,
   type MailLineOptions,
+  type MailSender,
 } from "@shared/message-delivery";
+import { seatIdentity, seatLabel } from "@shared/model/seat-identity";
 import type { MailHold } from "@shared/mail-hold";
 import {
   wireTrafficOfMail,
@@ -116,11 +122,15 @@ export type MessageDeliveryStore = {
   ) => Promise<Canvas | undefined>;
   readonly readMessage: (canvas: string, nodeId: string, messageId: string) => Promise<Message | undefined>;
   readonly listMail: (canvas: string, nodeId: string) => Promise<ReadonlyArray<Message>>;
-  /** Stamp the durable delivery receipt (`deliveredAt`). */
+  /**
+   * Stamp the durable delivery receipt (`deliveredAt`), and with `read` the
+   * read receipt (`readAt`) beside it: mail typed whole is read.
+   */
   readonly acceptMessageDelivery: (
     canvas: string,
     nodeId: string,
     messageId: string,
+    read: boolean,
   ) => Promise<boolean>;
 };
 
@@ -147,6 +157,17 @@ export const mailPayloadOf = (message: Message, options?: MailLineOptions): stri
   readMailExtension(message.metadata)?.mailKind === "prompt"
     ? composeImmediatePromptPayload(message, options)
     : composeMessageDeliveryPayload(message, options);
+
+/**
+ * The sender as the canvas names it now: its name and every region around
+ * it, and its node for the reply. Undefined when it is not on this canvas;
+ * the mail then names the sender as it was stamped.
+ */
+const senderOn = (doc: Canvas, message: Message): MailSender | undefined => {
+  const nodeId = message.metadata?.senderNodeId;
+  const node = typeof nodeId === "string" ? doc.nodes.get(asNodeId(nodeId)) : undefined;
+  return node === undefined ? undefined : { label: seatLabel(seatIdentity(doc, node)), replyTarget: node.id };
+};
 
 /** A lookup that fails must never cost a delivery: no answer means no pointer. */
 const onboardedOf = (
@@ -365,8 +386,10 @@ export class MessageDeliveryService {
       if (this.noWake.has(messageId)) return waiting("no-wake message, seat is not ready");
       return waiting(`seat is not ready, ${this.wake(transport, target.bindingId, canvas, nodeId, generation, messageId)}`);
     }
+    const sender = senderOn(doc, message);
     const payload = mailPayloadOf(message, {
       onboarded: onboardedOf(transport, target.bindingId),
+      ...(sender === undefined ? {} : { sender }),
     });
     const written = await this.inSeatOrder(target.bindingId, () =>
       transport.writeMail(target.bindingId, payload),
@@ -404,7 +427,7 @@ export class MessageDeliveryService {
     this.emitDelivered(
       wireTrafficOfMail({ canvasName: canvas, toNodeId: nodeId, message, at: Date.now() }),
     );
-    const accepted = await store.acceptMessageDelivery(canvas, nodeId, messageId).catch((cause: unknown) => {
+    const accepted = await store.acceptMessageDelivery(canvas, nodeId, messageId, mailTypedWhole(message)).catch((cause: unknown) => {
       // The text is on the seat. A lost receipt only leaves the document
       // showing it waiting; this process will not type it twice.
       console.error(

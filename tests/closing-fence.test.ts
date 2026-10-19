@@ -265,7 +265,7 @@ describe("mail that arrives between the offboard and the exit", () => {
     expect(box.wakes).toEqual([BINDING]);
     expect(box.written).toHaveLength(1);
     expect(box.written[0]).toMatchObject({ into: "e2" });
-    expect(box.written[0]!.text).toContain("junto msg read 01A");
+    expect(box.written[0]!.text).toMatch(/, id 01A\b/u);
     // Nothing further happens to it, however often the seat is looked at.
     box.service.onSeatLive(BINDING);
     await box.settle();
@@ -286,7 +286,7 @@ describe("mail that arrives between the offboard and the exit", () => {
     box.fence.release(BINDING);
     await box.settle();
     expect(box.written.map((write) => write.into)).toEqual(["e2", "e2"]);
-    expect(box.written.map((write) => /junto msg read (\w+)/.exec(write.text)?.[1])).toEqual(["01A", "01B"]);
+    expect(box.written.map((write) => /, id (\w+)/u.exec(write.text)?.[1])).toEqual(["01A", "01B"]);
     box.service.suspend();
   });
 

@@ -1,4 +1,4 @@
-import { canvasOf, seat } from "./support/model-nodes";
+import { canvasOf, region, seat } from "./support/model-nodes";
 import { asNodeId } from "../src/shared/model";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "../src/shared/work-model";
@@ -8,6 +8,7 @@ import {
   MessageDeliveryService,
   type MessageDeliveryStore,
 } from "../src/main/junto/work/message-delivery";
+import { MAIL_TYPED_BODY_MAX } from "../src/shared/message-delivery";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 
 const canvas = "crew";
@@ -70,11 +71,11 @@ const rig = (
     },
     readMessage: async (_canvas, _nodeId, messageId) => messages.find((message) => message.messageId === messageId),
     listMail: async () => messages,
-    acceptMessageDelivery: async (_canvas, _node, messageId) => {
+    acceptMessageDelivery: async (_canvas, _node, messageId, read) => {
       const index = messages.findIndex((m) => m.messageId === messageId);
       messages[index] = {
         ...messages[index]!,
-        metadata: { ...messages[index]!.metadata, deliveredAt: Date.now() },
+        metadata: { ...messages[index]!.metadata, deliveredAt: Date.now(), ...(read ? { readAt: Date.now() } : {}) },
       };
       return true;
     },
@@ -240,7 +241,7 @@ describe("mail delivery", () => {
     await seat.service.deliver(canvas, nodeId, "01B");
     // One write per message: the pointer is part of the line, not extra mail.
     expect(seat.writes).toHaveLength(2);
-    expect(seat.writes[0]).toMatch(/^mail from Claude Code — .* — junto msg read 01A — new to this seat\? run `junto onboard` first$/);
+    expect(seat.writes[0]).toMatch(/^mail from Claude Code, id 01A — reply: .* — new to this seat\? run `junto onboard` first\nPlease review the contract\.$/u);
     expect(seat.writes[1]).not.toContain("junto onboard");
     expect(asked).toEqual([bindingId, bindingId]);
   });
@@ -269,26 +270,62 @@ describe("mail delivery", () => {
     expect(broken.writes[0]).not.toContain("junto onboard");
   });
 
-  it("types a notice into a live seat at once and stamps its receipt", async () => {
+  it("types a notice whole into a live seat at once, stamps its receipt, and marks it read", async () => {
     const seat = rig();
     seat.append(mail("01A", "Please review the contract."));
 
     expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("delivered");
 
-    expect(seat.writes).toHaveLength(1);
-    expect(seat.writes[0]).toContain("mail from Claude Code");
-    expect(seat.writes[0]).toContain("junto msg read 01A");
+    expect(seat.writes).toEqual([
+      `mail from Claude Code, id 01A — reply: junto msg reply '{"target":"agent-a","inReplyTo":"01A","text":"..."}'\nPlease review the contract.`,
+    ]);
     expect(seat.messages[0]?.metadata?.deliveredAt).toBeTypeOf("number");
+    expect(seat.messages[0]?.metadata?.readAt).toBeTypeOf("number");
   });
 
-  it("types a prompt's full text, however long", async () => {
+  it("names the sender as the canvas does at delivery, with every region around it", async () => {
+    const regioned = canvasOf(
+      [
+        region("outer", { x: 0, y: 0, width: 2000, height: 2000 }, { label: "Junto" }),
+        region("inner", { x: 500, y: 500, width: 400, height: 400 }, { label: "CLI" }),
+        seat(nodeId, { width: 100, height: 80, label: "Claude Code", agentKey: "local:claude", bindingId: bindingId as never }),
+        seat("agent-a", { x: 600, y: 600, width: 100, height: 80, label: "cli-lead", agentKey: "local:a", bindingId: "bind-a" as never }),
+      ],
+      [],
+      "crew",
+    );
+    const seat_ = rig({ canvas: regioned });
+    seat_.append(mail("01A", "Please review the contract."));
+    await seat_.service.deliver(canvas, nodeId, "01A");
+    expect(seat_.writes[0]).toMatch(/^mail from cli-lead \(Junto \/ CLI\), id 01A — reply: junto msg reply '\{"target":"agent-a",/u);
+  });
+
+  it("leaves a notice cut at the cap unread, so the rest is still waiting in the mailbox", async () => {
     const seat = rig();
-    const body = `Review this. ${"x".repeat(400)}`;
+    seat.append(mail("01A", "x".repeat(MAIL_TYPED_BODY_MAX + 1)));
+    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("delivered");
+    expect(seat.writes[0]).toContain("the rest: junto msg read 01A");
+    expect(seat.messages[0]?.metadata?.deliveredAt).toBeTypeOf("number");
+    expect(seat.messages[0]?.metadata?.readAt).toBeUndefined();
+  });
+
+  it("marks nothing read when the write did not land", async () => {
+    const seat = rig({ writeOk: () => false });
+    seat.append(mail("01A", "Please review the contract."));
+    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+    expect(seat.messages[0]?.metadata?.readAt).toBeUndefined();
+    expect(seat.messages[0]?.metadata?.deliveredAt).toBeUndefined();
+  });
+
+  it("types a prompt's full text, however long, and marks it read", async () => {
+    const seat = rig();
+    const body = `Review this. ${"x".repeat(MAIL_TYPED_BODY_MAX + 400)}`;
     seat.append(mail("01A", body, "prompt"));
 
     expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("delivered");
 
     expect(seat.writes).toEqual([`mail from Claude Code\n${body}`]);
+    expect(seat.messages[0]?.metadata?.readAt).toBeTypeOf("number");
   });
 
   it("shares one flight between the append and the sender, so the sender is never refused", async () => {
@@ -502,8 +539,8 @@ describe("mail delivery", () => {
     seat.service.onSeatLive(bindingId);
     await settle();
     expect(seat.writes).toHaveLength(2);
-    expect(seat.writes[0]).toContain("junto msg read 01A");
-    expect(seat.writes[1]).toContain("junto msg read 01B");
+    expect(seat.writes[0]).toMatch(/, id 01A\b/u);
+    expect(seat.writes[1]).toMatch(/, id 01B\b/u);
     expect(events.map((event) => event.messageId)).toEqual(["01A", "01B"]);
   });
 

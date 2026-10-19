@@ -224,7 +224,7 @@ export const msgSendSchema: CommandSchemaContract = {
   command: "msg send",
   schema_id: "msg.send.input/v1",
   description:
-    "Mail a connected seat. A short \"mail from\" line pointing at msg read is typed into its input at once, whatever it is doing; a seat that is not up gets it when it starts. threadId posts into an existing thread this seat can read.",
+    "Mail a connected seat. The mail is typed whole into its input at once, up to 2,500 characters, under a \"mail from\" header with its id and the reply command, and marked read; longer mail is cut with a pointer to msg read. A seat that is not up gets it when it starts. threadId posts into an existing thread this seat can read.",
   schema: MsgSendArgs,
   accepts_batch: true,
   input_modes: inputModes,

@@ -16,8 +16,19 @@ export const recordDeliveryReceiptRefusal = (canvas: string, node: string, cause
   recordSystemLog(`Delivery receipt refused ${JSON.stringify({ canvas, node, reason })}`, "error");
 };
 
+/**
+ * The receipt that a mail was typed into its seat. With `readId`, the read
+ * receipt too, in the same transaction: mail typed whole is read, by the seat
+ * whose mailbox it is, as `junto msg read` would mark it.
+ */
 export const stampMailboxDeliveryReceipt = Effect.fn("Work.stampMailboxDeliveryReceipt")(function* (
-  input: { readonly deliveryId: string; readonly canvas: string; readonly nodeId: string; readonly messageId: string },
+  input: {
+    readonly deliveryId: string;
+    readonly canvas: string;
+    readonly nodeId: string;
+    readonly messageId: string;
+    readonly readId?: string;
+  },
 ) {
   const sql = yield* SqlClient.SqlClient;
   const repo = yield* WorkRepository;
@@ -25,20 +36,28 @@ export const stampMailboxDeliveryReceipt = Effect.fn("Work.stampMailboxDeliveryR
   const refs = yield* ModelActorRefs;
   return yield* sql.withTransaction(Effect.gen(function* () {
     const sink = { canvasName: input.canvas, nodeId: input.nodeId };
-    if (yield* repo.hasAcceptedDelivery(sink, input.deliveryId)) return true;
+    const receipts = [input.deliveryId, ...(input.readId === undefined ? [] : [input.readId])];
+    const missing: string[] = [];
+    for (const deliveryId of receipts) {
+      if (!(yield* repo.hasAcceptedDelivery(sink, deliveryId))) missing.push(deliveryId);
+    }
+    if (missing.length === 0) return true;
     const current = yield* model.canvas(input.canvas);
     const actor = (yield* refs.read(input.canvas)).find((ref) => ref.nodeId === input.nodeId);
     if (!actor) return yield* new ModelNotFound({ what: "delivery actor", id: input.nodeId });
-    yield* repo.acceptDelivery({
-      sink,
-      basis: canvasReceiptBasis({ canvasName: current.name, seq: current.seq }),
-      receipt: {
-        deliveryId: input.deliveryId,
-        deliveredItem: { kind: "message", itemId: input.messageId, sink },
-        actor,
-        acceptedAt: new Date().toISOString(),
-      },
-    });
+    const acceptedAt = new Date().toISOString();
+    for (const deliveryId of missing) {
+      yield* repo.acceptDelivery({
+        sink,
+        basis: canvasReceiptBasis({ canvasName: current.name, seq: current.seq }),
+        receipt: {
+          deliveryId,
+          deliveredItem: { kind: "message", itemId: input.messageId, sink },
+          actor,
+          acceptedAt,
+        },
+      });
+    }
     return true;
   }));
 });

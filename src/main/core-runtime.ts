@@ -91,8 +91,8 @@ const machineCoreMailLayer = Layer.effect(MachineCoreMail, Effect.gen(function* 
     transport: seats.transport,
     store: {
       ...store,
-      acceptMessageDelivery: (canvas, nodeId, messageId) =>
-        mainAuthoringGate.run("delivery.message-stamp", () => store.acceptMessageDelivery(canvas, nodeId, messageId))
+      acceptMessageDelivery: (canvas, nodeId, messageId, read) =>
+        mainAuthoringGate.run("delivery.message-stamp", () => store.acceptMessageDelivery(canvas, nodeId, messageId, read))
           .catch((cause: unknown) => {
             recordDeliveryReceiptRefusal(canvas, nodeId, cause);
             return false;

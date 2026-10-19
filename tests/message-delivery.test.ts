@@ -12,10 +12,11 @@ import {
   isMessageDelivered,
   isPendingDelivery,
   MAIL_ONBOARD_POINTER,
+  MAIL_TYPED_BODY_MAX,
+  mailTypedWhole,
   messageBriefText,
   messageSenderLabel,
   MESSAGE_PTY_FULL_BODY_MAX,
-  ptyInjectMarksRead,
   shouldSummarizeMessageForPty,
   sortMessagesNewestFirst,
 } from "../src/shared/message-delivery";
@@ -33,7 +34,7 @@ describe("message-delivery pure helpers", () => {
       metadata: { factoryMail: true, fromSeat: "seat-a", senderName: "Peer Reviewer" },
       parts: [{ kind: "text", text: "mail from Peer Reviewer\nReview the patch" }],
     });
-    expect(composeMessageDeliveryPayload(message)).toContain("mail from Peer Reviewer — Review the patch");
+    expect(composeMessageDeliveryPayload(message)).toBe("mail from Peer Reviewer, id m1\nReview the patch");
     expect(composeImmediatePromptPayload(message)).toBe("mail from Peer Reviewer\nReview the patch");
     expect(composeImmediatePromptPayload({ ...message, parts: [{ kind: "text", text: "mail from someone else should be checked" }] }))
       .toContain("mail from someone else should be checked");
@@ -46,7 +47,65 @@ describe("message-delivery pure helpers", () => {
     expect(composeImmediatePromptPayload(message)).toBe(
       "mail from Reviewer\nRead the patch.\nCheck the failing case.",
     );
-    expect(composeMessageDeliveryPayload(message)).toContain("junto msg read m1");
+  });
+
+  it("types a notice whole under one header: who sent it, its id, and the reply that answers it", () => {
+    const notice = userMsg({
+      messageId: "01KZSM4A84ASFRTZ77YAQ09CVH",
+      metadata: { factoryMail: true, fromSeat: "seat_hash", senderNodeId: "agent-a", senderName: "Reviewer" },
+      parts: [{ kind: "text", text: "Please review the contract.\n\n1. The cap\n2. The read stamp" }],
+    });
+    expect(composeMessageDeliveryPayload(notice)).toBe(
+      "mail from Reviewer, id 01KZSM4A84ASFRTZ77YAQ09CVH — reply: junto msg reply " +
+        `'{"target":"agent-a","inReplyTo":"01KZSM4A84ASFRTZ77YAQ09CVH","text":"..."}'` +
+        "\nPlease review the contract.\n\n1. The cap\n2. The read stamp",
+    );
+    // The canvas names the sender at delivery, regions and all.
+    expect(composeMessageDeliveryPayload(notice, { sender: { label: "cli-lead (Junto / CLI)", replyTarget: "agent-a" } }))
+      .toMatch(/^mail from cli-lead \(Junto \/ CLI\), id 01KZSM4A84ASFRTZ77YAQ09CVH — reply: /u);
+    expect(mailTypedWhole(notice)).toBe(true);
+  });
+
+  it("names the thread when the notice is a reply in one, and never for a thread's own root", () => {
+    const reply = userMsg({
+      messageId: "01KZSM4A84ASFRTZ77YAQ09CVJ",
+      metadata: { factoryMail: true, senderNodeId: "agent-a", senderName: "Reviewer", threadId: "01KZSM4A84ASFRTZ77YAQ09CVH" },
+      parts: [{ kind: "text", text: "Done." }],
+    });
+    expect(composeMessageDeliveryPayload(reply).split("\n")[0]).toBe(
+      "mail from Reviewer, id 01KZSM4A84ASFRTZ77YAQ09CVJ, thread 01KZSM4A84ASFRTZ77YAQ09CVH — reply: junto msg reply " +
+        `'{"target":"agent-a","inReplyTo":"01KZSM4A84ASFRTZ77YAQ09CVJ","text":"..."}'`,
+    );
+    const root = { ...reply, metadata: { ...reply.metadata, threadId: reply.messageId } };
+    expect(composeMessageDeliveryPayload(root)).not.toContain("thread");
+  });
+
+  it("cuts a notice past the cap, points at the rest, and leaves it unread", () => {
+    const head = "y".repeat(MAIL_TYPED_BODY_MAX);
+    const long = userMsg({
+      messageId: "01KZSM4A84ASFRTZ77YAQ09CVH",
+      metadata: { factoryMail: true, senderNodeId: "agent-a", senderName: "Reviewer" },
+      parts: [{ kind: "text", text: `${head}TAIL` }],
+    });
+    const [, body, pointer, ...rest] = composeMessageDeliveryPayload(long).split("\n");
+    expect(body).toBe(head);
+    expect(pointer).toBe(`(cut at ${String(MAIL_TYPED_BODY_MAX)} characters; the rest: junto msg read 01KZSM4A84ASFRTZ77YAQ09CVH)`);
+    expect(rest).toEqual([]);
+    expect(mailTypedWhole(long)).toBe(false);
+    const exact = userMsg({ ...long, parts: [{ kind: "text", text: head }] });
+    expect(composeMessageDeliveryPayload(exact)).not.toContain("junto msg read");
+    expect(mailTypedWhole(exact)).toBe(true);
+    // Counted in characters, never cut inside one.
+    const wide = userMsg({ ...long, parts: [{ kind: "text", text: "😀".repeat(MAIL_TYPED_BODY_MAX) }] });
+    expect(mailTypedWhole(wide)).toBe(true);
+  });
+
+  it("strips terminal controls from a typed body and keeps its lines", () => {
+    const notice = userMsg({
+      metadata: { factoryMail: true, senderNodeId: "agent-a", senderName: "Reviewer" },
+      parts: [{ kind: "text", text: "line one\r\n\u001b[201~line\u0007 two\ttab" }],
+    });
+    expect(composeMessageDeliveryPayload(notice).split("\n").slice(1)).toEqual(["line one", "[201~line two\ttab"]);
   });
 
   it("carries the onboard pointer on the mail line only for a seat that has not onboarded", () => {
@@ -60,12 +119,10 @@ describe("message-delivery pure helpers", () => {
     expect(composeMessageDeliveryPayload(notice, {})).toBe(plain);
     expect(composeMessageDeliveryPayload(notice, { onboarded: true })).toBe(plain);
     const pointed = composeMessageDeliveryPayload(notice, { onboarded: false });
-    // The same line, still one line: never a separate message.
-    expect(pointed).toBe(`${plain} — ${MAIL_ONBOARD_POINTER}`);
+    // On the header line itself: never a separate message.
     expect(pointed).toBe(
-      "mail from Reviewer — Please review the contract. — junto msg read 01KZSM4A84ASFRTZ77YAQ09CVH — new to this seat? run `junto onboard` first",
+      "mail from Reviewer, id 01KZSM4A84ASFRTZ77YAQ09CVH — new to this seat? run `junto onboard` first\nPlease review the contract.",
     );
-    expect(pointed.includes("\n")).toBe(false);
     // Short ordinary mail takes it too.
     expect(composeMessageDeliveryPayload(userMsg(), { onboarded: false })).toBe(
       `[message - user] ping the lane — ${MAIL_ONBOARD_POINTER}`,
@@ -97,11 +154,11 @@ describe("message-delivery pure helpers", () => {
     ).toBe("[message - user] ping the lane - task task-9");
   });
 
-  it("summarizes factory mail and long bodies; never dumps the essay", () => {
-    const long = "x".repeat(MESSAGE_PTY_FULL_BODY_MAX + 40);
-    expect(shouldSummarizeMessageForPty(userMsg({ parts: [{ kind: "text", text: long }] }))).toBe(
-      true,
-    );
+  it("summarizes a long ordinary body; factory mail drops its old envelope", () => {
+    const long = userMsg({ parts: [{ kind: "text", text: "x".repeat(MESSAGE_PTY_FULL_BODY_MAX + 40) }] });
+    expect(shouldSummarizeMessageForPty(long)).toBe(true);
+    expect(composeMessageDeliveryPayload(long)).toContain("junto msg read m1");
+    expect(mailTypedWhole(long)).toBe(false);
     const factory = userMsg({
       messageId: "01KZSM4A84ASFRTZ77YAQ09CVH",
       metadata: { factoryMail: true, fromSeat: "agent-01KZRZK09851NV4407M2499WJM" },
@@ -114,20 +171,22 @@ describe("message-delivery pure helpers", () => {
       ],
     });
     expect(isFactoryMailMessage(factory)).toBe(true);
-    expect(shouldSummarizeMessageForPty(factory)).toBe(true);
-    const line = composeMessageDeliveryPayload(factory);
-    expect(line.startsWith("mail from agent-01KZRZK09851NV4407M2499WJM")).toBe(
-      true,
+    // No node to reply to: no reply command.
+    expect(composeMessageDeliveryPayload(factory)).toBe(
+      "mail from agent-01KZRZK09851NV4407M2499WJM, id 01KZSM4A84ASFRTZ77YAQ09CVH\nHARNESS-INTEGRATION ANALYSIS\n\n1. WHAT IS SHARED",
     );
-    expect(line).toContain("01KZSM4A84AS");
-    expect(line).toContain("junto msg read 01KZSM4A84ASFRTZ77YAQ09CVH");
-    expect(line).not.toContain("[factory mail from");
-    // Essay body is not dumped — only a short preview + CLI pointer.
-    expect(line.includes("\n")).toBe(false);
-    expect(line.length).toBeLessThan(220);
-    expect(line).not.toContain("nothing run, nothing edited");
-    expect(ptyInjectMarksRead(factory)).toBe(false);
-    expect(ptyInjectMarksRead(userMsg())).toBe(false);
+  });
+
+  it("marks read at delivery only mail typed whole: a prompt, a notice within the cap, a short ordinary line", () => {
+    expect(mailTypedWhole(userMsg())).toBe(true);
+    const stamp = { fromSeat: `seat_${"a".repeat(64)}`, senderNodeId: "agent-a", senderName: "Reviewer", senderGeneration: "ep_a", senderHarness: "claude" };
+    const prompt = userMsg({
+      metadata: { factoryMail: true, mailKind: "prompt", ...stamp },
+      parts: [{ kind: "text", text: "z".repeat(MAIL_TYPED_BODY_MAX * 2) }],
+    });
+    expect(mailTypedWhole(prompt)).toBe(true);
+    // The same text as a notice is cut, so it stays unread.
+    expect(mailTypedWhole({ ...prompt, metadata: { ...prompt.metadata, mailKind: "notice" } })).toBe(false);
   });
 
   it("batches multiple unread into one newest-first list line", () => {

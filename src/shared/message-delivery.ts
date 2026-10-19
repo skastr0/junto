@@ -7,6 +7,7 @@ import { decodeTime } from "ulid";
 import type { Node } from "./model";
 import type { Message } from "./work-model";
 import type { SurfaceDeliveryTarget } from "./actor-surface";
+import { readMailExtension } from "./crew";
 
 const ULID_PATTERN = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
@@ -48,11 +49,16 @@ export const sanitizeDeliveryLine = (text: string): string =>
     .trim();
 
 /**
- * Max brief length that may ride the PTY as the full one-liner.
- * Longer bodies (and every factoryMail) become a summary pointer instead —
- * the PTY is a notify surface, not a dump truck for peer essays.
+ * Max brief length that may ride the PTY as the full one-liner, for mail that
+ * is not factory mail. Longer bodies become a summary pointer instead.
  */
 export const MESSAGE_PTY_FULL_BODY_MAX = 160;
+
+/**
+ * The most of a factory notice's body typed into a seat, in characters.
+ * Longer mail is cut there with a pointer to `junto msg read` for the rest.
+ */
+export const MAIL_TYPED_BODY_MAX = 2_500;
 
 /** Preview length inside a summary line (before the CLI pointer). */
 export const MESSAGE_PTY_SUMMARY_PREVIEW_MAX = 48;
@@ -107,21 +113,27 @@ const briefWithoutFactoryEnvelope = (message: Message): string =>
  */
 export const MAIL_ONBOARD_POINTER = "new to this seat? run `junto onboard` first";
 
+/** Who sent a mail, as the recipient reads it, and where a reply goes. */
+export type MailSender = {
+  /** The sender as one line: "cli-lead (Junto / CLI)". */
+  readonly label: string;
+  /** `junto msg reply`'s target: the sender's node id. Absent: no reply command. */
+  readonly replyTarget?: string;
+};
+
 /** What the composer knows about the destination seat. */
 export type MailLineOptions = {
   /** False adds the onboard pointer. Absent means onboarded: no pointer. */
   readonly onboarded?: boolean;
+  /** The sender as the canvas names it at delivery. Absent: as the mail was stamped. */
+  readonly sender?: MailSender;
 };
 
 const withOnboardPointer = (line: string, options: MailLineOptions | undefined): string =>
   options?.onboarded === false ? `${line} — ${MAIL_ONBOARD_POINTER}` : line;
 
-/** Full-body prompt policy has its own composer; notices never choose it. */
-export const composeImmediatePromptPayload = (
-  message: Message,
-  options?: MailLineOptions,
-): string => {
-  const from = factoryMailFromSeat(message) ?? "seat";
+/** The mail's text as typed: its lines kept, terminal controls stripped, the old envelope dropped. */
+const typedBody = (message: Message): string => {
   const raw = message.parts
     .filter((part) => part.kind === "text")
     .map((part) => part.text)
@@ -129,19 +141,80 @@ export const composeImmediatePromptPayload = (
     .replace(/\r\n?/g, "\n")
     .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, "")
     .trim();
-  const body = stripFactoryEnvelope(raw, message);
-  return `${withOnboardPointer(`mail from ${from}`, options)}\n${body}`;
+  return stripFactoryEnvelope(raw, message);
+};
+
+/** A prompt: the sender asked for its full text, typed as is. */
+const isPromptMail = (message: Message): boolean => readMailExtension(message.metadata)?.mailKind === "prompt";
+
+/** Full-body prompt policy has its own composer; notices never choose it. */
+export const composeImmediatePromptPayload = (
+  message: Message,
+  options?: MailLineOptions,
+): string => {
+  const from = factoryMailFromSeat(message) ?? "seat";
+  return `${withOnboardPointer(`mail from ${from}`, options)}\n${typedBody(message)}`;
+};
+
+/** The sender as the mail was stamped, when the canvas has not named it. */
+const stampedSender = (message: Message): MailSender => {
+  const node = message.metadata?.senderNodeId;
+  const target = typeof node === "string" ? sanitizeDeliveryLine(node) : "";
+  return { label: factoryMailFromSeat(message) ?? "seat", ...(target === "" ? {} : { replyTarget: target }) };
+};
+
+/** The thread a notice is a reply in; undefined for a thread's own root. */
+const replyThreadOf = (message: Message): string | undefined => {
+  const thread = message.metadata?.threadId;
+  if (typeof thread !== "string") return undefined;
+  const id = sanitizeDeliveryLine(thread);
+  return id === "" || id === message.messageId ? undefined : id;
 };
 
 /**
- * Pulse-style one-liner for a single message.
- * Short ordinary mail: full brief. Factory mail / long body: summary + CLI pointer.
- * A destination that has not onboarded gets the onboard pointer on the same line.
+ * A factory notice, typed whole under one header: who sent it and the regions
+ * around them, its id, its thread when it is a reply, and the exact
+ * `junto msg reply` that answers it. Past MAIL_TYPED_BODY_MAX characters the
+ * body is cut, with a pointer to `junto msg read` for the rest.
+ */
+const composeMailNotice = (message: Message, options: MailLineOptions | undefined): string => {
+  const sender = options?.sender ?? stampedSender(message);
+  const id = sanitizeDeliveryLine(message.messageId);
+  const thread = replyThreadOf(message);
+  const named = [`mail from ${sanitizeDeliveryLine(sender.label)}`, `id ${id}`, ...(thread === undefined ? [] : [`thread ${thread}`])].join(", ");
+  const reply = sender.replyTarget === undefined
+    ? ""
+    : ` — reply: junto msg reply '${JSON.stringify({ target: sanitizeDeliveryLine(sender.replyTarget), inReplyTo: id, text: "..." })}'`;
+  const characters = [...(typedBody(message) || "(empty)")];
+  const body = characters.length > MAIL_TYPED_BODY_MAX
+    ? `${characters.slice(0, MAIL_TYPED_BODY_MAX).join("")}\n(cut at ${String(MAIL_TYPED_BODY_MAX)} characters; the rest: junto msg read ${id})`
+    : characters.join("");
+  return `${withOnboardPointer(`${named}${reply}`, options)}\n${body}`;
+};
+
+/**
+ * What a single message types into its seat. Factory notices: whole, under
+ * one header. Short ordinary mail: its brief. A long ordinary body: summary +
+ * CLI pointer. A destination that has not onboarded gets the onboard pointer
+ * on the first line.
  */
 export const composeMessageDeliveryPayload = (
   message: Message,
   options?: MailLineOptions,
-): string => withOnboardPointer(composeMailLine(message), options);
+): string =>
+  isFactoryMailMessage(message) ? composeMailNotice(message, options) : withOnboardPointer(composeMailLine(message), options);
+
+/**
+ * Mail typed whole is read: the seat has every word of it, so it is marked
+ * read when it is typed. A prompt is typed whole, a factory notice within
+ * MAIL_TYPED_BODY_MAX characters, and short ordinary mail. Anything cut or
+ * summarized stays unread until `junto msg read` or `junto msg list`.
+ */
+export const mailTypedWhole = (message: Message): boolean => {
+  if (isPromptMail(message)) return true;
+  if (isFactoryMailMessage(message)) return [...typedBody(message)].length <= MAIL_TYPED_BODY_MAX;
+  return !shouldSummarizeMessageForPty(message);
+};
 
 const composeMailLine = (message: Message): string => {
   if (!shouldSummarizeMessageForPty(message)) {
@@ -240,12 +313,6 @@ export const isForeignMessage = (message: Message): boolean => message.role !== 
  */
 export const isPendingDelivery = (message: Message): boolean =>
   isForeignMessage(message) && !isMessageRead(message) && !isMessageDelivered(message);
-
-/**
- * PTY is a notify surface. Read is listing the mailbox.
- * A paste never marks mail read — short or long, one or many.
- */
-export const ptyInjectMarksRead = (_message: Message): boolean => false;
 
 /**
  * Resolve transport target from kind-discriminated actor surface.

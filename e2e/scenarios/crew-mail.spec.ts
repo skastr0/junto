@@ -8,9 +8,9 @@ import { readSeatMailbox } from "../harness/work-mail";
  * Two fake-tui seats on one generated canvas, one real messages edge
  * between them. Sends ride the real work-control socket from inside the
  * admitted seat process; delivery rides the real drive onto the seat's
- * PTY. msg.send types one short notice line,
- * `mail from <sender> — <preview> — junto msg read <id>`, and answers
- * { messageId, delivery }: "delivered" once the line is on the seat,
+ * PTY. msg.send types the notice whole under one header,
+ * `mail from <sender>, id <id> — reply: junto msg reply '...'`, marks it
+ * read, and answers { messageId, delivery }: "delivered" once it is on the seat,
  * "waiting" when the seat is not up yet. Evidence comes from the op's
  * `delivery` field, the app's projected mailbox and `deliveredAt` receipt,
  * and the fake's own stdin log (one bracketed paste of the exact payload).
@@ -159,14 +159,14 @@ test("mail [fake-tui]: sent mail is delivered at once with one PTY paste", async
         );
       });
 
-    // The notice line: sender, preview, the pointer to the full body, and,
-    // because seat B has never run `junto onboard`, the pointer to that.
+    // The notice, whole under one header: sender, id, the reply that answers
+    // it, and, because seat B has never run `junto onboard`, the pointer to that.
     const message = await projectedMessage(page, messageId);
     expect(readMailExtension(message.metadata)?.mailKind).toBe("notice");
     const payload = composeMessageDeliveryPayload(message, { onboarded: false });
-    expect(payload.startsWith(`mail from ${A}`)).toBe(true);
-    expect(payload).toContain("peer mail: checksum 42");
-    expect(payload.endsWith(`junto msg read ${messageId} — ${MAIL_ONBOARD_POINTER}`)).toBe(true);
+    expect(payload).toBe(
+      `mail from ${A}, id ${messageId} — reply: junto msg reply '${JSON.stringify({ target: A, inReplyTo: messageId, text: "..." })}' — ${MAIL_ONBOARD_POINTER}\npeer mail: checksum 42`,
+    );
 
     // Physical truth: the fake's input took exactly one paste of that line.
     // B has never run `junto onboard`, so its mail carries the pointer.
@@ -177,11 +177,10 @@ test("mail [fake-tui]: sent mail is delivered at once with one PTY paste", async
       })
       .toBe(1);
 
-    // msg.sent reads sender receipts only; B's mailbox stays unread until
-    // B itself lists or marks it.
+    // Typed whole, so B has read it: the read receipt lands with the delivery.
     const beforeSent = (await crewReceipts(page, CANVAS, B)).find((row) => row.messageId === messageId);
     expect(beforeSent?.deliveredAt).toBeDefined();
-    expect(beforeSent?.readAt).toBeUndefined();
+    expect(beforeSent?.readAt).toBeDefined();
     const sent = await seatAHandle.op("msg.sent", {});
     const sentData = opData(sent);
     const items = (sentData.items ?? []) as ReadonlyArray<{
@@ -190,9 +189,10 @@ test("mail [fake-tui]: sent mail is delivered at once with one PTY paste", async
     }>;
     expect(items.some((m) => m.messageId === messageId && m.toNodeId === B))
       .toBe(true);
+    // msg.sent reads sender receipts only; it changes none of them.
     const afterSent = (await crewReceipts(page, CANVAS, B)).find((row) => row.messageId === messageId);
     expect(afterSent).toBeDefined();
-    expect(afterSent?.readAt).toBeUndefined();
+    expect(afterSent?.readAt).toBe(beforeSent?.readAt);
   } finally {
     await junto.close();
   }
@@ -227,7 +227,8 @@ test("crew mail [fake-tui]: read and reply state stay truthful across the pair",
     // Server-stamped sender identity: the admitted process, not a client claim.
     expect(found?.metadata?.fromSeat).toBeTruthy();
 
-    // B marks it read; the sender's msg.sent then reports the read receipt.
+    // Typed whole, it was read at delivery; B's own read keeps that receipt,
+    // and the sender's msg.sent reports it.
     const read = await seatBHandle.op("msg.read", { messageId });
     expect(read.ok).toBe(true);
     const sent = await seatAHandle.op("msg.sent", { target: B });
