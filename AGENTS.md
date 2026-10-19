@@ -104,16 +104,6 @@ at start; import its ESM entry instead).
 - Sessions are internal to the seat. The operator never goes back to, picks,
   or switches sessions in a seat, and no UI surface shows session history,
   notes or transcripts. That data lives in the seat's own store and CLI only.
-- **Seats, not sessions.** A harness session is explicit only inside the
-  seat's own machinery: onboarding, offboarding, and the cache-window cut (its
-  warning, its settings, the seat's own status detail). Nothing outside it
-  names, keys on, or chooses a session: not mail, signals or their answers,
-  tasks, the kernel, relays, the feed, notifications, other seat settings, or
-  link features. An answer goes to the seat; which session the seat runs is
-  the seat's business. The rule is about what features link to, not words:
-  copy that describes sessions keeps the word session, and the overseer
-  surface knows sessions (what a seat runs, reseats, `sessionId` in seat
-  drafts, the terminal summary under `session`). Do not rename either.
 - Continuity is Junto's job: a seat resumes its open session across restarts
   and wakes, unless the cache-window rules start it fresh. An ended session is
   never resumed.
