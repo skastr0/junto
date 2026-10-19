@@ -13,11 +13,14 @@ import * as sound from "../src/renderer/lib/sound";
 import type { RegionRollup } from "../src/shared/region-rollup";
 import { note, seat, terminal } from "./support/model-nodes";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
+import { MemberSeverity } from "../src/shared/region-rollup";
+
+const S = MemberSeverity.group;
 
 const rollup = (members: RegionRollup["members"]): RegionRollup => ({
   regionId: "r1",
   label: "forge",
-  severity: "attention",
+  severity: S.attention,
   counts: { total: members.length, blocked: 0, attention: 0, escalated: 0, working: 0, ready: 0 },
   members,
 });
@@ -39,10 +42,10 @@ describe("collectAlertSignals", () => {
   it("builds one signal per member that is blocked, wants input, or is working", () => {
     const signals = collectAlertSignals([
       rollup([
-        { nodeId: "n-attention", label: "review", kind: "agent", severity: "attention", reasons: [] },
-        { nodeId: "n-blocked", label: "deploy", kind: "task", severity: "blocked", reasons: [] },
-        { nodeId: "n-working", label: "build", kind: "agent", severity: "working", reasons: [] },
-        { nodeId: "n-idle", label: "idle", kind: "agent", severity: "idle", reasons: [] },
+        { nodeId: "n-attention", label: "review", kind: "agent", severity: S.attention, reasons: [] },
+        { nodeId: "n-blocked", label: "deploy", kind: "task", severity: S.blocked, reasons: [] },
+        { nodeId: "n-working", label: "build", kind: "agent", severity: S.working, reasons: [] },
+        { nodeId: "n-idle", label: "idle", kind: "agent", severity: S.idle, reasons: [] },
       ]),
     ]);
     expect(signals).toEqual([signal("n-attention", "attention"), signal("n-blocked", "blocked"), signal("n-working", "working")]);
@@ -50,9 +53,9 @@ describe("collectAlertSignals", () => {
 
   it("a node in overlapping regions keeps its most urgent state", () => {
     const signals = collectAlertSignals([
-      rollup([{ nodeId: "shared", label: "first", kind: "agent", severity: "attention", reasons: [] }]),
-      rollup([{ nodeId: "shared", label: "second", kind: "agent", severity: "blocked", reasons: [] }]),
-      rollup([{ nodeId: "shared", label: "third", kind: "agent", severity: "working", reasons: [] }]),
+      rollup([{ nodeId: "shared", label: "first", kind: "agent", severity: S.attention, reasons: [] }]),
+      rollup([{ nodeId: "shared", label: "second", kind: "agent", severity: S.blocked, reasons: [] }]),
+      rollup([{ nodeId: "shared", label: "third", kind: "agent", severity: S.working, reasons: [] }]),
     ]);
     expect(signals).toEqual([signal("shared", "blocked")]);
   });
@@ -140,7 +143,7 @@ describe("seats anywhere on the canvas", () => {
 
   it("a seat that is both a region member and freestanding keeps its most urgent state", () => {
     const merged = mergeAlertSignals(
-      collectAlertSignals([rollup([{ nodeId: "a", label: "a", kind: "agent", severity: "working", reasons: [] }])]),
+      collectAlertSignals([rollup([{ nodeId: "a", label: "a", kind: "agent", severity: S.working, reasons: [] }])]),
       [signal("a", "ready"), signal("b", "working")],
     );
     expect(merged).toEqual([signal("a", "ready"), signal("b", "working")]);

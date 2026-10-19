@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react";
+import { Schema } from "effect";
 import { use$ } from "@legendapp/state/react";
 import { useReactFlow, useStoreApi, ViewportPortal } from "@xyflow/react";
 import { canvasTier$, TIER_HYSTERESIS, TIER_MID_MIN } from "../lib/canvas-tier";
 import type { FlowEdge, FlowNode } from "../lib/convert";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
+import { RingForm } from "@shared/wire/rings";
+import { ringKeepsApart } from "@shared/wire/urgency";
 import { titleAt } from "../lib/use-model";
 import {
   buildClusterIndex,
+  clusterBadgeMark,
   clustersOf,
   linksHeldFor,
   type ClusterIndex,
@@ -40,8 +44,10 @@ const STYLE_ID = "junto-seat-clusters";
 const ZOOMED_OUT = `html:is([data-canvas-tier="far"], [data-canvas-tier="overview"])`;
 /** Where every cluster has parted: mid, past its hysteresis. */
 const PARTED_ZOOM = TIER_MID_MIN + TIER_HYSTERESIS + 0.01;
-/** Rings that mean the seat needs the operator: needs input, waiting on you, blocked. */
-const NEEDS_YOU: ReadonlySet<string> = new Set(["call", "wait", "halt"]);
+const isRingForm = Schema.is(RingForm);
+
+/** The ring a seat draws, from its mark's attribute; a ring not drawn yet rests. */
+const formOf = (ring: string | undefined): RingForm => (ring !== undefined && isRingForm(ring) ? ring : "rest");
 
 type Seen = {
   readonly clusters: ReadonlyArray<SeatCluster>;
@@ -81,9 +87,6 @@ const writeHidden = (ids: ReadonlyArray<string>): void => {
   }
 };
 
-/** Rings that count as working for the badge: trouble bends a working ring. */
-const WORKING: ReadonlySet<string> = new Set(["work", "reverse", "snake"]);
-
 const CLUSTER_MARK = {
   work: { mode: "wave", tone: "cyan", label: "working" },
   done: { mode: "pulse", tone: "green", label: "done" },
@@ -112,7 +115,7 @@ const readSeats = (
     const width = node.measured.width ?? AGENT_NODE_SIZE.width;
     const height = node.measured.height ?? AGENT_NODE_SIZE.height;
     seats.push({ id: node.id, x: at.x + width / 2, y: at.y + height / 2, region });
-    if (node.selected || NEEDS_YOU.has(rings.get(node.id) ?? "")) apart.add(node.id);
+    if (node.selected || ringKeepsApart(formOf(rings.get(node.id)))) apart.add(node.id);
   }
   return { seats, rings, apart };
 };
@@ -125,11 +128,7 @@ function ClusterBadge({ cluster, rings }: { readonly cluster: SeatCluster; reado
     const data = store.getState().nodeLookup.get(id)?.data;
     return data ? titleAt(data.canvas, id) : id;
   };
-  const busiest = cluster.members.some((id) => WORKING.has(rings.get(id) ?? ""))
-    ? "work"
-    : cluster.members.some((id) => rings.get(id) === "done")
-      ? "done"
-      : "rest";
+  const busiest = clusterBadgeMark(cluster.members.map((id) => formOf(rings.get(id))));
   const mark = CLUSTER_MARK[busiest];
   return (
     <div

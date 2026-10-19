@@ -2,10 +2,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ThreadHealthValue } from "../src/shared/thread-health";
 import { THREAD_HEALTH_TONE, THREAD_HEALTH_VALUES } from "../src/shared/thread-health";
 import { controlFromActivity, seatRollup, worseRollup } from "../src/renderer/lib/seat-rollup";
-import { minimapNodeColors, seatRollupsForCanvas } from "../src/renderer/lib/minimap-seat-colors";
+import { decodeRollups, encodeRollups, minimapNodeColors, seatRollupsForCanvas } from "../src/renderer/lib/minimap-seat-colors";
 import { canvasOf, region as regionNode, seat as seatNode, note as noteNode } from "./support/model-nodes";
 import { applySeatAwarenessEvent, resetSeatAwareness } from "../src/renderer/lib/seat-awareness";
 import { HUE, GREEN } from "../src/renderer/lib/theme";
+import { MemberSeverity } from "../src/shared/region-rollup";
+
+const S = MemberSeverity.group;
 
 const mark = (health: "trouble" | "waiting" | "steady" | "good", stale = false) => ({
   health,
@@ -15,7 +18,7 @@ const mark = (health: "trouble" | "waiting" | "steady" | "good", stale = false) 
 
 describe("seatRollup order", () => {
   it("puts the declared signal first", () => {
-    expect(seatRollup({ signal: "feedback", control: "attention", health: mark("trouble") })).toMatchObject({
+    expect(seatRollup({ signal: "feedback", control: S.attention, health: mark("trouble") })).toMatchObject({
       source: "signal",
       tone: "cyan",
     });
@@ -24,20 +27,20 @@ describe("seatRollup order", () => {
   });
 
   it("puts proven attention ahead of any AI reading", () => {
-    expect(seatRollup({ control: "attention", health: mark("good") })).toMatchObject({ source: "control", tone: "amber" });
-    expect(seatRollup({ control: "blocked", health: mark("good") })).toMatchObject({ source: "control", tone: "crimson" });
+    expect(seatRollup({ control: S.attention, health: mark("good") })).toMatchObject({ source: "control", tone: "amber" });
+    expect(seatRollup({ control: S.blocked, health: mark("good") })).toMatchObject({ source: "control", tone: "crimson" });
   });
 
   it("paints both ends of the health spectrum over plain control state", () => {
-    expect(seatRollup({ control: "working", health: mark("trouble") })).toMatchObject({ source: "health", tone: "amber" });
-    expect(seatRollup({ control: "working", health: mark("good") })).toMatchObject({ source: "health", tone: "green" });
+    expect(seatRollup({ control: S.working, health: mark("trouble") })).toMatchObject({ source: "health", tone: "amber" });
+    expect(seatRollup({ control: S.working, health: mark("good") })).toMatchObject({ source: "health", tone: "green" });
     // A health reading outranks "done": done may really be waiting on you.
-    expect(seatRollup({ control: "ready", health: mark("waiting") })).toMatchObject({ source: "health", tone: "amber" });
+    expect(seatRollup({ control: S.ready, health: mark("waiting") })).toMatchObject({ source: "health", tone: "amber" });
   });
 
   it("falls through a steady reading to control state, and idle to nothing", () => {
-    expect(seatRollup({ control: "working", health: mark("steady") })).toMatchObject({ source: "control", tone: "cyan" });
-    expect(seatRollup({ control: "idle", health: mark("steady") })).toBeUndefined();
+    expect(seatRollup({ control: S.working, health: mark("steady") })).toMatchObject({ source: "control", tone: "cyan" });
+    expect(seatRollup({ control: S.idle, health: mark("steady") })).toBeUndefined();
     expect(seatRollup({})).toBeUndefined();
   });
 
@@ -77,10 +80,34 @@ describe("worseRollup", () => {
   });
 });
 
+describe("worseRollup reads the one urgency ladder", () => {
+  it("a settled turn nobody read outranks work in flight, and a declared review outranks both", () => {
+    const working = seatRollup({ control: S.working });
+    const done = seatRollup({ control: S.ready });
+    const review = seatRollup({ signal: "feedback" });
+    expect(worseRollup(working, done)).toBe(done);
+    expect(worseRollup(done, review)).toBe(review);
+    expect(worseRollup(working, review)).toBe(review);
+  });
+
+  it("a trouble reading outranks work in flight but not a settled turn", () => {
+    const working = seatRollup({ control: S.working });
+    const trouble = seatRollup({ health: mark("trouble") });
+    const done = seatRollup({ control: S.ready });
+    expect(worseRollup(working, trouble)).toBe(trouble);
+    expect(worseRollup(trouble, done)).toBe(done);
+  });
+
+  it("the level survives the minimap's string encoding", () => {
+    const rollups = new Map([["a", seatRollup({ signal: "escalate" })!], ["b", seatRollup({ control: S.working })!]]);
+    expect(decodeRollups(encodeRollups(rollups))).toEqual(rollups);
+  });
+});
+
 describe("minimapNodeColors", () => {
   const ground = "#101010";
   it("paints a seat with its rollup tone, faded when the reading is stale", () => {
-    expect(minimapNodeColors(undefined, "working", seatRollup({ health: mark("good") }), ground)).toEqual({
+    expect(minimapNodeColors(undefined, S.working, seatRollup({ health: mark("good") }), ground)).toEqual({
       fill: GREEN,
       stroke: GREEN,
     });
@@ -101,7 +128,7 @@ describe("minimapNodeColors", () => {
   });
 
   it("keeps severity and identity colours for everything that is not a seat", () => {
-    expect(minimapNodeColors(undefined, "blocked", undefined, ground)).toMatchObject({ fill: HUE.crimson, stroke: HUE.crimson });
+    expect(minimapNodeColors(undefined, S.blocked, undefined, ground)).toMatchObject({ fill: HUE.crimson, stroke: HUE.crimson });
   });
 });
 
@@ -160,7 +187,7 @@ describe("seatRollupsForCanvas", () => {
     });
     expect(tinted.get("zone")).toMatchObject({ tone: "amber", source: "health" });
     expect(tinted.has("empty")).toBe(false);
-    const colors = minimapNodeColors(regionNode("zone", { x: -50, y: -50, width: 600, height: 400 }), "working", tinted.get("zone"), "#101010");
+    const colors = minimapNodeColors(regionNode("zone", { x: -50, y: -50, width: 600, height: 400 }), S.working, tinted.get("zone"), "#101010");
     expect(colors.stroke).toBe(HUE.amber);
     expect(colors.fill).not.toBe(HUE.amber);
   });

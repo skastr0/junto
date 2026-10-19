@@ -5,24 +5,27 @@ import {
   worseMemberSeverity,
 } from "../src/renderer/lib/hotbar-signal";
 import { digitHue } from "../src/renderer/lib/seat-projections";
+import { MemberSeverity } from "../src/shared/region-rollup";
+
+const S = MemberSeverity.group;
 
 
 describe("hotbarNodeSeverity", () => {
   it("uses region rollup severity for groups", () => {
-    expect(hotbarNodeSeverity(true, { regionSeverity: "blocked" })).toBe("blocked");
+    expect(hotbarNodeSeverity(true, { regionSeverity: S.blocked })).toBe("blocked");
     expect(hotbarNodeSeverity(true)).toBe("idle");
   });
 
   it("prefers member map severity for free nodes", () => {
-    expect(hotbarNodeSeverity(false, { memberSeverity: "working" })).toBe("working");
+    expect(hotbarNodeSeverity(false, { memberSeverity: S.working })).toBe("working");
   });
 
   it("merges live seat severity over stale idle member map", () => {
     // Freestanding / lagging rollup said idle; canvas seat is working.
     expect(
       hotbarNodeSeverity(false, {
-        memberSeverity: "idle",
-        liveSeverity: "working",
+        memberSeverity: S.idle,
+        liveSeverity: S.working,
       }),
     ).toBe("working");
   });
@@ -30,14 +33,14 @@ describe("hotbarNodeSeverity", () => {
   it("keeps worse rollup severity when live is only working", () => {
     expect(
       hotbarNodeSeverity(false, {
-        memberSeverity: "blocked",
-        liveSeverity: "working",
+        memberSeverity: S.blocked,
+        liveSeverity: S.working,
       }),
     ).toBe("blocked");
   });
 
   it("reads live severity alone for freestanding agents", () => {
-    expect(hotbarNodeSeverity(false, { liveSeverity: "attention" })).toBe("attention");
+    expect(hotbarNodeSeverity(false, { liveSeverity: S.attention })).toBe("attention");
   });
 });
 
@@ -57,10 +60,10 @@ describe("liveActivitySeverity", () => {
   });
 
   it("keeps ready over working and over a quiet rollup, as on the need ladder", () => {
-    expect(hotbarNodeSeverity(false, { memberSeverity: "idle", liveSeverity: "ready" })).toBe("ready");
-    expect(hotbarNodeSeverity(false, { memberSeverity: "working", liveSeverity: "ready" })).toBe("ready");
+    expect(hotbarNodeSeverity(false, { memberSeverity: S.idle, liveSeverity: S.ready })).toBe("ready");
+    expect(hotbarNodeSeverity(false, { memberSeverity: S.working, liveSeverity: S.ready })).toBe("ready");
     // A seat that went quiet again drops a stale ready from the rollup.
-    expect(hotbarNodeSeverity(false, { memberSeverity: "ready", liveSeverity: "idle" })).toBe("idle");
+    expect(hotbarNodeSeverity(false, { memberSeverity: S.ready, liveSeverity: S.idle })).toBe("idle");
   });
 });
 
@@ -68,8 +71,8 @@ describe("hotbarNodeSeverity seat quiet demotion", () => {
   it("demotes lagging rollup attention when seat is idle", () => {
     expect(
       hotbarNodeSeverity(false, {
-        memberSeverity: "attention",
-        liveSeverity: "idle",
+        memberSeverity: S.attention,
+        liveSeverity: S.idle,
       }),
     ).toBe("idle");
   });
@@ -77,8 +80,8 @@ describe("hotbarNodeSeverity seat quiet demotion", () => {
   it("keeps graph blocked even when seat is idle", () => {
     expect(
       hotbarNodeSeverity(false, {
-        memberSeverity: "blocked",
-        liveSeverity: "idle",
+        memberSeverity: S.blocked,
+        liveSeverity: S.idle,
       }),
     ).toBe("blocked");
   });
@@ -86,8 +89,8 @@ describe("hotbarNodeSeverity seat quiet demotion", () => {
 
 describe("worseMemberSeverity", () => {
   it("orders blocked over working over idle", () => {
-    expect(worseMemberSeverity("working", "idle")).toBe("working");
-    expect(worseMemberSeverity("blocked", "working")).toBe("blocked");
+    expect(worseMemberSeverity(S.working, S.idle)).toBe("working");
+    expect(worseMemberSeverity(S.blocked, S.working)).toBe("blocked");
   });
 });
 
@@ -101,7 +104,7 @@ describe("actor chip hue is digitHue, not hotbarNodeSeverity", () => {
 
   it("does not merge rollup severity into actor hue — facts only", () => {
     // Groups / free furniture read the rollup via hotbarNodeSeverity.
-    expect(hotbarNodeSeverity(false, { memberSeverity: "attention" })).toBe("attention");
+    expect(hotbarNodeSeverity(false, { memberSeverity: S.attention })).toBe("attention");
     // Actor chips ignore that merge and use digitHue on assembled facts.
     expect(digitHue({ nodeId: "n", seatState: "working" })).toBe("working");
   });

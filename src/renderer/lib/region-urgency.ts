@@ -16,8 +16,12 @@
 import { observable } from "@legendapp/state";
 import type { AgentSignalKind } from "@shared/agent-signals";
 import type { ThreadHealthTone } from "@shared/thread-health";
+import { compareView, RegionUrgency as RegionView, type ViewGroup } from "@shared/wire/urgency";
 
-export type Urgency = "blocked" | "needs-you" | "review";
+/** A seat's urgency for its region: the region view's groups, bar the calm that shows nothing. */
+export type Urgency = Exclude<ViewGroup<typeof RegionView>, "calm">;
+
+const compareUrgency = compareView(RegionView);
 
 export type RegionUrgency = {
   readonly urgency: Urgency;
@@ -25,10 +29,8 @@ export type RegionUrgency = {
   readonly reach: "direct" | "held";
 };
 
-const RANK: Readonly<Record<Urgency, number>> = { blocked: 0, "needs-you": 1, review: 2 };
-
 export const worseUrgency = (a: Urgency | undefined, b: Urgency | undefined): Urgency | undefined =>
-  a === undefined ? b : b === undefined ? a : RANK[a] <= RANK[b] ? a : b;
+  a === undefined ? b : b === undefined ? a : compareUrgency(a, b) <= 0 ? a : b;
 
 /**
  * A seat's urgency from the ring's inputs, in the ring's order: a stoppage or
@@ -42,10 +44,10 @@ export const seatUrgencyOfRing = (input: {
   readonly health?: ThreadHealthTone | undefined;
   readonly healthStale?: boolean;
 }): Urgency | undefined => {
-  if (input.glyph === "halt" || input.signal === "blocked") return "blocked";
-  if (input.glyph === "call" || input.signal === "escalate") return "needs-you";
-  if (input.signal === "feedback") return "review";
-  if (input.health === "waiting" && input.healthStale !== true) return "needs-you";
+  if (input.glyph === "halt" || input.signal === "blocked") return RegionView.group.blocked;
+  if (input.glyph === "call" || input.signal === "escalate") return RegionView.group["needs-you"];
+  if (input.signal === "feedback") return RegionView.group.review;
+  if (input.health === "waiting" && input.healthStale !== true) return RegionView.group["needs-you"];
   return undefined;
 };
 

@@ -2,11 +2,13 @@
  * Region roll call — situation buckets from a RegionRollup.
  * Not a member directory: only non-zero hot severities, worst first.
  */
-import type { MemberSeverity, MemberStatus, RegionRollup } from "@shared/region-rollup";
+import { MemberSeverity, type MemberStatus, type RegionRollup } from "@shared/region-rollup";
 
-/** Hot ladder for roll call. Idle never surfaces as its own bucket. */
-export const ROLL_CALL_BUCKETS = ["attention", "blocked", "escalated", "ready", "working"] as const;
-export type RollCallSeverity = (typeof ROLL_CALL_BUCKETS)[number];
+/** Hot tiers for roll call, worst first, as the rollup ranks them. Idle never surfaces as its own bucket. */
+export type RollCallSeverity = Exclude<MemberSeverity, "idle">;
+export const ROLL_CALL_BUCKETS: ReadonlyArray<RollCallSeverity> = MemberSeverity.groups.filter(
+  (group): group is RollCallSeverity => group !== MemberSeverity.group.idle,
+);
 
 export type RollCallBucket = {
   readonly severity: RollCallSeverity;
@@ -52,19 +54,26 @@ export function buildRollCall(
   const total = rollup.counts.total;
   if (total === 0) return { kind: "empty" };
 
-  const counts: Record<RollCallSeverity, number> = {
-    blocked: rollup.counts.blocked,
-    attention: rollup.counts.attention,
-    // `escalated` predates this field on cached rollups — recount when it is absent.
-    escalated: rollup.counts.escalated ?? countSeverity(rollup.members, "escalated"),
-    working: rollup.counts.working,
-    // `ready` predates this field on cached rollups — recount when it is absent.
-    ready: rollup.counts.ready ?? countSeverity(rollup.members, "ready"),
+  const countOf = (severity: RollCallSeverity): number => {
+    switch (severity) {
+      case MemberSeverity.group.blocked:
+        return rollup.counts.blocked;
+      case MemberSeverity.group.attention:
+        return rollup.counts.attention;
+      case MemberSeverity.group.escalated:
+        // `escalated` predates this field on cached rollups: recount when it is absent.
+        return rollup.counts.escalated ?? countSeverity(rollup.members, severity);
+      case MemberSeverity.group.working:
+        return rollup.counts.working;
+      default:
+        // `ready` predates this field on cached rollups: recount when it is absent.
+        return rollup.counts.ready ?? countSeverity(rollup.members, severity);
+    }
   };
 
   const buckets: RollCallBucket[] = [];
   for (const severity of ROLL_CALL_BUCKETS) {
-    const count = counts[severity];
+    const count = countOf(severity);
     if (count <= 0) continue;
     const { names, extra } = namesFor(rollup.members, severity, nameLimit);
     buckets.push({ severity, count, names, extra });
@@ -74,32 +83,24 @@ export function buildRollCall(
   return { kind: "hot", total, buckets };
 }
 
+/** Each hot tier's full words, singular and plural, with the count in front. */
+const bucketWords = (severity: RollCallSeverity): { readonly one: string; readonly many: string } => {
+  switch (severity) {
+    case MemberSeverity.group.blocked:
+      return { one: "blocked", many: "blocked" };
+    case MemberSeverity.group.attention:
+      return { one: "attention", many: "attention" };
+    case MemberSeverity.group.escalated:
+      return { one: "waiting on you", many: "waiting on you" };
+    case MemberSeverity.group.working:
+      return { one: "working", many: "working" };
+    default:
+      return { one: "ready", many: "ready" };
+  }
+};
+
 /** Full-word label for a hot bucket (no abbreviations, no middot glue). */
 export function rollCallBucketLabel(severity: RollCallSeverity, count: number): string {
-  if (count === 1) {
-    switch (severity) {
-      case "blocked":
-        return "1 blocked";
-      case "attention":
-        return "1 attention";
-      case "escalated":
-        return "1 waiting on you";
-      case "working":
-        return "1 working";
-      case "ready":
-        return "1 ready";
-    }
-  }
-  switch (severity) {
-    case "blocked":
-      return `${count} blocked`;
-    case "attention":
-      return `${count} attention`;
-    case "escalated":
-      return `${count} waiting on you`;
-    case "working":
-      return `${count} working`;
-    case "ready":
-      return `${count} ready`;
-  }
+  const words = bucketWords(severity);
+  return `${count} ${count === 1 ? words.one : words.many}`;
 }

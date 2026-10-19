@@ -6,7 +6,7 @@
 import type { AgentSeatState } from "@shared/agent-seat-state";
 import type { WorkSinkGlance } from "@shared/work-attention";
 import type { Task } from "@shared/work-model";
-import { worseSeverity, type MemberSeverity } from "@shared/region-rollup";
+import { MemberSeverity, worseSeverity } from "@shared/region-rollup";
 
 /** Worse operational tier wins, on the rollup's ladder (attention > blocked > ready > working > idle). */
 export const worseMemberSeverity = (a: MemberSeverity, b: MemberSeverity): MemberSeverity => worseSeverity(a, b);
@@ -24,10 +24,10 @@ export function liveActivitySeverity(input: {
   /** Seat settled after work and the operator has not looked yet. */
   readonly seatNeedsLook?: boolean;
 }): MemberSeverity | undefined {
-  if (input.seatState === "attention") return "attention";
-  if (input.seatState === "working") return "working";
-  if (input.seatState === "idle") return input.seatNeedsLook === true ? "ready" : "idle";
-  if (input.seatState === "gone") return "idle";
+  if (input.seatState === "attention") return MemberSeverity.group.attention;
+  if (input.seatState === "working") return MemberSeverity.group.working;
+  if (input.seatState === "idle") return input.seatNeedsLook === true ? MemberSeverity.group.ready : MemberSeverity.group.idle;
+  if (input.seatState === "gone") return MemberSeverity.group.idle;
   return undefined;
 }
 
@@ -51,28 +51,28 @@ export function hotbarNodeSeverity(
   } = {},
 ): MemberSeverity {
   if (isRegion) {
-    return options.regionSeverity ?? "idle";
+    return options.regionSeverity ?? MemberSeverity.group.idle;
   }
 
   let severity: MemberSeverity | undefined = options.memberSeverity;
 
   if (severity === undefined) {
-    if (options.work?.needsHuman) severity = "attention";
-    else if (options.items?.some((item) => item.state === "working")) severity = "working";
+    if (options.work?.needsHuman) severity = MemberSeverity.group.attention;
+    else if (options.items?.some((item) => item.state === "working")) severity = MemberSeverity.group.working;
   }
 
   if (options.liveSeverity !== undefined) {
-    if (options.liveSeverity === "idle") {
+    if (options.liveSeverity === MemberSeverity.group.idle) {
       // Seat is quiet — drop harness-tier lag from rollups (attention/working).
       // Keep blocked (graph stoppage), which is not a seat wave.
       if (
         severity === undefined ||
-        severity === "attention" ||
-        severity === "working" ||
-        severity === "ready" ||
-        severity === "idle"
+        severity === MemberSeverity.group.attention ||
+        severity === MemberSeverity.group.working ||
+        severity === MemberSeverity.group.ready ||
+        severity === MemberSeverity.group.idle
       ) {
-        severity = "idle";
+        severity = MemberSeverity.group.idle;
       }
     } else {
       severity =
@@ -82,5 +82,5 @@ export function hotbarNodeSeverity(
     }
   }
 
-  return severity ?? "idle";
+  return severity ?? MemberSeverity.group.idle;
 }

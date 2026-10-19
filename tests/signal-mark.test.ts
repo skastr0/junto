@@ -3,29 +3,32 @@ import { note, region, seat } from "./support/model-nodes";
 import { describe, expect, it } from "vitest";
 import { signalMark, signalMarkForMember } from "../src/renderer/lib/signal-mark";
 import { GREEN, HUE, withAlpha } from "../src/renderer/lib/theme";
+import { MemberSeverity } from "../src/shared/region-rollup";
+
+const S = MemberSeverity.group;
 
 describe("signalMark", () => {
   it("maps the severity ladder to distinct hues and symbols", () => {
-    expect(signalMark("blocked").hue).toBe(HUE.crimson);
-    expect(signalMark("blocked").symbol).toBe("⊗");
-    expect(signalMark("attention").hue).toBe(HUE.amber);
-    expect(signalMark("working").hue).toBe(HUE.cyan);
-    expect(signalMark("ready").hue).toBe(GREEN);
-    expect(signalMark("ready").symbol).toBe("✓");
-    expect(signalMark("ready").mode).toBe("pulse");
-    expect(signalMark("idle").kind).toBe("idle");
-    expect(signalMark("idle").symbol).toBe("○");
+    expect(signalMark(S.blocked).hue).toBe(HUE.crimson);
+    expect(signalMark(S.blocked).symbol).toBe("⊗");
+    expect(signalMark(S.attention).hue).toBe(HUE.amber);
+    expect(signalMark(S.working).hue).toBe(HUE.cyan);
+    expect(signalMark(S.ready).hue).toBe(GREEN);
+    expect(signalMark(S.ready).symbol).toBe("✓");
+    expect(signalMark(S.ready).mode).toBe("pulse");
+    expect(signalMark(S.idle).kind).toBe("idle");
+    expect(signalMark(S.idle).symbol).toBe("○");
   });
 
   it("labels a ready member as finished work waiting to be read", () => {
-    const mark = signalMarkForMember({ severity: "ready", reasons: ["activity:ready"] });
+    const mark = signalMarkForMember({ severity: S.ready, reasons: ["activity:ready"] });
     expect(mark.kind).toBe("ready");
     expect(mark.label).toBe("ready to read");
   });
 
   it("refines labels from rollup reasons without changing severity", () => {
     const mark = signalMarkForMember({
-      severity: "attention",
+      severity: S.attention,
       reasons: ["permission:pending", "flag:attention"],
     });
     expect(mark.kind).toBe("attention");

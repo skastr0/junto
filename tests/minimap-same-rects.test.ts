@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { sameRects, type MinimapNodeRect } from "../src/renderer/components/FactoryMinimap";
+import { RegionUrgency } from "../src/shared/wire/urgency";
+
+const blocked = RegionUrgency.group.blocked;
+const needsYou = RegionUrgency.group["needs-you"];
 
 const rect = (id: string, x: number, over: Partial<MinimapNodeRect> = {}): MinimapNodeRect => ({
   id, x, y: 0, width: 216, height: 56, fill: "#123", stroke: "#456", ...over,
@@ -7,8 +11,8 @@ const rect = (id: string, x: number, over: Partial<MinimapNodeRect> = {}): Minim
 
 describe("the minimap publishes its rectangles only when the map changed", () => {
   it("is the same map when every rectangle says what it said", () => {
-    const before = [rect("a", 0), rect("b", 300, { seat: { urgency: "blocked" } })];
-    const after = [rect("a", 0), rect("b", 300, { seat: { urgency: "blocked" } })];
+    const before = [rect("a", 0), rect("b", 300, { seat: { urgency: blocked } })];
+    const after = [rect("a", 0), rect("b", 300, { seat: { urgency: blocked } })];
     expect(sameRects(before, after)).toBe(true);
   });
 
@@ -27,8 +31,8 @@ describe("the minimap publishes its rectangles only when the map changed", () =>
   });
 
   it("is a new map when a seat's urgency changed, or a card became a seat", () => {
-    const before = [rect("a", 0, { seat: { urgency: "needs-you" } })];
-    expect(sameRects(before, [rect("a", 0, { seat: { urgency: "blocked" } })])).toBe(false);
+    const before = [rect("a", 0, { seat: { urgency: needsYou } })];
+    expect(sameRects(before, [rect("a", 0, { seat: { urgency: blocked } })])).toBe(false);
     expect(sameRects(before, [rect("a", 0)])).toBe(false);
     expect(sameRects([rect("a", 0)], [rect("a", 0, { seat: {} })])).toBe(false);
   });

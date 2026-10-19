@@ -18,7 +18,8 @@
 
 import type { AgentSignalKind } from "@shared/agent-signals";
 import { FEED_KIND_LABEL } from "@shared/operator-feed";
-import type { MemberSeverity } from "@shared/region-rollup";
+import { MemberSeverity } from "@shared/region-rollup";
+import { compareUrgency, Level, levelOfSignal, type UrgencyLevel } from "@shared/wire/urgency";
 import type { ThreadHealthTone } from "@shared/thread-health";
 import { resolveActivityGlyph, type ActivitySpec } from "./activity";
 
@@ -30,6 +31,8 @@ export type SeatRollupTone = "crimson" | "amber" | "cyan" | "green" | "violet" |
 export type SeatRollup = {
   readonly source: SeatRollupSource;
   readonly tone: SeatRollupTone;
+  /** Where the reading sits on the one urgency ladder: what worseRollup orders by. */
+  readonly level: UrgencyLevel;
   /** A faded reading: only health ages, a declared signal is current until closed. */
   readonly stale: boolean;
   /** Short words for a tooltip or aria text. */
@@ -63,32 +66,65 @@ export const HEALTH_ROLLUP_TONE: Readonly<Record<ThreadHealthTone, SeatRollupTon
   good: "green",
 };
 
-/** Control state hues when nothing louder speaks; idle paints identity instead. */
-export const CONTROL_ROLLUP_TONE: Readonly<Record<MemberSeverity, SeatRollupTone | undefined>> = {
-  blocked: "crimson",
-  attention: "amber",
-  escalated: "amber",
-  working: "cyan",
-  ready: "green",
-  idle: undefined,
+/**
+ * What a control state reads as when nothing louder speaks: its hue and its
+ * level on the ladder (a tier is a group of levels, so the control's own
+ * level is named here: ready is a settled turn, working is work in flight).
+ * Idle reads nothing; the card paints identity instead.
+ */
+const controlReading = (
+  control: MemberSeverity,
+): { readonly tone: SeatRollupTone; readonly level: UrgencyLevel } | undefined => {
+  switch (control) {
+    case MemberSeverity.group.blocked:
+      return { tone: "crimson", level: Level.blocked };
+    case MemberSeverity.group.attention:
+      return { tone: "amber", level: Level.waiting };
+    case MemberSeverity.group.escalated:
+      return { tone: "amber", level: Level.escalated };
+    case MemberSeverity.group.working:
+      return { tone: "cyan", level: Level.working };
+    case MemberSeverity.group.ready:
+      return { tone: "green", level: Level.done };
+    case MemberSeverity.group.idle:
+      return undefined;
+  }
 };
 
-const PROVEN: ReadonlySet<MemberSeverity> = new Set(["blocked", "attention"]);
+/** The ladder level a health reading stands for: trouble degrades, waiting is a request, good is calm. */
+const healthLevel = (tone: ThreadHealthTone): UrgencyLevel => {
+  switch (tone) {
+    case "trouble":
+      return Level.degraded;
+    case "waiting":
+      return Level.escalated;
+    case "steady":
+    case "good":
+      return Level.resting;
+  }
+};
+
+/** A control state proves itself, by the ring's own glyph: a stop or a dialog the seat is held at. */
+const isProven = (control: MemberSeverity): boolean =>
+  control === MemberSeverity.group.blocked || control === MemberSeverity.group.attention;
 
 export const seatRollup = (input: SeatRollupInput): SeatRollup | undefined => {
   if (input.signal !== undefined) {
     return {
       source: "signal",
       tone: SIGNAL_ROLLUP_TONE[input.signal],
+      level: levelOfSignal(input.signal),
       stale: false,
       reason: FEED_KIND_LABEL[input.signal],
     };
   }
   const control = input.control;
-  if (control !== undefined && PROVEN.has(control)) {
+  if (control !== undefined && isProven(control)) {
+    const reading = controlReading(control)!;
     return {
       source: "control",
-      tone: CONTROL_ROLLUP_TONE[control]!,
+      tone: reading.tone,
+      level: reading.level,
       stale: false,
       reason: FEED_KIND_LABEL[control as "blocked" | "attention"],
     };
@@ -99,13 +135,14 @@ export const seatRollup = (input: SeatRollupInput): SeatRollup | undefined => {
     return {
       source: "health",
       tone: healthTone,
+      level: healthLevel(health.health!),
       stale: health.healthStale,
       reason: `AI reads ${health.line ?? health.health}`,
     };
   }
-  const controlTone = control === undefined ? undefined : CONTROL_ROLLUP_TONE[control];
-  if (control !== undefined && controlTone !== undefined) {
-    return { source: "control", tone: controlTone, stale: false, reason: control };
+  const reading = control === undefined ? undefined : controlReading(control);
+  if (control !== undefined && reading !== undefined) {
+    return { source: "control", tone: reading.tone, level: reading.level, stale: false, reason: control };
   }
   return undefined;
 };
@@ -118,33 +155,26 @@ export const seatRollup = (input: SeatRollupInput): SeatRollup | undefined => {
  */
 export const controlFromActivity = (activity: ActivitySpec): MemberSeverity => {
   const glyph = resolveActivityGlyph(activity.mode, activity.tone, activity.glyph);
-  if (glyph === "halt") return "blocked";
-  if (glyph === "call") return "attention";
-  if (glyph === "work") return "working";
-  if (glyph === "done") return "ready";
-  return "idle";
+  if (glyph === "halt") return MemberSeverity.group.blocked;
+  if (glyph === "call") return MemberSeverity.group.attention;
+  if (glyph === "work") return MemberSeverity.group.working;
+  if (glyph === "done") return MemberSeverity.group.ready;
+  return MemberSeverity.group.idle;
 };
 
 /**
- * Worst first, for tinting a region by its worst member: a declared blocker,
- * then anything amber, then work, then good news, then parked.
+ * The worse of two readings, for tinting a region by its worst member: the
+ * more urgent level on the one ladder wins, and at the same level a current
+ * reading outranks a faded one.
  */
-const TONE_RANK: Readonly<Record<SeatRollupTone, number>> = {
-  crimson: 0,
-  amber: 1,
-  cyan: 2,
-  green: 3,
-  violet: 4,
-  steel: 5,
-};
-
 export const worseRollup = (
   a: SeatRollup | undefined,
   b: SeatRollup | undefined,
 ): SeatRollup | undefined => {
   if (a === undefined) return b;
   if (b === undefined) return a;
-  if (TONE_RANK[a.tone] !== TONE_RANK[b.tone]) return TONE_RANK[a.tone] < TONE_RANK[b.tone] ? a : b;
-  // Same hue: a current reading outranks a faded one.
+  const byLevel = compareUrgency(a.level, b.level);
+  if (byLevel !== 0) return byLevel < 0 ? a : b;
+  // Same level: a current reading outranks a faded one.
   return a.stale && !b.stale ? b : a;
 };

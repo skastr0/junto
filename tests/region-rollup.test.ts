@@ -8,6 +8,9 @@ import {
 } from "../src/shared/region-rollup";
 import type { WorkSurfaceActivity } from "../src/shared/terminal";
 import { actorRefFixture } from "./helpers/actor-ref-fixtures";
+import { MemberSeverity } from "../src/shared/region-rollup";
+
+const S = MemberSeverity.group;
 
 /** A canvas as a test writes it: its nodes in paint order, and its wires. */
 type Fixture = { readonly nodes: ReadonlyArray<Node>; readonly edges: ReadonlyArray<Wire> };
@@ -141,7 +144,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const [rollup] = deriveRegionRollups({
       doc,
       terminalStatusByNodeId: new Map([["seat", { session: "running", harness: "working" } as WorkSurfaceActivity]]),
-      seatTierByNodeId: new Map([["seat", { severity: "blocked", cause: "seat_blocked" }]]),
+      seatTierByNodeId: new Map([["seat", { severity: S.blocked, cause: "seat_blocked" }]]),
     });
     expect(rollup?.members[0]).toMatchObject({ severity: "blocked", reasons: ["need:seat_blocked"] });
     expect(rollup?.counts).toEqual({ total: 1, blocked: 1, attention: 0, escalated: 0, working: 0, ready: 0 });
@@ -160,9 +163,9 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const [rollup] = deriveRegionRollups({
       doc,
       seatTierByNodeId: new Map([
-        ["esc", { severity: "escalated", cause: "seat_escalated" }],
-        ["stop", { severity: "blocked", cause: "crash" }],
-        ["done", { severity: "ready", cause: "turn_unseen" }],
+        ["esc", { severity: S.escalated, cause: "seat_escalated" }],
+        ["stop", { severity: S.blocked, cause: "crash" }],
+        ["done", { severity: S.ready, cause: "turn_unseen" }],
       ]),
     });
     expect(rollup?.severity).toBe("blocked");
@@ -195,10 +198,10 @@ describe("deriveRegionRollups — member severity ladder", () => {
       agentActivity: activityOf(["remote-a:profile-13", { sessionLive: true, permissionPending: true }]),
     });
     const member = rollup?.members.find((candidate) => candidate.nodeId === "a");
-    // Waiting on the operator outranks a stop, as on the need ladder.
-    expect(member?.severity).toBe("attention");
-    expect(member?.reasons).toEqual(["permission:pending", "activity:blocked"]);
-    expect(rollup?.counts).toEqual({ total: 2, blocked: 0, attention: 1, escalated: 0, working: 0, ready: 0 });
+    // A stop outranks a dialog waiting on the operator, as on the one urgency ladder.
+    expect(member?.severity).toBe("blocked");
+    expect(member?.reasons).toEqual(["activity:blocked", "permission:pending"]);
+    expect(rollup?.counts).toEqual({ total: 2, blocked: 1, attention: 0, escalated: 0, working: 0, ready: 0 });
   });
 });
 

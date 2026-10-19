@@ -18,8 +18,10 @@ import type { MemberSeverity, MemberStatus } from "@shared/region-rollup";
 import type { ActivityMode, ActivityTone } from "./activity";
 import { ACTIVITY_TONE_HEX, SEVERITY_TONE } from "./activity";
 import { accentColor, HUE, withAlpha } from "./theme";
+import type { Brand } from "effect";
 
-export type SignalKind = MemberSeverity;
+/** The rollup tier names, plain: this module paints by name and ranks nothing. */
+export type SignalKind = Brand.Brand.Unbranded<MemberSeverity>;
 
 export interface SignalMark {
   readonly kind: SignalKind;
@@ -88,7 +90,7 @@ const MARK: Readonly<Record<SignalKind, SignalMark>> = {
 };
 
 export const signalMark = (severity: MemberSeverity | undefined): SignalMark =>
-  MARK[severity ?? "idle"];
+  MARK[(severity ?? "idle") as SignalKind];
 
 /** Prefer a more specific label from rollup reasons when present. */
 export const signalMarkForMember = (member: Pick<MemberStatus, "severity" | "reasons">): SignalMark => {

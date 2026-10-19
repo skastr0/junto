@@ -1,4 +1,5 @@
 import { Match, Schema } from "effect";
+import { compareView, MemberSeverity as MemberSeverityView, type ViewGroup } from "./wire/urgency";
 import type { ActorRefResolver } from "./attention";
 import type { Canvas, Node } from "./model";
 import { titleOf } from "./model/title";
@@ -24,31 +25,21 @@ import type { WorkItemsOf } from "./execution-graph";
 // only narrow what can be derived; they never fabricate blocks, attention,
 // or work.
 
-// The severity ladder, worst first, in step with the one need ladder
-// (harness-domain/need.ts): waiting on the operator (attention), stopped
-// (blocked), escalated, finished work nobody has read (ready), work in
-// flight, idle.
-// A member lands in the WORST tier it matches; its reasons collect every
+// The severity tiers are the MemberSeverity view of the one urgency ladder
+// (wire/urgency.ts), worst first: blocked (a declared block or a stop),
+// attention (a proven dialog), escalated, ready (review or done), working,
+// idle. A member lands in the WORST tier it matches; its reasons collect every
 // match, in ladder order. `ready` asks for a glance, never for input, so
 // notify pills and attention alerts must keep ignoring it.
-export const MemberSeverity = Schema.Literals([
-  "attention",
-  "blocked",
-  "escalated",
-  "ready",
-  "working",
-  "idle",
-]);
-export type MemberSeverity = typeof MemberSeverity.Type;
+export const MemberSeverity = MemberSeverityView;
+export type MemberSeverity = ViewGroup<typeof MemberSeverityView>;
 
-/** Ladder position, 0 worst. Every surface that compares tiers reads this. */
-export const MEMBER_SEVERITY_RANK: Readonly<Record<MemberSeverity, number>> = Object.fromEntries(
-  MemberSeverity.literals.map((severity, rank) => [severity, rank]),
-) as Record<MemberSeverity, number>;
+/** Most urgent tier first: a negative result means `a` is the worse tier. Every surface that compares tiers reads this. */
+export const compareSeverity = compareView(MemberSeverityView);
 
 /** The worse of two tiers. */
 export const worseSeverity = (a: MemberSeverity, b: MemberSeverity): MemberSeverity =>
-  MEMBER_SEVERITY_RANK[a] <= MEMBER_SEVERITY_RANK[b] ? a : b;
+  compareSeverity(a, b) <= 0 ? a : b;
 
 /**
  * A seat's tier read off its needs through `ROLLUP_FROM_NEED`
@@ -74,7 +65,7 @@ export const MemberStatus = Schema.Struct({
   label: Schema.String,
   // the native node kind.
   kind: Schema.String,
-  severity: MemberSeverity,
+  severity: MemberSeverityView.Group,
   // Short machine strings, worst-tier first: permission:pending,
   // need:<cause>, work:<detail>, edge:<detail>, and the harness fallback's
   // activity:attention, activity:blocked, activity:ready, activity:working.
@@ -87,7 +78,7 @@ export const RegionRollup = Schema.Struct({
   // The region's display name (regionDisplayName): never empty.
   label: Schema.String,
   // Worst member severity; "idle" for an empty region.
-  severity: MemberSeverity,
+  severity: MemberSeverityView.Group,
   // A member counts only in its own (worst-match) bucket; parked and idle
   // members count toward total only.
   counts: Schema.Struct({
@@ -126,8 +117,6 @@ export interface RegionRollupInput extends LiveTrustViews {
   readonly seatTierByNodeId?: ReadonlyMap<string, SeatNeedTier>;
 }
 
-const SEVERITY_RANK = MEMBER_SEVERITY_RANK;
-
 // Rollcall ordering: message-bearing actor seats first, then the two work
 // stores an operator reads next, then everything else. Exhaustive over NodeSpec
 // — a new kind has to be ranked here rather than silently landing in "rest".
@@ -148,11 +137,11 @@ const kindRank = (kind: string): number =>
 const surfaceTier = (activity: WorkSurfaceActivity | undefined): SeatNeedTier | undefined => {
   const state = activity?.harness;
   if (state === undefined || state === "unknown" || state === "idle") {
-    return activity?.ready === true ? { severity: "ready", cause: "activity:ready" } : undefined;
+    return activity?.ready === true ? { severity: MemberSeverity.group.ready, cause: "activity:ready" } : undefined;
   }
-  if (state === "blocked") return { severity: "blocked", cause: "activity:blocked" };
-  if (state === "attention") return { severity: "attention", cause: "activity:attention" };
-  return { severity: "working", cause: "activity:working" };
+  if (state === "blocked") return { severity: MemberSeverity.group.blocked, cause: "activity:blocked" };
+  if (state === "attention") return { severity: MemberSeverity.group.attention, cause: "activity:attention" };
+  return { severity: MemberSeverity.group.working, cause: "activity:working" };
 };
 
 // Rank for mapped execution-graph reasons: edge before seed (no relay cascade).
@@ -176,20 +165,20 @@ const deriveMember = (
 
   const matches: Array<readonly [MemberSeverity, string]> = [];
   // ACP permission pending: the chat plane's own attention.
-  if (activity?.permissionPending === true) matches.push(["attention", "permission:pending"]);
+  if (activity?.permissionPending === true) matches.push([MemberSeverity.group.attention, "permission:pending"]);
   // Idle is where a member lands with no match; it carries no reason.
-  if (seat && seat.severity !== "idle") matches.push([seat.severity, seat.cause]);
+  if (seat && seat.severity !== MemberSeverity.group.idle) matches.push([seat.severity, seat.cause]);
   // Execution-graph closure: edge before seed (no relay cascade).
   const graphReasons = [...(graph.reasonsByNodeId.get(node.id) ?? [])].sort(
     (a, b) => GRAPH_REASON_RANK[a.kind] - GRAPH_REASON_RANK[b.kind],
   );
-  for (const reason of graphReasons) matches.push(["blocked", `${reason.kind}:${reason.detail}`]);
+  for (const reason of graphReasons) matches.push([MemberSeverity.group.blocked, `${reason.kind}:${reason.detail}`]);
   // A graph block with no reason still blocks; it just adds no reason string.
-  if (graph.blocked.has(node.id) && graphReasons.length === 0) matches.push(["blocked", ""]);
+  if (graph.blocked.has(node.id) && graphReasons.length === 0) matches.push([MemberSeverity.group.blocked, ""]);
 
   // Stable: equal tiers keep the order they were found in.
-  matches.sort((a, b) => SEVERITY_RANK[a[0]] - SEVERITY_RANK[b[0]]);
-  const severity: MemberSeverity = matches[0]?.[0] ?? "idle";
+  matches.sort((a, b) => compareSeverity(a[0], b[0]));
+  const severity: MemberSeverity = matches[0]?.[0] ?? MemberSeverity.group.idle;
   const reasons = matches.flatMap(([, reason]) => (reason === "" ? [] : [reason]));
   return { nodeId: node.id, label: titleOf(node), kind, severity, reasons };
 };
@@ -218,7 +207,7 @@ const regionMembers = (
     .filter((entry): entry is { status: MemberStatus; index: number } => entry !== undefined)
     .sort(
       (a, b) =>
-        SEVERITY_RANK[a.status.severity] - SEVERITY_RANK[b.status.severity] ||
+        compareSeverity(a.status.severity, b.status.severity) ||
         kindRank(a.status.kind) - kindRank(b.status.kind) ||
         a.index - b.index,
     )

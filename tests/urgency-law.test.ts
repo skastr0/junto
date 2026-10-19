@@ -91,15 +91,6 @@ const NOT_URGENCY = "ranks something other than seat urgency";
 
 const ALLOWED: readonly Allowed[] = [
 
-  // Step 3, product-modals: rings, clusters and the region rollup.
-  { file: "src/shared/region-rollup.ts", name: "MemberSeverity", rule: "names", step: 3, reason: "the rollup tiers in order, replaced by the MemberSeverity view" },
-  { file: "src/shared/region-rollup.ts", name: "MEMBER_SEVERITY_RANK", rule: "table", step: 3, reason: "the rollup tier numbers, replaced by compareView(MemberSeverity)" },
-  { file: "src/renderer/lib/region-urgency.ts", name: "RANK", rule: "names", step: 3, reason: "the region badge order, replaced by RegionUrgency" },
-  { file: "src/renderer/lib/region-urgency.ts", name: "RANK", rule: "table", step: 3, reason: "the region badge order, replaced by RegionUrgency" },
-  { file: "src/renderer/lib/seat-rollup.ts", name: "TONE_RANK", rule: "table", step: 3, reason: "the rollup tone order, per pty-lead" },
-  { file: "src/renderer/lib/seat-rollup.ts", name: "PROVEN", rule: "names", step: 3, reason: "a waits-on-operator predicate over rollup tiers, replaced by the module's" },
-  { file: "src/renderer/lib/roll-call.ts", name: "ROLL_CALL_BUCKETS", rule: "names", step: 3, reason: "roll call's tier order over MemberSeverity" },
-
   // Step 5, remote-lead: the feed ranks each kind by levelOfFeedItem; its kinds share two level names.
   { file: "src/shared/need-surfaces.ts", name: "FEED_FROM_NEED", rule: "names", reason: KIND_MAP },
 
@@ -118,7 +109,6 @@ const ALLOWED: readonly Allowed[] = [
   // Ring-to-paint maps: exempt.
   { file: "src/shared/wire/seat-activity.ts", name: "SEVERITY_TONE", rule: "names", reason: PAINT },
   { file: "src/shared/wire/rings.ts", name: "SIGNAL_FLAG_TONE", rule: "names", reason: PAINT },
-  { file: "src/renderer/lib/seat-rollup.ts", name: "CONTROL_ROLLUP_TONE", rule: "names", reason: PAINT },
   { file: "src/renderer/lib/seat-rollup.ts", name: "SIGNAL_ROLLUP_TONE", rule: "names", reason: PAINT },
   { file: "src/renderer/lib/activity-atlas.ts", name: "FLAGS", rule: "names", reason: PAINT },
   { file: "src/renderer/lib/agent-signals-view.ts", name: "SIGNAL_KIND_TONE", rule: "names", reason: PAINT },
@@ -179,7 +169,6 @@ const ALLOWED: readonly Allowed[] = [
   // Counts.
   { file: "src/shared/region-rollup.ts", name: "RegionRollup.counts", rule: "names", reason: COUNTS },
   { file: "src/shared/region-rollup.ts", name: "countBySeverity.counts", rule: "names", reason: COUNTS },
-  { file: "src/renderer/lib/roll-call.ts", name: "buildRollCall.counts", rule: "names", reason: COUNTS },
   { file: "src/main/junto/overseer/live/context.ts", name: "buildLiveContext.context.authoritative.counts", rule: "names", reason: COUNTS },
 
   // Fixtures.

@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import type { Region } from "@shared/model";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
-import { MEMBER_SEVERITY_RANK, type MemberSeverity, type RegionRollup } from "@shared/region-rollup";
+import { compareSeverity, type MemberSeverity, type RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
 import { selectNode, state$ } from "../../lib/state";
 import { readRegionRollups, useRegionRollups } from "../../lib/region-rollups";
@@ -541,8 +541,6 @@ function MinimapChrome({ children }: { readonly children: ReactNode }) {
   return <div className="rts-minimap-wrap">{children}</div>;
 }
 
-const severityRank = (s: MemberSeverity): number => MEMBER_SEVERITY_RANK[s];
-
 const readRegionAlertSignals = () => collectAlertSignals(readRegionRollups());
 
 export const RtsBottomBar = memo(function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; readonly tools?: ReactNode }) {
@@ -558,7 +556,7 @@ export const RtsBottomBar = memo(function RtsBottomBar({ minimap, tools }: { rea
     for (const rollup of [...rollups].sort((a, b) => a.regionId.localeCompare(b.regionId))) {
       for (const member of [...rollup.members].sort((a, b) => a.nodeId.localeCompare(b.nodeId))) {
         const previous = severities[member.nodeId];
-        if (!previous || severityRank(member.severity) < severityRank(previous)) severities[member.nodeId] = member.severity;
+        if (!previous || compareSeverity(member.severity, previous) < 0) severities[member.nodeId] = member.severity;
       }
       severities[rollup.regionId] = rollup.severity;
       counts[rollup.regionId] = rollup.counts;

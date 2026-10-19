@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { MemberStatus, RegionRollup } from "../src/shared/region-rollup";
 import { buildRollCall, rollCallBucketLabel } from "../src/renderer/lib/roll-call";
+import { MemberSeverity } from "../src/shared/region-rollup";
+
+const S = MemberSeverity.group;
 
 const member = (
   nodeId: string,
@@ -27,10 +30,10 @@ describe("buildRollCall", () => {
   it("surfaces ready as its own bucket, ahead of working", () => {
     const model = buildRollCall(
       rollup([
-        member("w", "working", ["activity:working"]),
-        member("a", "ready", ["activity:ready"]),
-        member("b", "ready", ["activity:ready"]),
-        member("z", "idle"),
+        member("w", S.working, ["activity:working"]),
+        member("a", S.ready, ["activity:ready"]),
+        member("b", S.ready, ["activity:ready"]),
+        member("z", S.idle),
       ]),
     );
     expect(model.kind).toBe("hot");
@@ -42,17 +45,17 @@ describe("buildRollCall", () => {
   });
 
   it("a region of finished seats is hot, not quiet", () => {
-    const model = buildRollCall(rollup([member("a", "ready", ["activity:ready"])]));
+    const model = buildRollCall(rollup([member("a", S.ready, ["activity:ready"])]));
     expect(model.kind).toBe("hot");
   });
 
   it("all-idle stays quiet", () => {
-    expect(buildRollCall(rollup([member("a", "idle")])).kind).toBe("quiet");
+    expect(buildRollCall(rollup([member("a", S.idle)])).kind).toBe("quiet");
     expect(buildRollCall(rollup([])).kind).toBe("empty");
   });
 
   it("recounts ready when a cached rollup predates the field", () => {
-    const cached = rollup([member("a", "ready", ["activity:ready"])]);
+    const cached = rollup([member("a", S.ready, ["activity:ready"])]);
     const legacy = {
       ...cached,
       counts: { total: 1, blocked: 0, attention: 0, working: 0 },
@@ -66,7 +69,7 @@ describe("buildRollCall", () => {
 
 describe("rollCallBucketLabel", () => {
   it("says ready in full words, singular and plural", () => {
-    expect(rollCallBucketLabel("ready", 1)).toBe("1 ready");
-    expect(rollCallBucketLabel("ready", 4)).toBe("4 ready");
+    expect(rollCallBucketLabel(S.ready, 1)).toBe("1 ready");
+    expect(rollCallBucketLabel(S.ready, 4)).toBe("4 ready");
   });
 });

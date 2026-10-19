@@ -10,6 +10,9 @@ import { describe, expect, it } from "vitest";
 import type { MemberStatus, RegionRollup } from "../src/shared/region-rollup";
 import { RollCall } from "../src/renderer/components/rts/RollCall";
 import { GREEN } from "../src/renderer/lib/theme";
+import { MemberSeverity } from "../src/shared/region-rollup";
+
+const S = MemberSeverity.group;
 
 const member = (
   nodeId: string,
@@ -37,9 +40,9 @@ describe("RollCall ready tier", () => {
     const html = renderToStaticMarkup(
       <RollCall
         rollup={rollup([
-          member("profile-13", "ready", ["activity:ready"]),
-          member("nix", "ready", ["activity:ready"]),
-          member("quiet-one", "idle"),
+          member("profile-13", S.ready, ["activity:ready"]),
+          member("nix", S.ready, ["activity:ready"]),
+          member("quiet-one", S.idle),
         ])}
       />,
     );
@@ -54,8 +57,8 @@ describe("RollCall ready tier", () => {
     const html = renderToStaticMarkup(
       <RollCall
         rollup={rollup([
-          member("busy", "working", ["activity:working"]),
-          member("profile-13", "ready", ["activity:ready"]),
+          member("busy", S.working, ["activity:working"]),
+          member("profile-13", S.ready, ["activity:ready"]),
         ])}
       />,
     );
@@ -67,7 +70,7 @@ describe("RollCall ready tier", () => {
   });
 
   it("a region nobody has to read stays quiet", () => {
-    const html = renderToStaticMarkup(<RollCall rollup={rollup([member("profile-13", "idle")])} />);
+    const html = renderToStaticMarkup(<RollCall rollup={rollup([member("profile-13", S.idle)])} />);
     expect(html).toContain("All quiet");
     expect(html).not.toContain('data-severity="ready"');
   });

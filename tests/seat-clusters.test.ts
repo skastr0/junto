@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildClusterIndex,
+  clusterBadgeMark,
   clusterSpan,
   clustersOf,
   linksHeldAt,
@@ -122,5 +123,20 @@ describe("seat clusters: the ring budget", () => {
   it("gathers by spacing where that holds more than the budget", () => {
     const index = buildClusterIndex(row(6, 150));
     expect(linksHeldFor(index, 0.15, view)).toBe(linksHeldAt(index, 0.15));
+  });
+});
+
+describe("clusterBadgeMark: the most urgent member's mark", () => {
+  it("shows done over work in flight, and work over rest", () => {
+    expect(clusterBadgeMark(["work", "done", "rest"])).toBe("done");
+    expect(clusterBadgeMark(["glint", "work"])).toBe("done");
+    expect(clusterBadgeMark(["rest", "work", "rest"])).toBe("work");
+    expect(clusterBadgeMark(["rest", "dot", "live", "off"])).toBe("rest");
+  });
+
+  it("a trouble ring still works: reverse, snake and fracture draw the work mark", () => {
+    for (const form of ["reverse", "snake", "fracture"] as const) {
+      expect(clusterBadgeMark([form, "rest"])).toBe("work");
+    }
   });
 });

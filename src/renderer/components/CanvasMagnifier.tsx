@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useOnViewportChange, useReactFlow } from "@xyflow/react";
-import type { MemberSeverity } from "@shared/region-rollup";
+import { Schema } from "effect";
+import { MemberSeverity } from "@shared/region-rollup";
 import type { FlowEdge, FlowNode } from "../lib/convert";
 import { nodeAt, titleAt } from "../lib/use-model";
 import { signalMark, identityHueOf } from "../lib/signal-mark";
@@ -34,18 +35,12 @@ type VisibleNode = {
   readonly severity: MemberSeverity;
 };
 
-const validSeverity = (value: string | undefined): value is MemberSeverity =>
-  value === "blocked"
-  || value === "attention"
-  || value === "escalated"
-  || value === "working"
-  || value === "ready"
-  || value === "idle";
+const validSeverity = Schema.is(MemberSeverity.Group);
 
 const severityOf = (node: FlowNode): MemberSeverity => {
-  if (node.data.blocked) return "blocked";
+  if (node.data.blocked) return MemberSeverity.group.blocked;
   const live = state$.regionSeverityByNodeId.peek()[node.id];
-  return validSeverity(live) ? live : "idle";
+  return validSeverity(live) ? live : MemberSeverity.group.idle;
 };
 
 const nodeBounds = (node: FlowNode) => {

@@ -15,7 +15,9 @@ import { use$ } from "@legendapp/state/react";
 import type { Node } from "@shared/model";
 import { nodesOf, regionMembers, type NodeOf, type Placed } from "@shared/model";
 import type { AgentSignalKind, SeatSignalRollup } from "@shared/agent-signals";
+import { Option, Schema } from "effect";
 import type { MemberSeverity } from "@shared/region-rollup";
+import { UrgencyLevel } from "@shared/wire/urgency";
 import { seatSignalRollups$ } from "./agent-signals-state";
 import { activityToneHex, identityHueOf, signalMark } from "./signal-mark";
 import { seatAwareness$ } from "./seat-awareness";
@@ -110,9 +112,11 @@ export const seatRollupsForCanvas = (
 };
 
 /** Rollups as one string, so a selector can answer them and be compared by value. */
+const decodeLevel = Schema.decodeUnknownOption(UrgencyLevel);
+
 export const encodeRollups = (rollups: ReadonlyMap<string, SeatRollup>): string => {
   const parts: string[] = [];
-  for (const [id, r] of rollups) parts.push(`${id}\u0001${r.source}\u0001${r.tone}\u0001${r.stale ? 1 : 0}\u0001${r.reason}`);
+  for (const [id, r] of rollups) parts.push(`${id}\u0001${r.source}\u0001${r.tone}\u0001${r.level}\u0001${r.stale ? 1 : 0}\u0001${r.reason}`);
   return parts.join("\u0002");
 };
 
@@ -120,11 +124,13 @@ export const decodeRollups = (key: string): ReadonlyMap<string, SeatRollup> => {
   const out = new Map<string, SeatRollup>();
   if (key === "") return out;
   for (const part of key.split("\u0002")) {
-    const [id, source, tone, stale, reason] = part.split("\u0001");
-    if (!id || !source || !tone) continue;
+    const [id, source, tone, levelText, stale, reason] = part.split("\u0001");
+    const level = Option.getOrUndefined(decodeLevel(levelText));
+    if (!id || !source || !tone || level === undefined) continue;
     out.set(id, {
       source: source as SeatRollup["source"],
       tone: tone as SeatRollupTone,
+      level,
       stale: stale === "1",
       reason: reason ?? "",
     });

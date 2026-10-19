@@ -1,3 +1,6 @@
+import type { RingForm } from "@shared/wire/rings";
+import { Level, levelOfRing, worstOf } from "@shared/wire/urgency";
+
 // Seat clusters at the far and overview tiers.
 //
 // Pulled back, a seat is still its portrait in its turning ring, held at a
@@ -207,4 +210,16 @@ export const clustersOf = (index: ClusterIndex, held: number): SeatCluster[] => 
     });
   }
   return clusters.sort((a, b) => (a.key < b.key ? -1 : 1));
+};
+
+/**
+ * The mark a cluster badge draws: its most urgent member's, by the one
+ * urgency ladder. Done (a turn nobody has read) first, then work in flight
+ * (trouble bends a working ring, but it still works), else rest. Seats that
+ * need the operator are never gathered, so they never reach a badge.
+ */
+export const clusterBadgeMark = (forms: ReadonlyArray<RingForm>): "done" | "work" | "rest" => {
+  const level = worstOf(forms.map(levelOfRing));
+  if (level === Level.done) return "done";
+  return level === Level.working || level === Level.degraded ? "work" : "rest";
 };
