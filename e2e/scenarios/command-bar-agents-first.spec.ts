@@ -19,7 +19,7 @@ import { modelFixture, modelSeat } from "../harness/model";
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import type { AgentSignal, AgentSignalKind } from "../../src/shared/agent-signals";
 import type { Node, Region } from "../../src/shared/model";
 
@@ -148,7 +148,9 @@ const setTheme = async (page: Page, theme: "dark" | "bright"): Promise<void> => 
   await page.waitForTimeout(250);
 };
 
-const frameOf = (page: Page): Promise<string | null> => page.locator("html").getAttribute("data-mark-frame");
+/** A mark with a ring animation running now: motion is CSS, on the compositor. */
+const animating = (mark: Locator): Promise<boolean> =>
+  mark.evaluate((el) => el.getAnimations({ subtree: true }).some((animation) => animation.playState === "running"));
 
 test("cmd+K: tall, agents first by urgency, live rings on visible rows", async ({ junto }) => {
   const { page } = junto;
@@ -180,12 +182,11 @@ test("cmd+K: tall, agents first by urgency, live rings on visible rows", async (
   const rows = page.locator(".command-bar__row");
   await expect(rows.first().locator(".command-bar__row-detail")).toContainText("blocked The staging database");
 
-  // Live rings: the first row's loop steps on the shared clock at the far tier.
+  // Live rings: the first row's loop runs as a CSS animation at the far tier.
   const firstMark = rows.first().locator(".junto-mark");
   await expect(firstMark).toHaveAttribute("data-mark-motion", "loop");
   await expect(firstMark).toHaveAttribute("data-mark-visible", "");
-  const before = await frameOf(page);
-  await expect.poll(() => frameOf(page), { timeout: 2_000 }).not.toBe(before);
+  await expect.poll(() => animating(firstMark), { timeout: 2_000 }).toBe(true);
   // Only rows on screen animate: the last crew row is below the fold until scrolled to.
   const lastCrew = rows.filter({ hasText: crew[CREW - 1]! }).locator(".junto-mark");
   await expect(lastCrew).toHaveAttribute("data-mark-motion", "loop");
@@ -233,12 +234,12 @@ test("cmd+K: tall, agents first by urgency, live rings on visible rows", async (
   await expect(input).toHaveCount(0);
   await expect(page.locator(".react-flow__node.selected", { hasText: "ops-waiting" })).toHaveCount(1);
 
-  // Reduced motion: the rings hold their rest pose, the clock stops stamping.
+  // Reduced motion: the rings hold their rest pose.
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.keyboard.press("Meta+k");
   await expect(input).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("data-surface-motion", "paused");
-  await expect(page.locator("html")).not.toHaveAttribute("data-mark-frame", /.*/);
+  await expect.poll(() => animating(page.locator(".command-bar__row").first().locator(".junto-mark")), { timeout: 2_000 }).toBe(false);
   await page.keyboard.press("Escape");
   await page.emulateMedia({ reducedMotion: "no-preference" });
 });
@@ -270,4 +271,53 @@ test("cmd+K: a seat that changes state re-ranks the open list and the cursor sta
   // Enter goes to the seat under the cursor.
   await page.keyboard.press("Enter");
   await expect(page.locator(".react-flow__node.selected", { hasText: "ops-work-new" })).toHaveCount(1);
+});
+
+// A small canvas with every state on one screen, for the operator to read the order.
+test.describe("mixed states on one screen", () => {
+  const MIXED = "mixed-states";
+  const names = ["ada-blocked", "bo-waiting", "cy-working-new", "di-working-old", "ed-review", "flo-review-older", "gus-done", "hal-resting", "ivy-not-running"];
+  const mixedNodes = names.map((id, i) => seat(id, 40 + (i % 5) * 280, 60 + Math.floor(i / 5) * 160));
+  const mixedSignal = (nodeId: string, kind: AgentSignalKind, text: string, ago: number): AgentSignal => ({
+    ...signal(nodeId, kind, text, STAGED - ago),
+    canvasName: MIXED,
+  });
+  const mixedSignals: ReadonlyArray<AgentSignal> = [
+    mixedSignal("ada-blocked", "blocked", "The staging database refuses the new migration.", 60_000),
+    mixedSignal("bo-waiting", "escalate", "Should the export include archived projects?", 60_000),
+    mixedSignal("ed-review", "feedback", "The release notes are drafted, worth a look.", 30_000),
+    mixedSignal("flo-review-older", "feedback", "The importer is rewritten, ready for review.", 600_000),
+  ];
+  const mixedEvents = [
+    seatEvent("cy-working-new", "working", STAGED - 5_000),
+    seatEvent("di-working-old", "working", STAGED - 90_000),
+    seatEvent("gus-done", "working", STAGED - 200_000),
+    seatEvent("gus-done", "idle", STAGED - 100_000),
+    seatEvent("hal-resting", "idle", STAGED - 300_000),
+  ];
+  test.use({ juntoOptions: { seedModels: { [MIXED]: modelFixture([...mixedNodes], []) }, seedAgentSignals: mixedSignals } });
+
+  test("cmd+K: every state in its place", async ({ junto }) => {
+    const { page } = junto;
+    await mkdir(SHOTS, { recursive: true });
+    await expect(page.locator(".react-flow__node", { hasText: "ada-blocked" })).toBeVisible({ timeout: 30_000 });
+    await stage(junto, mixedEvents);
+    await page.keyboard.press("Meta+k");
+    const titles = page.locator(".command-bar__row-title");
+    await expect(titles.nth(2)).toHaveText("cy-working-new");
+    expect(await titles.allTextContents()).toEqual([
+      "ada-blocked",
+      "bo-waiting",
+      "cy-working-new",
+      "di-working-old",
+      "ed-review",
+      "flo-review-older",
+      "gus-done",
+      "hal-resting",
+      "ivy-not-running",
+    ]);
+    await page.mouse.move(4, 700);
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: join(SHOTS, "dark-03-mixed-states.png") });
+  });
 });
