@@ -6,6 +6,7 @@ import { mailExtensionMetadata, type MailExtension, type MailKind } from "../src
 import {
   MAIL_BATCHING,
   MAIL_HELD_RETRY_MS,
+  MAIL_PASS_CHUNK,
   MessageDeliveryService,
   type MailBatching,
   type MessageDeliveryStore,
@@ -69,9 +70,11 @@ const rig = (
   let writing = 0;
   let overlapped = false;
   const wakes: Array<{ bindingId: string; canvas: string; nodeId: string }> = [];
+  let modelReads = 0;
   const store: MessageDeliveryStore = {
     listCanvasNames: async () => [canvas],
     readModel: async () => {
+      modelReads += 1;
       await new Promise((resolve) => setTimeout(resolve, 1));
       return options.canvas ?? crew;
     },
@@ -121,6 +124,7 @@ const rig = (
       live = next;
     },
     overlapped: () => overlapped,
+    modelReads: () => modelReads,
   };
 };
 
@@ -459,6 +463,84 @@ describe("mail delivery", () => {
     expect(seat.overlapped()).toBe(false);
     expect(seat.writes).toHaveLength(1);
     expect([...seat.writes[0]!.matchAll(/, id (01[ABC])\b/gu)].map((match) => match[1])).toEqual(["01A", "01B", "01C"]);
+  });
+
+  describe("a seat with a large backlog", () => {
+    const backlog = (count: number) => Array.from({ length: count }, (_, index) => `01${String(index).padStart(5, "0")}`);
+    const indexed = async (seat: ReturnType<typeof rig>, ids: ReadonlyArray<string>) => {
+      for (const id of ids) seat.append(mail(id, id));
+      await seat.service.onBooted();
+      await settle();
+    };
+
+    it("tries only its oldest mail while it is starting, so its start is not held behind the rest", async () => {
+      const seat = rig({ live: false, wake: () => false });
+      await indexed(seat, backlog(2_000));
+      const before = seat.modelReads();
+
+      seat.service.onSeatLive(bindingId);
+      await settle();
+
+      // One attempt, which asks for the wake again; every mail stays waiting.
+      expect(seat.modelReads() - before).toBe(1);
+      expect(seat.wakes).toHaveLength(2);
+      expect(seat.writes).toHaveLength(0);
+    });
+
+    it("starts its mail a chunk per turn once it is ready, and every mail lands in order", async () => {
+      const seat = rig({ live: false, batching: { quietMs: 10, maxWaitMs: 60_000 } });
+      const ids = backlog(2_000);
+      await indexed(seat, ids);
+      seat.setLive(true);
+      const before = seat.modelReads();
+
+      seat.service.onSeatLive(bindingId);
+      await Promise.resolve();
+      expect(seat.modelReads() - before).toBeLessThanOrEqual(MAIL_PASS_CHUNK);
+
+      await vi.waitFor(() => expect(seat.messages.every((m) => typeof m.metadata?.deliveredAt === "number")).toBe(true),
+        { timeout: 10_000 });
+      const typed = seat.writes.flatMap((text) => [...text.matchAll(/, id (01\d{5})\b/gu)].map((match) => match[1]));
+      expect(typed).toEqual(ids.slice(0, typed.length));
+    });
+
+    it("stops its walk when delivery is suspended in the middle of one, and types nothing", async () => {
+      const seat = rig({ live: false });
+      await indexed(seat, backlog(2_000));
+      seat.setLive(true);
+      const before = seat.modelReads();
+
+      seat.service.onSeatLive(bindingId);
+      await Promise.resolve();
+      seat.service.suspend();
+      await settle();
+
+      expect(seat.modelReads() - before).toBe(MAIL_PASS_CHUNK);
+      expect(seat.writes).toHaveLength(0);
+    });
+
+    it("stops its walk when the seat stops being ready, leaves the rest waiting, and types it when it is back", async () => {
+      const seat = rig({ live: false, wake: () => false, batching: { quietMs: 10, maxWaitMs: 60_000 } });
+      await indexed(seat, backlog(2_000));
+      const wakesBefore = seat.wakes.length;
+      seat.setLive(true);
+      const before = seat.modelReads();
+
+      seat.service.onSeatLive(bindingId);
+      await Promise.resolve();
+      seat.setLive(false);
+      await settle();
+
+      // Only the chunk already started was tried, and it asked for one wake, not one per mail.
+      expect(seat.modelReads() - before).toBe(MAIL_PASS_CHUNK);
+      expect(seat.wakes.length - wakesBefore).toBeLessThanOrEqual(1);
+      expect(seat.writes).toHaveLength(0);
+
+      seat.setLive(true);
+      seat.service.onSeatLive(bindingId);
+      await vi.waitFor(() => expect(seat.messages.every((m) => typeof m.metadata?.deliveredAt === "number")).toBe(true),
+        { timeout: 10_000 });
+    });
   });
 
   it("delivers the backlog at boot and leaves mail for a seat that is not up waiting", async () => {

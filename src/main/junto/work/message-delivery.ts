@@ -90,6 +90,13 @@ export type MailBatching = {
  */
 export const MAIL_BATCHING: MailBatching = { quietMs: 2_000, maxWaitMs: 10_000 };
 
+/**
+ * How many waiting mails a seat-live pass starts before it yields the event
+ * loop. A seat with thousands waiting otherwise starts every read in one
+ * tick, and the link's frames and a seat start's own answer wait behind them.
+ */
+export const MAIL_PASS_CHUNK = 64;
+
 /** Whether a message reached its seat now, or waits for the seat to come up. */
 /**
  * What became of mail, as its sender is told. `delivered` and `waiting` are
@@ -271,6 +278,8 @@ export class MessageDeliveryService {
   private readonly noWake = new Set<string>();
   /** One wake in flight per seat. */
   private readonly waking = new Set<string>();
+  /** Seats with a seat-live pass walking their mail; true asks for one more pass after it. */
+  private readonly passes = new Map<string, boolean>();
   /** Mail whose failed write was already told; cleared once it lands. */
   private readonly failedTold = new Set<string>();
   /** Held mail already told, with why and when; cleared once it lands. */
@@ -319,6 +328,7 @@ export class MessageDeliveryService {
     this.responses.clear();
     this.noWake.clear();
     this.waking.clear();
+    this.passes.clear();
     this.failedTold.clear();
     this.heldTold.clear();
     for (const timer of this.heldRetries.values()) clearTimeout(timer);
@@ -703,19 +713,53 @@ export class MessageDeliveryService {
   /**
    * The seat's process came up, its terminal changed state, or the operator
    * finished drafting in it: write every message and request answer that was
-   * waiting for it, oldest first.
+   * waiting for it, oldest first. A seat that is not ready yet (it is
+   * starting) gets one attempt, for its oldest mail, which asks for the wake
+   * again; the rest stays indexed for the pass once it is ready.
    */
   onSeatLive(bindingId: string): void {
     if (this.suspended) return;
     const mail = [...this.waiting.values()]
       .filter((pending) => pending.bindingId === bindingId)
       .sort((a, b) => a.messageId.localeCompare(b.messageId));
-    for (const pending of mail) {
-      void this.deliver(pending.canvas, pending.nodeId, pending.messageId);
-    }
+    if (this.transport?.seatLive(bindingId) === true) this.walk(bindingId, mail);
+    else if (mail[0] !== undefined) void this.deliver(mail[0].canvas, mail[0].nodeId, mail[0].messageId);
     for (const [key, response] of this.responses) {
       void this.deliverResponse(key, response, bindingId);
     }
+  }
+
+  /**
+   * Start a seat's waiting mail in order, a chunk per event-loop turn; one
+   * pass per seat at a time. A seat that stops being ready ends the pass: the
+   * rest stays waiting for its next live event, and nothing asks for a wake
+   * per mail.
+   */
+  private walk(bindingId: string, mail: ReadonlyArray<PendingMail>): void {
+    if (this.passes.has(bindingId)) {
+      this.passes.set(bindingId, true);
+      return;
+    }
+    this.passes.set(bindingId, false);
+    const generation = this.lifecycleGeneration;
+    const step = (from: number): void => {
+      if (!this.active(generation)) return;
+      if (from > 0 && this.transport?.seatLive(bindingId) !== true) {
+        this.passes.delete(bindingId);
+        return;
+      }
+      for (const pending of mail.slice(from, from + MAIL_PASS_CHUNK)) {
+        void this.deliver(pending.canvas, pending.nodeId, pending.messageId);
+      }
+      if (from + MAIL_PASS_CHUNK < mail.length) {
+        setImmediate(() => step(from + MAIL_PASS_CHUNK));
+        return;
+      }
+      const again = this.passes.get(bindingId) === true;
+      this.passes.delete(bindingId);
+      if (again) this.onSeatLive(bindingId);
+    };
+    step(0);
   }
 
   /**
