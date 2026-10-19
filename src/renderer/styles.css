@@ -2844,17 +2844,16 @@ button.actor-ledger__item-row:focus-visible {
   margin-top: 4px;
 }
 /* Actor session load — centered 16×16 ring + short phase label. */
-/* The auto cache mode's question: a band across the top of the stage. */
+/* The auto cache mode's question: a band under the header that pushes the
+   stream down, never over it. The xterm host shrinks and refits. */
 .seat-cache-due {
-  position: absolute;
-  inset: 0 0 auto 0;
-  z-index: 2;
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-amber) 35%, var(--color-stroke));
-  background: color-mix(in srgb, var(--color-amber) 10%, var(--color-raise));
+  gap: 14px;
+  padding: 12px 16px;
+  border-bottom: 1px solid color-mix(in oklab, var(--color-amber) 35%, transparent);
+  background: color-mix(in oklab, var(--color-amber) 16%, transparent);
   color: var(--color-ink);
 }
 .seat-cache-due__text {
@@ -2863,6 +2862,11 @@ button.actor-ledger__item-row:focus-visible {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+}
+.seat-cache-due__actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
 }
 .seat-cache-due__failure {
   color: var(--color-crimson-fg);

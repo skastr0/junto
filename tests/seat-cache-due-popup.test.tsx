@@ -96,7 +96,7 @@ describe("the cache question in the seat's view", () => {
     subscribeSeatCacheDue()();
     root = createRoot(host);
     await render("seat-1");
-    expect(popup()?.textContent).toContain("Cache expired 12m ago. Start fresh, or keep this session?");
+    expect(popup()?.textContent).toBe("Cache expired 12m ago.Start freshKeep this session");
   });
 
   it("follows main's pushes: shown while listed, gone once it leaves the list", async () => {
@@ -154,11 +154,10 @@ describe("the cache question in the seat's view", () => {
     await render();
     push([{ ...ask("seat-1"), tokens: 251_000 }]);
     expect(popup()?.textContent).toBe(
-      "Cache expired 12m ago. Continuing re-reads about 251k tokens. Start fresh, or keep this session?Start freshKeep this session",
+      "Cache expired 12m ago. Continuing re-reads about 251k tokens.Start freshKeep this session",
     );
     push([ask("seat-1")]);
-    expect(popup()?.textContent).toContain("Cache expired 12m ago. Start fresh, or keep this session?");
-    expect(popup()?.textContent).not.toContain("tokens");
+    expect(popup()?.textContent).toBe("Cache expired 12m ago.Start freshKeep this session");
   });
 
   it("reads the line again as time passes", async () => {
