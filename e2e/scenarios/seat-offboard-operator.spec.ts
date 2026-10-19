@@ -1218,7 +1218,14 @@ test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next,
       const cutPid = (await tia.ready()).pid;
       await stopSeat(ctx, "loop-tia", cutPid);
       await stopSeat(ctx, "loop-zed", (await zed.ready()).pid);
-      await expect(card(page, "loop-tia"), "a resting seat past the window still says it").toContainText("fresh next", { timeout: 20_000 });
+      await expect(card(page, "loop-tia"), "a resting seat past the window still says it").toContainText("fresh next", { timeout: 20_000 }).catch(async (error: unknown) => {
+        // Say why before stopping: the card's own answer, the resume proof's inputs, and main's account of the cut (still minutes, work, worth).
+        const why = await launchWhy(page, sandbox, "loop-tia");
+        const status = await workStatusOf(page, "loop-tia");
+        note(testInfo, "LOOP-tia-launch-why", `${why} status ${JSON.stringify(status ?? null)}`);
+        console.log(`LOOP-tia-launch-why ${why} status ${JSON.stringify(status ?? null)}`);
+        throw error;
+      });
       await expect(card(page, "loop-zed"), "and one inside the window does not").not.toContainText("fresh next").catch(async (error: unknown) => {
         // Say why before stopping: main's own answer for the card and the inputs of the resume proof.
         const why = await launchWhy(page, sandbox, "loop-zed");
