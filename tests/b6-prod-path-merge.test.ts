@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import {
   mergePath,
-  resolvedSpawnEnv,
   resolvedSpawnEnvSync,
   staticPathDirs,
 } from "../src/main/junto/adapters/exec";
@@ -248,6 +247,9 @@ describe("resolvedSpawnEnv", () => {
     vi.stubEnv("SHELL", fakeShell(DUMP));
     vi.stubEnv("JUNTO_SHELL_ENVIRONMENT", "");
     const juntoHome = process.env.JUNTO_HOME;
+    // The module reads its switch as it loads: a fresh copy, with the probe on.
+    vi.resetModules();
+    const { resolvedSpawnEnv } = await import("../src/main/junto/adapters/exec");
     const env = await resolvedSpawnEnv();
     const dirs = split(env.PATH ?? "");
     // The shell's PATH leads; the static floor still backs it.

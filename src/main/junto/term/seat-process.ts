@@ -32,6 +32,7 @@ import type { RegionRect } from "@shared/graph";
 import { EMPTY_LAUNCH_RECORD } from "@shared/region-environment";
 import type { LocalSessionHost, SeatRegionEnvironment } from "./local-host";
 import { launchForManagedSpawnIntent } from "./managed-spawn-plan";
+import { shellEnvironment } from "../shell-environment";
 
 export type OccupySpec = {
   readonly bindingId: string;
@@ -287,6 +288,9 @@ export const makeLocalSeatProcess = (
           );
         }
         if (spec.beforeSpawn !== undefined) yield* spec.beforeSpawn;
+        // The operator's shell environment, read again first when a startup
+        // file changed since the last read.
+        yield* Effect.promise(() => shellEnvironment.beforeSpawn());
         const created = yield* Effect.try({
           try: () =>
             host.createAgentSeat(

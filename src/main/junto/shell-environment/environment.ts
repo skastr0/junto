@@ -5,6 +5,7 @@ import type {
 } from "@shared/shell-environment";
 import type { ToolRunner } from "../region-env/tool";
 import { mergePath, pathDirs } from "./path";
+import { shellStartupFiles } from "./staleness";
 import { probeShellEnvironment, SHELL_ENVIRONMENT_TIMEOUT_MS } from "./probe";
 
 /** Main's view adds the moment before the first read; the wire never carries it. */
@@ -22,6 +23,8 @@ export type ShellEnvironmentDeps = {
   readonly turnedOff: (launched: NodeJS.ProcessEnv) => boolean;
   /** App-owned directory the shell starts in, never the operator home. */
   readonly cwd: () => Promise<string>;
+  /** A file's modification time in epoch ms, or undefined when it is absent. */
+  readonly mtimeMs: (path: string) => Promise<number | undefined>;
   readonly timeoutMs?: number;
   readonly log?: (line: string) => void;
   readonly warn?: (line: string) => void;
@@ -74,15 +77,21 @@ export const makeShellEnvironment = (deps: ShellEnvironmentDeps) => {
   let launched: NodeJS.ProcessEnv | undefined;
   let good: Good | undefined;
   let failure: Failure | undefined;
-  let turnedOff = false;
+  // Off by choice needs no read: settled from the start.
+  let turnedOff = deps.turnedOff(deps.target);
   let generation = 0;
-  let settled = false;
+  let settled = turnedOff;
+  /** When the latest read began, good or failed: startup files older than it are in it. */
+  let lastReadAt: number | undefined;
   let flight: { readonly since: number; readonly done: Promise<void> } | undefined;
   let toolDirs: ReadonlyArray<string> = [];
   let current: NodeJS.ProcessEnv | undefined;
   const listeners = new Set<(change: ShellEnvironmentChange) => void>();
 
   const launchedEnvironment = (): NodeJS.ProcessEnv => launched ?? deps.target;
+  const snapshot = (): void => {
+    launched ??= { ...deps.target };
+  };
 
   const pathFor = (shellPath: string | undefined): string =>
     mergePath({
@@ -100,6 +109,7 @@ export const makeShellEnvironment = (deps: ShellEnvironmentDeps) => {
   });
 
   const publish = (): void => {
+    snapshot();
     const path = pathFor(good?.variables.PATH);
     deps.target.PATH = path;
     current = { ...deps.target, PATH: path };
@@ -138,6 +148,7 @@ export const makeShellEnvironment = (deps: ShellEnvironmentDeps) => {
       return;
     }
     const startedAt = deps.now();
+    lastReadAt = startedAt;
     const result = await probeShellEnvironment(deps.runTool, {
       shell,
       cwd: await deps.cwd(),
@@ -184,7 +195,7 @@ export const makeShellEnvironment = (deps: ShellEnvironmentDeps) => {
 
   const start = (reason: string): Promise<void> => {
     if (flight) return flight.done;
-    launched ??= { ...deps.target };
+    snapshot();
     const done = read(reason)
       .catch((cause: unknown) => {
         causeOf(undefined, { _tag: "SpawnFailed" });
@@ -229,7 +240,37 @@ export const makeShellEnvironment = (deps: ShellEnvironmentDeps) => {
   /** Resolved once per app start; concurrent callers share one read. */
   const ensure = async (): Promise<NodeJS.ProcessEnv> => {
     if (!settled || flight) await start("startup");
+    if (!current) publish();
     return current ?? environmentNow();
+  };
+
+  /**
+   * Whether the operator's shell startup files changed since the latest read
+   * began. Stat calls on home-root dotfiles, never a protected folder; a file
+   * an rc sources is not watched (refresh() covers it).
+   */
+  const stale = async (): Promise<boolean> => {
+    if (turnedOff || lastReadAt === undefined) return false;
+    const shell = good?.shell ?? failure?.shell;
+    if (shell === undefined) return false;
+    const files = shellStartupFiles(shell, {
+      home: deps.home(),
+      zdotdirs: [launchedEnvironment().ZDOTDIR, good?.variables.ZDOTDIR],
+    });
+    const since = lastReadAt;
+    const times = await Promise.all(files.map((file) => deps.mtimeMs(file).catch(() => undefined)));
+    return times.some((time) => time !== undefined && time > since);
+  };
+
+  /**
+   * The gate before a seat or terminal spawns: the first read settled, and a
+   * fresh read first when a startup file changed since. Answers the
+   * generation the spawn starts with. A running seat keeps its environment.
+   */
+  const beforeSpawn = async (): Promise<number> => {
+    await ensure();
+    if (await stale()) await start("a startup file changed");
+    return generation;
   };
 
   /** Read again. Seats started after it get the new environment; a failure keeps the old one. */
@@ -262,6 +303,7 @@ export const makeShellEnvironment = (deps: ShellEnvironmentDeps) => {
 
   return {
     ensure,
+    beforeSpawn,
     refresh,
     status,
     state,
@@ -272,6 +314,8 @@ export const makeShellEnvironment = (deps: ShellEnvironmentDeps) => {
     /** Epoch ms of the environment in use, for the staleness check. */
     resolvedAt: (): number | undefined => good?.resolvedAt,
     generation: (): number => generation,
+    /** The first read has ended (or none was needed): spawns may run. */
+    settled: (): boolean => settled,
   };
 };
 

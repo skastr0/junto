@@ -15,8 +15,14 @@ const dump = (variables: Readonly<Record<string, string>>): ToolResult => ({
   stdout: `motd\nJUNTO_ENV_BEGIN\n${Object.entries(variables).map(([k, v]) => `${k}=${v}\0`).join("")}JUNTO_ENV_END\n`,
 });
 
-const harness = (options: { readonly launched?: NodeJS.ProcessEnv; readonly turnedOff?: boolean } = {}) => {
+const harness = (options: {
+  readonly launched?: NodeJS.ProcessEnv;
+  readonly turnedOff?: boolean;
+  readonly shell?: string;
+} = {}) => {
   const calls: ToolCall[] = [];
+  const mtimes = new Map<string, number>();
+  const statted: string[] = [];
   const pending: Array<(result: ToolResult) => void> = [];
   const target: NodeJS.ProcessEnv = { PATH: "/usr/bin:/bin", HOME: "/home/t", ...options.launched };
   let clock = 1_000;
@@ -28,21 +34,25 @@ const harness = (options: { readonly launched?: NodeJS.ProcessEnv; readonly turn
     target,
     home: () => "/home/t",
     now: () => (clock += 5),
-    shell: () => "/bin/zsh",
+    shell: () => options.shell ?? "/bin/zsh",
     turnedOff: () => options.turnedOff === true,
     cwd: async () => "/app/.junto",
+    mtimeMs: async (path) => {
+      statted.push(path);
+      return mtimes.get(path);
+    },
   });
   const changes: ShellEnvironmentChange[] = [];
   environment.onChange((change) => changes.push(change));
   /** Answer the oldest read still waiting, then let the module settle. */
   const answer = async (result: ToolResult): Promise<void> => {
-    for (let turn = 0; turn < 10 && pending.length === 0; turn += 1) await Promise.resolve();
+    for (let turn = 0; turn < 100 && pending.length === 0; turn += 1) await Promise.resolve();
     const next = pending.shift();
     if (!next) throw new Error("no read is waiting");
     next(result);
-    for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
+    for (let turn = 0; turn < 100; turn += 1) await Promise.resolve();
   };
-  return { environment, target, calls, changes, answer };
+  return { environment, target, calls, changes, answer, mtimes, statted, clock: () => clock };
 };
 
 describe("ensure", () => {
@@ -146,6 +156,60 @@ describe("refresh", () => {
   });
 });
 
+describe("beforeSpawn", () => {
+  const settle = async (h: ReturnType<typeof harness>) => {
+    const ensured = h.environment.ensure();
+    await h.answer(dump({ PATH: "/shell/bin", ZDOTDIR: "/home/t/.config/zsh", A: "1" }));
+    await ensured;
+  };
+
+  it("reads again first when a startup file is newer than the last read", async () => {
+    const h = harness();
+    await settle(h);
+    h.mtimes.set("/home/t/.config/zsh/.zshrc", h.clock() + 1);
+    const spawn = h.environment.beforeSpawn();
+    await h.answer(dump({ PATH: "/shell/bin", ZDOTDIR: "/home/t/.config/zsh", A: "2" }));
+    expect(await spawn).toBe(2);
+    expect(h.calls).toHaveLength(2);
+    expect(h.target.A).toBe("2");
+    // That read covers the edit: the next spawn reads nothing.
+    expect(await h.environment.beforeSpawn()).toBe(2);
+    expect(h.calls).toHaveLength(2);
+  });
+
+  it("does not read when every startup file is older than the last read", async () => {
+    const h = harness();
+    h.mtimes.set("/home/t/.zshrc", 1);
+    await settle(h);
+    expect(await h.environment.beforeSpawn()).toBe(1);
+    expect(h.calls).toHaveLength(1);
+    expect([...h.statted].sort()).toEqual([
+      "/home/t/.config/zsh/.zlogin",
+      "/home/t/.config/zsh/.zprofile",
+      "/home/t/.config/zsh/.zshenv",
+      "/home/t/.config/zsh/.zshrc",
+      "/home/t/.zlogin",
+      "/home/t/.zprofile",
+      "/home/t/.zshenv",
+      "/home/t/.zshrc",
+    ]);
+  });
+
+  it("watches bash's own files for bash", async () => {
+    const h = harness({ shell: "/bin/bash" });
+    await settle(h);
+    h.mtimes.set("/home/t/.bashrc", h.clock() + 1);
+    const spawn = h.environment.beforeSpawn();
+    await h.answer({ kind: "timeout" });
+    // A failed read keeps generation 1, and is the read the edit is measured against.
+    expect(await spawn).toBe(1);
+    expect(await h.environment.beforeSpawn()).toBe(1);
+    expect(h.calls).toHaveLength(2);
+    expect(h.statted).toContain("/home/t/.bash_profile");
+    expect(h.statted).toContain("/home/t/.profile");
+  });
+});
+
 describe("what leaves the module", () => {
   const SECRET = "sk-ant-api03-SECRETVALUE-do-not-ship";
 
@@ -160,6 +224,7 @@ describe("what leaves the module", () => {
       shell: () => "/bin/zsh",
       turnedOff: () => false,
       cwd: async () => "/app",
+      mtimeMs: async () => undefined,
       log: (line) => lines.push(line),
       warn: (line) => lines.push(line),
     });

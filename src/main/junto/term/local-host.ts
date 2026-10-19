@@ -111,6 +111,7 @@ import {
   supportedHostProbedFlags,
 } from "./templates/harness-install";
 import { configuredToolDirectories } from "../adapters/exec";
+import { shellEnvironment, type ShellEnvironment } from "../shell-environment";
 import { launchSecretValues, registerKnownSecrets, releaseKnownSecrets } from "../credentials/scrub";
 import { buildManagedSeatInject } from "./templates/seat-env";
 import {
@@ -386,6 +387,8 @@ type SessionRec = {
    * values. The empty record when it was started inside no region.
    */
   regionEnvironment: RegionEnvironmentLaunchRecord;
+  /** The shell environment generation this process started with; it keeps that environment. */
+  shellEnvironmentGeneration: number;
   /**
    * Pre-ownership failure only. Clean post-run exits leave this unset so
    * the canvas keeps the normal stopped/exited grammar.
@@ -449,6 +452,8 @@ export type LocalSessionHostOptions = {
    * host filesystem. Errors close admission.
    */
   readonly externalMaintenanceFence?: () => boolean;
+  /** The shell environment spawns start with. Production: the app's one module. */
+  readonly shellEnvironment?: Pick<ShellEnvironment, "settled" | "generation">;
   /**
    * Main-process screen observer plane. Defaults to the process singleton.
    * Tests may inject an isolated plane.
@@ -931,6 +936,7 @@ export class LocalSessionHost extends EventEmitter {
    */
   private readonly surfaceLeases = new Map<string, string>();
   private readonly primeDaemons: PrimeAgentDaemons | undefined;
+  private readonly shellEnvironment: Pick<ShellEnvironment, "settled" | "generation">;
   private readonly operatorInterlock: OperatorInterlock;
   private primeDaemonsShutdownState:
     | "idle"
@@ -951,6 +957,7 @@ export class LocalSessionHost extends EventEmitter {
     this.lateExitGraceMs = Math.max(0, options.lateExitGraceMs ?? LATE_EXIT_GRACE_MS);
     this.externalMaintenanceFence =
       options.externalMaintenanceFence ?? (() => false);
+    this.shellEnvironment = options.shellEnvironment ?? shellEnvironment;
     this.observerPlane = options.observerPlane ?? terminalObserverPlane;
     this.primeDaemons = options.primeDaemons === undefined
       ? processAuthority === appProcessPlane
@@ -1109,6 +1116,11 @@ export class LocalSessionHost extends EventEmitter {
     }
     const bindingId = input.bindingId.trim();
     if (!bindingId) throw new Error("bindingId required");
+    // Every spawn path awaits the shell environment first; a spawn that
+    // arrives before it would start without the operator's PATH.
+    if (!this.shellEnvironment.settled()) {
+      throw new Error("the shell environment is not resolved yet");
+    }
 
     const prior = this.sessions.get(bindingId);
     const occupancy = occupancyFromSession(
@@ -1208,6 +1220,7 @@ export class LocalSessionHost extends EventEmitter {
       agentKey,
       harness,
       regionEnvironment: regionEnvironment?.record ?? EMPTY_LAUNCH_RECORD,
+      shellEnvironmentGeneration: this.shellEnvironment.generation(),
       detached: canvasName === undefined,
       createdAt: Date.now(),
       seq: 0n,
@@ -3232,6 +3245,7 @@ export class LocalSessionHost extends EventEmitter {
       ...(rec.exitMessage ? { exitMessage: rec.exitMessage } : {}),
       ...(rec.harness ? { harness: rec.harness } : {}),
       ...(rec.agentKey ? { agentKey: rec.agentKey } : {}),
+      shellEnvironmentGeneration: rec.shellEnvironmentGeneration,
     };
   }
 

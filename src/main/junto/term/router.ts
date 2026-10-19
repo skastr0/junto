@@ -59,6 +59,7 @@ import type {
 import { TermControlClient, TermControlTransportUncertainError } from "./control-client";
 import { readHostDirectory } from "./host-directory";
 import type { TermControlClientShutdownReceipt } from "./control-client";
+import { shellEnvironment } from "../shell-environment";
 
 /**
  * Layered Effect runner for SSH/Scope work. Configured once by the process
@@ -402,6 +403,9 @@ export class TerminalRouter extends EventEmitter {
     const { seatRect, ...open } = input;
     const hostId = this.admitSessionHost(open);
     if (!this.isLocalHostId(hostId)) return this.createRemote(hostId, open);
+    // A new terminal starts with the operator's shell environment, read again
+    // first when a startup file changed since the last read.
+    if (this.local.get(open.bindingId.trim()) === undefined) await shellEnvironment.beforeSpawn();
     const canvasName = open.canvasName?.trim();
     const nodeId = open.nodeId?.trim();
     // An occupied binding is returned as it is: nothing is read for it.

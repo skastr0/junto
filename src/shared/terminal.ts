@@ -206,6 +206,12 @@ export type TerminalSessionSummary = {
   /** Actor identity stamped when this generation was occupied as a seat. */
   readonly harness?: string;
   readonly agentKey?: string;
+  /**
+   * The shell environment generation this process started with. Below the
+   * current one (shellEnvironment.status()), it started before the shell
+   * changed and keeps what it had.
+   */
+  readonly shellEnvironmentGeneration?: number;
 };
 
 /** True when a hop/get reply bound the actor we asked Mini to occupy. */

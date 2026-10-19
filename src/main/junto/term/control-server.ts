@@ -69,6 +69,7 @@ import {
 import { readHostDirectory } from "./host-directory";
 import { launchForManagedSpawnIntent } from "./managed-spawn-plan";
 import { managedTerminalDriveForOverseer } from "./managed-drive-holder";
+import { shellEnvironment } from "../shell-environment";
 
 const tokenHash = (token: string): Buffer =>
   createHash("sha256").update(token, "utf8").digest();
@@ -415,6 +416,7 @@ export const startTermControlServer = async (
               error: "create does not accept harness or agentKey or actor spawn intent; use createAgentSeat",
             };
           }
+          await shellEnvironment.beforeSpawn();
           const summary = host.create({
             bindingId: req.bindingId,
             launch: req.launch,
@@ -540,6 +542,7 @@ export const startTermControlServer = async (
               error: "createAgentSeat could not resolve managed launch",
             };
           }
+          await shellEnvironment.beforeSpawn();
           const summary = host.createAgentSeat({
             bindingId,
             harness: actor.harness,
