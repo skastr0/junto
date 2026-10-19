@@ -30,4 +30,15 @@ describe("the Effect build this repository pins", () => {
     const Closed = Schema.Struct({ a: Schema.String }).annotate({ parseOptions: { onExcessProperty: "error" } });
     expect(Result.isFailure(Schema.decodeUnknownResult(Closed)({ a: "x", path: "/etc/passwd" }))).toBe(true);
   });
+
+  // The sites are mostly decoded as a Union member or an Array element, so each path trips on its own.
+  it("still refuses it as a Union member, an Array element, and a Union inside a Struct", () => {
+    const Closed = (tag: string) =>
+      Schema.Struct({ _tag: Schema.Literal(tag), a: Schema.String }).annotate({ parseOptions: { onExcessProperty: "error" } });
+    const Command = Schema.Union([Closed("one"), Closed("two")]);
+    const extra = { _tag: "one", a: "x", path: "/etc/passwd" };
+    expect(Result.isFailure(Schema.decodeUnknownResult(Command)(extra)), "Union member").toBe(true);
+    expect(Result.isFailure(Schema.decodeUnknownResult(Schema.Array(Closed("one")))([extra])), "Array element").toBe(true);
+    expect(Result.isFailure(Schema.decodeUnknownResult(Schema.Struct({ command: Command }))({ command: extra })), "Union in a Struct").toBe(true);
+  });
 });
