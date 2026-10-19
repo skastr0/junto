@@ -154,6 +154,20 @@ kind, while other Junto children in the same minutes did show up there as
 `responsible=com.skastr0.junto`. An rc file that does read a protected folder
 (a `find ~/Documents`) would prompt once, naming Junto, at start.
 
+The same holds from a fresh TCC state, measured on 2026-10-19 with a mirror
+of main (c894ad2e7) under a new bundle id, `com.skastr0.junto.tcctest`, so TCC
+treated it as a new app. Method: `tccutil reset All` on the test id only (the
+real `com.skastr0.junto` was never reset), a fresh preview home, a cold launch
+through LaunchServices (`open -n -a`, so the mirror was its own responsible
+process), and the TCC log stream from before the launch to the end. Result:
+the probe ran (747 ms, 97 variables) and raised no prompt and no folder check.
+The only TCC lines naming the mirror in its first 90 seconds were four
+preflight checks by `syspolicyd` and `WindowServer` on the app itself, and a
+terminal's own `zsh -l` raised none. The control, `ls ~/Documents` typed into a
+terminal in the mirror, raised `kTCCServiceSystemPolicyDocumentsFolder` billed
+to the mirror and prompted, so the state was fresh and a folder check does
+show. `scripts/tcc-mirror-test.sh` repeats the check.
+
 To turn it off, launch Junto with `JUNTO_SHELL_ENVIRONMENT=inherit`: no shell
 runs, and seats get the inherited `PATH` plus the fixed directories. Unit
 tests run this way, so the operator's exported credentials never re-enter a
