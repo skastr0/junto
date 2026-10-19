@@ -379,6 +379,14 @@ redesigned. Browser pages are not placed on other machines at all.
 - A seat reaching past mail to a seat on another machine: reading its
   terminal, waiting on it, prompting it. In the first version these are
   refused with a plain reason when the other seat is on another machine.
+- Fairness between a link's channels. One channel's event backlog pauses the
+  reader for every channel, and a request then closes the link at 30 s
+  (`~/junto-receipts/link-fairness/link-fairness-probe.test.ts`, with events
+  lowered to 2). On the mini the reader never paused: in five syncs of up to
+  20,000 mails the deepest backlog was 23 events of 64
+  (`~/junto-receipts/link-fairness/README.md`). Open from that run: during a
+  catch-up a seat start timed out and closed the link with neither reader
+  paused, likely queued behind rows frames in the byte stream; not proven.
 
 ## Cutting
 
