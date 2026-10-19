@@ -9,8 +9,8 @@ import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types
 // 2026-09-15, before the operator approved `junto onboard`.
 // Source: /tmp/junto-devin-command-approval-20260915.json.
 // JSON unicode escapes preserve every captured character, including its footer.
-// The capture predates `peer` on seat.read, so it is read without it.
-const captured = Schema.decodeUnknownSync(SeatReadResult.mapFields(Struct.omit(["peer"])))(JSON.parse(readFileSync(
+// The capture predates `peer` and `mail` on seat.read, so it is read without them.
+const captured = Schema.decodeUnknownSync(SeatReadResult.mapFields(Struct.omit(["peer", "mail"])))(JSON.parse(readFileSync(
   new URL("./fixtures/devin-command-approval-seat-read.json", import.meta.url), "utf8",
 )));
 

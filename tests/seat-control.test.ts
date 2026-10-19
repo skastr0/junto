@@ -94,6 +94,7 @@ describe("seat-control args", () => {
         peer: { nodeId: "peer", name: "peer", regions: [{ id: "r1", name: "Technology" }] },
         since: 1,
         lastActivityAt: 2,
+        mail: [],
       }),
     ).toBe(true);
     expect(decodes(SeatReadResult, {
@@ -111,6 +112,7 @@ describe("seat-control args", () => {
       truncated: false,
       stopped: "paused",
       peer: { nodeId: "peer", name: "peer", regions: [] },
+      mail: [],
     })).toBe(false);
     expect(
       decodes(TaskWaitResult, { taskId: "t1", state: "completed", epoch: 2, at: 1 }),
