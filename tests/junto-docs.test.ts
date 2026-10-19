@@ -7,6 +7,7 @@ import {
   buildNodesCatalogDoc,
   DOC_TOPICS,
 } from "../src/shared/junto-docs";
+import { productNodeKindEnabled } from "../src/shared/features";
 
 describe("junto docs catalog", () => {
   it("agent kind doc carries mail and seat credential identity", () => {
@@ -23,6 +24,11 @@ describe("junto docs catalog", () => {
     ["sheet", ["label"]],
     ["page", ["url", "profile", "onRemove"]],
   ] as const)("%s documents its native authored fields", (kind, fields) => {
+    // A kind this build's profile gates off has no docs page at all.
+    if (!productNodeKindEnabled(kind)) {
+      expect(buildNodeKindDoc(kind)).toBeUndefined();
+      return;
+    }
     const doc = buildNodeKindDoc(kind)!;
     for (const field of fields) expect(doc).toContain(`\`${field}\``);
     for (const field of ["items", "topics", "unread"]) expect(doc).not.toContain(`- \`${field}\``);
