@@ -34,6 +34,13 @@ import "./factory-minimap.css";
  * ping on the attention clock (factory-minimap.css), drawn above the camera
  * mask so a glance at the map finds them anywhere on the board.
  *
+ * The pings are HTML, not SVG: Chromium cannot composite an animation on an
+ * SVG child, so SVG pings restyled and re-laid out the map on the main thread
+ * every frame (2549 layouts in 29.5 s on a nested board). They sit in a layer
+ * over the map that carries the viewBox's own placement as one transform,
+ * written with the viewBox, so each ping is placed in flow units like the dot
+ * it rings and animates transform and opacity only.
+ *
  * Must be mounted inside <ReactFlow> so the store resolves.
  */
 
@@ -130,6 +137,20 @@ const parseViewBox = (viewBox: string): Rect => {
   return { x, y, width, height };
 };
 
+/**
+ * The SVG's placement of its viewBox (the default xMidYMid meet: one scale,
+ * then centred) as a CSS transform, so flow units in the ping layer land on
+ * the same map pixels as the SVG's.
+ */
+export const pingLayerTransform = (box: Rect, elementWidth: number, elementHeight: number): string => {
+  const unitsPerPixel = Math.max(box.width / elementWidth, box.height / elementHeight);
+  if (!(unitsPerPixel > 0) || !Number.isFinite(unitsPerPixel)) return "scale(0)";
+  const scale = 1 / unitsPerPixel;
+  const x = (elementWidth - box.width * scale) / 2 - box.x * scale;
+  const y = (elementHeight - box.height * scale) / 2 - box.y * scale;
+  return `translate(${x}px, ${y}px) scale(${scale})`;
+};
+
 export function FactoryMinimap({
   nodeColor,
   nodeStrokeColor,
@@ -145,6 +166,8 @@ export function FactoryMinimap({
   const store = useStoreApi();
   const svgRef = useRef<SVGSVGElement | null>(null);
   const maskRef = useRef<SVGPathElement | null>(null);
+  const pingsRef = useRef<HTMLDivElement | null>(null);
+  const pingTransformRef = useRef<string>("");
   // Pixel identity of the last camera window drawn; a viewport change that
   // lands on the same map pixel writes nothing.
   const cameraKeyRef = useRef<string>("");
@@ -188,6 +211,13 @@ export function FactoryMinimap({
     const elementWidth = Math.max(elementSizeRef.current.width, 1);
     const elementHeight = Math.max(elementSizeRef.current.height, 1);
     const unitsPerPixel = Math.max(box.width / elementWidth, box.height / elementHeight);
+    // The ping layer follows the viewBox, which moves only when the camera
+    // leaves the node bounds or the map resizes: no write on a plain pan.
+    const pingTransform = pingLayerTransform(box, elementWidth, elementHeight);
+    if (pingsRef.current && pingTransform !== pingTransformRef.current) {
+      pingTransformRef.current = pingTransform;
+      pingsRef.current.style.transform = pingTransform;
+    }
     if (unitsPerPixel > 0 && Math.abs(unitsPerPixel - unitRef.current) / unitRef.current > 0.02) {
       unitRef.current = unitsPerPixel;
       setUnit(unitsPerPixel);
@@ -417,21 +447,31 @@ export function FactoryMinimap({
           ) : null,
         )}
         <path ref={maskRef} className="react-flow__minimap-mask" style={{ fill: maskColor }} fillRule="evenodd" pointerEvents="none" />
-        {rects.map((rect) =>
-          rect.seat?.urgency === "blocked" || rect.seat?.urgency === "needs-you" ? (
-            <circle
-              key={`ping-${rect.id}`}
+      </svg>
+      <div ref={pingsRef} className="junto-minimap-pings" data-testid="minimap-pings" aria-hidden="true">
+        {rects.map((rect) => {
+          if (rect.seat?.urgency !== "blocked" && rect.seat?.urgency !== "needs-you") return null;
+          // The SVG ring this replaces: radius r about the dot's centre, a
+          // stroke one map pixel wide centred on r. A border-box of r plus
+          // half the stroke, with the stroke as its border, draws the same.
+          const r = Math.max(Math.min(rect.width, rect.height) / 2, URGENT_DOT_PX * unit);
+          const outer = r + unit / 2;
+          return (
+            <span
+              key={rect.id}
               className="junto-minimap-ping"
               data-urgency={rect.seat.urgency}
-              cx={rect.x + rect.width / 2}
-              cy={rect.y + rect.height / 2}
-              r={Math.max(Math.min(rect.width, rect.height) / 2, URGENT_DOT_PX * unit)}
-              style={{ strokeWidth: 1 * unit }}
-              pointerEvents="none"
+              style={{
+                left: rect.x + rect.width / 2 - outer,
+                top: rect.y + rect.height / 2 - outer,
+                width: outer * 2,
+                height: outer * 2,
+                borderWidth: unit,
+              }}
             />
-          ) : null,
-        )}
-      </svg>
+          );
+        })}
+      </div>
     </div>
   );
 }

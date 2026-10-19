@@ -5,7 +5,13 @@
    Pings: blocked and needs-you seats send a ring outward, smoothly, on the
    seat rings' 2.88 s cycle: blocked twice per cycle, needs-you once. While
    motion is paused (hidden window, reduced motion) the ping is not drawn;
-   the rim still says it. */
+   the rim still says it.
+
+   The pings are HTML spans in a layer over the map, never SVG children:
+   Chromium composites transform and opacity on an element, not on an SVG
+   child, which it restyles and re-lays out on the main thread every frame.
+   The layer carries the viewBox's placement as its transform
+   (FactoryMinimap.tsx), so a ping is sized in flow units like its dot. */
 
 .junto-minimap-seat {
   stroke: color-mix(in oklab, var(--color-ground) 55%, transparent);
@@ -15,14 +21,25 @@
 .junto-minimap-seat[data-urgency="needs-you"] { stroke: var(--color-amber); }
 .junto-minimap-seat[data-urgency="review"] { stroke: var(--color-cyan); }
 
+.junto-minimap-pings {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
 .junto-minimap-ping {
-  fill: none;
+  position: absolute;
+  box-sizing: border-box;
+  border-style: solid;
+  border-radius: 50%;
   opacity: 0;
-  transform-box: fill-box;
   transform-origin: center;
 }
-.junto-minimap-ping[data-urgency="blocked"] { stroke: var(--color-crimson); }
-.junto-minimap-ping[data-urgency="needs-you"] { stroke: var(--color-amber); }
+.junto-minimap-ping[data-urgency="blocked"] { border-color: var(--color-crimson); }
+.junto-minimap-ping[data-urgency="needs-you"] { border-color: var(--color-amber); }
 
 @keyframes juntoMinimapPingBlocked {
   from { opacity: 0.75; transform: scale(1); }
