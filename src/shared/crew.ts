@@ -84,6 +84,19 @@ export const MailExtension = Schema.Struct({
 export type MailExtension = typeof MailExtension.Type;
 
 const decodeMailExtension = Schema.decodeUnknownOption(MailExtension);
+
+/**
+ * Read the mail extension from a Message's metadata, or undefined when the
+ * message predates the mail extension (installed rows stay readable).
+ */
+export const readMailExtension = (
+  metadata: unknown,
+): MailExtension | undefined => {
+  if (metadata === null || typeof metadata !== "object") return undefined;
+  const option = decodeMailExtension(metadata);
+  return option._tag === "Some" ? option.value : undefined;
+};
+
 const decodeMailEvidenceRef = Schema.decodeUnknownOption(MailEvidenceRef);
 
 /**
@@ -95,41 +108,6 @@ export const readMailEvidenceRef = (
   value: unknown,
 ): MailEvidenceRef | undefined => {
   const option = decodeMailEvidenceRef(value);
-  return option._tag === "Some" ? option.value : undefined;
-};
-
-/**
- * Decode a stored list of evidence refs, dropping each entry that does not
- * validate. A row written with a ref kind since retired stays readable: the
- * retired ref is dropped, never shown and never a decode failure.
- */
-export const readMailEvidenceRefs = (
-  value: unknown,
-): ReadonlyArray<MailEvidenceRef> => {
-  if (!Array.isArray(value)) return [];
-  const refs: MailEvidenceRef[] = [];
-  for (const entry of value) {
-    const ref = readMailEvidenceRef(entry);
-    if (ref !== undefined) refs.push(ref);
-  }
-  return refs;
-};
-
-/** A stored record with its `refs` array narrowed to the refs that still decode. */
-const withReadableRefs = (record: object): object => {
-  const refs: unknown = (record as { readonly refs?: unknown }).refs;
-  return Array.isArray(refs) ? { ...record, refs: readMailEvidenceRefs(refs) } : record;
-};
-
-/**
- * Read the mail extension from a Message's metadata, or undefined when the
- * message predates the mail extension (installed rows stay readable).
- */
-export const readMailExtension = (
-  metadata: unknown,
-): MailExtension | undefined => {
-  if (metadata === null || typeof metadata !== "object") return undefined;
-  const option = decodeMailExtension(withReadableRefs(metadata));
   return option._tag === "Some" ? option.value : undefined;
 };
 
@@ -215,8 +193,7 @@ const decodeReviewVerdict = Schema.decodeUnknownOption(ReviewVerdict);
 export const readReviewVerdict = (
   value: unknown,
 ): ReviewVerdict | undefined => {
-  if (value === null || typeof value !== "object") return undefined;
-  const option = decodeReviewVerdict(withReadableRefs(value));
+  const option = decodeReviewVerdict(value);
   return option._tag === "Some" ? option.value : undefined;
 };
 
