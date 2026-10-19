@@ -18,8 +18,14 @@
  * machine that edits the canvas, and that machine states its answer or
  * dismissal back. Each is stated again when a link opens, so one written
  * while no link was open arrives when one is.
+ *
+ * Nothing is sent from inside a frame's handler. Each link has one worker
+ * that does all of its sending; a handler only records what the peer said and
+ * marks what is owed, so a handler never waits on a full link and both ends
+ * keep reading. Commits marked while the worker is busy are sent once, in its
+ * next round: one offer of a canvas in flight per link.
  */
-import { Effect, Result, Schema, Semaphore } from "effect";
+import { Effect, Fiber, Latch, Result, Schema } from "effect";
 import type { CanvasCopy } from "@shared/canvas-copy";
 import type { InstallationId } from "@shared/installation-id";
 import type { Message } from "@shared/work-model";
@@ -125,8 +131,31 @@ type LinkState = {
   readonly rows: Map<string, { sent: number; taken: number }>;
   /** Each signal as last stated on this link, by canvas and signal id. */
   readonly signals: Map<string, string>;
-  readonly turn: Semaphore.Semaphore;
+  /** What is owed to the peer and not yet sent; the worker takes it whole each round. */
+  readonly owed: Owed;
+  /** Open when something is owed. */
+  readonly wake: Latch.Latch;
+  /** Open when nothing is owed and the worker is not sending. */
+  readonly quiet: Latch.Latch;
+  worker?: Fiber.Fiber<void>;
 };
+
+type Owed = {
+  /** The link just opened: every canvas's copy, then this machine's have. */
+  hello: boolean;
+  /** This machine's have, again. */
+  have: boolean;
+  /** Every canvas the peer said it holds: the peer's have arrived. */
+  offerAll: boolean;
+  /** Canvases committed to here: their copy when it changed, then their rows and signals. */
+  readonly canvases: Set<string>;
+  readonly refusals: Array<CopyRefusedFrame>;
+};
+
+const nothingOwed = (): Owed => ({ hello: false, have: false, offerAll: false, canvases: new Set(), refusals: [] });
+
+const owesNothing = (owed: Owed): boolean =>
+  !owed.hello && !owed.have && !owed.offerAll && owed.canvases.size === 0 && owed.refusals.length === 0;
 
 /**
  * What a copy carries beside the canvas rows: guidance, the briefing,
@@ -142,8 +171,9 @@ const closed = (cause: unknown): ExchangeClosed =>
 export const makeRowExchange = (deps: RowExchangeDeps) => {
   const links = new Map<InstallationId, LinkState>();
 
+  /** Nothing more is sent on a link once it closed: its worker ends there. */
   const send = (state: LinkState, frame: ExchangeFrame): Effect.Effect<void, ExchangeClosed> =>
-    state.link.send(frame).pipe(Effect.mapError(closed));
+    links.get(state.link.peer) === state ? state.link.send(frame).pipe(Effect.mapError(closed)) : Effect.interrupt;
 
   /** How far this machine is caught up, on the canvases that peer holds too and no other. */
   const haveFrameFor = (peer: InstallationId): Effect.Effect<HaveFrame, ExchangeClosed> =>
@@ -304,10 +334,62 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       }
     });
 
-  const inTurn = <A>(
-    state: LinkState,
-    effect: Effect.Effect<A, ExchangeClosed>,
-  ): Effect.Effect<A, ExchangeClosed> => state.turn.withPermits(1)(effect);
+  /** Mark something owed to a peer and wake its worker. */
+  const owe = (state: LinkState, mark: (owed: Owed) => void): void => {
+    mark(state.owed);
+    state.quiet.closeUnsafe();
+    state.wake.openUnsafe();
+  };
+
+  /** One round of a link's worker: send everything that was owed when it woke. */
+  const sendOwed = (state: LinkState, owed: Owed): Effect.Effect<void, ExchangeClosed> =>
+    Effect.gen(function* () {
+      if (owed.hello) {
+        for (const canvasName of yield* deps.canvases) yield* sendCopy(state, canvasName);
+        yield* sendHave(state);
+      }
+      for (const refusal of owed.refusals) yield* send(state, refusal);
+      if (owed.have) yield* sendHave(state);
+      for (const canvasName of owed.canvases) {
+        if (yield* sendCopy(state, canvasName)) yield* sendHave(state);
+        if (owed.offerAll) continue;
+        yield* offer(state, canvasName);
+        yield* sendSignals(state, canvasName);
+      }
+      if (owed.offerAll) {
+        for (const canvasName of [...state.have.keys()]) {
+          yield* offer(state, canvasName);
+          yield* sendSignals(state, canvasName);
+        }
+      }
+    });
+
+  /**
+   * A link's worker: sleeps until something is owed, sends it, and goes quiet
+   * when nothing more was owed meanwhile. A send that fails ends the exchange
+   * on that link, and the others are still served.
+   */
+  const work = (state: LinkState): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      for (;;) {
+        yield* state.wake.await;
+        state.wake.closeUnsafe();
+        const owed = { ...state.owed, canvases: new Set(state.owed.canvases), refusals: [...state.owed.refusals] };
+        state.owed.hello = state.owed.have = state.owed.offerAll = false;
+        state.owed.canvases.clear();
+        state.owed.refusals.length = 0;
+        yield* sendOwed(state, owed);
+        if (owesNothing(state.owed)) state.quiet.openUnsafe();
+      }
+    }).pipe(
+      Effect.catch((cause) =>
+        Effect.sync(() => {
+          if (links.get(state.link.peer) === state) links.delete(state.link.peer);
+          state.quiet.openUnsafe();
+          deps.linkFailed?.(state.link.peer, cause);
+        }),
+      ),
+    );
 
   const receive = (peer: InstallationId, raw: unknown): Effect.Effect<void, ExchangeClosed> =>
     Effect.gen(function* () {
@@ -317,33 +399,29 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       if (Result.isFailure(decoded)) return yield* Effect.fail(new ExchangeClosed({ message: "a frame this machine does not know" }));
       const frame = decoded.success;
       if (frame.kind === "have") {
-        yield* inTurn(
-          state,
-          Effect.gen(function* () {
-            // What a peer says of a canvas it does not hold is not kept: it
-            // is offered nothing of it and is never reported caught up on it.
-            state.have.clear();
-            for (const canvas of frame.canvases) {
-              const placement = yield* deps.placement(canvas.canvasName);
-              if (placement === undefined || !placement.holds(peer)) continue;
-              // The same name on two machines can be two canvases.
-              if (placement.canvasId !== canvas.canvasId) continue;
-              state.have.set(canvas.canvasName, new Map(canvas.writers.map((entry) => [entry.writer, entry.through])));
-            }
-            for (const canvasName of state.have.keys()) {
-              yield* offer(state, canvasName);
-              yield* sendSignals(state, canvasName);
-            }
-          }),
-        );
+        // What a peer says of a canvas it does not hold is not kept: it is
+        // offered nothing of it and is never reported caught up on it.
+        const have = new Map<string, Map<InstallationId, string>>();
+        for (const canvas of frame.canvases) {
+          const placement = yield* deps.placement(canvas.canvasName);
+          if (placement === undefined || !placement.holds(peer)) continue;
+          // The same name on two machines can be two canvases.
+          if (placement.canvasId !== canvas.canvasId) continue;
+          have.set(canvas.canvasName, new Map(canvas.writers.map((entry) => [entry.writer, entry.through])));
+        }
+        state.have.clear();
+        for (const [canvasName, writers] of have) state.have.set(canvasName, writers);
+        owe(state, (owed) => {
+          owed.offerAll = true;
+        });
         return;
       }
       if (frame.kind === "signals") {
-        yield* inTurn(state, takeSignals(state, frame));
+        yield* takeSignals(state, frame);
         return;
       }
       if (frame.kind === "copy") {
-        yield* inTurn(state, takeCopy(state, frame.copy));
+        yield* takeCopy(state, frame.copy);
         return;
       }
       if (frame.kind === "copy-refused") {
@@ -363,7 +441,7 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       state.rows.set(frame.canvasName, counts);
       for (const mail of applied.mail) deps.mailArrived(mail.canvasName, mail.nodeId, mail.message);
       // Rows taken from one machine go on to the others entitled to them.
-      if (applied.taken > 0) yield* committed(frame.canvasName, peer);
+      if (applied.taken > 0) committed(frame.canvasName, peer);
     });
 
   /**
@@ -379,50 +457,53 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       }
       const outcome = yield* deps.installCopy(copy).pipe(Effect.mapError(closed));
       if ("refused" in outcome) {
-        yield* send(state, {
+        const refusal: CopyRefusedFrame = {
           kind: "copy-refused",
           canvasName: copy.canvasName,
           canvasId: copy.canvasId,
           seq: copy.seq,
           reason: outcome.refused,
+        };
+        owe(state, (owed) => {
+          owed.refusals.push(refusal);
         });
         return;
       }
       // This machine holds the canvas now, or a newer one: say how far it is caught up on it.
-      if (outcome.installed) yield* sendHave(state);
+      if (outcome.installed) {
+        owe(state, (owed) => {
+          owed.have = true;
+        });
+      }
     });
 
   /**
-   * A local commit, or rows just taken, on a canvas: push to every other open
+   * A local commit, or rows just taken, on a canvas: owed to every other open
    * link. A canvas this machine edits goes first as its copy, when it changed.
-   * A link the push fails on is dropped and the others are still served.
    */
-  const committed = (canvasName: string, except?: InstallationId): Effect.Effect<void> =>
-    Effect.forEach(
-      [...links.values()].filter((state) => state.link.peer !== except),
-      (state) =>
-        inTurn(
-          state,
-          Effect.gen(function* () {
-            if (yield* sendCopy(state, canvasName)) yield* sendHave(state);
-            yield* offer(state, canvasName);
-            yield* sendSignals(state, canvasName);
-          }),
-        ).pipe(
-          Effect.catch((cause) =>
-            Effect.sync(() => {
-              if (links.get(state.link.peer) === state) links.delete(state.link.peer);
-              deps.linkFailed?.(state.link.peer, cause);
-            }),
-          ),
-        ),
-      { discard: true },
-    );
+  const committed = (canvasName: string, except?: InstallationId): void => {
+    for (const state of links.values()) {
+      if (state.link.peer === except) continue;
+      owe(state, (owed) => {
+        owed.canvases.add(canvasName);
+      });
+    }
+  };
+
+  /** A link closed or is replaced: its worker stops and nothing more is sent on it. */
+  const stop = (peer: InstallationId): void => {
+    const state = links.get(peer);
+    if (state === undefined) return;
+    links.delete(peer);
+    state.quiet.openUnsafe();
+    if (state.worker !== undefined) Effect.runFork(Fiber.interrupt(state.worker));
+  };
 
   return {
     /** A link opened: remember it and say how far this machine is caught up. */
-    opened: (link: ExchangeLink): Effect.Effect<void, ExchangeClosed> =>
+    opened: (link: ExchangeLink): Effect.Effect<void> =>
       Effect.gen(function* () {
+        stop(link.peer);
         const state: LinkState = {
           link,
           have: new Map(),
@@ -430,22 +511,21 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
           refused: new Map(),
           rows: new Map(),
           signals: new Map(),
-          turn: Semaphore.makeUnsafe(1),
+          owed: nothingOwed(),
+          wake: Latch.makeUnsafe(false),
+          quiet: Latch.makeUnsafe(true),
         };
         links.set(link.peer, state);
-        yield* inTurn(
-          state,
-          Effect.gen(function* () {
-            for (const canvasName of yield* deps.canvases) yield* sendCopy(state, canvasName);
-            yield* sendHave(state);
-          }),
-        );
+        owe(state, (owed) => {
+          owed.hello = true;
+        });
+        state.worker = yield* Effect.forkDetach(work(state));
       }),
-    closed: (peer: InstallationId): void => {
-      links.delete(peer);
-    },
+    closed: stop,
     receive,
-    committed: (canvasName: string) => committed(canvasName),
+    committed: (canvasName: string): Effect.Effect<void> => Effect.sync(() => committed(canvasName)),
+    /** Every link's worker has sent all it owes. */
+    quiet: Effect.suspend(() => Effect.forEach([...links.values()], (state) => state.quiet.await, { discard: true })),
     /** Is a link open to that machine right now. */
     linked: (peer: InstallationId): boolean => links.has(peer),
     /**

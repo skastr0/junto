@@ -82,12 +82,14 @@ const booted: Machine[] = [];
 const open = new Set<string>();
 
 afterEach(async () => {
-  queue.length = 0;
   open.clear();
   for (const machine of booted.splice(0)) {
+    // A link's worker stops with its link, never left sending past its test.
+    for (const link of machine.exchange.status()) machine.exchange.closed(link.peer);
     await machine.runtime.dispose();
     await rm(machine.root, { recursive: true, force: true });
   }
+  queue.length = 0;
 });
 
 const boot = async (
@@ -127,11 +129,16 @@ const link = async (left: Machine, right: Machine): Promise<void> => {
   open.add(`${left.name}>${right.name}`).add(`${right.name}>${left.name}`);
   await left.runtime.runPromise(left.channel.opened(contextOf(left, right)));
   await right.runtime.runPromise(right.channel.opened(contextOf(right, left)));
+  await quiet();
 };
 
 /** Deliver queued frames, each through the channel's decode, until none is left. */
+const quiet = async (): Promise<void> => {
+  for (const machine of booted) await machine.runtime.runPromise(machine.exchange.quiet);
+};
+
 const settle = async (): Promise<void> => {
-  while (queue.length > 0) {
+  for (await quiet(); queue.length > 0; await quiet()) {
     const next = queue.shift()!;
     if (!open.has(`${next.from.name}>${next.to.name}`)) continue;
     const frame = next.to.channel.decodeEvent(next.payload);
@@ -188,6 +195,7 @@ const mail = async (on: Machine, from: { id: string; bindingId: string }, to: st
     ),
   );
   await on.runtime.runPromise(on.exchange.committed("factory"));
+  await quiet();
 };
 
 const inbox = async (on: Machine, nodeId: string): Promise<string[]> =>
@@ -309,6 +317,7 @@ describe("a copy no honest machine sends", () => {
     const context = contextOf(macbook, { self: MINI, name: "mini" } as Machine);
     open.add("macbook>mini");
     await macbook.runtime.runPromise(macbook.channel.opened(context));
+    await quiet();
     const copy = queue.find((queued) => (queued.payload as { kind: string }).kind === "copy")!.payload as { copy: Record<string, unknown> };
     queue.length = 0;
     return copy;
@@ -416,6 +425,7 @@ describe("a local commit", () => {
     await macbook.runtime.runPromise(
       macbook.exchange.receive(MINI, { kind: "have", canvases: [{ canvasName: "factory", canvasId: held.canvas_id, writers: [] }] }),
     );
+    await quiet();
     expect(macbook.exchange.linked(MINI)).toBe(true);
 
     up = false;

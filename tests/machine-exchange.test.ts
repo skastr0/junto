@@ -48,6 +48,7 @@ it("reports copy and row counts through the account socket without payloads or w
     const rows = await core.runtime.runPromise(MachineCoreRows);
     const frames: ExchangeFrame[] = [];
     await core.runtime.runPromise(rows.exchange.opened({ peer: mini, send: frame => Effect.sync(() => { frames.push(frame); }) }));
+    await core.runtime.runPromise(rows.exchange.quiet);
     expect(frames[0]?.kind).toBe("copy");
     const appended = await core.runtime.runPromise(Effect.flatMap(WorkService, work =>
       work.workSystemMailboxNotify("factory", "peer", {
@@ -75,6 +76,7 @@ it("reports copy and row counts through the account socket without payloads or w
     await core.runtime.runPromise(rows.exchange.receive(mini, {
       kind: "have", canvases: [{ canvasName: "factory", canvasId: header!.canvas_id, writers: [] }],
     }));
+    await core.runtime.runPromise(rows.exchange.quiet);
     expect(frames.some(frame => frame.kind === "rows" && frame.facts.length === 1)).toBe(true);
     const totalChanges = () => core!.runtime.runPromise(Effect.flatMap(SqlClient.SqlClient, sql =>
       sql<{ count: number }>`SELECT total_changes() AS count`.pipe(Effect.map(result => result[0]!.count))));

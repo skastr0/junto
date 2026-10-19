@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { Context, Deferred, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
@@ -113,6 +113,7 @@ const link = async (left: Machine, right: Machine): Promise<void> => {
   });
   await left.runtime.runPromise(left.exchange.opened(end(left, right)));
   await right.runtime.runPromise(right.exchange.opened(end(right, left)));
+  await quiet();
 };
 
 const unlink = (left: Machine, right: Machine): void => {
@@ -121,8 +122,12 @@ const unlink = (left: Machine, right: Machine): void => {
 };
 
 /** Deliver queued frames until none is left. */
+const quiet = async (): Promise<void> => {
+  for (const machine of machines.values()) await machine.runtime.runPromise(machine.exchange.quiet);
+};
+
 const settle = async (): Promise<void> => {
-  while (queue.length > 0) {
+  for (await quiet(); queue.length > 0; await quiet()) {
     const next = queue.shift()!;
     const to = machines.get(next.to)!;
     if (to.exchange.linked(next.from)) await to.runtime.runPromise(to.exchange.receive(next.from, next.frame));
@@ -523,5 +528,37 @@ describe("what a machine refuses, writing nothing", () => {
     await refused(mini, EDITOR, { kind: "claim", canvasName: "factory" });
     const frame = await frameFrom(editor);
     await refused(mini, EDITOR, { ...frame, facts: [{ ...frame.facts[0]!, operation: "task.create" }] });
+  });
+});
+
+describe("a link that cannot take more", () => {
+  it("does not hold up the handler of a have: it returns before its offer is sent", async () => {
+    unlink(editor, other);
+    await send(editor, "lead", "far", "behind-a-full-link");
+    const gate = Deferred.makeUnsafe<void>();
+    const offered: string[] = [];
+    await editor.runtime.runPromise(
+      editor.exchange.opened({
+        peer: OTHER,
+        // A full link: rows wait until it drains; anything else goes.
+        send: (frame) =>
+          frame.kind === "rows"
+            ? Effect.sync(() => offered.push(...frame.facts.map((fact) => fact.id.seq))).pipe(Effect.andThen(Deferred.await(gate)))
+            : Effect.void,
+      }),
+    );
+    // The handler returns although the offer it caused cannot be sent.
+    await editor.runtime.runPromise(
+      editor.exchange.receive(OTHER, { kind: "have", canvases: [{ canvasName: "factory", canvasId: "canvas-factory", writers: [] }] }),
+    );
+    for (let turn = 0; turn < 50 && offered.length === 0; turn += 1) await new Promise((resolve) => setTimeout(resolve, 2));
+    expect(offered.length).toBeGreaterThan(0);
+    // Still reading while the offer waits: another have is taken at once.
+    await editor.runtime.runPromise(
+      editor.exchange.receive(OTHER, { kind: "have", canvases: [{ canvasName: "factory", canvasId: "canvas-factory", writers: [] }] }),
+    );
+    Deferred.doneUnsafe(gate, Effect.void);
+    await quiet();
+    editor.exchange.closed(OTHER);
   });
 });
