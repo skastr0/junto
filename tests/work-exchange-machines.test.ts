@@ -562,3 +562,42 @@ describe("a link that cannot take more", () => {
     editor.exchange.closed(OTHER);
   });
 });
+
+describe("a rows frame the link refuses", () => {
+  it("is offered again on the next link: the cursor never passes rows that did not go", async () => {
+    await send(editor, "lead", "far", "refused-once");
+    const have = { kind: "have", canvases: [{ canvasName: "factory", canvasId: "canvas-factory", writers: [] }] } as const;
+    // The link refuses the first rows frame, as it does when its send queue is full.
+    let refused = 0;
+    await editor.runtime.runPromise(
+      editor.exchange.opened({
+        peer: OTHER,
+        send: (frame) =>
+          frame.kind === "rows" && refused++ === 0
+            ? Effect.fail(new Error("Too many rows events are waiting for credit"))
+            : Effect.void,
+      }),
+    );
+    await editor.runtime.runPromise(editor.exchange.receive(OTHER, have));
+    await quiet();
+    expect(refused).toBe(1);
+    // The exchange on that link is over.
+    expect(editor.exchange.linked(OTHER)).toBe(false);
+
+    const carried: string[] = [];
+    await editor.runtime.runPromise(
+      editor.exchange.opened({
+        peer: OTHER,
+        send: (frame) =>
+          Effect.sync(() => {
+            if (frame.kind !== "rows") return;
+            for (const fact of frame.facts) if (fact.body.operation === "message.append") carried.push(fact.body.message.messageId);
+          }),
+      }),
+    );
+    await editor.runtime.runPromise(editor.exchange.receive(OTHER, have));
+    await quiet();
+    expect(carried).toContain("refused-once");
+    editor.exchange.closed(OTHER);
+  });
+});
