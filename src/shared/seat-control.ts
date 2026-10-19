@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import type { AgentSeatState } from "./agent-seat-state";
 import { Need, SeatSnapshot } from "./harness-domain";
 import { TaskState } from "./work-model";
+import { MailMessageId } from "./crew";
 
 // Seat wait/observe wire contract — the shared shapes for work-control ops
 // `seat.wait`, `seat.read` and `tasks.wait`.
@@ -71,11 +72,16 @@ export type SeatState = typeof SeatState.Type;
 export const SeatConfidence = Schema.Literals(["high", "low"]);
 export type SeatConfidence = typeof SeatConfidence.Type;
 
+/**
+ * What a seat wait waits for: a seat state, or `replied` — the peer mailed the
+ * caller after the caller's cursor (`after`), or after the wait began.
+ */
 export const SeatWaitUntil = Schema.Literals([
   "idle",
   "attention",
   "working",
   "gone",
+  "replied",
 ]);
 export type SeatWaitUntil = typeof SeatWaitUntil.Type;
 
@@ -134,12 +140,17 @@ export const SeatWaitArgs = Schema.Struct({
   any: Schema.optionalKey(Schema.Boolean),
   until: SeatWaitUntil,
   timeoutMs: Schema.optionalKey(boundedMs(SEAT_WAIT_MAX_MS)),
+  /** With `until: "replied"`: only the peer's mail after this message answers. */
+  after: Schema.optionalKey(MailMessageId),
 })
   .pipe(
     Schema.check(
       Schema.makeFilter((args) => {
         const hasTarget = args.target !== undefined;
         const wantsAny = args.any === true;
+        if (args.after !== undefined && args.until !== "replied") {
+          return "seat.wait after applies to until: replied";
+        }
         if (hasTarget && wantsAny) {
           return "seat.wait takes exactly one of target or any";
         }
@@ -203,6 +214,23 @@ export type TaskWaitArgs = typeof TaskWaitArgs.Type;
 // Results
 
 /**
+ * One mail between the caller and the read seat. `direction` is from the
+ * caller's side: `sent` went to the peer, `received` came from it. Reading it
+ * here marks nothing read.
+ */
+export const SeatReadMail = Schema.Struct({
+  messageId: Schema.String,
+  threadId: Schema.String,
+  direction: Schema.Literals(["sent", "received"]),
+  kind: Schema.String,
+  sentAt: Schema.optionalKey(Schema.Number),
+  deliveredAt: Schema.optionalKey(Schema.Number),
+  readAt: Schema.optionalKey(Schema.Number),
+  gist: Schema.String,
+});
+export type SeatReadMail = typeof SeatReadMail.Type;
+
+/**
  * One observed seat state. `generation` is the session generation the terminal
  * host reports; `epoch` is the generation the state event belongs to. They
  * agree while the seat is occupied by the generation that produced the event.
@@ -215,6 +243,8 @@ export const SeatWaitResult = Schema.Struct({
   generation: Schema.String,
   epoch: Schema.String,
   at: Schema.Number,
+  /** With `until: "replied"`: the peer's newest mail to the caller past the cursor. */
+  reply: Schema.optionalKey(SeatReadMail),
 });
 export type SeatWaitResult = typeof SeatWaitResult.Type;
 
@@ -258,23 +288,6 @@ export const SeatPeer = Schema.Struct({
   regions: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })),
 });
 export type SeatPeer = typeof SeatPeer.Type;
-
-/**
- * One mail between the caller and the read seat. `direction` is from the
- * caller's side: `sent` went to the peer, `received` came from it. Reading it
- * here marks nothing read.
- */
-export const SeatReadMail = Schema.Struct({
-  messageId: Schema.String,
-  threadId: Schema.String,
-  direction: Schema.Literals(["sent", "received"]),
-  kind: Schema.String,
-  sentAt: Schema.optionalKey(Schema.Number),
-  deliveredAt: Schema.optionalKey(Schema.Number),
-  readAt: Schema.optionalKey(Schema.Number),
-  gist: Schema.String,
-});
-export type SeatReadMail = typeof SeatReadMail.Type;
 
 export const SeatReadResult = Schema.Struct({
   target: Schema.String,

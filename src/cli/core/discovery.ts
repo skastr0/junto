@@ -267,7 +267,7 @@ export const seatWaitSchema: CommandSchemaContract = {
   command: "seat wait",
   schema_id: "seat.wait.input/v1",
   description:
-    "Wait for one target seat or any currently authorized peer to reach until. Choose target or any: true; timeoutMs bounds the wait to at most 600000 ms.",
+    "Wait for one target seat or any currently authorized peer to reach until. Choose target or any: true; timeoutMs bounds the wait to at most 600000 ms. until: replied answers with the peer's newest mail to the caller after the after message id, or after the wait began; the caller's own mail never answers.",
   schema: SeatWaitArgs,
   input_modes: inputModes,
 };
@@ -940,6 +940,14 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     description: "--any watches only peers whose live edges grant seat.wait.",
     input: { any: true, until: "attention", timeoutMs: 30000 },
     args: ["seat", "wait", "--any", "--until", "attention", "--timeout", "30s"],
+  },
+  {
+    command_id: "seat.wait",
+    command: "seat wait",
+    name: "wait for a peer to reply to your mail",
+    description: "after is the last mail id you saw from the peer; without it, only mail sent after the wait began answers.",
+    input: { target: "seat-b", until: "replied", after: "01M59CMKZRATKFG5E69JZM0BT0", timeoutMs: 30000 },
+    args: ["seat", "wait", "seat-b", "--until", "replied", "--after", "01M59CMKZRATKFG5E69JZM0BT0", "--timeout", "30s"],
   },
   {
     command_id: "seat.read",

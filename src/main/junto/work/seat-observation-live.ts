@@ -61,6 +61,7 @@ export const liveSeatObservation = (): Effect.Effect<
         ],
         subscribe: (listener) => seatStateRuntime.subscribe(listener),
       },
+      subscribeMailChanges: (listener) => work.subscribeMailChanges(listener),
       subscribeWorkChanges: (listener) =>
         onWorkMutation((canvasName, nodeId) => listener(canvasName, nodeId)),
       sessionOf: (bindingId) => {

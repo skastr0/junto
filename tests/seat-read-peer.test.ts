@@ -2,7 +2,7 @@
  * Reading a peer in one call, over the real work-control socket: `seat read`
  * names who the peer is, since when it has been in its state, when its
  * terminal last printed, its live preamble, and the newest mail between the
- * two seats. Every store, home and socket lives under a temp root.
+ * two seats; `seat wait --until replied` answers when the peer mails back. Every store, home and socket lives under a temp root.
  */
 import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -223,5 +223,57 @@ describe("seat read gives the newest mail between the two seats", () => {
 
   it("is empty for two seats that never wrote", async () => {
     expect((await call("agent", "seat.read", { target: "peer" })).data.mail).toEqual([]);
+  });
+});
+
+describe("seat wait --until replied", () => {
+  const send = async (as: string, target: string, text: string) => {
+    const sent = await call(as, "msg.send", { target, text });
+    expect(sent.ok).toBe(true);
+    return sent.data.messageId as string;
+  };
+
+  it("answers with the peer's mail to the caller, and not with the caller's own", async () => {
+    const waiting = call("agent", "seat.wait", { target: "peer", until: "replied", timeoutMs: 10_000 });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await send("agent", "peer", "my own mail never answers my wait");
+    await send("loner", "peer", "nor does a third seat's");
+    const replyId = await send("peer", "agent", "here is the answer");
+    const answered = await waiting;
+    expect(answered.ok).toBe(true);
+    expect(answered.data).toMatchObject({ target: "peer", reason: "replied" });
+    expect(answered.data.reply).toMatchObject({ messageId: replyId, direction: "received", gist: "here is the answer" });
+  });
+
+  it("times out when only the caller wrote", async () => {
+    const waiting = call("agent", "seat.wait", { target: "peer", until: "replied", timeoutMs: 600 });
+    await send("agent", "peer", "anyone there?");
+    const answered = await waiting;
+    expect(answered.ok).toBe(false);
+    expect(answered.error).toMatchObject({ type: "Timeout", details: { to: "replied" } });
+  });
+
+  it("counts mail before the wait only past the --after cursor", async () => {
+    const first = await send("peer", "agent", "first");
+    // No cursor: mail from before the wait began does not answer it.
+    const fresh = await call("agent", "seat.wait", { target: "peer", until: "replied", timeoutMs: 400 });
+    expect(fresh.error?.type).toBe("Timeout");
+    // A cursor before it: it answers at once.
+    const ask = await send("agent", "peer", "earlier ask");
+    const second = await send("peer", "agent", "second");
+    const past = await call("agent", "seat.wait", { target: "peer", until: "replied", after: ask, timeoutMs: 2_000 });
+    expect(past.data.reply.messageId).toBe(second);
+    // A cursor at the newest: it waits for the next one.
+    const atNewest = await call("agent", "seat.wait", { target: "peer", until: "replied", after: second, timeoutMs: 400 });
+    expect(atNewest.error?.type).toBe("Timeout");
+    expect(first < second).toBe(true);
+  });
+
+  it("refuses --after on a state wait", async () => {
+    const refused = await call("agent", "seat.wait", {
+      target: "peer", until: "idle", after: "01M59CMKZRATKFG5E69JZM0BT0",
+    });
+    expect(refused.ok).toBe(false);
+    expect(refused.error.type).toBe("InputError");
   });
 });

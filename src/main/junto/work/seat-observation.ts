@@ -102,6 +102,8 @@ export type SeatObservationDeps = {
     readonly current: () => ReadonlyArray<AgentSeatStateEvent>;
     readonly subscribe: (listener: (event: AgentSeatStateEvent) => void) => () => void;
   };
+  /** Mailbox change stream, used by `seat.wait --until replied`. */
+  readonly subscribeMailChanges?: (listener: (canvasName: string, nodeId: string) => void) => () => void;
   /** Work mutation stream, used by `tasks.wait`. */
   readonly subscribeWorkChanges: (
     listener: (canvasName: string | undefined, nodeId: string | undefined) => void,
@@ -459,12 +461,124 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
   ): boolean =>
     observation !== undefined && observation.live && observation.result.state === until;
 
+  /**
+   * `seat wait --until replied`: the first time an authorized peer's mail to
+   * the caller is past the cursor — the `after` message, or the wait's start.
+   * Only the peer's mail counts, never the caller's own. Woken by the caller's
+   * mailbox changing, and by a grant change, which re-derives the peers.
+   */
+  const waitReply = (
+    args: SeatWaitArgs,
+    caller: SeatObservationCaller,
+  ): Effect.Effect<SeatWaitResult, WorkErrorBody> =>
+    Effect.gen(function* () {
+      const timeoutMs = args.timeoutMs ?? SEAT_WAIT_DEFAULT_MS;
+      const startedAt = now();
+      const deadlineAt = startedAt + timeoutMs;
+      const pastCursor = (mail: SeatReadMail): boolean =>
+        args.after !== undefined
+          ? mail.messageId > args.after
+          : (mail.sentAt ?? 0) >= startedAt;
+
+      type Signal =
+        | { readonly _tag: "replied"; readonly target: SeatTarget; readonly mail: SeatReadMail }
+        | { readonly _tag: "mail" }
+        | { readonly _tag: "canvas" }
+        | { readonly _tag: "deadline" };
+
+      /** The newest reply past the cursor among these peers, if any. */
+      const findReply = (
+        targets: ReadonlyArray<SeatTarget>,
+      ): Effect.Effect<Signal | undefined, WorkErrorBody> =>
+        Effect.gen(function* () {
+          let found: { readonly target: SeatTarget; readonly mail: SeatReadMail } | undefined;
+          for (const target of targets) {
+            const reply = (yield* mailBetween(caller, target.nodeId)).find(
+              (mail) => mail.direction === "received" && pastCursor(mail),
+            );
+            if (reply !== undefined && (found === undefined || reply.messageId > found.mail.messageId)) {
+              found = { target, mail: reply };
+            }
+          }
+          return found === undefined ? undefined : { _tag: "replied", ...found };
+        });
+
+      const subscribeMail = (listener: (value: string) => void): (() => void) =>
+        deps.subscribeMailChanges === undefined
+          ? () => {}
+          : deps.subscribeMailChanges((canvasName, nodeId) => listener(`${canvasName}\u0000${nodeId}`));
+
+      for (;;) {
+        const doc = yield* deps.readTopology(caller.canvasName);
+        const targets = resolveSeatTargets(doc, caller.nodeId, args);
+        if (Result.isFailure(targets)) return yield* Effect.fail(targets.failure);
+
+        const mailSignal: Effect.Effect<Signal, WorkErrorBody> = awaitSelected(
+          subscribeMail,
+          (key: string) => key === `${caller.canvasName}\u0000${caller.nodeId}`,
+        ).pipe(Effect.map((): Signal => ({ _tag: "mail" })));
+        // Runs after the subscription above is registered, so mail that landed
+        // during registration is still seen.
+        const currentSignal: Effect.Effect<Signal, WorkErrorBody> = Effect.suspend(() =>
+          findReply(targets.success).pipe(
+            Effect.flatMap((found) => (found === undefined ? Effect.never : Effect.succeed(found))),
+          ),
+        );
+        const canvasSignal: Effect.Effect<Signal, WorkErrorBody> = awaitSelected(
+          deps.subscribeCanvasChanges,
+          (name: string) => name === caller.canvasName,
+        ).pipe(Effect.map((): Signal => ({ _tag: "canvas" })));
+        const deadlineSignal: Effect.Effect<Signal, WorkErrorBody> = sleepUntil(deadlineAt, now).pipe(
+          Effect.map((): Signal => ({ _tag: "deadline" })),
+        );
+
+        const signal = yield* Effect.raceFirst(
+          Effect.raceFirst(mailSignal, currentSignal),
+          Effect.raceFirst(canvasSignal, deadlineSignal),
+        );
+        if (signal._tag === "deadline") {
+          return yield* Effect.fail(
+            timeoutError({
+              target: args.target ?? "any",
+              from: undefined,
+              to: "replied",
+              waitedMs: timeoutMs,
+              hint: args.after !== undefined
+                ? `no mail from the peer after ${args.after}`
+                : "no mail from the peer since the wait began",
+            }),
+          );
+        }
+        if (signal._tag !== "replied") continue;
+
+        // Revalidate against a fresh document before answering.
+        const fresh = yield* deps.readTopology(caller.canvasName);
+        const freshTargets = resolveSeatTargets(fresh, caller.nodeId, args);
+        if (Result.isFailure(freshTargets)) return yield* Effect.fail(freshTargets.failure);
+        if (!freshTargets.success.some((target) => target.nodeId === signal.target.nodeId)) continue;
+        const observation = observeSeat(signal.target);
+        const seat = observation?.live === true ? observation.result : undefined;
+        return {
+          target: signal.target.nodeId,
+          state: seat?.state ?? "unknown",
+          reason: "replied",
+          confidence: "high",
+          generation: seat?.generation ?? deps.sessionOf(signal.target.bindingId)?.epoch ?? "",
+          epoch: seat?.epoch ?? "",
+          at: signal.mail.sentAt ?? now(),
+          reply: signal.mail,
+        };
+      }
+    });
+
   /** The same generation witness, for an event that arrived by subscription. */
   const waitSeat = (
     args: SeatWaitArgs,
     caller: SeatObservationCaller,
   ): Effect.Effect<SeatWaitResult, WorkErrorBody> =>
     Effect.gen(function* () {
+      if (args.until === "replied") return yield* waitReply(args, caller);
+      const until: AgentSeatState = args.until;
       const timeoutMs = args.timeoutMs ?? SEAT_WAIT_DEFAULT_MS;
       const deadlineAt = now() + timeoutMs;
       let last: SeatWaitResult | undefined;
@@ -523,7 +637,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
           deps.seatStates.subscribe,
           (event: AgentSeatStateEvent) => {
             const target = byBinding.get(event.bindingId);
-            return target !== undefined && event.state === args.until;
+            return target !== undefined && event.state === until;
           },
         ).pipe(Effect.map((event): Signal => ({ _tag: "matched", event })));
 
@@ -531,7 +645,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
         // that landed during registration is still observed.
         const currentSignal: Effect.Effect<Signal, WorkErrorBody> = Effect.suspend(() => {
           const match = targets.success.find((target) =>
-            matchesUntil(observeSeat(target), args.until),
+            matchesUntil(observeSeat(target), until),
           );
           if (match === undefined) return Effect.never;
           const event = seatStateOf(deps.seatStates.current(), match.bindingId);
@@ -563,7 +677,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
             timeoutError({
               target: args.target ?? "any",
               from: last?.state,
-              to: args.until,
+              to: until,
               waitedMs: timeoutMs,
               hint: timeoutHint(last, lastStale),
             }),
@@ -588,7 +702,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
           lastStale = observed;
           continue;
         }
-        if (observed.state !== args.until) {
+        if (observed.state !== until) {
           // The seat moved on before we could answer.
           last = observed;
           continue;

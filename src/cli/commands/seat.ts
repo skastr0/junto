@@ -38,6 +38,7 @@ const SEAT_WAIT_UNTIL: ReadonlyArray<SeatWaitUntil> = [
   "attention",
   "working",
   "gone",
+  "replied",
 ];
 
 const TASK_WAIT_UNTIL: ReadonlyArray<TaskWaitUntil> = [
@@ -138,6 +139,7 @@ export const lowerSeatWait = (input: {
   readonly any: boolean;
   readonly until: string;
   readonly timeout: string | undefined;
+  readonly after?: string | undefined;
 }): Lowered<SeatWaitArgs> => {
   if (input.seat !== undefined && input.any) {
     return {
@@ -163,6 +165,16 @@ export const lowerSeatWait = (input: {
   if (!(SEAT_WAIT_UNTIL as ReadonlyArray<string>).includes(input.until)) {
     return { ok: false, error: untilError("until", input.until, SEAT_WAIT_UNTIL) };
   }
+  if (input.after !== undefined && input.until !== "replied") {
+    return {
+      ok: false,
+      error: new InputError({
+        message: "--after applies to --until replied",
+        path: "after",
+        hint: "--after names the last mail you saw from the peer",
+      }),
+    };
+  }
   const parsedTimeout = parseBoundedMs(
     "timeout",
     input.timeout,
@@ -178,6 +190,7 @@ export const lowerSeatWait = (input: {
       ...(input.seat !== undefined ? { target: input.seat } : { any: true }),
       until: input.until as SeatWaitUntil,
       timeoutMs: parsedTimeout.ms,
+      ...(input.after !== undefined ? { after: input.after } : {}),
     },
     socketTimeoutMs: socketTimeoutFor(parsedTimeout.ms),
   };
@@ -315,8 +328,12 @@ const seatWaitCommand = Command.make(
     ),
     until: seatUntilFlag,
     timeout: timeoutFlag,
+    after: Flag.string("after").pipe(
+      Flag.optional,
+      Flag.withDescription("With --until replied: only the peer's mail after this message id answers"),
+    ),
   },
-  ({ seat, any, until, timeout }) =>
+  ({ seat, any, until, timeout, after }) =>
     executeJsonCommand(
       "seat wait",
       Effect.gen(function* () {
@@ -325,6 +342,7 @@ const seatWaitCommand = Command.make(
           any,
           until,
           timeout: toUndefined(timeout),
+          after: toUndefined(after),
         });
         if (!lowered.ok) return yield* Effect.fail(lowered.error);
         return yield* callDomain("seat.wait", lowered.args, lowered.socketTimeoutMs);
@@ -332,7 +350,7 @@ const seatWaitCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Wait for a seat to reach a state (grant seat.wait). Bounded: returns the observed state, reason, confidence and generation, or a typed timeout.",
+    "Wait for a seat to reach a state, or with --until replied for its mail to you (grant seat.wait). Bounded: returns the observed state, reason, confidence and generation (and the reply), or a typed timeout.",
   ),
 );
 

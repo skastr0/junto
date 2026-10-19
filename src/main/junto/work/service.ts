@@ -526,6 +526,8 @@ export interface WorkServiceShape {
     readonly listTopologies: (canvasName?: string) => Effect.Effect<ReadonlyArray<Canvas>, WorkServiceError>;
     readonly subscribeTopologyChanges: (listener: (canvasName: string) => void) => () => void;
     readonly subscribeWorkChanges: (listener: (canvasName?: string, nodeId?: string) => void) => () => void;
+    /** A mailbox changed: mail landed in it, or one of its mails was delivered, read or acked. */
+    readonly subscribeMailChanges: (listener: (canvasName: string, nodeId: string) => void) => () => void;
     readonly readKernelWork: (canvas: string) => Effect.Effect<KernelWork, WorkServiceError>;
     readonly readArtifacts: (canvas: string, nodeId: string) => Effect.Effect<ReadonlyArray<Artifact>, WorkServiceError>;
     readonly readArtifact: (canvas: string, nodeId: string, id: string) => Effect.Effect<Artifact | undefined, WorkServiceError>;
@@ -1252,6 +1254,9 @@ export const WorkLive = Layer.effect(
         const offCanvases = model.subscribeCanvasesChanges((event) => listener(event.canvas));
         return () => { offChanges(); offCanvases(); };
       },
+      subscribeMailChanges: (listener) => repository.subscribeChanges((canvas, nodeId, kind) => {
+        if (kind === "mail") listener(canvas, nodeId);
+      }),
       subscribeWorkChanges: (listener) => repository.subscribeChanges((canvas, nodeId, kind) => {
         if (kind !== "mail") listener(canvas, nodeId);
       }),
