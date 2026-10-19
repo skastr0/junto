@@ -13,6 +13,7 @@ import { WorkRepository } from "../work/repository";
 import { PausePlane } from "../pause-plane";
 import { raisedHands } from "../signals/raised-hands";
 import { seatStateRuntime } from "../term/agent-state";
+import { onRemoteSeatState } from "../term/remote-seat-state";
 import { seatAwarenessPlane } from "../term/seat-awareness";
 import { messageDelivery } from "../work/message-delivery";
 import { noteMailFailure } from "./backend";
@@ -31,6 +32,7 @@ export const wireCompanionChanges = async (changes: CompanionChanges): Promise<(
     work.subscribeChanges(() => changes.bump()),
     pause.subscribe(() => changes.bump()),
     seatStateRuntime.subscribe(() => changes.bump()),
+    onRemoteSeatState(() => changes.bump()),
     seatAwarenessPlane.subscribe(() => changes.bump()),
     raisedHands.onSignal((signal) => changes.noteSignal(signal)),
     messageDelivery.subscribeDelivered((event) => {

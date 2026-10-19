@@ -32,6 +32,12 @@ export const publishRemoteSeatState = (event: AgentSeatStateEvent): void => {
 export const remoteSeatStateEvents = (): ReadonlyArray<AgentSeatStateEvent> =>
   [...lastRemoteByBinding.values()];
 
+/** Whether the machine running this seat last reported an occupant for it. */
+export const remoteSeatOccupied = (
+  bindingId: string,
+  remote: ReadonlyArray<AgentSeatStateEvent> = remoteSeatStateEvents(),
+): boolean => remote.some((event) => event.bindingId === bindingId && event.state !== "gone");
+
 export const resetRemoteSeatState = (): void => {
   lastRemoteByBinding.clear();
 };
