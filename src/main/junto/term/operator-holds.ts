@@ -23,15 +23,24 @@ type WindowHolds = {
 
 /**
  * The operator holds a seat: shown in a window (no `until`: it lasts until the
- * window lets go), or typed into, lasting `until` the typing grace ends.
+ * window lets go), or typed into, lasting `until` the typing grace ends. A
+ * shown seat typed into too says when that typing's grace ends
+ * (`typedUntil`), for what counts typing alone.
  */
-export type OperatorHold = { readonly until?: number };
+export type OperatorHold = { readonly until?: number; readonly typedUntil?: number };
 
-/** The longer of two holds: shown outlasts any typing. */
+/** When the operator's typing alone holds the seat until, shown or not. */
+export const typingUntil = (hold: OperatorHold | undefined): number | undefined => hold?.until ?? hold?.typedUntil;
+
+const latest = (left: number | undefined, right: number | undefined): number | undefined =>
+  left === undefined ? right : right === undefined ? left : Math.max(left, right);
+
+/** The longer of two holds: shown outlasts any typing, and keeps the latest typing's grace. */
 export const longerHold = (left: OperatorHold | undefined, right: OperatorHold | undefined): OperatorHold | undefined => {
   if (left === undefined) return right;
   if (right === undefined) return left;
-  if (left.until === undefined || right.until === undefined) return {};
+  const typed = latest(typingUntil(left), typingUntil(right));
+  if (left.until === undefined || right.until === undefined) return typed === undefined ? {} : { typedUntil: typed };
   return { until: Math.max(left.until, right.until) };
 };
 
@@ -78,7 +87,7 @@ export const makeOperatorHolds = (clock: () => number = Date.now): OperatorHolds
   const hold = (bindingId: string, now: number): OperatorHold | undefined => {
     let longest: OperatorHold | undefined;
     for (const held of windows.values()) {
-      if (held.open.has(bindingId)) return {};
+      if (held.open.has(bindingId)) longest = longerHold(longest, {});
       const at = held.typedAt.get(bindingId);
       if (at !== undefined && now - at < OPERATOR_TYPING_GRACE_MS)
         longest = longerHold(longest, { until: at + OPERATOR_TYPING_GRACE_MS });

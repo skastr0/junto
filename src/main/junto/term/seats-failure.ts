@@ -137,12 +137,22 @@ export class SeatAttachRefused extends Schema.TaggedError<SeatAttachRefused>()(
   "SeatAttachRefused", { ...Where, message: Text },
 ) {}
 
+/**
+ * An answer to the auto cache mode's question that is not the open one for
+ * this view's seat and generation: already answered, gone, or never asked.
+ * Nothing is cut.
+ */
+export class SeatCacheQuestionUnknown extends Schema.TaggedError<SeatCacheQuestionUnknown>()(
+  "SeatCacheQuestionUnknown", { ...Where, message: Text },
+) {}
+
 /** The closed set the seats channel answers with. */
 export const SeatsFailure = Schema.Union([
   SeatSpawnFailed, SeatExited, SeatEpochChanged, SeatOccupantChanged, SeatStopping, SeatMissing,
   SeatChangedWhilePreparing, SeatNotOnThisMachine, SeatCanvasEditorMismatch, SeatPeerNotPinned,
   SeatSessionUnavailable, SeatStartRefused, SeatLinkClosed, SeatStopRefused, SeatStateNotFromItsMachine,
   SeatStatusInvalid, SeatAttachUnknown, SeatAttachObserveOnly, SeatAttachLimit, SeatAttachRefused, SeatReadUnavailable,
+  SeatCacheQuestionUnknown,
 ]);
 export type SeatsFailure = typeof SeatsFailure.Type;
 

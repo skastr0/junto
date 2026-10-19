@@ -13,13 +13,13 @@ import {
   type SeatOffboardRunResult,
   type SeatOffboardStatus,
 } from "@shared/seat-offboard";
+import { Schema } from "effect";
 import { OFFBOARD_MODES, type OffboardMode } from "@shared/seat-sessions";
-import {
-  SEAT_CACHE_DUE_ANSWERS,
-  type SeatCacheDueAnswer,
-  type SeatCacheDueAnswerResult,
-} from "@shared/seat-cache-due";
-import { answerSeatCacheDue, runSeatOffboard, seatOffboardStatus } from "./operator-offboard";
+import { SEAT_CACHE_DUE_ANSWERS, type SeatCacheDue, type SeatCacheDueAnswerResult } from "@shared/seat-cache-due";
+import { CacheQuestion } from "../term/seat-attach";
+import { remoteSeatLaunchOf } from "../term/seats-client";
+import { answerSeatViewQuestion, seatViewQuestions } from "../term/seat-views";
+import { answerSeatCacheDue, CACHE_QUESTION_GONE, runSeatOffboard, seatCacheDueList, seatOffboardStatus } from "./operator-offboard";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -81,14 +81,45 @@ export const handleSeatOffboardStatus = async (
   return seatOffboardStatus(canvasName, ids);
 };
 
-/** The operator's answer to the auto mode's question for one seat: Start fresh, or Keep this session. */
+const Name = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(256)));
+/** The window's answer, closed: these fields only, the question by the link's own pattern. */
+const SeatCacheDueAnswerInput = Schema.Struct({
+  canvasName: Name, seatId: Name, question: CacheQuestion, answer: Schema.Literals(SEAT_CACHE_DUE_ANSWERS),
+});
+const decodeAnswer = Schema.decodeUnknownSync(SeatCacheDueAnswerInput, { onExcessProperty: "error" });
+
+/**
+ * Every seat due the auto mode's question, as the window lists them: the
+ * seats this machine runs, and those a linked machine asked on a view here.
+ * A linked seat's size is what its machine last said with its launch state.
+ */
+export const seatCacheDueForWindow = async (): Promise<ReadonlyArray<SeatCacheDue>> => {
+  const linked = await Promise.all(seatViewQuestions().map(async (asked): Promise<SeatCacheDue> => {
+    const launch = await remoteSeatLaunchOf({ bindingId: asked.bindingId, host: asked.machine }).catch(() => undefined);
+    const tokens = launch?.offboard?.tokens;
+    return { canvasName: asked.canvasName, seatId: asked.seatId, question: asked.question, windowEndsAt: asked.windowEndsAt,
+      ...(tokens === undefined ? {} : { tokens }) };
+  }));
+  return [...seatCacheDueList(), ...linked];
+};
+
+/**
+ * The operator's answer to the auto mode's question for one seat: Start
+ * fresh, or Keep this session. Decoded closed before use, and only the open
+ * question for that seat settles: one a view here was asked goes back to the
+ * seat's machine on that view, any other to this machine's own.
+ */
 export const handleSeatCacheDueAnswer = async (input: unknown): Promise<SeatCacheDueAnswerResult> => {
-  if (!isRecord(input)) return { ok: false, message: "Junto could not find that seat." };
-  const { canvasName, seatId, answer } = input;
-  if (typeof canvasName !== "string" || canvasName.length === 0 || typeof seatId !== "string" ||
-    seatId.length === 0 || seatId.length > 256)
-    return { ok: false, message: "Junto could not find that seat." };
-  if (!(SEAT_CACHE_DUE_ANSWERS as ReadonlyArray<unknown>).includes(answer))
+  let answer: typeof SeatCacheDueAnswerInput.Type;
+  try {
+    answer = decodeAnswer(input);
+  } catch {
     return { ok: false, message: "Start fresh, or keep this session." };
-  return answerSeatCacheDue({ canvasName, seatId }, answer as SeatCacheDueAnswer);
+  }
+  const linked = seatViewQuestions().find((asked) => asked.question === answer.question);
+  if (linked !== undefined)
+    return linked.canvasName === answer.canvasName && linked.seatId === answer.seatId
+      ? answerSeatViewQuestion(answer.question, answer.answer)
+      : { ok: false, message: CACHE_QUESTION_GONE };
+  return answerSeatCacheDue({ canvasName: answer.canvasName, seatId: answer.seatId }, answer.question, answer.answer);
 };

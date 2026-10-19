@@ -11,7 +11,9 @@ import { Effect, Schema } from "effect";
 import { CanvasName, NodeId } from "@shared/model";
 import { MachineName } from "@shared/machine-control";
 import { OPERATOR_TYPED_REPORT_MS, OPERATOR_TYPING_GRACE_MS } from "@shared/operator-hold";
+import { CACHE_QUESTION_PATTERN, SEAT_CACHE_DUE_ANSWERS } from "@shared/seat-cache-due";
 import { longerHold, noteOperatorTyped, type OperatorHold } from "./operator-holds";
+import { BoundedMs, clampMs, FRESH_IN_MAX_MS } from "./seats-launch";
 import type { LinkChannelContext, LinkEventContext } from "../link/types";
 import type { ControlLease, LocalHostEvent, LocalSessionHost } from "./local-host";
 
@@ -43,7 +45,19 @@ export const SeatsDetach = Schema.Struct({ _tag: Schema.Literal("Detach"), handl
 export const SeatsHold = Schema.Struct({
   _tag: Schema.Literal("Hold"), handle: AttachHandle, open: Schema.Boolean, typed: Schema.Boolean,
 });
-export const SeatsAttachRequest = Schema.Union([SeatsAttach, SeatsInput, SeatsResize, SeatsDetach, SeatsHold]);
+/**
+ * The auto cache mode's question, asked by the seat's machine on a control
+ * view whose Hold says open: one id each time the seat falls due, settled by
+ * the first answer from any view or that machine's own window. Closed: these
+ * fields only, as remote-security approved them.
+ */
+export const CacheQuestion = Schema.String.pipe(Schema.check(Schema.isPattern(CACHE_QUESTION_PATTERN)));
+/** The operator's answer on the view the question came on: the literal fresh or keep. */
+export const SeatsCacheAnswer = Schema.Struct({
+  _tag: Schema.Literal("CacheAnswer"), handle: AttachHandle, question: CacheQuestion,
+  answer: Schema.Literals(SEAT_CACHE_DUE_ANSWERS),
+});
+export const SeatsAttachRequest = Schema.Union([SeatsAttach, SeatsInput, SeatsResize, SeatsDetach, SeatsHold, SeatsCacheAnswer]);
 export type SeatsAttachRequest = typeof SeatsAttachRequest.Type;
 
 export const SeatsAttached = Schema.Struct({
@@ -55,7 +69,11 @@ export const SeatsWritten = Schema.Struct({ _tag: Schema.Literal("Written"), han
 export const SeatsResized = Schema.Struct({ _tag: Schema.Literal("Resized"), handle: AttachHandle, accepted: Schema.Boolean });
 export const SeatsDetached = Schema.Struct({ _tag: Schema.Literal("Detached"), handle: AttachHandle });
 export const SeatsHeld = Schema.Struct({ _tag: Schema.Literal("Held"), handle: AttachHandle, accepted: Schema.Boolean });
-export const SeatsAttachResponse = Schema.Union([SeatsAttached, SeatsWritten, SeatsResized, SeatsDetached, SeatsHeld]);
+/** cut: Start fresh ended the session now. False for keep, and for a fresh whose re-checks no longer held. */
+export const SeatsCacheAnswered = Schema.Struct({
+  _tag: Schema.Literal("CacheAnswered"), handle: AttachHandle, question: CacheQuestion, cut: Schema.Boolean,
+});
+export const SeatsAttachResponse = Schema.Union([SeatsAttached, SeatsWritten, SeatsResized, SeatsDetached, SeatsHeld, SeatsCacheAnswered]);
 
 export const SeatsScreen = Schema.Struct({
   _tag: Schema.Literal("Screen"), handle: AttachHandle, seq: Seq, part: Int(0, 1023), last: Schema.Boolean, data: Bytes,
@@ -74,9 +92,25 @@ export const SeatsEnded = Schema.Struct({
 });
 /** The editing machine received every frame of the handle up to seq: their credit returns. */
 export const SeatsAck = Schema.Struct({ _tag: Schema.Literal("Ack"), handle: AttachHandle, upTo: Seq });
-export const SeatsAttachEvent = Schema.Union([SeatsScreen, SeatsOutput, SeatsResync, SeatsEnded, SeatsAck]);
+/**
+ * The seat fell due the question: how far past its cache window it is. Sent
+ * outside the stream's credit, at most once per view per question.
+ */
+export const SeatsCacheDue = Schema.Struct({
+  _tag: Schema.Literal("CacheDue"), handle: AttachHandle, question: CacheQuestion, pastByMs: BoundedMs(FRESH_IN_MAX_MS),
+});
+/** The question is settled or withdrawn: no answer, and no who. */
+export const SeatsCacheSettled = Schema.Struct({
+  _tag: Schema.Literal("CacheSettled"), handle: AttachHandle, question: CacheQuestion,
+});
+export const SeatsAttachEvent = Schema.Union([
+  SeatsScreen, SeatsOutput, SeatsResync, SeatsEnded, SeatsAck, SeatsCacheDue, SeatsCacheSettled,
+]);
 export type SeatsAttachEvent = typeof SeatsAttachEvent.Type;
-export type SeatsStreamFrame = Exclude<SeatsAttachEvent, typeof SeatsAck.Type>;
+export type SeatsQuestionFrame = typeof SeatsCacheDue.Type | typeof SeatsCacheSettled.Type;
+export type SeatsStreamFrame = Exclude<SeatsAttachEvent, typeof SeatsAck.Type | SeatsQuestionFrame>;
+/** What the seats channel hands the editing machine's views: the stream, and the question. */
+export type SeatsViewFrame = SeatsStreamFrame | SeatsQuestionFrame;
 export type AttachEndReason = typeof SeatsEnded.Type.reason;
 
 /** Unacknowledged stream frames per link session, across its attaches, well under the link's held events (64, or 8 MiB). */
@@ -123,6 +157,20 @@ type Attachment = AttachBinding & {
    */
   open: boolean;
   typedAt: number | undefined;
+  /** The cache questions this view was told of and not yet told are settled. */
+  readonly noticed: Set<string>;
+};
+
+/** A cache question this machine has open for one of its seats (operator-offboard.ts). */
+export type AttachQuestion = {
+  readonly bindingId: string;
+  readonly canvasName: string;
+  readonly seatId: string;
+  readonly question: string;
+  /** The seat's generation when it fell due: a view of another one is never asked. */
+  readonly generation: string;
+  /** When its cache window ended (epoch ms, this machine's clock). */
+  readonly windowEndsAt: number;
 };
 
 export const mintAttachHandle = (): string => randomBytes(16).toString("base64url");
@@ -146,12 +194,15 @@ export type SeatAttachmentsOptions = {
   readonly run: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
   /** The clock a Hold's typing is received on. */
   readonly now?: () => number;
+  /** The cache questions open on this machine's seats now. None by default. */
+  readonly questions?: () => ReadonlyArray<AttachQuestion>;
 };
 
 /** The seat machine's live attaches: one handle per peer view, bound to its link session and generation. */
 export const makeSeatAttachments = (options: SeatAttachmentsOptions) => {
   const { host, run } = options;
   const now = options.now ?? Date.now;
+  const questions = options.questions ?? (() => []);
   const live = new Map<string, Attachment>();
   const inFlight = new Map<string, number>();
   let unsubscribe: (() => void) | undefined;
@@ -247,6 +298,30 @@ export const makeSeatAttachments = (options: SeatAttachmentsOptions) => {
     pumpSession(session);
   };
 
+  /**
+   * Tell one view of the cache questions: a control view the peer shows gets
+   * its seat's open question once, and a question it was told of that is no
+   * longer open is settled. Outside the stream's credit, like Ended: bounded
+   * at one of each per view per question, never resent on a timer.
+   */
+  const askView = (attachment: Attachment, open: ReadonlyArray<AttachQuestion>): void => {
+    if (attachment.ended || attachment.mode !== "control" || attachment.context.signal.aborted) return;
+    const asked = open.find((question) => question.bindingId === attachment.bindingId &&
+      question.generation === attachment.generation && question.canvasName === attachment.canvas &&
+      question.seatId === attachment.seatId);
+    const send = (frame: SeatsQuestionFrame) =>
+      void run(attachment.context.sendEvent("seats", frame)).catch(() => undefined);
+    for (const question of [...attachment.noticed]) {
+      if (question === asked?.question) continue;
+      attachment.noticed.delete(question);
+      send({ _tag: "CacheSettled", handle: attachment.handle, question });
+    }
+    if (asked === undefined || !attachment.open || attachment.noticed.has(asked.question)) return;
+    attachment.noticed.add(asked.question);
+    send({ _tag: "CacheDue", handle: attachment.handle, question: asked.question,
+      pastByMs: clampMs(now() - asked.windowEndsAt, FRESH_IN_MAX_MS) });
+  };
+
   const onHostEvent = (event: LocalHostEvent): void => {
     for (const attachment of [...live.values()]) {
       if (attachment.bindingId !== event.bindingId) continue;
@@ -289,7 +364,7 @@ export const makeSeatAttachments = (options: SeatAttachmentsOptions) => {
           if (other.bindingId === binding.bindingId && other.mode === "control") end(other, "replaced");
       const attachment: Attachment = { ...binding, handle: mintAttachHandle(), context, generation: leased.lease.epoch,
         mode: request.mode, lease: leased.lease, operationId: context.operationId, queue: [], out: "", screenSeq: 0n, sent: 0n, acked: 0n,
-        sending: false, timer: undefined, ended: false, open: false, typedAt: undefined };
+        sending: false, timer: undefined, ended: false, open: false, typedAt: undefined, noticed: new Set() };
       live.set(attachment.handle, attachment);
       queueScreen(attachment, leased.screen?.serialized, leased.screen?.seq ?? 0n);
       pump(attachment);
@@ -310,6 +385,8 @@ export const makeSeatAttachments = (options: SeatAttachmentsOptions) => {
      */
     hold: (attachment: Attachment, open: boolean, typed: boolean): boolean => {
       attachment.open = open;
+      // A view the peer comes to show is asked a question that stands.
+      if (open) askView(attachment, questions());
       if (!typed) return true;
       const at = now();
       if (attachment.typedAt === undefined || at - attachment.typedAt >= OPERATOR_TYPED_REPORT_MS) {
@@ -323,11 +400,16 @@ export const makeSeatAttachments = (options: SeatAttachmentsOptions) => {
       let longest: OperatorHold | undefined;
       for (const attachment of live.values()) {
         if (attachment.ended || attachment.bindingId !== bindingId) continue;
-        if (attachment.open) return {};
+        if (attachment.open) longest = longerHold(longest, {});
         if (attachment.typedAt !== undefined && at - attachment.typedAt < OPERATOR_TYPING_GRACE_MS)
           longest = longerHold(longest, { until: attachment.typedAt + OPERATOR_TYPING_GRACE_MS });
       }
       return longest;
+    },
+    /** The open cache questions changed: every view is told what is new to it, and what was settled. */
+    askViews: (): void => {
+      const open = questions();
+      for (const attachment of [...live.values()]) askView(attachment, open);
     },
     end,
     ack: (context: LinkEventContext, handle: string, upTo: bigint): void => {

@@ -14,6 +14,7 @@ import {
   waitsOnOperator,
   type OffboardSeat,
   type OperatorOffboardPorts,
+  type SeatCacheQuestion,
   type SeatClockRecord,
   type SeatOffboardFacts,
 } from "../src/main/junto/seat-sessions/operator-offboard";
@@ -46,9 +47,13 @@ const seat = (seatId: string, over: Partial<OffboardSeat> = {}): OffboardSeat =>
   local: true,
   sessionId: `session-${seatId}`,
   running: true,
+  generation: `gen-${seatId}`,
   state: "idle",
   ...over,
 });
+
+/** The n-th question id a world mints: the attach handle's pattern. */
+const qid = (n: number): string => `q${String(n).padStart(21, "0")}`;
 
 /** A seat's status as the clock reads it. */
 const status = (
@@ -78,14 +83,15 @@ const world = (
   const seats = new Map(initial.map((s) => [s.seatId, s]));
   const closing = new Set<string>();
   /** Seats the operator views, by seat id: a scripted hold. */
-  const held = new Map<string, { readonly until?: number }>();
+  const held = new Map<string, { readonly until?: number; readonly typedUntil?: number }>();
   const holds = options.holds?.(() => at);
   const closed: Array<{ seatId: string; by: OffboardBy }> = [];
   const asked: Array<{ seatId: string; mode: string }> = [];
   const ended: Array<{ seatId: string; sessionId: string; by: OffboardBy; at: number }> = [];
   const saved: SeatClockRecord[] = [];
   /** Every list of seats due the auto mode's question, as main told it. */
-  const dues: Array<ReadonlyArray<SeatCacheDue>> = [];
+  const dues: Array<ReadonlyArray<SeatCacheQuestion>> = [];
+  let minted = 0;
   const fail = { close: new Set<string>(), ask: new Set<string>() };
   /** Transcript size per seat, in tokens. A seat not listed has no locatable transcript. */
   const sizes = new Map<string, number>();
@@ -124,6 +130,7 @@ const world = (
     remote: async (s) => told.get(s.seatId),
     saveClock: (record) => saved.push(record),
     dueChanged: (due) => dues.push(due),
+    mintQuestion: () => qid(++minted),
     now: () => at,
   };
   const offboard = makeOperatorOffboard(ports, clock);
@@ -1103,7 +1110,11 @@ describe("the start decision, as every start asks it", () => {
 describe("the cache mode, case by case", () => {
   const inMode = (mode: CacheMode) => applyOffboardRulesPatch(defaultOffboardRules(), { cacheMode: mode });
   const address = (seatId: string) => ({ canvasName: CANVAS, seatId });
-  const due = (seatId: string, windowEndsAt: number): SeatCacheDue => ({ canvasName: CANVAS, seatId, windowEndsAt });
+  /** The window's entry for a seat asked a question. */
+  const asked = (seatId: string, question: string, windowEndsAt: number, tokens?: number): SeatCacheDue =>
+    ({ canvasName: CANVAS, seatId, question, windowEndsAt, ...(tokens === undefined ? {} : { tokens }) });
+  const questionOf = (w: ReturnType<typeof world>, seatId: string): string =>
+    w.offboard.dueList().find((ask) => ask.seatId === seatId)?.question ?? "";
 
   it("off and manual never cut a running seat past its window, on screen or off, ask nothing, and say it continues", async () => {
     for (const mode of ["off", "manual"] as const) {
@@ -1139,8 +1150,9 @@ describe("the cache mode, case by case", () => {
     expect(w.dues).toEqual([]);
   });
 
-  it("auto asks about a seat on screen, once, never cuts it without an answer, and Start fresh ends it for the operator", async () => {
+  it("auto asks about a seat on screen, once, with its size, never cuts it without an answer, and the first answer settles it", async () => {
     const w = world([seat("a"), seat("b")], { rules: inMode("auto") });
+    w.sizes.set("a", 251_000);
     w.held.set("a", {});
     w.held.set("b", {});
     w.advance(59);
@@ -1151,15 +1163,69 @@ describe("the cache mode, case by case", () => {
       expect(await w.offboard.tick()).toMatchObject({ closed: 0 });
       w.advance(1);
     }
-    const both = [due("a", T0 + 60 * MIN), due("b", T0 + 60 * MIN)];
+    const both = [asked("a", qid(1), T0 + 60 * MIN, 251_000), asked("b", qid(2), T0 + 60 * MIN)];
     // Told when it changed, not every minute; and there for a window that asks.
-    expect(w.dues).toEqual([both]);
     expect(w.offboard.dueList()).toEqual(both);
+    expect(w.dues).toEqual([[
+      { ...both[0], bindingId: "bind-a", generation: "gen-a" },
+      { ...both[1], bindingId: "bind-b", generation: "gen-b" },
+    ]]);
     expect(w.closed).toEqual([]);
-    expect(await w.offboard.answerDue(address("a"), "fresh")).toEqual({ ok: true });
+    expect(await w.offboard.answerDue(address("a"), qid(1), "fresh")).toEqual({ settled: true, cut: true });
     expect(w.closed).toEqual([{ seatId: "a", by: "operator" }]);
     expect(w.ended).toMatchObject([{ seatId: "a", sessionId: "session-a", by: "operator" }]);
-    expect(w.dues.at(-1)).toEqual([both[1]]);
+    expect(w.offboard.dueList()).toEqual([both[1]]);
+    // Settled: a second answer, one naming another seat's question or another process, settles nothing.
+    expect(await w.offboard.answerDue(address("a"), qid(1), "keep")).toEqual({ settled: false });
+    expect(await w.offboard.answerDue(address("b"), qid(1), "fresh")).toEqual({ settled: false });
+    expect(await w.offboard.answerDue(address("b"), qid(2), "fresh", "gen-other")).toEqual({ settled: false });
+    expect(w.closed).toHaveLength(1);
+    expect(w.offboard.dueList()).toEqual([both[1]]);
+  });
+
+  it("a question is one fall due: due again after a key, or on a new process, is a new question, and the old one settles nothing", async () => {
+    const w = world([seat("a")], { rules: inMode("auto") });
+    w.held.set("a", {});
+    w.advance(60);
+    await w.offboard.tick();
+    const first = questionOf(w, "a");
+    w.advance(5);
+    await w.offboard.tick();
+    expect(questionOf(w, "a")).toBe(first);
+    // A key warms it: withdrawn.
+    w.clock.noteTyped("bind-a");
+    await w.offboard.tick();
+    expect(w.offboard.dueList()).toEqual([]);
+    expect(w.dues.at(-1)).toEqual([]);
+    w.advance(60);
+    await w.offboard.tick();
+    const second = questionOf(w, "a");
+    expect(second).not.toBe(first);
+    expect(await w.offboard.answerDue(address("a"), first, "fresh")).toEqual({ settled: false });
+    // The seat restarted on a new process: the question asked of the old one is gone.
+    w.seats.set("a", { ...w.seats.get("a")!, generation: "gen-a2" });
+    await w.offboard.tick();
+    expect(questionOf(w, "a")).not.toBe(second);
+    expect(await w.offboard.answerDue(address("a"), second, "fresh")).toEqual({ settled: false });
+    expect(w.closed).toEqual([]);
+  });
+
+  it("Start fresh re-checks the rule: a window still showing the seat does not stop it; a typing grace, a turn or a pause does", async () => {
+    const w = world([seat("shown"), seat("typed"), seat("busy"), seat("paused")], { rules: inMode("auto") });
+    for (const id of ["shown", "typed", "busy", "paused"]) w.held.set(id, {});
+    w.advance(60);
+    await w.offboard.tick();
+    const question = Object.fromEntries(["shown", "typed", "busy", "paused"].map((id) => [id, questionOf(w, id)]));
+    // Another window shows it still: being shown is what was asked, so it cuts.
+    expect(await w.offboard.answerDue(address("shown"), question.shown!, "fresh")).toEqual({ settled: true, cut: true });
+    // Shown, and a Hold typed:true 10 s ago: inside the typing grace, nothing is cut.
+    w.held.set("typed", { typedUntil: w.now() + 20_000 });
+    expect(await w.offboard.answerDue(address("typed"), question.typed!, "fresh")).toEqual({ settled: true, cut: false });
+    w.seats.set("busy", { ...w.seats.get("busy")!, state: "working" });
+    expect(await w.offboard.answerDue(address("busy"), question.busy!, "fresh")).toEqual({ settled: true, cut: false });
+    w.seats.set("paused", { ...w.seats.get("paused")!, paused: true });
+    expect(await w.offboard.answerDue(address("paused"), question.paused!, "fresh")).toEqual({ settled: true, cut: false });
+    expect(w.closed).toEqual([{ seatId: "shown", by: "operator" }]);
   });
 
   it("Keep is not asked again while the seat stays on screen; off screen it is cut, and back on screen asked again", async () => {
@@ -1168,8 +1234,8 @@ describe("the cache mode, case by case", () => {
     w.held.set("b", {});
     w.advance(60);
     await w.offboard.tick();
-    expect(await w.offboard.answerDue(address("a"), "keep")).toEqual({ ok: true });
-    expect(await w.offboard.answerDue(address("b"), "keep")).toEqual({ ok: true });
+    expect(await w.offboard.answerDue(address("a"), qid(1), "keep")).toEqual({ settled: true, cut: false });
+    expect(await w.offboard.answerDue(address("b"), qid(2), "keep")).toEqual({ settled: true, cut: false });
     expect(w.dues.at(-1)).toEqual([]);
     for (let minute = 0; minute < 30; minute += 1) {
       w.advance(1);
@@ -1186,11 +1252,11 @@ describe("the cache mode, case by case", () => {
     w.held.delete("b");
     w.advance(1);
     expect(await w.offboard.tick()).toMatchObject({ closed: 0 });
-    // Back on screen and past its window again: asked again.
+    // Back on screen and past its window again: asked again, a new question.
     w.held.set("b", {});
     w.advance(60);
     await w.offboard.tick();
-    expect(w.offboard.dueList()).toEqual([due("b", typedAt + 60 * MIN)]);
+    expect(w.offboard.dueList()).toEqual([asked("b", qid(3), typedAt + 60 * MIN)]);
   });
 
   it("typing holds the cut in every mode, and a key warms the session, running or resting", async () => {
@@ -1236,27 +1302,30 @@ describe("the cache mode, case by case", () => {
     }
   });
 
-  it("the window's answer is checked off IPC and never throws", async () => {
-    const { handleSeatCacheDueAnswer } = await import("../src/main/junto/seat-sessions/operator-offboard-ipc");
-    const { seatCacheDueList, setOperatorOffboard } = await import("../src/main/junto/seat-sessions/operator-offboard");
-    expect(seatCacheDueList()).toEqual([]);
-    expect(await handleSeatCacheDueAnswer({ canvasName: CANVAS, seatId: "a", answer: "keep" }))
-      .toEqual({ ok: false, message: "Junto is still starting. Try again in a moment." });
+  it("the window's answer is decoded closed, names the open question, and never throws", async () => {
+    const { handleSeatCacheDueAnswer, seatCacheDueForWindow } = await import("../src/main/junto/seat-sessions/operator-offboard-ipc");
+    const { CACHE_QUESTION_GONE, setOperatorOffboard } = await import("../src/main/junto/seat-sessions/operator-offboard");
+    const good = { canvasName: CANVAS, seatId: "a", question: qid(1), answer: "keep" };
+    expect(await handleSeatCacheDueAnswer(good)).toEqual({ ok: false, message: "Junto is still starting. Try again in a moment." });
     const w = world([seat("a")], { rules: inMode("auto") });
     w.held.set("a", {});
     w.advance(60);
     await w.offboard.tick();
     setOperatorOffboard(w.offboard);
     try {
-      expect(seatCacheDueList()).toEqual([due("a", T0 + 60 * MIN)]);
-      expect(await handleSeatCacheDueAnswer(undefined)).toEqual({ ok: false, message: "Junto could not find that seat." });
-      expect(await handleSeatCacheDueAnswer({ canvasName: "", seatId: "a", answer: "keep" })).toMatchObject({ ok: false });
-      expect(await handleSeatCacheDueAnswer({ canvasName: CANVAS, seatId: "a", answer: "later" }))
-        .toEqual({ ok: false, message: "Start fresh, or keep this session." });
+      expect(await seatCacheDueForWindow()).toEqual([asked("a", qid(1), T0 + 60 * MIN)]);
+      // Closed: a field past these, a question not by the link's pattern, or another answer is refused before use.
+      for (const bad of [undefined, { ...good, canvasName: "" }, { ...good, window: 1 }, { ...good, question: "short" },
+        { ...good, answer: "later" }])
+        expect(await handleSeatCacheDueAnswer(bad)).toEqual({ ok: false, message: "Start fresh, or keep this session." });
+      // A well-formed id that is not the open question settles nothing.
+      expect(await handleSeatCacheDueAnswer({ ...good, question: qid(9), answer: "fresh" }))
+        .toEqual({ ok: false, message: CACHE_QUESTION_GONE });
       expect(w.closed).toEqual([]);
-      expect(await handleSeatCacheDueAnswer({ canvasName: CANVAS, seatId: "a", answer: "fresh" })).toEqual({ ok: true });
+      expect(await handleSeatCacheDueAnswer({ ...good, answer: "fresh" })).toEqual({ ok: true });
       expect(w.closed).toEqual([{ seatId: "a", by: "operator" }]);
-      expect(seatCacheDueList()).toEqual([]);
+      expect(await seatCacheDueForWindow()).toEqual([]);
+      expect(await handleSeatCacheDueAnswer({ ...good, answer: "fresh" })).toEqual({ ok: false, message: CACHE_QUESTION_GONE });
     } finally {
       setOperatorOffboard(undefined);
     }

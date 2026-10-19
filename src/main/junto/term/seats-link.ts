@@ -19,14 +19,14 @@ import { termPlane } from "./plane";
 import { runOnSeatStartTurn } from "./seat-start-turn";
 import {
   ATTACH_LIMIT, makeSeatAttachments, SeatsAttach, SeatsAttachEvent, SeatsAttachRequest, SeatsAttachResponse,
-  SeatsDetach, SeatsHold, SeatsInput, SeatsResize, type SeatsStreamFrame,
+  SeatsCacheAnswer, SeatsDetach, SeatsHold, SeatsInput, SeatsResize, type AttachQuestion, type SeatsViewFrame,
 } from "./seat-attach";
 import { addOperatorHoldSource, type OperatorHoldSource } from "./operator-holds";
 import { readLocalWindow, type SeatGrid, SeatsRead, SeatsReadWindow } from "./seat-read-window";
 import { deliverSeatViewFrame } from "./seat-views";
 import {
   asSeatsFailure, clipText, type SeatsFailureWhere, SeatAttachLimit, SeatAttachObserveOnly, SeatAttachRefused,
-  SeatAttachUnknown, SeatCanvasEditorMismatch, SeatChangedWhilePreparing, SeatEpochChanged, SeatExited,
+  SeatAttachUnknown, SeatCacheQuestionUnknown, SeatCanvasEditorMismatch, SeatChangedWhilePreparing, SeatEpochChanged, SeatExited,
   SeatLinkClosed, SeatMissing, SeatNotOnThisMachine, SeatOccupantChanged, SeatPeerNotPinned,
   SeatSessionUnavailable, SeatsFailure, SeatSpawnFailed, SeatStateNotFromItsMachine, SeatStatusInvalid, SeatStopping,
   SeatStopRefused,
@@ -35,7 +35,10 @@ import {
   decodeSeatsLaunch, fromSeatsLaunch, SeatsLaunchState, toSeatsLaunch, type RemoteSeatLaunch, type SeatLaunchState,
 } from "./seats-launch";
 import { seatLaunchState } from "./seat-launch-state";
-import { seatOffboardFactsOf, type SeatOffboardFacts } from "../seat-sessions/operator-offboard";
+import {
+  answerSeatCacheQuestion, seatCacheQuestions, seatOffboardFactsOf, subscribeSeatCacheQuestions,
+  type SeatCacheAnswerOutcome, type SeatOffboardFacts,
+} from "../seat-sessions/operator-offboard";
 import { SeatSessionRepository } from "../seat-sessions/repository";
 import { decodeSeatsStatus, fromSeatsStatus, statusIssueAt, toSeatsStatus } from "./seats-status";
 import { forgetRemoteSeatLaunches, openedRemoteSeatLaunches, rememberRemoteSeatLaunch } from "./remote-seat-launch";
@@ -66,7 +69,7 @@ export const SeatsViewed = Schema.Struct({
   generation: Generation,
 });
 export const SeatsRequest = Schema.Union([SeatsStart, SeatsGet, SeatsActivate, SeatsStop, SeatsViewed, SeatsRead,
-  SeatsAttach, SeatsInput, SeatsResize, SeatsDetach, SeatsHold]);
+  SeatsAttach, SeatsInput, SeatsResize, SeatsDetach, SeatsHold, SeatsCacheAnswer]);
 export const SeatsStarted = Schema.Struct({
   _tag: Schema.Literal("Started"), canvas: CanvasName, seatId: NodeId,
   machine: MachineName, handle: Generation, generation: Generation,
@@ -131,7 +134,7 @@ export type SeatsChannelOptions = {
    * Where an attached seat's stream lands on the editing machine: display
    * only, never seat state, a log or disk. Dropped when nothing takes it.
    */
-  readonly attachStream?: (context: LinkEventContext, frame: SeatsStreamFrame) => void;
+  readonly attachStream?: (context: LinkEventContext, frame: SeatsViewFrame) => void;
   /** This machine's seat states; the live runtime by default. */
   readonly seatStates?: {
     readonly subscribe: (listener: (event: AgentSeatStateEvent) => void) => () => void;
@@ -152,6 +155,13 @@ export type SeatsChannelOptions = {
   readonly launchState?: (canvas: string, seat: NodeOf<"agent">) => Promise<SeatLaunchState | undefined>;
   /** The seat's session as this machine's offboard clock reads it; it crosses with the launch state. */
   readonly offboardFacts?: (canvas: string, seat: NodeOf<"agent">) => Promise<SeatOffboardFacts | undefined>;
+  /** The auto cache mode's questions this machine has open, and their answers; its offboard's by default. */
+  readonly cacheQuestions?: {
+    readonly current: () => ReadonlyArray<AttachQuestion>;
+    readonly subscribe: (listener: () => void) => () => void;
+    readonly answer: (seat: { readonly canvasName: string; readonly seatId: string }, question: string,
+      answer: "fresh" | "keep", generation: string) => Promise<SeatCacheAnswerOutcome>;
+  };
 };
 
 /** The peer names a seat; its own machine derives the whole launch. */
@@ -185,9 +195,14 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
     }
   });
   const stateSubscriptions = new Map<AbortSignal, () => void>();
-  const attachments = makeSeatAttachments({ host, run, ...(options.now === undefined ? {} : { now: options.now }) });
+  const questions = options.cacheQuestions ??
+    { current: seatCacheQuestions, subscribe: subscribeSeatCacheQuestions, answer: answerSeatCacheQuestion };
+  const attachments = makeSeatAttachments({ host, run, questions: questions.current,
+    ...(options.now === undefined ? {} : { now: options.now }) });
   // A peer's view held by its operator holds the seat's session here, where it is cut.
   (options.addHoldSource ?? addOperatorHoldSource)((bindingId, now) => attachments.heldBy(bindingId, now));
+  // The views of a seat due the auto cache mode's question are asked it, and told when it is settled.
+  questions.subscribe(() => attachments.askViews());
   const handles = new Map<string, Handle>();
   const watched = new WeakSet<AbortSignal>();
   const forget = (context: LinkEventContext): void => {
@@ -297,14 +312,25 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
       return { _tag: "Detached" as const, handle: request.handle };
     }
     const where = { machine, canvas: attachment.canvas, seatId: attachment.seatId };
-    // An observing view may be shown, but nothing is typed into it.
+    // An observing view may be shown, but nothing is typed into it, and it decides nothing.
     if (attachment.mode === "observe" && (request._tag !== "Hold" || request.typed))
-      return yield* new SeatAttachObserveOnly({ ...where, message: "An observing view cannot type into or resize the seat." });
+      return yield* new SeatAttachObserveOnly({ ...where, message: request._tag === "CacheAnswer"
+        ? "An observing view cannot answer the seat's question." : "An observing view cannot type into or resize the seat." });
     // Participation is checked on every frame; a view that lost it ends at once.
     yield* admitSeat(context, where).pipe(Effect.tapError(() => Effect.sync(() => attachments.end(attachment, "admission-lost"))));
     if (request._tag === "Hold") {
       yield* Effect.logDebug("seat attach hold");
       return { _tag: "Held" as const, handle: request.handle, accepted: attachments.hold(attachment, request.open, request.typed) };
+    }
+    if (request._tag === "CacheAnswer") {
+      // Settled once, for this view's seat and generation; a cut logs its own row.
+      yield* Effect.logDebug("seat attach cache answer");
+      const outcome = yield* Effect.promise(() => questions.answer({ canvasName: attachment.canvas, seatId: attachment.seatId },
+        request.question, request.answer, attachment.generation));
+      if (!outcome.settled)
+        return yield* new SeatCacheQuestionUnknown({ ...where,
+          message: "This seat's question was already answered, or is no longer open." });
+      return { _tag: "CacheAnswered" as const, handle: request.handle, question: request.question, cut: outcome.cut };
     }
     if (request._tag === "Input") {
       yield* Effect.logDebug("seat attach input");
@@ -421,9 +447,10 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
     // A failed read of this machine's own name keeps its own typed error.
     const machine = yield* machines.machineName;
     if (request._tag === "Attach" || request._tag === "Input" || request._tag === "Resize" || request._tag === "Detach"
-      || request._tag === "Hold")
+      || request._tag === "Hold" || request._tag === "CacheAnswer")
       return yield* answerAttach(context, request, machine).pipe(
-        Effect.tapCause((cause) => request._tag === "Input" || request._tag === "Resize" || request._tag === "Hold" ? Effect.void
+        Effect.tapCause((cause) => request._tag === "Input" || request._tag === "Resize" || request._tag === "Hold"
+          || request._tag === "CacheAnswer" ? Effect.void
           : Effect.logWarning(`seat attach ${request._tag === "Attach" ? "refused" : "detach failed"}`, cause)),
         Effect.annotateLogs({ area: "seats", request: request._tag, peer: context.peer.machineName,
           ...(request._tag === "Attach" ? { seat: request.seatId, canvas: request.canvas } : {}),

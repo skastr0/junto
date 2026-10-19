@@ -60,7 +60,11 @@ export const useSeatCacheDue = (canvasName: string, seatId: string): SeatCacheDu
   return use$(() => seatCacheDue$.byKey[keyOf(canvasName, seatId)].get());
 };
 
-/** Send the operator's answer. A bridge that is down or throws reads as a failure with a message. */
+/**
+ * Send the operator's answer to the question main lists for the seat now,
+ * named by its id. A bridge that is down or throws reads as a failure with a
+ * message.
+ */
 export const answerSeatCacheDue = async (
   canvasName: string,
   seatId: string,
@@ -68,8 +72,10 @@ export const answerSeatCacheDue = async (
 ): Promise<SeatCacheDueAnswerResult> => {
   const send = getJuntoApi()?.seatCacheDueAnswer;
   if (typeof send !== "function") return { ok: false, message: "Junto could not reach this seat's machine." };
+  const question = seatCacheDue$.byKey[keyOf(canvasName, seatId)].peek()?.question;
+  if (question === undefined) return { ok: false, message: "This seat is no longer asking." };
   try {
-    return await send({ canvasName, seatId, answer });
+    return await send({ canvasName, seatId, question, answer });
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) };
   }

@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { LinkEventContext } from "../src/main/junto/link/types";
 import { closeMachineLog, installMachineLog } from "../src/main/junto/observability/logger";
 import { machineLogDir } from "../src/main/junto/observability/log-file";
-import { ATTACH_CREDITS, BACKLOG_LIMIT_UNITS, type SeatsStreamFrame } from "../src/main/junto/term/seat-attach";
+import { ATTACH_CREDITS, BACKLOG_LIMIT_UNITS, type SeatsStreamFrame, type SeatsViewFrame } from "../src/main/junto/term/seat-attach";
 import { eventually, miniSeat, twoCoreCanvas as canvas, twoCoreProcess, twoCores } from "./support/two-cores";
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -25,11 +25,11 @@ type Attached = { readonly handle: string; readonly generation: string; readonly
 
 /** The book's view: it keeps every frame and, unless held, acknowledges each one as it lands. */
 const attachedPair = async (options: { readonly holdAcks?: boolean } = {}) => {
-  const frames: SeatsStreamFrame[] = [];
-  let ack: (context: LinkEventContext, frame: SeatsStreamFrame) => void = () => undefined;
+  const frames: SeatsViewFrame[] = [];
+  let ack: (context: LinkEventContext, frame: SeatsViewFrame) => void = () => undefined;
   const cores = await twoCores({ cleanups, book: { attachStream: (context, frame) => { frames.push(frame); ack(context, frame); } } });
-  const ackFrame = (frame: SeatsStreamFrame) => {
-    if (frame._tag === "Ended") return;
+  const ackFrame = (frame: SeatsViewFrame) => {
+    if (!("seq" in frame)) return;
     void cores.bookEnd.sendEvent("seats", { _tag: "Ack", handle: frame.handle, upTo: frame.seq });
   };
   if (options.holdAcks !== true) ack = (_context, frame) => ackFrame(frame);

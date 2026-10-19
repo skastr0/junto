@@ -143,8 +143,9 @@ import {
   handleSeatCacheDueAnswer,
   handleSeatOffboardRun,
   handleSeatOffboardStatus,
+  seatCacheDueForWindow,
 } from "./seat-sessions/operator-offboard-ipc";
-import { seatCacheDueList } from "./seat-sessions/operator-offboard";
+import { onSeatViewQuestions } from "./term/seat-views";
 import { regionEnvReport, regionEnvStaleSeats } from "./region-env/report-ipc";
 import {
   scheduleManagedPulseReady,
@@ -214,6 +215,14 @@ const broadcast = (channel: string, payload: unknown) => {
     ) continue;
     window.webContents.send(channel, payload);
   }
+};
+
+let seatCacheDuePush: Promise<void> = Promise.resolve();
+/** The whole list of seats due the cache question, in order: a later push never lands before an earlier one. */
+const pushSeatCacheDue = (): void => {
+  seatCacheDuePush = seatCacheDuePush
+    .then(async () => broadcast(IPC_CHANNELS.seatCacheDue, await seatCacheDueForWindow()))
+    .catch((error: unknown) => console.error("[offboard] the seats due a choice could not be told:", error));
 };
 
 const runMainAuthoring = <A>(
@@ -1620,15 +1629,16 @@ export const registerJuntoIpc = (): void => {
           sendPrompt: ({ bindingId, text, canvasName, nodeId }) =>
             appendManagedPrompt({ bindingId, text, canvasName, nodeId }),
           publish: (progress) => broadcast(IPC_CHANNELS.seatOffboardProgress, progress),
-          publishDue: (due) => broadcast(IPC_CHANNELS.seatCacheDue, due),
+          publishDue: () => pushSeatCacheDue(),
         }),
       );
       seatSessions = sessions;
       offboardCloser = sessions.closer;
       const managedSeatOn = sessions.seatOn;
       privilegedIpc.handle(IPC_CHANNELS.seatOffboardProgressList, () => offboardCloser?.current() ?? []);
-      // The auto cache mode's question: the seats due it, and the operator's answer.
-      privilegedIpc.handle(IPC_CHANNELS.seatCacheDueList, () => seatCacheDueList());
+      // The auto cache mode's question: the seats due it, here and on linked machines, and the operator's answer.
+      onSeatViewQuestions(() => pushSeatCacheDue());
+      privilegedIpc.handle(IPC_CHANNELS.seatCacheDueList, () => seatCacheDueForWindow());
       privilegedIpc.handle(IPC_CHANNELS.seatCacheDueAnswer, (_event, input: unknown) => handleSeatCacheDueAnswer(input));
       // Operator offboard: ask or offboard now, one seat or many, and what the
       // buttons should say first. The same operation the overseer and the

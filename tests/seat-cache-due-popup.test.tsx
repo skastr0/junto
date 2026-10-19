@@ -36,7 +36,8 @@ const { cacheDueLine, seatCacheDue$, subscribeSeatCacheDue } = await import("../
 const { SeatCacheDuePopup } = await import("../src/renderer/components/terminal/SeatCacheDuePopup");
 
 const NOW = 1_800_000_000_000;
-const ask = (seatId: string, windowEndsAt = NOW - 12 * 60_000): SeatCacheDue => ({ canvasName: "factory", seatId, windowEndsAt });
+const ask = (seatId: string, windowEndsAt = NOW - 12 * 60_000): SeatCacheDue =>
+  ({ canvasName: "factory", seatId, question: `q-${seatId}`.padEnd(22, "0"), windowEndsAt });
 const push = (due: ReadonlyArray<SeatCacheDue>) => act(() => bridge.listeners.forEach((listener) => listener(due)));
 
 let host: HTMLDivElement;
@@ -125,13 +126,13 @@ describe("the cache question in the seat's view", () => {
     push([ask("seat-1")]);
     bridge.result = { ok: false, message: "The seat is working; offboard waits for idle." };
     await press("seat-cache-due-fresh");
-    expect(bridge.answers).toEqual([{ canvasName: "factory", seatId: "seat-1", answer: "fresh" }]);
+    expect(bridge.answers).toEqual([{ canvasName: "factory", seatId: "seat-1", question: ask("seat-1").question, answer: "fresh" }]);
     expect(host.querySelector('[data-testid="seat-cache-due-failure"]')?.textContent).toBe(
       "The seat is working; offboard waits for idle.",
     );
     bridge.result = { ok: true };
     await press("seat-cache-due-keep");
-    expect(bridge.answers.at(-1)).toEqual({ canvasName: "factory", seatId: "seat-1", answer: "keep" });
+    expect(bridge.answers.at(-1)).toEqual({ canvasName: "factory", seatId: "seat-1", question: ask("seat-1").question, answer: "keep" });
     expect(host.querySelector('[data-testid="seat-cache-due-failure"]')).toBeNull();
   });
 
@@ -143,7 +144,7 @@ describe("the cache question in the seat's view", () => {
     const shown = popup()!;
     elsewhere.appendChild(shown);
     await press("seat-cache-due-keep", elsewhere);
-    expect(bridge.answers).toEqual([{ canvasName: "factory", seatId: "seat-1", answer: "keep" }]);
+    expect(bridge.answers).toEqual([{ canvasName: "factory", seatId: "seat-1", question: ask("seat-1").question, answer: "keep" }]);
     // Back where React left it, so it can unmount it.
     host.appendChild(shown);
     elsewhere.remove();

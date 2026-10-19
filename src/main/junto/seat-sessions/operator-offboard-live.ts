@@ -27,7 +27,6 @@ import { SeatSessionRepository } from "./repository";
 import { PausePlane } from "../pause-plane";
 import { SettingsService } from "../settings/service";
 import { seatStateRuntime } from "../term/agent-state/runtime";
-import type { SeatCacheDue } from "@shared/seat-cache-due";
 import { operatorHold, subscribeOperatorTyped } from "../term/operator-holds";
 import { termPlane } from "../term/plane";
 import { sessionSizeOf } from "../term/session-size";
@@ -36,6 +35,7 @@ import {
   OFFBOARD_TICK_MS,
   SeatStatusClock,
   makeOperatorOffboard,
+  seatCacheQuestionsChanged,
   setOperatorOffboard,
   waitsOnOperator,
   type OffboardSeat,
@@ -67,8 +67,8 @@ export type OperatorOffboardLiveInput = {
   }) => Promise<{ readonly ok: boolean; readonly error?: string }>;
   /** Product automation is switched off (quit, maintenance): the rules rest. */
   readonly suspended: () => boolean;
-  /** The seats due the auto mode's question, whenever they change. No window: no one. */
-  readonly publishDue?: (due: ReadonlyArray<SeatCacheDue>) => void;
+  /** The seats due the auto mode's question changed. No window: no one is told. */
+  readonly publishDue?: () => void;
 };
 
 /** The clock as last saved in junto.db; undefined when it never was or cannot be read. */
@@ -121,6 +121,7 @@ const seatOf = async (
     machine: surface.hostId,
     ...(sessionId ? { sessionId } : {}),
     running,
+    ...(running ? { generation: live.epoch } : {}),
     ...(state ? { state } : {}),
     paused,
     ...(running && waitsOnOperator(seatStateRuntime.snapshot(surface.bindingId)) ? { waitsOnOperator: true } : {}),
@@ -271,7 +272,11 @@ export const startOperatorOffboard = async (input: OperatorOffboardLiveInput): P
       remote: async (seat) =>
         seat.machine === undefined ? undefined : (await remoteSeatLaunchOf({ bindingId: seat.bindingId, host: seat.machine }))?.offboard,
       saveClock: (record) => writeClock(input.run, record),
-      dueChanged: (due) => input.publishDue?.(due),
+      // The window here, and the views of these seats on linked machines.
+      dueChanged: () => {
+        input.publishDue?.();
+        seatCacheQuestionsChanged();
+      },
       log: (message) => console.info(`[offboard] ${message}`),
     },
     clock,
@@ -288,9 +293,9 @@ export const startOperatorOffboard = async (input: OperatorOffboardLiveInput): P
       await refreshRules();
       return offboard.coldAtStart(seat, cause);
     },
-    answerDue: async (seat, answer) => {
+    answerDue: async (seat, question, answer, generation) => {
       await refreshRules();
-      return offboard.answerDue(seat, answer);
+      return offboard.answerDue(seat, question, answer, generation);
     },
     status: async (canvasName, seatIds) => {
       await refreshRules();

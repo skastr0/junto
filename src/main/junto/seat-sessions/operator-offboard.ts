@@ -56,6 +56,7 @@ import { deriveNeeds, type NeedCause, type SeatSnapshot } from "@shared/harness-
 import { seatNextTurn, type SeatNextLaunch, type SeatNextTurn } from "@shared/seat-next-launch";
 import type { OffboardMode, SeatAddress } from "@shared/seat-sessions";
 import type { SeatStartCause } from "../term/seat-start-cause";
+import { randomBytes } from "node:crypto";
 import type { SeatCacheDue, SeatCacheDueAnswer, SeatCacheDueAnswerResult } from "@shared/seat-cache-due";
 
 /** A seat as the operation needs it, read off its canvas and the terminal plane. */
@@ -71,6 +72,8 @@ export type OffboardSeat = SeatAddress & {
   readonly sessionId?: string;
   /** A process is up for the seat. False: not running or resting. */
   readonly running: boolean;
+  /** The running process's generation: a question asked of it is never answered for another. */
+  readonly generation?: string;
   /**
    * What the seat's screen says, for a running seat. `idle` only when the
    * idle is confirmed (the same test that allows typing into a seat).
@@ -146,10 +149,10 @@ export type OperatorOffboardPorts = {
   /**
    * The operator's hold on the seat, here or from the machine editing its
    * canvas: undefined when not held, `until` when only recent typing holds it,
-   * no `until` while a window shows it. A held seat's session is not cut.
-   * Absent port: nothing is ever held.
+   * no `until` while a window shows it, then `typedUntil` when typing holds it
+   * too. A held seat's session is not cut. Absent port: nothing is ever held.
    */
-  readonly held?: (seat: OffboardSeat, at: number) => { readonly until?: number } | undefined;
+  readonly held?: (seat: OffboardSeat, at: number) => { readonly until?: number; readonly typedUntil?: number } | undefined;
   /**
    * What the machine that runs a seat elsewhere last said of its session.
    * Absent port, or undefined: nothing is known of it here.
@@ -158,10 +161,22 @@ export type OperatorOffboardPorts = {
   /** Save the clock (called once per tick). */
   readonly saveClock?: (record: SeatClockRecord) => void;
   /** The seats due the auto mode's question changed: the whole list. Absent: no one shows it. */
-  readonly dueChanged?: (due: ReadonlyArray<SeatCacheDue>) => void;
+  readonly dueChanged?: (questions: ReadonlyArray<SeatCacheQuestion>) => void;
+  /** A new question id. 16 random bytes, base64url, by default. */
+  readonly mintQuestion?: () => string;
   readonly now?: () => number;
   readonly log?: (message: string) => void;
 };
+
+/**
+ * A seat due the auto mode's question, as this machine asks it: the window's
+ * entry, and the seat's binding and generation the question is bound to. A
+ * view of the seat from a linked machine is asked it too (seat-attach.ts).
+ */
+export type SeatCacheQuestion = SeatCacheDue & { readonly bindingId: string; readonly generation: string };
+
+/** An answer settled the question (`cut`: Start fresh ended the session), or named none open. */
+export type SeatCacheAnswerOutcome = { readonly settled: false } | { readonly settled: true; readonly cut: boolean };
 
 /** What the clock keeps on disk, so it carries on across a restart. */
 export type SeatClockRecord = {
@@ -433,10 +448,11 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
   const now = (): number => ports.now?.() ?? Date.now();
   /** Seats just asked to offboard, and until when their session is left alone for it. */
   const asking = new Map<string, number>();
-  /** Seats the operator answered Keep while shown: not asked again until they leave the screen. */
+  /** Seats the operator answered Keep while shown: not asked again until they leave every screen. */
   const kept = new Set<string>();
-  /** Seats due the auto mode's question, as the last pass found them. */
-  let due = new Map<string, SeatCacheDue>();
+  /** Seats due the auto mode's question, as the last pass found them, each with its open question. */
+  let due = new Map<string, SeatCacheQuestion>();
+  const mintQuestion = ports.mintQuestion ?? (() => randomBytes(16).toString("base64url"));
 
   const modeOf = (seat: OffboardSeat) => offboardRulesFor(ports.rules(), seat.harness).cacheMode;
 
@@ -704,7 +720,9 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
     // Held, it goes cold no sooner than the hold ends. A shown seat's hold
     // ends when its window lets go, which asks again; typing's at a known time.
     const held = holds === "none" ? undefined : ports.held?.(seat, at);
-    const hold = holds === "typing" && held?.until === undefined ? undefined : held;
+    // Typing alone: every grace, shown or not, from any window or view.
+    const typedUntil = held?.until ?? held?.typedUntil;
+    const hold = holds !== "typing" ? held : typedUntil === undefined ? undefined : { until: typedUntil };
     if (hold !== undefined)
       return hold.until === undefined || coldAt === undefined ? { cold: false } : { cold: false, at: Math.max(hold.until, coldAt) };
     if (still.minutes < set.cacheWindowMinutes) return coldAt === undefined ? { cold: false } : { cold: false, at: coldAt };
@@ -775,7 +793,7 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
   const cutIfDue = async (
     seat: OffboardSeat,
     at: number,
-    asks: Map<string, SeatCacheDue>,
+    asks: Map<string, SeatCacheQuestion>,
   ): Promise<SeatOffboardRunRow | undefined> => {
     const address = { canvasName: seat.canvasName, seatId: seat.seatId };
     const key = keyOf(address);
@@ -789,10 +807,22 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
       const mode = modeOf(seat);
       if (mode === "off" || mode === "manual") return undefined;
       if (!coldness(seat, address).cold) {
-        if (mode === "auto" && open && !kept.has(key) && coldness(seat, address, "typing").cold) {
+        if (mode === "auto" && open && !kept.has(key) && seat.generation !== undefined &&
+          coldness(seat, address, "typing").cold) {
           const window = offboardRulesFor(ports.rules(), seat.harness).cacheWindowMinutes;
           const since = stillness(seat, at).since ?? at;
-          asks.set(key, { canvasName: seat.canvasName, seatId: seat.seatId, windowEndsAt: since + window * 60_000 });
+          // Due since the last pass on the same process: the same question. Otherwise a new one.
+          const standing = due.get(key);
+          const tokens = ports.sessionSize?.(seat)?.tokens;
+          asks.set(key, {
+            canvasName: seat.canvasName,
+            seatId: seat.seatId,
+            question: standing?.generation === seat.generation ? standing.question : mintQuestion(),
+            windowEndsAt: since + window * 60_000,
+            ...(tokens === undefined ? {} : { tokens }),
+            bindingId: seat.bindingId,
+            generation: seat.generation,
+          });
         }
         return undefined;
       }
@@ -815,7 +845,7 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
     const seats = await ports.seats().catch(() => [] as ReadonlyArray<OffboardSeat>);
     for (const seat of seats) clock.syncSession(seat.bindingId, seat.sessionId);
     const at = now();
-    const asks = new Map<string, SeatCacheDue>();
+    const asks = new Map<string, SeatCacheQuestion>();
     const rows = (await Promise.all(seats.map((seat) => cutIfDue(seat, at, asks)))).filter((row) => row !== undefined);
     const present = new Set(seats.map((seat) => keyOf(seat)));
     for (const key of kept) if (!present.has(key)) kept.delete(key);
@@ -828,39 +858,80 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
     return summarizeOffboardRun(rows);
   };
 
-  const dueList = (): ReadonlyArray<SeatCacheDue> => [...due.values()];
+  /** The open questions, as this machine asks them. */
+  const questions = (): ReadonlyArray<SeatCacheQuestion> => [...due.values()];
+
+  /** The seats due the question, as a window lists them. */
+  const dueList = (): ReadonlyArray<SeatCacheDue> =>
+    questions().map(({ bindingId: _binding, generation: _generation, ...ask }) => ask);
 
   /** Replace the seats due the question, and tell whoever shows it when that changed. */
-  const setDue = (next: Map<string, SeatCacheDue>): void => {
+  const setDue = (next: Map<string, SeatCacheQuestion>): void => {
     const same = next.size === due.size &&
-      [...next].every(([key, ask]) => due.get(key)?.windowEndsAt === ask.windowEndsAt);
+      [...next].every(([key, ask]) => {
+        const was = due.get(key);
+        return was?.question === ask.question && was.windowEndsAt === ask.windowEndsAt && was.tokens === ask.tokens;
+      });
     due = next;
     if (same) return;
     try {
-      ports.dueChanged?.(dueList());
+      ports.dueChanged?.(questions());
     } catch {
       ports.log?.("the seats due a choice could not be told");
     }
   };
 
   /**
-   * The operator's answer to the auto mode's question. Start fresh ends the
-   * session now, as the operator's own offboard now does; Keep leaves it, and
-   * the seat is not asked again until it leaves the screen.
+   * Start fresh, re-checked as the automatic rule would check the seat if no
+   * one watched it: the same process, running, idle, not waiting on the
+   * operator, its canvas playing, not just asked to offboard, in auto, and
+   * cold with only being shown left out. Every typing grace counts, from a
+   * window here or a view on a linked machine. Then the same cut, once, by the
+   * operator. Never throws: false cuts nothing.
    */
-  const answerDue = async (address: SeatAddress, answer: SeatCacheDueAnswer): Promise<SeatCacheDueAnswerResult> => {
-    const key = keyOf(address);
-    if (due.has(key)) {
-      const rest = new Map(due);
-      rest.delete(key);
-      setDue(rest);
+  const freshIfStillDue = async (address: SeatAddress, asked: SeatCacheQuestion): Promise<boolean> => {
+    try {
+      const seat = await ports.locate(address);
+      if (seat === undefined || !seat.local || !seat.running || seat.state !== "idle") return false;
+      if (seat.generation !== asked.generation || seat.paused === true) return false;
+      if ((asking.get(keyOf(address)) ?? 0) > now()) return false;
+      if (modeOf(seat) !== "auto" || !coldness(seat, address, "typing").cold) return false;
+      const row = await closeOne(address, "operator");
+      if (row.ok) ports.log?.(`${address.seatId}: fresh by operator`);
+      else ports.log?.(`fresh by operator for ${address.seatId} did not go through: ${row.reason}`);
+      return row.ok;
+    } catch (error) {
+      ports.log?.(`fresh by operator for ${address.seatId} failed: ${String(error)}`);
+      return false;
     }
+  };
+
+  /**
+   * The operator's answer to the auto mode's question, from a window here or
+   * a view on a linked machine. It names the open question for the seat, and
+   * for its process when a view answers: anything else settles nothing. The
+   * first answer settles it. Keep leaves the session, and the seat is not
+   * asked again until it leaves every screen; Start fresh cuts as the rule
+   * would (`freshIfStillDue`).
+   */
+  const answerDue = async (
+    address: SeatAddress,
+    question: string,
+    answer: SeatCacheDueAnswer,
+    generation?: string,
+  ): Promise<SeatCacheAnswerOutcome> => {
+    const key = keyOf(address);
+    const asked = due.get(key);
+    if (asked === undefined || asked.question !== question) return { settled: false };
+    if (generation !== undefined && asked.generation !== generation) return { settled: false };
+    const rest = new Map(due);
+    rest.delete(key);
+    setDue(rest);
     if (answer === "keep") {
       kept.add(key);
-      return { ok: true };
+      return { settled: true, cut: false };
     }
-    const row = await closeOne(address, "operator");
-    return row.ok ? { ok: true } : { ok: false, message: row.reason };
+    return { settled: true, cut: await freshIfStillDue(address, asked) };
   };
 
   /** A start ended the seat's cold session for a fresh one: Junto ended it, with no notes. */
@@ -873,7 +944,7 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
     clock.markOffboarded(bindingId);
   };
 
-  return { run, status, facts, tick, coldAtStart, endedAtStart, nextTurn, dueList, answerDue, clock };
+  return { run, status, facts, tick, coldAtStart, endedAtStart, nextTurn, dueList, questions, answerDue, clock };
 };
 
 export type OperatorOffboard = ReturnType<typeof makeOperatorOffboard>;
@@ -888,6 +959,7 @@ let current: OperatorOffboard | undefined;
 /** Install the app's operation (composition), or a fake (tests); undefined clears it. */
 export const setOperatorOffboard = (next: OperatorOffboard | undefined): void => {
   current = next;
+  seatCacheQuestionsChanged();
 };
 
 const NOT_READY = "Junto is still starting. Try again in a moment.";
@@ -922,17 +994,60 @@ export const coldSessionStartsFresh = (seat: SeatAddress, cause: SeatStartCause)
   });
 };
 
-/** The seats due the auto mode's question now. Empty before the operation is installed. */
+/** The seats due the auto mode's question now, as a window lists them. Empty before the operation is installed. */
 export const seatCacheDueList = (): ReadonlyArray<SeatCacheDue> => current?.dueList() ?? [];
 
-/** The operator's answer to the auto mode's question for one seat. */
-export const answerSeatCacheDue = (
+/** The questions this machine has open, for the views of its seats on linked machines. */
+export const seatCacheQuestions = (): ReadonlyArray<SeatCacheQuestion> => current?.questions() ?? [];
+
+const questionListeners = new Set<() => void>();
+/** Told when this machine's open questions change. */
+export const subscribeSeatCacheQuestions = (listener: () => void): (() => void) => {
+  questionListeners.add(listener);
+  return () => { questionListeners.delete(listener); };
+};
+/** The installed operation's questions changed (its `dueChanged` port), or another was installed. */
+export const seatCacheQuestionsChanged = (): void => {
+  for (const listener of questionListeners) {
+    try {
+      listener();
+    } catch (error) {
+      console.error("[offboard] a listener for the cache questions failed:", error);
+    }
+  }
+};
+
+/**
+ * An answer to one of this machine's questions. `generation`: a view's, so
+ * a question asked of one process is never answered for another. Nothing
+ * installed, or a failure: nothing settled, and nothing cut.
+ */
+export const answerSeatCacheQuestion = (
   seat: SeatAddress,
+  question: string,
   answer: SeatCacheDueAnswer,
-): Promise<SeatCacheDueAnswerResult> =>
+  generation?: string,
+): Promise<SeatCacheAnswerOutcome> =>
   current
-    ? current.answerDue(seat, answer).catch((error: unknown) => ({ ok: false as const, message: String(error) }))
-    : Promise.resolve({ ok: false as const, message: NOT_READY });
+    ? current.answerDue(seat, question, answer, generation).catch((error: unknown) => {
+        console.error(`[offboard] an answer for ${seat.seatId} failed: ${String(error)}`);
+        return { settled: false as const };
+      })
+    : Promise.resolve({ settled: false as const });
+
+/** The operator's answer, from this machine's window, to its question for one of the seats it runs. */
+export const answerSeatCacheDue = async (
+  seat: SeatAddress,
+  question: string,
+  answer: SeatCacheDueAnswer,
+): Promise<SeatCacheDueAnswerResult> => {
+  if (current === undefined) return { ok: false, message: NOT_READY };
+  const outcome = await answerSeatCacheQuestion(seat, question, answer);
+  return outcome.settled ? { ok: true } : { ok: false, message: CACHE_QUESTION_GONE };
+};
+
+/** An answer to a question already answered, or no longer asked. */
+export const CACHE_QUESTION_GONE = "This seat was already answered, or is no longer asking.";
 
 /** The start ended the seat's cold session (`coldSessionStartsFresh`): record that Junto ended it. */
 export const coldSessionEnded = (seat: SeatAddress, bindingId: string, sessionId: string): void => {

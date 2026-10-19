@@ -53,8 +53,9 @@ describe("operator holds", () => {
     at(5_000);
     holds.typed(2, "b1");
     expect(holds.hold("b1", T0 + 6_000)).toEqual({ until: T0 + 5_000 + OPERATOR_TYPING_GRACE_MS });
+    // Shown: no end; the typing's grace is still told, for what counts typing alone.
     holds.surfaces(1, ["b1"]);
-    expect(holds.hold("b1", T0 + 6_000)).toEqual({});
+    expect(holds.hold("b1", T0 + 6_000)).toEqual({ typedUntil: T0 + 5_000 + OPERATOR_TYPING_GRACE_MS });
     holds.surfaces(1, []);
     expect(holds.hold("b1", T0 + 5_000 + OPERATOR_TYPING_GRACE_MS)).toBeUndefined();
   });

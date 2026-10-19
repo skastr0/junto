@@ -8,6 +8,8 @@
  *
  * The operator's hold on a seat (operator-holds.ts) goes to its machine on the
  * view's handle as a Hold, since that machine is where its session is cut.
+ * That machine asks the auto cache mode's question on a control view it is
+ * told is shown (CacheDue); the answer goes back on the same handle.
  */
 import { randomBytes } from "node:crypto";
 import { Effect } from "effect";
@@ -24,12 +26,26 @@ import { unwrapSeatsFailure } from "./seats-failure";
 import { liveOperatorHolds, type OperatorHolds } from "./operator-holds";
 import type { AttachOk, AttachResult } from "./router";
 import type { ControlLease, LocalHostEvent } from "./local-host";
-import { ATTACH_CREDITS, CHUNK_UNITS, chunkUnits, SCREEN_LIMIT_UNITS, type SeatsStreamFrame } from "./seat-attach";
+import type { SeatCacheDueAnswer, SeatCacheDueAnswerResult } from "@shared/seat-cache-due";
+import {
+  ATTACH_CREDITS, CHUNK_UNITS, chunkUnits, SCREEN_LIMIT_UNITS, type SeatsStreamFrame, type SeatsViewFrame,
+} from "./seat-attach";
 
 /** A seat on a canvas this machine edits, run by another machine. */
 export type LinkedSeat = {
   readonly machine: string; readonly canvas: string; readonly seatId: string; readonly harness?: string;
 };
+/** The auto cache mode's question, as a seat's machine asked it on a view here. */
+export type SeatViewQuestion = {
+  readonly machine: string;
+  readonly canvasName: string;
+  readonly seatId: string;
+  readonly bindingId: string;
+  readonly question: string;
+  /** When the seat's cache window ended, on this machine's clock: when the notice came, less how far past it was. */
+  readonly windowEndsAt: number;
+};
+
 /** Why a view's lease ended without its window releasing it. */
 export type SeatViewLeaseEnd = { readonly leaseId: string; readonly bindingId: string; readonly reason: "replaced" | "admission-lost" | "link-closed" | "generation-changed" };
 
@@ -70,7 +86,11 @@ type View = {
   /** The hold to send while a Hold is in flight: the latest shown, and any typing meanwhile. */
   hold: { readonly open: boolean; readonly typed: boolean } | undefined;
   holding: boolean;
+  /** The cache question its seat's machine asked on this view, until it is settled. */
+  asked: { readonly question: string; readonly windowEndsAt: number } | undefined;
 };
+
+const viewQuestionListeners = new Set<() => void>();
 
 /** How long an attach waits for the seat's screen before showing what comes next. */
 const SCREEN_WAIT_MS = 5_000;
@@ -100,10 +120,28 @@ export const makeSeatViews = (
   const log = (message: string, fields: Record<string, unknown>) =>
     Effect.runFork(Effect.logInfo(message).pipe(Effect.annotateLogs({ area: "seats", ...fields })));
 
+  const questionsChanged = (): void => {
+    for (const listener of viewQuestionListeners) listener();
+  };
+
   const drop = (view: View): void => {
     byLease.delete(view.lease.leaseId);
     byHandle.delete(view.handle);
     view.screen?.(undefined);
+    if (view.asked !== undefined) {
+      view.asked = undefined;
+      questionsChanged();
+    }
+  };
+
+  /** The question on a control view, or its settling; never on a handle not held, nor from another machine. */
+  const askedOn = (context: LinkEventContext, frame: Extract<SeatsViewFrame, { readonly _tag: "CacheDue" | "CacheSettled" }>): void => {
+    const view = byHandle.get(frame.handle);
+    if (view === undefined || view.machine !== context.peer.machineName || view.lease.mode !== "control") return;
+    if (frame._tag === "CacheDue") view.asked = { question: frame.question, windowEndsAt: Date.now() - frame.pastByMs };
+    else if (view.asked?.question === frame.question) view.asked = undefined;
+    else return;
+    questionsChanged();
   };
   const output = (view: View, data: string): void =>
     emit({ type: "output", bindingId: view.bindingId, epoch: view.epoch, seq: view.seq, data });
@@ -269,7 +307,8 @@ export const makeSeatViews = (
     holds: (leaseId: string): boolean => byLease.has(leaseId),
 
     /** A frame from the seat's machine; one for a handle this machine holds of another peer is dropped. */
-    frame: (context: LinkEventContext, frame: SeatsStreamFrame): void => {
+    frame: (context: LinkEventContext, frame: SeatsViewFrame): void => {
+      if (frame._tag === "CacheDue" || frame._tag === "CacheSettled") return askedOn(context, frame);
       const view = byHandle.get(frame.handle);
       if (view === undefined) {
         if (frame._tag === "Ended") { early.delete(frame.handle); return; }
@@ -301,7 +340,8 @@ export const makeSeatViews = (
           epoch: attached.generation, mode: input.mode };
         const view: View = { machine: seat.machine, canvas: seat.canvas, seatId: seat.seatId, harness: seat.harness, handle: attached.handle, bindingId: input.bindingId,
           epoch: attached.generation, lease, parts: [], screenUnits: 0, seq: 0n, screen: undefined,
-          typed: "", typedWaiters: [], typing: false, size: undefined, sizing: false, hold: undefined, holding: false };
+          typed: "", typedWaiters: [], typing: false, size: undefined, sizing: false, hold: undefined, holding: false,
+          asked: undefined };
         const screen = new Promise<string | undefined>((resolve) => {
           const timer = setTimeout(() => resolve(undefined), SCREEN_WAIT_MS);
           view.screen = (serialized) => { clearTimeout(timer); view.screen = undefined; resolve(serialized); };
@@ -353,6 +393,34 @@ export const makeSeatViews = (
       });
     },
 
+    /** The questions the views here were asked and that stand. */
+    questions: (): ReadonlyArray<SeatViewQuestion> => [...byLease.values()].flatMap((view) =>
+      view.asked === undefined ? [] : [{ machine: view.machine, canvasName: view.canvas, seatId: view.seatId,
+        bindingId: view.bindingId, question: view.asked.question, windowEndsAt: view.asked.windowEndsAt }]),
+
+    /**
+     * The operator's answer to a question a view here was asked, sent on that
+     * view's handle. The first answer settles it here at once; the seat's
+     * machine decides the rest, and a cut is its own.
+     */
+    answer: async (question: string, answer: SeatCacheDueAnswer): Promise<SeatCacheDueAnswerResult> => {
+      const view = [...byLease.values()].find((candidate) => candidate.asked?.question === question);
+      if (view === undefined) return { ok: false, message: "This seat was already answered, or is no longer asking." };
+      view.asked = undefined;
+      questionsChanged();
+      try {
+        await transport.request(view.machine, { _tag: "CacheAnswer", handle: view.handle, question, answer },
+          randomBytes(16).toString("hex"));
+        return { ok: true };
+      } catch (cause) {
+        if (tagOf(cause) === "SeatAttachUnknown") drop(view);
+        log("seat view cache answer refused", { machine: view.machine, failure: tagOf(cause) });
+        return { ok: false, message: tagOf(cause) === "SeatCacheQuestionUnknown"
+          ? "This seat was already answered, or is no longer asking."
+          : `Junto could not reach ${view.machine} to answer.` };
+      }
+    },
+
     release: async (lease: ControlLease): Promise<void> => {
       const view = byLease.get(lease.leaseId);
       if (view === undefined) return;
@@ -399,4 +467,16 @@ let active: SeatViews | undefined;
 /** The views this process's window holds; the seats channel hands their frames here. */
 export const installSeatViews = (views: SeatViews | undefined): void => { active = views; };
 /** The seats channel's default stream sink: display only, dropped when no view holds it. */
-export const deliverSeatViewFrame = (context: LinkEventContext, frame: SeatsStreamFrame): void => active?.frame(context, frame);
+export const deliverSeatViewFrame = (context: LinkEventContext, frame: SeatsViewFrame): void => active?.frame(context, frame);
+
+/** The cache questions this process's views were asked and that stand. */
+export const seatViewQuestions = (): ReadonlyArray<SeatViewQuestion> => active?.questions() ?? [];
+/** Answer a question one of this process's views was asked. */
+export const answerSeatViewQuestion = (question: string, answer: SeatCacheDueAnswer): Promise<SeatCacheDueAnswerResult> =>
+  active?.answer(question, answer) ??
+    Promise.resolve({ ok: false as const, message: "This seat was already answered, or is no longer asking." });
+/** Told when a view here is asked a question, or one is settled. */
+export const onSeatViewQuestions = (listener: () => void): (() => void) => {
+  viewQuestionListeners.add(listener);
+  return () => { viewQuestionListeners.delete(listener); };
+};
