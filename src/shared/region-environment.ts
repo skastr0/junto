@@ -184,7 +184,7 @@ export const reservedEnvNameReason = (name: string): string | undefined => {
     (SPAWN_ENV_SCRUB as ReadonlyArray<string>).includes(name) ||
     SPAWN_ENV_SCRUB_PREFIXES.some((prefix) => name.startsWith(prefix))
   ) {
-    return `Junto removes ${name} from every seat: it would carry the launching terminal into the seat`;
+    return `Junto removes ${name} from every seat: it marks a nested session`;
   }
   return undefined;
 };

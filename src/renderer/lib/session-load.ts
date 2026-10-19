@@ -40,14 +40,14 @@ export const sessionLoadPresentation = (input: {
       return {
         phase: "finding",
         tone: "cyan",
-        label: "finding the seat",
+        label: "finding session",
         hex: SESSION_LOAD_TONE_HEX.cyan,
       };
     case "starting":
       return {
         phase: "starting",
         tone: "amber",
-        label: "starting",
+        label: "starting session",
         hex: SESSION_LOAD_TONE_HEX.amber,
       };
     case "attaching":

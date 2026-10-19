@@ -298,7 +298,7 @@ describe("merge and report", () => {
     expect(merged.report[0]!.reason).toBe(
       "JUNTO_SOCKET is not applied: names that start with JUNTO_ are reserved for Junto",
     );
-    expect(merged.report[1]!.reason).toContain("launching terminal into the seat");
+    expect(merged.report[1]!.reason).toContain("nested session");
     expect(merged.report[3]!.reason).toContain("JUNTO_SEAT");
     expect(reservedEnvNameReason("PATH")).toBeUndefined();
     expect(reservedEnvNameReason("EXAMPLE_AUTH_TOKEN")).toBeUndefined();

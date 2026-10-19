@@ -14,8 +14,8 @@ describe("sessionLoadPresentation", () => {
   });
 
   it("finds the seat, then says it is starting, however it picks up", () => {
-    expect(sessionLoadPresentation({ phase: "finding" }).label).toBe("finding the seat");
-    expect(sessionLoadPresentation({ phase: "starting" }).label).toBe("starting");
+    expect(sessionLoadPresentation({ phase: "finding" }).label).toBe("finding session");
+    expect(sessionLoadPresentation({ phase: "starting" }).label).toBe("starting session");
   });
 });
 
