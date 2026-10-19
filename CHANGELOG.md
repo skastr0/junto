@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.9.2 — 2026-10-19
+
+- Answer Needs you from a list and a detail pane. Each item has four answers:
+  dismiss, acknowledge, a quiet note, or a reply, each with a key. Quiet-note
+  presets are set in Settings.
+- Find a seat by urgency. Cmd+K ranks seats on one order, live, newest change
+  first within a state, and Cmd+backtick cycles the seats you visited lately.
+- Read urgency from one typed ladder, shared by every surface and the phone.
+- See wires meet their seats on the phone.
+- Keep held mail when a seat moves machines, and start a seat with thousands
+  of held mails without stalling the link.
+- Send mail across machines past the credit window again.
+- Relaunch only after a Junto that is still quitting has finished.
+
 ## 0.9.1 — 2026-10-19
 
 - Open the desktop canvas on the phone. The phone draws the canvas as the
