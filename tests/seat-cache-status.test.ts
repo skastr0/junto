@@ -64,6 +64,12 @@ describe("seatCacheStatusCopy", () => {
     expect(seatCacheStatusCopy("resting", face(0.5), NOW).line).toBe("resting");
   });
 
+  it("says what picking up where it was re-reads, when the seat's machine has an estimate", () => {
+    const copy = seatCacheStatusCopy("resting", face(72, { cacheMode: "hybrid", tokens: 251_000 }), NOW);
+    expect(copy.rows.at(-1)).toEqual({ key: "Session", value: "about 251k tokens" });
+    expect(seatCacheStatusCopy("resting", face(72), NOW).rows.some((row) => row.key === "Session")).toBe(false);
+  });
+
   it("leaves the mode out when the seat's machine has not said it", () => {
     const copy = seatCacheStatusCopy("resting", face(14), NOW);
     expect(copy.rows.some((row) => row.key === "Mode")).toBe(false);

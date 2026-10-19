@@ -159,7 +159,7 @@ export const offboardIdleLine = (statuses: ReadonlyArray<SeatOffboardStatus>): s
 };
 
 /** "180k", "1.2M", "850": a token estimate at the precision it has. */
-const tokensWords = (tokens: number): string => {
+export const tokensWords = (tokens: number): string => {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1).replace(/\.0$/u, "")}M`;
   if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k`;
   return String(tokens);

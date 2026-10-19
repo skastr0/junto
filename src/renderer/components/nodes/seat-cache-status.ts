@@ -7,6 +7,7 @@
  */
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 import type { SeatCacheWindow } from "@shared/seat-next-launch";
+import { tokensWords } from "../../lib/seat-offboard";
 import { CACHE_MODE_COPY } from "../settings/OffboardSettingsSection";
 
 /** What the card hands the status line: the window, and whose it is. */
@@ -67,6 +68,8 @@ export const seatCacheStatusCopy = (words: string, face: SeatCacheFace, now: num
       ? { key: "Expired", value: `at ${ends}, ${minutesWords(Math.floor((now - window.windowEndsAt) / MINUTE_MS))} ago` }
       : { key: "Expires", value: `at ${ends}, in ${minutesWords(Math.ceil((window.windowEndsAt - now) / MINUTE_MS))}` },
     ...(mode === undefined ? [] : [{ key: "Mode", value: mode.label.toLowerCase() }]),
+    // What picking up where it was re-reads, when the seat's machine has an estimate.
+    ...(window.tokens === undefined ? [] : [{ key: "Session", value: `about ${tokensWords(window.tokens)} tokens` }]),
   ];
   const notes = [
     expired
