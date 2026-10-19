@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SeatCacheDueAnswer } from "@shared/seat-cache-due";
 import { answerSeatCacheDue, cacheDueLine, useSeatCacheDue } from "../../lib/seat-cache-due-state";
 import { Button } from "../ui/Button";
@@ -11,6 +11,10 @@ const LINE_REFRESH_MS = 30_000;
  * cache window ended while the operator had it open, so Junto asks before it
  * starts the seat fresh. Shown only while main lists this seat. The whole
  * drawing is this component, so a different look swaps it alone.
+ *
+ * Presses are heard by a native listener, not React's: in a grid cell the
+ * view is adopted DOM outside the app root, where React hears nothing, and a
+ * seat in a grid cell is asked too.
  */
 export function SeatCacheDuePopup({
   canvasName,
@@ -23,6 +27,8 @@ export function SeatCacheDuePopup({
   const [now, setNow] = useState(() => Date.now());
   const [pending, setPending] = useState<SeatCacheDueAnswer>();
   const [failure, setFailure] = useState<string>();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const answerRef = useRef<(choice: SeatCacheDueAnswer) => Promise<void>>(async () => undefined);
 
   useEffect(() => {
     if (due === undefined) return;
@@ -36,9 +42,8 @@ export function SeatCacheDuePopup({
     setFailure(undefined);
   }, [due?.windowEndsAt]);
 
-  if (due === undefined) return null;
-
-  const answer = async (choice: SeatCacheDueAnswer): Promise<void> => {
+  answerRef.current = async (choice) => {
+    if (pending !== undefined) return;
     setPending(choice);
     setFailure(undefined);
     const result = await answerSeatCacheDue(canvasName, seatId, choice);
@@ -46,8 +51,24 @@ export function SeatCacheDuePopup({
     if (!result.ok) setFailure(result.message);
   };
 
+  const shown = due !== undefined;
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const onClick = (event: MouseEvent): void => {
+      const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>("button[data-answer]") : null;
+      if (!button || button.disabled) return;
+      const choice = button.dataset.answer;
+      if (choice === "fresh" || choice === "keep") void answerRef.current(choice);
+    };
+    root.addEventListener("click", onClick);
+    return () => root.removeEventListener("click", onClick);
+  }, [shown]);
+
+  if (due === undefined) return null;
+
   return (
-    <div className="seat-cache-due" role="region" aria-label="Cache expired" data-testid="seat-cache-due">
+    <div ref={rootRef} className="seat-cache-due" role="region" aria-label="Cache expired" data-testid="seat-cache-due">
       <div className="seat-cache-due__text">
         <span>{cacheDueLine(due.windowEndsAt, now)} Start fresh, or keep this session?</span>
         {failure ? (
@@ -60,8 +81,8 @@ export function SeatCacheDuePopup({
         size="sm"
         variant="primary"
         disabled={pending !== undefined}
+        data-answer="fresh"
         data-testid="seat-cache-due-fresh"
-        onClick={() => void answer("fresh")}
       >
         {pending === "fresh" ? "Starting fresh…" : "Start fresh"}
       </Button>
@@ -69,8 +90,8 @@ export function SeatCacheDuePopup({
         size="sm"
         variant="chrome"
         disabled={pending !== undefined}
+        data-answer="keep"
         data-testid="seat-cache-due-keep"
-        onClick={() => void answer("keep")}
       >
         Keep this session
       </Button>

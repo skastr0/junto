@@ -73,8 +73,8 @@ const render = async (seatId = "seat-1") => {
 };
 
 const popup = () => host.querySelector('[data-testid="seat-cache-due"]');
-const press = async (testId: string) => {
-  act(() => (host.querySelector(`[data-testid="${testId}"]`) as HTMLButtonElement).click());
+const press = async (testId: string, within: ParentNode = host) => {
+  act(() => (within.querySelector(`[data-testid="${testId}"]`) as HTMLButtonElement).click());
   await flush();
 };
 
@@ -133,6 +133,20 @@ describe("the cache question in the seat's view", () => {
     await press("seat-cache-due-keep");
     expect(bridge.answers.at(-1)).toEqual({ canvasName: "factory", seatId: "seat-1", answer: "keep" });
     expect(host.querySelector('[data-testid="seat-cache-due-failure"]')).toBeNull();
+  });
+
+  it("hears a press on a view adopted outside React's root, as a grid cell is", async () => {
+    await render();
+    push([ask("seat-1")]);
+    const elsewhere = document.createElement("div");
+    document.body.appendChild(elsewhere);
+    const shown = popup()!;
+    elsewhere.appendChild(shown);
+    await press("seat-cache-due-keep", elsewhere);
+    expect(bridge.answers).toEqual([{ canvasName: "factory", seatId: "seat-1", answer: "keep" }]);
+    // Back where React left it, so it can unmount it.
+    host.appendChild(shown);
+    elsewhere.remove();
   });
 
   it("reads the line again as time passes", async () => {

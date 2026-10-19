@@ -2262,8 +2262,8 @@ export function TerminalSurface({
               .join(" ")}
             aria-hidden={showDeadOverlay || showLoadOverlay || undefined}
           />
-          {/* Not in a grid cell: React never hears a press there. */}
-          {agentSeat && !grid ? <SeatCacheDuePopup canvasName={canvasName} seatId={node.id} /> : null}
+          {/* In a grid cell too: a seat the operator is looking at is asked, never yanked. */}
+          {agentSeat ? <SeatCacheDuePopup canvasName={canvasName} seatId={node.id} /> : null}
           {showLoadOverlay && loadPresentation ? (
             <div className="native-terminal-surface__load">
               <SessionLoadSpinner
