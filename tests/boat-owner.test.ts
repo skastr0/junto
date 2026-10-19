@@ -58,3 +58,43 @@ it("never answers with a cause's own text", async () => {
   expect(response).toMatchObject({ ok: false, error: { message: "The Boat machine command failed" } });
   expect(JSON.stringify(response)).not.toContain("boat_SECRET");
 });
+
+it("deletes a sandbox whose add failed before it reached the machine list, without a machine.remove", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { makeBoatClient } = await import("../src/main/junto/boat/client");
+  const { readBoatRecords, updateBoatRecords } = await import("../src/main/junto/boat/files");
+  const { storeBoatAccountKey } = await import("../src/main/junto/boat/account");
+  const { makeBoatOwner } = await import("../src/main/junto/boat/owner");
+  const { SshTransport } = await import("../src/main/junto/ssh");
+  const previous = process.env.JUNTO_SECRET_STORE;
+  process.env.JUNTO_SECRET_STORE = "file";
+  const home = await mkdtemp(join(tmpdir(), "junto-boat-owner-"));
+  try {
+    storeBoatAccountKey(home, "boat_ACCOUNTKEY00000000000000000000");
+    await updateBoatRecords(home, (records) => ({ ...records, machines: [{ name: "half-made", sandboxId: "bx_half01", size: "small" }] }));
+    const deleted: string[] = [];
+    const ops: string[] = [];
+    const client = makeBoatClient({
+      key: Effect.succeed("boat_ACCOUNTKEY00000000000000000000"),
+      fetch: async (url, init) => {
+        if (init.method === "DELETE") deleted.push(new Headers(init.headers).get("x-ascii-confirm-delete") ?? "");
+        return new Response("{}", { status: 202 });
+      },
+    });
+    const machines = { record: async (name: string) => (await readBoatRecords(home)).machines.find((row) => row.name === name) } as unknown as BoatMachines;
+    const owner = await Effect.runPromise(makeBoatOwner({
+      run: (effect) => Effect.runPromise(effect), home, client, machines, machineName: async () => "mac", log: () => undefined,
+      getHost: async () => undefined,
+      dispatch: async (req) => { ops.push(req.op); return okFor(req); },
+    }).pipe(Effect.provideService(SshTransport, {} as never)));
+    expect(await owner.handle(request("machine.boat-delete", { name: "half-made" }))).toEqual({ machineName: "half-made", removed: true });
+    expect(ops).toEqual([]);
+    expect(deleted).toEqual(["bx_half01"]);
+    expect((await readBoatRecords(home)).machines).toEqual([]);
+  } finally {
+    if (previous === undefined) delete process.env.JUNTO_SECRET_STORE; else process.env.JUNTO_SECRET_STORE = previous;
+    await rm(home, { recursive: true, force: true });
+  }
+});

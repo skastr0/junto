@@ -213,7 +213,10 @@ export const makeBoatOwner = (deps: BoatOwnerDeps) => Effect.gen(function* () {
   const boatDelete = async (name: string): Promise<MachineRemoved> => {
     requireAccount();
     if (await deps.machines.record(name) === undefined) throw new BoatMachineRefused({ machine: name, check: "not-boat", message: `${name} is not a Boat machine` });
-    const removed = await machineCommand<MachineRemoved>("machine.remove", { name });
+    // An add that failed before machine.add leaves a sandbox with no machine to remove.
+    const removed = await deps.getHost(name) === undefined
+      ? { machineName: name, removed: true as const }
+      : await machineCommand<MachineRemoved>("machine.remove", { name });
     await retire(name, true);
     return removed;
   };
