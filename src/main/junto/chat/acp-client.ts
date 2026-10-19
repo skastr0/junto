@@ -111,7 +111,13 @@ export const acpVerboseLogging = (): boolean => {
   return value === "1" || value.toLowerCase() === "true";
 };
 
-export type SpawnFn = (target: AcpSpawnTarget) => SpawnedAcpChild;
+export type SpawnFn = ((target: AcpSpawnTarget) => SpawnedAcpChild) & {
+  /**
+   * Awaited by start() before the synchronous spawn, e.g. the operator's
+   * shell environment a local child starts with. A rejection fails the start.
+   */
+  readonly prepare?: (target: AcpSpawnTarget) => Promise<void>;
+};
 
 export type AcpHostLocality = (host: string) => boolean;
 
@@ -249,6 +255,10 @@ export class AcpClient {
   // tears down the child) if the handshake doesn't complete within 20s.
   async start(): Promise<AcpInitializeResult> {
     if (this.closedFlag) throw new Error("ACP client is closed");
+    if (this.spawnFn.prepare !== undefined) {
+      await this.spawnFn.prepare(this.target);
+      if (this.closedFlag) throw new Error("ACP client is closed");
+    }
 
     // A restart supersedes the exact prior child. Detach it from client state
     // before signaling so a synchronous/late exit cannot close the replacement.

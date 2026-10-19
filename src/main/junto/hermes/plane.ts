@@ -13,13 +13,14 @@ import {
   Stream,
 } from "effect";
 import { resolvedSpawnEnvSync } from "../adapters/exec";
+import { shellEnvironment } from "../shell-environment";
 import {
   fetchHermesBundle,
   type HermesFleetOperations,
 } from "../adapters/hermes";
 import { appProcessPlane } from "../app-process-plane";
 import type { AppProcessLease, AppProcessPlane } from "../app-process-plane";
-import type { AcpChildLike, SpawnFn } from "../chat/acp-client";
+import type { AcpChildLike, SpawnedAcpChild, SpawnFn } from "../chat/acp-client";
 import {
   ChatService,
   ChatServiceContext,
@@ -430,7 +431,7 @@ export const HermesPlaneLive = Layer.effect(
         runOwned(transport.version(host), signal === undefined ? undefined : { signal }),
     };
 
-    const spawnAcp: SpawnFn = (target: AcpSpawnTarget) => {
+    const spawnLocalOrRemote = (target: AcpSpawnTarget): SpawnedAcpChild => {
       // Only this machine's exact Hermes prefix is a direct
       // child. Every other key remains registry/SSH-backed.
       if (!isLocalHermesHost(target.host, identity())) {
@@ -462,6 +463,14 @@ export const HermesPlaneLive = Layer.effect(
         processPlane: appProcessPlane,
       };
     };
+
+    // A local Hermes starts with the operator's shell environment, read
+    // again first when a shell startup file changed since the last read.
+    const spawnAcp: SpawnFn = Object.assign(spawnLocalOrRemote, {
+      prepare: async (target: AcpSpawnTarget): Promise<void> => {
+        if (isLocalHermesHost(target.host, identity())) await shellEnvironment.beforeSpawn();
+      },
+    });
 
     const chat = new ChatService(spawnAcp, (host) =>
       isLocalHermesHost(host, identity()),
