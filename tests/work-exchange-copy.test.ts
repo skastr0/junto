@@ -766,3 +766,50 @@ describe("the copy and where its seats were", () => {
     expect(asCanvasName("factory")).toBe("factory");
   });
 });
+
+describe("mail held for a seat that moves to another machine", () => {
+  const helper = seat("helper", { ...place, x: 0, y: 200, host: "macbook" as never, agentKey: "macbook:claude", bindingId: "binding-helper" as never });
+
+  /** The macbook's `lead` mails its own `helper` while the mini is linked: none of it is the mini's. */
+  const held = async () => {
+    const macbook = await boot("macbook", MACBOOK, [["mini", MINI]]);
+    const mini = await boot("mini", MINI, [["macbook", MACBOOK]]);
+    await macbook.runtime.runPromise(seedCanvas("factory", [lead, peer, helper]));
+    await link(macbook, mini);
+    await settle();
+    // More than one frame of it, so the mini is told through past a whole page.
+    const sent = Array.from({ length: 70 }, (_, index) => `held-${index}`);
+    for (const messageId of sent) {
+      await mail(macbook, { id: "lead", bindingId: "binding-lead" }, "helper", messageId);
+      await settle();
+    }
+    expect(await inbox(mini, "helper")).toEqual([]);
+    return { macbook, mini, sent };
+  };
+
+  const moveHelper = (macbook: Machine) =>
+    macbook.runtime.runPromise(
+      Effect.flatMap(ModelService, (model) =>
+        model.command(command({ _tag: "Edit", canvas: "factory", id: "helper", change: { kind: "agent", host: "mini" } }), "operator"),
+      ),
+    );
+
+  it("reaches the seat's new machine when it moves while the link is open", async () => {
+    const { macbook, mini, sent } = await held();
+    await moveHelper(macbook);
+    await macbook.runtime.runPromise(macbook.exchange.committed("factory"));
+    await settle();
+    expect((await inbox(mini, "helper")).sort()).toEqual([...sent].sort());
+  });
+
+  it("reaches the seat's new machine when it moves while no link is open", async () => {
+    const { macbook, mini, sent } = await held();
+    open.clear();
+    macbook.exchange.closed(MINI);
+    mini.exchange.closed(MACBOOK);
+    await moveHelper(macbook);
+    await link(macbook, mini);
+    await settle();
+    expect((await inbox(mini, "helper")).sort()).toEqual([...sent].sort());
+  });
+});

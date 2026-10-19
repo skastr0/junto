@@ -5357,6 +5357,12 @@ export interface WorkRepositoryShape {
   readonly exchangeHave: (
     canvasName: string,
   ) => Effect.Effect<ReadonlyArray<ExchangeCursor>, WorkRepositoryError>;
+  /**
+   * Forget how far this machine is caught up on a canvas: a seat came to live
+   * here, so rows it was told it holds may now include rows it was not
+   * entitled to then. Its next word asks for every writer's rows from the start.
+   */
+  readonly exchangeForget: (canvasName: string) => Effect.Effect<void, WorkRepositoryError>;
   /** Every writer with rows for a canvas that this machine holds. */
   readonly exchangeWriters: (
     canvasName: string,
@@ -8123,6 +8129,15 @@ export const WorkRepositoryLive = Layer.effect(
         Effect.mapError((error) => toRepositoryError("work.exchange.have", error)),
       );
 
+    const exchangeForget = (canvasName: string): Effect.Effect<void, WorkRepositoryError> =>
+      sql
+        .withTransaction(sql.unsafe("DELETE FROM work_exchange_cursors WHERE canvas_name = ?", [canvasName]))
+        .pipe(
+          Effect.asVoid,
+          Effect.provideService(StateTransactionOperation, "work.exchange.forget"),
+          Effect.mapError((error) => toRepositoryError("work.exchange.forget", error)),
+        );
+
     const exchangeWriters = (
       canvasName: string,
     ): Effect.Effect<ReadonlyArray<InstallationId>, WorkRepositoryError> =>
@@ -8542,6 +8557,7 @@ export const WorkRepositoryLive = Layer.effect(
       deleteArtifact,
       recordCanvasCopySent,
       exchangeHave,
+      exchangeForget,
       exchangeWriters,
       exchangeRows,
       applyExchangeRows,

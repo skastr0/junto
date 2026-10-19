@@ -248,6 +248,15 @@ export const makeLiveRowExchange = (
 
     const installCopy = (copy: CanvasCopy): Effect.Effect<CopyInstalled, unknown> =>
       Effect.gen(function* () {
+        // A seat that comes to live here makes its held mail this machine's:
+        // forgotten before the copy is kept, so no stop in between loses it.
+        const here = yield* machines.machineName;
+        const seated = new Set(
+          (yield* records.listNodes(copy.canvasName)).flatMap((node) =>
+            node.kind === "agent" && node.host === here ? [node.id as string] : [],
+          ),
+        );
+        if (copy.seats.some((seat) => !seated.has(seat.id))) yield* repository.exchangeForget(copy.canvasName);
         const outcome = yield* model.installCopy({
           canvas: copy.canvasName,
           canvasId: copy.canvasId,
