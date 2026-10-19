@@ -193,6 +193,21 @@ export type AppProcessStragglerState =
   | "ownership-unverified"
   | "refused";
 
+/**
+ * Quit gate, as for the terminal plane: a leftover blocks app exit only when it
+ * could hold work. A read-only adapter command whose leader is already gone
+ * cannot be signaled and writes nothing, so it is logged, never a reason to
+ * stop a quit or an update install.
+ */
+export const appProcessBlocksAppExit = (
+  stragglers: readonly Pick<AppProcessStraggler, "source" | "state">[],
+): boolean =>
+  stragglers.some((straggler) =>
+    !(straggler.source === "adapter.cli" &&
+      (straggler.state === "ownership-unverified" ||
+        straggler.state === "leaderless-group"))
+  );
+
 export interface AppProcessStraggler {
   readonly generation: number;
   readonly source: string;
