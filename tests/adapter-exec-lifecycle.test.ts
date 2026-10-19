@@ -106,17 +106,18 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
         "adapter command leader exited while output streams remained open; adapter operation stopped waiting for stream closure",
       inheritedGrandchildAliveWhenSettled: true,
       inheritedAliveAtAdapterDrain: true,
-      inheritedAliveAtAppDrain: true,
+      // C2: the app drain signals the members a leader left, recorded when it exited.
+      inheritedAliveAtAppDrain: false,
       closedResultOk: true,
       closedGrandchildAliveWhenSettled: true,
       closedAliveAtAdapterDrain: true,
-      closedAliveAtAppDrain: true,
+      closedAliveAtAppDrain: false,
       pendingOk: false,
       pendingError: "adapter process plane is shutting down",
       parentAlive: false,
       activeGrandchildAlive: false,
       activeGroupReapedBeforeHardExpiry: true,
-      appDrainClean: false,
+      appDrainClean: true,
       adapterRetrySettled: true,
       adapterRetryPending: 0,
       adapterRetryScope: "adapter-operations",
@@ -126,9 +127,7 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
       lateError: "adapter process plane is shutting down",
       markerCreated: false,
     });
-    expect(receipt.appDrainStragglerStates.filter(
-      (state) => state === "leaderless-group"
-    ).length).toBeGreaterThanOrEqual(2);
+    expect(receipt.appDrainStragglerStates).toEqual([]);
   }, 10_000);
 
   it("leaves failed group ownership observation solely in the central receipt", async () => {

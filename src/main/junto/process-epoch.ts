@@ -436,6 +436,45 @@ export const captureProcessGroupObservationAsync = async (
 };
 
 /**
+ * The members a group leader left behind, read in the first table after it
+ * exited. While one member lives the pgid stays in use and is not handed out
+ * again, so these rows are the leader's own descendants. Rows that appear in
+ * the pgid later are never added: once the group has emptied, the number can
+ * come back as someone else's (a daemon's setsid plus fork). A row at the
+ * leader's pid means the pid is back already, and nothing is recorded.
+ * `undefined` means the table was unavailable or the pid was back.
+ */
+export const captureResidualGroupMembersAsync = async (
+  leaderPid: number,
+): Promise<readonly ChildProcessEpoch[] | undefined> => {
+  const selectedReader = reader;
+  try {
+    const snapshot = selectedReader.snapshotAsync === undefined
+      ? selectedReader.snapshot()
+      : await selectedReader.snapshotAsync();
+    if (snapshot === undefined) return undefined;
+    if (snapshot.some((row) => row.pid === leaderPid)) return undefined;
+    return Object.freeze(snapshot
+      .filter((row) => row.processGroupId === leaderPid)
+      .map((row) => Object.freeze({ pid: row.pid, startKey: row.startKey })));
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * One pid's row from one single-pid read, for a signal decision made on it
+ * alone. `undefined` means the read failed; `{ row: undefined }` means the pid
+ * is gone.
+ */
+export const readProcessEpochRow = (
+  pid: number,
+): { readonly row: ProcessEpochRow | undefined } | undefined => {
+  const snapshot = reader.snapshot(pid);
+  return snapshot === undefined ? undefined : { row: snapshot.find((row) => row.pid === pid) };
+};
+
+/**
  * Refresh any number of tombstones from one coherent full process table.
  * `undefined` means the table was unavailable and every input stays unclean.
  */

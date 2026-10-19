@@ -56,7 +56,7 @@ const callSites = parsedSources.flatMap(({ file, source }): ReadonlyArray<CallSi
 const isProcessKill = (site: CallSite): boolean =>
   site.callee === "process.kill" || site.callee === "globalThis.process.kill";
 
-const processKillMode = (site: CallSite): "group" | "probe" | "forbidden" => {
+const processKillMode = (site: CallSite): "group" | "probe" | "residual-member" | "forbidden" => {
   const [target, signal] = site.call.arguments;
   if (signal && ts.isNumericLiteral(signal) && signal.text === "0") return "probe";
   if (
@@ -66,6 +66,8 @@ const processKillMode = (site: CallSite): "group" | "probe" | "forbidden" => {
   ) {
     return "group";
   }
+  // A recorded group member's positive pid, re-verified just before (C2).
+  if (target && target.getText(site.source) === "member.pid") return "residual-member";
   return "forbidden";
 };
 
@@ -339,6 +341,9 @@ describe("machine-safety architecture", () => {
       "src/main/junto/process-identity.ts:probe",
       "src/main/junto/process-signal.ts:group",
       "src/main/junto/process-signal.ts:probe",
+      // signalGroupResidue: one member the leader left, by positive pid, only
+      // while its pgid and start time still match the recording read.
+      "src/main/junto/process-signal.ts:residual-member",
     ]);
   });
 

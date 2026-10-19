@@ -3,8 +3,10 @@ import { Schema } from "effect";
 import {
   captureChildProcessEpoch,
   captureProcessEpoch,
+  captureResidualGroupMembersAsync,
   childProcessEpochIsCurrent,
   processGroupEpochIsCurrent,
+  readProcessEpochRow,
   type ChildProcessEpoch,
   type ProcessGroupEpoch,
 } from "./process-epoch";
@@ -212,7 +214,8 @@ export const signalOwned = (process: OwnedProcess, signal: TerminatingSignal): S
     return { attempted: false, decision: { ok: false, reason: "group-epoch-mismatch" }, via: "none" };
   }
   try {
-    // Sole terminating process.kill in Junto: negative verified group leader only.
+    // Terminating process.kill: negative verified group leader only. The other
+    // site is signalGroupResidue, positive recorded members only.
     globalThis.process.kill(-rec.pid, signal);
     return { attempted: true, decision: { ok: true, mode: "group" }, via: "process.kill-group" };
   } catch {
@@ -265,6 +268,75 @@ export const signalOwnedGroupLeader = (
   }
   return signalChild(rec, signal);
 };
+const GroupResidueTypeId: unique symbol = Symbol("@junto/GroupResidue");
+/**
+ * What a group leader left behind when it exited: the exact members of its
+ * pgid, recorded from the first table after the exit and never added to after.
+ * Minted only from live group authority, before that authority is released,
+ * and it can signal only those recorded members, one positive pid at a time.
+ */
+export interface GroupResidue { readonly [GroupResidueTypeId]: typeof GroupResidueTypeId; readonly source: string; }
+type ResidueRecord = { readonly source: string; readonly processGroupId: KillablePid; members: readonly ChildProcessEpoch[] | undefined; recorded: boolean };
+const residues = new WeakMap<GroupResidue, ResidueRecord>();
+
+export type ResidualSignalOutcome = "sent" | "gone" | "changed" | "unreadable" | "refused" | "failed";
+export type ResidualSignalReceipt = {
+  readonly pid: number;
+  readonly signal: "SIGTERM" | "SIGKILL";
+  readonly reason: string;
+  readonly outcome: ResidualSignalOutcome;
+};
+
+export const beginGroupResidue = (process: OwnedProcess): GroupResidue | undefined => {
+  const rec = authority.get(process);
+  if (!rec || rec.released || rec.kind !== "group") return undefined;
+  const handle: GroupResidue = { [GroupResidueTypeId]: GroupResidueTypeId, source: rec.source };
+  residues.set(handle, { source: rec.source, processGroupId: rec.pid, members: undefined, recorded: false });
+  return handle;
+};
+
+/** The one table read that records members. A second call reads nothing. */
+export const recordGroupResidue = async (
+  residue: GroupResidue,
+): Promise<readonly ChildProcessEpoch[] | undefined> => {
+  const rec = residues.get(residue);
+  if (!rec) return undefined;
+  if (rec.recorded) return rec.members;
+  rec.recorded = true;
+  rec.members = await captureResidualGroupMembersAsync(rec.processGroupId);
+  return rec.members;
+};
+
+export const signalGroupResidue = (
+  residue: GroupResidue,
+  signal: "SIGTERM" | "SIGKILL",
+  reason: string,
+): readonly ResidualSignalReceipt[] => {
+  const rec = residues.get(residue);
+  if (!rec?.members) return [];
+  return rec.members.map((member): ResidualSignalReceipt => {
+    const receipt = (outcome: ResidualSignalOutcome): ResidualSignalReceipt => {
+      if (outcome !== "sent" && outcome !== "gone") {
+        pushAudit({ source: rec.source, pid: member.pid, signal, requestedGroup: false, decision: { ok: false, reason: `residual-${outcome}` } });
+      }
+      return Object.freeze({ pid: member.pid, signal, reason, outcome });
+    };
+    if (!classifyProcessSignalTarget({ pid: member.pid }).ok) return receipt("refused");
+    // Decide on one fresh single-pid read: same pgid and the same start time.
+    const read = readProcessEpochRow(member.pid);
+    if (read === undefined) return receipt("unreadable");
+    if (read.row === undefined) return receipt("gone");
+    if (read.row.processGroupId !== rec.processGroupId || read.row.startKey !== member.startKey) return receipt("changed");
+    try {
+      // Positive pid of a recorded member only, never a group.
+      globalThis.process.kill(member.pid, signal);
+      return receipt("sent");
+    } catch {
+      return receipt("failed");
+    }
+  });
+};
+
 export const releaseOwned = (process: OwnedProcess | undefined): void => { if (!process) return; const rec = authority.get(process); if (!rec) return; rec.released = true; authority.delete(process); };
 /** Existence probe only, never a terminating signal. */
 export const probeProcessAlive = (pid: number | undefined): boolean => { try { return pid !== undefined && pid > 0 ? globalThis.process.kill(pid, 0) : false; } catch { return false; } };

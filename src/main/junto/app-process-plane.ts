@@ -15,11 +15,16 @@ import {
 } from "./process-epoch";
 import {
   admitChildProcess,
+  beginGroupResidue,
+  recordGroupResidue,
   releaseOwned,
+  signalGroupResidue,
   signalOwned,
   signalOwnedGroupLeader,
   spawnDetachedProcessGroup,
+  type GroupResidue,
   type OwnedProcess,
+  type ResidualSignalReceipt,
   type SignalChildHandle,
   type SignalOwnedResult,
 } from "./process-signal";
@@ -224,6 +229,8 @@ export interface AppProcessStraggler {
   readonly closed?: boolean;
   /** Diagnostics only: every pid seen in the group, which includes any member still alive. */
   readonly groupPids?: readonly number[];
+  /** Signals sent to the members a leader left behind, one receipt per member and phase. */
+  readonly residual?: readonly ResidualSignalReceipt[];
 }
 
 /**
@@ -245,6 +252,9 @@ export const describeAppProcessStraggler = (straggler: AppProcessStraggler): str
     exitPart,
     ...(straggler.closed === undefined ? [] : [straggler.closed ? "pipes closed" : "pipes open"]),
     ...(straggler.groupPids === undefined ? [] : [`group pids=[${straggler.groupPids.join(" ")}]`]),
+    ...(straggler.residual === undefined || straggler.residual.length === 0 ? [] : [
+      `residual [${straggler.residual.map((receipt) => `pid=${receipt.pid} ${receipt.signal} ${receipt.outcome}`).join(" ")}]`,
+    ]),
     `TERM ${signalPart(straggler.term)}`,
     `KILL ${signalPart(straggler.kill)}`,
   ].join(", ");
@@ -306,6 +316,9 @@ interface AppProcessRecord extends AppOwnedRecord {
   exitEvent: AppProcessExit | undefined;
   closeEvent: AppProcessClose | undefined;
   groupObservation: ProcessGroupObservation | undefined;
+  /** Set when the group leader is seen gone, before its authority is released. */
+  residue: GroupResidue | undefined;
+  readonly residualReceipts: ResidualSignalReceipt[];
 }
 
 interface AppTerminalRecord extends AppOwnedRecord {
@@ -535,6 +548,9 @@ const summarizeStraggler = (record: AppRecord): AppProcessStraggler =>
     ...(record.mode === "group" && record.groupObservation !== undefined
       ? { groupPids: Object.freeze(record.groupObservation.observedMemberEpochs.map((member) => member.pid)) }
       : {}),
+    ...(record.mode !== "terminal" && record.residualReceipts.length > 0
+      ? { residual: Object.freeze([...record.residualReceipts]) }
+      : {}),
   });
 
 const quiescingError = (): Error =>
@@ -681,6 +697,30 @@ export const createAppProcessPlane = (
     }
   };
 
+  /**
+   * The leader is gone: before its group authority is released, keep a residue
+   * that can reach only the members it left, recorded in one table read now.
+   * That read also stands in for a spawn observation that never saw the leader.
+   */
+  const recordResidue = (record: AppProcessRecord): void => {
+    if (record.mode !== "group" || record.residue !== undefined || record.authorityReleased) return;
+    const residue = beginGroupResidue(record.owned);
+    if (residue === undefined) return;
+    record.residue = residue;
+    const leaderPid = record.pidForDiagnostics;
+    const read = recordGroupResidue(residue).then((members) => {
+      if (members === undefined || leaderPid === undefined || record.groupObservation !== undefined) return;
+      record.groupObservation = { originalProcessGroupId: leaderPid, observedMemberEpochs: members };
+    }, () => undefined);
+    pendingGroupObservations.add(read);
+    void read.then(() => { pendingGroupObservations.delete(read); });
+  };
+
+  const signalResidue = (record: AppRecord, signal: "SIGTERM" | "SIGKILL"): void => {
+    if (record.mode === "terminal" || record.residue === undefined) return;
+    record.residualReceipts.push(...signalGroupResidue(record.residue, signal, "app-quit-drain-residual"));
+  };
+
   const makeIo = (record: AppProcessRecord): AppChildIo => {
     let resolveExit!: (event: AppProcessExit) => void;
     let resolveClose!: (event: AppProcessClose) => void;
@@ -697,6 +737,7 @@ export const createAppProcessPlane = (
       record.exitEvent = event;
       // An exited leader can no longer be safely targeted. Keep the record
       // strong until close drains its inherited stdio endpoints.
+      recordResidue(record);
       releaseRecordAuthority(record);
       resolveExit(event);
       notify(record.exitListeners, event);
@@ -714,6 +755,7 @@ export const createAppProcessPlane = (
         // observed exit event. Keep onExit diagnostic callbacks distinct.
         resolveExit(event);
       }
+      recordResidue(record);
       releaseRecordAuthority(record);
       // A group leader's close proves only that its pipes drained, not that
       // every descendant in the process group is gone. Retain a non-signalable
@@ -808,6 +850,8 @@ export const createAppProcessPlane = (
       exitEvent: undefined,
       closeEvent: undefined,
       groupObservation: undefined,
+      residue: undefined,
+      residualReceipts: [],
       authorityReleased: false,
       term: undefined,
       kill: undefined,
@@ -1068,7 +1112,7 @@ export const createAppProcessPlane = (
       // and failure leaves the retained group explicitly ownership-unverified.
       const record = leases.get(lease)!;
       const observation = captureGroupObservation(spawned.child.pid, spawned.groupEpoch)
-        .then((captured) => { record.groupObservation = captured; });
+        .then((captured) => { record.groupObservation = captured ?? record.groupObservation; });
       pendingGroupObservations.add(observation);
       void observation.then(() => { pendingGroupObservations.delete(observation); });
     }
@@ -1257,6 +1301,8 @@ export const createAppProcessPlane = (
       for (const record of [...records]) {
         if (record.exitEvent === undefined && record.closeEvent === undefined) {
           signalRecord(record, "SIGTERM", "app-quit-drain");
+        } else {
+          signalResidue(record, "SIGTERM");
         }
       }
 
@@ -1269,6 +1315,8 @@ export const createAppProcessPlane = (
       for (const record of [...records]) {
         if (record.exitEvent === undefined && record.closeEvent === undefined) {
           signalRecord(record, "SIGKILL", "app-quit-drain");
+        } else {
+          signalResidue(record, "SIGKILL");
         }
       }
 
