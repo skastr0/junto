@@ -7,12 +7,12 @@ import { modelFixture, modelSeat } from "../harness/model";
  * own CLI with a code block and a diff typed inline, two files to compare,
  * and a commit. The claims, on the built app:
  *   - the signal carries them in the fixed order: code, diff, compare, commit
- *   - the card's details draw each one in place, highlighted, under its
- *     caption and name; nothing is a bare tile
+ *   - the selected item's detail pane draws each one in place, highlighted,
+ *     under its caption and name; nothing is a bare tile
  *   - the commit is read from the seat's own folder: its subject and its diff
  *   - any of them opens large in the viewer
  *   - Review this commit opens the full review in place of the feed, and
- *     closing it comes back to the same card with its details still open
+ *     closing it comes back to the same item, selected, its pane showing
  */
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
@@ -113,8 +113,9 @@ test("[fake-tui] a seat attaches code, a diff, a compare and a commit, and the c
     await page.keyboard.press("Meta+I");
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
-    const card = feed.locator(`[data-item-id='signal:${signal.signalId}']`);
-    await card.getByRole("button", { name: /Details/ }).click();
+    await feed.locator(`[data-item-id='signal:${signal.signalId}']`).click();
+    const card = page.locator(`[data-testid='operator-feed-detail'][data-item-id='signal:${signal.signalId}']`);
+    await expect(card).toBeVisible();
     const blocks = card.getByTestId("preview-block");
     await expect(blocks).toHaveCount(4, { timeout: 20_000 });
     await expect(card.getByTestId("preview-thumbnail")).toHaveCount(0);
@@ -154,7 +155,7 @@ test("[fake-tui] a seat attaches code, a diff, a compare and a commit, and the c
     await page.screenshot({ path: join(SHOTS, "viewer-commit-dark.png") });
 
     // Review this commit: the full review opens in place of the feed, and closing it
-    // comes back to the same card with its details still open.
+    // comes back to the same item, selected, with its pane showing.
     await page.keyboard.press("Escape");
     await expect(viewer).toHaveCount(0);
     await blocks.nth(3).getByRole("button", { name: "Review this commit" }).click();
@@ -164,7 +165,7 @@ test("[fake-tui] a seat attaches code, a diff, a compare and a commit, and the c
     await page.keyboard.press("Escape");
     await expect(feed).toBeVisible({ timeout: 10_000 });
     await expect(card.getByTestId("preview-block")).toHaveCount(4, { timeout: 20_000 });
-    await expect(card).toHaveAttribute("aria-current", "true");
+    await expect(feed.locator(`[data-item-id='signal:${signal.signalId}']`)).toHaveAttribute("aria-current", "true");
   } finally {
     await junto.close();
     await rm(repo, { recursive: true, force: true });

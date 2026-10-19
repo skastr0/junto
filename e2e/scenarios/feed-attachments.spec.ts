@@ -11,7 +11,7 @@ import { modelFixture, modelSeat } from "../harness/model";
  * Asserts:
  *   - the CLI refuses a file no preview can show, naming it, and raises nothing
  *   - the raised signal carries two attachments by content reference, no path anywhere
- *   - with the originals gone, the card's details show both as pictures, in order, tagged A and B
+ *   - with the originals gone, the item's detail pane shows both as pictures, in order, tagged A and B
  *   - the viewer opens on the attached file with the agent's caption, and offers no reveal in Finder
  *   - the A B view opens on the Before and After pair
  *   - main serves an attachment only by its place in that signal's list
@@ -143,9 +143,10 @@ test("[fake-tui] a seat attaches files to a signal and the card shows them after
     await page.keyboard.press("Meta+I");
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
-    const card = feed.locator(`[data-item-id='signal:${signal.signalId}']`);
-    // No longer text was sent: the files alone give the card its details.
-    await card.getByRole("button", { name: /Details/ }).click();
+    // No longer text was sent: the files alone fill the item's detail pane.
+    await feed.locator(`[data-item-id='signal:${signal.signalId}']`).click();
+    const card = page.locator(`[data-testid='operator-feed-detail'][data-item-id='signal:${signal.signalId}']`);
+    await expect(card).toBeVisible();
     const strip = card.getByTestId("preview-strip");
     const thumbs = strip.getByTestId("preview-thumbnail");
     await expect(thumbs).toHaveCount(2);
@@ -243,8 +244,9 @@ test("[fake-tui] a seat attaches files to a signal and the card shows them after
     // The whole log opens in the viewer, not a first slice of it.
     await page.keyboard.press("Meta+I");
     await expect(feed).toBeVisible({ timeout: 10_000 });
-    const bigCard = feed.locator(`[data-item-id='signal:${bigSignal.signalId}']`);
-    await bigCard.getByRole("button", { name: /Details/ }).click();
+    await feed.locator(`[data-item-id='signal:${bigSignal.signalId}']`).click();
+    const bigCard = page.locator(`[data-testid='operator-feed-detail'][data-item-id='signal:${bigSignal.signalId}']`);
+    await expect(bigCard).toBeVisible();
     const bigThumbs = bigCard.getByTestId("preview-strip").getByTestId("preview-thumbnail");
     await expect(bigThumbs).toHaveCount(2);
     const opening = Date.now();

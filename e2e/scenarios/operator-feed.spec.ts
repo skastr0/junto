@@ -10,14 +10,16 @@
  *   - thirty open signals group under their regions, each header wearing the region's own colour
  *   - no card carries a side stripe; the kind rides on the portrait instead
  *   - the top bar entry carries the live count
+ *   - selecting a row shows it whole in the detail pane: its details and its
+ *     pills, which no row in the list carries
  *   - a quick reply sends by key (1..9) and by click; the answered card leaves
- *   - Enter opens the written reply, which sends with ⌘↵; Dismiss closes without mail
- *   - Settings > Quick replies edits, reorders, and removes replies, and the feed follows
+ *   - Enter opens the written reply in the pane, which sends with ⌘↵; Dismiss closes without mail
+ *   - Settings > Replies edits, reorders, and removes quick replies, and the feed follows
  *   - one signal reads calmly; answering it leaves the calm empty state
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import type { AgentSignal } from "../../src/shared/agent-signals";
 import type { Region, Seat as ModelSeat } from "../../src/shared/model";
 import { modelFixture, modelRegion, modelSeat, type ModelFixture } from "../harness/model";
@@ -110,6 +112,22 @@ const setTheme = async (page: Page, theme: "dark" | "bright"): Promise<void> => 
   await page.waitForTimeout(250);
 };
 
+/** Select one row; the detail pane on the right then shows that item whole. */
+const paneFor = async (page: Page, feed: Locator, id: string): Promise<Locator> => {
+  await feed.locator(`[data-item-id='${id}']`).click();
+  const pane = page.locator(`[data-testid='operator-feed-detail'][data-item-id='${id}']`);
+  await expect(pane).toBeVisible();
+  return pane;
+};
+
+/** The pane of whichever item is selected now. */
+const selectedPane = async (page: Page, feed: Locator): Promise<{ readonly id: string; readonly pane: Locator }> => {
+  const id = (await feed.locator("[aria-current='true']").getAttribute("data-item-id"))!;
+  const pane = page.locator(`[data-testid='operator-feed-detail'][data-item-id='${id}']`);
+  await expect(pane).toBeVisible();
+  return { id, pane };
+};
+
 /** Let the surface finish its entrance and keep the pointer off the rows. */
 const shot = async (page: Page, name: string): Promise<void> => {
   await page.mouse.move(4, 700);
@@ -149,18 +167,20 @@ test("the operator feed at thirty: regions in colour, quick replies, real answer
     expect(stripes).toEqual([]);
     await shot(page, "feed-30-dark.png");
 
-    // Details expand in place.
-    const first = cards.first();
+    // Selecting a row shows it whole in the pane: details without an
+    // expander, and the pill rows that no row in the list carries.
     const detailed = feed.locator("[data-item-id='signal:sig-atlas-0']");
-    await detailed.getByRole("button", { name: "Details" }).click();
-    await expect(detailed.locator(".operator-feed__detail")).toContainText("tried the read replica");
+    const pane = await paneFor(page, feed, "signal:sig-atlas-0");
+    await expect(pane.locator(".operator-feed__detail")).toContainText("tried the read replica");
     await expect(detailed).toHaveAttribute("aria-current", "true");
-    await expect(detailed.getByTestId("quick-replies").getByRole("button")).toHaveText([
+    await expect(feed.getByTestId("quick-replies")).toHaveCount(0);
+    await expect(pane.getByTestId("quick-replies").getByRole("button")).toHaveText([
       "1Yes",
-      "2No",
-      "3Continue",
-      "4Go on",
-      "5Stop doing this",
+      "2Looks good",
+      "3Go on",
+      "4Not now",
+      "5I disagree",
+      "6Let's discuss",
     ]);
     await shot(page, "feed-selected-dark.png");
 
@@ -171,19 +191,19 @@ test("the operator feed at thirty: regions in colour, quick replies, real answer
     // The selection moved on to the next card.
     await expect(feed.locator("[aria-current='true']")).toHaveCount(1);
 
-    // A click on a pill sends it too.
-    const byClick = await first.getAttribute("data-item-id");
-    await first.getByTestId("quick-replies").getByRole("button", { name: /Go on/ }).click();
-    await expect(feed.locator(`[data-item-id='${byClick}']`)).toHaveCount(0, { timeout: 10_000 });
+    // A click on a pill in the pane sends it too.
+    const byClick = await selectedPane(page, feed);
+    await byClick.pane.getByTestId("quick-replies").getByRole("button", { name: /Go on/ }).click();
+    await expect(feed.locator(`[data-item-id='${byClick.id}']`)).toHaveCount(0, { timeout: 10_000 });
     await expect(trigger).toHaveAttribute("aria-label", "Needs you, 28");
 
-    // Enter opens the written reply; ⌘↵ sends it.
-    const written = await feed.locator("[aria-current='true']").getAttribute("data-item-id");
-    const writtenCard = feed.locator(`[data-item-id='${written}']`);
+    // Enter opens the written reply in the pane; ⌘↵ sends it.
+    const written = await selectedPane(page, feed);
+    const writtenCard = feed.locator(`[data-item-id='${written.id}']`);
     await page.keyboard.press("Enter");
-    const reply = writtenCard.getByLabel("Your reply");
+    const reply = written.pane.getByLabel("Your reply");
     await expect(reply).toBeVisible();
-    await expect(writtenCard.getByTestId("quick-replies")).toBeVisible();
+    await expect(written.pane.getByTestId("quick-replies")).toBeVisible();
     await reply.fill("Use the new deploy key from the vault, then retry.");
     await shot(page, "feed-reply-dark.png");
     await page.keyboard.press("Meta+Enter");
@@ -191,39 +211,42 @@ test("the operator feed at thirty: regions in colour, quick replies, real answer
     await expect(trigger).toHaveAttribute("aria-label", "Needs you, 27");
 
     // Dismiss closes a signal without mail.
-    const dismissed = await cards.first().getAttribute("data-item-id");
-    await cards.first().getByRole("button", { name: "Write reply" }).click();
-    await feed.locator(`[data-item-id='${dismissed}']`).getByRole("button", { name: "Dismiss" }).click();
+    const dismissed = (await cards.first().getAttribute("data-item-id"))!;
+    const dismissedPane = await paneFor(page, feed, dismissed);
+    await dismissedPane.getByRole("button", { name: "Write reply" }).click();
+    await dismissedPane.getByRole("button", { name: "Dismiss" }).click();
     await expect(feed.locator(`[data-item-id='${dismissed}']`)).toHaveCount(0, { timeout: 10_000 });
     await expect(trigger).toHaveAttribute("aria-label", "Needs you, 26");
 
     await page.keyboard.press("Escape");
     await expect(feed).toHaveCount(0);
 
-    // Settings > Quick replies: add, reorder, remove; the feed follows.
+    // Settings > Replies: add, reorder, remove quick replies; the feed follows.
     await setTheme(page, "bright");
     await page.getByRole("button", { name: "Open settings" }).click();
-    await page.locator(".settings-nav__item", { hasText: "Quick replies" }).click();
+    await page.locator(".settings-nav__item", { hasText: "Replies" }).click();
     const section = page.getByTestId("settings-quick-replies-section");
-    await expect(section.getByRole("textbox", { name: /^Quick reply \d+$/ })).toHaveCount(5);
+    await expect(section.getByRole("textbox", { name: /^Quick reply \d+$/ })).toHaveCount(6);
     await section.getByLabel("New quick reply").fill("Ship it");
     await section.getByRole("button", { name: "Add" }).click();
-    await expect(section.getByRole("textbox", { name: /^Quick reply \d+$/ })).toHaveCount(6);
+    await expect(section.getByRole("textbox", { name: /^Quick reply \d+$/ })).toHaveCount(7);
     await section.getByRole("button", { name: 'Move "Ship it" up' }).click();
-    await section.getByRole("button", { name: 'Remove "No"' }).click();
-    await expect(section.getByRole("textbox", { name: /^Quick reply \d+$/ })).toHaveCount(5);
-    await expect(section.getByLabel("Quick reply 4")).toHaveValue("Ship it");
+    await section.getByRole("button", { name: 'Remove "Not now"' }).click();
+    await expect(section.getByRole("textbox", { name: /^Quick reply \d+$/ })).toHaveCount(6);
+    await expect(section.getByLabel("Quick reply 5")).toHaveValue("Ship it");
     await shot(page, "settings-quick-replies-bright.png");
     await page.locator(".settings-panel__close").click();
 
     await page.keyboard.press("Meta+I");
     await expect(feed).toBeVisible();
-    await expect(cards.first().getByTestId("quick-replies").getByRole("button")).toHaveText([
-      "Yes",
-      "Continue",
-      "Go on",
-      "Ship it",
-      "Stop doing this",
+    // The first item opens selected, so its pane carries the edited row.
+    await expect(page.getByTestId("operator-feed-detail").getByTestId("quick-replies").getByRole("button")).toHaveText([
+      "1Yes",
+      "2Looks good",
+      "3Go on",
+      "4I disagree",
+      "5Ship it",
+      "6Let's discuss",
     ]);
     await shot(page, "feed-30-bright.png");
     await cards.first().click({ position: { x: 200, y: 30 } });
@@ -250,7 +273,7 @@ test("the operator feed with one waiting, then none", async () => {
       await expect(feed.getByTestId("operator-feed-card")).toHaveCount(1, { timeout: 10_000 });
       await shot(page, `feed-1-${theme}.png`);
       if (theme === "bright") {
-        await feed.getByTestId("quick-replies").getByRole("button", { name: /Continue/ }).click();
+        await page.getByTestId("operator-feed-detail").getByTestId("quick-replies").getByRole("button", { name: /Go on/ }).click();
         await expect(feed).toContainText("Nobody needs you right now", { timeout: 10_000 });
         await shot(page, "feed-empty-bright.png");
       }

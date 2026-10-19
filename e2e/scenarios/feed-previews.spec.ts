@@ -8,7 +8,7 @@ import { modelFixture, modelSeat } from "../harness/model";
  * thumbnail and every full image comes through main's guarded preview read.
  *
  * Asserts:
- *   - a closed card reads no file; opening its details shows a thumbnail per file, in the order written
+ *   - an unselected item reads no file; selecting it shows its details in the pane, a thumbnail per file, in the order written
  *   - a path that is gone stays text with a quiet "file not found"; a .png that is not an image is never an <img>
  *   - the text shows a previewed path as its file name, a link that opens the viewer there
  *   - a thumbnail opens the viewer above the feed, at that image, with the agent's caption
@@ -137,13 +137,17 @@ test("the needs-you feed previews the files a signal names", async () => {
     await page.keyboard.press("Meta+I");
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
-    const card = feed.locator("[data-item-id='signal:sig-previews']");
+    const row = feed.locator("[data-item-id='signal:sig-previews']");
+    await expect(row).toBeVisible();
+    const card = page.locator("[data-testid='operator-feed-detail'][data-item-id='signal:sig-previews']");
+
+    // An unselected item costs nothing: only the selected item has a pane,
+    // so none of this one's files is read.
+    await feed.locator("[data-item-id='signal:sig-pair']").click();
+    await expect(card).toHaveCount(0);
+
+    await row.click();
     await expect(card).toBeVisible();
-
-    // A closed card costs nothing: no strip, so no file is read.
-    await expect(card.getByTestId("preview-strip")).toHaveCount(0);
-
-    await card.getByRole("button", { name: "Details" }).click();
     const strip = card.getByTestId("preview-strip");
     const thumbs = strip.getByTestId("preview-thumbnail");
     // Five files exist, in the order written; the one that is gone is not a tile.
@@ -178,12 +182,14 @@ test("the needs-you feed previews the files a signal names", async () => {
     await page.screenshot({ path: join(SHOTS, "card-details-dark.png") });
 
     // A pair with no labels wears no tags; seven fold into four and "+3", which opens the fifth.
-    const pairCard = feed.locator("[data-item-id='signal:sig-pair']");
-    await pairCard.getByRole("button", { name: "Details" }).click();
+    await feed.locator("[data-item-id='signal:sig-pair']").click();
+    const pairCard = page.locator("[data-testid='operator-feed-detail'][data-item-id='signal:sig-pair']");
+    await expect(pairCard).toBeVisible();
     await expect(pairCard.getByTestId("preview-thumbnail")).toHaveCount(2);
     await expect(pairCard.getByTestId("preview-strip")).not.toContainText("A");
-    const manyCard = feed.locator("[data-item-id='signal:sig-many']");
-    await manyCard.getByRole("button", { name: "Details" }).click();
+    await feed.locator("[data-item-id='signal:sig-many']").click();
+    const manyCard = page.locator("[data-testid='operator-feed-detail'][data-item-id='signal:sig-many']");
+    await expect(manyCard).toBeVisible();
     await expect(manyCard.getByTestId("preview-thumbnail")).toHaveCount(4);
     await manyCard.scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(SHOTS, "cards-two-and-seven-dark.png") });
@@ -197,7 +203,8 @@ test("the needs-you feed previews the files a signal names", async () => {
     await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "bright" } }));
     await expect(page.locator("html")).toHaveAttribute("data-theme", "bright");
     await page.screenshot({ path: join(SHOTS, "cards-two-and-seven-bright.png") });
-    await card.scrollIntoViewIfNeeded();
+    await row.click();
+    await expect(card).toBeVisible();
     await page.screenshot({ path: join(SHOTS, "card-details-bright.png") });
     await thumbs.nth(2).click();
     await expect(page.getByTestId("preview-viewer-title")).toHaveText("rail-expanded.png");
@@ -234,7 +241,7 @@ test("the needs-you feed previews the files a signal names", async () => {
     await expect(page.getByTestId("preview-viewer")).toHaveCount(0);
 
     // Open the second image.
-    await expect(card).toHaveAttribute("aria-current", "true");
+    await expect(row).toHaveAttribute("aria-current", "true");
     await thumbs.nth(1).click();
     const viewer = page.getByTestId("preview-viewer");
     await expect(viewer).toBeVisible();
@@ -282,7 +289,7 @@ test("the needs-you feed previews the files a signal names", async () => {
     await page.keyboard.press("j");
     await page.keyboard.press("k");
     await page.keyboard.press("Enter");
-    await expect(card).toHaveAttribute("aria-current", "true");
+    await expect(row).toHaveAttribute("aria-current", "true");
     await expect(card.getByLabel("Your reply")).toHaveCount(0);
 
     // Fit and actual size.
@@ -330,7 +337,7 @@ test("the needs-you feed previews the files a signal names", async () => {
     await expect(feed).toBeVisible();
     await expect(strip).toBeVisible();
     expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("after.png");
-    // Then what the feed always did: it closes, details as the operator left them.
+    // Then what the feed always did: it closes.
     await page.keyboard.press("Escape");
     await expect(feed).toHaveCount(0);
   } finally {

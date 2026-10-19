@@ -6,7 +6,7 @@ import { modelFixture, modelSeat } from "../harness/model";
  * A fake seat raises a signal through its own CLI with three short clips
  * (`e2e/fixtures/video`: MP4, QuickTime, WebM). The claims, on the built app:
  *   - each clip is recorded as a video by its bytes, whatever it is named
- *   - with the originals gone, the card shows each as a poster under a play mark
+ *   - with the originals gone, the detail pane shows each as a poster under a play mark
  *   - the viewer opens a real player on the app's own stream: it has a
  *     duration, it plays, and it seeks (main answers the range read)
  *   - the player's keys stay the player's: Space plays and pauses, and the
@@ -94,8 +94,9 @@ test("[fake-tui] a seat attaches videos to a signal and the card plays them", as
     await page.keyboard.press("Meta+I");
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
-    const card = feed.locator(`[data-item-id='signal:${signal.signalId}']`);
-    await card.getByRole("button", { name: /Details/ }).click();
+    await feed.locator(`[data-item-id='signal:${signal.signalId}']`).click();
+    const card = page.locator(`[data-testid='operator-feed-detail'][data-item-id='signal:${signal.signalId}']`);
+    await expect(card).toBeVisible();
     const strip = card.getByTestId("preview-strip");
     const thumbs = strip.getByTestId("preview-thumbnail");
     await expect(thumbs).toHaveCount(3);
@@ -213,8 +214,9 @@ test("[fake-tui] a video at a web address plays only after play is pressed, and 
     await page.keyboard.press("Meta+I");
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
-    const card = feed.locator(`[data-item-id='signal:${signal.signalId}']`);
-    await card.getByRole("button", { name: /Details/ }).click();
+    await feed.locator(`[data-item-id='signal:${signal.signalId}']`).click();
+    const card = page.locator(`[data-testid='operator-feed-detail'][data-item-id='signal:${signal.signalId}']`);
+    await expect(card).toBeVisible();
     const thumbs = card.getByTestId("preview-strip").getByTestId("preview-thumbnail");
     await expect(thumbs).toHaveCount(2);
     await thumbs.nth(0).click();

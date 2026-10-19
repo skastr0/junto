@@ -6,7 +6,8 @@ import { modelFixture, modelSeat } from "../harness/model";
  * A thumbnail is a button. With the keyboard on it, Enter and Space both
  * open the viewer at that file, as a press does. Enter is also the feed's
  * key for writing a reply, and the feed must not take it from a focused
- * thumbnail: no reply box opens.
+ * thumbnail: no reply box opens. The thumbnails sit in the detail pane of
+ * the selected item, which the feed selects on open.
  */
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -49,8 +50,9 @@ test("Enter and Space on a focused thumbnail open the viewer, and Enter opens no
     await page.keyboard.press("Meta+I");
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
-    const card = feed.locator("[data-item-id='signal:sig-keys']");
-    await card.getByRole("button", { name: "Details" }).click();
+    await feed.locator("[data-item-id='signal:sig-keys']").click();
+    const card = page.locator("[data-testid='operator-feed-detail'][data-item-id='signal:sig-keys']");
+    await expect(card).toBeVisible();
     const thumbs = card.getByTestId("preview-strip").getByTestId("preview-thumbnail");
     await expect(thumbs).toHaveCount(2);
     const viewer = page.getByTestId("preview-viewer");

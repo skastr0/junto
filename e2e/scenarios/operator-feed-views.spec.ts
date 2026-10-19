@@ -8,11 +8,11 @@
  *   - ordering by newest and oldest reorders the cards the way it says
  *   - a region that empties while picked shows the filtered empty state
  *   - Send quietly records the answer: the card leaves and the count drops
- *   - a seat's suggested replies lead its card's pills and answer the signal
+ *   - a seat's suggested replies lead its pills in the detail pane and answer the signal
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import type { AgentSignal } from "../../src/shared/agent-signals";
 import type { Region, Seat as ModelSeat } from "../../src/shared/model";
 import { modelFixture, modelRegion, modelSeat, type ModelFixture } from "../harness/model";
@@ -66,6 +66,14 @@ const openFeed = async (page: Page) => {
   const feed = page.getByTestId("operator-feed");
   await expect(feed).toBeVisible({ timeout: 10_000 });
   return feed;
+};
+
+/** Select one row; the detail pane on the right then shows that item whole. */
+const paneFor = async (page: Page, feed: Locator, id: string): Promise<Locator> => {
+  await feed.locator(`[data-item-id='${id}']`).click();
+  const pane = page.locator(`[data-testid='operator-feed-detail'][data-item-id='${id}']`);
+  await expect(pane).toBeVisible();
+  return pane;
 };
 
 const shot = async (page: Page, name: string): Promise<void> => {
@@ -123,12 +131,13 @@ test("the feed narrows to a region, reorders, and answers quietly", async () => 
     await page.getByRole("button", { name: "Order needs" }).click();
     await page.getByRole("listbox", { name: "Order needs" }).getByRole("option", { name: "Most urgent first" }).click();
 
-    // The seat's suggested replies lead atlas-1's pills, ahead of the
-    // operator's list; picking one answers the signal like any reply.
+    // The seat's suggested replies lead atlas-1's pills in the pane, ahead
+    // of the operator's list; picking one answers the signal like any reply.
     const suggestedCard = feed.locator("[data-item-id='signal:sig-atlas-1']");
-    const pills = suggestedCard.getByTestId("quick-replies").getByRole("button");
+    const suggestedPane = await paneFor(page, feed, "signal:sig-atlas-1");
+    const pills = suggestedPane.getByTestId("quick-replies").getByRole("button");
     await expect(pills.first()).toContainText("Use sqlite");
-    await expect(suggestedCard.locator(".quick-reply--suggested")).toHaveText([/Use sqlite/, /Keep JSON/]);
+    await expect(suggestedPane.locator(".quick-reply--suggested")).toHaveText([/Use sqlite/, /Keep JSON/]);
     await shot(page, "views-suggested-replies.png");
     await pills.first().click();
     await expect(suggestedCard).toHaveCount(0, { timeout: 10_000 });
@@ -139,11 +148,12 @@ test("the feed narrows to a region, reorders, and answers quietly", async () => 
     // nothing typed into the seat (covered end to end by the transport spec;
     // here the card must leave and the count drop).
     const quiet = feed.locator("[data-item-id='signal:sig-atlas-0']");
-    await quiet.getByRole("button", { name: "Write reply" }).click();
-    const reply = quiet.getByLabel("Your reply");
+    const quietPane = await paneFor(page, feed, "signal:sig-atlas-0");
+    await quietPane.getByRole("button", { name: "Write reply" }).click();
+    const reply = quietPane.getByLabel("Your reply");
     await reply.fill("Noted, carry on.");
     await shot(page, "views-quiet-reply.png");
-    await quiet.getByRole("button", { name: "Send quietly" }).click();
+    await quietPane.getByRole("button", { name: "Send quietly" }).click();
     await expect(quiet).toHaveCount(0, { timeout: 10_000 });
     await expect(page.locator(".operator-feed__status")).toHaveText("1 of 3 waiting in Build");
     await expect(trigger).toHaveAttribute("aria-label", "Needs you, 3");
@@ -151,7 +161,8 @@ test("the feed narrows to a region, reorders, and answers quietly", async () => 
     // Clear the rest of Build; the picked region empties into its own state.
     for (const id of ["signal:sig-brook-0"]) {
       const card = feed.locator(`[data-item-id='${id}']`);
-      await card.getByTestId("quick-replies").getByRole("button").first().click();
+      const pane = await paneFor(page, feed, id);
+      await pane.getByTestId("quick-replies").getByRole("button").first().click();
       await expect(card).toHaveCount(0, { timeout: 10_000 });
     }
     await expect(feed).toContainText("Nothing waiting in Build");
@@ -177,7 +188,8 @@ test("the feed narrows to a region, reorders, and answers quietly", async () => 
       .click();
     await expect(cards).toHaveCount(1);
     await expect(page.locator(".operator-feed__status")).toHaveText("1 of 2 waiting in Docs");
-    await feed.locator("[data-item-id='signal:sig-grove-0']").getByRole("button", { name: "Write reply" }).click();
+    const grovePane = await paneFor(page, feed, "signal:sig-grove-0");
+    await grovePane.getByRole("button", { name: "Write reply" }).click();
     await shot(page, "views-quiet-reply-bright.png");
   } finally {
     await junto.close();

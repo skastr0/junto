@@ -7,6 +7,10 @@
  * the region's last card) came back at the end of the list, and the reply
  * box still open on it took focus again and scrolled there.
  *
+ * The list sits on the left; the selected card's pills, buttons and reply
+ * box live in the detail pane beside it, so answering is done there and the
+ * list is what must hold still.
+ *
  * Asserts, in one feed of three regions:
  *   - a reply to a region's only card leaves the scroll where it was
  *   - answering mid-list, quietly or with a quick reply: the scroll does not
@@ -90,6 +94,13 @@ test("the needs-you list moves only when the operator moves it", async () => {
     const feed = page.getByTestId("operator-feed");
     await expect(feed).toBeVisible({ timeout: 10_000 });
     const cardOf = (id: string): Locator => feed.locator(`[data-item-id='signal:${id}']`);
+    // Select a card by click (never a scroll) and act in its detail pane.
+    const paneOf = async (id: string): Promise<Locator> => {
+      await cardOf(id).click();
+      const pane = page.locator(`[data-testid='operator-feed-detail'][data-item-id='signal:${id}']`);
+      await expect(pane).toBeVisible();
+      return pane;
+    };
     await expect(feed.getByTestId("operator-feed-card")).toHaveCount(SIGNALS.length);
 
     const scrollTop = (): Promise<number> => feed.evaluate((el) => el.scrollTop);
@@ -122,10 +133,12 @@ test("the needs-you list moves only when the operator moves it", async () => {
 
     // 1. A reply to Lead's only card, from the top of the list.
     expect(await scrollTop()).toBe(0);
-    await cardOf("l0").getByRole("button", { name: "Write reply" }).click();
-    await cardOf("l0").getByLabel("Your reply").fill("Looks right, ship it.");
+    const lead = await paneOf("l0");
+    expect(await scrollTop(), "selecting a card scrolls nothing").toBe(0);
+    await lead.getByRole("button", { name: "Write reply" }).click();
+    await lead.getByLabel("Your reply").fill("Looks right, ship it.");
     await shot(page, "1-lead-reply-typed.png");
-    await cardOf("l0").getByRole("button", { name: "Send reply" }).click();
+    await lead.getByRole("button", { name: "Send reply" }).click();
     await gone("l0");
     await shot(page, "1-lead-answered.png");
     expect(await scrollTop(), "a reply to a region's only card scrolls nothing").toBe(0);
@@ -133,19 +146,20 @@ test("the needs-you list moves only when the operator moves it", async () => {
 
     // 2. Mid-list, answered quietly: b4 slides up into b3's place.
     await place("b3", 90);
-    await cardOf("b3").getByRole("button", { name: "Write reply" }).click();
-    await cardOf("b3").getByLabel("Your reply").fill("Noted, carry on.");
+    const mid = await paneOf("b3");
+    await mid.getByRole("button", { name: "Write reply" }).click();
+    await mid.getByLabel("Your reply").fill("Noted, carry on.");
     const quietAt = await scrollTop();
     const quietTop = await topOf("b3");
     await shot(page, "2-mid-quiet-typed.png");
-    await cardOf("b3").getByRole("button", { name: "Send quietly" }).click();
+    await mid.getByRole("button", { name: "Send quietly" }).click();
     await gone("b3");
     await shot(page, "2-mid-quiet-answered.png");
     expectAt(await scrollTop(), quietAt, "a quiet answer mid-list keeps the scroll");
     expectAt(await topOf("b4"), quietTop, "the card below takes the answered card's place");
 
     // 3. Mid-list, a quick reply: b5 slides up into b4's place.
-    const pills = cardOf("b4").getByTestId("quick-replies").getByRole("button");
+    const pills = (await paneOf("b4")).getByTestId("quick-replies").getByRole("button");
     expect(await pills.count()).toBeGreaterThan(0);
     const quickAt = await scrollTop();
     const quickTop = await topOf("b4");
