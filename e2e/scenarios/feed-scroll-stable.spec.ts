@@ -49,12 +49,12 @@ const signal = (id: string, seatId: string, minutesAgo: number, kind: AgentSigna
 });
 
 // Lead holds one card and ranks first (oldest), then Build, then Docs.
-// Build is long enough that the list rows, short in the split feed, still
-// push Docs below the first screen.
+// Both are long enough, with the short rows of the split feed, that Docs
+// starts below the first screen and d4 can still be scrolled near the top.
 const SIGNALS: ReadonlyArray<AgentSignal> = [
   signal("l0", "lea", 120),
   ...Array.from({ length: 14 }, (_, n) => signal(`b${n}`, n % 2 === 0 ? "bo" : "bri", 110 - n * 2)),
-  ...Array.from({ length: 7 }, (_, n) => signal(`d${n}`, n % 2 === 0 ? "dot" : "dex", 60 - n * 2)),
+  ...Array.from({ length: 14 }, (_, n) => signal(`d${n}`, n % 2 === 0 ? "dot" : "dex", 80 - n * 2)),
 ];
 
 const shot = async (page: Page, name: string): Promise<void> => {
@@ -205,13 +205,13 @@ test("the needs-you list moves only when the operator moves it", async () => {
 
     // 7. A blocked card for Docs outranks Build: it joins the top of Docs,
     // above the viewport, and the regions keep their order on screen.
-    await arrive(signal("d7", "dex", 0, "blocked"));
-    await expect(cardOf("d7")).toHaveCount(1, { timeout: 10_000 });
+    await arrive(signal("d20", "dex", 0, "blocked"));
+    await expect(cardOf("d20")).toHaveCount(1, { timeout: 10_000 });
     await page.waitForTimeout(150);
     expectAt(await topOf("d4"), d4Top, "a re-rank moves nothing on screen");
     await expect(feed.locator(".operator-feed__region-label")).toHaveText(["Build", "Docs"]);
     expect(await feed.locator(".operator-feed__region").nth(1).getByTestId("operator-feed-card").first().getAttribute("data-item-id")).toBe(
-      "signal:d7",
+      "signal:d20",
     );
   } finally {
     await junto.close();
