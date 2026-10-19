@@ -222,6 +222,13 @@ export const mailTypedWhole = (message: Message): boolean => {
  */
 export const MAIL_BATCH_BODY_MAX = 6_000;
 
+/**
+ * At most this many mails past the body cap get a line of their own. A seat
+ * with thousands waiting otherwise gets a paste thousands of lines long; the
+ * rest are counted on one line that lists them.
+ */
+export const MAIL_BATCH_POINTER_MAX = 20;
+
 /** One mail in a batch, and its sender as the canvas names it at delivery. */
 export type BatchedMail = { readonly message: Message; readonly sender?: MailSender };
 
@@ -244,8 +251,10 @@ const composeMailPointer = (message: Message, sender: MailSender | undefined): s
  * Mail for one seat, oldest first, as one typed turn. One mail is typed
  * exactly as it is alone. More open with a count line, then each mail under
  * its own header, whole while their bodies stay within MAIL_BATCH_BODY_MAX;
- * past that, each further mail is one line with its id, and stays unread.
- * The onboard pointer rides the first line. Prompts are never batched: the
+ * past that, each further mail is one line with its id, up to
+ * MAIL_BATCH_POINTER_MAX, and one last line counts the rest with the
+ * `junto msg list` that lists them. Mail past the cap stays unread. The
+ * onboard pointer rides the first line. Prompts are never batched: the
  * delivery types each one as its own turn.
  */
 export const composeMailBatch = (
@@ -261,21 +270,32 @@ export const composeMailBatch = (
   }
   let room = MAIL_BATCH_BODY_MAX;
   let past = 0;
+  let lastNamed = "";
   const sections: string[] = [];
   const whole: boolean[] = [];
   for (const { message, sender } of mails) {
     const length = typedLength(message);
     if (past > 0 || length > room) {
       past += 1;
-      sections.push(composeMailPointer(message, sender));
       whole.push(false);
+      if (past > MAIL_BATCH_POINTER_MAX) continue;
+      sections.push(composeMailPointer(message, sender));
+      lastNamed = message.messageId;
       continue;
     }
     room -= length;
     sections.push(composeMessageDeliveryPayload(message, sender === undefined ? {} : { sender }));
     whole.push(mailTypedWhole(message));
   }
-  const cap = past === 0 ? "" : `; the last ${String(past)} are past the ${String(MAIL_BATCH_BODY_MAX)}-character cap, by id only`;
+  const counted = past - MAIL_BATCH_POINTER_MAX;
+  if (counted > 0) {
+    const list = JSON.stringify({ unread: true, since: sanitizeDeliveryLine(lastNamed) });
+    sections.push(`${String(counted)} more ${counted === 1 ? "mail" : "mails"}, unread — junto msg list '${list}'`);
+  }
+  const cap =
+    past === 0
+      ? ""
+      : `; the last ${String(past)} are past the ${String(MAIL_BATCH_BODY_MAX)}-character cap, ${counted > 0 ? `the first ${String(MAIL_BATCH_POINTER_MAX)} by id and the rest counted` : "by id only"}`;
   return { text: [withOnboardPointer(`${String(mails.length)} mails, oldest first${cap}`, options), ...sections].join("\n\n"), whole };
 };
 

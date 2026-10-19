@@ -13,6 +13,7 @@ import {
   isMessageDelivered,
   isPendingDelivery,
   MAIL_BATCH_BODY_MAX,
+  MAIL_BATCH_POINTER_MAX,
   MAIL_ONBOARD_POINTER,
   MAIL_TYPED_BODY_MAX,
   mailTypedWhole,
@@ -334,6 +335,25 @@ describe("a batch of mail for one seat", () => {
       "mail from agent-a, id 01D — junto msg read 01D",
       "mail from agent-a, id 01E — junto msg read 01E",
     ]);
+  });
+
+  it("with thousands past the cap, names the first by id and counts the rest on one line that lists them, all unread", () => {
+    const ids = Array.from({ length: 3_000 }, (_, index) => `01${String(index).padStart(5, "0")}`);
+    // The first three fill the cap exactly.
+    const filling = [MAIL_TYPED_BODY_MAX, MAIL_TYPED_BODY_MAX, MAIL_BATCH_BODY_MAX - 2 * MAIL_TYPED_BODY_MAX];
+    const mails = ids.map((id, index) => notice(id, index < 3 ? "f".repeat(filling[index]!) : `waiting ${id}`));
+    const batch = composeMailBatch(mails.map((message) => ({ message })));
+    expect(batch.whole).toEqual(ids.map((_, index) => index < 3));
+    const sections = batch.text.split("\n\n");
+    const named = ids.slice(3, 3 + MAIL_BATCH_POINTER_MAX);
+    const lastNamed = named[named.length - 1]!;
+    const counted = ids.length - 3 - MAIL_BATCH_POINTER_MAX;
+    expect(sections[0]).toBe(
+      `3000 mails, oldest first; the last 2997 are past the 6000-character cap, the first ${String(MAIL_BATCH_POINTER_MAX)} by id and the rest counted`,
+    );
+    expect(sections.slice(4, -1)).toEqual(named.map((id) => `mail from agent-a, id ${id} — junto msg read ${id}`));
+    expect(sections.at(-1)).toBe(`${String(counted)} more mails, unread — junto msg list '{"unread":true,"since":"${lastNamed}"}'`);
+    expect(sections).toHaveLength(1 + 3 + MAIL_BATCH_POINTER_MAX + 1);
   });
 
   it("counts a cut mail at the cut, and keeps it unread", () => {
