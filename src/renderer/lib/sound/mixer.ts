@@ -13,14 +13,15 @@
  *   over and the first fades out.
  * - Voices: at most `maxVoices` cues sound at once; a new cue steals the
  *   least urgent, oldest voice below it, or is dropped.
- * - Budget: the quiet families (urgency 2 and under) share a small rolling
+ * - Budget: the quiet families (ready, moving and chrome) share a small rolling
  *   budget so a burst across the canvas reads as a few notes, not a wash.
  *
  * A dropped cue is never replayed late: a late sound describes nothing. The
  * screen still shows every state; sound only points at it.
  */
 
-import type { CueId, CueSpec, CueVariant, MailTone, Urgency } from "./cues";
+import { takesAttentionSlot } from "@shared/wire/urgency";
+import { compareCues, type CueGroup, type CueId, type CueSpec, type CueVariant, type MailTone } from "./cues";
 
 export type MixSpec = Pick<CueSpec, "urgency" | "seconds" | "coalesceMs" | "minGapMs" | "subjectGapMs">;
 
@@ -41,9 +42,6 @@ export const MIXER_LIMITS: MixerLimits = {
 
 /** An echo this soon after its cue sounded is the same event. */
 export const ECHO_WINDOW_MS = 3_000;
-
-/** Urgency at and above which a cue takes the one attention slot. */
-export const ATTENTION_URGENCY: Urgency = 3;
 
 export type CueRequest = {
   readonly count?: number;
@@ -82,7 +80,7 @@ type Pending = {
 type Active = {
   readonly id: number;
   readonly cue: CueId;
-  readonly urgency: Urgency;
+  readonly urgency: CueGroup;
   readonly startedAt: number;
   readonly endsAt: number;
 };
@@ -93,7 +91,7 @@ export class CueMixer {
   private readonly lastSubject = new Map<string, number>();
   private active: Active[] = [];
   private ambientStarts: number[] = [];
-  private attention: { readonly id: number; readonly urgency: Urgency; readonly until: number } | undefined;
+  private attention: { readonly id: number; readonly urgency: CueGroup; readonly until: number } | undefined;
   private nextId = 1;
 
   constructor(
@@ -148,7 +146,7 @@ export class CueMixer {
     this.prune(now);
     const ready = [...this.pending.entries()]
       .filter(([, waiting]) => all || waiting.dueAt <= now)
-      .sort(([a], [b]) => this.specs[b].urgency - this.specs[a].urgency);
+      .sort(([a], [b]) => compareCues(this.specs[a].urgency, this.specs[b].urgency));
     const plays: Play[] = [];
     for (const [cue, waiting] of ready) {
       this.pending.delete(cue);
@@ -168,10 +166,10 @@ export class CueMixer {
     const spec = this.specs[cue];
     const steal: number[] = [];
 
-    if (spec.urgency >= ATTENTION_URGENCY) {
+    if (takesAttentionSlot(spec.urgency)) {
       const slot = this.attention;
       if (slot !== undefined && now < slot.until) {
-        if (spec.urgency <= slot.urgency) return undefined;
+        if (compareCues(spec.urgency, slot.urgency) >= 0) return undefined;
         if (this.active.some((voice) => voice.id === slot.id)) steal.push(slot.id);
       }
     } else if (!this.withinBudget(now)) {
@@ -181,8 +179,8 @@ export class CueMixer {
     const live = this.active.filter((voice) => !steal.includes(voice.id));
     if (live.length >= this.limits.maxVoices) {
       const victim = [...live]
-        .filter((voice) => voice.urgency < spec.urgency)
-        .sort((a, b) => a.urgency - b.urgency || a.startedAt - b.startedAt)[0];
+        .filter((voice) => compareCues(voice.urgency, spec.urgency) > 0)
+        .sort((a, b) => compareCues(b.urgency, a.urgency) || a.startedAt - b.startedAt)[0];
       if (victim === undefined) return undefined;
       steal.push(victim.id);
     }
@@ -195,7 +193,7 @@ export class CueMixer {
       { id, cue, urgency: spec.urgency, startedAt: now, endsAt },
     ];
     this.lastStart.set(cue, now);
-    if (spec.urgency >= ATTENTION_URGENCY) {
+    if (takesAttentionSlot(spec.urgency)) {
       this.attention = { id, urgency: spec.urgency, until: endsAt + this.limits.attentionHushMs };
     } else {
       this.ambientStarts.push(now);

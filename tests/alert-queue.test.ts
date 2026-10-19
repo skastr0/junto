@@ -2,14 +2,13 @@
  * Rising edges for the attention sounds: what rises, what does not.
  */
 import { describe, expect, it } from "vitest";
-import { alertId, emptyAlertQueue, observeSignals, type AlertKind, type AlertSignal } from "../src/renderer/lib/alert-queue";
-import { ALERT_URGENCY } from "../src/renderer/lib/alert-attention";
+import { alertId, emptyAlertQueue, observeSignals, type AlertSignal } from "../src/renderer/lib/alert-queue";
+import { AlertKind } from "../src/shared/wire/urgency";
 
-const signal = (nodeId: string, kind: AlertKind): AlertSignal => ({
+const signal = (nodeId: string, kind: "blocked" | "attention" | "ready" | "working"): AlertSignal => ({
   id: alertId.node(nodeId),
-  kind,
+  kind: AlertKind.group[kind],
   subjectKey: nodeId,
-  urgency: ALERT_URGENCY[kind],
 });
 
 const baselined = (signals: ReadonlyArray<AlertSignal> = []) => observeSignals(emptyAlertQueue(), signals).queue;
@@ -31,7 +30,7 @@ describe("alert rises", () => {
     ]);
   });
 
-  it("a subject rises again when it becomes more urgent, by the shared urgency table", () => {
+  it("a subject rises again when it becomes more urgent, by the alert view of the urgency ladder", () => {
     let queue = baselined([signal("a", "working")]);
     const toReady = observeSignals(queue, [signal("a", "ready")]);
     expect(toReady.risen.map((entry) => entry.kind)).toEqual(["ready"]);

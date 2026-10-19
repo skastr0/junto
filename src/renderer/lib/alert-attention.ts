@@ -18,52 +18,44 @@ import {
 } from "./agent-seat-state";
 import {
   alertId,
+  compareAlerts,
   emptyAlertQueue,
   observeSignals,
-  type AlertKind,
+  type AlertGroup,
   type AlertQueue,
   type AlertSignal,
 } from "./alert-queue";
-import { SEAT_URGENCY, type SeatUrgency } from "./seat-line";
+import { AlertKind } from "@shared/wire/urgency";
 import { playCue } from "./sound";
-import { ALERT_CUE } from "./sound/director";
+import { alertCue } from "./sound/director";
 import { state$ } from "./state";
 import { modelStore } from "./use-model";
 
 /**
- * How urgent each kind is, on the one table every surface reads: the rise
- * test and "which of two states wins for one node" both come from it.
+ * Keep the more urgent of two signals for one subject: the alert view of the
+ * urgency ladder decides both this and the rise test.
  */
-export const ALERT_URGENCY: Readonly<Record<AlertKind, SeatUrgency>> = {
-  blocked: SEAT_URGENCY.blocked,
-  attention: SEAT_URGENCY.waiting,
-  ready: SEAT_URGENCY.done,
-  working: SEAT_URGENCY.working,
-};
-
-/** Keep the more urgent of two signals for one subject. */
 const keepMoreUrgent = (byId: Map<string, AlertSignal>, signal: AlertSignal): void => {
   const previous = byId.get(signal.id);
-  if (previous !== undefined && previous.urgency <= signal.urgency) return;
+  if (previous !== undefined && compareAlerts(previous.kind, signal.kind) <= 0) return;
   byId.set(signal.id, signal);
 };
 
-const signalFor = (nodeId: string, kind: AlertKind): AlertSignal => ({
+const signalFor = (nodeId: string, kind: AlertGroup): AlertSignal => ({
   id: alertId.node(nodeId),
   kind,
   subjectKey: nodeId,
-  urgency: ALERT_URGENCY[kind],
 });
 
 const severityToAlertKind = (
   severity: RegionRollup["members"][number]["severity"],
-): AlertKind | undefined => {
-  if (severity === "blocked") return "blocked";
-  if (severity === "attention") return "attention";
-  if (severity === "working") return "working";
+): AlertGroup | undefined => {
+  if (severity === "blocked") return AlertKind.group.blocked;
+  if (severity === "attention") return AlertKind.group.attention;
+  if (severity === "working") return AlertKind.group.working;
   // Finished work still waiting to be read, for region members as for
   // freestanding seats.
-  if (severity === "ready") return "ready";
+  if (severity === "ready") return AlertKind.group.ready;
   return undefined;
 };
 
@@ -96,8 +88,14 @@ export const collectReadyWorkingSignals = (
     if (node.kind !== "agent" && node.kind !== "terminal") continue;
     const bindingId = node.bindingId;
     const presentation = presentationForSeat(seats[bindingId]?.state, needsLookByBindingId[bindingId] === true);
-    const kind: AlertKind | undefined =
-      presentation === "done" ? "ready" : presentation === "attention" ? "attention" : presentation === "working" ? "working" : undefined;
+    const kind: AlertGroup | undefined =
+      presentation === "done"
+        ? AlertKind.group.ready
+        : presentation === "attention"
+          ? AlertKind.group.attention
+          : presentation === "working"
+            ? AlertKind.group.working
+            : undefined;
     if (kind) keepMoreUrgent(byId, signalFor(node.id, kind));
   }
   return [...byId.values()];
@@ -156,7 +154,8 @@ export const observeAlertSignals = (
   const result = observeSignals(queue, signals, context.held);
   queue = result.queue;
   for (const item of result.risen) {
-    playCue(ALERT_CUE[item.kind], { subject: item.subjectKey });
+    const cue = alertCue(item.kind);
+    if (cue !== undefined) playCue(cue, { subject: item.subjectKey });
   }
 };
 

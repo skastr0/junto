@@ -17,9 +17,10 @@ import {
   type AudioSettings,
 } from "@shared/settings";
 import { state$ } from "../state";
+import { takesAttentionSlot } from "@shared/wire/urgency";
 import { CUES, type CueId, type CueVariant } from "./cues";
 import { buildSoundGraph, duckAmbient, releaseCue, renderCue, type SoundGraph, type Sounding } from "./graph";
-import { ATTENTION_URGENCY, CueMixer, type CueRequest, type Play, type RequestOutcome } from "./mixer";
+import { CueMixer, type CueRequest, type Play, type RequestOutcome } from "./mixer";
 
 /** Suspend the context after this long with nothing sounding. */
 const IDLE_SUSPEND_MS = 20_000;
@@ -135,7 +136,7 @@ export class SoundEngine {
         const sounding = renderCue(graph, play.cue, t, play.variant);
         this.sounding.set(play.id, sounding);
         last = Math.max(last, sounding.endsAt);
-        if (CUES[play.cue].urgency >= ATTENTION_URGENCY) duckAmbient(graph, t, CUES[play.cue].seconds);
+        if (takesAttentionSlot(CUES[play.cue].urgency)) duckAmbient(graph, t, CUES[play.cue].seconds);
       }
       this.armIdle(last);
     });

@@ -1,5 +1,6 @@
 import { modelStore } from "../src/renderer/lib/use-model";
 import { nodesOf } from "@shared/model";
+import { AlertKind } from "@shared/wire/urgency";
 // @vitest-environment jsdom
 /**
  * Cues fire on real transitions only.
@@ -112,7 +113,7 @@ describe("a real transition is heard when it happens", () => {
     act(() => root.render(<Profiler id="attention" onRender={() => { commits += 1; }}><RegionAttention /></Profiler>));
     commits = 0;
     play.mockClear();
-    const waiting: AlertSignal = { id: "node:a", kind: "attention", subjectKey: "a", urgency: 1 };
+    const waiting: AlertSignal = { id: "node:a", kind: AlertKind.group.attention, subjectKey: "a" };
     act(() => signals.set([waiting]));
     expect(cues()).toEqual(["waiting"]);
     expect(commits).toBe(0);

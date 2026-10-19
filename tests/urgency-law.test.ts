@@ -87,21 +87,9 @@ const COPY = "copy: words per kind, no order";
 const VOCAB = "a kind's own vocabulary, listed once; not an order";
 const COUNTS = "a count per tier, keyed; not an order";
 const KIND_MAP = "a kind map onto another vocabulary; ranks nothing";
-const UNOWNED = "a copy of an order no step owns yet; reported to pty-lead, who names its step";
 const NOT_URGENCY = "ranks something other than seat urgency";
 
 const ALLOWED: readonly Allowed[] = [
-  // Step 2, product-modals: the seat rail, palette, alerts and sound read views.
-  { file: "src/renderer/lib/seat-line.ts", name: "SEAT_URGENCY", rule: "names", step: 2, reason: "the seat rail's numbers, replaced by SeatUrgency" },
-  { file: "src/renderer/lib/seat-line.ts", name: "SEAT_URGENCY", rule: "table", step: 2, reason: "the seat rail's numbers, replaced by SeatUrgency" },
-  { file: "src/renderer/lib/seat-line.ts", name: "PALETTE_RANK", rule: "names", step: 2, reason: "the palette's numbers, replaced by Palette" },
-  { file: "src/renderer/lib/seat-line.ts", name: "PALETTE_RANK", rule: "table", step: 2, reason: "the palette's numbers, replaced by Palette" },
-  { file: "src/renderer/lib/alert-attention.ts", name: "ALERT_URGENCY", rule: "names", step: 2, reason: "alert kind to seat-rail number, replaced by AlertKind" },
-  { file: "src/renderer/lib/alert-queue.ts", name: "ALERT_KINDS", rule: "names", step: 2, reason: "the alert kinds, replaced by AlertKind's groups" },
-  { file: "src/renderer/lib/sound/director.ts", name: "ALERT_CUE", rule: "names", step: 2, reason: "keyed by the old alert kinds until AlertKind lands" },
-  { file: "src/renderer/lib/sound/cues.ts", name: "Urgency", rule: "table", step: 2, reason: "the sound's 0-4, replaced by CueUrgency" },
-  { file: "src/renderer/lib/sound/cues.ts", name: "CUES.*", rule: "table", step: 2, reason: "each cue's 0-4 urgency, replaced by its CueUrgency group" },
-  { file: "src/renderer/lib/sound/mixer.ts", name: "ATTENTION_URGENCY", rule: "table", step: 2, reason: "the mixer's slot threshold, replaced by takesAttentionSlot" },
 
   // Step 3, product-modals: rings, clusters and the region rollup.
   { file: "src/shared/region-rollup.ts", name: "MemberSeverity", rule: "names", step: 3, reason: "the rollup tiers in order, replaced by the MemberSeverity view" },
@@ -113,19 +101,11 @@ const ALLOWED: readonly Allowed[] = [
   { file: "src/renderer/lib/roll-call.ts", name: "ROLL_CALL_BUCKETS", rule: "names", step: 3, reason: "roll call's tier order over MemberSeverity" },
   { file: "src/shared/need-surfaces.ts", name: "ROLLUP_FROM_NEED", rule: "names", step: 3, reason: "cause to rollup tier, until the rollup reads MemberSeverity" },
 
-  // Step 4, cli-protocol: signal list and the dominant signal order by level.
-  { file: "src/shared/agent-signals.ts", name: "AGENT_SIGNAL_SEVERITY", rule: "names", step: 4, reason: "signal kind order, replaced by levelOfSignal and compareUrgency" },
-  { file: "src/shared/agent-signals.ts", name: "AGENT_SIGNAL_SEVERITY", rule: "table", step: 4, reason: "signal kind order, replaced by levelOfSignal and compareUrgency" },
-
   // Step 5, remote-lead: the feed ranks each kind by levelOfFeedItem; its kinds share two level names.
   { file: "src/shared/need-surfaces.ts", name: "FEED_FROM_NEED", rule: "names", reason: KIND_MAP },
 
-  // No step yet.
-  { file: "src/shared/need-surfaces.ts", name: "OCCUPANCY_LADDER", rule: "names", reason: `occupancy's first-match order; ${UNOWNED}` },
-  { file: "src/shared/need-surfaces.ts", name: "OCCUPANCY_FROM_NEED", rule: "names", reason: `cause to occupancy; ${UNOWNED}` },
-  { file: "src/shared/need-surfaces.ts", name: "rankFrom", rule: "table", reason: `a surface's own order as numbers; ${UNOWNED}` },
-  { file: "src/shared/need-surfaces.ts", name: "rankFrom.ranks", rule: "table", reason: `a surface's own order as numbers; ${UNOWNED}` },
-  { file: "src/renderer/lib/thread-health.ts", name: "DECLARED_WANTS_OPERATOR", rule: "names", reason: `the waits-on-operator signal kinds; ${UNOWNED}` },
+  // Occupancy maps by cause and orders by the ladder.
+  { file: "src/shared/need-surfaces.ts", name: "OCCUPANCY_FROM_NEED", rule: "names", reason: `cause to occupancy, which splits levels a view keeps whole; ${KIND_MAP}` },
 
   // The need table and its maps: cause names, each cause's level from Level.
   { file: "src/shared/harness-domain/need.ts", name: "NEED_CAUSES", rule: "names", reason: "the cause names as keys; each level is a Level.<name>" },

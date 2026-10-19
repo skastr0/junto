@@ -5,19 +5,29 @@
  */
 
 import type { AgentSignal, AgentSignalKind } from "@shared/agent-signals";
-import type { AlertKind } from "../alert-queue";
+import { AlertKind } from "@shared/wire/urgency";
+import type { AlertGroup } from "../alert-queue";
 import type { CueId } from "./cues";
 
 /**
- * A node's state rising on the alert ladder (working < ready < attention <
- * blocked). The queue baselines first sight and re-fires only on a rise, so
- * a seat is heard when it gets more urgent, never when it calms down.
+ * The cue a node's state is heard as when it rises on the alert ladder
+ * (working < ready < attention < blocked); the quiet group raises none. The
+ * queue baselines first sight and re-fires only on a rise, so a seat is heard
+ * when it gets more urgent, never when it calms down.
  */
-export const ALERT_CUE: Readonly<Record<AlertKind, CueId>> = {
-  blocked: "blocked",
-  attention: "waiting",
-  ready: "done",
-  working: "working",
+export const alertCue = (group: AlertGroup): CueId | undefined => {
+  switch (group) {
+    case AlertKind.group.blocked:
+      return "blocked";
+    case AlertKind.group.attention:
+      return "waiting";
+    case AlertKind.group.ready:
+      return "done";
+    case AlertKind.group.working:
+      return "working";
+    case AlertKind.group.quiet:
+      return undefined;
+  }
 };
 
 const SIGNAL_CUE: Readonly<Record<AgentSignalKind, CueId>> = {

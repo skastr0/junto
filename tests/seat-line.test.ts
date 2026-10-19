@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { terminalActivity } from "../src/renderer/lib/activity";
-import { PALETTE_RANK, paletteRank, SEAT_URGENCY, seatLine, seatUrgency } from "../src/renderer/lib/seat-line";
+import { seatLevel, seatLine, seatUrgency } from "../src/renderer/lib/seat-line";
+import { compareUrgency, Level, SeatUrgency } from "../src/shared/wire/urgency";
 
 const words = (input: Parameters<typeof terminalActivity>[0]) => seatLine(terminalActivity(input)).text;
 
@@ -33,68 +34,55 @@ describe("seatLine: friendly and true for every control state", () => {
   });
 });
 
-describe("seatUrgency: blocked, waiting on you, review, working, resting, offline", () => {
-  const urgency = (
+describe("seatLevel: where a seat sits on the one urgency ladder", () => {
+  const level = (
     input: Parameters<typeof terminalActivity>[0],
     extra: { readonly signal?: "blocked" | "escalate" | "feedback"; readonly failure?: string } = {},
-  ) => seatUrgency({ activity: terminalActivity(input), ...extra });
+  ) => seatLevel({ activity: terminalActivity(input), ...extra });
 
   it.each([
-    [{ seatState: "idle", graphBlocked: true }, {}, SEAT_URGENCY.blocked],
-    [{ exitReason: "spawn_failed", managedSeat: true }, {}, SEAT_URGENCY.blocked],
-    [{ managedSeat: true }, { signal: "blocked" }, SEAT_URGENCY.blocked],
-    [{ seatState: "attention" }, {}, SEAT_URGENCY.waiting],
-    [{ seatState: "working" }, { signal: "escalate" }, SEAT_URGENCY.waiting],
-    [{ managedSeat: true }, { failure: "claude is not installed" }, SEAT_URGENCY.waiting],
-    [{ seatState: "idle", needsLook: true }, {}, SEAT_URGENCY.done],
-    [{ seatState: "idle" }, { signal: "feedback" }, SEAT_URGENCY.review],
-    [{ seatState: "working" }, {}, SEAT_URGENCY.working],
-    [{ running: true, processName: "npm run dev" }, {}, SEAT_URGENCY.working],
-    [{ seatState: "idle" }, {}, SEAT_URGENCY.resting],
-    [{ running: true, managedSeat: true }, {}, SEAT_URGENCY.resting],
-    [{ managedSeat: true }, {}, SEAT_URGENCY.offline],
-    [{ seatState: "gone" }, {}, SEAT_URGENCY.offline],
-    [{}, {}, SEAT_URGENCY.offline],
-  ] as const)("%o with %o ranks %d", (input, extra, expected) => {
-    expect(urgency(input, extra)).toBe(expected);
+    [{ seatState: "idle", graphBlocked: true }, {}, Level.blocked],
+    [{ exitReason: "spawn_failed", managedSeat: true }, {}, Level.blocked],
+    [{ managedSeat: true }, { signal: "blocked" }, Level.blocked],
+    [{ managedSeat: true }, { failure: "claude is not installed" }, Level.stopped],
+    [{ seatState: "attention" }, {}, Level.waiting],
+    [{ seatState: "working" }, { signal: "escalate" }, Level.escalated],
+    [{ seatState: "idle" }, { signal: "feedback" }, Level.review],
+    [{ seatState: "idle", needsLook: true }, {}, Level.done],
+    [{ seatState: "working" }, {}, Level.working],
+    [{ running: true, processName: "npm run dev" }, {}, Level.working],
+    [{ seatState: "idle" }, {}, Level.resting],
+    [{ running: true, managedSeat: true }, {}, Level.resting],
+    [{ managedSeat: true }, {}, Level.offline],
+    [{ seatState: "gone" }, {}, Level.offline],
+    [{}, {}, Level.offline],
+  ] as const)("%o with %o is %s", (input, extra, expected) => {
+    expect(level(input, extra)).toBe(expected);
   });
 
   it("a declared signal outranks the control state it rides on", () => {
-    expect(urgency({ seatState: "working" }, { signal: "blocked" })).toBe(SEAT_URGENCY.blocked);
-    expect(urgency({ seatState: "attention" }, { signal: "feedback" })).toBe(SEAT_URGENCY.waiting);
+    expect(level({ seatState: "working" }, { signal: "blocked" })).toBe(Level.blocked);
+    expect(level({ seatState: "attention" }, { signal: "feedback" })).toBe(Level.waiting);
+  });
+
+  it("a failed seat joins the rail's blocked group", () => {
+    const failed = seatUrgency({ activity: terminalActivity({ managedSeat: true }), failure: "claude is not installed" });
+    expect(failed).toBe(SeatUrgency.group.blocked);
   });
 });
 
-describe("review and done are different urgencies: asked for, or only settled", () => {
-  const urgency = (input: Parameters<typeof terminalActivity>[0], extra: { signal?: "feedback" | "blocked" | "escalate" } = {}) =>
-    seatUrgency({ activity: terminalActivity(input), ...extra });
+describe("review and done are different levels: asked for, or only settled", () => {
+  const level = (input: Parameters<typeof terminalActivity>[0], extra: { signal?: "feedback" | "blocked" | "escalate" } = {}) =>
+    seatLevel({ activity: terminalActivity(input), ...extra });
 
   it("a feedback signal is review, a settled unread turn is done, and review comes first", () => {
-    expect(urgency({ seatState: "idle" }, { signal: "feedback" })).toBe(SEAT_URGENCY.review);
-    expect(urgency({ seatState: "idle", needsLook: true })).toBe(SEAT_URGENCY.done);
-    expect(SEAT_URGENCY.review).toBeLessThan(SEAT_URGENCY.done);
-    expect(SEAT_URGENCY.done).toBeLessThan(SEAT_URGENCY.working);
+    expect(level({ seatState: "idle" }, { signal: "feedback" })).toBe(Level.review);
+    expect(level({ seatState: "idle", needsLook: true })).toBe(Level.done);
+    expect(compareUrgency(Level.review, Level.done)).toBeLessThan(0);
+    expect(compareUrgency(Level.done, Level.working)).toBeLessThan(0);
   });
 
   it("a feedback signal on a settled unread turn stays review", () => {
-    expect(urgency({ seatState: "idle", needsLook: true }, { signal: "feedback" })).toBe(SEAT_URGENCY.review);
-  });
-});
-
-describe("paletteRank: blocked, waiting, working, review, done, resting, offline", () => {
-  it("is one linear order, working above review, review above done", () => {
-    expect(Object.values(PALETTE_RANK)).toEqual([0, 1, 2, 3, 4, 5, 6]);
-  });
-
-  it.each([
-    [SEAT_URGENCY.blocked, PALETTE_RANK.blocked],
-    [SEAT_URGENCY.waiting, PALETTE_RANK.waiting],
-    [SEAT_URGENCY.working, PALETTE_RANK.working],
-    [SEAT_URGENCY.review, PALETTE_RANK.review],
-    [SEAT_URGENCY.done, PALETTE_RANK.done],
-    [SEAT_URGENCY.resting, PALETTE_RANK.resting],
-    [SEAT_URGENCY.offline, PALETTE_RANK.offline],
-  ] as const)("urgency %i ranks %i", (urgency, expected) => {
-    expect(paletteRank(urgency)).toBe(expected);
+    expect(level({ seatState: "idle", needsLook: true }, { signal: "feedback" })).toBe(Level.review);
   });
 });

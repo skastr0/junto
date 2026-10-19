@@ -11,7 +11,8 @@ import { seatSignalRollups$, useSeatSignalRollup } from "../lib/agent-signals-st
 import { kernel$ } from "../lib/kernel-view";
 import { attentionCoarse$, useSeatAttentionReasons } from "../lib/occupancy-feed";
 import { attentionReasonsForSeat, cardMark, seatFactsForNode, type SeatFactsInput } from "../lib/seat-projections";
-import { PALETTE_RANK, paletteRank, seatUrgency, type PaletteRank, type SeatUrgency } from "../lib/seat-line";
+import { Level, Palette, type ViewGroup } from "@shared/wire/urgency";
+import { seatLevel, seatUrgency, type SeatGroup } from "../lib/seat-line";
 import { state$ } from "../lib/state";
 import { terminal$ } from "../lib/terminal-state";
 import { useThreadHealthMark, type ThreadHealthMark } from "../lib/thread-health";
@@ -100,13 +101,13 @@ const seatReadOf = (seat: Seat, tracked: boolean) => {
  * from the same stores without subscribing: a list sorted by it holds its
  * order while the operator moves through it.
  */
-export function seatUrgencyOf(seat: Seat): SeatUrgency {
+export function seatUrgencyOf(seat: Seat): SeatGroup {
   const { control, rollup } = seatReadOf(seat, false);
   return seatUrgency({ ...control, signal: rollup?.kind });
 }
 
-/** Where a seat stands in the palette: its rank, and when it entered that rank. */
-export type SeatStanding = { readonly rank: PaletteRank; readonly since: number };
+/** Where a seat stands in the palette: its group, and when it entered that group. */
+export type SeatStanding = { readonly group: ViewGroup<typeof Palette>; readonly since: number };
 
 /**
  * A seat's palette standing. Read inside a `use$` computed it tracks every
@@ -117,17 +118,18 @@ export type SeatStanding = { readonly rank: PaletteRank; readonly since: number 
  */
 export function seatStandingOf(seat: Seat): SeatStanding {
   const { control, seatEvent, rollup, doneAt } = seatReadOf(seat, true);
-  const rank = paletteRank(seatUrgency({ ...control, signal: rollup?.kind }));
+  const level = seatLevel({ ...control, signal: rollup?.kind });
+  const group = Palette.groupOf(level);
   const fromSignal =
-    (rank === PALETTE_RANK.blocked && rollup?.kind === "blocked") ||
-    (rank === PALETTE_RANK.waiting && rollup?.kind === "escalate") ||
-    (rank === PALETTE_RANK.review && rollup?.kind === "feedback");
-  if (fromSignal && rollup) return { rank, since: rollup.signal.createdAt };
+    (level === Level.blocked && rollup?.kind === "blocked") ||
+    (level === Level.escalated && rollup?.kind === "escalate") ||
+    (level === Level.review && rollup?.kind === "feedback");
+  if (fromSignal && rollup) return { group, since: rollup.signal.createdAt };
   const snapshot = agentSeatStatusOf(seatEvent)?.snapshot;
   const fallback = seatEvent?.at ?? 0;
-  if (rank === PALETTE_RANK.done) return { rank, since: doneAt ?? snapshot?.turnUnseen?.since ?? fallback };
-  if (rank === PALETTE_RANK.working) return { rank, since: snapshot?.activitySince ?? snapshot?.since ?? fallback };
-  return { rank, since: snapshot?.since ?? fallback };
+  if (level === Level.done) return { group, since: doneAt ?? snapshot?.turnUnseen?.since ?? fallback };
+  if (group === Palette.group.working) return { group, since: snapshot?.activitySince ?? snapshot?.since ?? fallback };
+  return { group, since: snapshot?.since ?? fallback };
 }
 
 /** The ring over facts a caller already read (a row that also prints the line). */

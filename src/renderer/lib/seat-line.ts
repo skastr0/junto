@@ -5,6 +5,7 @@
  */
 
 import type { AgentSignal, AgentSignalKind } from "@shared/agent-signals";
+import { Level, SeatUrgency, type UrgencyLevel, type ViewGroup } from "@shared/wire/urgency";
 import { attentionText, FEED_KIND_LABEL } from "@shared/operator-feed";
 import type { ThreadHealthTone } from "@shared/thread-health";
 import type { ActivitySpec, ActivityTone } from "./activity";
@@ -87,74 +88,33 @@ export const seatSaying = (input: {
 };
 
 /**
- * How soon a seat wants the operator, most urgent first: a blocked or failed
- * seat, then one waiting on the operator, then work the seat asked to have
- * reviewed (a feedback signal), then work that only settled and has not been
- * read (done), then work in flight, then a resting seat, then an offline one.
- * The rail, the step keys and the alerts sort by this; it reads the same facts
- * the seat line does. cmd+K keeps its own order (PALETTE_RANK).
+ * A seat's level on the one urgency ladder (shared/wire/urgency.ts), from the
+ * facts its seat line reads: a declared blocker or a halted ring is blocked, a
+ * spawn failure is stopped, a dialog waiting for input is waiting, a declared
+ * escalation is escalated, a feedback signal is review (the model asked), a
+ * settled turn nobody has read is done, work in flight is working, a seat
+ * that draws the off ring is offline, and the rest rest.
  */
-export const SEAT_URGENCY = {
-  blocked: 0,
-  waiting: 1,
-  review: 2,
-  done: 3,
-  working: 4,
-  resting: 5,
-  offline: 6,
-} as const;
-
-export type SeatUrgency = (typeof SEAT_URGENCY)[keyof typeof SEAT_URGENCY];
-
-export const seatUrgency = (input: {
+export const seatLevel = (input: {
   readonly activity: ActivitySpec;
   readonly signal?: AgentSignalKind;
   readonly failure?: string;
-}): SeatUrgency => {
+}): UrgencyLevel => {
   const { activity, signal, failure } = input;
   const { mode, tone } = activity;
-  if (signal === "blocked" || (mode === "wave" && tone === "crimson")) return SEAT_URGENCY.blocked;
-  if (signal === "escalate" || failure || (mode === "wave" && tone === "amber")) return SEAT_URGENCY.waiting;
-  if (signal === "feedback") return SEAT_URGENCY.review;
-  if (mode === "pulse" && tone === "green") return SEAT_URGENCY.done;
-  if (mode === "wave") return SEAT_URGENCY.working;
+  if (signal === "blocked" || (mode === "wave" && tone === "crimson")) return Level.blocked;
+  if (failure) return Level.stopped;
+  if (mode === "wave" && tone === "amber") return Level.waiting;
+  if (signal === "escalate") return Level.escalated;
+  if (signal === "feedback") return Level.review;
+  if (mode === "pulse" && tone === "green") return Level.done;
+  if (mode === "wave") return Level.working;
   // Offline, stopped and gone seats draw the "off" ring.
-  return activity.glyph === "off" ? SEAT_URGENCY.offline : SEAT_URGENCY.resting;
+  return activity.glyph === "off" ? Level.offline : Level.resting;
 };
 
-/**
- * The palette's own order of seats, top first: blocked, waiting on the
- * operator, working, ready for review (a feedback signal), done and not read
- * yet, resting, not running. It splits SEAT_URGENCY's review in two and puts
- * working above both; it is SEAT_URGENCY with working moved up.
- */
-export const PALETTE_RANK = {
-  blocked: 0,
-  waiting: 1,
-  working: 2,
-  review: 3,
-  done: 4,
-  resting: 5,
-  offline: 6,
-} as const;
+/** A seat's group in the seat rail's view: the rail, the step keys and the alerts sort by it. */
+export type SeatGroup = ViewGroup<typeof SeatUrgency>;
 
-export type PaletteRank = (typeof PALETTE_RANK)[keyof typeof PALETTE_RANK];
-
-export const paletteRank = (urgency: SeatUrgency): PaletteRank => {
-  switch (urgency) {
-    case SEAT_URGENCY.blocked:
-      return PALETTE_RANK.blocked;
-    case SEAT_URGENCY.waiting:
-      return PALETTE_RANK.waiting;
-    case SEAT_URGENCY.working:
-      return PALETTE_RANK.working;
-    case SEAT_URGENCY.review:
-      return PALETTE_RANK.review;
-    case SEAT_URGENCY.done:
-      return PALETTE_RANK.done;
-    case SEAT_URGENCY.resting:
-      return PALETTE_RANK.resting;
-    case SEAT_URGENCY.offline:
-      return PALETTE_RANK.offline;
-  }
-};
+export const seatUrgency = (input: Parameters<typeof seatLevel>[0]): SeatGroup =>
+  SeatUrgency.groupOf(seatLevel(input));

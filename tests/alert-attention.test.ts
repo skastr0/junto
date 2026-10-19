@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  ALERT_URGENCY,
   collectAlertSignals,
   collectReadyWorkingSignals,
   heldSeatSignalIds,
@@ -8,8 +7,8 @@ import {
   observeAlertSignals,
   resetAlertQueue,
 } from "../src/renderer/lib/alert-attention";
-import { alertId, type AlertKind, type AlertSignal } from "../src/renderer/lib/alert-queue";
-import { SEAT_URGENCY } from "../src/renderer/lib/seat-line";
+import { alertId, compareAlerts, type AlertSignal } from "../src/renderer/lib/alert-queue";
+import { AlertKind } from "../src/shared/wire/urgency";
 import * as sound from "../src/renderer/lib/sound";
 import type { RegionRollup } from "../src/shared/region-rollup";
 import { note, seat, terminal } from "./support/model-nodes";
@@ -23,21 +22,16 @@ const rollup = (members: RegionRollup["members"]): RegionRollup => ({
   members,
 });
 
-const signal = (nodeId: string, kind: AlertKind): AlertSignal => ({
+const signal = (nodeId: string, kind: "blocked" | "attention" | "ready" | "working"): AlertSignal => ({
   id: alertId.node(nodeId),
-  kind,
+  kind: AlertKind.group[kind],
   subjectKey: nodeId,
-  urgency: ALERT_URGENCY[kind],
 });
 
 describe("how urgent each kind is", () => {
-  it("reads the one urgency table", () => {
-    expect(ALERT_URGENCY).toEqual({
-      blocked: SEAT_URGENCY.blocked,
-      attention: SEAT_URGENCY.waiting,
-      ready: SEAT_URGENCY.done,
-      working: SEAT_URGENCY.working,
-    });
+  it("reads the alert view of the one urgency ladder", () => {
+    const climb = (["working", "ready", "attention", "blocked"] as const).map((kind) => AlertKind.group[kind]);
+    expect([...climb].sort(compareAlerts)).toEqual([...climb].reverse());
   });
 });
 

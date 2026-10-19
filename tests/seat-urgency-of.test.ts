@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { seatUrgencyOf } from "../src/renderer/components/SeatRing";
 import { agentSeat$ } from "../src/renderer/lib/agent-seat-state";
-import { SEAT_URGENCY } from "../src/renderer/lib/seat-line";
+import { compareView, SeatUrgency } from "../src/shared/wire/urgency";
 import { seat } from "./support/model-nodes";
 
 // The step key, the agent switcher and the rail read urgency off the seat
@@ -25,7 +25,9 @@ describe("seatUrgencyOf", () => {
       confidence: "high",
       at: 2,
     });
-    expect(seatUrgencyOf(ada)).toBeLessThan(resting);
-    expect(seatUrgencyOf(ada)).toBeLessThanOrEqual(SEAT_URGENCY.review);
+    const compare = compareView(SeatUrgency);
+    // A seat asking for input is more urgent than a resting one, and in the waiting group.
+    expect(compare(seatUrgencyOf(ada), resting)).toBeLessThan(0);
+    expect(seatUrgencyOf(ada)).toBe(SeatUrgency.group.waiting);
   });
 });

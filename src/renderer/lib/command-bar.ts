@@ -1,11 +1,11 @@
 import { batch } from "@legendapp/state";
 import type { Node } from "@shared/model";
+import { compareView, Palette, type ViewGroup } from "@shared/wire/urgency";
 import { titleOf } from "@shared/model/title";
 import { fuzzyMatch } from "./fuzzy-match";
 import { touchActiveMru } from "./hotbar-slots";
 import { roleOfKind } from "./model-kind";
 import { searchOf } from "./node-presentation";
-import { PALETTE_RANK } from "./seat-line";
 import { recordSeatVisit } from "./seat-visits";
 import { selectNode, state$ } from "./state";
 import { nodeAt } from "./use-model";
@@ -46,14 +46,16 @@ export interface CommandBarMatch {
   readonly index: number;
 }
 
-/** Where an agent stands in the palette: its rank (PALETTE_RANK) and when it entered it. */
+/** Where an agent stands in the palette: its group (the Palette view) and when it entered it. */
 export interface AgentStanding {
-  readonly rank: number;
+  readonly group: ViewGroup<typeof Palette>;
   readonly since: number;
 }
 
 /** An agent without a reading ranks as resting, since the beginning of time. */
-const STANDING_UNKNOWN: AgentStanding = { rank: PALETTE_RANK.resting, since: 0 };
+const STANDING_UNKNOWN: AgentStanding = { group: Palette.group.resting, since: 0 };
+
+const comparePalette = compareView(Palette);
 
 const isAgent = (node: Node): boolean => node.kind === "agent";
 
@@ -70,7 +72,7 @@ const kindRank = (node: Node): number => {
  * agents: they are what the operator most often jumps to.
  *
  * Empty query: agents first, in the palette's one linear order (`standingById`:
- * see PALETTE_RANK), then regions, then notes, then every other kind. Inside a
+ * the Palette view), then regions, then notes, then every other kind. Inside a
  * rank the agent that entered it most recently comes first, then name.
  * Non-empty: the palettes' shared fuzzy matcher (lib/fuzzy-match) scores the
  * title, so "productlead" and "prdld" both find product-lead; other text and
@@ -122,7 +124,7 @@ export const filterCommandBarNodes = (
       const aStanding = standing(a.node);
       const bStanding = standing(b.node);
       return (
-        aStanding.rank - bStanding.rank ||
+        comparePalette(aStanding.group, bStanding.group) ||
         bStanding.since - aStanding.since ||
         titleOf(a.node).localeCompare(titleOf(b.node)) ||
         a.node.id.localeCompare(b.node.id)

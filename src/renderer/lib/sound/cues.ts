@@ -13,6 +13,7 @@
  */
 
 import type { SoundCategory } from "@shared/settings";
+import { compareView, CueUrgency, type ViewGroup } from "@shared/wire/urgency";
 import { NOTE, PENTATONIC } from "./palette";
 import { breath, drop, kalimba, pad, tine, wood, type Voice } from "./voices";
 
@@ -47,12 +48,15 @@ export type CueVariant = {
   readonly pan?: number;
 };
 
-/** 0 background chrome, 1 things are moving, 2 ready for you, 3 needs you, 4 stopped. */
-export type Urgency = 0 | 1 | 2 | 3 | 4;
+/** What a cue is for: background chrome, things moving, ready for you, needs you, stopped. */
+export type CueGroup = ViewGroup<typeof CueUrgency>;
+
+/** Loudest first: a negative result means the first cue is the more urgent. */
+export const compareCues = compareView(CueUrgency);
 
 export type CueSpec = {
   readonly category: SoundCategory;
-  readonly urgency: Urgency;
+  readonly urgency: CueGroup;
   /** Linear level of the whole cue: urgency made audible. */
   readonly level: number;
   /** Seconds the cue sounds for (before the room tail). */
@@ -71,10 +75,13 @@ export type CueSpec = {
 
 const capped = (count: number, max: number): number => Math.max(1, Math.min(max, Math.floor(count)));
 
+const { stopped, ready, moving, chrome } = CueUrgency.group;
+const needsYou = CueUrgency.group["needs-you"];
+
 export const CUES: Readonly<Record<CueId, CueSpec>> = {
   blocked: {
     category: "attention",
-    urgency: 4,
+    urgency: stopped,
     level: 1,
     seconds: 1.3,
     coalesceMs: 0,
@@ -92,7 +99,7 @@ export const CUES: Readonly<Record<CueId, CueSpec>> = {
   },
   waiting: {
     category: "attention",
-    urgency: 3,
+    urgency: needsYou,
     level: 0.85,
     seconds: 1.1,
     coalesceMs: 0,
@@ -110,7 +117,7 @@ export const CUES: Readonly<Record<CueId, CueSpec>> = {
   },
   failed: {
     category: "attention",
-    urgency: 3,
+    urgency: needsYou,
     level: 0.8,
     seconds: 1.2,
     coalesceMs: 0,
@@ -127,7 +134,7 @@ export const CUES: Readonly<Record<CueId, CueSpec>> = {
   },
   review: {
     category: "review",
-    urgency: 2,
+    urgency: ready,
     level: 0.62,
     seconds: 0.9,
     coalesceMs: 200,
@@ -143,7 +150,7 @@ export const CUES: Readonly<Record<CueId, CueSpec>> = {
   },
   done: {
     category: "review",
-    urgency: 2,
+    urgency: ready,
     level: 0.55,
     seconds: 1.2,
     coalesceMs: 260,
@@ -164,7 +171,7 @@ export const CUES: Readonly<Record<CueId, CueSpec>> = {
   },
   summary: {
     category: "review",
-    urgency: 1,
+    urgency: moving,
     level: 0.5,
     seconds: 0.8,
     coalesceMs: 400,
@@ -178,7 +185,7 @@ export const CUES: Readonly<Record<CueId, CueSpec>> = {
   },
   working: {
     category: "activity",
-    urgency: 1,
+    urgency: moving,
     level: 0.34,
     seconds: 0.6,
     coalesceMs: 300,
@@ -196,7 +203,7 @@ export const CUES: Readonly<Record<CueId, CueSpec>> = {
   },
   answered: {
     category: "activity",
-    urgency: 1,
+    urgency: moving,
     level: 0.4,
     seconds: 0.6,
     coalesceMs: 150,
@@ -211,7 +218,7 @@ export const CUES: Readonly<Record<CueId, CueSpec>> = {
   },
   squad: {
     category: "activity",
-    urgency: 1,
+    urgency: moving,
     level: 0.42,
     seconds: 0.8,
     coalesceMs: 200,
@@ -230,7 +237,7 @@ export const CUES: Readonly<Record<CueId, CueSpec>> = {
   },
   mail: {
     category: "traffic",
-    urgency: 0,
+    urgency: chrome,
     level: 0.26,
     seconds: 0.2,
     coalesceMs: 120,
@@ -246,7 +253,7 @@ export const CUES: Readonly<Record<CueId, CueSpec>> = {
   },
   navigate: {
     category: "interface",
-    urgency: 0,
+    urgency: chrome,
     level: 0.25,
     seconds: 0.12,
     coalesceMs: 0,
@@ -259,7 +266,7 @@ export const CUES: Readonly<Record<CueId, CueSpec>> = {
   },
   bell: {
     category: "interface",
-    urgency: 0,
+    urgency: chrome,
     level: 0.3,
     seconds: 0.5,
     coalesceMs: 0,

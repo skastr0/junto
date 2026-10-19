@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { AgentSignal } from "@shared/agent-signals";
-import { ALERT_CUE, signalCue } from "../src/renderer/lib/sound/director";
+import { alertCue, signalCue } from "../src/renderer/lib/sound/director";
 import { CUES } from "../src/renderer/lib/sound/cues";
+import { AlertKind } from "../src/shared/wire/urgency";
 
 const signal = (over: Partial<AgentSignal> = {}): AgentSignal => ({
   signalId: "s1",
@@ -33,7 +34,7 @@ describe("sound director", () => {
   });
 
   it("maps the alert ladder onto cues that get louder as it climbs", () => {
-    const ladder = (["working", "ready", "attention", "blocked"] as const).map((kind) => CUES[ALERT_CUE[kind]].level);
+    const ladder = (["working", "ready", "attention", "blocked"] as const).map((kind) => CUES[alertCue(AlertKind.group[kind])!].level);
     expect([...ladder].sort((a, b) => a - b)).toEqual(ladder);
   });
 });

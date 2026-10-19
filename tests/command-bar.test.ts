@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { filterCommandBarNodes } from "../src/renderer/lib/command-bar";
-import { PALETTE_RANK } from "../src/renderer/lib/seat-line";
+import { Palette } from "../src/shared/wire/urgency";
 import { regionPath, regionPaths } from "../src/renderer/lib/region-path";
 import { asNodeId, type Node } from "../src/shared/model";
 import { canvasOf, note, region as regionNode, seat } from "./support/model-nodes";
@@ -77,13 +77,13 @@ describe("command bar agent bias", () => {
     agent("blocked", "deploy-blocked"),
     agent("waiting", "deploy-waiting"),
   ];
-  const standing = (rank: number, since = 0) => ({ rank, since });
+  const standing = (group: (typeof Palette.groups)[number], since = 0) => ({ group, since });
   const standings = new Map([
-    ["blocked", standing(PALETTE_RANK.blocked)],
-    ["waiting", standing(PALETTE_RANK.waiting)],
-    ["working", standing(PALETTE_RANK.working)],
-    ["resting", standing(PALETTE_RANK.resting)],
-    ["offline", standing(PALETTE_RANK.offline)],
+    ["blocked", standing(Palette.group.blocked)],
+    ["waiting", standing(Palette.group.waiting)],
+    ["working", standing(Palette.group.working)],
+    ["resting", standing(Palette.group.resting)],
+    ["offline", standing(Palette.group.offline)],
   ]);
   const ids = (query: string, recent: ReadonlyArray<string> = []) =>
     filterCommandBarNodes(nodes, query, recent, standings).map((match) => match.node.id);
@@ -94,17 +94,8 @@ describe("command bar agent bias", () => {
 
   it("one linear order over a mixed fixture: working above review, review above done", () => {
     const crew = ["offline", "resting", "done", "review", "working", "waiting", "blocked"].map((id) => agent(id, id));
-    const ranked = new Map(
-      [
-        ["blocked", PALETTE_RANK.blocked],
-        ["waiting", PALETTE_RANK.waiting],
-        ["working", PALETTE_RANK.working],
-        ["review", PALETTE_RANK.review],
-        ["done", PALETTE_RANK.done],
-        ["resting", PALETTE_RANK.resting],
-        ["offline", PALETTE_RANK.offline],
-      ].map(([id, rank]) => [id as string, standing(rank as number)] as const),
-    );
+    // Every Palette group, by its name: the fixture's seat ids are the group names.
+    const ranked = new Map(Palette.groups.map((group) => [group as string, standing(group)] as const));
     expect(filterCommandBarNodes(crew, "", [], ranked).map((match) => match.node.id)).toEqual([
       "blocked",
       "waiting",
@@ -119,10 +110,10 @@ describe("command bar agent bias", () => {
   it("inside a rank the most recent change comes first, then name; hotbar recency and z do not count", () => {
     const crew = [agent("a", "alpha"), agent("b", "beta"), agent("c", "gamma"), agent("d", "delta")];
     const ranked = new Map([
-      ["a", standing(PALETTE_RANK.review, 100)],
-      ["b", standing(PALETTE_RANK.review, 300)],
-      ["c", standing(PALETTE_RANK.review, 200)],
-      ["d", standing(PALETTE_RANK.review, 200)],
+      ["a", standing(Palette.group.review, 100)],
+      ["b", standing(Palette.group.review, 300)],
+      ["c", standing(Palette.group.review, 200)],
+      ["d", standing(Palette.group.review, 200)],
     ]);
     const order = (recent: ReadonlyArray<string>) =>
       filterCommandBarNodes(crew, "", recent, ranked).map((match) => match.node.id);
@@ -133,14 +124,14 @@ describe("command bar agent bias", () => {
 
   it("a seat that changes state re-ranks the same list", () => {
     const crew = [agent("a", "alpha"), agent("b", "beta")];
-    const before = new Map([["a", standing(PALETTE_RANK.working, 10)], ["b", standing(PALETTE_RANK.resting, 5)]]);
+    const before = new Map([["a", standing(Palette.group.working, 10)], ["b", standing(Palette.group.resting, 5)]]);
     expect(filterCommandBarNodes(crew, "", [], before).map((match) => match.node.id)).toEqual(["a", "b"]);
-    const after = new Map([["a", standing(PALETTE_RANK.resting, 20)], ["b", standing(PALETTE_RANK.blocked, 20)]]);
+    const after = new Map([["a", standing(Palette.group.resting, 20)], ["b", standing(Palette.group.blocked, 20)]]);
     expect(filterCommandBarNodes(crew, "", [], after).map((match) => match.node.id)).toEqual(["b", "a"]);
   });
 
   it("an agent with no reading ranks as resting", () => {
-    const partial = new Map([["waiting", standing(PALETTE_RANK.waiting)], ["offline", standing(PALETTE_RANK.offline)]]);
+    const partial = new Map([["waiting", standing(Palette.group.waiting)], ["offline", standing(Palette.group.offline)]]);
     const result = filterCommandBarNodes(nodes, "", [], partial).map((match) => match.node.id);
     expect(result.slice(0, 5)).toEqual(["waiting", "blocked", "resting", "working", "offline"]);
   });
@@ -152,9 +143,9 @@ describe("command bar agent bias", () => {
 
   it("a better match still beats an agent", () => {
     const mixed = [agent("seat", "yak-seat"), region("r", "Yakjev"), text("n", "Notes on the yak")];
-    const result = filterCommandBarNodes(mixed, "yakjev", [], new Map([["seat", { rank: 0, since: 0 }]]));
+    const result = filterCommandBarNodes(mixed, "yakjev", [], new Map([["seat", { group: Palette.group.blocked, since: 0 }]]));
     expect(result.map((match) => match.node.id)).toEqual(["r"]);
-    const prefix = filterCommandBarNodes(mixed, "yak", [], new Map([["seat", { rank: 0, since: 0 }]]));
+    const prefix = filterCommandBarNodes(mixed, "yak", [], new Map([["seat", { group: Palette.group.blocked, since: 0 }]]));
     // All three are title prefixes except the note (substring): agent, region, note.
     expect(prefix.map((match) => match.node.id)).toEqual(["seat", "r", "n"]);
     const titled = [region("r", "Research"), seat("seat", { label: "reviewer", agentKey: "local:research" })];

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { CUE_IDS, CUES, cuesInCategory } from "../src/renderer/lib/sound/cues";
+import { CUE_IDS, CUES, cuesInCategory, type CueGroup } from "../src/renderer/lib/sound/cues";
+import { CueUrgency } from "../src/shared/wire/urgency";
 import { CueMixer, MIXER_LIMITS } from "../src/renderer/lib/sound/mixer";
 import { SOUND_CATEGORIES } from "@shared/settings";
 import { PAN_SPREAD, panForScreenX } from "../src/renderer/lib/sound";
@@ -126,10 +127,13 @@ describe("stereo position", () => {
 
 describe("cue catalog", () => {
   it("is louder the more urgent the cue", () => {
-    const levels = (urgency: number) =>
-      CUE_IDS.filter((id) => CUES[id].urgency === urgency).map((id) => CUES[id].level);
-    for (let urgency = 1; urgency <= 4; urgency += 1) {
-      expect(Math.min(...levels(urgency))).toBeGreaterThan(Math.max(...levels(urgency - 1)));
+    const levels = (group: CueGroup) =>
+      CUE_IDS.filter((id) => CUES[id].urgency === group).map((id) => CUES[id].level);
+    // Quietest group first, each louder than the one before.
+    const quietToLoud = [...CueUrgency.groups].reverse();
+    for (const [at, group] of quietToLoud.entries()) {
+      if (at === 0) continue;
+      expect(Math.min(...levels(group))).toBeGreaterThan(Math.max(...levels(quietToLoud[at - 1]!)));
     }
   });
 

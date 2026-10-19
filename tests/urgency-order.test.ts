@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Seat } from "../src/shared/model";
 import { seat } from "./support/model-nodes";
-import { SEAT_URGENCY, type SeatUrgency } from "../src/renderer/lib/seat-line";
-import { needsOperator, seatUrgencyOrder } from "../src/renderer/lib/urgency-order";
+import type { SeatGroup } from "../src/renderer/lib/seat-line";
+import { seatUrgencyOrder } from "../src/renderer/lib/urgency-order";
+import { SeatUrgency } from "../src/shared/wire/urgency";
 
 const agent = (id: string, name: string): Seat => seat(id, { label: name as never });
 
@@ -10,15 +11,15 @@ describe("urgency order", () => {
   const ada = agent("a", "Ada");
   const bea = agent("b", "Bea");
   const cy = agent("c", "Cy");
-  const by = (map: Record<string, SeatUrgency>) => (node: Seat) => map[node.id]!;
+  const by = (map: Record<string, SeatGroup>) => (node: Seat) => map[node.id]!;
 
   it("puts the most urgent first", () => {
-    const order = seatUrgencyOrder([ada, bea, cy], by({ a: SEAT_URGENCY.resting, b: SEAT_URGENCY.blocked, c: SEAT_URGENCY.waiting }));
+    const order = seatUrgencyOrder([ada, bea, cy], by({ a: SeatUrgency.group.resting, b: SeatUrgency.group.blocked, c: SeatUrgency.group.waiting }));
     expect(order.map((node) => node.id)).toEqual(["b", "c", "a"]);
   });
 
   it("breaks a tie by name, whatever order the agents came in", () => {
-    const same = by({ a: SEAT_URGENCY.working, b: SEAT_URGENCY.working, c: SEAT_URGENCY.working });
+    const same = by({ a: SeatUrgency.group.working, b: SeatUrgency.group.working, c: SeatUrgency.group.working });
     expect(seatUrgencyOrder([cy, ada, bea], same).map((node) => node.id)).toEqual(["a", "b", "c"]);
   });
 
@@ -26,21 +27,14 @@ describe("urgency order", () => {
     let reads = 0;
     seatUrgencyOrder([ada, bea, cy], () => {
       reads += 1;
-      return SEAT_URGENCY.resting;
+      return SeatUrgency.group.resting;
     });
     expect(reads).toBe(3);
   });
 
   it("does not reorder the list it was given", () => {
     const given = [cy, ada];
-    seatUrgencyOrder(given, () => SEAT_URGENCY.resting);
+    seatUrgencyOrder(given, () => SeatUrgency.group.resting);
     expect(given.map((node) => node.id)).toEqual(["c", "a"]);
-  });
-});
-
-describe("needs the operator", () => {
-  it("is true for blocked, waiting, review and done, and false for the rest", () => {
-    expect([SEAT_URGENCY.blocked, SEAT_URGENCY.waiting, SEAT_URGENCY.review, SEAT_URGENCY.done].map(needsOperator)).toEqual([true, true, true, true]);
-    expect([SEAT_URGENCY.working, SEAT_URGENCY.resting, SEAT_URGENCY.offline].map(needsOperator)).toEqual([false, false, false]);
   });
 });

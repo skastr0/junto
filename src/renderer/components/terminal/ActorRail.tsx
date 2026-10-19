@@ -22,7 +22,7 @@ import { openActorMirror } from "../../lib/actor-mirrors";
 import { openOperatorModal } from "../../lib/operator-modal";
 import { preambleByNodeId$ } from "../../lib/preamble-state";
 import { useSeatOnboardingOf } from "../../lib/seat-onboarding";
-import { seatSaying, seatUrgency, type SeatUrgency } from "../../lib/seat-line";
+import { seatSaying, seatUrgency, type SeatGroup } from "../../lib/seat-line";
 import { sidebarSections$ } from "../../lib/sidebar-sections";
 import { seatUrgencyOrder } from "../../lib/urgency-order";
 import { state$ } from "../../lib/state";
@@ -45,7 +45,7 @@ function RailSeat({
   readonly peer: Seat;
   readonly actorNodeId: string;
   readonly compact: boolean;
-  readonly onUrgency: (nodeId: string, urgency: SeatUrgency) => void;
+  readonly onUrgency: (nodeId: string, urgency: SeatGroup) => void;
   readonly seatRef: (nodeId: string, element: HTMLLIElement | null) => void;
 }) {
   const glance = useSeatGlanceOf(peer);
@@ -148,8 +148,8 @@ export function ActorRail({ node }: { readonly node: { readonly id: string } }) 
 
   // Order: most urgent first, by name inside a group. Seats report their own
   // urgency, so the list reorders only when a seat changes group.
-  const [urgencyById, setUrgencyById] = useState<Readonly<Record<string, SeatUrgency>>>({});
-  const onUrgency = useCallback((nodeId: string, urgency: SeatUrgency) => {
+  const [urgencyById, setUrgencyById] = useState<Readonly<Record<string, SeatGroup>>>({});
+  const onUrgency = useCallback((nodeId: string, urgency: SeatGroup) => {
     setUrgencyById((current) => (current[nodeId] === urgency ? current : { ...current, [nodeId]: urgency }));
   }, []);
   const ordered = useMemo(

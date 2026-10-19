@@ -19,6 +19,7 @@ import {
   previewCues,
   type CueId,
 } from "../../lib/sound";
+import { compareCues } from "../../lib/sound/cues";
 import { state$ } from "../../lib/state";
 import { Button, Slider, Switch } from "../ui";
 
@@ -149,7 +150,7 @@ export function SoundSettingsSection() {
   };
 
   // Calm to urgent, so the run builds the way the app's sounds do.
-  const everyCue = [...CUE_IDS].sort((a, b) => CUES[a].urgency - CUES[b].urgency);
+  const everyCue = [...CUE_IDS].sort((a, b) => compareCues(CUES[b].urgency, CUES[a].urgency));
 
   return (
     <div className="settings-section" data-testid="settings-sound-section">
