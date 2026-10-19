@@ -24,7 +24,6 @@ import {
   ladderDisagreements,
   NOTIFY_FROM_NEED,
   OCCUPANCY_FROM_NEED,
-  OCCUPANCY_LADDER,
   projectNeeds,
   notifyNeed,
   ROLLUP_FROM_NEED,
@@ -290,8 +289,8 @@ describe("need surfaces: tables", () => {
     for (const projection of Object.values(PROJECTION)) expect(Object.keys(projection).sort()).toEqual(causes);
   });
 
-  it("keep occupancy's ladder in step with its spectrum", () => {
-    for (const value of OCCUPANCY_LADDER) expect(OccupancySpectrum.literals).toContain(value);
+  it("keep occupancy's values in step with its spectrum", () => {
+    for (const value of Object.values(OCCUPANCY_FROM_NEED)) if (value !== null) expect(OccupancySpectrum.literals).toContain(value);
   });
 
   it("never ping on the AI's advisory reading, and rank it no higher than escalated", () => {
@@ -310,12 +309,7 @@ describe("need surfaces: where each surface's order disagrees with the ladder", 
     ladderDisagreements(surface).map((entry) => `${entry.kind} ${entry.above} > ${entry.below}`);
 
   it("occupancy", () => {
-    expect(summary("occupancy")).toEqual([
-      "inverted attention > activity_blocked",
-      "merged working > working",
-      "split stalled > working",
-      "merged idle > idle",
-    ]);
+    expect(summary("occupancy")).toEqual(["merged working > working", "merged idle > idle"]);
   });
 
   it("region rollup", () => {

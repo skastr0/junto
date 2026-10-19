@@ -23,6 +23,7 @@ import { useEffect } from "react";
 import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import type { AgentSignalKind } from "@shared/agent-signals";
+import { levelOfSignal, waitsOnOperator } from "@shared/wire/urgency";
 import {
   THREAD_HEALTH_LABEL,
   THREAD_HEALTH_TONE,
@@ -107,8 +108,6 @@ const NO_MARK: ThreadHealthMark = {
   line: undefined,
 };
 
-/** Declared kinds that already tell the operator the seat wants them. */
-const DECLARED_WANTS_OPERATOR: ReadonlySet<AgentSignalKind> = new Set(["blocked", "escalate"]);
 
 export const threadHealthMark = (
   reading: ThreadHealthReading | undefined,
@@ -121,7 +120,8 @@ export const threadHealthMark = (
 ): ThreadHealthMark => {
   if (reading === undefined) return NO_MARK;
   const tone = THREAD_HEALTH_TONE[reading.value];
-  const declared = input.signal !== undefined && DECLARED_WANTS_OPERATOR.has(input.signal);
+  // A declared kind that already tells the operator the seat wants them (blocked, escalate).
+  const declared = input.signal !== undefined && waitsOnOperator(levelOfSignal(input.signal));
   // The seat already said it wants the operator; the AI echo adds nothing.
   if (declared && tone === "waiting") return NO_MARK;
   return {
