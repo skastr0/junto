@@ -8,7 +8,7 @@ import type { AgentSignal, AgentSignalKind } from "@shared/agent-signals";
 import { attentionText, FEED_KIND_LABEL } from "@shared/operator-feed";
 import type { ThreadHealthTone } from "@shared/thread-health";
 import type { ActivitySpec, ActivityTone } from "./activity";
-import { SIGNAL_FLAG_TONE } from "./activity-atlas";
+import { SIGNAL_FLAG_TONE } from "@shared/rings";
 import { controlFromActivity, seatRollup } from "./seat-rollup";
 
 export type SeatLine = { readonly text: string; readonly tone?: ActivityTone };

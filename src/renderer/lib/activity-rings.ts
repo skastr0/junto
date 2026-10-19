@@ -3,7 +3,8 @@
  * around its portrait; a standalone mark is the same ring around a small hub.
  * Pure canvas-2D painters in a 20-unit box centered on (10, 10). The atlas
  * (activity-atlas.ts) bakes rest poses and, per moving ring, the still parts
- * of RING_MOTION that the compositor turns and fades at the display's rate.
+ * of RING_PAINT that the compositor turns and fades at the display's rate,
+ * timed by RING_MOTION (src/shared/rings.ts, where the rings are named).
  *
  *   work      an arc circles the ring, clockwise
  *   reverse   circling runs backwards (stuck)
@@ -21,6 +22,8 @@
  * the good-health halo and the signal flag.
  */
 
+import { LAND_FRAMES, type LoopRing, type RingHalo, type StillRing } from "@shared/rings";
+
 type Ctx = CanvasRenderingContext2D;
 
 export type RingPalette = {
@@ -28,18 +31,6 @@ export type RingPalette = {
   readonly glow: number;
   readonly dark: boolean;
 };
-
-export type LoopRing =
-  "work" | "reverse" | "snake" | "call" | "wait" | "halt" | "glint" | "fracture" | "dot" | "live";
-export type StillRing = "rest" | "off";
-
-/** The tempo every painter is drawn to: one frame is 90 ms of motion. */
-export const RING_FRAME_MS = 90;
-/** One full cycle of every loop: 32 frames, 2.88 s. Painters take any real frame. */
-export const RING_CYCLE_FRAMES = 32;
-
-/** Frames of the done draw-in; frame LAND_FRAMES is the resting pose. */
-export const LAND_FRAMES = 8;
 
 const C = 10;
 const TAU = Math.PI * 2;
@@ -337,71 +328,28 @@ export const paintLoop = (ctx: Ctx, p: RingPalette, ring: LoopRing, color: strin
 /** One still part of a moving ring, painted once into the atlas. */
 export type RingPart = (ctx: Ctx, p: RingPalette, color: string) => void;
 
-/** A part the compositor turns a full lap, clockwise unless `ccw`. */
-export type RingSpin = {
-  readonly paint: RingPart;
-  readonly lapMs: number;
-  readonly ccw?: boolean;
-  /** Also fades in and out once a lap (the glint). */
-  readonly fade?: boolean;
-};
-
 /**
- * A part the compositor fades or sends outward: `beat` is the halt's double
- * heartbeat, `breathe` a slow in and out, `send` a ring growing out and away.
+ * What each moving ring paints: a still `base` under a part that turns
+ * (`spin`) or a part that pulses (`pulse`). Which parts a ring has, and how
+ * fast each runs, are RING_MOTION's (src/shared/rings.ts).
  */
-export type RingPulse = {
-  readonly paint: RingPart;
-  readonly kind: "beat" | "breathe" | "send";
-  readonly ms: number;
-};
-
-/**
- * How each moving ring runs: a still `base` under a part that turns or a
- * part that pulses. Only transform and opacity ever animate, so the motion
- * runs on the compositor at the display's rate and never on the main
- * thread. A lap is the time the shape takes to come round to itself.
- */
-export type RingMotion = {
+export type RingPaint = {
   readonly base?: RingPart;
-  readonly spin?: RingSpin;
-  readonly pulse?: RingPulse;
+  readonly spin?: RingPart;
+  readonly pulse?: RingPart;
 };
 
-const F = RING_FRAME_MS;
-
-export const RING_MOTION: Readonly<Record<LoopRing, RingMotion>> = {
-  work: { base: track, spin: { paint: (c, p, col) => comet(c, p, col, TOP, Math.PI * 0.75), lapMs: 16 * F } },
-  reverse: {
-    base: dashedTrack,
-    spin: { paint: (c, p, col) => comet(c, p, col, TOP, -Math.PI * 0.55), lapMs: 32 * F, ccw: true },
-  },
-  // The wave crest travels 8/7 of a half-turn a cycle; the whole zigzag
-  // (its bulge baked in) turns at that speed, a full lap in 56 frames.
-  snake: { spin: { paint: (c, p, col) => snakeAt(c, p, col, 0), lapMs: 56 * F } },
-  call: {
-    base: (c, p, col) => callRing(c, p, col, 0),
-    pulse: { paint: (c, _p, col) => callWave(c, col, 0), kind: "send", ms: 16 * F },
-  },
-  wait: { base: (c, _p, col) => waitRing(c, col), spin: { paint: (c, p, col) => waitBeads(c, p, col, TOP), lapMs: 64 * F } },
-  halt: {
-    base: (c, p, col) => haltAt(c, p, col, 0),
-    pulse: { paint: (c, p, col) => haltAt(c, p, col, 1), kind: "beat", ms: 16 * F },
-  },
-  glint: {
-    base: (c, p, col) => paintDone(c, p, col, LAND_FRAMES),
-    spin: { paint: (c, p, col) => glintArc(c, p, col, TOP, 1), lapMs: 32 * F, fade: true },
-  },
-  // Four-fold: a quarter turn a cycle comes round to itself in four.
-  fracture: { spin: { paint: (c, _p, col) => fractureAt(c, col, 0, 0.45), lapMs: 128 * F } },
-  dot: {
-    base: (c, p, col) => breatheAt(c, p, "dot", col, 0),
-    pulse: { paint: (c, p, col) => breatheAt(c, p, "dot", col, 1), kind: "breathe", ms: 32 * F },
-  },
-  live: {
-    base: (c, p, col) => breatheAt(c, p, "live", col, 0),
-    pulse: { paint: (c, p, col) => breatheAt(c, p, "live", col, 1), kind: "breathe", ms: 32 * F },
-  },
+export const RING_PAINT: Readonly<Record<LoopRing, RingPaint>> = {
+  work: { base: track, spin: (c, p, col) => comet(c, p, col, TOP, Math.PI * 0.75) },
+  reverse: { base: dashedTrack, spin: (c, p, col) => comet(c, p, col, TOP, -Math.PI * 0.55) },
+  snake: { spin: (c, p, col) => snakeAt(c, p, col, 0) },
+  call: { base: (c, p, col) => callRing(c, p, col, 0), pulse: (c, _p, col) => callWave(c, col, 0) },
+  wait: { base: (c, _p, col) => waitRing(c, col), spin: (c, p, col) => waitBeads(c, p, col, TOP) },
+  halt: { base: (c, p, col) => haltAt(c, p, col, 0), pulse: (c, p, col) => haltAt(c, p, col, 1) },
+  glint: { base: (c, p, col) => paintDone(c, p, col, LAND_FRAMES), spin: (c, p, col) => glintArc(c, p, col, TOP, 1) },
+  fracture: { spin: (c, _p, col) => fractureAt(c, col, 0, 0.45) },
+  dot: { base: (c, p, col) => breatheAt(c, p, "dot", col, 0), pulse: (c, p, col) => breatheAt(c, p, "dot", col, 1) },
+  live: { base: (c, p, col) => breatheAt(c, p, "live", col, 0), pulse: (c, p, col) => breatheAt(c, p, "live", col, 1) },
 };
 
 /** Frame a frozen loop shows (reduced motion, offscreen, paused). */
@@ -435,8 +383,6 @@ export const paintStill = (ctx: Ctx, p: RingPalette, ring: StillRing, color: str
 
 // --- outer band: glow, halo, flag --------------------------------------------
 
-export type RingGlow = "amber" | "crimson";
-export type RingHalo = "good" | "exceeding";
 
 /** Waiting on the operator: a soft light around the ring; the ring moves. */
 export const paintGlow = (ctx: Ctx, p: RingPalette, color: string, fade: number): void => {

@@ -18,29 +18,34 @@
  */
 
 import type { ThemeMode } from "@shared/theme";
-import type { ThreadHealthTone, ThreadHealthValue } from "@shared/thread-health";
 import type { AgentSignalKind } from "@shared/agent-signals";
-import { themeFor } from "./theme";
-import type { ActivityGlyph, ActivityTone } from "./activity";
 import {
   LAND_FRAMES,
-  LOOP_REST_FRAME,
   RING_CYCLE_FRAMES,
   RING_FRAME_MS,
   RING_MOTION,
+  SIGNAL_FLAG_TONE,
+  ringState,
+  type LoopRing,
+  type RingGlow,
+  type RingHalo,
+  type RingPulseTiming,
+  type RingStateInput,
+  type StillRing,
+} from "@shared/rings";
+import { themeFor } from "./theme";
+import type { ActivityTone } from "./activity";
+import {
+  LOOP_REST_FRAME,
+  RING_PAINT,
   paintDone,
   paintFlag,
   paintGlow,
   paintHalo,
   paintLoop,
   paintStill,
-  type LoopRing,
-  type RingGlow,
-  type RingHalo,
   type RingPalette,
   type RingPart,
-  type RingPulse,
-  type StillRing,
 } from "./activity-rings";
 
 export { LAND_FRAMES };
@@ -85,13 +90,6 @@ const GLOWS: ReadonlyArray<RingGlow | "none"> = ["none", "amber", "crimson"];
 const HALOS: ReadonlyArray<RingHalo | "none"> = ["none", "good", "exceeding"];
 const FLAGS: ReadonlyArray<AgentSignalKind | "none"> = ["none", "blocked", "escalate", "feedback"];
 
-/** Declared signal hues: blocked crimson, escalate amber, feedback cyan. */
-export const SIGNAL_FLAG_TONE: Readonly<Record<AgentSignalKind, ActivityTone>> = {
-  blocked: "crimson",
-  escalate: "amber",
-  feedback: "cyan",
-};
-
 export type AtlasCell = { readonly col: number; readonly row: number };
 
 const key = (a: string, b: string): string => `${a}:${b}`;
@@ -103,7 +101,7 @@ export type RingParts = {
   /** The still base: the mark's background while the ring moves; blank when absent. */
   readonly base: AtlasCell;
   readonly spin?: AtlasCell & { readonly ms: number; readonly ccw: boolean; readonly fade: boolean };
-  readonly pulse?: AtlasCell & { readonly ms: number; readonly kind: RingPulse["kind"] };
+  readonly pulse?: AtlasCell & { readonly ms: number; readonly kind: RingPulseTiming["kind"] };
   /** Done only: the sealed ring, faded and grown in once before the glint. */
   readonly land?: AtlasCell;
 };
@@ -180,15 +178,9 @@ export type CoreCell = AtlasCell & {
   readonly land?: number;
 };
 
-export type RingInput = {
-  readonly glyph: ActivityGlyph;
-  readonly tone: ActivityTone;
+export type RingInput = RingStateInput & {
   /** False freezes loops at their rest pose and shows done already resting. */
   readonly animate: boolean;
-  readonly health?: ThreadHealthTone;
-  readonly healthValue?: ThreadHealthValue;
-  readonly healthStale?: boolean;
-  readonly signal?: AgentSignalKind;
 };
 
 export type RingCells = {
@@ -218,75 +210,23 @@ const stillCell = (ring: StillRing): CoreCell => {
 };
 
 /**
- * One rule for what a ring shows.
- *
- * Control state owns the motion. A trouble reading bends it: work that is
- * stuck runs backwards, work that is thrashing or looping snakes, and a
- * settled ring fractures; trouble is amber, never crimson (crimson is a
- * declared blocker's). Call and halt outrank a reading. A seat that is not
- * working but waits on the operator circles: a declared blocked beats as
- * halt, escalate and feedback orbit in their flag's hue, and a fresh
- * "waiting" reading orbits amber. Done draws itself once and then glints
- * until it is read. The band says who is waiting on whom: a declared blocked
- * or escalate glows first, a health "waiting" reading second; a good reading
- * is a fine outer halo. The flag marks any open declared signal. Stale
- * readings draw faded. Only resting and stopped rings are still.
+ * Where a ring sits in the atlas. Which ring, in which tone, and its band are
+ * ringState's (src/shared/rings.ts), the rule the phone draws from too; this
+ * only finds the cells that draw it, frozen at the rest pose unless
+ * `animate`.
  */
 export const ringCells = (input: RingInput): RingCells => {
-  const { glyph, tone, animate, health, healthValue, signal } = input;
-  const trouble = health === "trouble";
-  const waitTone: ActivityTone | undefined =
-    signal === "escalate" || signal === "feedback"
-      ? SIGNAL_FLAG_TONE[signal]
-      : health === "waiting" && input.healthStale !== true
-        ? "amber"
-        : undefined;
-  let core: CoreCell;
-  let ring: RingCells["ring"];
-  let hue: ActivityTone = tone;
-  if (glyph === "work") {
-    ring = trouble ? (healthValue === "stuck" ? "reverse" : "snake") : "work";
-    hue = trouble ? "amber" : tone;
-    core = loopCell(ring, hue, animate);
-  } else if (glyph === "call" || glyph === "halt") {
-    ring = glyph;
-    hue = glyph === "call" ? "amber" : "crimson";
-    core = loopCell(glyph, hue, animate);
-  } else if (signal === "blocked") {
-    ring = "halt";
-    hue = "crimson";
-    core = loopCell("halt", hue, animate);
-  } else if (waitTone) {
-    ring = "wait";
-    hue = waitTone;
-    core = loopCell("wait", hue, animate);
-  } else if (glyph === "done") {
-    ring = "done";
-    hue = "green";
-    core = animate
-      ? { ...loopCell("glint", "green", true), land: LAND_ROW }
-      : { col: LAND_FRAMES, row: LAND_ROW, motion: "still" };
-  } else if (trouble) {
-    ring = "fracture";
-    hue = "amber";
-    core = loopCell("fracture", hue, animate);
-  } else if (glyph === "dot" || glyph === "live") {
-    ring = glyph;
-    hue = tone === "steel" ? "cyan" : tone;
-    core = loopCell(glyph, hue, animate);
-  } else {
-    ring = glyph;
-    core = stillCell(glyph);
-  }
-
-  const signalGlow: RingGlow | undefined =
-    signal === "blocked" ? "crimson" : signal === "escalate" ? "amber" : undefined;
-  const glow: RingGlow | "none" = signalGlow ?? (health === "waiting" ? "amber" : "none");
-  const halo: RingHalo | "none" =
-    health === "good" ? (healthValue === "exceeding" ? "exceeding" : "good") : "none";
-  // Only the reading fades with age; a declared signal is current until closed.
-  const stale = input.healthStale === true && (halo !== "none" || (glow !== "none" && !signalGlow));
-  const band = LAYOUT.bands.get(bandKey(glow, halo, stale, signal ?? "none"));
+  const state = ringState(input);
+  const { ring, hue } = state;
+  const core: CoreCell =
+    ring === "done"
+      ? input.animate
+        ? { ...loopCell("glint", "green", true), land: LAND_ROW }
+        : { col: LAND_FRAMES, row: LAND_ROW, motion: "still" }
+      : ring === "rest" || ring === "off"
+        ? stillCell(ring)
+        : loopCell(ring, hue, input.animate);
+  const band = LAYOUT.bands.get(bandKey(state.glow ?? "none", state.halo ?? "none", state.stale, state.flag ?? "none"));
   return band ? { core, band, ring, hue } : { core, ring, hue };
 };
 
@@ -341,14 +281,14 @@ const paintAtlas = (ctx: Ctx, mode: ThemeMode): void => {
   }
   LOOP_ROWS.forEach(([ring, tone], row) => {
     const parts = LAYOUT.parts.get(row);
-    const motion = RING_MOTION[ring];
+    const paint = RING_PAINT[ring];
     if (!parts) return;
     const bake = (at: AtlasCell | undefined, part: RingPart | undefined): void => {
       if (at && part) cell(at, (x) => part(x, p, tones[tone]));
     };
-    bake(motion.base ? parts.base : undefined, motion.base);
-    bake(parts.spin, motion.spin?.paint);
-    bake(parts.pulse, motion.pulse?.paint);
+    bake(RING_MOTION[ring].base ? parts.base : undefined, paint.base);
+    bake(parts.spin, paint.spin);
+    bake(parts.pulse, paint.pulse);
   });
   for (const [ring, tone] of STILL_CELLS) {
     const at = LAYOUT.stills.get(key(ring, tone));

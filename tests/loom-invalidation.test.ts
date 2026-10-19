@@ -12,7 +12,7 @@ import {
   type LoomRoute,
 } from "../src/renderer/lib/loom-view";
 import type { LoomEdgeInput, LoomObstacle } from "../src/renderer/lib/wire-loom";
-import type { WireRect } from "../src/renderer/lib/wire-route";
+import type { WireRect } from "../src/shared/wire-route";
 
 const rect = (
   nodeId: string,

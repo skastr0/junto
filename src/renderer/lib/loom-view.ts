@@ -17,7 +17,7 @@ import {
   type WirePoint,
   type WireRect,
   type WireRouteResult,
-} from "./wire-route";
+} from "@shared/wire-route";
 
 /** Planned standalone (non-fan) route — same shape as routeWire result. */
 export type LoomRoute = {

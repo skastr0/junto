@@ -24,8 +24,8 @@ import {
   roundedOrthogonalPath,
   routeWire,
   simplifyPolyline,
-} from "./wire-route";
-import type { WireDirection, WirePoint, WireRect } from "./wire-route";
+} from "@shared/wire-route";
+import type { WireDirection, WirePoint, WireRect } from "@shared/wire-route";
 
 export type LoomEdgeInput = {
   readonly id: string;

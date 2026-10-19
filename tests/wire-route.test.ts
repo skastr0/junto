@@ -6,7 +6,7 @@ import {
   roundedOrthogonalPath,
   segmentHitsRect,
   simplifyPolyline,
-} from "../src/renderer/lib/wire-route";
+} from "../src/shared/wire-route";
 
 describe("wire-route geometry", () => {
   it("detects horizontal segment through a rect", () => {

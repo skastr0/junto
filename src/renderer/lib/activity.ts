@@ -19,7 +19,9 @@
 import type { AgentSeatState } from "@shared/agent-seat-state";
 import { GREEN, HUE } from "./theme";
 
-export type ActivityTone = "amber" | "cyan" | "green" | "crimson" | "steel";
+// The ring vocabulary is shared with the phone (src/shared/rings.ts).
+export type { ActivityGlyph, ActivityTone } from "@shared/rings";
+import type { ActivityGlyph, ActivityTone } from "@shared/rings";
 /** wave = clockwise trail - pulse = soft breath (complete) - static = settled */
 export type ActivityMode = "wave" | "pulse" | "static";
 /**
@@ -29,21 +31,6 @@ export type ActivityMode = "wave" | "pulse" | "static";
 export type ActivitySize = "node" | "inline" | "seat" | "glance";
 /** Legacy motion nuance for wave states; ActivityMark ignores pattern. */
 export type ActivityPattern = "arrow-up" | "diagonal" | "snake" | "ripple";
-
-/**
- * What a mark draws, named by meaning; the concept in activity-concepts.ts
- * decides the form.
- * work → something is in flight (loops)
- * call → wants the operator (loops, then rests)
- * halt → blocked or failed (a slow double beat)
- * done → finished: draws itself once, then rests still
- * live → a warm session, quietly present
- * dot  → a settled fact in a tone (met, live chat)
- * rest → idle
- * off  → stopped, gone, unknown
- */
-export type ActivityGlyph =
-  "work" | "call" | "halt" | "done" | "live" | "dot" | "rest" | "off";
 
 export interface ActivitySpec {
   readonly mode: ActivityMode;

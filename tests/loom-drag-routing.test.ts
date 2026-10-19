@@ -14,7 +14,7 @@ import {
   routesOwedWithCause,
 } from "../src/renderer/lib/loom-view";
 import type { LoomEdgeInput, LoomObstacle } from "../src/renderer/lib/wire-loom";
-import { routeWire } from "../src/renderer/lib/wire-route";
+import { routeWire } from "../src/shared/wire-route";
 
 const COLS = 10;
 const ROWS = 8;

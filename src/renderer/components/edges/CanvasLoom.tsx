@@ -31,8 +31,8 @@ import {
 import { MIN_FAN, planLoom } from "../../lib/wire-loom";
 import type { LoomEdgeInput, LoomObstacle, LoomStrand } from "../../lib/wire-loom";
 import { canvasPerformance } from "../../lib/performance/canvas-performance";
-import { nodeBounds, routeWire } from "../../lib/wire-route";
-import type { WireDirection, WirePoint, WireRect } from "../../lib/wire-route";
+import { nodeBounds, routeWire } from "@shared/wire-route";
+import type { WireDirection, WirePoint, WireRect } from "@shared/wire-route";
 import { wireSides } from "../../lib/wire-sides";
 
 /** Minimal node fields needed for obstacle bounds (xyflow InternalNode shape). */

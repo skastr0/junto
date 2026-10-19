@@ -15,8 +15,8 @@ import {
   polylineHitsObstacles,
   routeWire,
   segmentHitsRect,
-} from "../src/renderer/lib/wire-route";
-import type { WireDirection, WirePoint, WireRect } from "../src/renderer/lib/wire-route";
+} from "../src/shared/wire-route";
+import type { WireDirection, WirePoint, WireRect } from "../src/shared/wire-route";
 
 const HUB: WirePoint = { x: 0, y: 0 };
 

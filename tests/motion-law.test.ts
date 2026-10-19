@@ -17,7 +17,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MARK_PHASE_MS, markAtlasCss, ringCells } from "../src/renderer/lib/activity-atlas";
-import { RING_CYCLE_FRAMES, RING_FRAME_MS, RING_MOTION, type LoopRing } from "../src/renderer/lib/activity-rings";
+import { RING_CYCLE_FRAMES, RING_FRAME_MS, RING_MOTION, type LoopRing } from "../src/shared/rings";
 
 const root = resolve(__dirname, "..");
 const read = (rel: string): string => readFileSync(join(root, rel), "utf8");
@@ -30,6 +30,7 @@ const filesUnder = (dir: string): string[] =>
 
 const LOOPS = Object.keys(RING_MOTION) as LoopRing[];
 const RING_SOURCES = [
+  "src/shared/rings.ts",
   "src/renderer/lib/activity-atlas.ts",
   "src/renderer/lib/activity-rings.ts",
   "src/renderer/components/ActivityMark.tsx",
