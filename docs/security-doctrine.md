@@ -212,7 +212,11 @@ canvas, never on which end opened the connection:
 
 Each channel decodes its payload with its own closed runtime schema before
 use. Decoding the common envelope or trusting a TypeScript type does not
-establish that payload's shape. The machine list derives update-needed state
+establish that payload's shape. Closed means the decode call itself passes
+`onExcessProperty: "error"`. A schema annotation alone does not close it:
+whether an annotation on a nested struct refuses an extra key changed
+between Effect releases, so an upgrade could open it without a failing
+build. The machine list derives update-needed state
 from the build observed in that peer's hello; a mismatch never admits its
 channels, and an unobserved build is not known compatible.
 
