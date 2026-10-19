@@ -177,6 +177,13 @@ export const AdvancedSettings = Schema.Struct({
    * seen, so an upgrade shows it once too.
    */
   onboardingSeen: Schema.optionalKey(Schema.Boolean),
+  /**
+   * The operator was asked, once, after the first phone paired, whether Junto
+   * opens at login. Either answer sets it; Junto never asks again and never
+   * turns the login item on by itself. Optional so older rows decode; absent
+   * means not asked.
+   */
+  openAtLoginOffered: Schema.optionalKey(Schema.Boolean),
 });
 export type AdvancedSettings = typeof AdvancedSettings.Type;
 
@@ -934,6 +941,7 @@ export const AdvancedPatch = Schema.Struct({
   /** Merged key by key: one toggle never clears another. */
   experimental: Schema.optionalKey(ExperimentalOptIns),
   onboardingSeen: Schema.optionalKey(Schema.Boolean),
+  openAtLoginOffered: Schema.optionalKey(Schema.Boolean),
 });
 export type AdvancedPatch = typeof AdvancedPatch.Type;
 

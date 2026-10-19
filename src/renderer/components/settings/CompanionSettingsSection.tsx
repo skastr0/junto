@@ -6,12 +6,15 @@
  * minutes), and the phones already paired, each with when it was last seen
  * and Remove. Main owns every step (keys, authorized_keys, the registry); this
  * surface only asks and shows. The QR carries a one-time key, so it is held in
- * component state only and dropped as soon as it is done with.
+ * component state only and dropped as soon as it is done with. When the first
+ * phone pairs, it asks once whether Junto opens at login.
  */
 import { useCallback, useEffect, useState } from "react";
 import type { CompanionDeviceRecord, CompanionPairStart, CompanionStatus } from "@shared/companion-devices";
 import { COMPANION_PAIRING_TTL_MS } from "@shared/companion-protocol";
 import { getJuntoApi } from "../../lib/junto-api";
+import { answerOpenAtLogin, openAtLoginOfferVisible } from "../../lib/open-at-login-offer";
+import { state$ } from "../../lib/state";
 import { Button, StatusDot } from "../ui";
 import "./companion-settings.css";
 
@@ -177,6 +180,61 @@ function PairingPanel({
   );
 }
 
+/**
+ * Asked once, right after the first phone pairs: the phone reaches this Mac
+ * only while Junto runs. Nothing changes until the operator answers yes.
+ */
+export function OpenAtLoginOffer({ onAnswered }: { readonly onAnswered: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [outcome, setOutcome] = useState<{ readonly text: string; readonly failed: boolean } | undefined>();
+  const answer = async (open: boolean) => {
+    setBusy(true);
+    const result = await answerOpenAtLogin(open);
+    setBusy(false);
+    if (!result.ok) {
+      setOutcome({ text: `${result.message} You can turn it on in Settings, Advanced, Start Junto at login.`, failed: true });
+      return;
+    }
+    if (!open) {
+      onAnswered();
+      return;
+    }
+    setOutcome({ text: "Junto opens when you log in. Change it in Settings, Advanced.", failed: false });
+  };
+  if (outcome) {
+    return (
+      <div className="companion-offer" data-testid="companion-open-at-login">
+        <p className="companion-note" role={outcome.failed ? "alert" : "status"}>
+          {outcome.text}
+        </p>
+        <Button size="xs" variant="subtle" onClick={onAnswered}>
+          done
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="companion-offer" data-testid="companion-open-at-login" role="group" aria-labelledby="companion-offer-title">
+      <div className="companion-offer__text">
+        <span id="companion-offer-title" className="companion-checks__title">
+          Open Junto when you log in?
+        </span>
+        <span className="companion-checks__hint">
+          Your phone reaches this Mac only while Junto is running. Opening at login keeps it answering after a restart.
+        </span>
+      </div>
+      <div className="companion-pairing__actions">
+        <Button size="sm" variant="primary" onClick={() => void answer(true)} disabled={busy}>
+          Open at login
+        </Button>
+        <Button size="sm" variant="subtle" onClick={() => void answer(false)} disabled={busy}>
+          not now
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function PhoneRow({
   device,
   now,
@@ -222,6 +280,8 @@ export function CompanionSettingsSection() {
   const [pairing, setPairing] = useState<Pairing | undefined>();
   const [message, setMessage] = useState<string | undefined>();
   const [justPaired, setJustPaired] = useState<string | undefined>();
+  // Decided once, when the first phone pairs; closed once answered.
+  const [offerOpenAtLogin, setOfferOpenAtLogin] = useState(false);
   const now = useNow(pairing !== undefined || devices.length > 0);
 
   const check = useCallback(async () => {
@@ -249,6 +309,21 @@ export function CompanionSettingsSection() {
     if (done) {
       setPairing(undefined);
       setJustPaired(done.name || "Your phone");
+      const first = devices.every((device) => device.deviceId === done.deviceId || device.state !== "paired");
+      if (first) {
+        void getJuntoApi()?.loginItemGet?.().then(
+          (loginItem) =>
+            setOfferOpenAtLogin(
+              openAtLoginOfferVisible({
+                firstPhone: true,
+                settingsReady: state$.settingsReady.peek(),
+                offered: state$.settings.advanced.openAtLoginOffered.peek(),
+                loginItem,
+              }),
+            ),
+          () => undefined,
+        );
+      }
     }
   }, [devices, pairing]);
 
@@ -304,6 +379,7 @@ export function CompanionSettingsSection() {
             </span>
           </div>
         )}
+        {offerOpenAtLogin ? <OpenAtLoginOffer onAnswered={() => setOfferOpenAtLogin(false)} /> : null}
         {message ? (
           <p className="companion-error" role="alert">
             {message}
