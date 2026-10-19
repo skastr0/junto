@@ -278,9 +278,9 @@ const SHEET_REFERENCE = `Grant is \`sheet.read\` via the edge. A sheet is a smal
 columns, rows, and plain text cells, returned as JSON plus a markdown table.
 There is no write port — if a number in it is wrong, say so, do not fix it.`;
 
-const BROWSER_REFERENCE = `Browser control is off in this build. Junto refuses every \`junto browser\`
-call, so a page edge does nothing yet, even where \`junto capabilities\` lists
-\`browser.automate\`. Do not retry it or work around it.`;
+const BROWSER_REFERENCE = `\`browser.automate\` is a live edge grant realized by \`junto browser\` from
+the managed agent's existing shell. A running seat may use it as soon as the
+edge appears, with no fresh start — re-run \`junto capabilities\` for the current command.`;
 
 /** The reference prose under a family's table, for the ports the group holds. */
 const referenceFor = (group: CommandGroup): string => {
