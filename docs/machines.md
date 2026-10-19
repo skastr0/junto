@@ -56,7 +56,7 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    canvas travels as rows. A changed or removed wire takes effect on a machine
    when that machine has the new copy; mail written before then still arrives.
 3. **A seat lives on one machine.** That machine starts it, holds its terminal,
-   mints its token, and stores its mail, signals and history. The seat's
+   mints its token, and stores its mail, signals and sessions. The seat's
    `junto` CLI talks only to its own machine. A seat names its machine by the
    machine's real short name. No row says `local`: that word would mean a
    different machine on every copy, and tying it to the editing machine would
@@ -68,7 +68,7 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    receipt or signal for a seat, are valid only from the machine that seat is
    on; an answer to a signal only from the machine that edits the canvas. A
    row that breaks this, or that arrives twice with different content, closes
-   the link. Only mail, receipts and signals are exchanged;
+   the link. Only mail, receipts, signals and session facts are exchanged;
    the exchange has its own closed list and admits nothing else. The editing
    machine remembers which machine each seat was on and when, so mail written
    before a seat moved or was removed is still judged against where the seat
@@ -528,7 +528,7 @@ Open, not finished:
 | Putting Junto on a machine | `remote-send` | installer with receipts and uninstall: `06a6077a6`, `082270965`; pinned SSH routes: `65aa52716`; bundle copy over SSH: `e223244a9`; the machine list by name: `35a7a69f9`; the closed owner machine commands, reviewed: `9c9f68561`, `e12463eef`; next their handler in the core, setup, the link relay |
 | Leaf cuts, stale documents, the guide | `remote-cut` | cut closed at `9e80c1edc`; guide rewritten: `6dfa819ae`; e2e sweep: `8bedc47ef`, `9c2e11dda`; the browser and the tests by machine name: `1f45473c3`, `a1331dfc7`; then the ship gate lane by lane and the words left in code |
 | Security review and the doctrine | `remote-security` | doctrine agreed by every seat, current at `18341a52b`; reviews each landing at the boundary |
-| A seat on another machine | `remote-seats` | where a seat picks up is kept in its machine's own store: `d281981a7`; seats routed by this machine's name: `a27e4bb1f`; the field leaves the seat row next |
+| A seat on another machine | `remote-seats` | the session pin has its own store: `d281981a7`; sessions routed by this machine's name: `a27e4bb1f`; the field leaves the seat row next |
 | The Machines window | `remote-window` | the renderer reads machines by name, no roles: `69884279f` through `c8a212a7e`; the window's two channels: `493286c44`; now the window itself |
 | How a machine looks | `remote-design` | printed solids, approved by the operator on the proof: `f21d698ce`, `fb43aac74`; nothing mounts it yet |
 
