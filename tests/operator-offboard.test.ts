@@ -21,10 +21,14 @@ import { makeOperatorHolds, type OperatorHolds } from "../src/main/junto/term/op
 import { OPERATOR_TYPING_GRACE_MS } from "../src/shared/operator-hold";
 import { initialSnapshot, type SeatSnapshot, type SeatStatus } from "../src/shared/harness-domain";
 import type { BindingId } from "../src/shared/terminal-session-domain";
+import type { SeatCacheDue } from "../src/shared/seat-cache-due";
+import type { SeatStartCause } from "../src/main/junto/term/seat-start-cause";
 import {
+  CACHE_MODES,
   OFFBOARD_REFUSAL_REASON,
   applyOffboardRulesPatch,
   defaultOffboardRules,
+  type CacheMode,
   type OffboardBy,
   type OffboardRules,
 } from "../src/shared/seat-offboard";
@@ -80,6 +84,8 @@ const world = (
   const asked: Array<{ seatId: string; mode: string }> = [];
   const ended: Array<{ seatId: string; sessionId: string; by: OffboardBy; at: number }> = [];
   const saved: SeatClockRecord[] = [];
+  /** Every list of seats due the auto mode's question, as main told it. */
+  const dues: Array<ReadonlyArray<SeatCacheDue>> = [];
   const fail = { close: new Set<string>(), ask: new Set<string>() };
   /** Transcript size per seat, in tokens. A seat not listed has no locatable transcript. */
   const sizes = new Map<string, number>();
@@ -117,6 +123,7 @@ const world = (
     held: (s, when) => holds?.hold(s.bindingId, when) ?? held.get(s.seatId),
     remote: async (s) => told.get(s.seatId),
     saveClock: (record) => saved.push(record),
+    dueChanged: (due) => dues.push(due),
     now: () => at,
   };
   const offboard = makeOperatorOffboard(ports, clock);
@@ -131,6 +138,7 @@ const world = (
     asked,
     ended,
     saved,
+    dues,
     fail,
     sizes,
     told,
@@ -160,10 +168,11 @@ const world = (
     /**
      * A start of the seat, as sessionBeforeStart makes it: the decision, and
      * on a cold session the fresh path, which ends the old session, names a
-     * new one and records that Junto ended it.
+     * new one and records that Junto ended it. Mail starts it unless the
+     * test says otherwise.
      */
-    start: async (seatId: string): Promise<boolean> => {
-      const fresh = await offboard.coldAtStart({ canvasName: CANVAS, seatId });
+    start: async (seatId: string, cause: SeatStartCause = "mail"): Promise<boolean> => {
+      const fresh = await offboard.coldAtStart({ canvasName: CANVAS, seatId }, cause);
       const before = seats.get(seatId);
       if (fresh && before?.sessionId !== undefined) {
         seats.set(seatId, { ...before, sessionId: `fresh-${seatId}` });
@@ -364,7 +373,7 @@ describe("a seat on another machine", () => {
     w.told.set("far", { stillSince: T0 - 600 * MIN, windowMinutes: 2, workMs: 600 * MIN, tokens: 900_000, worth: true });
     await w.offboard.status(CANVAS, ["far"]);
     expect(await w.offboard.tick()).toMatchObject({ closed: 0 });
-    expect(await w.offboard.coldAtStart({ canvasName: CANVAS, seatId: "far" })).toBe(false);
+    expect(await w.offboard.coldAtStart({ canvasName: CANVAS, seatId: "far" }, "mail")).toBe(false);
     expect(w.closed).toEqual([]);
     expect(w.clock.workMs("bind-far")).toBe(0);
     expect(w.clock.stillSince("bind-far")).toBe(T0);
@@ -390,7 +399,7 @@ describe("a seat on another machine", () => {
 const resting = (seatId: string, over: Partial<OffboardSeat> = {}): OffboardSeat =>
   seat(seatId, { running: false, state: undefined, ...over });
 
-describe("the start decision: a resting seat whose session has gone cold starts fresh (60 minutes by default)", () => {
+describe("the start decision: mail to a resting seat whose session has gone cold starts it fresh (60 minutes, hybrid, by default)", () => {
   it("the minute pass never ends a resting seat's session, and never asks for a turn, however long it has sat still", async () => {
     const w = world([resting("rest"), resting("other")]);
     for (let hour = 0; hour < 48; hour += 1) {
@@ -401,7 +410,7 @@ describe("the start decision: a resting seat whose session has gone cold starts 
     expect(w.asked).toEqual([]);
   });
 
-  it("opening a seat still for its cache window starts it fresh; a minute short of it, it resumes", async () => {
+  it("a start of a seat still for its cache window starts it fresh; a minute short of it, it resumes", async () => {
     const w = world([resting("a")]);
     w.settle("a");
     w.advance(59);
@@ -452,7 +461,7 @@ describe("the start decision: a resting seat whose session has gone cold starts 
     for (const id of ["busy", "remote", "nosession", "ghost"]) expect(await w.start(id)).toBe(false);
   });
 
-  it("the operator's hold does not keep a cold session at the start: opening the seat is the start itself", async () => {
+  it("the operator's hold does not keep a cold session at the start: the start is what it holds off", async () => {
     const w = world([resting("rest"), seat("idle")]);
     w.held.set("rest", {});
     w.held.set("idle", {});
@@ -463,7 +472,7 @@ describe("the start decision: a resting seat whose session has gone cold starts 
     expect(await w.offboard.tick()).toMatchObject({ closed: 0 });
   });
 
-  it("a paused canvas changes nothing: the operator's start there is judged the same", async () => {
+  it("a paused canvas changes nothing: a start there is judged the same", async () => {
     const w = world([resting("paused", { paused: true })]);
     w.advance(600);
     expect(await w.start("paused")).toBe(true);
@@ -505,7 +514,7 @@ describe("the start decision: a resting seat whose session has gone cold starts 
       },
       new SeatStatusClock(() => T0),
     );
-    expect(await broken.coldAtStart({ canvasName: CANVAS, seatId: "a" })).toBe(false);
+    expect(await broken.coldAtStart({ canvasName: CANVAS, seatId: "a" }, "mail")).toBe(false);
   });
 });
 
@@ -647,12 +656,15 @@ describe("the seat's next turn: the same test as the cut", () => {
     expect(await next(w, "d")).toEqual({ fresh: false });
   });
 
-  it("a resting seat starts fresh when it has no session to resume, and by the window when it has", async () => {
+  it("a resting seat starts fresh when it has no session to resume, and as the operator's open would when it has", async () => {
     const w = world([resting("a")]);
     expect(await next(w, "a", "offboarded")).toEqual({ fresh: true });
     expect(await next(w, "a", "fresh")).toEqual({ fresh: true });
     expect(await next(w, "a", "resume")).toMatchObject({ fresh: false });
     w.advance(600);
+    // Hybrid: the operator's open continues it, with the warning.
+    expect(await next(w, "a", "resume")).toEqual({ fresh: false });
+    w.setRules(applyOffboardRulesPatch(defaultOffboardRules(), { cacheMode: "auto" }));
     expect(await next(w, "a", "resume")).toEqual({ fresh: true });
   });
 
@@ -671,7 +683,7 @@ describe("the seat against its cache window, as its card reads it", () => {
     const { SeatSessionRepository } = await import("../src/main/junto/seat-sessions/repository");
     const { seatLaunchState } = await import("../src/main/junto/term/seat-launch-state");
     const w = world([seat("a", { harness: "amp" })], {
-      rules: { ...defaultOffboardRules(), cacheMode: "manual", harness: { amp: { cacheWindowMinutes: 5 } } },
+      rules: { ...defaultOffboardRules(), cacheMode: "hybrid", harness: { amp: { cacheWindowMinutes: 5 } } },
     });
     // Amp keeps its thread by id, so an open one resumes with nothing on disk.
     let open: { harness: string; sessionId: string } | undefined = { harness: "amp", sessionId: "T-a" };
@@ -691,7 +703,7 @@ describe("the seat against its cache window, as its card reads it", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
       // At rest since T0, under amp's own five minute window and this machine's mode.
-      const told = { windowMinutes: 5, stillSince: T0, windowEndsAt: T0 + 5 * MIN, cacheMode: "manual" };
+      const told = { windowMinutes: 5, stillSince: T0, windowEndsAt: T0 + 5 * MIN, cacheMode: "hybrid" };
       expect(await readAfter(3)).toMatchObject({ settingsFixed: true, cacheWindow: { ...told, pastWindow: false, pastByMs: 0 } });
       // Past it, held in front of the operator: its next turn picks up where it was, told how far past.
       w.held.set("a", {});
@@ -1060,7 +1072,7 @@ describe("the renderer's two calls", () => {
 });
 
 describe("the start decision, as every start asks it", () => {
-  it("judges the operator, mail and a restart by the same test, and resumes when nothing is installed or the decision fails", async () => {
+  it("judges each start by why it starts, and resumes when nothing is installed or the decision fails", async () => {
     const { coldSessionStartsFresh, setOperatorOffboard } = await import(
       "../src/main/junto/seat-sessions/operator-offboard"
     );
@@ -1072,12 +1084,177 @@ describe("the start decision, as every start asks it", () => {
     w.settle("warm");
     setOperatorOffboard(w.offboard);
     try {
-      for (const cause of ["operator", "mail", "restart"] as const) {
+      // Hybrid, the default: mail and a restart start a cold seat fresh, the operator's open continues it.
+      for (const cause of ["mail", "restart"] as const) {
         expect(await coldSessionStartsFresh(cold, cause)).toBe(true);
         expect(await coldSessionStartsFresh(warm, cause)).toBe(false);
       }
+      expect(await coldSessionStartsFresh(cold, "operator")).toBe(false);
       setOperatorOffboard({ ...w.offboard, coldAtStart: () => Promise.reject(new Error("rules could not be read")) });
       expect(await coldSessionStartsFresh(cold, "mail")).toBe(false);
+    } finally {
+      setOperatorOffboard(undefined);
+    }
+  });
+});
+
+describe("the cache mode, case by case", () => {
+  const inMode = (mode: CacheMode) => applyOffboardRulesPatch(defaultOffboardRules(), { cacheMode: mode });
+  const address = (seatId: string) => ({ canvasName: CANVAS, seatId });
+  const due = (seatId: string, windowEndsAt: number): SeatCacheDue => ({ canvasName: CANVAS, seatId, windowEndsAt });
+
+  it("off and manual never cut a running seat past its window, on screen or off, ask nothing, and say it continues", async () => {
+    for (const mode of ["off", "manual"] as const) {
+      const w = world([seat("away"), seat("shown")], { rules: inMode(mode) });
+      w.held.set("shown", {});
+      w.advance(600);
+      expect(await w.offboard.tick(), mode).toMatchObject({ closed: 0 });
+      expect(w.closed).toEqual([]);
+      expect(w.offboard.dueList()).toEqual([]);
+      expect(w.dues).toEqual([]);
+      for (const id of ["away", "shown"])
+        expect(await w.offboard.nextTurn(address(id), "resume"), `${mode} ${id}`).toEqual({ fresh: false });
+    }
+  });
+
+  it("auto and hybrid cut a running seat past its window off screen", async () => {
+    for (const mode of ["auto", "hybrid"] as const) {
+      const w = world([seat("a")], { rules: inMode(mode) });
+      w.advance(59);
+      expect(await w.offboard.tick(), mode).toMatchObject({ closed: 0 });
+      w.advance(1);
+      expect(await w.offboard.tick(), mode).toMatchObject({ closed: 1 });
+      expect(w.closed).toEqual([{ seatId: "a", by: "automatic" }]);
+    }
+  });
+
+  it("hybrid leaves a seat on screen alone: no cut, and no question", async () => {
+    const w = world([seat("a")], { rules: inMode("hybrid") });
+    w.held.set("a", {});
+    w.advance(600);
+    expect(await w.offboard.tick()).toMatchObject({ closed: 0 });
+    expect(w.offboard.dueList()).toEqual([]);
+    expect(w.dues).toEqual([]);
+  });
+
+  it("auto asks about a seat on screen, once, never cuts it without an answer, and Start fresh ends it for the operator", async () => {
+    const w = world([seat("a"), seat("b")], { rules: inMode("auto") });
+    w.held.set("a", {});
+    w.held.set("b", {});
+    w.advance(59);
+    await w.offboard.tick();
+    expect(w.dues).toEqual([]);
+    w.advance(1);
+    for (let minute = 0; minute < 120; minute += 1) {
+      expect(await w.offboard.tick()).toMatchObject({ closed: 0 });
+      w.advance(1);
+    }
+    const both = [due("a", T0 + 60 * MIN), due("b", T0 + 60 * MIN)];
+    // Told when it changed, not every minute; and there for a window that asks.
+    expect(w.dues).toEqual([both]);
+    expect(w.offboard.dueList()).toEqual(both);
+    expect(w.closed).toEqual([]);
+    expect(await w.offboard.answerDue(address("a"), "fresh")).toEqual({ ok: true });
+    expect(w.closed).toEqual([{ seatId: "a", by: "operator" }]);
+    expect(w.ended).toMatchObject([{ seatId: "a", sessionId: "session-a", by: "operator" }]);
+    expect(w.dues.at(-1)).toEqual([both[1]]);
+  });
+
+  it("Keep is not asked again while the seat stays on screen; off screen it is cut, and back on screen asked again", async () => {
+    const w = world([seat("a"), seat("b")], { rules: inMode("auto") });
+    w.held.set("a", {});
+    w.held.set("b", {});
+    w.advance(60);
+    await w.offboard.tick();
+    expect(await w.offboard.answerDue(address("a"), "keep")).toEqual({ ok: true });
+    expect(await w.offboard.answerDue(address("b"), "keep")).toEqual({ ok: true });
+    expect(w.dues.at(-1)).toEqual([]);
+    for (let minute = 0; minute < 30; minute += 1) {
+      w.advance(1);
+      expect(await w.offboard.tick()).toMatchObject({ closed: 0 });
+    }
+    expect(w.offboard.dueList()).toEqual([]);
+    // "a" leaves the screen still cold: auto cuts it off screen.
+    w.held.delete("a");
+    expect(await w.offboard.tick()).toMatchObject({ closed: 1 });
+    expect(w.closed).toEqual([{ seatId: "a", by: "automatic" }]);
+    // "b" is typed into, then let go: warm, it is left alone off screen.
+    w.clock.noteTyped("bind-b");
+    const typedAt = w.now();
+    w.held.delete("b");
+    w.advance(1);
+    expect(await w.offboard.tick()).toMatchObject({ closed: 0 });
+    // Back on screen and past its window again: asked again.
+    w.held.set("b", {});
+    w.advance(60);
+    await w.offboard.tick();
+    expect(w.offboard.dueList()).toEqual([due("b", typedAt + 60 * MIN)]);
+  });
+
+  it("typing holds the cut in every mode, and a key warms the session, running or resting", async () => {
+    for (const mode of CACHE_MODES) {
+      const w = world([seat("a"), resting("r")], { rules: inMode(mode) });
+      w.advance(600);
+      // Typed into a moment ago: held for the grace, and not asked about.
+      w.held.set("a", { until: w.now() + 20_000 });
+      expect(await w.offboard.tick(), mode).toMatchObject({ closed: 0 });
+      expect(w.offboard.dueList()).toEqual([]);
+      // The keys warmed both: still from then, past the hold too.
+      w.clock.noteTyped("bind-a");
+      w.clock.noteTyped("bind-r");
+      w.held.delete("a");
+      w.advance(1);
+      expect(await w.offboard.tick(), mode).toMatchObject({ closed: 0 });
+      expect(await w.start("r"), mode).toBe(false);
+      // A window after the keys, cold again where the mode acts on it.
+      w.advance(59);
+      const acts = mode === "auto" || mode === "hybrid";
+      expect((await w.offboard.tick()).closed, mode).toBe(acts ? 1 : 0);
+      expect(await w.start("r"), mode).toBe(acts);
+    }
+  });
+
+  it("the start, by mode and by why the seat starts; the card says what the operator's open does", async () => {
+    const fresh: Record<CacheMode, Record<SeatStartCause, boolean>> = {
+      off: { operator: false, mail: false, restart: false },
+      manual: { operator: false, mail: false, restart: false },
+      auto: { operator: true, mail: true, restart: true },
+      hybrid: { operator: false, mail: true, restart: true },
+    };
+    for (const mode of CACHE_MODES) {
+      for (const cause of ["operator", "mail", "restart"] as const) {
+        const w = world([resting("cold"), resting("warm")], { rules: inMode(mode) });
+        w.advance(600);
+        w.settle("warm");
+        expect(await w.offboard.nextTurn(address("cold"), "resume"), mode).toEqual({ fresh: fresh[mode].operator });
+        expect(await w.start("cold", cause), `${mode} ${cause}`).toBe(fresh[mode][cause]);
+        expect(await w.start("warm", cause), `${mode} ${cause}`).toBe(false);
+        expect(w.ended.length, `${mode} ${cause}`).toBe(fresh[mode][cause] ? 1 : 0);
+      }
+    }
+  });
+
+  it("the window's answer is checked off IPC and never throws", async () => {
+    const { handleSeatCacheDueAnswer } = await import("../src/main/junto/seat-sessions/operator-offboard-ipc");
+    const { seatCacheDueList, setOperatorOffboard } = await import("../src/main/junto/seat-sessions/operator-offboard");
+    expect(seatCacheDueList()).toEqual([]);
+    expect(await handleSeatCacheDueAnswer({ canvasName: CANVAS, seatId: "a", answer: "keep" }))
+      .toEqual({ ok: false, message: "Junto is still starting. Try again in a moment." });
+    const w = world([seat("a")], { rules: inMode("auto") });
+    w.held.set("a", {});
+    w.advance(60);
+    await w.offboard.tick();
+    setOperatorOffboard(w.offboard);
+    try {
+      expect(seatCacheDueList()).toEqual([due("a", T0 + 60 * MIN)]);
+      expect(await handleSeatCacheDueAnswer(undefined)).toEqual({ ok: false, message: "Junto could not find that seat." });
+      expect(await handleSeatCacheDueAnswer({ canvasName: "", seatId: "a", answer: "keep" })).toMatchObject({ ok: false });
+      expect(await handleSeatCacheDueAnswer({ canvasName: CANVAS, seatId: "a", answer: "later" }))
+        .toEqual({ ok: false, message: "Start fresh, or keep this session." });
+      expect(w.closed).toEqual([]);
+      expect(await handleSeatCacheDueAnswer({ canvasName: CANVAS, seatId: "a", answer: "fresh" })).toEqual({ ok: true });
+      expect(w.closed).toEqual([{ seatId: "a", by: "operator" }]);
+      expect(seatCacheDueList()).toEqual([]);
     } finally {
       setOperatorOffboard(undefined);
     }

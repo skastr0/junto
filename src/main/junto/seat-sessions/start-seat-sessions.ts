@@ -65,6 +65,8 @@ export type SeatSessionsInput = {
   readonly sendPrompt?: OperatorOffboardLiveInput["sendPrompt"];
   /** Where a seat's offboard stands, for whoever shows it. No window: no one. */
   readonly publish?: (progress: SeatOffboardProgress) => void;
+  /** The seats due the auto mode's question, for whoever shows it. No window: no one. */
+  readonly publishDue?: OperatorOffboardLiveInput["publishDue"];
 };
 
 export type SeatSessions = {
@@ -207,6 +209,7 @@ export const startSeatSessions = async (input: SeatSessionsInput): Promise<SeatS
       input.sendPrompt ??
       (({ bindingId, text, canvasName, nodeId }) => appendSeatPrompt(run, { bindingId, text, canvasName, nodeId })),
     suspended: () => suspended,
+    ...(input.publishDue ? { publishDue: input.publishDue } : {}),
   });
 
   const offHost = termPlane.host.subscribeEvents(

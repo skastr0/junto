@@ -11,7 +11,7 @@ import { setOperatorOffboard, type OperatorOffboard } from "../src/main/junto/se
 import { ensureSeatSessionId } from "../src/main/junto/term/seat-session-before-start";
 import { Command } from "../src/shared/model";
 
-it("a windowless core's start asks the start decision: a cold session starts fresh, a warm one resumes", async () => {
+it("a windowless core's start asks the start decision, with why it starts: a cold session starts fresh, a warm one resumes", async () => {
   const home = await mkdtemp(join(tmpdir(), "junto-core-start-"));
   let core: Awaited<ReturnType<typeof startCore>> | undefined;
   try {
@@ -34,17 +34,20 @@ it("a windowless core's start asks the start decision: a cold session starts fre
     let cold = false;
     const asked: string[] = [];
     const ended: string[] = [];
+    // As hybrid decides: mail starts a cold seat fresh, the operator's open continues it.
     setOperatorOffboard({
-      coldAtStart: async (seat: { readonly seatId: string }) => {
-        asked.push(seat.seatId);
-        return cold;
+      coldAtStart: async (seat: { readonly seatId: string }, cause: string) => {
+        asked.push(`${seat.seatId}/${cause}`);
+        return cold && cause !== "operator";
       },
       endedAtStart: (seat: { readonly seatId: string }, _binding: string, sessionId: string) => {
         ended.push(`${seat.seatId}/${sessionId}`);
       },
     } as unknown as OperatorOffboard);
-    const start = (seatId: string, harness: string) =>
-      ensureSeatSessionId({ canvasName: "rest", nodeId: seatId, bindingId: `${seatId}-binding`, harness, cause: "mail" });
+    const start = (seatId: string, harness: string, cause?: "operator" | "mail") =>
+      ensureSeatSessionId({
+        canvasName: "rest", nodeId: seatId, bindingId: `${seatId}-binding`, harness, ...(cause ? { cause } : { cause: "mail" as const }),
+      });
 
     // Warm: both resume the session they have.
     expect(await start("pinned", "claude")).toMatchObject({ ok: true, sessionId: "pinned-one" });
@@ -58,9 +61,17 @@ it("a windowless core's start asks the start decision: a cold session starts fre
     expect(pinned.ok && pinned.sessionId).not.toBe("pinned-one");
     expect(await start("captured", "codex")).toMatchObject({ ok: true, sessionId: "" });
     expect(ended).toEqual(["pinned/pinned-one", "captured/captured-one"]);
-    expect(asked).toEqual(["pinned", "captured", "pinned", "captured"]);
+    expect(asked).toEqual(["pinned/mail", "captured/mail", "pinned/mail", "captured/mail"]);
     const list = await run(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.list("captured")));
     expect(list.find((session) => session.sessionId === "captured-one")?.endedAt).toBeTypeOf("number");
+
+    // The operator opening it, cold still: the cause reaches the decision, and it resumes.
+    asked.length = 0;
+    expect(await start("pinned", "claude", "operator")).toMatchObject({ ok: true, sessionId: pinned.ok ? pinned.sessionId : "" });
+    // A start that names no cause is the operator's.
+    await ensureSeatSessionId({ canvasName: "rest", nodeId: "pinned", bindingId: "pinned-binding", harness: "claude" });
+    expect(asked).toEqual(["pinned/operator", "pinned/operator"]);
+    expect(ended).toHaveLength(2);
 
     // The operator's own fresh start does not ask: it is fresh already.
     asked.length = 0;

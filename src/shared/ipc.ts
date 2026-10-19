@@ -110,6 +110,7 @@ import type {
   SeatOffboardAskResult,
   SeatOffboardProgress,
 } from "./seat-sessions";
+import type { SeatCacheDue, SeatCacheDueAnswerInput, SeatCacheDueAnswerResult } from "./seat-cache-due";
 import type {
   AgentProfile,
   ProfileDeleteResult,
@@ -222,6 +223,10 @@ export const IPC_CHANNELS = {
   seatOffboardStatus: "junto:seat-offboard-status",
   seatOffboardProgressList: "junto:seat-offboard-progress-list",
   seatOffboardProgress: "junto:seat-offboard-progress",
+  /** The auto cache mode's question: the seats due it (pushed whole, and read), and the operator's answer. */
+  seatCacheDue: "junto:seat-cache-due",
+  seatCacheDueList: "junto:seat-cache-due-list",
+  seatCacheDueAnswer: "junto:seat-cache-due-answer",
   /** Onboarding: every seat's status, one seat's change, and the operator's nudge. */
   seatOnboardingSnapshot: "junto:seat-onboarding-snapshot",
   seatOnboardingChanged: "junto:seat-onboarding-changed",
@@ -932,6 +937,14 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   ) => Promise<ReadonlyArray<SeatOffboardStatus>>;
   /** Where every seat's latest offboard stands. */
   readonly seatOffboardProgressList?: () => Promise<ReadonlyArray<SeatOffboardProgress>>;
+  /**
+   * The seats due the auto cache mode's question now: past their cache window
+   * while open in front of the operator, and never started fresh without an
+   * answer. For a window that opens; changes arrive by `onSeatCacheDue`.
+   */
+  readonly seatCacheDueList?: () => Promise<ReadonlyArray<SeatCacheDue>>;
+  /** The operator's answer for one seat: Start fresh (`fresh`), or Keep this session (`keep`). */
+  readonly seatCacheDueAnswer?: (input: SeatCacheDueAnswerInput) => Promise<SeatCacheDueAnswerResult>;
   /** Whether each seat's agent ran `junto onboard` in its current harness session. */
   readonly seatOnboardingSnapshot?: () => Promise<ReadonlyArray<SeatOnboardingEvent>>;
   /**
@@ -1143,6 +1156,8 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly onReferencesChanged?: (listener: (event: ReferencesChangedEvent) => void) => () => void;
   /** Main -> renderer: one seat's offboard moved on (asked, saved, resting, started). */
   readonly onSeatOffboardProgress?: (listener: (event: SeatOffboardProgress) => void) => () => void;
+  /** The seats due the auto cache mode's question, the whole list, whenever it changes. */
+  readonly onSeatCacheDue?: (listener: (due: ReadonlyArray<SeatCacheDue>) => void) => () => void;
   /** Main -> renderer: one seat onboarded, or started a session that has not. */
   readonly onSeatOnboardingChanged?: (listener: (event: SeatOnboardingEvent) => void) => () => void;
   /** Main -> renderer: every profile, after any change. */

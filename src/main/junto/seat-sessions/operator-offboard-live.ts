@@ -27,7 +27,8 @@ import { SeatSessionRepository } from "./repository";
 import { PausePlane } from "../pause-plane";
 import { SettingsService } from "../settings/service";
 import { seatStateRuntime } from "../term/agent-state/runtime";
-import { operatorHold } from "../term/operator-holds";
+import type { SeatCacheDue } from "@shared/seat-cache-due";
+import { operatorHold, subscribeOperatorTyped } from "../term/operator-holds";
 import { termPlane } from "../term/plane";
 import { sessionSizeOf } from "../term/session-size";
 import { remoteSeatLaunchOf } from "../term/seats-client";
@@ -66,6 +67,8 @@ export type OperatorOffboardLiveInput = {
   }) => Promise<{ readonly ok: boolean; readonly error?: string }>;
   /** Product automation is switched off (quit, maintenance): the rules rest. */
   readonly suspended: () => boolean;
+  /** The seats due the auto mode's question, whenever they change. No window: no one. */
+  readonly publishDue?: (due: ReadonlyArray<SeatCacheDue>) => void;
 };
 
 /** The clock as last saved in junto.db; undefined when it never was or cannot be read. */
@@ -268,6 +271,7 @@ export const startOperatorOffboard = async (input: OperatorOffboardLiveInput): P
       remote: async (seat) =>
         seat.machine === undefined ? undefined : (await remoteSeatLaunchOf({ bindingId: seat.bindingId, host: seat.machine }))?.offboard,
       saveClock: (record) => writeClock(input.run, record),
+      dueChanged: (due) => input.publishDue?.(due),
       log: (message) => console.info(`[offboard] ${message}`),
     },
     clock,
@@ -280,9 +284,13 @@ export const startOperatorOffboard = async (input: OperatorOffboardLiveInput): P
       await refreshRules();
       return offboard.run(runInput, by);
     },
-    coldAtStart: async (seat) => {
+    coldAtStart: async (seat, cause) => {
       await refreshRules();
-      return offboard.coldAtStart(seat);
+      return offboard.coldAtStart(seat, cause);
+    },
+    answerDue: async (seat, answer) => {
+      await refreshRules();
+      return offboard.answerDue(seat, answer);
     },
     status: async (canvasName, seatIds) => {
       await refreshRules();
@@ -308,6 +316,11 @@ export const startOperatorOffboard = async (input: OperatorOffboardLiveInput): P
   const offState = seatStateRuntime.subscribe(noteSeat);
   // Seats already running when the rules start read where they are now.
   for (const event of seatStateRuntime.currentEvents()) noteSeat(event);
+  // The operator's keys warm a seat this machine runs, from a window here or
+  // a peer's view of it.
+  const offTyped = subscribeOperatorTyped((bindingId) => {
+    if (termPlane.host.get(bindingId) !== undefined) clock.noteTyped(bindingId);
+  });
 
   let ticking = false;
   const timer = setInterval(() => {
@@ -332,6 +345,7 @@ export const startOperatorOffboard = async (input: OperatorOffboardLiveInput): P
   return () => {
     clearInterval(timer);
     offState();
+    offTyped();
     // Best effort: the last tick's save stands.
     writeClock(input.run, clock.record());
     setOperatorOffboard(undefined);

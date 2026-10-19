@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { closeMachineLog, installMachineLog } from "../src/main/junto/observability/logger";
 import { machineLogDir } from "../src/main/junto/observability/log-file";
-import { makeOperatorHolds, type OperatorHoldSource } from "../src/main/junto/term/operator-holds";
+import { makeOperatorHolds, subscribeOperatorTyped, type OperatorHoldSource } from "../src/main/junto/term/operator-holds";
 import { TerminalRouter } from "../src/main/junto/term/router";
 import { makeSeatViews, type SeatViews } from "../src/main/junto/term/seat-views";
 import { unwrapSeatsFailure } from "../src/main/junto/term/seats-failure";
@@ -80,6 +80,10 @@ describe("the operator's hold across the link", () => {
 
   it("holds for the grace after a key, timed on the seat's machine, and takes typing at most once per report interval", async () => {
     const pair = await linked();
+    // Each key taken warms the seat on its machine (its cache window's clock).
+    const warmed: string[] = [];
+    const offTyped = subscribeOperatorTyped((bindingId) => warmed.push(bindingId));
+    cleanups.push(async () => offTyped());
     await pair.attach();
     pair.at(0);
     pair.windows.typed(1, miniSeat.bindingId);
@@ -92,6 +96,7 @@ describe("the operator's hold across the link", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(pair.held(OPERATOR_TYPING_GRACE_MS - 1)).toBe(true);
     expect(pair.held(OPERATOR_TYPING_GRACE_MS)).toBe(false);
+    expect(warmed).toEqual([miniSeat.bindingId]);
   });
 
   it("a hold ends with its view", async () => {

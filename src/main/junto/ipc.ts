@@ -139,7 +139,12 @@ import { mergeSeatStateSnapshot, remoteSeatStateEvents } from "./term/remote-sea
 import { registerOperatorHoldsIpc } from "./term/operator-holds";
 import { injectionSupervisor } from "./term/injection-supervisor";
 import { removeRegionSecret, saveRegionSecret } from "./region-env/secret-ipc";
-import { handleSeatOffboardRun, handleSeatOffboardStatus } from "./seat-sessions/operator-offboard-ipc";
+import {
+  handleSeatCacheDueAnswer,
+  handleSeatOffboardRun,
+  handleSeatOffboardStatus,
+} from "./seat-sessions/operator-offboard-ipc";
+import { seatCacheDueList } from "./seat-sessions/operator-offboard";
 import { regionEnvReport, regionEnvStaleSeats } from "./region-env/report-ipc";
 import {
   scheduleManagedPulseReady,
@@ -1615,12 +1620,16 @@ export const registerJuntoIpc = (): void => {
           sendPrompt: ({ bindingId, text, canvasName, nodeId }) =>
             appendManagedPrompt({ bindingId, text, canvasName, nodeId }),
           publish: (progress) => broadcast(IPC_CHANNELS.seatOffboardProgress, progress),
+          publishDue: (due) => broadcast(IPC_CHANNELS.seatCacheDue, due),
         }),
       );
       seatSessions = sessions;
       offboardCloser = sessions.closer;
       const managedSeatOn = sessions.seatOn;
       privilegedIpc.handle(IPC_CHANNELS.seatOffboardProgressList, () => offboardCloser?.current() ?? []);
+      // The auto cache mode's question: the seats due it, and the operator's answer.
+      privilegedIpc.handle(IPC_CHANNELS.seatCacheDueList, () => seatCacheDueList());
+      privilegedIpc.handle(IPC_CHANNELS.seatCacheDueAnswer, (_event, input: unknown) => handleSeatCacheDueAnswer(input));
       // Operator offboard: ask or offboard now, one seat or many, and what the
       // buttons should say first. The same operation the overseer and the
       // automatic rules go through (seat-sessions/operator-offboard.ts).

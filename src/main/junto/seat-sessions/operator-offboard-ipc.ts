@@ -1,7 +1,7 @@
 /**
- * The renderer's two calls into operator offboard. Input arrives untyped off
- * IPC and is checked here; whatever is wrong comes back as rows the screen
- * can show, never as a throw.
+ * The renderer's calls into operator offboard. Input arrives untyped off IPC
+ * and is checked here; whatever is wrong comes back as rows or an answer the
+ * screen can show, never as a throw.
  */
 import {
   OFFBOARD_REFUSAL_REASON,
@@ -14,7 +14,12 @@ import {
   type SeatOffboardStatus,
 } from "@shared/seat-offboard";
 import { OFFBOARD_MODES, type OffboardMode } from "@shared/seat-sessions";
-import { runSeatOffboard, seatOffboardStatus } from "./operator-offboard";
+import {
+  SEAT_CACHE_DUE_ANSWERS,
+  type SeatCacheDueAnswer,
+  type SeatCacheDueAnswerResult,
+} from "@shared/seat-cache-due";
+import { answerSeatCacheDue, runSeatOffboard, seatOffboardStatus } from "./operator-offboard";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -74,4 +79,16 @@ export const handleSeatOffboardStatus = async (
   const ids = seatIdsOf(seatIds);
   if (typeof canvasName !== "string" || canvasName.length === 0 || ids === undefined) return [];
   return seatOffboardStatus(canvasName, ids);
+};
+
+/** The operator's answer to the auto mode's question for one seat: Start fresh, or Keep this session. */
+export const handleSeatCacheDueAnswer = async (input: unknown): Promise<SeatCacheDueAnswerResult> => {
+  if (!isRecord(input)) return { ok: false, message: "Junto could not find that seat." };
+  const { canvasName, seatId, answer } = input;
+  if (typeof canvasName !== "string" || canvasName.length === 0 || typeof seatId !== "string" ||
+    seatId.length === 0 || seatId.length > 256)
+    return { ok: false, message: "Junto could not find that seat." };
+  if (!(SEAT_CACHE_DUE_ANSWERS as ReadonlyArray<unknown>).includes(answer))
+    return { ok: false, message: "Start fresh, or keep this session." };
+  return answerSeatCacheDue({ canvasName, seatId }, answer as SeatCacheDueAnswer);
 };

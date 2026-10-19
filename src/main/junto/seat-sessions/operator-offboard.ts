@@ -17,11 +17,21 @@
  * minutes when Junto closed for eight hours has been still for nine and a
  * half when it opens: the cache it would wake into is just as cold.
  *
- * Auto offboard cuts a session once it has gone cold: at the minute pass for
- * a running seat at rest past its cache window (the eager cut), never while
- * the operator views or has just typed into the seat. A resting seat is not
- * cut: its next start decides, and a cold session starts fresh
- * (`coldSessionStartsFresh`).
+ * What happens to a session gone cold is the machine's cache mode
+ * (seat-offboard.ts CacheMode):
+ *
+ *            minute pass, a running seat at rest     the start of a resting seat
+ *   off      never cut                               resumes
+ *   manual   never cut                               resumes
+ *   auto     cut off screen; open in front of the    starts fresh, whatever starts it
+ *            operator, asked (`dueList`), and never
+ *            cut without an answer
+ *   hybrid   cut off screen; open, left alone        starts fresh for mail or a
+ *                                                    restart; the operator's open resumes
+ *
+ * In every mode the operator's typing holds the cut, and a key warms the
+ * session (`SeatStatusClock.noteTyped`). A resting seat is never cut: its next
+ * start decides (`coldSessionStartsFresh`).
  *
  * Everything it touches comes in through ports, so it runs the same against
  * the app and a test.
@@ -46,6 +56,7 @@ import { deriveNeeds, type NeedCause, type SeatSnapshot } from "@shared/harness-
 import { seatNextTurn, type SeatNextLaunch, type SeatNextTurn } from "@shared/seat-next-launch";
 import type { OffboardMode, SeatAddress } from "@shared/seat-sessions";
 import type { SeatStartCause } from "../term/seat-start-cause";
+import type { SeatCacheDue, SeatCacheDueAnswer, SeatCacheDueAnswerResult } from "@shared/seat-cache-due";
 
 /** A seat as the operation needs it, read off its canvas and the terminal plane. */
 export type OffboardSeat = SeatAddress & {
@@ -146,6 +157,8 @@ export type OperatorOffboardPorts = {
   readonly remote?: (seat: OffboardSeat) => Promise<SeatOffboardFacts | undefined>;
   /** Save the clock (called once per tick). */
   readonly saveClock?: (record: SeatClockRecord) => void;
+  /** The seats due the auto mode's question changed: the whole list. Absent: no one shows it. */
+  readonly dueChanged?: (due: ReadonlyArray<SeatCacheDue>) => void;
   readonly now?: () => number;
   readonly log?: (message: string) => void;
 };
@@ -263,6 +276,15 @@ export class SeatStatusClock {
     }
     const tag = snapshot.status._tag;
     if ((tag === "Idle" || tag === "Exited") && activeAfterRest(entry)) entry.idleSince = snapshot.since;
+  }
+
+  /**
+   * The operator typed into the seat. A key warms its session as a turn does:
+   * a seat at rest is still from now. One that is active comes to rest later.
+   */
+  noteTyped(bindingId: string): void {
+    const entry = this.entry(bindingId);
+    if (!activeAfterRest(entry)) entry.idleSince = Math.max(entry.idleSince ?? this.now(), this.now());
   }
 
   /**
@@ -411,6 +433,18 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
   const now = (): number => ports.now?.() ?? Date.now();
   /** Seats just asked to offboard, and until when their session is left alone for it. */
   const asking = new Map<string, number>();
+  /** Seats the operator answered Keep while shown: not asked again until they leave the screen. */
+  const kept = new Set<string>();
+  /** Seats due the auto mode's question, as the last pass found them. */
+  let due = new Map<string, SeatCacheDue>();
+
+  const modeOf = (seat: OffboardSeat) => offboardRulesFor(ports.rules(), seat.harness).cacheMode;
+
+  /** A window shows the seat, here or on the machine editing its canvas: a hold with no end. */
+  const shown = (seat: OffboardSeat, at: number): boolean => {
+    const hold = ports.held?.(seat, at);
+    return hold !== undefined && hold.until === undefined;
+  };
 
   /** May this seat's session be ended without its agent, right now? */
   const mayCloseNow = (
@@ -645,14 +679,16 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
    * Has this seat's session gone cold, so that a turn given now would start
    * on a fresh session? The one test behind the cut, the start decision and
    * what the seat shows. When not cold yet, `at` is when it will be if nothing
-   * moves; absent, nothing but a move can make it cold. `atStart`: the
-   * operator's hold is left out, since opening a resting seat is the start
-   * itself and no running session is on screen to be pulled from.
+   * moves; absent, nothing but a move can make it cold. `holds`: which of
+   * the operator's holds count. At a start none do, since opening a resting
+   * seat is the start itself and no running session is on screen to be pulled
+   * from; for the auto mode's question only typing does, since being shown is
+   * what it asks about. The mode is the caller's.
    */
   const coldness = (
     seat: OffboardSeat,
     address: SeatAddress,
-    atStart = false,
+    holds: "all" | "typing" | "none" = "all",
   ): { readonly cold: boolean; readonly at?: number } => {
     if (seat.sessionId === undefined) return { cold: false };
     // Blocked or needs-you: the session waits on the operator and is kept,
@@ -667,7 +703,8 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
     const coldAt = still.since === undefined ? undefined : still.since + set.cacheWindowMinutes * 60_000;
     // Held, it goes cold no sooner than the hold ends. A shown seat's hold
     // ends when its window lets go, which asks again; typing's at a known time.
-    const hold = atStart ? undefined : ports.held?.(seat, at);
+    const held = holds === "none" ? undefined : ports.held?.(seat, at);
+    const hold = holds === "typing" && held?.until === undefined ? undefined : held;
     if (hold !== undefined)
       return hold.until === undefined || coldAt === undefined ? { cold: false } : { cold: false, at: Math.max(hold.until, coldAt) };
     if (still.minutes < set.cacheWindowMinutes) return coldAt === undefined ? { cold: false } : { cold: false, at: coldAt };
@@ -676,18 +713,34 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
   };
 
   /**
-   * A seat this machine runs is about to start from rest: has its session
-   * gone cold, so the start begins a fresh one? A running seat is not
-   * starting, and keeps its session. A seat just asked to offboard keeps it
-   * too: that ask is mail for this session, and a fresh one would throw it
-   * away. Never throws: false resumes.
+   * The start of a resting seat by its machine's mode and why it starts: off
+   * and manual resume; auto starts a cold session fresh; hybrid does too,
+   * except when the operator opens the seat.
    */
-  const coldAtStart = async (address: SeatAddress): Promise<boolean> => {
+  const coldForStart = (
+    seat: OffboardSeat,
+    address: SeatAddress,
+    cause: SeatStartCause,
+  ): { readonly cold: boolean; readonly at?: number } => {
+    const mode = modeOf(seat);
+    if (mode === "off" || mode === "manual") return { cold: false };
+    if (mode === "hybrid" && cause === "operator") return { cold: false };
+    return coldness(seat, address, "none");
+  };
+
+  /**
+   * A seat this machine runs is about to start from rest: has its session
+   * gone cold, so the start begins a fresh one (`coldForStart`)? A running
+   * seat is not starting, and keeps its session. A seat just asked to
+   * offboard keeps it too: that ask is mail for this session, and a fresh one
+   * would throw it away. Never throws: false resumes.
+   */
+  const coldAtStart = async (address: SeatAddress, cause: SeatStartCause): Promise<boolean> => {
     try {
       const seat = await ports.locate(address);
       if (seat === undefined || !seat.local || seat.running) return false;
       if ((asking.get(keyOf(address)) ?? 0) > now()) return false;
-      return coldness(seat, address, true).cold;
+      return coldForStart(seat, address, cause).cold;
     } catch (error) {
       ports.log?.(`the start decision for ${address.seatId} failed, so it resumes: ${String(error)}`);
       return false;
@@ -695,30 +748,54 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
   };
 
   /**
-   * Whether the seat's next turn starts on a fresh session, by the same test
-   * as the cut. `launch` is what a start does for a seat that is not running.
-   * Undefined for a seat this installation does not run: its own machine
-   * answers for it.
+   * Whether the seat's next turn starts on a fresh session, by the same tests
+   * as the cut and the start. A running seat is cut only in auto and hybrid;
+   * a resting one starts as the operator's open would start it. `launch` is
+   * what a start does for a seat that is not running. Undefined for a seat
+   * this installation does not run: its own machine answers for it.
    */
   const nextTurn = async (address: SeatAddress, launch: SeatNextLaunch): Promise<SeatNextTurn | undefined> => {
     const seat = await ports.locate(address).catch(() => undefined);
     if (seat === undefined || !seat.local) return undefined;
-    return seatNextTurn({ running: seat.running, launch, cold: coldness(seat, address) });
+    const mode = modeOf(seat);
+    const cold = !seat.running
+      ? coldForStart(seat, address, "operator")
+      : mode === "off" || mode === "manual" ? { cold: false } : coldness(seat, address);
+    return seatNextTurn({ running: seat.running, launch, cold });
   };
 
   /**
    * The eager cut, for one seat at the minute pass: a running seat at rest
    * (idle, or done with a turn unseen) whose session has gone cold, on a
    * canvas that is playing, not waiting on the operator and not just asked to
-   * offboard. Undefined when the seat is not due. Never throws.
+   * offboard, in auto or hybrid. Off and manual never cut. In auto, a seat
+   * open in front of the operator is not cut but asked: it goes in `asks`.
+   * Undefined when the seat is not cut. Never throws.
    */
-  const cutIfDue = async (seat: OffboardSeat): Promise<SeatOffboardRunRow | undefined> => {
+  const cutIfDue = async (
+    seat: OffboardSeat,
+    at: number,
+    asks: Map<string, SeatCacheDue>,
+  ): Promise<SeatOffboardRunRow | undefined> => {
     const address = { canvasName: seat.canvasName, seatId: seat.seatId };
+    const key = keyOf(address);
     try {
-      if (!seat.local || !seat.running || seat.state !== "idle") return undefined;
+      if (!seat.local) return undefined;
+      const open = shown(seat, at);
+      if (!open) kept.delete(key);
+      if (!seat.running || seat.state !== "idle") return undefined;
       if (seat.paused === true) return undefined;
-      if ((asking.get(keyOf(address)) ?? 0) > now()) return undefined;
-      if (!coldness(seat, address).cold) return undefined;
+      if ((asking.get(key) ?? 0) > now()) return undefined;
+      const mode = modeOf(seat);
+      if (mode === "off" || mode === "manual") return undefined;
+      if (!coldness(seat, address).cold) {
+        if (mode === "auto" && open && !kept.has(key) && coldness(seat, address, "typing").cold) {
+          const window = offboardRulesFor(ports.rules(), seat.harness).cacheWindowMinutes;
+          const since = stillness(seat, at).since ?? at;
+          asks.set(key, { canvasName: seat.canvasName, seatId: seat.seatId, windowEndsAt: since + window * 60_000 });
+        }
+        return undefined;
+      }
       const row = await closeOne(address, "automatic");
       if (!row.ok) ports.log?.(`auto offboard at the cache window for ${address.seatId} did not go through: ${row.reason}`);
       return row;
@@ -737,13 +814,53 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
   const tick = async (): Promise<SeatOffboardRunResult> => {
     const seats = await ports.seats().catch(() => [] as ReadonlyArray<OffboardSeat>);
     for (const seat of seats) clock.syncSession(seat.bindingId, seat.sessionId);
-    const rows = (await Promise.all(seats.map(cutIfDue))).filter((row) => row !== undefined);
+    const at = now();
+    const asks = new Map<string, SeatCacheDue>();
+    const rows = (await Promise.all(seats.map((seat) => cutIfDue(seat, at, asks)))).filter((row) => row !== undefined);
+    const present = new Set(seats.map((seat) => keyOf(seat)));
+    for (const key of kept) if (!present.has(key)) kept.delete(key);
+    setDue(asks);
     try {
       ports.saveClock?.(clock.record());
     } catch {
       ports.log?.("the offboard clock could not be saved");
     }
     return summarizeOffboardRun(rows);
+  };
+
+  const dueList = (): ReadonlyArray<SeatCacheDue> => [...due.values()];
+
+  /** Replace the seats due the question, and tell whoever shows it when that changed. */
+  const setDue = (next: Map<string, SeatCacheDue>): void => {
+    const same = next.size === due.size &&
+      [...next].every(([key, ask]) => due.get(key)?.windowEndsAt === ask.windowEndsAt);
+    due = next;
+    if (same) return;
+    try {
+      ports.dueChanged?.(dueList());
+    } catch {
+      ports.log?.("the seats due a choice could not be told");
+    }
+  };
+
+  /**
+   * The operator's answer to the auto mode's question. Start fresh ends the
+   * session now, as the operator's own offboard now does; Keep leaves it, and
+   * the seat is not asked again until it leaves the screen.
+   */
+  const answerDue = async (address: SeatAddress, answer: SeatCacheDueAnswer): Promise<SeatCacheDueAnswerResult> => {
+    const key = keyOf(address);
+    if (due.has(key)) {
+      const rest = new Map(due);
+      rest.delete(key);
+      setDue(rest);
+    }
+    if (answer === "keep") {
+      kept.add(key);
+      return { ok: true };
+    }
+    const row = await closeOne(address, "operator");
+    return row.ok ? { ok: true } : { ok: false, message: row.reason };
   };
 
   /** A start ended the seat's cold session for a fresh one: Junto ended it, with no notes. */
@@ -756,7 +873,7 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatSt
     clock.markOffboarded(bindingId);
   };
 
-  return { run, status, facts, tick, coldAtStart, endedAtStart, nextTurn, clock };
+  return { run, status, facts, tick, coldAtStart, endedAtStart, nextTurn, dueList, answerDue, clock };
 };
 
 export type OperatorOffboard = ReturnType<typeof makeOperatorOffboard>;
@@ -789,22 +906,33 @@ export const runSeatOffboard = (
       );
 
 /**
- * The start decision: a cold session starts fresh. Every start of a seat this
- * machine runs asks it before naming the session (sessionBeforeStart), so the
- * operator opening a seat, a mail wake and a restart are judged alike, by the
- * test the pass and the card use. The coming setting (off, manual, auto,
- * hybrid) says "resume anyway" here, by cause.
+ * The start decision: whether a cold session starts fresh. Every start of a
+ * seat this machine runs asks it before naming the session
+ * (sessionBeforeStart), by the test the pass and the card use, and the
+ * machine's cache mode says what that means for why the seat starts.
  *
  * The installed operation reads the rules first, outside its own guard: a
  * failure anywhere costs the fresh start, never the start. False resumes.
  */
-export const coldSessionStartsFresh = (seat: SeatAddress, _cause: SeatStartCause): Promise<boolean> => {
+export const coldSessionStartsFresh = (seat: SeatAddress, cause: SeatStartCause): Promise<boolean> => {
   if (current === undefined) return Promise.resolve(false);
-  return current.coldAtStart(seat).catch((error: unknown) => {
+  return current.coldAtStart(seat, cause).catch((error: unknown) => {
     console.error(`[offboard] the start decision for ${seat.canvasName}/${seat.seatId} failed, so it resumes: ${String(error)}`);
     return false;
   });
 };
+
+/** The seats due the auto mode's question now. Empty before the operation is installed. */
+export const seatCacheDueList = (): ReadonlyArray<SeatCacheDue> => current?.dueList() ?? [];
+
+/** The operator's answer to the auto mode's question for one seat. */
+export const answerSeatCacheDue = (
+  seat: SeatAddress,
+  answer: SeatCacheDueAnswer,
+): Promise<SeatCacheDueAnswerResult> =>
+  current
+    ? current.answerDue(seat, answer).catch((error: unknown) => ({ ok: false as const, message: String(error) }))
+    : Promise.resolve({ ok: false as const, message: NOT_READY });
 
 /** The start ended the seat's cold session (`coldSessionStartsFresh`): record that Junto ended it. */
 export const coldSessionEnded = (seat: SeatAddress, bindingId: string, sessionId: string): void => {

@@ -62,6 +62,7 @@ import type { MachineCommandProgress } from "@shared/machine-progress";
 import type { SeatGuidanceEvent } from "@shared/seat-guidance";
 import type { ReferencesChangedEvent } from "@shared/references";
 import type { SeatOffboardProgress } from "@shared/seat-sessions";
+import type { SeatCacheDue } from "@shared/seat-cache-due";
 import type { SeatOnboardingEvent } from "@shared/seat-onboarding-status";
 import type { ProfilesChanged } from "@shared/agent-profiles";
 import type { NotifyCue, NotifyTarget } from "@shared/desktop-notifications";
@@ -510,6 +511,8 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   seatOffboardStatus: (canvasName, seatIds) =>
     invoke(IPC_CHANNELS.seatOffboardStatus, IPC_TIMEOUT_MS, canvasName, seatIds),
   seatOffboardProgressList: () => invoke(IPC_CHANNELS.seatOffboardProgressList, IPC_TIMEOUT_MS),
+  seatCacheDueList: () => invoke(IPC_CHANNELS.seatCacheDueList, IPC_TIMEOUT_MS),
+  seatCacheDueAnswer: (input) => invoke(IPC_CHANNELS.seatCacheDueAnswer, IPC_TIMEOUT_MS, input),
   seatOnboardingSnapshot: () => invoke(IPC_CHANNELS.seatOnboardingSnapshot, IPC_TIMEOUT_MS),
   seatOnboardNudge: (canvasName, seatId) =>
     invoke(IPC_CHANNELS.seatOnboardNudge, AGENT_MESSAGE_TIMEOUT_MS, canvasName, seatId),
@@ -551,6 +554,7 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   onReferencesChanged: (listener) => subscribe<ReferencesChangedEvent>(IPC_CHANNELS.referencesChanged, listener),
   onSeatOffboardProgress: (listener) =>
     subscribe<SeatOffboardProgress>(IPC_CHANNELS.seatOffboardProgress, listener),
+  onSeatCacheDue: (listener) => subscribe<ReadonlyArray<SeatCacheDue>>(IPC_CHANNELS.seatCacheDue, listener),
   onSeatOnboardingChanged: (listener) =>
     subscribe<SeatOnboardingEvent>(IPC_CHANNELS.seatOnboardingChanged, listener),
   onProfilesChanged: (listener) => subscribe<ProfilesChanged>(IPC_CHANNELS.profilesChanged, listener),

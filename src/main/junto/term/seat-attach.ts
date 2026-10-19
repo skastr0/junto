@@ -11,7 +11,7 @@ import { Effect, Schema } from "effect";
 import { CanvasName, NodeId } from "@shared/model";
 import { MachineName } from "@shared/machine-control";
 import { OPERATOR_TYPED_REPORT_MS, OPERATOR_TYPING_GRACE_MS } from "@shared/operator-hold";
-import { longerHold, type OperatorHold } from "./operator-holds";
+import { longerHold, noteOperatorTyped, type OperatorHold } from "./operator-holds";
 import type { LinkChannelContext, LinkEventContext } from "../link/types";
 import type { ControlLease, LocalHostEvent, LocalSessionHost } from "./local-host";
 
@@ -306,13 +306,16 @@ export const makeSeatAttachments = (options: SeatAttachmentsOptions) => {
     /**
      * The peer's hold on this view. Typing is received at most once per report
      * interval, whatever rate the peer sends at: one sooner is accepted and
-     * changes nothing.
+     * changes nothing. Received, it warms the seat as a key here does.
      */
     hold: (attachment: Attachment, open: boolean, typed: boolean): boolean => {
       attachment.open = open;
       if (!typed) return true;
       const at = now();
-      if (attachment.typedAt === undefined || at - attachment.typedAt >= OPERATOR_TYPED_REPORT_MS) attachment.typedAt = at;
+      if (attachment.typedAt === undefined || at - attachment.typedAt >= OPERATOR_TYPED_REPORT_MS) {
+        attachment.typedAt = at;
+        noteOperatorTyped(attachment.bindingId);
+      }
       return true;
     },
     /** What the peers hold on the binding at `at` through their live views: the longest hold. */

@@ -6,7 +6,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
-import { makeOperatorHolds, registerOperatorHoldsIpc } from "../src/main/junto/term/operator-holds";
+import { makeOperatorHolds, registerOperatorHoldsIpc, subscribeOperatorTyped } from "../src/main/junto/term/operator-holds";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { OPERATOR_TYPED_REPORT_MS, OPERATOR_TYPING_GRACE_MS } from "../src/shared/operator-hold";
 import { openSurfaceBindingIds } from "../src/renderer/lib/agent-seat-state";
@@ -134,6 +134,23 @@ describe("operator holds over IPC", () => {
     one.show(["b1", 7, ""]);
     expect(holds.holds("b1", T0)).toBe(true);
     expect(holds.holds("", T0)).toBe(false);
+  });
+
+  it("a key in this process's window warms the seat: told to whoever keeps its cache window", () => {
+    const handlers = new Map<string, Listener>();
+    registerOperatorHoldsIpc({ handle: (channel: string, listener: Listener) => { handlers.set(channel, listener); } } as unknown as Pick<IpcMain, "handle">);
+    const sender = Object.assign(new EventEmitter(), { id: 9_001 }) as unknown as WebContents & EventEmitter;
+    const warmed: string[] = [];
+    const off = subscribeOperatorTyped((bindingId) => warmed.push(bindingId));
+    try {
+      handlers.get(IPC_CHANNELS.seatSurfacesOpen)?.({ sender } as IpcMainInvokeEvent, ["b1"]);
+      expect(warmed).toEqual([]);
+      handlers.get(IPC_CHANNELS.seatOperatorTyped)?.({ sender } as IpcMainInvokeEvent, "b1");
+      expect(warmed).toEqual(["b1"]);
+    } finally {
+      off();
+      sender.emit("destroyed");
+    }
   });
 });
 

@@ -121,6 +121,23 @@ const live = makeOperatorHolds();
 /** The live holds of this process's windows, for the views that carry them to a seat's own machine. */
 export const liveOperatorHolds: Pick<OperatorHolds, "shows" | "subscribe"> = live;
 
+const typedListeners = new Set<(bindingId: string) => void>();
+/**
+ * The operator typed into a binding's terminal: in a window here, or in a
+ * peer's view of a seat this machine runs (seat-attach.ts). A key warms the
+ * seat's session at its cache window.
+ */
+export const noteOperatorTyped = (bindingId: string): void => {
+  for (const listener of typedListeners) listener(bindingId);
+};
+export const subscribeOperatorTyped = (listener: (bindingId: string) => void): (() => void) => {
+  typedListeners.add(listener);
+  return () => { typedListeners.delete(listener); };
+};
+live.subscribe((change) => {
+  if (change.typed) noteOperatorTyped(change.bindingId);
+});
+
 /** Holds kept elsewhere: what this machine's peers hold on the seats it runs. */
 export type OperatorHoldSource = (bindingId: string, now: number) => OperatorHold | undefined;
 const sources = new Set<OperatorHoldSource>();
