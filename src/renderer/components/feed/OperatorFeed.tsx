@@ -668,6 +668,9 @@ export function OperatorFeed() {
     }
     const item = items.find((candidate) => candidate.itemId === selected);
     if (!item) return;
+    // A held key answers once: its repeats would land on the neighbour that
+    // takes the selection, closing a signal the operator never saw.
+    if (event.repeat) return;
     const chosen = item.signalId
       ? feedAnswerForKey(event, mergedQuickReplies(quickReplies, item.suggestions), quietNotes)
       : null;
