@@ -39,7 +39,11 @@ export const makeRowsChannel = (exchange: RowExchange) => ({
   decodeRequest: noRequests,
   decodeResponse: noRequests,
   decodeEvent: decodeRowsEvent,
-  /** A frame the session refuses fails here, and the link closes. */
+  /**
+   * A frame the session refuses fails here, and the link closes. A handler
+   * never sends: only the link's worker in session.ts does, so a handler never
+   * waits on credit the peer can only give once this handler has returned.
+   */
   handleEvent: (context: RowsChannelContext, payload: unknown): Effect.Effect<void, unknown> =>
     exchange.receive(context.peer.installationId, payload),
   opened: (context: RowsChannelContext): Effect.Effect<void, unknown> =>
