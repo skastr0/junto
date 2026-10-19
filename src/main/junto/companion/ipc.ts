@@ -3,11 +3,15 @@
  * (the QR), the phone list, and Remove. Main owns every step; the renderer
  * only asks and shows. The device list is pushed after any change.
  */
-import { BrowserWindow, clipboard, ipcMain } from "electron";
+import { BrowserWindow, clipboard, ipcMain, shell } from "electron";
 import type { CompanionDeviceRecord, CompanionPairStart, CompanionStatus } from "@shared/companion-devices";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { isTrustedMainWebContents, trustedRendererIpc } from "../trusted-main-webcontents";
+import { probeRemoteLogin } from "./environment";
 import { companionService } from "./service";
+
+/** System Settings, General, Sharing, where Remote Login is switched on. */
+export const MAC_REMOTE_LOGIN_SETTINGS_URL = "x-apple.systempreferences:com.apple.Sharing-Settings.extension";
 
 const deviceIdOf = (value: unknown): string | undefined =>
   typeof value === "string" && /^dev_[0-9A-HJKMNP-TV-Z]{26}$/u.test(value) ? value : undefined;
@@ -80,6 +84,17 @@ export const registerCompanionIpc = (): void => {
   });
 
   privilegedIpc.handle(IPC_CHANNELS.companionDevices, async () => (await companionService()?.devices()) ?? []);
+
+  // The Needs you feed asks on every focus while a phone is paired: only the
+  // port probe, never Tailscale or the host names.
+  privilegedIpc.handle(IPC_CHANNELS.companionRemoteLogin, (): Promise<CompanionStatus["remoteLogin"]> => probeRemoteLogin());
+
+  // A fixed system URL, never one the renderer supplies.
+  privilegedIpc.handle(IPC_CHANNELS.companionOpenRemoteLoginSettings, async () => {
+    if (process.platform !== "darwin") return { ok: false as const };
+    await shell.openExternal(MAC_REMOTE_LOGIN_SETTINGS_URL);
+    return { ok: true as const };
+  });
 
   privilegedIpc.handle(IPC_CHANNELS.companionDeviceRemove, async (_event, raw: unknown) => {
     const deviceId = deviceIdOf(raw);

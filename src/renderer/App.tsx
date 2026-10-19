@@ -39,6 +39,7 @@ import { startSurfaceMotionGate } from "./lib/surface-motion";
 import { clearPreambles, showPreamble } from "./lib/preamble-state";
 import { startPreambleSources } from "./lib/preamble-sources";
 import { startAgentSignalSync } from "./lib/agent-signals-state";
+import { startPhoneReachWatch } from "./lib/phone-reach";
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
 import { CanvasChrome } from "./components/CanvasChrome";
@@ -457,6 +458,7 @@ export function App() {
       showPreamble(event);
     });
     const offAgentSignals = startAgentSignalSync(junto);
+    const offPhoneReach = startPhoneReachWatch(junto);
     const offPreambleSources = startPreambleSources(junto);
 
     const offCanvasFlush = junto.onCanvasFlushRequested(async () => {
@@ -483,6 +485,7 @@ export function App() {
       offCanvas();
       offPreamble?.();
       offAgentSignals();
+      offPhoneReach();
       offPreambleSources();
       offCanvasFlush();
       offCanvasQuiesceAndFlush();

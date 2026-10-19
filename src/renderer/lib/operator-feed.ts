@@ -24,6 +24,7 @@ import { agentSignals$ } from "./agent-signals-state";
 import { chatCoarse$ } from "./chat-state";
 import { executionGraphForImpact } from "./impact-mode";
 import { kernel$ } from "./kernel-view";
+import { phoneReach$, withPhoneReach } from "./phone-reach";
 import { seatAwareness$ } from "./seat-awareness";
 import { state$ } from "./state";
 import { threadHealthView, useHealthClock } from "./thread-health";
@@ -34,7 +35,8 @@ import { useCanvasWorkItems } from "./use-work-sink";
  * The desktop's reading of the operator feed: joins the live planes (declared
  * signals, seat control state and status, thread health) onto the canvas and hands
  * them to the shared projection, with the needs only the canvas knows
- * (`feedCanvasNeeds`: stoppages, held nodes, sinks wanting input). Whether the feed is open is
+ * (`feedCanvasNeeds`: stoppages, held nodes, sinks wanting input), and this
+ * Mac's own (lib/phone-reach). Whether the feed is open is
  * the operator modal slot's to say (lib/operator-modal).
  */
 
@@ -141,11 +143,14 @@ export const useOperatorFeed = (): OperatorFeed => {
   const awarenessRev = use$(seatAwareness$.rev);
   const needs = useCanvasNeeds();
   const now = useHealthClock();
+  // By field: the store mutates in place.
+  const paired = use$(phoneReach$.paired);
+  const remoteLogin = use$(phoneReach$.remoteLogin);
   return useMemo(
-    () => operatorFeedFor(canvasName, canvas, signals, now, needs),
+    () => withPhoneReach(operatorFeedFor(canvasName, canvas, signals, now, needs), { paired, remoteLogin }),
     // Seat and awareness stores mutate in place; their revs carry the change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canvasName, canvas, signals, needs, seatRev, awarenessRev, now],
+    [canvasName, canvas, signals, needs, seatRev, awarenessRev, now, paired, remoteLogin],
   );
 };
 

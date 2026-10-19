@@ -38,6 +38,7 @@ import {
   Inbox,
   MessageCircleQuestion,
   MessageSquareText,
+  MonitorSmartphone,
   OctagonAlert,
   ScanEye,
   type LucideIcon,
@@ -68,6 +69,7 @@ import {
 } from "../../lib/operator-feed";
 import { canReviewCommit, openCommitReview } from "../../lib/git-summary";
 import { closeOperatorModal, operatorModalPlace } from "../../lib/operator-modal";
+import { isThisMacItem, openRemoteLoginSettings } from "../../lib/phone-reach";
 import { mergedQuickReplies, quickReplyForKey, useQuickReplies } from "../../lib/quick-replies";
 import { requestSectionReveal } from "../../lib/sidebar-sections";
 import { state$ } from "../../lib/state";
@@ -109,6 +111,11 @@ function LiveSeatRing({ seat }: { readonly seat: Seat }) {
 }
 
 const openSeat = (item: FeedItem, node: Node | undefined): void => {
+  // Fixed in System Settings; the feed stays open where it was.
+  if (isThisMacItem(item)) {
+    openRemoteLoginSettings();
+    return;
+  }
   if (!node) return;
   closeOperatorFeed();
   if (item.signalId) requestSectionReveal(node.id, SIGNALS_SECTION);
@@ -166,6 +173,7 @@ export function FeedCard({
   const label = FEED_KIND_LABEL[item.kind];
   const KindIcon = KIND_ICON[item.kind];
   const isSeat = node === undefined || node.kind === "agent";
+  const thisMac = isThisMacItem(item);
   const age = mailAgeLabel(nowMs, item.since);
   const health = item.kind === "health" ? undefined : item.health;
   // More to see than the sentence: the agent's longer text, or files it attached.
@@ -189,7 +197,11 @@ export function FeedCard({
         onClick={onSelect}
       >
         <div className="operator-feed__portrait">
-          {node?.kind === "agent" ? (
+          {thisMac ? (
+            <span className="operator-feed__node-mark">
+              <MonitorSmartphone size={18} aria-hidden />
+            </span>
+          ) : node?.kind === "agent" ? (
             <LiveSeatRing seat={node} />
           ) : node ? (
             <KindMark node={node} className="operator-feed__node-mark" iconSize={18} />
@@ -277,16 +289,23 @@ export function FeedCard({
                     Write reply
                   </Button>
                 ) : null}
-                <Button
-                  size="xs"
-                  variant="subtle"
-                  disabled={!node}
-                  aria-label={`${isSeat ? "Open seat" : "Open"} ${item.seat.name}`}
-                  onClick={() => openSeat(item, node)}
-                >
-                  {isSeat ? "Open seat" : "Open"}
-                  <ArrowUpRight size={11} aria-hidden />
-                </Button>
+                {thisMac ? (
+                  <Button size="xs" variant="subtle" onClick={openRemoteLoginSettings}>
+                    Open Remote Login settings
+                    <ArrowUpRight size={11} aria-hidden />
+                  </Button>
+                ) : (
+                  <Button
+                    size="xs"
+                    variant="subtle"
+                    disabled={!node}
+                    aria-label={`${isSeat ? "Open seat" : "Open"} ${item.seat.name}`}
+                    onClick={() => openSeat(item, node)}
+                  >
+                    {isSeat ? "Open seat" : "Open"}
+                    <ArrowUpRight size={11} aria-hidden />
+                  </Button>
+                )}
               </span>
             </div>
           )}

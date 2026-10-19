@@ -18,6 +18,7 @@ import { agentSeat$, presentationForSeat, seatDoneAt, seatStatusForBinding } fro
 import { getJuntoApi } from "./junto-api";
 import { useOperatorFeed } from "./operator-feed";
 import { openOperatorModal } from "./operator-modal";
+import { isThisMacItem } from "./phone-reach";
 import { playNotificationCue } from "./sound";
 import { state$ } from "./state";
 import { terminal$ } from "./terminal-state";
@@ -115,11 +116,13 @@ const FEED_NEED = {
 /**
  * Feed items as subjects. The AI's reading and canvas needs never ping; a
  * stopped seat pings through seatSubjects, as it did before the feed listed it.
+ * This Mac's own item is found as the window regains focus, with the operator
+ * already here: it counts, but it never pings.
  */
 export const subjectsFromFeed = (feed: OperatorFeed): ReadonlyArray<NotifySubject> =>
   feed.sections.flatMap((section) =>
     section.items.flatMap((item): ReadonlyArray<NotifySubject> =>
-      item.kind === "health" || item.kind === "stopped" || item.canvas === true
+      item.kind === "health" || item.kind === "stopped" || item.canvas === true || isThisMacItem(item)
         ? []
         : [
             {
