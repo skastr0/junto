@@ -112,6 +112,11 @@ export type SeatObservationDeps = {
   readonly subscribeGrid: (listener: (snapshot: ObserverGridSnapshot) => void) => () => void;
   /** When the binding's terminal last printed anything, or undefined before its first output. */
   readonly lastOutputAt?: (bindingId: string) => number | undefined;
+  /** The seat's own last preamble while it is live. */
+  readonly preambleOf?: (
+    canvasName: string,
+    nodeId: string,
+  ) => { readonly text: string; readonly expiresAt: number } | undefined;
   readonly now?: () => number;
 };
 
@@ -613,6 +618,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
           ? (status?.snapshot.since ?? seat.at)
           : undefined;
         const lastActivityAt = deps.lastOutputAt?.(target.bindingId);
+        const preamble = deps.preambleOf?.(caller.canvasName, target.nodeId);
         return {
           target: target.nodeId,
           state: seatDescribesWindow
@@ -643,6 +649,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
           peer: target.peer,
           ...(since === undefined ? {} : { since }),
           ...(lastActivityAt === undefined ? {} : { lastActivityAt }),
+          ...(preamble === undefined ? {} : { preamble: { text: preamble.text, expiresAt: preamble.expiresAt } }),
         };
       };
 

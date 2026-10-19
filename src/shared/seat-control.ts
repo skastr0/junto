@@ -276,6 +276,8 @@ export const SeatReadResult = Schema.Struct({
   since: Schema.optionalKey(Schema.Number),
   /** When the seat's terminal last printed anything, ms since epoch; absent before its first output. */
   lastActivityAt: Schema.optionalKey(Schema.Number),
+  /** The seat's own last `junto preamble` while it is live. */
+  preamble: Schema.optionalKey(Schema.Struct({ text: Schema.String, expiresAt: Schema.Number })),
 });
 export type SeatReadResult = typeof SeatReadResult.Type;
 

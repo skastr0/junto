@@ -15,6 +15,7 @@ import { terminalObserverPlane } from "../term/observer";
 import { termPlane } from "../term/plane";
 import { onWorkMutation } from "./mutation-seam";
 import { makeSeatObservation, type SeatObservation } from "./seat-observation";
+import { liveSeatPreamble } from "./seat-preambles";
 
 /**
  * The live seat observation service reads topology and selected Work rows
@@ -71,6 +72,7 @@ export const liveSeatObservation = (): Effect.Effect<
       readGrid: (bindingId, lines) => terminalObserverPlane.readWindow(bindingId, lines),
       subscribeGrid: (listener) => terminalObserverPlane.subscribeAll(listener),
       lastOutputAt: (bindingId) => terminalObserverPlane.lastOutputAt(bindingId),
+      preambleOf: (canvasName, nodeId) => liveSeatPreamble(canvasName, nodeId),
       now: () => Date.now(),
     });
   });

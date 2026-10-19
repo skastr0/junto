@@ -1,7 +1,7 @@
 /**
  * Reading a peer in one call, over the real work-control socket: `seat read`
- * names who the peer is, since when it has been in its state and when its
- * terminal last printed. Every store, home and socket lives under a temp root.
+ * names who the peer is, since when it has been in its state, when its
+ * terminal last printed, and its live preamble. Every store, home and socket lives under a temp root.
  */
 import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -28,6 +28,7 @@ import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 import { seatStateRuntime } from "../src/main/junto/term/agent-state";
 import { terminalObserverPlane } from "../src/main/junto/term/observer";
+import { liveSeatPreamble, noteSeatPreamble } from "../src/main/junto/work/seat-preambles";
 
 const CANVAS = "peers";
 
@@ -153,5 +154,25 @@ describe("seat read names the peer", () => {
     const read = await call("agent", "seat.read", { target: "loner" });
     expect(read.ok).toBe(false);
     expect(read.error.type).toBe("ScopeError");
+  });
+});
+
+describe("seat read gives the peer's live preamble", () => {
+  it("carries the peer's own last preamble, and none for a seat that said nothing", async () => {
+    expect((await call("agent", "seat.read", { target: "peer" })).data.preamble).toBeUndefined();
+    expect((await call("peer", "preamble", { text: "first thought" })).ok).toBe(true);
+    const said = await call("peer", "preamble", { text: "reading the mail plane" });
+    expect(said.ok).toBe(true);
+    const read = await call("agent", "seat.read", { target: "peer" });
+    expect(read.data.preamble).toEqual({ text: "reading the mail plane", expiresAt: said.data.expiresAt });
+    // The caller's own preamble is not the peer's.
+    expect((await call("peer", "seat.read", { target: "agent" })).data.preamble).toBeUndefined();
+  });
+
+  it("drops a preamble once it expires", () => {
+    noteSeatPreamble(CANVAS, "ghost", { text: "gone soon", expiresAt: 1_000 });
+    expect(liveSeatPreamble(CANVAS, "ghost", 999)).toEqual({ text: "gone soon", expiresAt: 1_000 });
+    expect(liveSeatPreamble(CANVAS, "ghost", 1_000)).toBeUndefined();
+    expect(liveSeatPreamble(CANVAS, "ghost", 0)).toBeUndefined();
   });
 });
