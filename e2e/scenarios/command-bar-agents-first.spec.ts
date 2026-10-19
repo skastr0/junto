@@ -3,9 +3,12 @@ import { modelFixture, modelSeat } from "../harness/model";
 /**
  * cmd+K is an agent switcher first.
  *
- * The palette fills most of the window height. With no query the agents lead,
- * most urgent first (blocked, waiting on you, ready for review, working,
- * resting, offline), then regions, notes, and every other kind. With a query
+ * The palette fills most of the window height. With no query the agents lead
+ * in one order (blocked, waiting on you, working, ready for review, done and
+ * not read, resting, not running), the seat that entered a state most recently
+ * first inside it, then regions, notes, and every other kind. A seat that
+ * changes state while the palette is open re-ranks, and the cursor stays on
+ * its row. With a query
  * agents rank above other kinds at the same match quality. Each agent row is
  * the canvas seat's own live ring: its loop steps on the shared clock while
  * the row is on screen, even with the canvas pulled back to the far tier, and
@@ -20,7 +23,7 @@ import type { Page } from "@playwright/test";
 import type { AgentSignal, AgentSignalKind } from "../../src/shared/agent-signals";
 import type { Node, Region } from "../../src/shared/model";
 
-import { expect, test } from "../harness/launch";
+import { expect, test, type JuntoHandle } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "command-bar-agents-first");
 const CANVAS = "agents-first";
@@ -50,27 +53,66 @@ const nodes: ReadonlyArray<Node> = [
   region("r-research", "Research", "2", 2200),
   seat("ops-idle", 40, 60),
   seat("ops-review", 320, 60),
+  seat("ops-work-old", 1160, 60),
+  seat("ops-work-new", 1440, 60),
+  seat("ops-done", 1720, 60),
+  seat("ops-rest", 1960, 60),
   ...crew.map((id, i) => seat(id, 40 + (i % 7) * 280, 220 + Math.floor(i / 7) * 160)),
   seat("ops-waiting", 600, 60),
   seat("ops-blocked", 880, 60),
 ];
 
-const signal = (nodeId: string, kind: AgentSignalKind, text: string): AgentSignal => ({
+const STAGED = Date.now();
+
+const signal = (nodeId: string, kind: AgentSignalKind, text: string, createdAt: number): AgentSignal => ({
   signalId: `sig-first-${nodeId}`,
   canvasName: CANVAS,
   nodeId,
   kind,
   text,
-  createdAt: Date.now() - 60_000,
+  createdAt,
   state: "open",
 });
 
+// Each crew seat's feedback is a minute older than the one before it, so the
+// recency tie-break reads crew-01 first, and ops-review is newer than them all.
 const signals: ReadonlyArray<AgentSignal> = [
-  signal("ops-blocked", "blocked", "The staging database refuses the new migration."),
-  signal("ops-waiting", "escalate", "Should the export include archived projects?"),
-  signal("ops-review", "feedback", "The release notes are drafted."),
-  ...crew.map((id) => signal(id, "feedback", "Done, ready for a look.")),
+  signal("ops-blocked", "blocked", "The staging database refuses the new migration.", STAGED - 60_000),
+  signal("ops-waiting", "escalate", "Should the export include archived projects?", STAGED - 60_000),
+  signal("ops-review", "feedback", "The release notes are drafted.", STAGED - 60_000),
+  ...crew.map((id, i) => signal(id, "feedback", "Done, ready for a look.", STAGED - 120_000 - i * 60_000)),
 ];
+
+const seatEvent = (id: string, state: "working" | "idle", at: number) => ({
+  bindingId: `local:e2e-first-${id}`,
+  epoch: "e2e",
+  state,
+  reason: state === "idle" ? "rule:empty_prompt_idle" : "rule:osc_title_working",
+  confidence: "high",
+  at,
+});
+
+// ops-work-new began working after ops-work-old; ops-done ended a turn nobody
+// has read; ops-rest idles; ops-idle never reported, so it is not running.
+const seatEvents = [
+  seatEvent("ops-work-old", "working", STAGED - 50_000),
+  seatEvent("ops-work-new", "working", STAGED - 10_000),
+  seatEvent("ops-done", "working", STAGED - 40_000),
+  seatEvent("ops-done", "idle", STAGED - 30_000),
+  seatEvent("ops-rest", "idle", STAGED - 20_000),
+];
+
+/** Deliver seat events and signals to every window, as main would. */
+const stage = (junto: JuntoHandle, events: ReadonlyArray<unknown>, signalsNow: ReadonlyArray<AgentSignal> = []): Promise<void> =>
+  junto.app.evaluate(
+    ({ BrowserWindow }, { seatsNow, agentSignals }) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        for (const event of seatsNow) window.webContents.send("junto:agent-seat-state-changed", event);
+        for (const event of agentSignals) window.webContents.send("junto:agent-signal", event);
+      }
+    },
+    { seatsNow: events, agentSignals: signalsNow },
+  );
 
 test.use({ juntoOptions: { seedModels: { [CANVAS]: modelFixture([...nodes], []) }, seedAgentSignals: signals } });
 
@@ -112,6 +154,7 @@ test("cmd+K: tall, agents first by urgency, live rings on visible rows", async (
   const { page } = junto;
   await mkdir(SHOTS, { recursive: true });
   await expect(page.locator(".react-flow__node", { hasText: "ops-blocked" })).toBeVisible({ timeout: 30_000 });
+  await stage(junto, seatEvents);
   // The operator's board: pulled back past the near tier.
   await zoomTo(page, 0.25);
   await expect(page.locator("html")).toHaveAttribute("data-canvas-tier", "far");
@@ -126,12 +169,14 @@ test("cmd+K: tall, agents first by urgency, live rings on visible rows", async (
   const windowHeight = await page.evaluate(() => window.innerHeight);
   expect(palette!.height).toBeGreaterThan(windowHeight * 0.88);
 
-  // Empty query: agents by urgency, then regions, notes, other kinds.
+  // Empty query: agents in one order, newest change first inside a state, then
+  // regions, notes, other kinds.
   await expect(titles.first()).toHaveText("ops-blocked");
+  await expect(titles.nth(7)).toHaveText("ops-done");
   const order = await titles.allTextContents();
-  expect(order.slice(0, 3)).toEqual(["ops-blocked", "ops-waiting", "ops-review"]);
-  expect(order.slice(3, 3 + CREW)).toEqual(crew);
-  expect(order.slice(3 + CREW)).toEqual(["ops-idle", "Ops", "Research", "Ops runbook", "example.com"]);
+  expect(order.slice(0, 5)).toEqual(["ops-blocked", "ops-waiting", "ops-work-new", "ops-work-old", "ops-review"]);
+  expect(order.slice(5, 5 + CREW)).toEqual(crew);
+  expect(order.slice(5 + CREW)).toEqual(["ops-done", "ops-rest", "ops-idle", "Ops", "Research", "Ops runbook", "example.com"]);
   const rows = page.locator(".command-bar__row");
   await expect(rows.first().locator(".command-bar__row-detail")).toContainText("blocked The staging database");
 
@@ -169,7 +214,11 @@ test("cmd+K: tall, agents first by urgency, live rings on visible rows", async (
   await expect(titles).toHaveText([
     "ops-blocked",
     "ops-waiting",
+    "ops-work-new",
+    "ops-work-old",
     "ops-review",
+    "ops-done",
+    "ops-rest",
     "ops-idle",
     "Ops runbook",
     "Ops",
@@ -192,4 +241,33 @@ test("cmd+K: tall, agents first by urgency, live rings on visible rows", async (
   await expect(page.locator("html")).not.toHaveAttribute("data-mark-frame", /.*/);
   await page.keyboard.press("Escape");
   await page.emulateMedia({ reducedMotion: "no-preference" });
+});
+
+test("cmd+K: a seat that changes state re-ranks the open list and the cursor stays on its row", async ({ junto }) => {
+  const { page } = junto;
+  await expect(page.locator(".react-flow__node", { hasText: "ops-blocked" })).toBeVisible({ timeout: 30_000 });
+  await stage(junto, seatEvents);
+  await page.keyboard.press("Meta+k");
+  const titles = page.locator(".command-bar__row-title");
+  await expect(titles.nth(7)).toHaveText("ops-done");
+  const active = page.locator(".command-bar__row--active .command-bar__row-title");
+
+  // The cursor goes down to ops-work-new.
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await expect(active).toHaveText("ops-work-new");
+
+  // ops-rest starts working, newer than both: it joins the working seats above the cursor.
+  await stage(junto, [seatEvent("ops-rest", "working", Date.now())]);
+  await expect(titles.nth(2)).toHaveText("ops-rest");
+  await expect(active).toHaveText("ops-work-new");
+
+  // A crew seat raises a blocker: it leads the list; the cursor still holds its row.
+  await stage(junto, [], [signal("crew-07", "blocked", "The build is red.", Date.now())]);
+  await expect(titles.first()).toHaveText("crew-07");
+  await expect(active).toHaveText("ops-work-new");
+
+  // Enter goes to the seat under the cursor.
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".react-flow__node.selected", { hasText: "ops-work-new" })).toHaveCount(1);
 });
