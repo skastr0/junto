@@ -2,7 +2,9 @@
  * Seat session data lives in junto.db alone: a session's notes, the note for
  * its next session, who ended it, whether it onboarded, the continuation
  * ledger and the offboard clock. Nothing under `~/.junto/seats` is written or
- * read any more, and no source names that directory or its files.
+ * read any more, and no source names that directory or its files, except
+ * state migration 21 -> 22, which imports them once in the step that retires
+ * them.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -10,6 +12,9 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const SRC = fileURLToPath(new URL("../src", import.meta.url));
+
+/** The step that retires the files reads them once; nothing else may. */
+const IMPORTER = join("main", "junto", "state", "migrate-seat-session-data.ts");
 
 const sources = (dir: string): string[] =>
   readdirSync(dir).flatMap((name) => {
@@ -36,7 +41,7 @@ const SEAT_FILES: ReadonlyArray<readonly [string, RegExp]> = [
 
 describe("no seat session data outside junto.db", () => {
   it("no source writes, reads or names a file under ~/.junto/seats", () => {
-    const found = sources(SRC).flatMap((path) => {
+    const found = sources(SRC).filter((path) => relative(SRC, path) !== IMPORTER).flatMap((path) => {
       const text = withoutComments(readFileSync(path, "utf8"));
       return SEAT_FILES.filter(([, pattern]) => pattern.test(text)).map(([what]) => `${relative(SRC, path)}: ${what}`);
     });

@@ -1,5 +1,3 @@
-import { SEAT_SESSION_CONTINUATION_MAX_CHARS, SEAT_SESSION_NOTES_MAX_CHARS } from "@shared/seat-sessions";
-
 /**
  * Seat sessions: one row per harness session an agent seat has run, keyed by
  * seat identity (canvas node id, the same key as `seat_guidance`) and the
@@ -20,9 +18,9 @@ export const SEAT_SESSIONS_STATE_SCHEMA_SQL = `
     transcript_path TEXT
       CHECK (transcript_path IS NULL OR length(transcript_path) BETWEEN 1 AND 4096),
     gist TEXT CHECK (gist IS NULL OR length(gist) BETWEEN 1 AND 200),
-    notes TEXT CHECK (notes IS NULL OR length(notes) BETWEEN 1 AND ${SEAT_SESSION_NOTES_MAX_CHARS}),
+    notes TEXT CHECK (notes IS NULL OR length(notes) >= 1),
     continuation TEXT
-      CHECK (continuation IS NULL OR length(continuation) BETWEEN 1 AND ${SEAT_SESSION_CONTINUATION_MAX_CHARS}),
+      CHECK (continuation IS NULL OR length(continuation) >= 1),
     started_at INTEGER NOT NULL CHECK (started_at >= 0),
     ended_at INTEGER CHECK (ended_at IS NULL OR ended_at >= 0),
     end_reason TEXT

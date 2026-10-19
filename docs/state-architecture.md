@@ -247,6 +247,9 @@ The following are architectural defects, not compatibility features:
 - file-store importers, compatibility readers, dual writes, feature flags, or
   rollback instructions that keep an obsolete path alive.
 
+A migration step may import a retired file store once, in the step that
+retires it, and nothing reads it after.
+
 ## Release proof
 
 A storage change is releasable only when:

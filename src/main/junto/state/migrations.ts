@@ -335,12 +335,13 @@ export const STATE_SCHEMA_V21_IDENTITY = {
 /**
  * Version 22 keeps everything about a seat session in this database: its
  * notes, the note for its next session, who ended it and when it onboarded
- * are on its row, and the continuation ledger and the offboard clock have
- * tables. Nothing lives under `~/.junto/seats` any more.
+ * are on its row, kept whole, and the continuation ledger and the offboard
+ * clock have tables. The step imports the files under `~/.junto/seats` once;
+ * nothing lives there any more.
  */
 export const STATE_SCHEMA_V22_IDENTITY = {
   actualSchemaSha256:
-    "de64a11924fec06cc193f2ae46d4730f22c923f132243d3aa396ae33c37e6eea",
+    "9eb0519e24c5662639d6dcde2592266d5e2c60a70774fe6d8eae501461443976",
 } as const satisfies VerifiedStateSchemaIdentity;
 
 /**
@@ -351,7 +352,7 @@ export const STATE_SCHEMA_V22_IDENTITY = {
  */
 export const STATE_SCHEMA_V23_IDENTITY = {
   actualSchemaSha256:
-    "9021034d2d488b8caebefbdc9a1d45e7090a21659e7955d709fe132e71d2fdcf",
+    "1578cf99d1019ab060d00f938f50c4128689f6eca41f43c4102f2cb6e441c6d8",
 } as const satisfies VerifiedStateSchemaIdentity;
 
 /**
@@ -360,7 +361,7 @@ export const STATE_SCHEMA_V23_IDENTITY = {
  */
 export const STATE_SCHEMA_V24_IDENTITY = {
   actualSchemaSha256:
-    "cd1ce156f1fdc15029f634a6c3fa6bc71e44f30ac85cd09937a7d54015454934",
+    "2dedbf9a2fa06bc55dcfda50592e467664b87c9572b1ce147b24813e5aaadd25",
 } as const satisfies VerifiedStateSchemaIdentity;
 
 /**
@@ -369,7 +370,7 @@ export const STATE_SCHEMA_V24_IDENTITY = {
  */
 export const STATE_SCHEMA_V25_IDENTITY = {
   actualSchemaSha256:
-    "9085d0034ef3430d45329a97b9b31b9512f15254d0f2785edebc935bd165d18c",
+    "abad16a0ab2aa95be9c7c233e61c5ba609c449b3a4415c080ab0d432f03a8a4e",
 } as const satisfies VerifiedStateSchemaIdentity;
 
 export const CURRENT_STATE_SCHEMA_VERSION = 25;
