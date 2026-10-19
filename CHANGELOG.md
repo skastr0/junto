@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.9.1 — 2026-10-19
+
+- Open the desktop canvas on the phone. The phone draws the canvas as the
+  desktop does, with each seat's ring and portrait, live.
+- Run Boat sandboxes as machines that sleep when idle and wake for work.
+- Pulse rings on wall time, so a ring's beat does not drift with the frame rate.
+- Fix the Machines window: the stage, the shelf and the harness lines.
+- Mail seats by name. Send batched mail, wait for a reply, read every peer at
+  once, and filter the mail list.
+- Stop a closed remote link from changing a setting.
+- Stop a leftover command from blocking quit or an update install.
+
 ## 0.9.0 — 2026-10-19
 
 - Choose how Junto caches: off, manual, auto or hybrid. When a cache has
