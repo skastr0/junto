@@ -153,7 +153,7 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
     return true;
   };
   const seatOnly = (detail: CompanionSeatDetail): CompanionSeat => {
-    const { briefing: _b, preambles: _p, signals: _s, activity: _a, ...seat } = detail;
+    const { briefing: _b, preambles: _p, signals: _s, activity: _a, connected: _c, ...seat } = detail;
     return seat;
   };
   const mailKey = (message: CompanionMail): string => JSON.stringify(message);

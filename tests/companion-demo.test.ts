@@ -74,6 +74,23 @@ const connect = (options: { idleCloseMs?: number } = {}) => {
 const response = (id: string) => (frame: Frame) => frame.type === "response" && frame.id === id;
 
 describe("demo transcript", () => {
+  it("sends one seat.changed per change for a seat both listed and focused", async () => {
+    const c = connect();
+    await c.next();
+    c.send(demoRequest("s1", "seats.list", { canvasName: DEMO_CANVAS }));
+    await c.until(response("s1"));
+    c.send(demoRequest("g1", "seat.get", { canvasName: DEMO_CANVAS, nodeId: "atlas" }));
+    expect((await c.until(response("g1"))).result.seat.connected).toEqual([{ nodeId: "relay", name: "Relay" }]);
+    c.send(demoRequest("a1", "signal.answer", { signalId: "sig_demo_blocked", text: "It is in the vault." }));
+    await c.until((f) => f.type === "event" && f.event === "seat.changed");
+    // Several more polls: a focused seat whose key differs from its listed one flips on every poll.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const atlas = c.out.filter((f) => f.type === "event" && f.event === "seat.changed" && f.data.seat.nodeId === "atlas");
+    expect(atlas).toHaveLength(1);
+    expect(atlas[0]!.data.seat).not.toHaveProperty("connected");
+    await c.end();
+  });
+
   it("speaks the whole protocol against the built-in canvas", async () => {
     const c = connect();
     const hello = await c.next();
