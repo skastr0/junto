@@ -1124,7 +1124,7 @@ const seedStillSeat = (nodeId: string, restedMinutes: number, workMinutes: numbe
   });
 };
 
-test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next, and mail starts a fresh session that onboards after the cut", async ({}, testInfo) => {
+test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next, and mail to it at rest starts a fresh session that onboards after the cut", async ({}, testInfo) => {
   // No wait for product time: the seat arrives already still past the window (seedStillSeat), a seat
   // inside its window is the control, and the minute pass (the eager cut) is held by tests/operator-offboard.test.ts.
   test.skip(!CLI_BUILT, "SETUP: dist/junto is missing; the onboard in this walk is the CLI's. Build it with `bun run cli:build`.");
@@ -1153,7 +1153,7 @@ test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next,
       await shot(page, "LOOP.0", "tia-still-zed-warm");
     });
 
-    await step("LOOP.1", "Tia's card says fresh next; Zed's, inside the window, does not", async () => {
+    await step("LOOP.1", "Tia's card, running and still, says fresh next; Zed's, inside the window, does not", async () => {
       await expect(card(page, "tia"), "a still seat past the window").toContainText("fresh next", { timeout: 20_000 });
       await expect(card(page, "zed"), "a seat inside the window").not.toContainText("fresh next");
       const status = await workStatusOf(page, "tia");
@@ -1161,19 +1161,24 @@ test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next,
       await shot(page, "LOOP.1", "fresh-next-on-the-still-card");
     });
 
-    await step("LOOP.2", "mail to Tia cuts her cold session with no turn and starts a fresh one; the same mail to Zed cuts nothing", async () => {
+    await step("LOOP.2", "both seats are stopped and rest; mail to Tia starts a fresh session with no turn on the cold one, the same mail to Zed resumes hers", async () => {
+      // A running seat keeps its session at a mail; the start decides (seat-sessions/operator-offboard.ts coldSessionStartsFresh).
       const before = await inputOf(sandbox, "tia", 1);
+      const zedPin = await sessionPin(sandbox, "zed");
       const cutPid = (await tia.ready()).pid;
+      await stopSeat(ctx, "tia", cutPid);
+      await stopSeat(ctx, "zed", (await zed.ready()).pid);
+      await expect(card(page, "tia"), "a resting seat past the window still says it").toContainText("fresh next", { timeout: 20_000 });
+      await expect(card(page, "zed"), "and one inside the window does not").not.toContainText("fresh next");
       opData(await pat.op("msg.send", { target: "zed", text: WAKE }));
-      await expect.poll(() => inputOf(sandbox, "zed", 1), { message: "the mail on Zed's session", timeout: 60_000 }).toContain(WAKE);
-      expect(await launches(sandbox, "zed"), "Zed's session was kept").toBe(1);
+      await expect.poll(() => launches(sandbox, "zed"), { message: "a process starts for the mail to Zed", timeout: 90_000 }).toBe(2);
+      await expect.poll(() => inputOf(sandbox, "zed", 2), { message: "the mail on Zed's session", timeout: 60_000 }).toContain(WAKE);
+      expect(await sessionPin(sandbox, "zed"), "Zed resumed the session she had").toBe(zedPin);
       opData(await pat.op("msg.send", { target: "tia", text: WAKE }));
       await expect.poll(() => launches(sandbox, "tia"), { message: "a process starts for the mail", timeout: 90_000 }).toBe(2);
       await expect.poll(() => inputOf(sandbox, "tia", 2), { message: "the mail on the fresh session's input", timeout: 60_000 }).toContain(WAKE);
-      expect(await inputOf(sandbox, "tia", 1), "nothing was typed into the cut session").toBe(before);
-      expect(await sessionPin(sandbox, "tia"), "Tia no longer names the cut session").not.toBe(sessionIdOf("tia"));
-      // The cut process winds down on its own; the seat's ops are answered by whichever process is alive.
-      await expect.poll(() => pidAlive(cutPid), { message: "the cut session's process is gone", timeout: 60_000 }).toBe(false);
+      expect(await inputOf(sandbox, "tia", 1), "nothing was typed into the cold session").toBe(before);
+      expect(await sessionPin(sandbox, "tia"), "Tia no longer names the cold session").not.toBe(sessionIdOf("tia"));
       await expect.poll(async () => (await tia.ready()).pid, { message: "the fresh process has registered", timeout: 30_000 }).not.toBe(cutPid);
       expect(offboardLines().join("\n"), "no [offboard] line says failed").not.toMatch(/failed/u);
       mark("Tia woke on a fresh session");
