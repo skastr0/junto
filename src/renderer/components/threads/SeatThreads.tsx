@@ -15,6 +15,7 @@ import { Chip } from "../ui/Chip";
 import { Dialog } from "../ui/Dialog";
 import { Eyebrow } from "../ui/Eyebrow";
 import { IconButton } from "../ui/IconButton";
+import { ThreadComposer } from "./ThreadComposer";
 import "./seat-threads.css";
 
 /**
@@ -40,7 +41,14 @@ export function SeatThreadsButton({ seat, name }: { readonly seat: SeatAddress; 
   );
 }
 
-type Selection = { readonly kind: "thread"; readonly threadId: string } | { readonly kind: "new" };
+type Selection =
+  | {
+      readonly kind: "thread";
+      readonly threadId: string;
+      /** Just started here: held while the list has not read it yet. */
+      readonly sent?: true;
+    }
+  | { readonly kind: "new" };
 
 /** The first thread to show: the newest with you, else the newest between seats. */
 const firstThread = (threads: ReadonlyArray<SeatThreadSummary>): string | undefined => {
@@ -66,9 +74,12 @@ export function SeatThreadsPopup({
   const [selection, setSelection] = useState<Selection>();
   const { withYou, betweenSeats } = groupSeatThreads(threads);
 
-  // Nothing picked yet: pick once the list arrives. A thread that left the list is let go.
+  // Nothing picked yet: pick once the list arrives. A thread that left the
+  // list is let go; one just started here waits for the list to read it.
   const shown: Selection | undefined =
-    selection?.kind === "new" || (selection && threads.some((thread) => thread.threadId === selection.threadId))
+    selection?.kind === "new" ||
+    selection?.sent === true ||
+    (selection && threads.some((thread) => thread.threadId === selection.threadId))
       ? selection
       : (() => {
           const threadId = firstThread(threads);
@@ -149,9 +160,16 @@ export function SeatThreadsPopup({
         </nav>
         <div className="seat-threads__chat">
           {shown?.kind === "new" ? (
-            <NewThread seat={seat} onCancel={() => setSelection(undefined)} onSent={(threadId) => setSelection({ kind: "thread", threadId })} />
+            <NewThread
+              seat={seat}
+              name={name}
+              onCancel={() => setSelection(undefined)}
+              onSent={(threadId) => setSelection({ kind: "thread", threadId, sent: true })}
+            />
           ) : thread ? (
-            <ThreadChat seat={seat} thread={thread} />
+            <ThreadChat seat={seat} name={name} thread={thread} />
+          ) : shown?.kind === "thread" ? (
+            <p className="seat-threads__empty">Reading threads…</p>
           ) : (
             <p className="seat-threads__empty">{loaded ? "Pick a thread, or start one." : "Reading threads…"}</p>
           )}
@@ -161,7 +179,15 @@ export function SeatThreadsPopup({
   );
 }
 
-function ThreadChat({ seat, thread }: { readonly seat: SeatAddress; readonly thread: SeatThreadSummary }) {
+function ThreadChat({
+  seat,
+  name,
+  thread,
+}: {
+  readonly seat: SeatAddress;
+  readonly name: string;
+  readonly thread: SeatThreadSummary;
+}) {
   const { messages, loaded, error } = useSeatThreadMessages(seat, thread.threadId);
   const streamRef = useRef<HTMLDivElement>(null);
   // The newest at the bottom, in view: on open and as messages arrive.
@@ -208,7 +234,14 @@ function ThreadChat({ seat, thread }: { readonly seat: SeatAddress; readonly thr
         ))}
       </div>
       {thread.canReply ? (
-        <ThreadComposerSlot seat={seat} mode="reply" threadId={thread.threadId} inReplyTo={lastId} />
+        <ThreadComposer
+          key={thread.threadId}
+          seat={seat}
+          name={name}
+          mode="reply"
+          threadId={thread.threadId}
+          inReplyTo={lastId}
+        />
       ) : (
         <footer className="seat-threads__readonly" data-testid="seat-threads-readonly">
           <Chip tone="steel">read only</Chip>
@@ -223,10 +256,12 @@ function ThreadChat({ seat, thread }: { readonly seat: SeatAddress; readonly thr
 
 function NewThread({
   seat,
+  name,
   onCancel,
   onSent,
 }: {
   readonly seat: SeatAddress;
+  readonly name: string;
   readonly onCancel: () => void;
   readonly onSent: (threadId: string) => void;
 }) {
@@ -241,22 +276,7 @@ function NewThread({
       <div className="seat-threads__stream">
         <p className="seat-threads__empty">Nothing sent yet.</p>
       </div>
-      <ThreadComposerSlot seat={seat} mode="new" onCancel={onCancel} onSent={onSent} />
+      <ThreadComposer seat={seat} name={name} mode="new" onCancel={onCancel} onSent={onSent} />
     </>
   );
-}
-
-/**
- * Where canvas-writers' ThreadComposer mounts, across the chat's width at its
- * foot: replying in a thread the operator is in, or starting a new one.
- */
-function ThreadComposerSlot(props: {
-  readonly seat: SeatAddress;
-  readonly mode: "reply" | "new";
-  readonly threadId?: string;
-  readonly inReplyTo?: string;
-  readonly onCancel?: () => void;
-  readonly onSent?: (threadId: string) => void;
-}) {
-  return <div className="seat-threads__composer" data-testid="seat-threads-composer" data-mode={props.mode} />;
 }

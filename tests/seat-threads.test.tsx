@@ -216,14 +216,14 @@ describe("the Threads popup", () => {
     ]);
     expect(messages[0]?.getAttribute("data-mine")).toBe("true");
     expect(messages[1]?.getAttribute("data-mine")).toBeNull();
-    expect(q("seat-threads-composer")?.getAttribute("data-mode")).toBe("reply");
+    expect(q("thread-composer")?.getAttribute("data-mode")).toBe("reply");
     expect(q("seat-threads-readonly")).toBeNull();
   });
 
   it("shows a thread between seats read only, with no composer and a line saying why", async () => {
     await open();
     await click(document.querySelector('[data-thread-id="reader"]'));
-    expect(q("seat-threads-composer")).toBeNull();
+    expect(q("thread-composer")).toBeNull();
     expect(q("seat-threads-readonly")?.textContent).toBe(
       "read onlyBetween cli-lead and pty-lead. You are not in this thread, so you read it and do not write in it.",
     );
@@ -232,7 +232,7 @@ describe("the Threads popup", () => {
   it("starts a new thread in the composer", async () => {
     await open();
     await click(q("seat-threads-new"));
-    expect(q("seat-threads-composer")?.getAttribute("data-mode")).toBe("new");
+    expect(q("thread-composer")?.getAttribute("data-mode")).toBe("new");
     expect(q("seat-threads")?.textContent).toContain("Its first line becomes the thread's name in the list.");
   });
 
@@ -256,3 +256,116 @@ describe("the Threads popup", () => {
     root = createRoot(host);
   });
 });
+
+describe("the thread composer", () => {
+  const sends: unknown[] = [];
+  let reply: unknown = { ok: true, messageId: "m9", threadId: "notes", delivery: [] };
+
+  beforeEach(() => {
+    sends.length = 0;
+    reply = { ok: true, messageId: "m9", threadId: "notes", delivery: [] };
+    (window as { junto?: unknown }).junto = {
+      seatThreadMentionables: async () => [
+        { nodeId: "seat-cli", name: "cli-lead" },
+        { nodeId: "seat-canvas", name: "canvas-lead" },
+      ],
+      seatThreadSend: async (input: unknown) => {
+        sends.push(input);
+        return reply;
+      },
+    };
+  });
+
+  afterEach(() => {
+    delete (window as { junto?: unknown }).junto;
+  });
+
+  const open = async () => {
+    const fixture = fake();
+    setSeatThreadsSource(fixture.source);
+    await render();
+    await click(q("seat-threads-button"));
+    return fixture;
+  };
+
+  const field = () => q("thread-composer-input") as HTMLTextAreaElement;
+  const type = async (value: string) => {
+    const element = field();
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(element, value);
+      element.setSelectionRange(value.length, value.length);
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await flush();
+  };
+  const key = async (name: string, init: KeyboardEventInit = {}) => {
+    act(() => {
+      field().dispatchEvent(new KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true, ...init }));
+    });
+    await flush();
+  };
+
+  it("sends a reply on Enter, in reply to the thread's last mail, and clears the draft", async () => {
+    await open();
+    await type("Thanks.");
+    await key("Enter", { shiftKey: true });
+    expect(sends).toEqual([]);
+    await key("Enter");
+    expect(sends).toEqual([{ canvasName: "factory", nodeId: "seat-1", text: "Thanks.", inReplyTo: "m2" }]);
+    expect(field().value).toBe("");
+  });
+
+  it("opens the wired seats on @, puts the chosen one in the draft and in mentions", async () => {
+    await open();
+    await type("Thanks. @c");
+    expect(all("thread-composer-option").map((option) => option.textContent)).toEqual(["cli-lead", "canvas-lead"]);
+    await key("ArrowDown");
+    await key("Enter");
+    expect(field().value).toBe("Thanks. @canvas-lead ");
+    expect(q("thread-composer-picker")).toBeNull();
+    expect(sends).toEqual([]);
+    await key("Enter");
+    expect(sends).toEqual([
+      { canvasName: "factory", nodeId: "seat-1", text: "Thanks. @canvas-lead", inReplyTo: "m2", mentions: ["seat-canvas"] },
+    ]);
+  });
+
+  it("closes the @ list on Escape and leaves the popup open", async () => {
+    await open();
+    await type("@c");
+    await key("Escape");
+    expect(q("thread-composer-picker")).toBeNull();
+    expect(q("seat-threads")).not.toBeNull();
+  });
+
+  it("shows a refusal as is and keeps the draft", async () => {
+    await open();
+    reply = { ok: false, reason: "invalid", message: "dev-lead is not wired to pty-lead." };
+    await type("Hello @dev-lead");
+    await key("Enter");
+    expect(q("thread-composer-failure")?.textContent).toBe("dev-lead is not wired to pty-lead.");
+    expect(field().value).toBe("Hello @dev-lead");
+  });
+
+  it("starts a new thread with no parent and selects the thread it made", async () => {
+    const { state, change } = await open();
+    await click(q("seat-threads-new"));
+    expect(q("thread-composer")?.getAttribute("data-mode")).toBe("new");
+    reply = { ok: true, messageId: "fresh", threadId: "fresh", delivery: [] };
+    await type("The loader's start phase reads starting session.");
+    await click(q("thread-composer-send"));
+    expect(sends.at(-1)).toEqual({
+      canvasName: "factory",
+      nodeId: "seat-1",
+      text: "The loader's start phase reads starting session.",
+    });
+    state.threads = [thread({ threadId: "fresh", title: "The loader's start phase", lastAt: at(2, 0) }), ...state.threads];
+    state.messages.fresh = [{ messageId: "fresh", author: "you", mine: true, text: "The loader's start phase.", at: at(2, 0) }];
+    change();
+    await flush();
+    expect(document.querySelector('[data-thread-id="fresh"]')?.getAttribute("data-selected")).toBe("true");
+    expect(q("thread-composer")?.getAttribute("data-mode")).toBe("reply");
+  });
+});
+

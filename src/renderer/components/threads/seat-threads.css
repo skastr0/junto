@@ -213,13 +213,92 @@
   color: var(--color-crimson-fg);
 }
 
-.seat-threads__composer {
+.thread-composer {
+  display: flex;
   flex: none;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 20px;
   border-top: 1px solid var(--color-stroke);
 }
 
-.seat-threads__composer:empty {
-  border-top: 0;
+.thread-composer__to {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-body);
+  color: var(--color-dim);
+}
+
+.thread-composer__field {
+  position: relative;
+}
+
+.thread-composer__input {
+  width: 100%;
+  min-height: calc(3lh + 10px);
+}
+
+/* The @ list rides above the field, inside the dialog: no layer of its own. */
+.thread-composer__picker {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 1;
+  width: min(360px, 100%);
+  padding: 6px;
+  border: 1px solid var(--color-stroke-hi);
+  border-radius: var(--radius-lg);
+  background: var(--color-raise);
+}
+
+.thread-composer__picker-head {
+  padding: 4px 8px 6px;
+  font-size: var(--text-label);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+.thread-composer__picker ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.thread-composer__option {
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
+.thread-composer__option[aria-selected="true"] {
+  background: var(--color-overlay-3);
+}
+
+.thread-composer__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.thread-composer__hint,
+.thread-composer__failure {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--text-body);
+}
+
+.thread-composer__hint {
+  color: var(--color-dim);
+}
+
+.thread-composer__failure {
+  color: var(--color-crimson-fg);
 }
 
 .seat-threads__readonly {

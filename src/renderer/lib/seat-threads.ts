@@ -15,7 +15,8 @@
  */
 import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import type { MentionableSeat, OperatorThreadSend, OperatorThreadSent } from "@shared/mail-threads";
 import type { MailParty } from "@shared/wire/mail-threads";
 import { getJuntoApi } from "./junto-api";
 
@@ -215,6 +216,13 @@ const stopListeningIfIdle = (): void => {
   offChanged = undefined;
 };
 
+/** Read a retained seat's threads again now, as after the operator sent in them. */
+export const refreshSeatThreads = (seat: SeatAddress): void => {
+  const key = seatKey(seat);
+  if (retained.has(key)) void refreshSeat(key);
+  for (const thread of openThreads.keys()) if (thread.startsWith(`${key}\u0000`)) void refreshThread(thread);
+};
+
 /** Keep a seat's thread list read and current; the returned function lets go. */
 export const retainSeatThreads = (seat: SeatAddress): (() => void) => {
   const key = seatKey(seat);
@@ -303,6 +311,82 @@ export const threadTime = (at: number): string => {
   const date = new Date(at);
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 };
+
+// ---- Writing ----
+
+export type { MentionableSeat };
+
+/** The seats an @ may name: agent seats wired to this one, as main checks them. Empty while unread or unreachable. */
+export const useSeatThreadMentionables = (seat: SeatAddress): ReadonlyArray<MentionableSeat> => {
+  const { canvasName, seatId } = seat;
+  const [seats, setSeats] = useState<ReadonlyArray<MentionableSeat>>([]);
+  useEffect(() => {
+    const read = getJuntoApi()?.seatThreadMentionables;
+    if (typeof read !== "function" || !canvasName) return;
+    let alive = true;
+    void read({ canvasName, nodeId: seatId }).then(
+      (found) => {
+        if (alive && Array.isArray(found)) setSeats(found);
+      },
+      () => undefined,
+    );
+    return () => {
+      alive = false;
+    };
+  }, [canvasName, seatId]);
+  return seats;
+};
+
+/**
+ * Send the operator's mail in a seat's threads: a reply with `inReplyTo` or
+ * `threadId`, a new thread with neither. A bridge that is down or throws
+ * reads as a refusal with a message. Sent, the seat's threads read again.
+ */
+export const sendSeatThread = async (
+  input: SeatAddress & Omit<OperatorThreadSend, "canvasName" | "nodeId">,
+): Promise<OperatorThreadSent> => {
+  const { canvasName, seatId, ...mail } = input;
+  const send = getJuntoApi()?.seatThreadSend;
+  if (typeof send !== "function") return { ok: false, reason: "failed", message: "Junto could not reach this seat." };
+  try {
+    const result = await send({ canvasName, nodeId: seatId, ...mail });
+    if (result.ok) refreshSeatThreads({ canvasName, seatId });
+    return result;
+  } catch (error) {
+    return { ok: false, reason: "failed", message: errorText(error) };
+  }
+};
+
+/** An @ being typed just before the caret: where its @ sits and what follows it. */
+export type MentionQuery = { readonly start: number; readonly text: string };
+
+export const mentionQueryAt = (draft: string, caret: number): MentionQuery | undefined => {
+  const match = /(^|\s)@([\w.-]*)$/u.exec(draft.slice(0, caret));
+  if (!match) return undefined;
+  const text = match[2] ?? "";
+  return { start: caret - text.length - 1, text };
+};
+
+/** The draft with the @ being typed replaced by the chosen name and a space, and the caret after it. */
+export const pickMention = (
+  draft: string,
+  query: MentionQuery,
+  name: string,
+): { readonly text: string; readonly caret: number } => {
+  const end = query.start + 1 + query.text.length;
+  const inserted = `@${name} `;
+  const rest = draft.slice(end).replace(/^ /u, "");
+  return { text: `${draft.slice(0, query.start)}${inserted}${rest}`, caret: query.start + inserted.length };
+};
+
+/** The chosen seats whose @name is still in the draft, as a whole word. */
+export const mentionsIn = (
+  draft: string,
+  picked: ReadonlyArray<MentionableSeat>,
+): ReadonlyArray<MentionableSeat> =>
+  picked.filter((seat) =>
+    draft.split(/\s+/u).some((word) => word.replace(/[,.;:!?)]+$/u, "") === `@${seat.name}`),
+  );
 
 /** Test helper: forget every seat, thread and source. */
 export const resetSeatThreads = (): void => {
