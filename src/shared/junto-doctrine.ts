@@ -262,7 +262,8 @@ const MSG_REFERENCE = `Own inbox: \`junto msg list\` marks listed mail read; \`j
 
 Seat wait and seat read require a local peer, and are unavailable for Remote seats.
 
-\`junto seat read <peer>\` names the peer (name, regions), its state and since when, and when its terminal last printed, beside its screen tail.`;
+\`junto seat read <peer>\` names the peer (name, regions), its state and since when, and when its terminal last printed, beside its screen tail.
+It carries the peer's own last \`junto preamble\` while that is live, kept in memory only.`;
 
 const MSG_SEND_REFERENCE =
   "A send answers `delivered` (typed into their input) or `waiting` (their seat is not up yet, or its input box is not free: the operator is composing, or a dialog is up). Inspect delivered, read and reply facts with `junto msg sent`; each is separate evidence.";

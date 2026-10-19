@@ -277,7 +277,7 @@ export const seatReadSchema: CommandSchemaContract = {
   command: "seat read",
   schema_id: "seat.read.input/v1",
   description:
-    "Read an authorized peer's settled terminal window through terminal.read. Reads are bounded to 2000 lines and 64 KiB; follow is bounded to 600 seconds. since requires sinceGeneration; replacements are explicit. Grants no input, resize, or signal authority. Names the peer (id, name, regions outermost first), since when it has been in its state, and when its terminal last printed.",
+    "Read an authorized peer's settled terminal window through terminal.read. Reads are bounded to 2000 lines and 64 KiB; follow is bounded to 600 seconds. since requires sinceGeneration; replacements are explicit. Grants no input, resize, or signal authority. Names the peer (id, name, regions outermost first), since when it has been in its state, when its terminal last printed, and its own live preamble.",
   schema: SeatReadArgs,
   input_modes: inputModes,
 };
