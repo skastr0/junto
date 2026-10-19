@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { Schema } from "effect";
+import { Schema, Struct } from "effect";
 import { describe, expect, it } from "vitest";
 import { SeatReadResult } from "../src/shared/seat-control";
 import { evaluate, SeatStateRuntime } from "../src/main/junto/term/agent-state";
@@ -9,7 +9,8 @@ import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types
 // 2026-09-15, before the operator approved `junto onboard`.
 // Source: /tmp/junto-devin-command-approval-20260915.json.
 // JSON unicode escapes preserve every captured character, including its footer.
-const captured = Schema.decodeUnknownSync(SeatReadResult)(JSON.parse(readFileSync(
+// The capture predates `peer` on seat.read, so it is read without it.
+const captured = Schema.decodeUnknownSync(SeatReadResult.mapFields(Struct.omit(["peer"])))(JSON.parse(readFileSync(
   new URL("./fixtures/devin-command-approval-seat-read.json", import.meta.url), "utf8",
 )));
 
