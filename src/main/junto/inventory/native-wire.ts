@@ -17,7 +17,7 @@ import { MachineName } from "@shared/machine-control";
 import { HarnessId } from "@shared/managed-terminal-templates";
 import { CanvasName } from "@shared/model";
 import { MODEL_ID_PATTERN } from "@shared/model-id";
-import { InventoryCanvasEditorMismatch, InventoryNoSeatHere, InventoryPeerNotPinned } from "./wire";
+import { InventoryCanvasEditorMismatch, InventoryLinkClosed, InventoryNoSeatHere, InventoryPeerNotPinned } from "./wire";
 
 /** A harness's own key path, e.g. `permissions.defaultMode`; membership is the receiver's catalogue. */
 export const NATIVE_KEY = /^[A-Za-z][A-Za-z0-9_.]{0,63}$/;
@@ -101,6 +101,7 @@ export const NativeConfigLinkFailure = Schema.Union([
   InventoryPeerNotPinned,
   InventoryCanvasEditorMismatch,
   InventoryNoSeatHere,
+  InventoryLinkClosed,
   InventoryUnavailableError,
   NativeSettingRefused,
   NativeConfigWriteFailed,

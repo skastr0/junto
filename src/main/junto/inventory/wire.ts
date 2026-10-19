@@ -103,12 +103,15 @@ export class InventoryPeerNotPinned extends Schema.TaggedError<InventoryPeerNotP
 export class InventoryCanvasEditorMismatch extends Schema.TaggedError<InventoryCanvasEditorMismatch>()("InventoryCanvasEditorMismatch", Where) {}
 /** The canvas has no seat on the answering machine. */
 export class InventoryNoSeatHere extends Schema.TaggedError<InventoryNoSeatHere>()("InventoryNoSeatHere", Where) {}
+/** The link that asked closed before the request was admitted. */
+export class InventoryLinkClosed extends Schema.TaggedError<InventoryLinkClosed>()("InventoryLinkClosed", Where) {}
 
 /** The channel's closed failure union: what a handler failure may cross as. */
 export const InventoryLinkFailure = Schema.Union([
   InventoryPeerNotPinned,
   InventoryCanvasEditorMismatch,
   InventoryNoSeatHere,
+  InventoryLinkClosed,
   InventoryUnavailableError,
 ]);
 export type InventoryLinkFailure = typeof InventoryLinkFailure.Type;

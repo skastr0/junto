@@ -171,6 +171,23 @@ describe("native-config channel answer", () => {
       .toMatchObject({ _tag: "InventoryNoSeatHere" });
   });
 
+  it("writes nothing for a link that closed before or during admission", async () => {
+    const f = await fixture({ settings: { model: "opus" } });
+    await f.answer({ _tag: "ReadSettings", canvas, harness: "claude", keys: ["model"] });
+    const write = { _tag: "WriteSetting", canvas, harness: "claude", key: "model", value: "sonnet" };
+    const before = new AbortController();
+    before.abort();
+    // Open at the first look, closed by the time the checks have run.
+    let looks = 0;
+    const during = { get aborted() { return looks++ > 0; } } as AbortSignal;
+    for (const signal of [before.signal, during]) {
+      const refused = await f.refusal(write, { ...f.context, signal });
+      expect(refused).toMatchObject({ _tag: "InventoryLinkClosed", operationId: "op-native-1" });
+      expect(Schema.decodeUnknownSync(NativeConfigLinkFailure)(Schema.encodeSync(NativeConfigLinkFailure)(refused as never))).toBeTruthy();
+    }
+    expect(JSON.parse(await readFile(join(f.home, ".claude", "settings.json"), "utf8"))).toEqual({ model: "opus" });
+  });
+
   it("never logs a value it reads or writes", async () => {
     const logHome = await mkdtemp(join(tmpdir(), "junto-native-log-"));
     cleanups.push(async () => { closeMachineLog(); await rm(logHome, { recursive: true, force: true }); });

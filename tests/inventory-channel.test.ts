@@ -192,6 +192,10 @@ describe("inventory channel answer", () => {
     expect(await run([here], "self")).toMatchObject({ _tag: "InventoryCanvasEditorMismatch" });
     expect(await run([seat("elsewhere", { host: "macbook", agentKey: "macbook:elsewhere" })], "editor"))
       .toMatchObject({ _tag: "InventoryNoSeatHere" });
+    const closed = new AbortController();
+    closed.abort();
+    expect(await run([here], "editor", { ...context, signal: closed.signal }))
+      .toMatchObject({ _tag: "InventoryLinkClosed", operationId: "op-inventory-1" });
   });
 });
 

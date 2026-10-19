@@ -11,7 +11,7 @@ import type { LinkChannelContext } from "../link/types";
 import { MachineRepository } from "../machines/repository";
 import { ModelRecords } from "../model/records";
 import { ModelService } from "../model/service";
-import { InventoryCanvasEditorMismatch, InventoryNoSeatHere, InventoryPeerNotPinned } from "./wire";
+import { InventoryCanvasEditorMismatch, InventoryLinkClosed, InventoryNoSeatHere, InventoryPeerNotPinned } from "./wire";
 
 export const admitCanvasEditor = Effect.fn("InventoryLink.admit")(function* (
   context: LinkChannelContext,
@@ -25,6 +25,11 @@ export const admitCanvasEditor = Effect.fn("InventoryLink.admit")(function* (
     machine,
     ...(context.operationId === undefined ? {} : { operationId: context.operationId }),
   };
+  // Before and after the checks, as a seat is admitted: a link closed meanwhile admits nothing.
+  const open = () => context.signal.aborted
+    ? Effect.fail(new InventoryLinkClosed({ ...where, message: "This machine link has closed." }))
+    : Effect.void;
+  yield* open();
   const peer = yield* machines.peer(context.peer.machineName);
   if (peer?.installationId !== context.peer.installationId)
     return yield* new InventoryPeerNotPinned({ ...where, message: "The asking machine is no longer pinned." });
@@ -36,6 +41,7 @@ export const admitCanvasEditor = Effect.fn("InventoryLink.admit")(function* (
   const held = yield* model.canvas(canvas);
   if (![...held.nodes.values()].some((node) => node.kind === "agent" && isThisMachine(node.host, machine)))
     return yield* new InventoryNoSeatHere({ ...where, message: "This canvas has no seat on this machine." });
+  yield* open();
 });
 
 /** A canvas this machine edits with a seat on that machine: the only thing a request names. */
