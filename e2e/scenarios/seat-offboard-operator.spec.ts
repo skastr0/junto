@@ -4,6 +4,7 @@ import { readModelSeat, grantOverseer } from "../harness/model";
 /** Operator offboard gestures and settings, without waits for product time to pass. */
 import { existsSync } from "node:fs";
 import { appendFile, chmod, mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Locator, Page, TestInfo } from "@playwright/test";
 import type { AgentSeatStateEvent } from "../../src/shared/agent-seat-state";
@@ -1124,6 +1125,25 @@ const seedStillSeat = (nodeId: string, restedMinutes: number, workMinutes: numbe
   });
 };
 
+/**
+ * Codex's own store holds the seats' sessions, as a real Codex leaves them: a
+ * resting seat resumes only a session the harness proves on disk
+ * (shared/seat-next-launch.ts provenOnDisk), else its next start is fresh
+ * whatever the clock says. Same file shape as seat-next-launch.spec.ts.
+ */
+const holdSessionsOnDisk = async (sandbox: Sandbox, nodeIds: ReadonlyArray<string>): Promise<void> => {
+  const dir = join(sandbox.homeDir, ".codex", "sessions", "2026", "10", "17");
+  await mkdir(dir, { recursive: true });
+  for (const nodeId of nodeIds) {
+    const id = sessionIdOf(nodeId);
+    await writeFile(
+      join(dir, `rollout-2026-10-17T00-00-00-${id}.jsonl`),
+      `${JSON.stringify({ type: "session_meta", payload: { id, cwd: tmpdir(), timestamp: "2026-10-17T00:00:00.000Z", thread_source: "user" } })}\n`,
+      "utf8",
+    );
+  }
+};
+
 test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next, and mail to it at rest starts a fresh session that onboards after the cut", async ({}, testInfo) => {
   // No wait for product time: the seat arrives already still past the window (seedStillSeat), a seat
   // inside its window is the control, and the minute pass (the eager cut) is held by tests/operator-offboard.test.ts.
@@ -1133,7 +1153,10 @@ test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next,
   const ZED = seatNode("zed", "Zed", COLUMN[1], ROW[0]);
   const PAT = seatNode("pat", "Pat", COLUMN[2], ROW[0], false);
   const doc = fixtureOf([TIA, ZED, PAT], [["pat", "tia"], ["pat", "zed"]]);
-  await walk(testInfo, "LOOP", { doc, transcripts: [sessionIdOf("tia"), sessionIdOf("zed")], seed: seedStillSeat("tia", 10, 31) }, async (ctx) => {
+  await walk(testInfo, "LOOP", { doc, transcripts: [sessionIdOf("tia"), sessionIdOf("zed")], seed: async (sandbox) => {
+    await seedStillSeat("tia", 10, 31)(sandbox);
+    await holdSessionsOnDisk(sandbox, ["tia", "zed"]);
+  } }, async (ctx) => {
     const { junto, sandbox, shot, step, mark, offboardLines } = ctx;
     const { page } = junto;
     let tia!: CrewSeat;
