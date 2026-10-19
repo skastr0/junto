@@ -73,8 +73,7 @@ test("a seat's second session onboards with the first one's notes", async ({}, t
     const notes = "# Parser wired for all three feeds\n\n- Next: retry on 429.\n- Why it matters: the nightly sync fails without it.";
     const offboard = data(await seat.op("offboard", { notes }));
     expect(offboard).toMatchObject({ session_id: FIRST, gist: "Parser wired for all three feeds" });
-    const notesPath = String(offboard.notes_path);
-    expect(notesPath).toContain(`/.junto/seats/${SEAT}/sessions/${FIRST}.md`);
+    expect(offboard).not.toHaveProperty("notes_path");
 
     // The first process is off the seat and reads idle, as the fake does
     // between turns: Junto stops it after the settle (seat-sessions/drain.ts
@@ -108,7 +107,7 @@ test("a seat's second session onboards with the first one's notes", async ({}, t
     await seat.control({ screen: { mode: "idle" } });
 
     // The fresh session onboards: the first session is listed as history,
-    // with its notes path and its notes inline.
+    // with its notes inline from junto.db.
     await expect
       .poll(async () => data(await seat.op("onboard", {})).sessions?.current?.session_id, { timeout: 15_000 })
       .toBe(SECOND);
@@ -117,7 +116,6 @@ test("a seat's second session onboards with the first one's notes", async ({}, t
     expect(sessions.past).toHaveLength(1);
     expect(sessions.past[0]).toMatchObject({
       session_id: FIRST,
-      notes_path: notesPath,
       gist: "Parser wired for all three feeds",
       ended_because: "offboard",
     });

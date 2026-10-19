@@ -6,7 +6,7 @@
  * continued. Every store, home, and socket lives under a temp root.
  */
 import { existsSync, mkdirSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -47,7 +47,7 @@ const makeRuntime = (root: string) => {
     Layer.mergeAll(
       WorkRepositoryLive,
       CrewRepositoryLive,
-      makeSeatSessionRepositoryLive(join(root, "seats")),
+      makeSeatSessionRepositoryLive(),
       makeMachineRepositoryLive({ defaultName: () => "workbench" }),
       SettingsLive,
       makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
@@ -175,8 +175,9 @@ describe("junto offboard modes", () => {
       const result = await op("offboard", { notes: NOTES, continuation: CONTINUATION });
       expect(result.ok).toBe(true);
       expect(result.data).toMatchObject({ session_id: "s1", mode: "continue" });
-      expect(result.data.continuation_path).toBe(join(root, "seats", "agent", "sessions", "s1.next.md"));
-      expect(await readFile(result.data.continuation_path, "utf8")).toBe(`${CONTINUATION}\n`);
+      expect(result.data).not.toHaveProperty("continuation_path");
+      const saved = await runtime.runPromise(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.notesOf("agent", ["s1"])));
+      expect(saved.get("s1")).toEqual({ notes: NOTES, continuation: CONTINUATION });
       expect(result.data.next_step).toContain("fresh session");
       expect(events).toEqual([expect.objectContaining({ mode: "continue" })]);
     }));
@@ -222,7 +223,6 @@ describe("junto onboard handoff", () => {
       continuation: CONTINUATION,
       gist: "Parser shipped",
       notes: NOTES,
-      notes_path: expect.stringMatching(/\/seats\/agent\/sessions\/s1\.md$/),
       transcript_path: null,
       transcript_missing: describeTranscriptMissing("claude", "none"),
     });

@@ -15,13 +15,6 @@ import { StateTransactionOperation } from "../state/service";
 import { type Fidelity, type HarnessChannel, SESSION_LOCATION_PATH_MAX } from "@shared/harness-domain";
 import { admitReportedSessionLocation, harnessSessionLocation } from "../term/session-existence";
 import type { SeatClockRecord } from "./operator-offboard";
-import {
-  continuationPathOf,
-  defaultSeatsRoot,
-  removeNotesFile,
-  seatSessionNotesPath,
-  writeNotesFile,
-} from "./notes-file";
 
 export class SeatSessionPersistenceError extends Schema.TaggedError<SeatSessionPersistenceError>()(
   "SeatSessionPersistenceError",
@@ -87,8 +80,6 @@ export type OwedContinuation = {
  */
 export class SeatSessionRepository extends Context.Service<SeatSessionRepository,
   {
-    /** Where this seat's notes for this session live (the file may not exist yet). */
-    readonly notesPathFor: (seatId: string, sessionId: string) => string;
     /**
      * Make the observed session the seat's open one. Idempotent: observing the
      * open session again changes nothing. Another open session ends first; an
@@ -244,12 +235,11 @@ const isEndReason = (value: string | null): value is SeatSessionEndReason =>
 const isEndedBy = (value: string | null): value is OffboardBy =>
   value !== null && (OFFBOARD_BY as ReadonlyArray<string>).includes(value);
 
-const fromRow = (row: typeof SessionRow.Type, notesPath: string): SeatSession => ({
+const sessionOf = (row: typeof SessionRow.Type): SeatSession => ({
   seatId: row.seat_id,
   sessionId: row.session_id,
   harness: row.harness,
   ...(row.transcript_path ? { transcriptPath: row.transcript_path } : {}),
-  notesPath,
   ...(row.gist ? { gist: row.gist } : {}),
   startedAt: Number(row.started_at),
   ...(row.ended_at === null ? {} : { endedAt: Number(row.ended_at) }),
@@ -288,18 +278,11 @@ const probeOf = (row: typeof SessionRow.Type) =>
 const transcriptAtClose = (row: typeof SessionRow.Type): string | null =>
   row.transcript_path ?? bounded(harnessSessionLocation(probeOf(row)), SESSION_LOCATION_PATH_MAX);
 
-/** `seatsRoot` defaults to `~/.junto/seats` under the Junto home at build time. */
-export const makeSeatSessionRepositoryLive = (
-  seatsRoot?: string,
-): Layer.Layer<SeatSessionRepository, never, SqlClient.SqlClient> =>
+export const makeSeatSessionRepositoryLive = (): Layer.Layer<SeatSessionRepository, never, SqlClient.SqlClient> =>
   Layer.effect(
     SeatSessionRepository,
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      const root = seatsRoot ?? defaultSeatsRoot();
-      const notesPathFor = (seatId: string, sessionId: string) =>
-        seatSessionNotesPath(root, seatId, sessionId);
-      const sessionOf = (row: typeof SessionRow.Type) => fromRow(row, notesPathFor(row.seat_id, row.session_id));
 
       const openRow = SqlSchema.findOneOption({
         Request: Schema.String,
@@ -403,21 +386,6 @@ export const makeSeatSessionRepositoryLive = (
       }, Effect.mapError(persistence("list")));
 
       const offboard = Effect.fn("seat-sessions.offboard")(function* (input: SeatSessionOffboard) {
-        const path = notesPathFor(input.seatId, input.sessionId);
-        yield* Effect.try({
-          try: () => {
-            writeNotesFile(path, input.notes);
-            // The latest offboard decides: a plain one withdraws a handoff.
-            if (input.continuation === undefined) removeNotesFile(continuationPathOf(path));
-            else writeNotesFile(continuationPathOf(path), input.continuation);
-          },
-          catch: (cause) =>
-            SeatSessionPersistenceError.make({
-              operation: "offboard.notes",
-              message: cause instanceof Error ? cause.message : String(cause),
-              cause,
-            }),
-        });
         return yield* sql.withTransaction(Effect.gen(function* () {
           const now = Date.now();
           // The offboarding session is the seat's current one; a seat whose
@@ -633,7 +601,6 @@ export const makeSeatSessionRepositoryLive = (
       Effect.mapError(persistence("drain.close-open")));
 
       return SeatSessionRepository.of({
-        notesPathFor,
         record,
         current,
         pin,

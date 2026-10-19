@@ -25,7 +25,7 @@ it("captures a Codex rollout into the machine's private pin without changing the
       Layer.provide(ModelService.layer, ModelDependents.empty),
       Layer.provideMerge(Layer.mergeAll(
         makeMachineRepositoryLive({ defaultName: () => THIS_MACHINE }),
-        makeSeatSessionRepositoryLive(join(sandbox.homeDir, ".junto", "seats")),
+        makeSeatSessionRepositoryLive(),
       ), makeStateEngineLive(join(sandbox.homeDir, ".junto", "state", "junto.db"))),
     ));
     const runtime = makeRuntime();

@@ -3,8 +3,8 @@
  * ending and reopening them, writing offboard notes, and finding transcripts.
  * Every store and home lives under a temp root.
  */
-import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdirSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
@@ -15,7 +15,6 @@ import {
   SeatSessionRepository,
 } from "../src/main/junto/seat-sessions/repository";
 import { listSeatSessions, recordCanvasChange } from "../src/main/junto/seat-sessions/service";
-import { pathSegment, seatSessionNotesPath } from "../src/main/junto/seat-sessions/notes-file";
 import { seatSessionTransitions } from "../src/main/junto/seat-sessions/transitions";
 import {
   __setSessionExistenceHomeForTest,
@@ -36,7 +35,7 @@ let runtime: ManagedRuntime.ManagedRuntime<SeatSessionRepository, unknown>;
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "junto-seat-sessions-"));
   runtime = ManagedRuntime.make(
-    makeSeatSessionRepositoryLive(join(root, "seats")).pipe(
+    makeSeatSessionRepositoryLive().pipe(
       Layer.provide(makeStateEngineLive(join(root, "junto.db"))),
     ),
   );
@@ -110,7 +109,6 @@ describe("SeatSessionRepository", () => {
       ["s1", "claude", "reseat"],
     ]);
     expect(sessions[1]!.endedAt).toBeGreaterThanOrEqual(sessions[1]!.startedAt);
-    expect(sessions[0]!.notesPath).toBe(join(root, "seats", "a", "sessions", "s2.md"));
   });
 
   it("reopens a session the seat goes back to and ends only the named open session", async () => {
@@ -135,7 +133,7 @@ describe("SeatSessionRepository", () => {
     expect(sessions.every((s) => s.endedAt !== undefined)).toBe(true);
   });
 
-  it("writes offboard notes as a file and records the gist, starting history if needed", async () => {
+  it("keeps offboard notes on the session's row and records the gist, starting history if needed", async () => {
     const notes = "# Wired the importer\n\n- parser done\n- next: retry on 429\n";
     const offboarded = await run(
       Effect.gen(function* () {
@@ -152,8 +150,8 @@ describe("SeatSessionRepository", () => {
     expect(offboarded).toMatchObject({ sessionId: "s1", gist: "Wired the importer" });
     expect(offboarded.offboardedAt).toBeTypeOf("number");
     expect(offboarded.endedAt).toBeUndefined();
-    expect(await readFile(offboarded.notesPath, "utf8")).toBe(notes);
-    expect((await stat(offboarded.notesPath)).mode & 0o777).toBe(0o600);
+    const notesOf = () => run(Effect.flatMap(repo, (r) => r.notesOf("a", ["s1"])));
+    expect((await notesOf()).get("s1")).toEqual({ notes: notes.trim() });
 
     // Offboarding again replaces the notes whole.
     await run(
@@ -162,15 +160,8 @@ describe("SeatSessionRepository", () => {
         yield* r.offboard({ seatId: "a", sessionId: "s1", harness: "claude", notes: "Second pass", gist: "Second pass" });
       }),
     );
-    expect(await readFile(offboarded.notesPath, "utf8")).toBe("Second pass\n");
-  });
-
-  it("keeps notes inside the seat's own directory whatever the ids say", () => {
-    expect(pathSegment("seat-1")).toBe("seat-1");
-    for (const hostile of ["../../etc", "a/b", ".hidden", "", "x".repeat(200)]) {
-      expect(pathSegment(hostile)).toMatch(/^id-[0-9a-f]{32}$/);
-    }
-    expect(seatSessionNotesPath("/r", "../x", "../../y")).toMatch(/^\/r\/id-[0-9a-f]{32}\/sessions\/id-[0-9a-f]{32}\.md$/);
+    expect((await notesOf()).get("s1")).toEqual({ notes: "Second pass" });
+    expect(readdirSync(root)).not.toContain("seats");
   });
 
   it("records local pins and lists each session with its transcript", async () => {

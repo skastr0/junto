@@ -39,8 +39,6 @@ export type SeatSession = {
   readonly transcriptPath?: string;
   /** Why a listed session has no transcript path, from the lookup that listing made. Never stored. */
   readonly transcriptMissing?: TranscriptMissing;
-  /** Where this session's offboard notes live (the file exists once offboarded). */
-  readonly notesPath: string;
   /** The notes' first line, once the session has offboarded. */
   readonly gist?: string;
   readonly startedAt: number;

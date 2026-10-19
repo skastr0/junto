@@ -129,7 +129,7 @@ export const writeFixtureModel = async (
   const state = makeStateEngineLive(databasePath ?? join(sandbox.homeDir, ".junto", "state", "junto.db"));
   const repositories = Layer.provideMerge(Layer.mergeAll(
     WorkRepositoryLive, SettingsLive, makeMachineRepositoryLive({ defaultName: () => THIS_MACHINE }),
-    makeSeatSessionRepositoryLive(join(sandbox.homeDir, ".junto", "seats")),
+    makeSeatSessionRepositoryLive(),
   ), state);
   const runtime = ManagedRuntime.make(Layer.provideMerge(
     Layer.provide(ModelService.layer, WorkModelDependentsLive), repositories,

@@ -16,7 +16,7 @@ Supported: Claude Code, Codex, Grok, Pi, Devin, Cursor Agent, Antigravity, fx, P
 
 A seat is one continuous agent. Its sessions are internal to it: Junto resumes the same session across restarts and wakes, and no screen shows session history, notes, or transcripts. That data lives in the seat's own store and CLI.
 
-Every session a seat runs is recorded in its history: which harness, which session id, where the harness keeps its transcript, and when it started and ended. The agent ends a session with `junto offboard` and notes on what happened, what is relevant, and why it matters. Junto saves them as `~/.junto/seats/<seat>/sessions/<session>.md`. A seat can only write notes for its own current session.
+Every session a seat runs is recorded in its history: which harness, which session id, where the harness keeps its transcript, and when it started and ended. The agent ends a session with `junto offboard` and notes on what happened, what is relevant, and why it matters. Junto saves them in `junto.db`, on the session's row. A seat can only write notes for its own current session.
 
 The agent chooses its stopping point, and one of two modes:
 

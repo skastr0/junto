@@ -58,7 +58,7 @@ const fixture = async () => {
     Layer.succeed(ActorSeatOccupy, occupy),
     Layer.provideMerge(
       Layer.provide(ModelService.layer, ModelDependents.empty),
-      Layer.provideMerge(Layer.mergeAll(makeMachineRepositoryLive({ defaultName: () => "workbench" }), makeSeatSessionRepositoryLive(join(root, "seats"))), makeStateEngineLive(join(root, "state.db"))),
+      Layer.provideMerge(Layer.mergeAll(makeMachineRepositoryLive({ defaultName: () => "workbench" }), makeSeatSessionRepositoryLive()), makeStateEngineLive(join(root, "state.db"))),
     ),
   ));
   cleanups.push(async () => {

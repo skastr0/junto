@@ -149,8 +149,7 @@ import { SeatGuidanceRepository } from "../seat-guidance/repository";
 import { SeatSessionRepository } from "../seat-sessions/repository";
 import { announcedSessionRefusal } from "../seat-sessions/announced-session";
 import { announceSeatOffboard, listSeatSessions } from "../seat-sessions/service";
-import { continuationPathOf, readNotesFile, readEndedMarker } from "../seat-sessions/notes-file";
-import type { SeatSessionObservation } from "../seat-sessions/repository";
+import type { SeatSessionNotes, SeatSessionObservation } from "../seat-sessions/repository";
 import { offeredCapturedSessionId } from "../term/session-id-store";
 import { harnessSessionExists } from "../term/session-existence";
 import {
@@ -1015,10 +1014,15 @@ const pastSessionsOf = (node: Node, pastNotes: number) =>
     // It is complete by itself, in the order an agent needs it: what to do
     // next, then what happened, then where the full record lives.
     const previous = past[0];
+    // Notes are read only for the sessions listed here, never the whole history.
+    const notesOf = yield* store.value.notesOf(
+      node.id,
+      past.slice(0, ONBOARD_PAST_SESSIONS_MAX).filter((session) => session.offboardedAt !== undefined).map((session) => session.sessionId),
+    ).pipe(Effect.orElseSucceed((): ReadonlyMap<string, SeatSessionNotes> => new Map()));
     const continuation =
-      previous?.endReason === "offboard" ? readNotesFile(continuationPathOf(previous.notesPath), SEAT_SESSION_CONTINUATION_MAX_CHARS) : undefined;
+      previous?.endReason === "offboard" ? notesOf.get(previous.sessionId)?.continuation : undefined;
     const handoffNotes =
-      previous !== undefined && continuation ? readNotesFile(previous.notesPath) : undefined;
+      previous !== undefined && continuation ? notesOf.get(previous.sessionId)?.notes : undefined;
     const handoff =
       previous !== undefined && continuation
         ? {
@@ -1028,7 +1032,6 @@ const pastSessionsOf = (node: Node, pastNotes: number) =>
             continuation,
             gist: previous.gist ?? null,
             ...(handoffNotes === undefined ? {} : { notes: handoffNotes }),
-            notes_path: previous.notesPath,
             ...transcriptOf(previous),
             ...windDownOf(previous),
           }
@@ -1036,8 +1039,7 @@ const pastSessionsOf = (node: Node, pastNotes: number) =>
     // A session that follows one which ended with no notes at all (Junto or
     // the operator ended it without an agent turn, or its id just changed) is
     // told so, with the one reference there is: the previous transcript.
-    const endedBy =
-      previous === undefined ? undefined : readEndedMarker(previous.notesPath)?.by;
+    const endedBy = previous?.endedBy;
     const previousWithoutNotes =
       previous !== undefined &&
       previous.endedAt !== undefined &&
@@ -1062,7 +1064,7 @@ const pastSessionsOf = (node: Node, pastNotes: number) =>
       // points there instead of printing them a second time.
       const inHandoff = session === previous && handoffNotes !== undefined;
       const notes =
-        offboarded && !inHandoff && inline < pastNotes ? readNotesFile(session.notesPath) : undefined;
+        offboarded && !inHandoff && inline < pastNotes ? notesOf.get(session.sessionId)?.notes : undefined;
       if (notes !== undefined) inline += 1;
       return {
         session_id: session.sessionId,
@@ -1070,7 +1072,6 @@ const pastSessionsOf = (node: Node, pastNotes: number) =>
         started_at: isoAt(session.startedAt),
         ...(session.endedAt === undefined ? {} : { ended_at: isoAt(session.endedAt), ended_because: session.endReason }),
         gist: session.gist ?? null,
-        notes_path: offboarded ? session.notesPath : null,
         ...transcriptOf(session),
         ...(notes === undefined ? {} : { notes }),
         ...(inHandoff ? { notes_in: "handoff" as const } : {}),
@@ -1083,7 +1084,6 @@ const pastSessionsOf = (node: Node, pastNotes: number) =>
         ? {
             session_id: current.sessionId,
             harness: current.harness,
-            notes_path: mine?.notesPath ?? store.value.notesPathFor(node.id, current.sessionId),
             transcript_path: mine?.transcriptPath ?? null,
             offboarded: mine?.offboardedAt !== undefined,
           }
@@ -1337,13 +1337,11 @@ const dispatchOp = (
       );
       // The session is closed from the transport, once this reply has been
       // written back (see the offboard branch after dispatch): the notes are
-      // on disk by now, and that is the only thing the close waits for.
+      // in junto.db by now, and that is the only thing the close waits for.
       return {
         session_id: session.sessionId,
         gist: session.gist ?? gist,
-        notes_path: session.notesPath,
         mode,
-        ...(continuation ? { continuation_path: continuationPathOf(session.notesPath) } : {}),
         disposition: "applied" as const,
         next_step:
           mode === "continue"

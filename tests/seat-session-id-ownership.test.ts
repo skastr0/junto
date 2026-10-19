@@ -42,7 +42,7 @@ const agentDoc = (
 const makeRuntime = (root: string) => ManagedRuntime.make(Layer.provideMerge(
   Layer.provide(ModelService.layer, ModelDependents.empty),
   Layer.provideMerge(
-    Layer.mergeAll(makeSeatSessionRepositoryLive(join(root, "seats")), makeMachineRepositoryLive({ defaultName: () => "command" })),
+    Layer.mergeAll(makeSeatSessionRepositoryLive(), makeMachineRepositoryLive({ defaultName: () => "command" })),
     makeStateEngineLive(join(root, "state.db")),
   ),
 ));

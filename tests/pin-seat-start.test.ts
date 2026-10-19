@@ -60,7 +60,7 @@ const fixture = async () => {
       }),
     })),
     Layer.provideMerge(Layer.provide(ModelService.layer, ModelDependents.empty),
-      Layer.provideMerge(Layer.mergeAll(makeSeatSessionRepositoryLive(join(root, "seats")), makeMachineRepositoryLive({ defaultName: () => "workbench" })), makeStateEngineLive(join(root, "state.db")))),
+      Layer.provideMerge(Layer.mergeAll(makeSeatSessionRepositoryLive(), makeMachineRepositoryLive({ defaultName: () => "workbench" })), makeStateEngineLive(join(root, "state.db")))),
   ));
   cleanups.push(() => runtime.dispose());
   app.runPromise.mockImplementation((effect) => runtime.runPromise(effect));

@@ -4,11 +4,9 @@
  * saved before the window was the one rule load, and the marker that records
  * who ended a session without notes.
  */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Result, Schema } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   CACHE_MODES,
   DEFAULT_CACHE_MODE,
@@ -30,12 +28,6 @@ import {
 import { SETTINGS_VERSION, applySettingsPatch, defaultSettings, offboardRules } from "../src/shared/settings";
 import { applyAndValidatePatch, decodePatchInput } from "../src/main/junto/settings/patch";
 import { decodeStoredSettings, preferencesFromSettings } from "../src/main/junto/settings/state-schema";
-import {
-  endedPathOf,
-  readEndedMarker,
-  seatSessionNotesPath,
-  writeEndedMarker,
-} from "../src/main/junto/seat-sessions/notes-file";
 
 describe("offboard rules", () => {
   it("default to one cache window of 60 minutes, with no per-harness windows", () => {
@@ -200,33 +192,3 @@ describe("the refusals and the run summary", () => {
   });
 });
 
-describe("who ended a session without notes", () => {
-  const roots: string[] = [];
-  afterEach(() => {
-    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
-  });
-  const notes = (): string => {
-    const root = mkdtempSync(join(tmpdir(), "junto-ended-marker-"));
-    roots.push(root);
-    return seatSessionNotesPath(root, "agent-1", "session-1");
-  };
-
-  it("is a marker beside the notes file, written and read back", () => {
-    const path = notes();
-    expect(endedPathOf(path).endsWith("/agent-1/sessions/session-1.ended.json")).toBe(true);
-    expect(readEndedMarker(path)).toBeUndefined();
-    writeEndedMarker(path, { by: "automatic", at: 1_791_000_000_000 });
-    expect(readEndedMarker(path)).toEqual({ by: "automatic", at: 1_791_000_000_000 });
-    writeEndedMarker(path, { by: "operator", at: 5 });
-    expect(readEndedMarker(path)).toEqual({ by: "operator", at: 5 });
-  });
-
-  it("a malformed marker reads as none", () => {
-    const path = notes();
-    writeEndedMarker(path, { by: "overseer", at: 1 });
-    for (const body of ["not json", '{"by":"agent","at":1}', '{"by":"operator"}', "[]"]) {
-      writeFileSync(endedPathOf(path), body);
-      expect(readEndedMarker(path)).toBeUndefined();
-    }
-  });
-});

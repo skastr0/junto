@@ -54,7 +54,7 @@ const makeRuntime = (root: string) => {
     Layer.mergeAll(
       WorkRepositoryLive,
       CrewRepositoryLive,
-      makeSeatSessionRepositoryLive(join(root, "seats")),
+      makeSeatSessionRepositoryLive(),
       makeMachineRepositoryLive({ defaultName: () => "workbench" }),
       SettingsLive,
       makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),

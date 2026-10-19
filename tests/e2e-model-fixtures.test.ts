@@ -25,7 +25,7 @@ it("seeds native kinds and sink names into the durable model, keeping grids sepa
       modelNode({ ...frame, id: "requests", kind: "requests", name: "Inbox" }),
       modelNode({ ...frame, id: "sheet", kind: "sheet", label: "Grid" }),
     ]), sheets: { sheet: grid } });
-    const runtime = ManagedRuntime.make(Layer.provideMerge(Layer.provide(ModelService.layer, ModelDependents.empty), Layer.provideMerge(makeSeatSessionRepositoryLive(join(sandbox.homeDir, ".junto", "seats")), makeStateEngineLive(join(sandbox.homeDir, ".junto", "state", "junto.db")))));
+    const runtime = ManagedRuntime.make(Layer.provideMerge(Layer.provide(ModelService.layer, ModelDependents.empty), Layer.provideMerge(makeSeatSessionRepositoryLive(), makeStateEngineLive(join(sandbox.homeDir, ".junto", "state", "junto.db")))));
     try {
       await runtime.runPromise(Effect.gen(function* () {
         const model = yield* ModelService;

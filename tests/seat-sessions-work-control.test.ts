@@ -5,8 +5,8 @@
  * latest notes inline, the paths to the rest, and the past-sessions framing.
  * Every store, home, and socket lives under a temp root.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdirSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -40,7 +40,6 @@ import {
   SeatSessionRepository,
 } from "../src/main/junto/seat-sessions/repository";
 import { subscribeSeatOffboard, type SeatOffboardEvent } from "../src/main/junto/seat-sessions/service";
-import { endedPathOf, writeEndedMarker } from "../src/main/junto/seat-sessions/notes-file";
 import { __setSessionExistenceHomeForTest } from "../src/main/junto/term/session-existence";
 import {
   CONTINUATION_FRAMING,
@@ -56,7 +55,7 @@ const makeRuntime = (root: string) => {
     Layer.mergeAll(
       WorkRepositoryLive,
       CrewRepositoryLive,
-      makeSeatSessionRepositoryLive(join(root, "seats")),
+      makeSeatSessionRepositoryLive(),
       makeMachineRepositoryLive({ defaultName: () => "workbench" }),
       SettingsLive,
       makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
@@ -115,6 +114,9 @@ afterEach(async () => {
   delete process.env.JUNTO_WORK_HOME;
 });
 
+const notesOf = async (sessionId: string) =>
+  (await runtime.runPromise(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.notesOf("agent", [sessionId])))).get(sessionId);
+
 const writeSession = async (sessionId: string | undefined) => {
   const held = await runtime.runPromise(Effect.flatMap(ModelService, model => model.listCanvases()));
   if (!held.some(name => name === CANVAS)) {
@@ -153,8 +155,8 @@ describe("junto offboard", () => {
       const result = await op("offboard", { notes });
       expect(result.ok).toBe(true);
       expect(result.data).toMatchObject({ session_id: "s1", gist: "Parser shipped", disposition: "applied" });
-      expect(result.data.notes_path).toBe(join(root, "seats", "agent", "sessions", "s1.md"));
-      expect(await readFile(result.data.notes_path, "utf8")).toBe(`${notes}\n`);
+      expect(result.data).not.toHaveProperty("notes_path");
+      expect((await notesOf("s1"))?.notes).toBe(notes);
       expect(events).toEqual([expect.objectContaining({ seatId: "agent", canvasName: CANVAS, sessionId: "s1" })]);
 
       // Only the caller's own seat: the other seat's history is untouched.
@@ -269,7 +271,7 @@ describe("junto offboard on a seat whose session id is not known yet", () => {
     expect(result.ok).toBe(true);
     expect(result.data).toMatchObject({ session_id: "found-now", gist: "Early stop" });
     expect(asked).toEqual(["bind-agent"]);
-    expect(await readFile(result.data.notes_path, "utf8")).toContain("first turn of a fresh session");
+    expect((await notesOf("found-now"))?.notes).toContain("first turn of a fresh session");
   });
 
   it("still refuses, in the same words, when the look finds nothing or fails", async () => {
@@ -343,25 +345,25 @@ describe("junto onboard past sessions", () => {
     const sessions = onboard.data.sessions;
     expect(sessions.note).toBe(PAST_SESSIONS_FRAMING);
     expect(sessions.current).toMatchObject({ session_id: "s4", offboarded: false });
-    expect(sessions.current.notes_path).toBe(join(root, "seats", "agent", "sessions", "s4.md"));
+    expect(sessions.current).not.toHaveProperty("notes_path");
     expect(sessions.past.map((s: { session_id: string }) => s.session_id)).toEqual(["s3", "s2", "s1"]);
     const [s3, s2, s1] = sessions.past;
-    // A session that never offboarded has no notes to point at.
-    expect(s3).toMatchObject({ gist: null, notes_path: null, ended_because: "replaced" });
+    // A session that never offboarded has no notes.
+    expect(s3).toMatchObject({ gist: null, ended_because: "replaced" });
     expect(s3).not.toHaveProperty("notes");
     expect(s2).toMatchObject({
       gist: "Second session: wired the parser",
-      notes_path: join(root, "seats", "agent", "sessions", "s2.md"),
       notes: "Second session: wired the parser",
     });
     expect(s1.notes).toBe("First session: set up the repo");
 
-    // The inline count is configurable; older notes keep their paths.
+    // The inline count is configurable; older sessions keep their gist.
     const one = await op("onboard", { past_notes: 1 });
     const [, t2, t1] = one.data.sessions.past;
     expect(t2.notes).toBe("Second session: wired the parser");
     expect(t1).not.toHaveProperty("notes");
-    expect(t1.notes_path).toBe(join(root, "seats", "agent", "sessions", "s1.md"));
+    expect(t1).toMatchObject({ gist: "First session: set up the repo" });
+    expect(t1).not.toHaveProperty("notes_path");
 
     const tooMany = await op("onboard", { past_notes: 99 });
     expect(tooMany).toMatchObject({ ok: false, error: { type: "InputError" } });
@@ -402,7 +404,6 @@ describe("junto onboard after an offboard that continues", () => {
       continuation: CONTINUATION,
       gist: "Parser half done",
       notes: NOTES,
-      notes_path: join(root, "seats", "agent", "sessions", "s1.md"),
       transcript_path: "/harness/sessions/s1.jsonl",
     });
     expect(typeof handoff.left_at).toBe("string");
@@ -418,7 +419,6 @@ describe("junto onboard after an offboard that continues", () => {
       session_id: "s1",
       ended_because: "offboard",
       gist: "Parser half done",
-      notes_path: join(root, "seats", "agent", "sessions", "s1.md"),
       notes_in: "handoff",
     });
     expect(previous).not.toHaveProperty("notes");
@@ -482,28 +482,20 @@ describe("junto onboard after a session that ended without notes", () => {
   it.each(["operator", "overseer", "automatic"] as const)(
     "says who ended it when Junto recorded that: %s",
     async (by) => {
-      const notesPath = join(root, "seats", "agent", "sessions", "s1.md");
-      writeEndedMarker(notesPath, { by, at: 1_800_000_000_000 });
       await endAsOffboard("s1");
+      await runtime.runPromise(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.markEnded("agent", "s1", by)));
       await writeSession("s2");
       const told = (await op("onboard", {})).data.previous_session_without_notes;
       expect(told).toMatchObject({ session_id: "s1", ended_because: "offboard", ended_by: by });
     },
   );
 
-  it("names nobody when nothing was recorded, or the record cannot be read", async () => {
+  it("names nobody when nothing was recorded", async () => {
     await endAsOffboard("s1");
     await writeSession("s2");
     const unmarked = (await op("onboard", {})).data.previous_session_without_notes;
     expect(unmarked).toMatchObject({ session_id: "s1" });
     expect(unmarked).not.toHaveProperty("ended_by");
-
-    const notesPath = join(root, "seats", "agent", "sessions", "s1.md");
-    mkdirSync(join(root, "seats", "agent", "sessions"), { recursive: true });
-    writeFileSync(endedPathOf(notesPath), "{not json");
-    const malformed = (await op("onboard", {})).data.previous_session_without_notes;
-    expect(malformed).toMatchObject({ session_id: "s1" });
-    expect(malformed).not.toHaveProperty("ended_by");
   });
 
   it("says so when no transcript is known, and names none", async () => {

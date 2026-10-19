@@ -50,7 +50,7 @@ const agent = (harness: "codex" | "claude"): Node =>
 const makeRuntime = (root: string) => ManagedRuntime.make(Layer.provideMerge(
   Layer.provide(ModelService.layer, ModelDependents.empty),
   Layer.provideMerge(
-    Layer.mergeAll(makeSeatSessionRepositoryLive(join(root, "seats")), makeMachineRepositoryLive({ defaultName: () => MACHINE })),
+    Layer.mergeAll(makeSeatSessionRepositoryLive(), makeMachineRepositoryLive({ defaultName: () => MACHINE })),
     makeStateEngineLive(join(root, "state.db")),
   ),
 ));
