@@ -40,7 +40,7 @@ import {
   terminateAdapterChildrenOnQuit,
 } from "./junto/adapters/exec";
 import { appMenuTemplate } from "./junto/app-menu";
-import { appProcessBlocksAppExit, appProcessPlane } from "./junto/app-process-plane";
+import { appProcessBlocksAppExit, appProcessPlane, describeAppProcessStraggler } from "./junto/app-process-plane";
 import { AppRuntime, setMachineControlReadiness } from "./runtime";
 import { MachineCoreStatus, MachineCoreRows, MachineCoreSeats, MachineCoreMail } from "./core-runtime";
 import { makeInventoryChannel } from "./junto/inventory/channel";
@@ -2121,11 +2121,7 @@ const requireCleanAppProcessShutdown = async (): Promise<void> => {
   const receipt = await (appProcessShutdown ??= appProcessPlane.drainOnQuit());
   if (!receipt.clean) {
     appProcessShutdown = undefined;
-    const retained = receipt.stragglers
-      .map((rec) =>
-        `${rec.source}:${rec.purpose}@${rec.generation}${rec.pid === undefined ? "" : ` pid=${rec.pid}`}`
-      )
-      .join(", ");
+    const retained = receipt.stragglers.map(describeAppProcessStraggler).join("; ");
     if (!appProcessBlocksAppExit(receipt.stragglers)) {
       console.error(`[process] quit continues with unsignalable read-only retention: ${retained}`);
       return;

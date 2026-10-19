@@ -217,7 +217,36 @@ export interface AppProcessStraggler {
   readonly pid?: number;
   readonly term?: AppProcessSignalReceipt;
   readonly kill?: AppProcessSignalReceipt;
+  /** Diagnostics only: the leader's exit and whether its pipes closed. */
+  readonly exit?: { readonly code: number | null; readonly signal: string | number | null };
+  readonly closed?: boolean;
+  /** Diagnostics only: every pid seen in the group, which includes any member still alive. */
+  readonly groupPids?: readonly number[];
 }
+
+/**
+ * One line per straggler for the quit log: who it is, what it was doing when
+ * the drain gave up, and which signals reached it. Pids are diagnostics only.
+ */
+export const describeAppProcessStraggler = (straggler: AppProcessStraggler): string => {
+  const signalPart = (receipt: AppProcessSignalReceipt | undefined): string =>
+    receipt === undefined
+      ? "not sent"
+      : `${receipt.attempted ? "sent" : "refused"} via ${receipt.via} (${receipt.decision.ok ? receipt.decision.mode : receipt.decision.reason}, ${receipt.reason})`;
+  const exitPart = straggler.exit === undefined
+    ? "no exit seen"
+    : `exited code=${String(straggler.exit.code)} signal=${String(straggler.exit.signal)}`;
+  return [
+    `${straggler.source}:${straggler.purpose}@${straggler.generation}${straggler.pid === undefined ? "" : ` pid=${straggler.pid}`}`,
+    `mode=${straggler.mode}`,
+    `state=${straggler.state}`,
+    exitPart,
+    ...(straggler.closed === undefined ? [] : [straggler.closed ? "pipes closed" : "pipes open"]),
+    ...(straggler.groupPids === undefined ? [] : [`group pids=[${straggler.groupPids.join(" ")}]`]),
+    `TERM ${signalPart(straggler.term)}`,
+    `KILL ${signalPart(straggler.kill)}`,
+  ].join(", ");
+};
 
 export type AppProcessDrainResult =
   | { readonly clean: true; readonly stragglers: readonly [] }
@@ -497,6 +526,13 @@ const summarizeStraggler = (record: AppRecord): AppProcessStraggler =>
       : { pid: record.pidForDiagnostics }),
     ...(record.term === undefined ? {} : { term: record.term }),
     ...(record.kill === undefined ? {} : { kill: record.kill }),
+    ...(record.exitEvent === undefined
+      ? {}
+      : { exit: Object.freeze({ code: record.exitEvent.code ?? null, signal: record.exitEvent.signal ?? null }) }),
+    closed: record.closeEvent !== undefined,
+    ...(record.mode === "group" && record.groupObservation !== undefined
+      ? { groupPids: Object.freeze(record.groupObservation.observedMemberEpochs.map((member) => member.pid)) }
+      : {}),
   });
 
 const quiescingError = (): Error =>

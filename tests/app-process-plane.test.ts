@@ -823,6 +823,7 @@ describe("app process plane drain", () => {
           decision: { ok: false, reason: "child-signal-refused" },
           via: "none",
         },
+        closed: false,
       }],
     });
     expect(child.kill.mock.calls).toEqual([
