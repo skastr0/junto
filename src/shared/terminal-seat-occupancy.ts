@@ -129,19 +129,6 @@ export class SeatOccupationFailedError extends Schema.TaggedError<SeatOccupation
   },
 ) {}
 
-/** Wire-facing liveness. Finer stalls stay adapter-private. */
-export const ProcessLiveness = Schema.Literals(["starting", "running", "exited"]);
-export type ProcessLiveness = typeof ProcessLiveness.Type;
-
-export const OccupantProcess = Schema.Struct({
-  placement: SeatPlacement,
-  liveness: ProcessLiveness,
-  /** Characteristic of the process (session id exists), not of the seat. */
-  resumable: Schema.Boolean,
-  sessionId: Schema.optionalKey(Schema.String),
-});
-export type OccupantProcess = typeof OccupantProcess.Type;
-
 const decodeBindingId = Schema.decodeUnknownSync(BindingId);
 const decodeEpoch = Schema.decodeUnknownSync(SessionEpoch);
 const decodePlacement = Schema.decodeUnknownSync(SeatPlacement);
@@ -231,7 +218,7 @@ export const seatOccupationFailedError = (
 /**
  * A generation still indexed by the host occupies the seat. Stopping is
  * occupied — the occupant has not vacated. Exited / missing / unknown is
- * vacant. Resume identity lives on OccupantProcess, not here.
+ * vacant.
  */
 export const occupancyFromSession = (
   bindingId: string,

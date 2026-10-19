@@ -25,7 +25,6 @@ export const SeatCommand = Schema.Union([
   }),
   Schema.Struct({ _tag: Schema.Literal("Interrupt") }),
   Schema.Struct({ _tag: Schema.Literal("Compact") }),
-  Schema.Struct({ _tag: Schema.Literal("Resume"), sessionId: Schema.String }),
 ]);
 export type SeatCommand = typeof SeatCommand.Type;
 
@@ -62,8 +61,6 @@ export const commandCapability = (command: SeatCommand): CommandCapability => {
       return "interrupt";
     case "Compact":
       return "compact";
-    case "Resume":
-      return "resume";
   }
 };
 
@@ -94,7 +91,7 @@ const notReady = (status: SeatStatus, command: SeatCommand): string | undefined 
       // A read that cannot tell is not a hold: the composer gate decides, as
       // it did before the contract.
       if (status._tag === "Unknown") return undefined;
-      return "the seat is not running a session";
+      return "the seat is not running";
     case "AnswerPermission":
       if (status._tag === "Blocked" && status.reason._tag === "Permission") {
         const wanted = command.requestId;
@@ -108,8 +105,6 @@ const notReady = (status: SeatStatus, command: SeatCommand): string | undefined 
       return status._tag === "Working" || status._tag === "Blocked" ? undefined : "nothing is running";
     case "Compact":
       return status._tag === "Idle" ? undefined : "the seat is not idle";
-    case "Resume":
-      return status._tag === "Exited" || status._tag === "Starting" ? undefined : "the seat is already running";
   }
 };
 
