@@ -29,16 +29,17 @@ fi
 
 # The specs launch out/ as built. A build of another commit (a failed rebuild
 # leaves the old one in place) runs stale code against newer state, so refuse
-# unless out/ was built from this worktree's HEAD.
-provenance="$repo_root/out/package-runtime-provenance.json"
+# unless the last complete electron-vite build stamped this worktree's HEAD
+# (scripts/build-source-stamp.ts; a failed build leaves no stamp).
+stamp="$repo_root/out/build-source.json"
 head_commit="$(git -C "$repo_root" rev-parse HEAD)"
-if [[ ! -f "$provenance" ]]; then
-  printf 'junto: error: out/ has no build provenance — run scripts/build-app.sh first\n' >&2
+if [[ ! -f "$stamp" ]]; then
+  printf 'junto: error: out/ has no complete build — the last electron-vite build failed or never ran; rebuild before running e2e\n' >&2
   exit 1
 fi
-built_commit="$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).sourceCommit ?? ""))' "$provenance")"
+built_commit="$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).sourceCommit ?? ""))' "$stamp")"
 if [[ "$built_commit" != "$head_commit" ]]; then
-  printf 'junto: error: out/ was built from %s, but HEAD is %s — rebuild with scripts/build-app.sh before running e2e\n' "${built_commit:-an unknown commit}" "$head_commit" >&2
+  printf 'junto: error: out/ was built from %s, but HEAD is %s — rebuild before running e2e\n' "${built_commit:-an unknown commit}" "$head_commit" >&2
   exit 1
 fi
 

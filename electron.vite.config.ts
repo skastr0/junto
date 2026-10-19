@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { buildIdentity } from "./scripts/build-identity";
+import { clearBuildSourceStamp, writeBuildSourceStamp } from "./scripts/build-source-stamp";
 import { machineReleaseCatalogForBuild, machineReleaseCatalogConstant } from "./scripts/machine-release-catalog";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
@@ -48,7 +49,7 @@ export default defineConfig(({ command, mode }) => {
 
   return {
     main: {
-      plugins: [externalizeDepsPlugin(), overlayDepsPlugin(overlay)],
+      plugins: [clearBuildSourceStamp(process.cwd()), externalizeDepsPlugin(), overlayDepsPlugin(overlay)],
       resolve: { alias },
       define: productDefines,
     },
@@ -69,7 +70,7 @@ export default defineConfig(({ command, mode }) => {
       root: ".",
       resolve: { alias },
       define: productDefines,
-      plugins: [overlayDepsPlugin(overlay), react(), tailwindcss()],
+      plugins: [overlayDepsPlugin(overlay), react(), tailwindcss(), writeBuildSourceStamp(process.cwd())],
       // The dev server may serve overlay files from outside this repository.
       ...(overlay.kind === "official" ? { server: { fs: { allow: [".", overlay.dir] } } } : {}),
       build: {
