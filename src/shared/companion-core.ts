@@ -20,6 +20,8 @@ import {
   companionFail,
   companionOk,
   type CompanionCanvas,
+  type CompanionCanvasNode,
+  type CompanionCanvasWire,
   type CompanionError,
   type CompanionMachine,
   type CompanionMachineLogLevel,
@@ -35,6 +37,12 @@ import type { OperatorFeed } from "./operator-feed";
 export type CompanionOutcome<A> =
   | { readonly ok: true; readonly value: A }
   | { readonly ok: false; readonly error: CompanionError };
+
+/** A canvas's nodes and drawn wires; the connection numbers what it sends. */
+export type CompanionCanvasDrawn = {
+  readonly nodes: ReadonlyArray<CompanionCanvasNode>;
+  readonly wires: ReadonlyArray<CompanionCanvasWire>;
+};
 
 export const outcomeOk = <A>(value: A): CompanionOutcome<A> => ({ ok: true, value });
 export const outcomeFail = <A = never>(
@@ -90,7 +98,10 @@ export type CompanionBackend = {
     portraitIdentity: string,
     size: number,
     theme: "bright" | "dark",
-  ) => Promise<CompanionOutcome<string>>;
+    format: "svg" | "png",
+  ) => Promise<CompanionOutcome<CompanionResultByOp["portrait.get"]>>;
+  /** A canvas as the desktop draws it, through the whitelist; not-found when there is no such canvas. */
+  readonly canvasScene: (canvasName: string) => Promise<CompanionOutcome<CompanionCanvasDrawn>>;
   /**
    * The bytes [offset, offset + length) of a stored object a current feed
    * names, read through the store's confined open. `unavailable` when its
@@ -177,12 +188,25 @@ const contentGet = async (
 export type CompanionGates = {
   readonly content: () => (() => void) | undefined;
   readonly machine: () => (() => void) | undefined;
+  /** Portraits drawn as PNG run one after another, since drawing holds the Mac's main thread. */
+  readonly portraitPng: <A>(draw: () => Promise<A>) => Promise<A>;
+};
+
+/** Tasks run one at a time, in the order they came; a failure does not stop the next. */
+export const makeSerial = (): (<A>(task: () => Promise<A>) => Promise<A>) => {
+  let tail: Promise<unknown> = Promise.resolve();
+  return <A>(task: () => Promise<A>): Promise<A> => {
+    const run = tail.then(task, task);
+    tail = run.catch(() => undefined);
+    return run;
+  };
 };
 
 /** One phone's in-flight bounds. */
 export const makeCompanionGates = (): CompanionGates => ({
   content: makeInFlightGate(COMPANION_CONTENT_IN_FLIGHT_MAX),
   machine: makeInFlightGate(COMPANION_MACHINE_IN_FLIGHT_MAX),
+  portraitPng: makeSerial(),
 });
 
 export type CompanionDeviceView = {
@@ -297,12 +321,21 @@ export const handleCompanionRequest = async (
       );
     case "quickReplies.get":
       return respond(id, backend.quickReplies(), (replies) => companionOk(id, "quickReplies.get", { replies }));
-    case "portrait.get":
-      return respond(
-        id,
-        backend.portrait(frame.args.portraitIdentity, frame.args.size, frame.args.theme),
-        (svg) => companionOk(id, "portrait.get", { svg }),
+    case "portrait.get": {
+      const { portraitIdentity, size, theme } = frame.args;
+      const format = frame.args.format ?? "svg";
+      const read = () => backend.portrait(portraitIdentity, size, theme, format);
+      return respond(id, format === "png" ? context.gates.portraitPng(read) : read(), (value) =>
+        companionOk(id, "portrait.get", value),
       );
+    }
+    case "canvas.open":
+      // The connection numbers the scene: its seq is the session's, not the canvas's.
+      return respond(id, backend.canvasScene(frame.args.canvasName), (scene) =>
+        companionOk(id, "canvas.open", { seq: 0, ...scene }),
+      );
+    case "canvas.close":
+      return companionOk(id, "canvas.close", {});
     case "content.get": {
       const release = context.gates.content();
       if (release === undefined)

@@ -75,6 +75,7 @@ const backend: CompanionServiceOptions["backend"] = ({ pairComplete }) => {
     tailnetPeers: none,
     threads: none,
     thread: none,
+    canvasScene: none,
   };
   return stub;
 };

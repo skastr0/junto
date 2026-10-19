@@ -23,6 +23,7 @@ import { Result, Schema } from "effect";
 import { AgentSignal, AgentSignalKind } from "./agent-signals";
 import { ContentSha256 } from "./content-ref";
 import { FeedHealth, FeedRegion, OperatorFeed } from "./operator-feed";
+import { RingState } from "./rings";
 
 export const COMPANION_PROTOCOL = "junto-companion/1" as const;
 
@@ -53,6 +54,10 @@ export const COMPANION_MACHINE_IN_FLIGHT_MAX = 2;
 export const COMPANION_MACHINE_TEXT_MAX = 1024;
 /** A check older than this is not sent: the phone shows the machine as not checked. */
 export const COMPANION_MACHINE_CHECK_AGO_MAX_MS = 7 * 24 * 60 * 60_000;
+/** Waypoints one drawn wire carries at most. */
+export const COMPANION_WIRE_POINTS_MAX = 256;
+/** How round a drawn wire's corners are, canvas units: the desktop's. */
+export const COMPANION_WIRE_RADIUS = 8;
 
 // --- primitives --------------------------------------------------------------
 
@@ -141,6 +146,10 @@ export const CompanionSeat = Schema.Struct({
   ),
   health: Schema.optionalKey(FeedHealth),
   lastActivityAt: Schema.optionalKey(Schema.Number),
+  /** The ring the desktop draws for the seat now (ringState), so the phone draws the same one. */
+  ring: Schema.optionalKey(RingState),
+  /** When that ring began, ms on the Mac's clock: a done ring lands from here. */
+  stateStartedAt: Schema.optionalKey(Schema.Number),
 });
 export type CompanionSeat = typeof CompanionSeat.Type;
 
@@ -254,6 +263,79 @@ export const CompanionThreadSummary = Schema.Struct({
   canReply: Schema.Boolean,
 });
 export type CompanionThreadSummary = typeof CompanionThreadSummary.Type;
+
+// --- canvas --------------------------------------------------------------------
+// What the desktop draws, read only, through a whitelist: each node's kind,
+// rectangle, paint order, title and colour, and each wire's ends and drawn
+// route. No other node field crosses: not a region's environment, briefing or
+// contract, nor a seat's agent, host, binding or launch.
+
+/** The desktop's node kinds; a region is a node like any other. */
+export const COMPANION_CANVAS_NODE_KINDS = [
+  "agent",
+  "peer",
+  "terminal",
+  "page",
+  "task",
+  "requests",
+  "artifacts",
+  "board",
+  "pad",
+  "sheet",
+  "cron",
+  "relay",
+  "watcher",
+  "note",
+  "label",
+  "file",
+  "link",
+  "git",
+  "region",
+] as const;
+export const CompanionCanvasNodeKind = Schema.Literals(COMPANION_CANVAS_NODE_KINDS);
+export type CompanionCanvasNodeKind = typeof CompanionCanvasNodeKind.Type;
+
+const CanvasLength = Schema.Finite.pipe(Schema.check(Schema.isGreaterThan(0)));
+
+export const CompanionCanvasPoint = Schema.Struct({ x: Schema.Finite, y: Schema.Finite });
+export type CompanionCanvasPoint = typeof CompanionCanvasPoint.Type;
+
+export const CompanionCanvasNode = Schema.Struct({
+  /** For a seat, CompanionSeat.nodeId: a tap opens that seat. */
+  nodeId: NodeId,
+  kind: CompanionCanvasNodeKind,
+  /** Canvas units, as the desktop places it. */
+  frame: Schema.Struct({ x: Schema.Finite, y: Schema.Finite, width: CanvasLength, height: CanvasLength }),
+  /** Paint order, lowest first; only the order matters. */
+  z: Schema.Number.pipe(Schema.check(Schema.isInt())),
+  /** The title the desktop's card shows. */
+  label: Schema.optionalKey(bounded(1, 256)),
+  /** The desktop's colour: a preset "1" to "6" or a hex. */
+  color: Schema.optionalKey(bounded(1, 64)),
+});
+export type CompanionCanvasNode = typeof CompanionCanvasNode.Type;
+
+export const CompanionCanvasWire = Schema.Struct({
+  wireId: bounded(1, 256),
+  from: NodeId,
+  to: NodeId,
+  /** The route the desktop draws, as waypoints in canvas units, start to end. */
+  path: Schema.Array(CompanionCanvasPoint).pipe(
+    Schema.check(Schema.isMinLength(2)),
+    Schema.check(Schema.isMaxLength(COMPANION_WIRE_POINTS_MAX)),
+  ),
+  /** How round its corners are, canvas units. */
+  radius: Schema.Finite.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+});
+export type CompanionCanvasWire = typeof CompanionCanvasWire.Type;
+
+/** The whole scene `canvas.open` answers. */
+export const CompanionCanvasScene = Schema.Struct({
+  seq: Schema.Number.pipe(Schema.check(Schema.isInt())),
+  nodes: Schema.Array(CompanionCanvasNode),
+  wires: Schema.Array(CompanionCanvasWire),
+});
+export type CompanionCanvasScene = typeof CompanionCanvasScene.Type;
 
 // --- machines ----------------------------------------------------------------
 // Read only. No endpoint, path, key, pin or installation id reaches the phone.
@@ -393,6 +475,8 @@ export const COMPANION_OPS = [
   "tailnet.peers",
   "threads.list",
   "thread.get",
+  "canvas.open",
+  "canvas.close",
 ] as const;
 export const CompanionOpName = Schema.Literals(COMPANION_OPS);
 export type CompanionOpName = typeof CompanionOpName.Type;
@@ -440,6 +524,8 @@ export const CompanionArgs = {
     portraitIdentity: bounded(1, 256),
     size: intBetween(16, 1024),
     theme: Schema.Literals(["bright", "dark"]),
+    /** svg when absent; png is size x size pixels, so a native view never parses SVG. */
+    format: Schema.optionalKey(Schema.Literals(["svg", "png"])),
   }),
   "content.get": Schema.Struct({
     sha256: ContentSha256,
@@ -452,6 +538,9 @@ export const CompanionArgs = {
   "tailnet.peers": Empty,
   "threads.list": Schema.Struct({ canvasName: CanvasName, nodeId: NodeId }),
   "thread.get": Schema.Struct({ canvasName: CanvasName, nodeId: NodeId, threadId: MailId }),
+  /** The scene, and canvas.changed for it from then on; replaces any canvas this connection had open. */
+  "canvas.open": Schema.Struct({ canvasName: CanvasName }),
+  "canvas.close": Schema.Struct({ canvasName: CanvasName }),
 } as const satisfies Record<CompanionOpName, Schema.Top>;
 
 /**
@@ -464,6 +553,8 @@ export const COMPANION_CLOSED_ARGS_OPS: ReadonlySet<CompanionOpName> = new Set([
   "mail.send",
   "threads.list",
   "thread.get",
+  "canvas.open",
+  "canvas.close",
 ]);
 
 export type CompanionArgsByOp = { readonly [Op in CompanionOpName]: (typeof CompanionArgs)[Op]["Type"] };
@@ -482,7 +573,11 @@ export const CompanionResults = {
   "mail.list": Schema.Struct({ messages: Schema.Array(CompanionMail) }),
   "mail.send": Schema.Struct({ message: CompanionMail }),
   "quickReplies.get": Schema.Struct({ replies: Schema.Array(Schema.String) }),
-  "portrait.get": Schema.Struct({ svg: Schema.String }),
+  "portrait.get": Schema.Union([
+    Schema.Struct({ svg: Schema.String }),
+    /** Standard padded base64 of the PNG. */
+    Schema.Struct({ png: Schema.String }),
+  ]),
   "content.get": Schema.Struct({
     sha256: Schema.String,
     offset: Schema.Number,
@@ -512,6 +607,8 @@ export const CompanionResults = {
     messages: Schema.Array(CompanionThreadMessage).pipe(Schema.check(Schema.isMaxLength(COMPANION_THREAD_MESSAGES_MAX))),
     cut: Schema.Boolean,
   }),
+  "canvas.open": CompanionCanvasScene,
+  "canvas.close": Empty,
 } as const satisfies Record<CompanionOpName, Schema.Top>;
 
 export type CompanionResultByOp = { readonly [Op in CompanionOpName]: (typeof CompanionResults)[Op]["Type"] };
@@ -554,6 +651,15 @@ export const CompanionEvents = {
   "seat.removed": Schema.Struct({ canvasName: Schema.String, nodeId: Schema.String }),
   "canvases.changed": Schema.Struct({ canvases: Schema.Array(CompanionCanvas) }),
   "machines.changed": Schema.Struct({ machines: Schema.Array(CompanionMachine) }),
+  /** What changed on the open canvas since `seq - 1`, whole; any other seq is a gap: open it again. */
+  "canvas.changed": Schema.Struct({
+    canvasName: Schema.String,
+    seq: Schema.Number.pipe(Schema.check(Schema.isInt())),
+    nodes: Schema.Array(CompanionCanvasNode),
+    wires: Schema.Array(CompanionCanvasWire),
+    removedNodes: Schema.Array(NodeId),
+    removedWires: Schema.Array(bounded(1, 256)),
+  }),
 } as const;
 export type CompanionEventName = keyof typeof CompanionEvents;
 export type CompanionEventDataByName = {

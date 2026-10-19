@@ -16,6 +16,7 @@
 import { createInterface } from "node:readline";
 import { Effect, Result, Schema } from "effect";
 import { makeDemoHost } from "../shared/companion-demo";
+import { rasterizePortraitSvg } from "../main/junto/companion/portrait-png";
 import { defaultMachineName } from "../shared/machine-name";
 import {
   COMPANION_ERROR_COPY,
@@ -199,7 +200,7 @@ export const runCompanionStdio = async (args: ReadonlyArray<string>): Promise<vo
     return;
   }
   const host = parsed.mode === "demo"
-    ? makeDemoHost({ machineName: defaultMachineName() })
+    ? makeDemoHost({ machineName: defaultMachineName(), portraitPng: rasterizePortraitSvg })
     : makeRelayHost(parsed.deviceId, operatorCall, wakeInstalledApp);
   await runCompanionSession({
     lines: stdinLines(),

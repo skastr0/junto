@@ -12,7 +12,8 @@
  * shapes a real Mac sends.
  */
 
-import { asCanvasName, asNodeId, canvasFromOpened, type BindingId, type NodeOf } from "./model";
+import { asCanvasName, asNodeId, asWireId, canvasFromOpened, type BindingId, type Canvas, type NodeOf } from "./model";
+import { companionCanvasDrawn } from "./companion-canvas";
 import type { AgentSignal } from "./agent-signals";
 import { rollupSeatSignals } from "./agent-signals";
 import {
@@ -94,6 +95,7 @@ import {
   DEMO_STATION,
   DEMO_T0,
   DEMO_TAILNET,
+  DEMO_WIRES,
   demoSeatPosition,
   type DemoMail,
   type DemoRegion,
@@ -116,8 +118,17 @@ const SEATS = DEMO_SEATS;
 /** The demo canvas, its seats on the machine the demo runs on. */
 const demoCanvas = (machineName: string) => canvasFromOpened({
   canvas: asCanvasName(DEMO_CANVAS), seq: 0,
-  nodes: [...DEMO_REGIONS.map(region), ...SEATS.map((seat, index) => seatNode(seat, DEMO_REGIONS.length + index, machineName))], wires: [],
+  nodes: [...DEMO_REGIONS.map(region), ...SEATS.map((seat, index) => seatNode(seat, DEMO_REGIONS.length + index, machineName))],
+  wires: DEMO_WIRES.map((wire) => ({ ...wire, id: asWireId(wire.id), from: asNodeId(wire.from), to: asNodeId(wire.to) })),
 });
+
+/** The seat a mail went to comes to the front: the demo's one canvas change, so a transcript holds a canvas.changed. */
+const toFront = (canvas: Canvas, nodeId: string): Canvas => {
+  const node = canvas.nodes.get(asNodeId(nodeId));
+  const top = Math.max(...[...canvas.nodes.values()].map((candidate) => candidate.z));
+  if (node === undefined || node.z === top) return canvas;
+  return { ...canvas, nodes: new Map(canvas.nodes).set(node.id, { ...node, z: top + 1 }) };
+};
 
 const reading = (seat: DemoSeat, value: ThreadHealthValue, at: number): ThreadHealthReading => ({
   bindingId: `local:demo-${seat.id}`,
@@ -129,11 +140,14 @@ const reading = (seat: DemoSeat, value: ThreadHealthValue, at: number): ThreadHe
 });
 
 /** A fresh demo world on the machine named; every connection gets its own. */
-export const makeDemoBackend = (machineName: string): CompanionBackend & {
+/** Draws a portrait's SVG as PNG bytes; the caller brings it, so the demo stays platform-free. */
+export type DemoPortraitPng = (svg: string, size: number) => Promise<Uint8Array>;
+
+export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitPng): CompanionBackend & {
   readonly revision: () => number;
   readonly takeSignalChanges: (since: number) => { readonly signals: ReadonlyArray<AgentSignal>; readonly seq: number };
 } => {
-  const CANVAS = demoCanvas(machineName);
+  let CANVAS = demoCanvas(machineName);
   let clock = DEMO_T0;
   let revision = 0;
   const signals = new Map(DEMO_SIGNALS.map((signal) => [signal.signalId, signal] as const));
@@ -214,6 +228,7 @@ export const makeDemoBackend = (machineName: string): CompanionBackend & {
         ...(seat.doneUnread ? { doneUnread: true } : {}),
         ...(rollup ? { signal: { kind: rollup.kind, signalId: rollup.signal.signalId, openCount: rollup.openCount } } : {}),
         ...(health ? { health: health.feed } : {}),
+        ring: { since: DEMO_ACTIVITY_AT },
       });
     });
   };
@@ -352,6 +367,7 @@ export const makeDemoBackend = (machineName: string): CompanionBackend & {
         }
         threadId = thread.threadId;
       }
+      CANVAS = toFront(CANVAS, nodeId);
       return outcomeOk(
         appendOperatorMail(nodeId, body, tick(), {
           ...(threadId === undefined ? {} : { threadId }),
@@ -371,7 +387,12 @@ export const makeDemoBackend = (machineName: string): CompanionBackend & {
       return outcomeOk(companionThreadMessages(messages));
     },
     quickReplies: async () => outcomeOk(DEMO_QUICK_REPLIES),
-    portrait: async (portraitIdentity, size, theme) => outcomeOk(companionPortraitSvg({ portraitIdentity, size, theme })),
+    portrait: async (portraitIdentity, size, theme, format) => {
+      const svg = companionPortraitSvg({ portraitIdentity, size, theme });
+      if (format === "svg") return outcomeOk({ svg });
+      if (portraitPng === undefined) return outcomeFail("unavailable", "Portraits as images are not in this demo.");
+      return outcomeOk({ png: Buffer.from(await portraitPng(svg, size)).toString("base64") });
+    },
     contentRange: async (ref, offset, length) => {
       const stored = DEMO_CONTENT.find((content) => content.ref.sha256 === ref.sha256);
       if (stored === undefined) return outcomeFail("unavailable");
@@ -388,6 +409,7 @@ export const makeDemoBackend = (machineName: string): CompanionBackend & {
       return outcomeOk({ machine: entry.machine, status: entry.status, logs });
     },
     tailnetPeers: async () => outcomeOk({ available: true, peers: DEMO_TAILNET }),
+    canvasScene: async (canvasName) => known(canvasName) ? outcomeOk(companionCanvasDrawn(CANVAS)) : outcomeFail("not-found", "No such canvas."),
   };
 };
 
@@ -396,8 +418,9 @@ export const makeDemoHost = (options: {
   readonly appVersion?: string;
   /** The machine the demo runs on; the caller knows it, the demo invents none. */
   readonly machineName: string;
+  readonly portraitPng?: DemoPortraitPng;
 }): CompanionHost => {
-  const backend = makeDemoBackend(options.machineName);
+  const backend = makeDemoBackend(options.machineName, options.portraitPng);
   const allowWrite = makeWriteLimiter();
   const gates = makeCompanionGates();
   let waiters: Array<() => void> = [];

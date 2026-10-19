@@ -26,6 +26,7 @@ import type { WorkItemsOf } from "@shared/execution-graph";
 import { SqlClient } from "effect/unstable/sql";
 import { withSqlRead } from "../state/sql-read";
 import { outcomeFail, outcomeOk, type CompanionBackend, type CompanionOutcome } from "@shared/companion-core";
+import { companionCanvasNodes, companionCanvasWires } from "@shared/companion-canvas";
 import { companionPortraitSvg } from "@shared/companion-portrait";
 import { companionSeat } from "@shared/companion-seats";
 import {
@@ -57,6 +58,7 @@ import { ContentService } from "../content/service";
 import { readContentObjectRange } from "../content/store";
 import { companionMachineBackend } from "./machines";
 import { companionThreadBackend } from "./threads";
+import { rasterizePortraitSvg } from "./portrait-png";
 import { companionConnected } from "@shared/companion-threads";
 import { mailThreadOf } from "@shared/crew";
 import { mentionableSeats } from "../work/operator-threads";
@@ -207,6 +209,7 @@ const processOf = (binding: string | undefined): "running" | "starting" | "stopp
 
 const seatsFor = (canvasName: string, view: CanvasView, now: number): ReadonlyArray<CompanionSeat> => {
   const controls = controlByBinding();
+  const blocked = new Set(getExecutionByCanvas().get(canvasName)?.blocked ?? []);
   const health = healthByBinding();
   const rollups = rollupSeatSignals(view.signals);
   return feedSeatsFromCanvas(view.canvas, { nameOf: nodeTitle }).map((entry) => {
@@ -216,6 +219,8 @@ const seatsFor = (canvasName: string, view: CanvasView, now: number): ReadonlyAr
     const reading = binding ? health.get(binding) : undefined;
     const rollup = rollups.get(entry.seat.nodeId);
     const process = processOf(binding);
+    const exitReason = binding ? termPlane.host.get(binding)?.exitReason : undefined;
+    const since = agentSeatStatusOf(control)?.snapshot.since;
     return companionSeat({
       seat: entry.seat,
       region: entry.region,
@@ -224,6 +229,11 @@ const seatsFor = (canvasName: string, view: CanvasView, now: number): ReadonlyAr
       ...(desktopDoneUnread(canvasName, entry.seat.nodeId) ? { doneUnread: true } : {}),
       ...(rollup ? { signal: { kind: rollup.kind, signalId: rollup.signal.signalId, openCount: rollup.openCount } } : {}),
       ...(reading ? { health: feedHealthOf(reading, now) } : {}),
+      ring: {
+        ...(blocked.has(entry.seat.nodeId) ? { graphBlocked: true } : {}),
+        ...(exitReason ? { exitReason } : {}),
+        ...(since === undefined ? {} : { since }),
+      },
     });
   });
 };
@@ -334,6 +344,53 @@ const mailFor = (canvasName: string, canvas: Canvas, nodeId: string, mailboxes: 
   return [...inbound, ...outbound].sort((a, b) => b.at - a.at || b.messageId.localeCompare(a.messageId));
 };
 
+/**
+ * Routing every wire is the costly part of a scene, and most changes a phone
+ * follows (a seat's state, a signal) move no card. The routes are kept per
+ * canvas until a card or a wire moves.
+ */
+const routed = new Map<string, { readonly key: string; readonly wires: ReturnType<typeof companionCanvasWires> }>();
+const sceneOf = (canvasName: string, canvas: Canvas) => {
+  const nodes = companionCanvasNodes(canvas);
+  const key = JSON.stringify([
+    nodes.map((node) => [node.nodeId, node.kind, node.frame]),
+    [...canvas.wires.values()].map((wire) => [wire.id, wire.from, wire.to, wire.fromSide, wire.toSide]),
+  ]);
+  const held = routed.get(canvasName);
+  if (held?.key === key) return { nodes, wires: held.wires };
+  const wires = companionCanvasWires(canvas, nodes);
+  routed.set(canvasName, { key, wires });
+  if (routed.size > 32) routed.delete(routed.keys().next().value!);
+  return { nodes, wires };
+};
+
+/**
+ * Drawing runs on main's own thread (about 35 ms at 128 pixels, 0.7 s at
+ * 1024), and a phone asks for every face on its canvas, so each drawing is
+ * kept by its exact SVG: a changed look is a new SVG and draws again.
+ */
+const PNG_KEPT_BYTES = 32 * 1024 * 1024;
+const drawn = new Map<string, string>();
+let drawnBytes = 0;
+const portraitPng = async (svg: string, size: number): Promise<CompanionOutcome<{ readonly png: string }>> => {
+  const key = `${size}\u0000${svg}`;
+  const held = drawn.get(key);
+  if (held !== undefined) return outcomeOk({ png: held });
+  try {
+    const png = Buffer.from(await rasterizePortraitSvg(svg, size)).toString("base64");
+    drawn.set(key, png);
+    drawnBytes += key.length + png.length;
+    for (const [oldest, kept] of drawn) {
+      if (drawnBytes <= PNG_KEPT_BYTES) break;
+      drawn.delete(oldest);
+      drawnBytes -= oldest.length + kept.length;
+    }
+    return outcomeOk({ png });
+  } catch {
+    return outcomeFail("internal", "The portrait could not be drawn.");
+  }
+};
+
 const fromAction = <A, B>(result: OperatorActionResult<A>, map: (value: A) => B): CompanionOutcome<B> => {
   if (result.ok) return outcomeOk(map(result.value));
   const code = result.reason === "failed" ? "internal" : result.reason;
@@ -433,14 +490,20 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
     return outcomeOk(feedSettings(settings).quickReplies);
   },
 
-  portrait: async (portraitIdentity, size, theme) => {
+  portrait: async (portraitIdentity, size, theme, format) => {
     const overrides = await AppRuntime.runPromise(
       Effect.flatMap(PortraitOverrideRepository, (repository) => repository.list()).pipe(
         Effect.catch(() => Effect.succeed({} as Record<string, never>)),
       ),
     );
     const config = (overrides as Record<string, Parameters<typeof companionPortraitSvg>[0]["config"]>)[portraitIdentity];
-    return outcomeOk(companionPortraitSvg({ portraitIdentity, size, theme, ...(config ? { config } : {}) }));
+    const svg = companionPortraitSvg({ portraitIdentity, size, theme, ...(config ? { config } : {}) });
+    return format === "png" ? portraitPng(svg, size) : outcomeOk({ svg });
+  },
+
+  canvasScene: async (canvasName) => {
+    const view = await readView(canvasName, false);
+    return view ? outcomeOk(sceneOf(canvasName, view.canvas)) : outcomeFail("not-found", "No such canvas.");
   },
 
   contentRange: async (ref, offset, length) => {

@@ -12,6 +12,7 @@
  *   seats.list      seat.changed per seat that differs; seat.removed
  *   seat.get        that seat: seat.changed, preamble, signal.changed, mail.changed
  *   mail.list       mail.changed for that seat (new mail, delivery changes)
+ *   canvas.open     canvas.changed for that canvas, numbered on from the open's seq
  *
  * A channel silent for two minutes is closed.
  *
@@ -29,6 +30,8 @@ import {
   decodeCompanionRequestLine,
   encodeCompanionFrame,
   COMPANION_MAIL_MAX_LIMIT,
+  type CompanionCanvasNode,
+  type CompanionCanvasWire,
   type CompanionError,
   type CompanionHello,
   type CompanionMachine,
@@ -136,6 +139,12 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
   const sentSeats = new Map<string, string>();
   let focus: { readonly canvasName: string; readonly nodeId: string; readonly preambles: Set<string> } | undefined;
   let mailFocus: { readonly canvasName: string; readonly nodeId: string; readonly sent: Map<string, string> } | undefined;
+  // The open canvas, as last sent: each node and wire by id. Its seq counts
+  // per connection, so the phone reads any number but the next as a gap.
+  let canvasSeq = 0;
+  let canvasFocus:
+    | { readonly canvasName: string; readonly nodes: Map<string, string>; readonly wires: Map<string, string> }
+    | undefined;
   let eventLoop: Promise<void> | undefined;
   let internalId = 0;
   const seatRef = (canvasName: string, nodeId: string): string => `${canvasName}\u0000${nodeId}`;
@@ -157,6 +166,17 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
     return seat;
   };
   const mailKey = (message: CompanionMail): string => JSON.stringify(message);
+  const keyed = <A>(items: ReadonlyArray<A>, id: (item: A) => string): Map<string, string> =>
+    new Map(items.map((item) => [id(item), JSON.stringify(item)] as const));
+  const nodeIdOf = (node: CompanionCanvasNode): string => node.nodeId;
+  const wireIdOf = (wire: CompanionCanvasWire): string => wire.wireId;
+  /** What differs from what was sent, whole, and what is gone. */
+  const delta = <A>(items: ReadonlyArray<A>, id: (item: A) => string, sent: Map<string, string>) => {
+    const next = keyed(items, id);
+    const changed = items.filter((item) => sent.get(id(item)) !== next.get(id(item)));
+    const removed = [...sent.keys()].filter((key) => !next.has(key));
+    return { next, changed, removed };
+  };
 
   const followMail = async (canvasName: string, nodeId: string): Promise<void> => {
     const sent = new Map<string, string>();
@@ -240,6 +260,28 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
         sentSeats.delete(seatRef(canvasName, nodeId));
       }
     }
+    if (canvasFocus) {
+      const { canvasName } = canvasFocus;
+      const response = await io.host.call(internal("canvas.open", { canvasName }));
+      if (response.ok && "wires" in response.result && canvasFocus?.canvasName === canvasName) {
+        const nodes = delta(response.result.nodes, nodeIdOf, canvasFocus.nodes);
+        const wires = delta(response.result.wires, wireIdOf, canvasFocus.wires);
+        if (nodes.changed.length + nodes.removed.length + wires.changed.length + wires.removed.length > 0) {
+          canvasFocus = { canvasName, nodes: nodes.next, wires: wires.next };
+          canvasSeq += 1;
+          emit("canvas.changed", {
+            canvasName,
+            seq: canvasSeq,
+            nodes: nodes.changed,
+            wires: wires.changed,
+            removedNodes: nodes.removed,
+            removedWires: wires.removed,
+          });
+        }
+      } else if (!response.ok && response.error.code === "not-found" && canvasFocus?.canvasName === canvasName) {
+        canvasFocus = undefined;
+      }
+    }
     if (mailFocus) {
       const { canvasName, nodeId, sent } = mailFocus;
       const response = await io.host.call(internal("mail.list", { canvasName, nodeId, limit: COMPANION_MAIL_MAX_LIMIT }));
@@ -260,7 +302,8 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
     machinesSent !== undefined ||
     seatCanvases.size > 0 ||
     focus !== undefined ||
-    mailFocus !== undefined;
+    mailFocus !== undefined ||
+    canvasFocus !== undefined;
 
   const runEvents = async (): Promise<void> => {
     let cursor: string | undefined;
@@ -322,6 +365,17 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
         const detail = response.result.seat;
         noteSeat(canvasName, seatOnly(detail));
         focus = { canvasName, nodeId, preambles: new Set(detail.preambles.map((preamble) => preamble.preambleId)) };
+      } else if (frame.op === "canvas.open" && "wires" in response.result) {
+        const scene = response.result;
+        canvasSeq += 1;
+        canvasFocus = {
+          canvasName: frame.args.canvasName,
+          nodes: keyed(scene.nodes, nodeIdOf),
+          wires: keyed(scene.wires, wireIdOf),
+        };
+        response = { ...response, result: { ...scene, seq: canvasSeq } };
+      } else if (frame.op === "canvas.close" && canvasFocus?.canvasName === frame.args.canvasName) {
+        canvasFocus = undefined;
       }
     }
     write(encodeCompanionFrame(response));

@@ -267,3 +267,86 @@ describe("the CLI entry", () => {
     expect(frames.find((f) => f.id === "r2")?.result.serverTime).toBe(DEMO_T0);
   }, 30_000);
 });
+
+describe("demo canvas", () => {
+  it("opens the scene, numbers a change on from the open, and stops on close", async () => {
+    const c = connect();
+    await c.next();
+    c.send(demoRequest("o1", "canvas.open", { canvasName: DEMO_CANVAS }));
+    const opened = await c.until(response("o1"));
+    expect(opened.ok).toBe(true);
+    const scene = opened.result;
+    expect(scene.seq).toBe(1);
+    expect(scene.nodes.filter((node: Frame) => node.kind === "region").map((node: Frame) => node.label)).toEqual([
+      "Backend",
+      "Frontend",
+      "Research",
+    ]);
+    expect(scene.nodes.filter((node: Frame) => node.kind === "agent")).toHaveLength(8);
+    expect(scene.wires.map((wire: Frame) => wire.wireId)).toEqual(["w-atlas-relay", "w-relay-quill", "w-quill-prism"]);
+    for (const wire of scene.wires) expect(wire.radius).toBe(8);
+    // Atlas to Relay runs past Forge: its route leaves the straight line to go round the card.
+    const atlasRelay = scene.wires.find((wire: Frame) => wire.wireId === "w-atlas-relay");
+    expect(atlasRelay.path.length).toBeGreaterThan(2);
+
+    c.send(demoRequest("m1", "mail.send", { canvasName: DEMO_CANVAS, nodeId: "quill", text: "Look at the pricing page." }));
+    const changed = await c.until((frame) => frame.type === "event" && frame.event === "canvas.changed");
+    expect(changed.data).toMatchObject({ canvasName: DEMO_CANVAS, seq: 2, wires: [], removedNodes: [], removedWires: [] });
+    expect(changed.data.nodes.map((node: Frame) => node.nodeId)).toEqual(["quill"]);
+
+    c.send(demoRequest("x1", "canvas.close", { canvasName: DEMO_CANVAS }));
+    expect((await c.until(response("x1"))).ok).toBe(true);
+    c.send(demoRequest("m2", "mail.send", { canvasName: DEMO_CANVAS, nodeId: "atlas", text: "And the FAQ." }));
+    await c.until(response("m2"));
+    c.send(demoRequest("p1", "ping"));
+    await c.until(response("p1"));
+    await c.end();
+    expect(c.out.filter((frame) => frame.event === "canvas.changed")).toHaveLength(1);
+  });
+
+  it("answers not-found for a canvas it does not have", async () => {
+    const c = connect();
+    await c.next();
+    c.send(demoRequest("o1", "canvas.open", { canvasName: "elsewhere" }));
+    expect((await c.until(response("o1"))).error.code).toBe("not-found");
+    await c.end();
+  });
+
+  it("gives each seat the ring the desktop card draws, and when it began", async () => {
+    const c = connect();
+    await c.next();
+    c.send(demoRequest("s1", "seats.list", { canvasName: DEMO_CANVAS }));
+    const seats = (await c.until(response("s1"))).result.seats as Frame[];
+    const ring = (nodeId: string) => seats.find((seat) => seat.nodeId === nodeId)!.ring;
+    expect(ring("relay")).toMatchObject({ ring: "work", hue: "cyan", halo: "good", stale: false });
+    expect(ring("forge")).toMatchObject({ ring: "call", hue: "amber" });
+    // Done, but its open feedback signal outranks the landing: it orbits in the flag's hue.
+    expect(ring("prism")).toMatchObject({ ring: "wait", hue: "cyan", flag: "feedback" });
+    expect(ring("sage")).toMatchObject({ ring: "snake", hue: "amber" });
+    // The card reads the seat's own state first: a last reading of idle rests, whatever the process.
+    expect(ring("lumen")).toMatchObject({ ring: "rest", hue: "steel" });
+    for (const seat of seats) expect(seat.stateStartedAt).toBeTypeOf("number");
+    await c.end();
+  });
+
+  it("answers a portrait as SVG unless asked for PNG", async () => {
+    const c = connect();
+    await c.next();
+    c.send(demoRequest("p1", "portrait.get", { portraitIdentity: "atlas", size: 64, theme: "dark" }));
+    expect((await c.until(response("p1"))).result.svg).toMatch(/^<svg /u);
+    await c.end();
+  });
+});
+
+describe("demo portraits as PNG", () => {
+  it("draws a portrait with the rasterizer it is given", async () => {
+    const { rasterizePortraitSvg } = await import("../src/main/junto/companion/portrait-png");
+    const host = makeDemoHost({ machineName: THIS_MACHINE, portraitPng: rasterizePortraitSvg });
+    const reply = await host.call(JSON.parse(demoRequest("p1", "portrait.get", { portraitIdentity: "atlas", size: 64, theme: "dark", format: "png" })));
+    expect(reply.ok).toBe(true);
+    const png = Buffer.from((reply as Frame).result.png, "base64");
+    expect([...png.subarray(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    expect(png.readUInt32BE(16)).toBe(64);
+    expect(png.readUInt32BE(20)).toBe(64);
+  });
+});

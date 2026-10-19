@@ -124,13 +124,15 @@ are Markdown. Names below match `src/shared/companion-protocol.ts`.
 | `mail.list` | `{ "canvasName": string, "nodeId": string, "limit"?: number }` (default 50, max 200) | `{ "messages": Mail[] }` newest first |
 | `mail.send` | `{ "canvasName": string, "nodeId": string, "text": string, "threadId"?: ULID, "inReplyTo"?: ULID, "mentions"?: string[] }` (text 1 to 8000 chars, at most 32 mentions; closed: any other key is `invalid`) | `{ "message": Mail }` |
 | `quickReplies.get` | `{}` | `{ "replies": string[] }` (the operator's quick replies from desktop Settings) |
-| `portrait.get` | `{ "portraitIdentity": string, "size": number, "theme": "bright" \| "dark" }` | `{ "svg": string }` |
+| `portrait.get` | `{ "portraitIdentity": string, "size": number, "theme": "bright" \| "dark", "format"?: "svg" \| "png" }` | `{ "svg": string }`, or with `format: "png"` `{ "png": string }` |
 | `content.get` | `{ "sha256": string, "offset": number, "length": number }` (closed: any other key is `invalid`) | `{ "sha256": string, "offset": number, "length": number, "byteLength": number, "data": string }` |
 | `machines.list` | `{}` | `{ "machines": Machine[] }` (at most 32) |
 | `machine.get` | `{ "name": string, "minLevel"?: "trace" \| "debug" \| "info" \| "warn" \| "error" \| "fatal" }` | `{ "machine": Machine, "status": MachineStatus, "logs": MachineLogs }` |
 | `tailnet.peers` | `{}` | `{ "available": boolean, "peers": TailnetPeer[] }` (at most 128) |
 | `threads.list` | `{ "canvasName": string, "nodeId": string }` (closed) | `{ "threads": ThreadSummary[], "cut": boolean }` newest activity first, at most 200 |
 | `thread.get` | `{ "canvasName": string, "nodeId": string, "threadId": ULID }` (closed) | `{ "messages": ThreadMessage[], "cut": boolean }` oldest first, at most 200 |
+| `canvas.open` | `{ "canvasName": string }` (closed) | `{ "seq": number, "nodes": CanvasNode[], "wires": CanvasWire[] }`, then `canvas.changed` events |
+| `canvas.close` | `{ "canvasName": string }` (closed) | `{}` |
 
 Semantics:
 
@@ -160,7 +162,28 @@ Semantics:
 - `portrait.get` returns the seat's portrait as the desktop draws it,
   including any customisation, as a self-contained SVG. Cache it by
   `(portraitIdentity, size, theme)`; it changes only when the operator edits
-  the character.
+  the character. With `format: "png"` it is that SVG drawn as a `size` x
+  `size` PNG, standard padded base64, so a native view never parses SVG.
+  The Mac draws on demand and keeps what it drew; `internal` if a drawing
+  fails.
+- `canvas.open` is the canvas as the desktop draws it, read only, for the
+  phone's map: every node's kind, rectangle, paint order, title and colour,
+  and every wire's ends and drawn route. A whitelist, built field by field:
+  no other node field crosses (not a region's environment, instruction or
+  contract, nor a seat's agent key, host, binding or launch), and a seat,
+  peer or git card with no label of its own carries none rather than a
+  title made from those. A seat node's `nodeId` is its `Seat.nodeId`; live
+  state stays on `seats.list` and `seat.changed`. One canvas is open per
+  connection: opening another replaces it. `not-found` for no such canvas.
+  There is no paging: a scene past the 512 KiB frame answers `internal`
+  ("The reply was too large to send.").
+  - A wire's `path` is the route the desktop draws for that one wire (its
+    authored sides, else the sides that face, past every card but a
+    region), as waypoints in canvas units, start to end; round its corners
+    with `radius` (8). The desktop also lanes fans of three or more wires off
+    one socket; the phone's routes do not, so those share a line.
+  - `seq` counts per connection: the open's, then one more per
+    `canvas.changed`. Any other number is a gap: open again.
 - `content.get` returns the bytes of a file a Needs you item carries, in
   chunks. `sha256` is 64 lower-case hex; `offset` is a safe integer from 0;
   `length` is 1 to 262144 (256 KiB, which as base64 keeps a response under
@@ -230,6 +253,7 @@ Events:
 | `mail.changed` | `{ "canvasName": string, "nodeId": string, "message": Mail }` (upsert by `messageId`; new mail either direction and delivery changes, only for the seat of the last `mail.list` or `seat.get`) |
 | `machines.changed` | `{ "machines": Machine[] }`: the whole list, replacing the previous one, after a `machines.list` in this connection (a machine added, removed, set up, sent or updated, a link learning its build, or a newer check). A check's age growing is not a change |
 | `preamble` | `{ "canvasName": string, "nodeId": string, "preamble": Preamble }` (only for the seat of the last `seat.get`) |
+| `canvas.changed` | `{ "canvasName": string, "seq": number, "nodes": CanvasNode[], "wires": CanvasWire[], "removedNodes": string[], "removedWires": string[] }`: whole nodes and wires added or changed since `seq - 1`, and the ids gone, for the canvas of the last `canvas.open` until `canvas.close` |
 
 Event origin: `signal.changed`, `feed.changed` and `seat.changed` fire for
 every change no matter who made it: the phone, the desktop, or the agent
@@ -286,7 +310,28 @@ type Seat = {
   signal?: { kind: "escalate" | "blocked" | "feedback"; signalId: string; openCount: number };
   health?: FeedItem["health"];
   lastActivityAt?: number;
+  // The ring the desktop card draws now (ringState, src/shared/wire/rings.ts).
+  ring?: { ring: RingForm; hue: "amber" | "cyan" | "green" | "crimson" | "steel";
+           glow?: "amber" | "crimson"; halo?: "good" | "exceeding"; stale: boolean;
+           flag?: "escalate" | "blocked" | "feedback" };
+  stateStartedAt?: number;     // when the shown status began, Mac clock; a done ring lands from here
 };
+
+// Loops turn on the shared clock: phase = (now + Mac offset) % MARK_PHASE_MS.
+type RingForm = "work" | "reverse" | "snake" | "call" | "wait" | "halt" | "glint" | "fracture"
+              | "dot" | "live" | "rest" | "off" | "done";
+
+type CanvasNode = {
+  nodeId: string;
+  kind: "agent" | "peer" | "terminal" | "page" | "task" | "requests" | "artifacts" | "board" | "pad"
+      | "sheet" | "cron" | "relay" | "watcher" | "note" | "label" | "file" | "link" | "git" | "region";
+  frame: { x: number; y: number; width: number; height: number };   // canvas units
+  z: number;                   // paint order, lowest first
+  label?: string;              // the card's title, at most 256 characters
+  color?: string;              // a preset "1" to "6" or a hex
+};
+
+type CanvasWire = { wireId: string; from: string; to: string; path: { x: number; y: number }[]; radius: number };
 
 type Mail = {
   messageId: string; canvasName: string; nodeId: string;
@@ -384,7 +429,8 @@ Every schema a phone needs lives in modules whose import closure is only
 `src/shared/wire/agent-signals.ts` and the `src/shared/wire/content-ref.ts` its
 attachments use, `src/shared/wire/thread-health.ts`,
 `src/shared/wire/mail-threads.ts` (MailParty, MailThreadMessage,
-MailThreadSummary), `src/shared/wire/companion-protocol.ts`. The desktop's builders import these;
+MailThreadSummary), `src/shared/wire/rings.ts` (the ring rule and its
+timing), `src/shared/wire/companion-protocol.ts`. The desktop's builders import these;
 the wire modules never import the builders. A test fails the build if any
 wire module's closure grows past `effect`.
 
@@ -449,7 +495,9 @@ Desktop: Settings > Companion > Pair a phone.
 `junto companion-stdio --demo` speaks the full protocol from stdin/stdout
 against a built-in, deterministic demo canvas (three regions, eight seats,
 every feed kind, mail history) and never touches the app or `~/.ssh`. Writes
-succeed and change the demo state for that process only. The mobile repo can
+succeed and change the demo state for that process only. Its canvas has
+three wires, one routed round a card; a mail sent to a seat brings that
+card to the front, the demo's one `canvas.changed`. The mobile repo can
 drive it over a local pipe or `ssh localhost` for tests.
 
 ## 8. Versioning

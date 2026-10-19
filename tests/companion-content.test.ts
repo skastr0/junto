@@ -109,13 +109,14 @@ describe("content.get through the request core", () => {
     mailList: async () => outcomeOk([]),
     mailSend: async () => outcomeFail("not-found"),
     quickReplies: async () => outcomeOk([]),
-    portrait: async () => outcomeOk(""),
+    portrait: async () => outcomeOk({ svg: "" }),
     contentRange: async (_ref, _offset, length) => outcomeOk(new Uint8Array(length)),
     machines: async () => outcomeOk([]),
     machine: async () => outcomeFail("not-found"),
     tailnetPeers: async () => outcomeOk({ available: false, peers: [] }),
     threads: async () => outcomeOk({ threads: [], cut: false }),
     thread: async () => outcomeFail("not-found"),
+    canvasScene: async () => outcomeFail("not-found"),
     ...over,
   });
   const call = (backend: CompanionBackend, args: object, gates = makeCompanionGates()) =>

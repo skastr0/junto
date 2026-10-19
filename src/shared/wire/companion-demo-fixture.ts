@@ -240,6 +240,14 @@ export const demoMailId = (at: number, tag: "D3M0" | "SENT", seq: number): strin
 };
 
 /** Agent seats wired to each other on the demo canvas: who a mail may mention. */
+/** The demo canvas's wires: Atlas to Relay runs past Forge, so its route bends round it. */
+export type DemoWire = { readonly id: string; readonly from: string; readonly to: string; readonly verb: "messages" | "works" };
+export const DEMO_WIRES: ReadonlyArray<DemoWire> = [
+  { id: "w-atlas-relay", from: "atlas", to: "relay", verb: "messages" },
+  { id: "w-relay-quill", from: "relay", to: "quill", verb: "works" },
+  { id: "w-quill-prism", from: "quill", to: "prism", verb: "messages" },
+];
+
 export const DEMO_CONNECTED: Readonly<Record<string, ReadonlyArray<string>>> = {
   atlas: ["relay"],
   relay: ["atlas"],
