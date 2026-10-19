@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { SeatCacheDueAnswer } from "@shared/seat-cache-due";
 import { answerSeatCacheDue, cacheDueLine, useSeatCacheDue } from "../../lib/seat-cache-due-state";
+import { tokensWords } from "../../lib/seat-offboard";
 import { Button } from "../ui/Button";
 
 /** How often the "expired 12m ago" line is read again. */
@@ -70,7 +71,11 @@ export function SeatCacheDuePopup({
   return (
     <div ref={rootRef} className="seat-cache-due" role="region" aria-label="Cache expired" data-testid="seat-cache-due">
       <div className="seat-cache-due__text">
-        <span>{cacheDueLine(due.windowEndsAt, now)} Start fresh, or keep this session?</span>
+        <span>
+          {cacheDueLine(due.windowEndsAt, now)}
+          {due.tokens === undefined ? "" : ` Continuing re-reads about ${tokensWords(due.tokens)} tokens.`} Start fresh, or keep
+          this session?
+        </span>
         {failure ? (
           <span className="seat-cache-due__failure" role="alert" data-testid="seat-cache-due-failure">
             {failure}

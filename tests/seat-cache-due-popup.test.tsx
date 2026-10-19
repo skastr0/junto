@@ -150,6 +150,17 @@ describe("the cache question in the seat's view", () => {
     elsewhere.remove();
   });
 
+  it("says the tokens a continue re-reads when there is an estimate, and nothing when there is none", async () => {
+    await render();
+    push([{ ...ask("seat-1"), tokens: 251_000 }]);
+    expect(popup()?.textContent).toBe(
+      "Cache expired 12m ago. Continuing re-reads about 251k tokens. Start fresh, or keep this session?Start freshKeep this session",
+    );
+    push([ask("seat-1")]);
+    expect(popup()?.textContent).toContain("Cache expired 12m ago. Start fresh, or keep this session?");
+    expect(popup()?.textContent).not.toContain("tokens");
+  });
+
   it("reads the line again as time passes", async () => {
     await render();
     push([ask("seat-1")]);
