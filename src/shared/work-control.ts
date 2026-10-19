@@ -151,6 +151,14 @@ export const WorkErrorType = Schema.Literals(["ScopeError", "ClaimConflict",
 "ReviewerIsAuthor",]);
 export type WorkErrorType = typeof WorkErrorType.Type;
 
+/** A seat as mail names it: its id, its name, and its regions outermost first. */
+export const SeatIdentityWire = Schema.Struct({
+  nodeId: Schema.String,
+  name: Schema.String,
+  regions: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })),
+});
+export type SeatIdentityWire = typeof SeatIdentityWire.Type;
+
 export const WorkErrorDetails = Schema.Struct({
   path: Schema.optionalKey(Schema.String),
   expected: Schema.optionalKey(Schema.Unknown),
@@ -168,6 +176,8 @@ export const WorkErrorDetails = Schema.Struct({
   messageId: Schema.optionalKey(Schema.String),
   generation: Schema.optionalKey(Schema.String),
   reason: Schema.optionalKey(Schema.String),
+  /** The seats a refused target could have meant, or the ones the caller can reach. */
+  seats: Schema.optionalKey(Schema.Array(SeatIdentityWire)),
 });
 export type WorkErrorDetails = typeof WorkErrorDetails.Type;
 

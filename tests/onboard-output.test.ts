@@ -182,7 +182,7 @@ describe("junto onboard output", () => {
     const data = await onboard();
     expect(data.connected.map((c: { id: string }) => c.id)).toEqual([...PEERS]);
     for (const connection of data.connected) {
-      expect(Object.keys(connection)).toEqual(["id", "kind", "title", "role", "grants"]);
+      expect(Object.keys(connection)).toEqual(["id", "kind", "title", "name", "regions", "role", "grants"]);
       expect(connection.grants).toEqual(
         expect.arrayContaining(["msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read"]),
       );

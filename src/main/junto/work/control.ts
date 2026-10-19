@@ -131,6 +131,7 @@ import {
 import { ContentService } from "../content/service";
 import { handleContentStage } from "./content-stage";
 import { handleSeatReferences, onboardReferenceFields } from "../references/seat-reads";
+import { noteSeatPreamble } from "./seat-preambles";
 import {
   claimSignalAttachments,
   releaseSignalAttachments,
@@ -218,6 +219,7 @@ import {
   nodeTitle,
   regionStackFor,
   regionVisibility,
+  resolveWorkTarget,
   summarizeNode,
 } from "./authz";
 import { resolveTaskAdmission } from "@shared/work-model";
@@ -230,7 +232,7 @@ import {
 import { regionStack } from "@shared/model/canvas";
 import { sheetToMarkdown } from "@shared/sheet";
 import { flowDestinations, reachableBoards } from "@shared/flow-graph";
-import { asNodeId, taskBoardTitle, type Canvas, type Node } from "@shared/model";
+import { asNodeId, seatIdentity, seatRegions, taskBoardTitle, type Canvas, type Node, type SeatIdentity } from "@shared/model";
 import { resolveCallerAcrossCanvases } from "./caller-resolve";
 
 import { closingFence } from "../term/closing-fence";
@@ -871,8 +873,18 @@ const mailSenderStamp = (
     senderHarness: terminal?.harness ?? "unknown",
     senderNodeId: caller.nodeId,
     senderName: node === undefined ? caller.nodeId : nodeTitle(node),
+    ...(node === undefined ? {} : { senderRegions: seatRegions(board, caller.nodeId) }),
   };
 };
+
+/** Who a mail went to, as the sender reads it back. */
+const recipientOf = (board: Canvas, nodeId: string): SeatIdentity => {
+  const node = findNode(board, nodeId);
+  return node === undefined ? { nodeId, name: nodeId, regions: [] } : seatIdentity(board, node);
+};
+
+/** The operator, who is no node, as a reply's recipient. */
+const OPERATOR_RECIPIENT: SeatIdentity = { nodeId: "operator", name: "operator", regions: [] };
 
 /**
  * Resolve one credential-admitted actor node through the compiled execution
@@ -1294,6 +1306,8 @@ const dispatchOp = (
           id: c.id,
           kind: c.kind,
           title: c.title,
+          name: c.name,
+          regions: c.regions,
           role: c.role,
           grants: c.grants,
           ...(boardBriefing(board, c.id) ?? {}),
@@ -1432,6 +1446,7 @@ const dispatchOp = (
         text,
         expiresAt: Date.now() + PREAMBLE_TTL_MS,
       };
+      noteSeatPreamble(caller.canvasName, caller.nodeId, { text, expiresAt: event.expiresAt });
       return { ...event, disposition: "applied" as const };
     }
 
@@ -1956,7 +1971,9 @@ const dispatchOp = (
     if (op === "msg.prompt") {
       const decoded = decodeArgs(MsgPromptArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const input = decoded.success;
+      const named = resolveWorkTarget(board, caller.nodeId, decoded.success.target, op);
+      if (Result.isFailure(named)) return yield* Effect.fail(named.failure);
+      const input = { ...decoded.success, target: named.success };
       const gate = requireTarget(board, caller.nodeId, input.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
       const text = input.text.trim();
@@ -1985,7 +2002,7 @@ const dispatchOp = (
       const delivery = yield* Effect.promise(() =>
         messageDelivery.deliver(caller.canvasName, input.target, messageId),
       );
-      return { ...exposeWorkMutation(appended.success), messageId, delivery };
+      return { ...exposeWorkMutation(appended.success), messageId, recipient: recipientOf(board, input.target), delivery };
     }
 
     if (op === "msg.sent") {
@@ -1993,13 +2010,13 @@ const dispatchOp = (
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const sender = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(sender)) return yield* Effect.fail(sender.failure);
-      const items: Array<Message & { readonly toNodeId: string }> = [];
+      const items: Array<Message & { readonly toNodeId: string; readonly to: SeatIdentity }> = [];
       for (const node of board.nodes.values()) {
         if (decoded.success.target !== undefined && node.id !== decoded.success.target) continue;
         for (const message of yield* work.readMailbox(caller.canvasName, node.id).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)))) {
           if (message.metadata?.fromSeat !== sender.success.seatId &&
               message.metadata?.fromSeat !== caller.nodeId) continue;
-          items.push({ ...message, toNodeId: node.id });
+          items.push({ ...message, toNodeId: node.id, to: seatIdentity(board, node) });
         }
       }
       items.sort((a, b) => b.messageId.localeCompare(a.messageId));
@@ -2007,8 +2024,13 @@ const dispatchOp = (
     }
 
     if (op === "msg.send") {
-      const decoded = decodeArgs(MsgSendArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const asked = decodeArgs(MsgSendArgs, args);
+      if (Result.isFailure(asked)) return yield* Effect.fail(asked.failure);
+      // A target is a node id or the name of a seat this one is wired to.
+      const named = resolveWorkTarget(board, caller.nodeId, asked.success.target, op);
+      if (Result.isFailure(named)) return yield* Effect.fail(named.failure);
+      const decoded = { success: { ...asked.success, target: named.success } };
+      const recipient = recipientOf(board, named.success);
       const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
       const text = decoded.success.text.trim();
@@ -2084,12 +2106,12 @@ const dispatchOp = (
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
       // Task-scoped messages are the task's comment channel, not mail.
       if (decoded.success.taskId !== undefined) {
-        return { ...exposeWorkMutation(mapped.success), messageId };
+        return { ...exposeWorkMutation(mapped.success), messageId, recipient };
       }
       const delivery = yield* Effect.promise(() =>
         messageDelivery.deliver(caller.canvasName, decoded.success.target, messageId),
       );
-      return { ...exposeWorkMutation(mapped.success), messageId, threadId: threadId ?? messageId, delivery };
+      return { ...exposeWorkMutation(mapped.success), messageId, threadId: threadId ?? messageId, recipient, delivery };
     }
 
     if (op === "msg.read") {
@@ -2170,15 +2192,20 @@ const dispatchOp = (
     }
 
     if (op === "msg.reply") {
-      const decoded = decodeArgs(MsgReplyArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const asked = decodeArgs(MsgReplyArgs, args);
+      if (Result.isFailure(asked)) return yield* Effect.fail(asked.failure);
       // The operator is no node: a reply to them is admitted by the mail it
       // answers, below, never by an edge.
-      const toOperator = decoded.success.target.trim() === "operator";
+      const toOperator = asked.success.target.trim() === "operator";
+      let target = asked.success.target;
       if (!toOperator) {
-        const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
+        const named = resolveWorkTarget(board, caller.nodeId, target, op);
+        if (Result.isFailure(named)) return yield* Effect.fail(named.failure);
+        target = named.success;
+        const gate = requireTarget(board, caller.nodeId, target, op);
         if ("type" in gate) return yield* Effect.fail(gate);
       }
+      const decoded = { success: { ...asked.success, target } };
       const text = decoded.success.text.trim();
       if (!text) {
         return yield* Effect.fail({
@@ -2266,6 +2293,7 @@ const dispatchOp = (
       return {
         ...exposeWorkMutation(mapped.success),
         ...thread,
+        recipient: toOperator ? OPERATOR_RECIPIENT : recipientOf(board, target),
         read: exposeWorkMutation(markedMapped.success),
       };
     }

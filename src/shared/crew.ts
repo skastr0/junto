@@ -49,17 +49,22 @@ export type MailEvidenceRef = typeof MailEvidenceRef.Type;
 export const MailKind = Schema.Literals(["notice", "prompt", "receipt"]);
 export type MailKind = typeof MailKind.Type;
 
+/** One region around a mail's sender: its id and the name it is called by. */
+const MailSenderRegion = Schema.Struct({ id: Schema.String, name: Schema.String });
+
 /**
  * Server-stamped sender identity, taken from the admitted process and the
  * current live canvas — never a client-supplied stamp. `fromSeat` is the
  * stable seat id; `senderNodeId` and `senderName` are the readable canvas
  * handle and display name so a notice or ledger link never truncates to a
- * `seat_` hash. Control stamps all four; a client cannot supply any.
+ * `seat_` hash. `senderRegions` is every region around the sender when it
+ * sent, outermost first. Control stamps them all; a client cannot supply any.
  */
 export const MailSenderStamp = Schema.Struct({
   fromSeat: ActorSeatId,
   senderNodeId: Schema.optionalKey(Schema.String),
   senderName: Schema.optionalKey(Schema.String),
+  senderRegions: Schema.optionalKey(Schema.Array(MailSenderRegion)),
   senderGeneration: Schema.String,
   senderHarness: Schema.String,
 });
@@ -78,6 +83,7 @@ export const MailExtension = Schema.Struct({
   fromSeat: ActorSeatId,
   senderNodeId: Schema.optionalKey(Schema.String),
   senderName: Schema.optionalKey(Schema.String),
+  senderRegions: Schema.optionalKey(Schema.Array(MailSenderRegion)),
   senderGeneration: Schema.String,
   senderHarness: Schema.String,
 });
@@ -121,6 +127,7 @@ export const mailExtensionMetadata = (
   fromSeat: ext.fromSeat,
   ...(ext.senderNodeId !== undefined ? { senderNodeId: ext.senderNodeId } : {}),
   ...(ext.senderName !== undefined ? { senderName: ext.senderName } : {}),
+  ...(ext.senderRegions !== undefined ? { senderRegions: ext.senderRegions } : {}),
   senderGeneration: ext.senderGeneration,
   senderHarness: ext.senderHarness,
 });

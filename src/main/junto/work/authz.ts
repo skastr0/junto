@@ -1,4 +1,16 @@
-import { regionMembers, regionStack, titleOf, type Canvas, type Node } from "@shared/model";
+import {
+  findSeatByName,
+  regionMembers,
+  regionStack,
+  seatIdentity,
+  seatLabel,
+  seatRegions,
+  titleOf,
+  type Canvas,
+  type Node,
+  type SeatIdentity,
+  type SeatRegion,
+} from "@shared/model";
 import {
   ALL_PORTS,
   admitPure,
@@ -26,7 +38,8 @@ import {
 } from "@shared/features";
 
 // Edges are the capability system. Kernel-enforced per call via canvas physics
-// (admitPure + ports). Region co-members: {id, kind, title} visibility only.
+// (admitPure + ports). Region co-members: who they are and where (id, kind,
+// title, name, regions) only.
 // Everything else: invisible — ops fail as ScopeError naming the missing edge.
 
 export type AuthzVisibility = "connected" | "region" | "none";
@@ -604,6 +617,9 @@ export const heldGrantsOnEdge = (
 };
 
 export type ConnectedCapability = VisibleNode & {
+  /** What the node is called and every region around it, outermost first. */
+  readonly name: string;
+  readonly regions: ReadonlyArray<SeatRegion>;
   readonly summary: string;
   /** Derived factory role of the target. */
   readonly role: FactoryRole;
@@ -630,8 +646,11 @@ export const connectedCapabilities = (
     if (!node) continue;
     const kind = nodeKind(node);
     const grants = heldGrantsOnEdge(doc, callerId, other);
+    const { name, regions } = seatIdentity(doc, node);
     out.push({
       ...summarizeNode(node),
+      name,
+      regions,
       summary:
         grants.length > 0
           ? grants.join(", ")
@@ -643,10 +662,18 @@ export const connectedCapabilities = (
   return out.sort((a, b) => a.id.localeCompare(b.id));
 };
 
+export type CoMember = VisibleNode & {
+  readonly name: string;
+  readonly regions: ReadonlyArray<SeatRegion>;
+  /** The innermost region the caller and this member are both inside. */
+  readonly shared_region: SeatRegion;
+};
+
 export const regionVisibility = (
   doc: Canvas,
   callerId: string,
-): ReadonlyArray<VisibleNode> => {
+): ReadonlyArray<CoMember> => {
+  const callerRegions = seatRegions(doc, callerId);
   const connected = new Set<string>(
     [...doc.wires.values()].flatMap((e) => {
       if (e.from === callerId) return [e.to];
@@ -658,6 +685,72 @@ export const regionVisibility = (
     .filter((id) => !connected.has(id))
     .map((id) => findNode(doc, id))
     .filter((n): n is Node => n !== undefined)
-    .map(summarizeNode)
+    .map((node) => {
+      const { name, regions } = seatIdentity(doc, node);
+      const theirs = new Set(regions.map((region) => region.id));
+      const shared = [...callerRegions].reverse().find((region) => theirs.has(region.id))!;
+      return { ...summarizeNode(node), name, regions, shared_region: shared };
+    })
     .sort((a, b) => a.id.localeCompare(b.id));
+};
+
+/**
+ * The node a target names, as a seat typed it: a node id, or the name of a
+ * node it is wired to and may reach with this op. A name two of those share
+ * is refused, listing each; a name none of them has is refused, naming the
+ * ones it can reach. An id is passed on for the op's own admission to judge.
+ */
+export const resolveWorkTarget = (
+  doc: Canvas,
+  callerId: string,
+  typed: string,
+  op: WorkOpName,
+): Result.Result<string, WorkErrorBody> => {
+  const wanted = typed.trim();
+  if (findNode(doc, wanted) !== undefined) return Result.succeed(wanted);
+  const reachable = wiredNodes(doc, callerId).filter((node) =>
+    Result.isSuccess(admitWorkTarget(doc, callerId, node.id, op)),
+  );
+  const match = findSeatByName(reachable, wanted);
+  if (match.ok) return Result.succeed(match.node.id);
+  const listed = (nodes: ReadonlyArray<Node>) => nodes.map((node) => seatIdentity(doc, node));
+  const line = (seat: SeatIdentity) => `${seatLabel(seat)} [${seat.nodeId}]`;
+  if (match.reason === "ambiguous") {
+    const seats = listed(match.matches);
+    return Result.fail({
+      type: "InputError",
+      message: `"${wanted}" names ${seats.length} seats you can reach: ${seats.map(line).join("; ")}`,
+      details: {
+        target: wanted,
+        retryable: false,
+        seats,
+        next_step: "send again with the node id of the one you mean",
+      },
+    });
+  }
+  const seats = listed(reachable);
+  return Result.fail({
+    type: "UnknownTarget",
+    message: seats.length === 0
+      ? `no seat you can reach is called "${wanted}", and this seat reaches none`
+      : `no seat you can reach is called "${wanted}"; you can reach ${seats.map(line).join("; ")}`,
+    details: {
+      target: wanted,
+      retryable: false,
+      seats,
+      next_step: seats.length === 0
+        ? "ask the operator to wire this seat to the one it should reach"
+        : "send again with one of these names or node ids",
+    },
+  });
+};
+
+/** Every node a wire joins to the caller, either way, once each. */
+const wiredNodes = (doc: Canvas, callerId: string): ReadonlyArray<Node> => {
+  const ids = new Set<string>();
+  for (const wire of doc.wires.values()) {
+    if (wire.from === callerId) ids.add(wire.to);
+    else if (wire.to === callerId) ids.add(wire.from);
+  }
+  return [...ids].map((id) => findNode(doc, id)).filter((node): node is Node => node !== undefined);
 };
