@@ -487,6 +487,21 @@ describe("mail delivery", () => {
       expect(seat.writes).toHaveLength(0);
     });
 
+    it("tries its oldest mail that may wake it, past held-back mail, so the mail behind still starts it", async () => {
+      const seat = rig({ live: false, wake: () => false });
+      const ids = backlog(3);
+      seat.service.holdWake(ids[0]!);
+      await indexed(seat, ids);
+      const before = seat.modelReads();
+
+      seat.service.onSeatLive(bindingId);
+      await settle();
+
+      expect(seat.modelReads() - before).toBe(1);
+      expect(seat.wakes).toHaveLength(2);
+      expect(seat.writes).toHaveLength(0);
+    });
+
     it("starts its mail a chunk per turn once it is ready, and every mail lands in order", async () => {
       const seat = rig({ live: false, batching: { quietMs: 10, maxWaitMs: 60_000 } });
       const ids = backlog(2_000);

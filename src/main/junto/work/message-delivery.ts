@@ -714,16 +714,21 @@ export class MessageDeliveryService {
    * The seat's process came up, its terminal changed state, or the operator
    * finished drafting in it: write every message and request answer that was
    * waiting for it, oldest first. A seat that is not ready yet (it is
-   * starting) gets one attempt, for its oldest mail, which asks for the wake
-   * again; the rest stays indexed for the pass once it is ready.
+   * starting) gets one attempt, for its oldest mail that may wake it, which
+   * asks for the wake again; the rest stays indexed for the pass once it is
+   * ready.
    */
   onSeatLive(bindingId: string): void {
     if (this.suspended) return;
     const mail = [...this.waiting.values()]
       .filter((pending) => pending.bindingId === bindingId)
       .sort((a, b) => a.messageId.localeCompare(b.messageId));
-    if (this.transport?.seatLive(bindingId) === true) this.walk(bindingId, mail);
-    else if (mail[0] !== undefined) void this.deliver(mail[0].canvas, mail[0].nodeId, mail[0].messageId);
+    if (this.transport?.seatLive(bindingId) === true) {
+      this.walk(bindingId, mail);
+    } else {
+      const first = mail.find((pending) => !this.noWake.has(pending.messageId)) ?? mail[0];
+      if (first !== undefined) void this.deliver(first.canvas, first.nodeId, first.messageId);
+    }
     for (const [key, response] of this.responses) {
       void this.deliverResponse(key, response, bindingId);
     }
