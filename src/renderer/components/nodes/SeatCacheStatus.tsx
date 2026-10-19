@@ -15,11 +15,11 @@ const SIDES = ["below", "above", "right", "left"] as const;
 
 /**
  * The still seat's cache status line, under its name, and its hover card.
- * The one drawing of it: the look the operator picks replaces this
- * component, and the words come from seat-cache-status.ts. Drawn as words
- * only for now (look A): the seat's state and how long it has been still,
- * then "cache expired" past its window. Nothing moves; the words change on
- * the minute and at the window's end.
+ * The one drawing of it, in the look the operator picked (A): dim words
+ * from seat-cache-status.ts, the seat's state and how long it has been
+ * still, then an amber "cache expired" past its window that never
+ * truncates. Nothing moves; the words change on the minute and at the
+ * window's end.
  */
 export function SeatCacheStatus({
   words,

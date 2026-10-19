@@ -1,8 +1,7 @@
 /**
  * What a still seat says of its cache window, in words: the status line under
- * its name and the rows of its hover card. Pure, so the drawing
- * (SeatCacheStatus.tsx) can be swapped for the look the operator picks and
- * the words stay. Read on this window's clock: main tells the window's end on
+ * its name and the rows of its hover card. Pure; the drawing lives in
+ * SeatCacheStatus.tsx. Read on this window's clock: main tells the window's end on
  * it, whichever machine runs the seat (seat-next-launch.ts).
  */
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
