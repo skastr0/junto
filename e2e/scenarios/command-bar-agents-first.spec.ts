@@ -172,7 +172,7 @@ test("cmd+K: tall, agents first by urgency, live rings on visible rows", async (
   // Empty query: agents in one order, newest change first inside a state, then
   // regions, notes, other kinds.
   await expect(titles.first()).toHaveText("ops-blocked");
-  await expect(titles.nth(7)).toHaveText("ops-done");
+  await expect(titles.nth(2)).toHaveText("ops-work-new");
   const order = await titles.allTextContents();
   expect(order.slice(0, 5)).toEqual(["ops-blocked", "ops-waiting", "ops-work-new", "ops-work-old", "ops-review"]);
   expect(order.slice(5, 5 + CREW)).toEqual(crew);
@@ -249,7 +249,7 @@ test("cmd+K: a seat that changes state re-ranks the open list and the cursor sta
   await stage(junto, seatEvents);
   await page.keyboard.press("Meta+k");
   const titles = page.locator(".command-bar__row-title");
-  await expect(titles.nth(7)).toHaveText("ops-done");
+  await expect(titles.nth(2)).toHaveText("ops-work-new");
   const active = page.locator(".command-bar__row--active .command-bar__row-title");
 
   // The cursor goes down to ops-work-new.
