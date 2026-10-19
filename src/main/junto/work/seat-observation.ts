@@ -57,8 +57,10 @@ import {
   clampReadLines,
   clipReadText,
   utf8ByteLength,
+  type SeatBrief,
   type SeatPeer,
   type SeatReadArgs,
+  type SeatReadBriefResult,
   type SeatReadMail,
   type SeatReadResult,
   type SeatWaitArgs,
@@ -146,6 +148,8 @@ export type SeatObservation = {
     args: SeatReadArgs,
     caller: SeatObservationCaller,
   ) => Effect.Effect<SeatReadResult, WorkErrorBody>;
+  /** `seat read --brief`: every connected seat the caller may read, without screens. */
+  readonly readPeers: (caller: SeatObservationCaller) => Effect.Effect<SeatReadBriefResult, WorkErrorBody>;
   readonly waitTask: (
     args: TaskWaitArgs,
     caller: SeatObservationCaller,
@@ -727,18 +731,74 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
     caller: SeatObservationCaller,
   ): Effect.Effect<SeatReadResult, WorkErrorBody> =>
     Effect.gen(function* () {
-      const window = yield* readSeatWindow(args, caller);
+      const targetId = args.target;
+      if (targetId === undefined) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: "seat.read requires a target seat, or brief: true for every peer",
+          details: { path: "args.target", retryable: false },
+        });
+      }
+      const window = yield* readSeatWindow({ ...args, target: targetId }, caller);
       const mail = yield* mailBetween(caller, window.target);
       // The mail answers under the same authority as the screen: re-derived
       // after it was read.
       const doc = yield* deps.readTopology(caller.canvasName);
-      const still = resolveReadTarget(doc, caller.nodeId, args.target);
+      const still = resolveReadTarget(doc, caller.nodeId, targetId);
       if (Result.isFailure(still)) return yield* Effect.fail(still.failure);
       return { ...window, mail };
     });
 
+  /**
+   * Every connected seat the caller may read, in canvas order, without its
+   * screen. A connected seat the caller's edge does not grant reading is left
+   * out and counted, never named.
+   */
+  const readPeers = (
+    caller: SeatObservationCaller,
+  ): Effect.Effect<SeatReadBriefResult, WorkErrorBody> =>
+    Effect.gen(function* () {
+      const authorized = (doc: Canvas): { readonly targets: ReadonlyArray<ReadTarget>; readonly withheld: number } => {
+        const targets: ReadTarget[] = [];
+        let withheld = 0;
+        for (const connected of connectedCapabilities(doc, caller.nodeId)) {
+          if (connected.id === caller.nodeId || findNode(doc, connected.id)?.kind !== "agent") continue;
+          const resolved = resolveReadTarget(doc, caller.nodeId, connected.id);
+          if (Result.isSuccess(resolved)) targets.push(resolved.success);
+          else withheld += 1;
+        }
+        return { targets, withheld };
+      };
+      const first = authorized(yield* deps.readTopology(caller.canvasName));
+      const peers: SeatBrief[] = [];
+      for (const target of first.targets) {
+        const event = seatStateOf(deps.seatStates.current(), target.bindingId);
+        const live = event !== undefined && eventIsLive(target.bindingId, event.epoch) ? event : undefined;
+        const status = agentSeatStatusOf(live);
+        const since = live === undefined ? undefined : (status?.snapshot.since ?? live.at);
+        const lastActivityAt = deps.lastOutputAt?.(target.bindingId);
+        const preamble = deps.preambleOf?.(caller.canvasName, target.nodeId);
+        peers.push({
+          target: target.nodeId,
+          peer: target.peer,
+          state: live?.state ?? (seatExited(target.bindingId) ? "gone" : "unknown"),
+          reason: live?.reason ?? "no_seat_state",
+          confidence: live?.confidence ?? "low",
+          ...(since === undefined ? {} : { since }),
+          ...(lastActivityAt === undefined ? {} : { lastActivityAt }),
+          ...(status === undefined ? {} : { summary: describeSeatStatus(status.snapshot) }),
+          ...(preamble === undefined ? {} : { preamble: { text: preamble.text, expiresAt: preamble.expiresAt } }),
+          mail: yield* mailBetween(caller, target.nodeId),
+        });
+      }
+      // Answer only for seats still readable once everything was read.
+      const still = new Set(authorized(yield* deps.readTopology(caller.canvasName)).targets.map((target) => target.nodeId));
+      const kept = peers.filter((peer) => still.has(peer.target));
+      return { peers: kept, withheld: first.withheld + (peers.length - kept.length) };
+    });
+
   const readSeatWindow = (
-    args: SeatReadArgs,
+    args: SeatReadArgs & { readonly target: string },
     caller: SeatObservationCaller,
   ): Effect.Effect<SeatReadWindow, WorkErrorBody> =>
     Effect.gen(function* () {
@@ -1093,7 +1153,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
       }
     });
 
-  return { waitSeat, readSeat, waitTask };
+  return { waitSeat, readSeat, readPeers, waitTask };
 };
 
 /** Why a timeout reports what it does, including an untrusted stale event. */

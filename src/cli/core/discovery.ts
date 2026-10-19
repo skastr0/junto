@@ -277,7 +277,7 @@ export const seatReadSchema: CommandSchemaContract = {
   command: "seat read",
   schema_id: "seat.read.input/v1",
   description:
-    "Read an authorized peer's settled terminal window through terminal.read. Reads are bounded to 2000 lines and 64 KiB; follow is bounded to 600 seconds. since requires sinceGeneration; replacements are explicit. Grants no input, resize, or signal authority. Names the peer (id, name, regions outermost first), since when it has been in its state, when its terminal last printed, its own live preamble, and the 5 newest mails between caller and peer both ways (with threadId), marking none read.",
+    "Read an authorized peer's settled terminal window through terminal.read. Reads are bounded to 2000 lines and 64 KiB; follow is bounded to 600 seconds. since requires sinceGeneration; replacements are explicit. Grants no input, resize, or signal authority. Names the peer (id, name, regions outermost first), since when it has been in its state, when its terminal last printed, its own live preamble, and the 5 newest mails between caller and peer both ways (with threadId), marking none read. brief: true with no target reads every connected peer the caller holds terminal.read on, without screens, and counts the rest as withheld.",
   schema: SeatReadArgs,
   input_modes: inputModes,
 };
@@ -969,6 +969,14 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     name: "follow a peer for at most five seconds",
     input: { target: "seat-b", follow: true, maxSeconds: 5 },
     args: ["seat", "read", "seat-b", "--follow", "--max-seconds", "5"],
+  },
+  {
+    command_id: "seat.read",
+    command: "seat read",
+    name: "read every peer at once without screens",
+    description: "Each readable peer with its identity, state, preamble and recent mail; withheld counts connected seats you may not read.",
+    input: { brief: true },
+    args: ["seat", "read", "--brief"],
   },
   {
     command_id: "seat.read",

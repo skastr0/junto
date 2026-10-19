@@ -201,13 +201,48 @@ export const lowerSeatWait = (input: {
  * [--follow --max-seconds S]` onto the wire.
  */
 export const lowerSeatRead = (input: {
-  readonly seat: string;
+  readonly seat: string | undefined;
   readonly lines: number | undefined;
   readonly since: string | undefined;
   readonly sinceGeneration: string | undefined;
   readonly follow: boolean;
   readonly maxSeconds: string | undefined;
+  readonly brief?: boolean;
 }): Lowered<SeatReadArgs> => {
+  if (input.brief === true) {
+    if (input.seat !== undefined) {
+      return {
+        ok: false,
+        error: new InputError({
+          message: "seat read --brief reads every peer and takes no seat",
+          path: "seat",
+          next_step: "junto seat read --brief",
+        }),
+      };
+    }
+    if (input.lines !== undefined || input.since !== undefined || input.sinceGeneration !== undefined ||
+        input.follow || input.maxSeconds !== undefined) {
+      return {
+        ok: false,
+        error: new InputError({
+          message: "seat read --brief returns no screen, so it takes no --lines, --since or --follow",
+          path: "brief",
+        }),
+      };
+    }
+    return { ok: true, args: { brief: true }, socketTimeoutMs: socketTimeoutFor(SEAT_READ_DEFAULT_TIMEOUT_MS) };
+  }
+  if (input.seat === undefined) {
+    return {
+      ok: false,
+      error: new InputError({
+        message: "seat read needs a seat argument, or --brief for every peer",
+        path: "seat",
+        next_step: "junto seat read <seat>",
+      }),
+    };
+  }
+  const seat = input.seat;
   if (input.since !== undefined && input.sinceGeneration === undefined) {
     return {
       ok: false,
@@ -267,7 +302,7 @@ export const lowerSeatRead = (input: {
   return {
     ok: true,
     args: {
-      target: input.seat,
+      target: seat,
       ...(input.lines !== undefined ? { lines: input.lines } : {}),
       ...(sinceValue !== undefined ? { since: sinceValue } : {}),
       ...(input.sinceGeneration !== undefined
@@ -358,7 +393,14 @@ const seatReadCommand = Command.make(
   "read",
   {
     seat: Argument.string("seat").pipe(
-      Argument.withDescription("Seat to observe (canvas node id)"),
+      Argument.optional,
+      Argument.withDescription("Seat to observe (canvas node id); omit with --brief"),
+    ),
+    brief: Flag.boolean("brief").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription(
+        "Every peer you may read in one call: identity, state, preamble and recent mail, without screens",
+      ),
     ),
     lines: Flag.integer("lines").pipe(
       Flag.optional,
@@ -391,12 +433,13 @@ const seatReadCommand = Command.make(
       ),
     ),
   },
-  ({ seat, lines, since, sinceGeneration, follow, maxSeconds }) =>
+  ({ seat, brief, lines, since, sinceGeneration, follow, maxSeconds }) =>
     executeJsonCommand(
       "seat read",
       Effect.gen(function* () {
         const lowered = lowerSeatRead({
-          seat,
+          seat: toUndefined(seat),
+          brief,
           lines: toUndefined(lines),
           since: toUndefined(since),
           sinceGeneration: toUndefined(sinceGeneration),
@@ -409,7 +452,7 @@ const seatReadCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Read a bounded window of a seat's settled terminal grid (grant terminal.read). Read-only: no input, resize, or signal. --follow holds until the grid advances.",
+    "Read a seat in one call (grant terminal.read): who it is, its state and since when, its live preamble, recent mail between you, and a bounded window of its settled terminal grid. Read-only: no input, resize, or signal. --follow holds until the grid advances; --brief reads every peer without screens.",
   ),
 );
 

@@ -173,7 +173,13 @@ export type SeatWaitArgs = typeof SeatWaitArgs.Type;
  * generation's window.
  */
 export const SeatReadArgs = Schema.Struct({
-  target: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+  /** Required unless `brief`. */
+  target: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)))),
+  /**
+   * With no target: every peer the caller may read, each without its screen
+   * tail. Takes no window, cursor or follow option.
+   */
+  brief: Schema.optionalKey(Schema.Boolean),
   /** Retained lines to return, counted back from the newest line. */
   lines: Schema.optionalKey(boundedMs(SEAT_READ_MAX_LINES)),
   /** Observer sequence the caller last saw. */
@@ -190,11 +196,20 @@ export const SeatReadArgs = Schema.Struct({
 })
   .pipe(
     Schema.check(
-      Schema.makeFilter((args) =>
-        args.since !== undefined && args.sinceGeneration === undefined
+      Schema.makeFilter((args) => {
+        if (args.brief === true) {
+          if (args.target !== undefined) return "seat.read brief reads every peer and takes no target";
+          if (args.lines !== undefined || args.since !== undefined || args.sinceGeneration !== undefined ||
+              args.follow !== undefined || args.maxSeconds !== undefined) {
+            return "seat.read brief returns no screen, so it takes no lines, cursor or follow";
+          }
+          return true;
+        }
+        if (args.target === undefined) return "seat.read requires a target seat, or brief: true for every peer";
+        return args.since !== undefined && args.sinceGeneration === undefined
           ? "seat.read since requires sinceGeneration (a sequence belongs to one generation)"
-          : true,
-      ),
+          : true;
+      }),
     ),
   )
   .annotate({ parseOptions: { onExcessProperty: "error" } });
@@ -316,6 +331,33 @@ export const SeatReadResult = Schema.Struct({
   mail: Schema.Array(SeatReadMail),
 });
 export type SeatReadResult = typeof SeatReadResult.Type;
+
+/** One peer in a brief read: everything a full read gives except the screen. */
+export const SeatBrief = Schema.Struct({
+  target: Schema.String,
+  peer: SeatPeer,
+  state: SeatState,
+  reason: Schema.String,
+  confidence: SeatConfidence,
+  since: Schema.optionalKey(Schema.Number),
+  lastActivityAt: Schema.optionalKey(Schema.Number),
+  /** The seat's status in one line, when it has one. */
+  summary: Schema.optionalKey(Schema.String),
+  preamble: Schema.optionalKey(Schema.Struct({ text: Schema.String, expiresAt: Schema.Number })),
+  mail: Schema.Array(SeatReadMail),
+});
+export type SeatBrief = typeof SeatBrief.Type;
+
+/**
+ * `seat read --brief`: every connected seat the caller may read. `withheld`
+ * counts the connected seats left out because the caller's edge does not
+ * grant reading them.
+ */
+export const SeatReadBriefResult = Schema.Struct({
+  peers: Schema.Array(SeatBrief),
+  withheld: Schema.Number,
+});
+export type SeatReadBriefResult = typeof SeatReadBriefResult.Type;
 
 /** One observed task state. `epoch` is the task's defect generation. */
 export const TaskWaitResult = Schema.Struct({

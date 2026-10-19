@@ -2,7 +2,8 @@
  * Reading a peer in one call, over the real work-control socket: `seat read`
  * names who the peer is, since when it has been in its state, when its
  * terminal last printed, its live preamble, and the newest mail between the
- * two seats; `seat wait --until replied` answers when the peer mails back. Every store, home and socket lives under a temp root.
+ * two seats; `seat wait --until replied` answers when the peer mails back;
+ * `seat read --brief` gives all of it for every readable peer at once. Every store, home and socket lives under a temp root.
  */
 import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -81,7 +82,7 @@ beforeEach(async () => {
     run: (effect) => runtime.runPromise(effect),
     authoringGate: createMainAuthoringGate(),
   });
-  for (const id of ["agent", "peer", "loner"]) {
+  for (const id of ["agent", "peer", "loner", "mute"]) {
     tokens[id] = publishSeatCredential(server.credentials, { agentKey: `local:${id}` });
   }
   await runtime.runPromise(
@@ -93,11 +94,14 @@ beforeEach(async () => {
         seat("agent", 0),
         seat("peer", 160),
         seat("loner", 2000),
+        seat("mute", 2200),
       ],
       [
         wire("agent-peer", "agent", "peer", "messages"),
         wire("peer-agent", "peer", "agent", "messages"),
         wire("loner-peer", "loner", "peer", "messages"),
+        // Mail only: the agent may not read this seat.
+        wire("agent-mute", "agent", "mute", "messages", { mask: ["msg.send"] }),
       ],
     ),
   );
@@ -275,5 +279,31 @@ describe("seat wait --until replied", () => {
     });
     expect(refused.ok).toBe(false);
     expect(refused.error.type).toBe("InputError");
+  });
+});
+
+describe("seat read --brief", () => {
+  it("gives every readable peer without screens, and counts the seats left out", async () => {
+    await call("peer", "preamble", { text: "on the brief" });
+    const sent = await call("agent", "msg.send", { target: "peer", text: "status?" });
+    const brief = await call("agent", "seat.read", { brief: true });
+    expect(brief.ok).toBe(true);
+    expect(brief.data.withheld).toBe(1);
+    expect(brief.data.peers).toHaveLength(1);
+    const [peer] = brief.data.peers;
+    expect(peer).toMatchObject({
+      target: "peer",
+      peer: { nodeId: "peer", name: "peer", regions: [{ id: "outer", name: "CLI" }, { id: "inner", name: "Protocol" }] },
+      preamble: { text: "on the brief" },
+    });
+    expect(peer.mail.map((mail: { messageId: string }) => mail.messageId)).toEqual([sent.data.messageId]);
+    expect(peer).not.toHaveProperty("text");
+    expect(JSON.stringify(brief.data)).not.toContain("mute");
+  });
+
+  it("refuses a target, a window, or no target without brief", async () => {
+    expect((await call("agent", "seat.read", { brief: true, target: "peer" })).error.type).toBe("InputError");
+    expect((await call("agent", "seat.read", { brief: true, lines: 5 })).error.type).toBe("InputError");
+    expect((await call("agent", "seat.read", {})).error.type).toBe("InputError");
   });
 });

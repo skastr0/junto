@@ -1959,6 +1959,7 @@ const dispatchOp = (
       const decoded = decodeArgs(SeatReadArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const seat = yield* liveSeatObservation();
+      if (decoded.success.brief === true) return yield* seat.readPeers(caller);
       return yield* seat.readSeat(decoded.success, caller);
     }
     if (op === "tasks.wait") {
