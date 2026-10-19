@@ -128,6 +128,9 @@ export type SurfaceKeyId =
   | "inFeed.reply"
   | "inFeed.openAgent"
   | "inFeed.quickReply"
+  | "inFeed.dismiss"
+  | "inFeed.acknowledge"
+  | "inFeed.quietNote"
   | "inPreview.step"
   | "inPreview.compare"
   | "inPreview.zoom"
@@ -137,7 +140,8 @@ export type SurfaceKeyId =
   | "inPad.nudge"
   | "inPad.label"
   | "inPad.undo"
-  | "message.send";
+  | "message.send"
+  | "message.sendQuietly";
 
 export type ShortcutDef = {
   readonly id: ShortcutId;
@@ -532,6 +536,30 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     where: ["operator"],
   }),
   surfaceKey({
+    id: "inFeed.dismiss",
+    area: "Inside the needs-you feed",
+    name: "Dismiss",
+    does: "Dismiss the selected item; it closes and the seat is not told",
+    keys: ["D"],
+    where: ["operator"],
+  }),
+  surfaceKey({
+    id: "inFeed.acknowledge",
+    area: "Inside the needs-you feed",
+    name: "Acknowledge",
+    does: "Acknowledge the selected item with no note; the seat is not woken",
+    keys: ["A"],
+    where: ["operator"],
+  }),
+  surfaceKey({
+    id: "inFeed.quietNote",
+    area: "Inside the needs-you feed",
+    name: "Send a quiet note",
+    does: "Send quiet note 1 to 9 to the selected item; the seat is not woken",
+    keys: ["Shift+Digit"],
+    where: ["operator"],
+  }),
+  surfaceKey({
     id: "inPreview.step",
     area: "Inside a preview",
     name: "Next or previous",
@@ -612,6 +640,15 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     does: "Send the message being written",
     keys: ["Cmd+Enter"],
     keysOther: ["Ctrl+Enter"],
+    where: ["field"],
+  }),
+  surfaceKey({
+    id: "message.sendQuietly",
+    area: "Writing a message",
+    name: "Send quietly",
+    does: "Send quietly: answered, the seat is not woken",
+    keys: ["Cmd+Shift+Enter"],
+    keysOther: ["Ctrl+Shift+Enter"],
     where: ["field"],
   }),
 ];
