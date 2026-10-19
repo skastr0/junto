@@ -214,7 +214,7 @@ export const msgListSchema: CommandSchemaContract = {
   command: "msg list",
   schema_id: "msg.list.input/v1",
   description:
-    "List this seat's inbox (no target) or a connected mailbox. Own-inbox list marks listed inbound mail read and includes sent mail with readAt.",
+    "List this seat's inbox (no target) or a connected mailbox. Own-inbox list marks listed inbound mail read and includes sent mail with readAt. Every item names its threadId (and inReplyTo when it answers one); threadId filters to one thread.",
   schema: MsgListArgs,
   input_modes: inputModes,
 };
@@ -224,7 +224,7 @@ export const msgSendSchema: CommandSchemaContract = {
   command: "msg send",
   schema_id: "msg.send.input/v1",
   description:
-    "Mail a connected seat. A short \"mail from\" line pointing at msg read is typed into its input at once, whatever it is doing; a seat that is not up gets it when it starts.",
+    "Mail a connected seat. A short \"mail from\" line pointing at msg read is typed into its input at once, whatever it is doing; a seat that is not up gets it when it starts. threadId posts into an existing thread this seat can read.",
   schema: MsgSendArgs,
   accepts_batch: true,
   input_modes: inputModes,
@@ -298,7 +298,7 @@ export const msgReplySchema: CommandSchemaContract = {
   command: "msg reply",
   schema_id: "msg.reply.input/v1",
   description:
-    "Reply to mail: send text to target and mark inReplyTo read on own mailbox.",
+    "Reply to mail: send text to target and mark inReplyTo read on own mailbox. The reply joins the parent's thread. Target \"operator\" answers mail the operator sent this seat.",
   schema: MsgReplyArgs,
   accepts_batch: true,
   input_modes: inputModes,
@@ -891,6 +891,13 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     args: ["msg", "send", '{"target":"n7","text":"working","taskId":"t1"}'],
   },
   {
+    command_id: "msg.send",
+    command: "msg send",
+    name: "post into a thread",
+    input: { target: "seat-b", text: "one more thing", threadId: "msg_01" },
+    args: ["msg", "send", '{"target":"seat-b","text":"one more thing","threadId":"msg_01"}'],
+  },
+  {
     command_id: "msg.prompt",
     command: "msg send --prompt",
     name: "prompt a connected seat",
@@ -986,11 +993,25 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     ],
   },
   {
+    command_id: "msg.reply",
+    command: "msg reply",
+    name: "answer the operator",
+    input: { target: "operator", text: "done, see 1a2b3c4", inReplyTo: "msg_02" },
+    args: ["msg", "reply", '{"target":"operator","text":"done, see 1a2b3c4","inReplyTo":"msg_02"}'],
+  },
+  {
     command_id: "msg.list",
     command: "msg list",
     name: "open own inbox",
     input: {},
     args: ["msg", "list"],
+  },
+  {
+    command_id: "msg.list",
+    command: "msg list",
+    name: "read one thread",
+    input: { threadId: "msg_01" },
+    args: ["msg", "list", '{"threadId":"msg_01"}'],
   },
   {
     command_id: "msg.react",

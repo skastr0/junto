@@ -31,7 +31,8 @@ import {
 } from "@shared/overseer-host-control";
 import type { OverseerHostIdentity, OverseerLiveExecutionConstraint } from "../overseer/live/execution";
 import { sortMessagesNewestFirst } from "@shared/message-delivery";
-import { mailExtensionMetadata, type MailSenderStamp } from "@shared/crew";
+import { mailExtensionMetadata, mailThreadOf, type MailSenderStamp } from "@shared/crew";
+import { OPERATOR_SEAT_ID } from "@shared/work-reference";
 import { seatStateRuntime } from "../term/agent-state";
 import { probeManagedHarnessInstalls } from "../term/templates/harness-install";
 import type { BoardAuthor, Task } from "@shared/work-model";
@@ -376,6 +377,22 @@ const occupantKeyForPrincipal = (
 
 // ---------------------------------------------------------------------------
 // Domain error mapping
+
+/** A mail as a seat reads it names its thread, and its parent when it answers one. */
+const withThread = <M extends Message>(message: M): M & { readonly threadId: string; readonly inReplyTo?: string } => {
+  const inReplyTo = message.metadata?.inReplyTo;
+  return {
+    ...message,
+    threadId: mailThreadOf(message),
+    ...(typeof inReplyTo === "string" ? { inReplyTo } : {}),
+  };
+};
+
+/** The thread metadata a reply to `parent` carries. One rule for all mail. */
+const replyThreadMetadata = (parent: Message): { readonly inReplyTo: string; readonly threadId: string } => ({
+  inReplyTo: parent.messageId,
+  threadId: mailThreadOf(parent),
+});
 
 /**
  * Deterministic code → wire mapping. Structured facts travel in
@@ -1146,6 +1163,25 @@ const dispatchOp = (
     const callerErr = ensureCaller(board, caller.nodeId);
     if (callerErr) return yield* Effect.fail(callerErr);
 
+    const mailboxOf = (nodeId: string) =>
+      work.readMailbox(caller.canvasName, nodeId).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
+    // What this seat sent into every other mailbox, newest first.
+    const sentMailOf = (sender: ActorRef) =>
+      Effect.gen(function* () {
+        const sent: Array<Message & { readonly toNodeId: string }> = [];
+        for (const node of board.nodes.values()) {
+          if (node.id === caller.nodeId) continue;
+          for (const message of yield* mailboxOf(node.id)) {
+            if (message.metadata?.fromSeat !== sender.seatId &&
+                message.metadata?.fromSeat !== caller.nodeId) continue;
+            sent.push({ ...message, toNodeId: node.id });
+          }
+        }
+        return sent.sort((a, b) => b.messageId.localeCompare(a.messageId));
+      });
+    const threadOnly = (threadId: string | undefined) => <M extends Message>(items: ReadonlyArray<M>): M[] =>
+      threadId === undefined ? [...items] : items.filter((item) => mailThreadOf(item) === threadId);
+
     // The pause plane is the factory's safety switch: on a paused canvas
     // (canvases are born paused) a seat may read but never act. Reads stay
     // open so a paused agent can still see the board.
@@ -1794,6 +1830,9 @@ const dispatchOp = (
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const targetId = resolveMailboxTarget(decoded.success.target, caller);
       const own = isOwnMailboxTarget(targetId, caller.nodeId);
+      const threadId = decoded.success.threadId?.trim() || undefined;
+      const inThread = threadOnly(threadId);
+      const threadField = threadId === undefined ? {} : { threadId };
 
       if (decoded.success.taskId) {
         const gate = requireTarget(board, caller.nodeId, targetId, op);
@@ -1822,7 +1861,8 @@ const dispatchOp = (
         }
         const reader = resolveProcessBoundActorRef(read.actorRefs, caller);
         if (Result.isFailure(reader)) return yield* Effect.fail(reader.failure);
-        const items = yield* work.readMailbox(caller.canvasName, caller.nodeId).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
+        // Listing marks read, so a thread filter applies first.
+        const items = inThread(yield* mailboxOf(caller.nodeId));
         const overlaid: Message[] = [];
         for (const item of items) {
           if (item.role !== "user") {
@@ -1851,20 +1891,11 @@ const dispatchOp = (
             },
           });
         }
-        const sent: Array<Message & { readonly toNodeId: string }> = [];
-        for (const node of board.nodes.values()) {
-          if (node.id === caller.nodeId) continue;
-          for (const message of yield* work.readMailbox(caller.canvasName, node.id).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)))) {
-            if (message.metadata?.fromSeat !== reader.success.seatId &&
-                message.metadata?.fromSeat !== caller.nodeId) continue;
-            sent.push({ ...message, toNodeId: node.id });
-          }
-        }
-        sent.sort((a, b) => b.messageId.localeCompare(a.messageId));
         return {
           target: caller.nodeId,
-          items: sortMessagesNewestFirst(overlaid),
-          sent,
+          ...threadField,
+          items: sortMessagesNewestFirst(overlaid).map(withThread),
+          sent: inThread(yield* sentMailOf(reader.success)).map(withThread),
         };
       }
 
@@ -1872,7 +1903,8 @@ const dispatchOp = (
       if ("type" in gate) return yield* Effect.fail(gate);
       return {
         target: targetId,
-        items: sortMessagesNewestFirst(yield* work.readMailbox(caller.canvasName, targetId).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)))),
+        ...threadField,
+        items: sortMessagesNewestFirst(inThread(yield* mailboxOf(targetId))).map(withThread),
       };
     }
 
@@ -1963,6 +1995,36 @@ const dispatchOp = (
       }
       const sentBy = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(sentBy)) return yield* Effect.fail(sentBy.failure);
+      const askedThread = decoded.success.threadId?.trim();
+      let threadId: string | undefined;
+      if (askedThread !== undefined) {
+        if (decoded.success.taskId !== undefined) {
+          return yield* Effect.fail({
+            type: "InputError" as const,
+            message: "a task comment is not mail and joins no thread",
+            details: { path: "threadId", retryable: false, next_step: "drop threadId or taskId" },
+          });
+        }
+        // Only a thread this seat can read: its own mailbox, or mail it sent.
+        // An id inside a thread stands for that thread.
+        const readable = [...(yield* mailboxOf(caller.nodeId)), ...(yield* sentMailOf(sentBy.success))];
+        const named = readable.find((item) => item.messageId === askedThread);
+        threadId = named !== undefined
+          ? mailThreadOf(named)
+          : readable.some((item) => mailThreadOf(item) === askedThread) ? askedThread : undefined;
+        if (threadId === undefined) {
+          return yield* Effect.fail({
+            type: "UnknownTarget" as const,
+            message: `threadId "${askedThread}" names no mail this seat can read`,
+            details: {
+              path: "threadId",
+              target: askedThread,
+              retryable: false,
+              next_step: "run junto msg list to see this seat's mail and the threadId each one carries",
+            },
+          });
+        }
+      }
       // Durable body first. The transport adds the authenticated sender
       // envelope; storing it in the body would duplicate it on a retry.
       const messageId = ulid();
@@ -1980,6 +2042,7 @@ const dispatchOp = (
             ...(decoded.success.subject === undefined ? {} : { subject: decoded.success.subject }),
             ...(decoded.success.refs === undefined ? {} : { refs: decoded.success.refs }),
           }),
+          ...(threadId === undefined ? {} : { threadId }),
         },
       });
       const result = yield* work.workMessageAppend(
@@ -1998,7 +2061,7 @@ const dispatchOp = (
       const delivery = yield* Effect.promise(() =>
         messageDelivery.deliver(caller.canvasName, decoded.success.target, messageId),
       );
-      return { ...exposeWorkMutation(mapped.success), messageId, delivery };
+      return { ...exposeWorkMutation(mapped.success), messageId, threadId: threadId ?? messageId, delivery };
     }
 
     if (op === "msg.read") {
@@ -2037,7 +2100,7 @@ const dispatchOp = (
       );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      return { ...exposeWorkMutation(mapped.success), message };
+      return { ...exposeWorkMutation(mapped.success), message: message === undefined ? message : withThread(message) };
     }
 
     if (op === "msg.react") {
@@ -2081,8 +2144,13 @@ const dispatchOp = (
     if (op === "msg.reply") {
       const decoded = decodeArgs(MsgReplyArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
-      if ("type" in gate) return yield* Effect.fail(gate);
+      // The operator is no node: a reply to them is admitted by the mail it
+      // answers, below, never by an edge.
+      const toOperator = decoded.success.target.trim() === "operator";
+      if (!toOperator) {
+        const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
+        if ("type" in gate) return yield* Effect.fail(gate);
+      }
       const text = decoded.success.text.trim();
       if (!text) {
         return yield* Effect.fail({
@@ -2101,6 +2169,32 @@ const dispatchOp = (
       }
       const sentBy = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(sentBy)) return yield* Effect.fail(sentBy.failure);
+      // The parent is mail to this seat, and its thread is the reply's.
+      const parent = yield* work.readMailMessage(caller.canvasName, caller.nodeId, inReplyTo).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
+      if (parent === undefined) {
+        return yield* Effect.fail({
+          type: "UnknownTarget" as const,
+          message: `inReplyTo "${inReplyTo}" is not mail in this seat's mailbox`,
+          details: {
+            path: "inReplyTo",
+            target: inReplyTo,
+            retryable: false,
+            next_step: "run junto msg list to see this seat's mail",
+          },
+        });
+      }
+      if (toOperator && !(parent.metadata?.fromSeat === OPERATOR_SEAT_ID && parent.metadata?.senderName === "operator")) {
+        return yield* Effect.fail({
+          type: "ScopeError" as const,
+          message: "a seat writes to the operator only in reply to mail the operator sent it",
+          details: {
+            caller: caller.nodeId,
+            target: "operator",
+            retryable: false,
+            next_step: "reply to the seat that sent this mail, or report with junto feedback",
+          },
+        });
+      }
       // Mark the parent mail read on own inbox first (idempotent).
       const marked = yield* work.workMessageMarkRead(
         caller.canvasName,
@@ -2110,32 +2204,40 @@ const dispatchOp = (
       );
       const markedMapped = fromWorkResult(marked);
       if (Result.isFailure(markedMapped)) return yield* Effect.fail(markedMapped.failure);
-      const message: Message = makeUserMessage({
-        messageId: ulid(),
-        text,
-        contextId: caller.canvasName,
-        metadata: {
-          factoryMail: true,
-          ...mailExtensionMetadata({
-            ...mailSenderStamp(board, caller, sentBy.success),
-            mailKind: "notice",
-            ...(decoded.success.refs === undefined ? {} : { refs: decoded.success.refs }),
-          }),
-          inReplyTo,
-        },
-      });
-      const result = yield* work.workMessageAppend(
-        caller.canvasName,
-        decoded.success.target,
-        null,
-        message,
-        sentBy.success,
-      );
+      const thread = replyThreadMetadata(parent);
+      const metadata = {
+        factoryMail: true,
+        ...mailExtensionMetadata({
+          ...mailSenderStamp(board, caller, sentBy.success),
+          mailKind: "notice",
+          ...(decoded.success.refs === undefined ? {} : { refs: decoded.success.refs }),
+        }),
+        ...thread,
+      };
+      const result = toOperator
+        ? yield* work.workOperatorReply(
+            caller.canvasName,
+            caller.nodeId,
+            makeAgentMessage({
+              messageId: ulid(),
+              text,
+              contextId: caller.canvasName,
+              metadata: { ...metadata, toNodeId: "operator" },
+            }),
+            sentBy.success,
+          )
+        : yield* work.workMessageAppend(
+            caller.canvasName,
+            decoded.success.target,
+            null,
+            makeUserMessage({ messageId: ulid(), text, contextId: caller.canvasName, metadata }),
+            sentBy.success,
+          );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
       return {
         ...exposeWorkMutation(mapped.success),
-        inReplyTo,
+        ...thread,
         read: exposeWorkMutation(markedMapped.success),
       };
     }

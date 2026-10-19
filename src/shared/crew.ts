@@ -125,6 +125,18 @@ export const mailExtensionMetadata = (
   senderHarness: ext.senderHarness,
 });
 
+/**
+ * The thread a mail belongs to. A reply carries its root's id as `threadId`;
+ * a mail that carries none starts its own thread, so its id is the thread.
+ */
+export const mailThreadOf = (message: {
+  readonly messageId: string;
+  readonly metadata?: Readonly<Record<string, unknown>> | undefined;
+}): string => {
+  const stamped = message.metadata?.threadId;
+  return typeof stamped === "string" && stamped.trim() !== "" ? stamped.trim() : message.messageId;
+};
+
 // ---- Review verdicts ----
 
 /** A verdict is green (clears the gate) or blocking (sends back with a defect). */

@@ -554,6 +554,17 @@ export interface WorkServiceShape {
       message: Message,
     ) => Effect.Effect<WorkOpResult<Message>>;
     /**
+     * A seat's reply to mail the operator sent it. The operator has no inbox:
+     * the reply is an agent-role row in the seat's own mailbox, so it is never
+     * typed back into the seat, and it carries the thread it answers.
+     */
+    readonly workOperatorReply: (
+      canvas: string,
+      nodeId: string,
+      message: Message,
+      sentBy: ActorRef,
+    ) => Effect.Effect<WorkOpResult<Message>>;
+    /**
      * Durable read-ack for one mailbox message (delivery.accepted with
      * mailbox-message-read identity). Idempotent.
      */
@@ -1052,7 +1063,7 @@ export const WorkLive = Layer.effect(
       // Actor↔actor grant law is OptIn; requiring msg.list on a self-loop would
       // make mark-read impossible without authoring a nonsense self-edge.
       if (
-        (op === "msg.read" || op === "msg.react") &&
+        (op === "msg.read" || op === "msg.react" || op === "msg.reply") &&
         actor.nodeId === targetNodeId
       ) {
         const actorNode = nodeById(read.topology, actor.nodeId);
@@ -2494,6 +2505,41 @@ export const WorkLive = Layer.effect(
                 nodeId,
                 outcome.value,
               );
+            }
+            return yield* complete(outcome);
+          }),
+        ),
+
+      workOperatorReply: (canvas, nodeId, message, sentBy) =>
+        asResult(
+          Effect.gen(function* () {
+            const read = yield* readTopology(canvas);
+            yield* requireActor(read, sentBy, nodeId, "msg.reply");
+            if (message.role !== "agent" || message.taskId != null) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message: "a reply to the operator is an agent-role mailbox row",
+                }),
+              );
+            }
+            const materializedMessage = yield* externalizeMessage(message, {
+              kind: "message",
+              canvasName: canvas,
+              nodeId,
+              recordId: message.messageId,
+            });
+            const outcome = yield* local(
+              repository.appendMessage({
+                sink: sinkRef(canvas, nodeId),
+                basis: intentBasis(read.intentWitness),
+                message: materializedMessage,
+                sentBy,
+                destination: { kind: "mailbox" },
+              }),
+            );
+            if (outcome.disposition === "applied") {
+              messageDelivery.notifyAppended(canvas, nodeId, outcome.value);
             }
             return yield* complete(outcome);
           }),

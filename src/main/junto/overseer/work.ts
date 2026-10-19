@@ -15,6 +15,7 @@ import { resolveMailboxTarget } from "@shared/mailbox-target";
 import { sortMessagesNewestFirst } from "@shared/message-delivery";
 import { padLookHere, padToFocused } from "@shared/pad-project";
 import { makeUserMessage } from "@shared/task";
+import { mailThreadOf } from "@shared/crew";
 import {
   decodeOverseerArgs,
   decodeOverseerRequest,
@@ -683,6 +684,10 @@ export const executeOverseerWork = (
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
       yield* requireTarget(read.canvas, target, "msg.send");
+      // A reply joins its parent's thread, as every seat's reply does.
+      const parent = yield* work.readMailMessage(canvas, caller.nodeId, args.inReplyTo).pipe(
+        Effect.catch(() => Effect.succeed(undefined)),
+      );
       const sent = yield* work.workMessageAppend(
         canvas,
         target,
@@ -691,7 +696,12 @@ export const executeOverseerWork = (
           messageId: ulid(),
           text: `[factory mail from ${actor.nodeId}] ${args.text}`,
           contextId: canvas,
-          metadata: { factoryMail: true, fromSeat: actor.nodeId },
+          metadata: {
+            factoryMail: true,
+            fromSeat: actor.nodeId,
+            inReplyTo: args.inReplyTo,
+            ...(parent === undefined ? {} : { threadId: mailThreadOf(parent) }),
+          },
         }),
         actor,
         admin,

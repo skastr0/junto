@@ -564,6 +564,8 @@ export const MsgListArgs = Schema.Struct({
   /** Own inbox when omitted, own node id, or `canvas:nodeId`. */
   target: Schema.optionalKey(Schema.String),
   taskId: Schema.optionalKey(Schema.String),
+  /** Only mail in this thread: the root's id, which every reply carries. */
+  threadId: Schema.optionalKey(Schema.String),
 });
 export type MsgListArgs = typeof MsgListArgs.Type;
 
@@ -573,6 +575,8 @@ export const MsgSendArgs = Schema.Struct({
   taskId: Schema.optionalKey(Schema.String),
   subject: Schema.optionalKey(Schema.String),
   refs: Schema.optionalKey(Schema.Array(MailEvidenceRef)),
+  /** Post into an existing thread; it must name mail this seat can read. */
+  threadId: Schema.optionalKey(Schema.String),
 });
 export type MsgSendArgs = typeof MsgSendArgs.Type;
 
@@ -629,7 +633,8 @@ export type MsgReactArgs = typeof MsgReactArgs.Type;
 
 /**
  * Reply to a factory-mail message: send text to target and mark inReplyTo
- * read on the caller's own mailbox.
+ * read on the caller's own mailbox. The reply joins the parent's thread.
+ * Target "operator" answers mail the operator sent this seat.
  */
 export const MsgReplyArgs = Schema.Struct({
   target: Schema.String,
