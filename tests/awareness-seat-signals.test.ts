@@ -10,10 +10,10 @@ import {
   decodeSignalEnvelope,
   deriveNeeds,
   initialSnapshot,
-  NEED_URGENCY,
   reduceSeatSignals,
   type SignalEnvelope,
 } from "../src/shared/harness-domain";
+import { Level, rankOf } from "../src/shared/wire/urgency";
 import { BindingId } from "../src/shared/terminal-session-domain";
 import {
   AWARENESS_PACK_VERSION,
@@ -206,7 +206,7 @@ describe("awareness signals: on the contract", () => {
     );
     const needs = deriveNeeds(raised).filter((need) => need.source === "awareness");
     expect(needs.map((need) => need.cause)).toEqual(["awareness_approval", "awareness_thrashing"]);
-    for (const need of needs) expect(need.urgency).toBeLessThanOrEqual(NEED_URGENCY.escalated);
+    for (const need of needs) expect(need.urgency).toBeLessThanOrEqual(rankOf(Level.escalated));
     expect(needs[0]!.probability).toBe(0.95);
 
     // The newer window owns the readings: thrashing stands only because it is

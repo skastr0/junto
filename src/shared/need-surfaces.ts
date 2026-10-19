@@ -1,25 +1,23 @@
 /**
  * Needs projected onto each surface's own vocabulary.
  *
- * Four surfaces keep their own urgency ladder today: occupancy
- * (`occupancy/derive.ts`), the region rollup (`region-rollup.ts`), the
- * operator feed (`FEED_URGENCY` in `wire/operator-feed.ts`) and desktop
- * notifications (`desktop-notifications.ts`). Build step 6 of
- * `docs/harness-domain.md` makes each read the one ladder in
- * `harness-domain/need.ts` instead. This module is the groundwork: one table
- * per surface from a need's cause to the value that surface shows, `null`
- * where the surface does not show that need, and the places where a surface's
- * own order disagrees with the need ladder, computed rather than written down.
+ * One table per surface from a need's cause to the value that surface shows,
+ * `null` where the surface does not show that need, and the places where a
+ * surface's own order disagrees with the one urgency ladder
+ * (`wire/urgency.ts`), computed rather than written down.
  *
- * The operator feed reads `FEED_FROM_NEED` (operator-feed.ts); the other
- * tables are read by nothing yet. Pure: no I/O, no clock.
+ * The region rollup reads `ROLLUP_FROM_NEED` (region-rollups.ts), occupancy
+ * `OCCUPANCY_FROM_NEED` (occupancy/derive.ts), the operator feed
+ * `FEED_FROM_NEED` (operator-feed.ts) and desktop notifications
+ * `NOTIFY_FROM_NEED` (through `notifyNeed`). Pure: no I/O, no clock.
  */
 import type { MemberSeverity } from "./region-rollup";
 import { MemberSeverity as MemberSeveritySchema } from "./region-rollup";
 import type { OccupancySpectrum } from "./occupancy/derive";
 import { FEED_URGENCY, type FeedItemKind } from "./wire/operator-feed";
 import type { NotifyCategory } from "./desktop-notifications";
-import { NEED_CAUSES, NEED_URGENCY, type Need, type NeedCause, type NeedLevel } from "./harness-domain/need";
+import { NEED_CAUSES, type Need, type NeedCause } from "./harness-domain/need";
+import { rankOf, type UrgencyLevel, type UrgencyRank } from "./wire/urgency";
 
 /** A surface's value for every need cause, `null` where it does not show it. */
 export type NeedProjection<V extends string> = Readonly<Record<NeedCause, V | null>>;
@@ -223,8 +221,8 @@ export const NOTIFY_FROM_NEED: NeedProjection<NotifyCategory> = {
 export type ShownNeed<V extends string> = {
   readonly cause: NeedCause;
   readonly value: V;
-  readonly level: NeedLevel;
-  readonly urgency: number;
+  readonly level: UrgencyLevel;
+  readonly urgency: UrgencyRank;
 };
 
 /**
@@ -244,22 +242,26 @@ export const shownNeeds = <V extends string>(
  * A need as a desktop notification: its category, and the ladder level that
  * ranks it. Notifications order by level, never by category, so inside
  * `needsYou` a proven dialog (waiting) outranks an escalation (escalated),
- * which outranks feedback (ready), and a dialog outranks a stop. Undefined
- * for a need that never pings.
+ * which outranks feedback (review), and a declared block and a stop outrank
+ * a dialog. Undefined for a need that never pings.
  */
 export const notifyNeed = (
   cause: NeedCause,
-): { readonly category: NotifyCategory; readonly level: NeedLevel } | undefined => {
+): { readonly category: NotifyCategory; readonly level: UrgencyLevel } | undefined => {
   const category = NOTIFY_FROM_NEED[cause];
   return category === null ? undefined : { category, level: NEED_CAUSES[cause].level };
 };
 
 // ── Each surface's own order ──────────────────────────────────────────────
 
-/** Occupancy's first-match order for a bound seat, worst first (`derive.ts`). */
+/**
+ * Occupancy's first-match order for a bound seat, worst first (`derive.ts`).
+ * A temporary mapping the urgency law names, until occupancy reads a view of
+ * the ladder.
+ */
 export const OCCUPANCY_LADDER = ["attention", "activity_blocked", "stalled", "working", "idle"] as const;
 
-const urgencyOf = (cause: NeedCause): number => NEED_URGENCY[NEED_CAUSES[cause].level];
+const urgencyOf = (cause: NeedCause): number => rankOf(NEED_CAUSES[cause].level);
 
 const rankFrom = <V extends string>(worstFirst: readonly V[]): ((value: V) => number | undefined) => {
   const ranks = new Map(worstFirst.map((value, index) => [value, worstFirst.length - index]));
@@ -297,26 +299,45 @@ export const SURFACE_ORDER: Readonly<
     }
   >
 > = {
-  feed: { order: "ladder", owner: "product-feed", accepted: [] },
+  feed: {
+    order: "ladder",
+    owner: "product-feed",
+    accepted: [
+      {
+        disagreement: "inverted attention > stopped",
+        why: "temporary: FEED_URGENCY keeps the 0.9 numbers, a proven prompt tied with a declared block above a stop, until the feed ranks its kinds from the urgency module (step 5)",
+      },
+    ],
+  },
   notify: { order: "ladder", owner: "product-attention", accepted: [] },
   rollup: {
     order: "ladder",
     owner: "canvas-lead",
     accepted: [
-      ...["split attention > blocked", "merged blocked > blocked"].map((disagreement) => ({
-        disagreement,
-        why: "a declared block shares the blocked tier with stops, below a proven prompt",
-      })),
+      {
+        disagreement: "inverted attention > blocked",
+        why: "temporary: the rollup keeps a proven prompt above its blocked tier until it reads the MemberSeverity view, which puts blocked first (step 3)",
+      },
+      { disagreement: "merged blocked > blocked", why: "the blocked tier holds a declared block and a stop together, one group in the MemberSeverity view" },
+      { disagreement: "merged ready > ready", why: "the ready tier asks for a glance either way: review and done are one group in the MemberSeverity view" },
       { disagreement: "merged working > working", why: "a retrying seat is still at work; the rollup has no degraded tier" },
+      { disagreement: "merged idle > idle", why: "resting and offline seats are calm alike, one idle group in the MemberSeverity view" },
     ],
   },
   occupancy: {
     order: "ladder",
     owner: "canvas-lead",
-    accepted: ["merged working > working", "split stalled > working"].map((disagreement) => ({
-      disagreement,
-      why: "a retrying seat reads working, since it is still at work; occupancy's only degraded state is a stall",
-    })),
+    accepted: [
+      {
+        disagreement: "inverted attention > activity_blocked",
+        why: "temporary: occupancy's first-match order (OCCUPANCY_LADDER) keeps a proven prompt above a stop until occupancy reads a view of the ladder",
+      },
+      ...["merged working > working", "split stalled > working"].map((disagreement) => ({
+        disagreement,
+        why: "a retrying seat reads working, since it is still at work; occupancy's only degraded state is a stall",
+      })),
+      { disagreement: "merged idle > idle", why: "a seat in an unknown state shows idle, since occupancy has no offline state; an exited seat reads gone" },
+    ],
   },
 };
 

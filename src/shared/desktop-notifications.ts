@@ -1,5 +1,5 @@
 import type { NotificationSettings } from "./settings";
-import { NEED_URGENCY, type NeedLevel } from "./harness-domain/need";
+import { rankOf, type UrgencyLevel, type UrgencyRank } from "./wire/urgency";
 
 /**
  * Desktop notifications: what reaches the operator while Junto is not the
@@ -18,9 +18,9 @@ import { NEED_URGENCY, type NeedLevel } from "./harness-domain/need";
  * - A need that resolves before it settles never posts.
  * - One notification per seat per absence; a more urgent need on the same
  *   seat replaces it, a less urgent or equally urgent one does not. Urgency
- *   is the need's rung on the one need ladder (`harness-domain/need.ts`),
- *   never its category: a proven dialog outranks a stop, and a declared
- *   blocked ties with it.
+ *   is the need's level on the one urgency ladder (`wire/urgency.ts`),
+ *   never its category: a declared blocked outranks a stop, a stop outranks
+ *   a proven dialog, and feedback outranks an unread finished turn.
  * - A burst across many seats is one summary, and past a per-absence cap
  *   every further need folds into a summary.
  * - Finished seats wait longer and arrive together, quieter.
@@ -34,8 +34,8 @@ export type NotifySubject = {
   /** Stable per need: a feed item id, `done:<node>:<at>`, `failed:<node>:<epoch>`, `stopped:<node>:<since>`. */
   readonly key: string;
   readonly category: NotifyCategory;
-  /** The need's rung on the need ladder, which ranks it (`notifyNeed` in `need-surfaces.ts`). */
-  readonly level: NeedLevel;
+  /** The need's level on the urgency ladder, which ranks it (`notifyNeed` in `need-surfaces.ts`). */
+  readonly level: UrgencyLevel;
   readonly canvasName: string;
   readonly nodeId: string;
   readonly seatName: string;
@@ -81,7 +81,7 @@ export type NotifyState = {
   readonly seen: ReadonlySet<string>;
   readonly pending: ReadonlyMap<string, Pending>;
   /** Seat tag -> rank of the need already posted this absence. */
-  readonly postedRank: ReadonlyMap<string, number>;
+  readonly postedRank: ReadonlyMap<string, UrgencyRank>;
   /** Posts made this absence, for the cap. */
   readonly posted: number;
 };
@@ -96,7 +96,6 @@ export const SUMMARY_OVER = 3;
 export const POSTS_PER_ABSENCE = 6;
 const TEXT_MAX = 140;
 
-const rankOf = (subject: NotifySubject): number => NEED_URGENCY[subject.level];
 
 const SUBTITLE: Readonly<Record<NotifyCategory, string>> = {
   blocked: "Blocked",
@@ -232,19 +231,19 @@ export const flush = (
   for (const { subject } of taking) {
     if (!categoryOn(prefs, subject.category)) continue;
     const tag = seatTag(subject);
-    if ((state.postedRank.get(tag) ?? -1) >= rankOf(subject)) continue;
+    if ((state.postedRank.get(tag) ?? -1) >= rankOf(subject.level)) continue;
     const held = bySeat.get(tag);
-    if (!held || rankOf(subject) > rankOf(held)) bySeat.set(tag, subject);
+    if (!held || rankOf(subject.level) > rankOf(held.level)) bySeat.set(tag, subject);
   }
 
   const chosen = [...bySeat.values()].sort(
-    (a, b) => rankOf(b) - rankOf(a) || a.seatName.localeCompare(b.seatName),
+    (a, b) => rankOf(b.level) - rankOf(a.level) || a.seatName.localeCompare(b.seatName),
   );
   const keysFor = (subject: NotifySubject): ReadonlyArray<string> =>
     taking.filter((entry) => seatTag(entry.subject) === seatTag(subject)).map((entry) => entry.subject.key);
 
   const posts: NotifyPost[] = [];
-  const postedRank = new Map(state.postedRank);
+  const postedRank = new Map<string, UrgencyRank>(state.postedRank);
   const needs = chosen.filter((subject) => subject.category !== "done");
   const finished = chosen.filter((subject) => subject.category === "done");
   const room = Math.max(0, POSTS_PER_ABSENCE - state.posted);
@@ -255,7 +254,7 @@ export const flush = (
     } else {
       for (const subject of needs) posts.push(seatPost(subject, prefs, keysFor(subject)));
     }
-    for (const subject of needs) postedRank.set(seatTag(subject), rankOf(subject));
+    for (const subject of needs) postedRank.set(seatTag(subject), rankOf(subject.level));
   }
   if (finished.length > 0) {
     posts.push(
@@ -263,7 +262,7 @@ export const flush = (
         ? seatPost(finished[0]!, prefs, keysFor(finished[0]!))
         : doneSummary(finished, finished.flatMap(keysFor)),
     );
-    for (const subject of finished) postedRank.set(seatTag(subject), rankOf(subject));
+    for (const subject of finished) postedRank.set(seatTag(subject), rankOf(subject.level));
   }
 
   return {

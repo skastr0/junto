@@ -1,5 +1,5 @@
 /**
- * Needs and the one urgency ladder.
+ * Needs, and where each sits on the one urgency ladder (`wire/urgency.ts`).
  *
  * Urgency belongs to a need, not to a raw signal: a retry and a hard usage
  * limit are both rate problems, and only one needs anyone. Every surface
@@ -7,84 +7,70 @@
  * from `NEED_CAUSES` instead of keeping its own ordering.
  *
  * Rules:
- * - Awareness alone never lifts a need above `escalated` (4).
+ * - Awareness alone never lifts a need above `escalated`.
  * - Fidelity changes the confidence a surface shows, never the urgency.
  * - `actor: "junto"` marks needs a feature may resolve on its own (wake at
  *   reset, fail over, restart), so automation sits on the same ladder without
  *   paging the operator.
  */
 import { Schema } from "effect";
+import { compareUrgency, Level, rankOf, UrgencyLevel, UrgencyRank } from "../wire/urgency";
 import type { AwarenessReading, SeatSnapshot } from "./status";
 import { SignalSource } from "./signal";
-
-export const NEED_LEVELS = ["idle", "working", "degraded", "ready", "escalated", "stopped", "waiting"] as const;
-export const NeedLevel = Schema.Literals(NEED_LEVELS);
-export type NeedLevel = typeof NeedLevel.Type;
-
-/** 0 idle .. 6 waiting on the operator. */
-export const NEED_URGENCY: Readonly<Record<NeedLevel, number>> = {
-  idle: 0,
-  working: 1,
-  degraded: 2,
-  ready: 3,
-  escalated: 4,
-  stopped: 5,
-  waiting: 6,
-};
 
 export const NeedActor = Schema.Literals(["operator", "junto", "none"]);
 export type NeedActor = typeof NeedActor.Type;
 
-/** Every cause of a need, its level and who acts. The single urgency table. */
+/** Every cause of a need, its level on the ladder and who acts. */
 export const NEED_CAUSES = {
-  permission: { level: "waiting", actor: "operator" },
-  question: { level: "waiting", actor: "operator" },
-  dialog: { level: "waiting", actor: "operator" },
-  seat_blocked: { level: "waiting", actor: "operator" },
+  permission: { level: Level.waiting, actor: "operator" },
+  question: { level: Level.waiting, actor: "operator" },
+  dialog: { level: Level.waiting, actor: "operator" },
+  seat_blocked: { level: Level.blocked, actor: "operator" },
 
-  usage_limit: { level: "stopped", actor: "operator" },
-  auth_error: { level: "stopped", actor: "operator" },
-  crash: { level: "stopped", actor: "operator" },
-  unexpected_exit: { level: "stopped", actor: "operator" },
+  usage_limit: { level: Level.stopped, actor: "operator" },
+  auth_error: { level: Level.stopped, actor: "operator" },
+  crash: { level: Level.stopped, actor: "operator" },
+  unexpected_exit: { level: Level.stopped, actor: "operator" },
 
-  seat_escalated: { level: "escalated", actor: "operator" },
-  awareness_waiting: { level: "escalated", actor: "operator" },
-  awareness_approval: { level: "escalated", actor: "operator" },
-  awareness_answer: { level: "escalated", actor: "operator" },
+  seat_escalated: { level: Level.escalated, actor: "operator" },
+  awareness_waiting: { level: Level.escalated, actor: "operator" },
+  awareness_approval: { level: Level.escalated, actor: "operator" },
+  awareness_answer: { level: Level.escalated, actor: "operator" },
 
-  seat_feedback: { level: "ready", actor: "operator" },
-  turn_unseen: { level: "ready", actor: "operator" },
-  turn_failed: { level: "ready", actor: "operator" },
+  seat_feedback: { level: Level.review, actor: "operator" },
+  turn_unseen: { level: Level.done, actor: "operator" },
+  turn_failed: { level: Level.done, actor: "operator" },
 
-  retrying: { level: "degraded", actor: "none" },
-  usage_limit_waking: { level: "degraded", actor: "junto" },
+  retrying: { level: Level.degraded, actor: "none" },
+  usage_limit_waking: { level: Level.degraded, actor: "junto" },
   /** The harness resumes at the reset by itself; nobody needs to act. */
-  usage_limit_resuming: { level: "degraded", actor: "none" },
-  stalled: { level: "degraded", actor: "junto" },
-  awareness_stuck: { level: "degraded", actor: "none" },
-  awareness_looping: { level: "degraded", actor: "none" },
-  awareness_thrashing: { level: "degraded", actor: "none" },
-  awareness_confused: { level: "degraded", actor: "none" },
-  awareness_overwhelmed: { level: "degraded", actor: "none" },
-  awareness_access: { level: "degraded", actor: "none" },
-  awareness_error: { level: "degraded", actor: "none" },
+  usage_limit_resuming: { level: Level.degraded, actor: "none" },
+  stalled: { level: Level.degraded, actor: "junto" },
+  awareness_stuck: { level: Level.degraded, actor: "none" },
+  awareness_looping: { level: Level.degraded, actor: "none" },
+  awareness_thrashing: { level: Level.degraded, actor: "none" },
+  awareness_confused: { level: Level.degraded, actor: "none" },
+  awareness_overwhelmed: { level: Level.degraded, actor: "none" },
+  awareness_access: { level: Level.degraded, actor: "none" },
+  awareness_error: { level: Level.degraded, actor: "none" },
 
-  starting: { level: "working", actor: "none" },
-  working: { level: "working", actor: "none" },
-  compacting: { level: "working", actor: "none" },
+  starting: { level: Level.working, actor: "none" },
+  working: { level: Level.working, actor: "none" },
+  compacting: { level: Level.working, actor: "none" },
 
-  idle: { level: "idle", actor: "none" },
-  exited: { level: "idle", actor: "none" },
-  unknown: { level: "idle", actor: "none" },
-} as const satisfies Record<string, { readonly level: NeedLevel; readonly actor: NeedActor }>;
+  idle: { level: Level.resting, actor: "none" },
+  exited: { level: Level.offline, actor: "none" },
+  unknown: { level: Level.offline, actor: "none" },
+} as const satisfies Record<string, { readonly level: UrgencyLevel; readonly actor: NeedActor }>;
 
 export type NeedCause = keyof typeof NEED_CAUSES;
 export const NeedCause = Schema.Literals(Object.keys(NEED_CAUSES) as [NeedCause, ...NeedCause[]]);
 
 export const Need = Schema.Struct({
   cause: NeedCause,
-  level: NeedLevel,
-  urgency: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 6 })),
+  level: UrgencyLevel,
+  urgency: UrgencyRank,
   actor: NeedActor,
   since: Schema.Number,
   source: SignalSource,
@@ -103,7 +89,7 @@ const need = (
   return {
     cause,
     level: entry.level,
-    urgency: NEED_URGENCY[entry.level],
+    urgency: rankOf(entry.level),
     actor: entry.actor,
     since,
     source,
@@ -192,7 +178,7 @@ export const deriveNeeds = (snapshot: SeatSnapshot): readonly Need[] => {
     const held = byCause.get(entry.cause);
     if (!held || entry.since < held.since) byCause.set(entry.cause, entry);
   }
-  return [...byCause.values()].sort((a, b) => b.urgency - a.urgency || a.since - b.since);
+  return [...byCause.values()].sort((a, b) => compareUrgency(a.level, b.level) || a.since - b.since);
 };
 
 const isStopped = (snapshot: SeatSnapshot): boolean =>

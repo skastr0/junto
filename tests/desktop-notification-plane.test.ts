@@ -5,6 +5,7 @@ vi.mock("electron", () => ({}));
 import type { BrowserWindow } from "electron";
 import { URGENT_SETTLE_MS, type NotifySubject } from "../src/shared/desktop-notifications";
 import { defaultNotifications } from "../src/shared/settings";
+import { Level } from "../src/shared/wire/urgency";
 import { decodeNotifyReport } from "../src/main/junto/notifications/ipc";
 import { createNotificationPlane, windowAway } from "../src/main/junto/notifications/plane";
 
@@ -44,7 +45,7 @@ const fakeWindow = () => {
   return window;
 };
 
-const LEVEL = { blocked: "waiting", failed: "stopped", needsYou: "waiting", done: "ready" } as const;
+const LEVEL = { blocked: Level.blocked, failed: Level.stopped, needsYou: Level.waiting, done: Level.done } as const;
 
 const need = (nodeId: string, category: NotifySubject["category"], text = "wants your input"): NotifySubject => ({
   key: `${category}:${nodeId}`,

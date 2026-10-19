@@ -41,10 +41,12 @@ export const FeedItemKind = Schema.Literals([
 export type FeedItemKind = typeof FeedItemKind.Type;
 
 /**
- * Higher is more urgent: each kind's level on the one need ladder
- * (`NEED_URGENCY` in harness-domain/need.ts, a test holds them equal). A
- * declared block ties a proven dialog; the AI reading the operator as awaited
- * ranks with a declared escalation.
+ * Higher is more urgent. A temporary mapping the urgency law names: these are
+ * the 0.9 ladder's numbers, where a declared block ties a proven dialog above
+ * a stop, until the feed ranks each kind from `levelOfFeedItem` in
+ * `urgency.ts` (`SURFACE_ORDER.feed` in need-surfaces.ts lists the one
+ * disagreement). The AI reading the operator as awaited ranks with a
+ * declared escalation.
  */
 export const FEED_URGENCY: Readonly<Record<FeedItemKind, number>> = {
   blocked: 6,

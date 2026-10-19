@@ -30,7 +30,6 @@ import {
   HarnessChannel,
   NeedActor,
   NeedCause,
-  NeedLevel,
   SignalSource,
   UsageLimitScope,
   WorkingPhase,
@@ -38,6 +37,7 @@ import {
   type SeatSnapshot,
   type SeatStatus,
 } from "@shared/harness-domain";
+import { UrgencyLevel, UrgencyRank } from "@shared/wire/urgency";
 import { AgentSignalKind } from "@shared/wire/agent-signals";
 import { ACTIVITY_AGO_MAX_MS, BoundedMs, clampMs } from "./seats-launch";
 
@@ -119,10 +119,12 @@ const WireSnapshot = Schema.Struct({
   updatedAt: Ms,
 });
 
+// Both machines run one build (the link refuses any other at hello), so the
+// need crosses in the urgency module's own types.
 const WireNeed = Schema.Struct({
   cause: NeedCause,
-  level: NeedLevel,
-  urgency: Schema.Int.pipe(Schema.check(Schema.isBetween({ minimum: 0, maximum: 6 }))),
+  level: UrgencyLevel,
+  urgency: UrgencyRank,
   actor: NeedActor,
   since: Ms,
   source: SignalSource,

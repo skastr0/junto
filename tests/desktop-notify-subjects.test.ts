@@ -12,6 +12,7 @@ import type { AgentSignal } from "../src/shared/agent-signals";
 import type { BindingId } from "../src/shared/model";
 import { seatSubjects, subjectsFromFeed } from "../src/renderer/lib/desktop-notify";
 import { canvasOf, seat } from "./support/model-nodes";
+import { Level } from "../src/shared/wire/urgency";
 
 const canvas = canvasOf([seat("a1", { label: "Maple" }), seat("a2", { label: "Pip" }), seat("a3", { label: "Clove" })]);
 
@@ -40,9 +41,9 @@ describe("desktop notification subjects", () => {
     expect(
       subjectsFromFeed(feed).map((subject) => [subject.seatName, subject.category, subject.level, subject.text]),
     ).toEqual([
-      ["Maple", "blocked", "waiting", "cannot reach the database"],
-      ["Clove", "needsYou", "waiting", "wants your input"],
-      ["Pip", "needsYou", "escalated", "which region?"],
+      ["Maple", "blocked", Level.blocked, "cannot reach the database"],
+      ["Clove", "needsYou", Level.waiting, "wants your input"],
+      ["Pip", "needsYou", Level.escalated, "which region?"],
     ]);
   });
 
@@ -68,7 +69,7 @@ describe("desktop notification subjects", () => {
       {
         key: "done:a1:42",
         category: "done",
-        level: "ready",
+        level: Level.done,
         canvasName: "main",
         nodeId: "a1",
         seatName: "Maple",

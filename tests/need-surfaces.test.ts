@@ -12,7 +12,6 @@ import {
   deriveNeeds,
   initialSnapshot,
   NEED_CAUSES,
-  NEED_URGENCY,
   reduceSeatSignals,
   type NeedCause,
   type SeatSignal,
@@ -37,6 +36,7 @@ import { DEFAULT_STALL_AFTER_MS, deriveOccupancy, OccupancySpectrum } from "../s
 import { deriveRegionRollups } from "../src/shared/region-rollup";
 import { buildOperatorFeed, feedSeatsFromCanvas } from "../src/shared/operator-feed";
 import { FEED_URGENCY, FeedItemKind } from "../src/shared/wire/operator-feed";
+import { levelOfFeedItem, rankOf } from "../src/shared/wire/urgency";
 import { NOTIFY_CATEGORIES } from "../src/shared/desktop-notifications";
 import type { AgentSeatState } from "../src/shared/agent-seat-state";
 import type { AgentSignal } from "../src/shared/agent-signals";
@@ -310,22 +310,33 @@ describe("need surfaces: where each surface's order disagrees with the ladder", 
     ladderDisagreements(surface).map((entry) => `${entry.kind} ${entry.above} > ${entry.below}`);
 
   it("occupancy", () => {
-    expect(summary("occupancy")).toEqual(["merged working > working", "split stalled > working"]);
+    expect(summary("occupancy")).toEqual([
+      "inverted attention > activity_blocked",
+      "merged working > working",
+      "split stalled > working",
+      "merged idle > idle",
+    ]);
   });
 
   it("region rollup", () => {
-    expect(summary("rollup")).toEqual(["split attention > blocked", "merged blocked > blocked", "merged working > working"]);
+    expect(summary("rollup")).toEqual([
+      "inverted attention > blocked",
+      "merged blocked > blocked",
+      "merged ready > ready",
+      "merged working > working",
+      "merged idle > idle",
+    ]);
   });
 
   it("operator feed", () => {
-    expect(summary("feed")).toEqual([]);
+    expect(summary("feed")).toEqual(["inverted attention > stopped"]);
   });
 
-  it("operator feed urgency is each kind's level on the need ladder", () => {
+  it("operator feed kind is each cause's level on the urgency ladder", () => {
     for (const kind of FeedItemKind.literals) {
       const causes = (Object.keys(NEED_CAUSES) as NeedCause[]).filter((cause) => FEED_FROM_NEED[cause] === kind);
       expect(causes.length, kind).toBeGreaterThan(0);
-      for (const cause of causes) expect(FEED_URGENCY[kind], `${kind} from ${cause}`).toBe(NEED_URGENCY[NEED_CAUSES[cause].level]);
+      for (const cause of causes) expect(levelOfFeedItem(kind), `${kind} from ${cause}`).toBe(NEED_CAUSES[cause].level);
     }
   });
 
@@ -344,14 +355,15 @@ describe("need surfaces: where each surface's order disagrees with the ladder", 
 
 describe("need surfaces: decisions", () => {
   it("orders notifications by ladder level, inside needsYou and across categories", () => {
-    const rank = (cause: NeedCause) => NEED_URGENCY[notifyNeed(cause)!.level];
+    const rank = (cause: NeedCause) => rankOf(notifyNeed(cause)!.level);
     expect(notifyNeed("dialog")?.category).toBe("needsYou");
     expect(notifyNeed("seat_escalated")?.category).toBe("needsYou");
     expect(notifyNeed("seat_feedback")?.category).toBe("needsYou");
     expect(rank("dialog")).toBeGreaterThan(rank("seat_escalated"));
     expect(rank("seat_escalated")).toBeGreaterThan(rank("seat_feedback"));
-    expect(rank("dialog")).toBeGreaterThan(rank("crash"));
-    expect(rank("seat_blocked")).toBe(rank("permission"));
+    expect(rank("crash")).toBeGreaterThan(rank("dialog"));
+    expect(rank("seat_blocked")).toBeGreaterThan(rank("crash"));
+    expect(rank("seat_blocked")).toBeGreaterThan(rank("permission"));
     expect(notifyNeed("awareness_waiting")).toBeUndefined();
   });
 

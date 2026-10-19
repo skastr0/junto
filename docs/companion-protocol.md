@@ -433,7 +433,8 @@ MailThreadSummary), `src/shared/wire/rings.ts` (the ring rule and its
 timing), `src/shared/wire/seat-activity.ts` (the seat grammar,
 `terminalActivity`, and the seat states it reads),
 `src/shared/wire/seat-ring.ts` (`companionSeatRing`, the ring a seat
-carries), `src/shared/wire/companion-protocol.ts`. The desktop's builders import these;
+carries), `src/shared/wire/urgency.ts` (the one urgency ladder, its views,
+kind maps and predicates), `src/shared/wire/companion-protocol.ts`. The desktop's builders import these;
 the wire modules never import the builders. A test fails the build if any
 wire module's closure grows past `effect`.
 

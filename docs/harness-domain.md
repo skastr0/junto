@@ -224,17 +224,23 @@ limits; only one needs anyone.
 Need { kind, urgency, actor: "operator" | "junto" | "none", since, provenance }
 ```
 
-| Urgency | Need | From | Actor |
-|---|---|---|---|
-| 6 waiting on operator | `Blocked { Permission \| Question \| Dialog }`, seat `junto blocked` | harness, seat | operator |
-| 5 stopped | `Blocked { UsageLimit }` with no reset or no auto wake, `Blocked { Error: auth \| crash }`, unexpected exit | harness, system | operator, or junto failover |
-| 4 escalated | seat `junto escalate`; awareness `waiting_on_operator`, `approval_requested`, `answer_requested` | seat, awareness | operator |
-| 3 ready | seat `junto feedback`, a finished turn nobody has read | seat, harness | operator |
-| 2 degraded | `Working { retrying }`, `Blocked { UsageLimit }` with a scheduled wake, stall, awareness `stuck`, `thrashing`, `repetition`, `confused` | harness, system, awareness | junto, or none |
-| 1 working | `Working { * }` | harness | none |
-| 0 idle | `Idle` | harness | none |
+Each need's level sits on the one urgency ladder, `src/shared/wire/urgency.ts`;
+the rank is the ladder as a number, higher more urgent.
 
-Rules: awareness alone never lifts a need above 4. Fidelity changes the confidence
+| Rank | Level | Need | From | Actor |
+|---|---|---|---|---|
+| 9 | blocked | seat `junto blocked` | seat | operator |
+| 8 | stopped | `Blocked { UsageLimit }` with no reset or no auto wake, `Blocked { Error: auth \| crash }`, unexpected exit | harness, system | operator, or junto failover |
+| 7 | waiting | `Blocked { Permission \| Question \| Dialog }` | harness | operator |
+| 6 | escalated | seat `junto escalate`; awareness `waiting_on_operator`, `approval_requested`, `answer_requested` | seat, awareness | operator |
+| 5 | review | seat `junto feedback` | seat | operator |
+| 4 | done | a finished turn nobody has read | harness | operator |
+| 3 | degraded | `Working { retrying }`, `Blocked { UsageLimit }` with a scheduled wake, stall, awareness `stuck`, `thrashing`, `repetition`, `confused` | harness, system, awareness | junto, or none |
+| 2 | working | `Working { * }` | harness | none |
+| 1 | resting | `Idle` | harness | none |
+| 0 | offline | an expected exit, an unknown state | harness | none |
+
+Rules: awareness alone never lifts a need above escalated. Fidelity changes the confidence
 a surface shows, never the urgency: a permission prompt read off the screen is as
 urgent as one reported by a hook. `actor: "junto"` marks needs a feature may
 resolve on its own (wake at reset, fail over, retry), which is what lets

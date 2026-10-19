@@ -11,6 +11,7 @@ import { decodeAgentSeatStateEvent } from "../src/renderer/lib/agent-seat-state"
 import { agentSeatStatusOf } from "../src/shared/agent-seat-state";
 import type { BindingId, SeatSnapshot, SeatStatus } from "../src/shared/harness-domain";
 import { describeSeatStatus, seatStatusTime } from "../src/shared/seat-status-text";
+import { Level, rankOf } from "../src/shared/wire/urgency";
 
 const NOW = new Date(2026, 9, 16, 9, 0).getTime();
 const at = (hour: number, minute = 0, day = 16): number => new Date(2026, 9, day, hour, minute).getTime();
@@ -45,7 +46,7 @@ describe("every published event carries its status", () => {
       _tag: "Blocked",
       reason: { _tag: "UsageLimit", scope: "weekly", resetsAt: at(15) },
     });
-    expect(status?.need).toMatchObject({ cause: "usage_limit", level: "stopped", urgency: 5 });
+    expect(status?.need).toMatchObject({ cause: "usage_limit", level: Level.stopped, urgency: rankOf(Level.stopped) });
   });
 
   it("a gone event carries the exit", () => {

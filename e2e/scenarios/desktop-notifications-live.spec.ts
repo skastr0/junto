@@ -16,6 +16,7 @@ import { execFileSync } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { defaultNotifications } from "../../src/shared/settings";
+import { Level } from "../../src/shared/wire/urgency";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? join(process.cwd(), "test-results", "desktop-notifications-live");
@@ -56,14 +57,14 @@ test("a seat blocked while Junto is minimised posts a native banner", async () =
 
     // The report the renderer sends when a seat raises a blocked signal.
     const result = await page.evaluate(
-      (prefs) =>
+      ({ prefs, level }) =>
         window.junto?.notificationsReport?.({
           canvasName: "main",
           subjects: [
             {
               key: "signal:live-proof",
               category: "blocked",
-              level: "waiting",
+              level,
               canvasName: "main",
               nodeId: "live-proof",
               seatName: "Maple",
@@ -73,7 +74,7 @@ test("a seat blocked while Junto is minimised posts a native banner", async () =
           badge: 1,
           prefs,
         }),
-      defaultNotifications(),
+      { prefs: defaultNotifications(), level: Level.blocked },
     );
     expect(result?.ok).toBe(true);
 

@@ -11,7 +11,6 @@ import {
   initialSnapshot,
   Need,
   NEED_CAUSES,
-  NEED_URGENCY,
   NO_COMMAND,
   NO_SIGNAL,
   reduceSeat,
@@ -25,6 +24,7 @@ import {
   type SignalEnvelope,
   type SignalSource,
 } from "../src/shared/harness-domain";
+import { atMost, Level } from "../src/shared/wire/urgency";
 import { BindingId as SeatBindingId } from "../src/shared/terminal-session-domain";
 import {
   AI_ACTIVITY_VALUES,
@@ -306,7 +306,7 @@ describe("harness domain: needs", () => {
   it("never lets awareness alone rise above escalated", () => {
     const awarenessCauses = Object.entries(NEED_CAUSES).filter(([cause]) => cause.startsWith("awareness_"));
     for (const [, entry] of awarenessCauses) {
-      expect(NEED_URGENCY[entry.level]).toBeLessThanOrEqual(NEED_URGENCY.escalated);
+      expect(atMost(entry.level, Level.escalated)).toBe(true);
     }
   });
 
@@ -358,7 +358,7 @@ describe("harness domain: needs", () => {
     expect(Schema.decodeUnknownSync(Need)(Schema.encodeSync(Need)(need))).toEqual(need);
   });
 
-  it("puts a waiting prompt above everything", () => {
+  it("puts a waiting prompt above an escalation", () => {
     const snapshot = fold(
       at("seat", { _tag: "SeatReported", kind: "escalate", signalId: "s", state: "open" }),
       at("screen", { _tag: "QuestionAsked" }),

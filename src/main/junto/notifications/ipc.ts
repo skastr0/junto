@@ -6,8 +6,8 @@ import {
   type NotifyReport,
   type NotifySubject,
 } from "@shared/desktop-notifications";
-import { NEED_LEVELS, type NeedLevel } from "@shared/harness-domain/need";
 import { IPC_CHANNELS } from "@shared/ipc";
+import { UrgencyLevel } from "@shared/wire/urgency";
 import { NotificationSettings } from "@shared/settings";
 import { trustedRendererIpc } from "../trusted-main-webcontents";
 import { createNotificationPlane, type NotificationPlane } from "./plane";
@@ -26,7 +26,7 @@ const text = (value: unknown, max = MAX_TEXT): string | undefined =>
 const isCategory = (value: unknown): value is NotifyCategory =>
   (NOTIFY_CATEGORIES as ReadonlyArray<unknown>).includes(value);
 
-const isLevel = (value: unknown): value is NeedLevel => (NEED_LEVELS as ReadonlyArray<unknown>).includes(value);
+const isLevel = Schema.is(UrgencyLevel);
 
 const decodeSubject = (raw: unknown): NotifySubject | undefined => {
   if (typeof raw !== "object" || raw === null) return undefined;
