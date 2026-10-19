@@ -2,7 +2,8 @@
  * The harness model cache lives in junto.db: a scan's answer is stored as
  * rows, the next run serves it without scanning again, it can be searched, and
  * the inventory writes nothing under the Junto home. The old `~/.junto/state/harness-models.json`
- * is neither read nor written, and stays on disk as it was.
+ * is neither read nor written, and stays on disk as it was. A profile list
+ * that did not run is a failed scan, never an empty list.
  */
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -15,7 +16,15 @@ import { resolveJuntoHome } from "../src/shared/junto-home";
 import { templateFor } from "../src/shared/managed-terminal-templates";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 
-const scans = vi.hoisted(() => ({ count: 0, executable: "" }));
+type Cli = { readonly ok: boolean; readonly stdout: string; readonly error?: string };
+type Profiles = readonly { readonly name: string; readonly model?: string }[] | undefined;
+const VERSION: Cli = { ok: true, stdout: "2.1.300 (Claude Code)" };
+const scans = vi.hoisted(() => ({
+  count: 0,
+  executable: "",
+  profiles: async (): Promise<Profiles> => undefined,
+  cli: async (): Promise<Cli> => VERSION,
+}));
 
 vi.mock("../src/main/junto/term/templates/harness-install", () => ({
   probeManagedHarnessInstalls: async () => [{ harness: "claude", installed: true, executable: scans.executable }],
@@ -26,10 +35,10 @@ vi.mock("../src/main/junto/term/templates/enumerate-dispatch", () => ({
     scans.count += 1;
     return { models: [{ id: "opus", label: "Opus" }], source: "command", efforts: ["low", "medium", "high", "xhigh", "max", "ultracode"] };
   },
-  listManagedProfiles: async () => undefined,
+  listManagedProfiles: () => scans.profiles(),
 }));
 vi.mock("../src/main/junto/adapters/exec", () => ({
-  runCli: async () => ({ ok: true, stdout: "2.1.300 (Claude Code)" }),
+  runCli: () => scans.cli(),
 }));
 
 const { harnessModelCacheIn, makeHarnessInventory } = await import("../src/main/junto/term/templates/harness-inventory");
@@ -40,6 +49,8 @@ let runtime: ManagedRuntime.ManagedRuntime<SqlClient.SqlClient, unknown>;
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "junto-harness-model-cache-"));
   scans.count = 0;
+  scans.profiles = async () => undefined;
+  scans.cli = async () => VERSION;
   scans.executable = join(root, "claude");
   writeFileSync(scans.executable, "#!/bin/sh\n");
   runtime = ManagedRuntime.make(makeStateEngineLive(join(root, "junto.db")));
@@ -182,5 +193,50 @@ describe("the harness model cache", () => {
     expect(await search("opus OR luna")).toEqual([]);
     expect(await search("%")).toEqual([]);
     expect(await search("  ")).toEqual([]);
+  });
+
+  it("keeps the profiles it knew when a profile list does not run, fails that scan and stores nothing from it", async () => {
+    scans.profiles = async () => [{ name: "work", model: "opus" }];
+    const profilesOf = (inventory: Effect.Success<ReturnType<typeof makeHarnessInventory>>) =>
+      inventory.machine.pipe(Effect.map(({ harnesses }) => harnesses.find((row) => row.harness === "claude")));
+    const [before, after] = await runtime.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const inventory = yield* makeHarnessInventory({
+            cache: harnessModelCacheIn(yield* SqlClient.SqlClient),
+            warm: false,
+            machineName: Effect.succeed("mac"),
+          });
+          yield* inventory.models("claude");
+          const before = yield* profilesOf(inventory);
+          // The CLI is upgraded in place, and its profile list then times out.
+          writeFileSync(scans.executable, "#!/bin/sh\n# upgraded\n");
+          scans.profiles = async () => {
+            throw new Error("Claude Code did not list its profiles: adapter command timed out after 12000ms");
+          };
+          yield* inventory.models("claude");
+          return [before, yield* profilesOf(inventory)] as const;
+        }),
+      ),
+    );
+    expect(scans.count).toBe(2);
+    expect(before?.profiles).toEqual([{ name: "work", model: "opus" }]);
+    expect(before?.lastFailure).toBeUndefined();
+    expect(after?.profiles).toEqual([{ name: "work", model: "opus" }]);
+    expect(after?.lastFailure?.message).toContain("did not list its profiles");
+    // junto.db still holds the last good scan, the one before the upgrade.
+    const stored = (await withCache((cache) => cache.load)).get("claude");
+    expect(stored?.profiles).toEqual([{ name: "work", model: "opus" }]);
+    expect(stored?.fingerprint).toMatch(/:10:\d+$/);
+  });
+
+  it("lists profiles only from a command that ran", async () => {
+    const { listManagedProfiles } = await vi.importActual<typeof import("../src/main/junto/term/templates/enumerate-dispatch")>(
+      "../src/main/junto/term/templates/enumerate-dispatch",
+    );
+    scans.cli = async () => ({ ok: false, stdout: "", error: "adapter command timed out after 12000ms" });
+    await expect(listManagedProfiles("hermes")).rejects.toThrow("Hermes did not list its profiles: adapter command timed out after 12000ms");
+    scans.cli = async () => ({ ok: true, stdout: "Profile          Model\n\u25c6default         gpt-5.5    running   \u2014  \u2014\n" });
+    await expect(listManagedProfiles("hermes")).resolves.toEqual([{ name: "default", model: "gpt-5.5" }]);
   });
 });

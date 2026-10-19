@@ -31,6 +31,9 @@ import {
 // own process group on the resolved tool PATH, the whole tree is killed on
 // timeout or abort, and app quit drains whatever is still running.
 const MODEL_COMMAND_TIMEOUT_MS = 8_000;
+// A profile list may take its whole scan: Hermes took over 8 s while the other
+// CLIs scanned beside it.
+const PROFILE_COMMAND_TIMEOUT_MS = 12_000;
 
 const runCommand = async (
   binary: string,
@@ -116,11 +119,18 @@ export const HARNESS_PROFILE_LISTS: Partial<Readonly<Record<HarnessId, {
   },
 };
 
-/** The profiles a harness lists on this machine; undefined when it keeps none. */
+/**
+ * The profiles a harness lists on this machine; undefined when it keeps none.
+ * A list that did not run throws: it is no answer, never an empty list.
+ */
 export const listManagedProfiles = async (harness: HarnessId, signal?: AbortSignal): Promise<readonly InventoryProfile[] | undefined> => {
   const list = HARNESS_PROFILE_LISTS[harness];
   if (list === undefined || !managedHarnessEnabled(harness)) return undefined;
-  return list.parse(await runCommand(templateFor(harness).argvSpec.binary, list.args, signal));
+  const result = await runCli(templateFor(harness).argvSpec.binary, list.args, PROFILE_COMMAND_TIMEOUT_MS, signal);
+  if (!result.ok) {
+    throw new Error(`${templateFor(harness).displayName} did not list its profiles: ${result.error ?? "the command failed"}`);
+  }
+  return list.parse(result.stdout);
 };
 
 const listModels = (

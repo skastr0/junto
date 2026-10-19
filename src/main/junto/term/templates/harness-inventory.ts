@@ -401,14 +401,24 @@ export const makeHarnessInventory = (options: {
       }),
     );
 
-  // A list that cannot be read is no list.
-  const readProfiles = (harness: string): Effect.Effect<readonly InventoryProfile[] | undefined> =>
+  // A list that could not be read fails the scan and keeps the profiles known
+  // before it, so the picker never loses them to a slow CLI.
+  const readProfiles = (harness: string): Effect.Effect<{
+    readonly profiles: readonly InventoryProfile[] | undefined;
+    readonly failure?: Entry["failure"];
+  }> =>
     isHarnessId(harness)
-      ? Effect.tryPromise((signal) => listManagedProfiles(harness, signal)).pipe(
-        Effect.map((profiles) => profiles === undefined ? undefined : fittingProfiles(profiles)),
-        Effect.orElseSucceed(() => undefined),
+      ? Effect.tryPromise({
+        try: (signal) => listManagedProfiles(harness, signal),
+        catch: (cause) => cause instanceof Error ? cause.message : String(cause),
+      }).pipe(
+        Effect.map((profiles) => ({ profiles: profiles === undefined ? undefined : fittingProfiles(profiles) })),
+        Effect.catch((message) => Effect.succeed({
+          profiles: entries.get(harness)?.profiles,
+          failure: { reason: "failed" as const, message },
+        })),
       )
-      : Effect.succeed(undefined);
+      : Effect.succeed({ profiles: undefined });
 
   const scan = (harness: string, executable: string, fingerprint: string): Effect.Effect<ManagedTerminalModelsResult> =>
     scanPermits.withPermits(1)(Effect.all([
@@ -425,7 +435,9 @@ export const makeHarnessInventory = (options: {
       readVersion(harness, executable),
       readProfiles(harness),
     ], { concurrency: 3 })).pipe(
-      Effect.tap(([{ result, failure }, version, profiles]) => Effect.gen(function* () {
+      Effect.tap(([listed, version, { profiles, failure: profilesFailure }]) => Effect.gen(function* () {
+        const { result } = listed;
+        const failure = listed.failure ?? profilesFailure;
         const stored: StoredModels = {
           fingerprint,
           scannedAt: Date.now(),
