@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.9.0 — 2026-10-19
+
+- Choose how Junto caches: off, manual, auto or hybrid. When a cache has
+  expired a banner says so, and a status line shows the mode and its state.
+- Keep session notes and marks in the Junto database. Existing note and mark
+  files are imported once, then the database is the one place they live.
+- Use Threads on the desktop and on the phone.
+- Pair the phone once. After pairing it can restore, and it shows your
+  machines and the full content of what a seat produced.
+- Remove the `--fresh` flag.
+
 ## 0.8.2 — 2026-10-18
 
 - Fix Restart and install doing nothing. A short command that exited before
