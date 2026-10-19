@@ -38,6 +38,8 @@ export type WireRouteResult = {
   readonly labelY: number;
   /** True when a detour (non-straightest candidate) was chosen. */
   readonly detoured: boolean;
+  /** The orthogonal polyline the path rounds, source to target. */
+  readonly points: ReadonlyArray<WirePoint>;
 };
 
 const DEFAULT_PAD = 14;
@@ -714,6 +716,7 @@ function routePast(
           labelX: label.x,
           labelY: label.y,
           detoured: !hasClearDirect,
+          points: simplified.map(({ x, y }) => ({ x, y })),
         },
         corners: simplified,
       };

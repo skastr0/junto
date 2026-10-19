@@ -129,6 +129,7 @@ describe("planStandaloneRoutes", () => {
       labelX: 5,
       labelY: 0,
       detoured: false,
+      points: [{ x: 0, y: 0 }, { x: 10, y: 0 }],
     }));
     const onRoute = vi.fn();
     const edges = [
@@ -190,6 +191,7 @@ describe("planStandaloneRoutes", () => {
       labelX: 50,
       labelY: 0,
       detoured: true,
+      points: [{ x: 0, y: 0 }, { x: 100, y: 0 }],
     }));
     const corridors: WireRect[] = [{ x: 10, y: -4, width: 80, height: 8 }];
     planStandaloneRoutes({

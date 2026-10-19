@@ -108,6 +108,24 @@ describe("routeWire", () => {
     expect(routed!.labelX).toBeLessThan(300);
   });
 
+  it("carries the polyline it drew, end to end and clear of the obstacle", () => {
+    const source = { x: 0, y: 100 };
+    const target = { x: 300, y: 100 };
+    const obstacle = { x: 120, y: 70, width: 60, height: 60 };
+    const routed = routeWire({ source, target, obstacles: [obstacle], padding: 14 });
+    expect(routed).not.toBeNull();
+    const points = routed!.points;
+    expect(points[0]).toEqual(source);
+    expect(points[points.length - 1]).toEqual(target);
+    expect(points.length).toBeGreaterThan(2);
+    expect(polylineHitsObstacles(points, [obstacle])).toBe(false);
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1]!;
+      const b = points[i]!;
+      expect(a.x === b.x || a.y === b.y).toBe(true);
+    }
+  });
+
   it("prefers a clear mid-X Z path over a longer union skirt when free", () => {
     // Obstacle only blocks the pure-horizontal L; mid-X Z is free.
     const source = { x: 0, y: 0 };
