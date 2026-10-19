@@ -121,6 +121,10 @@ test("the feed answers four ways from the list, split into list and detail", asy
       "data-junto-tooltip",
       'Send "Acknowledged" quietly: answered, the seat is not woken (⇧1)',
     );
+    // Each pill leads with its key as a compact cap, not the footer's taller one.
+    const cap = pane.getByTestId("quiet-notes").locator(".quick-reply__key").first();
+    await expect(cap).toHaveText("⇧1");
+    expect(await cap.evaluate((el) => getComputedStyle(el).paddingTop)).toBe("1px");
     await expect(rows.getByTestId("quick-replies")).toHaveCount(0);
     await expect(rows.getByTestId("quiet-notes")).toHaveCount(0);
     const keys = pane.getByTestId("operator-feed-keys");
