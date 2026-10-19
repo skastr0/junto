@@ -11,9 +11,10 @@ import {
   feedKindCount,
   feedSeatsFromCanvas,
   feedStopOf,
-  FEED_URGENCY,
+  feedItemRank,
   needsOperatorCount,
   OperatorFeed,
+  type FeedItemKind,
   type FeedSeatInput,
 } from "../src/shared/operator-feed";
 
@@ -165,7 +166,7 @@ describe("buildOperatorFeed", () => {
       seats: seats({ a: { health: reading("stuck", NOW) } }),
       signals: [signal({ signalId: "s", nodeId: "a", kind: "feedback" })],
     });
-    expect(feed.sections[0]?.items[0]).toMatchObject({ kind: "feedback", urgency: 3, health: { value: "stuck", tone: "trouble" } });
+    expect(feed.sections[0]?.items[0]).toMatchObject({ kind: "feedback", urgency: feedItemRank("feedback"), health: { value: "stuck", tone: "trouble" } });
   });
 
   it("keeps a signal whose seat left the canvas, in the open field", () => {
@@ -200,7 +201,7 @@ describe("buildOperatorFeed", () => {
     expect(items.map((i) => `${i.seat.nodeId}:${i.kind}`).sort()).toEqual(["a:health", "b:feedback", "sink:blocked"]);
     expect(feed.count).toBe(2);
     expect(needsOperatorCount(items)).toBe(feed.count);
-    expect(items.find((i) => i.seat.nodeId === "sink")).toMatchObject({ canvas: true, since: 4_000, urgency: 6 });
+    expect(items.find((i) => i.seat.nodeId === "sink")).toMatchObject({ canvas: true, since: 4_000, urgency: feedItemRank("blocked") });
   });
 
   it("adds a canvas need only where nothing listed for that node is as urgent", () => {
@@ -245,7 +246,7 @@ describe("buildOperatorFeed", () => {
     });
     const items = feed.sections.flatMap((s) => s.items);
     expect(items.map((i) => i.kind)).toEqual(["blocked", "stopped", "escalate"]);
-    expect(items[1]).toMatchObject({ itemId: "stopped:a", text: "hit a usage limit", urgency: 5, since: 3_001 });
+    expect(items[1]).toMatchObject({ itemId: "stopped:a", text: "hit a usage limit", urgency: feedItemRank("stopped"), since: 3_001 });
     expect(feed.count).toBe(3);
   });
 
@@ -270,12 +271,13 @@ describe("buildOperatorFeed", () => {
     expect(stop(["screen", { _tag: "TurnStarted" }])).toBeUndefined();
   });
 
-  it("ranks on the need ladder: a declared block ties a proven dialog, an AI waiting reading ties an escalation", () => {
-    expect(FEED_URGENCY.blocked).toBe(FEED_URGENCY.attention);
-    expect(FEED_URGENCY.health).toBe(FEED_URGENCY.escalate);
-    expect(FEED_URGENCY.health).toBeGreaterThan(FEED_URGENCY.feedback);
-    expect(FEED_URGENCY.stopped).toBeLessThan(FEED_URGENCY.blocked);
-    expect(FEED_URGENCY.stopped).toBeGreaterThan(FEED_URGENCY.escalate);
+  it("ranks on the one ladder: blocked, stopped, a proven dialog, then an escalation, which an AI waiting reading ties, then review", () => {
+    const order: FeedItemKind[] = ["blocked", "stopped", "attention", "escalate", "feedback"];
+    for (const [index, kind] of order.entries()) {
+      if (index > 0) expect(feedItemRank(kind)).toBeLessThan(feedItemRank(order[index - 1]!));
+    }
+    expect(feedItemRank("health")).toBe(feedItemRank("escalate"));
+    expect([feedItemRank("blocked"), feedItemRank("feedback")]).toEqual([9, 5]);
   });
 
   it("says a count in the label table's words, agreeing with the number", () => {

@@ -2,7 +2,6 @@ import { asNodeId, inPaintOrder, regionStack as modelRegionStack, regionName, ty
 import { titleOf } from "./model/title";
 import type { AgentSignal } from "./agent-signals";
 import { deriveNeeds, type SeatSnapshot } from "./harness-domain";
-import { FEED_FROM_NEED } from "./need-surfaces";
 import { seatStatusTime } from "./seat-status-text";
 import {
   THREAD_HEALTH_LABEL,
@@ -10,8 +9,9 @@ import {
   THREAD_HEALTH_TTL_MS,
   type ThreadHealthReading,
 } from "./thread-health";
+import { Level } from "./wire/urgency";
 import {
-  FEED_URGENCY,
+  feedItemRank,
   needsOperatorCount,
   OPERATOR_FEED_VERSION,
   type FeedHealth,
@@ -118,7 +118,7 @@ export const feedStopOf = (
   snapshot: SeatSnapshot,
   nowMs: number,
 ): { readonly text: string; readonly detail?: string; readonly since: number } | undefined => {
-  const need = deriveNeeds(snapshot).find((entry) => FEED_FROM_NEED[entry.cause] === "stopped");
+  const need = deriveNeeds(snapshot).find((entry) => entry.level === Level.stopped);
   if (!need) return undefined;
   const { status } = snapshot;
   if (status._tag === "Blocked" && status.reason._tag === "UsageLimit") {
@@ -204,7 +204,7 @@ export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
     listed.add(entry.seat.nodeId);
     items.push({
       ...item,
-      urgency: FEED_URGENCY[item.kind],
+      urgency: feedItemRank(item.kind),
       canvasName,
       seat: entry.seat,
       region: entry.region,
@@ -259,9 +259,9 @@ export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
   // The feed carries the agent's own sentence, so a canvas need joins only
   // where nothing listed for that node is already as urgent.
   const worst = new Map<string, number>();
-  for (const item of items) worst.set(item.seat.nodeId, Math.max(worst.get(item.seat.nodeId) ?? 0, item.urgency));
+  for (const item of items) worst.set(item.seat.nodeId, Math.max(worst.get(item.seat.nodeId) ?? -1, item.urgency));
   for (const need of input.canvasNeeds ?? []) {
-    if ((worst.get(need.seat.nodeId) ?? 0) >= FEED_URGENCY[need.kind]) continue;
+    if ((worst.get(need.seat.nodeId) ?? -1) >= feedItemRank(need.kind)) continue;
     const entry = seatsById.get(need.seat.nodeId) ?? { seat: need.seat, region: need.region };
     push(entry, {
       itemId: need.itemId,
@@ -295,7 +295,8 @@ export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
   const ordered = [...sections.values()]
     .map((section) => {
       const sorted = [...section.items].sort(byUrgencyThenAge);
-      return { region: section.region, items: sorted, worstUrgency: sorted[0]?.urgency ?? 0 };
+      // A section holds at least the item that made it.
+      return { region: section.region, items: sorted, worstUrgency: sorted[0]!.urgency };
     })
     .sort((a, b) => {
       const lead = byUrgencyThenAge(a.items[0]!, b.items[0]!);

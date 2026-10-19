@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  FEED_URGENCY,
+  feedItemRank,
   type FeedItem,
   type FeedItemKind,
   type FeedSection,
@@ -17,7 +17,7 @@ import { mergedQuickReplies, moveQuickReply, quickReplyForKey } from "../src/ren
 const item = (itemId: string): FeedItem => ({
   itemId,
   kind: "feedback",
-  urgency: 2,
+  urgency: feedItemRank("feedback"),
   canvasName: "main",
   seat: { nodeId: itemId, name: itemId, portraitIdentity: itemId },
   region: { regionId: "r", label: "R", path: ["R"] },
@@ -34,7 +34,7 @@ const itemAt = (
 ): FeedItem => ({
   ...item(itemId),
   kind,
-  urgency: FEED_URGENCY[kind],
+  urgency: feedItemRank(kind),
   region: { regionId, label: regionId ?? "open field", path: [] },
   ...(since === undefined ? { since: undefined } : { since }),
 });
@@ -42,13 +42,13 @@ const itemAt = (
 const region = (regionId: string | null, items: ReadonlyArray<FeedItem>): FeedSection => ({
   region: { regionId, label: regionId ?? "open field", path: [] },
   items: [...items],
-  worstUrgency: Math.max(0, ...items.map((entry) => entry.urgency)),
+  worstUrgency: [...items].sort((a, b) => b.urgency - a.urgency)[0]?.urgency ?? feedItemRank("feedback"),
 });
 
 const section = (regionId: string | null, ids: ReadonlyArray<string>): FeedSection => ({
   region: { regionId, label: regionId ?? "open field", path: [] },
   items: ids.map(item),
-  worstUrgency: 2,
+  worstUrgency: feedItemRank("feedback"),
 });
 
 describe("stepFeedSelection", () => {

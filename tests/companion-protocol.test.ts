@@ -29,7 +29,7 @@ import {
   type CompanionOutboundFrame,
 } from "../src/shared/companion-protocol";
 import type { AgentSignal } from "../src/shared/agent-signals";
-import type { OperatorFeed } from "../src/shared/operator-feed";
+import { feedItemRank, type OperatorFeed } from "../src/shared/operator-feed";
 
 const V = COMPANION_PROTOCOL;
 const DEVICE = "dev_01J9Z3K4M5N6P7Q8R9S0T1V2W3";
@@ -52,12 +52,12 @@ const feed: OperatorFeed = {
   sections: [
     {
       region: { regionId: "r1", label: "Backend", path: ["Backend"], color: "4" },
-      worstUrgency: 5,
+      worstUrgency: feedItemRank("blocked"),
       items: [
         {
           itemId: "signal:sig_123",
           kind: "blocked",
-          urgency: 5,
+          urgency: feedItemRank("blocked"),
           canvasName: "main",
           seat: { nodeId: "planner", name: "Planner", portraitIdentity: "planner", harness: "claude" },
           region: { regionId: "r1", label: "Backend", path: ["Backend"], color: "4" },

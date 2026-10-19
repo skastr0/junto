@@ -35,7 +35,7 @@ import {
 import { DEFAULT_STALL_AFTER_MS, deriveOccupancy, OccupancySpectrum } from "../src/shared/occupancy/derive";
 import { deriveRegionRollups } from "../src/shared/region-rollup";
 import { buildOperatorFeed, feedSeatsFromCanvas } from "../src/shared/operator-feed";
-import { FEED_URGENCY, FeedItemKind } from "../src/shared/wire/operator-feed";
+import { FeedItemKind } from "../src/shared/wire/operator-feed";
 import { levelOfFeedItem, rankOf } from "../src/shared/wire/urgency";
 import { NOTIFY_CATEGORIES } from "../src/shared/desktop-notifications";
 import type { AgentSeatState } from "../src/shared/agent-seat-state";
@@ -215,7 +215,7 @@ const worst = <V extends string>(values: readonly V[], rank: (value: V) => numbe
 const todayFeedKind = (scenario: Scenario) =>
   worst(
     todayFeed(scenario).sections.flatMap((section) => section.items.map((item) => item.kind)),
-    (kind) => FEED_URGENCY[kind],
+    (kind) => rankOf(levelOfFeedItem(kind)),
   );
 
 const todayNotify = (scenario: Scenario) =>
@@ -329,7 +329,7 @@ describe("need surfaces: where each surface's order disagrees with the ladder", 
   });
 
   it("operator feed", () => {
-    expect(summary("feed")).toEqual(["inverted attention > stopped"]);
+    expect(summary("feed")).toEqual([]);
   });
 
   it("operator feed kind is each cause's level on the urgency ladder", () => {

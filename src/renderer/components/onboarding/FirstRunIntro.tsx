@@ -21,7 +21,7 @@ import { Button, Kbd } from "../ui";
 import { DemoSeat, DemoWire, PULSE_BEAT_MS, TourStage, seatPort, useTourBeat } from "./tour-demo";
 import { ChatComposer } from "../chat/ChatComposer";
 import { FeedCard } from "../feed/OperatorFeed";
-import type { FeedItem } from "@shared/operator-feed";
+import { feedItemRank, type FeedItem } from "@shared/operator-feed";
 import { DEFAULT_QUICK_REPLIES } from "@shared/settings";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { ScriptedCommandGroupChip } from "../command-groups/CommandGroupChip";
@@ -307,7 +307,7 @@ const feedItem = (
 ): FeedItem => ({
   itemId: `tour-${id}`,
   kind,
-  urgency: kind === "blocked" ? 3 : 2,
+  urgency: feedItemRank(kind),
   canvasName: "tour",
   seat: { nodeId: `tour-${id}`, name, portraitIdentity: `tour-${id}`, harness },
   region: { regionId: null, label: "open field", path: [] },

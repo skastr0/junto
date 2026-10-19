@@ -1,7 +1,7 @@
 import { observable } from "@legendapp/state";
 import type { CompanionDeviceRecord } from "@shared/companion-devices";
 import type { JuntoApi } from "@shared/ipc";
-import { FEED_URGENCY, type FeedItem, type FeedRegion, type FeedSeat, type FeedSection, type OperatorFeed } from "@shared/operator-feed";
+import { feedItemRank, type FeedItem, type FeedRegion, type FeedSeat, type FeedSection, type OperatorFeed } from "@shared/operator-feed";
 import { getJuntoApi } from "./junto-api";
 
 /**
@@ -40,7 +40,7 @@ export const phoneReachSection = (reach: PhoneReach, canvasName: string): FeedSe
   const item: FeedItem = {
     itemId: REMOTE_LOGIN_ITEM_ID,
     kind: "attention",
-    urgency: FEED_URGENCY.attention,
+    urgency: feedItemRank("attention"),
     canvasName,
     seat: THIS_MAC,
     region: THIS_MAC_REGION,

@@ -113,10 +113,12 @@ const ALLOWED: readonly Allowed[] = [
   { file: "src/renderer/lib/roll-call.ts", name: "ROLL_CALL_BUCKETS", rule: "names", step: 3, reason: "roll call's tier order over MemberSeverity" },
   { file: "src/shared/need-surfaces.ts", name: "ROLLUP_FROM_NEED", rule: "names", step: 3, reason: "cause to rollup tier, until the rollup reads MemberSeverity" },
 
-  // Step 5, remote-lead: the feed's urgency becomes UrgencyRank.
-  { file: "src/shared/wire/operator-feed.ts", name: "FEED_URGENCY", rule: "names", step: 5, reason: "the feed's numbers, replaced by levelOfFeedItem and rankOf" },
-  { file: "src/shared/wire/operator-feed.ts", name: "FEED_URGENCY", rule: "table", step: 5, reason: "the feed's numbers, replaced by levelOfFeedItem and rankOf" },
-  { file: "src/shared/need-surfaces.ts", name: "FEED_FROM_NEED", rule: "names", step: 5, reason: "cause to feed kind, until the feed ranks by level" },
+  // Step 4, cli-protocol: signal list and the dominant signal order by level.
+  { file: "src/shared/agent-signals.ts", name: "AGENT_SIGNAL_SEVERITY", rule: "names", step: 4, reason: "signal kind order, replaced by levelOfSignal and compareUrgency" },
+  { file: "src/shared/agent-signals.ts", name: "AGENT_SIGNAL_SEVERITY", rule: "table", step: 4, reason: "signal kind order, replaced by levelOfSignal and compareUrgency" },
+
+  // Step 5, remote-lead: the feed ranks each kind by levelOfFeedItem; its kinds share two level names.
+  { file: "src/shared/need-surfaces.ts", name: "FEED_FROM_NEED", rule: "names", reason: KIND_MAP },
 
   // No step yet.
   { file: "src/shared/need-surfaces.ts", name: "OCCUPANCY_LADDER", rule: "names", reason: `occupancy's first-match order; ${UNOWNED}` },

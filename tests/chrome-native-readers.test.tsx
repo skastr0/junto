@@ -7,7 +7,7 @@ import { CanvasChrome } from "../src/renderer/components/CanvasChrome";
 import { FocusSwitcherHud } from "../src/renderer/components/FocusSwitcherHud";
 import { CommandGroupChip } from "../src/renderer/components/command-groups/CommandGroupChip";
 import { FeedCard } from "../src/renderer/components/feed/OperatorFeed";
-import type { FeedItem } from "../src/shared/operator-feed";
+import { feedItemRank, type FeedItem } from "../src/shared/operator-feed";
 import { focusSwitcher$ } from "../src/renderer/lib/focus-switcher";
 import { state$ } from "../src/renderer/lib/state";
 import { modelStore } from "../src/renderer/lib/use-model";
@@ -86,7 +86,7 @@ it("the agent switcher draws each seat from the store, with the region it sits i
 const feedItem = (nodeId: string, name: string): FeedItem => ({
   itemId: `item-${nodeId}`,
   kind: "blocked",
-  urgency: 3,
+  urgency: feedItemRank("blocked"),
   canvasName: canvas,
   seat: { nodeId, name, portraitIdentity: nodeId, harness: "claude" },
   region: { regionId: null, label: "open field", path: [] },

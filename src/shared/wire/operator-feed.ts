@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { AgentSignalAttachment, AgentSignalKind } from "./agent-signals";
 import { ThreadHealthValue } from "./thread-health";
+import { levelOfFeedItem, rankOf, UrgencyRank } from "./urgency";
 
 /**
  * The operator feed: everything on one canvas that wants the operator, as a
@@ -27,6 +28,8 @@ import { ThreadHealthValue } from "./thread-health";
  * 2: an item's `since` and `ageMs` are absent when the time its need began is
  * not known. A reader shows no age then; it never substitutes one.
  * 3: the `stopped` kind, and urgency is the need ladder's (0 idle .. 6).
+ *    Since urgency.ts (0.9.2) it is an UrgencyRank, 0 offline .. 9 blocked,
+ *    in the same field: a reader compares it, never reads a level from it.
  */
 export const OPERATOR_FEED_VERSION = 3 as const;
 
@@ -40,22 +43,8 @@ export const FeedItemKind = Schema.Literals([
 ]);
 export type FeedItemKind = typeof FeedItemKind.Type;
 
-/**
- * Higher is more urgent. A temporary mapping the urgency law names: these are
- * the 0.9 ladder's numbers, where a declared block ties a proven dialog above
- * a stop, until the feed ranks each kind from `levelOfFeedItem` in
- * `urgency.ts` (`SURFACE_ORDER.feed` in need-surfaces.ts lists the one
- * disagreement). The AI reading the operator as awaited ranks with a
- * declared escalation.
- */
-export const FEED_URGENCY: Readonly<Record<FeedItemKind, number>> = {
-  blocked: 6,
-  attention: 6,
-  stopped: 5,
-  escalate: 4,
-  health: 4,
-  feedback: 3,
-};
+/** An item's rank: its kind's level on the one ladder (urgency.ts). */
+export const feedItemRank = (kind: FeedItemKind): UrgencyRank => rankOf(levelOfFeedItem(kind));
 
 /** The one name for each state, wherever a surface says it in words. */
 export const FEED_KIND_LABEL: Readonly<Record<FeedItemKind, string>> = {
@@ -123,7 +112,7 @@ export type FeedHealth = typeof FeedHealth.Type;
 export const FeedItem = Schema.Struct({
   itemId: Schema.String,
   kind: FeedItemKind,
-  urgency: Schema.Number,
+  urgency: UrgencyRank,
   canvasName: Schema.String,
   seat: FeedSeat,
   region: FeedRegion,
@@ -154,7 +143,7 @@ export type FeedItem = typeof FeedItem.Type;
 export const FeedSection = Schema.Struct({
   region: FeedRegion,
   items: Schema.Array(FeedItem),
-  worstUrgency: Schema.Number,
+  worstUrgency: UrgencyRank,
 });
 export type FeedSection = typeof FeedSection.Type;
 

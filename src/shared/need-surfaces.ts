@@ -14,7 +14,7 @@
 import type { MemberSeverity } from "./region-rollup";
 import { MemberSeverity as MemberSeveritySchema } from "./region-rollup";
 import type { OccupancySpectrum } from "./occupancy/derive";
-import { FEED_URGENCY, type FeedItemKind } from "./wire/operator-feed";
+import { feedItemRank, type FeedItemKind } from "./wire/operator-feed";
 import type { NotifyCategory } from "./desktop-notifications";
 import { NEED_CAUSES, type Need, type NeedCause } from "./harness-domain/need";
 import { rankOf, type UrgencyLevel, type UrgencyRank } from "./wire/urgency";
@@ -278,7 +278,7 @@ export type NeedSurface = "occupancy" | "rollup" | "feed" | "notify";
 export const SURFACE_RANK: Readonly<Record<NeedSurface, (value: string, cause: NeedCause) => number | undefined>> = {
   occupancy: rankFrom<string>(OCCUPANCY_LADDER),
   rollup: rankFrom<string>(MemberSeveritySchema.literals),
-  feed: (value) => FEED_URGENCY[value as FeedItemKind],
+  feed: (value) => feedItemRank(value as FeedItemKind),
   notify: (_value, cause) => urgencyOf(cause),
 };
 
@@ -302,12 +302,7 @@ export const SURFACE_ORDER: Readonly<
   feed: {
     order: "ladder",
     owner: "product-feed",
-    accepted: [
-      {
-        disagreement: "inverted attention > stopped",
-        why: "temporary: FEED_URGENCY keeps the 0.9 numbers, a proven prompt tied with a declared block above a stop, until the feed ranks its kinds from the urgency module (step 5)",
-      },
-    ],
+    accepted: [],
   },
   notify: { order: "ladder", owner: "product-attention", accepted: [] },
   rollup: {
