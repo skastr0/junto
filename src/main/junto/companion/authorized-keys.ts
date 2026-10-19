@@ -58,6 +58,9 @@ export class AuthorizedKeysError extends Error {
   }
 }
 
+/** A key Junto would write: what a stored key must be before it is restored. */
+export const isCompanionPublicKey = (publicKey: string): boolean => PUBLIC_KEY.test(publicKey);
+
 /** The one line Junto writes for a phone. */
 export const companionKeyLine = (input: {
   readonly juntoPath: string;

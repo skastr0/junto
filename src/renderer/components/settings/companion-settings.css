@@ -215,3 +215,10 @@
   flex-direction: column;
   gap: 2px;
 }
+
+.companion-phone__key {
+  max-width: 52ch;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--color-amber-fg);
+}

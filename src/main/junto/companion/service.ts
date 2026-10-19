@@ -9,12 +9,20 @@
  *   installed in authorized_keys with the companion forced command, and a QR
  *   carrying everything the phone needs. It expires after ten minutes and is
  *   swept, key line included. Completing it swaps in the phone's own key.
- * - Remove deletes the authorized_keys line and the record.
+ * - Remove deletes the record, then the authorized_keys line.
+ * - A paired phone whose line is gone is detected (on reconcile, and when
+ *   ~/.ssh changes) and only marked: Junto cannot tell a lost line from one
+ *   the operator or a security tool removed, so it never writes the line back
+ *   by itself. Restore is a click in Settings, Companion, and nothing else: no
+ *   phone op, no operator socket, no link op reaches it.
  *
  * authorized_keys is edited only through `authorized-keys.ts`, which touches
- * nothing but `junto-companion:` lines.
+ * nothing but `junto-companion:` lines. Key logs carry the device id, the
+ * outcome and a closed reason, never a key or a line.
  */
 
+import { watch, type FSWatcher } from "node:fs";
+import { basename, dirname } from "node:path";
 import { Effect, Result, Schema } from "effect";
 import QRCode from "qrcode";
 import { ulid } from "ulid";
@@ -27,7 +35,7 @@ import {
   type CompanionBackend,
   type CompanionGates,
 } from "@shared/companion-core";
-import type { CompanionDeviceRecord } from "@shared/companion-devices";
+import type { CompanionDeviceRecord, CompanionKeyFailure, CompanionKeyRestore } from "@shared/companion-devices";
 import {
   COMPANION_HELLO_HOSTS_MAX,
   COMPANION_PAIRING_TTL_MS,
@@ -47,10 +55,14 @@ import {
 } from "@shared/operator-control";
 import { AppRuntime } from "../../runtime";
 import {
+  AuthorizedKeysError,
+  companionDevicesIn,
   companionKeyLine,
   companionAuthorizedKeysPath,
   editAuthorizedKeys,
+  isCompanionPublicKey,
   pruneCompanionKeys,
+  readAuthorizedKeys,
   removeCompanionKey,
   upsertCompanionKey,
 } from "./authorized-keys";
@@ -106,12 +118,56 @@ export type CompanionService = {
    */
   readonly copyLink: (deviceId: string, clipboard: CompanionClipboard) => boolean;
   readonly remove: (deviceId: string) => Promise<boolean>;
-  /** Boot: drop expired pairings and any Junto key line with no record behind it. */
+  /**
+   * Settings only: write back the line of a paired phone marked `missing`, or
+   * of every one ("all"), from its stored key. Never a pairing device.
+   */
+  readonly restore: (target: string) => Promise<CompanionKeyRestore>;
+  /**
+   * Boot: drop expired pairings and any Junto key line with no record behind
+   * it, mark paired phones whose line is gone, and start watching ~/.ssh.
+   */
   readonly reconcile: () => Promise<void>;
   readonly environment: () => Promise<CompanionEnvironment>;
+  /** Stop watching ~/.ssh. */
+  readonly close: () => void;
 };
 
 const publicRecord = ({ publicKey: _key, ...record }: CompanionDeviceRow): CompanionDeviceRecord => record;
+
+/** A change to ~/.ssh settles this long before the lines are read again. */
+const KEY_WATCH_SETTLE_MS = 250;
+
+type KeyLog = {
+  readonly deviceId: string;
+  readonly outcome: "missing" | "found" | "restored" | "restore-failed" | "removed" | "remove-failed";
+  readonly reason?: CompanionKeyFailure;
+  /** An io failure only: the file and the errno code, nothing read from it. */
+  readonly path?: string;
+  readonly code?: string;
+};
+
+const logKey = (entry: KeyLog): void => {
+  const detail = [entry.reason, entry.path, entry.code].filter((part) => part !== undefined).join(" ");
+  const line = `[companion] key ${entry.outcome} ${entry.deviceId}${detail ? ` ${detail}` : ""}`;
+  if (entry.outcome === "restore-failed" || entry.outcome === "remove-failed" || entry.outcome === "missing") console.warn(line);
+  else console.info(line);
+};
+
+/**
+ * A failed write, as the closed reason and, for io, the path and errno code.
+ * The stored key is checked before any write, so an invalid line at this
+ * point is the junto path, never the phone's key.
+ */
+const keyFailure = (error: unknown, path: string): Pick<KeyLog, "reason" | "path" | "code"> & { readonly reason: CompanionKeyFailure } => {
+  if (error instanceof AuthorizedKeysError) {
+    if (error.reason === "symlink") return { reason: "symlink" };
+    if (error.reason === "invalid") return { reason: "junto-path" };
+    return { reason: "io", path };
+  }
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return { reason: "io", path, ...(typeof code === "string" && /^E[A-Z0-9]{1,20}$/u.test(code) ? { code } : {}) };
+};
 
 const runOnApp = <A, E>(effect: Effect.Effect<A, E, CompanionDeviceRepository>): Promise<A> => AppRuntime.runPromise(effect);
 
@@ -164,8 +220,16 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
     return helloRead.environment;
   };
 
+  // Paired phones whose line is gone, as last read. Detection only marks.
+  const keyStates = new Map<string, "missing" | "damaged">();
+  let keyWatcher: FSWatcher | undefined;
+  let keyWatchTimer: ReturnType<typeof setTimeout> | undefined;
+
   const devices = async (): Promise<ReadonlyArray<CompanionDeviceRecord>> =>
-    (await repo((r) => r.list())).map(publicRecord);
+    (await repo((r) => r.list())).map((row) => {
+      const key = keyStates.get(row.deviceId);
+      return key === undefined ? publicRecord(row) : { ...publicRecord(row), key };
+    });
 
   const announce = (): void => {
     if (!options.onDevicesChanged) return;
@@ -177,6 +241,60 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
     stationName = environment.station;
     if (!environment.juntoPath) throw new Error("the junto command is not installed");
     return environment.juntoPath;
+  };
+
+  /**
+   * Read authorized_keys and mark every paired phone without its line. Writes
+   * nothing: no line, no record, no state. A file Junto may not read (a
+   * symlink) leaves the marks as they were.
+   */
+  const detectMissingKeys = async (): Promise<void> => {
+    if (authorizedKeysPath === undefined) return;
+    let present: ReadonlySet<string>;
+    try {
+      present = new Set(companionDevicesIn(readAuthorizedKeys(authorizedKeysPath)));
+    } catch {
+      return;
+    }
+    const next = new Map<string, "missing" | "damaged">();
+    for (const device of await repo((r) => r.list())) {
+      if (device.state !== "paired" || present.has(device.deviceId)) continue;
+      next.set(device.deviceId, isCompanionPublicKey(device.publicKey) ? "missing" : "damaged");
+    }
+    let changed = false;
+    for (const [deviceId, state] of next) {
+      if (keyStates.get(deviceId) === state) continue;
+      changed = true;
+      logKey({ deviceId, outcome: "missing", reason: state });
+    }
+    for (const deviceId of keyStates.keys()) {
+      if (next.has(deviceId)) continue;
+      changed = true;
+      logKey({ deviceId, outcome: "found" });
+    }
+    keyStates.clear();
+    for (const [deviceId, state] of next) keyStates.set(deviceId, state);
+    if (changed) announce();
+  };
+
+  /** Watch ~/.ssh: the file is replaced by rename, so the directory is what changes. */
+  const watchKeys = (): void => {
+    if (authorizedKeysPath === undefined || keyWatcher !== undefined) return;
+    const name = basename(authorizedKeysPath);
+    try {
+      keyWatcher = watch(dirname(authorizedKeysPath), { persistent: false }, (_event, file) => {
+        if (file !== null && file !== name) return;
+        clearTimeout(keyWatchTimer);
+        keyWatchTimer = setTimeout(() => void detectMissingKeys().catch(() => undefined), KEY_WATCH_SETTLE_MS);
+      });
+      keyWatcher.on("error", () => {
+        keyWatcher?.close();
+        keyWatcher = undefined;
+      });
+    } catch {
+      // No ~/.ssh yet: the next reconcile, pairing or Restore looks again.
+      keyWatcher = undefined;
+    }
   };
 
   const sweep = async (now = Date.now()): Promise<void> => {
@@ -340,16 +458,76 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
     return { ok: true as const, deviceId, expiresAt, qrSvg, hosts: environment.hosts };
   };
 
+  // The record goes first, so the phone is refused even if the line cannot
+  // be taken out; a line left behind has no record and the next reconcile
+  // prunes it.
   const remove = async (deviceId: string): Promise<boolean> => {
     clearTimeout(expiryTimers.get(deviceId));
     expiryTimers.delete(deviceId);
     forgetLink(deviceId);
-    await editKeys((text) => removeCompanionKey(text, deviceId));
     const removed = await repo((r) => r.remove(deviceId));
     limiters.delete(deviceId);
     gates.delete(deviceId);
+    const wasMarked = keyStates.delete(deviceId);
     announce();
+    try {
+      await editKeys((text) => removeCompanionKey(text, deviceId));
+    } catch (error) {
+      if (authorizedKeysPath !== undefined) logKey({ deviceId, outcome: "remove-failed", ...keyFailure(error, authorizedKeysPath) });
+      throw new Error("The phone was removed, but its line could not be taken out of authorized_keys. Junto takes it out at the next start.");
+    }
+    if (removed?.state === "paired") logKey({ deviceId, outcome: "removed", ...(wasMarked ? { reason: "missing" as const } : {}) });
     return removed !== undefined;
+  };
+
+  const restore = async (target: string): Promise<CompanionKeyRestore> => {
+    if (authorizedKeysPath === undefined) {
+      return { ok: false, restored: [], failed: [], message: "This Junto runs from its own home, so it cannot restore phones." };
+    }
+    const path = authorizedKeysPath;
+    await detectMissingKeys();
+    const wanted = target === "all" ? [...keyStates.keys()] : [target];
+    const rows = new Map((await repo((r) => r.list())).map((row) => [row.deviceId, row]));
+    const restored: string[] = [];
+    const failed: Array<{ readonly deviceId: string; readonly reason: CompanionKeyFailure }> = [];
+    let juntoPath: string | undefined;
+    let juntoMissing = false;
+    for (const deviceId of wanted) {
+      const device = rows.get(deviceId);
+      const state = keyStates.get(deviceId);
+      // Only a paired phone marked missing: never a pairing, never a phone whose line is there.
+      if (device === undefined || device.state !== "paired" || state === undefined) continue;
+      if (state === "damaged" || !isCompanionPublicKey(device.publicKey)) {
+        failed.push({ deviceId, reason: "damaged" });
+        logKey({ deviceId, outcome: "restore-failed", reason: "damaged" });
+        continue;
+      }
+      try {
+        juntoPath ??= await juntoPathOrThrow();
+        const line = companionKeyLine({ juntoPath, deviceId, publicKey: device.publicKey });
+        // Same writer as pairing; a line put back meanwhile is left as it is.
+        await editAuthorizedKeys(
+          (text) => (companionDevicesIn(text).includes(deviceId) ? text : upsertCompanionKey(text, deviceId, line)),
+          path,
+        );
+        restored.push(deviceId);
+        logKey({ deviceId, outcome: "restored" });
+      } catch (error) {
+        juntoMissing ||= juntoPath === undefined;
+        const failure = juntoPath === undefined ? { reason: "io" as const } : keyFailure(error, path);
+        failed.push({ deviceId, reason: failure.reason });
+        logKey({ deviceId, outcome: "restore-failed", ...failure });
+      }
+    }
+    await detectMissingKeys();
+    watchKeys();
+    announce();
+    return {
+      ok: failed.length === 0,
+      restored,
+      failed,
+      ...(juntoMissing ? { message: "The junto command is not installed on this Mac." } : {}),
+    };
   };
 
   return {
@@ -363,6 +541,7 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
       if (device?.state === "pairing") await remove(deviceId);
     },
     remove,
+    restore,
     copyLink: (deviceId, clipboard) => {
       const link = links.get(deviceId);
       if (!link || link.expiresAt <= Date.now()) return false;
@@ -382,8 +561,15 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
         }
       }
       await editKeys((text) => pruneCompanionKeys(text, keep)).catch(() => undefined);
+      await detectMissingKeys();
+      watchKeys();
     },
     environment: options.environment,
+    close: () => {
+      clearTimeout(keyWatchTimer);
+      keyWatcher?.close();
+      keyWatcher = undefined;
+    },
   };
 };
 

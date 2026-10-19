@@ -20,7 +20,7 @@ import type {
   SeatOffboardRunResult,
   SeatOffboardStatus,
 } from "./seat-offboard";
-import type { CompanionDeviceRecord, CompanionPairStart, CompanionStatus } from "./companion-devices";
+import type { CompanionDeviceRecord, CompanionKeyRestore, CompanionPairStart, CompanionStatus } from "./companion-devices";
 import type {
   BrowserProfileWipeInput,
   BrowserProfileWipeReceipt,
@@ -259,6 +259,8 @@ export const IPC_CHANNELS = {
   companionPairCopyLink: "junto:companion-pair-copy-link",
   companionDevices: "junto:companion-devices",
   companionDeviceRemove: "junto:companion-device-remove",
+  /** Window only: write back a paired phone's missing line, or every one ("all"). */
+  companionDeviceRestore: "junto:companion-device-restore",
   companionDevicesChanged: "junto:companion-devices-changed",
   /** Is sshd listening: the one probe a paired phone's reach depends on. */
   companionRemoteLogin: "junto:companion-remote-login",
@@ -1212,6 +1214,8 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly companionDevices?: () => Promise<ReadonlyArray<CompanionDeviceRecord>>;
   /** Remove a phone: its key leaves authorized_keys and its record is deleted. */
   readonly companionDeviceRemove?: (deviceId: string) => Promise<{ readonly ok: boolean; readonly message?: string }>;
+  /** Restore a phone whose line is gone from authorized_keys, or every one with "all". */
+  readonly companionDeviceRestore?: (target: string) => Promise<CompanionKeyRestore>;
   /** Main → renderer: the phone list after any change. */
   readonly onCompanionDevicesChanged?: (
     listener: (devices: ReadonlyArray<CompanionDeviceRecord>) => void,

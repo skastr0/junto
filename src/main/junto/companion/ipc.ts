@@ -1,10 +1,12 @@
 /**
  * Settings, Companion over IPC: this Mac's readiness to pair, pairing a phone
- * (the QR), the phone list, and Remove. Main owns every step; the renderer
- * only asks and shows. The device list is pushed after any change.
+ * (the QR), the phone list, Remove, and Restore for a phone whose line is gone
+ * from authorized_keys. Main owns every step; the renderer only asks and
+ * shows. The device list is pushed after any change. Restore exists here and
+ * nowhere else: the operator's click in the trusted window is its only way in.
  */
 import { BrowserWindow, clipboard, ipcMain, shell } from "electron";
-import type { CompanionDeviceRecord, CompanionPairStart, CompanionStatus } from "@shared/companion-devices";
+import type { CompanionDeviceRecord, CompanionKeyRestore, CompanionPairStart, CompanionStatus } from "@shared/companion-devices";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { isTrustedMainWebContents, trustedRendererIpc } from "../trusted-main-webcontents";
 import { probeRemoteLogin } from "./environment";
@@ -104,6 +106,17 @@ export const registerCompanionIpc = (): void => {
       return { ok: await service.remove(deviceId) };
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : "The phone could not be removed." };
+    }
+  });
+
+  privilegedIpc.handle(IPC_CHANNELS.companionDeviceRestore, async (_event, raw: unknown): Promise<CompanionKeyRestore> => {
+    const target = raw === "all" ? "all" : deviceIdOf(raw);
+    const service = companionService();
+    if (!target || !service) return { ok: false, restored: [], failed: [], message: "No such phone." };
+    try {
+      return await service.restore(target);
+    } catch {
+      return { ok: false, restored: [], failed: [], message: "The phone could not be restored." };
     }
   });
 };

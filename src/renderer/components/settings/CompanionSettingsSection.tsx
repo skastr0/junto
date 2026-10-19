@@ -7,10 +7,12 @@
  * and Remove. Main owns every step (keys, authorized_keys, the registry); this
  * surface only asks and shows. The QR carries a one-time key, so it is held in
  * component state only and dropped as soon as it is done with. When the first
- * phone pairs, it asks once whether Junto opens at login.
+ * phone pairs, it asks once whether Junto opens at login. A paired phone whose
+ * line is gone from authorized_keys says so, with Restore and Remove; Junto
+ * never puts a line back without that click.
  */
 import { useCallback, useEffect, useState } from "react";
-import type { CompanionDeviceRecord, CompanionPairStart, CompanionStatus } from "@shared/companion-devices";
+import type { CompanionDeviceRecord, CompanionKeyRestore, CompanionPairStart, CompanionStatus } from "@shared/companion-devices";
 import { COMPANION_PAIRING_TTL_MS } from "@shared/companion-protocol";
 import { getJuntoApi } from "../../lib/junto-api";
 import { answerOpenAtLogin, openAtLoginOfferVisible } from "../../lib/open-at-login-offer";
@@ -235,16 +237,36 @@ export function OpenAtLoginOffer({ onAnswered }: { readonly onAnswered: () => vo
   );
 }
 
-function PhoneRow({
+/** What a failed Restore says, by its closed reason. */
+const RESTORE_FAILURE_COPY: Record<CompanionKeyRestore["failed"][number]["reason"], string> = {
+  missing: "The phone's key could not be restored.",
+  damaged: "The key Junto kept for this phone is damaged. Remove it and pair it again.",
+  symlink: "authorized_keys is a symbolic link, so Junto will not replace it.",
+  io: "authorized_keys could not be written.",
+  "junto-path": "The junto command's path cannot be used in authorized_keys. Reinstall Junto from the official download.",
+};
+
+export const restoreMessage = (result: CompanionKeyRestore | undefined): string | undefined => {
+  if (result === undefined) return "The phone could not be restored.";
+  if (result.ok) return undefined;
+  if (result.message) return result.message;
+  const reason = result.failed[0]?.reason;
+  return reason === undefined ? "The phone could not be restored." : RESTORE_FAILURE_COPY[reason];
+};
+
+export function PhoneRow({
   device,
   now,
   onRemove,
+  onRestore,
 }: {
   readonly device: CompanionDeviceRecord;
   readonly now: number;
   readonly onRemove: (deviceId: string) => void;
+  readonly onRestore: (deviceId: string) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const missing = device.state === "paired" && device.key !== undefined;
   return (
     <li className="companion-phone" data-testid="companion-phone">
       <div className="companion-phone__text">
@@ -253,8 +275,24 @@ function PhoneRow({
           last seen {ago(device.lastSeenAt, now)}
           {device.pairedAt !== undefined ? `, paired ${ago(device.pairedAt, now)}` : ""}
         </span>
+        {missing ? (
+          <span className="companion-phone__key" role="status">
+            {device.key === "damaged"
+              ? "This phone's key is no longer in authorized_keys, and the key Junto kept for it is damaged. Remove it and pair it again."
+              : "This phone's key is no longer in authorized_keys."}
+          </span>
+        ) : null}
       </div>
-      {confirming ? (
+      {!confirming && device.key === "missing" && device.state === "paired" ? (
+        <div className="companion-phone__confirm">
+          <Button size="xs" onClick={() => onRestore(device.deviceId)} aria-label={`Restore ${device.name || "phone"}`}>
+            Restore
+          </Button>
+          <Button size="xs" variant="subtle" onClick={() => setConfirming(true)} aria-label={`Remove ${device.name || "phone"}`}>
+            remove
+          </Button>
+        </div>
+      ) : confirming ? (
         <div className="companion-phone__confirm">
           <span>It stops reaching this Mac at once.</span>
           <Button size="xs" variant="danger" onClick={() => onRemove(device.deviceId)}>
@@ -280,6 +318,7 @@ export function CompanionSettingsSection() {
   const [pairing, setPairing] = useState<Pairing | undefined>();
   const [message, setMessage] = useState<string | undefined>();
   const [justPaired, setJustPaired] = useState<string | undefined>();
+  const [restoreError, setRestoreError] = useState<string | undefined>();
   // Decided once, when the first phone pairs; closed once answered.
   const [offerOpenAtLogin, setOfferOpenAtLogin] = useState(false);
   const now = useNow(pairing !== undefined || devices.length > 0);
@@ -348,7 +387,14 @@ export function CompanionSettingsSection() {
     if (result && !result.ok) setMessage(result.message ?? "The phone could not be removed.");
   };
 
+  const restore = async (target: string) => {
+    setRestoreError(undefined);
+    const result = await getJuntoApi()?.companionDeviceRestore?.(target);
+    setRestoreError(restoreMessage(result));
+  };
+
   const paired = devices.filter((device) => device.state === "paired");
+  const restorable = paired.filter((device) => device.key === "missing");
   const canPair = status?.available === true && status.remoteLogin === "on" && status.juntoCommand && status.hostKey;
 
   return (
@@ -391,15 +437,34 @@ export function CompanionSettingsSection() {
         <h3 id="companion-phones-title" className="companion-block__title">
           Paired phones
         </h3>
+        {restorable.length > 1 ? (
+          <div className="companion-block__row">
+            <Button size="sm" onClick={() => void restore("all")}>
+              Restore all
+            </Button>
+            <span className="companion-note">{restorable.length} phones lost their keys in authorized_keys.</span>
+          </div>
+        ) : null}
         {paired.length === 0 ? (
           <p className="companion-note">No phone yet.</p>
         ) : (
           <ul className="companion-phones">
             {paired.map((device) => (
-              <PhoneRow key={device.deviceId} device={device} now={now} onRemove={(id) => void remove(id)} />
+              <PhoneRow
+                key={device.deviceId}
+                device={device}
+                now={now}
+                onRemove={(id) => void remove(id)}
+                onRestore={(id) => void restore(id)}
+              />
             ))}
           </ul>
         )}
+        {restoreError ? (
+          <p className="companion-error" role="alert">
+            {restoreError}
+          </p>
+        ) : null}
       </section>
     </div>
   );
