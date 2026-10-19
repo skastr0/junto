@@ -30,6 +30,7 @@ import { runCompanionSession, type CompanionChange, type CompanionHost } from ".
 import {
   OPERATOR_COMPANION_WAIT_MAX_MS,
   OPERATOR_DEFAULT_TIMEOUT_MS,
+  OPERATOR_PEER_LIMIT_MESSAGE,
   type OperatorArgsByOp,
   type OperatorDataByOp,
 } from "../shared/operator-control";
@@ -72,7 +73,11 @@ type Call = <Op extends "companion.hello" | "companion.call" | "companion.events
   op: Op,
   args: OperatorArgsByOp[Op],
   timeoutMs: number,
-) => Promise<{ readonly ok: true; readonly data: OperatorDataByOp[Op] } | { readonly ok: false; readonly down: boolean }>;
+) => Promise<
+  | { readonly ok: true; readonly data: OperatorDataByOp[Op] }
+  /** busy: every operator control slot was taken; the app is up. */
+  | { readonly ok: false; readonly down: boolean; readonly busy?: boolean }
+>;
 
 const operatorCall: Call = (op, args, timeoutMs) =>
   Effect.runPromise(
@@ -82,7 +87,10 @@ const operatorCall: Call = (op, args, timeoutMs) =>
     }).pipe(
       Effect.provide(OperatorSocketLive),
       Effect.map((data) => ({ ok: true as const, data })),
-      Effect.catch((error) => Effect.succeed({ ok: false as const, down: error._tag === "RuntimeDown" })),
+      Effect.catch((error) => {
+        const busy = error._tag === "RuntimeDown" && error.message === OPERATOR_PEER_LIMIT_MESSAGE;
+        return Effect.succeed({ ok: false as const, down: error._tag === "RuntimeDown" && !busy, ...(busy ? { busy } : {}) });
+      }),
     ),
   );
 
@@ -100,10 +108,37 @@ const neverWake: Wake = { launch: async () => false, now: Date.now, sleep };
 
 export const wakeInstalledApp: Wake = { launch: launchInstalledJunto, now: Date.now, sleep };
 
+/**
+ * Requests one phone relays over the operator control socket at once; the
+ * rest wait their turn. With the long poll that is four of the socket's
+ * eight peers, so two phones fit, and a burst queues instead of failing.
+ */
+export const COMPANION_RELAY_CALLS_MAX = 3;
+
+const BUSY = "Junto on the Mac is busy. Try again in a moment.";
+
+/** At most `max` at once, first come first served. */
+const makeTurns = (max: number) => {
+  let running = 0;
+  const waiting: Array<() => void> = [];
+  return async <A>(run: () => Promise<A>): Promise<A> => {
+    if (running >= max) await new Promise<void>((turn) => waiting.push(turn));
+    else running += 1;
+    try {
+      return await run();
+    } finally {
+      const next = waiting.shift();
+      if (next !== undefined) next();
+      else running -= 1;
+    }
+  };
+};
+
 /** The running app, reached over the operator control socket. */
 export const makeRelayHost = (deviceId: string, call: Call = operatorCall, wake: Wake = neverWake): CompanionHost => {
   const unavailable = (id: string): CompanionResponseFrame =>
     companionFail(id, companionError("app-not-running", COMPANION_ERROR_COPY["app-not-running"]));
+  const turn = makeTurns(COMPANION_RELAY_CALLS_MAX);
   return {
     hello: async () => {
       let result = await call("companion.hello", { deviceId }, OPERATOR_DEFAULT_TIMEOUT_MS);
@@ -130,8 +165,9 @@ export const makeRelayHost = (deviceId: string, call: Call = operatorCall, wake:
       return result.data;
     },
     call: async (request: CompanionRequestFrame) => {
-      const result = await call("companion.call", { deviceId, request }, OPERATOR_DEFAULT_TIMEOUT_MS);
+      const result = await turn(() => call("companion.call", { deviceId, request }, OPERATOR_DEFAULT_TIMEOUT_MS));
       if (!result.ok) {
+        if (result.busy === true) return companionFail(request.id, companionError("rate-limited", BUSY));
         return result.down ? unavailable(request.id) : companionFail(request.id, companionError("internal", COMPANION_ERROR_COPY.internal));
       }
       return result.data.response;

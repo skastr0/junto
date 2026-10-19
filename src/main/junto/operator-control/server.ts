@@ -4,6 +4,7 @@ import { resolveJuntoHome } from "@shared/junto-home";
 import {
   OPERATOR_MAX_REQUEST_BYTES,
   OPERATOR_MAX_RESPONSE_BYTES,
+  OPERATOR_PEER_LIMIT_MESSAGE,
   decodeOperatorJsonLine,
   decodeOperatorRequest,
   encodeOperatorFrame,
@@ -318,7 +319,7 @@ export const startOperatorControlServer = async (
           "runtime_down",
           shuttingDown
             ? "operator control is shutting down"
-            : "operator control peer limit reached",
+            : OPERATOR_PEER_LIMIT_MESSAGE,
         ),
       );
       return;
