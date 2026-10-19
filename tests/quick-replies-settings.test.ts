@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_QUICK_REPLIES,
+  DEFAULT_QUIET_NOTES,
   QUICK_REPLY_BOUNDS,
   Settings,
   SettingsPatch,
@@ -9,6 +10,7 @@ import {
   defaultSection,
   defaultSettings,
   feedSettings,
+  quietNotesOf,
   sanitizeQuickReplies,
 } from "../src/shared/settings";
 import { decodeStoredSettings, preferencesFromSettings } from "../src/main/junto/settings/state-schema";
@@ -26,7 +28,10 @@ describe("quick replies settings", () => {
       "I disagree",
       "Let's discuss",
     ]);
-    expect(defaultSection("feed")).toEqual({ quickReplies: [...DEFAULT_QUICK_REPLIES] });
+    expect(defaultSection("feed")).toEqual({
+      quickReplies: [...DEFAULT_QUICK_REPLIES],
+      quietNotes: [...DEFAULT_QUIET_NOTES],
+    });
   });
 
   it("decodes rows written before quick replies as the defaults", () => {
@@ -77,5 +82,40 @@ describe("quick replies settings", () => {
     const full = Array.from({ length: QUICK_REPLY_BOUNDS.maxCount }, (_, i) => `${i}`.padEnd(QUICK_REPLY_BOUNDS.maxChars, "x"));
     const next = applySettingsPatch(defaultSettings(), decodePatch({ feed: { quickReplies: full } }));
     expect(JSON.stringify(next.feed).length).toBeLessThan(2048);
+  });
+});
+
+describe("quiet notes settings", () => {
+  it("defaults to Acknowledged and Good", () => {
+    expect(quietNotesOf(defaultSettings())).toEqual(["Acknowledged", "Good"]);
+  });
+
+  it("reads a feed row written before quiet notes as the defaults", () => {
+    const settings = defaultSettings();
+    const prefs = { ...preferencesFromSettings(settings), feed: { quickReplies: ["Go on"] } };
+    const decoded = decodeStoredSettings(1, prefs, settings.machine);
+    expect(feedSettings(decoded).quickReplies).toEqual(["Go on"]);
+    expect(quietNotesOf(decoded)).toEqual([...DEFAULT_QUIET_NOTES]);
+  });
+
+  it("stores quiet notes without touching the quick replies, and the other way round", () => {
+    const withReplies = applySettingsPatch(defaultSettings(), decodePatch({ feed: { quickReplies: ["Ship it"] } }));
+    const withNotes = applySettingsPatch(withReplies, decodePatch({ feed: { quietNotes: ["Seen", "seen", "Noted"] } }));
+    expect(feedSettings(withNotes).quickReplies).toEqual(["Ship it"]);
+    expect(quietNotesOf(withNotes)).toEqual(["Seen", "Noted"]);
+    const again = applySettingsPatch(withNotes, decodePatch({ feed: { quickReplies: ["Yes"] } }));
+    expect(quietNotesOf(again)).toEqual(["Seen", "Noted"]);
+    const stored = decodeStoredSettings(1, JSON.parse(JSON.stringify(preferencesFromSettings(again))), again.machine);
+    expect(quietNotesOf(stored)).toEqual(["Seen", "Noted"]);
+  });
+
+  it("keeps an emptied list empty, not back on the defaults", () => {
+    const next = applySettingsPatch(defaultSettings(), decodePatch({ feed: { quietNotes: [] } }));
+    expect(quietNotesOf(next)).toEqual([]);
+  });
+
+  it("refuses a multi-line or blank quiet note at the wire", () => {
+    expect(() => decodePatch({ feed: { quietNotes: ["one\ntwo"] } })).toThrow();
+    expect(() => decodePatch({ feed: { quietNotes: [""] } })).toThrow();
   });
 });

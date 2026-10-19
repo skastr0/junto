@@ -509,11 +509,18 @@ const QuickReplyList = Schema.Array(QuickReplyText).pipe(
 
 export const FeedSettings = Schema.Struct({
   quickReplies: QuickReplyList,
+  /**
+   * Quiet notes: answers that close a signal without waking the seat. Same
+   * bounds as quick replies. Absent on rows written before them; absent
+   * means DEFAULT_QUIET_NOTES.
+   */
+  quietNotes: Schema.optionalKey(QuickReplyList),
 });
 export type FeedSettings = typeof FeedSettings.Type;
 
 export const FeedPatch = Schema.Struct({
   quickReplies: Schema.optionalKey(QuickReplyList),
+  quietNotes: Schema.optionalKey(QuickReplyList),
 });
 export type FeedPatch = typeof FeedPatch.Type;
 
@@ -533,10 +540,20 @@ export const DEFAULT_QUICK_REPLIES: ReadonlyArray<string> = [
   "Let's discuss",
 ];
 
-export const defaultFeed = (): FeedSettings => ({ quickReplies: [...DEFAULT_QUICK_REPLIES] });
+/** The quiet notes that send when the operator edits nothing. */
+export const DEFAULT_QUIET_NOTES: ReadonlyArray<string> = ["Acknowledged", "Good"];
+
+export const defaultFeed = (): FeedSettings => ({
+  quickReplies: [...DEFAULT_QUICK_REPLIES],
+  quietNotes: [...DEFAULT_QUIET_NOTES],
+});
 
 export const feedSettings = (settings: Settings | undefined): FeedSettings =>
   settings?.feed ?? defaultFeed();
+
+/** The operator's quiet notes, the defaults when none were ever stored. */
+export const quietNotesOf = (settings: Settings | undefined): ReadonlyArray<string> =>
+  feedSettings(settings).quietNotes ?? DEFAULT_QUIET_NOTES;
 
 /**
  * Keyboard: only the shortcuts the operator changed, keyed by the shortcut's
@@ -1542,7 +1559,10 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
     next = { ...next, offboard: applyOffboardRulesPatch(offboardRules(next), patch.offboard) };
   }
   if (patch.feed?.quickReplies !== undefined) {
-    next = { ...next, feed: { quickReplies: sanitizeQuickReplies(patch.feed.quickReplies) } };
+    next = { ...next, feed: { ...feedSettings(next), quickReplies: sanitizeQuickReplies(patch.feed.quickReplies) } };
+  }
+  if (patch.feed?.quietNotes !== undefined) {
+    next = { ...next, feed: { ...feedSettings(next), quietNotes: sanitizeQuickReplies(patch.feed.quietNotes) } };
   }
   if (patch.keyboard?.overrides !== undefined) {
     // The patch carries the whole map: a shortcut left out is back on its default.
