@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { filterCommandBarNodes } from "../src/renderer/lib/command-bar";
+import { PALETTE_RANK } from "../src/renderer/lib/seat-line";
 import { regionPath, regionPaths } from "../src/renderer/lib/region-path";
 import { asNodeId, type Node } from "../src/shared/model";
 import { canvasOf, note, region as regionNode, seat } from "./support/model-nodes";
@@ -76,31 +77,72 @@ describe("command bar agent bias", () => {
     agent("blocked", "deploy-blocked"),
     agent("waiting", "deploy-waiting"),
   ];
-  const urgency = new Map([
-    ["blocked", 0],
-    ["waiting", 1],
-    ["working", 3],
-    ["resting", 4],
-    ["offline", 5],
+  const standing = (rank: number, since = 0) => ({ rank, since });
+  const standings = new Map([
+    ["blocked", standing(PALETTE_RANK.blocked)],
+    ["waiting", standing(PALETTE_RANK.waiting)],
+    ["working", standing(PALETTE_RANK.working)],
+    ["resting", standing(PALETTE_RANK.resting)],
+    ["offline", standing(PALETTE_RANK.offline)],
   ]);
   const ids = (query: string, recent: ReadonlyArray<string> = []) =>
-    filterCommandBarNodes(nodes, query, recent, urgency).map((match) => match.node.id);
+    filterCommandBarNodes(nodes, query, recent, standings).map((match) => match.node.id);
 
-  it("empty query: agents first by urgency, then regions, notes, and other kinds", () => {
+  it("empty query: agents first by rank, then regions, notes, and other kinds", () => {
     expect(ids("")).toEqual(["blocked", "waiting", "working", "resting", "offline", "r", "n", "l"]);
   });
 
-  it("urgency outranks hotbar recency among agents; recency breaks equal urgency", () => {
-    expect(ids("", ["offline"])[0]).toBe("blocked");
-    const tied = [agent("a", "alpha"), agent("b", "beta")];
-    const result = filterCommandBarNodes(tied, "", ["b"], new Map([["a", 1], ["b", 1]]));
-    expect(result.map((match) => match.node.id)).toEqual(["b", "a"]);
+  it("one linear order over a mixed fixture: working above review, review above done", () => {
+    const crew = ["offline", "resting", "done", "review", "working", "waiting", "blocked"].map((id) => agent(id, id));
+    const ranked = new Map(
+      [
+        ["blocked", PALETTE_RANK.blocked],
+        ["waiting", PALETTE_RANK.waiting],
+        ["working", PALETTE_RANK.working],
+        ["review", PALETTE_RANK.review],
+        ["done", PALETTE_RANK.done],
+        ["resting", PALETTE_RANK.resting],
+        ["offline", PALETTE_RANK.offline],
+      ].map(([id, rank]) => [id as string, standing(rank as number)] as const),
+    );
+    expect(filterCommandBarNodes(crew, "", [], ranked).map((match) => match.node.id)).toEqual([
+      "blocked",
+      "waiting",
+      "working",
+      "review",
+      "done",
+      "resting",
+      "offline",
+    ]);
+  });
+
+  it("inside a rank the most recent change comes first, then name; hotbar recency and z do not count", () => {
+    const crew = [agent("a", "alpha"), agent("b", "beta"), agent("c", "gamma"), agent("d", "delta")];
+    const ranked = new Map([
+      ["a", standing(PALETTE_RANK.review, 100)],
+      ["b", standing(PALETTE_RANK.review, 300)],
+      ["c", standing(PALETTE_RANK.review, 200)],
+      ["d", standing(PALETTE_RANK.review, 200)],
+    ]);
+    const order = (recent: ReadonlyArray<string>) =>
+      filterCommandBarNodes(crew, "", recent, ranked).map((match) => match.node.id);
+    // b (300), then c and d tied at 200 by name (delta before gamma), then a (100).
+    expect(order([])).toEqual(["b", "d", "c", "a"]);
+    expect(order(["a", "c"])).toEqual(["b", "d", "c", "a"]);
+  });
+
+  it("a seat that changes state re-ranks the same list", () => {
+    const crew = [agent("a", "alpha"), agent("b", "beta")];
+    const before = new Map([["a", standing(PALETTE_RANK.working, 10)], ["b", standing(PALETTE_RANK.resting, 5)]]);
+    expect(filterCommandBarNodes(crew, "", [], before).map((match) => match.node.id)).toEqual(["a", "b"]);
+    const after = new Map([["a", standing(PALETTE_RANK.resting, 20)], ["b", standing(PALETTE_RANK.blocked, 20)]]);
+    expect(filterCommandBarNodes(crew, "", [], after).map((match) => match.node.id)).toEqual(["b", "a"]);
   });
 
   it("an agent with no reading ranks as resting", () => {
-    const partial = new Map([["waiting", 1], ["offline", 5]]);
+    const partial = new Map([["waiting", standing(PALETTE_RANK.waiting)], ["offline", standing(PALETTE_RANK.offline)]]);
     const result = filterCommandBarNodes(nodes, "", [], partial).map((match) => match.node.id);
-    expect(result.slice(0, 5)).toEqual(["waiting", "resting", "working", "blocked", "offline"]);
+    expect(result.slice(0, 5)).toEqual(["waiting", "blocked", "resting", "working", "offline"]);
   });
 
   it("with a query, agents rank above other kinds at equal match quality", () => {
@@ -110,9 +152,9 @@ describe("command bar agent bias", () => {
 
   it("a better match still beats an agent", () => {
     const mixed = [agent("seat", "yak-seat"), region("r", "Yakjev"), text("n", "Notes on the yak")];
-    const result = filterCommandBarNodes(mixed, "yakjev", [], new Map([["seat", 0]]));
+    const result = filterCommandBarNodes(mixed, "yakjev", [], new Map([["seat", { rank: 0, since: 0 }]]));
     expect(result.map((match) => match.node.id)).toEqual(["r"]);
-    const prefix = filterCommandBarNodes(mixed, "yak", [], new Map([["seat", 0]]));
+    const prefix = filterCommandBarNodes(mixed, "yak", [], new Map([["seat", { rank: 0, since: 0 }]]));
     // All three are title prefixes except the note (substring): agent, region, note.
     expect(prefix.map((match) => match.node.id)).toEqual(["seat", "r", "n"]);
     const titled = [region("r", "Research"), seat("seat", { label: "reviewer", agentKey: "local:research" })];

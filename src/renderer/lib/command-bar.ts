@@ -5,6 +5,7 @@ import { fuzzyMatch } from "./fuzzy-match";
 import { touchActiveMru } from "./hotbar-slots";
 import { roleOfKind } from "./model-kind";
 import { searchOf } from "./node-presentation";
+import { PALETTE_RANK } from "./seat-line";
 import { selectNode, state$ } from "./state";
 import { nodeAt } from "./use-model";
 
@@ -43,8 +44,14 @@ export interface CommandBarMatch {
   readonly index: number;
 }
 
-/** Resting: the urgency an agent without a reading ranks at. */
-const URGENCY_UNKNOWN = 4;
+/** Where an agent stands in the palette: its rank (PALETTE_RANK) and when it entered it. */
+export interface AgentStanding {
+  readonly rank: number;
+  readonly since: number;
+}
+
+/** An agent without a reading ranks as resting, since the beginning of time. */
+const STANDING_UNKNOWN: AgentStanding = { rank: PALETTE_RANK.resting, since: 0 };
 
 const isAgent = (node: Node): boolean => node.kind === "agent";
 
@@ -60,20 +67,22 @@ const kindRank = (node: Node): number => {
  * Filter and rank the command bar node list. The palette is biased toward
  * agents: they are what the operator most often jumps to.
  *
- * Empty query: agents first, most urgent first (`urgencyById`, lower is more
- * urgent: see seatUrgency), then regions, then notes, then every other kind.
+ * Empty query: agents first, in the palette's one linear order (`standingById`:
+ * see PALETTE_RANK), then regions, then notes, then every other kind. Inside a
+ * rank the agent that entered it most recently comes first, then name.
  * Non-empty: the palettes' shared fuzzy matcher (lib/fuzzy-match) scores the
  * title, so "productlead" and "prdld" both find product-lead; other text and
  * the node's region path (`regionPathById`) match as plain substrings, so a
  * region name finds the nodes inside it. A title hit outranks the same hit in
- * other text; at equal match quality agents rank above other kinds, the most urgent agent first. Remaining ties break
- * by hotbar MRU recency, then paint order.
+ * other text; at equal match quality agents rank above other kinds, in that
+ * same order. Ties between other kinds break by hotbar MRU recency, then paint
+ * order; agents never use either.
  */
 export const filterCommandBarNodes = (
   nodes: ReadonlyArray<Node>,
   query: string,
   recentIds: ReadonlyArray<string>,
-  urgencyById: ReadonlyMap<string, number> = new Map(),
+  standingById: ReadonlyMap<string, AgentStanding> = new Map(),
   regionPathById: ReadonlyMap<string, string> = new Map(),
 ): ReadonlyArray<CommandBarMatch> => {
   const q = query.trim().toLowerCase();
@@ -96,7 +105,7 @@ export const filterCommandBarNodes = (
     const score = Math.max(anywhere?.score ?? 0, inTitle ? inTitle.score + 1 : 0);
     if (score > 0) matches.push({ node, score, index });
   }
-  const urgency = (node: Node): number => urgencyById.get(node.id) ?? URGENCY_UNKNOWN;
+  const standing = (node: Node): AgentStanding => standingById.get(node.id) ?? STANDING_UNKNOWN;
   matches.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
     const aAgent = isAgent(a.node);
@@ -108,8 +117,14 @@ export const filterCommandBarNodes = (
       if (byKind !== 0) return byKind;
     }
     if (aAgent && bAgent) {
-      const byUrgency = urgency(a.node) - urgency(b.node);
-      if (byUrgency !== 0) return byUrgency;
+      const aStanding = standing(a.node);
+      const bStanding = standing(b.node);
+      return (
+        aStanding.rank - bStanding.rank ||
+        bStanding.since - aStanding.since ||
+        titleOf(a.node).localeCompare(titleOf(b.node)) ||
+        a.node.id.localeCompare(b.node.id)
+      );
     }
     const aRecent = recentRank.get(a.node.id);
     const bRecent = recentRank.get(b.node.id);

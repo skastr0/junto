@@ -1,4 +1,5 @@
 import { use$ } from "@legendapp/state/react";
+import { agentSeatStatusOf } from "@shared/agent-seat-state";
 import type { SeatSignalRollup } from "@shared/agent-signals";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import type { Seat } from "@shared/model";
@@ -10,7 +11,7 @@ import { seatSignalRollups$, useSeatSignalRollup } from "../lib/agent-signals-st
 import { kernel$ } from "../lib/kernel-view";
 import { attentionCoarse$, useSeatAttentionReasons } from "../lib/occupancy-feed";
 import { attentionReasonsForSeat, cardMark, seatFactsForNode, type SeatFactsInput } from "../lib/seat-projections";
-import { seatUrgency, type SeatUrgency } from "../lib/seat-line";
+import { PALETTE_RANK, paletteRank, seatUrgency, type PaletteRank, type SeatUrgency } from "../lib/seat-line";
 import { state$ } from "../lib/state";
 import { terminal$ } from "../lib/terminal-state";
 import { useThreadHealthMark, type ThreadHealthMark } from "../lib/thread-health";
@@ -76,21 +77,57 @@ export function useSeatGlanceOf(seat: Seat): SeatGlance {
   return { ...seatControlOf(seat.id, seat.harness, { seatEvent, needsLook, session, graphBlocked, attentionReasons }), health, signal };
 }
 
+type Readable<T> = { get(): T; peek(): T };
+
+/** The seat's control facts and open signal, tracked (`get`) or not (`peek`). */
+const seatReadOf = (seat: Seat, tracked: boolean) => {
+  const read = <T,>(source: Readable<T>): T => (tracked ? source.get() : source.peek());
+  const coarse = read(attentionCoarse$(seat.agentKey)) as AgentChatCoarse | undefined;
+  const seatEvent = read(agentSeat$.byBindingId[seat.bindingId]);
+  const control = seatControlOf(seat.id, seat.harness, {
+    seatEvent,
+    needsLook: read(agentSeat$.needsLookByBindingId[seat.bindingId]) === true,
+    session: read(terminal$.sessionByBindingId[seat.bindingId]),
+    graphBlocked: read(kernel$.execution)?.blocked.includes(seat.id) === true,
+    attentionReasons: attentionReasonsForSeat(seat.agentKey, coarse),
+  });
+  const rollup = read(seatSignalRollups$)[seat.id];
+  return { control, seatEvent, rollup, doneAt: read(agentSeat$.doneAtByBindingId[seat.bindingId]) };
+};
+
 /**
  * How urgently a seat wants the operator right now (seatUrgency), read once
  * from the same stores without subscribing: a list sorted by it holds its
  * order while the operator moves through it.
  */
 export function seatUrgencyOf(seat: Seat): SeatUrgency {
-  const coarse = attentionCoarse$(seat.agentKey).peek() as AgentChatCoarse | undefined;
-  const control = seatControlOf(seat.id, seat.harness, {
-    seatEvent: agentSeat$.byBindingId[seat.bindingId].peek(),
-    needsLook: agentSeat$.needsLookByBindingId[seat.bindingId].peek() === true,
-    session: terminal$.sessionByBindingId[seat.bindingId].peek(),
-    graphBlocked: kernel$.execution.peek()?.blocked.includes(seat.id) === true,
-    attentionReasons: attentionReasonsForSeat(seat.agentKey, coarse),
-  });
-  return seatUrgency({ ...control, signal: seatSignalRollups$.peek()[seat.id]?.kind });
+  const { control, rollup } = seatReadOf(seat, false);
+  return seatUrgency({ ...control, signal: rollup?.kind });
+}
+
+/** Where a seat stands in the palette: its rank, and when it entered that rank. */
+export type SeatStanding = { readonly rank: PaletteRank; readonly since: number };
+
+/**
+ * A seat's palette standing. Read inside a `use$` computed it tracks every
+ * store it reads, so the palette re-ranks when a seat changes state. `since`
+ * is the time of the fact that put the seat in its rank: the open signal for
+ * blocked, waiting and review, the finished turn for done, else the status
+ * change in the seat's own snapshot (the last time it left rest, for working).
+ */
+export function seatStandingOf(seat: Seat): SeatStanding {
+  const { control, seatEvent, rollup, doneAt } = seatReadOf(seat, true);
+  const rank = paletteRank(seatUrgency({ ...control, signal: rollup?.kind }), rollup?.kind);
+  const fromSignal =
+    (rank === PALETTE_RANK.blocked && rollup?.kind === "blocked") ||
+    (rank === PALETTE_RANK.waiting && rollup?.kind === "escalate") ||
+    (rank === PALETTE_RANK.review && rollup?.kind === "feedback");
+  if (fromSignal && rollup) return { rank, since: rollup.signal.createdAt };
+  const snapshot = agentSeatStatusOf(seatEvent)?.snapshot;
+  const fallback = seatEvent?.at ?? 0;
+  if (rank === PALETTE_RANK.done) return { rank, since: doneAt ?? snapshot?.turnUnseen?.since ?? fallback };
+  if (rank === PALETTE_RANK.working) return { rank, since: snapshot?.activitySince ?? snapshot?.since ?? fallback };
+  return { rank, since: snapshot?.since ?? fallback };
 }
 
 /** The ring over facts a caller already read (a row that also prints the line). */

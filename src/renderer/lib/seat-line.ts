@@ -117,3 +117,38 @@ export const seatUrgency = (input: {
   // Offline, stopped and gone seats draw the "off" ring.
   return activity.glyph === "off" ? SEAT_URGENCY.offline : SEAT_URGENCY.resting;
 };
+
+/**
+ * The palette's own order of seats, top first: blocked, waiting on the
+ * operator, working, ready for review (a feedback signal), done and not read
+ * yet, resting, not running. It splits SEAT_URGENCY's review in two and puts
+ * working above both; the rail and the switcher keep SEAT_URGENCY.
+ */
+export const PALETTE_RANK = {
+  blocked: 0,
+  waiting: 1,
+  working: 2,
+  review: 3,
+  done: 4,
+  resting: 5,
+  offline: 6,
+} as const;
+
+export type PaletteRank = (typeof PALETTE_RANK)[keyof typeof PALETTE_RANK];
+
+export const paletteRank = (urgency: SeatUrgency, signal?: AgentSignalKind): PaletteRank => {
+  switch (urgency) {
+    case SEAT_URGENCY.blocked:
+      return PALETTE_RANK.blocked;
+    case SEAT_URGENCY.waiting:
+      return PALETTE_RANK.waiting;
+    case SEAT_URGENCY.working:
+      return PALETTE_RANK.working;
+    case SEAT_URGENCY.review:
+      return signal === "feedback" ? PALETTE_RANK.review : PALETTE_RANK.done;
+    case SEAT_URGENCY.resting:
+      return PALETTE_RANK.resting;
+    case SEAT_URGENCY.offline:
+      return PALETTE_RANK.offline;
+  }
+};

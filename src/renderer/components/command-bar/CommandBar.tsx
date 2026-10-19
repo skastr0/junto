@@ -14,6 +14,7 @@ import {
 import {
   filterCommandBarNodes,
   focusCanvasNode,
+  type AgentStanding,
 } from "../../lib/command-bar";
 import { closeOperatorModal } from "../../lib/operator-modal";
 import { detailOf } from "../../lib/node-presentation";
@@ -26,7 +27,7 @@ import { useCanvas } from "../../lib/use-model";
 import { accentColor, HUE, HUE_TEXT } from "../../lib/theme";
 import { KindMark } from "../NodeKindMark";
 import { RegionCrumb } from "../RegionCrumb";
-import { SeatRingView, seatUrgencyOf, useSeatGlanceOf, type SeatGlance } from "../SeatRing";
+import { SeatRingView, seatStandingOf, useSeatGlanceOf, type SeatGlance } from "../SeatRing";
 import { Kbd } from "../ui";
 import { claimFocus } from "../../lib/focus-ownership";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
@@ -197,13 +198,18 @@ type CommandBarRow =
   | { readonly kind: "node"; readonly node: Node; readonly index: number; readonly position: number }
   | { readonly kind: "action"; readonly action: CommandBarAction; readonly position: number };
 
+/** A row's identity: it holds the cursor when the list re-ranks under it. */
+const rowKeyOf = (row: CommandBarRow): string =>
+  row.kind === "node" ? row.node.id : `action:${row.action.id}`;
+
 export function CommandBar() {
   const canvas = useCanvas(use$(state$.canvasName));
   const nodes = useMemo(() => [...canvas.nodes.values()].sort((a, b) => a.z - b.z), [canvas]);
   const recentIds = use$(state$.hotbarActiveMru);
   const [query, setQuery] = useState("");
   const [tabMode, setTabMode] = useState<"nodes" | "actions">("nodes");
-  const [active, setActive] = useState(0);
+  // The cursor is a row, not a position: a live re-rank moves the list, never the selection.
+  const [activeKey, setActiveKey] = useState<string | undefined>(undefined);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -213,24 +219,23 @@ export function CommandBar() {
   // Catalog is rebuilt once per open so labels reflect live state.
   const actions = useMemo(() => buildCommandBarActions(), []);
   const mode = commandBarMode(query, tabMode);
-  // Agents lead the list, most urgent first. Read once per open (and per model
-  // change), not live: rows never jump under the cursor. Each row's ring and
-  // line stay live.
-  const urgencyById = useMemo(
-    () =>
+  // Agents lead the list in the palette's one order (PALETTE_RANK). Live: a
+  // seat's state change re-ranks the list while it is open, and the cursor
+  // stays on its row.
+  const standingById = use$(
+    (): ReadonlyMap<string, AgentStanding> =>
       new Map(
         nodes
           .filter((node): node is NodeOf<"agent"> => node.kind === "agent")
-          .map((node) => [node.id, seatUrgencyOf(node)] as const),
+          .map((node) => [node.id, seatStandingOf(node)] as const),
       ),
-    [nodes],
   );
   // Region paths are derived once per canvas change, never per keystroke.
   const regionPathById = useMemo(() => regionPaths(canvas), [canvas]);
   const regionTrailById = useMemo(() => regionTrails(canvas), [canvas]);
   const nodeMatches = useMemo(
-    () => filterCommandBarNodes(nodes, query, recentIds, urgencyById, regionPathById),
-    [nodes, query, recentIds, urgencyById, regionPathById],
+    () => filterCommandBarNodes(nodes, query, recentIds, standingById, regionPathById),
+    [nodes, query, recentIds, standingById, regionPathById],
   );
   const actionMatches = useMemo(
     () => filterCommandBarActions(actions, query),
@@ -250,14 +255,25 @@ export function CommandBar() {
           }));
 
   useEffect(() => {
-    setActive(0);
+    setActiveKey(undefined);
   }, [query, mode]);
+
+  // The cursor's row, wherever the ranking has put it.
+  const found = rows.findIndex((row) => rowKeyOf(row) === activeKey);
+  const active = found === -1 ? 0 : found;
+  const firstKey = rows[0] ? rowKeyOf(rows[0]) : undefined;
+
+  // Pin the cursor to a row at once (a fresh list, or its row left it), so a
+  // re-rank never carries it along with whatever is on top.
+  useEffect(() => {
+    if (found === -1 && firstKey !== undefined) setActiveKey(firstKey);
+  }, [found, firstKey]);
 
   useEffect(() => {
     listRef.current
       ?.querySelector(`[data-index="${active}"]`)
       ?.scrollIntoView({ block: "nearest" });
-  }, [active]);
+  }, [active, activeKey]);
 
   // Read once per open: search sits over whatever the operator was in.
   const overModal = useMemo(() => isModalLayerOpen("working"), []);
@@ -272,17 +288,22 @@ export function CommandBar() {
     closeCommandBar();
   };
 
+  const rowKeyAt = (position: number): string | undefined => {
+    const row = rows[position];
+    return row ? rowKeyOf(row) : undefined;
+  };
+
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
       event.stopPropagation();
-      setActive((current) => Math.min(current + 1, rows.length - 1));
+      setActiveKey(rowKeyAt(Math.min(active + 1, rows.length - 1)));
       return;
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
       event.stopPropagation();
-      setActive((current) => Math.max(current - 1, 0));
+      setActiveKey(rowKeyAt(Math.max(active - 1, 0)));
       return;
     }
     if (event.key === "Tab") {
@@ -369,7 +390,7 @@ export function CommandBar() {
                     "command-bar__row",
                     row.position === active ? "command-bar__row--active" : "",
                   ].filter(Boolean).join(" ")}
-                  onPointerMove={() => setActive(row.position)}
+                  onPointerMove={() => setActiveKey(rowKeyOf(row))}
                   onPointerDown={(event) => {
                     event.preventDefault();
                     commit(row, event.metaKey || event.ctrlKey);
@@ -390,7 +411,7 @@ export function CommandBar() {
                     "command-bar__row--action",
                     row.position === active ? "command-bar__row--active" : "",
                   ].filter(Boolean).join(" ")}
-                  onPointerMove={() => setActive(row.position)}
+                  onPointerMove={() => setActiveKey(rowKeyOf(row))}
                   onPointerDown={(event) => {
                     event.preventDefault();
                     commit(row, false);

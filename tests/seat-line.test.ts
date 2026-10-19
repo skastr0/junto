@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { terminalActivity } from "../src/renderer/lib/activity";
-import { SEAT_URGENCY, seatLine, seatUrgency } from "../src/renderer/lib/seat-line";
+import { PALETTE_RANK, paletteRank, SEAT_URGENCY, seatLine, seatUrgency } from "../src/renderer/lib/seat-line";
 
 const words = (input: Parameters<typeof terminalActivity>[0]) => seatLine(terminalActivity(input)).text;
 
@@ -62,5 +62,23 @@ describe("seatUrgency: blocked, waiting on you, review, working, resting, offlin
   it("a declared signal outranks the control state it rides on", () => {
     expect(urgency({ seatState: "working" }, { signal: "blocked" })).toBe(SEAT_URGENCY.blocked);
     expect(urgency({ seatState: "attention" }, { signal: "feedback" })).toBe(SEAT_URGENCY.waiting);
+  });
+});
+
+describe("paletteRank: blocked, waiting, working, review, done, resting, offline", () => {
+  it("is one linear order, working above review, review above done", () => {
+    expect(Object.values(PALETTE_RANK)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+  });
+
+  it.each([
+    [SEAT_URGENCY.blocked, undefined, PALETTE_RANK.blocked],
+    [SEAT_URGENCY.waiting, undefined, PALETTE_RANK.waiting],
+    [SEAT_URGENCY.working, undefined, PALETTE_RANK.working],
+    [SEAT_URGENCY.review, "feedback", PALETTE_RANK.review],
+    [SEAT_URGENCY.review, undefined, PALETTE_RANK.done],
+    [SEAT_URGENCY.resting, undefined, PALETTE_RANK.resting],
+    [SEAT_URGENCY.offline, undefined, PALETTE_RANK.offline],
+  ] as const)("urgency %i with signal %s ranks %i", (urgency, signal, expected) => {
+    expect(paletteRank(urgency, signal)).toBe(expected);
   });
 });
