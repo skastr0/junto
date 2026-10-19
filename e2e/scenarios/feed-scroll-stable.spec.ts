@@ -49,9 +49,11 @@ const signal = (id: string, seatId: string, minutesAgo: number, kind: AgentSigna
 });
 
 // Lead holds one card and ranks first (oldest), then Build, then Docs.
+// Build is long enough that the list rows, short in the split feed, still
+// push Docs below the first screen.
 const SIGNALS: ReadonlyArray<AgentSignal> = [
-  signal("l0", "lea", 90),
-  ...Array.from({ length: 8 }, (_, n) => signal(`b${n}`, n % 2 === 0 ? "bo" : "bri", 80 - n * 2)),
+  signal("l0", "lea", 120),
+  ...Array.from({ length: 14 }, (_, n) => signal(`b${n}`, n % 2 === 0 ? "bo" : "bri", 110 - n * 2)),
   ...Array.from({ length: 7 }, (_, n) => signal(`d${n}`, n % 2 === 0 ? "dot" : "dex", 60 - n * 2)),
 ];
 
@@ -195,8 +197,8 @@ test("the needs-you list moves only when the operator moves it", async () => {
 
     // 6. A card arriving above the viewport, at the end of Build.
     expect(await topOf("d0"), "Docs starts above the viewport").toBeLessThan(view.top);
-    await arrive(signal("b8", "bo", 0));
-    await expect(cardOf("b8")).toHaveCount(1, { timeout: 10_000 });
+    await arrive(signal("b20", "bo", 0));
+    await expect(cardOf("b20")).toHaveCount(1, { timeout: 10_000 });
     await page.waitForTimeout(150);
     expectAt(await topOf("d4"), d4Top, "a card arriving above moves nothing on screen");
     await shot(page, "6-arrived-above.png");

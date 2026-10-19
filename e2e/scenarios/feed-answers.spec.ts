@@ -11,8 +11,8 @@
  *   - a acknowledges: answered, recorded as "Acknowledged, no note"
  *   - Shift+1 sends the first quiet note: answered with its words
  *   - 1 sends the first quick reply: answered, and the seat is mailed
- *   - Enter opens the composer in the pane; each button's hover says what it
- *     does; Shift+Cmd+Enter with no text acknowledges
+ *   - Enter opens the composer in the pane; each button's hover (its
+ *     tooltip) says what it does; Shift+Cmd+Enter with no text acknowledges
  *   - Settings carries the quiet notes next to the quick replies
  */
 import { mkdir } from "node:fs/promises";
@@ -118,7 +118,7 @@ test("the feed answers four ways from the list, split into list and detail", asy
     ]);
     await expect(pane.getByTestId("quiet-notes").getByRole("button")).toHaveText([/Acknowledged/, /Good/]);
     await expect(pane.getByTestId("quiet-notes").getByRole("button").first()).toHaveAttribute(
-      "title",
+      "data-junto-tooltip",
       'Send "Acknowledged" quietly: answered, the seat is not woken (⇧1)',
     );
     await expect(rows.getByTestId("quick-replies")).toHaveCount(0);
@@ -167,12 +167,12 @@ test("the feed answers four ways from the list, split into list and detail", asy
     await page.keyboard.press("Enter");
     const reply = pane.getByLabel("Your reply");
     await expect(reply).toBeFocused();
-    await expect(pane.getByRole("button", { name: "Dismiss" })).toHaveAttribute("title", "Dismiss: closes it, the seat is not told");
+    await expect(pane.getByRole("button", { name: "Dismiss" })).toHaveAttribute("data-junto-tooltip", "Dismiss: closes it, the seat is not told");
     await expect(pane.getByRole("button", { name: "Send quietly" })).toHaveAttribute(
-      "title",
+      "data-junto-tooltip",
       /^Send quietly: answered, the seat is not woken/,
     );
-    await expect(pane.getByRole("button", { name: "Send reply" })).toHaveAttribute("title", /^Send reply: mails and wakes the seat/);
+    await expect(pane.getByRole("button", { name: "Send reply" })).toHaveAttribute("data-junto-tooltip", /^Send reply: mails and wakes the seat/);
     // Empty, Send quietly is still there to press: it acknowledges.
     await expect(pane.getByRole("button", { name: "Send quietly" })).toBeEnabled();
     await expect(pane.getByRole("button", { name: "Send reply" })).toBeDisabled();
