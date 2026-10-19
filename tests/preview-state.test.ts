@@ -6,9 +6,6 @@ import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { snapshotPreview } from "../scripts/preview-snapshot";
 import { checkPreview } from "../scripts/preview-db-check";
-import { migrateCanvasKinds } from "../src/main/junto/model/migrate";
-import { CANVAS_AUTHORITY_SCHEMA_SQL } from "./fixtures/state-v1/canvas-schema";
-import { ENTITIES_STATE_SCHEMA_SQL } from "./fixtures/domain-cutover/entities-schema";
 import { pinFreshPreviewHome } from "../src/main/junto/preview-home";
 
 const paths: string[] = [];
@@ -74,30 +71,34 @@ it("backs up committed WAL without a checkpoint, retains a protected baseline an
   } finally { db.close(); }
 });
 
-it("reports preservation, fallback reasons and detects a changed session while the migrated WAL is open", async () => {
+it("compares a migrated copy with its baseline across versions and detects changed seats and lost rows while the migrated WAL is open", async () => {
   const root = temporary(), source = join(root, "source"), preview = join(root, "preview");
   mkdirSync(join(source, "state"), { recursive: true });
   const original = new DatabaseSync(join(source, "state", "junto.db"));
-  original.exec(CANVAS_AUTHORITY_SCHEMA_SQL + ENTITIES_STATE_SCHEMA_SQL + "PRAGMA user_version=11; CREATE TABLE work_messages(id TEXT PRIMARY KEY); INSERT INTO work_messages VALUES ('mail')");
-  original.prepare("INSERT INTO canvas_documents VALUES(?,?,?,?,?)").run("c", "factory", "a".repeat(64), "now", "now");
-  const insert = original.prepare("INSERT INTO canvas_nodes(canvas_id,node_id,z_index,type,x,y,width,height,text_content,ether_json,updated_at) VALUES('c',?,?, 'text',0,0,220,90,'card',?,'now')");
-  insert.run("seat", 0, JSON.stringify({ entity: { kind: "agent", name: "local:worker" }, terminal: { bindingId: "binding", harness: "codex", sessionId: "session-original" } }));
-  insert.run("retired", 1, JSON.stringify({ entity: { kind: "retired-kind", name: "retired" } }));
+  original.exec(`PRAGMA user_version=21;
+    CREATE TABLE canvases(canvas_name TEXT PRIMARY KEY, canvas_id TEXT NOT NULL);
+    CREATE TABLE seats(canvas_name TEXT NOT NULL, id TEXT NOT NULL, label TEXT, session_id TEXT, PRIMARY KEY(canvas_name, id));
+    CREATE TABLE work_messages(id TEXT PRIMARY KEY);
+    INSERT INTO canvases VALUES ('factory', 'c');
+    INSERT INTO seats VALUES ('factory', 'seat', 'worker', 'session-original');
+    INSERT INTO work_messages VALUES ('mail')`);
   original.close();
   await snapshotPreview(source, preview);
   const migrated = new DatabaseSync(join(preview, ".junto", "state", "junto.db"));
   try {
     migrated.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON");
-    migrateCanvasKinds(migrated, "macbook");
-    migrated.exec("PRAGMA user_version=13");
+    // A later step drops a column and adds a table: neither is a change.
+    migrated.exec("ALTER TABLE seats DROP COLUMN session_id; CREATE TABLE seat_offboard_clock(seat_id TEXT); PRAGMA user_version=25");
     const good = checkPreview(preview);
+    expect(good.failures).toEqual([]);
     expect(good.ok).toBe(true);
-    expect(good.downgraded).toEqual([expect.objectContaining({ id: "retired", reason: expect.stringContaining("preserved as a note") })]);
-    expect(good.seatChanges).toEqual([]);
-    migrated.exec("UPDATE seats SET session_id='changed-session'");
+    expect(good.identity.find(result => result.table === "seats")?.compared).toEqual(["canvas_name", "id", "label"]);
+    expect(good.rowCounts).toContainEqual({ table: "seat_offboard_clock", before: null, after: 0 });
+    migrated.exec("UPDATE seats SET label='renamed'; DELETE FROM work_messages");
     const changed = checkPreview(preview);
     expect(changed.ok).toBe(false);
-    expect(changed.seatChanges[0]?.changes.sessionId).toEqual({ before: "session-original", after: "changed-session" });
+    expect(changed.identity.find(result => result.table === "seats")?.changed).toEqual([{ key: "factory/seat", changes: { label: { before: "worker", after: "renamed" } } }]);
+    expect(changed.failures).toContain("work_messages: 1 rows before, 0 after");
     expect(changed.unchangedBaseline).toBe(true);
   } finally { migrated.close(); }
 });

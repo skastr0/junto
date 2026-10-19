@@ -2,12 +2,42 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { KIND_TABLES_V13 } from "../src/main/junto/model/migrate";
-import { machineNameAtMigration } from "../src/main/junto/state/machine-name-at-migration";
-import { convertLegacyRow, type LegacyNodeRow } from "../src/shared/model/from-legacy-row";
 import { fileSha256 } from "./preview-snapshot";
 
 const identifier = (name: string) => '"' + name.replaceAll('"', '""') + '"';
+type Row = Record<string, unknown>;
+
+const tables = (db: DatabaseSync): string[] =>
+  db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all().map(row => String(row.name));
+const columns = (db: DatabaseSync, table: string): string[] =>
+  db.prepare(`SELECT name FROM pragma_table_info(${"'" + table.replaceAll("'", "''") + "'"})`).all().map(row => String(row.name));
+const count = (db: DatabaseSync, table: string): number =>
+  Number(db.prepare(`SELECT count(*) AS n FROM ${identifier(table)}`).get()?.n);
+
+/**
+ * Compares a migrated copy with its untouched baseline, whatever schema each
+ * is at: health, every table's row count, and the canvases and seats rows on
+ * the columns both schemas still have. A step that drops a column is not a
+ * change; a step that rewrites a kept column's value is.
+ */
+const sameRows = (before: DatabaseSync, after: DatabaseSync, table: string, key: readonly string[]) => {
+  const shared = columns(before, table).filter(column => columns(after, table).includes(column));
+  const select = `SELECT ${shared.map(identifier).join(",")} FROM ${identifier(table)} ORDER BY ${key.map(identifier).join(",")}`;
+  const rowKey = (row: Row) => key.map(column => String(row[column])).join("/");
+  const old = new Map((before.prepare(select).all() as Row[]).map(row => [rowKey(row), row]));
+  const next = new Map((after.prepare(select).all() as Row[]).map(row => [rowKey(row), row]));
+  const changed: Array<{ key: string; changes: Record<string, { before: unknown; after: unknown }> }> = [];
+  for (const [id, row] of old) {
+    const migrated = next.get(id);
+    if (migrated === undefined) { changed.push({ key: id, changes: { row: { before: "present", after: "missing" } } }); continue; }
+    const changes: Record<string, { before: unknown; after: unknown }> = {};
+    for (const column of shared) if (row[column] !== migrated[column]) changes[column] = { before: row[column], after: migrated[column] };
+    if (Object.keys(changes).length) changed.push({ key: id, changes });
+  }
+  const added = [...next.keys()].filter(id => !old.has(id));
+  return { table, compared: shared, before: old.size, after: next.size, changed, added };
+};
+
 export const checkPreview = (home: string) => {
   const baselinePath = join(home, "before", "junto.db");
   const manifest = JSON.parse(readFileSync(join(home, "snapshot.json"), "utf8")) as { beforeSha256: string };
@@ -19,76 +49,29 @@ export const checkPreview = (home: string) => {
     const failures: string[] = [];
     const unchangedBaseline = fileSha256(baselinePath) === manifest.beforeSha256;
     if (!unchangedBaseline) failures.push("Untouched baseline hash changed");
-    const health = (db: DatabaseSync) => ({ version: db.prepare("PRAGMA user_version").get()?.user_version,
+    const health = (db: DatabaseSync) => ({ version: Number(db.prepare("PRAGMA user_version").get()?.user_version),
       integrity: db.prepare("PRAGMA integrity_check").all(), foreignKeys: db.prepare("PRAGMA foreign_key_check").all() });
     const baselineHealth = health(before), previewHealth = health(after);
     for (const [label, h] of [["before", baselineHealth], ["after", previewHealth]] as const) {
       if (h.integrity.length !== 1 || h.integrity[0]?.integrity_check !== "ok" || h.foreignKeys.length) failures.push(`${label}: database health check failed`);
     }
-    const legacy = before.prepare(`SELECT d.canvas_name,n.* FROM canvas_nodes n JOIN canvas_documents d USING(canvas_id) ORDER BY d.canvas_name,n.z_index,n.node_id`).all() as unknown as LegacyNodeRow[];
-    const expected = new Map<string, Map<string, number>>();
-    const bindings = new Map<string, Set<string>>();
-    const downgraded: Array<{ canvas: string; id: string; storedType: string; reason: string }> = [];
-    const seatChanges: Array<{ canvas: string; id: string; changes: Record<string, unknown> }> = [];
-    const thisMachine = machineNameAtMigration(before);
-    for (const row of legacy) {
-      let { node, downgraded: downgrade } = convertLegacyRow(row, thisMachine);
-      if (node.kind === "agent" || node.kind === "terminal") {
-        const seen = bindings.get(row.canvas_name) ?? new Set<string>();
-        if (seen.has(node.bindingId)) {
-          downgrade = { canvas: row.canvas_name, id: row.node_id, storedType: node.kind, reason: "session binding already belongs to an earlier node; preserved as a note" };
-          node = convertLegacyRow({ ...row, type: "text", ether_json: null }, thisMachine).node;
-        } else seen.add(node.bindingId);
-        bindings.set(row.canvas_name, seen);
-      }
-      if (downgrade) {
-        downgraded.push(downgrade);
-        if (!after.prepare("SELECT id FROM notes WHERE canvas_name=? AND id=?").get(row.canvas_name, row.node_id)) failures.push(`${row.canvas_name}/${row.node_id}: downgraded note missing`);
-      }
-      const counts = expected.get(row.canvas_name) ?? new Map<string, number>();
-      counts.set(node.kind, (counts.get(node.kind) ?? 0) + 1);
-      expected.set(row.canvas_name, counts);
-      let raw: { entity?: { kind?: string }; terminal?: Record<string, unknown> } = {};
-      try { raw = JSON.parse(row.ether_json ?? "{}"); } catch { /* malformed rows are reported above */ }
-      if (raw.entity?.kind === "agent" || raw.entity?.kind === "terminal") {
-        const migrated = after.prepare(`SELECT binding_id,${raw.entity.kind === "agent" ? "harness,session_id" : "NULL AS harness,NULL AS session_id"} FROM ${identifier(raw.entity.kind === "agent" ? "seats" : "terminals")} WHERE canvas_name=? AND id=?`).get(row.canvas_name, row.node_id);
-        const changes: Record<string, unknown> = {};
-        for (const [oldKey, newKey] of [["bindingId", "binding_id"], ["harness", "harness"], ["sessionId", "session_id"]]) {
-          const old = raw.terminal?.[oldKey] ?? null, next = migrated?.[newKey] ?? null;
-          if (old !== next) changes[oldKey] = { before: old, after: next };
-        }
-        if (!migrated) changes.kind = { before: raw.entity.kind, after: node.kind };
-        if (Object.keys(changes).length) seatChanges.push({ canvas: row.canvas_name, id: row.node_id, changes });
-      }
-    }
-    const canvases = before.prepare("SELECT canvas_name FROM canvas_documents ORDER BY canvas_name").all().map(({ canvas_name }) => {
-      const canvas = String(canvas_name);
-      // The check is of step 12 -> 13, so it walks the tables that step creates.
-      const kinds = Object.entries(KIND_TABLES_V13).map(([kind, table]) => {
-        const actual = Number(after.prepare(`SELECT count(*) AS n FROM ${identifier(table)} WHERE canvas_name=?`).get(canvas)?.n);
-        const count = expected.get(canvas)?.get(kind) ?? 0;
-        if (actual !== count) failures.push(`${canvas}/${kind}: ${count} expected, ${actual} actual`);
-        return { kind, beforeConverted: count, after: actual };
-      });
-      const oldNodes = legacy.filter(row => row.canvas_name === canvas).length;
-      const oldWires = Number(before.prepare("SELECT count(*) AS n FROM canvas_edges e JOIN canvas_documents d USING(canvas_id) WHERE d.canvas_name=?").get(canvas)?.n);
-      const newWires = Number(after.prepare("SELECT count(*) AS n FROM wires WHERE canvas_name=?").get(canvas)?.n);
-      if (oldWires !== newWires) failures.push(`${canvas}: wire count changed`);
-      return { canvas, nodesBefore: oldNodes, nodesAfter: kinds.reduce((n, k) => n + k.after, 0), wiresBefore: oldWires, wiresAfter: newWires, kinds };
-    });
-    const workCounts = (db: DatabaseSync) => new Map(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'work_%' ORDER BY name").all().map(row => {
-      const name = String(row.name);
-      return [name, Number(db.prepare(`SELECT count(*) AS n FROM ${identifier(name)}`).get()?.n)] as const;
-    }));
-    const oldWork = workCounts(before), newWork = workCounts(after);
-    const work = [...new Set([...oldWork.keys(), ...newWork.keys()])].sort().map(table => {
-      const previous = oldWork.get(table) ?? null, current = newWork.get(table) ?? null;
-      if (previous !== null && current !== previous) failures.push(`${table}: Work row count changed`);
+    if (previewHealth.version < baselineHealth.version) failures.push(`schema went back from ${baselineHealth.version} to ${previewHealth.version}`);
+
+    const oldTables = tables(before), newTables = tables(after);
+    const rowCounts = [...new Set([...oldTables, ...newTables])].sort().map(table => {
+      const previous = oldTables.includes(table) ? count(before, table) : null;
+      const current = newTables.includes(table) ? count(after, table) : null;
+      if (previous !== null && current !== null && previous !== current) failures.push(`${table}: ${previous} rows before, ${current} after`);
+      if (previous !== null && previous > 0 && current === null) failures.push(`${table}: dropped with ${previous} rows`);
       return { table, before: previous, after: current };
     });
-    if (seatChanges.length) failures.push(`${seatChanges.length} seats changed binding, harness, session or kind`);
-    const extraCanvases = after.prepare("SELECT canvas_name FROM canvases ORDER BY canvas_name").all().filter(row => !canvases.some(c => c.canvas === row.canvas_name)).map(row => row.canvas_name);
-    return { ok: failures.length === 0, unchangedBaseline, baselineHealth, previewHealth, canvases, extraCanvases, downgraded, seatChanges, work, failures };
+
+    const identity = [sameRows(before, after, "canvases", ["canvas_name"]), sameRows(before, after, "seats", ["canvas_name", "id"])];
+    for (const result of identity) {
+      if (result.changed.length) failures.push(`${result.table}: ${result.changed.length} rows changed or missing`);
+      if (result.added.length) failures.push(`${result.table}: ${result.added.length} rows added`);
+    }
+    return { ok: failures.length === 0, unchangedBaseline, baselineHealth, previewHealth, rowCounts, identity, failures };
   } finally { before.close(); after.close(); }
 };
 
