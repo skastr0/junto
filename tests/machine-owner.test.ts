@@ -244,12 +244,12 @@ it("starts and stops a seat by canvas and seat id, scrubbing the exit message", 
     }),
     seatStop: input => Effect.sync(() => { seen.push(input); return { outcome: "vacant" as const }; }),
   });
-  const started = await f.call("machine.seat-start", { canvas: "default", seatId: "seat-1", resume: false });
+  const started = await f.call("machine.seat-start", { canvas: "default", seatId: "seat-1" });
   expect(started).toMatchObject({ ok: true, op: "machine.seat-start", data: { canvas: "default", seatId: "seat-1", status: "exited", exitReason: "cli-missing" } });
   expect(started.ok && started.op === "machine.seat-start" && started.data.exitMessage).not.toContain("sk-live");
   expect(await f.call("machine.seat-stop", { canvas: "default", seatId: "seat-1" }))
     .toMatchObject({ ok: true, op: "machine.seat-stop", data: { outcome: "vacant" } });
-  expect(seen).toEqual([{ canvas: "default", seatId: "seat-1", resume: false }, { canvas: "default", seatId: "seat-1" }]);
+  expect(seen).toEqual([{ canvas: "default", seatId: "seat-1" }, { canvas: "default", seatId: "seat-1" }]);
 });
 
 it("reads a seat's terminal by canvas and seat id, and refuses where seats cannot be read", async () => {

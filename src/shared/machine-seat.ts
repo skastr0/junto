@@ -7,8 +7,7 @@ import { TerminalSessionStatus } from "./terminal";
 export const MachineSeatId = NodeId.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9._-]{1,128}$/u)));
 export const MachineSeatInput = Schema.Struct({ canvas: CanvasName, seatId: MachineSeatId });
 export type MachineSeatInput = typeof MachineSeatInput.Type;
-/** `resume` false starts a fresh session where one could be resumed. */
-export const MachineSeatStartInput = Schema.Struct({ canvas: CanvasName, seatId: MachineSeatId, resume: Schema.optionalKey(Schema.Boolean) });
+export const MachineSeatStartInput = Schema.Struct({ canvas: CanvasName, seatId: MachineSeatId });
 export type MachineSeatStartInput = typeof MachineSeatStartInput.Type;
 
 const Text = Schema.String.pipe(Schema.check(Schema.isMaxLength(1024)));

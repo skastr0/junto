@@ -67,12 +67,9 @@ const seatArguments = {
  * through the code the window uses. Refused from a seat, like every machine
  * command. A refused spawn answers with status exited and its exit message.
  */
-const seatStart = Command.make("seat-start", {
-  ...seatArguments,
-  fresh: Flag.boolean("fresh").pipe(Flag.withDefault(false), Flag.withDescription("Start a fresh session where one could be resumed")),
-}, ({ canvas, seat, fresh }) => executeJsonCommand("machine seat-start", Effect.gen(function* () {
+const seatStart = Command.make("seat-start", seatArguments, ({ canvas, seat }) => executeJsonCommand("machine seat-start", Effect.gen(function* () {
   yield* requireOwnerCommand;
-  const args = yield* Schema.decodeUnknownEffect(MachineSeatStartInput, { onExcessProperty: "error" })({ canvas, seatId: seat, ...(fresh ? { resume: false } : {}) });
+  const args = yield* Schema.decodeUnknownEffect(MachineSeatStartInput, { onExcessProperty: "error" })({ canvas, seatId: seat });
   const socket = yield* OperatorSocket;
   return yield* socket.call("machine.seat-start", args, 120_000);
 }))).pipe(Command.withDescription("Start a seat by canvas and seat id, the way the window's Start does"));

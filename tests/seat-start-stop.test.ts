@@ -141,17 +141,6 @@ describe("seat start and stop", () => {
       bindingId: localSeat.bindingId, harness: localSeat.harness, documentLaunch: localSeat.launch, cwd: tmpdir(), cause: "operator" });
   });
 
-  it("a fresh start ends the session of a stopped seat, never of a running one", async () => {
-    const f = await fixture();
-    const pin = vi.fn(f.options.pin!);
-    await f.runtime.runPromise(startSeat({ canvas, seatId: localSeat.id, resume: false }, { ...f.options, pin }));
-    expect(pin.mock.calls[0]![0]).toMatchObject({ fresh: true });
-
-    await f.runtime.runPromise(startSeat({ canvas, seatId: localSeat.id, resume: false }, { ...f.options, pin }));
-    expect(pin.mock.calls[1]![0]).not.toHaveProperty("fresh");
-    expect(f.fake.controllers).toHaveLength(1);
-  });
-
   it("a seat on another machine takes the host step and leaves its session to that machine", async () => {
     const f = await fixture([remoteSeat]);
     const pin = vi.fn(f.options.pin!);

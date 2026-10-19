@@ -42,11 +42,11 @@ const run = (home: string, args: string[]) => new Promise<{ status: number | nul
   child.on("close", status => resolve({ status, stdout, stderr }));
 });
 
-it("starts a seat without --fresh, resuming, and with --fresh, fresh", async () => {
+it("starts a seat by canvas and seat id, and the seat decides what it starts on", async () => {
   const { home, seen } = await ownerSocket();
   const plain = await run(home, ["machine", "seat-start", "default", "seat-1"]);
   expect(plain.stderr).toBe("");
   expect(JSON.parse(plain.stdout)).toMatchObject({ ok: true, data: { status: "running" } });
-  expect((await run(home, ["machine", "seat-start", "default", "seat-1", "--fresh"])).status).toBe(0);
-  expect(seen).toEqual([{ canvas: "default", seatId: "seat-1" }, { canvas: "default", seatId: "seat-1", resume: false }]);
+  expect((await run(home, ["machine", "seat-start", "default", "seat-1", "--fresh"])).status).not.toBe(0);
+  expect(seen).toEqual([{ canvas: "default", seatId: "seat-1" }]);
 }, 30_000);

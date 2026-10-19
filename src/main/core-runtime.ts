@@ -229,7 +229,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
       }),
       peerBuild: link.peerBuild,
       // The window's start and stop path, with no window host step.
-      seatStart: ({ canvas, seatId, resume }) => startSeat({ canvas, seatId, ...(resume === undefined ? {} : { resume }) }).pipe(Effect.provideContext(seatServices)),
+      seatStart: ({ canvas, seatId }) => startSeat({ canvas, seatId }).pipe(Effect.provideContext(seatServices)),
       seatStop: ({ canvas, seatId }) => stopSeat({ canvas, seatId }).pipe(Effect.provideContext(seatServices)),
       seatRead: ({ canvas, seatId, lines }) => readSeatWindow({ canvas, seatId, ...(lines === undefined ? {} : { lines }) }).pipe(
         Effect.map(({ hostId, window }) => window === undefined ? { hostId, vacant: true } : {

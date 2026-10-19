@@ -66,7 +66,6 @@ const readSeat = Effect.fn("SeatControl.read")(function* (canvas: CanvasName, se
 export const startSeat = Effect.fn("SeatControl.start")(function* (input: {
   readonly canvas: CanvasName;
   readonly seatId: NodeId;
-  readonly resume?: boolean;
   readonly operationId?: string;
 }, options: SeatControlOptions = {}) {
   const plane = options.plane ?? termPlane;
@@ -94,15 +93,10 @@ export const startSeat = Effect.fn("SeatControl.start")(function* (input: {
       return yield* changed("This seat changed while it was starting.");
   });
   const local = plane.router.isLocalHostId(node.host);
-  // A fresh start of a seat that is still running returns that generation, so
-  // its session stays the seat's.
-  const fresh = local && input.resume === false &&
-    !(yield* Effect.promise(() => plane.router.list(node.host)))
-      .some((session) => session.bindingId === node.bindingId && session.status !== "exited");
   const provisioned = local
     ? yield* Effect.promise(() => (options.pin ?? ensureSeatSessionId)({ canvasName: canvas, nodeId: node.id,
       bindingId: node.bindingId, harness: node.harness, documentLaunch: node.launch, cause: "operator",
-      ...(node.launch?.cwd ? { cwd: node.launch.cwd } : {}), ...(fresh ? { fresh } : {}) }))
+      ...(node.launch?.cwd ? { cwd: node.launch.cwd } : {}) }))
     : { ok: true as const, sessionId: "", minted: false };
   if (!provisioned.ok)
     return yield* new SeatSessionUnavailable({ machine: node.host, canvas, seatId,
@@ -110,7 +104,7 @@ export const startSeat = Effect.fn("SeatControl.start")(function* (input: {
   const spawnIntent = makeManagedSpawnIntent({ nodeId: node.id, harness: node.harness,
     documentLaunch: node.launch, agentKey: node.agentKey, cwd: node.launch?.cwd,
     sessionId: provisioned.sessionId || undefined,
-    resume: provisioned.minted ? false : input.resume !== false,
+    resume: !provisioned.minted,
   });
   yield* assertCurrent;
   const seats = yield* ActorSeatOccupy;
