@@ -17,7 +17,9 @@
  *   each pins.
  * - harness_models_search: trigram full-text search over every model's id,
  *   provider, label and description, kept by the triggers below, so any three
- *   letters of any of them find it.
+ *   letters of any of them find it. The migration guard refuses
+ *   SQLITE_DROP_VTABLE in every step, so a later step that drops or rebuilds
+ *   it needs an exemption there first.
  */
 export const HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS harness_scans (
