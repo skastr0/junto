@@ -10,6 +10,9 @@ import {
   isFxSessionId,
 } from "../src/main/junto/term/templates/fx-session";
 import { parseFxModelsJson } from "../src/main/junto/term/templates/enumerate-models";
+import { seatParts } from "../src/shared/model/seat-parts";
+import { planSeatLaunch } from "../src/shared/seat-launch-params";
+import { recoverDocumentLaunchChoices } from "../src/shared/launch-choices";
 import {
   FX_TEMPLATE,
   SPAWN_ENV_SCRUB,
@@ -235,6 +238,18 @@ describe("fx launch shape", () => {
     expect(launch.argv).toEqual(["fx"]);
     expect(launch.env?.FX_MODEL).toBe("anthropic/claude-opus-5");
     expect(launch.env?.FX_PERMISSION_MODE).toBe("ask");
+  });
+
+  it("keeps a picked model on the seat, so its next start runs it", () => {
+    const picked = seatParts({ harness: "fx", host: "mac", model: "anthropic/claude-opus-5", cwd: "/tmp" }).launch;
+    const planned = planSeatLaunch({ harness: "fx", params: { model: "anthropic/claude-opus-5" }, base: { cwd: "/tmp" } }).launch;
+    for (const launch of [picked, planned]) {
+      expect(launch?.argv).toEqual(["fx"]);
+      expect(launch?.env).toEqual({ FX_MODEL: "anthropic/claude-opus-5" });
+      expect(recoverDocumentLaunchChoices("fx", launch).model).toBe("anthropic/claude-opus-5");
+    }
+    // A harness with no environment dial stores none.
+    expect(seatParts({ harness: "claude", host: "mac", model: "opus", cwd: "/tmp" }).launch).not.toHaveProperty("env");
   });
 
   it("resumes an exact id and never the latest session", () => {

@@ -94,6 +94,8 @@ export const seatParts = (choices: SeatChoices): SeatParts => {
     kind: "harness",
     argv: resolved.argv,
     ...(resolved.cwd ? { cwd: resolved.cwd } : {}),
+    // A dial the harness reads from its environment (fx: FX_MODEL).
+    ...(resolved.env && Object.keys(resolved.env).length > 0 ? { env: { ...resolved.env } } : {}),
     ...(extraArgs.length > 0 ? { extraArgs: [...extraArgs] } : {}),
   };
   const agentKey = agentKeyOf(choices.harness, agentHost, choices.profile);

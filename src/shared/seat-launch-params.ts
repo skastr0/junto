@@ -119,6 +119,8 @@ export const planSeatLaunch = (input: {
       kind: "harness",
       argv: resolved.argv,
       ...(resolved.cwd ? { cwd: resolved.cwd } : {}),
+      // A dial the harness reads from its environment (fx: FX_MODEL).
+      ...(resolved.env && Object.keys(resolved.env).length > 0 ? { env: { ...resolved.env } } : {}),
       ...(extra.args.length > 0 ? { extraArgs: [...extra.args] } : {}),
     },
     rejected: extra.rejected,
