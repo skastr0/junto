@@ -15,7 +15,10 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
 import type { CueId, CueVariant } from "../../src/renderer/lib/sound/cues";
+import { compareView, CueUrgency } from "../../src/shared/wire/urgency";
 import type { Shot } from "./page";
+
+const compareCues = compareView(CueUrgency);
 
 const ROOT = resolve(import.meta.dir, "../..");
 const OUT = join(ROOT, ".local/sound");
@@ -93,7 +96,7 @@ try {
     t += seconds(cue) + gap;
   };
   sheet.push("Every cue, calm to urgent");
-  const calmToUrgent = [...cues].sort((a, b) => a.urgency - b.urgency);
+  const calmToUrgent = [...cues].sort((a, b) => compareCues(b.urgency, a.urgency));
   for (const cue of calmToUrgent) {
     if (cue.id === "mail") {
       for (const tone of ["notice", "prompt", "answer"] as const) {
@@ -147,16 +150,17 @@ try {
   }
 
   const table = [...cues]
-    .sort((a, b) => b.urgency - a.urgency || loudness.get(b.id)! - loudness.get(a.id)!)
+    .sort((a, b) => compareCues(a.urgency, b.urgency) || loudness.get(b.id)! - loudness.get(a.id)!)
     .map((c) => `  ${c.label.padEnd(24)} urgency ${c.urgency}  ${loudness.get(c.id)!.toFixed(1)} dBFS`);
 
   // Families by urgency tier must be ordered by measured loudness.
-  const tiers = [0, 1, 2, 3, 4].map((u) => cues.filter((c) => c.urgency === u).map((c) => loudness.get(c.id)!));
+  const quietToLoud = [...CueUrgency.groups].reverse();
+  const tiers = quietToLoud.map((group) => cues.filter((c) => c.urgency === group).map((c) => loudness.get(c.id)!));
   for (let u = 1; u < tiers.length; u += 1) {
     const quietest = Math.min(...tiers[u]!);
     const loudestBelow = Math.max(...tiers[u - 1]!);
     if (!(quietest > loudestBelow)) {
-      violations.push(`urgency ${u} quietest ${quietest.toFixed(1)} <= urgency ${u - 1} loudest ${loudestBelow.toFixed(1)}`);
+      violations.push(`${quietToLoud[u]} quietest ${quietest.toFixed(1)} <= ${quietToLoud[u - 1]} loudest ${loudestBelow.toFixed(1)}`);
     }
   }
 

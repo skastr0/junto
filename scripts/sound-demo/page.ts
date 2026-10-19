@@ -6,9 +6,10 @@
  */
 
 import { defaultSoundCategories, SOUND_CATEGORIES } from "@shared/settings";
-import { CUE_IDS, CUES, type CueId, type CueVariant, type MailTone } from "../../src/renderer/lib/sound/cues";
+import { CUE_IDS, CUES, type CueGroup, type CueId, type CueVariant, type MailTone } from "../../src/renderer/lib/sound/cues";
 import { buildSoundGraph, duckAmbient, renderCue } from "../../src/renderer/lib/sound/graph";
-import { ATTENTION_URGENCY, CueMixer, type CueRequest } from "../../src/renderer/lib/sound/mixer";
+import { CueMixer, type CueRequest } from "../../src/renderer/lib/sound/mixer";
+import { takesAttentionSlot } from "@shared/wire/urgency";
 import { seeded } from "../../src/renderer/lib/sound/palette";
 
 export type Shot = { readonly cue: CueId; readonly at: number; readonly variant: CueVariant };
@@ -37,7 +38,7 @@ const render = async (
   for (const category of SOUND_CATEGORIES) graph.families[category].gain.value = families[category].volume;
   for (const shot of shots) {
     renderCue(graph, shot.cue, shot.at, shot.variant);
-    if (CUES[shot.cue].urgency >= ATTENTION_URGENCY) duckAmbient(graph, shot.at, CUES[shot.cue].seconds);
+    if (takesAttentionSlot(CUES[shot.cue].urgency)) duckAmbient(graph, shot.at, CUES[shot.cue].seconds);
   }
   const buffer = await ctx.startRendering();
   return { left: toBase64(buffer.getChannelData(0)), right: toBase64(buffer.getChannelData(1)) };
@@ -90,7 +91,7 @@ declare global {
     __sound: {
       render: typeof render;
       busyCanvas: typeof busyCanvas;
-      cues: ReadonlyArray<{ id: CueId; seconds: number; urgency: number; label: string }>;
+      cues: ReadonlyArray<{ id: CueId; seconds: number; urgency: CueGroup; label: string }>;
     };
   }
 }
