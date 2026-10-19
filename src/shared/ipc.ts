@@ -6,15 +6,14 @@ import type { WorkAttentionSnapshot } from "./work-attention";
 import type { WorkItemQuery, WorkActorQuery, WorkActorPage, WorkAttentionQuery, WorkLaneRow, WorkSinkQuery, WorkSinkPage, WorkSinkChanged } from "./work-sinks";
 import type { CanvasesChanged, Changed, Command, Opened, SheetChanged, SheetGrid } from "./model";
 import type { WorkMailQuery, WorkMailPage, WorkMailChanged } from "./work-mail";
+import type { MailThreadMessage, MailThreadSummary } from "./wire/mail-threads";
 import type {
-  MailThreadMessage,
-  MailThreadSummary,
   MentionableSeat,
   OperatorThreadSend,
   OperatorThreadSent,
   SeatThreadQuery,
   SeatThreadsQuery,
-} from "./wire/mail-threads";
+} from "./mail-threads";
 import type {
   OffboardRulesPatch,
   SeatOffboardRunInput,

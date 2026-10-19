@@ -8,7 +8,7 @@ import {
   SeatThreadQuery,
   SeatThreadsQuery,
   type OperatorThreadSent,
-} from "@shared/wire/mail-threads";
+} from "@shared/mail-threads";
 import {
   deliverOperatorThreadMail,
   mentionableSeats,

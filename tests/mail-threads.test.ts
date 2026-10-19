@@ -38,7 +38,8 @@ import {
   seatThreads,
   sendOperatorThreadMail,
 } from "../src/main/junto/work/operator-threads";
-import type { MailThreadMessage, MailThreadSummary, OperatorThreadSend } from "../src/shared/wire/mail-threads";
+import type { OperatorThreadSend } from "../src/shared/mail-threads";
+import type { MailThreadMessage, MailThreadSummary } from "../src/shared/wire/mail-threads";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 
 const CANVAS = "threads";

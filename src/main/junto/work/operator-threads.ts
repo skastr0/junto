@@ -21,7 +21,7 @@ import {
   type MentionableSeat,
   type OperatorThreadSend,
   type OperatorThreadSent,
-} from "@shared/wire/mail-threads";
+} from "@shared/mail-threads";
 import { operatorActorRef } from "@shared/work-reference";
 import { ModelService } from "../model/service";
 import { messageDelivery } from "./message-delivery";
