@@ -20,6 +20,10 @@ for (const name of Object.keys(process.env)) {
   if (!Object.hasOwn(sanitized, name)) delete process.env[name];
 }
 
+// The operator's login shell would hand back the credentials stripped above.
+// Suites that test the shell environment probe point it at a fake shell.
+process.env.JUNTO_SHELL_ENVIRONMENT = "inherit";
+
 const isolatedHome = mkdtempSync(join(tmpdir(), "junto-vitest-home-"));
 process.env.JUNTO_HOME = isolatedHome;
 __resetJuntoHomeCache();

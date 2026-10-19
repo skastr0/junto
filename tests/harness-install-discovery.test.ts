@@ -1,10 +1,10 @@
-import { accessSync, chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { accessSync, chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { ChildProcess, execFile } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { enumeratedToolDirs, enumeratedToolDirsAsync, setConfiguredToolDirectories } from "../src/main/junto/adapters/exec";
+import { setConfiguredToolDirectories } from "../src/main/junto/adapters/exec";
 import {
   probeManagedHarnessInstalls,
   resetManagedHarnessInstallCacheForTests,
@@ -58,7 +58,7 @@ afterEach(() => {
 describe("shared asynchronous harness discovery", () => {
   it("walks once for all harnesses and shares concurrent and repeated requests", async () => {
     const home = scratch();
-    const dir = join(home, ".nvm", "versions", "node", "v24", "bin");
+    const dir = join(home, ".local", "bin");
     binary(dir, "codex");
     binary(dir, "claude");
     for (const check of [accessSync, readdirSync, statSync]) vi.mocked(check).mockClear();
@@ -71,17 +71,16 @@ describe("shared asynchronous harness discovery", () => {
     expect(probeManagedHarnessInstalls(options)).toBe(first);
     expect(vi.mocked(readdir).mock.calls.length).toBe(walks);
     expect(vi.mocked(readdir).mock.calls.filter(([path]) => path === dir)).toHaveLength(1);
-    expect(vi.mocked(readdir).mock.calls.filter(([path]) => path === join(home, ".nvm", "versions", "node"))).toHaveLength(1);
     for (const check of [accessSync, readdirSync, statSync]) expect(check).not.toHaveBeenCalled();
   });
 
-  it("notices a new version-manager install and removal after expiry", async () => {
+  it("notices a new install and removal after expiry", async () => {
     let now = 1_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
     const home = scratch();
     const options = { home, pathEnv: "", extraDirs: [] };
     expect(await installed(options)).toBe(false);
-    const file = binary(join(home, ".local", "share", "mise", "installs", "node", "24", "bin"), "codex");
+    const file = binary(join(home, ".bun", "bin"), "codex");
     expect(await installed(options)).toBe(false);
     now += 60_000;
     expect(await installed(options)).toBe(true);
@@ -140,13 +139,5 @@ describe("shared asynchronous harness discovery", () => {
     // Cached palette truth cannot bypass the fresh executable check at launch.
     chmodSync(join(real, "codex"), 0o644);
     expect(resolveHarnessExecutable("codex", options)).toBeUndefined();
-  });
-
-  it("matches synchronous launch ordering for version aliases and numbered roots", async () => {
-    const home = scratch();
-    const root = join(home, ".local", "share", "mise", "installs", "node");
-    for (const name of ["v9", "v24", "old"]) mkdirSync(join(root, name, "bin"), { recursive: true });
-    symlinkSync(join(root, "v24"), join(root, "latest"));
-    expect(await enumeratedToolDirsAsync(home)).toEqual(enumeratedToolDirs(home));
   });
 });

@@ -1,20 +1,21 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import {
-  enumeratedToolDirs,
   mergePath,
+  probeShellEnvironment,
   resolvedSpawnEnv,
   resolvedSpawnEnvSync,
+  shellEnvironmentFromProbeOutput,
   staticPathDirs,
 } from "../src/main/junto/adapters/exec";
 
 // The spawn plane resolves user-installed CLIs under a packaged/launchd/Finder
-// launch by merging inherited PATH, operator tool directories, enumerated
-// version-manager install roots, and a static fallback floor. The merge logic
-// is pure so the ordering, deduplication, and floor are testable without
-// executing any user-controlled shell code.
+// launch from the operator's login-shell environment, merged over inherited
+// PATH, operator tool directories, and a static fallback floor. The merge and
+// the probe's parse are pure; the probe itself runs here against a fake shell,
+// never the operator's own rc files.
 
 const HOME = "/home/tester";
 const split = (p: string) => p.split(":");
@@ -46,46 +47,6 @@ describe("staticPathDirs", () => {
       "/usr/sbin",
       "/sbin",
     ]);
-  });
-});
-
-describe("enumeratedToolDirs", () => {
-  it("returns nothing for a home with no version-manager roots", () => {
-    expect(enumeratedToolDirs("/nonexistent/home")).toEqual([]);
-  });
-
-  it("enumerates real and symlinked version dirs under known roots", () => {
-    const home = mkdtempSync(join(tmpdir(), "junto-vm-roots-"));
-    try {
-      const miseNode = join(home, ".local", "share", "mise", "installs", "node");
-      mkdirSync(join(miseNode, "22.11.0", "bin"), { recursive: true });
-      mkdirSync(join(miseNode, "24.2.0", "bin"), { recursive: true });
-      mkdirSync(join(miseNode, "old", "bin"), { recursive: true });
-      // Version managers publish aliases like `current`/`latest` as symlinks.
-      symlinkSync(join(miseNode, "24.2.0"), join(miseNode, "latest"));
-      const nvmNode = join(home, ".nvm", "versions", "node");
-      mkdirSync(join(nvmNode, "v20.10.0", "bin"), { recursive: true });
-
-      const dirs = enumeratedToolDirs(home);
-      expect(dirs).toContain(join(miseNode, "latest", "bin"));
-      expect(dirs).toContain(join(miseNode, "24.2.0", "bin"));
-      expect(dirs).toContain(join(miseNode, "22.11.0", "bin"));
-      expect(dirs).toContain(join(nvmNode, "v20.10.0", "bin"));
-      // The manager's symlinked alias names its active choice and wins.
-      expect(dirs.indexOf(join(miseNode, "latest", "bin"))).toBeLessThan(
-        dirs.indexOf(join(miseNode, "24.2.0", "bin")),
-      );
-      // newest-name first within one manager's install root
-      expect(dirs.indexOf(join(miseNode, "24.2.0", "bin"))).toBeLessThan(
-        dirs.indexOf(join(miseNode, "22.11.0", "bin")),
-      );
-      // a leftover plain dir never shadows a versioned install
-      expect(dirs.indexOf(join(miseNode, "22.11.0", "bin"))).toBeLessThan(
-        dirs.indexOf(join(miseNode, "old", "bin")),
-      );
-    } finally {
-      rmSync(home, { recursive: true, force: true });
-    }
   });
 });
 
@@ -136,24 +97,24 @@ describe("mergePath", () => {
     );
   });
 
-  it("enumerated install roots sit after operator dirs and before the static floor", () => {
+  it("puts the operator's shell PATH first, then inherited PATH, tool dirs and the floor", () => {
     const merged = mergePath({
-      currentPath: "/usr/bin:/bin",
+      shellPath: "/home/tester/.local/share/mise/installs/node/24/bin:/usr/bin",
+      currentPath: "/usr/bin:/opt/inherited/bin",
       home: HOME,
       extraDirs: ["/opt/custom/bin"],
-      enumeratedDirs: [
-        "/home/tester/.local/share/mise/installs/node/24/bin",
-        "/home/tester/.nvm/versions/node/v22.11.0/bin",
-      ],
     });
     const dirs = split(merged);
-    const realInstall = "/home/tester/.local/share/mise/installs/node/24/bin";
-    expect(dirs.indexOf("/opt/custom/bin")).toBeLessThan(dirs.indexOf(realInstall));
-    // A real version-manager install outranks the same manager's shim dir.
-    expect(dirs.indexOf(realInstall)).toBeLessThan(
+    expect(dirs.slice(0, 4)).toEqual([
+      "/home/tester/.local/share/mise/installs/node/24/bin",
+      "/usr/bin",
+      "/opt/inherited/bin",
+      "/opt/custom/bin",
+    ]);
+    // An activated install outranks the same manager's shim dir in the floor.
+    expect(dirs.indexOf("/home/tester/.local/share/mise/installs/node/24/bin")).toBeLessThan(
       dirs.indexOf("/home/tester/.local/share/mise/shims"),
     );
-    expect(dirs.indexOf(realInstall)).toBeLessThan(dirs.indexOf("/opt/homebrew/bin"));
   });
 
   it("dedups, keeping first occurrence", () => {
@@ -189,21 +150,108 @@ describe("resolvedSpawnEnvSync", () => {
   });
 });
 
+const scratch: string[] = [];
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+afterAll(() => {
+  for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+/** A stand-in login shell: rc noise, then the framed dump the probe asks for. */
+const fakeShell = (body: string): string => {
+  const dir = mkdtempSync(join(tmpdir(), "junto-fake-shell-"));
+  scratch.push(dir);
+  const shell = join(dir, "fakesh");
+  writeFileSync(shell, `#!/bin/sh\nprintf 'Welcome back\\n'\n${body}\n`);
+  chmodSync(shell, 0o755);
+  return shell;
+};
+
+const DUMP = String.raw`printf 'JUNTO_ENV_BEGIN\n'
+printf 'PATH=/fake/bin:/usr/bin\0PROBE_ARGS=%s\0PROBE_CWD=%s\0PROBE_RESOLVING=%s\0PROBE_STDIN=%s\0' "$1 $2 $3" "$(pwd -P)" "$JUNTO_RESOLVING_ENVIRONMENT" "$(cat)"
+printf 'MULTI=one\ntwo\0JUNTO_HOME=/elsewhere\0PWD=/rc/cwd\0SHLVL=3\0'
+printf 'JUNTO_ENV_END\n'`;
+
+describe("shellEnvironmentFromProbeOutput", () => {
+  it("reads only between the sentinels, keeping values with newlines", () => {
+    expect(shellEnvironmentFromProbeOutput(
+      "motd\nJUNTO_ENV_BEGIN\nPATH=/a:/b\0KEY=x=y\0MULTI=1\n2\0JUNTO_ENV_END\nbye\n",
+    )).toEqual({ PATH: "/a:/b", KEY: "x=y", MULTI: "1\n2" });
+  });
+
+  it("drops shell bookkeeping and the app's own keys", () => {
+    expect(shellEnvironmentFromProbeOutput(
+      "JUNTO_ENV_BEGIN\nPATH=/a\0PWD=/x\0OLDPWD=/y\0SHLVL=2\0_=/usr/bin/env\0TERM=dumb\0JUNTO_HOME=/h\0ELECTRON_RUN_AS_NODE=1\0JUNTO_RESOLVING_ENVIRONMENT=1\0JUNTO_ENV_END\n",
+    )).toEqual({ PATH: "/a" });
+  });
+
+  it("refuses a cut-off dump, an `env` without -0, and an environment with no PATH", () => {
+    expect(shellEnvironmentFromProbeOutput("JUNTO_ENV_BEGIN\nPATH=/a\0HOME=/h")).toBeUndefined();
+    expect(shellEnvironmentFromProbeOutput("JUNTO_ENV_BEGIN\nPATH=/a\nHOME=/h\nJUNTO_ENV_END\n")).toBeUndefined();
+    expect(shellEnvironmentFromProbeOutput("JUNTO_ENV_BEGIN\nHOME=/h\0JUNTO_ENV_END\n")).toBeUndefined();
+    expect(shellEnvironmentFromProbeOutput("no sentinels at all")).toBeUndefined();
+  });
+});
+
+describe("probeShellEnvironment", () => {
+  it("runs the shell as login and interactive, in the given cwd, with stdin closed and the resolving marker", async () => {
+    const cwd = realpathSync(mkdtempSync(join(tmpdir(), "junto-probe-cwd-")));
+    scratch.push(cwd);
+    const probe = await probeShellEnvironment({ shell: fakeShell(DUMP), cwd, env: process.env });
+    expect(probe.ok).toBe(true);
+    if (!probe.ok) return;
+    expect(probe.environment.PROBE_ARGS).toBe("-l -i -c");
+    expect(probe.environment.PROBE_CWD).toBe(cwd);
+    expect(probe.environment.PROBE_RESOLVING).toBe("1");
+    expect(probe.environment.PROBE_STDIN).toBe("");
+  });
+
+  it("takes a complete dump even when the shell then exits non-zero", async () => {
+    const probe = await probeShellEnvironment({
+      shell: fakeShell(`${DUMP}\nexit 3`),
+      cwd: tmpdir(),
+      env: process.env,
+    });
+    expect(probe.ok && probe.environment.PATH).toBe("/fake/bin:/usr/bin");
+  });
+
+  it("fails with a reason when the shell prints no environment", async () => {
+    const probe = await probeShellEnvironment({
+      shell: fakeShell("echo 'rc broke' >&2; exit 1"),
+      cwd: tmpdir(),
+      env: process.env,
+    });
+    expect(probe).toEqual({ ok: false, reason: "rc broke" });
+  });
+});
+
 describe("resolvedSpawnEnv", () => {
   const originalPath = process.env.PATH;
   afterAll(() => {
     process.env.PATH = originalPath;
+    for (const key of ["PROBE_ARGS", "PROBE_CWD", "PROBE_RESOLVING", "PROBE_STDIN", "MULTI"]) {
+      delete process.env[key];
+    }
   });
 
-  it("resolves an env containing the static floor and mutates process.env.PATH once", async () => {
+  it("adopts the operator shell's environment once, from an app-owned cwd, over the floor", async () => {
+    vi.stubEnv("SHELL", fakeShell(DUMP));
+    vi.stubEnv("JUNTO_SHELL_ENVIRONMENT", "");
+    const juntoHome = process.env.JUNTO_HOME;
     const env = await resolvedSpawnEnv();
     const dirs = split(env.PATH ?? "");
-    // Deterministic without invoking a shell: the static floor is appended.
-    expect(dirs).toContain(`${homedir()}/.local/bin`);
+    // The shell's PATH leads; the static floor still backs it.
+    expect(dirs.slice(0, 2)).toEqual(["/fake/bin", "/usr/bin"]);
     expect(dirs).toContain(`${homedir()}/.local/share/mise/shims`);
-    // The single documented mutation: process.env.PATH now equals the merge.
+    // The single documented mutation: process.env carries the shell's
+    // variables and the merged PATH, and nothing of the app's own.
     expect(process.env.PATH).toBe(env.PATH);
-    // Memoized: a second call returns the same object.
+    expect(process.env.MULTI).toBe("one\ntwo");
+    expect(process.env.JUNTO_HOME).toBe(juntoHome);
+    expect(process.env.PWD).not.toBe("/rc/cwd");
+    expect(env.PROBE_CWD).toBe(realpathSync(join(juntoHome!, ".junto")));
+    // Memoized: a second call returns the same object without a second probe.
     const again = await resolvedSpawnEnv();
     expect(again).toBe(env);
   });

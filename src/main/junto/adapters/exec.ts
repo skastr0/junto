@@ -1,7 +1,8 @@
-import { readdirSync, statSync, type Dirent } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
-import { homedir } from "node:os";
-import { delimiter, join } from "node:path";
+import { accessSync, constants } from "node:fs";
+import { mkdir } from "node:fs/promises";
+import { homedir, tmpdir, userInfo } from "node:os";
+import { delimiter, isAbsolute, join } from "node:path";
+import { resolveJuntoHome } from "@shared/junto-home";
 import { ACCESS_CANCELLED_ERROR } from "../access-signal";
 import {
   appProcessPlane,
@@ -107,7 +108,10 @@ const runOwnedFile = (
     readonly timeoutMs: number;
     readonly maxBuffer: number;
     readonly env?: NodeJS.ProcessEnv;
+    readonly cwd?: string;
     readonly signal?: AbortSignal;
+    readonly source?: string;
+    readonly purpose?: string;
   },
 ): Promise<CliResult> => {
   if (options.signal?.aborted) {
@@ -132,10 +136,11 @@ const runOwnedFile = (
     let processLease: AppProcessLease;
     try {
       processLease = appProcessPlane.spawnGroup({
-        source: "adapter.cli",
-        purpose: "read-only adapter command",
+        source: options.source ?? "adapter.cli",
+        purpose: options.purpose ?? "read-only adapter command",
         command,
         args,
+        ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
         ...(options.env === undefined ? {} : { env: options.env }),
       });
       const operation: AdapterOperation = {
@@ -396,133 +401,166 @@ export const staticPathDirs = (home: string): ReadonlyArray<string> => [
   "/sbin",
 ];
 
-// ── PATH discovery without a login shell ────────────────────────────────────
+// ── The operator's shell environment ────────────────────────────────────────
 //
-// Junto never executes shell startup files to learn PATH. rc files are
-// arbitrary operator code, and on macOS every path they touch is billed to
-// this app's TCC responsible-process identity — a `find` in .zshrc prompts
-// "Junto wants access to Documents". Instead the spawn PATH is assembled from
-// four inputs, all readable without user code execution:
+// What `codex` or `bun` means on this machine, and which SSH agent, API keys
+// and version-manager activation a seat runs with, lives in the operator's
+// shell startup files. A Finder/launchd launch inherits none of it. So once
+// per app start each Junto (a window, or the windowless core on a linked
+// machine or a Linux sandbox) asks the operator's own login shell for its
+// environment, the way VS Code does, and every spawn uses the answer.
 //
-//   1. inherited PATH (a dev/CLI launch already carries the operator PATH);
-//   2. operator-configured tool directories (Settings escape hatch);
-//   3. enumerated version-manager install roots (below);
-//   4. the static floor above.
+// The probe is `$SHELL -l -i -c` printing a sentinel-framed `env -0`. It runs
+// as an owned child on the process plane with stdin closed, a hard timeout
+// and an output cap, from an app-owned directory (never the operator home),
+// with JUNTO_RESOLVING_ENVIRONMENT=1 so an rc file can skip heavy work. Its
+// rc files run under Junto's TCC identity exactly as a Junto terminal's
+// `$SHELL -l` does; measured on 2026-10-19, they raised no TCC check at all
+// (docs/macos-privacy.md). Any failure is fail-open: the spawn PATH is then
+// the inherited PATH, operator tool directories and the static floor.
 
-// One level of directory children. Missing roots return []. Symlinks count —
-// version managers publish `current`/`default`/`latest`/`lts-*` aliases as
-// symlinked dirs and the final isDirectory() gate resolves them with statSync.
-// Symlinked dirs sort first because they name the manager's active choice;
-// numbered versions then run newest-name first (numeric-aware so v22 sorts
-// before v9); leftover plain dirs like `old`/`backup` come last.
-const versionDirs = (root: string, entries: ReadonlyArray<Dirent>): ReadonlyArray<string> => {
-  const rank = (entry: Dirent) =>
-    entry.isSymbolicLink() ? 0 : /\d/.test(entry.name) ? 1 : 2;
-  return entries
-    .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
-    .sort((left, right) => {
-      const rankDiff = rank(left) - rank(right);
-      if (rankDiff !== 0) return rankDiff;
-      return right.name.localeCompare(left.name, undefined, { numeric: true });
-    })
-    .map((entry) => join(root, entry.name));
+const SHELL_ENVIRONMENT_TIMEOUT_MS = 10_000;
+const SHELL_ENVIRONMENT_MAX_OUTPUT_BYTES = 1024 * 1024;
+const SHELL_ENVIRONMENT_BEGIN = "JUNTO_ENV_BEGIN";
+const SHELL_ENVIRONMENT_END = "JUNTO_ENV_END";
+export const SHELL_ENVIRONMENT_RESOLVING_KEY = "JUNTO_RESOLVING_ENVIRONMENT";
+/** `inherit` skips the probe: hermetic test runs, or an rc that must not run. */
+export const SHELL_ENVIRONMENT_SWITCH_KEY = "JUNTO_SHELL_ENVIRONMENT";
+
+// Shell bookkeeping and the probe's own markers. The app's own namespaces stay
+// as its launcher set them: an rc file that exports JUNTO_HOME must not move a
+// running Junto onto another home.
+const SHELL_SESSION_KEYS: ReadonlySet<string> = new Set([
+  "_",
+  "PWD",
+  "OLDPWD",
+  "SHLVL",
+  "TERM",
+  SHELL_ENVIRONMENT_RESOLVING_KEY,
+]);
+const APP_OWNED_KEY = /^(?:JUNTO_|ELECTRON_)/u;
+
+/**
+ * The environment between the probe sentinels. rc output (motd, prompts,
+ * hook noise) lands outside them and is discarded. Undefined when a sentinel
+ * is missing (timeout, output cap, a shell that died) or `env -0` was not
+ * understood, so nothing half-read is ever applied.
+ */
+export const shellEnvironmentFromProbeOutput = (
+  output: string,
+): Readonly<Record<string, string>> | undefined => {
+  const marker = `${SHELL_ENVIRONMENT_BEGIN}\n`;
+  const begin = output.indexOf(marker);
+  if (begin < 0) return undefined;
+  const bodyStart = begin + marker.length;
+  const end = output.lastIndexOf(SHELL_ENVIRONMENT_END);
+  if (end < bodyStart) return undefined;
+  const body = output.slice(bodyStart, end);
+  if (!body.endsWith("\0")) return undefined;
+  const environment: Record<string, string> = {};
+  for (const entry of body.slice(0, -1).split("\0")) {
+    const equals = entry.indexOf("=");
+    if (equals <= 0) continue;
+    const key = entry.slice(0, equals);
+    if (SHELL_SESSION_KEYS.has(key) || APP_OWNED_KEY.test(key)) continue;
+    environment[key] = entry.slice(equals + 1);
+  }
+  return environment.PATH ? environment : undefined;
 };
 
-const readVersionDirs = (root: string): ReadonlyArray<string> => {
+/** The operator's login shell: `$SHELL`, else the account's, else the platform's. */
+export const operatorShell = (): string | undefined => {
+  if (process.platform === "win32") return undefined;
+  const candidates = [process.env.SHELL, safeAccountShell()];
+  for (const candidate of candidates) {
+    const shell = candidate?.trim();
+    if (shell && isAbsolute(shell) && isExecutable(shell)) return shell;
+  }
+  return process.platform === "darwin" ? "/bin/zsh" : "/bin/bash";
+};
+
+const safeAccountShell = (): string | undefined => {
   try {
-    return versionDirs(root, readdirSync(root, { withFileTypes: true }));
+    return userInfo().shell ?? undefined;
   } catch {
-    return [];
+    return undefined;
   }
 };
 
-const isDirectory = (path: string): boolean => {
+const isExecutable = (path: string): boolean => {
   try {
-    return statSync(path).isDirectory();
+    accessSync(path, constants.X_OK);
+    return true;
   } catch {
     return false;
   }
 };
 
-// Walk a [root, ...segments] spec where "*" expands to that level's subdirs
-// and any other segment is a literal path component.
-const expandVersionRoot = (
-  root: string,
-  tail: ReadonlyArray<string>,
-): ReadonlyArray<string> => {
-  let dirs: ReadonlyArray<string> = [root];
-  for (const segment of tail) {
-    dirs =
-      segment === "*"
-        ? dirs.flatMap((dir) => readVersionDirs(dir))
-        : dirs.map((dir) => join(dir, segment));
+/** Product state, never the operator home: the probe's rc files start here. */
+const shellEnvironmentCwd = async (): Promise<string> => {
+  const dir = join(resolveJuntoHome(), ".junto");
+  try {
+    await mkdir(dir, { recursive: true });
+    return dir;
+  } catch {
+    return tmpdir();
   }
-  return dirs;
+};
+
+export type ShellEnvironmentProbe = {
+  readonly shell: string;
+  readonly cwd: string;
+  readonly env: NodeJS.ProcessEnv;
+  readonly timeoutMs?: number;
 };
 
 /**
- * Real `bin` directories under the version managers operators actually use —
- * nvm, mise, asdf, fnm, volta, pyenv, rbenv — found by enumerating their own
- * install roots. These are dotdir walks under the operator home, never
- * TCC-protected folders. A real binary here outranks the same manager's shim
- * dir in staticPathDirs, so a stale shim cannot shadow it.
+ * Run the operator's login+interactive shell once and read its environment.
+ * `-l` sources login files (.zprofile, .profile), `-i` interactive rc
+ * (.zshrc, .bashrc) where PATH exports and version-manager activation live.
+ * Never throws; a failure answers with its reason.
  */
-const versionRootSpecs = (home: string): ReadonlyArray<readonly [string, ReadonlyArray<string>]> => [
-  [join(home, ".nvm", "versions", "node"), ["*", "bin"]],
-  [join(home, ".pyenv", "versions"), ["*", "bin"]],
-  [join(home, ".rbenv", "versions"), ["*", "bin"]],
-  [join(home, ".local", "share", "mise", "installs"), ["*", "*", "bin"]],
-  [join(home, ".asdf", "installs"), ["*", "*", "bin"]],
-  [
-    join(home, ".local", "share", "fnm", "node-versions"),
-    ["*", "installation", "bin"],
-  ],
-  [join(home, ".volta", "tools", "image", "node"), ["*", "bin"]],
-];
-
-export const enumeratedToolDirs = (home: string): ReadonlyArray<string> => {
-  return versionRootSpecs(home).flatMap(([root, tail]) =>
-    expandVersionRoot(root, tail).filter(isDirectory),
+export const probeShellEnvironment = async (
+  probe: ShellEnvironmentProbe,
+): Promise<
+  | { readonly ok: true; readonly environment: Readonly<Record<string, string>> }
+  | { readonly ok: false; readonly reason: string }
+> => {
+  const result = await runOwnedFile(
+    probe.shell,
+    [
+      "-l",
+      "-i",
+      "-c",
+      // The markers are split mid-token so the command line itself, echoed
+      // by a tracing rc, never carries a whole sentinel.
+      `echo JUNTO_ENV_""BEGIN; env -0; echo JUNTO_ENV_""END`,
+    ],
+    {
+      timeoutMs: probe.timeoutMs ?? SHELL_ENVIRONMENT_TIMEOUT_MS,
+      maxBuffer: SHELL_ENVIRONMENT_MAX_OUTPUT_BYTES,
+      cwd: probe.cwd,
+      env: { ...probe.env, TERM: "dumb", [SHELL_ENVIRONMENT_RESOLVING_KEY]: "1" },
+      source: "adapter.shell-environment",
+      purpose: "operator login-shell environment",
+    },
   );
-};
-
-/** Same roots and precedence as launch resolution, without blocking main. */
-export const enumeratedToolDirsAsync = async (home: string): Promise<ReadonlyArray<string>> => {
-  const roots = await Promise.all(versionRootSpecs(home).map(async ([root, tail]) => {
-    let dirs: ReadonlyArray<string> = [root];
-    for (const segment of tail) {
-      if (segment !== "*") {
-        dirs = dirs.map((dir) => join(dir, segment));
-        continue;
-      }
-      dirs = (await Promise.all(dirs.map(async (dir) => {
-        try {
-          return versionDirs(dir, await readdir(dir, { withFileTypes: true }));
-        } catch {
-          return [];
-        }
-      }))).flat();
-    }
-    return (await Promise.all(dirs.map(async (dir) => {
-      try {
-        return (await stat(dir)).isDirectory() ? [dir] : [];
-      } catch {
-        return [];
-      }
-    }))).flat();
-  }));
-  return roots.flat();
+  // A shell can exit non-zero after a complete dump (an rc's last command
+  // failing); the sentinels, not the exit code, say whether it was read.
+  const environment = shellEnvironmentFromProbeOutput(result.stdout);
+  if (environment) return { ok: true, environment };
+  return { ok: false, reason: result.error ?? "the shell printed no environment" };
 };
 
 // Pure PATH merge, extracted so the ordering/dedup contract is unit-testable.
-// Precedence: the environment Electron inherited, then operator tool dirs,
-// then enumerated version-manager install roots, then the static floor.
-// First occurrence of each directory wins; empty entries are dropped.
+// Precedence: the operator's shell PATH, then the PATH Junto inherited, then
+// operator tool dirs, then the static floor. First occurrence of each
+// directory wins; empty entries are dropped.
 export const mergePath = (inputs: {
+  readonly shellPath?: string;
   readonly currentPath?: string;
   readonly home: string;
   readonly extraDirs?: ReadonlyArray<string>;
-  readonly enumeratedDirs?: ReadonlyArray<string>;
 }): string => {
   const segments: string[] = [];
   const pushAll = (value: string | undefined) => {
@@ -533,12 +571,9 @@ export const mergePath = (inputs: {
     }
   };
 
+  pushAll(inputs.shellPath);
   pushAll(inputs.currentPath);
   for (const dir of inputs.extraDirs ?? []) {
-    const trimmed = dir.trim();
-    if (trimmed) segments.push(trimmed);
-  }
-  for (const dir of inputs.enumeratedDirs ?? []) {
     const trimmed = dir.trim();
     if (trimmed) segments.push(trimmed);
   }
@@ -556,18 +591,17 @@ export const mergePath = (inputs: {
 
 let extraPathDirs: ReadonlyArray<string> = [];
 let inheritedPath: string | undefined;
+let shellPath: string | undefined;
 let resolvedEnvPromise: Promise<NodeJS.ProcessEnv> | undefined;
 let resolvedEnvCache: NodeJS.ProcessEnv | undefined;
 
-const spawnPath = (): string => {
-  const home = homedir();
-  return mergePath({
+const spawnPath = (): string =>
+  mergePath({
+    ...(shellPath === undefined ? {} : { shellPath }),
     currentPath: inheritedPath ?? process.env.PATH,
-    home,
+    home: homedir(),
     extraDirs: extraPathDirs,
-    enumeratedDirs: enumeratedToolDirs(home),
   });
-};
 
 /** Operator-configured tool directories. Detection and launch both read this. */
 export const configuredToolDirectories = (): ReadonlyArray<string> => extraPathDirs;
@@ -583,39 +617,54 @@ export const setConfiguredToolDirectories = (
   resolvedEnvPromise = Promise.resolve(resolvedEnvCache);
 };
 
-// The one resolved environment every spawn call-site should use. Built once
-// from inherited PATH, operator tool directories, enumerated version-manager
-// install roots, and the static floor — never by executing a shell — and
-// handed back for child_process { env } options.
+// The one resolved environment every spawn call-site should use. Resolved
+// once per app start from the operator's shell environment (above), with PATH
+// merged over the inherited PATH, operator tool directories and the static
+// floor, then cached for the life of the process.
 //
-// Chat/agent spawn (chat/spawn.ts, wired by a later change), the codex/prism
-// service spawns, and runCli below all route through here so that a
-// packaged/launchd launch resolves user-installed CLIs identically to a
-// dev-from-terminal launch.
+// Seats, terminals, the codex/prism service spawns, SSH and runCli below all
+// route through here, so a packaged/launchd launch runs CLIs with the same
+// environment as a dev-from-terminal launch.
 //
-// SINGLE documented mutation of the app's own environment: we assign the
-// resolved PATH back onto process.env.PATH. This is deliberate and the cleanest
-// single point — any spawn that still inherits process.env verbatim (e.g. the
-// services/process.ts helper) picks up the resolved PATH for free, and the
-// assignment is idempotent. No other key of process.env is touched.
+// SINGLE documented mutation of the app's own environment: the shell's
+// variables and the merged PATH are assigned onto process.env, so any spawn
+// that inherits process.env verbatim (seat launches, the services/process.ts
+// helper) carries the operator environment for free. Shell bookkeeping keys
+// and the app's own JUNTO_*/ELECTRON_* keys are never taken from the shell.
 export const resolvedSpawnEnv = (): Promise<NodeJS.ProcessEnv> => {
   if (resolvedEnvPromise) return resolvedEnvPromise;
-  resolvedEnvPromise = Promise.resolve().then(() => {
+  resolvedEnvPromise = (async () => {
     inheritedPath ??= process.env.PATH;
+    const shell = process.env[SHELL_ENVIRONMENT_SWITCH_KEY] === "inherit" ? undefined : operatorShell();
+    if (shell !== undefined) {
+      const probe = await probeShellEnvironment({
+        shell,
+        cwd: await shellEnvironmentCwd(),
+        env: process.env,
+      });
+      if (probe.ok) {
+        const { PATH: probedPath, ...variables } = probe.environment;
+        shellPath = probedPath;
+        Object.assign(process.env, variables);
+      } else {
+        console.warn(
+          `[env] ${shell} gave no environment (${probe.reason}); seats use the inherited PATH and the floor`,
+        );
+      }
+    }
     const mergedPath = spawnPath();
     process.env.PATH = mergedPath;
     const env: NodeJS.ProcessEnv = { ...process.env, PATH: mergedPath };
     resolvedEnvCache = env;
     return env;
-  });
+  })();
   return resolvedEnvPromise;
 };
 
 // Synchronous accessor for call-sites that cannot await (e.g. inside a spawn
 // options literal). Returns the memoized env once resolvedSpawnEnv() has
-// settled; before that, the same merge computed on the spot so a synchronous
-// caller still gets the guaranteed floor and never ships the bare minimal
-// PATH.
+// settled; before that, the inherited PATH merged with the floor, so a
+// synchronous caller never ships the bare minimal PATH.
 export const resolvedSpawnEnvSync = (): NodeJS.ProcessEnv => {
   if (resolvedEnvCache) return resolvedEnvCache;
   inheritedPath ??= process.env.PATH;

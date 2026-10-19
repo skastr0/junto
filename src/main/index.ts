@@ -1408,9 +1408,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       return;
     }
 
-    // Resolve the spawn PATH before any adapter/service spawn: inherited
-    // PATH, operator tool directories, enumerated version-manager roots, and
-    // the static floor — never a login shell.
+    // Resolve the spawn environment before any adapter/service spawn: the
+    // operator's login-shell environment, PATH merged over inherited PATH,
+    // operator tool directories, and the static floor.
     await resolvedSpawnEnv();
     if (shutdownAdmissionClosed) return;
 

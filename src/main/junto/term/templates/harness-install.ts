@@ -25,11 +25,7 @@ import { isOverseerHarness } from "@shared/harness-records";
 import { harnessRuntimeRecordFor } from "../harness-record";
 import { parseHelpFlags } from "@shared/launch-extra-args";
 import type { ManagedTerminalFlagsResult } from "@shared/ipc";
-import {
-  configuredToolDirectories,
-  enumeratedToolDirs,
-  enumeratedToolDirsAsync,
-} from "../../adapters/exec";
+import { configuredToolDirectories } from "../../adapters/exec";
 import { juntoCliPathPrefixes } from "./seat-env";
 
 const execFileAsync = promisify(execFile);
@@ -62,7 +58,7 @@ export type HarnessExecutableResolution = {
   readonly extraDirs?: ReadonlyArray<string>;
   /**
    * Search `pathEnv` alone: a region that sets PATH chose where its harness
-   * comes from, so no operator tool directory or version manager is added.
+   * comes from, so no operator tool directory or known install dir is added.
    */
   readonly pathOnly?: boolean;
 };
@@ -79,15 +75,11 @@ export const knownHarnessInstallDirs = (home: string): ReadonlyArray<string> => 
 ];
 
 /**
- * Directories detection and launch both search: the resolved seat PATH
- * (merged upstream by resolvedSpawnEnv), operator tool directories, then
- * enumerated version-manager install roots and known home install dirs.
- * No shell is run to build this path.
+ * Directories detection and launch both search: the resolved seat PATH (the
+ * operator's shell PATH, merged upstream by resolvedSpawnEnv), operator tool
+ * directories, then known home install dirs.
  */
-const mergeHarnessSearchPath = (
-  options: HarnessExecutableResolution,
-  enumeratedDirs: ReadonlyArray<string>,
-): string => {
+const mergeHarnessSearchPath = (options: HarnessExecutableResolution): string => {
   const home = options.home ?? homedir();
   const sep = options.pathSep ?? delimiter;
   const segments: string[] = [];
@@ -103,7 +95,6 @@ const mergeHarnessSearchPath = (
     const trimmed = dir.trim();
     if (trimmed) segments.push(trimmed);
   }
-  for (const dir of enumeratedDirs) segments.push(dir);
   for (const dir of knownHarnessInstallDirs(home)) segments.push(dir);
   const seen = new Set<string>();
   const merged: string[] = [];
@@ -119,7 +110,7 @@ export const harnessSearchPath = (
   options: HarnessExecutableResolution = {},
 ): string => options.pathOnly === true
   ? options.pathEnv ?? ""
-  : mergeHarnessSearchPath(options, enumeratedToolDirs(options.home ?? homedir()));
+  : mergeHarnessSearchPath(options);
 
 // A `*/shims` entry is a version-manager trampoline, not a binary: it passes
 // X_OK while exiting "No version is set for shim" until its manager's
@@ -352,11 +343,9 @@ const discoverManagedHarnessInstalls = async (
   options: HarnessExecutableResolution,
   cliDirs: ReadonlyArray<string>,
 ): Promise<readonly HarnessInstallProbe[]> => {
-  const home = options.home ?? homedir();
   const sep = options.pathSep ?? delimiter;
-  const enumeratedDirs = await enumeratedToolDirsAsync(home);
-  const searchPath = mergeHarnessSearchPath(options, enumeratedDirs);
-  const overseerPath = mergeHarnessSearchPath({ ...options, extraDirs: [...cliDirs, ...(options.extraDirs ?? [])] }, enumeratedDirs);
+  const searchPath = mergeHarnessSearchPath(options);
+  const overseerPath = mergeHarnessSearchPath({ ...options, extraDirs: [...cliDirs, ...(options.extraDirs ?? [])] });
   const dirs = [...new Set([...searchPath.split(sep), ...overseerPath.split(sep)])];
   // Read each candidate directory once for all harnesses. Only names actually
   // present pay an executable check, and a shim still has to run successfully.

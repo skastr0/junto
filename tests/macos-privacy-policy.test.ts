@@ -2,10 +2,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  enumeratedToolDirs,
-  staticPathDirs,
-} from "../src/main/junto/adapters/exec";
+import { staticPathDirs } from "../src/main/junto/adapters/exec";
 import {
   defaultSettings,
 } from "../src/shared/settings";
@@ -79,22 +76,40 @@ describe("macOS privacy policy", () => {
     expect(defaultSettings().providers?.hermesHostSnapshots).toBeUndefined();
   });
 
-  it("never executes shell startup files for PATH discovery or exposes filesystem enumeration IPC", () => {
+  it("runs the operator's login shell once per start, bounded, owned and away from home", () => {
     const spawn = read("src/main/junto/adapters/exec.ts");
-    const ipc = read("src/shared/ipc.ts");
+    const docs = read("docs/macos-privacy.md");
 
-    // No probe name, no shell selection, no login/interactive rc flags, no
-    // sentinel protocol: a regression on any of these reintroduces arbitrary
-    // rc execution under Junto's TCC identity.
-    expect(spawn).not.toMatch(/captureLoginShellPath|loginShellPath|queryLoginShellPath/u);
-    expect(spawn).not.toMatch(/process\.env\.SHELL/u);
-    expect(spawn).not.toMatch(/\[\s*["'](?:-l|-i|-c|-lc|-ic|-ilc|-lic)["']/u);
-    expect(spawn).not.toContain("JUNTO_ENV_BEGIN");
+    // One probe: `$SHELL -l -i -c` printing a framed `env -0`, an owned
+    // process-plane child with a hard timeout and output cap, stdin closed,
+    // marked for rc files, started in product state rather than the home.
+    expect(spawn).toMatch(/"-l",\s*"-i",\s*"-c",/u);
+    expect(spawn).toContain("env -0");
+    expect(spawn).toMatch(/timeoutMs: probe\.timeoutMs \?\? SHELL_ENVIRONMENT_TIMEOUT_MS/u);
+    expect(spawn).toMatch(/maxBuffer: SHELL_ENVIRONMENT_MAX_OUTPUT_BYTES/u);
+    expect(spawn).toContain("[SHELL_ENVIRONMENT_RESOLVING_KEY]: \"1\"");
+    expect(spawn).toContain("io.stdin.end()");
+    expect(spawn).toContain("appProcessPlane.spawnGroup(");
+    expect(spawn).toContain('join(resolveJuntoHome(), ".junto")');
+    expect(spawn).not.toMatch(/cwd: homedir\(\)/u);
+    // Only the memoized start-up resolution runs it; nothing probes per spawn.
+    const callers = [...spawn.matchAll(/await probeShellEnvironment\(/gu)];
+    expect(callers).toHaveLength(1);
+    expect(spawn.indexOf("await probeShellEnvironment(")).toBeGreaterThan(
+      spawn.indexOf("export const resolvedSpawnEnv = "),
+    );
+    // The doc says what runs and why, and how to turn it off.
+    expect(docs).toContain("JUNTO_RESOLVING_ENVIRONMENT=1");
+    expect(docs).toContain("JUNTO_SHELL_ENVIRONMENT=inherit");
+  });
+
+  it("exposes no filesystem enumeration IPC", () => {
+    const ipc = read("src/shared/ipc.ts");
     expect(ipc).not.toContain("chassis:select-folder");
     expect(ipc).not.toContain("chassis:read-directory");
   });
 
-  it("never puts a TCC-protected folder on the spawn PATH", () => {
+  it("never puts a TCC-protected folder on the spawn PATH floor", () => {
     const home = homedir();
     const protectedRoots = [
       "Desktop",
@@ -108,7 +123,7 @@ describe("macOS privacy policy", () => {
       protectedRoots.some(
         (root) => dir === root || dir.startsWith(`${root}/`),
       );
-    for (const dir of [...staticPathDirs(home), ...enumeratedToolDirs(home)]) {
+    for (const dir of staticPathDirs(home)) {
       expect(isProtected(dir), `spawn PATH must not contain ${dir}`).toBe(false);
     }
   });

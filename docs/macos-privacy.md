@@ -1,6 +1,6 @@
 # macOS privacy and filesystem access
 
-Last audited: 2026-09-16.
+Last audited: 2026-10-19.
 
 Junto is a developer workstation, not a file indexer. It does not
 scan the whole home folder, Photos library, Music library, Downloads,
@@ -84,7 +84,7 @@ one. `tests/launch-permission-surface.test.ts` holds both.
 |---|---|---|---|
 | Product state | App start | `~/.junto` only | Durable app state, content, sockets, and logs |
 | Live conversation | Starting a call in a Live-enabled build | Microphone audio sent to OpenAI; selected canvas context and transcript sent to the controller | Audio is not recorded locally; transcript, requests, and operation receipts remain in product state; microphone tracks stop on call end |
-| Spawn PATH | App start | Inherited `PATH`, optional operator tool directories, enumerated version-manager install roots (`~/.nvm`, `~/.local/share/mise`, `~/.asdf`, `~/.local/share/fnm`, `~/.volta`, `~/.pyenv`, `~/.rbenv` `bin` dirs), and fixed executable directories such as `~/.local/bin` and `~/.bun/bin` | Shell startup files are never executed: rc files are arbitrary operator code and every path they touch is billed to Junto's TCC identity. The directory reads are dotdir listings under the operator home, never protected folders |
+| Shell environment | App start, once per Junto (window or machine core) | The operator's login shell, `$SHELL -l -i -c`, run from `~/.junto` with its rc files; its exported environment, with `PATH` merged over the inherited `PATH`, optional operator tool directories and fixed executable directories such as `~/.local/bin` and `~/.bun/bin` | One bounded, owned child per start; never per spawn. Its rc files touch what they touch under Junto's TCC identity, like a Junto terminal's `$SHELL -l`. See Shell environment below |
 | Supervisor status | Packaged app start | Current-user launchd job metadata | No content-library access and no permission prompt |
 | Provider usage | Per-provider toggle in Settings | Only the enabled provider's disclosed credentials, cache, session data, process data, and network endpoints | All sources default off; usage sources refresh every five minutes; Hermes host snapshots poll every minute when separately enabled; revocation clears the row immediately and stops future polls |
 | Working-directory browser | Opening an agent, Git, or region folder picker | One shallow page at a time, beginning at the shown path; hidden folders are suppressed until typed | No recursive walk, watcher, Spotlight query, glob, or background index |
@@ -103,10 +103,10 @@ not enumerate the home directory. The old general-purpose renderer IPC that
 could enumerate any path was removed; only the explicit terminal/Git/region
 picker remains.
 
-Opening the agent picker checks only executable names on the inherited `PATH`,
-optional operator-configured tool directories, enumerated version-manager
-install roots, and a short list of known paths such as `~/.local/bin` and
-`~/.kimi-code/bin`; it does not list those directories. Candidates inside a
+Opening the agent picker checks only executable names on the resolved `PATH`,
+optional operator-configured tool directories, and a short list of known paths
+such as `~/.local/bin` and `~/.kimi-code/bin`; it does not list those
+directories. Candidates inside a
 version-manager `shims` directory must additionally answer a bounded
 `--version` probe, so a dead shim cannot shadow a real binary; that probe runs
 the shim itself, briefly, under Junto's identity. Detection and launch share
@@ -114,6 +114,41 @@ that resolution, so the probe also runs whenever a seat launches; it never
 runs as a background scan.
 Opening one harness's options may read that harness's one model cache or run
 its model-list command, and that happens only in the open agent picker.
+
+## Shell environment
+
+A seat should run with what the operator's own terminal has: the `PATH` their
+version managers activate, their SSH agent socket, their exported tool
+settings. A Finder or launchd launch inherits none of that. So once at start,
+each Junto runs the operator's login shell the way VS Code does and adopts the
+environment it reports. On a linked machine or a Linux sandbox, that machine's
+Junto core does the same at its own start, with its own shell (`$SHELL`, else
+the account's shell, else `/bin/bash`).
+
+What runs: `$SHELL -l -i -c 'echo JUNTO_ENV_BEGIN; env -0; echo JUNTO_ENV_END'`
+as an owned child on the process plane, with stdin closed, a 10 second
+timeout, a 1 MiB output cap, `TERM=dumb`, and `JUNTO_RESOLVING_ENVIRONMENT=1`
+so an rc file can skip slow work (`[[ -n $JUNTO_RESOLVING_ENVIRONMENT ]] &&
+return`). It starts in `~/.junto`, never the home folder, so an rc file that
+lists its working directory lists product state. Only the framed dump is read;
+shell bookkeeping (`PWD`, `SHLVL`, `TERM`) and Junto's own `JUNTO_*` and
+`ELECTRON_*` keys are never taken from it. Any failure (timeout, no dump, no
+`PATH`) falls back to the inherited `PATH`, operator tool directories and the
+fixed directories, and is logged.
+
+Why it is acceptable: rc files are the operator's own code, and Junto already
+runs them every time a terminal opens (`$SHELL -l`). A permission prompt comes
+from what a file reads, not from being a shell. Measured on 2026-10-19 with
+`log stream --debug --predicate 'subsystem == "com.apple.TCC"'`, the probe
+from both a scratch directory and the home folder raised no TCC check of any
+kind, while other Junto children in the same minutes did show up there as
+`responsible=com.skastr0.junto`. An rc file that does read a protected folder
+(a `find ~/Documents`) would prompt once, naming Junto, at start.
+
+To turn it off, launch Junto with `JUNTO_SHELL_ENVIRONMENT=inherit`: no shell
+runs, and seats get the inherited `PATH` plus the fixed directories. Unit
+tests run this way, so the operator's exported credentials never re-enter a
+test process.
 
 ## Provider access disclosures
 

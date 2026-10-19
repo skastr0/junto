@@ -200,10 +200,11 @@ describe("harnessBinaryInstalled", () => {
     const real = join(realDir, "codex");
     writeFileSync(real, "#!/bin/sh\necho '20.0.0'\nexit 0\n");
     chmodSync(real, 0o755);
-    const minimalPath = `${shimsDir}:/usr/bin:/bin`;
+    // The activated install dir comes from the operator's shell PATH.
+    const shellPath = `${shimsDir}:/usr/bin:/bin:${realDir}`;
     expect(
       resolveHarnessExecutable("codex", {
-        pathEnv: minimalPath,
+        pathEnv: shellPath,
         home,
         pathSep: ":",
       }),
