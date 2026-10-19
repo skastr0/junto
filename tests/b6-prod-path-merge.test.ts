@@ -4,12 +4,12 @@ import { join } from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import {
   mergePath,
-  probeShellEnvironment,
   resolvedSpawnEnv,
   resolvedSpawnEnvSync,
-  shellEnvironmentFromProbeOutput,
   staticPathDirs,
 } from "../src/main/junto/adapters/exec";
+import { runTool } from "../src/main/junto/region-env/tool";
+import { probeShellEnvironment, shellEnvironmentFromProbeOutput } from "../src/main/junto/shell-environment";
 
 // The spawn plane resolves user-installed CLIs under a packaged/launchd/Finder
 // launch from the operator's login-shell environment, merged over inherited
@@ -198,7 +198,7 @@ describe("probeShellEnvironment", () => {
   it("runs the shell as login and interactive, in the given cwd, with stdin closed and the resolving marker", async () => {
     const cwd = realpathSync(mkdtempSync(join(tmpdir(), "junto-probe-cwd-")));
     scratch.push(cwd);
-    const probe = await probeShellEnvironment({ shell: fakeShell(DUMP), cwd, env: process.env });
+    const probe = await probeShellEnvironment(runTool, { shell: fakeShell(DUMP), cwd, env: process.env });
     expect(probe.ok).toBe(true);
     if (!probe.ok) return;
     expect(probe.environment.PROBE_ARGS).toBe("-l -i -c");
@@ -208,7 +208,7 @@ describe("probeShellEnvironment", () => {
   });
 
   it("takes a complete dump even when the shell then exits non-zero", async () => {
-    const probe = await probeShellEnvironment({
+    const probe = await probeShellEnvironment(runTool, {
       shell: fakeShell(`${DUMP}\nexit 3`),
       cwd: tmpdir(),
       env: process.env,
@@ -216,13 +216,22 @@ describe("probeShellEnvironment", () => {
     expect(probe.ok && probe.environment.PATH).toBe("/fake/bin:/usr/bin");
   });
 
-  it("fails with a reason when the shell prints no environment", async () => {
-    const probe = await probeShellEnvironment({
-      shell: fakeShell("echo 'rc broke' >&2; exit 1"),
+  it("fails with a typed cause, never the shell's own words, when it prints no environment", async () => {
+    const probe = await probeShellEnvironment(runTool, {
+      shell: fakeShell("echo 'rc broke: token sk-live-123' >&2; exit 1"),
       cwd: tmpdir(),
       env: process.env,
     });
-    expect(probe).toEqual({ ok: false, reason: "rc broke" });
+    expect(probe).toEqual({ ok: false, cause: { _tag: "Exited", code: 1 } });
+  });
+
+  it("names a shell that printed but without the markers", async () => {
+    const probe = await probeShellEnvironment(runTool, {
+      shell: fakeShell("env"),
+      cwd: tmpdir(),
+      env: process.env,
+    });
+    expect(probe).toEqual({ ok: false, cause: { _tag: "NoEnvironment" } });
   });
 });
 

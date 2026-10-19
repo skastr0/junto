@@ -123,7 +123,10 @@ settings. A Finder or launchd launch inherits none of that. So once at start,
 each Junto runs the operator's login shell the way VS Code does and adopts the
 environment it reports. On a linked machine or a Linux sandbox, that machine's
 Junto core does the same at its own start, with its own shell (`$SHELL`, else
-the account's shell, else `/bin/bash`).
+the account's shell, else `/bin/bash`). It runs again only when asked: the
+operator's "Reload shell environment" (`src/main/junto/shell-environment/`
+holds the one read path). What a surface shows of it is variable names, `PATH`
+directories and a typed cause, never a value.
 
 What runs: `$SHELL -l -i -c 'echo JUNTO_ENV_BEGIN; env -0; echo JUNTO_ENV_END'`
 as an owned child on the process plane, with stdin closed, a 10 second

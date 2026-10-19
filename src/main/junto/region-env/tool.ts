@@ -23,6 +23,11 @@ export type ToolCall = {
   readonly timeoutMs: number;
   /** Environment for this one process. Absent: the app's own. */
   readonly env?: Readonly<Record<string, string | undefined>>;
+  /** Working directory for this one process. Absent: the app's own. */
+  readonly cwd?: string;
+  /** Process-plane labels for this call. Absent: an environment source. */
+  readonly source?: string;
+  readonly purpose?: string;
 };
 
 export type ToolResult =
@@ -30,12 +35,18 @@ export type ToolResult =
   | { readonly kind: "exit"; readonly code: number; readonly stdout: string; readonly stderr: string }
   | { readonly kind: "not-installed" }
   | { readonly kind: "timeout" }
-  | { readonly kind: "failed" };
+  | {
+      readonly kind: "failed";
+      /** What stopped it, when known: a spawn error, a signal, or the output limit. */
+      readonly why?: "spawn" | "signal" | "output-limit";
+      readonly errno?: string;
+      readonly signal?: string;
+    };
 
 export type ToolRunner = (call: ToolCall) => Promise<ToolResult>;
 
 /** A tool's output is a value or a short diagnostic, never a stream. */
-const MAX_OUTPUT_BYTES = 1024 * 1024;
+export const TOOL_MAX_OUTPUT_BYTES = 1024 * 1024;
 
 /** Inject a private plane in tests; the product uses its one app-owned plane. */
 export const makeToolRunner = (
@@ -49,14 +60,16 @@ export const makeToolRunner = (
     let lease: AppProcessLease;
     try {
       lease = plane.spawnGroup({
-        source: "region-env.tool",
-        purpose: "resolve an environment source",
+        source: call.source ?? "region-env.tool",
+        purpose: call.purpose ?? "resolve an environment source",
         command: call.command,
         args: call.args,
         env: call.env ?? process.env,
+        ...(call.cwd === undefined ? {} : { cwd: call.cwd }),
       });
-    } catch {
-      resolve({ kind: "failed" });
+    } catch (error) {
+      const errno = (error as NodeJS.ErrnoException | undefined)?.code;
+      resolve({ kind: "failed", why: "spawn", ...(typeof errno === "string" ? { errno } : {}) });
       return;
     }
     const io = lease.io;
@@ -92,8 +105,8 @@ export const makeToolRunner = (
       if (settled) return;
       const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       sizes[stream] += data.length;
-      if (sizes[stream] > MAX_OUTPUT_BYTES) {
-        stop({ kind: "failed" }, "environment tool output limit");
+      if (sizes[stream] > TOOL_MAX_OUTPUT_BYTES) {
+        stop({ kind: "failed", why: "output-limit" }, "environment tool output limit");
         return;
       }
       chunks[stream].push(data);
@@ -108,9 +121,10 @@ export const makeToolRunner = (
     cleanups.push(() => io.stdout.off("data", stdout));
     cleanups.push(() => io.stderr.off("data", stderr));
     cleanups.push(io.onError((error) => {
-      finish((error as NodeJS.ErrnoException).code === "ENOENT"
+      const errno = (error as NodeJS.ErrnoException).code;
+      finish(errno === "ENOENT"
         ? { kind: "not-installed" }
-        : { kind: "failed" });
+        : { kind: "failed", why: "spawn", ...(typeof errno === "string" ? { errno } : {}) });
     }));
     timer = setTimeout(() => stop({ kind: "timeout" }, "environment tool timeout"), call.timeoutMs);
     void io.closed.then((exit) => {
@@ -120,7 +134,7 @@ export const makeToolRunner = (
         ? { kind: "ok", stdout: output }
         : typeof exit.code === "number"
           ? { kind: "exit", code: exit.code, stdout: output, stderr: Buffer.concat(chunks.stderr).toString("utf8") }
-          : { kind: "failed" });
+          : { kind: "failed", why: "signal", ...(exit.signal ? { signal: String(exit.signal) } : {}) });
     }, () => finish({ kind: "failed" }));
     // No input is typed to these tools, even when one waits for stdin.
     io.stdin.end();

@@ -56,6 +56,8 @@ import { KernelService } from "./kernel/service";
 import { registerHostsIpc } from "./hosts/ipc";
 import { PausePlane } from "./pause-plane";
 import { registerSettingsIpc } from "./settings/ipc";
+import { shellEnvironment } from "./shell-environment";
+import { registerShellEnvironmentIpc } from "./shell-environment/ipc";
 import { registerReferencesIpc } from "./references/ipc";
 import { SettingsService } from "./settings/service";
 import { registerObservabilityIpc } from "./observability";
@@ -356,6 +358,7 @@ export const registerJuntoIpc = (): void => {
   });
   registerGitIpc(privilegedIpc);
   registerSettingsIpc(privilegedIpc, broadcast);
+  registerShellEnvironmentIpc(privilegedIpc, shellEnvironment, broadcast);
   registerReferencesIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
   registerObservabilityIpc(privilegedIpc, broadcast);
   if (FLEET_UI_ENABLED) {

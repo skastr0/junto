@@ -77,27 +77,35 @@ describe("macOS privacy policy", () => {
   });
 
   it("runs the operator's login shell once per start, bounded, owned and away from home", () => {
-    const spawn = read("src/main/junto/adapters/exec.ts");
+    const probe = read("src/main/junto/shell-environment/probe.ts");
+    const environment = read("src/main/junto/shell-environment/environment.ts");
+    const entry = read("src/main/junto/shell-environment/index.ts");
+    const tool = read("src/main/junto/region-env/tool.ts");
+    const exec = read("src/main/junto/adapters/exec.ts");
     const docs = read("docs/macos-privacy.md");
 
     // One probe: `$SHELL -l -i -c` printing a framed `env -0`, an owned
     // process-plane child with a hard timeout and output cap, stdin closed,
     // marked for rc files, started in product state rather than the home.
-    expect(spawn).toMatch(/"-l",\s*"-i",\s*"-c",/u);
-    expect(spawn).toContain("env -0");
-    expect(spawn).toMatch(/timeoutMs: probe\.timeoutMs \?\? SHELL_ENVIRONMENT_TIMEOUT_MS/u);
-    expect(spawn).toMatch(/maxBuffer: SHELL_ENVIRONMENT_MAX_OUTPUT_BYTES/u);
-    expect(spawn).toContain("[SHELL_ENVIRONMENT_RESOLVING_KEY]: \"1\"");
-    expect(spawn).toContain("io.stdin.end()");
-    expect(spawn).toContain("appProcessPlane.spawnGroup(");
-    expect(spawn).toContain('join(resolveJuntoHome(), ".junto")');
-    expect(spawn).not.toMatch(/cwd: homedir\(\)/u);
-    // Only the memoized start-up resolution runs it; nothing probes per spawn.
-    const callers = [...spawn.matchAll(/await probeShellEnvironment\(/gu)];
-    expect(callers).toHaveLength(1);
-    expect(spawn.indexOf("await probeShellEnvironment(")).toBeGreaterThan(
-      spawn.indexOf("export const resolvedSpawnEnv = "),
+    expect(probe).toMatch(/"-l",\s*"-i",\s*"-c",/u);
+    expect(probe).toContain("env -0");
+    expect(probe).toMatch(/const timeoutMs = probe\.timeoutMs \?\? SHELL_ENVIRONMENT_TIMEOUT_MS/u);
+    expect(probe).toContain("[SHELL_ENVIRONMENT_RESOLVING_KEY]: \"1\"");
+    expect(tool).toMatch(/sizes\[stream\] > TOOL_MAX_OUTPUT_BYTES/u);
+    expect(tool).toContain("io.stdin.end()");
+    expect(tool).toContain("plane.spawnGroup(");
+    expect(entry).toContain("runTool,");
+    expect(entry).toContain('join(resolveJuntoHome(), ".junto")');
+    expect(`${probe}${entry}`).not.toMatch(/cwd: homedir\(\)/u);
+    // One read path, shared by the start-up ensure() and an explicit
+    // refresh(); exec.ts only asks the module. Nothing polls.
+    expect([...environment.matchAll(/await probeShellEnvironment\(/gu)]).toHaveLength(1);
+    expect(environment.indexOf("await probeShellEnvironment(")).toBeGreaterThan(
+      environment.indexOf("const read = async"),
     );
+    expect(exec).not.toContain("probeShellEnvironment");
+    expect(exec).toContain("shellEnvironment.ensure()");
+    expect(`${environment}${entry}`).not.toMatch(/setInterval|watch\(/u);
     // The doc says what runs and why, and how to turn it off.
     expect(docs).toContain("JUNTO_RESOLVING_ENVIRONMENT=1");
     expect(docs).toContain("JUNTO_SHELL_ENVIRONMENT=inherit");

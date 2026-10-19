@@ -24,12 +24,12 @@ describe("runTool", () => {
   it("app shutdown stops an in-flight environment tool and refuses new spawns", async () => {
     const pending = runTool({ command: node, args: ["-e", "setTimeout(() => {}, 60000)"], timeoutMs: 5000 });
     expect((await plane.drainOnQuit()).clean).toBe(true);
-    expect(await pending).toEqual({ kind: "failed" });
-    expect(await runTool({ command: node, args: ["-e", "process.exit(0)"], timeoutMs: 5000 })).toEqual({ kind: "failed" });
+    expect(await pending).toEqual({ kind: "failed", why: "signal", signal: "SIGTERM" });
+    expect(await runTool({ command: node, args: ["-e", "process.exit(0)"], timeoutMs: 5000 })).toEqual({ kind: "failed", why: "spawn" });
   });
 
   it("bounds each output stream without returning its contents", async () => {
-    expect(await runTool({ command: node, args: ["-e", "process.stdout.write('x'.repeat(2 * 1024 * 1024))"], timeoutMs: 5000 })).toEqual({ kind: "failed" });
+    expect(await runTool({ command: node, args: ["-e", "process.stdout.write('x'.repeat(2 * 1024 * 1024))"], timeoutMs: 5000 })).toEqual({ kind: "failed", why: "output-limit" });
   });
   it("returns stdout on success", async () => {
     expect(await runTool({ command: node, args: ["-e", "process.stdout.write('value')"], timeoutMs: 5000 })).toEqual({

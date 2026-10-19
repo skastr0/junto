@@ -26,6 +26,7 @@ import { harnessRuntimeRecordFor } from "../harness-record";
 import { parseHelpFlags } from "@shared/launch-extra-args";
 import type { ManagedTerminalFlagsResult } from "@shared/ipc";
 import { configuredToolDirectories } from "../../adapters/exec";
+import { shellEnvironment } from "../../shell-environment";
 import { juntoCliPathPrefixes } from "./seat-env";
 
 const execFileAsync = promisify(execFile);
@@ -122,6 +123,9 @@ const SHIM_LIVENESS_TIMEOUT_MS = 1_500;
 // launches must not re-probe the same shim every call.
 const SHIM_LIVENESS_CACHE_MS = 60_000;
 const shimLivenessCache = new Map<string, { live: boolean; at: number }>();
+// A shim's liveness depends on the activation env the shell gave; a new
+// environment answers afresh.
+shellEnvironment.onChange(() => shimLivenessCache.clear());
 
 const shimRunsLive = (candidate: string, pathEnv: string): boolean => {
   const cached = shimLivenessCache.get(candidate);
