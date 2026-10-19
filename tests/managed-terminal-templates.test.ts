@@ -1410,7 +1410,7 @@ describe("model enumeration (fail-soft)", () => {
     });
     expect(result.source).toBe("cache");
     expect(result.models).toEqual([
-      { id: "gpt-5.5", label: "gpt-5.5", description: "openai-codex" },
+      { id: "gpt-5.5", label: "gpt-5.5", description: "openai-codex", provider: "openai-codex" },
     ]);
   });
 

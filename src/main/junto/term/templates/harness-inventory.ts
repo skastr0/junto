@@ -4,8 +4,8 @@
  * Install discovery is cheap and already shared for a minute. Model lists are
  * not: each one is a CLI call that takes seconds, and the answer only changes
  * when the CLI changes. So model lists are kept in junto.db for six hours
- * (`harness_model_cache`), keyed by the executable they came from, and every
- * reader gets the stored answer at once. A list older than six hours is still
+ * (`harness-models-state-schema.ts`), keyed by the executable they came from,
+ * and every reader gets the stored answer at once. A list older than six hours is still
  * served while a fresh scan runs behind it; a changed executable is scanned
  * before it is served. Nothing is written under the Junto home.
  *
@@ -22,7 +22,7 @@
  */
 import { realpath, stat } from "node:fs/promises";
 import { Context, Deferred, Duration, Effect, Layer, Option, Schema, Semaphore } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import type { ManagedTerminalModelsResult } from "@shared/ipc";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 import {
@@ -72,6 +72,7 @@ const ModelOption = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
   description: Schema.optionalKey(Schema.String),
+  provider: Schema.optionalKey(Schema.String),
   efforts: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
@@ -92,60 +93,181 @@ const StoredModels = Schema.Struct({
 });
 export type StoredModels = typeof StoredModels.Type;
 
+/** A model a search found: which harness offers it, and how it reads. */
+export type HarnessModelMatch = {
+  readonly harness: string;
+  readonly model: string;
+  readonly provider?: string;
+  readonly label: string;
+};
+
 /** Where model lists are kept between runs. Losing one costs a scan, never an answer. */
 export interface HarnessModelCache {
   readonly load: Effect.Effect<ReadonlyMap<string, StoredModels>>;
   readonly save: (harness: string, stored: StoredModels) => Effect.Effect<void>;
+  /**
+   * Models whose id, provider, label or description holds the text, best
+   * first. Three letters or more search anywhere in them; fewer match the
+   * start of an id or label.
+   */
+  readonly search: (text: string, limit: number) => Effect.Effect<readonly HarnessModelMatch[]>;
 }
 
-const CacheRow = Schema.Struct({
+const ScanRow = Schema.Struct({
   harness: Schema.String,
   fingerprint: Schema.String,
-  scanned_at: Schema.Number,
   version: Schema.NullOr(Schema.String),
-  result: Schema.fromJsonString(ModelsResult),
-  profiles: Schema.NullOr(Schema.fromJsonString(Schema.Array(InventoryProfileSchema))),
+  source: ModelsResult.fields.source,
+  scanned_at: Schema.Number,
+});
+const ModelRow = Schema.Struct({
+  harness: Schema.String,
+  model: Schema.String,
+  provider: Schema.NullOr(Schema.String),
+  label: Schema.String,
+  description: Schema.NullOr(Schema.String),
+});
+const ModelEffortRow = Schema.Struct({ harness: Schema.String, model: Schema.String, effort: Schema.String });
+const ProfileRow = Schema.Struct({ harness: Schema.String, profile: Schema.String, model: Schema.NullOr(Schema.String) });
+const MatchRow = Schema.Struct({
+  harness: Schema.String,
+  model: Schema.String,
+  provider: Schema.NullOr(Schema.String),
+  label: Schema.String,
 });
 
-const decodeCacheRow = Schema.decodeUnknownOption(CacheRow);
+/** The rows of `key` in `rows`, grouped by it, in the order read. */
+const groupBy = <R, K>(rows: readonly R[], key: (row: R) => K): Map<K, R[]> => {
+  const groups = new Map<K, R[]>();
+  for (const row of rows) {
+    const group = groups.get(key(row));
+    if (group === undefined) groups.set(key(row), [row]);
+    else group.push(row);
+  }
+  return groups;
+};
 
-/** The model cache as `harness_model_cache` rows in junto.db. */
-export const harnessModelCacheIn = (sql: SqlClient.SqlClient): HarnessModelCache => ({
-  load: sql`SELECT harness, fingerprint, scanned_at, version, result, profiles FROM harness_model_cache`.pipe(
-    Effect.map((rows) => {
-      const stored = new Map<string, StoredModels>();
-      for (const raw of rows) {
-        // A row that no longer reads is one scan away from a fresh one.
-        const row = decodeCacheRow(raw);
-        if (Option.isNone(row)) continue;
-        const { harness, fingerprint, scanned_at, version, result, profiles } = row.value;
-        stored.set(harness, {
-          fingerprint, scannedAt: scanned_at, ...(version === null ? {} : { version }), result, ...(profiles === null ? {} : { profiles }),
-        });
-      }
-      return stored;
-    }),
+const modelKey = (harness: string, model: string): string => JSON.stringify([harness, model]);
+
+// The search's text as one FTS5 phrase: its own syntax never reaches MATCH.
+const ftsPhrase = (text: string): string => `"${text.replaceAll(`"`, `""`)}"`;
+const likePrefix = (text: string): string => `${text.replace(/[\\%_]/gu, (c) => `\\${c}`)}%`;
+
+/** The model cache as rows of the harness model tables in junto.db (`harness-models-state-schema.ts`). */
+export const harnessModelCacheIn = (sql: SqlClient.SqlClient): HarnessModelCache => {
+  const scans = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ScanRow,
+    execute: () => sql`SELECT harness, fingerprint, version, source, scanned_at FROM harness_scans`,
+  });
+  const models = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ModelRow,
+    execute: () => sql`SELECT harness, model, provider, label, description FROM harness_models ORDER BY harness, position`,
+  });
+  const modelEfforts = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ModelEffortRow,
+    execute: () => sql`SELECT harness, model, effort FROM harness_model_efforts ORDER BY harness, model, position`,
+  });
+  const profiles = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProfileRow,
+    execute: () => sql`SELECT harness, profile, model FROM harness_profiles ORDER BY harness, position`,
+  });
+  const matches = SqlSchema.findAll({
+    Request: Schema.Struct({ text: Schema.String, limit: Schema.Number }),
+    Result: MatchRow,
+    execute: ({ text, limit }) =>
+      [...text].length < 3
+        ? sql`
+          SELECT harness, model, provider, label FROM harness_models
+           WHERE model LIKE ${likePrefix(text)} ESCAPE '\\' OR label LIKE ${likePrefix(text)} ESCAPE '\\'
+           ORDER BY harness, position LIMIT ${limit}`
+        : sql`
+          SELECT m.harness, m.model, m.provider, m.label
+            FROM harness_models_search JOIN harness_models m ON m.id = harness_models_search.rowid
+           WHERE harness_models_search MATCH ${ftsPhrase(text)}
+           ORDER BY bm25(harness_models_search) LIMIT ${limit}`,
+  });
+
+  const load = Effect.gen(function* () {
+    const modelsOf = groupBy(yield* models(undefined), (row) => row.harness);
+    const modelEffortsOf = groupBy(yield* modelEfforts(undefined), (row) => modelKey(row.harness, row.model));
+    const profilesOf = groupBy(yield* profiles(undefined), (row) => row.harness);
+    const stored = new Map<string, StoredModels>();
+    for (const scan of yield* scans(undefined)) {
+      const listed = profilesOf.get(scan.harness);
+      stored.set(scan.harness, {
+        fingerprint: scan.fingerprint,
+        scannedAt: scan.scanned_at,
+        ...(scan.version === null ? {} : { version: scan.version }),
+        result: {
+          models: (modelsOf.get(scan.harness) ?? []).map((row) => {
+            const own = modelEffortsOf.get(modelKey(row.harness, row.model));
+            return {
+              id: row.model,
+              label: row.label,
+              ...(row.description === null ? {} : { description: row.description }),
+              ...(row.provider === null ? {} : { provider: row.provider }),
+              ...(own === undefined ? {} : { efforts: own.map((effort) => effort.effort) }),
+            };
+          }),
+          source: scan.source,
+          // The harness's efforts are Junto's template, as every scan gives them.
+          efforts: isHarnessId(scan.harness) ? [...templateFor(scan.harness).efforts] : [],
+        },
+        ...(listed === undefined ? {} : {
+          profiles: listed.map((row) => ({ name: row.profile, ...(row.model === null ? {} : { model: row.model }) })),
+        }),
+      });
+    }
+    return stored;
+  }).pipe(
+    // What no longer reads is one scan away from a fresh answer.
     Effect.catch((error) => Effect.logWarning("harness model cache read failed", error).pipe(Effect.as(new Map()))),
-  ),
-  save: (harness, stored) => sql`
-    INSERT INTO harness_model_cache(harness, fingerprint, scanned_at, version, result, profiles)
-    VALUES (
-      ${harness}, ${stored.fingerprint}, ${stored.scannedAt}, ${stored.version ?? null},
-      ${JSON.stringify(stored.result)}, ${stored.profiles === undefined ? null : JSON.stringify(stored.profiles)}
-    )
-    ON CONFLICT(harness) DO UPDATE SET
-      fingerprint = excluded.fingerprint,
-      scanned_at = excluded.scanned_at,
-      version = excluded.version,
-      result = excluded.result,
-      profiles = excluded.profiles
-  `.pipe(
-    Effect.asVoid,
+  );
+
+  // One scan replaces its harness: the cascades clear what the old one listed.
+  const save = (harness: string, stored: StoredModels) => Effect.gen(function* () {
+    yield* sql`DELETE FROM harness_scans WHERE harness = ${harness}`;
+    yield* sql`
+      INSERT INTO harness_scans(harness, fingerprint, version, source, scanned_at)
+      VALUES (${harness}, ${stored.fingerprint}, ${stored.version ?? null}, ${stored.result.source}, ${stored.scannedAt})`;
+    for (const [position, model] of stored.result.models.entries()) {
+      yield* sql`
+        INSERT INTO harness_models(harness, model, provider, label, description, position)
+        VALUES (${harness}, ${model.id}, ${model.provider ?? null}, ${model.label}, ${model.description ?? null}, ${position})
+        ON CONFLICT DO NOTHING`;
+      for (const [order, effort] of (model.efforts ?? []).entries()) {
+        yield* sql`
+          INSERT INTO harness_model_efforts(harness, model, effort, position) VALUES (${harness}, ${model.id}, ${effort}, ${order})
+          ON CONFLICT DO NOTHING`;
+      }
+    }
+    for (const [position, profile] of (stored.profiles ?? []).entries()) {
+      yield* sql`
+        INSERT INTO harness_profiles(harness, profile, model, position)
+        VALUES (${harness}, ${profile.name}, ${profile.model ?? null}, ${position})
+        ON CONFLICT DO NOTHING`;
+    }
+  }).pipe(
     sql.withTransaction,
     Effect.provideService(StateTransactionOperation, "harness-models.save"),
     Effect.catch((error) => Effect.logWarning("harness model cache write failed", error)),
-  ),
-});
+  );
+
+  const search = (text: string, limit: number) => {
+    const query = text.trim();
+    if (query === "" || limit < 1) return Effect.succeed([]);
+    return matches({ text: query, limit }).pipe(
+      Effect.map((rows) => rows.map(({ provider, ...row }): HarnessModelMatch => (provider === null ? row : { ...row, provider }))),
+      Effect.catch((error) => Effect.logWarning("harness model search failed", error).pipe(Effect.as([]))),
+    );
+  };
+
+  return { load, save, search };
+};
 
 type Entry = StoredModels & {
   /** Failed scans are remembered briefly and never stored. */

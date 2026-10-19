@@ -62,9 +62,15 @@ const stepped = (
     database.exec("PRAGMA foreign_keys = OFF");
     database.exec(sql);
     migrate(database);
+    // A full-text table's shadow tables are its own: creating it makes them.
     return (
       database
-        .prepare("SELECT sql FROM sqlite_schema WHERE sql IS NOT NULL AND name NOT GLOB 'sqlite_*' ORDER BY rowid")
+        .prepare(
+          `SELECT sql FROM sqlite_schema
+            WHERE sql IS NOT NULL AND name NOT GLOB 'sqlite_*'
+              AND name NOT IN (SELECT name FROM pragma_table_list WHERE type = 'shadow')
+            ORDER BY rowid`,
+        )
         .all()
         .map((row) => `${String(row.sql)};`)
         .join("\n")

@@ -169,8 +169,10 @@ the launch picker render and validate from it, never from a harness branch.
 - **Inventory** is keyed by harness and the seat's machine (`HostId`), fresh for
   six hours, and a reader never waits: a stale answer is served with
   `refreshing`, and a failed scan says why. Each machine keeps its last good
-  lists in its own junto.db (`harness_model_cache`), a cache rebuilt from the
-  harnesses; nothing is written under the Junto home.
+  scans in its own junto.db, a cache rebuilt from the harnesses: one row per
+  harness scan, model, per-model effort and profile, and a trigram full-text
+  index over the models (`harness-models-state-schema.ts`). Nothing is written
+  under the Junto home.
 - **Native config** is a separate, explicit write to a harness's own config
   file on a named machine. Settings are declared per harness for a verified
   version range with typed values; anything else is refused before a file is

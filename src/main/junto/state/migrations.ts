@@ -343,13 +343,14 @@ export const STATE_SCHEMA_V22_IDENTITY = {
 } as const satisfies VerifiedStateSchemaIdentity;
 
 /**
- * Version 23 keeps the model lists this machine's agent CLIs gave in
- * `harness_model_cache`, a cache rebuilt from the CLIs; nothing is written to
- * `~/.junto/state/harness-models.json` any more.
+ * Version 23 keeps what this machine's agent CLIs offer in tables, a cache
+ * rebuilt from the CLIs: each harness's last scan, its models, their efforts
+ * and its profiles, with a full-text index over the models. Nothing is written
+ * to `~/.junto/state/harness-models.json` any more.
  */
 export const STATE_SCHEMA_V23_IDENTITY = {
   actualSchemaSha256:
-    "93e3510efd51bb9d7245ef1f4784395f6c932b3db01d98479423d6191744710a",
+    "9021034d2d488b8caebefbdc9a1d45e7090a21659e7955d709fe132e71d2fdcf",
 } as const satisfies VerifiedStateSchemaIdentity;
 
 /**
@@ -358,7 +359,7 @@ export const STATE_SCHEMA_V23_IDENTITY = {
  */
 export const STATE_SCHEMA_V24_IDENTITY = {
   actualSchemaSha256:
-    "03091422619a73a17db29649091164fbbbeb1fdd9062ead1c9cb119b1e1a19ae",
+    "cd1ce156f1fdc15029f634a6c3fa6bc71e44f30ac85cd09937a7d54015454934",
 } as const satisfies VerifiedStateSchemaIdentity;
 
 export const CURRENT_STATE_SCHEMA_VERSION = 24;
@@ -620,7 +621,7 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
   {
     fromVersion: 22,
     toVersion: 23,
-    name: "add the harness model cache",
+    name: "add the harness model tables",
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V22_IDENTITY,
     migrate: (database) => {

@@ -1327,6 +1327,8 @@ export interface ManagedTerminalModelOption {
   readonly id: string;
   readonly label: string;
   readonly description?: string;
+  /** The provider serving the model, when the harness names one. */
+  readonly provider?: string;
   readonly efforts?: readonly string[];
 }
 

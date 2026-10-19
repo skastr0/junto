@@ -211,8 +211,8 @@ describe("fx models enumeration", () => {
       ids: ["anthropic/claude-opus-5", "zai/glm-5.3-flash", "anthropic/claude-opus-5"],
     });
     expect(parseFxModelsJson(stdout).models).toEqual([
-      { id: "anthropic/claude-opus-5", label: "anthropic/claude-opus-5" },
-      { id: "zai/glm-5.3-flash", label: "zai/glm-5.3-flash" },
+      { id: "anthropic/claude-opus-5", label: "anthropic/claude-opus-5", provider: "anthropic" },
+      { id: "zai/glm-5.3-flash", label: "zai/glm-5.3-flash", provider: "zai" },
     ]);
   });
 

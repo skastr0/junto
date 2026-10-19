@@ -18,6 +18,8 @@ export type ModelOption = {
   readonly id: string;
   readonly label: string;
   readonly description?: string;
+  /** The provider serving the model, when the harness names one. */
+  readonly provider?: string;
   /** Per-model effort list when the source provides one (Codex). */
   readonly efforts?: readonly string[];
 };
@@ -444,6 +446,7 @@ export const parseHermesProviderModelsCache = (
           id,
           label: id,
           description: provider,
+          provider,
         });
       }
     }
@@ -511,6 +514,7 @@ export const parseProviderModelTable = (
       id: `${provider}/${model}`,
       label: model,
       description: provider,
+      provider,
     });
   }
   models.sort((a, b) => a.id.localeCompare(b.id));
@@ -783,7 +787,9 @@ export const parseFxModelsJson = (
     const id = raw.trim();
     if (!id || seen.has(id)) continue;
     seen.add(id);
-    models.push({ id, label: id });
+    // fx ids are provider-prefixed (`anthropic/claude-opus-5`).
+    const slash = id.indexOf("/");
+    models.push({ id, label: id, ...(slash > 0 ? { provider: id.slice(0, slash) } : {}) });
   }
   return { models };
 };
