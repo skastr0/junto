@@ -4,6 +4,7 @@ import type {
   SettingsPatch,
   SettingsSectionKey,
 } from "@shared/settings";
+import { observable } from "@legendapp/state";
 import { state$ } from "./state";
 
 /** Hydrate settings from main and subscribe for push updates. Idempotent. */
@@ -45,6 +46,18 @@ export const startSettingsBridge = (): (() => void) | undefined => {
 
 export const openSettings = (): void => {
   state$.settingsOpen.set(true);
+};
+
+/** A Settings page, and the row on it to bring into view (its `data-setting`). */
+export type SettingsPlace = { readonly section: SettingsSectionKey; readonly setting?: string };
+
+/** Where the next open lands; the panel takes it and clears it. */
+export const settingsPlace$ = observable<SettingsPlace | undefined>(undefined);
+
+/** Open Settings on one page, its row marked as search marks one. */
+export const openSettingsAt = (place: SettingsPlace): void => {
+  settingsPlace$.set(place);
+  openSettings();
 };
 
 export const closeSettings = (): void => {

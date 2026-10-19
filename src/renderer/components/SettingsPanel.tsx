@@ -40,6 +40,7 @@ import {
   closeSettings,
   patchSettings,
   resetSettings,
+  settingsPlace$,
 } from "../lib/settings-state";
 import { openIntro } from "../lib/first-run-intro";
 import {
@@ -1142,6 +1143,16 @@ export function SettingsPanel() {
       delete row.dataset.found;
     };
   }, [found, section, loading]);
+
+  // A link elsewhere opened Settings on one page: go there and mark its row.
+  const place = use$(settingsPlace$);
+  useEffect(() => {
+    if (!open || place === undefined) return;
+    setQuery("");
+    setSection(place.section);
+    if (place.setting !== undefined) setFound(place.setting);
+    settingsPlace$.set(undefined);
+  }, [open, place]);
 
   // Keep the marked result in view as Up and Down move it.
   useEffect(() => {

@@ -9,7 +9,7 @@ import { decodeNode, type Node } from "../src/shared/model";
 import { SeatCard } from "../src/renderer/components/nodes/SeatCard";
 import { agentSeat$ } from "../src/renderer/lib/agent-seat-state";
 import { replaceAgentSignals } from "../src/renderer/lib/agent-signals-state";
-import { seatNextTurn$ } from "../src/renderer/lib/seat-next-launch";
+import { seatCacheWindow$, seatNextTurn$ } from "../src/renderer/lib/seat-next-launch";
 import { state$ } from "../src/renderer/lib/state";
 import { holdModelCanvas as holdCanvas } from "./support/hold-canvas";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
@@ -33,6 +33,7 @@ describe("SeatCard", () => {
     state$.machineFacts.set({});
     state$.settings.machine.name.set("");
     seatNextTurn$.set({});
+    seatCacheWindow$.set({});
     agentSeat$.byBindingId.set({});
   });
 
@@ -85,7 +86,7 @@ describe("SeatCard", () => {
     expect(card("lead")).toContain("not running");
     expect(card("lead")).not.toContain("fresh next");
     expect(card("scout")).toContain("fresh next");
-    // No cache wording on the seat, ever.
+    // A seat whose next turn starts fresh says nothing of its cache.
     expect(card("scout").toLowerCase()).not.toContain("cache");
   });
 
@@ -122,6 +123,31 @@ describe("SeatCard", () => {
     expect(card("review")).toContain("fresh next");
     replaceAgentSignals("", []);
     state$.canvasName.set("");
+  });
+
+  it("says a still seat's state against its cache window, and cache expired once past it", () => {
+    stop = holdCanvas("factory", [seat("warm", "warm"), seat("cold", "cold"), seat("fresh", "fresh")]);
+    const now = Date.now();
+    const window = (stillFor: number) => ({
+      windowMinutes: 60,
+      stillSince: now - stillFor * 60_000,
+      windowEndsAt: now + (60 - stillFor) * 60_000,
+      pastWindow: stillFor >= 60,
+      pastByMs: Math.max(0, stillFor - 60) * 60_000,
+      cacheMode: "manual" as const,
+    });
+    seatNextTurn$.set({ factory: { warm: { fresh: false }, cold: { fresh: false }, fresh: { fresh: true } } });
+    seatCacheWindow$.set({ factory: { warm: window(14), cold: window(72), fresh: window(72) } });
+
+    expect(card("warm")).toContain('data-cache="warm"');
+    expect(card("warm")).toContain("not running 14m");
+    expect(card("warm")).not.toContain("cache expired");
+    expect(card("cold")).toContain('data-cache="expired"');
+    expect(card("cold")).toContain("not running 1h 12m,");
+    expect(card("cold")).toContain("cache expired");
+    // "fresh next" and the cache window never share a line.
+    expect(card("fresh")).toContain("fresh next");
+    expect(card("fresh")).not.toContain("seat-cache-status");
   });
 
   it("renders nothing for an id the store does not hold as a seat", () => {

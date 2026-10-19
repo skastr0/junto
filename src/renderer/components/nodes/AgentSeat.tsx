@@ -15,6 +15,8 @@ import { resolveActivityGlyph } from "../../lib/activity";
 import { publishSeatUrgency, seatUrgencyOfRing } from "../../lib/region-urgency";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { AgentPortrait, PortraitBadge } from "../AgentPortrait";
+import { SeatCacheStatus } from "./SeatCacheStatus";
+import type { SeatCacheFace } from "./seat-cache-status";
 
 /** Portrait inside the 52px seat ring: fits the ring's hole with a hairline gap. */
 export const SEAT_PORTRAIT_PX = 34;
@@ -58,7 +60,9 @@ export type SeatSignal = {
  * the loudest of them in words: the seat's own signal first, then a spawn
  * failure, then proven attention (needs input, blocked), then the AI's
  * reading (marked as such; it outranks "done", which may really be
- * waiting), then the control state. The order is seatRollup's.
+ * waiting), then the control state. The order is seatRollup's. A still
+ * seat whose next turn picks up where it was says its state against its
+ * cache window instead of the bare state (SeatCacheStatus).
  * Pure: `AgentSeat` feeds it from the live stores, the gallery from fixtures.
  */
 export function AgentSeatView({
@@ -73,6 +77,8 @@ export function AgentSeatView({
   onSignalOpen,
   overseer = false,
   compact = false,
+  cache,
+  host,
   children,
 }: {
   /** Seat identity (node id) for the portrait. */
@@ -93,6 +99,10 @@ export function AgentSeatView({
   readonly overseer?: boolean;
   /** The ring and portrait alone, name and line left out (a narrow strip of seats). */
   readonly compact?: boolean;
+  /** The still seat against its cache window, while main tells it. */
+  readonly cache?: SeatCacheFace;
+  /** The seat's machine. */
+  readonly host?: string;
   /** Extra rows under the line (claimed task). */
   readonly children?: ReactNode;
 }) {
@@ -120,6 +130,8 @@ export function AgentSeatView({
         <span className={saying.stale ? "text-faint" : "text-dim"}>{saying.text}</span>
       </>
     );
+  } else if (cache && !saying.tone) {
+    line = <SeatCacheStatus words={saying.text} face={cache} host={host} />;
   } else {
     line = <span className={saying.tone ? TONE_TEXT[saying.tone] : "text-dim"}>{saying.text}</span>;
   }
@@ -183,6 +195,8 @@ export function AgentSeat({
   readonly harness?: string;
   readonly context?: string;
   readonly overseer?: boolean;
+  readonly cache?: SeatCacheFace;
+  readonly host?: string;
   readonly children?: ReactNode;
 }) {
   const rollup = useSeatSignalRollup(canvas, id);

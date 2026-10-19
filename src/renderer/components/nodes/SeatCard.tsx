@@ -5,11 +5,11 @@ import { TASKS_ENABLED } from "@shared/features";
 import { agentSeat$ } from "../../lib/agent-seat-state";
 import { useSeatSignalRollup } from "../../lib/agent-signals-state";
 import { getJuntoApi } from "../../lib/junto-api";
-import { useSeatMachineLine } from "../../lib/machines";
+import { machineLabel, onThisMachine, useSeatMachineLine } from "../../lib/machines";
 import { editText } from "../../lib/mutations";
 import { useSeatAttentionReasons } from "../../lib/occupancy-feed";
 import { cardMark, notifyItem, seatFactsForNode } from "../../lib/seat-projections";
-import { useSeatFreshNext } from "../../lib/seat-next-launch";
+import { useSeatCacheWindow, useSeatFreshNext } from "../../lib/seat-next-launch";
 import { SEAT_FRESH_NEXT_LINE } from "@shared/seat-next-launch";
 import { state$ } from "../../lib/state";
 import { onTerminalEvent } from "../../lib/terminal-events";
@@ -108,6 +108,11 @@ export function SeatCard({
     `${bindingId ?? ""}:${seatEvent?.state ?? ""}:${seatEvent?.at ?? 0}:${session?.epoch ?? ""}:${session?.status ?? ""}:${String(reachable)}:${String(viewed)}`,
   );
   const activity = freshNext ? { ...mark, label: SEAT_FRESH_NEXT_LINE } : mark;
+  // The same answer: a still seat that picks up where it was, against its
+  // cache window. Never said with "fresh next"; main tells one or the other.
+  const cacheWindow = useSeatCacheWindow(canvas, id);
+  const cacheMachine = use$(() => (hostId === undefined || onThisMachine(hostId) ? "this machine" : machineLabel(hostId)));
+  const cache = cacheWindow && !freshNext ? { window: cacheWindow, harness, machine: cacheMachine } : undefined;
 
   if (name === undefined) return null;
 
@@ -155,6 +160,8 @@ export function SeatCard({
         harness={harness}
         context={context}
         overseer={overseer}
+        cache={cache}
+        host={hostId}
       >
         {TASKS_ENABLED ? <ClaimedTaskStrip nodeId={id} /> : null}
       </AgentSeat>
