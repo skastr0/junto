@@ -3,19 +3,23 @@
  * wants the operator, grouped by region. A card is a seat and its need
  * (blocked, needs input, escalation, ready for review, or an AI reading that
  * it is waiting on you), or a need read off the canvas (a stoppage, a held
- * node, a sink that wants input); signals are answered inline or with one
- * quick reply, anything else opens the node.
+ * node, a sink that wants input). The list sits on the left; the selected
+ * item fills the detail pane on the right, with its full details, its pill
+ * rows, its keys and its composer. Anything that is not a signal opens the
+ * node.
  *
  * The data is the shared projection (`@shared/operator-feed`), so this is one
  * rendering of a shape a mobile client can read as well.
  *
- * Keys while open: j / k move, 1..9 send that quick reply, Enter writes a
- * reply (or opens the seat), o opens the seat, Esc closes the reply first and
- * then the feed.
+ * Four answers, each one key on the selected item: 1..9 a quick reply (mails
+ * and wakes the seat), Shift+1..9 a quiet note (answered, the seat is not
+ * woken), a acknowledges with no note (also quiet), d dismisses (closed, the
+ * seat is not told). Also: j / k move, Enter writes a reply (or opens the
+ * seat), o opens the seat, Esc closes the reply first and then the feed.
  *
  * An operator modal: OperatorModalHost owns the chord (⌘I) and mounts this
- * only while open, so selection, reply and expanded details reset on every
- * open. The shell owns the frame, the header, focus and Escape.
+ * only while open, so selection and reply reset on every open. The shell
+ * owns the frame, the header, focus and Escape.
  */
 import {
   useEffect,
@@ -33,7 +37,6 @@ import { use$ } from "@legendapp/state/react";
 import {
   ArrowBigUpDash,
   ArrowUpRight,
-  ChevronDown,
   CirclePause,
   Inbox,
   MessageCircleQuestion,
@@ -70,7 +73,15 @@ import {
 import { canReviewCommit, openCommitReview } from "../../lib/git-summary";
 import { closeOperatorModal, operatorModalPlace } from "../../lib/operator-modal";
 import { isThisMacItem, openRemoteLoginSettings } from "../../lib/phone-reach";
-import { mergedQuickReplies, quickReplyForKey, useQuickReplies } from "../../lib/quick-replies";
+import {
+  answerLabel,
+  feedAnswerForKey,
+  mergedQuickReplies,
+  sendSignalAnswer,
+  useQuickReplies,
+  useQuietNotes,
+  type SignalAnswer,
+} from "../../lib/quick-replies";
 import { requestSectionReveal } from "../../lib/sidebar-sections";
 import { state$ } from "../../lib/state";
 import { useCanvas } from "../../lib/use-model";
@@ -88,6 +99,7 @@ import "./operator-feed.css";
 
 const LEAVE_MS = 280;
 const NO_IDS: ReadonlySet<string> = new Set();
+const NO_NOTES: ReadonlyArray<string> = [];
 
 const closeOperatorFeed = (): void => closeOperatorModal("feed");
 
@@ -122,63 +134,150 @@ const openSeat = (item: FeedItem, node: Node | undefined): void => {
   activateNodeSurface(node.id);
 };
 
+function FeedPortrait({ item, node }: { readonly item: FeedItem; readonly node: Node | undefined }) {
+  const KindIcon = KIND_ICON[item.kind];
+  return (
+    <div className="operator-feed__portrait">
+      {isThisMacItem(item) ? (
+        <span className="operator-feed__node-mark">
+          <MonitorSmartphone size={18} aria-hidden />
+        </span>
+      ) : node?.kind === "agent" ? (
+        <LiveSeatRing seat={node} />
+      ) : node ? (
+        <KindMark node={node} className="operator-feed__node-mark" iconSize={18} />
+      ) : (
+        <AgentPortrait identity={item.seat.portraitIdentity} size={36} frame="round" outline={false} />
+      )}
+      <span className="operator-feed__kind-mark" aria-hidden>
+        <KindIcon size={11} strokeWidth={2.25} />
+      </span>
+    </div>
+  );
+}
+
+/** Who, what, how long, and the sentence: the same words in the list and the pane. */
+function FeedWords({
+  item,
+  nowMs,
+  labelId,
+}: {
+  readonly item: FeedItem;
+  readonly nowMs: number;
+  readonly labelId?: string;
+}) {
+  const age = mailAgeLabel(nowMs, item.since);
+  const health = item.kind === "health" ? undefined : item.health;
+  return (
+    <>
+      <header className="operator-feed__card-head">
+        <span id={labelId && `${labelId}-name`} className="operator-feed__name">{item.seat.name}</span>
+        <span id={labelId && `${labelId}-kind`} className="operator-feed__kind">{FEED_KIND_LABEL[item.kind]}</span>
+        {age ? (
+          <time className="operator-feed__age" title={new Date(item.since!).toLocaleString()}>
+            {age}
+          </time>
+        ) : null}
+      </header>
+      <p id={labelId && `${labelId}-text`} className="operator-feed__text">{item.text}</p>
+      {health ? (
+        <p className="operator-feed__health" title="Jev's reading of the screen, not the agent's own claim">
+          <StatusDot tone={THREAD_HEALTH_STATUS_TONE[health.tone]} />
+          AI reads {health.label}
+          {health.stale ? <span className="operator-feed__faint">, last observed</span> : null}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 /**
- * One feed row. Exported so other surfaces (the onboarding tour) can show a
- * real row from fixture items: with `node` undefined it draws the seat's
- * portrait without the live ring and disables Open seat.
+ * The selected signal's two pill rows: the waking quick replies (1..9) and,
+ * apart below them, the quiet notes (Shift+1..9).
+ */
+function FeedPills({
+  item,
+  quickReplies,
+  quietNotes,
+  numbered,
+  sending,
+  onAnswer,
+}: {
+  readonly item: FeedItem;
+  readonly quickReplies: ReadonlyArray<string>;
+  readonly quietNotes: ReadonlyArray<string>;
+  readonly numbered: boolean;
+  readonly sending: string | null;
+  readonly onAnswer: (answer: SignalAnswer) => void;
+}) {
+  return (
+    <div className="operator-feed__pills">
+      <QuickReplies
+        replies={quickReplies}
+        suggested={item.suggestions}
+        pending={sending}
+        numbered={numbered}
+        to={item.seat.name}
+        onPick={(text) => onAnswer({ kind: "reply", text })}
+        className="operator-feed__quick"
+      />
+      <QuickReplies
+        replies={quietNotes}
+        pending={sending}
+        numbered={numbered}
+        quiet
+        to={item.seat.name}
+        onPick={(text) => onAnswer({ kind: "quiet", text })}
+        className="operator-feed__quick"
+      />
+    </div>
+  );
+}
+
+/**
+ * One feed row in the list: portrait, who, what and the sentence. Exported
+ * so other surfaces (the onboarding tour) can show a real row from fixture
+ * items: with `node` undefined it draws the seat's portrait without the live
+ * ring. With `pills` (the tour), the selected row carries its pill rows; in
+ * the feed they live in the detail pane, so no row repeats them.
  */
 export function FeedCard({
   item,
   node,
   nowMs,
   quickReplies,
+  quietNotes = NO_NOTES,
   selected,
   reveal,
   leaving,
-  replying,
-  expanded,
   sending,
-  error,
+  pills = true,
   onSelect,
-  onReply,
   onQuickReply,
-  onToggleDetail,
-  onReviewCommit,
+  onQuietNote,
 }: {
   readonly item: FeedItem;
   readonly node: Node | undefined;
   readonly nowMs: number;
   readonly quickReplies: ReadonlyArray<string>;
+  readonly quietNotes?: ReadonlyArray<string>;
   readonly selected: boolean;
   /** Scroll into view as it is selected: only a j/k step asks for it. */
   readonly reveal: boolean;
   readonly leaving: boolean;
-  readonly replying: boolean;
-  readonly expanded: boolean;
-  /** The quick reply in flight for this card, if any. */
+  /** The answer in flight for this card, if any (answerLabel). */
   readonly sending: string | null;
-  readonly error: string | null;
+  /** Draw the selected row's pill rows in the row itself. */
+  readonly pills?: boolean;
   readonly onSelect: () => void;
-  readonly onReply: (open: boolean) => void;
   readonly onQuickReply: (text: string) => void;
-  readonly onToggleDetail: () => void;
-  /** Leave the feed for the full review of a commit this card carries. Absent where there is no feed to leave. */
-  readonly onReviewCommit?: ((sha: string) => void) | undefined;
+  readonly onQuietNote?: (text: string) => void;
 }) {
   const ref = useRef<HTMLElement>(null);
   const labelId = useId();
   useEffect(() => {
     if (selected && reveal) ref.current?.scrollIntoView({ block: "nearest" });
   }, [selected, reveal]);
-  const label = FEED_KIND_LABEL[item.kind];
-  const KindIcon = KIND_ICON[item.kind];
-  const isSeat = node === undefined || node.kind === "agent";
-  const thisMac = isThisMacItem(item);
-  const age = mailAgeLabel(nowMs, item.since);
-  const health = item.kind === "health" ? undefined : item.health;
-  // More to see than the sentence: the agent's longer text, or files it attached.
-  const hasDetails =
-    item.signalId !== undefined && (Boolean(item.detail) || (item.attachments?.length ?? 0) > 0);
 
   return (
     <div className={`operator-feed__slot${leaving ? " operator-feed__slot--leaving" : ""}`} role="listitem">
@@ -190,133 +289,184 @@ export function FeedCard({
         data-kind={item.kind}
         aria-current={selected ? "true" : undefined}
         // Named by who, what and its own sentence, so two cards from one seat
-        // are told apart on entry and their buttons can keep short names.
+        // are told apart on entry.
         aria-labelledby={`${labelId}-name ${labelId}-kind ${labelId}-text`}
-        // Select on click, not on press: selecting numbers the row's pills,
-        // and a press that reshaped them would land its release elsewhere.
         onClick={onSelect}
       >
-        <div className="operator-feed__portrait">
-          {thisMac ? (
-            <span className="operator-feed__node-mark">
-              <MonitorSmartphone size={18} aria-hidden />
-            </span>
-          ) : node?.kind === "agent" ? (
-            <LiveSeatRing seat={node} />
-          ) : node ? (
-            <KindMark node={node} className="operator-feed__node-mark" iconSize={18} />
-          ) : (
-            <AgentPortrait identity={item.seat.portraitIdentity} size={36} frame="round" outline={false} />
-          )}
-          <span className="operator-feed__kind-mark" aria-hidden>
-            <KindIcon size={11} strokeWidth={2.25} />
-          </span>
-        </div>
+        <FeedPortrait item={item} node={node} />
         <div className="operator-feed__body">
-          <header className="operator-feed__card-head">
-            <span id={`${labelId}-name`} className="operator-feed__name">{item.seat.name}</span>
-            <span id={`${labelId}-kind`} className="operator-feed__kind">{label}</span>
-            {age ? (
-              <time className="operator-feed__age" title={new Date(item.since!).toLocaleString()}>
-                {age}
-              </time>
-            ) : null}
-          </header>
-          <p id={`${labelId}-text`} className="operator-feed__text">{item.text}</p>
-          {health ? (
-            <p className="operator-feed__health" title="Jev's reading of the screen, not the agent's own claim">
-              <StatusDot tone={THREAD_HEALTH_STATUS_TONE[health.tone]} />
-              AI reads {health.label}
-              {health.stale ? <span className="operator-feed__faint">, last observed</span> : null}
-            </p>
-          ) : null}
-          {hasDetails ? (
-            <button
-              type="button"
-              className="operator-feed__detail-toggle"
-              aria-expanded={expanded}
-              // One name in both states: aria-expanded says which.
-              aria-label={`Details from ${item.seat.name}`}
-              onClick={onToggleDetail}
-            >
-              <ChevronDown size={12} className={expanded ? "operator-feed__chevron--open" : undefined} aria-hidden />
-              {expanded ? "Hide details" : "Details"}
-            </button>
-          ) : null}
-          {/* Mounted with the open details, so a closed card reads no file. */}
-          {/* Only a signal carries details, so the signal is always there to read from. */}
-          {hasDetails && item.signalId && expanded ? (
-            <PreviewedMarkdown
-              markdown={item.detail}
-              attachments={item.attachments}
-              source={{ kind: "signal", signalId: item.signalId }}
-              seat={{ canvasName: item.canvasName, nodeId: item.seat.nodeId }}
-              // Only a sender on the open canvas with a folder can be reviewed.
-              onReviewCommit={onReviewCommit && canReviewCommit(item.canvasName, item.seat.nodeId) ? onReviewCommit : undefined}
-              textClassName="operator-feed__detail"
+          <FeedWords item={item} nowMs={nowMs} labelId={labelId} />
+          {pills && selected && item.signalId ? (
+            <FeedPills
+              item={item}
+              quickReplies={quickReplies}
+              quietNotes={quietNotes}
+              numbered
+              sending={sending}
+              onAnswer={(answer) => {
+                if (answer.kind === "reply") onQuickReply(answer.text);
+                else if (answer.kind === "quiet") onQuietNote?.(answer.text);
+              }}
             />
-          ) : null}
-          {replying && item.signalId ? (
-            <SignalReply
-              signalId={item.signalId}
-              suggested={item.suggestions}
-              respond={respondToAgentSignal}
-              dismiss={dismissAgentSignal}
-              onDone={() => onReply(false)}
-              className="operator-feed__reply"
-            />
-          ) : (
-            <div className="operator-feed__actions">
-              {item.signalId ? (
-                <QuickReplies
-                  replies={quickReplies}
-                  suggested={item.suggestions}
-                  pending={sending}
-                  numbered={selected}
-                  to={item.seat.name}
-                  onPick={onQuickReply}
-                  className="operator-feed__quick"
-                />
-              ) : null}
-              <span className="operator-feed__actions-end">
-                {item.signalId ? (
-                  <Button
-                    size="xs"
-                    variant="subtle"
-                    aria-label={`Write reply to ${item.seat.name}`}
-                    onClick={() => onReply(true)}
-                  >
-                    Write reply
-                  </Button>
-                ) : null}
-                {thisMac ? (
-                  <Button size="xs" variant="subtle" onClick={openRemoteLoginSettings}>
-                    Open Remote Login settings
-                    <ArrowUpRight size={11} aria-hidden />
-                  </Button>
-                ) : (
-                  <Button
-                    size="xs"
-                    variant="subtle"
-                    disabled={!node}
-                    aria-label={`${isSeat ? "Open seat" : "Open"} ${item.seat.name}`}
-                    onClick={() => openSeat(item, node)}
-                  >
-                    {isSeat ? "Open seat" : "Open"}
-                    <ArrowUpRight size={11} aria-hidden />
-                  </Button>
-                )}
-              </span>
-            </div>
-          )}
-          {error && !replying ? (
-            <p className="operator-feed__error" role="alert">
-              {error}
-            </p>
           ) : null}
         </div>
       </article>
     </div>
+  );
+}
+
+/** The selected item's keys, at the foot of its pane. */
+function FeedKeys({
+  item,
+  quickCount,
+  quietCount,
+}: {
+  readonly item: FeedItem;
+  readonly quickCount: number;
+  readonly quietCount: number;
+}) {
+  const range = (count: number, shift: boolean): ReactNode => (
+    <>
+      <Kbd>{shift ? "⇧1" : "1"}</Kbd>
+      {count > 1 ? <>–<Kbd>{`${shift ? "⇧" : ""}${Math.min(9, count)}`}</Kbd></> : null}
+    </>
+  );
+  return (
+    <footer className="operator-feed__keys" data-testid="operator-feed-keys" aria-hidden>
+      <span><Kbd>j</Kbd><Kbd>k</Kbd> move</span>
+      {item.signalId && quickCount > 0 ? <span>{range(quickCount, false)} quick reply</span> : null}
+      {item.signalId && quietCount > 0 ? <span>{range(quietCount, true)} quiet note</span> : null}
+      {item.signalId ? <span><Kbd>a</Kbd> acknowledge</span> : null}
+      {item.signalId ? <span><Kbd>d</Kbd> dismiss</span> : null}
+      {item.signalId ? <span><Kbd>↵</Kbd> write reply</span> : null}
+      <span><Kbd>o</Kbd> open seat</span>
+      <span><Kbd>esc</Kbd> close</span>
+    </footer>
+  );
+}
+
+/**
+ * The selected item, whole: its words, its full details and files without
+ * an expander, then its answers (both pill rows, Write reply, Open seat) or,
+ * after Enter, the composer. Remounted per item, so its scroll and its
+ * composer start fresh as j and k move.
+ */
+function FeedDetail({
+  item,
+  node,
+  nowMs,
+  quickReplies,
+  quietNotes,
+  replying,
+  sending,
+  error,
+  onAnswer,
+  onReply,
+  onReviewCommit,
+}: {
+  readonly item: FeedItem;
+  readonly node: Node | undefined;
+  readonly nowMs: number;
+  readonly quickReplies: ReadonlyArray<string>;
+  readonly quietNotes: ReadonlyArray<string>;
+  readonly replying: boolean;
+  readonly sending: string | null;
+  readonly error: string | null;
+  readonly onAnswer: (answer: SignalAnswer) => void;
+  readonly onReply: (open: boolean) => void;
+  readonly onReviewCommit: (sha: string) => void;
+}) {
+  const isSeat = node === undefined || node.kind === "agent";
+  const thisMac = isThisMacItem(item);
+  const hasDetails = item.signalId !== undefined && (Boolean(item.detail) || (item.attachments?.length ?? 0) > 0);
+  return (
+    <section
+      className="operator-feed__detail-pane"
+      data-testid="operator-feed-detail"
+      data-item-id={item.itemId}
+      data-kind={item.kind}
+      aria-label={`${item.seat.name}, ${FEED_KIND_LABEL[item.kind]}`}
+    >
+      <div className="operator-feed__detail-scroll">
+        <div className="operator-feed__detail-head">
+          <FeedPortrait item={item} node={node} />
+          <div className="operator-feed__body">
+            <FeedWords item={item} nowMs={nowMs} />
+          </div>
+        </div>
+        {/* Only a signal carries details, so the signal is always there to read from. */}
+        {hasDetails && item.signalId ? (
+          <PreviewedMarkdown
+            markdown={item.detail}
+            attachments={item.attachments}
+            source={{ kind: "signal", signalId: item.signalId }}
+            seat={{ canvasName: item.canvasName, nodeId: item.seat.nodeId }}
+            // Only a sender on the open canvas with a folder can be reviewed.
+            onReviewCommit={canReviewCommit(item.canvasName, item.seat.nodeId) ? onReviewCommit : undefined}
+            textClassName="operator-feed__detail"
+          />
+        ) : null}
+      </div>
+      <div className="operator-feed__answer">
+        {replying && item.signalId ? (
+          <SignalReply
+            signalId={item.signalId}
+            suggested={item.suggestions}
+            respond={respondToAgentSignal}
+            dismiss={dismissAgentSignal}
+            onDone={() => onReply(false)}
+            className="operator-feed__reply"
+          />
+        ) : (
+          <>
+            {item.signalId ? (
+              <FeedPills
+                item={item}
+                quickReplies={quickReplies}
+                quietNotes={quietNotes}
+                numbered
+                sending={sending}
+                onAnswer={onAnswer}
+              />
+            ) : null}
+            <div className="operator-feed__actions">
+              {item.signalId ? (
+                <Button size="xs" variant="subtle" aria-label={`Write reply to ${item.seat.name}`} onClick={() => onReply(true)}>
+                  Write reply
+                </Button>
+              ) : null}
+              {thisMac ? (
+                <Button size="xs" variant="subtle" onClick={openRemoteLoginSettings}>
+                  Open Remote Login settings
+                  <ArrowUpRight size={11} aria-hidden />
+                </Button>
+              ) : (
+                <Button
+                  size="xs"
+                  variant="subtle"
+                  disabled={!node}
+                  aria-label={`${isSeat ? "Open seat" : "Open"} ${item.seat.name}`}
+                  onClick={() => openSeat(item, node)}
+                >
+                  {isSeat ? "Open seat" : "Open"}
+                  <ArrowUpRight size={11} aria-hidden />
+                </Button>
+              )}
+            </div>
+          </>
+        )}
+        {error && !replying ? (
+          <p className="operator-feed__error" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </div>
+      <FeedKeys
+        item={item}
+        quickCount={mergedQuickReplies(quickReplies, item.suggestions).length}
+        quietCount={quietNotes.length}
+      />
+    </section>
   );
 }
 
@@ -363,6 +513,7 @@ const FEED_ORDER_OPTIONS: ReadonlyArray<{ readonly value: FeedSortOrder; readonl
 export function OperatorFeed() {
   const feed = useOperatorFeed();
   const quickReplies = useQuickReplies();
+  const quietNotes = useQuietNotes();
   const canvasName = use$(state$.canvasName);
   const nodesById: ReadonlyMap<string, Node> = useCanvas(canvasName).nodes;
   const regionPick = use$(feedView$.region);
@@ -385,8 +536,7 @@ export function OperatorFeed() {
     if (revealId !== null) setRevealId(null);
   }, [revealId]);
   const [replyFor, setReplyFor] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(place?.expanded));
-  // Quick replies in flight, by item: one per card, cards independent.
+  // Answers in flight, by item (answerLabel): one per card, cards independent.
   const [sending, setSending] = useState<ReadonlyMap<string, string>>(() => new Map());
   const sendingRef = useRef(sending);
   sendingRef.current = sending;
@@ -474,13 +624,24 @@ export function OperatorFeed() {
     itemsRef.current = items;
     if (before !== items) setSelected((current) => reconcileSelection(before, items, current));
   }, [items]);
+  // The detail pane always shows something: with nothing picked, the first.
+  // Queued after the hand-on above, so it keeps the neighbour that took over.
+  useEffect(() => {
+    setSelected((current) =>
+      current !== null && items.some((item) => item.itemId === current) ? current : (items[0]?.itemId ?? null),
+    );
+  }, [items, selected]);
+  const selectedItem = items.find((item) => item.itemId === selected);
 
-  const sendQuick = async (item: FeedItem, text: string): Promise<void> => {
+  const answer = async (item: FeedItem, chosen: SignalAnswer): Promise<void> => {
     if (!item.signalId || sendingRef.current.has(item.itemId)) return;
-    setSending((current) => new Map(current).set(item.itemId, text));
+    setSending((current) => new Map(current).set(item.itemId, answerLabel(chosen)));
     setFailure(null);
     try {
-      const result = await respondToAgentSignal(item.signalId, text);
+      const result = await sendSignalAnswer(item.signalId, chosen, {
+        respond: respondToAgentSignal,
+        dismiss: dismissAgentSignal,
+      });
       if (!result.ok) setFailure({ itemId: item.itemId, message: result.message });
     } finally {
       setSending((current) => {
@@ -507,10 +668,12 @@ export function OperatorFeed() {
     }
     const item = items.find((candidate) => candidate.itemId === selected);
     if (!item) return;
-    const quick = item.signalId ? quickReplyForKey(mergedQuickReplies(quickReplies, item.suggestions), event.key) : null;
-    if (quick !== null) {
+    const chosen = item.signalId
+      ? feedAnswerForKey(event, mergedQuickReplies(quickReplies, item.suggestions), quietNotes)
+      : null;
+    if (chosen !== null) {
       event.preventDefault();
-      void sendQuick(item, quick);
+      void answer(item, chosen);
     } else if (event.key === "Enter" || event.key === "o") {
       event.preventDefault();
       if (event.key === "Enter" && item.signalId) setReplyFor(item.itemId);
@@ -559,7 +722,6 @@ export function OperatorFeed() {
   const status = activeRegion
     ? feedStatusLine(feed, { label: regionName, count: needsOperatorCount(items) })
     : feedStatusLine(feed);
-  const hasSignals = items.some((item) => item.signalId);
 
   return (
     <OperatorModalShell
@@ -570,7 +732,7 @@ export function OperatorFeed() {
       headerProps={
         { className: "operator-feed__head", "data-scrolled": scrolled ? "true" : undefined } as HTMLAttributes<HTMLElement>
       }
-      width={760}
+      width={1180}
       fill
       panelClassName="operator-feed__panel"
       onEscape={onEscape}
@@ -601,14 +763,9 @@ export function OperatorFeed() {
           />
         </div>
       ) : null}
-      <div
-        ref={scrollRef}
-        className="operator-feed__scroll"
-        data-testid="operator-feed"
-        onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 2)}
-      >
-        {sections.length === 0 ? (
-          activeRegion !== undefined ? (
+      {sections.length === 0 ? (
+        <div className="operator-feed__scroll" data-testid="operator-feed">
+          {activeRegion !== undefined ? (
             <div className="operator-feed__empty" role="status">
               <span className="operator-feed__empty-mark" aria-hidden>
                 <Inbox size={22} strokeWidth={1.4} />
@@ -631,62 +788,63 @@ export function OperatorFeed() {
                 When an agent is blocked, asks for your input, or has work for you to review, it lands here.
               </p>
             </div>
-          )
-        ) : (
-          sections.map((section) => (
-            <FeedRegionSection key={section.region.regionId ?? "open-field"} section={section}>
-              {section.items.map((item) => (
-                <FeedCard
-                  key={item.itemId}
-                  item={item}
-                  node={nodesById.get(item.seat.nodeId)}
-                  nowMs={feed.generatedAt}
-                  quickReplies={quickReplies}
-                  selected={selected === item.itemId}
-                  reveal={revealId === item.itemId}
-                  leaving={section.leavingIds.has(item.itemId)}
-                  replying={replyFor === item.itemId}
-                  expanded={expanded.has(item.itemId)}
-                  sending={sending.get(item.itemId) ?? null}
-                  error={failure?.itemId === item.itemId ? failure.message : null}
-                  onSelect={() => setSelected(item.itemId)}
-                  onReply={(open) => setReplyFor(open ? item.itemId : null)}
-                  onQuickReply={(text) => void sendQuick(item, text)}
-                  onToggleDetail={() =>
-                    setExpanded((current) => {
-                      const next = new Set(current);
-                      if (next.has(item.itemId)) next.delete(item.itemId);
-                      else next.add(item.itemId);
-                      return next;
-                    })
-                  }
-                  onReviewCommit={(sha) =>
-                    openCommitReview({
-                      nodeId: item.seat.nodeId,
-                      sha,
-                      place: { itemId: item.itemId, expanded: [...expanded], scrollTop: scrollRef.current?.scrollTop ?? 0 },
-                    })
-                  }
-                />
-              ))}
-            </FeedRegionSection>
-          ))
-        )}
-      </div>
-      {items.length > 0 ? (
-        <footer className="operator-feed__keys" aria-hidden>
-          <span><Kbd>j</Kbd><Kbd>k</Kbd> move</span>
-          {hasSignals && quickReplies.length > 0 ? (
-            <span>
-              <Kbd>1</Kbd>
-              {quickReplies.length > 1 ? <>–<Kbd>{Math.min(9, quickReplies.length)}</Kbd></> : null} quick reply
-            </span>
-          ) : null}
-          {hasSignals ? <span><Kbd>↵</Kbd> write reply</span> : null}
-          <span><Kbd>o</Kbd> open seat</span>
-          <span><Kbd>esc</Kbd> close</span>
-        </footer>
-      ) : null}
+          )}
+        </div>
+      ) : (
+        <div className="operator-feed__split">
+          <div
+            ref={scrollRef}
+            className="operator-feed__scroll"
+            data-testid="operator-feed"
+            onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 2)}
+          >
+            {sections.map((section) => (
+              <FeedRegionSection key={section.region.regionId ?? "open-field"} section={section}>
+                {section.items.map((item) => (
+                  <FeedCard
+                    key={item.itemId}
+                    item={item}
+                    node={nodesById.get(item.seat.nodeId)}
+                    nowMs={feed.generatedAt}
+                    quickReplies={quickReplies}
+                    selected={selected === item.itemId}
+                    reveal={revealId === item.itemId}
+                    leaving={section.leavingIds.has(item.itemId)}
+                    sending={sending.get(item.itemId) ?? null}
+                    pills={false}
+                    onSelect={() => setSelected(item.itemId)}
+                    onQuickReply={(text) => void answer(item, { kind: "reply", text })}
+                  />
+                ))}
+              </FeedRegionSection>
+            ))}
+          </div>
+          {selectedItem ? (
+            <FeedDetail
+              key={selectedItem.itemId}
+              item={selectedItem}
+              node={nodesById.get(selectedItem.seat.nodeId)}
+              nowMs={feed.generatedAt}
+              quickReplies={quickReplies}
+              quietNotes={quietNotes}
+              replying={replyFor === selectedItem.itemId}
+              sending={sending.get(selectedItem.itemId) ?? null}
+              error={failure?.itemId === selectedItem.itemId ? failure.message : null}
+              onAnswer={(chosen) => void answer(selectedItem, chosen)}
+              onReply={(open) => setReplyFor(open ? selectedItem.itemId : null)}
+              onReviewCommit={(sha) =>
+                openCommitReview({
+                  nodeId: selectedItem.seat.nodeId,
+                  sha,
+                  place: { itemId: selectedItem.itemId, expanded: [], scrollTop: scrollRef.current?.scrollTop ?? 0 },
+                })
+              }
+            />
+          ) : (
+            <div className="operator-feed__detail-pane operator-feed__detail-pane--empty" aria-hidden />
+          )}
+        </div>
+      )}
     </OperatorModalShell>
   );
 }

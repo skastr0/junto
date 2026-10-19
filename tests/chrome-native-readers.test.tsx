@@ -104,14 +104,9 @@ const card = (item: FeedItem, node: Parameters<typeof FeedCard>[0]["node"]) => (
     selected={false}
     reveal={false}
     leaving={false}
-    replying={false}
-    expanded={false}
     sending={null}
-    error={null}
     onSelect={NO_OP}
-    onReply={NO_OP}
     onQuickReply={NO_OP}
-    onToggleDetail={NO_OP}
   />
 );
 
@@ -128,11 +123,9 @@ it("a feed card draws a seat's ring or a card's kind mark from the store's node"
   );
   const cards = [...host.querySelectorAll<HTMLElement>(".operator-feed__portrait")];
   expect(cards).toHaveLength(2);
-  // The seat's card offers its seat; the note's card shows a kind mark and offers the card.
+  // The seat's card draws its ring; the note's card shows a kind mark.
   expect(cards[0]!.querySelector(".operator-feed__node-mark")).toBeNull();
   expect(cards[1]!.querySelector(".operator-feed__node-mark")).not.toBeNull();
-  expect(host.querySelector('[aria-label="Open seat Scout"]')).not.toBeNull();
-  expect(host.querySelector('[aria-label="Open A note"]')).not.toBeNull();
 });
 
 it("a hotbar chip draws each member's face from that member's own node in the store", async () => {

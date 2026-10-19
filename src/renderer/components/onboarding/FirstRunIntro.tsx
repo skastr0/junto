@@ -361,14 +361,9 @@ function FeedDemo() {
           selected={false}
           reveal={false}
           leaving={false}
-          replying={false}
-          expanded={false}
           sending={null}
-          error={null}
           onSelect={NO_OP}
-          onReply={NO_OP}
           onQuickReply={NO_OP}
-          onToggleDetail={NO_OP}
         />
         {phase < 4 ? (
           <FeedCard
@@ -379,14 +374,9 @@ function FeedDemo() {
             selected={phase >= 1}
             reveal={false}
             leaving={phase === 3}
-            replying={false}
-            expanded={false}
             sending={phase === 2 ? (replies[3] ?? null) : null}
-            error={null}
             onSelect={NO_OP}
-            onReply={NO_OP}
             onQuickReply={NO_OP}
-            onToggleDetail={NO_OP}
           />
         ) : null}
       </div>

@@ -115,15 +115,22 @@ it("an answered card stays the same element, in its place, until its fade is ove
   expect(order()).toEqual(["a", "c"]);
 });
 
-it("a reply box open on a card that leaves is not mounted again", async () => {
+const pane = (): HTMLElement | null => document.body.querySelector("[data-testid='operator-feed-detail']");
+
+it("the pane shows the first item, and a reply open on an item that leaves goes with it", async () => {
   live.set(feedOf({ build: ["a", "b"] }));
   await act(async () => root.render(<OperatorFeed />));
-  await act(async () => cardOf("a")!.querySelector<HTMLButtonElement>("[aria-label='Write reply to build']")!.click());
-  const reply = cardOf("a")!.querySelector("textarea");
-  expect(reply).not.toBeNull();
+  expect(pane()?.dataset.itemId).toBe("signal:a");
+  // Pills live only in the pane, never on a row in the list.
+  expect(cardOf("a")!.querySelector("[data-testid='quick-replies']")).toBeNull();
+  expect(pane()!.querySelector("[data-testid='quick-replies']")).not.toBeNull();
+  expect(pane()!.querySelector("[data-testid='quiet-notes']")).not.toBeNull();
+  await act(async () => pane()!.querySelector<HTMLButtonElement>("[aria-label='Write reply to build']")!.click());
+  expect(pane()!.querySelector("textarea")).not.toBeNull();
 
   await show(feedOf({ build: ["b"] }));
-  expect(cardOf("a")!.querySelector("textarea")).toBe(reply);
+  expect(pane()?.dataset.itemId).toBe("signal:b");
+  expect(pane()!.querySelector("textarea")).toBeNull();
 });
 
 it("a region whose only card leaves stays where it was while it fades", async () => {

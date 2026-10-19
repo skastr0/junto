@@ -1,8 +1,9 @@
 /* Operator feed: one surface, one frame. The operator shell's frame
    (.operator-feed__panel) is the only box; the header, region sections and
-   items sit directly on it. Items are rows,
-   not cards: a portrait carrying the need's glyph, the words, and quiet
-   actions. Each region section wears the region's own colour
+   items sit directly on it. The body splits: the list of rows on the left
+   (40%), the selected item whole on the right (60%), with its pill rows, its
+   keys and its composer. Rows are not cards: a portrait carrying the need's
+   glyph and the words. Each region section wears the region's own colour
    (--feed-region, set inline from the canvas group). */
 
 /* Header: same surface as the body; a hairline appears only once the list
@@ -40,6 +41,73 @@
   overscroll-behavior: contain;
   scrollbar-width: thin;
   padding: 0 12px 20px;
+}
+
+.operator-feed__split {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.operator-feed__split > .operator-feed__scroll {
+  border-right: 1px solid color-mix(in oklab, var(--color-stroke) 55%, transparent);
+}
+
+/* Detail pane ------------------------------------------------------------- */
+
+.operator-feed__detail-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.operator-feed__detail-pane[data-kind="blocked"] { --feed-kind: var(--color-crimson); }
+.operator-feed__detail-pane[data-kind="attention"] { --feed-kind: var(--color-amber); }
+.operator-feed__detail-pane[data-kind="escalate"] { --feed-kind: var(--color-orange); }
+.operator-feed__detail-pane[data-kind="feedback"] { --feed-kind: var(--color-cyan); }
+.operator-feed__detail-pane[data-kind="health"] { --feed-kind: var(--color-steel); }
+
+.operator-feed__detail-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding: 18px 24px;
+}
+
+.operator-feed__detail-head {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.operator-feed__detail-head .operator-feed__text {
+  font-size: var(--text-display);
+}
+
+.operator-feed__answer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: none;
+  padding: 12px 24px 4px;
+  border-top: 1px solid color-mix(in oklab, var(--color-stroke) 55%, transparent);
+}
+
+/* A row in the list is a glance: the sentence stops at three lines; the
+   pane on the right carries the rest. */
+.operator-feed__split .operator-feed__card .operator-feed__text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  font-size: var(--text-body-lg);
 }
 
 /* Filter and order: a quiet chrome row between the header and the list, kept
@@ -344,38 +412,8 @@
   color: var(--color-faint);
 }
 
-.operator-feed__detail-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin: -2px 0 0 -4px;
-  padding: 2px 6px 2px 4px;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--color-dim);
-  font-size: var(--text-body-lg);
-  cursor: pointer;
-}
-
-.operator-feed__detail-toggle:hover {
-  background: var(--color-overlay-1);
-  color: var(--color-ink);
-}
-
-.operator-feed__detail-toggle:focus-visible {
-  outline: 2px solid color-mix(in oklab, var(--color-amber) 70%, transparent);
-  outline-offset: 1px;
-}
-
-.operator-feed__chevron--open {
-  transform: rotate(180deg);
-}
-
 .operator-feed__detail {
   align-self: stretch;
-  max-height: 320px;
-  overflow-y: auto;
   padding: 10px 14px;
   border-radius: var(--radius-lg);
   background: var(--color-inset);
@@ -383,31 +421,38 @@
 
 .operator-feed__actions {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  align-self: stretch;
-  margin-top: 4px;
-}
-
-.operator-feed__actions-end {
-  display: inline-flex;
+  justify-content: flex-end;
   align-items: center;
   gap: 2px;
-  margin-left: auto;
 }
 
-/* Room for each pill's hanging key, on every row, so selecting one never
-   shifts its pills. */
+/* The selected item's two rows: waking replies, then the quiet notes apart
+   below them. */
+.operator-feed__pills {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  align-self: stretch;
+}
+
+/* Room for each pill's hanging key, so selecting one never shifts its
+   pills; the quiet row's keys carry a Shift mark and want a little more. */
 .operator-feed__quick {
   column-gap: 15px;
+  padding-left: 12px;
+}
+
+.operator-feed__quick.quick-replies--quiet {
+  column-gap: 24px;
+  padding-left: 20px;
 }
 
 .operator-feed__quick .quick-reply {
   padding: 0 10px;
 }
 
-.operator-feed__card.is-selected .quick-reply:not(:hover) {
+.operator-feed__card.is-selected .quick-reply:not(:hover):not(.quick-reply--quiet) {
   background: color-mix(in oklab, var(--color-ink) 8%, transparent);
 }
 
@@ -416,7 +461,6 @@
   flex-direction: column;
   gap: 8px;
   align-self: stretch;
-  margin-top: 4px;
 }
 
 .operator-feed__error {
