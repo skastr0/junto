@@ -99,7 +99,6 @@ const ALLOWED: readonly Allowed[] = [
   { file: "src/renderer/lib/seat-rollup.ts", name: "TONE_RANK", rule: "table", step: 3, reason: "the rollup tone order, per pty-lead" },
   { file: "src/renderer/lib/seat-rollup.ts", name: "PROVEN", rule: "names", step: 3, reason: "a waits-on-operator predicate over rollup tiers, replaced by the module's" },
   { file: "src/renderer/lib/roll-call.ts", name: "ROLL_CALL_BUCKETS", rule: "names", step: 3, reason: "roll call's tier order over MemberSeverity" },
-  { file: "src/shared/need-surfaces.ts", name: "ROLLUP_FROM_NEED", rule: "names", step: 3, reason: "cause to rollup tier, until the rollup reads MemberSeverity" },
 
   // Step 5, remote-lead: the feed ranks each kind by levelOfFeedItem; its kinds share two level names.
   { file: "src/shared/need-surfaces.ts", name: "FEED_FROM_NEED", rule: "names", reason: KIND_MAP },

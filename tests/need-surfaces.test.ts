@@ -29,6 +29,7 @@ import {
   ROLLUP_FROM_NEED,
   SURFACE_CHANGES,
   SURFACE_ORDER,
+  type NeedProjection,
   type NeedSurface,
 } from "../src/shared/need-surfaces";
 import { DEFAULT_STALL_AFTER_MS, deriveOccupancy, OccupancySpectrum } from "../src/shared/occupancy/derive";
@@ -241,12 +242,12 @@ const TODAY: Readonly<Record<NeedSurface, (scenario: Scenario) => string | undef
   notify: todayNotify,
 };
 
-const PROJECTION = {
+const PROJECTION: Readonly<Record<NeedSurface, NeedProjection<string>>> = {
   occupancy: OCCUPANCY_FROM_NEED,
   rollup: ROLLUP_FROM_NEED,
   feed: FEED_FROM_NEED,
   notify: NOTIFY_FROM_NEED,
-} as const;
+};
 
 const SURFACES = ["occupancy", "rollup", "feed", "notify"] as const;
 
@@ -314,7 +315,6 @@ describe("need surfaces: where each surface's order disagrees with the ladder", 
 
   it("region rollup", () => {
     expect(summary("rollup")).toEqual([
-      "inverted attention > blocked",
       "merged blocked > blocked",
       "merged ready > ready",
       "merged working > working",

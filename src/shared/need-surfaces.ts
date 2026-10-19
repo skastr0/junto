@@ -11,13 +11,11 @@
  * `FEED_FROM_NEED` (operator-feed.ts) and desktop notifications
  * `NOTIFY_FROM_NEED` (through `notifyNeed`). Pure: no I/O, no clock.
  */
-import type { MemberSeverity } from "./region-rollup";
-import { MEMBER_SEVERITY_RANK, MemberSeverity as MemberSeveritySchema } from "./region-rollup";
 import type { OccupancySpectrum } from "./occupancy/derive";
 import { feedItemRank, type FeedItemKind } from "./wire/operator-feed";
 import type { NotifyCategory } from "./desktop-notifications";
 import { NEED_CAUSES, type Need, type NeedCause } from "./harness-domain/need";
-import { rankOf, worstOf, type UrgencyLevel, type UrgencyRank } from "./wire/urgency";
+import { MemberSeverity, rankOf, worstOf, type UrgencyLevel, type UrgencyRank } from "./wire/urgency";
 
 /** A surface's value for every need cause, `null` where it does not show it. */
 export type NeedProjection<V extends string> = Readonly<Record<NeedCause, V | null>>;
@@ -88,47 +86,35 @@ export const OCCUPANCY_FROM_NEED: NeedProjection<OccupancySpectrum> = {
   unknown: "idle",
 };
 
-/** Region rollup member severity. */
-export const ROLLUP_FROM_NEED: NeedProjection<MemberSeverity> = {
-  permission: "attention",
-  question: "attention",
-  dialog: "attention",
-  seat_blocked: "blocked",
+/**
+ * Region rollup member tier: each cause's level read through the MemberSeverity
+ * view, except the needs the rollup does not show. A wake or resume at the
+ * reset and a stall are the seat's own business until they become something
+ * else, and the AI's advisory readings never reach a region.
+ */
+const ROLLUP_HIDES: ReadonlySet<NeedCause> = new Set<NeedCause>([
+  "usage_limit_waking",
+  "usage_limit_resuming",
+  "stalled",
+  "awareness_stuck",
+  "awareness_looping",
+  "awareness_thrashing",
+  "awareness_confused",
+  "awareness_overwhelmed",
+  "awareness_access",
+  "awareness_error",
+]);
 
-  usage_limit: "blocked",
-  auth_error: "blocked",
-  crash: "blocked",
-  unexpected_exit: "blocked",
-
-  seat_escalated: "escalated",
-  awareness_waiting: "escalated",
-  awareness_approval: "escalated",
-  awareness_answer: "escalated",
-
-  seat_feedback: "ready",
-  turn_unseen: "ready",
-  turn_failed: "ready",
-
-  retrying: "working",
-  usage_limit_waking: null,
-  usage_limit_resuming: null,
-  stalled: null,
-  awareness_stuck: null,
-  awareness_looping: null,
-  awareness_thrashing: null,
-  awareness_confused: null,
-  awareness_overwhelmed: null,
-  awareness_access: null,
-  awareness_error: null,
-
-  starting: "working",
-  working: "working",
-  compacting: "working",
-
-  idle: "idle",
-  exited: "idle",
-  unknown: "idle",
+/** One value per cause, from a rule. */
+const byCause = <V extends string>(value: (cause: NeedCause) => V | null): NeedProjection<V> => {
+  const projection = {} as Record<NeedCause, V | null>;
+  for (const cause of Object.keys(NEED_CAUSES) as NeedCause[]) projection[cause] = value(cause);
+  return projection;
 };
+
+export const ROLLUP_FROM_NEED = byCause((cause) =>
+  ROLLUP_HIDES.has(cause) ? null : MemberSeverity.groupOf(NEED_CAUSES[cause].level),
+);
 
 /**
  * Operator feed item kind. `health` is the advisory reading that a thread is
@@ -281,8 +267,10 @@ export type NeedSurface = "occupancy" | "rollup" | "feed" | "notify";
 export const SURFACE_RANK: Readonly<Record<NeedSurface, (value: string, cause: NeedCause) => number | undefined>> = {
   // Gone is the process's absence, which no need ranks; vacancy says it too.
   occupancy: (value) => (value === "gone" ? undefined : worstCauseRank(OCCUPANCY_FROM_NEED)(value)),
-  // The rollup's own tier order (region-rollup.ts), until it reads the MemberSeverity view.
-  rollup: (value) => MemberSeveritySchema.literals.length - MEMBER_SEVERITY_RANK[value as MemberSeverity],
+  rollup: (value) => {
+    const group = MemberSeverity.groups.find((tier) => tier === value);
+    return group === undefined ? undefined : rankOf(MemberSeverity.topOf(group));
+  },
   feed: (value) => feedItemRank(value as FeedItemKind),
   notify: (_value, cause) => urgencyOf(cause),
 };
@@ -314,10 +302,6 @@ export const SURFACE_ORDER: Readonly<
     order: "ladder",
     owner: "canvas-lead",
     accepted: [
-      {
-        disagreement: "inverted attention > blocked",
-        why: "temporary: the rollup keeps a proven prompt above its blocked tier until it reads the MemberSeverity view, which puts blocked first (step 3)",
-      },
       { disagreement: "merged blocked > blocked", why: "the blocked tier holds a declared block and a stop together, one group in the MemberSeverity view" },
       { disagreement: "merged ready > ready", why: "the ready tier asks for a glance either way: review and done are one group in the MemberSeverity view" },
       { disagreement: "merged working > working", why: "a retrying seat is still at work; the rollup has no degraded tier" },
