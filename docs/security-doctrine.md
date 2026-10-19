@@ -491,6 +491,15 @@ their result and report uncertainty. These controls prevent confused code and
 partial failures from harming the machine; they do not pretend to constrain
 its account owner.
 
+A process is identified by its pid and its start time, read in one
+observation, and a group by its pgid. The session is not evidence: macOS
+`ps -o sess=` prints 0 for every process. A pid with no row proves nothing
+about who holds that number next. A group is ours only while a process seen
+in it has lived since we could prove it ours: a pgid stays in use while any
+member lives, but once the group empties, the number can return as someone
+else's session and group. A process is signalled only by its own positive
+pid, after a fresh read shows the same pid, pgid and start time.
+
 ## Boat machines
 
 A Boat sandbox ([machines.md](machines.md), Boat machines) is a machine under
