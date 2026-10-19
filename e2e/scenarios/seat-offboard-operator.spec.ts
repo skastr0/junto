@@ -225,6 +225,8 @@ type WalkSetup = {
   readonly transcripts?: ReadonlyArray<string>;
   /** More to plant in the sandbox before the app boots, after the fake harness. */
   readonly seed?: (sandbox: Sandbox) => Promise<void>;
+  /** More environment for the app. */
+  readonly env?: Readonly<Record<string, string>>;
 };
 
 /** Everything after a walk's last check (closing apps, the harness teardown) gets this long, then is left behind. */
@@ -241,7 +243,7 @@ const walk = async (testInfo: TestInfo, id: string, setup: WalkSetup, body: (wal
       await installSeatHarness(setup.transcripts ?? [])(sandbox);
       await setup.seed?.(sandbox);
     },
-    extraEnv: { JUNTO_PTY_TRACE: "1" },
+    extraEnv: { JUNTO_PTY_TRACE: "1", ...setup.env },
     windowContentSize: { width: 1440, height: 1000 },
   });
   const chunks: string[] = [];
@@ -1156,7 +1158,10 @@ test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next,
   await walk(testInfo, "LOOP", { doc, transcripts: [sessionIdOf("tia"), sessionIdOf("zed")], seed: async (sandbox) => {
     await seedStillSeat("tia", 10, 31)(sandbox);
     await holdSessionsOnDisk(sandbox, ["tia", "zed"]);
-  } }, async (ctx) => {
+  },
+  // A disposable home refuses to resume pins it did not author (term/managed-spawn-plan.ts shouldAvoidSharedHarnessResume),
+  // so every start there is fresh; these pins are this walk's own.
+  env: { JUNTO_HOME_OWNS_SESSIONS: "1" } }, async (ctx) => {
     const { junto, sandbox, shot, step, mark, offboardLines } = ctx;
     const { page } = junto;
     let tia!: CrewSeat;
