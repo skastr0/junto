@@ -272,6 +272,64 @@ describe("mail threads", () => {
   });
 });
 
+describe("msg list filters", () => {
+  const ids = (listed: any): string[] => listed.data.items.map((item: any) => item.messageId).sort();
+
+  it("filters by sender, by name or by node id", async () => {
+    const fromPeer: string = (await call("peer", "msg.send", { target: "agent", text: "from peer" })).data.messageId;
+    const fromOperator = await operatorMail("agent", "from the operator");
+    expect(ids(await call("agent", "msg.list", { from: "peer", peek: true }))).toEqual([fromPeer]);
+    expect(ids(await call("agent", "msg.list", { from: "operator", peek: true }))).toEqual([fromOperator]);
+    expect(ids(await call("agent", "msg.list", { from: "loner", peek: true }))).toEqual([]);
+  });
+
+  it("peek marks nothing read, a plain list still does, and unread lists what is left", async () => {
+    const first: string = (await call("peer", "msg.send", { target: "agent", text: "one" })).data.messageId;
+    const peeked = await call("agent", "msg.list", { peek: true });
+    expect(peeked.data.items[0].metadata.readAt).toBeUndefined();
+    expect(ids(await call("agent", "msg.list", { unread: true, peek: true }))).toEqual([first]);
+
+    const listed = await call("agent", "msg.list");
+    expect(typeof listed.data.items[0].metadata.readAt).toBe("number");
+    const second: string = (await call("peer", "msg.send", { target: "agent", text: "two" })).data.messageId;
+    expect(ids(await call("agent", "msg.list", { unread: true }))).toEqual([second]);
+    expect(ids(await call("agent", "msg.list", { unread: true }))).toEqual([]);
+  });
+
+  it("since takes a message id (strictly after it) or an ISO time", async () => {
+    const before = new Date(Date.now() - 60_000).toISOString();
+    const first: string = (await call("peer", "msg.send", { target: "agent", text: "one" })).data.messageId;
+    const second: string = (await call("peer", "msg.send", { target: "agent", text: "two" })).data.messageId;
+    expect(ids(await call("agent", "msg.list", { since: first, peek: true }))).toEqual([second]);
+    expect(ids(await call("agent", "msg.list", { since: before, peek: true }))).toEqual([first, second].sort());
+    expect(ids(await call("agent", "msg.list", { since: "2999-01-01", peek: true }))).toEqual([]);
+  });
+
+  it("text matches ignoring case, and every filter combines with threadId", async () => {
+    const root: string = (await call("peer", "msg.send", { target: "agent", text: "Release 0.9.0 is out" })).data.messageId;
+    await call("peer", "msg.send", { target: "agent", text: "unrelated" });
+    const inThread: string = (await call("peer", "msg.send", { target: "agent", text: "release notes", threadId: root })).data.messageId;
+    expect(ids(await call("agent", "msg.list", { text: "RELEASE", peek: true }))).toEqual([root, inThread].sort());
+    expect(ids(await call("agent", "msg.list", { threadId: root, text: "notes", from: "peer", since: root, peek: true }))).toEqual([inThread]);
+  });
+
+  it("refuses a bad filter by its path and shape, never echoing it", async () => {
+    const SECRET = "not-valid <script>secret</script>";
+    for (const [args, path] of [
+      [{ since: SECRET }, "since"],
+      [{ from: " " }, "from"],
+      [{ text: "x".repeat(1001) }, "text"],
+      [{ unread: SECRET }, "args"],
+      [{ peek: SECRET }, "args"],
+    ] as const) {
+      const refused = await call("agent", "msg.list", args);
+      expect(refused.ok).toBe(false);
+      expect(refused.error).toMatchObject({ type: "InputError", details: { path } });
+      expect(JSON.stringify(refused)).not.toContain("secret");
+    }
+  });
+});
+
 describe("operator threads", () => {
   const decodeSend = Schema.decodeUnknownSync(OperatorThreadSendSchema);
   const send = (input: Omit<OperatorThreadSend, "canvasName">) =>

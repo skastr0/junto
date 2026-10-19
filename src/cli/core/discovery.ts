@@ -214,7 +214,7 @@ export const msgListSchema: CommandSchemaContract = {
   command: "msg list",
   schema_id: "msg.list.input/v1",
   description:
-    "List this seat's inbox (no target) or a connected mailbox. Own-inbox list marks listed inbound mail read and includes sent mail with readAt. Every item names its threadId (and inReplyTo when it answers one); threadId filters to one thread.",
+    "List this seat's inbox (no target) or a connected mailbox. Own-inbox list marks listed inbound mail read and includes sent mail with readAt; peek lists without marking anything read. Every item names its threadId (and inReplyTo when it answers one). Filters combine: threadId (one thread), from (a seat's name, node id or seat id), unread, since (an ISO 8601 time, or a message id to list what came after it) and text (contains, ignoring case).",
   schema: MsgListArgs,
   input_modes: inputModes,
 };
@@ -1028,6 +1028,20 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     name: "read one thread",
     input: { threadId: "01JB2C3D4E5F6G7H8J9K0M1N2P" },
     args: ["msg", "list", '{"threadId":"01JB2C3D4E5F6G7H8J9K0M1N2P"}'],
+  },
+  {
+    command_id: "msg.list",
+    command: "msg list",
+    name: "peek at unread mail from one seat",
+    input: { from: "seat-b", unread: true, peek: true },
+    args: ["msg", "list", '{"from":"seat-b","unread":true,"peek":true}'],
+  },
+  {
+    command_id: "msg.list",
+    command: "msg list",
+    name: "search recent mail",
+    input: { since: "2026-10-19T09:00:00Z", text: "release" },
+    args: ["msg", "list", '{"since":"2026-10-19T09:00:00Z","text":"release"}'],
   },
   {
     command_id: "msg.react",

@@ -293,7 +293,7 @@ const msgListCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "List this seat's inbox (marks listed mail read) or a connected peer's mailbox",
+    "List this seat's inbox (marks listed mail read unless peek) or a connected peer's mailbox; filter by threadId, from, unread, since and text",
   ),
 );
 

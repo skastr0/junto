@@ -576,8 +576,22 @@ export const MsgListArgs = Schema.Struct({
   taskId: Schema.optionalKey(Schema.String),
   /** Only mail in this thread: the root's id, which every reply carries. */
   threadId: Schema.optionalKey(Schema.String),
+  /** Only mail from this seat: its name, node id or seat id. */
+  from: Schema.optionalKey(Schema.String),
+  /** Only mail not read yet. */
+  unread: Schema.optionalKey(Schema.Boolean),
+  /** Only mail born at or after this ISO 8601 time, or after this message id. */
+  since: Schema.optionalKey(Schema.String),
+  /** Only mail whose text or subject contains this, ignoring case. */
+  text: Schema.optionalKey(Schema.String),
+  /** List without marking anything read. */
+  peek: Schema.optionalKey(Schema.Boolean),
 });
 export type MsgListArgs = typeof MsgListArgs.Type;
+
+/** What `msg list` takes, said in a refusal instead of the input that failed. */
+export const MSG_LIST_ARGS_SHAPE =
+  "msg list takes target, taskId, threadId, from, since and text as strings, and unread and peek as true or false";
 
 export const MsgSendArgs = Schema.Struct({
   target: Schema.String,

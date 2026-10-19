@@ -39,6 +39,7 @@ import {
   type MailSenderStamp,
 } from "@shared/crew";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
+import { mailListFilterOf, mailListMatches } from "@shared/mail-list-filter";
 import { seatStateRuntime } from "../term/agent-state";
 import { probeManagedHarnessInstalls } from "../term/templates/harness-install";
 import type { BoardAuthor, Task } from "@shared/work-model";
@@ -86,6 +87,7 @@ import {
   ContentStatArgs,
   EmptyArgs,
   MsgListArgs,
+  MSG_LIST_ARGS_SHAPE,
   MsgReactArgs,
   MsgReadArgs,
   MsgReplyArgs,
@@ -1212,8 +1214,6 @@ const dispatchOp = (
         }
         return sent.sort((a, b) => b.messageId.localeCompare(a.messageId));
       });
-    const threadOnly = (threadId: string | undefined) => <M extends Message>(items: ReadonlyArray<M>): M[] =>
-      threadId === undefined ? [...items] : items.filter((item) => mailThreadOf(item) === threadId);
 
     // The pause plane is the factory's safety switch: on a paused canvas
     // (canvases are born paused) a seat may read but never act. Reads stay
@@ -1863,16 +1863,27 @@ const dispatchOp = (
 
     if (op === "msg.list") {
       const decoded = decodeArgs(MsgListArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      if (Result.isFailure(decoded)) {
+        // The schema's own message can quote the input; this one never does.
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: MSG_LIST_ARGS_SHAPE,
+          details: { path: "args", retryable: false },
+        });
+      }
       const targetId = resolveMailboxTarget(decoded.success.target, caller);
       const own = isOwnMailboxTarget(targetId, caller.nodeId);
-      let threadId: string | undefined;
-      if (decoded.success.threadId !== undefined) {
-        const id = mailIdArg("threadId", decoded.success.threadId);
-        if (Result.isFailure(id)) return yield* Effect.fail(id.failure);
-        threadId = id.success;
+      const filter = mailListFilterOf(decoded.success);
+      if (Result.isFailure(filter)) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: filter.failure.message,
+          details: { path: filter.failure.path, expected: filter.failure.expected, retryable: false },
+        });
       }
-      const inThread = threadOnly(threadId);
+      const matches = mailListMatches(filter.success);
+      const filtered = <M extends Message>(items: ReadonlyArray<M>): M[] => items.filter(matches);
+      const threadId = filter.success.threadId;
       const threadField = threadId === undefined ? {} : { threadId };
 
       if (decoded.success.taskId) {
@@ -1888,7 +1899,7 @@ const dispatchOp = (
             details: { target: decoded.success.taskId, retryable: false },
           });
         }
-        return { target: targetId, taskId: task.id, items: task.history };
+        return { target: targetId, taskId: task.id, items: filtered(task.history) };
       }
 
       if (own) {
@@ -1902,11 +1913,11 @@ const dispatchOp = (
         }
         const reader = resolveProcessBoundActorRef(read.actorRefs, caller);
         if (Result.isFailure(reader)) return yield* Effect.fail(reader.failure);
-        // Listing marks read, so a thread filter applies first.
-        const items = inThread(yield* mailboxOf(caller.nodeId));
+        // Listing marks read, so the filters apply first; a peek marks nothing.
+        const items = filtered(yield* mailboxOf(caller.nodeId));
         const overlaid: Message[] = [];
         for (const item of items) {
-          if (item.role !== "user") {
+          if (item.role !== "user" || decoded.success.peek === true) {
             overlaid.push(item);
             continue;
           }
@@ -1936,7 +1947,7 @@ const dispatchOp = (
           target: caller.nodeId,
           ...threadField,
           items: sortMessagesNewestFirst(overlaid).map(withThread),
-          sent: inThread(yield* sentMailOf(reader.success)).map(withThread),
+          sent: filtered(yield* sentMailOf(reader.success)).map(withThread),
         };
       }
 
@@ -1945,7 +1956,7 @@ const dispatchOp = (
       return {
         target: targetId,
         ...threadField,
-        items: sortMessagesNewestFirst(inThread(yield* mailboxOf(targetId))).map(withThread),
+        items: sortMessagesNewestFirst(filtered(yield* mailboxOf(targetId))).map(withThread),
       };
     }
 
