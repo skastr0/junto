@@ -110,7 +110,10 @@ at start; import its ESM entry instead).
   names, keys on, or chooses a session: not mail, signals or their answers,
   tasks, the kernel, relays, the feed, notifications, other seat settings, or
   link features. An answer goes to the seat; which session the seat runs is
-  the seat's business.
+  the seat's business. The rule is about what features link to, not words:
+  copy that describes sessions keeps the word session, and the overseer
+  surface knows sessions (what a seat runs, reseats, `sessionId` in seat
+  drafts, the terminal summary under `session`). Do not rename either.
 - Continuity is Junto's job: a seat resumes its open session across restarts
   and wakes, unless the cache-window rules start it fresh. An ended session is
   never resumed.
