@@ -3,19 +3,13 @@
  * shared with the phone companion) and are re-exported here.
  */
 import type { AgentSignal, AgentSignalKind } from "./wire/agent-signals";
+import { compareUrgency, levelOfSignal } from "./wire/urgency";
 
 export * from "./wire/agent-signals";
 
 /** Collapse whitespace so a signal reads as one line before it is bounded. */
 export const normalizeSignalText = (value: string): string =>
   value.replace(/\s+/gu, " ").trim();
-
-/** Worst first: blocked outranks escalate outranks feedback. */
-export const AGENT_SIGNAL_SEVERITY: Readonly<Record<AgentSignalKind, number>> = {
-  blocked: 3,
-  escalate: 2,
-  feedback: 1,
-};
 
 export type SeatSignalRollup = {
   /** Worst open kind on the seat. */
@@ -26,11 +20,22 @@ export type SeatSignalRollup = {
   readonly openCount: number;
 };
 
-const worse = (a: AgentSignal, b: AgentSignal): AgentSignal => {
-  const bySeverity = AGENT_SIGNAL_SEVERITY[a.kind] - AGENT_SIGNAL_SEVERITY[b.kind];
-  if (bySeverity !== 0) return bySeverity > 0 ? a : b;
-  return a.createdAt >= b.createdAt ? a : b;
+/** The rollup's tie rule: of two equally urgent signals, the newer one stands. */
+const newestWins = (a: AgentSignal, b: AgentSignal): AgentSignal => (a.createdAt >= b.createdAt ? a : b);
+
+/** The more urgent of two signals; a tie goes to {@link newestWins}. */
+const dominant = (a: AgentSignal, b: AgentSignal): AgentSignal => {
+  const byUrgency = compareUrgency(levelOfSignal(a.kind), levelOfSignal(b.kind));
+  if (byUrgency !== 0) return byUrgency < 0 ? a : b;
+  return newestWins(a, b);
 };
+
+/** `junto signal list`'s order: open first, most urgent first, then oldest, then id. */
+export const compareSignalListOrder = (a: AgentSignal, b: AgentSignal): number =>
+  Number(b.state === "open") - Number(a.state === "open") ||
+  compareUrgency(levelOfSignal(a.kind), levelOfSignal(b.kind)) ||
+  a.createdAt - b.createdAt ||
+  (a.signalId < b.signalId ? -1 : a.signalId > b.signalId ? 1 : 0);
 
 /** Worst open signal per seat, keyed by nodeId. Closed signals never count. */
 export const rollupSeatSignals = (
@@ -40,7 +45,7 @@ export const rollupSeatSignals = (
   for (const signal of signals) {
     if (signal.state !== "open") continue;
     const prior = out.get(signal.nodeId);
-    const pick = prior ? worse(prior.signal, signal) : signal;
+    const pick = prior ? dominant(prior.signal, signal) : signal;
     out.set(signal.nodeId, {
       kind: pick.kind,
       signal: pick,

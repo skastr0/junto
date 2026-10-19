@@ -11,10 +11,12 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import {
+  SignalListResult,
   WORK_PROTOCOL_VERSION,
   decodeWorkResponse,
   encodeWorkFrame,
 } from "../src/shared/work-control";
+import { Level, rankOf } from "../src/shared/wire/urgency";
 import type { PreambleEvent } from "../src/shared/preamble";
 import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
 import { ModelService } from "../src/main/junto/model/service";
@@ -1021,6 +1023,37 @@ describe("work control transport", () => {
     })) as { ok: true; data: { signals: AgentSignal[] } };
     expect(cleared.data.signals.map((signal) => signal.state)).toEqual(["withdrawn"]);
     expect(events.map((signal) => signal.state)).toEqual(["open", "withdrawn"]);
+  });
+
+  it("lists each signal with its urgency level and rank: open first, most urgent, then oldest, then id", async () => {
+    const server = servers[0]!;
+    const raise = async (kind: string, text: string): Promise<string> =>
+      ((await call(server.socketPath, { token: token(), op: "signal.raise", args: { kind, text } })) as {
+        data: { signal: AgentSignal };
+      }).data.signal.signalId;
+    const review1 = await raise("feedback", "first review");
+    const escalation = await raise("escalate", "a question");
+    const blocker = await raise("blocked", "a blocker");
+    const review2 = await raise("feedback", "second review");
+    await call(server.socketPath, { token: token(), op: "signal.clear", args: { signalId: escalation } });
+
+    const listed = (await call(server.socketPath, {
+      token: token(),
+      op: "signal.list",
+      args: {},
+    })) as { ok: true; data: { signals: (AgentSignal & { level: string; rank: number })[]; open: number } };
+    expect(listed.data.open).toBe(3);
+    const signals = listed.data.signals;
+    const reviews = signals.filter((signal) => signal.signalId === review1 || signal.signalId === review2);
+    const byAge = [...reviews].sort((a, b) => a.createdAt - b.createdAt || (a.signalId < b.signalId ? -1 : 1));
+    expect(signals.map((signal) => signal.signalId)).toEqual([blocker, ...byAge.map((signal) => signal.signalId), escalation]);
+    expect(signals.map((signal) => [signal.level, signal.rank])).toEqual([
+      [Level.blocked, rankOf(Level.blocked)],
+      [Level.review, rankOf(Level.review)],
+      [Level.review, rankOf(Level.review)],
+      [Level.escalated, rankOf(Level.escalated)],
+    ]);
+    expect(Schema.decodeUnknownExit(SignalListResult)(listed.data)._tag).toBe("Success");
   });
 
   it("carries a raise's suggested replies onto the listed signal", async () => {

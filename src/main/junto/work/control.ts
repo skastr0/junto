@@ -40,6 +40,7 @@ import {
 } from "@shared/crew";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
 import { mailListFilterOf, mailListMatches } from "@shared/mail-list-filter";
+import { levelOfSignal, rankOf } from "@shared/wire/urgency";
 import { seatStateRuntime } from "../term/agent-state";
 import { probeManagedHarnessInstalls } from "../term/templates/harness-install";
 import type { BoardAuthor, Task } from "@shared/work-model";
@@ -54,6 +55,7 @@ import {
   AGENT_SIGNAL_MAX_DETAIL_LENGTH,
   AGENT_SIGNAL_MAX_TEXT_LENGTH,
   type AgentSignalAttachment,
+  compareSignalListOrder,
   normalizeSignalText,
   type AgentSignal,
 } from "@shared/agent-signals";
@@ -101,6 +103,7 @@ import {
   RelayTriggerArgs,
   SignalClearArgs,
   SignalListArgs,
+  type SignalListResult,
   EnvReportArgs,
   LogsReadArgs,
   SignalRaiseArgs,
@@ -2394,10 +2397,14 @@ const dispatchOp = (
         const decoded = decodeArgs(SignalListArgs, args ?? {});
         if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
         const listed = yield* signals.listSeat(seat).pipe(Effect.mapError(signalError));
-        return {
-          signals: listed,
+        const result: SignalListResult = {
+          signals: [...listed].sort(compareSignalListOrder).map((signal) => {
+            const level = levelOfSignal(signal.kind);
+            return { ...signal, level, rank: rankOf(level) };
+          }),
           open: listed.filter((signal) => signal.state === "open").length,
         };
+        return result;
       }
 
       if (op === "signal.clear") {

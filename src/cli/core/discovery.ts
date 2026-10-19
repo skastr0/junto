@@ -55,6 +55,7 @@ import {
   TasksUpdateCliArgs,
 } from "../../shared/work-control";
 import { SignalRaiseCliInput } from "./signal-input";
+import { Level, rankOf } from "../../shared/wire/urgency";
 import { ContentStageArgs } from "../../shared/content-stage";
 import { envReportCapability, envReportExamples, envReportSchema } from "../commands/env";
 import { logsReadCapability, logsReadExamples, logsReadSchema } from "../commands/logs";
@@ -375,7 +376,7 @@ export const signalListSchema: CommandSchemaContract = {
   command_id: "signal.list",
   command: "signal list",
   schema_id: "signal.list.input/v1",
-  description: "This seat's signals, open first, with the operator's answers.",
+  description: `This seat's signals with the operator's answers. Each carries its level on the urgency ladder and that level's rank (${rankOf(Level.offline)} ${Level.offline} to ${rankOf(Level.blocked)} ${Level.blocked}, higher more urgent). Open signals come first, then the most urgent, then the oldest; open counts the open ones.`,
   schema: SignalListArgs,
 };
 
@@ -1213,7 +1214,7 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
   {
     command_id: "signal.list",
     command: "signal list",
-    name: "read the operator's answers",
+    name: "read the operator's answers, most urgent open signal first",
     input: {},
     args: ["signal", "list"],
   },

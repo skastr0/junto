@@ -118,7 +118,7 @@ const signalListCommand = Command.make(
       call("signal.list", {}, toUndefined(timeout)),
     ),
 ).pipe(
-  Command.withDescription("This seat's signals, open first, with the operator's answers"),
+  Command.withDescription("This seat's signals with the operator's answers: open first, most urgent first, each with its urgency level and rank"),
 );
 
 const signalClearCommand = Command.make(

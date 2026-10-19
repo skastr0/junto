@@ -17,10 +17,12 @@ import { ContentRef } from "./content";
 import { PadPatch } from "./pad";
 import { MailEvidenceRef } from "./crew";
 import {
+  AgentSignal,
   AgentSignalAttachmentInput,
   AgentSignalKind,
   AgentSignalSuggestions,
 } from "./agent-signals";
+import { UrgencyLevel, UrgencyRank } from "./wire/urgency";
 export {
   SeatWaitArgs, SeatReadArgs, TaskWaitArgs,
   SeatWaitResult, SeatReadResult, TaskWaitResult,
@@ -716,6 +718,21 @@ export const SignalListArgs = Schema.Struct({}).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
 export type SignalListArgs = typeof SignalListArgs.Type;
+
+/** A listed signal: the signal, its level on the urgency ladder, and that level's rank. */
+export const ListedAgentSignal = Schema.Struct({
+  ...AgentSignal.fields,
+  level: UrgencyLevel,
+  rank: UrgencyRank,
+});
+export type ListedAgentSignal = typeof ListedAgentSignal.Type;
+
+/** Open first, then most urgent, then oldest, then id; `open` counts the open ones. */
+export const SignalListResult = Schema.Struct({
+  signals: Schema.Array(ListedAgentSignal),
+  open: Schema.Number,
+});
+export type SignalListResult = typeof SignalListResult.Type;
 
 /**
  * `env.report`: what the calling seat's regions resolve to. Takes nothing;

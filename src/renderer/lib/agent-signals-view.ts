@@ -1,10 +1,7 @@
 import { use$ } from "@legendapp/state/react";
 import type { AgentSignalAnswerOptions } from "@shared/ipc";
-import {
-  AGENT_SIGNAL_SEVERITY,
-  type AgentSignal,
-  type AgentSignalKind,
-} from "@shared/agent-signals";
+import { type AgentSignal, type AgentSignalKind } from "@shared/agent-signals";
+import { compareUrgency, levelOfSignal } from "@shared/wire/urgency";
 import {
   agentSignals$,
   dismissAgentSignal,
@@ -31,15 +28,15 @@ export const SIGNAL_KIND_TONE: Readonly<Record<AgentSignalKind, "crimson" | "amb
 /** The feed's own words for each kind: one name per state everywhere. */
 export const SIGNAL_KIND_LABEL: Readonly<Record<AgentSignalKind, string>> = FEED_KIND_LABEL;
 
-/** Open first, worst kind first, newest first; then closed, newest closure first. */
+/** Open first, most urgent first, newest first; then closed, newest closure first. */
 export const orderSignals = (signals: ReadonlyArray<AgentSignal>): ReadonlyArray<AgentSignal> =>
   [...signals].sort((a, b) => {
     const aOpen = a.state === "open";
     const bOpen = b.state === "open";
     if (aOpen !== bOpen) return aOpen ? -1 : 1;
     if (aOpen) {
-      const severity = AGENT_SIGNAL_SEVERITY[b.kind] - AGENT_SIGNAL_SEVERITY[a.kind];
-      if (severity !== 0) return severity;
+      const byUrgency = compareUrgency(levelOfSignal(a.kind), levelOfSignal(b.kind));
+      if (byUrgency !== 0) return byUrgency;
       return b.createdAt - a.createdAt;
     }
     return (b.closedAt ?? b.createdAt) - (a.closedAt ?? a.createdAt);
