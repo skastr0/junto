@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TASKS_ENABLED } from "../src/shared/features";
 import { asCanvasName, type Node, type NodeOf } from "../src/shared/model";
 import { pinRuling, setRegionContract, setRegionDefaults, setRegionEnvironment } from "../src/renderer/lib/mutations";
 import { modelStore } from "../src/renderer/lib/use-model";
@@ -77,6 +78,13 @@ describe("region settings change their field alone", () => {
     const show = vi.spyOn(modelStore, "show");
     const contract = { rules: [{ id: "r2", text: "Ship after review." }], rulings: before.contract!.rulings };
     setRegionContract("works", contract);
+    // A build that gates tasks off writes no contract: the region stays as loaded.
+    if (!TASKS_ENABLED) {
+      setRegionContract("works", undefined);
+      expect(held()).toEqual(before);
+      expect(show).not.toHaveBeenCalled();
+      return;
+    }
     expect(held()).toEqual({ ...before, contract });
     expect(show).toHaveBeenCalledExactlyOnceWith({ _tag: "Edit", canvas: name, id: before.id, change: { kind: "region", contract } });
     setRegionContract("works", contract);
@@ -92,6 +100,12 @@ describe("region settings change their field alone", () => {
     const before = open() as NodeOf<"region">;
     const show = vi.spyOn(modelStore, "show");
     pinRuling("works", "  Keep the shared folder.  ", "request-1");
+    // A build that gates tasks off pins nothing.
+    if (!TASKS_ENABLED) {
+      expect(held()).toEqual(before);
+      expect(show).not.toHaveBeenCalled();
+      return;
+    }
     const after = held() as NodeOf<"region">;
     const ruling = after.contract!.rulings!.at(-1)!;
     expect(ruling).toEqual({ id: expect.any(String), pinnedAt: expect.any(String), text: "Keep the shared folder.", sourceRequestId: "request-1" });
