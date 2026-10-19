@@ -7,8 +7,10 @@
  * protocol frames. With `--device`, every request is relayed to the running
  * app over the owner-only operator control socket, which checks the device
  * against the paired-device registry on every call; this process never opens
- * junto.db. With `--demo`, a built-in deterministic canvas answers instead, and
- * neither the app nor ~/.ssh is touched.
+ * junto.db. When the app is not running, the installed Junto is started and the
+ * hello waits up to 20 seconds for it (companion-launch.ts). With `--demo`, a
+ * built-in deterministic canvas answers instead, and neither the app nor ~/.ssh
+ * is touched.
  */
 
 import { createInterface } from "node:readline";
@@ -31,6 +33,11 @@ import {
   type OperatorArgsByOp,
   type OperatorDataByOp,
 } from "../shared/operator-control";
+import {
+  COMPANION_LAUNCH_POLL_MS,
+  COMPANION_LAUNCH_WAIT_MS,
+  launchInstalledJunto,
+} from "./companion-launch";
 import { OperatorSocket, OperatorSocketLive } from "./core/operator-socket";
 
 export { COMPANION_STDIO_COMMAND } from "./protocol-command-names";
@@ -79,13 +86,38 @@ const operatorCall: Call = (op, args, timeoutMs) =>
     ),
   );
 
+/** Starts the installed app when the hello finds it down; seams for tests. */
+export type Wake = {
+  readonly launch: () => Promise<boolean>;
+  readonly now: () => number;
+  readonly sleep: (ms: number) => Promise<void>;
+};
+
+const sleep = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
+
+/** The default: start nothing. Only the forced command itself passes `wakeInstalledApp`. */
+const neverWake: Wake = { launch: async () => false, now: Date.now, sleep };
+
+export const wakeInstalledApp: Wake = { launch: launchInstalledJunto, now: Date.now, sleep };
+
 /** The running app, reached over the operator control socket. */
-export const makeRelayHost = (deviceId: string, call: Call = operatorCall): CompanionHost => {
+export const makeRelayHost = (deviceId: string, call: Call = operatorCall, wake: Wake = neverWake): CompanionHost => {
   const unavailable = (id: string): CompanionResponseFrame =>
     companionFail(id, companionError("app-not-running", COMPANION_ERROR_COPY["app-not-running"]));
   return {
     hello: async () => {
-      const result = await call("companion.hello", { deviceId }, OPERATOR_DEFAULT_TIMEOUT_MS);
+      let result = await call("companion.hello", { deviceId }, OPERATOR_DEFAULT_TIMEOUT_MS);
+      // Not running: start the installed app once, then ask again until its
+      // socket answers or the wait runs out, and answer as today after that.
+      if (!result.ok && result.down && (await wake.launch().catch(() => false))) {
+        const deadline = wake.now() + COMPANION_LAUNCH_WAIT_MS;
+        while (!result.ok && result.down && wake.now() < deadline) {
+          await wake.sleep(Math.min(COMPANION_LAUNCH_POLL_MS, Math.max(0, deadline - wake.now())));
+          const left = deadline - wake.now();
+          if (left <= 0) break;
+          result = await call("companion.hello", { deviceId }, left);
+        }
+      }
       if (!result.ok) {
         return {
           ok: false,
@@ -132,7 +164,7 @@ export const runCompanionStdio = async (args: ReadonlyArray<string>): Promise<vo
   }
   const host = parsed.mode === "demo"
     ? makeDemoHost({ machineName: defaultMachineName() })
-    : makeRelayHost(parsed.deviceId);
+    : makeRelayHost(parsed.deviceId, operatorCall, wakeInstalledApp);
   await runCompanionSession({
     lines: stdinLines(),
     write: (line) => {
