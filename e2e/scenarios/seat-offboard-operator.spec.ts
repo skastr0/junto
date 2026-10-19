@@ -66,7 +66,15 @@ const WALK_RULES: OffboardRulesPatch = { cacheWindowMinutes: 2 };
 // ---------------------------------------------------------------------------
 
 const bindingOf = (nodeId: string): string => `local:${nodeId}`;
-const sessionIdOf = (nodeId: string): string => `sess-operator-${nodeId}-0001`;
+/**
+ * The LOOP walk's seats hold Codex-shaped ids (a UUID): a resting seat resumes only a session
+ * Codex's store proves, and the proof matches only a whole UUID (term/session-existence.ts, isCodexSessionId).
+ */
+const UUID_SESSION_NODES: Readonly<Record<string, string>> = {
+  "loop-tia": "0198f2a1-0000-7000-8000-00000000a001",
+  "loop-zed": "0198f2a1-0000-7000-8000-00000000a002",
+};
+const sessionIdOf = (nodeId: string): string => UUID_SESSION_NODES[nodeId] ?? `sess-operator-${nodeId}-0001`;
 
 /** A fake Codex seat. With `session`, its node names a session to close (seat-offboard.spec.ts:77-80). */
 const sessionPins = new WeakMap<Seat, string>();
@@ -1165,13 +1173,13 @@ test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next,
   // inside its window is the control, and the minute pass (the eager cut) is held by tests/operator-offboard.test.ts.
   test.skip(!CLI_BUILT, "SETUP: dist/junto is missing; the onboard in this walk is the CLI's. Build it with `bun run cli:build`.");
   test.setTimeout(5 * 60_000);
-  const TIA = seatNode("tia", "Tia", COLUMN[0], ROW[0]);
-  const ZED = seatNode("zed", "Zed", COLUMN[1], ROW[0]);
-  const PAT = seatNode("pat", "Pat", COLUMN[2], ROW[0], false);
-  const doc = fixtureOf([TIA, ZED, PAT], [["pat", "tia"], ["pat", "zed"]]);
-  await walk(testInfo, "LOOP", { doc, transcripts: [sessionIdOf("tia"), sessionIdOf("zed")], seed: async (sandbox) => {
-    await seedStillSeat("tia", 10, 31)(sandbox);
-    await holdSessionsOnDisk(sandbox, ["tia", "zed"]);
+  const TIA = seatNode("loop-tia", "Tia", COLUMN[0], ROW[0]);
+  const ZED = seatNode("loop-zed", "Zed", COLUMN[1], ROW[0]);
+  const PAT = seatNode("loop-pat", "Pat", COLUMN[2], ROW[0], false);
+  const doc = fixtureOf([TIA, ZED, PAT], [["loop-pat", "loop-tia"], ["loop-pat", "loop-zed"]]);
+  await walk(testInfo, "LOOP", { doc, transcripts: [sessionIdOf("loop-tia"), sessionIdOf("loop-zed")], seed: async (sandbox) => {
+    await seedStillSeat("loop-tia", 10, 31)(sandbox);
+    await holdSessionsOnDisk(sandbox, ["loop-tia", "loop-zed"]);
   },
   // A disposable home refuses to resume pins it did not author (term/managed-spawn-plan.ts shouldAvoidSharedHarnessResume),
   // so every start there is fresh; these pins are this walk's own.
@@ -1190,43 +1198,43 @@ test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next,
       tia = await startSeat(page, sandbox, TIA);
       zed = await startSeat(page, sandbox, ZED);
       pat = await startSeat(page, sandbox, PAT);
-      await expectSeatState(page, "tia", "idle");
-      expect(await launches(sandbox, "tia"), "Tia has had one process").toBe(1);
+      await expectSeatState(page, "loop-tia", "idle");
+      expect(await launches(sandbox, "loop-tia"), "Tia has had one process").toBe(1);
       await shot(page, "LOOP.0", "tia-still-zed-warm");
     });
 
     await step("LOOP.1", "Tia's card, running and still, says fresh next; Zed's, inside the window, does not", async () => {
-      await expect(card(page, "tia"), "a still seat past the window").toContainText("fresh next", { timeout: 20_000 });
-      await expect(card(page, "zed"), "a seat inside the window").not.toContainText("fresh next");
-      const status = await workStatusOf(page, "tia");
+      await expect(card(page, "loop-tia"), "a still seat past the window").toContainText("fresh next", { timeout: 20_000 });
+      await expect(card(page, "loop-zed"), "a seat inside the window").not.toContainText("fresh next");
+      const status = await workStatusOf(page, "loop-tia");
       note(testInfo, "LOOP-status-tia", JSON.stringify(status ?? null));
       await shot(page, "LOOP.1", "fresh-next-on-the-still-card");
     });
 
     await step("LOOP.2", "both seats are stopped and rest; mail to Tia starts a fresh session with no turn on the cold one, the same mail to Zed resumes hers", async () => {
       // A running seat keeps its session at a mail; the start decides (seat-sessions/operator-offboard.ts coldSessionStartsFresh).
-      const before = await inputOf(sandbox, "tia", 1);
-      const zedPin = await sessionPin(sandbox, "zed");
+      const before = await inputOf(sandbox, "loop-tia", 1);
+      const zedPin = await sessionPin(sandbox, "loop-zed");
       const cutPid = (await tia.ready()).pid;
-      await stopSeat(ctx, "tia", cutPid);
-      await stopSeat(ctx, "zed", (await zed.ready()).pid);
-      await expect(card(page, "tia"), "a resting seat past the window still says it").toContainText("fresh next", { timeout: 20_000 });
-      await expect(card(page, "zed"), "and one inside the window does not").not.toContainText("fresh next").catch(async (error: unknown) => {
+      await stopSeat(ctx, "loop-tia", cutPid);
+      await stopSeat(ctx, "loop-zed", (await zed.ready()).pid);
+      await expect(card(page, "loop-tia"), "a resting seat past the window still says it").toContainText("fresh next", { timeout: 20_000 });
+      await expect(card(page, "loop-zed"), "and one inside the window does not").not.toContainText("fresh next").catch(async (error: unknown) => {
         // Say why before stopping: main's own answer for the card and the inputs of the resume proof.
-        const why = await launchWhy(page, sandbox, "zed");
+        const why = await launchWhy(page, sandbox, "loop-zed");
         note(testInfo, "LOOP-zed-launch-why", why);
         console.log(`LOOP-zed-launch-why ${why}`);
         throw error;
       });
-      opData(await pat.op("msg.send", { target: "zed", text: WAKE }));
-      await expect.poll(() => launches(sandbox, "zed"), { message: "a process starts for the mail to Zed", timeout: 90_000 }).toBe(2);
-      await expect.poll(() => inputOf(sandbox, "zed", 2), { message: "the mail on Zed's session", timeout: 60_000 }).toContain(WAKE);
-      expect(await sessionPin(sandbox, "zed"), "Zed resumed the session she had").toBe(zedPin);
-      opData(await pat.op("msg.send", { target: "tia", text: WAKE }));
-      await expect.poll(() => launches(sandbox, "tia"), { message: "a process starts for the mail", timeout: 90_000 }).toBe(2);
-      await expect.poll(() => inputOf(sandbox, "tia", 2), { message: "the mail on the fresh session's input", timeout: 60_000 }).toContain(WAKE);
-      expect(await inputOf(sandbox, "tia", 1), "nothing was typed into the cold session").toBe(before);
-      expect(await sessionPin(sandbox, "tia"), "Tia no longer names the cold session").not.toBe(sessionIdOf("tia"));
+      opData(await pat.op("msg.send", { target: "loop-zed", text: WAKE }));
+      await expect.poll(() => launches(sandbox, "loop-zed"), { message: "a process starts for the mail to Zed", timeout: 90_000 }).toBe(2);
+      await expect.poll(() => inputOf(sandbox, "loop-zed", 2), { message: "the mail on Zed's session", timeout: 60_000 }).toContain(WAKE);
+      expect(await sessionPin(sandbox, "loop-zed"), "Zed resumed the session she had").toBe(zedPin);
+      opData(await pat.op("msg.send", { target: "loop-tia", text: WAKE }));
+      await expect.poll(() => launches(sandbox, "loop-tia"), { message: "a process starts for the mail", timeout: 90_000 }).toBe(2);
+      await expect.poll(() => inputOf(sandbox, "loop-tia", 2), { message: "the mail on the fresh session's input", timeout: 60_000 }).toContain(WAKE);
+      expect(await inputOf(sandbox, "loop-tia", 1), "nothing was typed into the cold session").toBe(before);
+      expect(await sessionPin(sandbox, "loop-tia"), "Tia no longer names the cold session").not.toBe(sessionIdOf("loop-tia"));
       await expect.poll(async () => (await tia.ready()).pid, { message: "the fresh process has registered", timeout: 30_000 }).not.toBe(cutPid);
       expect(offboardLines().join("\n"), "no [offboard] line says failed").not.toMatch(/failed/u);
       mark("Tia woke on a fresh session");
@@ -1237,7 +1245,7 @@ test("LOOP [fake-tui] a seat still past a 1 minute cache window says fresh next,
       const onboard = opData(await tia.op("onboard", {}));
       note(testInfo, "LOOP-onboard-payload", JSON.stringify(onboard).slice(0, 6000));
       const without = onboard.previous_session_without_notes as { readonly session_id?: unknown; readonly ended_by?: unknown } | undefined;
-      expect(without?.session_id, "the cut session is named first").toBe(sessionIdOf("tia"));
+      expect(without?.session_id, "the cut session is named first").toBe(sessionIdOf("loop-tia"));
       expect(without?.ended_by, "ended by Junto's own rule").toBe("automatic");
       expect(onboard.handoff, "no handoff: the session ended without a turn").toBeUndefined();
       await shot(page, "LOOP.3", "onboard-after-the-cut");
