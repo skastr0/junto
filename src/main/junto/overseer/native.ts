@@ -29,7 +29,7 @@ import {
 import { seatParts, type SeatParts } from "@shared/model/seat-parts";
 import { INTERRUPT_BYTE } from "../term/drive";
 import type { ControlLease } from "../term/local-host";
-import { asNodeId, inPaintOrder, type Canvas, type Node, type NodeOf } from "@shared/model";
+import { asNodeId, inPaintOrder, seatIdentity, type Canvas, type Node, type NodeOf } from "@shared/model";
 import { modelError } from "../model/records";
 import type { ModelNodeReader } from "../node-ref-resolver";
 import type { TermPlane } from "../term/plane";
@@ -513,7 +513,7 @@ const handleAgent = async (
       if (!isAgentNode(node)) continue;
       const session = await sessionSummary(ctx, node.bindingId, node.host);
       agents.push({
-        nodeId: node.id,
+        ...seatIdentity(canvas, node),
         agentKey: node.agentKey,
         bindingId: node.bindingId,
         hostId: node.host,
@@ -531,7 +531,7 @@ const handleAgent = async (
     args as { canvas?: string; nodeId: string },
   );
   if ("error" in targeted) return targeted;
-  const { canvasName, node } = targeted;
+  const { canvasName, canvas, node } = targeted;
   if (!isAgentNode(node)) return fail("InvalidArguments", "node is not an agent seat");
   const binding = { bindingId: node.bindingId, hostId: node.host };
   const agentKey: string | undefined = node.agentKey;
@@ -541,9 +541,12 @@ const handleAgent = async (
       const session = binding === undefined
         ? undefined
         : await sessionSummary(ctx, binding.bindingId, binding.hostId);
+      const { name, regions } = seatIdentity(canvas, node);
       return ok({
         nodeId: node.id,
         canvas: canvasName,
+        name,
+        regions,
         agentKey,
         bindingId: binding.bindingId,
         hostId: binding.hostId,

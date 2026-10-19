@@ -74,8 +74,8 @@ replay.
 | `canvas.digest` | read | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
 | `canvas.render` | read | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
 | `canvas.screenshot` | mutation | native `makeOverseerNative` | exercised | tests/overseer-native.test.ts; tests/overseer-dispatch.test.ts; honest PNG or RuntimeDown; Electron viewport not this op |
-| `node.list` | read | canvas `executeOverseerCanvas` | catalog | handler `overseer/canvas.ts`; catalog tests/overseer-control.test.ts |
-| `node.get` | read | canvas `executeOverseerCanvas` | catalog | handler `overseer/canvas.ts`; catalog tests/overseer-control.test.ts |
+| `node.list` | read | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
+| `node.get` | read | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
 | `node.create` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts; tests/overseer-dispatch.test.ts |
 | `node.configure` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
 | `node.move` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
@@ -134,7 +134,7 @@ replay.
 | `content.stat` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
 | `content.materialize` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
 | `agent.list` | read | native `makeOverseerNative` | exercised | tests/overseer-native.test.ts |
-| `agent.get` | read | native `makeOverseerNative` | catalog | handler `overseer/native.ts`; catalog tests/overseer-control.test.ts |
+| `agent.get` | read | native `makeOverseerNative` | exercised | tests/overseer-native.test.ts |
 | `agent.reseat` | mutation | native `makeOverseerNative` | exercised | tests/overseer-native.test.ts |
 | `agent.start` | mutation | native `makeOverseerNativeLive` | exercised | tests/overseer-native.test.ts; target-host occupancy, cancellation and finalizer drain |
 | `agent.wake` | mutation | native `makeOverseerNativeLive` | exercised | tests/overseer-native.test.ts; occupied-seat activation retains target host |
@@ -192,6 +192,7 @@ replay.
 | --- | --- |
 | Vocabulary | the wire carries the model's own types from `src/shared/model`: a node told by `kind` with that kind's flat fields, a wire by `from`, `to`, `verb`; args schemas in `src/shared/overseer-control.ts` are built from the model's exported schemas (`NodeDraft`, `SeatDraft`, `NodeEdit`, `WireDraft`, `WireEdit`, `Seq`) |
 | `canvas.read` | `{name, seq, nodes, wires}`, nodes in paint order; `seq` is a number |
+| `canvas.read`, `node.list`, `node.get`, `agent.list`, `agent.get` | every node carries `regions`, each region around it as `{id, name}`, outermost first, from the model's one membership rule (`seatRegions`); a seat (`agent`, and `peer` on a copy) carries `name` (`titleOf`) |
 | `canvas.read`, `node.list`, `node.get`, `wire.list`, `wire.get` | structure only; no tasks, requests, artifacts, mail or board topics ride on a node; work is read with its own command |
 | `node.create`, `wire.connect` | a draft: `id` optional and minted by main, no `z`; the answer carries the node or wire with its id |
 | Seats | created and reseated by naming what they run: `harness` required, `profile`, `model`, `effort`, `mode`, `permissionMode`, `host` optional (and `cwd`, `label` on create); main builds the launch, agent key and session; a seat draft carrying `launch`, `agentKey`, `bindingId`, `sessionId` or `overseer` is `InvalidArguments`; a terminal draft keeps `launch` |

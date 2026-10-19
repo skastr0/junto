@@ -209,6 +209,33 @@ describe("executeOverseerCanvas", () => {
     expect(rendered.svg.startsWith("<svg")).toBe(true);
   });
 
+  it("answers every node with the regions around it, outermost first, and a seat with its name", async () => {
+    await boot();
+    // "box" grows around both seats; "Junto" is drawn around everything.
+    await expectOk({ operation: "node.resize", args: { nodeId: "region", width: 300, height: 120 } });
+    const outer = (await expectOk({
+      operation: "node.create",
+      args: { node: { kind: "region", label: "Junto", hold: false, x: -50, y: -50, width: 1000, height: 1000 } },
+    })) as { node: { id: string } };
+    const junto = { id: outer.node.id, name: "Junto" };
+    const box = { id: "region", name: "box" };
+
+    type Entry = { id: string; kind: string; name?: string; regions: ReadonlyArray<{ id: string; name: string }> };
+    const read = (await expectOk({ operation: "canvas.read" })) as { nodes: ReadonlyArray<Entry> };
+    const byId = new Map(read.nodes.map((node) => [node.id, node]));
+    expect(byId.get("overseer")).toMatchObject({ kind: "agent", name: "overseer", regions: [junto, box] });
+    expect(byId.get("n1")?.regions).toEqual([junto]);
+    expect(byId.get("n1")).not.toHaveProperty("name");
+    // A region is never in its own list.
+    expect(byId.get("region")?.regions).toEqual([junto]);
+    expect(byId.get(outer.node.id)?.regions).toEqual([]);
+
+    expect(await expectOk({ operation: "node.list" })).toEqual({ nodes: read.nodes });
+    expect(await expectOk({ operation: "node.get", args: { nodeId: "peer" } }))
+      .toEqual({ node: byId.get("peer") });
+    expect(byId.get("peer")).toMatchObject({ name: "peer", regions: [junto, box] });
+  });
+
   it("creates and deletes a foreign canvas, refusing self-canvas delete", async () => {
     await boot();
     expect(await expectOk({ operation: "canvas.create", args: { canvas: "fresh" } }))

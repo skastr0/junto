@@ -64,6 +64,8 @@ The canvas speaks the model's own types, with flat fields for each kind.
 
 Reads: \`canvas read\` answers \`{name, seq, nodes, wires}\`, nodes in paint order. \`node list\` answers \`{nodes}\`, \`node get\` \`{node}\`, \`wire list\` \`{wires}\`, \`wire get\` \`{wire}\`, \`canvas list\` one \`{name}\` per canvas. \`seq\` is a number that counts committed changes to that canvas.
 
+Every node those reads answer also carries \`regions\`: each region around it as \`{id, name}\`, outermost first, empty when it is in none (a region never lists itself). A seat also carries \`name\`, what it is called on the canvas. \`agent list\` and \`agent get\` answer \`name\` and \`regions\` the same way, so where a seat sits is read, never worked out from geometry.
+
 Reads answer structure, not work. No tasks, requests, artifacts, mail or board topics ride on a node. Read work with its own command: \`tasks list\`, \`request list\`, \`artifact list\` and \`artifact get\`, \`msg list\`, \`board list\`, \`sheet read\` (each where this build has that family). \`canvas digest\` is the digest text main also writes for the window and the CLI, with the work on each node and without live adapter snapshot data.
 
 Writes:

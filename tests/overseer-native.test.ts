@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Effect, Fiber, ManagedRuntime, Result } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { asNodeId, type Canvas, type Node, type NodeOf, type Wire } from "../src/shared/model";
-import { canvasOf, page as pageNode, seat, wire } from "./support/model-nodes";
+import { canvasOf, page as pageNode, region, seat, wire } from "./support/model-nodes";
 import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
 import { decodeOverseerArgs } from "../src/shared/overseer-control";
 import {
@@ -217,6 +217,32 @@ describe("overseer native adapters", () => {
     expect(pages.ok).toBe(true);
     if (!pages.ok) return;
     expect((pages.data as { pages: ReadonlyArray<{ nodeId: string }> }).pages.map((row) => row.nodeId)).toEqual(["p1"]);
+  });
+
+  it("answers a seat with its name and the regions around it, outermost first", async () => {
+    const native = live([{
+      name: "factory",
+      doc: doc([
+        region("junto", { x: -100, y: -100, width: 1000, height: 1000 }, { label: "Junto" }),
+        region("cli", { x: -10, y: -10, width: 300, height: 200 }, { label: "CLI" }),
+        { ...agent("a1"), label: "cli-lead" },
+        { ...agent("a2"), x: 500, y: 500 },
+      ]),
+    }]);
+    const junto = { id: "junto", name: "Junto" };
+    const cli = { id: "cli", name: "CLI" };
+    const listed = await run(native, "agent.list", {});
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    const rows = (listed.data as { agents: ReadonlyArray<Record<string, unknown>> }).agents;
+    expect(rows.map((row) => [row.nodeId, row.name, row.regions])).toEqual([
+      ["a1", "cli-lead", [junto, cli]],
+      ["a2", "a2", [junto]],
+    ]);
+    const got = await run(native, "agent.get", { nodeId: "a1" });
+    expect(got.ok).toBe(true);
+    if (!got.ok) return;
+    expect(got.data).toMatchObject({ nodeId: "a1", name: "cli-lead", regions: [junto, cli] });
   });
 
   it("prompts through managedDrive without a renderer control lease", async () => {

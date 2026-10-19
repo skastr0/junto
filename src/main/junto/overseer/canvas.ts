@@ -7,6 +7,8 @@ import {
   asCanvasName,
   asNodeId,
   inPaintOrder,
+  seatRegions,
+  titleOf,
   type Canvas,
   type Command,
   type Node,
@@ -345,6 +347,19 @@ const nodeIn = (canvas: Canvas, nodeId: string): Effect.Effect<Node, WorkErrorBo
     : Effect.succeed(node);
 };
 
+/**
+ * A node as a read answers it: the model's node, every region around it
+ * (outermost first), and a seat's name, so a reader never works out the
+ * geometry or the name itself.
+ */
+const nodeEntry = (canvas: Canvas, node: Node) => ({
+  ...node,
+  ...(node.kind === "agent" || node.kind === "peer" ? { name: titleOf(node) } : {}),
+  regions: seatRegions(canvas, node.id),
+});
+
+const nodeEntries = (canvas: Canvas) => inPaintOrder(canvas).map((node) => nodeEntry(canvas, node));
+
 // ── Canvases ────────────────────────────────────────────────────────────────
 
 const handleList = (): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
@@ -362,7 +377,7 @@ const handleRead = (
   Effect.map(modelCanvas(targetCanvas(caller, args.canvas)), (canvas) => ({
     name: canvas.name,
     seq: canvas.seq,
-    nodes: inPaintOrder(canvas),
+    nodes: nodeEntries(canvas),
     wires: [...canvas.wires.values()],
   }));
 
@@ -483,7 +498,7 @@ const handleNodeList = (
   args: OverseerArgsFor<"node.list">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.map(modelCanvas(targetCanvas(caller, args.canvas)), (canvas) => ({
-    nodes: inPaintOrder(canvas),
+    nodes: nodeEntries(canvas),
   }));
 
 const handleNodeGet = (
@@ -492,7 +507,7 @@ const handleNodeGet = (
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
     const canvas = yield* modelCanvas(targetCanvas(caller, args.canvas));
-    return { node: yield* nodeIn(canvas, args.nodeId) };
+    return { node: nodeEntry(canvas, yield* nodeIn(canvas, args.nodeId)) };
   });
 
 /** The one result of a write that was a batch of one step. */
