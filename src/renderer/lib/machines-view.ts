@@ -139,13 +139,14 @@ const CAN_SLEEP: ReadonlySet<MachineCondition> = new Set(["ready", "check-failed
 export const machineActions = (
   condition: MachineCondition,
   boat?: MachineBoat,
-  /** False for a machine only this window or Boat knows of: there is nothing to remove yet. */
+  /** False for a machine only this window or Boat knows of: there is nothing to remove yet, only Boat's to delete. */
   listed = true,
 ): ReadonlyArray<MachineAction> => {
   const actions = conditionActions(condition);
   if (!listed) {
     const kept = actions.filter((action) => action !== "remove");
-    return condition === "add-failed" && boat !== undefined ? [...kept, "finish"] : kept;
+    if (boat === undefined || condition === "adding") return kept;
+    return [...kept, ...(condition === "add-failed" ? (["finish"] as const) : []), "delete"];
   }
   if (boat === undefined || condition === "adding" || condition === "gone") return actions;
   const sleep = boat.power === "awake" && !boat.unreadable && CAN_SLEEP.has(condition) ? (["sleep"] as const) : [];

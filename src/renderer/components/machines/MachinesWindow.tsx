@@ -516,13 +516,15 @@ const removeAfterConfirm = async (item: MachineListItem, boat: MachineBoat | und
 };
 
 /** Ask, then remove the machine and delete it on Boat. */
-const deleteAfterConfirm = async (item: MachineListItem): Promise<string> => {
+const deleteAfterConfirm = async (item: MachineListItem, listed: boolean): Promise<string> => {
   const label = labelOf(item);
   const confirmed = await askConfirm({
     source: "machine-boat-delete",
     title: `Delete ${label} on Boat?`,
     body: [
-      `This machine stops reaching ${label}, and Boat deletes it with its disk. Its seats stay on the canvas and cannot run.`,
+      listed
+        ? `This machine stops reaching ${label}, and Boat deletes it with its disk. Its seats stay on the canvas and cannot run.`
+        : `Boat deletes ${label} with its disk. It was never added to your machines.`,
       "This cannot be undone.",
     ],
     confirmLabel: "Delete on Boat",
@@ -533,12 +535,17 @@ const deleteAfterConfirm = async (item: MachineListItem): Promise<string> => {
   return refused ? refused.message : "";
 };
 
-const ask = async (item: MachineListItem, boat: MachineBoat | undefined, action: "remove" | "delete" | "wake" | "sleep"): Promise<string> => {
+const ask = async (
+  entry: Shown,
+  boat: MachineBoat | undefined,
+  action: "remove" | "delete" | "wake" | "sleep",
+): Promise<string> => {
+  const item = entry.item;
   switch (action) {
     case "remove":
       return removeAfterConfirm(item, boat);
     case "delete":
-      return deleteAfterConfirm(item);
+      return deleteAfterConfirm(item, entry.listed);
     case "wake":
     case "sleep": {
       const refused = await setBoatPower(item.machine.id, action);
@@ -670,7 +677,7 @@ function MachinesWindowOpen() {
             placed={placed.get(current.item.machine.id) ?? NOTHING_PLACED}
             onAsk={(action) => {
               setActionError("");
-              void ask(current.item, boatOf(current), action).then(setActionError);
+              void ask(current, boatOf(current), action).then(setActionError);
             }}
           />
         ) : (

@@ -413,7 +413,7 @@ describe("a machine on Boat", () => {
     expect(machineCondition(item, undefined, failed)).toBe("add-failed");
     expect(machineSummary(item, undefined, failed)).toMatchObject({ headline: "Could not finish adding it on Boat", advice: "Boat could not make the machine.", needsYou: true });
     expect(machineActions("add-failed", undefined, false)).toEqual(["check"]);
-    expect(machineActions("add-failed", boat({ listed: false }), false)).toEqual(["check", "finish"]);
+    expect(machineActions("add-failed", boat({ listed: false }), false)).toEqual(["check", "finish", "delete"]);
     expect(machineActions("add-failed", boat())).toEqual(["check", "remove", "delete"]);
   });
 
@@ -449,7 +449,8 @@ describe("a machine on Boat", () => {
   it("is made on Boat and not added yet when the list does not have it", () => {
     const item = listed({ setUp: false });
     expect(machineCondition(item, undefined, undefined, boat({ listed: false }))).toBe("boat-unfinished");
-    expect(machineActions("boat-unfinished", boat({ listed: false }), false)).toEqual(["finish"]);
+    expect(machineActions("boat-unfinished", boat({ listed: false }), false)).toEqual(["finish", "delete"]);
+    expect(machineActions("adding", boat({ listed: false }), false)).toEqual([]);
   });
 
   it("still sends and updates as any machine, the wake being the owner's", () => {

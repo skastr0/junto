@@ -128,7 +128,9 @@ const fakeOwner = () => {
         return ok(request, view);
       }
       case "machine.boat-delete": {
-        rows.splice(rows.findIndex((entry) => entry.machine.id === name), 1);
+        // Like the owner: a machine the list never had has nothing to remove there.
+        const index = rows.findIndex((entry) => entry.machine.id === name);
+        if (index >= 0) rows.splice(index, 1);
         boat!.machines = boat!.machines.filter((machine) => machine.machineName !== name);
         return ok(request, { machineName: name, removed: true });
       }
@@ -560,6 +562,13 @@ it("keeps a failed Boat add on the shelf with its reason, and offers no remove t
   // Check again: the failure is dismissed and the row says what Boat knows.
   await click(byTest("machine-action-check"));
   expect(condition("boat-two")).toBe("boat-unfinished");
+
+  // Boat made it and the list never had it: deleting it on Boat is all there is to do.
+  await click(byTest("machine-action-delete"));
+  expect(byTest("confirm-dialog")?.textContent).toContain("It was never added to your machines.");
+  await click([...byTest("confirm-dialog")!.querySelectorAll("button")].find((candidate) => candidate.textContent?.trim() === "Delete on Boat"));
+  expect(owner.last("machine.boat-delete").args).toEqual({ name: "boat-two" });
+  expect(byTest("machine-row-boat-two")).toBeNull();
 });
 
 it("shows a sleeping Boat machine as asleep, never asks it, and wakes it on request", async () => {

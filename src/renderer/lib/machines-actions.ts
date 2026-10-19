@@ -229,6 +229,8 @@ export const setBoatPower = async (name: string, to: "wake" | "sleep"): Promise<
 export const deleteBoatMachine = async (name: string): Promise<MachineCommandRefusal | undefined> => {
   const deleted = await machineCommand("machine.boat-delete", { name });
   if (!deleted.ok) return deleted;
+  machines$.adding[name].delete();
+  dismissCopy(name);
   await refreshMachines();
   return undefined;
 };
