@@ -69,6 +69,7 @@ const backend: CompanionServiceOptions["backend"] = ({ pairComplete }) => {
     mailSend: none,
     quickReplies: async () => outcomeOk(["Yes"]),
     portrait: none,
+    contentRange: none,
   };
   return stub;
 };

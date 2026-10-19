@@ -53,6 +53,8 @@ import { THREAD_HEALTH_LABEL, THREAD_HEALTH_TONE, THREAD_HEALTH_TTL_MS, type Thr
 import { mailboxRows, recentOpAtMs, recentOpLabel } from "@renderer/lib/actor-ledger";
 import type { WorkSeatRecentOp } from "@shared/work-recent-ops";
 import { AppRuntime } from "../../runtime";
+import { ContentService } from "../content/service";
+import { readContentObjectRange } from "../content/store";
 import { ModelService } from "../model/service";
 import { getExecutionByCanvas } from "../kernel/cycle";
 import { PausePlane } from "../pause-plane";
@@ -431,5 +433,18 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
     );
     const config = (overrides as Record<string, Parameters<typeof companionPortraitSvg>[0]["config"]>)[portraitIdentity];
     return outcomeOk(companionPortraitSvg({ portraitIdentity, size, theme, ...(config ? { config } : {}) }));
+  },
+
+  contentRange: async (ref, offset, length) => {
+    // The manifest's receipt first, as the desktop's own open; then a confined read of the range.
+    const bytes = await AppRuntime.runPromise(
+      Effect.gen(function* () {
+        const content = yield* ContentService;
+        const opened = yield* content.openForRead(ref);
+        if (opened.state !== "verified" || opened.byteLength !== ref.byteLength) return undefined;
+        return readContentObjectRange(content.root, ref, offset, length);
+      }).pipe(Effect.catch(() => Effect.succeed(undefined))),
+    );
+    return bytes === undefined ? outcomeFail("unavailable") : outcomeOk(bytes);
   },
 });

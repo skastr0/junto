@@ -21,6 +21,7 @@
 
 import { Result, Schema } from "effect";
 import { AgentSignal, AgentSignalKind } from "./agent-signals";
+import { ContentSha256 } from "./content-ref";
 import { FeedHealth, FeedRegion, OperatorFeed } from "./operator-feed";
 
 export const COMPANION_PROTOCOL = "junto-companion/1" as const;
@@ -40,6 +41,10 @@ export const COMPANION_PAIRING_TTL_MS = 10 * 60_000;
 export const COMPANION_MAX_TEXT = 8_000;
 export const COMPANION_MAIL_DEFAULT_LIMIT = 50;
 export const COMPANION_MAIL_MAX_LIMIT = 200;
+/** Bytes one `content.get` returns at most: as base64 it stays under the outbound frame. */
+export const COMPANION_CONTENT_CHUNK_MAX = 256 * 1024;
+/** `content.get` requests one phone may have unanswered at once. */
+export const COMPANION_CONTENT_IN_FLIGHT_MAX = 4;
 
 // --- primitives --------------------------------------------------------------
 
@@ -206,6 +211,7 @@ export const COMPANION_OPS = [
   "mail.send",
   "quickReplies.get",
   "portrait.get",
+  "content.get",
 ] as const;
 export const CompanionOpName = Schema.Literals(COMPANION_OPS);
 export type CompanionOpName = typeof CompanionOpName.Type;
@@ -242,6 +248,11 @@ export const CompanionArgs = {
     size: intBetween(16, 1024),
     theme: Schema.Literals(["bright", "dark"]),
   }),
+  "content.get": Schema.Struct({
+    sha256: ContentSha256,
+    offset: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }))),
+    length: intBetween(1, COMPANION_CONTENT_CHUNK_MAX),
+  }).annotate({ parseOptions: { onExcessProperty: "error" } }),
 } as const satisfies Record<CompanionOpName, Schema.Top>;
 
 export type CompanionArgsByOp = { readonly [Op in CompanionOpName]: (typeof CompanionArgs)[Op]["Type"] };
@@ -261,6 +272,16 @@ export const CompanionResults = {
   "mail.send": Schema.Struct({ message: CompanionMail }),
   "quickReplies.get": Schema.Struct({ replies: Schema.Array(Schema.String) }),
   "portrait.get": Schema.Struct({ svg: Schema.String }),
+  "content.get": Schema.Struct({
+    sha256: Schema.String,
+    offset: Schema.Number,
+    /** Bytes returned: fewer than asked only at the end of the file. */
+    length: Schema.Number,
+    /** The whole file's size, the same as its ref's. */
+    byteLength: Schema.Number,
+    /** Standard padded base64 of the bytes [offset, offset + length). */
+    data: Schema.String,
+  }),
 } as const satisfies Record<CompanionOpName, Schema.Top>;
 
 export type CompanionResultByOp = { readonly [Op in CompanionOpName]: (typeof CompanionResults)[Op]["Type"] };
@@ -277,6 +298,7 @@ export const COMPANION_ERROR_CODES = [
   "too-large",
   "rate-limited",
   "internal",
+  "unavailable",
 ] as const;
 export const CompanionErrorCode = Schema.Literals(COMPANION_ERROR_CODES);
 export type CompanionErrorCode = typeof CompanionErrorCode.Type;
@@ -450,6 +472,7 @@ export const COMPANION_ERROR_COPY: Readonly<Record<CompanionErrorCode, string>> 
   "too-large": "The message was too large.",
   "rate-limited": "Too many changes at once. Try again in a moment.",
   internal: "Something went wrong on the Mac.",
+  unavailable: "This file is not available on the Mac.",
 };
 
 // --- codec -------------------------------------------------------------------

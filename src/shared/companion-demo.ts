@@ -17,6 +17,7 @@ import type { AgentSignal } from "./agent-signals";
 import { rollupSeatSignals } from "./agent-signals";
 import {
   handleCompanionRequest,
+  makeContentGate,
   makeWriteLimiter,
   outcomeFail,
   outcomeOk,
@@ -41,6 +42,7 @@ import {
   DEMO_BRIEFINGS,
   DEMO_CANVAS,
   DEMO_CANVAS_TITLE,
+  DEMO_CONTENT,
   DEMO_DEVICE_ID,
   DEMO_DEVICE_NAME,
   DEMO_HEALTH_CONFIDENCE,
@@ -257,6 +259,11 @@ export const makeDemoBackend = (machineName: string): CompanionBackend & {
     },
     quickReplies: async () => outcomeOk(DEMO_QUICK_REPLIES),
     portrait: async (portraitIdentity, size, theme) => outcomeOk(companionPortraitSvg({ portraitIdentity, size, theme })),
+    contentRange: async (ref, offset, length) => {
+      const stored = DEMO_CONTENT.find((content) => content.ref.sha256 === ref.sha256);
+      if (stored === undefined) return outcomeFail("unavailable");
+      return outcomeOk(new TextEncoder().encode(stored.text).subarray(offset, offset + length));
+    },
   };
 };
 
@@ -268,6 +275,7 @@ export const makeDemoHost = (options: {
 }): CompanionHost => {
   const backend = makeDemoBackend(options.machineName);
   const allowWrite = makeWriteLimiter();
+  const contentSlot = makeContentGate();
   let waiters: Array<() => void> = [];
   const wake = (): void => {
     const current = waiters;
@@ -297,6 +305,7 @@ export const makeDemoHost = (options: {
         backend,
         device: { deviceId: DEMO_DEVICE_ID, state: "paired" },
         allowWrite,
+        contentSlot,
       });
       if (backend.revision() !== before) wake();
       return response;

@@ -20,6 +20,7 @@ import QRCode from "qrcode";
 import { ulid } from "ulid";
 import {
   handleCompanionRequest,
+  makeContentGate,
   makeWriteLimiter,
   outcomeFail,
   outcomeOk,
@@ -125,6 +126,7 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
   const changes = makeCompanionChanges();
   const authorizedKeysPath = options.authorizedKeysPath ?? defaultAuthorizedKeysPath();
   const limiters = new Map<string, () => boolean>();
+  const contentGates = new Map<string, () => (() => void) | undefined>();
   const expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   // Pending pairing links stay in main; the renderer only ever gets the QR.
   const links = new Map<string, { readonly url: string; readonly expiresAt: number }>();
@@ -250,10 +252,16 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
         allowWrite = makeWriteLimiter();
         limiters.set(device.deviceId, allowWrite);
       }
+      let contentSlot = contentGates.get(device.deviceId);
+      if (!contentSlot) {
+        contentSlot = makeContentGate();
+        contentGates.set(device.deviceId, contentSlot);
+      }
       const response = await handleCompanionRequest(frame, {
         backend,
         device: { deviceId: device.deviceId, state: device.state },
         allowWrite,
+        contentSlot,
       });
       return success(request, { response });
     }
@@ -316,6 +324,7 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
     await editAuthorizedKeys((text) => removeCompanionKey(text, deviceId), authorizedKeysPath);
     const removed = await repo((r) => r.remove(deviceId));
     limiters.delete(deviceId);
+    contentGates.delete(deviceId);
     announce();
     return removed !== undefined;
   };

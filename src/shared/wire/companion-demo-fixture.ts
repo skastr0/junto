@@ -8,6 +8,7 @@
  */
 
 import type { AgentSignal } from "./agent-signals";
+import type { ContentRef } from "./content-ref";
 import type { CompanionActivity, CompanionMail, CompanionPreamble } from "./companion-protocol";
 import type { ThreadHealthValue } from "./thread-health";
 
@@ -76,6 +77,31 @@ export const DEMO_SEATS: ReadonlyArray<DemoSeat> = [
   { id: "lumen", name: "Lumen", harness: "claude", regionX: 2000, slot: 1, control: "idle", process: "stopped" },
 ];
 
+/**
+ * The demo's stored files: a ref and the exact UTF-8 text its digest and
+ * length are of, so `content.get` serves them like any store object.
+ */
+export type DemoContent = { readonly ref: ContentRef; readonly text: string };
+
+const demoContent = (sha256: string, byteLength: number, mediaType: string, displayName: string, text: string): DemoContent => ({
+  ref: { sha256, byteLength, mediaType, displayName } as ContentRef,
+  text,
+});
+
+export const DEMO_CONTENT_NOTES = demoContent(
+  "9165917e794ecf12afe96968051d9e450272e632486a9be839646fd1449bb95e", 112, "text/markdown", "pricing-notes.md",
+  "# Pricing page\n\n- Three tiers: Free, Pro, Team\n- Annual billing saves two months\n- The FAQ sits below the table\n",
+);
+export const DEMO_CONTENT_BEFORE = demoContent(
+  "4c4e3b4d88885b5671387cd47a0efecd3e23d401efe7b3bede78d84da6b6a01a", 52, "text/html", "pricing.html",
+  "<h1>Choose a plan</h1>\n<p>Monthly billing only.</p>\n",
+);
+export const DEMO_CONTENT_AFTER = demoContent(
+  "2914dcdc5a8d893f0f463606bdef5204127ebc7a9b418e1ac627347b70d18a4d", 94, "text/html", "pricing.html",
+  "<h1>Pick the plan that fits your team</h1>\n<p>Pay monthly, or yearly and save two months.</p>\n",
+);
+export const DEMO_CONTENT: ReadonlyArray<DemoContent> = [DEMO_CONTENT_NOTES, DEMO_CONTENT_BEFORE, DEMO_CONTENT_AFTER];
+
 export const DEMO_SIGNALS: ReadonlyArray<AgentSignal> = [
   {
     signalId: "sig_demo_blocked",
@@ -103,6 +129,10 @@ export const DEMO_SIGNALS: ReadonlyArray<AgentSignal> = [
     kind: "feedback",
     text: "The pricing page is ready for review.",
     detail: "- New tier table\n- Annual toggle\n- FAQ moved below the fold",
+    attachments: [
+      { ref: DEMO_CONTENT_NOTES.ref, caption: "What changed" },
+      { kind: "compare", before: DEMO_CONTENT_BEFORE.ref, after: DEMO_CONTENT_AFTER.ref, name: "pricing.html" },
+    ],
     createdAt: DEMO_T0 - 3 * MIN,
     state: "open",
   },

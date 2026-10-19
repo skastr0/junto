@@ -7,7 +7,9 @@
  */
 
 import type { AgentSignal } from "./agent-signals";
+import type { ContentRef } from "./wire/content-ref";
 import {
+  COMPANION_CONTENT_IN_FLIGHT_MAX,
   COMPANION_ERROR_COPY,
   COMPANION_MAIL_DEFAULT_LIMIT,
   COMPANION_WRITE_LIMIT,
@@ -64,6 +66,79 @@ export type CompanionBackend = {
     size: number,
     theme: "bright" | "dark",
   ) => Promise<CompanionOutcome<string>>;
+  /**
+   * The bytes [offset, offset + length) of a stored object a current feed
+   * names, read through the store's confined open. `unavailable` when its
+   * bytes are absent, damaged, or a size other than the ref's.
+   */
+  readonly contentRange: (ref: ContentRef, offset: number, length: number) => Promise<CompanionOutcome<Uint8Array>>;
+};
+
+/**
+ * Every stored object a set of Needs you feeds lets a phone read, by digest:
+ * a file attachment's ref, and a compare's two texts. Commit and link
+ * attachments carry no bytes.
+ */
+export const feedContentRefs = (feeds: ReadonlyArray<OperatorFeed>): ReadonlyMap<string, ContentRef> => {
+  const refs = new Map<string, ContentRef>();
+  for (const feed of feeds)
+    for (const section of feed.sections)
+      for (const item of section.items)
+        for (const attachment of item.attachments ?? []) {
+          if (!("kind" in attachment)) refs.set(attachment.ref.sha256, attachment.ref);
+          else if (attachment.kind === "compare") {
+            refs.set(attachment.before.sha256, attachment.before);
+            refs.set(attachment.after.sha256, attachment.after);
+          }
+        }
+  return refs;
+};
+
+/** One copy for an unknown digest and one outside every feed, so the store cannot be probed. */
+const CONTENT_NOT_IN_FEED = "That file is no longer in your feed.";
+
+/**
+ * At most `max` `content.get` unanswered at once, per phone. Take a slot
+ * before reading; the returned release gives it back. Undefined: none free.
+ */
+export const makeContentGate = (max = COMPANION_CONTENT_IN_FLIGHT_MAX): (() => (() => void) | undefined) => {
+  let open = 0;
+  return () => {
+    if (open >= max) return undefined;
+    open += 1;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      open -= 1;
+    };
+  };
+};
+
+const contentGet = async (
+  id: string,
+  backend: CompanionBackend,
+  args: { readonly sha256: string; readonly offset: number; readonly length: number },
+): Promise<CompanionResponseFrame> => {
+  // Membership first, on the feeds as they stand now: outside them the store is never asked.
+  const feeds = await backend.feeds();
+  if (!feeds.ok) return companionFail(id, feeds.error);
+  const ref = feedContentRefs(feeds.value).get(args.sha256);
+  if (ref === undefined) return companionFail(id, companionError("not-found", CONTENT_NOT_IN_FEED));
+  const empty = ref.byteLength === 0 && args.offset === 0;
+  if (args.offset >= ref.byteLength && !empty)
+    return companionFail(id, companionError("invalid", "That part of the file is past its end."));
+  const length = Math.min(args.length, ref.byteLength - args.offset);
+  const bytes = empty ? outcomeOk(new Uint8Array(0)) : await backend.contentRange(ref, args.offset, length);
+  if (!bytes.ok) return companionFail(id, bytes.error);
+  if (bytes.value.byteLength !== length) return companionFail(id, companionError("unavailable", COMPANION_ERROR_COPY.unavailable));
+  return companionOk(id, "content.get", {
+    sha256: ref.sha256,
+    offset: args.offset,
+    length,
+    byteLength: ref.byteLength,
+    data: Buffer.from(bytes.value.buffer, bytes.value.byteOffset, bytes.value.byteLength).toString("base64"),
+  });
 };
 
 export type CompanionDeviceView = {
@@ -109,6 +184,8 @@ export const handleCompanionRequest = async (
     readonly backend: CompanionBackend;
     readonly device: CompanionDeviceView;
     readonly allowWrite: () => boolean;
+    /** This phone's `content.get` slots ({@link makeContentGate}). */
+    readonly contentSlot: () => (() => void) | undefined;
   },
 ): Promise<CompanionResponseFrame> => {
   const { backend, device } = context;
@@ -172,5 +249,17 @@ export const handleCompanionRequest = async (
         backend.portrait(frame.args.portraitIdentity, frame.args.size, frame.args.theme),
         (svg) => companionOk(id, "portrait.get", { svg }),
       );
+    case "content.get": {
+      const release = context.contentSlot();
+      if (release === undefined)
+        return companionFail(id, companionError("rate-limited", "Too many files at once. Wait for one to arrive."));
+      try {
+        return await contentGet(id, backend, frame.args);
+      } catch {
+        return companionFail(id, companionError("internal", COMPANION_ERROR_COPY.internal));
+      } finally {
+        release();
+      }
+    }
   }
 };

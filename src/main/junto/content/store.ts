@@ -4,6 +4,7 @@ import {
   closeSync,
   constants,
   fchmodSync,
+  fstatSync,
   fsyncSync,
   lstatSync,
   mkdirSync,
@@ -467,6 +468,45 @@ export const projectContentLocalPath = (
     ref,
     path,
   };
+};
+
+/**
+ * Bytes [offset, offset + length) of a stored object, read through a
+ * confined open: no symlink is followed, the file must sit under the real
+ * content root, be a regular file and have exactly the ref's size. Undefined
+ * when any of that fails; the caller reports the object unavailable.
+ */
+export const readContentObjectRange = (
+  root: string,
+  ref: Pick<ContentRef, "sha256" | "byteLength">,
+  offset: number,
+  length: number,
+): Uint8Array | undefined => {
+  const path = contentObjectPath(root, ref.sha256);
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, openReadFlags);
+    const info = fstatSync(fd);
+    if (!info.isFile() || info.size !== ref.byteLength || !isInsideRoot(root, path)) return undefined;
+    const bytes = new Uint8Array(length);
+    let read = 0;
+    while (read < length) {
+      const n = readSync(fd, bytes, read, length - read, offset + read);
+      if (n === 0) return undefined;
+      read += n;
+    }
+    return bytes;
+  } catch {
+    return undefined;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        // ignore
+      }
+    }
+  }
 };
 
 /**

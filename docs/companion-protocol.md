@@ -112,6 +112,7 @@ are Markdown. Names below match `src/shared/companion-protocol.ts`.
 | `mail.send` | `{ "canvasName": string, "nodeId": string, "text": string }` (1 to 8000 chars) | `{ "message": Mail }` |
 | `quickReplies.get` | `{}` | `{ "replies": string[] }` (the operator's quick replies from desktop Settings) |
 | `portrait.get` | `{ "portraitIdentity": string, "size": number, "theme": "bright" \| "dark" }` | `{ "svg": string }` |
+| `content.get` | `{ "sha256": string, "offset": number, "length": number }` (closed: any other key is `invalid`) | `{ "sha256": string, "offset": number, "length": number, "byteLength": number, "data": string }` |
 
 Semantics:
 
@@ -125,6 +126,37 @@ Semantics:
   including any customisation, as a self-contained SVG. Cache it by
   `(portraitIdentity, size, theme)`; it changes only when the operator edits
   the character.
+- `content.get` returns the bytes of a file a Needs you item carries, in
+  chunks. `sha256` is 64 lower-case hex; `offset` is a safe integer from 0;
+  `length` is 1 to 262144 (256 KiB, which as base64 keeps a response under
+  the 512 KiB frame). `data` is standard padded base64 of the bytes
+  `[offset, offset + length)`; the result's `length` is what was returned,
+  shorter than asked only on the last chunk, and `byteLength` is the whole
+  file's size, the same as its ref's. The request names no path, canvas,
+  signal or item.
+  - Scope, checked on every request and never cached: the digest must be
+    named by a content ref in an attachment of an item in the current feeds
+    of every canvas (as `feed.get` with no canvas returns them): a file
+    attachment's `ref`, or a compare's `before` or `after`. Commit and link
+    attachments carry no bytes.
+  - Errors, in this order: `invalid` for arguments the schema refuses;
+    `not-found` ("That file is no longer in your feed.") for a digest in no
+    current feed, whatever the Mac stores, so the store cannot be probed;
+    `invalid` for an `offset` at or past `byteLength` (an empty file answers
+    offset 0 with length 0 and `data` ""); `unavailable` when the feed names
+    the file but its bytes are absent, damaged or another size than the ref
+    on this Mac (do not retry); `rate-limited` when this phone already has 4
+    `content.get` unanswered (wait for one, then send); `internal` once, then
+    show the error.
+  - The Mac reads the object it holds a receipt for, through a confined open,
+    and does not rehash each chunk. The phone hashes what it assembled and
+    checks `sha256` and `byteLength` against the ref before showing it; on a
+    mismatch it discards the bytes. A `not-found` mid-download means the file
+    left the feed: discard the partial download.
+  - The bytes, `mediaType` and display name are the agent's. Show them as
+    inert data: never run script from them, and never open them in a handler
+    chosen from `mediaType` without the operator's tap.
+  - Nothing about these requests is logged.
 - Nothing in v1 creates, deletes, moves, connects, starts, or stops seats.
 
 Events:
@@ -263,6 +295,7 @@ wire module's closure grows past `effect`.
 | `too-large` | frame over the limit | bug; channel closes |
 | `rate-limited` | more than 20 writes per 10 s | back off and retry |
 | `internal` | unexpected failure | retry once, then show error |
+| `unavailable` | a file the feed names is not stored on this Mac (`content.get` only) | show "not available", do not retry |
 
 `message` is a short plain-language sentence safe to show. Errors never
 contain secrets, tokens, or terminal contents.
