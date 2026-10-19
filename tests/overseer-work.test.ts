@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Result, Schema } from "effect";
 import { ActorSeatId } from "../src/shared/actor-seat";
+import { overseerOperationEnabled, productNodeKindEnabled } from "../src/shared/features";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { NodeOf } from "../src/shared/model";
 import { canvasOf, requests, seat, taskBoard } from "./support/model-nodes";
@@ -285,25 +286,44 @@ describe("executeOverseerWork", () => {
           overseerWorkAdmin(actor),
         ),
       ) as Promise<Record<string, unknown>>;
+    const tasksOn = productNodeKindEnabled("task");
+    const requestsOn = productNodeKindEnabled("requests");
+    // A kind this build gates off is out of the catalog, and its rows are refused.
+    expect(overseerOperationEnabled("tasks.list")).toBe(tasksOn);
+    expect(overseerOperationEnabled("request.list")).toBe(requestsOn);
+    if (!tasksOn) {
+      await expect(call("tasks.list", { target: "todo" })).rejects.toThrow(
+        /kind task is disabled in this Junto build/u,
+      );
+    }
+    if (!requestsOn) {
+      await expect(call("request.list", { target: "asks" })).rejects.toThrow(
+        /kind requests is disabled in this Junto build/u,
+      );
+    }
 
-    expect(await call("tasks.list", { target: "todo" })).toEqual({ target: "todo", items: [] });
-    await call("tasks.create", {
-      target: "todo",
-      brief: "write the report",
-      metadata: { details: "the quarterly one" },
-    });
-    const listed = (await call("tasks.list", { target: "todo" })) as {
-      readonly items: ReadonlyArray<{ readonly id: string; readonly history: ReadonlyArray<unknown> }>;
-    };
-    expect(listed.items).toHaveLength(1);
-    const taskId = listed.items[0]!.id;
+    if (tasksOn) {
+      expect(await call("tasks.list", { target: "todo" })).toEqual({ target: "todo", items: [] });
+      await call("tasks.create", {
+        target: "todo",
+        brief: "write the report",
+        metadata: { details: "the quarterly one" },
+      });
+      const listed = (await call("tasks.list", { target: "todo" })) as {
+        readonly items: ReadonlyArray<{ readonly id: string; readonly history: ReadonlyArray<unknown> }>;
+      };
+      expect(listed.items).toHaveLength(1);
+      const taskId = listed.items[0]!.id;
 
-    const thread = await call("msg.list", { target: "todo", taskId });
-    expect(thread).toMatchObject({ target: "todo", taskId });
-    expect(thread["items"]).toEqual(listed.items[0]!.history);
-    await expect(call("msg.list", { target: "todo", taskId: "missing" })).rejects.toBeDefined();
+      const thread = await call("msg.list", { target: "todo", taskId });
+      expect(thread).toMatchObject({ target: "todo", taskId });
+      expect(thread["items"]).toEqual(listed.items[0]!.history);
+      await expect(call("msg.list", { target: "todo", taskId: "missing" })).rejects.toBeDefined();
+    }
 
-    expect(await call("request.list", { target: "asks" })).toEqual({ target: "asks", items: [] });
-    await expect(call("request.get", { target: "asks", request: "missing" })).rejects.toBeDefined();
+    if (requestsOn) {
+      expect(await call("request.list", { target: "asks" })).toEqual({ target: "asks", items: [] });
+      await expect(call("request.get", { target: "asks", request: "missing" })).rejects.toBeDefined();
+    }
   });
 });

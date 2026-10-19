@@ -30,6 +30,7 @@ import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { asNodeId, type Node, type NodeOf, type Wire } from "../src/shared/model";
 import type { OverseerCaller, OverseerRequest } from "../src/shared/overseer-control";
 import type { WorkErrorBody } from "../src/shared/work-control";
+import { productVerbEnabled } from "../src/shared/features";
 
 // The overseer's canvas commands over the real model: what an agent sends and
 // reads is the model's own nodes and wires.
@@ -443,10 +444,24 @@ describe("executeOverseerCanvas", () => {
       .toMatchObject({ verbs: expect.arrayContaining(["messages"]), default: "messages" });
     expect(await expectOk({ operation: "wire.verbs", args: { from: "n1", to: "wide" } })).toEqual({ verbs: [] });
 
-    expect(await expectOk({
-      operation: "wire.configure",
-      args: { wireId: made.wire.id, change: { verb: "reviews", fromSide: "left" } },
-    })).toMatchObject({ wire: { id: made.wire.id, verb: "reviews", fromSide: "left" } });
+    // A build without reviews refuses the verb and leaves the wire as it was.
+    if (productVerbEnabled("reviews")) {
+      expect(await expectOk({
+        operation: "wire.configure",
+        args: { wireId: made.wire.id, change: { verb: "reviews", fromSide: "left" } },
+      })).toMatchObject({ wire: { id: made.wire.id, verb: "reviews", fromSide: "left" } });
+    } else {
+      const gated = await expectErr(
+        { operation: "wire.configure", args: { wireId: made.wire.id, change: { verb: "reviews" } } },
+        "AuthError",
+      );
+      expect(gated.message).toMatch(/verb "reviews" is disabled in this Junto build/u);
+      expect(await expectOk({ operation: "wire.get", args: { wireId: made.wire.id } })).toEqual({ wire: made.wire });
+      expect(await expectOk({
+        operation: "wire.configure",
+        args: { wireId: made.wire.id, change: { fromSide: "left" } },
+      })).toMatchObject({ wire: { id: made.wire.id, verb: "messages", fromSide: "left" } });
+    }
     await expectOk({ operation: "wire.configure", args: { wireId: made.wire.id, change: { fromSide: null } } });
     expect(((await expectOk({ operation: "wire.get", args: { wireId: made.wire.id } })) as { wire: Wire }).wire.fromSide)
       .toBeUndefined();

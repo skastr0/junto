@@ -25,7 +25,7 @@ import {
   commandCapabilities,
   renderSchemaContract,
 } from "../src/cli/core/discovery";
-import { BUILD_FEATURES } from "../src/shared/features";
+import { BUILD_FEATURES, overseerOperationEnabled } from "../src/shared/features";
 import {
   FEATURE_CATALOG,
   type FeatureKey,
@@ -41,6 +41,9 @@ import { Effect } from "effect";
 import { __resetJuntoHomeCache } from "../src/shared/junto-home";
 
 const repoRoot = resolve(import.meta.dirname, "..");
+// The operations this build's profile exposes; a gated family is absent everywhere.
+const ENABLED_OPERATIONS = OVERSEER_OPERATION_NAMES.filter(overseerOperationEnabled);
+const GATED_OPERATIONS = OVERSEER_OPERATION_NAMES.filter((name) => !overseerOperationEnabled(name));
 const roots: string[] = [];
 const servers: Server[] = [];
 
@@ -134,14 +137,18 @@ const startFakeWorkSocket = async (
 
 describe("overseer catalog wiring", () => {
   it("registers every OverseerOperation as schema and capability", () => {
-    const operations = OVERSEER_OPERATION_NAMES.map((name) => `overseer.${name}`);
+    const operations = ENABLED_OPERATIONS.map((name) => `overseer.${name}`);
     const schemaIds = allSchemas.map((schema) => schema.command_id);
     const capabilityIds = commandCapabilities.map((capability) => capability.command_id);
     expect(schemaIds).toEqual(expect.arrayContaining(operations));
     expect(capabilityIds).toEqual(expect.arrayContaining(operations));
-    expect(overseerSchemas).toHaveLength(OVERSEER_OPERATION_NAMES.length);
+    for (const name of GATED_OPERATIONS) {
+      expect(schemaIds).not.toContain(`overseer.${name}`);
+      expect(capabilityIds).not.toContain(`overseer.${name}`);
+    }
+    expect(overseerSchemas).toHaveLength(ENABLED_OPERATIONS.length);
     expect(new Set(OVERSEER_CATALOG.map((entry) => entry.operation)).size).toBe(
-      OVERSEER_OPERATION_NAMES.length,
+      ENABLED_OPERATIONS.length,
     );
   });
 
@@ -161,8 +168,10 @@ describe("overseer catalog wiring", () => {
 
   it("marks page.eval, screenshots, and msg.list as mutations per catalog", () => {
     const byOp = Object.fromEntries(OVERSEER_CATALOG.map((entry) => [entry.operation, entry]));
-    expect(byOp["page.eval"]?.mutation).toBe(true);
-    expect(byOp["page.screenshot"]?.mutation).toBe(true);
+    // A build without the browser lists no page row at all.
+    const pageMutation = overseerOperationEnabled("page.eval") ? true : undefined;
+    expect(byOp["page.eval"]?.mutation).toBe(pageMutation);
+    expect(byOp["page.screenshot"]?.mutation).toBe(pageMutation);
     expect(byOp["canvas.screenshot"]?.mutation).toBe(true);
     expect(byOp["msg.list"]?.mutation).toBe(true);
     expect(byOp["canvas.list"]?.mutation).toBe(false);
@@ -198,7 +207,7 @@ describe("overseer catalog wiring", () => {
     expect(caps.authority.grant).toBe("human-only");
     expect(caps.authority.pause_play_has_bearing).toBe(false);
     expect(caps.authority.self_deletion).toBe(false);
-    expect(caps.implemented.cli_transport).toEqual([...OVERSEER_OPERATION_NAMES]);
+    expect(caps.implemented.cli_transport).toEqual(ENABLED_OPERATIONS);
   });
 });
 
@@ -255,9 +264,12 @@ describe("overseer source CLI offline", () => {
       ok: true;
       data: { schemas: Array<{ command_id: string; operation: string }> };
     };
-    expect(listedData.data.schemas.map((schema) => schema.operation)).toEqual(
-      expect.arrayContaining(["status", "canvas.create", "canvas.batch", "agent.reseat", "page.eval"]),
+    const listedOperations = listedData.data.schemas.map((schema) => schema.operation);
+    expect(listedOperations).toEqual(
+      expect.arrayContaining(["status", "canvas.create", "canvas.batch", "agent.reseat"]),
     );
+    expect(listedOperations).toEqual(ENABLED_OPERATIONS);
+    if (!overseerOperationEnabled("page.eval")) expect(listedOperations).not.toContain("page.eval");
 
     const shown = await runCli(["overseer", "schema", "show", "canvas.create"]);
     expect(shown.code).toBe(0);

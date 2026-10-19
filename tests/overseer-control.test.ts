@@ -13,7 +13,9 @@ import {
   decodeOverseerCaller,
   decodeOverseerRequest,
   decodeOverseerResult,
+  isOverseerMutation,
 } from "../src/shared/overseer-control";
+import { overseerOperationEnabled } from "../src/shared/features";
 import { NODE_KINDS } from "../src/shared/model/kinds";
 import {
   WORK_MAX_FRAME_BYTES,
@@ -51,8 +53,9 @@ describe("overseer command contract", () => {
       OVERSEER_OPERATION_NAMES.length,
     );
     expect(Object.keys(OverseerArgsSchemas)).toEqual(OVERSEER_OPERATION_NAMES);
+    // The catalog is the vocabulary this build enables; a gated family is absent.
     expect(OVERSEER_CATALOG.map(({ operation }) => operation)).toEqual(
-      OVERSEER_OPERATION_NAMES,
+      OVERSEER_OPERATION_NAMES.filter(overseerOperationEnabled),
     );
   });
 
@@ -290,9 +293,15 @@ describe("overseer command contract", () => {
     );
     expect(mutations.get("canvas.read")).toBe(false);
     expect(mutations.get("msg.list")).toBe(true);
-    expect(mutations.get("page.eval")).toBe(true);
-    expect(mutations.get("page.screenshot")).toBe(true);
     expect(mutations.get("canvas.screenshot")).toBe(true);
+    // The classification holds whether or not this build lists the page family.
+    expect(isOverseerMutation("page.eval")).toBe(true);
+    expect(isOverseerMutation("page.screenshot")).toBe(true);
+    for (const operation of ["page.eval", "page.screenshot"] as const) {
+      expect(mutations.get(operation)).toBe(
+        overseerOperationEnabled(operation) ? true : undefined,
+      );
+    }
   });
 
   it("defines strict typed Station result envelopes", () => {
