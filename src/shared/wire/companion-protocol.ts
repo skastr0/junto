@@ -358,8 +358,9 @@ export const CompanionHello = Schema.Struct({
   serverTime: Schema.Number,
   /**
    * Where this Mac answers now, in the pairing QR's order (MagicDNS name
-   * first). The phone replaces its stored list with it; absent, it keeps its
-   * own. Never the host key: a changed key still needs the operator.
+   * first). The phone merges it in: the new list first, then the stored
+   * entries it lacks, the paired MagicDNS name always kept; absent, it keeps
+   * its own. Never the host key: a changed key still needs the operator.
    */
   hosts: Schema.optionalKey(
     Schema.Array(bounded(1, 253).pipe(Schema.check(Schema.isPattern(COMPANION_HOST_PATTERN)))).pipe(

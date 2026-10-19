@@ -89,9 +89,14 @@ The Mac sends a `hello` event first, before any request is read:
 ```
 
 `hosts` (optional, at most 8) is where this Mac answers now, in the pairing
-QR's order, MagicDNS name first. The phone replaces its stored list with it
-on every hello that carries it, so a changed address or name heals without
-pairing again; when it is absent the phone keeps its own list. It never
+QR's order, MagicDNS name first. On every hello that carries it the phone
+merges it into its stored list: the new list first, then the stored entries
+it lacks, and the MagicDNS name it paired with always kept. So a changed
+address or name heals without pairing again, and a hello taken while
+Tailscale is down (LAN addresses only) cannot lose the name the phone needs
+off the LAN. When it is absent the phone keeps its own list. Every host
+matches a host-name or address pattern (no leading `-`, whitespace, `@` or
+`/`), and a hello with any other fails to decode. It never
 carries or changes the host key: a different host key still needs the
 operator.
 
