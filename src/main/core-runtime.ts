@@ -41,6 +41,8 @@ import { MachineLogQuery, MachineLogRead } from "@shared/machine-log";
 import type { ModelService } from "./junto/model/service";
 import type { ActorSeatOccupy } from "./junto/term/actor-seat-occupy";
 import { startSeat, stopSeat } from "./junto/term/seat-control";
+import { BoatPlane, boatPlaneLayer } from "./junto/boat/plane";
+import { boatOwnerDispatch, makeBoatOwner } from "./junto/boat/owner";
 
 export interface MachineCoreOptions {
   readonly home: string;
@@ -206,6 +208,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
   const rows = Layer.provideMerge(machineCoreRowsLayer, status);
   const seats = Layer.provideMerge(machineCoreSeatsLayer, rows);
   const mail = Layer.provideMerge(machineCoreMailLayer, seats);
+  const boat = Layer.provideMerge(boatPlaneLayer(options.home), mail);
   const owner = Layer.effect(MachineOwnerControl, Effect.gen(function* () {
     const link = yield* MachineLink;
     const machineStatus = yield* MachineCoreStatus;
@@ -258,8 +261,16 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
         );
       }),
     });
+    const boatPlane = yield* BoatPlane;
+    const ownerContext = yield* Effect.context<never>();
+    const boatOwner = yield* makeBoatOwner({
+      home: boatPlane.home, machineName: boatPlane.machineName, client: boatPlane.client, machines: boatPlane.machines, log: boatPlane.log, run: boatPlane.run,
+      getHost: (name) => Effect.runPromiseWith(ownerContext)(hostsService.get(name)),
+      dispatch: (request, onTransition) => Effect.runPromiseWith(ownerContext)(actions.dispatch(request, onTransition)),
+    });
+    const boatDispatch = boatOwnerDispatch(boatOwner, boatPlane.machines, actions.dispatch);
     return MachineOwnerControl.of({ dispatch: (request, onTransition) => request.op !== "machine.exchange"
-      ? actions.dispatch(request, onTransition)
+      ? boatDispatch(request, onTransition)
       : exchangeQuery(request.args).pipe(
         Effect.map(data => ({ protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: "machine.exchange" as const, ok: true as const, data })),
         Effect.flatMap(response => {
@@ -276,7 +287,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
       ),
     });
   }));
-  return Layer.provideMerge(owner, mail);
+  return Layer.provideMerge(owner, boat);
 };
 
 /** One StateEngine reference feeds identity, registry, link and owner commands. */

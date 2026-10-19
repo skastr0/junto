@@ -8,6 +8,7 @@ import { MachineRepository, type MachinePeer } from "../machines/repository";
 import { parseHostSshRoute, SshExitError, SshProcessError, SshTransport } from "../ssh";
 import { openMachineLink } from "../ssh/machine-commands";
 import { noteMachinesChanged } from "../hosts/machine-changes";
+import { boatRoute } from "../boat/machines";
 import { linkLog } from "./log";
 import { makeLinkSession } from "./session";
 import { LinkHelloSchema } from "./protocol";
@@ -118,7 +119,8 @@ export const makeMachineLink = (options: { readonly build: string }) => Effect.g
     const scope = await run(Scope.make("sequential"));
     let session: LinkSession | undefined;
     try {
-      const target = await run(parseHostSshRoute(host));
+      // A Boat machine's address and host key change as it sleeps and wakes: found now, never stored as truth.
+      const target = await run(parseHostSshRoute(await boatRoute(host)));
       const program = await run(openMachineLink(target, { juntoHome: host.juntoHome, installRoot: host.installRoot }));
       const own = await self();
       const connected = await run(ssh.connect(program, (lease, confirm) => Effect.gen(function* () {

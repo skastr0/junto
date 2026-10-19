@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { makeRemoteCommand, SshCommandInputError, type SshTarget } from "./domain";
-import { dedicatedStream } from "./program";
+import { makeRemoteCommand, SshCommandInputError, type RemoteStdin, type SshTarget } from "./domain";
+import { dedicatedStream, oneShotWithStdin } from "./program";
 
 export const openMachineLink = (
   target: SshTarget,
@@ -62,4 +62,20 @@ export const receiveMachineBundle = (
   if (!/^[0-9a-f]{64}$/.test(archiveSha256)) return yield* new SshCommandInputError({ check: "package-checksum", message: "invalid package checksum" });
   const command = yield* makeRemoteCommand("/bin/sh",["-c",RECEIVE,"junto-send",archiveSha256,JSON.stringify(input)]);
   return dedicatedStream(target,command);
+});
+
+/**
+ * A Boat machine's key, written by that machine's own Junto from stdin over
+ * the dialled session: never argv, an environment value or a command string.
+ */
+export const placeBoatMachineKey = (
+  target: SshTarget,
+  location: { readonly juntoHome: string; readonly installRoot: string },
+  input: RemoteStdin,
+) => Effect.gen(function* () {
+  if (![location.juntoHome, location.installRoot].every(path => /^\/[^\u0000-\u001f\u007f]*$/.test(path))) return yield* new SshCommandInputError({ check: "install-paths", message: "a machine key needs absolute install paths" });
+  const command = yield* makeRemoteCommand("/usr/bin/env", [
+    `JUNTO_HOME=${location.juntoHome}`, `${location.installRoot}/current/bin/junto`, "machine", "boat-key-local",
+  ]);
+  return oneShotWithStdin(target, command, input);
 });

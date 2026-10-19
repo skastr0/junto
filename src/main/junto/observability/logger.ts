@@ -6,7 +6,7 @@ import {
   LogCanvasName,
   LogSeatId,
   failureDetailSeat,
-  isLogAnnotationId,
+  isLogIdAnnotation,
   LOG_ID_ANNOTATIONS,
   type LogProcess,
   type MachineLogRow,
@@ -202,7 +202,7 @@ export const writeLog = (input: LogInput): MachineLogRow => {
     else if (key === "canvas") canvas = isLogCanvasName(text) ? text : undefined;
     else if (LOG_ID_ANNOTATIONS.has(key)) {
       // A known secret value is never an id, whatever key it arrives under.
-      if (Object.keys(annotations).length < MAX_ANNOTATIONS && isLogAnnotationId(text) && !known.includes(text)) annotations[key] = text;
+      if (Object.keys(annotations).length < MAX_ANNOTATIONS && isLogIdAnnotation(key, text) && !known.includes(text)) annotations[key] = text;
     }
     else if (Object.keys(annotations).length < MAX_ANNOTATIONS && /^[A-Za-z0-9_.-]{1,64}$/u.test(key)) {
       annotations[key] = scrub(text, 256);

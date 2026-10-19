@@ -8,6 +8,8 @@ import type { MachineExchangeInput, MachineExchangeData } from "./machine-exchan
 import type { MachineLogRead, MachineLogsInput } from "./machine-log";
 import type { MachineSeatInput, MachineSeatRead, MachineSeatReadInput, MachineSeatStartInput, MachineSeatStarted, MachineSeatStopped } from "./machine-seat";
 import { EncodedFailure } from "./failure";
+import { BoatAddInput, BoatConnectData, BoatDisconnectData, BoatMachineView, BoatStatusData } from "./boat";
+import { MachineInstallResult as InstallResult } from "./machine-install";
 
 export const MachineName = Schema.String.pipe(Schema.check(Schema.makeFilter(isValidMachineName)));
 export const MachineBuild = Schema.String.pipe(Schema.check(Schema.isPattern(/^[0-9a-f]{64}$/)));
@@ -81,11 +83,16 @@ export type MachineCopyInput = typeof MachineCopyInput.Type;
 export const MachineRemoved = Schema.Struct({ machineName: MachineName, removed: Schema.Literal(true) });
 export type MachineRemoved = typeof MachineRemoved.Type;
 export const MachineEmptyInput = Schema.Struct({});
+/** A Boat machine made and sent: where it stands, and the install's receipt. */
+export const BoatAddData = Schema.Struct({ machine: BoatMachineView, installed: InstallResult });
+export type BoatAddData = typeof BoatAddData.Type;
 
 export const MachineOpName = Schema.Literals([
   "machine.add", "machine.list", "machine.send", "machine.status", "machine.update",
   "machine.remove", "machine.harnesses", "machine.configure", "machine.setup", "machine.exchange",
   "machine.logs", "machine.seat-start", "machine.seat-stop", "machine.seat-read",
+  "machine.boat-connect", "machine.boat-disconnect", "machine.boat-status", "machine.boat-add", "machine.boat-delete",
+  "machine.wake", "machine.sleep",
 ]);
 export type MachineOpName = typeof MachineOpName.Type;
 export interface MachineArgsByOp {
@@ -103,6 +110,13 @@ export interface MachineArgsByOp {
   readonly "machine.seat-start": MachineSeatStartInput;
   readonly "machine.seat-stop": MachineSeatInput;
   readonly "machine.seat-read": MachineSeatReadInput;
+  readonly "machine.boat-connect": typeof MachineEmptyInput.Type;
+  readonly "machine.boat-disconnect": typeof MachineEmptyInput.Type;
+  readonly "machine.boat-status": typeof MachineEmptyInput.Type;
+  readonly "machine.boat-add": BoatAddInput;
+  readonly "machine.boat-delete": MachineTargetInput;
+  readonly "machine.wake": MachineTargetInput;
+  readonly "machine.sleep": MachineTargetInput;
 }
 export interface MachineDataByOp {
   readonly "machine.add": RemoteHost;
@@ -119,4 +133,11 @@ export interface MachineDataByOp {
   readonly "machine.seat-start": MachineSeatStarted;
   readonly "machine.seat-stop": MachineSeatStopped;
   readonly "machine.seat-read": MachineSeatRead;
+  readonly "machine.boat-connect": BoatConnectData;
+  readonly "machine.boat-disconnect": BoatDisconnectData;
+  readonly "machine.boat-status": BoatStatusData;
+  readonly "machine.boat-add": BoatAddData;
+  readonly "machine.boat-delete": MachineRemoved;
+  readonly "machine.wake": BoatMachineView;
+  readonly "machine.sleep": BoatMachineView;
 }

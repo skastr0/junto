@@ -1,6 +1,6 @@
 import { Cause, Schema } from "effect";
 import { EncodedFailure, MAX_FAILURE_CAUSES, MAX_FAILURE_DETAIL_BYTES, NO_FAILURE_MESSAGE, type EncodedCause } from "@shared/failure";
-import { isLogAnnotationId, LOG_ID_ANNOTATIONS } from "@shared/machine-log";
+import { isLogIdAnnotation, LOG_ID_ANNOTATIONS } from "@shared/machine-log";
 import { scrubMessage } from "./credentials/scrub";
 
 /**
@@ -78,7 +78,7 @@ const DETAIL_ID_KEYS: ReadonlySet<string> = new Set([...LOG_ID_ANNOTATIONS, "ope
 /** Every string in a detail through the scrub but a typed id; anything not JSON-shaped is refused. */
 const scrubDetail = (value: unknown, depth = 0, key?: string): unknown => {
   if (depth > 8) throw new Error("failure detail is nested too deeply");
-  if (typeof value === "string") return key !== undefined && DETAIL_ID_KEYS.has(key) && isLogAnnotationId(value) ? value : scrubMessage(value);
+  if (typeof value === "string") return key !== undefined && DETAIL_ID_KEYS.has(key) && isLogIdAnnotation(key, value) ? value : scrubMessage(value);
   if (value === null || typeof value === "number" || typeof value === "boolean") return value;
   if (Array.isArray(value)) return value.map(item => scrubDetail(item, depth + 1));
   if (isRecord(value) && Object.getPrototypeOf(value) === Object.prototype) {

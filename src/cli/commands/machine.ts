@@ -10,6 +10,9 @@ import { MachineExchangeInput } from "@shared/machine-exchange";
 import { MachineLogsInput } from "@shared/machine-log";
 import { MachineSeatInput, MachineSeatReadInput, MachineSeatStartInput } from "@shared/machine-seat";
 import { MachineInstallInput, MachineLocalPaths } from "@shared/machine-install";
+import { BoatAddInput, BoatMachineKeyDelivery } from "@shared/boat";
+import { resolveJuntoHome } from "@shared/junto-home";
+import { writeBoatMachineSelf } from "../../main/junto/boat/files";
 import { installMachine } from "../../main/junto/hosts/install";
 import { uninstallMachine } from "../../main/junto/hosts/uninstall";
 import { loadJsonInput } from "../core/json";
@@ -30,6 +33,46 @@ const uninstallLocal = Command.make("uninstall-local", {
   Effect.flatMap(uninstallMachine),
 )));
 
+/** Fixed words: a key that fails to decode never shows in the failure. */
+class BoatKeyNotPlaced extends Schema.TaggedError<BoatKeyNotPlaced>()("BoatKeyNotPlaced", { message: Schema.String }) {}
+
+const readStdin = Effect.tryPromise({
+  try: async () => {
+    const chunks: Buffer[] = [];
+    let bytes = 0;
+    for await (const chunk of process.stdin) {
+      bytes += (chunk as Buffer).length;
+      if (bytes > 4096) throw new Error("too large");
+      chunks.push(chunk as Buffer);
+    }
+    return Buffer.concat(chunks).toString("utf8");
+  },
+  catch: () => new BoatKeyNotPlaced({ message: "The machine key could not be read from stdin" }),
+});
+
+/**
+ * On a Boat machine, over the editing machine's SSH session: the machine key
+ * from stdin into this Junto home, 0600. Its answer never carries the key.
+ */
+const boatKeyLocal = Command.make("boat-key-local", {}, () => executeJsonCommand("machine boat-key-local", requireOwnerCommand.pipe(
+  Effect.andThen(readStdin),
+  Effect.flatMap((text) => Effect.try({
+    try: () => Schema.decodeUnknownSync(BoatMachineKeyDelivery, { onExcessProperty: "error" })(JSON.parse(text)),
+    catch: () => new BoatKeyNotPlaced({ message: "The machine key did not match its shape" }),
+  })),
+  Effect.flatMap((delivery) => Effect.tryPromise({
+    try: async () => {
+      await writeBoatMachineSelf(resolveJuntoHome(), { version: 1, sandboxId: delivery.sandboxId, keyId: delivery.keyId }, delivery.key);
+      return { placed: true, sandboxId: delivery.sandboxId };
+    },
+    catch: () => new BoatKeyNotPlaced({ message: "The machine key could not be written in this Junto home" }),
+  })),
+))).pipe(Command.withDescription("Write this Boat machine's key from stdin (run by the editing machine over SSH)"));
+
+/** A send and a Boat machine made from nothing take minutes; a wake or a key, a few. */
+const LONG_OPS: ReadonlySet<string> = new Set(["machine.send", "machine.update", "machine.boat-add"]);
+const SLOW_OPS: ReadonlySet<string> = new Set(["machine.boat-connect", "machine.boat-disconnect", "machine.boat-delete", "machine.wake", "machine.sleep", "machine.remove"]);
+
 const ownerCommand = <Op extends MachineOpName>(name: string, op: Op, schema: Schema.Codec<OperatorArgsByOp[Op], unknown>) =>
   Command.make(name, {
     input: Argument.string("input").pipe(Argument.withDescription("JSON object, @file, or - for stdin")),
@@ -38,7 +81,7 @@ const ownerCommand = <Op extends MachineOpName>(name: string, op: Op, schema: Sc
     const raw = yield* loadJsonInput(Schema.Unknown, input);
     const args = yield* Schema.decodeUnknownEffect(schema)(raw, { onExcessProperty: "error" });
     const socket = yield* OperatorSocket;
-    return yield* socket.call(op, args, op === "machine.send" || op === "machine.update" ? 15 * 60_000 : undefined);
+    return yield* socket.call(op, args, LONG_OPS.has(op) ? 15 * 60_000 : SLOW_OPS.has(op) ? 5 * 60_000 : undefined);
   })));
 
 /**
@@ -107,6 +150,13 @@ export const machineCommand = Command.make("machine").pipe(
     ownerCommand("configure", "machine.configure", MachineTargetInput),
     ownerCommand("setup", "machine.setup", MachinePeerIdentity),
     ownerCommand("exchange", "machine.exchange", MachineExchangeInput),
-    logs, seatStart, seatStop, seatRead,
+    ownerCommand("boat-connect", "machine.boat-connect", MachineEmptyInput),
+    ownerCommand("boat-disconnect", "machine.boat-disconnect", MachineEmptyInput),
+    ownerCommand("boat-status", "machine.boat-status", MachineEmptyInput),
+    ownerCommand("boat-add", "machine.boat-add", BoatAddInput),
+    ownerCommand("boat-delete", "machine.boat-delete", MachineTargetInput),
+    ownerCommand("wake", "machine.wake", MachineTargetInput),
+    ownerCommand("sleep", "machine.sleep", MachineTargetInput),
+    logs, seatStart, seatStop, seatRead, boatKeyLocal,
   ]),
 );

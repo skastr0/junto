@@ -379,9 +379,6 @@ redesigned. Browser pages are not placed on other machines at all.
 - A seat reaching past mail to a seat on another machine: reading its
   terminal, waiting on it, prompting it. In the first version these are
   refused with a plain reason when the other seat is on another machine.
-- Boat (boat.dev, formerly Box): a provider that creates a machine and sends
-  Junto to it. The old provider code leaves the tree and is kept intact at the
-  tag `archive/box-provider`.
 
 ## Cutting
 
@@ -733,6 +730,58 @@ from `remote-verify`:
 | C. A seat there | the MacBook starts a seat on the mini, it onboards, mail goes both ways | waits on B and the seats channel |
 | D. The MacBook quits | the seat keeps running, held mail arrives on return | waits on C |
 
+## Boat machines
+
+A Boat machine is a boat.dev sandbox on the operator's own Boat account, added
+to the machine list like any other machine. It is outside the tailnet, so its
+route and its trust come from Boat's API, and it sleeps whenever it is not
+needed, so it costs nothing while idle. The trust rules are in
+`docs/security-doctrine.md`, Boat machines (91b3bdd5f). Code:
+`src/main/junto/boat/`, shapes in `src/shared/boat.ts`.
+
+- **Connecting.** `junto machine boat-connect '{}'` uses the operator's
+  signed-in `boat` CLI to mint one account key with exactly
+  `sandbox.create, read, update, stop, resume, delete-own` and `ssh`. It is
+  kept in the platform secret store on the editing machine. Connecting again
+  revokes the old key; `boat-disconnect` revokes it and deletes it. A key whose
+  revocation failed is listed by `boat-status` until it is revoked by hand.
+- **Adding.** `junto machine boat-add '{"name":"…"}'` first checks the CLI is
+  signed in, then:
+  1. Creates a sandbox with no stored secrets (`environment` opts in to one of
+     the operator's own), snapshots on, and a one-lease deadline. The record
+     goes in `~/.junto/boat/machines.json` before anything else happens.
+  2. Waits for the sandbox to wake, then adds it through `machine.add` and
+     sends Junto with `machine.send`.
+  3. Mints a machine key for that one sandbox (read, update, stop), which the
+     machine's own Junto writes from stdin over the pinned SSH session.
+- **The route.** It is found at every dial, never stored as the truth. Each
+  dial installs Junto's own `id_ed25519` through the API, rewrites the
+  machine's known-hosts file with the one host key Boat answered, and dials
+  `user@` the forward Boat gave, with strict checking. The address and the
+  host key change across a sleep; a changed host key is logged with its
+  fingerprints.
+- **Sleep.** Boat stops a sandbox at its deadline, keeping its disk.
+  - **On the Boat machine:** while a seat is working, or a terminal moved in
+    the last 15 minutes, its core moves the deadline 20 minutes out every
+    5 minutes, using the machine key. When it is idle it does nothing, and
+    Boat stops it.
+  - **Never from inside:** a sandbox powered off from inside keeps billing.
+- **Waking.** Only work wakes a machine:
+  - starting a seat on it, opening a view of one, `machine.send` or
+    `machine.update`, or `machine wake`;
+  - the editing machine's keeper, every minute: once for each new mail held
+    for a seat there, once at startup when the machine fell asleep while this
+    one was away, and after 12 days asleep, because Boat deletes a disk
+    stopped for 14.
+
+  A status read or a route lookup never wakes a machine; a sleeping one is
+  refused with "asleep". A woken machine starts its core under the per-user
+  service, and the keeper opens the link.
+- **Removing.** `machine remove` revokes the machine key and leaves the
+  sandbox asleep; `machine boat-delete` also deletes the sandbox.
+- **Not in v1.** Ports opened on a sandbox, joining the tailnet, a key given
+  on stdin instead of the CLI, and the Machines window's add flow.
+
 ## Test machines
 
 The Mac mini: `ssh mac-mini`, macOS on Apple Silicon, with the Claude Code,
@@ -756,7 +805,8 @@ needs a real Linux.
 - Delete it when the run ends; the time limit is not a guarantee. Time is
   billed while it runs.
 - Use only: `new`, `list`, `info`, `ssh`, `exec`, `scp`, `stop`, `resume`,
-  `delete`, `usage`. No sharing, public URLs, keys, webhooks, billing or
-  organization commands.
+  `delete`, `usage`. No sharing, public URLs, webhooks, billing or
+  organization commands. Keys only through Junto's own Boat commands, run in a
+  separate `JUNTO_HOME`, with every key revoked when the run ends.
 - What the CLI prints can contain sign-in links. Strip the link fields before
   anything is logged; they never go into mail, a commit, a log or a receipt.

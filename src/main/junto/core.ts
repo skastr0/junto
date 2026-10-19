@@ -1,6 +1,6 @@
 import { Context, Effect, Schema } from "effect";
 import { join } from "node:path";
-import type { MachineCoreOptions } from "../core-runtime";
+import type { CoreRuntime, MachineCoreOptions } from "../core-runtime";
 import { makeCoreRuntime } from "../core-runtime";
 import { MachineCoreStatus, MachineCoreRows, MachineCoreSeats, MachineCoreMail } from "../core-runtime";
 import { makeInventoryChannel } from "./inventory/channel";
@@ -22,6 +22,12 @@ import { termPlane } from "./term/plane";
 import { AgentSignalRepository } from "./signals/repository";
 import { onAgentSignalChanged } from "./signals/changes";
 import { mainAuthoringGate } from "./main-authoring-gate";
+import { BOAT_IDLE_MS } from "@shared/boat";
+import { pendingMailFor, startBoatKeeper } from "./boat/keeper";
+import { startBoatLease } from "./boat/lease";
+import { BoatPlane } from "./boat/plane";
+import { HostsService } from "./hosts/service";
+import { terminalObserverPlane } from "./term/observer";
 
 export type CoreOptions = Omit<MachineCoreOptions, "ready">;
 
@@ -38,6 +44,31 @@ export class CoreDidNotDrain extends Schema.TaggedError<CoreDidNotDrain>()("Core
   remaining: Schema.optionalKey(Schema.Number),
   message: Schema.String,
 }) {}
+
+/**
+ * Boat in this core (docs/machines.md, Boat machines): the keeper for the Boat
+ * machines this one added, and the lease when this one is a Boat machine.
+ */
+const startBoat = async (runtime: CoreRuntime): Promise<() => void> => {
+  const plane = await runtime.runPromise(BoatPlane);
+  const [hosts, link] = await runtime.runPromise(Effect.all([HostsService, MachineLink]));
+  const stopKeeper = startBoatKeeper({
+    home: plane.home, client: plane.client, machines: plane.machines, log: plane.log, run: plane.run,
+    getHost: (name) => runtime.runPromise(hosts.get(name)),
+    connect: async (host) => { await runtime.runPromise(link.connect(host)); },
+    pendingMail: (machine) => runtime.runPromise(pendingMailFor(machine)),
+  });
+  const stopLease = startBoatLease({
+    home: plane.home, log: plane.log, run: plane.run,
+    busy: () => {
+      if (seatStateRuntime.currentEvents().some((event) => event.state === "working")) return true;
+      const since = Date.now() - BOAT_IDLE_MS;
+      return termPlane.host.list().some((session) => (session.status === "running" || session.status === "starting") &&
+        (terminalObserverPlane.lastOutputAt(session.bindingId) ?? 0) > since);
+    },
+  });
+  return () => { stopKeeper(); stopLease(); };
+};
 
 /** Both shells use this owner/link lifecycle; it creates no canvas. */
 export const startCore = async (options: CoreOptions) => {
@@ -59,6 +90,7 @@ export const startCore = async (options: CoreOptions) => {
   let sessions: SeatSessions | undefined;
   let stopSeatReports: (() => void) | undefined;
   let releaseRunner: (() => void) | undefined;
+  let stopBoat: (() => void) | undefined;
   const runtime = makeCoreRuntime({ ...options, ready: () => admitted && !stopping && owner?.ready() === true && listener?.ready() === true });
   let closeFlight: Promise<void> | undefined;
   /** `cause` says why this core stops; each linked machine reads it in the close frame. */
@@ -72,6 +104,7 @@ export const startCore = async (options: CoreOptions) => {
     mail?.seats.suspend();
     sessions?.stop();
     stopSeatReports?.();
+    stopBoat?.();
     seatProcesses?.beginShutdown();
     closeFlight = (async () => {
       if (owner !== undefined) {
@@ -132,6 +165,7 @@ export const startCore = async (options: CoreOptions) => {
       signalsOf: (canvasName, nodeId) =>
         runtime.runPromise(Effect.flatMap(AgentSignalRepository, (signals) => signals.listSeat({ canvasName, nodeId }))),
     });
+    stopBoat = await startBoat(runtime);
     admitted = true;
     return { runtime, close, ready: () => admitted && !stopping && owner!.ready() && listener!.ready() };
   } catch (cause) {

@@ -306,6 +306,8 @@ export const createSshProgramCompiler = (policy: SshExecutionPolicy) => {
           "-o", "StrictHostKeyChecking=yes",
           "-o", `UserKnownHostsFile=${route.knownHostsFile}`,
           "-o", "GlobalKnownHostsFile=/dev/null",
+          // Never learn keys into the pinned file, whatever OpenSSH's default becomes.
+          "-o", "UpdateHostKeys=no",
         ]),
         ...(route.hostKeyAlias === undefined ? [] : ["-o", `HostKeyAlias=${route.hostKeyAlias}`]),
         ...(route.identityFile === undefined

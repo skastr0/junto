@@ -3,7 +3,7 @@ import type { InstallationId } from "@shared/installation-id";
 import {
   failureDetailNamesSeat,
   failureDetailSeat,
-  isLogAnnotationId,
+  isLogIdAnnotation,
   LOG_ID_ANNOTATIONS,
   MachineLogRead,
   type MachineLogQuery,
@@ -94,7 +94,7 @@ export const receivePeerLogRead = Effect.fn("receivePeerLogRead")(function* (inp
     ...(row.annotations === undefined
       ? {}
       : { annotations: Object.fromEntries(Object.entries(row.annotations).flatMap(([key, value]) => LOG_ID_ANNOTATIONS.has(key)
-        ? (isLogAnnotationId(value) && !known.includes(value) ? [[key, value]] : [])
+        ? (isLogIdAnnotation(key, value) && !known.includes(value) ? [[key, value]] : [])
         : [[key, scrubMessage(value, known).slice(0, 256)]])) }),
   }));
   return { ...read, machine, rows };

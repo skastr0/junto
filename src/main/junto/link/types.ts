@@ -85,7 +85,7 @@ export class LinkClosed extends Schema.TaggedError<LinkClosed>()("LinkClosed", {
 }) {}
 
 /** The link cannot take this call: not linked, not configured, or shutting down. */
-export const LinkUnavailableReason = Schema.Literals(["not-linked", "not-configured", "channels-bound", "unknown-channel", "listener-unavailable", "shutting-down", "route-incomplete", "other-installation", "invalid-limits", "not-admitted", "channel-unavailable", "request-from-event"]);
+export const LinkUnavailableReason = Schema.Literals(["not-linked", "not-configured", "channels-bound", "unknown-channel", "listener-unavailable", "shutting-down", "route-incomplete", "other-installation", "invalid-limits", "not-admitted", "channel-unavailable", "request-from-event", "asleep"]);
 export class LinkUnavailable extends Schema.TaggedError<LinkUnavailable>()("LinkUnavailable", {
   machine: Schema.optionalKey(Schema.String),
   reason: LinkUnavailableReason,

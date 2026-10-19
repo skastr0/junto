@@ -34,6 +34,10 @@ const URL_USERINFO = /(\b[a-z][a-z0-9+.-]{0,31}:\/\/)[^/\s@]+@/gi;
 // The name is bounded: an unbounded prefix rescans from every start (quadratic).
 const NAMED_VALUE = /([A-Za-z0-9_.-]{0,48}(?:token|secret|password|passwd|key|credential|auth|cookie|session)[A-Za-z0-9_.-]{0,48}(?:"|')?\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s&#"',;]+)/gi;
 const TOKEN_SHAPES = /\b(?:sk-|ghp_|gho_|github_pat_|xox[abpr]-|ops_)[A-Za-z0-9_-]+|\bAKIA[A-Z0-9]{12,}|\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g;
+// Boat keys: `boat_` (and the older `box_`) then at least 24 base64url characters, "-" included. A `bx_` sandbox id is not one.
+const BOAT_KEY = /\b(?:boat|box)_[A-Za-z0-9_-]{24,}/g;
+// A Boat sign-in or token link keeps its host and path; what follows "?" goes.
+const BOAT_LINK = /(\bhttps?:\/\/(?:[a-z0-9-]+\.)*boat\.dev\/[^\s?#"']*)[?#][^\s"']*/gi;
 const LONG_RUN = /[A-Za-z0-9+/_-]{32,}={0,2}/g;
 // A UUID (a credential id) is redacted whatever its digits: the mixed-run rule misses one with no letters.
 const UUID = /(?<![0-9A-Za-z])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![0-9A-Za-z])/gi;
@@ -96,6 +100,8 @@ const replaceShapes = (text: string): string => {
     .replace(URL_USERINFO, `$1${REDACTED}@`)
     .replace(NAMED_VALUE, (_match, name: string) => `${name}${REDACTED}`)
     .replace(TOKEN_SHAPES, REDACTED)
+    .replace(BOAT_KEY, REDACTED)
+    .replace(BOAT_LINK, `$1?${REDACTED}`)
     .replace(UUID, REDACTED);
   // Computed once, on the first long run, and dropped with this call.
   let starts: ((at: number) => number) | undefined;
