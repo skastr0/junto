@@ -10,7 +10,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MailThreadMessage, MailThreadSummary } from "../src/shared/wire/mail-threads";
+import { MAIL_MENTIONS_MAX, OPERATOR_MAIL_MAX_TEXT } from "../src/shared/mail-threads";
 import {
+  THREAD_MENTIONS_MAX,
+  THREAD_TEXT_MAX,
   betweenLine,
   groupSeatThreads,
   participantsLine,
@@ -57,10 +60,10 @@ const fake = () => {
     threads: [notes, banner, reader] as SeatThreadSummary[],
     messages: {
       notes: [
-        { messageId: "m1", author: "you", mine: true, text: "Move them into junto.db.", at: at(1, 2) },
-        { messageId: "m2", author: "pty-lead", mine: false, text: "On it.", at: at(1, 4) },
+        { messageId: "m1", author: "you", mine: true, text: "Move them into junto.db.", mentions: [], at: at(1, 2) },
+        { messageId: "m2", author: "pty-lead", mine: false, text: "On it.", mentions: [], at: at(1, 4) },
       ],
-      reader: [{ messageId: "r1", author: "cli-lead", mine: false, text: "Switch the reader.", at: at(0, 31) }],
+      reader: [{ messageId: "r1", author: "cli-lead", mine: false, text: "Switch the reader.", mentions: [], at: at(0, 31) }],
     } as Record<string, SeatThreadMessage[]>,
     lists: 0,
   };
@@ -120,6 +123,11 @@ describe("the seat's threads, in words", () => {
     expect(groups.betweenSeats.map((item) => item.threadId)).toEqual(["reader"]);
   });
 
+  it("holds main's bounds on operator mail", () => {
+    expect(THREAD_TEXT_MAX).toBe(OPERATOR_MAIL_MAX_TEXT);
+    expect(THREAD_MENTIONS_MAX).toBe(MAIL_MENTIONS_MAX);
+  });
+
   it("names who is in a thread", () => {
     expect(participantsLine(["you", "pty-lead", "product-lead"])).toBe("you, pty-lead, +1");
     expect(participantsLine(["cli-lead", "pty-lead"])).toBe("cli-lead, pty-lead");
@@ -148,7 +156,8 @@ describe("main's threads IPC as the source", () => {
     const operator = { kind: "operator" } as const;
     const ptyLead = { kind: "seat", nodeId: "seat-1", name: "pty-lead" } as const;
     const first: MailThreadMessage = {
-      messageId: "m1", threadId: "t1", from: operator, to: [ptyLead], mine: true, text: "Move them.", at: at(1, 2),
+      messageId: "m1", threadId: "t1", from: operator, to: [ptyLead], mine: true, text: "Move them, @cli-lead.", at: at(1, 2),
+      mentions: [{ kind: "seat", nodeId: "seat-cli", name: "cli-lead" }],
     };
     const summary: MailThreadSummary = {
       threadId: "t1", title: "Move them.", participants: [operator, ptyLead], startedAt: at(1, 2), lastAt: at(1, 2),
@@ -169,6 +178,7 @@ describe("main's threads IPC as the source", () => {
     expect(seatThreadsList).toHaveBeenCalledWith({ canvasName: "factory", nodeId: "seat-1" });
     expect(q("seat-threads-with-you")?.textContent).toContain("you, pty-lead");
     expect(all("seat-threads-message")[0]?.textContent).toContain("you 01:02");
+    expect(all("seat-threads-mention").map((mention) => mention.textContent)).toEqual(["@cli-lead"]);
     // A change in another seat's mailbox can change this seat's threads.
     const calls = seatThreadsList.mock.calls.length;
     mail.forEach((listener) => listener({ canvasName: "factory", nodeId: "seat-9" }));
@@ -240,7 +250,7 @@ describe("the Threads popup", () => {
     const { state, change } = await open();
     state.messages.notes = [
       ...state.messages.notes!,
-      { messageId: "m3", author: "pty-lead", mine: false, text: "Landed.", at: at(1, 12) },
+      { messageId: "m3", author: "pty-lead", mine: false, text: "Landed.", mentions: [], at: at(1, 12) },
     ];
     change("seat-1");
     await flush();
@@ -259,11 +269,11 @@ describe("the Threads popup", () => {
 
 describe("the thread composer", () => {
   const sends: unknown[] = [];
-  let reply: unknown = { ok: true, messageId: "m9", threadId: "notes", delivery: [] };
+  let reply: unknown = { ok: true, messageId: "m9", threadId: "notes", delivery: "delivered" };
 
   beforeEach(() => {
     sends.length = 0;
-    reply = { ok: true, messageId: "m9", threadId: "notes", delivery: [] };
+    reply = { ok: true, messageId: "m9", threadId: "notes", delivery: "delivered" };
     (window as { junto?: unknown }).junto = {
       seatThreadMentionables: async () => [
         { nodeId: "seat-cli", name: "cli-lead" },
@@ -355,7 +365,7 @@ describe("the thread composer", () => {
     await type("Check it, @canvas-lead");
     await key("Enter");
     expect(q("thread-composer-to")?.textContent).toBe("Topty-lead");
-    reply = { ok: true, messageId: "fresh", threadId: "fresh", delivery: [] };
+    reply = { ok: true, messageId: "fresh", threadId: "fresh", delivery: "delivered" };
     await type("The loader's start phase reads starting session.");
     sends.length = 0;
     await click(q("thread-composer-send"));
@@ -365,7 +375,7 @@ describe("the thread composer", () => {
       text: "The loader's start phase reads starting session.",
     });
     state.threads = [thread({ threadId: "fresh", title: "The loader's start phase", lastAt: at(2, 0) }), ...state.threads];
-    state.messages.fresh = [{ messageId: "fresh", author: "you", mine: true, text: "The loader's start phase.", at: at(2, 0) }];
+    state.messages.fresh = [{ messageId: "fresh", author: "you", mine: true, text: "The loader's start phase.", mentions: [], at: at(2, 0) }];
     change();
     await flush();
     expect(document.querySelector('[data-thread-id="fresh"]')?.getAttribute("data-selected")).toBe("true");
@@ -375,14 +385,30 @@ describe("the thread composer", () => {
   it("shows an @name in a message as a reference, not a participant", async () => {
     const { state, change } = await open();
     state.messages.notes = [
-      { messageId: "m1", author: "you", mine: true, text: "Thanks. @cli-lead check it, and @nobody.", at: at(1, 2) },
+      {
+        messageId: "m1",
+        author: "you",
+        mine: true,
+        text: "Thanks. @cli-lead check it, and @pty-lead or @nobody.",
+        mentions: ["cli-lead"],
+        at: at(1, 2),
+      },
     ];
     change();
     await flush();
     expect(all("seat-threads-mention").map((mention) => mention.textContent)).toEqual(["@cli-lead"]);
     expect(all("seat-threads-message")[0]?.querySelector(".seat-threads__bubble")?.textContent).toBe(
-      "Thanks. @cli-lead check it, and @nobody.",
+      "Thanks. @cli-lead check it, and @pty-lead or @nobody.",
     );
     expect(q("seat-threads")?.querySelector(".seat-threads__chat-meta")?.textContent).not.toContain("cli-lead");
+  });
+
+  it("will not send past main's text bound, and says so", async () => {
+    await open();
+    await type("x".repeat(THREAD_TEXT_MAX + 1));
+    await key("Enter");
+    expect(sends).toEqual([]);
+    expect(q("thread-composer-failure")?.textContent).toBe(`${THREAD_TEXT_MAX + 1} characters; a mail holds at most ${THREAD_TEXT_MAX}.`);
+    expect((q("thread-composer-send") as HTMLButtonElement).disabled).toBe(true);
   });
 });

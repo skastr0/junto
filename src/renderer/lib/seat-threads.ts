@@ -46,6 +46,8 @@ export type SeatThreadMessage = {
   /** The operator wrote it. */
   readonly mine: boolean;
   readonly text: string;
+  /** Seats the text names with an @, by name: references, never recipients. */
+  readonly mentions: ReadonlyArray<string>;
   /** Epoch ms. */
   readonly at: number;
 };
@@ -86,6 +88,7 @@ export const juntoSeatThreadsSource = (): SeatThreadsSource | undefined => {
         author: partyName(message.from),
         mine: message.mine,
         text: message.text,
+        mentions: (message.mentions ?? []).map((seat) => seat.name),
         at: message.at,
       })),
     // Any mailbox can change a seat's threads: the canvas alone decides.
@@ -314,6 +317,14 @@ export const threadTime = (at: number): string => {
 
 // ---- Writing ----
 
+/**
+ * Main's bounds on operator mail (MAIL_MENTIONS_MAX and OPERATOR_MAIL_MAX_TEXT
+ * in src/shared/mail-threads.ts), said here because that module carries the
+ * Effect runtime; tests/seat-threads.test.tsx holds them equal.
+ */
+export const THREAD_TEXT_MAX = 8_000;
+export const THREAD_MENTIONS_MAX = 32;
+
 export type { MentionableSeat };
 
 /** The seats an @ may name: agent seats wired to this one, as main checks them. Empty while unread or unreachable. */
@@ -389,8 +400,8 @@ export const mentionsIn = (
   );
 
 /**
- * A message's text cut at its @names: each @ that names a known seat is a
- * reference, the rest is plain text.
+ * A message's text cut at its @names: each @ that names one of the seats the
+ * mail mentions is a reference, the rest is plain text.
  */
 export const mentionParts = (
   text: string,

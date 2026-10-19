@@ -5,6 +5,8 @@ import {
   mentionsIn,
   pickMention,
   sendSeatThread,
+  THREAD_MENTIONS_MAX,
+  THREAD_TEXT_MAX,
   useSeatThreadMentionables,
   type MentionableSeat,
   type SeatAddress,
@@ -59,14 +61,16 @@ export function ThreadComposer({
     claimFocusOnMount(element);
   }, []);
 
+  const mentions = mentionsIn(draft, picked);
+  const mentionsFull = mentions.length >= THREAD_MENTIONS_MAX;
+  const tooLong = draft.trim().length > THREAD_TEXT_MAX;
   const query = mentionQueryAt(draft, caret);
   const options =
-    query === undefined || query.start === dismissedAt
+    query === undefined || query.start === dismissedAt || mentionsFull
       ? []
       : mentionables.filter((candidate) => candidate.name.toLowerCase().startsWith(query.text.toLowerCase()));
   const picking = options.length > 0;
   const chosen = Math.min(active, Math.max(0, options.length - 1));
-  const mentions = mentionsIn(draft, picked);
 
   // Put the caret after a chosen name once the draft holding it is drawn.
   useEffect(() => {
@@ -93,7 +97,7 @@ export function ThreadComposer({
 
   const send = async (): Promise<void> => {
     const text = draft.trim();
-    if (text === "" || sending) return;
+    if (text === "" || tooLong || sending) return;
     setSending(true);
     setFailure(undefined);
     const result = await sendSeatThread({
@@ -195,9 +199,13 @@ export function ThreadComposer({
         />
       </div>
       <div className="thread-composer__foot">
-        {failure ? (
+        {failure || tooLong ? (
           <span className="thread-composer__failure" role="alert" data-testid="thread-composer-failure">
-            {failure}
+            {failure ?? `${draft.trim().length} characters; a mail holds at most ${THREAD_TEXT_MAX}.`}
+          </span>
+        ) : mentionsFull ? (
+          <span className="thread-composer__hint" data-testid="thread-composer-mentions-full">
+            {`A mail names at most ${THREAD_MENTIONS_MAX} seats.`}
           </span>
         ) : (
           <span className="thread-composer__hint">
@@ -212,7 +220,7 @@ export function ThreadComposer({
         <Button
           size="sm"
           variant="chrome"
-          disabled={sending || draft.trim() === ""}
+          disabled={sending || tooLong || draft.trim() === ""}
           data-testid="thread-composer-send"
           onClick={() => void send()}
         >
