@@ -19,7 +19,7 @@
  * dismissal back. Each is stated again when a link opens, so one written
  * while no link was open arrives when one is.
  */
-import { Effect, Result, Semaphore } from "effect";
+import { Effect, Result, Schema, Semaphore } from "effect";
 import type { CanvasCopy } from "@shared/canvas-copy";
 import type { InstallationId } from "@shared/installation-id";
 import type { Message } from "@shared/work-model";
@@ -93,9 +93,10 @@ export type CopyInstalled =
   | { readonly refused: CopyRefusedFrame["reason"] };
 
 /** A peer broke the exchange: the link must close. */
-export class ExchangeClosed extends Error {
-  readonly _tag = "ExchangeClosed";
-}
+export class ExchangeClosed extends Schema.TaggedError<ExchangeClosed>()("ExchangeClosed", {
+  /** The rule the peer broke. */
+  message: Schema.String,
+}) {}
 
 /** How far a linked machine is caught up, as far as this machine knows. */
 export type ExchangeLinkStatus = {
@@ -136,7 +137,7 @@ const carriedBy = (copy: CanvasCopy): string =>
   JSON.stringify([copy.guidance, copy.briefing ?? null, copy.references, copy.playing]);
 
 const closed = (cause: unknown): ExchangeClosed =>
-  new ExchangeClosed(cause instanceof Error ? cause.message : String(cause));
+  new ExchangeClosed({ message: cause instanceof Error ? cause.message : String(cause) });
 
 export const makeRowExchange = (deps: RowExchangeDeps) => {
   const links = new Map<InstallationId, LinkState>();
@@ -282,7 +283,7 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       const peer = state.link.peer;
       const placement = yield* deps.placement(frame.canvasName);
       if (placement === undefined || placement.canvasId !== frame.canvasId || !placement.holds(peer)) {
-        return yield* Effect.fail(new ExchangeClosed("signals of a canvas these two machines do not share"));
+        return yield* Effect.fail(new ExchangeClosed({ message: "signals of a canvas these two machines do not share" }));
       }
       for (const signal of frame.signals) {
         const home = placement.seatOf(signal.nodeId)?.machine;
@@ -290,14 +291,14 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
         const closedByEditor = peer === placement.editor && home === deps.self;
         if (raised) {
           if (signal.closing !== undefined && signal.closing.state !== "withdrawn") {
-            return yield* Effect.fail(new ExchangeClosed("only the machine that edits a canvas answers or dismisses a signal"));
+            return yield* Effect.fail(new ExchangeClosed({ message: "only the machine that edits a canvas answers or dismisses a signal" }));
           }
         } else if (closedByEditor) {
           if (signal.closing === undefined || signal.closing.state === "withdrawn") {
-            return yield* Effect.fail(new ExchangeClosed("a seat's signal is raised and withdrawn only on its own machine"));
+            return yield* Effect.fail(new ExchangeClosed({ message: "a seat's signal is raised and withdrawn only on its own machine" }));
           }
         } else {
-          return yield* Effect.fail(new ExchangeClosed("a signal from a machine that may not state it"));
+          return yield* Effect.fail(new ExchangeClosed({ message: "a signal from a machine that may not state it" }));
         }
         yield* deps.takeSignal(frame.canvasName, signal, raised).pipe(Effect.mapError(closed));
       }
@@ -311,9 +312,9 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
   const receive = (peer: InstallationId, raw: unknown): Effect.Effect<void, ExchangeClosed> =>
     Effect.gen(function* () {
       const state = links.get(peer);
-      if (state === undefined) return yield* Effect.fail(new ExchangeClosed("no link is open to that machine"));
+      if (state === undefined) return yield* Effect.fail(new ExchangeClosed({ message: "no link is open to that machine" }));
       const decoded = decodeExchangeFrame(raw);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(new ExchangeClosed("a frame this machine does not know"));
+      if (Result.isFailure(decoded)) return yield* Effect.fail(new ExchangeClosed({ message: "a frame this machine does not know" }));
       const frame = decoded.success;
       if (frame.kind === "have") {
         yield* inTurn(
@@ -348,7 +349,7 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       if (frame.kind === "copy-refused") {
         const sent = state.copies.get(frame.canvasName);
         if (sent === undefined || sent.canvasId !== frame.canvasId) {
-          return yield* Effect.fail(new ExchangeClosed("a refusal of a copy this machine did not send"));
+          return yield* Effect.fail(new ExchangeClosed({ message: "a refusal of a copy this machine did not send" }));
         }
         const { kind: _kind, ...refusal } = frame;
         state.refused.set(frame.canvasName, refusal);
@@ -372,9 +373,9 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
    */
   const takeCopy = (state: LinkState, copy: CanvasCopy): Effect.Effect<void, ExchangeClosed> =>
     Effect.gen(function* () {
-      if (copy.target !== deps.self) return yield* Effect.fail(new ExchangeClosed("a copy cut for another machine"));
+      if (copy.target !== deps.self) return yield* Effect.fail(new ExchangeClosed({ message: "a copy cut for another machine" }));
       if (copy.editor !== state.link.peer) {
-        return yield* Effect.fail(new ExchangeClosed("only the machine that edits a canvas sends its copy"));
+        return yield* Effect.fail(new ExchangeClosed({ message: "only the machine that edits a canvas sends its copy" }));
       }
       const outcome = yield* deps.installCopy(copy).pipe(Effect.mapError(closed));
       if ("refused" in outcome) {
