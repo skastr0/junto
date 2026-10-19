@@ -702,8 +702,10 @@ describe("the seat against its cache window, as its card reads it", () => {
     setOperatorOffboard(w.offboard);
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
-      // At rest since T0, under amp's own five minute window and this machine's mode.
-      const told = { windowMinutes: 5, stillSince: T0, windowEndsAt: T0 + 5 * MIN, cacheMode: "hybrid" };
+      // At rest since T0, under amp's own five minute window and this machine's mode,
+      // with the offboard status's estimate of what it re-reads.
+      w.sizes.set("a", 251_000);
+      const told = { windowMinutes: 5, stillSince: T0, windowEndsAt: T0 + 5 * MIN, cacheMode: "hybrid", tokens: 251_000 };
       expect(await readAfter(3)).toMatchObject({ settingsFixed: true, cacheWindow: { ...told, pastWindow: false, pastByMs: 0 } });
       // Past it, held in front of the operator: its next turn picks up where it was, told how far past.
       w.held.set("a", {});

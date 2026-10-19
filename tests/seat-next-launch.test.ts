@@ -64,6 +64,9 @@ describe("seatCacheWindow", () => {
     // The machine's mode goes with it when the machine said it.
     expect(seatCacheWindow(continues, { stillSince: T, windowMinutes: 5, cacheMode: "auto" }, T)).toMatchObject({ cacheMode: "auto" });
     expect(seatCacheWindow(continues, { stillSince: T, windowMinutes: 5 }, T)).not.toHaveProperty("cacheMode");
+    // So does the estimate of what it re-reads, when there is one.
+    expect(seatCacheWindow(continues, { stillSince: T, windowMinutes: 5, tokens: 251_000 }, T)).toMatchObject({ tokens: 251_000 });
+    expect(seatCacheWindow(continues, { stillSince: T, windowMinutes: 5 }, T)).not.toHaveProperty("tokens");
   });
 
   it("tells nothing for a seat in a turn, or one whose next turn starts fresh or is not known", () => {

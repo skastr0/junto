@@ -81,6 +81,11 @@ export type SeatCacheWindow = {
    * past its window (seat-offboard.ts). Absent when that machine has not said.
    */
   readonly cacheMode?: CacheMode;
+  /**
+   * The tokens the seat re-reads if it picks up where it was: the offboard
+   * status's estimate, read on the seat's machine. Absent when there is none.
+   */
+  readonly tokens?: number;
 };
 
 /**
@@ -89,7 +94,12 @@ export type SeatCacheWindow = {
  */
 export const seatCacheWindow = (
   nextTurn: SeatNextTurn | undefined,
-  rest: { readonly stillSince?: number; readonly windowMinutes: number; readonly cacheMode?: CacheMode },
+  rest: {
+    readonly stillSince?: number;
+    readonly windowMinutes: number;
+    readonly cacheMode?: CacheMode;
+    readonly tokens?: number;
+  },
   now: number,
 ): SeatCacheWindow | undefined => {
   if (nextTurn?.fresh !== false || rest.stillSince === undefined) return undefined;
@@ -101,6 +111,7 @@ export const seatCacheWindow = (
     pastWindow: now >= windowEndsAt,
     pastByMs: Math.max(0, now - windowEndsAt),
     ...(rest.cacheMode === undefined ? {} : { cacheMode: rest.cacheMode }),
+    ...(rest.tokens === undefined ? {} : { tokens: rest.tokens }),
   };
 };
 

@@ -80,7 +80,8 @@ describe("the seat's cache window on the wire", () => {
   });
 
   it("tells the card the seat against its cache window on the receiver's clock; the window itself never crosses", () => {
-    const shown = { windowMinutes: 2, stillSince: NOW - 70 * 60_000, windowEndsAt: NOW - 68 * 60_000, pastWindow: true, pastByMs: 68 * 60_000 };
+    // The size the seat's machine estimated goes with it, from the facts that already cross.
+    const shown = { windowMinutes: 2, stillSince: NOW - 70 * 60_000, windowEndsAt: NOW - 68 * 60_000, pastWindow: true, pastByMs: 68 * 60_000, tokens: 250_791 };
     const wire = toSeatsLaunch({ ...warm, cacheWindow: shown }, NOW, facts);
     expect(wire).not.toHaveProperty("cacheWindow");
     expect(() => decodeSeatsLaunch({ ...wire, cacheWindow: shown })).toThrow();
@@ -96,6 +97,9 @@ describe("the seat's cache window on the wire", () => {
       .toMatchObject({ pastWindow: true, pastByMs: 78 * 60_000 });
     expect(cardSeatLaunch(fromSeatsLaunch(toSeatsLaunch(warm, NOW, { ...facts, windowMinutes: 120 }), ahead), ahead).cacheWindow)
       .toMatchObject({ windowMinutes: 120, pastWindow: false, pastByMs: 0, windowEndsAt: ahead + 50 * 60_000 });
+    // No estimate on the seat's machine: none told.
+    const { tokens: _unsized, ...unsized } = facts;
+    expect(cardSeatLaunch(fromSeatsLaunch(toSeatsLaunch(warm, NOW, unsized), ahead), ahead).cacheWindow).not.toHaveProperty("tokens");
     // In a turn, a next turn that starts fresh or is not known, or nothing said: no window told.
     expect(cardSeatLaunch(fromSeatsLaunch(toSeatsLaunch(warm, NOW, { windowMinutes: 2, workMs: 0, worth: false }), ahead), ahead))
       .not.toHaveProperty("cacheWindow");
