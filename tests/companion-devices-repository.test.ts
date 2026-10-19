@@ -1,7 +1,8 @@
 /**
  * The paired-device registry: a pairing device becomes paired exactly once,
- * an expired QR cannot be completed and is swept, last seen is throttled, and
- * Remove (revoke) deletes the device so it can no longer be found.
+ * an expired QR cannot be completed and is swept, a paired device survives
+ * every sweep, last seen is throttled, and Remove (revoke) deletes the device
+ * so it can no longer be found.
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -76,6 +77,22 @@ describe("CompanionDeviceRepository", () => {
     expect(result.late).toEqual({ ok: false, reason: "expired" });
     expect(result.swept).toEqual([A]);
     expect(result.left).toEqual([B]);
+  });
+
+  it("never sweeps a paired device, however late the sweep: only a pairing expires", async () => {
+    const result = await run(
+      Effect.gen(function* () {
+        const r = yield* repo;
+        yield* r.createPairing({ deviceId: A, pairingPublicKey: PAIRING_KEY, expiresAt: 10_000, now: 0 });
+        yield* r.completePairing({ deviceId: A, publicKey: PHONE_KEY, name: "kept", now: 5_000 });
+        yield* r.createPairing({ deviceId: B, pairingPublicKey: PAIRING_KEY, expiresAt: 10_000, now: 0 });
+        const swept = [];
+        for (const now of [10_000, 10_000_000, Number.MAX_SAFE_INTEGER]) swept.push(...(yield* r.removeExpired(now)));
+        return { swept: swept.map((d) => d.deviceId), left: yield* r.list() };
+      }),
+    );
+    expect(result.swept).toEqual([B]);
+    expect(result.left).toMatchObject([{ deviceId: A, state: "paired", name: "kept", publicKey: PHONE_KEY }]);
   });
 
   it("throttles last seen to its resolution", async () => {
