@@ -41,7 +41,7 @@ export class LinkPeerNotPinned extends Schema.TaggedError<LinkPeerNotPinned>()("
   message: Schema.String,
 }) {}
 
-export const FrameProblem = Schema.Literals(["bytes", "utf8", "json", "schema", "frame-bound", "payload", "unmatched-response", "unknown-channel", "no-handler", "duplicate-request"]);
+export const FrameProblem = Schema.Literals(["bytes", "utf8", "json", "schema", "frame-bound", "payload", "unmatched-response", "unknown-channel", "no-handler", "duplicate-request", "credit-unwindowed", "credit-excess"]);
 export type FrameProblem = typeof FrameProblem.Type;
 
 export class LinkFrameInvalid extends Schema.TaggedError<LinkFrameInvalid>()("LinkFrameInvalid", {
@@ -65,7 +65,7 @@ export class LinkRequestFailed extends Schema.TaggedError<LinkRequestFailed>()("
 export const LinkClosedBy = Schema.Literals(["this-end", "peer", "process"]);
 export type LinkClosedBy = typeof LinkClosedBy.Type;
 export const LinkClosedReason = Schema.Literals([
-  "closed", "shutting-down", "hello-timeout", "request-timeout", "refused", "frame-invalid",
+  "closed", "shutting-down", "hello-timeout", "request-timeout", "credit-timeout", "refused", "frame-invalid",
   "bound-exceeded", "write-failed", "input-ended", "output-closed", "peer-closed", "process-exited", "failed",
 ]);
 export type LinkClosedReason = typeof LinkClosedReason.Type;
@@ -85,7 +85,7 @@ export class LinkClosed extends Schema.TaggedError<LinkClosed>()("LinkClosed", {
 }) {}
 
 /** The link cannot take this call: not linked, not configured, or shutting down. */
-export const LinkUnavailableReason = Schema.Literals(["not-linked", "not-configured", "channels-bound", "unknown-channel", "listener-unavailable", "shutting-down", "route-incomplete", "other-installation", "invalid-limits", "not-admitted", "channel-unavailable", "request-from-event", "asleep"]);
+export const LinkUnavailableReason = Schema.Literals(["not-linked", "not-configured", "channels-bound", "unknown-channel", "listener-unavailable", "shutting-down", "route-incomplete", "other-installation", "invalid-limits", "not-admitted", "channel-unavailable", "request-from-event", "send-from-event", "send-queue-full", "asleep"]);
 export class LinkUnavailable extends Schema.TaggedError<LinkUnavailable>()("LinkUnavailable", {
   machine: Schema.optionalKey(Schema.String),
   reason: LinkUnavailableReason,
@@ -101,7 +101,7 @@ export const isMachineLinkError = (cause: unknown): cause is MachineLinkError =>
 const BY_TEXT: Record<LinkClosedBy, string> = { "this-end": "this machine closed it", peer: "the other machine closed it", process: "its SSH process ended" };
 const REASON_TEXT: Record<LinkClosedReason, string> = {
   closed: "closed on request", "shutting-down": "Junto is shutting down", "hello-timeout": "the hello did not arrive in time",
-  "request-timeout": "a request timed out; its outcome is uncertain", refused: "the hello was refused", "frame-invalid": "a frame was invalid",
+  "request-timeout": "a request timed out; its outcome is uncertain", "credit-timeout": "the other machine stopped taking events", refused: "the hello was refused", "frame-invalid": "a frame was invalid",
   "bound-exceeded": "a bound was exceeded", "write-failed": "a write failed", "input-ended": "its input ended",
   "output-closed": "its output closed", "peer-closed": "the other machine gave no reason", "process-exited": "the process ended", failed: "it failed",
 };
@@ -153,7 +153,8 @@ export interface LinkChannelContext {
 /**
  * What an event handler gets: no request. The session may stop reading while
  * events back up, and a handler awaiting an answer on its own link would wait
- * on a reader that waits on it. The session also refuses one at run time.
+ * on a reader that waits on it. The session also refuses one at run time, and
+ * refuses a send on a windowed channel that would wait for the peer's credit.
  */
 export type LinkEventContext = Omit<LinkChannelContext, "request">;
 

@@ -321,3 +321,165 @@ it("carries a typed refusal whose detail holds a UUID operation id, and drops a 
   await new Promise(resolve => setTimeout(resolve, 5));
   expect(closed).toBe(false);
 }, 5_000);
+
+const until = (ready: () => boolean): Promise<void> => new Promise(resolve => { const poll = () => ready() ? resolve() : setTimeout(poll, 2); poll(); });
+const lineBytes = (frame: unknown): number => Buffer.byteLength(JSON.stringify(frame)) + 1;
+const held = (handled: string[]): { handler: LinkChannelHandler; open: () => void } => {
+  let open!: () => void;
+  const gate = new Promise<void>(resolve => { open = resolve; });
+  return { open, handler: { ...channel(), handleEvent: (_context, payload) => Effect.promise(async () => { await gate; handled.push((payload as { value: string }).value); }) } };
+};
+
+it("sends the largest frame into an empty window and holds the next until the peer credits it", async () => {
+  const handled: string[] = [];
+  const rows = held(handled);
+  const limits = { frameBytes: 256, eventWindow: 257 };
+  const { left, right } = pair({ limits, channels: { status: channel(), rows: channel() } }, { limits, channels: { status: channel(), rows: rows.handler } });
+  await Promise.all([left.ready, right.ready]);
+  // The value fills the frame to its bound exactly: 256 bytes plus the newline is the whole window.
+  const largest = { value: "x".repeat(256 - lineBytes({ type: "event", channel: "rows", payload: { value: "" } }) + 1) };
+  expect(lineBytes({ type: "event", channel: "rows", payload: largest })).toBe(257);
+  await left.sendEvent("rows", largest);
+  let second = false;
+  const next = left.sendEvent("rows", { value: "second" }).then(() => { second = true; });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  expect(second).toBe(false);
+  rows.open();
+  await next;
+  await until(() => handled.length === 2);
+  expect(handled[1]).toBe("second");
+}, 5_000);
+
+it("answers a request while the rows window is full and uncredited", async () => {
+  const handled: string[] = [];
+  const rows = held(handled);
+  const limits = { frameBytes: 256, eventWindow: 300 };
+  const { left, right } = pair({ limits, channels: { status: channel(), rows: channel() } }, { limits, channels: { status: channel(), rows: rows.handler } });
+  await Promise.all([left.ready, right.ready]);
+  const sends = Array.from({ length: 20 }, (_, index) => left.sendEvent("rows", { value: `r${index}`.padEnd(100, "x") }));
+  await new Promise(resolve => setTimeout(resolve, 20));
+  expect(await left.request("status", { value: "through" })).toEqual({ value: "through" });
+  rows.open();
+  await Promise.all(sends);
+  await until(() => handled.length === 20);
+}, 5_000);
+
+it("refuses credit for a channel without a window, before hello, and for more bytes than were sent", async () => {
+  for (const [frame, problem] of [
+    [{ type: "credit", channel: "status", bytes: 10 }, "credit-unwindowed"],
+    [{ type: "credit", channel: "rows", bytes: 10 }, "credit-excess"],
+  ] as const) {
+    const f = raw({ channels: { status: channel(), rows: channel() } });
+    f.send({ type: "hello", ...hello("mini") }); await f.session.ready;
+    f.send(frame);
+    const ended = await f.session.closed;
+    expect(ended.reason).toBe("frame-invalid");
+    expect(ended.causes[0]?.tag).toBe("LinkFrameInvalid");
+    expect(ended.message).toMatch(problem === "credit-unwindowed" ? /has no window/ : /exceeds the bytes sent/);
+  }
+  const early = raw({ channels: { rows: channel() } });
+  early.send({ type: "credit", channel: "rows", bytes: 10 });
+  await expect(early.session.ready).rejects.toThrow("Link hello must be first");
+  // Credit for bytes that were sent, then one byte more than what is left.
+  const f = raw({ channels: { status: channel(), rows: channel() } });
+  f.send({ type: "hello", ...hello("mini") }); await f.session.ready;
+  await f.session.sendEvent("rows", { value: "a" });
+  const sent = lineBytes({ type: "event", channel: "rows", payload: { value: "a" } });
+  f.send({ type: "credit", channel: "rows", bytes: sent });
+  await f.session.sendEvent("rows", { value: "b" });
+  f.send({ type: "credit", channel: "rows", bytes: sent + 1 });
+  expect((await f.session.closed).message).toMatch(/exceeds the bytes sent/);
+}, 5_000);
+
+it("closes a peer that sends rows past the window, holding no more than one window", async () => {
+  const handled: string[] = [];
+  const rows = held(handled);
+  const f = raw({ limits: { frameBytes: 256, eventWindow: 300 }, channels: { status: channel(), rows: rows.handler } });
+  f.send({ type: "hello", ...hello("mini") }); await f.session.ready;
+  const event = { type: "event", channel: "rows", payload: { value: "x".repeat(100) } };
+  f.send(event); f.send(event);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  let closed = false;
+  void f.session.closed.then(() => { closed = true; });
+  expect(closed).toBe(false);
+  f.send(event);
+  const ended = await f.session.closed;
+  expect(ended.reason).toBe("bound-exceeded");
+  expect(ended.message).toMatch(/exceeds its window/);
+  rows.open();
+}, 5_000);
+
+it("closes a link whose peer keeps rows uncredited past the request timeout", async () => {
+  const f = raw({ limits: { requestTimeoutMs: 50 }, channels: { status: channel(), rows: channel() } });
+  f.send({ type: "hello", ...hello("mini") }); await f.session.ready;
+  await f.session.sendEvent("rows", { value: "never credited" });
+  const ended = await f.session.closed;
+  expect(ended.reason).toBe("credit-timeout");
+  expect(ended.message).toMatch(/stopped taking events/);
+}, 5_000);
+
+it("refuses a send from an event handler that would wait for credit, and bounds the sends waiting", async () => {
+  let refused: unknown;
+  const f = raw({ limits: { frameBytes: 256, eventWindow: 300, queuedBytes: 400 }, channels: {
+    rows: channel(),
+    status: { ...channel(), handleEvent: (context) => Effect.flip(context.sendEvent("rows", { value: "from a handler" })).pipe(Effect.map(error => { refused = error; })) },
+  } });
+  f.send({ type: "hello", ...hello("mini") }); await f.session.ready;
+  // 251 bytes out, so the handler's 70 would pass the 300-byte window.
+  await f.session.sendEvent("rows", { value: "x".repeat(195) });
+  f.send({ type: "event", channel: "status", payload: { value: "go" } });
+  await until(() => refused !== undefined);
+  expect(refused).toMatchObject({ _tag: "LinkUnavailable", reason: "send-from-event" });
+  expect(f.frames.filter(frame => frame.type === "event")).toHaveLength(1);
+  // 206 and 156 bytes wait within the 400-byte bound; 60 more do not.
+  const waiting = [f.session.sendEvent("rows", { value: "y".repeat(150) }), f.session.sendEvent("rows", { value: "z".repeat(100) })];
+  await expect(f.session.sendEvent("rows", { value: "over" })).rejects.toMatchObject({ _tag: "LinkUnavailable", reason: "send-queue-full" });
+  await f.session.close();
+  await Promise.allSettled(waiting);
+}, 5_000);
+
+it("counts the same bytes at both ends over many multibyte frames, so the window returns to empty", async () => {
+  const f = raw({ limits: { frameBytes: 256, eventWindow: 300 }, channels: { status: channel(), rows: channel() } });
+  f.send({ type: "hello", ...hello("mini") }); await f.session.ready;
+  const credited = (): number => f.frames.filter(frame => frame.type === "credit").reduce((sum, frame) => sum + (frame as { bytes: number }).bytes, 0);
+  let sent = 0;
+  for (let index = 0; index < 200; index++) {
+    const frame = { type: "event", channel: "rows", payload: { value: `${index} ção 😀 日本 ${"é".repeat(index % 40)}` } };
+    // An honest peer: never more than the window out without credit.
+    await until(() => sent - credited() + lineBytes(frame) <= 300);
+    sent += lineBytes(frame);
+    f.send(frame);
+  }
+  await until(() => credited() === sent);
+  // And this end's own sends are credited back to exactly zero: a full window goes out at once.
+  let credit = 0;
+  for (let index = 0; index < 50; index++) {
+    const payload = { value: `${index} ção 😀 ${"日".repeat(index % 30)}` };
+    await f.session.sendEvent("rows", payload);
+    const bytes = lineBytes({ type: "event", channel: "rows", payload });
+    f.send({ type: "credit", channel: "rows", bytes });
+    credit += bytes;
+  }
+  await new Promise(resolve => setTimeout(resolve, 10));
+  const largest = { value: "x".repeat(256 - lineBytes({ type: "event", channel: "rows", payload: { value: "" } }) + 1) };
+  await f.session.sendEvent("rows", largest);
+  expect(credit).toBeGreaterThan(0);
+  let closed = false;
+  void f.session.closed.then(() => { closed = true; });
+  await new Promise(resolve => setTimeout(resolve, 5));
+  expect(closed).toBe(false);
+}, 5_000);
+
+it("keeps a rows channel's opened hook out of its window, so no empty credit goes out", async () => {
+  let opened = false;
+  const f = raw({ channels: { status: channel(), rows: { ...channel(), opened: () => Effect.sync(() => { opened = true; }) } } });
+  f.send({ type: "hello", ...hello("mini") }); await f.session.ready;
+  await until(() => opened);
+  f.send({ type: "event", channel: "rows", payload: { value: "a" } });
+  await until(() => f.frames.some(frame => frame.type === "credit"));
+  expect(f.frames.filter(frame => frame.type === "credit")).toEqual([{ type: "credit", channel: "rows", bytes: lineBytes({ type: "event", channel: "rows", payload: { value: "a" } }) }]);
+  let closed = false;
+  void f.session.closed.then(() => { closed = true; });
+  await new Promise(resolve => setTimeout(resolve, 5));
+  expect(closed).toBe(false);
+}, 5_000);

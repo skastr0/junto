@@ -3,7 +3,7 @@ import type { Readable, Writable } from "node:stream";
 import { Effect, Schema } from "effect";
 import { failureSentence, OperationId, type EncodedCause, type EncodedFailure } from "@shared/failure";
 import { decodeEncodedFailure, describeCause, encodeError } from "../failure-encode";
-import { decodeLinkFrame, LinkHelloSchema, type LinkFrame } from "./protocol";
+import { decodeLinkFrame, LINK_EVENT_WINDOW, LinkHelloSchema, type LinkFrame } from "./protocol";
 import { linkLog, type LinkLogLevel } from "./log";
 import {
   isMachineLinkError, LinkBuildMismatch, linkClosed, LinkFrameInvalid, LinkHelloRefused, LinkRequestFailed, LinkUnavailable,
@@ -21,8 +21,16 @@ export { LinkBuildMismatch } from "./types";
  * events slows the sender instead of closing the link. An event handler gets
  * no request (LinkEventContext, refused at run time too), so a paused reader
  * cannot hold up its own answer.
+ *
+ * A windowed channel's events are bounded by the sender instead: no more than
+ * eventWindow bytes, as read, are out without the peer's credit, which it
+ * returns once their handlers finish. A send waits for credit before the write
+ * queue, so a full window holds up only that channel, never a request behind
+ * it in the stream. The oldest uncredited byte older than requestTimeoutMs
+ * closes the link; waiting sends are bounded by queuedBytes.
  */
-const DEFAULT_LIMITS = { frameBytes: 1024 * 1024, queuedBytes: 4 * 1024 * 1024, pendingRequests: 32, inboundCalls: 32, inboundEvents: 64, inboundEventBytes: 8 * 1024 * 1024, helloTimeoutMs: 10_000, requestTimeoutMs: 30_000 } as const;
+const DEFAULT_LIMITS = { frameBytes: 1024 * 1024, queuedBytes: 4 * 1024 * 1024, pendingRequests: 32, inboundCalls: 32, inboundEvents: 64, inboundEventBytes: 8 * 1024 * 1024, eventWindow: LINK_EVENT_WINDOW, helloTimeoutMs: 10_000, requestTimeoutMs: 30_000 } as const;
+const WINDOWED: ReadonlySet<LinkChannel> = new Set<LinkChannel>(["rows"]);
 const CLOSE_FLUSH_MS = 1_000;
 export interface LinkSessionOptions {
   readonly readable: Readable;
@@ -43,6 +51,16 @@ interface Pending {
   readonly reject: (error: MachineLinkError) => void;
   readonly timer: ReturnType<typeof setTimeout>;
 }
+/** This end's sends on one windowed channel: bytes out without credit, oldest first, and the sends waiting. */
+interface SendWindow {
+  inFlight: number;
+  readonly sent: Array<{ bytes: number; readonly at: number }>;
+  readonly waiting: Array<{ readonly bytes: number; readonly go: () => void; readonly stop: (error: MachineLinkError) => void }>;
+  waitingBytes: number;
+  timer: ReturnType<typeof setTimeout> | undefined;
+}
+/** The peer's events on one windowed channel: bytes held, finished but not yet credited, and still queued. */
+interface ReceiveWindow { held: number; done: number; queued: number }
 const isOperationId = Schema.is(OperationId);
 const frameInvalid = (problem: FrameProblem, message: string, machine?: string): LinkFrameInvalid =>
   new LinkFrameInvalid({ problem, message, ...(machine === undefined ? {} : { machine }) });
@@ -79,6 +97,8 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     }
     limits[key as keyof typeof limits] = value;
   }
+  // The largest frame, with its newline, always fits an empty window.
+  if (limits.eventWindow < limits.frameBytes + 1) throw new LinkUnavailable({ reason: "invalid-limits", message: "Link limit eventWindow must hold the largest frame and its newline" });
   const self = Object.freeze(Schema.decodeUnknownSync(LinkHelloSchema, { onExcessProperty: "error" })(options.self));
   const channels = { ...options.channels };
   const sessionId = randomUUID();
@@ -96,6 +116,8 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
   const inboundIds = new Set<string>();
   const completedIds = new Set<string>();
   const channelQueues = new Map<LinkChannel, Promise<void>>();
+  const sendWindows = new Map<LinkChannel, SendWindow>();
+  const receiveWindows = new Map<LinkChannel, ReceiveWindow>();
   let inboundCalls = 0;
   let inboundEvents = 0;
   let inboundEventBytes = 0;
@@ -137,6 +159,7 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
   const eventContext = (): LinkEventContext => {
     const refusing: LinkChannelContext = {
       ...context(),
+      sendEvent: (channel, payload) => Effect.tryPromise({ try: () => sendEvent(channel, payload, true), catch: classify }),
       request: () => Effect.fail(new LinkUnavailable({ ...(peerName() === undefined ? {} : { machine: peerName()! }),
         reason: "request-from-event", message: "An event handler cannot send a request on its own link" })),
     };
@@ -159,6 +182,11 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     rejectReady(first);
     for (const row of pending.values()) { clearTimeout(row.timer); row.reject(ended); }
     pending.clear();
+    for (const window of sendWindows.values()) {
+      clearTimeout(window.timer);
+      for (const waiter of window.waiting.splice(0)) waiter.stop(ended);
+      window.waitingBytes = 0;
+    }
     log(ended.by === "this-end" && ended.reason === "closed" ? "Info" : "Warning", "link closed", {
       by: ended.by, reason: ended.reason, failure: encodeError(first, { machine: self.machineName }),
       ...(ended.exitCode === undefined ? {} : { exitCode: ended.exitCode }), ...(ended.signal === undefined ? {} : { signal: ended.signal }),
@@ -189,13 +217,23 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
   options.readable.on("error", (cause: Error) => finish(cause));
   if (!duplex) options.writable.on("error", (cause: Error) => finish(cause));
   options.writable.on("close", () => finish(linkClosed({ ...(peerName() === undefined ? {} : { machine: peerName()! }), by: "peer", reason: "output-closed", causes: [] }), false));
+  /** A frame's bytes as the peer reads them; one over its bound closes the link. */
+  const encode = (input: unknown): Buffer => {
+    try {
+      const bytes = Buffer.from(JSON.stringify(decodeLinkFrame(input)) + "\n");
+      if (bytes.length - 1 > limits.frameBytes) throw thisEnd("bound-exceeded", [bound("Link output exceeds its bound")]);
+      return bytes;
+    } catch (cause) { finish(cause); throw stopped ?? classify(cause); }
+  };
   const write = (input: unknown): Promise<void> => {
     if (stopped !== undefined) return Promise.reject(stopped);
     let bytes: Buffer;
-    try {
-      bytes = Buffer.from(JSON.stringify(decodeLinkFrame(input)) + "\n");
-      if (bytes.length - 1 > limits.frameBytes || queuedBytes + bytes.length > limits.queuedBytes) throw thisEnd("bound-exceeded", [bound("Link output exceeds its bound")]);
-    } catch (cause) { finish(cause); return Promise.reject(stopped ?? classify(cause)); }
+    try { bytes = encode(input); } catch (cause) { return Promise.reject(cause); }
+    return writeBytes(bytes);
+  };
+  const writeBytes = (bytes: Buffer): Promise<void> => {
+    if (stopped !== undefined) return Promise.reject(stopped);
+    if (queuedBytes + bytes.length > limits.queuedBytes) { finish(thisEnd("bound-exceeded", [bound("Link output exceeds its bound")])); return Promise.reject(stopped); }
     queuedBytes += bytes.length;
     const flight = writeTail.then(() => new Promise<void>((resolve, reject) => {
       if (stopped !== undefined) { reject(stopped); return; }
@@ -246,9 +284,82 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     catch (cause) { finish(cause); }
     return response;
   };
-  const sendEvent = async (channel: LinkChannel, payload: unknown): Promise<void> => {
+  const machineField = (): { machine?: string } => (peerName() === undefined ? {} : { machine: peerName()! });
+  const sendWindow = (channel: LinkChannel): SendWindow => {
+    let window = sendWindows.get(channel);
+    if (window === undefined) { window = { inFlight: 0, sent: [], waiting: [], waitingBytes: 0, timer: undefined }; sendWindows.set(channel, window); }
+    return window;
+  };
+  /** A peer that keeps the oldest bytes past the request timeout has stopped taking this channel. */
+  const armStall = (window: SendWindow): void => {
+    clearTimeout(window.timer);
+    window.timer = undefined;
+    const oldest = window.sent[0];
+    if (oldest === undefined || stopped !== undefined) return;
+    window.timer = setTimeout(() => finish(thisEnd("credit-timeout")), Math.max(0, oldest.at + limits.requestTimeoutMs - Date.now()));
+  };
+  const take = (window: SendWindow, bytes: number): void => {
+    window.inFlight += bytes;
+    window.sent.push({ bytes, at: Date.now() });
+    if (window.sent.length === 1) armStall(window);
+  };
+  const wake = (window: SendWindow): void => {
+    for (let next = window.waiting[0]; next !== undefined && window.inFlight + next.bytes <= limits.eventWindow; next = window.waiting[0]) {
+      window.waiting.shift();
+      window.waitingBytes -= next.bytes;
+      take(window, next.bytes);
+      next.go();
+    }
+  };
+  /** Room for one frame in the window, taken in order; waits, unless the send comes from an event handler. */
+  const reserve = (channel: LinkChannel, bytes: number, fromEvent: boolean): Promise<void> | undefined => {
+    const window = sendWindow(channel);
+    if (window.waiting.length === 0 && window.inFlight + bytes <= limits.eventWindow) { take(window, bytes); return undefined; }
+    if (fromEvent) throw new LinkUnavailable({ ...machineField(), reason: "send-from-event", message: `An event handler cannot wait for credit on the ${channel} channel` });
+    if (window.waitingBytes + bytes > limits.queuedBytes) throw new LinkUnavailable({ ...machineField(), reason: "send-queue-full", message: `Too many ${channel} events are waiting for credit` });
+    return new Promise<void>((go, stop) => { window.waiting.push({ bytes, go, stop }); window.waitingBytes += bytes; });
+  };
+  const sendEvent = async (channel: LinkChannel, payload: unknown, fromEvent = false): Promise<void> => {
     await checkAdmission();
-    await write({ type: "event", channel, payload: decoded("payload", `The ${channel} event does not match its schema`, () => outbound(channel).decodeEvent(payload)) });
+    const frame = { type: "event", channel, payload: decoded("payload", `The ${channel} event does not match its schema`, () => outbound(channel).decodeEvent(payload)) };
+    if (!WINDOWED.has(channel)) { await write(frame); return; }
+    const bytes = encode(frame);
+    await reserve(channel, bytes.length, fromEvent);
+    await writeBytes(bytes);
+  };
+  /** The peer finished handling bytes this end sent; anything it did not receive is refused, never trusted. */
+  const credited = (channel: LinkChannel, bytes: number): void => {
+    const window = sendWindows.get(channel);
+    const refuse = (problem: FrameProblem, message: string): never => {
+      const refused = frameInvalid(problem, message, peerName());
+      log("Warning", "link credit refused", { channel, bytes, failure: encodeError(refused, { machine: self.machineName }) });
+      throw refused;
+    };
+    if (!WINDOWED.has(channel)) refuse("credit-unwindowed", `Link channel ${channel} has no window`);
+    if (window === undefined || bytes > window.inFlight) refuse("credit-excess", `Link credit on ${channel} exceeds the bytes sent`);
+    window!.inFlight -= bytes;
+    for (let left = bytes; left > 0;) {
+      const head = window!.sent[0]!;
+      if (head.bytes <= left) { left -= head.bytes; window!.sent.shift(); } else { head.bytes -= left; left = 0; }
+    }
+    armStall(window!);
+    wake(window!);
+  };
+  const receiveWindow = (channel: LinkChannel): ReceiveWindow => {
+    let window = receiveWindows.get(channel);
+    if (window === undefined) { window = { held: 0, done: 0, queued: 0 }; receiveWindows.set(channel, window); }
+    return window;
+  };
+  /** Credit goes back in batches: a quarter window, or whatever is done once the channel's queue is empty. */
+  const returnCredit = (channel: LinkChannel, bytes: number): void => {
+    const window = receiveWindow(channel);
+    window.done += bytes;
+    window.queued--;
+    if (stopped !== undefined || (window.queued > 0 && window.done < limits.eventWindow / 4)) return;
+    const credit = window.done;
+    window.done = 0;
+    window.held -= credit;
+    void write({ type: "credit", channel, bytes: credit }).catch(cause => finish(cause));
   };
   const close = async (cause?: unknown): Promise<void> => {
     finish(cause === undefined ? thisEnd("closed") : isMachineLinkError(cause) ? cause : thisEnd("closed", [describeCause(cause), ...(classify(cause) as LinkClosed).causes.slice(1)]));
@@ -256,10 +367,14 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
   };
   const enqueue = (channel: LinkChannel, kind: "request" | "event", work: () => Promise<void>, bytes = 0): void => {
     if (kind === "request" && ++inboundCalls > limits.inboundCalls) { finish(thisEnd("bound-exceeded", [bound("Too many incoming link calls")])); return; }
-    if (kind === "event") { inboundEvents++; inboundEventBytes += bytes; }
+    // A windowed channel's events are bounded by its window, so they never pause the reader. Hooks carry no bytes and no credit.
+    const windowed = kind === "event" && bytes > 0 && WINDOWED.has(channel);
+    if (windowed) receiveWindow(channel).queued++;
+    else if (kind === "event") { inboundEvents++; inboundEventBytes += bytes; }
     const previous = channelQueues.get(channel) ?? Promise.resolve();
     const flight = previous.then(async () => { if (stopped === undefined) await work(); }).catch(cause => finish(cause)).finally(() => {
       if (kind === "request") { inboundCalls--; return; }
+      if (windowed) { returnCredit(channel, bytes); return; }
       inboundEvents--; inboundEventBytes -= bytes;
       if (eventsLow()) releaseReader();
     });
@@ -297,6 +412,7 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
       return;
     }
     if (frame.type === "hello") throw new LinkHelloRefused({ machine: peer.machineName, check: "repeated", message: "Link hello cannot be repeated" });
+    if (frame.type === "credit") { credited(frame.channel, frame.bytes); return; }
     const selected = inbound(frame.channel);
     if (frame.type === "response") {
       await checkAdmission();
@@ -330,7 +446,14 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     if (frame.type === "event") {
       const payload = decoded("payload", `The ${frame.channel} event does not match its schema`, () => selected.decodeEvent(frame.payload));
       if (selected.handleEvent === undefined) throw frameInvalid("no-handler", "Link channel does not accept events", peer.machineName);
-      enqueue(frame.channel, "event", async () => { await checkAdmission(); await runOwned(selected.handleEvent!(eventContext(), payload)); }, bytes);
+      // A window counts the line with its newline, as the sender wrote it.
+      const counted = WINDOWED.has(frame.channel) ? bytes + 1 : bytes;
+      if (WINDOWED.has(frame.channel)) {
+        const window = receiveWindow(frame.channel);
+        if (window.held + counted > limits.eventWindow) { finish(thisEnd("bound-exceeded", [bound("Link channel exceeds its window")])); return; }
+        window.held += counted;
+      }
+      enqueue(frame.channel, "event", async () => { await checkAdmission(); await runOwned(selected.handleEvent!(eventContext(), payload)); }, counted);
       return;
     }
     const payload = decoded("payload", `The ${frame.channel} request does not match its schema`, () => selected.decodeRequest(frame.payload));
