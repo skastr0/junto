@@ -7,8 +7,10 @@ import { modelFixture, modelSeat } from "../harness/model";
  * Seats in two regions, one blocked and one ready for review. With Alpha's
  * terminal open, Cmd+backtick must:
  *   - bring the switcher up over the terminal without closing it
- *   - list the agents that need the operator first, and come up on the first
- *   - open the chosen agent when Cmd is let go
+ *   - list the agents by recency, like Cmd+Tab: the seats visited most
+ *     recently first, the ones never visited by name, urgency playing no part
+ *   - come up on the first agent that is not already in front
+ *   - open the chosen agent when Cmd is let go, which makes it the most recent
  *
  * Frames land in test-results/focus-switcher/.
  */
@@ -60,7 +62,7 @@ const signals: ReadonlyArray<AgentSignal> = [
   signal("charlie", "feedback", "The export screen is ready to look at."),
 ];
 
-test("Cmd+backtick brings up the agents, the ones that need the operator first", async () => {
+test("Cmd+backtick brings up the agents, the most recently visited first", async () => {
   const junto = await launchJunto({
     seedModels: { [CANVAS]: modelFixture([...nodes], []) },
     seedAgentSignals: signals,
@@ -94,16 +96,18 @@ test("Cmd+backtick brings up the agents, the ones that need the operator first",
     await expect(hud.locator("[data-layer-backdrop]")).toBeVisible();
     await expect(hud.getByRole("listbox")).toBeFocused();
 
-    // Blocked, then ready for review, then the rest by name.
+    // Nothing visited yet: by name, urgency does not count (echo is blocked and sits fifth).
     const cards = hud.getByRole("option");
     await expect(cards).toHaveCount(7);
     const order = await cards.evaluateAll((all) => all.map((card) => card.getAttribute("data-node-id")));
-    expect(order.slice(0, 2)).toEqual(["echo", "charlie"]);
+    expect(order).toEqual(["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf"]);
+    // It comes up on the first agent that is not in front.
     const selected = page.getByTestId("focus-switcher-selected");
-    await expect(selected).toHaveAttribute("data-node-id", "echo");
+    await expect(selected).toHaveAttribute("data-node-id", "bravo");
     // Each card says where the agent sits, and reads as agent, state, region.
-    await expect(selected).toHaveAccessibleName("Echo blocked Junto / PTY");
-    await expect(selected.getByTestId("focus-switcher-crumb")).toHaveText("Junto / PTY");
+    const echo = hud.locator('[data-node-id="echo"]');
+    await expect(echo).toHaveAccessibleName("Echo blocked Junto / PTY");
+    await expect(echo.getByTestId("focus-switcher-crumb")).toHaveText("Junto / PTY");
     await expect(hud.locator('[data-node-id="golf"]').getByTestId("focus-switcher-crumb")).toHaveCount(0);
     // The card's name is its own text: no tooltip repeats it over the card.
     await page.waitForTimeout(400);
@@ -121,6 +125,10 @@ test("Cmd+backtick brings up the agents, the ones that need the operator first",
     await page.keyboard.down("Meta");
     await page.keyboard.press("Backquote");
     await expect(hud).toBeVisible({ timeout: 8_000 });
+    // Charlie was just visited: it leads, and the switcher comes up on the next one.
+    const afterVisit = await cards.evaluateAll((all) => all.map((card) => card.getAttribute("data-node-id")));
+    expect(afterVisit).toEqual(["charlie", "alpha", "bravo", "delta", "echo", "foxtrot", "golf"]);
+    await expect(selected).toHaveAttribute("data-node-id", "alpha");
     await page.keyboard.press("Escape");
     await expect(hud).toHaveCount(0);
     await page.keyboard.up("Meta");

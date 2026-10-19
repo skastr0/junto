@@ -3,10 +3,10 @@
  * let Cmd go to open the chosen one. The keys are rows in the key table; this
  * file holds the model.
  *
- * The catalog is every agent seat, in the one urgency
- * order (lib/urgency-order): the ones that need the operator first. It is a
- * snapshot, read once as the switcher comes up, so nothing reorders under
- * the operator while they step.
+ * The catalog is every agent seat by recency, like cmd+tab: the seats the
+ * operator visited most recently first (the hotbar MRU), then the ones never
+ * visited, by name. Urgency is cmd+K's job. It is a snapshot, read once as the
+ * switcher comes up, so nothing reorders under the operator while they step.
  *
  * Presentation and navigation only: nothing here writes the canvas.
  */
@@ -16,11 +16,9 @@ import { titleOf } from "@shared/model/title";
 import { activateNodeSurface } from "./activate-node-surface";
 import { dock$, nodeIdForSurface } from "./dock-state";
 import { slotIndexOf, type HotbarSlot } from "./hotbar-slots";
-import type { SeatUrgency } from "./seat-line";
-import { seatUrgencyOf } from "../components/SeatRing";
+import { touchHotbarRecency } from "./command-bar";
 import { state$ } from "./state";
 import type { WorkSurface } from "./surface-registry";
-import { seatUrgencyOrder } from "./urgency-order";
 import { modelStore } from "./use-model";
 
 export type FocusSwitcherEntry = {
@@ -69,21 +67,33 @@ export type FocusSwitcherCatalogInput = {
   /** Open surfaces, front first: the first one names the agent in front. */
   readonly focusNodeIds: ReadonlyArray<string>;
   readonly hotbarSlots: ReadonlyArray<HotbarSlot>;
-  /** Read once per snapshot (seatUrgencyOf), so the order holds while the switcher is up. */
-  readonly urgencyOf: (seat: Seat) => SeatUrgency;
+  /** Node ids the operator visited, most recent first (hotbarActiveMru). */
+  readonly recentIds: ReadonlyArray<string>;
+};
+
+/** Seats by recency: visited ones in `recentIds` order, then the rest by name. */
+const recencyOrder = (seats: ReadonlyArray<Seat>, recentIds: ReadonlyArray<string>): Seat[] => {
+  const rank = new Map(recentIds.map((id, index) => [id, index] as const));
+  return [...seats].sort((a, b) => {
+    const aRank = rank.get(a.id);
+    const bRank = rank.get(b.id);
+    if (aRank !== undefined && bRank !== undefined) return aRank - bRank;
+    if (aRank !== undefined) return -1;
+    if (bRank !== undefined) return 1;
+    return titleOf(a).localeCompare(titleOf(b)) || a.id.localeCompare(b.id);
+  });
 };
 
 /**
- * The catalog: every seat, most urgent first (the one urgency order, shared
- * with the rail). A seat always has a terminal to open. Not capped: the strip
- * scrolls.
+ * The catalog: every seat, the most recently visited first. A seat always has
+ * a terminal to open. Not capped: the strip scrolls.
  */
 export const buildFocusSwitcherCatalog = (
   input: FocusSwitcherCatalogInput,
 ): ReadonlyArray<FocusSwitcherEntry> => {
   const currentId = input.focusNodeIds[0];
   const seats = input.nodes.filter((node): node is Seat => node.kind === "agent");
-  return seatUrgencyOrder(seats, input.urgencyOf).map((node) => {
+  return recencyOrder(seats, input.recentIds).map((node) => {
     const slot = slotIndexOf(input.hotbarSlots, node.id);
     return {
       nodeId: node.id,
@@ -110,8 +120,8 @@ export const nextSelectedIndex = (
 };
 
 /**
- * Where the switcher comes up: on the most urgent agent that is not the one
- * already in front (stepping back, on the least urgent).
+ * Where the switcher comes up: on the most recent agent that is not the one
+ * already in front (stepping back, on the least recent).
  */
 export const openingIndex = (
   entries: ReadonlyArray<FocusSwitcherEntry>,
@@ -128,7 +138,7 @@ const snapshotCatalog = (): ReadonlyArray<FocusSwitcherEntry> => {
     nodes: canvas === "" ? [] : [...modelStore.canvasOf(canvas).nodes.values()],
     focusNodeIds: focusMruNodeIds(registry.surfaces, registry.focusMru),
     hotbarSlots: state$.hotbarSlots.peek(),
-    urgencyOf: seatUrgencyOf,
+    recentIds: state$.hotbarActiveMru.peek(),
   });
 };
 
@@ -192,6 +202,8 @@ export const commitFocusSwitcher = (): boolean => {
   const entry = session.entries[session.selectedIndex];
   cancelFocusSwitcher();
   if (!entry) return false;
+  // Landing on a seat is a visit: the next cmd+` goes back to the one just left.
+  touchHotbarRecency(entry.nodeId);
   const result = activateNodeSurface(entry.nodeId);
   return result.opened;
 };

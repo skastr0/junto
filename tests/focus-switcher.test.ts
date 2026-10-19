@@ -3,6 +3,7 @@ import { asCanvasName, type Node, type Seat } from "../src/shared/model";
 import {
   buildFocusSwitcherCatalog,
   cancelFocusSwitcher,
+  commitFocusSwitcher,
   focusMruNodeIds,
   focusSwitcher$,
   moveFocusSwitcher,
@@ -15,7 +16,6 @@ import {
 import { emptyHotbarSlots, type HotbarSlot } from "../src/renderer/lib/hotbar-slots";
 import { dock$, terminalSurfaceId } from "../src/renderer/lib/dock-state";
 import { initialWorkbenchState, openSurface } from "../src/renderer/lib/surface-registry";
-import { SEAT_URGENCY, type SeatUrgency } from "../src/renderer/lib/seat-line";
 import { state$ } from "../src/renderer/lib/state";
 import { modelStore } from "../src/renderer/lib/use-model";
 import { note, region, seat, taskBoard } from "./support/model-nodes";
@@ -65,24 +65,28 @@ describe("buildFocusSwitcherCatalog", () => {
     note("memo", "Field notes"),
     region("lane", { x: 0, y: 0, width: 400, height: 300 }),
   ];
-  const urgency: Record<string, SeatUrgency> = {
-    alpha: SEAT_URGENCY.working,
-    bravo: SEAT_URGENCY.working,
-    sink: SEAT_URGENCY.review,
-  };
-  const urgencyOf = (node: Seat): SeatUrgency => urgency[node.id]!;
-
-  it("lists agents only, the ones that need the operator first, then by name", () => {
+  it("lists agents only, the most recently visited first, then the never visited by name", () => {
     const catalog = buildFocusSwitcherCatalog({
       nodes,
       focusNodeIds: ["bravo", "alpha"],
       hotbarSlots: slotsWith([{ index: 0, nodeId: "sink" }]),
-      urgencyOf,
+      recentIds: ["sink", "memo"],
     });
+    // sink was visited; alpha and bravo never were. The note is not an agent.
     expect(catalog.map((entry) => entry.nodeId)).toEqual(["sink", "alpha", "bravo"]);
     expect(catalog.map((entry) => entry.current)).toEqual([false, false, true]);
     expect(catalog[0]?.hotbarSlot).toBe(1);
     expect(catalog[1]?.hotbarSlot).toBeNull();
+  });
+
+  it("follows the visit order, not urgency or name", () => {
+    const catalog = buildFocusSwitcherCatalog({
+      nodes,
+      focusNodeIds: [],
+      hotbarSlots: emptyHotbarSlots(),
+      recentIds: ["bravo", "sink", "alpha"],
+    });
+    expect(catalog.map((entry) => entry.nodeId)).toEqual(["bravo", "sink", "alpha"]);
   });
 
   it("is not capped", () => {
@@ -91,7 +95,7 @@ describe("buildFocusSwitcherCatalog", () => {
       nodes: many,
       focusNodeIds: [],
       hotbarSlots: emptyHotbarSlots(),
-      urgencyOf: () => SEAT_URGENCY.review,
+      recentIds: [],
     });
     expect(catalog).toHaveLength(40);
   });
@@ -105,7 +109,7 @@ describe("openingIndex", () => {
     current,
   });
 
-  it("comes up on the most urgent agent, or the least urgent stepping back", () => {
+  it("comes up on the most recent agent, or the least recent stepping back", () => {
     const entries = [entry("a"), entry("b", true), entry("c")];
     expect(openingIndex(entries, 1)).toBe(0);
     expect(openingIndex(entries, -1)).toBe(2);
@@ -127,6 +131,31 @@ describe("focusMruNodeIds", () => {
 });
 
 describe("focus switcher session", () => {
+  it("opens on the seat visited just before, and landing on a seat makes it the most recent", () => {
+    const previousSlots = state$.hotbarSlots.peek();
+    const previousRegistry = dock$.registry.peek();
+    const previousMru = state$.hotbarActiveMru.peek();
+    const letGo = holdOpen([agent("alpha", "Alpha"), agent("bravo", "Bravo"), agent("cy", "Cy")]);
+    try {
+      state$.hotbarSlots.set(emptyHotbarSlots());
+      dock$.registry.set(initialWorkbenchState());
+      state$.hotbarActiveMru.set(["alpha", "bravo", "cy"]);
+      expect(openFocusSwitcher(1)).toBe(true);
+      const session = focusSwitcher$.session.peek();
+      expect(session?.entries.map((entry) => entry.nodeId)).toEqual(["alpha", "bravo", "cy"]);
+      // Nothing is in front, so it comes up on the most recent.
+      expect(session && session.entries[session.selectedIndex]?.nodeId).toBe("alpha");
+      expect(selectFocusSwitcherIndex(2)).toBe(true);
+      commitFocusSwitcher();
+      expect(state$.hotbarActiveMru.peek().slice(0, 3)).toEqual(["cy", "alpha", "bravo"]);
+    } finally {
+      letGo();
+      state$.hotbarSlots.set(previousSlots);
+      dock$.registry.set(previousRegistry);
+      state$.hotbarActiveMru.set(previousMru);
+    }
+  });
+
   afterEach(() => {
     cancelFocusSwitcher();
   });
