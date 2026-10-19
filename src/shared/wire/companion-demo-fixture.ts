@@ -9,7 +9,15 @@
 
 import type { AgentSignal } from "./agent-signals";
 import type { ContentRef } from "./content-ref";
-import type { CompanionActivity, CompanionMail, CompanionPreamble } from "./companion-protocol";
+import type {
+  CompanionActivity,
+  CompanionMachine,
+  CompanionMachineLogRow,
+  CompanionMachineStatus,
+  CompanionMail,
+  CompanionPreamble,
+  CompanionTailnetPeer,
+} from "./companion-protocol";
 import type { ThreadHealthValue } from "./thread-health";
 
 export const DEMO_CANVAS = "demo";
@@ -101,6 +109,74 @@ export const DEMO_CONTENT_AFTER = demoContent(
   "<h1>Pick the plan that fits your team</h1>\n<p>Pay monthly, or yearly and save two months.</p>\n",
 );
 export const DEMO_CONTENT: ReadonlyArray<DemoContent> = [DEMO_CONTENT_NOTES, DEMO_CONTENT_BEFORE, DEMO_CONTENT_AFTER];
+
+/** One demo machine: what `machines.list` lists, and what `machine.get` reads from it. */
+export type DemoMachine = {
+  readonly machine: CompanionMachine;
+  readonly status: CompanionMachineStatus;
+  readonly logs: ReadonlyArray<CompanionMachineLogRow> | string;
+};
+
+const demoLog = (minutesAgo: number, level: CompanionMachineLogRow["level"], area: string, message: string, extra: Partial<CompanionMachineLogRow> = {}): CompanionMachineLogRow => ({
+  time: new Date(DEMO_T0 - minutesAgo * MIN).toISOString(),
+  level,
+  area,
+  message,
+  ...extra,
+});
+
+const harnesses: CompanionMachineStatus["harnesses"] = [
+  { harness: "claude", installed: true },
+  { harness: "codex", installed: true, signIn: "sign-in-unverified" },
+];
+
+/** Every state the machines tab shows: this Mac, ready, unreachable, needing an update, not set up. */
+export const DEMO_MACHINES: ReadonlyArray<DemoMachine> = [
+  {
+    machine: { name: "macbook", label: "MacBook Pro", thisMachine: true, form: "macbook", setUp: true, needsUpdate: false, tailnet: "online", lastCheck: { checkedAgoMs: MIN, reachable: true } },
+    status: { reachable: true, build: "3f9c2a7d1e04", keychain: "available", harnesses, missingSecrets: [] },
+    logs: [
+      demoLog(30, "info", "link", "link opened", { canvas: "demo" }),
+      demoLog(12, "warn", "seat", "seat waited on the staging password", { canvas: "demo", seat: "atlas" }),
+      demoLog(2, "info", "companion", "phone connected"),
+    ],
+  },
+  {
+    machine: { name: "mini", label: "Mac mini", thisMachine: false, form: "mac-mini", setUp: true, needsUpdate: false, tailnet: "online", lastCheck: { checkedAgoMs: 4 * MIN, reachable: true } },
+    status: { reachable: true, keychain: "available", harnesses, missingSecrets: ["OPENAI_API_KEY"] },
+    logs: [
+      demoLog(40, "info", "link", "link opened"),
+      demoLog(9, "error", "seat", "the seat could not start", { canvas: "demo", seat: "relay", failure: { tag: "HarnessNotSignedIn", message: "codex is not signed in on this machine" } }),
+      demoLog(3, "info", "seat", "seat started", { canvas: "demo", seat: "relay" }),
+    ],
+  },
+  {
+    machine: { name: "build-box", label: "Build box", thisMachine: false, form: "linux", setUp: true, needsUpdate: false, tailnet: "offline",
+      lastCheck: { checkedAgoMs: 18 * MIN, reachable: false, failure: { tag: "SshConnectTimeout", message: "build-box did not answer over SSH within 10 seconds" } } },
+    status: { reachable: false, harnesses: [], missingSecrets: [], detail: "build-box did not answer over SSH within 10 seconds",
+      failure: { tag: "SshConnectTimeout", message: "build-box did not answer over SSH within 10 seconds" } },
+    logs: "This machine could not be reached, so its log could not be read.",
+  },
+  {
+    machine: { name: "studio", label: "Mac Studio", thisMachine: false, form: "mac-studio", setUp: true, needsUpdate: true, tailnet: "online" },
+    status: { reachable: true, harnesses: [], missingSecrets: [], detail: "Update Junto on this machine" },
+    logs: "This machine's log could not be read.",
+  },
+  {
+    machine: { name: "spare", label: "Spare laptop", thisMachine: false, setUp: false, needsUpdate: false, tailnet: "unknown" },
+    status: { reachable: false, harnesses: [], missingSecrets: [], detail: "Set up this machine first" },
+    logs: "Set up this machine to read its log.",
+  },
+];
+
+/** The demo tailnet: three machines already, and devices that are not. */
+export const DEMO_TAILNET: ReadonlyArray<CompanionTailnetPeer> = [
+  { name: "mini", dnsName: "mini.tail1234.ts.net", os: "macOS", online: true, machine: "mini" },
+  { name: "build-box", dnsName: "build-box.tail1234.ts.net", os: "linux", online: false, machine: "build-box" },
+  { name: "studio", dnsName: "studio.tail1234.ts.net", os: "macOS", online: true, machine: "studio" },
+  { name: "nas", dnsName: "nas.tail1234.ts.net", os: "linux", online: true },
+  { name: "operators-iphone", dnsName: "operators-iphone.tail1234.ts.net", os: "iOS", online: true },
+];
 
 export const DEMO_SIGNALS: ReadonlyArray<AgentSignal> = [
   {

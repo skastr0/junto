@@ -20,11 +20,12 @@ import QRCode from "qrcode";
 import { ulid } from "ulid";
 import {
   handleCompanionRequest,
-  makeContentGate,
+  makeCompanionGates,
   makeWriteLimiter,
   outcomeFail,
   outcomeOk,
   type CompanionBackend,
+  type CompanionGates,
 } from "@shared/companion-core";
 import type { CompanionDeviceRecord } from "@shared/companion-devices";
 import {
@@ -130,7 +131,7 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
   const editKeys = (edit: (text: string) => string): Promise<void> =>
     authorizedKeysPath === undefined ? Promise.resolve() : editAuthorizedKeys(edit, authorizedKeysPath).then(() => undefined);
   const limiters = new Map<string, () => boolean>();
-  const contentGates = new Map<string, () => (() => void) | undefined>();
+  const gates = new Map<string, CompanionGates>();
   const expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   // Pending pairing links stay in main; the renderer only ever gets the QR.
   const links = new Map<string, { readonly url: string; readonly expiresAt: number }>();
@@ -256,16 +257,16 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
         allowWrite = makeWriteLimiter();
         limiters.set(device.deviceId, allowWrite);
       }
-      let contentSlot = contentGates.get(device.deviceId);
-      if (!contentSlot) {
-        contentSlot = makeContentGate();
-        contentGates.set(device.deviceId, contentSlot);
+      let deviceGates = gates.get(device.deviceId);
+      if (!deviceGates) {
+        deviceGates = makeCompanionGates();
+        gates.set(device.deviceId, deviceGates);
       }
       const response = await handleCompanionRequest(frame, {
         backend,
         device: { deviceId: device.deviceId, state: device.state },
         allowWrite,
-        contentSlot,
+        gates: deviceGates,
       });
       return success(request, { response });
     }
@@ -330,7 +331,7 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
     await editKeys((text) => removeCompanionKey(text, deviceId));
     const removed = await repo((r) => r.remove(deviceId));
     limiters.delete(deviceId);
-    contentGates.delete(deviceId);
+    gates.delete(deviceId);
     announce();
     return removed !== undefined;
   };

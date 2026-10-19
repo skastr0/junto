@@ -148,6 +148,13 @@ export const knownSecretValues = (
 export const scrubText = (text: string, known: ReadonlyArray<string | undefined> = knownSecretValues()): string =>
   replaceShapes(redactSecretValues(stripControls(text), known));
 
+/**
+ * Step 2 alone, on one line: for outside text that is a name rather than a
+ * message (a tailnet device's host name, DNS name or OS), so a name is never
+ * mangled by the secret shapes but carries no control, escape or bidi mark.
+ */
+export const scrubName = (text: string): string => stripControls(text).replace(/\s+/g, " ").trim();
+
 /** One cause-chain or log message: scrubbed, one line, at most 1 KiB, cut marked. */
 export const scrubMessage = (text: string, known?: ReadonlyArray<string | undefined>): string => {
   const line = scrubText(text, known).replace(/\s*\n\s*/g, " ").replace(/\t/g, " ").trim();

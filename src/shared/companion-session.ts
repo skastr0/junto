@@ -7,6 +7,7 @@
  * become events, whoever made the change (the phone, the desktop, an agent):
  *
  *   canvases.list   canvases.changed when the list differs
+ *   machines.list   machines.changed when the list differs
  *   feed.subscribe  feed.changed per canvas that differs; signal.changed per upsert
  *   seats.list      seat.changed per seat that differs; seat.removed
  *   seat.get        that seat: seat.changed, preamble, signal.changed, mail.changed
@@ -30,6 +31,7 @@ import {
   COMPANION_MAIL_MAX_LIMIT,
   type CompanionError,
   type CompanionHello,
+  type CompanionMachine,
   type CompanionMail,
   type CompanionSeatDetail,
   type CompanionRequestFrame,
@@ -79,6 +81,23 @@ const feedKey = (feed: OperatorFeed): string =>
 
 const seatKey = (seat: CompanionSeat): string => JSON.stringify(seat);
 
+/**
+ * A check's age grows on its own, so ages are not a change; a newer check is
+ * (its age is smaller than the one sent), and so is anything else that differs.
+ */
+const machinesDiffer = (sent: ReadonlyArray<CompanionMachine>, next: ReadonlyArray<CompanionMachine>): boolean => {
+  const ageless = (machine: CompanionMachine): string => {
+    const { lastCheck, ...rest } = machine;
+    return JSON.stringify(lastCheck === undefined ? rest : { ...rest, lastCheck: { ...lastCheck, checkedAgoMs: 0 } });
+  };
+  if (sent.length !== next.length) return true;
+  return next.some((machine, index) => {
+    const before = sent[index]!;
+    if (ageless(before) !== ageless(machine)) return true;
+    return machine.lastCheck !== undefined && before.lastCheck !== undefined && machine.lastCheck.checkedAgoMs < before.lastCheck.checkedAgoMs;
+  });
+};
+
 type Next = { readonly kind: "line"; readonly line: string } | { readonly kind: "end" } | { readonly kind: "idle" };
 
 export const runCompanionSession = async (io: CompanionSessionIo): Promise<void> => {
@@ -112,6 +131,7 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
   let feedSubscription: { readonly canvasName: string | undefined } | undefined;
   const sentFeeds = new Map<string, string>();
   let canvasesKey: string | undefined;
+  let machinesSent: ReadonlyArray<CompanionMachine> | undefined;
   const seatCanvases = new Map<string, Set<string>>();
   const sentSeats = new Map<string, string>();
   let focus: { readonly canvasName: string; readonly nodeId: string; readonly preambles: Set<string> } | undefined;
@@ -165,6 +185,13 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
           canvasesKey = key;
           emit("canvases.changed", { canvases: response.result.canvases });
         }
+      }
+    }
+    if (machinesSent !== undefined) {
+      const response = await io.host.call(internal("machines.list", {}));
+      if (response.ok && "machines" in response.result && machinesDiffer(machinesSent, response.result.machines)) {
+        machinesSent = response.result.machines;
+        emit("machines.changed", { machines: response.result.machines });
       }
     }
     if (feedSubscription) {
@@ -230,6 +257,7 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
   const subscribed = (): boolean =>
     feedSubscription !== undefined ||
     canvasesKey !== undefined ||
+    machinesSent !== undefined ||
     seatCanvases.size > 0 ||
     focus !== undefined ||
     mailFocus !== undefined;
@@ -280,6 +308,8 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
         sentFeeds.clear();
       } else if (frame.op === "canvases.list" && "canvases" in response.result) {
         canvasesKey = JSON.stringify(response.result.canvases);
+      } else if (frame.op === "machines.list" && "machines" in response.result) {
+        machinesSent = response.result.machines;
       } else if (frame.op === "seats.list" && "seats" in response.result) {
         const members = new Set<string>();
         for (const seat of response.result.seats) {

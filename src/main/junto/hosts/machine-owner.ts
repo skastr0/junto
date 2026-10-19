@@ -16,6 +16,7 @@ import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
 import { MachineRepository } from "../machines/repository";
 import { StateTransactionOperation } from "../state/service";
 import { HostsService } from "./service";
+import { noteMachinesChanged } from "./machine-changes";
 import { HostRegistryRows } from "./registry";
 
 export interface MachineOwnerOptions {
@@ -171,7 +172,9 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
   const unlocked = new Set<string>(["machine.list", "machine.status", "machine.harnesses", "machine.logs", "machine.seat-start", "machine.seat-stop", "machine.seat-read"]);
   return {
     dispatch: (request: OperatorRequestEnvelope, onTransition?: (event: MachineSendEvent) => void) =>
-      (unlocked.has(request.op) ? run(request, onTransition) : mutationLock.withPermits(1)(run(request, onTransition))).pipe(
+      (unlocked.has(request.op) ? run(request, onTransition) : mutationLock.withPermits(1)(run(request, onTransition)).pipe(
+        // A send or update that failed part way may still have changed the machine.
+        Effect.ensuring(Effect.sync(noteMachinesChanged)))).pipe(
       Effect.map(data => {
         const decoded = decodeOperatorResponse({ protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: true, data });
         if (Result.isSuccess(decoded)) return decoded.success;

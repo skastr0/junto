@@ -113,6 +113,9 @@ are Markdown. Names below match `src/shared/companion-protocol.ts`.
 | `quickReplies.get` | `{}` | `{ "replies": string[] }` (the operator's quick replies from desktop Settings) |
 | `portrait.get` | `{ "portraitIdentity": string, "size": number, "theme": "bright" \| "dark" }` | `{ "svg": string }` |
 | `content.get` | `{ "sha256": string, "offset": number, "length": number }` (closed: any other key is `invalid`) | `{ "sha256": string, "offset": number, "length": number, "byteLength": number, "data": string }` |
+| `machines.list` | `{}` | `{ "machines": Machine[] }` (at most 32) |
+| `machine.get` | `{ "name": string, "minLevel"?: "trace" \| "debug" \| "info" \| "warn" \| "error" \| "fatal" }` | `{ "machine": Machine, "status": MachineStatus, "logs": MachineLogs }` |
+| `tailnet.peers` | `{}` | `{ "available": boolean, "peers": TailnetPeer[] }` (at most 128) |
 
 Semantics:
 
@@ -157,6 +160,29 @@ Semantics:
     inert data: never run script from them, and never open them in a handler
     chosen from `mediaType` without the operator's tap.
   - Nothing about these requests is logged.
+- `machines.list`, `machine.get` and `tailnet.peers` are the machines tab,
+  read only: they relay the owner commands the desktop's Machines view uses
+  and its cached `tailscale status`, and never run a shell or change a
+  machine. No SSH endpoint, path, key, host-key pin, installation id, pid or
+  tailnet address reaches the phone.
+  - `machine.get` reads the machine now, across its link for another
+    machine. An unreachable machine is an answer (`reachable: false` with its
+    `failure`), not an error. Unknown `name`: `not-found`. At most 2
+    `machine.get` unanswered per phone; a third is `rate-limited`. `logs` is
+    the newest 50 rows at or above `minLevel` (every level when omitted),
+    oldest first, or `{ "unavailable": string }`, one fixed sentence when the
+    machine is not set up, unreachable, or its log could not be read.
+  - `Machine.tailnet` is the matching tailnet device's own online flag, not
+    Junto reachability; `"unknown"` when Tailscale is absent or no device
+    matches. `lastCheck.checkedAgoMs` is how long ago this Mac last read the
+    machine for a phone, a duration, never a time: age it on the phone's
+    clock from when the frame arrived. A check older than 7 days is not sent.
+  - `tailnet.peers` lists every device on the tailnet but this Mac, with the
+    Junto machine it is when it is one. `available: false` when Tailscale is
+    absent or could not be read; never an error.
+  - Every string here (labels, messages, details, failures, and above all
+    the tailnet's names, chosen by whoever runs each device) is plain text on
+    the phone: no markup, links, data detectors or tap-to-run.
 - Nothing in v1 creates, deletes, moves, connects, starts, or stops seats.
 
 Events:
@@ -170,6 +196,7 @@ Events:
 | `seat.removed` | `{ "canvasName": string, "nodeId": string }` (same subscription rule as `seat.changed`; the seat was deleted or stopped being an agent seat) |
 | `canvases.changed` | `{ "canvases": Canvas[] }`: the whole list, replacing the previous one, after a `canvases.list` in this connection (a canvas added, renamed, removed, or its `playing`/`needsYou`/`active` changed). A canvas missing from the list is gone: drop its feed and seats |
 | `mail.changed` | `{ "canvasName": string, "nodeId": string, "message": Mail }` (upsert by `messageId`; new mail either direction and delivery changes, only for the seat of the last `mail.list` or `seat.get`) |
+| `machines.changed` | `{ "machines": Machine[] }`: the whole list, replacing the previous one, after a `machines.list` in this connection (a machine added, removed, set up, sent or updated, a link learning its build, or a newer check). A check's age growing is not a change |
 | `preamble` | `{ "canvasName": string, "nodeId": string, "preamble": Preamble }` (only for the seat of the last `seat.get`) |
 
 Event origin: `signal.changed`, `feed.changed` and `seat.changed` fire for
@@ -264,6 +291,33 @@ type Activity = {
 
 History on the phone is `seat.get` (signals and activity) plus `mail.list`.
 
+Machines (`src/shared/wire/companion-protocol.ts` holds the bounds):
+
+```ts
+type Machine = {
+  name: string; label: string; thisMachine: boolean;
+  form?: "macbook" | "mac-mini" | "mac-studio" | "mac" | "linux";
+  setUp: boolean;
+  needsUpdate: boolean;                       // its build differs from this Mac's
+  tailnet: "online" | "offline" | "unknown";
+  lastCheck?: { checkedAgoMs: number; reachable: boolean; failure?: MachineFailure };
+};
+type MachineFailure = { tag: string; message: string };   // the typed failure's tag and scrubbed sentence
+type MachineStatus = {
+  reachable: boolean;
+  build?: string;                             // 12 hex, this Mac only
+  keychain?: "available" | "unavailable" | "not-applicable";
+  harnesses: { harness: string; installed: boolean; signIn?: "not-installed" | "sign-in-unverified" | "keychain-login-unavailable" }[];
+  missingSecrets: string[];                   // environment names only, never values
+  detail?: string;
+  failure?: MachineFailure;
+};
+type MachineLogs =
+  | { rows: { time: string; level: string; area: string; message: string; canvas?: string; seat?: string; failure?: MachineFailure }[]; cut: boolean }
+  | { unavailable: string };
+type TailnetPeer = { name: string; dnsName?: string; os?: string; online: boolean; machine?: string };
+```
+
 Presentation notes for the phone (not protocol): "health" items and every
 `health` field are an AI reading; show them as "AI reads: <label>", never as
 the agent's own words. Regions carry the region's colour; group the feed by
@@ -276,7 +330,8 @@ Every schema a phone needs lives in modules whose import closure is only
 `src/shared/wire/operator-feed.ts` (OperatorFeed and its parts),
 `src/shared/wire/agent-signals.ts` and the `src/shared/wire/content-ref.ts` its
 attachments use, `src/shared/wire/thread-health.ts`,
-`src/shared/wire/companion-protocol.ts`. The desktop's builders import these;
+`src/shared/wire/mail-threads.ts` (MailParty, MailThreadMessage,
+MailThreadSummary), `src/shared/wire/companion-protocol.ts`. The desktop's builders import these;
 the wire modules never import the builders. A test fails the build if any
 wire module's closure grows past `effect`.
 

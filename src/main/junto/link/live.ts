@@ -7,6 +7,7 @@ import { encodeError } from "../failure-encode";
 import { MachineRepository, type MachinePeer } from "../machines/repository";
 import { parseHostSshRoute, SshExitError, SshProcessError, SshTransport } from "../ssh";
 import { openMachineLink } from "../ssh/machine-commands";
+import { noteMachinesChanged } from "../hosts/machine-changes";
 import { linkLog } from "./log";
 import { makeLinkSession } from "./session";
 import { LinkHelloSchema } from "./protocol";
@@ -72,12 +73,16 @@ export const makeMachineLink = (options: { readonly build: string }) => Effect.g
       if (setupId !== undefined && hello.installationId !== setupId) throw new LinkHelloRefused({ machine: hello.machineName, check: "setup-identity", message: "The SSH route does not match the installed machine identity" });
       if (setupId === undefined || setupCommitted) await activePeer(hello);
       // Only a checked existing binding can contribute a build warning.
-      if (setupId === undefined || setupCommitted) builds.set(hello.machineName, hello.build);
+      if (setupId === undefined || setupCommitted) {
+        builds.set(hello.machineName, hello.build);
+        noteMachinesChanged();
+      }
       if (hello.build !== own.build) throw LinkBuildMismatch.of(hello, own.build);
       if (setupId !== undefined && !setupCommitted) {
         await run(machines.pinPeer({ machineName: hello.machineName, installationId: hello.installationId }));
         setupCommitted = true;
         builds.set(hello.machineName, hello.build);
+        noteMachinesChanged();
       }
     };
   };

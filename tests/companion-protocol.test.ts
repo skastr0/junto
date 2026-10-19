@@ -152,6 +152,9 @@ describe("request decoding", () => {
     "quickReplies.get": {},
     "portrait.get": { portraitIdentity: "planner", size: 96, theme: "dark" },
     "content.get": { sha256: "9165917e794ecf12afe96968051d9e450272e632486a9be839646fd1449bb95e", offset: 0, length: 4096 },
+    "machines.list": {},
+    "machine.get": { name: "mini", minLevel: "warn" },
+    "tailnet.peers": {},
   };
 
   it("accepts every op with valid arguments", () => {

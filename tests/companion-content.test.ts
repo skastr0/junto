@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Result } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import { feedContentRefs, handleCompanionRequest, makeContentGate, outcomeFail, outcomeOk, type CompanionBackend } from "../src/shared/companion-core";
+import { feedContentRefs, handleCompanionRequest, makeCompanionGates, outcomeFail, outcomeOk, type CompanionBackend } from "../src/shared/companion-core";
 import { demoRequest, makeDemoHost } from "../src/shared/companion-demo";
 import {
   COMPANION_CONTENT_CHUNK_MAX,
@@ -111,10 +111,13 @@ describe("content.get through the request core", () => {
     quickReplies: async () => outcomeOk([]),
     portrait: async () => outcomeOk(""),
     contentRange: async (_ref, _offset, length) => outcomeOk(new Uint8Array(length)),
+    machines: async () => outcomeOk([]),
+    machine: async () => outcomeFail("not-found"),
+    tailnetPeers: async () => outcomeOk({ available: false, peers: [] }),
     ...over,
   });
-  const call = (backend: CompanionBackend, args: object, contentSlot = makeContentGate()) =>
-    handleCompanionRequest(frame(args), { backend, device: { deviceId: "dev", state: "paired" }, allowWrite: () => true, contentSlot });
+  const call = (backend: CompanionBackend, args: object, gates = makeCompanionGates()) =>
+    handleCompanionRequest(frame(args), { backend, device: { deviceId: "dev", state: "paired" }, allowWrite: () => true, gates });
 
   it("never asks the store for a digest outside the feed", async () => {
     let asked = 0;
@@ -144,7 +147,7 @@ describe("content.get through the request core", () => {
   });
 
   it("holds a phone to four unanswered requests, and frees a slot when one answers", async () => {
-    const gate = makeContentGate();
+    const gate = makeCompanionGates();
     const waits: Array<() => void> = [];
     const backend = backendOf({ contentRange: (_r, _o, length) => new Promise((resolve) => waits.push(() => resolve(outcomeOk(new Uint8Array(length))))) });
     const pending = [0, 1, 2, 3].map(() => call(backend, { sha256: ref.sha256, offset: 0, length: 1 }, gate));

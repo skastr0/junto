@@ -70,6 +70,9 @@ const backend: CompanionServiceOptions["backend"] = ({ pairComplete }) => {
     quickReplies: async () => outcomeOk(["Yes"]),
     portrait: none,
     contentRange: none,
+    machines: none,
+    machine: none,
+    tailnetPeers: none,
   };
   return stub;
 };

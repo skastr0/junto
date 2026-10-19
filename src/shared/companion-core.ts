@@ -11,6 +11,7 @@ import type { ContentRef } from "./wire/content-ref";
 import {
   COMPANION_CONTENT_IN_FLIGHT_MAX,
   COMPANION_ERROR_COPY,
+  COMPANION_MACHINE_IN_FLIGHT_MAX,
   COMPANION_MAIL_DEFAULT_LIMIT,
   COMPANION_WRITE_LIMIT,
   COMPANION_WRITE_OPS,
@@ -20,8 +21,11 @@ import {
   companionOk,
   type CompanionCanvas,
   type CompanionError,
+  type CompanionMachine,
+  type CompanionMachineLogLevel,
   type CompanionMail,
   type CompanionRequestFrame,
+  type CompanionResultByOp,
   type CompanionResponseFrame,
   type CompanionSeat,
   type CompanionSeatDetail,
@@ -72,6 +76,14 @@ export type CompanionBackend = {
    * bytes are absent, damaged, or a size other than the ref's.
    */
   readonly contentRange: (ref: ContentRef, offset: number, length: number) => Promise<CompanionOutcome<Uint8Array>>;
+  /** Every machine this Mac knows, as its owner lists them. */
+  readonly machines: () => Promise<CompanionOutcome<ReadonlyArray<CompanionMachine>>>;
+  /** One machine read now, across its link if it has one. An unreachable machine is an answer. */
+  readonly machine: (
+    name: string,
+    minLevel: CompanionMachineLogLevel | undefined,
+  ) => Promise<CompanionOutcome<CompanionResultByOp["machine.get"]>>;
+  readonly tailnetPeers: () => Promise<CompanionOutcome<CompanionResultByOp["tailnet.peers"]>>;
 };
 
 /**
@@ -98,10 +110,10 @@ export const feedContentRefs = (feeds: ReadonlyArray<OperatorFeed>): ReadonlyMap
 const CONTENT_NOT_IN_FEED = "That file is no longer in your feed.";
 
 /**
- * At most `max` `content.get` unanswered at once, per phone. Take a slot
- * before reading; the returned release gives it back. Undefined: none free.
+ * At most `max` requests of one kind unanswered at once, per phone. Take a
+ * slot before reading; the returned release gives it back. Undefined: none free.
  */
-export const makeContentGate = (max = COMPANION_CONTENT_IN_FLIGHT_MAX): (() => (() => void) | undefined) => {
+export const makeInFlightGate = (max: number): (() => (() => void) | undefined) => {
   let open = 0;
   return () => {
     if (open >= max) return undefined;
@@ -140,6 +152,17 @@ const contentGet = async (
     data: Buffer.from(bytes.value.buffer, bytes.value.byteOffset, bytes.value.byteLength).toString("base64"),
   });
 };
+
+export type CompanionGates = {
+  readonly content: () => (() => void) | undefined;
+  readonly machine: () => (() => void) | undefined;
+};
+
+/** One phone's in-flight bounds. */
+export const makeCompanionGates = (): CompanionGates => ({
+  content: makeInFlightGate(COMPANION_CONTENT_IN_FLIGHT_MAX),
+  machine: makeInFlightGate(COMPANION_MACHINE_IN_FLIGHT_MAX),
+});
 
 export type CompanionDeviceView = {
   readonly deviceId: string;
@@ -184,8 +207,8 @@ export const handleCompanionRequest = async (
     readonly backend: CompanionBackend;
     readonly device: CompanionDeviceView;
     readonly allowWrite: () => boolean;
-    /** This phone's `content.get` slots ({@link makeContentGate}). */
-    readonly contentSlot: () => (() => void) | undefined;
+    /** This phone's `content.get` and `machine.get` slots ({@link makeCompanionGates}). */
+    readonly gates: CompanionGates;
   },
 ): Promise<CompanionResponseFrame> => {
   const { backend, device } = context;
@@ -250,7 +273,7 @@ export const handleCompanionRequest = async (
         (svg) => companionOk(id, "portrait.get", { svg }),
       );
     case "content.get": {
-      const release = context.contentSlot();
+      const release = context.gates.content();
       if (release === undefined)
         return companionFail(id, companionError("rate-limited", "Too many files at once. Wait for one to arrive."));
       try {
@@ -261,5 +284,21 @@ export const handleCompanionRequest = async (
         release();
       }
     }
+    case "machines.list":
+      return respond(id, backend.machines(), (machines) => companionOk(id, "machines.list", { machines }));
+    case "machine.get": {
+      const release = context.gates.machine();
+      if (release === undefined)
+        return companionFail(id, companionError("rate-limited", "Already reading two machines. Wait for one to answer."));
+      try {
+        return await respond(id, backend.machine(frame.args.name, frame.args.minLevel), (value) =>
+          companionOk(id, "machine.get", value),
+        );
+      } finally {
+        release();
+      }
+    }
+    case "tailnet.peers":
+      return respond(id, backend.tailnetPeers(), (value) => companionOk(id, "tailnet.peers", value));
   }
 };

@@ -55,6 +55,7 @@ import type { WorkSeatRecentOp } from "@shared/work-recent-ops";
 import { AppRuntime } from "../../runtime";
 import { ContentService } from "../content/service";
 import { readContentObjectRange } from "../content/store";
+import { companionMachineBackend } from "./machines";
 import { ModelService } from "../model/service";
 import { getExecutionByCanvas } from "../kernel/cycle";
 import { PausePlane } from "../pause-plane";
@@ -447,4 +448,6 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
     );
     return bytes === undefined ? outcomeFail("unavailable") : outcomeOk(bytes);
   },
+
+  ...companionMachineBackend,
 });

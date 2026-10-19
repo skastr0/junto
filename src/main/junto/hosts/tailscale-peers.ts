@@ -65,6 +65,12 @@ export class TailscalePeerCache {
     return undefined;
   }
 
+  /** The snapshot, refreshed first when stale; undefined when Tailscale cannot be read. */
+  async current(): Promise<TailscaleStatusSnapshot | undefined> {
+    if (this.snapshot && this.now() - this.fetchedAt < this.ttlMs) return this.snapshot;
+    return (await this.refresh()) ?? this.snapshot;
+  }
+
   /** Force refresh (tests / doctor). */
   async refresh(): Promise<TailscaleStatusSnapshot | undefined> {
     if (this.inflight) return this.inflight;

@@ -45,6 +45,14 @@ export const COMPANION_MAIL_MAX_LIMIT = 200;
 export const COMPANION_CONTENT_CHUNK_MAX = 256 * 1024;
 /** `content.get` requests one phone may have unanswered at once. */
 export const COMPANION_CONTENT_IN_FLIGHT_MAX = 4;
+/** Log rows one `machine.get` returns at most, the newest that match. */
+export const COMPANION_MACHINE_LOG_ROWS = 50;
+/** `machine.get` requests one phone may have unanswered at once: each can cross a link. */
+export const COMPANION_MACHINE_IN_FLIGHT_MAX = 2;
+/** A log row's or a failure's sentence, cut to this many characters for the phone. */
+export const COMPANION_MACHINE_TEXT_MAX = 1024;
+/** A check older than this is not sent: the phone shows the machine as not checked. */
+export const COMPANION_MACHINE_CHECK_AGO_MAX_MS = 7 * 24 * 60 * 60_000;
 
 // --- primitives --------------------------------------------------------------
 
@@ -185,6 +193,91 @@ export const CompanionMail = Schema.Struct({
 });
 export type CompanionMail = typeof CompanionMail.Type;
 
+// --- machines ----------------------------------------------------------------
+// Read only. No endpoint, path, key, pin or installation id reaches the phone.
+
+/** A typed failure as the phone shows it: its tag and its scrubbed sentence, no cause chain. */
+export const CompanionMachineFailure = Schema.Struct({
+  tag: Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z][A-Za-z0-9_]{0,63}$/u))),
+  message: bounded(1, COMPANION_MACHINE_TEXT_MAX),
+});
+export type CompanionMachineFailure = typeof CompanionMachineFailure.Type;
+
+export const CompanionMachine = Schema.Struct({
+  name: bounded(1, 64),
+  label: bounded(1, 64),
+  thisMachine: Schema.Boolean,
+  form: Schema.optionalKey(Schema.Literals(["macbook", "mac-mini", "mac-studio", "mac", "linux"])),
+  setUp: Schema.Boolean,
+  /** Its build differs from this Mac's, as the owner compares them. */
+  needsUpdate: Schema.Boolean,
+  /** The matching tailnet device's own flag: not Junto reachability. */
+  tailnet: Schema.Literals(["online", "offline", "unknown"]),
+  /** The newest `machine.get` answer for it. A duration, never a time: the phone ages it on its own clock. */
+  lastCheck: Schema.optionalKey(Schema.Struct({
+    checkedAgoMs: intBetween(0, COMPANION_MACHINE_CHECK_AGO_MAX_MS),
+    reachable: Schema.Boolean,
+    failure: Schema.optionalKey(CompanionMachineFailure),
+  })),
+});
+export type CompanionMachine = typeof CompanionMachine.Type;
+
+export const CompanionMachineLogLevel = Schema.Literals(["trace", "debug", "info", "warn", "error", "fatal"]);
+export type CompanionMachineLogLevel = typeof CompanionMachineLogLevel.Type;
+
+export const CompanionMachineStatus = Schema.Struct({
+  reachable: Schema.Boolean,
+  /** The first 12 hex of its build, for display. */
+  build: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isPattern(/^[0-9a-f]{12}$/u)))),
+  keychain: Schema.optionalKey(Schema.Literals(["available", "unavailable", "not-applicable"])),
+  harnesses: Schema.Array(Schema.Struct({
+    harness: bounded(1, 64),
+    installed: Schema.Boolean,
+    signIn: Schema.optionalKey(Schema.Literals(["not-installed", "sign-in-unverified", "keychain-login-unavailable"])),
+  })).pipe(Schema.check(Schema.isMaxLength(32))),
+  /** Names only, never values. */
+  missingSecrets: Schema.Array(Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/u)))).pipe(
+    Schema.check(Schema.isMaxLength(64)),
+  ),
+  detail: Schema.optionalKey(bounded(1, 1024)),
+  failure: Schema.optionalKey(CompanionMachineFailure),
+});
+export type CompanionMachineStatus = typeof CompanionMachineStatus.Type;
+
+export const CompanionMachineLogRow = Schema.Struct({
+  time: bounded(1, 32),
+  level: CompanionMachineLogLevel,
+  area: Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-z0-9][a-z0-9._-]{0,47}$/u))),
+  message: Schema.String.pipe(Schema.check(Schema.isMaxLength(COMPANION_MACHINE_TEXT_MAX))),
+  canvas: Schema.optionalKey(bounded(1, 256)),
+  seat: Schema.optionalKey(bounded(1, 128)),
+  failure: Schema.optionalKey(CompanionMachineFailure),
+});
+export type CompanionMachineLogRow = typeof CompanionMachineLogRow.Type;
+
+export const CompanionMachineLogs = Schema.Union([
+  Schema.Struct({
+    /** The newest rows that match, oldest first. */
+    rows: Schema.Array(CompanionMachineLogRow).pipe(Schema.check(Schema.isMaxLength(COMPANION_MACHINE_LOG_ROWS))),
+    /** More rows matched than were returned. */
+    cut: Schema.Boolean,
+  }),
+  /** The log could not be read: a fixed sentence saying why, never the raw link error. */
+  Schema.Struct({ unavailable: bounded(1, 256) }),
+]);
+export type CompanionMachineLogs = typeof CompanionMachineLogs.Type;
+
+/** Outside text, chosen by whoever runs that device: plain text only on the phone. */
+export const CompanionTailnetPeer = Schema.Struct({
+  name: bounded(1, 64),
+  dnsName: Schema.optionalKey(bounded(1, 255)),
+  os: Schema.optionalKey(bounded(1, 32)),
+  online: Schema.Boolean,
+  /** The Junto machine this device is, when it is one. */
+  machine: Schema.optionalKey(bounded(1, 64)),
+});
+export type CompanionTailnetPeer = typeof CompanionTailnetPeer.Type;
+
 export const CompanionHello = Schema.Struct({
   appVersion: Schema.String,
   deviceId: Schema.String,
@@ -212,6 +305,9 @@ export const COMPANION_OPS = [
   "quickReplies.get",
   "portrait.get",
   "content.get",
+  "machines.list",
+  "machine.get",
+  "tailnet.peers",
 ] as const;
 export const CompanionOpName = Schema.Literals(COMPANION_OPS);
 export type CompanionOpName = typeof CompanionOpName.Type;
@@ -253,6 +349,10 @@ export const CompanionArgs = {
     offset: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }))),
     length: intBetween(1, COMPANION_CONTENT_CHUNK_MAX),
   }),
+  "machines.list": Empty,
+  /** `minLevel`: only log rows at or above it, so noise never pushes an error off the page. */
+  "machine.get": Schema.Struct({ name: bounded(1, 64), minLevel: Schema.optionalKey(CompanionMachineLogLevel) }),
+  "tailnet.peers": Empty,
 } as const satisfies Record<CompanionOpName, Schema.Top>;
 
 /**
@@ -288,6 +388,15 @@ export const CompanionResults = {
     byteLength: Schema.Number,
     /** Standard padded base64 of the bytes [offset, offset + length). */
     data: Schema.String,
+  }),
+  "machines.list": Schema.Struct({
+    machines: Schema.Array(CompanionMachine).pipe(Schema.check(Schema.isMaxLength(32))),
+  }),
+  "machine.get": Schema.Struct({ machine: CompanionMachine, status: CompanionMachineStatus, logs: CompanionMachineLogs }),
+  "tailnet.peers": Schema.Struct({
+    /** False when Tailscale is absent or could not be read; never an error. */
+    available: Schema.Boolean,
+    peers: Schema.Array(CompanionTailnetPeer).pipe(Schema.check(Schema.isMaxLength(128))),
   }),
 } as const satisfies Record<CompanionOpName, Schema.Top>;
 
@@ -330,6 +439,7 @@ export const CompanionEvents = {
   preamble: Schema.Struct({ canvasName: Schema.String, nodeId: Schema.String, preamble: CompanionPreamble }),
   "seat.removed": Schema.Struct({ canvasName: Schema.String, nodeId: Schema.String }),
   "canvases.changed": Schema.Struct({ canvases: Schema.Array(CompanionCanvas) }),
+  "machines.changed": Schema.Struct({ machines: Schema.Array(CompanionMachine) }),
 } as const;
 export type CompanionEventName = keyof typeof CompanionEvents;
 export type CompanionEventDataByName = {

@@ -17,7 +17,7 @@ import type { AgentSignal } from "./agent-signals";
 import { rollupSeatSignals } from "./agent-signals";
 import {
   handleCompanionRequest,
-  makeContentGate,
+  makeCompanionGates,
   makeWriteLimiter,
   outcomeFail,
   outcomeOk,
@@ -30,11 +30,14 @@ import {
   COMPANION_PROTOCOL,
   COMPANION_SEAT_HISTORY_LIMIT,
   type CompanionActivity,
+  type CompanionMachineLogLevel,
   type CompanionMail,
   type CompanionRequestFrame,
   type CompanionResponseFrame,
 } from "./companion-protocol";
 import { buildOperatorFeed, feedSeatsFromCanvas, type FeedHealth } from "./operator-feed";
+
+const DEMO_LOG_LEVELS: ReadonlyArray<CompanionMachineLogLevel> = ["trace", "debug", "info", "warn", "error", "fatal"];
 import { THREAD_HEALTH_LABEL, THREAD_HEALTH_TONE, type ThreadHealthReading, type ThreadHealthValue } from "./thread-health";
 import {
   DEMO_ACTIVITY,
@@ -47,6 +50,7 @@ import {
   DEMO_DEVICE_NAME,
   DEMO_HEALTH_CONFIDENCE,
   DEMO_HEALTH_OBSERVED_AT,
+  DEMO_MACHINES,
   DEMO_MAIL,
   DEMO_PREAMBLES,
   DEMO_QUICK_REPLIES,
@@ -55,6 +59,7 @@ import {
   DEMO_SIGNALS,
   DEMO_STATION,
   DEMO_T0,
+  DEMO_TAILNET,
   demoSeatPosition,
   type DemoMail,
   type DemoRegion,
@@ -264,6 +269,17 @@ export const makeDemoBackend = (machineName: string): CompanionBackend & {
       if (stored === undefined) return outcomeFail("unavailable");
       return outcomeOk(new TextEncoder().encode(stored.text).subarray(offset, offset + length));
     },
+    machines: async () => outcomeOk(DEMO_MACHINES.map((entry) => entry.machine)),
+    machine: async (name, minLevel) => {
+      const entry = DEMO_MACHINES.find((candidate) => candidate.machine.name === name);
+      if (entry === undefined) return outcomeFail("not-found", "No such machine on this Mac.");
+      const rank = (level: CompanionMachineLogLevel): number => DEMO_LOG_LEVELS.indexOf(level);
+      const logs = typeof entry.logs === "string"
+        ? { unavailable: entry.logs }
+        : { rows: entry.logs.filter((row) => minLevel === undefined || rank(row.level) >= rank(minLevel)), cut: false };
+      return outcomeOk({ machine: entry.machine, status: entry.status, logs });
+    },
+    tailnetPeers: async () => outcomeOk({ available: true, peers: DEMO_TAILNET }),
   };
 };
 
@@ -275,7 +291,7 @@ export const makeDemoHost = (options: {
 }): CompanionHost => {
   const backend = makeDemoBackend(options.machineName);
   const allowWrite = makeWriteLimiter();
-  const contentSlot = makeContentGate();
+  const gates = makeCompanionGates();
   let waiters: Array<() => void> = [];
   const wake = (): void => {
     const current = waiters;
@@ -305,7 +321,7 @@ export const makeDemoHost = (options: {
         backend,
         device: { deviceId: DEMO_DEVICE_ID, state: "paired" },
         allowWrite,
-        contentSlot,
+        gates,
       });
       if (backend.revision() !== before) wake();
       return response;
