@@ -78,6 +78,14 @@ const stored = async (content: ContentServiceShape, ref: { sha256: string }) => 
   return readFileSync(local.path);
 };
 
+/**
+ * What the store holds, as its digest. A deep `toEqual` walks a Buffer
+ * byte by byte: on megabytes it takes a minute and gigabytes of heap, and
+ * a macOS CI fork dies under it.
+ */
+const storedDigest = async (content: ContentServiceShape, ref: { sha256: string }) =>
+  sha(await stored(content, ref));
+
 describe("stageFile", () => {
   it("sends a small file in one call, with its digest, and answers the reference", async () => {
     const { content, frames, socket, file } = await boot();
@@ -114,7 +122,7 @@ describe("stageFile", () => {
     expect(Object.keys(frames[1]!.args).sort()).toEqual(["bytesBase64", "stageId"]);
     expect(Object.keys(frames[2]!.args).sort()).toEqual(["bytesBase64", "done", "stageId"]);
     expect(frames[1]!.args.stageId).toBe(frames[2]!.args.stageId);
-    expect(await stored(content, ref)).toEqual(bytes);
+    expect(await storedDigest(content, ref)).toBe(sha(bytes));
     expect(readdirSync(contentStagingDir(content.root))).toEqual([]);
   }, 60_000);
 
@@ -126,7 +134,7 @@ describe("stageFile", () => {
     );
     expect(ref.byteLength).toBe(CONTENT_STAGE_PIECE_BYTES);
     expect(frames).toHaveLength(1);
-    expect(await stored(content, ref)).toEqual(exact);
+    expect(await storedDigest(content, ref)).toBe(sha(exact));
 
     const empty = await Effect.runPromise(
       stageFile(file("empty.txt", Buffer.alloc(0)), { mediaType: "text/plain" }).pipe(Effect.provide(socket())),
@@ -193,7 +201,7 @@ describe("stageBytes", () => {
     const ref = await Effect.runPromise(stageBytes(bytes, { mediaType: "application/octet-stream" }).pipe(Effect.provide(socket())));
     expect(ref).toEqual({ sha256: sha(bytes), byteLength: bytes.length, mediaType: "application/octet-stream" });
     for (const frame of frames) expect(frame.bytes).toBeLessThan(WORK_MAX_FRAME_BYTES);
-    expect(await stored(content, ref)).toEqual(bytes);
+    expect(await storedDigest(content, ref)).toBe(sha(bytes));
     expect(readdirSync(contentStagingDir(content.root))).toEqual([]);
   }, 60_000);
 });
