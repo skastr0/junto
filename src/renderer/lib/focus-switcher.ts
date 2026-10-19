@@ -4,7 +4,7 @@
  * file holds the model.
  *
  * The catalog is every agent seat by recency, like cmd+tab: the seats the
- * operator visited most recently first (the hotbar MRU), then the ones never
+ * operator visited most recently first (seat-visits), then the ones never
  * visited, by name. Urgency is cmd+K's job. It is a snapshot, read once as the
  * switcher comes up, so nothing reorders under the operator while they step.
  *
@@ -16,7 +16,6 @@ import { titleOf } from "@shared/model/title";
 import { activateNodeSurface } from "./activate-node-surface";
 import { dock$, nodeIdForSurface } from "./dock-state";
 import { slotIndexOf, type HotbarSlot } from "./hotbar-slots";
-import { touchHotbarRecency } from "./command-bar";
 import { state$ } from "./state";
 import type { WorkSurface } from "./surface-registry";
 import { modelStore } from "./use-model";
@@ -67,7 +66,7 @@ export type FocusSwitcherCatalogInput = {
   /** Open surfaces, front first: the first one names the agent in front. */
   readonly focusNodeIds: ReadonlyArray<string>;
   readonly hotbarSlots: ReadonlyArray<HotbarSlot>;
-  /** Node ids the operator visited, most recent first (hotbarActiveMru). */
+  /** Node ids the operator visited, most recent first (seatVisitOrder). */
   readonly recentIds: ReadonlyArray<string>;
 };
 
@@ -138,7 +137,7 @@ const snapshotCatalog = (): ReadonlyArray<FocusSwitcherEntry> => {
     nodes: canvas === "" ? [] : [...modelStore.canvasOf(canvas).nodes.values()],
     focusNodeIds: focusMruNodeIds(registry.surfaces, registry.focusMru),
     hotbarSlots: state$.hotbarSlots.peek(),
-    recentIds: state$.hotbarActiveMru.peek(),
+    recentIds: state$.seatVisitOrder.peek(),
   });
 };
 
@@ -202,8 +201,6 @@ export const commitFocusSwitcher = (): boolean => {
   const entry = session.entries[session.selectedIndex];
   cancelFocusSwitcher();
   if (!entry) return false;
-  // Landing on a seat is a visit: the next cmd+` goes back to the one just left.
-  touchHotbarRecency(entry.nodeId);
   const result = activateNodeSurface(entry.nodeId);
   return result.opened;
 };

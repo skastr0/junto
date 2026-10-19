@@ -55,6 +55,8 @@ export const state$ = observable({
   })) as ReadonlyArray<HotbarSlot>,
   /** Most-recently-active node ids (front = newest) for opportunistic leases. */
   hotbarActiveMru: [] as ReadonlyArray<string>,
+  /** Seats the operator brought to the front, front = newest (seat-visits.ts). */
+  seatVisitOrder: [] as ReadonlyArray<string>,
   /**
    * Operator command groups past slot 9, by canvas name: shown in the top
    * bar without a hotkey. App-local for the session, never authorial.

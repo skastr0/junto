@@ -96,7 +96,7 @@ test("Cmd+backtick brings up the agents, the most recently visited first", async
     await expect(hud.locator("[data-layer-backdrop]")).toBeVisible();
     await expect(hud.getByRole("listbox")).toBeFocused();
 
-    // Nothing visited yet: by name, urgency does not count (echo is blocked and sits fifth).
+    // Alpha was visited (the double-click), the rest by name: urgency does not count (echo is blocked and sits fifth).
     const cards = hud.getByRole("option");
     await expect(cards).toHaveCount(7);
     const order = await cards.evaluateAll((all) => all.map((card) => card.getAttribute("data-node-id")));

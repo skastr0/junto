@@ -2,6 +2,7 @@ import { nodesOf } from "@shared/model";
 import { seatUrgencyOf } from "../components/SeatRing";
 import { playCue } from "./sound";
 import { selectNode, state$ } from "./state";
+import { recordSeatVisit } from "./seat-visits";
 import { seatUrgencyOrder } from "./urgency-order";
 import { modelStore } from "./use-model";
 
@@ -67,5 +68,6 @@ export const stepToNextAgent = (): boolean => {
   playCue("navigate");
   selectNode(nodeId);
   state$.focusNodeId.set(nodeId);
+  recordSeatVisit(canvas, nodeId);
   return true;
 };

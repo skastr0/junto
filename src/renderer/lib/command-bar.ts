@@ -6,6 +6,7 @@ import { touchActiveMru } from "./hotbar-slots";
 import { roleOfKind } from "./model-kind";
 import { searchOf } from "./node-presentation";
 import { PALETTE_RANK } from "./seat-line";
+import { recordSeatVisit } from "./seat-visits";
 import { selectNode, state$ } from "./state";
 import { nodeAt } from "./use-model";
 
@@ -24,20 +25,18 @@ const leasesHotbarSlot = (canvas: string, nodeId: string): boolean => {
   return node !== undefined && roleOfKind(node.kind) === "actor";
 };
 
-/** Record a visit: an actor moves to the front of the hotbar MRU, which the
- * agent switcher (cmd+`) orders by. Other kinds earn no slot and no recency. */
-export const touchHotbarRecency = (nodeId: string): void => {
-  if (!leasesHotbarSlot(state$.canvasName.peek(), nodeId)) return;
-  state$.hotbarActiveMru.set(touchActiveMru(state$.hotbarActiveMru.peek(), nodeId));
-};
-
 /** Focus a node from the command bar: select it, request the one-shot camera
  * fit, and lease actor MRU exactly like the RTS focus key. */
 export const focusCanvasNode = (nodeId: string): void => {
   batch(() => {
     selectNode(nodeId);
     state$.focusNodeId.set(nodeId);
-    touchHotbarRecency(nodeId);
+    if (leasesHotbarSlot(state$.canvasName.peek(), nodeId)) {
+      state$.hotbarActiveMru.set(
+        touchActiveMru(state$.hotbarActiveMru.peek(), nodeId),
+      );
+    }
+    recordSeatVisit(state$.canvasName.peek(), nodeId);
   });
 };
 

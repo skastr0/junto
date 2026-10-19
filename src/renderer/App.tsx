@@ -131,6 +131,7 @@ const resetCanvasView = (): void => {
     // being opened; leases recompute from activity once its doc loads.
     state$.hotbarSlots.set(canvasCommandGroups.recall(state$.canvasName.peek()));
     state$.hotbarActiveMru.set([]);
+    state$.seatVisitOrder.set([]);
     state$.regionSlotOrder.set([]);
     state$.regionSeverityByNodeId.set({});
     state$.regionCountsByNodeId.set({});

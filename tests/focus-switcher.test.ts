@@ -134,12 +134,12 @@ describe("focus switcher session", () => {
   it("opens on the seat visited just before, and landing on a seat makes it the most recent", () => {
     const previousSlots = state$.hotbarSlots.peek();
     const previousRegistry = dock$.registry.peek();
-    const previousMru = state$.hotbarActiveMru.peek();
+    const previousVisits = state$.seatVisitOrder.peek();
     const letGo = holdOpen([agent("alpha", "Alpha"), agent("bravo", "Bravo"), agent("cy", "Cy")]);
     try {
       state$.hotbarSlots.set(emptyHotbarSlots());
       dock$.registry.set(initialWorkbenchState());
-      state$.hotbarActiveMru.set(["alpha", "bravo", "cy"]);
+      state$.seatVisitOrder.set(["alpha", "bravo", "cy"]);
       expect(openFocusSwitcher(1)).toBe(true);
       const session = focusSwitcher$.session.peek();
       expect(session?.entries.map((entry) => entry.nodeId)).toEqual(["alpha", "bravo", "cy"]);
@@ -147,12 +147,12 @@ describe("focus switcher session", () => {
       expect(session && session.entries[session.selectedIndex]?.nodeId).toBe("alpha");
       expect(selectFocusSwitcherIndex(2)).toBe(true);
       commitFocusSwitcher();
-      expect(state$.hotbarActiveMru.peek().slice(0, 3)).toEqual(["cy", "alpha", "bravo"]);
+      expect(state$.seatVisitOrder.peek().slice(0, 3)).toEqual(["cy", "alpha", "bravo"]);
     } finally {
       letGo();
       state$.hotbarSlots.set(previousSlots);
       dock$.registry.set(previousRegistry);
-      state$.hotbarActiveMru.set(previousMru);
+      state$.seatVisitOrder.set(previousVisits);
     }
   });
 

@@ -6,6 +6,7 @@ import type { Node, Seat, Terminal } from "@shared/model";
 import { terminalBindingOf, sessionActorMatches } from "@shared/terminal";
 import { occupancyFromSummary } from "@shared/terminal-seat-occupancy";
 import { markAgentSeatSeen } from "./agent-seat-state";
+import { recordSeatVisit } from "./seat-visits";
 import { flushPendingCanvasSave } from "./mutations";
 import { getJuntoApi } from "./junto-api";
 import { state$ } from "./state";
@@ -181,6 +182,8 @@ const openTerminalNode = async (
 
   // Opening is "looking" — clear ready/complete (idle+unseen → idle).
   markAgentSeatSeen(binding.bindingId);
+  // Every way of bringing a seat's terminal up is a visit (the cmd+` order).
+  recordSeatVisit(canvas, node.id);
 
   if (entityKind === "agent") {
     // Surface owns ensure + attach (spinner covers the full path).
