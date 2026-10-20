@@ -260,9 +260,8 @@ describe("mail delivery", () => {
     const seat = rig({ onboarded: () => false });
     seat.append(mail("01A", "Review the patch", "prompt"));
     await seat.service.deliver(canvas, nodeId, "01A");
-    expect(seat.writes).toEqual([
-      "mail from Claude Code — new to this seat? run `junto onboard` first\nReview the patch",
-    ]);
+    expect(seat.writes).toHaveLength(1);
+    expect(seat.writes[0]).toMatch(/^mail from Claude Code, id 01A — reply: .* — new to this seat\? run `junto onboard` first\nReview the patch$/u);
   });
 
   it("sends no pointer without a lookup, and a lookup that throws never costs the delivery", async () => {
@@ -334,7 +333,9 @@ describe("mail delivery", () => {
 
     expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("delivered");
 
-    expect(seat.writes).toEqual([`mail from Claude Code\n${body}`]);
+    expect(seat.writes).toHaveLength(1);
+    expect(seat.writes[0]).toMatch(/^mail from Claude Code, id 01A — reply: junto msg reply '[^\n]*'\n/u);
+    expect(seat.writes[0]?.endsWith(`\n${body}`)).toBe(true);
     expect(seat.messages[0]?.metadata?.readAt).toBeTypeOf("number");
   });
 
@@ -797,7 +798,7 @@ describe("mail delivery", () => {
 
       expect(seat.writes).toHaveLength(3);
       expect(ids(seat.writes[0])).toEqual(["01A"]);
-      expect(seat.writes[1]).toBe("mail from Claude Code\nthe prompt");
+      expect(seat.writes[1]).toMatch(/^mail from Claude Code, id 01B — reply: junto msg reply '[^\n]*'\nthe prompt$/u);
       expect(ids(seat.writes[2])).toEqual(["01C"]);
     });
 

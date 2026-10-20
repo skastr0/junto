@@ -147,15 +147,6 @@ const typedBody = (message: Message): string => {
 /** A prompt: the sender asked for its full text, typed as is. */
 const isPromptMail = (message: Message): boolean => readMailExtension(message.metadata)?.mailKind === "prompt";
 
-/** Full-body prompt policy has its own composer; notices never choose it. */
-export const composeImmediatePromptPayload = (
-  message: Message,
-  options?: MailLineOptions,
-): string => {
-  const from = factoryMailFromSeat(message) ?? "seat";
-  return `${withOnboardPointer(`mail from ${from}`, options)}\n${typedBody(message)}`;
-};
-
 /** The sender as the mail was stamped, when the canvas has not named it. */
 const stampedSender = (message: Message): MailSender => {
   const node = message.metadata?.senderNodeId;
@@ -177,7 +168,7 @@ const replyThreadOf = (message: Message): string | undefined => {
  * `junto msg reply` that answers it. Past MAIL_TYPED_BODY_MAX characters the
  * body is cut, with a pointer to `junto msg read` for the rest.
  */
-const composeMailNotice = (message: Message, options: MailLineOptions | undefined): string => {
+const mailHeader = (message: Message, options: MailLineOptions | undefined): string => {
   const sender = options?.sender ?? stampedSender(message);
   const id = sanitizeDeliveryLine(message.messageId);
   const thread = replyThreadOf(message);
@@ -185,12 +176,27 @@ const composeMailNotice = (message: Message, options: MailLineOptions | undefine
   const reply = sender.replyTarget === undefined
     ? ""
     : ` — reply: junto msg reply '${JSON.stringify({ target: sanitizeDeliveryLine(sender.replyTarget), inReplyTo: id, text: "..." })}'`;
+  return withOnboardPointer(`${named}${reply}`, options);
+};
+
+const composeMailNotice = (message: Message, options: MailLineOptions | undefined): string => {
+  const id = sanitizeDeliveryLine(message.messageId);
   const characters = [...(typedBody(message) || "(empty)")];
   const body = characters.length > MAIL_TYPED_BODY_MAX
     ? `${characters.slice(0, MAIL_TYPED_BODY_MAX).join("")}\n(cut at ${String(MAIL_TYPED_BODY_MAX)} characters; the rest: junto msg read ${id})`
     : characters.join("");
-  return `${withOnboardPointer(`${named}${reply}`, options)}\n${body}`;
+  return `${mailHeader(message, options)}\n${body}`;
 };
+
+/**
+ * A prompt, typed whole under the notice's header: its id, its thread, and
+ * the reply that answers it. The operator's thread mail is a prompt, and
+ * `junto msg reply` with target "operator" is how the seat answers in it.
+ */
+export const composeImmediatePromptPayload = (
+  message: Message,
+  options?: MailLineOptions,
+): string => `${mailHeader(message, options)}\n${typedBody(message)}`;
 
 /**
  * What a single message types into its seat. Factory notices: whole, under

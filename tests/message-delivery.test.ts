@@ -38,7 +38,7 @@ describe("message-delivery pure helpers", () => {
       parts: [{ kind: "text", text: "mail from Peer Reviewer\nReview the patch" }],
     });
     expect(composeMessageDeliveryPayload(message)).toBe("mail from Peer Reviewer, id m1\nReview the patch");
-    expect(composeImmediatePromptPayload(message)).toBe("mail from Peer Reviewer\nReview the patch");
+    expect(composeImmediatePromptPayload(message)).toBe("mail from Peer Reviewer, id m1\nReview the patch");
     expect(composeImmediatePromptPayload({ ...message, parts: [{ kind: "text", text: "mail from someone else should be checked" }] }))
       .toContain("mail from someone else should be checked");
   });
@@ -48,7 +48,26 @@ describe("message-delivery pure helpers", () => {
       parts: [{ kind: "text", text: "Read the patch.\nCheck the failing case." }],
     });
     expect(composeImmediatePromptPayload(message)).toBe(
-      "mail from Reviewer\nRead the patch.\nCheck the failing case.",
+      "mail from Reviewer, id m1\nRead the patch.\nCheck the failing case.",
+    );
+  });
+
+  it("types operator thread mail with its id, its thread, and the reply to the operator", () => {
+    const root = userMsg({
+      messageId: "01M5BKZ0000000000000000000",
+      metadata: { factoryMail: true, mailKind: "prompt", senderNodeId: "operator", senderName: "operator" },
+      parts: [{ kind: "text", text: "Keep backfill progress in this thread." }],
+    });
+    expect(composeImmediatePromptPayload(root)).toBe(
+      `mail from operator, id 01M5BKZ0000000000000000000 — reply: junto msg reply '{"target":"operator","inReplyTo":"01M5BKZ0000000000000000000","text":"..."}'\nKeep backfill progress in this thread.`,
+    );
+    const reply = userMsg({
+      messageId: "01M5BKZ1111111111111111111",
+      metadata: { ...root.metadata, threadId: "01M5BKZ0000000000000000000" },
+      parts: [{ kind: "text", text: "Did you get a thread id?" }],
+    });
+    expect(composeImmediatePromptPayload(reply)).toBe(
+      `mail from operator, id 01M5BKZ1111111111111111111, thread 01M5BKZ0000000000000000000 — reply: junto msg reply '{"target":"operator","inReplyTo":"01M5BKZ1111111111111111111","text":"..."}'\nDid you get a thread id?`,
     );
   });
 
@@ -138,10 +157,10 @@ describe("message-delivery pure helpers", () => {
       parts: [{ kind: "text", text: "Read the patch.\nCheck the failing case." }],
     });
     expect(composeImmediatePromptPayload(prompt, { onboarded: false })).toBe(
-      `mail from Reviewer — ${MAIL_ONBOARD_POINTER}\nRead the patch.\nCheck the failing case.`,
+      `mail from Reviewer, id m1 — ${MAIL_ONBOARD_POINTER}\nRead the patch.\nCheck the failing case.`,
     );
     expect(composeImmediatePromptPayload(prompt, { onboarded: true })).toBe(
-      "mail from Reviewer\nRead the patch.\nCheck the failing case.",
+      "mail from Reviewer, id m1\nRead the patch.\nCheck the failing case.",
     );
   });
 
