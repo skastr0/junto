@@ -13,6 +13,7 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { canvasReceiptBasis } from "../src/main/junto/work/delivery-receipts";
 import { makeMessageDeliveryStore } from "../src/main/junto/work/message-delivery-store";
+import { ContentService, type ContentServiceShape } from "../src/main/junto/content/service";
 import { THIS_MACHINE } from "./support/machines";
 
 it("a delivery that typed the mail whole stamps it read with its receipt; any other leaves it unread", async () => {
@@ -44,7 +45,10 @@ it("a delivery that typed the mail whole stamps it read with its receipt; any ot
         message: { messageId, role: "user", parts: [{ kind: "text", text: messageId }] },
       }));
     }
-    const store = await runtime.runPromise(makeMessageDeliveryStore);
+    // These mails carry no files, so the content store is never read.
+    const store = await runtime.runPromise(
+      makeMessageDeliveryStore.pipe(Effect.provideService(ContentService, {} as ContentServiceShape)),
+    );
     expect(await store.acceptMessageDelivery("factory", "inbox", "whole-mail", true)).toBe(true);
     expect(await store.acceptMessageDelivery("factory", "inbox", "cut-mail", false)).toBe(true);
     // A second stamp of the same delivery changes nothing.

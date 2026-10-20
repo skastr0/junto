@@ -336,6 +336,16 @@ describe("a batch of mail for one seat", () => {
     expect(batch.whole).toEqual([true, true]);
   });
 
+  it("types each mail's files under its own body, one line each, kept to one line", () => {
+    const first = notice("01A", "first");
+    const second = notice("01B", "second");
+    const files = ["Attached: a.png (image/png, 2 KB): /w/a.png", "Attached: b\nc.txt (text/plain, 3 bytes): /w/b c.txt"];
+    const batch = composeMailBatch([{ message: first, attachmentLines: files }, { message: second }]);
+    const [, one, two] = batch.text.split("\n\n");
+    expect(one!.split("\n").slice(1)).toEqual(["first", files[0], "Attached: bc.txt (text/plain, 3 bytes): /w/b c.txt"]);
+    expect(two).toBe(composeMessageDeliveryPayload(second));
+  });
+
   it("carries the onboard pointer once, on the count line", () => {
     const batch = composeMailBatch([{ message: notice("01A", "a") }, { message: notice("01B", "b") }], { onboarded: false });
     expect(batch.text.split("\n")[0]).toBe(`2 mails, oldest first — ${MAIL_ONBOARD_POINTER}`);

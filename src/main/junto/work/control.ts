@@ -40,6 +40,7 @@ import {
 } from "@shared/crew";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
 import { mailListFilterOf, mailListMatches } from "@shared/mail-list-filter";
+import { attachmentsOf } from "@shared/mail-threads";
 import { levelOfSignal, rankOf } from "@shared/wire/urgency";
 import { seatStateRuntime } from "../term/agent-state";
 import { probeManagedHarnessInstalls } from "../term/templates/harness-install";
@@ -401,6 +402,25 @@ const withThread = <M extends Message>(message: M): M & { readonly threadId: str
     ...(typeof inReplyTo === "string" ? { inReplyTo } : {}),
   };
 };
+
+/**
+ * A seat's own mail with the operator's files on it placed where the seat
+ * opens them: `files`, one `Attached:` line each, the lines its delivery
+ * typed. Mail with no files, or whose files are not on this machine yet,
+ * reads as it is.
+ */
+const withMailFiles = (canvasName: string, nodeId: string) =>
+  <M extends Message>(message: M): Effect.Effect<M | (M & { readonly files: ReadonlyArray<string> })> =>
+    Effect.gen(function* () {
+      const refs = attachmentsOf(message);
+      if (refs.length === 0) return message;
+      const store = yield* Effect.serviceOption(ContentService);
+      if (Option.isNone(store)) return message;
+      const files = yield* operatorAttachmentLines(store.value, { canvasName, nodeId, messageId: message.messageId, refs }).pipe(
+        Effect.orElseSucceed(() => undefined),
+      );
+      return files === undefined ? message : { ...message, files };
+    });
 
 /**
  * A message id argument. A refusal names the path and the shape it wants and
@@ -1950,7 +1970,10 @@ const dispatchOp = (
         return {
           target: caller.nodeId,
           ...threadField,
-          items: sortMessagesNewestFirst(overlaid).map(withThread),
+          items: yield* Effect.forEach(
+            sortMessagesNewestFirst(overlaid).map(withThread),
+            withMailFiles(caller.canvasName, caller.nodeId),
+          ),
           sent: filtered(yield* sentMailOf(reader.success)).map(withThread),
         };
       }
@@ -2166,7 +2189,10 @@ const dispatchOp = (
       );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      return { ...exposeWorkMutation(mapped.success), message: message === undefined ? message : withThread(message) };
+      return {
+        ...exposeWorkMutation(mapped.success),
+        message: message === undefined ? message : yield* withMailFiles(caller.canvasName, caller.nodeId)(withThread(message)),
+      };
     }
 
     if (op === "msg.react") {

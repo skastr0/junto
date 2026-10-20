@@ -5,6 +5,7 @@ import type { Message } from "../src/shared/work-model";
 import { mailExtensionMetadata, type MailExtension, type MailKind } from "../src/shared/crew";
 import {
   MAIL_BATCHING,
+  MAIL_FILES_RETRY_MS,
   MAIL_HELD_RETRY_MS,
   MAIL_PASS_CHUNK,
   MessageDeliveryService,
@@ -62,6 +63,8 @@ const rig = (
     batching?: MailBatching;
     /** How long one write takes to type. */
     writeMs?: number;
+    /** A mail's placed files' lines; undefined while they are not on this machine. */
+    files?: (message: Message) => ReadonlyArray<string> | undefined;
   } = {},
 ) => {
   const messages: Message[] = [];
@@ -80,6 +83,7 @@ const rig = (
     },
     readMessage: async (_canvas, _nodeId, messageId) => messages.find((message) => message.messageId === messageId),
     listMail: async () => messages,
+    ...(options.files === undefined ? {} : { attachmentLines: async (_canvas, _node, message) => options.files!(message) }),
     acceptMessageDelivery: async (_canvas, _node, messageId, read) => {
       const index = messages.findIndex((m) => m.messageId === messageId);
       messages[index] = {
@@ -695,6 +699,66 @@ describe("mail delivery", () => {
     expect(events.at(-1)?.held).toBeUndefined();
     expect(seat.messages[0]?.metadata?.deliveredAt).toBeTypeOf("number");
     vi.useRealTimers();
+  });
+
+  describe("the operator's files on a mail", () => {
+    const FILE = { sha256: "a".repeat(64), byteLength: 2048, mediaType: "image/png", displayName: "shot.png" };
+    const LINE = "Attached: shot.png (image/png, 2 KB): /work/crew/agent-b/mail-01A/shot.png";
+    const withFiles = (message: Message): Message => ({
+      ...message,
+      metadata: { ...message.metadata, attachments: [FILE] },
+    });
+
+    it("types one line per file under a prompt's body", async () => {
+      const seat = rig({ files: () => [LINE] });
+      seat.append(withFiles(mail("01A", "look at this", "prompt")));
+      expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("delivered");
+      expect(seat.writes).toHaveLength(1);
+      expect(seat.writes[0]!.split("\n").slice(1)).toEqual(["look at this", LINE]);
+    });
+
+    it("types them under a notice too, and under a body cut at its cap", async () => {
+      const seat = rig({ files: () => [LINE] });
+      seat.append(withFiles(mail("01A", "x".repeat(MAIL_TYPED_BODY_MAX + 10))));
+      expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("delivered");
+      const lines = seat.writes[0]!.split("\n");
+      expect(lines.at(-2)).toContain("(cut at");
+      expect(lines.at(-1)).toBe(LINE);
+    });
+
+    it("waits, never failed, until the files reach this machine, then types them", async () => {
+      vi.useFakeTimers();
+      let landed = false;
+      const asked: string[] = [];
+      const seat = rig({ files: (message) => (asked.push(message.messageId), landed ? [LINE] : undefined) });
+      seat.append(withFiles(mail("01A", "look at this", "prompt")));
+
+      const first = seat.service.deliver(canvas, nodeId, "01A");
+      await vi.advanceTimersByTimeAsync(50);
+      expect(await first).toBe("waiting");
+      expect(seat.writes).toEqual([]);
+      expect(seat.messages[0]?.metadata?.deliveredAt).toBeUndefined();
+
+      await vi.advanceTimersByTimeAsync(MAIL_FILES_RETRY_MS + 50);
+      expect(asked).toEqual(["01A", "01A"]);
+      expect(seat.writes).toEqual([]);
+
+      landed = true;
+      await vi.advanceTimersByTimeAsync(MAIL_FILES_RETRY_MS + 50);
+      expect(seat.writes).toHaveLength(1);
+      expect(seat.writes[0]).toContain(LINE);
+      expect(seat.messages[0]?.metadata?.deliveredAt).toBeTypeOf("number");
+      vi.useRealTimers();
+    });
+
+    it("leaves mail without files alone", async () => {
+      const asked: string[] = [];
+      const seat = rig({ files: (message) => (asked.push(message.messageId), []) });
+      seat.append(mail("01A", "plain", "prompt"));
+      expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("delivered");
+      expect(asked).toEqual([]);
+      expect(seat.writes[0]).not.toContain("Attached:");
+    });
   });
 
   describe("gathering mail for one seat into one turn", () => {

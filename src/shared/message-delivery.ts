@@ -127,10 +127,21 @@ export type MailLineOptions = {
   readonly onboarded?: boolean;
   /** The sender as the canvas names it at delivery. Absent: as the mail was stamped. */
   readonly sender?: MailSender;
+  /**
+   * The mail's files, one `Attached:` line each with the absolute path the
+   * seat reads it from, typed under the body. A cut body keeps them.
+   */
+  readonly attachmentLines?: ReadonlyArray<string>;
 };
 
 const withOnboardPointer = (line: string, options: MailLineOptions | undefined): string =>
   options?.onboarded === false ? `${line} — ${MAIL_ONBOARD_POINTER}` : line;
+
+/** The attachment lines under a body, each kept to one line; empty with none. */
+const filesUnder = (options: MailLineOptions | undefined): string =>
+  (options?.attachmentLines ?? [])
+    .map((line) => `\n${line.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/gu, "")}`)
+    .join("");
 
 /** The mail's text as typed: its lines kept, terminal controls stripped, the old envelope dropped. */
 const typedBody = (message: Message): string => {
@@ -188,18 +199,19 @@ const composeMailNotice = (message: Message, options: MailLineOptions | undefine
   const body = characters.length > MAIL_TYPED_BODY_MAX
     ? `${characters.slice(0, MAIL_TYPED_BODY_MAX).join("")}\n(cut at ${String(MAIL_TYPED_BODY_MAX)} characters; the rest: junto msg read ${id})`
     : characters.join("");
-  return `${mailHeader(message, options)}\n${body}`;
+  return `${mailHeader(message, options)}\n${body}${filesUnder(options)}`;
 };
 
 /**
  * A prompt, typed whole under the notice's header: its id, its thread, and
- * the reply that answers it. The operator's thread mail is a prompt, and
- * `junto msg reply` with target "operator" is how the seat answers in it.
+ * the reply that answers it, with its files' lines under the body. The
+ * operator's thread mail is a prompt, and `junto msg reply` with target
+ * "operator" is how the seat answers in it.
  */
 export const composeImmediatePromptPayload = (
   message: Message,
   options?: MailLineOptions,
-): string => `${mailHeader(message, options)}\n${typedBody(message)}`;
+): string => `${mailHeader(message, options)}\n${typedBody(message)}${filesUnder(options)}`;
 
 /**
  * What a single message types into its seat. Factory notices: whole, under
@@ -238,8 +250,18 @@ export const MAIL_BATCH_BODY_MAX = 6_000;
  */
 export const MAIL_BATCH_POINTER_MAX = 20;
 
-/** One mail in a batch, and its sender as the canvas names it at delivery. */
-export type BatchedMail = { readonly message: Message; readonly sender?: MailSender };
+/** One mail in a batch, its sender as the canvas names it at delivery, and its files' lines. */
+export type BatchedMail = {
+  readonly message: Message;
+  readonly sender?: MailSender;
+  readonly attachmentLines?: ReadonlyArray<string>;
+};
+
+/** A batched mail's own line options. */
+const optionsOf = ({ sender, attachmentLines }: BatchedMail): MailLineOptions => ({
+  ...(sender === undefined ? {} : { sender }),
+  ...(attachmentLines === undefined ? {} : { attachmentLines }),
+});
 
 /** A batch as typed, and, in its order, which of its mails went in whole. */
 export type MailBatch = { readonly text: string; readonly whole: ReadonlyArray<boolean> };
@@ -273,7 +295,7 @@ export const composeMailBatch = (
   const [only] = mails;
   if (mails.length === 1 && only !== undefined) {
     return {
-      text: composeMessageDeliveryPayload(only.message, { ...options, ...(only.sender === undefined ? {} : { sender: only.sender }) }),
+      text: composeMessageDeliveryPayload(only.message, { ...options, ...optionsOf(only) }),
       whole: [mailTypedWhole(only.message)],
     };
   }
@@ -282,7 +304,8 @@ export const composeMailBatch = (
   let lastNamed = "";
   const sections: string[] = [];
   const whole: boolean[] = [];
-  for (const { message, sender } of mails) {
+  for (const mail of mails) {
+    const { message, sender } = mail;
     const length = typedLength(message);
     if (past > 0 || length > room) {
       past += 1;
@@ -293,7 +316,7 @@ export const composeMailBatch = (
       continue;
     }
     room -= length;
-    sections.push(composeMessageDeliveryPayload(message, sender === undefined ? {} : { sender }));
+    sections.push(composeMessageDeliveryPayload(message, optionsOf(mail)));
     whole.push(mailTypedWhole(message));
   }
   const counted = past - MAIL_BATCH_POINTER_MAX;

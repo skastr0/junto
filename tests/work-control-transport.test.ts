@@ -1253,6 +1253,26 @@ describe("work control transport", () => {
       expect(path.startsWith(workHome)).toBe(true);
       expect(await readFile(path)).toEqual(png);
 
+      // The answer mail reads with its file's line, the one its delivery
+      // types, in msg list and msg read: placed under the mail.
+      const inbox = (await call(server.socketPath, {
+        token: token(),
+        op: "msg.list",
+        args: { peek: true },
+      })) as { ok: true; data: { items: Array<{ messageId: string; files?: string[] }> } };
+      const mailFiles = inbox.data.items.find((item) => item.messageId === answered.messageId)?.files ?? [];
+      expect(mailFiles).toHaveLength(1);
+      expect(mailFiles[0]).toMatch(/^Attached: look-a\.png \(image\/png, 70 bytes\): \//);
+      const mailPath = mailFiles[0]!.slice(mailFiles[0]!.indexOf("): ") + 3);
+      expect(mailPath.startsWith(workHome)).toBe(true);
+      expect(await readFile(mailPath)).toEqual(png);
+      const opened = (await call(server.socketPath, {
+        token: token(),
+        op: "msg.read",
+        args: { messageId: answered.messageId },
+      })) as { ok: true; data: { message: { files?: string[] } } };
+      expect(opened.data.message.files).toEqual(mailFiles);
+
       // The same upload cannot ride on a second answer.
       const raisedAgain = (await call(server.socketPath, {
         token: token(),

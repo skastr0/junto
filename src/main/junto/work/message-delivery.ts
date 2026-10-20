@@ -42,6 +42,11 @@
  * receipt reaches the mailbox. The durable receipt (`deliveredAt`) is the
  * only delivery fact.
  *
+ * The operator's files on a mail (`metadata.attachments`) are typed under its
+ * body, one `Attached:` line each with the absolute path the seat opens. Mail
+ * whose files have not reached this machine's content store waits for them,
+ * tried again every 10 s: it is never typed without a file, and never failed.
+ *
  * Mail is typed on the machine its seat runs on. A seat on another machine
  * is not written to, woken or retried here; its mail stays in the mailbox
  * for that machine.
@@ -76,6 +81,12 @@ import {
  * told again on the seat.
  */
 export const MAIL_HELD_RETRY_MS = 60_000;
+
+/**
+ * How often mail whose files have not reached this machine's content store
+ * is tried again. It is never typed without them, and never failed.
+ */
+export const MAIL_FILES_RETRY_MS = 10_000;
 
 /** How notices for one seat gather into one typed turn. */
 export type MailBatching = {
@@ -152,6 +163,12 @@ export type MessageDeliveryStore = {
   readonly readMessage: (canvas: string, nodeId: string, messageId: string) => Promise<Message | undefined>;
   readonly listMail: (canvas: string, nodeId: string) => Promise<ReadonlyArray<Message>>;
   /**
+   * A mail's files (`metadata.attachments`) placed where its seat reads them,
+   * one `Attached:` line each. Undefined while any of them is not in this
+   * machine's content store: the mail waits for its bytes.
+   */
+  readonly attachmentLines?: (canvas: string, nodeId: string, message: Message) => Promise<ReadonlyArray<string> | undefined>;
+  /**
    * Stamp the durable delivery receipt (`deliveredAt`), and with `read` the
    * read receipt (`readAt`) beside it: mail typed whole is read.
    */
@@ -188,6 +205,8 @@ type Gathered = {
   readonly nodeId: string;
   readonly message: Message;
   readonly sender: MailSender | undefined;
+  /** Its files' lines, placed on this machine; absent for mail with none. */
+  readonly attachmentLines: ReadonlyArray<string> | undefined;
   readonly settle: (state: MailDeliveryState) => void;
 };
 
@@ -459,12 +478,21 @@ export class MessageDeliveryService {
       return "delivered";
     }
     this.waiting.set(key, { canvas, nodeId, messageId, bindingId: target.bindingId });
+    let attachmentLines: ReadonlyArray<string> | undefined;
+    if (attachmentsOf(message).length > 0) {
+      attachmentLines = await store.attachmentLines?.(canvas, nodeId, message).catch(() => undefined);
+      if (!this.active(generation)) return waiting("delivery generation ended during the files' read");
+      if (attachmentLines === undefined) {
+        this.retryHeld(canvas, nodeId, messageId, key, generation, MAIL_FILES_RETRY_MS);
+        return waiting("its files are not in this machine's content store yet");
+      }
+    }
     if (!transport.seatLive(target.bindingId)) {
       if (this.noWake.has(messageId)) return waiting("no-wake message, seat is not ready");
       return waiting(`seat is not ready, ${this.wake(transport, target.bindingId, canvas, nodeId, generation, messageId)}`);
     }
     const sender = senderOn(doc, message);
-    const mail = { key, canvas, nodeId, message, sender };
+    const mail = { key, canvas, nodeId, message, sender, attachmentLines };
     if (readMailExtension(message.metadata)?.mailKind !== "prompt") {
       return this.gather(target.bindingId, mail, generation);
     }
@@ -478,6 +506,7 @@ export class MessageDeliveryService {
     const payload = composeImmediatePromptPayload(message, {
       onboarded: onboardedOf(transport, target.bindingId),
       ...(sender === undefined ? {} : { sender }),
+      ...(attachmentLines === undefined ? {} : { attachmentLines }),
     });
     let state: MailDeliveryState = "waiting";
     const written = await this.inSeatOrder(target.bindingId, () => transport.writeMail(target.bindingId, payload));
@@ -556,7 +585,11 @@ export class MessageDeliveryService {
     }
     if (pending.length === 0 || !this.active(batch.generation)) return undefined;
     const { text, whole } = composeMailBatch(
-      pending.map(({ message, sender }) => ({ message, ...(sender === undefined ? {} : { sender }) })),
+      pending.map(({ message, sender, attachmentLines }) => ({
+        message,
+        ...(sender === undefined ? {} : { sender }),
+        ...(attachmentLines === undefined ? {} : { attachmentLines }),
+      })),
       { onboarded: onboardedOf(transport, batch.bindingId) },
     );
     return { mail: pending, whole, written: await transport.writeMail(batch.bindingId, text) };
@@ -651,19 +684,20 @@ export class MessageDeliveryService {
     });
   }
 
-  /** Try a held message again in a minute, whatever else happens. */
+  /** Try a held message again in a minute, or after `delayMs`, whatever else happens. */
   private retryHeld(
     canvas: string,
     nodeId: string,
     messageId: string,
     key: string,
     generation: number,
+    delayMs = MAIL_HELD_RETRY_MS,
   ): void {
     if (this.heldRetries.has(key)) return;
     const timer = setTimeout(() => {
       this.heldRetries.delete(key);
       if (this.active(generation)) void this.deliver(canvas, nodeId, messageId);
-    }, MAIL_HELD_RETRY_MS);
+    }, delayMs);
     timer.unref?.();
     this.heldRetries.set(key, timer);
   }
