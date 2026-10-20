@@ -236,12 +236,13 @@ const refreshed = <T>(
   order: (a: T, b: T) => number,
   beyondHead: (row: T, far: T) => boolean,
 ): { readonly rows: T[]; readonly cursor: string | undefined } => {
-  const rows = laid(held, head, id, order);
   const fresh = new Set(head.map(id));
   const far = head.reduce<T | undefined>((acc, row) => (acc === undefined || beyondHead(row, acc) ? row : acc), undefined);
-  const beyond =
-    far !== undefined && headCursor !== undefined && rows.some((row) => !fresh.has(id(row)) && beyondHead(row, far));
-  return { rows: beyond ? rows : [...head], cursor: beyond ? heldCursor : headCursor };
+  // Held rows inside the head's range that the head no longer has are gone.
+  const tail = far === undefined || headCursor === undefined ? [] : held.filter((row) => !fresh.has(id(row)) && beyondHead(row, far));
+  return tail.length === 0
+    ? { rows: [...head], cursor: headCursor }
+    : { rows: laid(tail, head, id, order), cursor: heldCursor };
 };
 
 const refreshSeat = (key: string): Promise<void> =>
@@ -258,6 +259,7 @@ const refreshSeat = (key: string): Promise<void> =>
         loaded: true,
         error: "",
         ...(head.cursor === undefined ? {} : { next: head.cursor }),
+        ...(prior?.loadingMore ? { loadingMore: true as const } : {}),
       });
     } catch (error) {
       const prior = seatThreads$.seats[key].peek();
@@ -280,6 +282,7 @@ const refreshThread = (key: string): Promise<void> =>
         loaded: true,
         error: "",
         ...(head.cursor === undefined ? {} : { older: head.cursor }),
+        ...(prior?.loadingMore ? { loadingMore: true as const } : {}),
       });
     } catch (error) {
       const prior = seatThreads$.messages[key].peek();

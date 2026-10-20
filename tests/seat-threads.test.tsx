@@ -506,6 +506,55 @@ describe("paging in the popup", () => {
     expect(calls.at(-1)).toBeUndefined();
   });
 
+  it("asks once for a page that fails and again only on the reader's next scroll", async () => {
+    const { source, calls } = pagedSource();
+    const reading = source.list;
+    let failing = false;
+    setSeatThreadsSource({
+      ...source,
+      list: async (seat) => {
+        if (failing && seat.after !== undefined) {
+          calls.push(seat.after);
+          throw new Error("no page");
+        }
+        return reading(seat);
+      },
+    });
+    await render();
+    await click(q("seat-threads-button"));
+    failing = true;
+    const list = document.querySelector<HTMLElement>(".seat-threads__list")!;
+    list.scrollTop = list.scrollHeight - VIEW - 100;
+    act(() => list.dispatchEvent(new Event("scroll")));
+    await flush();
+    await flush();
+    expect(calls.filter((call) => call === "t049")).toHaveLength(1);
+    expect(q("seat-threads")?.textContent).toContain("no page");
+    act(() => list.dispatchEvent(new Event("scroll")));
+    await flush();
+    expect(calls.filter((call) => call === "t049")).toHaveLength(2);
+  });
+
+  it("lets go of a thread the head no longer has, and keeps the pages beyond it", async () => {
+    const { source, everything } = pagedSource();
+    setSeatThreadsSource(source);
+    await render();
+    await click(q("seat-threads-button"));
+    const list = document.querySelector<HTMLElement>(".seat-threads__list")!;
+    list.scrollTop = list.scrollHeight - VIEW - 100;
+    act(() => list.dispatchEvent(new Event("scroll")));
+    await flush();
+    const gone = everything.splice(10, 1)[0]!;
+    await act(async () => {
+      const { refreshSeatThreads } = await import("../src/renderer/lib/seat-threads");
+      refreshSeatThreads(SEAT);
+    });
+    await flush();
+    const rows = all("seat-threads-row").map((row) => row.getAttribute("data-thread-id"));
+    expect(rows).not.toContain(gone.threadId);
+    expect(rows).toContain("t099");
+  });
+
   it("opens a long thread on its newest page and reads earlier ones keeping the place", async () => {
     const everything = Array.from({ length: 120 }, (_, n) => ({
       messageId: `m${String(n).padStart(3, "0")}`,
