@@ -16,11 +16,36 @@ import { OperatorInterlock } from "../../../src/main/junto/term/drive";
 import { MailReadinessLatch } from "../../../src/main/junto/term/drive/mail-readiness";
 import { InjectionSupervisor } from "../../../src/main/junto/term/injection-supervisor";
 import { makeOnboardNudgeInterject, watchSeatReadiness } from "../../../src/main/junto/term/onboard-nudge-interject";
+import { mailExtensionMetadata } from "../../../src/shared/crew";
 import { buildOnboardNudge } from "../../../src/shared/managed-terminal-injection";
+import { composeImmediatePromptPayload } from "../../../src/shared/message-delivery";
 import { CONTINUATION_LINE } from "../../../src/shared/seat-sessions";
+import { makeUserMessage } from "../../../src/shared/task";
+import { operatorActorRef } from "../../../src/shared/work-reference";
 import { DriveLoop } from "../scripted-tui";
 
 const BINDING = "seat-b1";
+
+/** An operator prompt as the seat composer stamps it, typed as delivery types it. */
+const operatorPrompt = (messageId: string, text: string): string => {
+  const sender = operatorActorRef("factory");
+  return composeImmediatePromptPayload(makeUserMessage({
+    messageId,
+    text,
+    contextId: "factory",
+    metadata: {
+      factoryMail: true,
+      ...mailExtensionMetadata({
+        mailKind: "prompt",
+        fromSeat: sender.seatId,
+        senderNodeId: sender.nodeId,
+        senderName: "operator",
+        senderGeneration: "operator",
+        senderHarness: "unknown",
+      }),
+    },
+  }));
+};
 
 const setup = (workingFrames: number, options: { readonly lineFirst: boolean }) => {
   vi.useFakeTimers({ now: 1_000_000 });
@@ -66,7 +91,7 @@ const setup = (workingFrames: number, options: { readonly lineFirst: boolean }) 
   watchSeatReadiness({ subscribeSeatState: (listener) => loop.runtime.subscribe(listener), mailReady });
   // Mail delivery hears the seat come up before the supervisor does, as in
   // the app: the operator's queued prompts are typed at the first ready moment.
-  const pending = ["mail from operator\nhijack-prompt-one", "mail from operator\nhijack-prompt-two"];
+  const pending = [operatorPrompt("p1", "hijack-prompt-one"), operatorPrompt("p2", "hijack-prompt-two")];
   const delivered: string[] = [];
   let pumping = false;
   const pump = (): void => {
