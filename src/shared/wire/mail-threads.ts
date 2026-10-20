@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { ContentRef } from "./content-ref";
 
 /**
  * Mail threads as the desktop and the phone read them: the mail that hangs
@@ -25,6 +26,8 @@ export const MailThreadMessage = Schema.Struct({
   text: Schema.String,
   /** Epoch ms, from the ULID. */
   at: Schema.Number,
+  /** Files the mail carries, by reference into the Mac content store; the bytes are served by `content.get`. */
+  attachments: Schema.optionalKey(Schema.Array(ContentRef)),
   /** Seats the mail names as a reference; they are not sent it. */
   mentions: Schema.optionalKey(Schema.Array(Schema.Struct({ kind: Schema.Literal("seat"), nodeId: Schema.String, name: Schema.String }))),
 });

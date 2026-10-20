@@ -11,7 +11,7 @@
  * Mail text never enters a refusal: every refusal here is fixed words and
  * typed ids, and a failed write is reported without the store's message.
  */
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { ulid } from "ulid";
 import { mailExtensionMetadata } from "@shared/crew";
 import { asNodeId, type Canvas } from "@shared/model";
@@ -29,7 +29,11 @@ import {
 } from "@shared/mail-threads";
 import { operatorActorRef } from "@shared/work-reference";
 import { ModelService } from "../model/service";
+import type { ContentOwner } from "../content/manifest";
+import type { ContentRef } from "@shared/wire/content-ref";
 import { messageDelivery } from "./message-delivery";
+import { claimOperatorAttachments, operatorMailOwner } from "../content/operator-attachments";
+import { ContentService } from "../content/service";
 import { heldMailbox } from "./mailbox-cache";
 import type { WorkRepository } from "./repository";
 import { WorkService } from "./service";
@@ -80,6 +84,12 @@ const mentionableIn = (canvas: Canvas, nodeId: string): ReadonlyArray<Mentionabl
     .map((seat) => ({ nodeId: seat.id as string, name: titleOf(seat) }));
 };
 
+/** A mail that was not written lets go of the files it had claimed. */
+const releaseMailFiles = (owner: ContentOwner) =>
+  Effect.flatMap(Effect.serviceOption(ContentService), (content) =>
+    Option.isNone(content) ? Effect.void : content.value.releaseOwner(owner).pipe(Effect.ignore),
+  );
+
 export const mentionableSeats = (canvasName: string, nodeId: string) =>
   Effect.map(Effect.flatMap(ModelService, (model) => model.canvas(canvasName)), (canvas) => mentionableIn(canvas, nodeId));
 
@@ -99,7 +109,8 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
     const seat = canvas.nodes.get(asNodeId(nodeId));
     if (seat?.kind !== "agent") return refused("not-found", "No such seat.");
     const text = send.text.trim();
-    if (!text) return refused("invalid", "Mail needs some text.");
+    const files = send.attachments ?? [];
+    if (!text && files.length === 0) return refused("invalid", "Mail needs some text or a file.");
 
     const wired = mentionableIn(canvas, nodeId);
     const mentions = [...new Set(send.mentions ?? [])].filter((id) => id !== nodeId);
@@ -132,6 +143,18 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
 
     const sender = operatorActorRef(canvasName);
     const messageId = ulid();
+
+    // The files the operator staged are claimed for this mail, and the mail
+    // names them as main recorded them, never as the caller spelled them.
+    const owner = operatorMailOwner(canvasName, nodeId, messageId);
+    let attachments: ReadonlyArray<ContentRef> = [];
+    if (files.length > 0) {
+      const content = yield* Effect.serviceOption(ContentService);
+      if (Option.isNone(content)) return refused("failed", "The content store is unavailable.");
+      const claimed = yield* Effect.result(claimOperatorAttachments(content.value, canvasName, files, owner));
+      if (claimed._tag === "Failure") return refused("invalid", claimed.failure.message);
+      attachments = claimed.success;
+    }
     const result = yield* (yield* WorkService).workSystemMailboxNotify(
       canvasName,
       nodeId,
@@ -153,12 +176,16 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
           ...(threadId === undefined ? {} : { threadId }),
           ...(send.inReplyTo === undefined ? {} : { inReplyTo: send.inReplyTo }),
           ...(mentions.length === 0 ? {} : { mentions }),
+          ...(attachments.length === 0 ? {} : { attachments }),
         },
       }),
     );
     // The store's message is not passed on: it is not the operator's to read,
     // and nothing may carry the mail's text out of the mailbox.
-    if (!result.ok) return refused("failed", "The mail could not be written.");
+    if (!result.ok) {
+      if (attachments.length > 0) yield* releaseMailFiles(owner);
+      return refused("failed", "The mail could not be written.");
+    }
     return { messageId: result.data.messageId, threadId: threadId ?? result.data.messageId };
   });
 

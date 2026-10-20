@@ -46,6 +46,8 @@ import {
   type OperatorThreadSend,
 } from "../src/shared/mail-threads";
 import type { MailThreadMessage, MailThreadSummary } from "../src/shared/wire/mail-threads";
+import { OPERATOR_ATTACHMENTS_MAX } from "../src/shared/operator-attachments";
+import { putOperatorContent } from "../src/main/junto/content/operator-attachments";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 
 const CANVAS = "threads";
@@ -343,6 +345,41 @@ describe("operator threads", () => {
       seatThreadMessages(CANVAS, nodeId, threadId) as Effect.Effect<ReadonlyArray<MailThreadMessage>, unknown, never>,
     );
 
+  it("carries files the operator staged: claimed for the mail, named as main recorded them, read back in the thread", async () => {
+    const bytes = Buffer.from("not really a png");
+    const staged = await runtime.runPromise(
+      putOperatorContent(CANVAS, {
+        bytesBase64: bytes.toString("base64"),
+        done: { mediaType: "image/png", displayName: "shot.png" },
+      } as never) as Effect.Effect<any, unknown, never>,
+    );
+    expect(staged.ok).toBe(true);
+    const staged_ref = staged.result.ref;
+    // The caller's spelling of the type and name is not trusted.
+    const sent = await send({ nodeId: "agent", text: "", attachments: [{ ...staged_ref, mediaType: "application/x-evil", displayName: "evil.exe" }] });
+    expect(sent).toMatchObject({ messageId: expect.any(String), threadId: expect.any(String) });
+    const [row] = (await mailbox("agent")).filter((message) => message.messageId === sent.messageId);
+    expect(row!.metadata!.attachments).toEqual([
+      expect.objectContaining({ sha256: staged_ref.sha256, byteLength: bytes.length, displayName: "shot.png" }),
+    ]);
+    const [message] = await messagesOf("agent", sent.threadId);
+    expect(message!.text).toBe("");
+    expect(message!.attachments).toEqual([expect.objectContaining({ sha256: staged_ref.sha256, displayName: "shot.png" })]);
+    const [thread] = await threadsOf("agent");
+    expect(thread!.title).toBe("shot.png");
+    // A staged file is claimed once.
+    const again = await send({ nodeId: "agent", text: "again", attachments: [staged_ref] });
+    expect(again).toMatchObject({ ok: false, reason: "invalid" });
+  });
+
+  it("refuses mail with neither text nor files, and files that were never staged", async () => {
+    expect(await send({ nodeId: "agent", text: "  " })).toMatchObject({ ok: false, reason: "invalid" });
+    const ghost = { sha256: "b".repeat(64), byteLength: 4, mediaType: "image/png", displayName: "ghost.png" };
+    const refused = await send({ nodeId: "agent", text: "look", attachments: [ghost] });
+    expect(refused).toMatchObject({ ok: false, reason: "invalid" });
+    expect(await mailbox("agent")).toEqual([]);
+  });
+
   it("starts a thread to a seat, and the seat's answer lands in it", async () => {
     const started = await send({ nodeId: "agent", text: "What is left?\nDetails follow." });
     expect(started.messageId).toBe(started.threadId);
@@ -467,12 +504,17 @@ describe("remote-security's terms on threads", () => {
   it("types and bounds the operator's send and the thread queries", () => {
     const decode = Schema.decodeUnknownResult(OperatorThreadSendSchema, { onExcessProperty: "error" });
     const ok = { canvasName: CANVAS, nodeId: "agent", text: "hi" };
+    const file = { sha256: "a".repeat(64), byteLength: 3, mediaType: "image/png", displayName: "shot.png" };
     expect(decode(ok)._tag).toBe("Success");
+    // Text may be empty when files ride along; main refuses mail with neither.
+    expect(decode({ ...ok, text: "", attachments: [file] })._tag).toBe("Success");
+    expect(decode({ ...ok, attachments: Array.from({ length: OPERATOR_ATTACHMENTS_MAX }, () => file) })._tag).toBe("Success");
     for (const bad of [
       { ...ok, canvasName: "Not A Canvas!" },
       { ...ok, nodeId: "" },
-      { ...ok, text: "" },
       { ...ok, text: "x".repeat(OPERATOR_MAIL_MAX_TEXT + 1) },
+      { ...ok, attachments: Array.from({ length: OPERATOR_ATTACHMENTS_MAX + 1 }, () => file) },
+      { ...ok, attachments: [{ ...file, sha256: "not a digest" }] },
       { ...ok, threadId: "thread-1" },
       { ...ok, inReplyTo: "msg_01" },
       { ...ok, mentions: Array.from({ length: MAIL_MENTIONS_MAX + 1 }, (_, i) => `seat-${i}`) },

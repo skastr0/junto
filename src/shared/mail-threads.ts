@@ -1,7 +1,9 @@
-import { Schema } from "effect";
+import { Result, Schema } from "effect";
 import { MailMessageId, mailThreadOf } from "./crew";
 import { CanvasName, NodeId } from "./model/base";
 import { COMPANION_MAX_TEXT } from "./wire/companion-protocol";
+import { OperatorAttachments } from "./operator-attachments";
+import { ContentRef } from "./wire/content-ref";
 import { messageIdTimeMs } from "./message-delivery";
 import type { Message } from "./work-model";
 import { OPERATOR_SEAT_ID } from "./work-reference";
@@ -51,6 +53,19 @@ const stringField = (message: Message, key: string): string | undefined => {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
 };
 
+const decodeRef = Schema.decodeUnknownResult(ContentRef, { onExcessProperty: "error" });
+
+/** The files a mail carries: `metadata.attachments`, each a content reference; any that does not read is left out. */
+export const attachmentsOf = (row: Message): ReadonlyArray<ContentRef> => {
+  const held = row.metadata?.attachments;
+  return Array.isArray(held)
+    ? held.flatMap((item) => {
+        const read = decodeRef(item);
+        return Result.isSuccess(read) ? [read.success] : [];
+      })
+    : [];
+};
+
 const partyKey = (party: MailParty): string => (party.kind === "operator" ? "operator" : `seat:${party.nodeId}`);
 
 type Entry = MailThreadMessage;
@@ -88,6 +103,7 @@ const entryOf = (row: Message, mailbox: string, seat: (nodeId: string) => SeatPa
   }
   const inReplyTo = stringField(row, "inReplyTo");
   const mentions = mentionsOf(row, seat);
+  const attachments = attachmentsOf(row);
   return {
     messageId: row.messageId,
     threadId: mailThreadOf(row),
@@ -97,6 +113,7 @@ const entryOf = (row: Message, mailbox: string, seat: (nodeId: string) => SeatPa
     mine: from.kind === "operator",
     text: text(row),
     at: messageIdTimeMs(row.messageId) ?? 0,
+    ...(attachments.length === 0 ? {} : { attachments }),
     ...(mentions.length === 0 ? {} : { mentions }),
   };
 };
@@ -130,7 +147,7 @@ const summaryOf = (threadId: string, entries: ReadonlyArray<Entry>): MailThreadS
   }
   return {
     threadId,
-    title: root.text.split(/\r?\n/, 1)[0]?.trim() ?? "",
+    title: root.text.split(/\r?\n/, 1)[0]?.trim() || (root.attachments?.[0]?.displayName ?? ""),
     participants: [...participants.values()],
     startedAt: first.at,
     lastAt: last.at,
@@ -263,7 +280,10 @@ export const OPERATOR_MAIL_MAX_TEXT = COMPANION_MAX_TEXT;
 export const OperatorThreadSend = Schema.Struct({
   canvasName: CanvasName,
   nodeId: NodeId,
-  text: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(OPERATOR_MAIL_MAX_TEXT))),
+  /** May be empty when the mail carries files; main refuses mail with neither. */
+  text: Schema.String.pipe(Schema.check(Schema.isMaxLength(OPERATOR_MAIL_MAX_TEXT))),
+  /** Files the operator uploaded to the content store ahead of the send, by reference. */
+  attachments: Schema.optionalKey(OperatorAttachments),
   threadId: Schema.optionalKey(MailMessageId),
   inReplyTo: Schema.optionalKey(MailMessageId),
   mentions: Schema.optionalKey(Schema.Array(NodeId).pipe(Schema.check(Schema.isMaxLength(MAIL_MENTIONS_MAX)))),
