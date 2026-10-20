@@ -87,6 +87,7 @@ import type {
 import type { UpdateApi } from "./update";
 import type { PreambleEvent } from "./preamble";
 import type { WireTrafficEvent } from "./wire-traffic";
+import type { MailWaitingFact } from "./mail-waiting";
 import type { AgentSignal } from "./agent-signals";
 import type { PreviewRequest, PreviewResult, PreviewPlayResult, PreviewRevealResult, PreviewSource } from "./preview";
 import type {
@@ -196,6 +197,9 @@ export const IPC_CHANNELS = {
   preamble: "junto:preamble",
   /** Main → renderer: one message typed into a seat (wire pulse, preambles). */
   wireTraffic: "junto:wire-traffic",
+  /** Mail waiting on a seat past 30 minutes: the facts that stand, and each change (display only). */
+  mailWaitingRead: "junto:mail-waiting-read",
+  mailWaiting: "junto:mail-waiting",
   /** Agent signals: list per canvas, operator answer / dismiss, live upsert. */
   agentSignalsList: "junto:agent-signals-list",
   agentSignalRespond: "junto:agent-signal-respond",
@@ -883,6 +887,8 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly factoryPauseState: (canvas: string) => Promise<CanvasPauseState>;
   /** Open signals plus recent history for every seat on the canvas. */
   readonly agentSignalsList: (canvas: string) => Promise<ReadonlyArray<AgentSignal>>;
+  /** Each seat's mail-waiting fact that stands now, for a window load (`@shared/mail-waiting`). */
+  readonly mailWaiting: () => Promise<ReadonlyArray<MailWaitingFact>>;
   /** Answer an open signal: delivered to the seat as operator mail, or only recorded when `options.silent`. */
   readonly agentSignalRespond: (
     signalId: string,
@@ -1191,6 +1197,8 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly onPreamble?: (listener: (event: PreambleEvent) => void) => () => void;
   /** One message typed into a seat, as it lands. Optional for older bridges. */
   readonly onWireTraffic?: (listener: (event: WireTrafficEvent) => void) => () => void;
+  /** A seat's mail-waiting fact as it starts, changes or clears (count 0). Optional for older bridges. */
+  readonly onMailWaiting?: (listener: (fact: MailWaitingFact) => void) => () => void;
   /** Main → renderer: a signal as it now stands (upsert by signalId). */
   readonly onAgentSignal: (listener: (signal: AgentSignal) => void) => () => void;
   /** Main → renderer: one seat's portrait override as it now stands. */

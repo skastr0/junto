@@ -54,6 +54,7 @@ import {
 import type { SnapshotState } from "@shared/entities";
 import type { PreambleEvent } from "@shared/preamble";
 import type { WireTrafficEvent } from "@shared/wire-traffic";
+import type { MailWaitingFact } from "@shared/mail-waiting";
 import type { AgentSignal } from "@shared/agent-signals";
 import type { PortraitOverrideEvent } from "@shared/portrait-overrides";
 import type { Settings, SettingsOpResult, SettingsPatch, SettingsSectionKey } from "@shared/settings";
@@ -471,6 +472,7 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     invoke(IPC_CHANNELS.factoryPauseState, IPC_TIMEOUT_MS, canvas),
   agentSignalsList: (canvas) =>
     invoke(IPC_CHANNELS.agentSignalsList, IPC_TIMEOUT_MS, canvas),
+  mailWaiting: () => invoke(IPC_CHANNELS.mailWaitingRead, IPC_TIMEOUT_MS),
   agentSignalRespond: (signalId, text, options) =>
     invoke(IPC_CHANNELS.agentSignalRespond, IPC_TIMEOUT_MS, signalId, text, options),
   agentSignalDismiss: (signalId) =>
@@ -547,6 +549,7 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   onPreamble: (listener) => subscribe<PreambleEvent>(IPC_CHANNELS.preamble, listener),
   onWireTraffic: (listener) =>
     subscribe<WireTrafficEvent>(IPC_CHANNELS.wireTraffic, listener),
+  onMailWaiting: (listener) => subscribe<MailWaitingFact>(IPC_CHANNELS.mailWaiting, listener),
   onAgentSignal: (listener) => subscribe<AgentSignal>(IPC_CHANNELS.agentSignal, listener),
   onPortraitOverride: (listener) =>
     subscribe<PortraitOverrideEvent>(IPC_CHANNELS.portraitOverride, listener),

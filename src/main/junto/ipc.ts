@@ -615,6 +615,7 @@ export const registerJuntoIpc = (): void => {
   privilegedIpc.handle(IPC_CHANNELS.agentSignalsList, (_event, canvas: string) =>
     AppRuntime.runPromise(listCanvasAgentSignals(canvas)),
   );
+  privilegedIpc.handle(IPC_CHANNELS.mailWaitingRead, () => messageDelivery.mailWaiting());
   const runSignalOperator = (
     label: MainAuthoringLabel,
     program: Effect.Effect<AgentSignalOperatorResult, never, AgentSignalRepository | WorkService>,
@@ -1915,6 +1916,9 @@ export const registerJuntoIpc = (): void => {
       messageDelivery.subscribeDelivered((event) =>
         broadcast(IPC_CHANNELS.wireTraffic, event),
       );
+      // Mail held on a seat past 30 minutes: the operator feed shows it. Display
+      // only; nothing answers it back.
+      messageDelivery.subscribeMailWaiting((fact) => broadcast(IPC_CHANNELS.mailWaiting, fact));
       const workRepository = yield* WorkRepository;
       checkoutWatch = makeCheckoutWatchComposition({
         model: yield* ModelService,
