@@ -163,10 +163,9 @@ const replyThreadOf = (message: Message): string | undefined => {
 };
 
 /**
- * A factory notice, typed whole under one header: who sent it and the regions
+ * The header a factory notice and a prompt share: who sent it and the regions
  * around them, its id, its thread when it is a reply, and the exact
- * `junto msg reply` that answers it. Past MAIL_TYPED_BODY_MAX characters the
- * body is cut, with a pointer to `junto msg read` for the rest.
+ * `junto msg reply` that answers it.
  */
 const mailHeader = (message: Message, options: MailLineOptions | undefined): string => {
   const sender = options?.sender ?? stampedSender(message);
@@ -179,6 +178,10 @@ const mailHeader = (message: Message, options: MailLineOptions | undefined): str
   return withOnboardPointer(`${named}${reply}`, options);
 };
 
+/**
+ * A factory notice, typed whole under the header. Past MAIL_TYPED_BODY_MAX
+ * characters the body is cut, with a pointer to `junto msg read` for the rest.
+ */
 const composeMailNotice = (message: Message, options: MailLineOptions | undefined): string => {
   const id = sanitizeDeliveryLine(message.messageId);
   const characters = [...(typedBody(message) || "(empty)")];
