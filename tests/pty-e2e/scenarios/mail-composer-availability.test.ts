@@ -20,6 +20,7 @@ import {
   OperatorInterlock,
   encodeBracketedPaste,
 } from "../../../src/main/junto/term/drive";
+import { OPERATOR_INPUT_LATCH_MS } from "../../../src/main/junto/term/drive/operator-interlock";
 import { SessionObserver } from "../../../src/main/junto/term/observer/session-observer";
 import { SeatStateRuntime } from "../../../src/main/junto/term/agent-state/runtime";
 import { composerAvailability } from "../../../src/shared/composer-availability";
@@ -83,6 +84,9 @@ const LAST_SCREEN: Readonly<Record<string, Readonly<Record<string, Outcome>>>> =
     "usage-limit": "dialog",
     // The weekly limit asks what to do: stop, wait, or upgrade.
     "usage-limit-weekly": "dialog",
+    // Idle after a turn, the box holding Claude's suggested next prompt: faint
+    // text nobody typed. It once held product-lead's mail for 14 hours.
+    "prompt-suggestion": "written",
   },
   codex: {
     "startup-idle": "written",
@@ -352,8 +356,12 @@ const replayEvents = async (
   harness: string,
   events: ReadonlyArray<FixtureEvent>,
   size: { cols: number; rows: number },
+  /** Called once the recording has played, before the mail: operator input lands here. */
+  afterReplay?: (interlock: OperatorInterlock, advance: (ms: number) => void) => void,
 ) => {
   const fixture = { harness, events };
+  let clock = 1_000;
+  const interlock = new OperatorInterlock(() => clock);
   const observer = new SessionObserver({ bindingId: BINDING, epoch: "e1", ...size });
   const runtime = new SeatStateRuntime({ now: () => 1_000, turnProgressWatch: false });
   runtime.bindHarness(BINDING, fixture.harness, "e1");
@@ -367,7 +375,7 @@ const replayEvents = async (
     composerVerdict: () => runtime.composerVerdict(BINDING),
     seatState: () => runtime.getState(BINDING),
     harnessFor: () => fixture.harness,
-    operatorInput: new OperatorInterlock(),
+    operatorInput: interlock,
     stallWatch: false,
     pasteToCrSettleMs: 0,
     mailUnreadableGraceMs: 0,
@@ -386,8 +394,18 @@ const replayEvents = async (
       midTurn.add(composerAvailability(runtime.composerVerdict(BINDING), "working"));
     }
   }
+  afterReplay?.(interlock, (ms) => {
+    clock += ms;
+  });
   const outcome = await drive.writeMail(BINDING, NOTICE);
-  return { outcome, writes, midTurn, state: runtime.getState(BINDING) };
+  return {
+    outcome,
+    writes,
+    midTurn,
+    state: runtime.getState(BINDING),
+    reason: runtime.machine.getSlot(BINDING)?.reason,
+    verdict: runtime.composerVerdict(BINDING),
+  };
 };
 
 describe("mail on the last screen of every recording", () => {
@@ -426,6 +444,31 @@ describe("the input box mid-turn, per harness", () => {
       Object.entries(seen).map(([harness, readings]) => [harness, [...readings].sort()]),
     );
     expect(observed).toEqual(MID_TURN);
+  });
+});
+
+describe("Claude's suggested next prompt", () => {
+  // claude/prompt-suggestion: after a turn Claude paints a suggestion into
+  // the empty box in faint text (SGR 2), as it paints its Try "..." hint.
+  // Read as a draft, any operator keystroke on the seat after it painted (a
+  // focus report counts) held mail as the operator's draft until a prompt
+  // was submitted: product-lead's mail waited 14 hours that way.
+  it("reads as an empty box, to the composer and to the seat state", async () => {
+    const { verdict, state, reason } = await replay("claude", "prompt-suggestion");
+    expect(state).toBe("idle");
+    // The empty box, not a draft: the rule that lets the seat read done.
+    expect(reason).toBe("rule:empty_prompt_idle");
+    expect(verdict).toBe("empty");
+  });
+
+  it("does not hold mail after an operator keystroke", async () => {
+    const { events } = loadFixture("claude", "prompt-suggestion");
+    const { outcome, writes } = await replayEvents("claude", events, ptySize("claude"), (interlock, advance) => {
+      interlock.noteInput(BINDING);
+      advance(OPERATOR_INPUT_LATCH_MS + 1);
+    });
+    expect(outcome).toBe("written");
+    expect(writes).toEqual([encodeBracketedPaste(NOTICE), CR]);
   });
 });
 

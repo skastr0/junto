@@ -62,6 +62,14 @@ export type SeatRule = {
   /** For `bottom_non_empty_lines` (default 5). */
   readonly regionN?: number;
   readonly matchers: SeatMatcher;
+  /**
+   * Positive matchers read `prompt_box_body` with its faint (SGR 2) cells
+   * blanked: a hint or a suggested prompt the harness paints faint is not
+   * text in the box. `not` arms still read the box as painted, so faint
+   * dialog hints still veto. Other regions, and a snapshot read without cell
+   * attributes, are read as painted.
+   */
+  readonly withoutFaint?: boolean;
   /** Live on-screen idle chrome (prompt box) — bypasses working→idle debounce. */
   readonly visibleIdle?: boolean;
   readonly visibleWorking?: boolean;
@@ -118,6 +126,8 @@ export type ComposerProbe = {
   /** For `bottom_non_empty_lines` (default 5). */
   readonly regionN?: number;
   readonly matchers: SeatMatcher;
+  /** As on SeatRule. */
+  readonly withoutFaint?: boolean;
 };
 
 export type SeatRulePack = {

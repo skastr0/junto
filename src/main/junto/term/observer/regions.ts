@@ -48,19 +48,26 @@ export const afterLastHorizontalRule = (
 };
 
 /**
- * Between the 2nd-from-last and last ─── rules (prompt box body).
- * Falls back to afterLastHorizontalRule when fewer than two rules exist.
+ * The rows of the prompt box body, as [from, to): between the 2nd-from-last
+ * and last ─── rules. Falls back to the rows after the last rule when fewer
+ * than two rules exist, and to every row when there is none.
  */
-export const promptBoxBody = (lines: readonly string[]): readonly string[] => {
+export const promptBoxRows = (lines: readonly string[]): readonly [number, number] => {
   const ruleIdx: number[] = [];
   for (let i = 0; i < lines.length; i++) {
     if (isHorizontalRule(lines[i]!)) ruleIdx.push(i);
   }
-  if (ruleIdx.length < 2) return afterLastHorizontalRule(lines);
+  if (ruleIdx.length === 0) return [0, lines.length];
+  if (ruleIdx.length === 1) return [ruleIdx[0]! + 1, lines.length];
   const top = ruleIdx[ruleIdx.length - 2]!;
   const bottom = ruleIdx[ruleIdx.length - 1]!;
-  if (bottom <= top + 1) return [];
-  return lines.slice(top + 1, bottom);
+  return [top + 1, Math.max(top + 1, bottom)];
+};
+
+/** Between the 2nd-from-last and last ─── rules (prompt box body); see promptBoxRows. */
+export const promptBoxBody = (lines: readonly string[]): readonly string[] => {
+  const [from, to] = promptBoxRows(lines);
+  return lines.slice(from, to);
 };
 
 export const abovePromptBox = (lines: readonly string[]): readonly string[] => {

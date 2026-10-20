@@ -263,6 +263,9 @@ export const claudeRules: SeatRulePack = {
       state: "idle",
       priority: 1160,
       region: "prompt_box_body",
+      // A suggested next prompt is faint text nobody typed: the box is empty.
+      // Capture: corpus/claude/prompt-suggestion.
+      withoutFaint: true,
       visibleIdle: true,
       matchers: {
         lineRegex: ["^\\s*[❯>]\\s*$"],
@@ -442,6 +445,9 @@ export const claudeRules: SeatRulePack = {
       id: "bare_prompt_empty",
       verdict: "empty",
       region: "prompt_box_body",
+      // The suggested next prompt Claude paints after a turn is faint, like
+      // its Try "..." hint. Capture: corpus/claude/prompt-suggestion.
+      withoutFaint: true,
       matchers: {
         regex: ["^\\s*[❯>]\\s*$"],
         not: [

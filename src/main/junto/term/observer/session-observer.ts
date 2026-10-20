@@ -21,6 +21,7 @@ import {
   bottomNonEmptyLines,
   footerLine,
   promptBoxBody,
+  promptBoxRows,
   abovePromptBox,
 } from "./regions";
 import type {
@@ -37,6 +38,30 @@ const require = createRequire(typeof __filename === "string" ? __filename : impo
 // CJS package: require() returns { Terminal }. Do not use ESM named import.
 // Structural typing only — full @xterm/headless types are ESM-named and break
 // the Electron main link when imported.
+type HeadlessCell = {
+  getChars: () => string;
+  getWidth: () => number;
+  isDim: () => number;
+};
+
+type HeadlessLine = {
+  translateToString: (trimRight?: boolean, start?: number, end?: number) => string;
+  getCell: (x: number, cell?: HeadlessCell) => HeadlessCell | undefined;
+};
+
+/** One row as translateToString(true) reads it, with each faint cell a space. */
+const withoutFaint = (line: HeadlessLine, cols: number, cell?: HeadlessCell): string => {
+  let out = "";
+  for (let x = 0; x < cols; x++) {
+    const at = line.getCell(x, cell);
+    if (!at) break;
+    // The right half of a wide character carries nothing of its own.
+    if (at.getWidth() === 0) continue;
+    out += at.isDim() ? " " : at.getChars() || " ";
+  }
+  return out.trimEnd();
+};
+
 type HeadlessTerminal = {
   cols: number;
   rows: number;
@@ -50,9 +75,7 @@ type HeadlessTerminal = {
       cursorY: number;
       viewportY: number;
       length: number;
-      getLine: (y: number) =>
-        | { translateToString: (trimRight?: boolean, start?: number, end?: number) => string }
-        | undefined;
+      getLine: (y: number) => HeadlessLine | undefined;
     };
   };
   parser: {
@@ -792,12 +815,14 @@ export class SessionObserver {
     const rows = this.term.rows;
     // Bottom `rows` lines of the buffer (viewport-sized tail) — stable under scroll.
     const lines: string[] = [];
+    const rowYs: number[] = [];
     const base = Math.max(0, buf.baseY + buf.cursorY - rows + 1);
     // Prefer the visible viewport when available.
     const startY = buf.viewportY;
     const from = Math.max(0, Math.min(startY, buf.length));
     for (let i = 0; i < rows; i++) {
       const line = buf.getLine(from + i);
+      rowYs.push(from + i);
       if (!line) {
         lines.push("");
         continue;
@@ -809,10 +834,26 @@ export class SessionObserver {
     // If viewport is empty/stale at spawn, fall back to baseY window.
     if (lines.every((l) => l.length === 0) && buf.length > 0) {
       lines.length = 0;
+      rowYs.length = 0;
       for (let i = 0; i < rows; i++) {
         const line = buf.getLine(base + i);
+        rowYs.push(base + i);
         lines.push(line ? line.translateToString(true, 0, cols) : "");
       }
+    }
+    // Cell attributes are read for the prompt box rows only: a few rows,
+    // where harnesses paint their faint hints and suggestions.
+    const [boxFrom, boxTo] = promptBoxRows(lines);
+    const promptBoxWithoutFaint: string[] = [];
+    let cell: HeadlessCell | undefined;
+    for (let i = boxFrom; i < boxTo; i++) {
+      const line = buf.getLine(rowYs[i]!);
+      if (!line) {
+        promptBoxWithoutFaint.push("");
+        continue;
+      }
+      cell ??= line.getCell(0);
+      promptBoxWithoutFaint.push(withoutFaint(line, cols, cell));
     }
 
     const signals: ObserverSignals = {
@@ -826,6 +867,7 @@ export class SessionObserver {
       rows,
       lines,
       text: lines.join("\n"),
+      promptBoxWithoutFaint,
       signals,
       seq: this.seq,
       epoch: this.epoch,

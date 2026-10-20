@@ -146,7 +146,7 @@ export const matcherMatches = (
 };
 
 /** What a rule reads: a region and a gate tree. */
-type RegionRule = Pick<SeatRule, "region" | "regionN" | "matchers">;
+type RegionRule = Pick<SeatRule, "region" | "regionN" | "matchers" | "withoutFaint">;
 
 export const ruleMatches = (
   rule: RegionRule,
@@ -161,7 +161,16 @@ export const ruleMatches = (
   ) {
     return false;
   }
-  return matcherMatches(rule.matchers, text, lines);
+  const box = rule.withoutFaint === true && rule.region === "prompt_box_body"
+    ? snapshot.promptBoxWithoutFaint
+    : undefined;
+  if (box === undefined) return matcherMatches(rule.matchers, text, lines);
+  // Faint cells blanked for what the box holds; the vetoes read it as painted.
+  const { not, ...positive } = rule.matchers;
+  return (
+    matcherMatches(positive, regionText(box), box) &&
+    (not === undefined || matcherMatches({ not }, text, lines))
+  );
 };
 
 /** What a matched rule read: its named groups, and the first text a pattern matched. */

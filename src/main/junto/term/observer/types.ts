@@ -38,6 +38,13 @@ export type ObserverGridSnapshot = {
   readonly lines: readonly string[];
   /** Joined detection text (newline-separated). */
   readonly text: string;
+  /**
+   * The prompt box body (promptBoxBody of `lines`) with every faint (SGR 2)
+   * cell blanked: what the harness drew there at full intensity. Hints and
+   * suggested prompts are faint; typed text is not. Absent when the snapshot
+   * was not read from a grid.
+   */
+  readonly promptBoxWithoutFaint?: readonly string[];
   readonly signals: ObserverSignals;
   /** Monotonic feed sequence from the PTY plane (not xterm-internal). */
   readonly seq: bigint;

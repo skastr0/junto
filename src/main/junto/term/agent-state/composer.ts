@@ -15,7 +15,7 @@
  * does not blind the composer question.
  */
 
-import { matcherMatches, regionLines, regionText } from "./match";
+import { ruleMatches } from "./match";
 import { rulePackFor } from "./rules";
 import { isHarnessId } from "../../../../shared/managed-terminal-templates";
 import type { ObserverGridSnapshot } from "../observer/types";
@@ -27,10 +27,7 @@ export const composerVerdictFor = (
   pack: SeatRulePack,
 ): ComposerVerdict => {
   for (const probe of pack.composer ?? []) {
-    const lines = regionLines(snapshot, probe.region, probe.regionN);
-    if (matcherMatches(probe.matchers, regionText(lines), lines)) {
-      return probe.verdict;
-    }
+    if (ruleMatches(probe, snapshot)) return probe.verdict;
   }
   // Evidence past the probes only classifies a draft: it supplies no
   // empty-composer or idle authority to a new submission.
