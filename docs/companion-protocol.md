@@ -238,8 +238,9 @@ Semantics:
     of every canvas (as `feed.get` with no canvas returns them): a file
     attachment's `ref`, or a compare's `before` or `after`. Commit and link
     attachments carry no bytes. Or it is a file a mail carries in its
-    `attachments`, read as `thread.get` reads that seat's threads; the size
-    is the Mac's record of it.
+    `attachments`, read as `thread.get` reads that seat's threads, or a file
+    an answer carries in its signal's `response.attachments`; the size is the
+    Mac's record of it.
   - Errors, in this order: `invalid` for arguments the schema refuses;
     `not-found` ("That file is no longer in your feed or your mail.") for a
     digest in neither, whatever the Mac stores, so the store cannot be probed;

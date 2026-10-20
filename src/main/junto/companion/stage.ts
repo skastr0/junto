@@ -18,6 +18,7 @@ import { AppRuntime } from "../../runtime";
 import { ModelService } from "../model/service";
 import { ContentService } from "../content/service";
 import { contentStageOwner, contentStagerFor, type ContentStageError, type ContentStageSeat } from "../content/stage";
+import { AgentSignalRepository } from "../signals/repository";
 import { heldMailbox } from "../work/mailbox-cache";
 import { seatThreadMessages } from "../work/operator-threads";
 
@@ -47,8 +48,10 @@ const canvasExists = (canvasName: string): Promise<boolean> =>
 /**
  * `content.get` beyond the feeds: a digest is admitted when the store holds it
  * for a message, and that message, read as `thread.get` reads it, carries it in
- * its attachments. Task messages and other records the store also owns as
- * "message" never are. The ref answered is the store's.
+ * its attachments; or, for an answer (a quiet one writes no message), when a
+ * signal of that seat that still exists carries it in its response. Task
+ * messages and other records the store also owns as "message" never are. The
+ * ref answered is the store's.
  */
 export const mailContentRef = (sha256: string): Promise<ContentRef | undefined> =>
   AppRuntime.runPromise(
@@ -58,13 +61,16 @@ export const mailContentRef = (sha256: string): Promise<ContentRef | undefined> 
       for (const row of yield* content.value.listRefs(sha256)) {
         if (row.owner.kind !== "message") continue;
         const { canvasName, nodeId, recordId } = row.owner;
+        const carries = (files: ReadonlyArray<ContentRef> | undefined): boolean =>
+          files?.some((file) => file.sha256 === sha256 && file.byteLength === row.ref.byteLength) === true;
         const message = (yield* heldMailbox(canvasName, nodeId)).find((held) => held.messageId === recordId);
-        if (message === undefined) continue;
-        const thread = yield* seatThreadMessages(canvasName, nodeId, mailThreadOf(message));
-        const carried = thread
-          .find((mail) => mail.messageId === recordId)
-          ?.attachments?.some((file) => file.sha256 === sha256 && file.byteLength === row.ref.byteLength);
-        if (carried === true) return row.ref;
+        if (message !== undefined) {
+          const thread = yield* seatThreadMessages(canvasName, nodeId, mailThreadOf(message));
+          if (carries(thread.find((mail) => mail.messageId === recordId)?.attachments)) return row.ref;
+          continue;
+        }
+        const signals = yield* (yield* AgentSignalRepository).listSeat({ canvasName, nodeId });
+        if (signals.some((signal) => carries(signal.response?.attachments))) return row.ref;
       }
       return undefined;
     }).pipe(Effect.catch(() => Effect.succeed(undefined))),
