@@ -5,15 +5,16 @@ import { app, BrowserWindow, clipboard, ipcMain, nativeImage, shell } from "elec
 import { Effect, Result, Schema, Stream } from "effect";
 import {
   OperatorThreadSend,
-  SeatThreadQuery,
+  SeatThreadPageQuery,
+  SeatThreadsPageQuery,
   SeatThreadsQuery,
   type OperatorThreadSent,
 } from "@shared/mail-threads";
 import {
   deliverOperatorThreadMail,
   mentionableSeats,
-  seatThreadMessages,
-  seatThreads,
+  seatThreadMessagesPage,
+  seatThreadsPage,
   sendOperatorThreadMail,
 } from "./work/operator-threads";
 import {
@@ -542,14 +543,17 @@ export const registerJuntoIpc = (): void => {
   // derivation, and the operator's send into a thread with mentions.
   privilegedIpc.handle(IPC_CHANNELS.seatThreadsList, (_event, input: unknown) =>
     AppRuntime.runPromise(Effect.gen(function* () {
-      const query = yield* Schema.decodeUnknownEffect(SeatThreadsQuery, { onExcessProperty: "error" })(input);
-      return yield* seatThreads(query.canvasName, query.nodeId);
+      const query = yield* Schema.decodeUnknownEffect(SeatThreadsPageQuery, { onExcessProperty: "error" })(input);
+      return yield* seatThreadsPage(query.canvasName, query.nodeId, { limit: query.limit, after: query.after });
     })),
   );
   privilegedIpc.handle(IPC_CHANNELS.seatThreadMessages, (_event, input: unknown) =>
     AppRuntime.runPromise(Effect.gen(function* () {
-      const query = yield* Schema.decodeUnknownEffect(SeatThreadQuery, { onExcessProperty: "error" })(input);
-      return yield* seatThreadMessages(query.canvasName, query.nodeId, query.threadId);
+      const query = yield* Schema.decodeUnknownEffect(SeatThreadPageQuery, { onExcessProperty: "error" })(input);
+      return yield* seatThreadMessagesPage(query.canvasName, query.nodeId, query.threadId, {
+        limit: query.limit,
+        before: query.before,
+      });
     })),
   );
   privilegedIpc.handle(IPC_CHANNELS.seatThreadMentionables, (_event, input: unknown) =>

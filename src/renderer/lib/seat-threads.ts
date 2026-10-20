@@ -52,11 +52,25 @@ export type SeatThreadMessage = {
   readonly at: number;
 };
 
-/** What reads a seat's threads. */
+/** Threads in a page: the first on open, and each older page as the list nears its end. */
+export const THREADS_PAGE = 50;
+/** Messages in a page: the newest on open, and each older page as the chat scrolls up. */
+export const MESSAGES_PAGE = 50;
+
+/** One page of a seat's threads, newest first; `next` asks for the page after it. */
+export type SeatThreadsPage = { readonly threads: ReadonlyArray<SeatThreadSummary>; readonly next?: string };
+
+/** One page of a thread's messages, oldest first; `older` asks for the page above it. */
+export type SeatThreadMessagesPage = { readonly messages: ReadonlyArray<SeatThreadMessage>; readonly older?: string };
+
+/** What reads a seat's threads, a page at a time. */
 export type SeatThreadsSource = {
-  readonly list: (seat: SeatAddress) => Promise<ReadonlyArray<SeatThreadSummary>>;
-  /** Oldest first. */
-  readonly messages: (seat: SeatAddress & { readonly threadId: string }) => Promise<ReadonlyArray<SeatThreadMessage>>;
+  /** From the newest, or after the cursor a page gave. */
+  readonly list: (seat: SeatAddress & { readonly after?: string }) => Promise<SeatThreadsPage>;
+  /** The newest, or those before the cursor a page gave. */
+  readonly messages: (
+    seat: SeatAddress & { readonly threadId: string; readonly before?: string },
+  ) => Promise<SeatThreadMessagesPage>;
   /** Something changed in this canvas's threads; no seat means any. */
   readonly onChanged: (listener: (change: { readonly canvasName: string; readonly seatId?: string }) => void) => () => void;
 };
@@ -72,25 +86,46 @@ export const juntoSeatThreadsSource = (): SeatThreadsSource | undefined => {
   const onMail = api?.onWorkMailChanged;
   if (typeof list !== "function" || typeof messages !== "function" || typeof onMail !== "function") return undefined;
   return {
-    list: async ({ canvasName, seatId }) =>
-      (await list({ canvasName, nodeId: seatId })).map((thread) => ({
-        threadId: thread.threadId,
-        title: thread.title,
-        participants: thread.participants.map(partyName),
-        startedAt: thread.startedAt,
-        lastAt: thread.lastAt,
-        messageCount: thread.messageCount,
-        canReply: thread.canReply,
-      })),
-    messages: async ({ canvasName, seatId, threadId }) =>
-      (await messages({ canvasName, nodeId: seatId, threadId })).map((message) => ({
-        messageId: message.messageId,
-        author: partyName(message.from),
-        mine: message.mine,
-        text: message.text,
-        mentions: (message.mentions ?? []).map((seat) => seat.name),
-        at: message.at,
-      })),
+    list: async ({ canvasName, seatId, after }) => {
+      const page = await list({
+        canvasName,
+        nodeId: seatId,
+        limit: THREADS_PAGE,
+        ...(after === undefined ? {} : { after }),
+      });
+      return {
+        threads: page.threads.map((thread) => ({
+          threadId: thread.threadId,
+          title: thread.title,
+          participants: thread.participants.map(partyName),
+          startedAt: thread.startedAt,
+          lastAt: thread.lastAt,
+          messageCount: thread.messageCount,
+          canReply: thread.canReply,
+        })),
+        ...(page.next === undefined ? {} : { next: page.next }),
+      };
+    },
+    messages: async ({ canvasName, seatId, threadId, before }) => {
+      const page = await messages({
+        canvasName,
+        nodeId: seatId,
+        threadId,
+        limit: MESSAGES_PAGE,
+        ...(before === undefined ? {} : { before }),
+      });
+      return {
+        messages: page.messages.map((message) => ({
+          messageId: message.messageId,
+          author: partyName(message.from),
+          mine: message.mine,
+          text: message.text,
+          mentions: (message.mentions ?? []).map((seat) => seat.name),
+          at: message.at,
+        })),
+        ...(page.older === undefined ? {} : { older: page.older }),
+      };
+    },
     // Any mailbox can change a seat's threads: the canvas alone decides.
     onChanged: (listener) => onMail((event) => listener({ canvasName: event.canvasName })),
   };
@@ -113,15 +148,25 @@ export const setSeatThreadsSource = (next: SeatThreadsSource | undefined): void 
 };
 
 type SeatState = {
+  /** The pages read so far, newest first. */
   readonly threads: ReadonlyArray<SeatThreadSummary>;
   readonly loaded: boolean;
   readonly error: string;
+  /** Cursor for the page after the last one read; absent when the list has ended. */
+  readonly next?: string;
+  /** An older page is being read. */
+  readonly loadingMore?: true;
 };
 
 type ThreadState = {
+  /** The pages read so far, oldest first. */
   readonly messages: ReadonlyArray<SeatThreadMessage>;
   readonly loaded: boolean;
   readonly error: string;
+  /** Cursor for the page above the first one read; absent at the thread's start. */
+  readonly older?: string;
+  /** An older page is being read. */
+  readonly loadingMore?: true;
 };
 
 export const seatThreads$ = observable<{
@@ -159,17 +204,64 @@ const coalesce = async (key: string, read: () => Promise<void>): Promise<void> =
   }
 };
 
+/** Newest activity first, as the main side orders them. */
+const byActivity = (a: SeatThreadSummary, b: SeatThreadSummary): number =>
+  b.lastAt - a.lastAt || (a.threadId < b.threadId ? 1 : a.threadId > b.threadId ? -1 : 0);
+
+/** Oldest first, as the main side orders them. */
+const byAge = (a: SeatThreadMessage, b: SeatThreadMessage): number =>
+  a.at - b.at || (a.messageId < b.messageId ? -1 : a.messageId > b.messageId ? 1 : 0);
+
+/**
+ * Pages read again or further on, laid into what is held: the incoming rows
+ * win by id, the rest stay, and the order is the main side's. Reading the head
+ * again is enough to see change, because mail moves a thread to the head.
+ */
+const laid = <T>(held: ReadonlyArray<T>, incoming: ReadonlyArray<T>, id: (row: T) => string, order: (a: T, b: T) => number): T[] => {
+  const fresh = new Set(incoming.map(id));
+  return [...held.filter((row) => !fresh.has(id(row))), ...incoming].sort(order);
+};
+
+/**
+ * A head page read again over what is held. Held rows beyond the head's far
+ * end stay, with the cursor held; with none, the head is all there is and its
+ * own cursor stands.
+ */
+const refreshed = <T>(
+  held: ReadonlyArray<T>,
+  head: ReadonlyArray<T>,
+  headCursor: string | undefined,
+  heldCursor: string | undefined,
+  id: (row: T) => string,
+  order: (a: T, b: T) => number,
+  beyondHead: (row: T, far: T) => boolean,
+): { readonly rows: T[]; readonly cursor: string | undefined } => {
+  const rows = laid(held, head, id, order);
+  const fresh = new Set(head.map(id));
+  const far = head.reduce<T | undefined>((acc, row) => (acc === undefined || beyondHead(row, acc) ? row : acc), undefined);
+  const beyond =
+    far !== undefined && headCursor !== undefined && rows.some((row) => !fresh.has(id(row)) && beyondHead(row, far));
+  return { rows: beyond ? rows : [...head], cursor: beyond ? heldCursor : headCursor };
+};
+
 const refreshSeat = (key: string): Promise<void> =>
   coalesce(key, async () => {
     const read = activeSource();
     if (!read || !retained.has(key)) return;
     try {
-      const threads = await read.list(seatOfKey(key));
+      const page = await read.list(seatOfKey(key));
       if (activeSource() !== read || !retained.has(key)) return;
-      seatThreads$.seats[key].set({ threads: [...threads], loaded: true, error: "" });
+      const prior = seatThreads$.seats[key].peek();
+      const head = refreshed(prior?.threads ?? [], page.threads, page.next, prior?.next, (t) => t.threadId, byActivity, (row, far) => byActivity(row, far) > 0);
+      seatThreads$.seats[key].set({
+        threads: head.rows,
+        loaded: true,
+        error: "",
+        ...(head.cursor === undefined ? {} : { next: head.cursor }),
+      });
     } catch (error) {
       const prior = seatThreads$.seats[key].peek();
-      seatThreads$.seats[key].set({ threads: prior?.threads ?? [], loaded: true, error: errorText(error) });
+      seatThreads$.seats[key].set({ ...prior, threads: prior?.threads ?? [], loaded: true, error: errorText(error) });
     }
   });
 
@@ -179,14 +271,82 @@ const refreshThread = (key: string): Promise<void> =>
     const [canvasName = "", seatId = "", threadId = ""] = key.split("\u0000");
     if (!read || !openThreads.has(key)) return;
     try {
-      const messages = await read.messages({ canvasName, seatId, threadId });
+      const page = await read.messages({ canvasName, seatId, threadId });
       if (activeSource() !== read || !openThreads.has(key)) return;
-      seatThreads$.messages[key].set({ messages: [...messages], loaded: true, error: "" });
+      const prior = seatThreads$.messages[key].peek();
+      const head = refreshed(prior?.messages ?? [], page.messages, page.older, prior?.older, (m) => m.messageId, byAge, (row, far) => byAge(row, far) < 0);
+      seatThreads$.messages[key].set({
+        messages: head.rows,
+        loaded: true,
+        error: "",
+        ...(head.cursor === undefined ? {} : { older: head.cursor }),
+      });
     } catch (error) {
       const prior = seatThreads$.messages[key].peek();
-      seatThreads$.messages[key].set({ messages: prior?.messages ?? [], loaded: true, error: errorText(error) });
+      seatThreads$.messages[key].set({ ...prior, messages: prior?.messages ?? [], loaded: true, error: errorText(error) });
     }
   });
+
+/** The next older page of a retained seat's threads, when there is one and none is being read. */
+export const loadMoreSeatThreads = async (seat: SeatAddress): Promise<void> => {
+  const key = seatKey(seat);
+  const read = activeSource();
+  const state = seatThreads$.seats[key].peek();
+  const after = state?.next;
+  if (!read || !state || !retained.has(key) || after === undefined || state.loadingMore) return;
+  seatThreads$.seats[key].set({ ...state, loadingMore: true });
+  try {
+    const page = await read.list({ ...seat, after });
+    if (activeSource() !== read || !retained.has(key)) return;
+    const now = seatThreads$.seats[key].peek();
+    if (!now) return;
+    // A head read meanwhile may have moved the cursor on; only its own page ends here.
+    const { loadingMore: _done, next: _next, ...rest } = now;
+    const next = now.next === after ? page.next : now.next;
+    seatThreads$.seats[key].set({
+      ...rest,
+      threads: laid(now.threads, page.threads, (t) => t.threadId, byActivity),
+      error: "",
+      ...(next === undefined ? {} : { next }),
+    });
+  } catch (error) {
+    const now = seatThreads$.seats[key].peek();
+    if (now) {
+      const { loadingMore: _done, ...rest } = now;
+      seatThreads$.seats[key].set({ ...rest, error: errorText(error) });
+    }
+  }
+};
+
+/** The next older page of an open thread's messages, when there is one and none is being read. */
+export const loadOlderMessages = async (seat: SeatAddress, threadId: string): Promise<void> => {
+  const key = threadKey(seat, threadId);
+  const read = activeSource();
+  const state = seatThreads$.messages[key].peek();
+  const before = state?.older;
+  if (!read || !state || !openThreads.has(key) || before === undefined || state.loadingMore) return;
+  seatThreads$.messages[key].set({ ...state, loadingMore: true });
+  try {
+    const page = await read.messages({ ...seat, threadId, before });
+    if (activeSource() !== read || !openThreads.has(key)) return;
+    const now = seatThreads$.messages[key].peek();
+    if (!now) return;
+    const { loadingMore: _done, older: _older, ...rest } = now;
+    const older = now.older === before ? page.older : now.older;
+    seatThreads$.messages[key].set({
+      ...rest,
+      messages: laid(now.messages, page.messages, (m) => m.messageId, byAge),
+      error: "",
+      ...(older === undefined ? {} : { older }),
+    });
+  } catch (error) {
+    const now = seatThreads$.messages[key].peek();
+    if (now) {
+      const { loadingMore: _done, ...rest } = now;
+      seatThreads$.messages[key].set({ ...rest, error: errorText(error) });
+    }
+  }
+};
 
 /** Seats retained, and by how many users. */
 const retained = new Map<string, number>();

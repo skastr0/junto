@@ -19,7 +19,9 @@ import { titleOf } from "@shared/model/title";
 import { makeUserMessage } from "@shared/task";
 import {
   seatMailThreadMessages,
+  seatMailThreadMessagesPage,
   seatMailThreads,
+  seatMailThreadsPage,
   type MailThreadsInput,
   type MentionableSeat,
   type OperatorThreadSendDecoded,
@@ -51,6 +53,18 @@ export const seatThreads = (canvasName: string, nodeId: string) =>
 
 export const seatThreadMessages = (canvasName: string, nodeId: string, threadId: string) =>
   Effect.map(threadsInput(canvasName), ({ input }) => seatMailThreadMessages(input, nodeId, threadId));
+
+/** One page of the seat's threads: the desktop's list, never the whole of it. */
+export const seatThreadsPage = (canvasName: string, nodeId: string, page: { limit?: number; after?: string }) =>
+  Effect.map(threadsInput(canvasName), ({ input }) => seatMailThreadsPage(input, nodeId, page));
+
+/** One page of a thread's messages, the newest unless a cursor says otherwise. */
+export const seatThreadMessagesPage = (
+  canvasName: string,
+  nodeId: string,
+  threadId: string,
+  page: { limit?: number; before?: string },
+) => Effect.map(threadsInput(canvasName), ({ input }) => seatMailThreadMessagesPage(input, nodeId, threadId, page));
 
 /** Agent seats wired to this seat by an edge, either way. */
 const mentionableIn = (canvas: Canvas, nodeId: string): ReadonlyArray<MentionableSeat> => {

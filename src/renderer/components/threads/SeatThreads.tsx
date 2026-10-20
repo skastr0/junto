@@ -1,8 +1,10 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import {
   betweenLine,
   groupSeatThreads,
+  loadMoreSeatThreads,
+  loadOlderMessages,
   mentionParts,
   participantsLine,
   threadTime,
@@ -42,6 +44,11 @@ export function SeatThreadsButton({ seat, name }: { readonly seat: SeatAddress; 
   );
 }
 
+/** How far from the list's end, in pixels, the next older page is asked for. */
+const LIST_NEAR_END = 400;
+/** How far from the chat's top, in pixels, the next older page is asked for. */
+const CHAT_NEAR_TOP = 240;
+
 type Selection =
   | {
       readonly kind: "thread";
@@ -71,7 +78,17 @@ export function SeatThreadsPopup({
   readonly name: string;
   readonly onClose: () => void;
 }) {
-  const { threads, loaded, error } = useSeatThreads(seat);
+  const { threads, loaded, error, next, loadingMore } = useSeatThreads(seat);
+  const listRef = useRef<HTMLElement>(null);
+  // The next older page when the list is scrolled near its end, or when what
+  // is read does not yet fill the column and so cannot be scrolled.
+  const fillList = () => {
+    const list = listRef.current;
+    if (list && next !== undefined && !loadingMore && list.scrollHeight - list.scrollTop - list.clientHeight < LIST_NEAR_END) {
+      void loadMoreSeatThreads(seat);
+    }
+  };
+  useEffect(fillList, [threads, next, loadingMore]);
   const [selection, setSelection] = useState<Selection>();
   const { withYou, betweenSeats } = groupSeatThreads(threads);
 
@@ -125,7 +142,7 @@ export function SeatThreadsPopup({
       testId="seat-threads"
     >
       <div className="seat-threads__panes">
-        <nav className="seat-threads__list" aria-label={`Threads of ${name}`}>
+        <nav ref={listRef} className="seat-threads__list" aria-label={`Threads of ${name}`} onScroll={fillList}>
           <Button
             size="sm"
             variant="chrome"
@@ -158,6 +175,11 @@ export function SeatThreadsPopup({
               </ul>
             </section>
           ) : null}
+          {next !== undefined ? (
+            <p className="seat-threads__note" data-testid="seat-threads-more">
+              Reading older threads…
+            </p>
+          ) : null}
         </nav>
         <div className="seat-threads__chat">
           {shown?.kind === "new" ? (
@@ -189,13 +211,28 @@ function ThreadChat({
   readonly name: string;
   readonly thread: SeatThreadSummary;
 }) {
-  const { messages, loaded, error } = useSeatThreadMessages(seat, thread.threadId);
+  const { messages, loaded, error, older, loadingMore } = useSeatThreadMessages(seat, thread.threadId);
   const streamRef = useRef<HTMLDivElement>(null);
-  // The newest at the bottom, in view: on open and as messages arrive.
+  const held = useRef<{ threadId: string; first?: string; last?: string; height: number } | undefined>(undefined);
+  // The newest at the bottom, in view, on open and as mail arrives. An older
+  // page laid in above keeps what the reader was looking at where it was.
   useLayoutEffect(() => {
     const stream = streamRef.current;
-    if (stream) stream.scrollTop = stream.scrollHeight;
-  }, [thread.threadId, messages.length]);
+    if (!stream) return;
+    const before = held.current;
+    const first = messages[0]?.messageId;
+    const last = messages.at(-1)?.messageId;
+    if (before?.threadId !== thread.threadId || last !== before.last) stream.scrollTop = stream.scrollHeight;
+    else if (first !== before.first) stream.scrollTop += stream.scrollHeight - before.height;
+    held.current = { threadId: thread.threadId, first, last, height: stream.scrollHeight };
+  }, [thread.threadId, messages]);
+  const fillStream = () => {
+    const stream = streamRef.current;
+    if (stream && older !== undefined && !loadingMore && stream.scrollTop < CHAT_NEAR_TOP) {
+      void loadOlderMessages(seat, thread.threadId);
+    }
+  };
+  useEffect(fillStream, [messages, older, loadingMore]);
   const count = `${thread.messageCount} ${thread.messageCount === 1 ? "message" : "messages"}`;
   const lastId = messages.at(-1)?.messageId;
   return (
@@ -213,7 +250,12 @@ function ThreadChat({
           </span>
         </div>
       </header>
-      <div ref={streamRef} className="seat-threads__stream" data-testid="seat-threads-stream">
+      <div ref={streamRef} className="seat-threads__stream" data-testid="seat-threads-stream" onScroll={fillStream}>
+        {older !== undefined ? (
+          <p className="seat-threads__note seat-threads__note--center" data-testid="seat-threads-older">
+            Reading earlier messages…
+          </p>
+        ) : null}
         {error ? (
           <p className="seat-threads__note seat-threads__note--error" role="alert">
             {error}

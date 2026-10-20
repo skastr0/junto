@@ -6,12 +6,13 @@ import type { WorkAttentionSnapshot } from "./work-attention";
 import type { WorkItemQuery, WorkActorQuery, WorkActorPage, WorkAttentionQuery, WorkLaneRow, WorkSinkQuery, WorkSinkPage, WorkSinkChanged } from "./work-sinks";
 import type { CanvasesChanged, Changed, Command, Opened, SheetChanged, SheetGrid } from "./model";
 import type { WorkMailQuery, WorkMailPage, WorkMailChanged } from "./work-mail";
-import type { MailThreadMessage, MailThreadSummary } from "./wire/mail-threads";
+import type { MailThreadMessagesPage, MailThreadsPage } from "./wire/mail-threads";
 import type {
   MentionableSeat,
   OperatorThreadSend,
   OperatorThreadSent,
-  SeatThreadQuery,
+  SeatThreadPageQuery,
+  SeatThreadsPageQuery,
   SeatThreadsQuery,
 } from "./mail-threads";
 import type {
@@ -1669,11 +1670,13 @@ export interface JuntoTerminalApi {
     input: SeatCollaborationDraft,
   ) => Promise<SeatCollaborationAskResult>;
   /**
-   * Mail threads, for a seat's Threads popup. Read again on
-   * `onWorkMailChanged` for the canvas: any mailbox can change a seat's threads.
+   * Mail threads, for a seat's Threads popup, a page at a time: the list from
+   * the newest or after a cursor, a thread's messages the newest or before a
+   * cursor. Main never ships a whole list. Read again on `onWorkMailChanged`
+   * for the canvas: any mailbox can change a seat's threads.
    */
-  readonly seatThreadsList: (query: SeatThreadsQuery) => Promise<ReadonlyArray<MailThreadSummary>>;
-  readonly seatThreadMessages: (query: SeatThreadQuery) => Promise<ReadonlyArray<MailThreadMessage>>;
+  readonly seatThreadsList: (query: SeatThreadsPageQuery) => Promise<MailThreadsPage>;
+  readonly seatThreadMessages: (query: SeatThreadPageQuery) => Promise<MailThreadMessagesPage>;
   /** No threadId and no inReplyTo starts a thread; mentions name wired seats. */
   readonly seatThreadSend: (input: OperatorThreadSend) => Promise<OperatorThreadSent>;
   readonly seatThreadMentionables: (query: SeatThreadsQuery) => Promise<ReadonlyArray<MentionableSeat>>;

@@ -70,9 +70,9 @@ const fake = () => {
   const source: SeatThreadsSource = {
     list: async () => {
       state.lists += 1;
-      return state.threads;
+      return { threads: state.threads };
     },
-    messages: async ({ threadId }) => state.messages[threadId] ?? [],
+    messages: async ({ threadId }) => ({ messages: state.messages[threadId] ?? [] }),
     onChanged: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -164,10 +164,10 @@ describe("main's threads IPC as the source", () => {
       last: first, messageCount: 1, canReply: true,
     };
     const mail = new Set<(event: { canvasName: string; nodeId: string }) => void>();
-    const seatThreadsList = vi.fn(async () => [summary]);
+    const seatThreadsList = vi.fn(async () => ({ threads: [summary] }));
     (window as { junto?: unknown }).junto = {
       seatThreadsList,
-      seatThreadMessages: vi.fn(async () => [first]),
+      seatThreadMessages: vi.fn(async () => ({ messages: [first] })),
       onWorkMailChanged: (listener: (event: { canvasName: string; nodeId: string }) => void) => {
         mail.add(listener);
         return () => mail.delete(listener);
@@ -175,7 +175,7 @@ describe("main's threads IPC as the source", () => {
     };
     await render();
     await click(q("seat-threads-button"));
-    expect(seatThreadsList).toHaveBeenCalledWith({ canvasName: "factory", nodeId: "seat-1" });
+    expect(seatThreadsList).toHaveBeenCalledWith({ canvasName: "factory", nodeId: "seat-1", limit: 50 });
     expect(q("seat-threads-with-you")?.textContent).toContain("you, pty-lead");
     expect(all("seat-threads-message")[0]?.textContent).toContain("you 01:02");
     expect(all("seat-threads-mention").map((mention) => mention.textContent)).toEqual(["@cli-lead"]);
@@ -410,5 +410,141 @@ describe("the thread composer", () => {
     expect(sends).toEqual([]);
     expect(q("thread-composer-failure")?.textContent).toBe(`${THREAD_TEXT_MAX + 1} characters; a mail holds at most ${THREAD_TEXT_MAX}.`);
     expect((q("thread-composer-send") as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("paging in the popup", () => {
+  const ROW = 60;
+  const VIEW = 600;
+  const defined: Array<[PropertyKey, PropertyDescriptor | undefined]> = [];
+  const define = (key: "scrollHeight" | "clientHeight", get: (this: HTMLElement) => number) => {
+    defined.push([key, Object.getOwnPropertyDescriptor(HTMLElement.prototype, key)]);
+    Object.defineProperty(HTMLElement.prototype, key, { configurable: true, get });
+  };
+
+  beforeEach(() => {
+    // jsdom lays nothing out: a row is ROW tall and the panes VIEW.
+    define("scrollHeight", function () {
+      const rows = this.querySelectorAll('[data-testid="seat-threads-row"]').length;
+      return (rows > 0 ? rows : this.children.length) * ROW;
+    });
+    define("clientHeight", () => VIEW);
+  });
+  afterEach(() => {
+    for (const [key, descriptor] of defined.splice(0).reverse()) {
+      if (descriptor) Object.defineProperty(HTMLElement.prototype, key, descriptor);
+      else delete (HTMLElement.prototype as unknown as Record<PropertyKey, unknown>)[key];
+    }
+  });
+
+  const TOTAL = 130;
+  const threadAt = (n: number) => thread({ threadId: `t${String(n).padStart(3, "0")}`, lastAt: at(0, 0) + (TOTAL - n) * 1000 });
+  const pagedSource = () => {
+    const calls: Array<string | undefined> = [];
+    const everything = Array.from({ length: TOTAL }, (_, n) => threadAt(n));
+    const source: SeatThreadsSource = {
+      list: async ({ after }) => {
+        calls.push(after);
+        const from = after === undefined ? 0 : everything.findIndex((item) => item.threadId === after) + 1;
+        const threads = everything.slice(from, from + 50);
+        const last = threads.at(-1);
+        return { threads, ...(from + 50 < TOTAL && last ? { next: last.threadId } : {}) };
+      },
+      messages: async () => ({ messages: [] }),
+      onChanged: () => () => undefined,
+    };
+    return { source, calls, everything };
+  };
+
+  it("reads one page of threads on open and the next as the list is scrolled near its end", async () => {
+    const { source, calls } = pagedSource();
+    setSeatThreadsSource(source);
+    await render();
+    await click(q("seat-threads-button"));
+    expect(all("seat-threads-row")).toHaveLength(50);
+    expect(calls).toEqual([undefined]);
+
+    const list = document.querySelector<HTMLElement>(".seat-threads__list")!;
+    // Far from the end: nothing more is asked for.
+    list.scrollTop = 0;
+    act(() => list.dispatchEvent(new Event("scroll")));
+    await flush();
+    expect(calls).toHaveLength(1);
+
+    // Near the end: the next page, from the last thread read.
+    list.scrollTop = list.scrollHeight - VIEW - 100;
+    act(() => list.dispatchEvent(new Event("scroll")));
+    await flush();
+    expect(calls).toEqual([undefined, "t049"]);
+    expect(all("seat-threads-row")).toHaveLength(100);
+  });
+
+  it("keeps the older pages when the head is read again after new mail", async () => {
+    const { source, calls, everything } = pagedSource();
+    setSeatThreadsSource(source);
+    await render();
+    await click(q("seat-threads-button"));
+    const list = document.querySelector<HTMLElement>(".seat-threads__list")!;
+    list.scrollTop = list.scrollHeight - VIEW - 100;
+    act(() => list.dispatchEvent(new Event("scroll")));
+    await flush();
+    expect(all("seat-threads-row")).toHaveLength(100);
+
+    // A thread older than the first page is lifted to the top: the head is read again.
+    const lifted = everything[75]!;
+    everything.splice(75, 1);
+    everything.unshift({ ...lifted, lastAt: at(5, 0) });
+    await act(async () => {
+      const { refreshSeatThreads } = await import("../src/renderer/lib/seat-threads");
+      refreshSeatThreads(SEAT);
+    });
+    await flush();
+    const rows = all("seat-threads-row").map((row) => row.getAttribute("data-thread-id"));
+    expect(rows).toHaveLength(100);
+    expect(rows[0]).toBe(lifted.threadId);
+    expect(new Set(rows).size).toBe(rows.length);
+    expect(calls.at(-1)).toBeUndefined();
+  });
+
+  it("opens a long thread on its newest page and reads earlier ones keeping the place", async () => {
+    const everything = Array.from({ length: 120 }, (_, n) => ({
+      messageId: `m${String(n).padStart(3, "0")}`,
+      author: "pty-lead",
+      mine: false,
+      text: `line ${n}`,
+      mentions: [],
+      at: at(0, 0) + n * 1000,
+    }));
+    const asked: Array<string | undefined> = [];
+    const source: SeatThreadsSource = {
+      list: async () => ({ threads: [thread({ threadId: "long", messageCount: 120 })] }),
+      messages: async ({ before }) => {
+        asked.push(before);
+        const end = before === undefined ? everything.length : everything.findIndex((item) => item.messageId === before);
+        const messages = everything.slice(Math.max(0, end - 50), end);
+        return { messages, ...(end - 50 > 0 ? { older: messages[0]!.messageId } : {}) };
+      },
+      onChanged: () => () => undefined,
+    };
+    setSeatThreadsSource(source);
+    await render();
+    await click(q("seat-threads-button"));
+    const stream = q("seat-threads-stream") as HTMLElement;
+    const texts = () => all("seat-threads-message").map((message) => message.textContent ?? "");
+    expect(texts()).toHaveLength(50);
+    expect(texts().at(-1)).toContain("line 119");
+    expect(asked).toEqual([undefined]);
+    // On open it sits at the bottom, far from the top: nothing more asked for.
+    expect(stream.scrollTop).toBe(stream.scrollHeight);
+
+    stream.scrollTop = 10;
+    const heightBefore = stream.scrollHeight;
+    act(() => stream.dispatchEvent(new Event("scroll")));
+    await flush();
+    expect(asked).toEqual([undefined, "m070"]);
+    expect(texts()).toHaveLength(100);
+    expect(texts()[0]).toContain("line 20");
+    // The fifty above pushed the same lines down by their height: the reader's place held.
+    expect(stream.scrollTop).toBe(10 + (stream.scrollHeight - heightBefore));
   });
 });
