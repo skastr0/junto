@@ -131,6 +131,40 @@ describe("buildOperatorFeed", () => {
     expect(feed.sections[0]?.items.map((i) => i.signalId)).toEqual(["old", "new"]);
   });
 
+  it("lists held mail as one item per seat that says how many, how long and why, with nothing to answer", () => {
+    const feed = buildOperatorFeed({
+      canvasName: "main",
+      nowMs: 3 * 3_600_000,
+      seats: seats({
+        a: { mailWait: { count: 3, heldSince: 3 * 3_600_000 - 2 * 3_600_000 - 59 * 60_000, hold: "draft" } },
+        b: { mailWait: { count: 1, heldSince: 3 * 3_600_000 - 45 * 60_000, hold: "dialog" } },
+        c: { mailWait: { count: 0, heldSince: 0, hold: "unreadable" } },
+      }),
+      signals: [],
+    });
+    const items = feed.sections.flatMap((section) => section.items);
+    expect(items.map((item) => item.itemId).sort()).toEqual(["mail-waiting:a", "mail-waiting:b"]);
+    expect(items.find((item) => item.seat.nodeId === "a")).toMatchObject({
+      kind: "attention",
+      text: "3 mails have waited 2 h: the box reads as your draft",
+      since: 3 * 3_600_000 - 2 * 3_600_000 - 59 * 60_000,
+    });
+    expect(items.find((item) => item.seat.nodeId === "b")?.text).toBe("1 mail has waited 45 min: the seat is showing a dialog");
+    expect(items.every((item) => item.signalId === undefined)).toBe(true);
+    expect(feed.count).toBe(2);
+  });
+
+  it("reads held mail off the seat map, and a count of none lists nothing", () => {
+    const resolved = feedSeatsFromCanvas(canvas, {
+      mailWaitByNodeId: new Map([
+        ["a", { count: 2, heldSince: 1_000, hold: "unreadable" as const }],
+        ["b", { count: 0, heldSince: 1_000, hold: "draft" as const }],
+      ]),
+    });
+    expect(resolved.find((entry) => entry.seat.nodeId === "a")?.mailWait).toEqual({ count: 2, heldSince: 1_000, hold: "unreadable" });
+    expect(resolved.find((entry) => entry.seat.nodeId === "b")).not.toHaveProperty("mailWait");
+  });
+
   it("adds a fresh AI waiting reading only for a seat nothing else lists", () => {
     const feed = buildOperatorFeed({
       canvasName: "main",

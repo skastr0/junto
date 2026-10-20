@@ -2,6 +2,7 @@ import { asNodeId, inPaintOrder, regionStack as modelRegionStack, regionName, ty
 import { titleOf } from "./model/title";
 import type { AgentSignal } from "./agent-signals";
 import { deriveNeeds, type SeatSnapshot } from "./harness-domain";
+import type { MailHold } from "./mail-hold";
 import { seatStatusTime } from "./seat-status-text";
 import {
   THREAD_HEALTH_LABEL,
@@ -45,6 +46,19 @@ export type FeedSeatInput = {
    * Absent, the reading is fresh while inside THREAD_HEALTH_TTL_MS.
    */
   readonly healthFresh?: boolean;
+  /** Delivery has held this seat's mail past its bound; the feed lists it until the mail is typed. */
+  readonly mailWait?: FeedMailWait;
+};
+
+/**
+ * Mail that delivery has held for one seat for long enough to tell the
+ * operator: how many, since when, and why the seat's box would not take it.
+ */
+export type FeedMailWait = {
+  readonly count: number;
+  /** Epoch ms the longest-held of them first waited. */
+  readonly heldSince: number;
+  readonly hold: MailHold;
 };
 
 /**
@@ -83,11 +97,13 @@ export const feedSeatsFromCanvas = (canvas: Canvas, options: {
   readonly attentionByNodeId?: ReadonlyMap<string, { readonly reason: string; readonly at: number }>;
   readonly snapshotByNodeId?: ReadonlyMap<string, SeatSnapshot>;
   readonly healthByNodeId?: ReadonlyMap<string, { readonly reading: ThreadHealthReading; readonly fresh?: boolean }>;
+  readonly mailWaitByNodeId?: ReadonlyMap<string, FeedMailWait>;
 } = {}): ReadonlyArray<FeedSeatInput> => inPaintOrder(canvas).filter((node) => node.kind === "agent").map((node) => {
   const attention = options.attentionByNodeId?.get(node.id);
   const snapshot = options.snapshotByNodeId?.get(node.id);
   const health = options.healthByNodeId?.get(node.id);
-  return { seat: { nodeId: node.id, name: (options.nameOf ?? titleOf)(node), portraitIdentity: node.id, harness: node.harness }, region: feedRegionForCanvas(canvas, node.id), ...(attention ? { attention } : {}), ...(snapshot ? { snapshot } : {}), ...(health ? { health: health.reading } : {}), ...(health?.fresh !== undefined ? { healthFresh: health.fresh } : {}) };
+  const mailWait = options.mailWaitByNodeId?.get(node.id);
+  return { seat: { nodeId: node.id, name: (options.nameOf ?? titleOf)(node), portraitIdentity: node.id, harness: node.harness }, region: feedRegionForCanvas(canvas, node.id), ...(attention ? { attention } : {}), ...(snapshot ? { snapshot } : {}), ...(health ? { health: health.reading } : {}), ...(health?.fresh !== undefined ? { healthFresh: health.fresh } : {}), ...(mailWait && mailWait.count > 0 ? { mailWait } : {}) };
 });
 
 // --- projection -------------------------------------------------------------
@@ -108,6 +124,28 @@ const feedHealth = (entry: FeedSeatInput, reading: ThreadHealthReading, nowMs: n
 /** Proven attention, said the way the seat card says it. */
 export const attentionText = (reason: string): string =>
   /stall/i.test(reason) ? "stalled, needs a look" : "wants your input";
+
+/** Why the seat's box would not take its mail, after "the box" or the seat. */
+const MAIL_WAIT_REASON = {
+  draft: "the box reads as your draft",
+  dialog: "the seat is showing a dialog",
+  unreadable: "the box cannot be read",
+  busy: "the seat is busy starting, compacting or retrying",
+  stopped: "the seat has stopped",
+  unsupported: "the seat's harness cannot take mail right now",
+} as const satisfies Record<MailHold, string>;
+
+/** "45 min", "2 h", "3 d": how long, rounded down, never less than a minute. */
+const waitedFor = (ms: number): string => {
+  const minutes = Math.max(1, Math.floor(ms / 60_000));
+  if (minutes < 60) return `${String(minutes)} min`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 48 ? `${String(hours)} h` : `${String(Math.floor(hours / 24))} d`;
+};
+
+/** "3 mails have waited 2 h: the box reads as your draft". */
+export const mailWaitText = (wait: FeedMailWait, nowMs: number): string =>
+  `${wait.count === 1 ? "1 mail has" : `${String(wait.count)} mails have`} waited ${waitedFor(nowMs - wait.heldSince)}: ${MAIL_WAIT_REASON[wait.hold]}`;
 
 /**
  * The seat's stop, when one of its needs reads stopped on the feed: a usage
@@ -253,6 +291,18 @@ export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
       text: stop.text,
       ...(stop.detail ? { detail: stop.detail } : {}),
       since: stop.since,
+    });
+  }
+
+  // Not a signal and nothing to answer: the seat is the place to act.
+  for (const entry of input.seats) {
+    const wait = entry.mailWait;
+    if (!wait || wait.count <= 0) continue;
+    push(entry, {
+      itemId: `mail-waiting:${entry.seat.nodeId}`,
+      kind: "attention",
+      text: mailWaitText(wait, nowMs),
+      since: wait.heldSince,
     });
   }
 
