@@ -398,6 +398,7 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
     stagePiece: async () => outcomeFail("invalid", "The demo does not take files."),
     admitStage: async () => outcomeFail("invalid", "The demo does not take files."),
     dropStaged: async () => undefined,
+    mailContentRef: async () => undefined,
     quickReplies: async () => outcomeOk({ replies: DEMO_QUICK_REPLIES, quietNotes: DEMO_QUIET_NOTES }),
     portrait: async (portraitIdentity, size, theme, format) => {
       const svg = companionPortraitSvg({ portraitIdentity, size, theme });

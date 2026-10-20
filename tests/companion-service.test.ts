@@ -71,6 +71,7 @@ const backend: CompanionServiceOptions["backend"] = ({ pairComplete }) => {
     stagePiece: none,
     admitStage: none,
     dropStaged: async () => undefined,
+    mailContentRef: async () => undefined,
     portrait: none,
     contentRange: none,
     machines: none,

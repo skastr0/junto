@@ -120,6 +120,12 @@ export type CompanionBackend = {
    * bytes are absent, damaged, or a size other than the ref's.
    */
   readonly contentRange: (ref: ContentRef, offset: number, length: number) => Promise<CompanionOutcome<Uint8Array>>;
+  /**
+   * The ref a readable mail holds for this digest: a message owns it in the
+   * store and carries it in its attachments, on a thread `thread.get` serves.
+   * Its byteLength is the store's, never the request's.
+   */
+  readonly mailContentRef: (sha256: string) => Promise<ContentRef | undefined>;
   /** Every machine this Mac knows, as its owner lists them. */
   readonly machines: () => Promise<CompanionOutcome<ReadonlyArray<CompanionMachine>>>;
   /** One machine read now, across its link if it has one. An unreachable machine is an answer. */
@@ -157,7 +163,7 @@ export const feedContentRefs = (feeds: ReadonlyArray<OperatorFeed>): ReadonlyMap
 };
 
 /** One copy for an unknown digest and one outside every feed, so the store cannot be probed. */
-const CONTENT_NOT_IN_FEED = "That file is no longer in your feed.";
+const CONTENT_NOT_IN_FEED = "That file is no longer in your feed or your mail.";
 
 /**
  * At most `max` requests of one kind unanswered at once, per phone. Take a
@@ -182,10 +188,10 @@ const contentGet = async (
   backend: CompanionBackend,
   args: { readonly sha256: string; readonly offset: number; readonly length: number },
 ): Promise<CompanionResponseFrame> => {
-  // Membership first, on the feeds as they stand now: outside them the store is never asked.
+  // Membership first, on the feeds and the mail as they stand now: outside them the bytes are never read.
   const feeds = await backend.feeds();
   if (!feeds.ok) return companionFail(id, feeds.error);
-  const ref = feedContentRefs(feeds.value).get(args.sha256);
+  const ref = feedContentRefs(feeds.value).get(args.sha256) ?? (await backend.mailContentRef(args.sha256));
   if (ref === undefined) return companionFail(id, companionError("not-found", CONTENT_NOT_IN_FEED));
   const empty = ref.byteLength === 0 && args.offset === 0;
   if (args.offset >= ref.byteLength && !empty)

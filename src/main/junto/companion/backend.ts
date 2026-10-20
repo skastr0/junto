@@ -31,11 +31,16 @@ import { companionPortraitSvg } from "@shared/companion-portrait";
 import { companionSeat } from "@shared/companion-seats";
 import {
   COMPANION_SEAT_HISTORY_LIMIT,
+  COMPANION_ATTACHMENT_MAX_BYTES,
+  COMPANION_ATTACHMENTS_MAX,
+  COMPANION_STAGE_CHUNK_MAX,
+  COMPANION_THUMBNAIL_TYPES,
   type CompanionActivity,
   type CompanionCanvas,
   type CompanionMail,
   type CompanionSeat,
 } from "@shared/companion-protocol";
+import { attachmentsOf } from "@shared/mail-threads";
 import { installCosmeticPacks } from "@shared/cosmetics/catalog";
 import { decodeCosmeticPacks } from "@shared/cosmetics/load";
 import { feedCanvasModelNeeds } from "@shared/canvas-needs";
@@ -296,15 +301,17 @@ const mailFor = (canvasName: string, canvas: Canvas, nodeId: string, mailboxes: 
   const delivery = (messageId: string, state: "delivered" | "waiting"): CompanionMail["delivery"] =>
     failedMail.has(messageId) ? "failed" : state === "delivered" ? "delivered" : "waiting_for_seat";
   const held = new Map([...mailboxes.values()].flat().map((message) => [message.messageId, message] as const));
-  /** Its thread, as the desktop's threads read it; ids too long for the wire are left off. */
-  const threadOf = (messageId: string): Pick<CompanionMail, "threadId" | "inReplyTo"> => {
+  /** Its thread and files, as the desktop's threads read them; ids too long for the wire are left off. */
+  const threadOf = (messageId: string): Pick<CompanionMail, "threadId" | "inReplyTo" | "attachments"> => {
     const message = held.get(messageId);
     if (message === undefined) return {};
     const threadId = mailThreadOf(message);
     const inReplyTo = message.metadata?.inReplyTo;
+    const attachments = attachmentsOf(message);
     return {
       ...(threadId.length <= 128 ? { threadId } : {}),
       ...(typeof inReplyTo === "string" && inReplyTo.length > 0 && inReplyTo.length <= 128 ? { inReplyTo } : {}),
+      ...(attachments.length === 0 ? {} : { attachments }),
     };
   };
   const inbound = mailboxRows(canvas, mailboxes.get(node.id) ?? [])
@@ -470,9 +477,7 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
   },
 
   answerSignal: async (signalId, text, quiet, attachments) =>
-    attachments.length > 0
-      ? outcomeFail("invalid", "This Mac cannot attach files to an answer yet.")
-      : fromAction(await answerSignalAsOperator(signalId, text, quiet), (signal) => signal),
+    fromAction(await answerSignalAsOperator(signalId, text, quiet, attachments), (signal) => signal),
   dismissSignal: async (signalId) => fromAction(await dismissSignalAsOperator(signalId), (signal) => signal),
 
   mailList: async (canvasName, nodeId, limit) => {
@@ -494,7 +499,16 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
 
   quickReplies: async () => {
     const settings = await AppRuntime.runPromise(Effect.flatMap(SettingsService, (service) => service.get));
-    return outcomeOk({ replies: feedSettings(settings).quickReplies, quietNotes: quietNotesOf(settings) });
+    return outcomeOk({
+      replies: feedSettings(settings).quickReplies,
+      quietNotes: quietNotesOf(settings),
+      attachments: {
+        maxCount: COMPANION_ATTACHMENTS_MAX,
+        maxBytes: COMPANION_ATTACHMENT_MAX_BYTES,
+        chunkBytes: COMPANION_STAGE_CHUNK_MAX,
+        thumbnailTypes: [...COMPANION_THUMBNAIL_TYPES],
+      },
+    });
   },
 
   portrait: async (portraitIdentity, size, theme, format) => {

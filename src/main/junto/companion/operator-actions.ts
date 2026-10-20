@@ -18,6 +18,7 @@
 import { BrowserWindow } from "electron";
 import { Effect } from "effect";
 import type { AgentSignal } from "@shared/agent-signals";
+import type { ContentRef } from "@shared/wire/content-ref";
 import { asNodeId } from "@shared/model";
 import { mailExtensionMetadata } from "@shared/crew";
 import { IPC_CHANNELS } from "@shared/ipc";
@@ -69,9 +70,12 @@ export const answerSignalAsOperator = async (
   signalId: string,
   text: string,
   quiet = false,
+  attachments: ReadonlyArray<ContentRef> = [],
 ): Promise<OperatorActionResult<AgentSignal>> => {
   const result = await mainAuthoringGate
-    .run("companion.signal-answer", () => AppRuntime.runPromise(answerAgentSignal(signalId, text, { silent: quiet })))
+    .run("companion.signal-answer", () =>
+      AppRuntime.runPromise(answerAgentSignal(signalId, text, { silent: quiet, attachments })),
+    )
     .catch((error: unknown) => ({ ok: false as const, message: error instanceof Error ? error.message : "answer failed" }));
   if (!result.ok) return refusal(signalId, result.message);
   raisedHands.note(result.signal);

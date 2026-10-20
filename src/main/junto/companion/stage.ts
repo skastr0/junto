@@ -11,11 +11,15 @@
 import { Effect, Option } from "effect";
 import { outcomeFail, outcomeOk, type CompanionBackend, type CompanionOutcome } from "@shared/companion-core";
 import type { ContentStageResult } from "@shared/content-stage";
+import { mailThreadOf } from "@shared/crew";
+import type { ContentRef } from "@shared/wire/content-ref";
 import { operatorActorRef } from "@shared/work-reference";
 import { AppRuntime } from "../../runtime";
 import { ModelService } from "../model/service";
 import { ContentService } from "../content/service";
 import { contentStageOwner, contentStagerFor, type ContentStageError, type ContentStageSeat } from "../content/stage";
+import { heldMailbox } from "../work/mailbox-cache";
+import { seatThreadMessages } from "../work/operator-threads";
 
 /** The operator on a canvas: the seat the desktop stages as, and the claim reads. */
 const operatorSeat = (canvasName: string): ContentStageSeat => ({
@@ -40,7 +44,34 @@ const canvasExists = (canvasName: string): Promise<boolean> =>
     ),
   );
 
-export const companionStageBackend: Pick<CompanionBackend, "stagePiece" | "admitStage" | "dropStaged"> = {
+/**
+ * `content.get` beyond the feeds: a digest is admitted when the store holds it
+ * for a message, and that message, read as `thread.get` reads it, carries it in
+ * its attachments. Task messages and other records the store also owns as
+ * "message" never are. The ref answered is the store's.
+ */
+export const mailContentRef = (sha256: string): Promise<ContentRef | undefined> =>
+  AppRuntime.runPromise(
+    Effect.gen(function* () {
+      const content = yield* Effect.serviceOption(ContentService);
+      if (Option.isNone(content)) return undefined;
+      for (const row of yield* content.value.listRefs(sha256)) {
+        if (row.owner.kind !== "message") continue;
+        const { canvasName, nodeId, recordId } = row.owner;
+        const message = (yield* heldMailbox(canvasName, nodeId)).find((held) => held.messageId === recordId);
+        if (message === undefined) continue;
+        const thread = yield* seatThreadMessages(canvasName, nodeId, mailThreadOf(message));
+        const carried = thread
+          .find((mail) => mail.messageId === recordId)
+          ?.attachments?.some((file) => file.sha256 === sha256 && file.byteLength === row.ref.byteLength);
+        if (carried === true) return row.ref;
+      }
+      return undefined;
+    }).pipe(Effect.catch(() => Effect.succeed(undefined))),
+  ).catch(() => undefined);
+
+export const companionStageBackend: Pick<CompanionBackend, "stagePiece" | "admitStage" | "dropStaged" | "mailContentRef"> = {
+  mailContentRef,
   // The content store, not the canvas: as the desktop's own staging, no authoring gate.
   stagePiece: (canvasName, args) =>
     AppRuntime.runPromise(

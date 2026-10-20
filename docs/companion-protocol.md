@@ -47,8 +47,9 @@ phone ──(Tailscale or LAN: reachability only)──▶ Mac sshd (macOS Remot
 
 - stdin/stdout of the SSH exec channel (no PTY), UTF-8, **NDJSON**: one JSON
   object per line, `\n` terminated.
-- Max frame: 16 KiB phone to Mac, 512 KiB Mac to phone. A larger frame is a
-  protocol error; the Mac replies `error` `too-large` and closes.
+- Max frame: 16 KiB phone to Mac (288 KiB for `content.stage` alone), 512 KiB
+  Mac to phone. A larger frame is a protocol error; the Mac replies `error`
+  `too-large` and closes. The Mac stops reading a line at 288 KiB.
 - stderr carries nothing the phone should parse.
 - Every frame carries `"v": "junto-companion/1"`. A frame with another `v` gets
   `error` `unsupported-version` and the channel closes.
@@ -119,13 +120,14 @@ are Markdown. Names below match `src/shared/companion-protocol.ts`.
 | `feed.unsubscribe` | `{}` | `{}` |
 | `seats.list` | `{ "canvasName": string }` | `{ "seats": Seat[] }` |
 | `seat.get` | `{ "canvasName": string, "nodeId": string }` | `{ "seat": SeatDetail }`; the phone then receives `preamble`, `signal.changed`, `mail.changed` and `seat.changed` events for this seat until it requests another `seat.get` or disconnects |
-| `signal.answer` | `{ "signalId": string, "text": string, "quiet"?: true }` (1 to 8000 chars; 0 to 8000 with `quiet`) | `{ "signal": AgentSignal }` |
+| `signal.answer` | `{ "signalId": string, "text": string, "quiet"?: true, "attachments"?: ContentRef[] }` (1 to 8000 chars; 0 to 8000 with `quiet` or with files; at most 10 files) | `{ "signal": AgentSignal }` |
 | `signal.dismiss` | `{ "signalId": string }` | `{ "signal": AgentSignal }` |
 | `mail.list` | `{ "canvasName": string, "nodeId": string, "limit"?: number }` (default 50, max 200) | `{ "messages": Mail[] }` newest first |
-| `mail.send` | `{ "canvasName": string, "nodeId": string, "text": string, "threadId"?: ULID, "inReplyTo"?: ULID, "mentions"?: string[] }` (text 1 to 8000 chars, at most 32 mentions; closed: any other key is `invalid`) | `{ "message": Mail }` |
-| `quickReplies.get` | `{}` | `{ "replies": string[], "quietNotes"?: string[] }` (the operator's quick replies and quiet notes from desktop Settings) |
+| `mail.send` | `{ "canvasName": string, "nodeId": string, "text": string, "threadId"?: ULID, "inReplyTo"?: ULID, "mentions"?: string[], "attachments"?: ContentRef[] }` (text 1 to 8000 chars, 0 to 8000 with files; at most 32 mentions and 10 files; closed: any other key is `invalid`) | `{ "message": Mail }` |
+| `quickReplies.get` | `{}` | `{ "replies": string[], "quietNotes"?: string[], "attachments"?: { "maxCount": number, "maxBytes": number, "chunkBytes": number, "thumbnailTypes": string[] } }` (the operator's quick replies and quiet notes from desktop Settings; `attachments` is the files gate, below) |
 | `portrait.get` | `{ "portraitIdentity": string, "size": number, "theme": "bright" \| "dark", "format"?: "svg" \| "png" }` | `{ "svg": string }`, or with `format: "png"` `{ "png": string }` |
 | `content.get` | `{ "sha256": string, "offset": number, "length": number }` (closed: any other key is `invalid`) | `{ "sha256": string, "offset": number, "length": number, "byteLength": number, "data": string }` |
+| `content.stage` | `{ "canvasName": string, "sha256": string, "byteLength": number, "mediaType": string, "displayName"?: string, "offset": number, "data": string }` (closed) | `{ "received": number }` while pieces remain, `{ "ref": ContentRef }` after the last |
 | `machines.list` | `{}` | `{ "machines": Machine[] }` (at most 32) |
 | `machine.get` | `{ "name": string, "minLevel"?: "trace" \| "debug" \| "info" \| "warn" \| "error" \| "fatal" }` | `{ "machine": Machine, "status": MachineStatus, "logs": MachineLogs }` |
 | `tailnet.peers` | `{}` | `{ "available": boolean, "peers": TailnetPeer[] }` (at most 128) |
@@ -190,7 +192,40 @@ Semantics:
     one socket; the phone's routes do not, so those share a line.
   - `seq` counts per connection: the open's, then one more per
     `canvas.changed`. Any other number is a gap: open again.
-- `content.get` returns the bytes of a file a Needs you item carries, in
+- Files from the phone. Attach only when `quickReplies.get` returned
+  `attachments`: an older Mac drops the unknown key and the file would vanish
+  without a word. Today it is `{ maxCount: 10, maxBytes: 26214400, chunkBytes:
+  196608, thumbnailTypes: ["image/png", "image/jpeg", "image/gif",
+  "image/webp", "image/heic"] }`; read the numbers, do not assume them. A
+  thumbnail type is drawn as a thumbnail, anything else as a file chip.
+  - `content.stage` puts one file into the Mac content store, in order, one
+    piece at a time, for a mail or an answer on `canvasName`. `sha256` (64
+    lower-case hex) and `byteLength` (1 to `maxBytes`) name the whole file;
+    `data` is standard padded base64 of 1 to `chunkBytes` bytes starting at
+    `offset`. Offset 0 starts the file, and starts it over when one with the
+    same canvas, sha256 and byteLength is already open; each later piece
+    starts at the `received` the last one answered. When the last byte lands
+    the Mac hashes the file and answers `{ ref }`; attach that ref.
+  - Errors: `invalid` for a piece out of order, past `byteLength`, or not
+    base64 (start the file again at offset 0); `not-found` for a canvas that
+    is not on the Mac; `disk-low` at offset 0 when the Mac cannot hold
+    `byteLength` (say so, do not retry); `mismatch` when the bytes did not
+    hash to `sha256` and `byteLength` (nothing is kept; send it again);
+    `rate-limited` for a third piece in flight, or an eleventh file open at
+    once (finish one first); `internal` once, then show the error.
+  - `mail.send` and `signal.answer` name the files by those refs, at most
+    `maxCount`; with files, the text may be empty. The Mac reads only
+    `sha256` and `byteLength` from each, takes a file only once and only from
+    the uploads staged as the operator on that canvas, and records its type
+    from the stored bytes and its name as staged. A ref that was never
+    staged, already sent, or expired is `invalid` ("Attach it again"). The
+    seat reads one line per file, with its name, type, size and a path it
+    can open; the phone's `Mail` and `ThreadMessage` carry the refs back as
+    `attachments`, and `content.get` serves them.
+  - A file staged and never sent is let go after an hour; unpairing the phone
+    lets go of its uploads at once. Nothing in a file is ever run or opened by
+    Junto.
+- `content.get` returns the bytes of a file a Needs you item or a mail carries, in
   chunks. `sha256` is 64 lower-case hex; `offset` is a safe integer from 0;
   `length` is 1 to 262144 (256 KiB, which as base64 keeps a response under
   the 512 KiB frame). `data` is standard padded base64 of the bytes
@@ -202,10 +237,12 @@ Semantics:
     named by a content ref in an attachment of an item in the current feeds
     of every canvas (as `feed.get` with no canvas returns them): a file
     attachment's `ref`, or a compare's `before` or `after`. Commit and link
-    attachments carry no bytes.
+    attachments carry no bytes. Or it is a file a mail carries in its
+    `attachments`, read as `thread.get` reads that seat's threads; the size
+    is the Mac's record of it.
   - Errors, in this order: `invalid` for arguments the schema refuses;
-    `not-found` ("That file is no longer in your feed.") for a digest in no
-    current feed, whatever the Mac stores, so the store cannot be probed;
+    `not-found` ("That file is no longer in your feed or your mail.") for a
+    digest in neither, whatever the Mac stores, so the store cannot be probed;
     `invalid` for an `offset` at or past `byteLength` (an empty file answers
     offset 0 with length 0 and `data` ""); `unavailable` when the feed names
     the file but its bytes are absent, damaged or another size than the ref
@@ -344,6 +381,9 @@ type CanvasNode = {
 
 type CanvasWire = { wireId: string; from: string; to: string; path: { x: number; y: number }[]; radius: number };
 
+// A file in the Mac content store: what content.get reads and attachments name.
+type ContentRef = { sha256: string; byteLength: number; mediaType: string; displayName?: string };
+
 type Mail = {
   messageId: string; canvasName: string; nodeId: string;
   direction: "to_seat" | "from_seat";
@@ -352,6 +392,7 @@ type Mail = {
   delivery: "delivered" | "waiting_for_seat" | "failed";
   threadId?: string;                          // its thread: the root mail's id, its own when it starts one
   inReplyTo?: string;
+  attachments?: ContentRef[];                 // files the mail carries; content.get serves them
 };
 
 type ThreadParty = { kind: "operator" } | { kind: "seat"; nodeId: string; name: string };
@@ -360,6 +401,7 @@ type ThreadMessage = {
   from: ThreadParty; to: ThreadParty[];       // to: always the one recipient
   mine: boolean;                              // the operator wrote it
   text: string; textCut?: true; at: number;
+  attachments?: ContentRef[];                 // files the mail carries; content.get serves them
   mentions?: { kind: "seat"; nodeId: string; name: string }[];  // references; not recipients
 };
 type ThreadSummary = {
@@ -464,6 +506,8 @@ wire module's closure grows past `effect`.
 | `not-found` | canvas, seat, or signal is gone | refresh the feed |
 | `conflict` | signal no longer open (`error.signal` holds its current state) | replace the item |
 | `too-large` | frame over the limit | bug; channel closes |
+| `mismatch` | a staged file did not hash to what the phone named (`content.stage` only) | send the file again |
+| `disk-low` | the Mac cannot hold the file (`content.stage` only) | say so; do not retry |
 | `rate-limited` | more than 20 writes per 10 s | back off and retry |
 | `internal` | unexpected failure | retry once, then show error |
 | `unavailable` | a file the feed names is not stored on this Mac (`content.get` only) | show "not available", do not retry |

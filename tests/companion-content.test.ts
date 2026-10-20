@@ -72,7 +72,7 @@ describe("content.get against the demo", () => {
   it("refuses a digest in no feed with the same answer as one the store never held", async () => {
     const host = demo();
     const unknown = await host.call(frame({ sha256: "0".repeat(64), offset: 0, length: 16 }));
-    expect(unknown).toMatchObject({ ok: false, error: { code: "not-found", message: "That file is no longer in your feed." } });
+    expect(unknown).toMatchObject({ ok: false, error: { code: "not-found", message: "That file is no longer in your feed or your mail." } });
   });
 
   it("refuses a range past the end, and malformed or open arguments", async () => {
@@ -112,6 +112,7 @@ describe("content.get through the request core", () => {
     stagePiece: async () => outcomeFail("invalid"),
     admitStage: async () => outcomeOk(undefined),
     dropStaged: async () => undefined,
+    mailContentRef: async () => undefined,
     portrait: async () => outcomeOk({ svg: "" }),
     contentRange: async (_ref, _offset, length) => outcomeOk(new Uint8Array(length)),
     machines: async () => outcomeOk([]),
@@ -130,6 +131,24 @@ describe("content.get through the request core", () => {
     const backend = backendOf({ feeds: async () => outcomeOk(feedWith([])), contentRange: async () => { asked += 1; return outcomeOk(new Uint8Array(1)); } });
     expect(await call(backend, { sha256: ref.sha256, offset: 0, length: 1 })).toMatchObject({ ok: false, error: { code: "not-found" } });
     expect(asked).toBe(0);
+  });
+
+  it("serves a file a readable mail carries, at the store's size, and asks the mail only outside the feed", async () => {
+    let asked = 0;
+    const held = { ...ref, byteLength: 32 } as ContentRef;
+    const backend = backendOf({
+      feeds: async () => outcomeOk(feedWith([])),
+      mailContentRef: async (sha) => {
+        asked += 1;
+        return sha === ref.sha256 ? held : undefined;
+      },
+    });
+    expect(await call(backend, { sha256: ref.sha256, offset: 0, length: 64 })).toMatchObject({ ok: true, result: { length: 32, byteLength: 32 } });
+    expect(await call(backend, { sha256: "e".repeat(64), offset: 0, length: 1 })).toMatchObject({ ok: false, error: { code: "not-found" } });
+    expect(asked).toBe(2);
+    const inFeed = backendOf({ mailContentRef: async () => { asked += 1; return undefined; } });
+    expect(await call(inFeed, { sha256: ref.sha256, offset: 0, length: 16 })).toMatchObject({ ok: true });
+    expect(asked).toBe(2);
   });
 
   it("checks membership on every request: a ref that leaves the feed mid-download is refused on its next chunk", async () => {
