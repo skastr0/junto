@@ -113,8 +113,12 @@ const FEED_NEED = {
   feedback: shown("seat_feedback"),
 } as const;
 
+/** Held mail's feed row (`mail-waiting:<nodeId>`, built in shared/operator-feed). */
+const isMailWaitingItem = (item: { readonly itemId: string }): boolean => item.itemId.startsWith("mail-waiting:");
+
 /**
- * Feed items as subjects. The AI's reading and canvas needs never ping; a
+ * Feed items as subjects. The AI's reading, canvas needs and held mail never
+ * ping (held mail is display only: an attention row, but not a dialog); a
  * stopped seat pings through seatSubjects, as it did before the feed listed it.
  * This Mac's own item is found as the window regains focus, with the operator
  * already here: it counts, but it never pings.
@@ -122,7 +126,7 @@ const FEED_NEED = {
 export const subjectsFromFeed = (feed: OperatorFeed): ReadonlyArray<NotifySubject> =>
   feed.sections.flatMap((section) =>
     section.items.flatMap((item): ReadonlyArray<NotifySubject> =>
-      item.kind === "health" || item.kind === "stopped" || item.canvas === true || isThisMacItem(item)
+      item.kind === "health" || item.kind === "stopped" || item.canvas === true || isThisMacItem(item) || isMailWaitingItem(item)
         ? []
         : [
             {

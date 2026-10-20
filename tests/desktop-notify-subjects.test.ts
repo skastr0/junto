@@ -47,6 +47,19 @@ describe("desktop notification subjects", () => {
     ]);
   });
 
+  it("never pings for held mail: the item is display only, not a dialog", () => {
+    const feed = buildOperatorFeed({
+      canvasName: "main",
+      nowMs: 3 * 60 * 60_000,
+      seats: feedSeatsFromCanvas(canvas, {
+        mailWaitByNodeId: new Map([["a2", { count: 3, heldSince: 60 * 60_000, hold: "draft" as const }]]),
+      }),
+      signals: [],
+    });
+    expect(feed.sections.flatMap((section) => section.items).map((item) => item.itemId)).toEqual(["mail-waiting:a2"]);
+    expect(subjectsFromFeed(feed)).toEqual([]);
+  });
+
   const base = {
     canvasName: "main",
     seats: [["a1", "Maple"], ["a2", "Pip"], ["a3", "Clove"]].map(([id, label]) =>
