@@ -57,6 +57,7 @@ import { isThisMachine } from "@shared/machine-identity";
 import { thisMachineName } from "../term/machine-name";
 import type { Message } from "@shared/work-model";
 import { readMailExtension } from "@shared/crew";
+import { MAIL_WAITING_AFTER_MS, type MailWaitingFact } from "@shared/mail-waiting";
 import { attachmentsOf } from "@shared/mail-threads";
 import type { ContentRef } from "@shared/wire/content-ref";
 import {
@@ -318,7 +319,13 @@ export class MessageDeliveryService {
   /** Mail whose failed write was already told; cleared once it lands. */
   private readonly failedTold = new Set<string>();
   /** Held mail already told, with why and when; cleared once it lands. */
-  private readonly heldTold = new Map<string, { reason: MailHold; at: number; since: number }>();
+  private readonly heldTold = new Map<
+    string,
+    { reason: MailHold; at: number; since: number; readonly canvas: string; readonly nodeId: string }
+  >();
+  /** Each seat's mail-waiting fact while it stands, by canvas and node. */
+  private readonly waitingFacts = new Map<string, MailWaitingFact>();
+  private readonly waitingListeners = new Set<(fact: MailWaitingFact) => void>();
   /** One retry timer per held message; see MAIL_HELD_RETRY_MS. */
   private readonly heldRetries = new Map<string, ReturnType<typeof setTimeout>>();
   /** Told once per message typed into a seat (wire pulse, preambles). */
@@ -366,6 +373,8 @@ export class MessageDeliveryService {
     this.passes.clear();
     this.failedTold.clear();
     this.heldTold.clear();
+    for (const fact of this.waitingFacts.values()) this.emitWaiting({ canvasName: fact.canvasName, nodeId: fact.nodeId, count: 0 });
+    this.waitingFacts.clear();
     for (const timer of this.heldRetries.values()) clearTimeout(timer);
     this.heldRetries.clear();
   }
@@ -392,6 +401,57 @@ export class MessageDeliveryService {
     return () => {
       this.deliveredListeners.delete(listener);
     };
+  }
+
+  /** The mail-waiting facts that stand now, one per seat (`@shared/mail-waiting`). */
+  mailWaiting(): ReadonlyArray<MailWaitingFact> {
+    return [...this.waitingFacts.values()];
+  }
+
+  /** Listen for each seat's mail-waiting fact as it is told, changes and clears (count 0). */
+  subscribeMailWaiting(listener: (fact: MailWaitingFact) => void): () => void {
+    this.waitingListeners.add(listener);
+    return () => {
+      this.waitingListeners.delete(listener);
+    };
+  }
+
+  private emitWaiting(fact: MailWaitingFact): void {
+    for (const listener of this.waitingListeners) {
+      try {
+        listener(fact);
+      } catch (error) {
+        console.error("[delivery] mail-waiting listener failed:", error);
+      }
+    }
+  }
+
+  /** A message no longer waits on its seat's box: drop its hold and recount the seat. */
+  private forgetHeld(key: string): void {
+    const told = this.heldTold.get(key);
+    if (told === undefined) return;
+    this.heldTold.delete(key);
+    this.recountWaiting(told.canvas, told.nodeId, Date.now());
+  }
+
+  /** Tell a seat's mail-waiting fact when it starts, changes or clears. */
+  private recountWaiting(canvas: string, nodeId: string, now: number): void {
+    const long = [...this.heldTold.values()]
+      .filter((told) => told.canvas === canvas && told.nodeId === nodeId && now - told.since >= MAIL_WAITING_AFTER_MS)
+      .sort((a, b) => a.since - b.since);
+    const seat = mailKey(canvas, nodeId, "");
+    const prior = this.waitingFacts.get(seat);
+    const oldest = long[0];
+    if (oldest === undefined) {
+      if (prior === undefined) return;
+      this.waitingFacts.delete(seat);
+      this.emitWaiting({ canvasName: canvas, nodeId, count: 0 });
+      return;
+    }
+    const fact: MailWaitingFact = { canvasName: canvas, nodeId, count: long.length, heldSince: oldest.since, hold: oldest.reason };
+    if (prior?.count === fact.count && prior.heldSince === fact.heldSince && prior.hold === fact.hold) return;
+    this.waitingFacts.set(seat, fact);
+    this.emitWaiting(fact);
   }
 
   private emitDelivered(event: WireTrafficEvent): void {
@@ -461,6 +521,7 @@ export class MessageDeliveryService {
     const target = node === undefined ? undefined : this.targetHere(node);
     if (target === "elsewhere") {
       this.waiting.delete(key);
+      this.forgetHeld(key);
       // The rows carry the files by ref; the bytes go to the seat's machine, offered on every route.
       const files = message === undefined ? [] : attachmentsOf(message);
       if (files.length > 0 && node?.kind === "agent" && node.host) this.filesRoute?.(node.host, files);
@@ -477,11 +538,13 @@ export class MessageDeliveryService {
       const missing = !node ? "node is not on the canvas" : !target ? "node holds no agent seat" : "message is not in the mailbox";
       console.error(`[delivery] not attempted for ${canvas}/${nodeId}/${messageId}: ${missing}`);
       this.waiting.delete(key);
+      this.forgetHeld(key);
       return "waiting";
     }
     if (!isPendingDelivery(message)) {
       console.info(`[delivery] not pending for ${canvas}/${nodeId}/${messageId}: role=${message.role}, readAt=${String(message.metadata?.readAt)}, deliveredAt=${String(message.metadata?.deliveredAt)}`);
       this.waiting.delete(key);
+      this.forgetHeld(key);
       return "delivered";
     }
     this.waiting.set(key, { canvas, nodeId, messageId, bindingId: target.bindingId });
@@ -637,7 +700,7 @@ export class MessageDeliveryService {
     }
     for (const one of mail) {
       this.failedTold.delete(one.key);
-      this.heldTold.delete(one.key);
+      this.forgetHeld(one.key);
       const retry = this.heldRetries.get(one.key);
       if (retry !== undefined) clearTimeout(retry);
       this.heldRetries.delete(one.key);
@@ -683,10 +746,12 @@ export class MessageDeliveryService {
       told.reason === reason &&
       now - told.at < (reason === "draft" ? MAIL_DRAFT_RETELL_MS : MAIL_HELD_RETRY_MS)
     ) {
+      this.recountWaiting(canvas, nodeId, now);
       return;
     }
     const since = told?.since ?? now;
-    this.heldTold.set(key, { reason, at: now, since });
+    this.heldTold.set(key, { reason, at: now, since, canvas, nodeId });
+    this.recountWaiting(canvas, nodeId, now);
     this.emitDelivered({
       ...wireTrafficOfMail({ canvasName: canvas, toNodeId: nodeId, message, at: now }),
       held: reason,

@@ -15,6 +15,7 @@ import {
 } from "../src/main/junto/work/message-delivery";
 import { composeMailBatch, MAIL_BATCH_BODY_MAX, MAIL_TYPED_BODY_MAX } from "../src/shared/message-delivery";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
+import { MAIL_WAITING_AFTER_MS, type MailWaitingFact } from "../src/shared/mail-waiting";
 
 const canvas = "crew";
 const nodeId = "agent-b";
@@ -689,6 +690,44 @@ describe("mail delivery", () => {
     await vi.advanceTimersByTimeAsync(2 * MAIL_HELD_RETRY_MS);
     expect(events.map((event) => [event.held, event.heldSince])).toEqual([["draft", since], ["draft", since]]);
     expect(seat.writes).toHaveLength(0);
+    vi.useRealTimers();
+  });
+
+  it("tells a seat's mail-waiting fact after 30 minutes held, and clears it when the mail is typed", async () => {
+    vi.useFakeTimers();
+    let hold: "draft" | "dialog" | undefined = "draft";
+    const seat = rig({ held: () => hold });
+    const facts: MailWaitingFact[] = [];
+    seat.service.subscribeMailWaiting((fact) => facts.push(fact));
+    seat.append(mail("01A", "first"));
+    void seat.service.deliver(canvas, nodeId, "01A");
+    await vi.advanceTimersByTimeAsync(50);
+    const since = Date.now() - 50;
+    seat.append(mail("01B", "second"));
+    void seat.service.deliver(canvas, nodeId, "01B");
+    await vi.advanceTimersByTimeAsync(MAIL_WAITING_AFTER_MS - 5 * MAIL_HELD_RETRY_MS);
+    expect(facts).toEqual([]);
+    expect(seat.service.mailWaiting()).toEqual([]);
+
+    // The minute retries see both cross 30 minutes: one fact for the seat, no mail text in it.
+    await vi.advanceTimersByTimeAsync(6 * MAIL_HELD_RETRY_MS);
+    const told = { canvasName: canvas, nodeId, count: 2, hold: "draft" };
+    expect(facts.at(-1)).toMatchObject(told);
+    expect(Math.abs(facts.at(-1)!.heldSince! - since)).toBeLessThan(100);
+    expect(Object.keys(facts.at(-1)!).sort()).toEqual(["canvasName", "count", "heldSince", "hold", "nodeId"]);
+    expect(seat.service.mailWaiting()).toEqual([facts.at(-1)]);
+
+    // A changed reason is the same wait, told with its new reason.
+    hold = "dialog";
+    await vi.advanceTimersByTimeAsync(MAIL_HELD_RETRY_MS + 50);
+    expect(facts.at(-1)).toMatchObject({ ...told, hold: "dialog" });
+
+    // The box frees up: the mail is typed and the fact clears.
+    hold = undefined;
+    await vi.advanceTimersByTimeAsync(MAIL_HELD_RETRY_MS + 50);
+    expect(seat.writes.length).toBeGreaterThan(0);
+    expect(facts.at(-1)).toEqual({ canvasName: canvas, nodeId, count: 0 });
+    expect(seat.service.mailWaiting()).toEqual([]);
     vi.useRealTimers();
   });
 
