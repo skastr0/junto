@@ -22,6 +22,9 @@ import { makeRowsChannel } from "./junto/work/exchange/channel";
 import { followLocalCommits, makeLiveRowExchange } from "./junto/work/exchange/live";
 import type { RowExchange } from "./junto/work/exchange/session";
 import { messageDelivery } from "./junto/work/message-delivery";
+import { ContentService } from "./junto/content/service";
+import { makeMachineFiles, pushFileToMachine } from "./junto/content/machine-files";
+import { SshTransport } from "./junto/ssh";
 import { makeMachineExchangeQuery } from "./junto/work/exchange/queries";
 import { OPERATOR_PROTOCOL_VERSION, decodeOperatorResponse } from "@shared/operator-control";
 import { makeSeatsChannel } from "./junto/term/seats-link";
@@ -130,6 +133,7 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
   const machines = yield* MachineRepository;
   const links = yield* MachineLink;
   const context = yield* Effect.context<never>();
+  const fileContext = yield* Effect.context<HostsService | SshTransport | ContentService>();
   let notifySignal: ((signal: AgentSignal) => void) | undefined;
   const exchange = yield* makeLiveRowExchange({
     mailArrived: (canvas, nodeId, message) => messageDelivery.notifyAppended(canvas, nodeId, message),
@@ -146,11 +150,15 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
     },
   });
   messageDelivery.followLinks((canvas, nodeId) => Effect.runPromiseWith(context)(exchange.routed(canvas, nodeId)));
+  const files = makeMachineFiles((machine, ref) => Effect.runPromiseWith(fileContext)(pushFileToMachine(machine, ref)));
+  messageDelivery.followFiles(files.push);
   const stopFollowing = yield* followLocalCommits(exchange);
   yield* Effect.addFinalizer(() => Effect.sync(() => {
     stopFollowing();
     notifySignal = undefined;
     messageDelivery.followLinks(undefined);
+    messageDelivery.followFiles(undefined);
+    files.stop();
   }));
   return { exchange, handler: makeRowsChannel(exchange), onSignalTaken: notify => { notifySignal = notify; } };
 }));

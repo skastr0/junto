@@ -206,6 +206,21 @@ describe("mail delivery", () => {
       expect(away.writes).toEqual([]);
     });
 
+    it("sends a mail's files toward the seat's machine each time it is routed there, and none with no files", async () => {
+      const away = rig({ canvas: elsewhere, live: true, wake: () => true });
+      const ref = { sha256: "a".repeat(64), byteLength: 3, mediaType: "image/png", displayName: "shot.png" };
+      const withFile = mail("01A", "a picture");
+      away.append({ ...withFile, metadata: { ...withFile.metadata, attachments: [ref] } });
+      away.append(mail("01B", "no picture"));
+      const sent: Array<[string, unknown]> = [];
+      away.service.followFiles((machine, files) => sent.push([machine, files]));
+      away.service.followLinks(async () => false);
+      expect(await away.service.deliver(canvas, nodeId, "01A")).toBe("held");
+      expect(await away.service.deliver(canvas, nodeId, "01A")).toBe("held");
+      expect(await away.service.deliver(canvas, nodeId, "01B")).toBe("held");
+      expect(sent).toEqual([[OTHER_MACHINE, [ref]], [OTHER_MACHINE, [ref]]]);
+    });
+
     it("is typed once the seat is on this machine", async () => {
       const away = rig({ canvas: elsewhere, live: true });
       away.append(mail("01A", "for whoever runs the seat"));

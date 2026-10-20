@@ -52,6 +52,8 @@ import { isThisMachine } from "@shared/machine-identity";
 import { thisMachineName } from "../term/machine-name";
 import type { Message } from "@shared/work-model";
 import { readMailExtension } from "@shared/crew";
+import { attachmentsOf } from "@shared/mail-threads";
+import type { ContentRef } from "@shared/wire/content-ref";
 import {
   composeImmediatePromptPayload,
   composeMailBatch,
@@ -260,6 +262,13 @@ export class MessageDeliveryService {
   followLinks(route: MailLinkRoute | undefined): void {
     this.linkRoute = route;
   }
+
+  private filesRoute: ((machine: string, files: ReadonlyArray<ContentRef>) => void) | undefined;
+
+  /** Where a mail's files go when its seat runs on another machine: that machine's store. */
+  followFiles(route: ((machine: string, files: ReadonlyArray<ContentRef>) => void) | undefined): void {
+    this.filesRoute = route;
+  }
   private suspended = false;
   private lifecycleGeneration = 0;
   /** Mail waiting for its seat, by message. */
@@ -426,6 +435,9 @@ export class MessageDeliveryService {
     const target = node === undefined ? undefined : this.targetHere(node);
     if (target === "elsewhere") {
       this.waiting.delete(key);
+      // The rows carry the files by ref; the bytes go to the seat's machine, offered on every route.
+      const files = message === undefined ? [] : attachmentsOf(message);
+      if (files.length > 0 && node?.kind === "agent" && node.host) this.filesRoute?.(node.host, files);
       const handed = (await this.linkRoute?.(canvas, nodeId).catch(() => false)) ?? false;
       console.info(
         `[delivery] ${canvas}/${nodeId}/${messageId}: the seat runs on another machine, mail ${handed ? "handed to a link" : "held until a link opens"}`,
