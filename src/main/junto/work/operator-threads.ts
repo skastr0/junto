@@ -30,6 +30,8 @@ import {
 import { operatorActorRef } from "@shared/work-reference";
 import { ModelService } from "../model/service";
 import { messageDelivery } from "./message-delivery";
+import { heldMailbox } from "./mailbox-cache";
+import type { WorkRepository } from "./repository";
 import { WorkService } from "./service";
 
 const agentSeatsOf = (canvas: Canvas) => [...canvas.nodes.values()].filter((node) => node.kind === "agent");
@@ -38,10 +40,9 @@ const agentSeatsOf = (canvas: Canvas) => [...canvas.nodes.values()].filter((node
 const threadsInput = (canvasName: string) =>
   Effect.gen(function* () {
     const canvas = yield* (yield* ModelService).canvas(canvasName);
-    const work = yield* WorkService;
     const seats = agentSeatsOf(canvas);
     const mailboxes = yield* Effect.forEach(seats, (seat) =>
-      work.readMailbox(canvasName, seat.id).pipe(Effect.map((messages) => ({ nodeId: seat.id as string, messages }))),
+      heldMailbox(canvasName, seat.id).pipe(Effect.map((messages) => ({ nodeId: seat.id as string, messages }))),
     );
     const names = new Map(seats.map((seat) => [seat.id as string, titleOf(seat)]));
     const input: MailThreadsInput = { mailboxes, nameOf: (nodeId) => names.get(nodeId) };
@@ -92,7 +93,7 @@ const refused = (reason: Refused["reason"], message: string): Refused => ({ ok: 
  * check runs before the write.
  */
 export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
-  Effect.gen(function* (): Effect.fn.Return<Refused | OperatorThreadWritten, unknown, ModelService | WorkService> {
+  Effect.gen(function* (): Effect.fn.Return<Refused | OperatorThreadWritten, unknown, ModelService | WorkService | WorkRepository> {
     const { canvasName, nodeId } = send;
     const { canvas, input } = yield* threadsInput(canvasName);
     const seat = canvas.nodes.get(asNodeId(nodeId));
