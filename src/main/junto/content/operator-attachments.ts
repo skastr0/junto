@@ -35,7 +35,28 @@ const operatorStager = (canvasName: string): ContentStageSeat => ({
 
 const MAX_MB = OPERATOR_ATTACHMENT_MAX_BYTES / (1024 * 1024);
 
-/** One piece of an operator upload, staged in the Mac content store. */
+/**
+ * Bytes each open operator upload holds so far, by canvas and stage id, so a
+ * piece that would carry a file past the limit is refused before it is
+ * written. An entry goes when its upload closes or the stager refuses it;
+ * one refused for size stays, so the upload cannot go on.
+ */
+const received = new Map<string, number>();
+
+/** Raw bytes a standard Base64 piece decodes to. */
+const pieceBytes = (bytesBase64: string | undefined): number => {
+  if (bytesBase64 === undefined || bytesBase64.length === 0) return 0;
+  const padding = bytesBase64.endsWith("==") ? 2 : bytesBase64.endsWith("=") ? 1 : 0;
+  return (bytesBase64.length / 4) * 3 - padding;
+};
+
+const tooLarge = { ok: false, message: `A file is at most ${MAX_MB} MB.` } as const;
+
+/**
+ * One piece of an operator upload, staged in the Mac content store. The
+ * piece that would cross the file limit is refused before it is written,
+ * and its upload is not continued.
+ */
 export const putOperatorContent = (
   canvasName: string,
   args: ContentStageArgs,
@@ -43,12 +64,23 @@ export const putOperatorContent = (
   Effect.gen(function* () {
     const content = yield* Effect.serviceOption(ContentService);
     if (Option.isNone(content)) return { ok: false, message: "The content store is unavailable." } as const;
+    const key = args.stageId === undefined ? undefined : `${canvasName}\u0000${args.stageId}`;
+    const before = key === undefined ? 0 : (received.get(key) ?? 0);
+    if (before + pieceBytes(args.bytesBase64) > OPERATOR_ATTACHMENT_MAX_BYTES) {
+      // Held past the limit, so no later piece of this upload is taken either.
+      if (key !== undefined) received.set(key, Number.POSITIVE_INFINITY);
+      return tooLarge;
+    }
     const staged = yield* Effect.result(contentStagerFor(content.value).stage(operatorStager(canvasName), args));
-    if (staged._tag === "Failure") return { ok: false, message: staged.failure.message } as const;
+    if (staged._tag === "Failure") {
+      if (key !== undefined) received.delete(key);
+      return { ok: false, message: staged.failure.message } as const;
+    }
     const result = staged.success;
-    const byteLength = "ref" in result ? result.ref.byteLength : result.byteLength;
-    if (byteLength > OPERATOR_ATTACHMENT_MAX_BYTES) {
-      return { ok: false, message: `A file is at most ${MAX_MB} MB.` } as const;
+    if ("ref" in result) {
+      if (key !== undefined) received.delete(key);
+    } else {
+      received.set(`${canvasName}\u0000${result.stageId}`, result.byteLength);
     }
     return { ok: true, result } as const;
   });

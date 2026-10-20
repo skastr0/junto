@@ -134,6 +134,43 @@ describe("operator attachments, main", () => {
   });
 });
 
+describe("operator attachments, the size limit", () => {
+  it("refuses the piece that crosses 25 MB before it is written, and the upload goes no further", async () => {
+    const { content } = await boot();
+    const run = (args: Record<string, unknown>) =>
+      Effect.runPromise(putOperatorContent("factory", args as never).pipe(Effect.provideService(ContentService, content)));
+    const piece = Buffer.alloc(4 * 1024 * 1024, 1).toString("base64");
+    const first = await run({ bytesBase64: piece });
+    if (!first.ok || "ref" in first.result) throw new Error("the upload did not open");
+    const stageId = first.result.stageId;
+    // 24 MB in: one more 4 MB piece would cross 25 MB.
+    for (let i = 0; i < 5; i += 1) expect((await run({ stageId, bytesBase64: piece })).ok).toBe(true);
+    expect(await run({ stageId, bytesBase64: piece })).toEqual({ ok: false, message: "A file is at most 25 MB." });
+    // Nothing past the limit was taken, and the upload cannot go on with a smaller piece.
+    expect(await run({ stageId, bytesBase64: Buffer.from("x").toString("base64") })).toEqual({
+      ok: false,
+      message: "A file is at most 25 MB.",
+    });
+  });
+
+  it("takes a file of exactly 25 MB", async () => {
+    const { content } = await boot();
+    const run = (args: Record<string, unknown>) =>
+      Effect.runPromise(putOperatorContent("factory", args as never).pipe(Effect.provideService(ContentService, content)));
+    const piece = Buffer.alloc(4 * 1024 * 1024, 2).toString("base64");
+    const first = await run({ bytesBase64: piece });
+    if (!first.ok || "ref" in first.result) throw new Error("the upload did not open");
+    const stageId = first.result.stageId;
+    for (let i = 0; i < 5; i += 1) await run({ stageId, bytesBase64: piece });
+    const last = await run({
+      stageId,
+      bytesBase64: Buffer.alloc(1024 * 1024, 2).toString("base64"),
+      done: { mediaType: "application/octet-stream", displayName: "exact.bin" },
+    });
+    expect(last.ok && "ref" in last.result && last.result.ref.byteLength).toBe(25 * 1024 * 1024);
+  });
+});
+
 describe("operator attachments, shared words", () => {
   it("says one line per file, with name, type, size and path", () => {
     const ref = { sha256: "a".repeat(64), byteLength: 3 * 1024 * 1024, mediaType: "application/pdf", displayName: "spec.pdf" } as ContentRef;
