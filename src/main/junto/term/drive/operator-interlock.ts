@@ -10,7 +10,8 @@
  *
  * Two mechanisms, both keyed by bindingId:
  *
- *   latches — LocalSessionHost stamps noteInput on every operator write and
+ *   latches — LocalSessionHost stamps noteInput on every operator write that
+ *     types (isOperatorTyping: focus and mouse reports are not typing) and
  *     noteResize on every operator resize at the moment they arrive, BEFORE
  *     the bytes hit the PTY. The drive treats an active latch like a draft
  *     composer: admission refuses and queue drains wait until the screen
@@ -34,6 +35,18 @@ export const OPERATOR_INPUT_LATCH_MS = 400;
 
 /** Resize admission block. Covers the SIGWINCH repaint churn window. */
 export const OPERATOR_RESIZE_LATCH_MS = 250;
+
+/**
+ * What the operator's terminal sends by itself once the harness asks for it:
+ * focus in and out (mode 1004, as the operator clicks into or away from the
+ * seat) and mouse reports (SGR, urxvt and X10 encodings). None of it is
+ * typing, and none of it puts text in the input box.
+ */
+const TERMINAL_REPORT = /\x1b\[[IO]|\x1b\[<\d+;\d+;\d+[Mm]|\x1b\[\d+;\d+;\d+M|\x1b\[M[\s\S]{3}/gu;
+
+/** Whether an operator write holds anything besides focus and mouse reports. */
+export const isOperatorTyping = (data: string): boolean =>
+  data.replace(TERMINAL_REPORT, "").length > 0;
 
 /** A parked operator write. Replay re-enters the host write path so lease,
  * epoch, and phase are re-validated against the CURRENT session record — a

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isOperatorTyping,
   OperatorInterlock,
   OPERATOR_INPUT_LATCH_MS,
   OPERATOR_RESIZE_LATCH_MS,
@@ -127,5 +128,27 @@ describe("OperatorInterlock", () => {
     expect(writes).toEqual(
       Array.from({ length: 513 }, (_, index) => index),
     );
+  });
+});
+
+describe("isOperatorTyping", () => {
+  it("is false for the terminal's own focus and mouse reports", () => {
+    for (const report of [
+      "\x1b[I",
+      "\x1b[O",
+      "\x1b[O\x1b[I",
+      "\x1b[<0;12;30M\x1b[<0;12;30m",
+      "\x1b[<64;40;10M",
+      "\x1b[32;12;30M",
+      "\x1b[M !!",
+    ]) {
+      expect(isOperatorTyping(report), JSON.stringify(report)).toBe(false);
+    }
+  });
+
+  it("is true for keys, pastes, and keys beside a report", () => {
+    for (const typed of ["a", "\r", "\x1b[A", "\x1bOP", "\x1b[200~text\x1b[201~", "\x1b[Ia"]) {
+      expect(isOperatorTyping(typed), JSON.stringify(typed)).toBe(true);
+    }
   });
 });

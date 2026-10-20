@@ -127,6 +127,7 @@ import {
 } from "./prime-agent-daemon";
 import {
   OperatorInterlock,
+  isOperatorTyping,
   seatOperatorInterlock,
 } from "./drive/operator-interlock";
 
@@ -1690,8 +1691,10 @@ export class LocalSessionHost extends EventEmitter {
   write(lease: ControlLease, data: string): boolean {
     // Zero-latency operator evidence: the drive's admission gate must see a
     // keystroke before the screen could possibly repaint it. Stamped even on
-    // refused writes — operator presence is the signal, not delivery.
-    this.operatorInterlock.noteInput(lease.bindingId);
+    // refused writes — operator presence is the signal, not delivery. A focus
+    // or mouse report is the terminal's, not typing: clicking into a seat
+    // must not turn the box's painted text into the operator's draft.
+    if (isOperatorTyping(data)) this.operatorInterlock.noteInput(lease.bindingId);
     // The seat's session has offboarded: nothing more goes into it, the
     // operator's keystrokes included, in the moment before it is detached.
     if (this.inputSealed?.(lease.bindingId) === true) return false;
