@@ -58,7 +58,7 @@ import { thisMachineName } from "../term/machine-name";
 import type { Message } from "@shared/work-model";
 import { readMailExtension } from "@shared/crew";
 import { MAIL_WAITING_AFTER_MS, type MailWaitingFact } from "@shared/mail-waiting";
-import { attachmentsOf } from "@shared/mail-threads";
+import { operatorFilesOf } from "@shared/mail-threads";
 import type { ContentRef } from "@shared/wire/content-ref";
 import {
   composeImmediatePromptPayload,
@@ -523,7 +523,7 @@ export class MessageDeliveryService {
       this.waiting.delete(key);
       this.forgetHeld(key);
       // The rows carry the files by ref; the bytes go to the seat's machine, offered on every route.
-      const files = message === undefined ? [] : attachmentsOf(message);
+      const files = message === undefined ? [] : operatorFilesOf(message);
       if (files.length > 0 && node?.kind === "agent" && node.host) this.filesRoute?.(node.host, files);
       const handed = (await this.linkRoute?.(canvas, nodeId).catch(() => false)) ?? false;
       console.info(
@@ -549,7 +549,7 @@ export class MessageDeliveryService {
     }
     this.waiting.set(key, { canvas, nodeId, messageId, bindingId: target.bindingId });
     let attachmentLines: ReadonlyArray<string> | undefined;
-    if (attachmentsOf(message).length > 0) {
+    if (operatorFilesOf(message).length > 0) {
       attachmentLines = await store.attachmentLines?.(canvas, nodeId, message).catch(() => undefined);
       if (!this.active(generation)) return waiting("delivery generation ended during the files' read");
       if (attachmentLines === undefined) {

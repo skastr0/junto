@@ -66,6 +66,15 @@ export const attachmentsOf = (row: Message): ReadonlyArray<ContentRef> => {
     : [];
 };
 
+/**
+ * A mail's files when the operator sent it, and none otherwise: what
+ * delivery types and pushes to another machine. Only operator paths write
+ * `attachments`; this keeps a seat's mail from naming a digest by
+ * construction, whatever a future path copies (remote-security).
+ */
+export const operatorFilesOf = (row: Message): ReadonlyArray<ContentRef> =>
+  stringField(row, "fromSeat") === OPERATOR_SEAT_ID && stringField(row, "senderName") === "operator" ? attachmentsOf(row) : [];
+
 const partyKey = (party: MailParty): string => (party.kind === "operator" ? "operator" : `seat:${party.nodeId}`);
 
 type Entry = MailThreadMessage;
@@ -103,7 +112,8 @@ const entryOf = (row: Message, mailbox: string, seat: (nodeId: string) => SeatPa
   }
   const inReplyTo = stringField(row, "inReplyTo");
   const mentions = mentionsOf(row, seat);
-  const attachments = attachmentsOf(row);
+  // Files only on the operator's mail: a seat's metadata never names a digest.
+  const attachments = from.kind === "operator" ? attachmentsOf(row) : [];
   return {
     messageId: row.messageId,
     threadId: mailThreadOf(row),

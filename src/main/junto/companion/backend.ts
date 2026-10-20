@@ -40,7 +40,7 @@ import {
   type CompanionMail,
   type CompanionSeat,
 } from "@shared/companion-protocol";
-import { attachmentsOf } from "@shared/mail-threads";
+import { operatorFilesOf } from "@shared/mail-threads";
 import { installCosmeticPacks } from "@shared/cosmetics/catalog";
 import { decodeCosmeticPacks } from "@shared/cosmetics/load";
 import { feedCanvasModelNeeds } from "@shared/canvas-needs";
@@ -307,7 +307,7 @@ const mailFor = (canvasName: string, canvas: Canvas, nodeId: string, mailboxes: 
     if (message === undefined) return {};
     const threadId = mailThreadOf(message);
     const inReplyTo = message.metadata?.inReplyTo;
-    const attachments = attachmentsOf(message);
+    const attachments = operatorFilesOf(message);
     return {
       ...(threadId.length <= 128 ? { threadId } : {}),
       ...(typeof inReplyTo === "string" && inReplyTo.length > 0 && inReplyTo.length <= 128 ? { inReplyTo } : {}),

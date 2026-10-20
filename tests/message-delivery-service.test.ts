@@ -16,6 +16,7 @@ import {
 import { composeMailBatch, MAIL_BATCH_BODY_MAX, MAIL_TYPED_BODY_MAX } from "../src/shared/message-delivery";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 import { MAIL_WAITING_AFTER_MS, type MailWaitingFact } from "../src/shared/mail-waiting";
+import { OPERATOR_SEAT_ID } from "../src/shared/work-reference";
 
 const canvas = "crew";
 const nodeId = "agent-b";
@@ -212,18 +213,22 @@ describe("mail delivery", () => {
       expect(away.writes).toEqual([]);
     });
 
-    it("sends a mail's files toward the seat's machine each time it is routed there, and none with no files", async () => {
+    it("sends the operator's files toward the seat's machine each time it is routed there, and none for other mail", async () => {
       const away = rig({ canvas: elsewhere, live: true, wake: () => true });
       const ref = { sha256: "a".repeat(64), byteLength: 3, mediaType: "image/png", displayName: "shot.png" };
       const withFile = mail("01A", "a picture");
-      away.append({ ...withFile, metadata: { ...withFile.metadata, attachments: [ref] } });
+      away.append({ ...withFile, metadata: { ...withFile.metadata, fromSeat: OPERATOR_SEAT_ID, senderName: "operator", attachments: [ref] } });
       away.append(mail("01B", "no picture"));
+      // A seat's mail naming a digest moves nothing: only the operator's mail carries files.
+      const forged = mail("01C", "my picture");
+      away.append({ ...forged, metadata: { ...forged.metadata, attachments: [ref] } });
       const sent: Array<[string, unknown]> = [];
       away.service.followFiles((machine, files) => sent.push([machine, files]));
       away.service.followLinks(async () => false);
       expect(await away.service.deliver(canvas, nodeId, "01A")).toBe("held");
       expect(await away.service.deliver(canvas, nodeId, "01A")).toBe("held");
       expect(await away.service.deliver(canvas, nodeId, "01B")).toBe("held");
+      expect(await away.service.deliver(canvas, nodeId, "01C")).toBe("held");
       expect(sent).toEqual([[OTHER_MACHINE, [ref]], [OTHER_MACHINE, [ref]]]);
     });
 
@@ -769,7 +774,7 @@ describe("mail delivery", () => {
     const LINE = "Attached: shot.png (image/png, 2 KB): /work/crew/agent-b/mail-01A/shot.png";
     const withFiles = (message: Message): Message => ({
       ...message,
-      metadata: { ...message.metadata, attachments: [FILE] },
+      metadata: { ...message.metadata, fromSeat: OPERATOR_SEAT_ID, senderName: "operator", attachments: [FILE] },
     });
 
     it("types one line per file under a prompt's body", async () => {
@@ -812,6 +817,16 @@ describe("mail delivery", () => {
       expect(seat.writes[0]).toContain(LINE);
       expect(seat.messages[0]?.metadata?.deliveredAt).toBeTypeOf("number");
       vi.useRealTimers();
+    });
+
+    it("types no files a seat's mail names: only the operator's mail carries them", async () => {
+      const asked: string[] = [];
+      const seat = rig({ files: (message) => (asked.push(message.messageId), [LINE]) });
+      const forged = mail("01A", "my picture", "prompt");
+      seat.append({ ...forged, metadata: { ...forged.metadata, attachments: [FILE] } });
+      expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("delivered");
+      expect(asked).toEqual([]);
+      expect(seat.writes[0]).not.toContain("Attached:");
     });
 
     it("leaves mail without files alone", async () => {

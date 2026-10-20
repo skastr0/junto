@@ -40,7 +40,7 @@ import {
 } from "@shared/crew";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
 import { mailListFilterOf, mailListMatches } from "@shared/mail-list-filter";
-import { attachmentsOf } from "@shared/mail-threads";
+import { operatorFilesOf } from "@shared/mail-threads";
 import { levelOfSignal, rankOf } from "@shared/wire/urgency";
 import { seatStateRuntime } from "../term/agent-state";
 import { probeManagedHarnessInstalls } from "../term/templates/harness-install";
@@ -412,7 +412,7 @@ const withThread = <M extends Message>(message: M): M & { readonly threadId: str
 const withMailFiles = (canvasName: string, nodeId: string) =>
   <M extends Message>(message: M): Effect.Effect<M | (M & { readonly files: ReadonlyArray<string> })> =>
     Effect.gen(function* () {
-      const refs = attachmentsOf(message);
+      const refs = operatorFilesOf(message);
       if (refs.length === 0) return message;
       const store = yield* Effect.serviceOption(ContentService);
       if (Option.isNone(store)) return message;

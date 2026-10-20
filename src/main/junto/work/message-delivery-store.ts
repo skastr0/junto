@@ -6,7 +6,7 @@
  */
 import { Effect } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
-import { attachmentsOf } from "@shared/mail-threads";
+import { operatorFilesOf } from "@shared/mail-threads";
 import { operatorAttachmentLines } from "../content/operator-attachments";
 import { ContentService } from "../content/service";
 import { ModelActorRefs } from "../model/actor-refs";
@@ -32,7 +32,7 @@ export const makeMessageDeliveryStore: Effect.Effect<
     readMessage: (canvas, nodeId, messageId) => run(repository.mailMessage(canvas, nodeId, messageId)),
     listMail: (canvas, nodeId) => run(repository.mailbox(canvas, nodeId)),
     attachmentLines: (canvas, nodeId, message) => {
-      const refs = attachmentsOf(message);
+      const refs = operatorFilesOf(message);
       return run(
         operatorAttachmentLines(content, { canvasName: canvas, nodeId, messageId: message.messageId, refs }).pipe(
           // A file this store does not hold (its bytes are still on their way
