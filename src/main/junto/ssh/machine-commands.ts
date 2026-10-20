@@ -31,6 +31,11 @@ const contentTransfer = (
  * fresh object) and stays under the 16 MiB stdin boundary, so a larger object
  * goes over in pieces; the store publishes it only once the whole object
  * verifies, and an object already there is a success.
+ *
+ * The caller decodes the answer closed (parseContentHelperStatus) and passes
+ * its error through scrubMessage before any row or log: an IO failure names a
+ * path on the far machine. One push per (machine, sha256) at a time, since the
+ * far partial is keyed by sha256 alone and two pushes interleave into it.
  */
 export const receiveMachineContent = (
   target: SshTarget,
