@@ -40,6 +40,7 @@ import { clearPreambles, showPreamble } from "./lib/preamble-state";
 import { startPreambleSources } from "./lib/preamble-sources";
 import { startAgentSignalSync } from "./lib/agent-signals-state";
 import { startPhoneReachWatch } from "./lib/phone-reach";
+import { startMailWaitingWatch } from "./lib/mail-waiting";
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
 import { CanvasChrome } from "./components/CanvasChrome";
@@ -460,6 +461,7 @@ export function App() {
     });
     const offAgentSignals = startAgentSignalSync(junto);
     const offPhoneReach = startPhoneReachWatch(junto);
+    const offMailWaiting = startMailWaitingWatch(junto);
     const offPreambleSources = startPreambleSources(junto);
 
     const offCanvasFlush = junto.onCanvasFlushRequested(async () => {
@@ -487,6 +489,7 @@ export function App() {
       offPreamble?.();
       offAgentSignals();
       offPhoneReach();
+      offMailWaiting();
       offPreambleSources();
       offCanvasFlush();
       offCanvasQuiesceAndFlush();

@@ -13,6 +13,7 @@ import {
   orderFeedSections,
   type FeedCanvasNeed,
   type FeedItem,
+  type FeedMailWait,
   type FeedSection,
   type FeedSortOrder,
   type OperatorFeed,
@@ -24,6 +25,7 @@ import { agentSignals$ } from "./agent-signals-state";
 import { chatCoarse$ } from "./chat-state";
 import { executionGraphForImpact } from "./impact-mode";
 import { kernel$ } from "./kernel-view";
+import { mailWaiting$, mailWaitsOn } from "./mail-waiting";
 import { phoneReach$, withPhoneReach } from "./phone-reach";
 import { seatAwareness$ } from "./seat-awareness";
 import { state$ } from "./state";
@@ -47,6 +49,7 @@ export const operatorFeedFor = (
   signals: ReadonlyArray<AgentSignal>,
   nowMs: number,
   needs: ReadonlyArray<FeedCanvasNeed> = [],
+  mailWaitByNodeId?: ReadonlyMap<string, FeedMailWait>,
 ): OperatorFeed => {
   const attentionByNodeId = new Map<string, { readonly reason: string; readonly at: number }>();
   const snapshotByNodeId = new Map<string, SeatSnapshot>();
@@ -63,7 +66,12 @@ export const operatorFeedFor = (
   return buildOperatorFeed({
     canvasName,
     nowMs,
-    seats: feedSeatsFromCanvas(canvas, { attentionByNodeId, snapshotByNodeId, healthByNodeId }),
+    seats: feedSeatsFromCanvas(canvas, {
+      attentionByNodeId,
+      snapshotByNodeId,
+      healthByNodeId,
+      ...(mailWaitByNodeId ? { mailWaitByNodeId } : {}),
+    }),
     signals,
     canvasNeeds: needs,
   });
@@ -146,11 +154,15 @@ export const useOperatorFeed = (): OperatorFeed => {
   // By field: the store mutates in place.
   const paired = use$(phoneReach$.paired);
   const remoteLogin = use$(phoneReach$.remoteLogin);
+  // Held mail, by node. The store mutates in place too: key it on what it says.
+  const waitsKey = use$(() => JSON.stringify(mailWaiting$[canvasName].get() ?? {}));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const waits = useMemo(() => mailWaitsOn(mailWaiting$.peek(), canvasName), [waitsKey, canvasName]);
   return useMemo(
-    () => withPhoneReach(operatorFeedFor(canvasName, canvas, signals, now, needs), { paired, remoteLogin }),
+    () => withPhoneReach(operatorFeedFor(canvasName, canvas, signals, now, needs, waits), { paired, remoteLogin }),
     // Seat and awareness stores mutate in place; their revs carry the change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canvasName, canvas, signals, needs, seatRev, awarenessRev, now, paired, remoteLogin],
+    [canvasName, canvas, signals, needs, seatRev, awarenessRev, now, paired, remoteLogin, waits],
   );
 };
 
