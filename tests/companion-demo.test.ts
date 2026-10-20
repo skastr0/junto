@@ -159,7 +159,16 @@ describe("demo transcript", () => {
     expect((await c.until(response("m2"))).result.message).toMatchObject({ nodeId: "lumen", delivery: "waiting_for_seat" });
 
     c.send(demoRequest("q1", "quickReplies.get"));
-    expect((await c.until(response("q1"))).result.replies.length).toBeGreaterThan(0);
+    const quick = (await c.until(response("q1"))).result;
+    expect(quick.replies.length).toBeGreaterThan(0);
+    expect(quick.quietNotes).toEqual(["Acknowledged", "Good"]);
+
+    // A quiet answer is recorded with no mail; an empty one acknowledges.
+    c.send(demoRequest("qa", "signal.answer", { signalId: "sig_demo_feedback", text: "", quiet: true }));
+    expect((await c.until(response("qa"))).result.signal).toMatchObject({ state: "answered", response: { text: "Acknowledged, no note" } });
+    c.send(demoRequest("qm", "mail.list", { canvasName: DEMO_CANVAS, nodeId: "prism" }));
+    const prismMail = (await c.until(response("qm"))).result.messages as Frame[];
+    expect(prismMail.some((m) => m.direction === "to_seat" && m.from.kind === "operator")).toBe(false);
     c.send(demoRequest("p1", "portrait.get", { portraitIdentity: "atlas", size: 96, theme: "dark" }));
     const svg = (await c.until(response("p1"))).result.svg as string;
     expect(svg.startsWith('<svg width="96" height="96" xmlns="http://www.w3.org/2000/svg"')).toBe(true);

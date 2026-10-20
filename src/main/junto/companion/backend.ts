@@ -49,7 +49,7 @@ import {
   type OperatorFeed,
 } from "@shared/operator-feed";
 import { overlayManifest } from "@shared/overlay";
-import { feedSettings } from "@shared/settings";
+import { feedSettings, quietNotesOf } from "@shared/settings";
 import { THREAD_HEALTH_LABEL, THREAD_HEALTH_TONE, THREAD_HEALTH_TTL_MS, type ThreadHealthReading } from "@shared/thread-health";
 import { mailboxRows, recentOpAtMs, recentOpLabel } from "@renderer/lib/actor-ledger";
 import type { WorkSeatRecentOp } from "@shared/work-recent-ops";
@@ -468,7 +468,7 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
     });
   },
 
-  answerSignal: async (signalId, text) => fromAction(await answerSignalAsOperator(signalId, text), (signal) => signal),
+  answerSignal: async (signalId, text, quiet) => fromAction(await answerSignalAsOperator(signalId, text, quiet), (signal) => signal),
   dismissSignal: async (signalId) => fromAction(await dismissSignalAsOperator(signalId), (signal) => signal),
 
   mailList: async (canvasName, nodeId, limit) => {
@@ -490,7 +490,7 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
 
   quickReplies: async () => {
     const settings = await AppRuntime.runPromise(Effect.flatMap(SettingsService, (service) => service.get));
-    return outcomeOk(feedSettings(settings).quickReplies);
+    return outcomeOk({ replies: feedSettings(settings).quickReplies, quietNotes: quietNotesOf(settings) });
   },
 
   portrait: async (portraitIdentity, size, theme, format) => {

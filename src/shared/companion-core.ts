@@ -71,7 +71,8 @@ export type CompanionBackend = {
   readonly seats: (canvasName: string) => Promise<CompanionOutcome<ReadonlyArray<CompanionSeat>>>;
   readonly seatDetail: (canvasName: string, nodeId: string) => Promise<CompanionOutcome<CompanionSeatDetail>>;
   /** Not-open signals fail `conflict` with the signal as it stands. */
-  readonly answerSignal: (signalId: string, text: string) => Promise<CompanionOutcome<AgentSignal>>;
+  /** Quiet: recorded on the signal with no mail, so the seat is not woken; empty text acknowledges. */
+  readonly answerSignal: (signalId: string, text: string, quiet: boolean) => Promise<CompanionOutcome<AgentSignal>>;
   readonly dismissSignal: (signalId: string) => Promise<CompanionOutcome<AgentSignal>>;
   readonly mailList: (
     canvasName: string,
@@ -93,7 +94,7 @@ export type CompanionBackend = {
     nodeId: string,
     threadId: string,
   ) => Promise<CompanionOutcome<CompanionResultByOp["thread.get"]>>;
-  readonly quickReplies: () => Promise<CompanionOutcome<ReadonlyArray<string>>>;
+  readonly quickReplies: () => Promise<CompanionOutcome<CompanionResultByOp["quickReplies.get"]>>;
   readonly portrait: (
     portraitIdentity: string,
     size: number,
@@ -292,7 +293,7 @@ export const handleCompanionRequest = async (
         companionOk(id, "seat.get", { seat }),
       );
     case "signal.answer":
-      return respond(id, backend.answerSignal(frame.args.signalId, frame.args.text), (signal) =>
+      return respond(id, backend.answerSignal(frame.args.signalId, frame.args.text, "quiet" in frame.args), (signal) =>
         companionOk(id, "signal.answer", { signal }),
       );
     case "signal.dismiss":
@@ -320,7 +321,7 @@ export const handleCompanionRequest = async (
         companionOk(id, "thread.get", value),
       );
     case "quickReplies.get":
-      return respond(id, backend.quickReplies(), (replies) => companionOk(id, "quickReplies.get", { replies }));
+      return respond(id, backend.quickReplies(), (value) => companionOk(id, "quickReplies.get", value));
     case "portrait.get": {
       const { portraitIdentity, size, theme } = frame.args;
       const format = frame.args.format ?? "svg";

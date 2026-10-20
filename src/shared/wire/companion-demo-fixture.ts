@@ -268,6 +268,7 @@ export const DEMO_THREAD_MAIL: ReadonlyArray<CompanionThreadMessage> = [
 ];
 
 export const DEMO_QUICK_REPLIES: ReadonlyArray<string> = ["Yes, go ahead.", "No, stop here.", "Use your judgment.", "I'll look at it shortly."];
+export const DEMO_QUIET_NOTES: ReadonlyArray<string> = ["Acknowledged", "Good"];
 
 /** Region briefings, markdown, as the region's kind strip holds them. */
 export const DEMO_BRIEFINGS: Readonly<Record<string, string>> = {

@@ -504,7 +504,13 @@ export const CompanionArgs = {
   "feed.unsubscribe": Empty,
   "seats.list": Schema.Struct({ canvasName: CanvasName }),
   "seat.get": Schema.Struct({ canvasName: CanvasName, nodeId: NodeId }),
-  "signal.answer": Schema.Struct({ signalId: bounded(1, 128), text: Text }),
+  // A quiet answer is recorded on the signal with no mail, so the seat is not
+  // woken; its text may be empty (an acknowledgement). The quiet form decodes
+  // first: the loud form would drop an unknown `quiet` and send mail.
+  "signal.answer": Schema.Union([
+    Schema.Struct({ signalId: bounded(1, 128), text: bounded(0, COMPANION_MAX_TEXT), quiet: Schema.Literal(true) }),
+    Schema.Struct({ signalId: bounded(1, 128), text: Text }),
+  ]),
   "signal.dismiss": Schema.Struct({ signalId: bounded(1, 128) }),
   "mail.list": Schema.Struct({
     canvasName: CanvasName,
@@ -577,7 +583,11 @@ export const CompanionResults = {
   "signal.dismiss": Schema.Struct({ signal: AgentSignal }),
   "mail.list": Schema.Struct({ messages: Schema.Array(CompanionMail) }),
   "mail.send": Schema.Struct({ message: CompanionMail }),
-  "quickReplies.get": Schema.Struct({ replies: Schema.Array(Schema.String) }),
+  "quickReplies.get": Schema.Struct({
+    replies: Schema.Array(Schema.String),
+    /** The operator's quiet notes. Present: this Mac takes `signal.answer` with `quiet`. */
+    quietNotes: Schema.optionalKey(Schema.Array(Schema.String)),
+  }),
   "portrait.get": Schema.Union([
     Schema.Struct({ svg: Schema.String }),
     /** Standard padded base64 of the PNG. */

@@ -15,7 +15,7 @@
 import { asCanvasName, asNodeId, asWireId, canvasFromOpened, type BindingId, type Canvas, type NodeOf } from "./model";
 import { companionCanvasDrawn } from "./companion-canvas";
 import type { AgentSignal } from "./agent-signals";
-import { rollupSeatSignals } from "./agent-signals";
+import { AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE, rollupSeatSignals } from "./agent-signals";
 import {
   handleCompanionRequest,
   makeCompanionGates,
@@ -89,6 +89,7 @@ import {
   demoMailId,
   DEMO_PREAMBLES,
   DEMO_QUICK_REPLIES,
+  DEMO_QUIET_NOTES,
   DEMO_REGIONS,
   DEMO_SEATS,
   DEMO_SIGNALS,
@@ -312,14 +313,19 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
         ),
       });
     },
-    answerSignal: async (signalId, text) => {
+    answerSignal: async (signalId, text, quiet) => {
       const signal = signals.get(signalId);
       if (!signal) return outcomeFail("not-found", `No signal ${signalId}.`);
       if (signal.state !== "open") return outcomeFail("conflict", "That signal is no longer open.", signal);
+      const typed = text.trim();
+      if (!typed && !quiet) return outcomeFail("invalid", "An answer needs some text.");
       const at = tick();
-      const answered: AgentSignal = { ...signal, state: "answered", response: { text, at }, closedAt: at };
+      const answer = typed || AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE;
+      const answered: AgentSignal = { ...signal, state: "answered", response: { text: answer, at }, closedAt: at };
       noteSignal(answered);
-      appendOperatorMail(signal.nodeId, text, at);
+      // A quiet answer sends no mail, as main's: the seat is not woken.
+      if (quiet) noteActivity(signal.nodeId, { at, label: `${signal.kind} answered quietly`, kind: "signal" });
+      else appendOperatorMail(signal.nodeId, answer, at);
       return outcomeOk(answered);
     },
     dismissSignal: async (signalId) => {
@@ -386,7 +392,7 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
       if (messages.length === 0) return outcomeFail("not-found", "That thread is not one of this seat's.");
       return outcomeOk(companionThreadMessages(messages));
     },
-    quickReplies: async () => outcomeOk(DEMO_QUICK_REPLIES),
+    quickReplies: async () => outcomeOk({ replies: DEMO_QUICK_REPLIES, quietNotes: DEMO_QUIET_NOTES }),
     portrait: async (portraitIdentity, size, theme, format) => {
       const svg = companionPortraitSvg({ portraitIdentity, size, theme });
       if (format === "svg") return outcomeOk({ svg });

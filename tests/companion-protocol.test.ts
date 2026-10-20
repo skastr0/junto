@@ -169,6 +169,18 @@ describe("request decoding", () => {
     }
   });
 
+  it("takes a quiet answer with empty text, and a loud one only with text", () => {
+    const answer = Schema.decodeUnknownResult(CompanionArgs["signal.answer"]);
+    const quiet = answer({ signalId: "s", text: "", quiet: true });
+    expect(Result.isSuccess(quiet) && quiet.success).toEqual({ signalId: "s", text: "", quiet: true });
+    const noted = answer({ signalId: "s", text: "Good", quiet: true });
+    expect(Result.isSuccess(noted) && noted.success).toEqual({ signalId: "s", text: "Good", quiet: true });
+    expect(Result.isFailure(answer({ signalId: "s", text: "" }))).toBe(true);
+    expect(Result.isFailure(answer({ signalId: "s", text: "x".repeat(8_001), quiet: true }))).toBe(true);
+    const loud = answer({ signalId: "s", text: "Ship it." });
+    expect(Result.isSuccess(loud) && loud.success).toEqual({ signalId: "s", text: "Ship it." });
+  });
+
   it("treats missing args as empty and ignores unknown fields (additive-only)", () => {
     expect(Result.isSuccess(decodeLine({ v: V, type: "request", id: "a", op: "ping" }))).toBe(true);
     const future = decodeLine({ v: V, type: "request", id: "b", op: "feed.get", args: { later: 1 }, extra: true });

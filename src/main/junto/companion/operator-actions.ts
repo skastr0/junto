@@ -4,7 +4,9 @@
  * - answering a signal runs the same `answerAgentSignal` program (the answer
  *   becomes operator mail naming the signal, then the signal is answered),
  *   notes it in the raised-hands index, broadcasts it to the desktop, and
- *   types the mail into the seat through `messageDelivery`;
+ *   types the mail into the seat through `messageDelivery`; a quiet answer
+ *   runs it silent, as the desktop quiet send does: no mail, the seat is not
+ *   woken, and an empty one is recorded as an acknowledgement;
  * - dismissing runs `dismissAgentSignal` with the same bookkeeping;
  * - mail is operator mail appended with `workSystemMailboxNotify` and handed
  *   to `messageDelivery`, which starts a stopped seat on a playing canvas.
@@ -66,9 +68,10 @@ const refusal = async (signalId: string, message: string): Promise<OperatorActio
 export const answerSignalAsOperator = async (
   signalId: string,
   text: string,
+  quiet = false,
 ): Promise<OperatorActionResult<AgentSignal>> => {
   const result = await mainAuthoringGate
-    .run("companion.signal-answer", () => AppRuntime.runPromise(answerAgentSignal(signalId, text)))
+    .run("companion.signal-answer", () => AppRuntime.runPromise(answerAgentSignal(signalId, text, { silent: quiet })))
     .catch((error: unknown) => ({ ok: false as const, message: error instanceof Error ? error.message : "answer failed" }));
   if (!result.ok) return refusal(signalId, result.message);
   raisedHands.note(result.signal);

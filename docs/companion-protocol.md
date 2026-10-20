@@ -119,11 +119,11 @@ are Markdown. Names below match `src/shared/companion-protocol.ts`.
 | `feed.unsubscribe` | `{}` | `{}` |
 | `seats.list` | `{ "canvasName": string }` | `{ "seats": Seat[] }` |
 | `seat.get` | `{ "canvasName": string, "nodeId": string }` | `{ "seat": SeatDetail }`; the phone then receives `preamble`, `signal.changed`, `mail.changed` and `seat.changed` events for this seat until it requests another `seat.get` or disconnects |
-| `signal.answer` | `{ "signalId": string, "text": string }` (1 to 8000 chars) | `{ "signal": AgentSignal }` |
+| `signal.answer` | `{ "signalId": string, "text": string, "quiet"?: true }` (1 to 8000 chars; 0 to 8000 with `quiet`) | `{ "signal": AgentSignal }` |
 | `signal.dismiss` | `{ "signalId": string }` | `{ "signal": AgentSignal }` |
 | `mail.list` | `{ "canvasName": string, "nodeId": string, "limit"?: number }` (default 50, max 200) | `{ "messages": Mail[] }` newest first |
 | `mail.send` | `{ "canvasName": string, "nodeId": string, "text": string, "threadId"?: ULID, "inReplyTo"?: ULID, "mentions"?: string[] }` (text 1 to 8000 chars, at most 32 mentions; closed: any other key is `invalid`) | `{ "message": Mail }` |
-| `quickReplies.get` | `{}` | `{ "replies": string[] }` (the operator's quick replies from desktop Settings) |
+| `quickReplies.get` | `{}` | `{ "replies": string[], "quietNotes"?: string[] }` (the operator's quick replies and quiet notes from desktop Settings) |
 | `portrait.get` | `{ "portraitIdentity": string, "size": number, "theme": "bright" \| "dark", "format"?: "svg" \| "png" }` | `{ "svg": string }`, or with `format: "png"` `{ "png": string }` |
 | `content.get` | `{ "sha256": string, "offset": number, "length": number }` (closed: any other key is `invalid`) | `{ "sha256": string, "offset": number, "length": number, "byteLength": number, "data": string }` |
 | `machines.list` | `{}` | `{ "machines": Machine[] }` (at most 32) |
@@ -138,6 +138,12 @@ Semantics:
 
 - `signal.answer` does exactly what the desktop reply does: the answer is
   typed into the seat as operator mail and the signal becomes `answered`.
+  With `quiet: true` it does what the desktop quiet send does: the answer is
+  recorded on the signal, which becomes `answered`, with no mail, so the seat
+  is not woken and reads it later through `signal list`. An empty quiet answer
+  is recorded as "Acknowledged, no note". Send `quiet` only when
+  `quickReplies.get` returned `quietNotes`: their presence says this Mac takes
+  quiet answers. An older Mac would drop the key and send the answer as mail.
   Answering a signal that is no longer `open` returns `error` `conflict` with
   the current signal in `error.signal`.
 - `mail.send` is operator mail to that seat, through the same delivery path as
