@@ -405,10 +405,3 @@
   font-size: var(--text-micro);
   color: var(--color-dim);
 }
-
-/* A file is being dragged over the composer. */
-.thread-composer[data-dragging="true"] {
-  outline: 1px dashed var(--color-cyan);
-  outline-offset: -4px;
-  background: color-mix(in oklab, var(--color-cyan) 6%, transparent);
-}
