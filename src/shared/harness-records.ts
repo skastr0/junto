@@ -78,7 +78,7 @@ export type HarnessRecord = {
  * Raise `through` only by re-checking against the newer version.
  */
 const HARNESS_VERIFIED_VERSIONS: Readonly<Partial<Record<HarnessId, VerifiedRange>>> = {
-  claude: { from: "2.1.272", through: "2.1.302" },
+  claude: { from: "2.1.272", through: "2.1.304" },
   codex: { from: "0.154.0", through: "0.162.1" },
   grok: { from: "1.0.52", through: "1.0.52" },
   hermes: { from: "0.20.4", through: "0.21.6" },

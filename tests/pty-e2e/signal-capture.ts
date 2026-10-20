@@ -562,6 +562,17 @@ const SCENARIOS: readonly Scenario[] = [
     reject: /compaction failed/i,
     replies: () => [BULKY, BULKY, SUMMARY],
   },
+  {
+    // Claude Code paints a suggested next prompt into the empty composer
+    // after a turn: dim text after the glyph, nothing typed. It suggests only
+    // from the second answer on; the third reply answers the suggestion request.
+    name: "prompt-suggestion",
+    signal: "an idle composer holding Claude's suggested next prompt, which is not a draft",
+    prompts: ["say hi", "say more"],
+    expect: /^\s*❯\s+\S/,
+    replies: (p) => p === "anthropic" ? [OK, OK, { kind: "ok", text: "run the tests now" }] : null,
+    env: { claude: { CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION: "1", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "" } },
+  },
   // Devin's own limit kinds; see VENDOR.devin.
   { name: "usage-limit-monthly", signal: "UsageLimitHit { scope: monthly }", prompts: ["say hi"], replies: () => null },
   { name: "usage-limit-org", signal: "UsageLimitHit { scope: org }", prompts: ["say hi"], replies: () => null },

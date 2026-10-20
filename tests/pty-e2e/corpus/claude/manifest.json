@@ -502,12 +502,37 @@
         "cliVersion": "2.1.302 (Claude Code)"
       },
       "expectedScreen": {}
+    },
+    {
+      "harness": "claude",
+      "scenario": "prompt-suggestion",
+      "status": "complete",
+      "observed": {
+        "source": "stub-provider",
+        "signal": "an idle composer holding Claude's suggested next prompt, which is not a draft",
+        "wiring": "ANTHROPIC_BASE_URL and a subscription CLAUDE_CODE_OAUTH_TOKEN point at the stub, as Junto seats log in; onboarding and folder trust pre-seeded in the isolated CLAUDE_CONFIG_DIR",
+        "stubServed": [
+          "/v1/messages ok",
+          "/v1/messages ok",
+          "/v1/messages ok"
+        ],
+        "renderedLines": [
+          "❯ say hi",
+          "⏺ Hello from the capture stub.",
+          "✻ Brewed for 0s · done 5:38 PM",
+          "❯",
+          "❯ say more",
+          "❯ run the tests now"
+        ],
+        "cliVersion": "2.1.304 (Claude Code)"
+      },
+      "expectedScreen": {}
     }
   ],
   "sanitization": {
     "method": "decoded-jsonl-scan",
-    "fixtures": 14,
-    "decodedBytes": 106767,
+    "fixtures": 15,
+    "decodedBytes": 109911,
     "checks": [
       "home-path",
       "username",
@@ -530,8 +555,8 @@
   },
   "signalCaptureEvidence": {
     "tool": "tests/pty-e2e/signal-capture.ts",
-    "capturedAt": "2026-10-17T03:41:39.317Z",
-    "harnessVersion": "2.1.302 (Claude Code)",
+    "capturedAt": "2026-10-20T17:38:19.202Z",
+    "harnessVersion": "2.1.304 (Claude Code)",
     "provider": "scripted local stub; the binary and its rendering are real, the provider replies are not"
   }
 }

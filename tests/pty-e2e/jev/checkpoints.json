@@ -14,7 +14,7 @@
     "omp",
     "pi"
   ],
-  "captures": 129,
+  "captures": 130,
   "steps": {
     "fraction": 400
   },
@@ -3316,6 +3316,160 @@
           "value": "L023",
           "basis": "the only window line carrying current signal",
           "literal": "✢ Imagining… (2s · ↓ 102 tokens · thinking)"
+        }
+      }
+    },
+    {
+      "id": "claude/prompt-suggestion#764",
+      "harness": "claude",
+      "scenario": "prompt-suggestion",
+      "class": "settled_idle",
+      "grid": "fraction",
+      "step": 120,
+      "steps": 400,
+      "cut": 764,
+      "cutFraction": 0.299961,
+      "decodedLength": 2547,
+      "rawBytes": 3144,
+      "occurrences": 74,
+      "geometry": {
+        "cols": 120,
+        "rows": 32,
+        "source": "claude/manifest.json pty.cols/pty.rows"
+      },
+      "signals": {
+        "title": "✳ Claude Code",
+        "osc9": ""
+      },
+      "matches": [
+        {
+          "probeId": "claude.idle_footer",
+          "kind": "dialog",
+          "role": "settled_idle",
+          "where": "screen",
+          "matchedText": "  ⏸ manual mode on · ? for shortcuts ·"
+        }
+      ],
+      "window": {
+        "totalLines": 32,
+        "candidateLines": 32,
+        "firstId": "L000",
+        "lastId": "L031"
+      },
+      "labels": {
+        "activity": {
+          "value": "indeterminate",
+          "basis": "no activity-class marker on the harness's own live-status lines; the pack's `indeterminate` option covers exactly this"
+        },
+        "turn_in_progress": {
+          "value": "no",
+          "basis": "no live-turn chrome; the harness's own settled idle chrome is on screen",
+          "literal": "  ⏸ manual mode on · ? for shortcuts ·"
+        },
+        "approval_requested": {
+          "value": "no",
+          "basis": "the harness's own settled idle chrome is on screen and no concern literal is"
+        },
+        "answer_requested": {
+          "value": "no",
+          "basis": "the harness's own settled idle chrome is on screen and no concern literal is"
+        },
+        "access_problem": {
+          "value": "no",
+          "basis": "the harness's own settled idle chrome is on screen and no concern literal is"
+        },
+        "execution_error": {
+          "value": "no",
+          "basis": "the harness's own settled idle chrome is on screen and no concern literal is"
+        },
+        "repetition": {
+          "value": "no",
+          "basis": "the two observations differ after normalisation — the pack's own `no` criterion"
+        },
+        "highlight_exists": {
+          "value": "insufficient_evidence",
+          "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
+        },
+        "highlight_line": {
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
+        }
+      }
+    },
+    {
+      "id": "claude/prompt-suggestion#936",
+      "harness": "claude",
+      "scenario": "prompt-suggestion",
+      "class": "settled_idle",
+      "grid": "fraction",
+      "step": 147,
+      "steps": 400,
+      "cut": 936,
+      "cutFraction": 0.367491,
+      "decodedLength": 2547,
+      "rawBytes": 3144,
+      "occurrences": 8,
+      "geometry": {
+        "cols": 120,
+        "rows": 32,
+        "source": "claude/manifest.json pty.cols/pty.rows"
+      },
+      "signals": {
+        "title": "✳ Claude Code",
+        "osc9": ""
+      },
+      "matches": [
+        {
+          "probeId": "claude.idle_footer",
+          "kind": "dialog",
+          "role": "settled_idle",
+          "where": "screen",
+          "matchedText": "  ⏸ manual mode on · ? for shortcuts · ← for agents"
+        }
+      ],
+      "window": {
+        "totalLines": 32,
+        "candidateLines": 32,
+        "firstId": "L000",
+        "lastId": "L031"
+      },
+      "labels": {
+        "activity": {
+          "value": "indeterminate",
+          "basis": "no activity-class marker on the harness's own live-status lines; the pack's `indeterminate` option covers exactly this"
+        },
+        "turn_in_progress": {
+          "value": "no",
+          "basis": "no live-turn chrome; the harness's own settled idle chrome is on screen",
+          "literal": "  ⏸ manual mode on · ? for shortcuts · ← for agents"
+        },
+        "approval_requested": {
+          "value": "no",
+          "basis": "the harness's own settled idle chrome is on screen and no concern literal is"
+        },
+        "answer_requested": {
+          "value": "no",
+          "basis": "the harness's own settled idle chrome is on screen and no concern literal is"
+        },
+        "access_problem": {
+          "value": "no",
+          "basis": "the harness's own settled idle chrome is on screen and no concern literal is"
+        },
+        "execution_error": {
+          "value": "no",
+          "basis": "the harness's own settled idle chrome is on screen and no concern literal is"
+        },
+        "repetition": {
+          "value": "insufficient_evidence",
+          "basis": "the two observations are identical after stripping volatile chrome — too similar to tell"
+        },
+        "highlight_exists": {
+          "value": "insufficient_evidence",
+          "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
+        },
+        "highlight_line": {
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -53999,7 +54153,7 @@
       },
       {
         "harness": "claude",
-        "captures": 14,
+        "captures": 15,
         "scenarios": [
           "compaction-manual",
           "error-auth",
@@ -54007,6 +54161,7 @@
           "error-server",
           "mail-notice",
           "paste-chip",
+          "prompt-suggestion",
           "retry-network",
           "retry-overloaded",
           "retry-rate",
@@ -54016,11 +54171,11 @@
           "usage-limit-weekly",
           "working-turn"
         ],
-        "checkpoints": 49,
+        "checkpoints": 51,
         "byClass": {
           "live_turn": 16,
           "dialog": 10,
-          "settled_idle": 23
+          "settled_idle": 25
         },
         "unobservedProbes": []
       },

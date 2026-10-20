@@ -193,6 +193,11 @@
         "scenario": "compaction-auto",
         "status": "skip",
         "reason": "the screen never showed /compact/i"
+      },
+      {
+        "scenario": "prompt-suggestion",
+        "status": "complete",
+        "reason": null
       }
     ],
     "session": {
