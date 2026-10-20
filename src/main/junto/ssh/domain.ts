@@ -69,7 +69,7 @@ export class SshInputError extends Schema.TaggedError<SshInputError>()("SshInput
 
 /** A machine command refused before any SSH process starts; the check names which input. */
 export class SshCommandInputError extends Schema.TaggedError<SshCommandInputError>()("SshCommandInputError", {
-  check: Schema.Literals(["install-paths", "package-checksum", "preflight-selection"]),
+  check: Schema.Literals(["install-paths", "package-checksum", "preflight-selection", "content-ref"]),
   message: Schema.String,
 }) {}
 

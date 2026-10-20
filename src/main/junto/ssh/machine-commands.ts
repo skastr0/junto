@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { makeRemoteCommand, SshCommandInputError, type RemoteStdin, type SshTarget } from "./domain";
-import { dedicatedStream, oneShotWithStdin } from "./program";
+import { makeRemoteCommand, makeRemoteStdin, SshCommandInputError, type RemoteStdin, type SshTarget } from "./domain";
+import { dedicatedStream, oneShot, oneShotWithStdin } from "./program";
 
 export const openMachineLink = (
   target: SshTarget,
@@ -11,6 +11,46 @@ export const openMachineLink = (
     `JUNTO_HOME=${location.juntoHome}`, `${location.installRoot}/current/bin/junto`, "link",
   ]);
   return dedicatedStream(target, command);
+});
+
+const contentTransfer = (
+  location: { readonly juntoHome: string; readonly installRoot: string },
+  ref: { readonly sha256: string; readonly byteLength: number },
+  args: ReadonlyArray<string>,
+) => Effect.gen(function* () {
+  if (![location.juntoHome, location.installRoot].every(path => /^\/[^\u0000-\u001f\u007f]*$/.test(path))) return yield* new SshCommandInputError({ check: "install-paths", message: "machine content requires absolute install paths" });
+  if (!/^[a-f0-9]{64}$/.test(ref.sha256) || !Number.isSafeInteger(ref.byteLength) || ref.byteLength < 0) return yield* new SshCommandInputError({ check: "content-ref", message: "invalid content ref" });
+  return yield* makeRemoteCommand("/usr/bin/env", [
+    `JUNTO_HOME=${location.juntoHome}`, `${location.installRoot}/current/bin/junto`, "content-transfer", ...args,
+  ]);
+});
+
+/**
+ * One piece of a content object, landed in the machine's own store by its own
+ * Junto from stdin. A piece starts where the machine's partial ends (0 for a
+ * fresh object) and stays under the 16 MiB stdin boundary, so a larger object
+ * goes over in pieces; the store publishes it only once the whole object
+ * verifies, and an object already there is a success.
+ */
+export const receiveMachineContent = (
+  target: SshTarget,
+  location: { readonly juntoHome: string; readonly installRoot: string },
+  ref: { readonly sha256: string; readonly byteLength: number },
+  piece: { readonly offset: number; readonly bytes: Uint8Array },
+) => Effect.gen(function* () {
+  if (!Number.isSafeInteger(piece.offset) || piece.offset < 0 || piece.offset + piece.bytes.byteLength > ref.byteLength) return yield* new SshCommandInputError({ check: "content-ref", message: "content piece is outside its object" });
+  const command = yield* contentTransfer(location, ref, ["receive", ref.sha256, String(ref.byteLength), String(piece.offset)]);
+  return oneShotWithStdin(target, command, yield* makeRemoteStdin(piece.bytes), { budget: "bulk" });
+});
+
+/** Whether the machine holds the object, and how much of a partial, so a push resumes. */
+export const statMachineContent = (
+  target: SshTarget,
+  location: { readonly juntoHome: string; readonly installRoot: string },
+  ref: { readonly sha256: string; readonly byteLength: number },
+) => Effect.gen(function* () {
+  const command = yield* contentTransfer(location, ref, ["stat", ref.sha256, String(ref.byteLength)]);
+  return oneShot(target, command, { budget: "status" });
 });
 
 const RECEIVE = `set -eu
