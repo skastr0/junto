@@ -220,7 +220,7 @@ const seatsFor = (canvasName: string, view: CanvasView, now: number): ReadonlyAr
     const rollup = rollups.get(entry.seat.nodeId);
     const process = processOf(binding);
     const exitReason = binding ? termPlane.host.get(binding)?.exitReason : undefined;
-    const since = agentSeatStatusOf(control)?.snapshot.since;
+    const snapshot = agentSeatStatusOf(control)?.snapshot;
     return companionSeat({
       seat: entry.seat,
       region: entry.region,
@@ -232,7 +232,10 @@ const seatsFor = (canvasName: string, view: CanvasView, now: number): ReadonlyAr
       ring: {
         ...(blocked.has(entry.seat.nodeId) ? { graphBlocked: true } : {}),
         ...(exitReason ? { exitReason } : {}),
-        ...(since === undefined ? {} : { since }),
+        ...(snapshot ? { since: snapshot.since } : {}),
+        ...(snapshot?.activitySince !== undefined ? { activitySince: snapshot.activitySince } : {}),
+        ...(snapshot?.turnUnseen ? { turnUnseenSince: snapshot.turnUnseen.since } : {}),
+        ...(rollup ? { signalAt: rollup.signal.createdAt } : {}),
       },
     });
   });

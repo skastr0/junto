@@ -11,8 +11,9 @@ import { seatSignalRollups$, useSeatSignalRollup } from "../lib/agent-signals-st
 import { kernel$ } from "../lib/kernel-view";
 import { attentionCoarse$, useSeatAttentionReasons } from "../lib/occupancy-feed";
 import { attentionReasonsForSeat, cardMark, seatFactsForNode, type SeatFactsInput } from "../lib/seat-projections";
-import { Level, Palette, type ViewGroup } from "@shared/wire/urgency";
-import { seatLevel, seatUrgency, type SeatGroup } from "../lib/seat-line";
+import { Palette, type ViewGroup } from "@shared/wire/urgency";
+import { seatLevel, seatLevelSince } from "@shared/wire/seat-level";
+import { seatUrgency, type SeatGroup } from "../lib/seat-line";
 import { state$ } from "../lib/state";
 import { terminal$ } from "../lib/terminal-state";
 import { useThreadHealthMark, type ThreadHealthMark } from "../lib/thread-health";
@@ -119,17 +120,14 @@ export type SeatStanding = { readonly group: ViewGroup<typeof Palette>; readonly
 export function seatStandingOf(seat: Seat): SeatStanding {
   const { control, seatEvent, rollup, doneAt } = seatReadOf(seat, true);
   const level = seatLevel({ ...control, signal: rollup?.kind });
-  const group = Palette.groupOf(level);
-  const fromSignal =
-    (level === Level.blocked && rollup?.kind === "blocked") ||
-    (level === Level.escalated && rollup?.kind === "escalate") ||
-    (level === Level.review && rollup?.kind === "feedback");
-  if (fromSignal && rollup) return { group, since: rollup.signal.createdAt };
-  const snapshot = agentSeatStatusOf(seatEvent)?.snapshot;
-  const fallback = seatEvent?.at ?? 0;
-  if (level === Level.done) return { group, since: doneAt ?? snapshot?.turnUnseen?.since ?? fallback };
-  if (group === Palette.group.working) return { group, since: snapshot?.activitySince ?? snapshot?.since ?? fallback };
-  return { group, since: snapshot?.since ?? fallback };
+  const since = seatLevelSince({
+    level,
+    ...(rollup ? { signal: { kind: rollup.kind, createdAt: rollup.signal.createdAt } } : {}),
+    snapshot: agentSeatStatusOf(seatEvent)?.snapshot,
+    doneAt,
+    at: seatEvent?.at,
+  });
+  return { group: Palette.groupOf(level), since };
 }
 
 /** The ring over facts a caller already read (a row that also prints the line). */

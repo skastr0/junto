@@ -5,7 +5,8 @@
  */
 
 import type { AgentSignal, AgentSignalKind } from "@shared/agent-signals";
-import { Level, SeatUrgency, type UrgencyLevel, type ViewGroup } from "@shared/wire/urgency";
+import { SeatUrgency, type ViewGroup } from "@shared/wire/urgency";
+import { seatLevel } from "@shared/wire/seat-level";
 import { attentionText, FEED_KIND_LABEL } from "@shared/operator-feed";
 import type { ThreadHealthTone } from "@shared/thread-health";
 import type { ActivitySpec, ActivityTone } from "./activity";
@@ -87,31 +88,8 @@ export const seatSaying = (input: {
   return { kind: "state", ...seatLine(activity) };
 };
 
-/**
- * A seat's level on the one urgency ladder (shared/wire/urgency.ts), from the
- * facts its seat line reads: a declared blocker or a halted ring is blocked, a
- * spawn failure is stopped, a dialog waiting for input is waiting, a declared
- * escalation is escalated, a feedback signal is review (the model asked), a
- * settled turn nobody has read is done, work in flight is working, a seat
- * that draws the off ring is offline, and the rest rest.
- */
-export const seatLevel = (input: {
-  readonly activity: ActivitySpec;
-  readonly signal?: AgentSignalKind;
-  readonly failure?: string;
-}): UrgencyLevel => {
-  const { activity, signal, failure } = input;
-  const { mode, tone } = activity;
-  if (signal === "blocked" || (mode === "wave" && tone === "crimson")) return Level.blocked;
-  if (failure) return Level.stopped;
-  if (mode === "wave" && tone === "amber") return Level.waiting;
-  if (signal === "escalate") return Level.escalated;
-  if (signal === "feedback") return Level.review;
-  if (mode === "pulse" && tone === "green") return Level.done;
-  if (mode === "wave") return Level.working;
-  // Offline, stopped and gone seats draw the "off" ring.
-  return activity.glyph === "off" ? Level.offline : Level.resting;
-};
+// The level rule is a wire module, so the phone sends and sorts by the same one.
+export { seatLevel } from "@shared/wire/seat-level";
 
 /** A seat's group in the seat rail's view: the rail, the step keys and the alerts sort by it. */
 export type SeatGroup = ViewGroup<typeof SeatUrgency>;

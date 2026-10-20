@@ -315,6 +315,11 @@ type Seat = {
            glow?: "amber" | "crimson"; halo?: "good" | "exceeding"; stale: boolean;
            flag?: "escalate" | "blocked" | "feedback" };
   stateStartedAt?: number;     // when the shown status began, Mac clock; a done ring lands from here
+  // The seat's level on the urgency ladder (seatLevel, src/shared/wire/seat-level.ts),
+  // sent with ring. The desktop palette groups by it (Palette, src/shared/wire/urgency.ts).
+  level?: "blocked" | "stopped" | "waiting" | "escalated" | "review" | "done"
+        | "degraded" | "working" | "resting" | "offline";
+  levelSince?: number;         // when the seat took that level, Mac clock; the palette's order within a group
 };
 
 // Loops turn on the shared clock: phase = (now + Mac offset) % MARK_PHASE_MS.
@@ -433,7 +438,9 @@ MailThreadSummary), `src/shared/wire/rings.ts` (the ring rule and its
 timing), `src/shared/wire/seat-activity.ts` (the seat grammar,
 `terminalActivity`, and the seat states it reads),
 `src/shared/wire/seat-ring.ts` (`companionSeatRing`, the ring a seat
-carries), `src/shared/wire/urgency.ts` (the one urgency ladder, its views,
+carries, and `companionSeatLevel`, its level), `src/shared/wire/seat-level.ts`
+(`seatLevel` and `seatLevelSince`, the level rule the desktop palette ranks
+by), `src/shared/wire/urgency.ts` (the one urgency ladder, its views,
 kind maps and predicates), `src/shared/wire/companion-protocol.ts`. The desktop's builders import these;
 the wire modules never import the builders. A test fails the build if any
 wire module's closure grows past `effect`.

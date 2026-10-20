@@ -24,6 +24,7 @@ import { AgentSignal, AgentSignalKind } from "./agent-signals";
 import { ContentSha256 } from "./content-ref";
 import { FeedHealth, FeedRegion, OperatorFeed } from "./operator-feed";
 import { RingState } from "./rings";
+import { UrgencyLevel } from "./urgency";
 
 export const COMPANION_PROTOCOL = "junto-companion/1" as const;
 
@@ -150,6 +151,10 @@ export const CompanionSeat = Schema.Struct({
   ring: Schema.optionalKey(RingState),
   /** When that ring began, ms on the Mac's clock: a done ring lands from here. */
   stateStartedAt: Schema.optionalKey(Schema.Number),
+  /** The seat's level on the urgency ladder (seatLevel): the desktop palette's order reads it. */
+  level: Schema.optionalKey(UrgencyLevel),
+  /** When the seat took that level, ms on the Mac's clock: the palette's tie rule within a group. */
+  levelSince: Schema.optionalKey(Schema.Number),
 });
 export type CompanionSeat = typeof CompanionSeat.Type;
 

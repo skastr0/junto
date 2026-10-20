@@ -15,7 +15,7 @@
 import type { AgentSignalKind } from "./agent-signals";
 import type { CompanionSeat, CompanionSeatState } from "./companion-protocol";
 import { attentionText, type FeedRegion, type FeedSeat } from "./operator-feed";
-import { companionSeatRing, type CompanionSeatRingInput } from "./wire/seat-ring";
+import { companionSeatLevel, companionSeatRing, type CompanionSeatRingInput } from "./wire/seat-ring";
 
 // The ring half is a wire module, so the phone syncs the same ring.
 export { companionSeatRing, type CompanionSeatRingInput } from "./wire/seat-ring";
@@ -54,6 +54,7 @@ const pick = (input: CompanionSeatInput): readonly [CompanionSeatState, string] 
 export const companionSeat = (input: CompanionSeatInput): CompanionSeat => {
   const [state, line] = pick(input);
   const since = input.ring?.since ?? input.control?.at;
+  const level = input.ring ? companionSeatLevel(input) : undefined;
   return {
     nodeId: input.seat.nodeId,
     name: input.seat.name,
@@ -66,5 +67,6 @@ export const companionSeat = (input: CompanionSeatInput): CompanionSeat => {
     ...(input.health ? { health: input.health } : {}),
     ...(input.control ? { lastActivityAt: input.control.at } : {}),
     ...(input.ring ? { ring: companionSeatRing(input), ...(since === undefined ? {} : { stateStartedAt: since }) } : {}),
+    ...(level ? { level: level.level, levelSince: level.since } : {}),
   };
 };

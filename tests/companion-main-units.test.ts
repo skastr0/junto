@@ -104,4 +104,26 @@ describe("companion seat state", () => {
     expect(pick({ control: at("idle") })).toEqual(["resting", "resting"]);
     expect(companionSeat({ ...base, process: "running", control: at("idle") }).lastActivityAt).toBe(5);
   });
+
+  it("carries the palette's level and when the seat took it, alongside the ring", () => {
+    const control = (state: "idle" | "working" | "attention", reason = "") => ({ state, reason, at: 5 });
+    const level = (input: Partial<Parameters<typeof companionSeat>[0]>) => {
+      const seat = companionSeat({ ...base, process: "running", ring: { since: 10, activitySince: 20, turnUnseenSince: 30, signalAt: 40 }, ...input });
+      return [seat.ring?.ring, seat.level, seat.levelSince];
+    };
+    const feedback = { kind: "feedback" as const, signalId: "s", openCount: 1 };
+    // The ring draws feedback as waiting; the palette puts it in review, below working.
+    expect(level({ control: control("idle"), signal: feedback })).toEqual(["wait", "review", 40]);
+    expect(level({ control: control("idle"), signal: { ...feedback, kind: "escalate" } })).toEqual(["wait", "escalated", 40]);
+    expect(level({ control: control("idle"), signal: { ...feedback, kind: "blocked" } })).toEqual(["halt", "blocked", 40]);
+    expect(level({ control: control("attention", "permission prompt") })[1]).toBe("waiting");
+    expect(level({ control: control("working") }).slice(1)).toEqual(["working", 20]);
+    expect(level({ control: control("idle"), doneUnread: true }).slice(1)).toEqual(["done", 30]);
+    expect(level({ control: control("idle") }).slice(1)).toEqual(["resting", 10]);
+    expect(level({ process: undefined }).slice(1)).toEqual(["offline", 10]);
+    expect(level({ control: control("idle"), ring: { exitReason: "spawn_failed" } })[1]).toBe("stopped");
+    expect(level({ control: control("idle"), ring: {} }).slice(1)).toEqual(["resting", 5]);
+    // No ring facts, no ring and no level: an older Mac's seat shape.
+    expect(companionSeat({ ...base, process: "running", control: control("idle") }).level).toBeUndefined();
+  });
 });
