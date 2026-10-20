@@ -9,7 +9,7 @@ import type {
 import { deriveNeeds, type NeedCause, type SeatSnapshot } from "@shared/harness-domain";
 import { nodesOf, type Seat } from "@shared/model";
 import { titleOf } from "@shared/model/title";
-import { feedStopOf, type OperatorFeed } from "@shared/operator-feed";
+import { feedStopOf, isMailWaitingItem, type OperatorFeed } from "@shared/operator-feed";
 import { notifyNeed } from "@shared/need-surfaces";
 import { notificationSettings } from "@shared/settings";
 import type { PreambleEvent } from "@shared/preamble";
@@ -112,9 +112,6 @@ const FEED_NEED = {
   escalate: shown("seat_escalated"),
   feedback: shown("seat_feedback"),
 } as const;
-
-/** Held mail's feed row (`mail-waiting:<nodeId>`, built in shared/operator-feed). */
-const isMailWaitingItem = (item: { readonly itemId: string }): boolean => item.itemId.startsWith("mail-waiting:");
 
 /**
  * Feed items as subjects. The AI's reading, canvas needs and held mail never
