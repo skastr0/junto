@@ -13,13 +13,13 @@
  * is touched.
  */
 
-import { createInterface } from "node:readline";
 import { Effect, Result, Schema } from "effect";
 import { makeDemoHost } from "../shared/companion-demo";
 import { rasterizePortraitSvg } from "../main/junto/companion/portrait-png";
 import { defaultMachineName } from "../shared/machine-name";
 import {
   COMPANION_ERROR_COPY,
+  COMPANION_MAX_INBOUND_BYTES,
   CompanionDeviceId,
   companionConnectionErrorLine,
   companionError,
@@ -187,8 +187,47 @@ export const makeRelayHost = (deviceId: string, call: Call = operatorCall, wake:
   };
 };
 
+/**
+ * Lines of `input`, none held past `max` bytes counting its newline: a line
+ * still open at the cap is never buffered further. `overflow` runs and the
+ * lines end, which ends the channel.
+ */
+export async function* boundedLines(
+  input: AsyncIterable<Uint8Array | string>,
+  max: number,
+  overflow: () => void,
+): AsyncGenerator<string> {
+  let held: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of input) {
+    let rest = typeof chunk === "string" ? Buffer.from(chunk, "utf8") : Buffer.from(chunk);
+    for (;;) {
+      const newline = rest.indexOf(0x0a);
+      const part = newline < 0 ? rest : rest.subarray(0, newline);
+      if (size + part.length + (newline < 0 ? 0 : 1) > max) {
+        overflow();
+        return;
+      }
+      if (newline < 0) {
+        if (part.length > 0) {
+          held.push(part);
+          size += part.length;
+        }
+        break;
+      }
+      yield Buffer.concat([...held, part]).toString("utf8");
+      held = [];
+      size = 0;
+      rest = rest.subarray(newline + 1);
+    }
+  }
+  if (size > 0) yield Buffer.concat(held).toString("utf8");
+}
+
 const stdinLines = (): AsyncIterable<string> =>
-  createInterface({ input: process.stdin, crlfDelay: Number.POSITIVE_INFINITY, terminal: false });
+  boundedLines(process.stdin, COMPANION_MAX_INBOUND_BYTES, () => {
+    process.stdout.write(companionConnectionErrorLine("too-large", COMPANION_ERROR_COPY["too-large"]));
+  });
 
 export const runCompanionStdio = async (args: ReadonlyArray<string>): Promise<void> => {
   const parsed = parseCompanionStdioArgs(args);

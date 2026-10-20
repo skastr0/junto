@@ -7,9 +7,12 @@
  */
 
 import type { AgentSignal } from "./agent-signals";
+import type { ContentStageArgs, ContentStageResult } from "./content-stage";
 import type { ContentRef } from "./wire/content-ref";
 import {
+  COMPANION_ATTACHMENTS_MAX,
   COMPANION_CONTENT_IN_FLIGHT_MAX,
+  COMPANION_STAGE_CHUNK_MAX,
   COMPANION_ERROR_COPY,
   COMPANION_MACHINE_IN_FLIGHT_MAX,
   COMPANION_MAIL_DEFAULT_LIMIT,
@@ -26,6 +29,7 @@ import {
   type CompanionMachine,
   type CompanionMachineLogLevel,
   type CompanionMail,
+  type CompanionArgsByOp,
   type CompanionRequestFrame,
   type CompanionResultByOp,
   type CompanionResponseFrame,
@@ -56,6 +60,8 @@ export type CompanionMailThread = {
   readonly threadId?: string;
   readonly inReplyTo?: string;
   readonly mentions?: ReadonlyArray<string>;
+  /** Files this phone staged (`content.stage`), by the ref it was answered. */
+  readonly attachments?: ReadonlyArray<ContentRef>;
 };
 
 export type CompanionBackend = {
@@ -72,7 +78,12 @@ export type CompanionBackend = {
   readonly seatDetail: (canvasName: string, nodeId: string) => Promise<CompanionOutcome<CompanionSeatDetail>>;
   /** Not-open signals fail `conflict` with the signal as it stands. */
   /** Quiet: recorded on the signal with no mail, so the seat is not woken; empty text acknowledges. */
-  readonly answerSignal: (signalId: string, text: string, quiet: boolean) => Promise<CompanionOutcome<AgentSignal>>;
+  readonly answerSignal: (
+    signalId: string,
+    text: string,
+    quiet: boolean,
+    attachments: ReadonlyArray<ContentRef>,
+  ) => Promise<CompanionOutcome<AgentSignal>>;
   readonly dismissSignal: (signalId: string) => Promise<CompanionOutcome<AgentSignal>>;
   readonly mailList: (
     canvasName: string,
@@ -117,6 +128,12 @@ export type CompanionBackend = {
     minLevel: CompanionMachineLogLevel | undefined,
   ) => Promise<CompanionOutcome<CompanionResultByOp["machine.get"]>>;
   readonly tailnetPeers: () => Promise<CompanionOutcome<CompanionResultByOp["tailnet.peers"]>>;
+  /** One piece into the Mac content store, staged as the operator on `canvasName`, as the desktop stages. */
+  readonly stagePiece: (canvasName: string, args: ContentStageArgs) => Promise<CompanionOutcome<ContentStageResult>>;
+  /** Room on disk for a file this size, asked before its first piece. */
+  readonly admitStage: (canvasName: string, byteLength: number) => Promise<CompanionOutcome<void>>;
+  /** Let go of an upload: an open one's staging file, a finished one's stage hold. Never fails. */
+  readonly dropStaged: (canvasName: string, stageId: string) => Promise<void>;
 };
 
 /**
@@ -191,6 +208,9 @@ export type CompanionGates = {
   readonly machine: () => (() => void) | undefined;
   /** Portraits drawn as PNG run one after another, since drawing holds the Mac's main thread. */
   readonly portraitPng: <A>(draw: () => Promise<A>) => Promise<A>;
+  readonly stage: () => (() => void) | undefined;
+  /** This phone's uploads, so unpairing lets them go. */
+  readonly uploads: CompanionUploads;
 };
 
 /** Tasks run one at a time, in the order they came; a failure does not stop the next. */
@@ -208,7 +228,130 @@ export const makeCompanionGates = (): CompanionGates => ({
   content: makeInFlightGate(COMPANION_CONTENT_IN_FLIGHT_MAX),
   machine: makeInFlightGate(COMPANION_MACHINE_IN_FLIGHT_MAX),
   portraitPng: makeSerial(),
+  stage: makeInFlightGate(COMPANION_STAGE_IN_FLIGHT_MAX),
+  uploads: { open: new Map(), finished: [] },
 });
+
+/** `content.stage` calls one phone may have unanswered at once. */
+export const COMPANION_STAGE_IN_FLIGHT_MAX = 2;
+/** Uploads one phone may have open at once: a mail's worth. */
+export const COMPANION_STAGE_OPEN_MAX = COMPANION_ATTACHMENTS_MAX;
+/** How long a finished upload is remembered, so unpairing can let it go; the stager lets it go after this anyway. */
+const FINISHED_KEPT_MS = 60 * 60 * 1000;
+
+/** One upload this phone has open: keyed by canvas, sha256 and byteLength, never by sha alone. */
+type OpenUpload = { readonly canvasName: string; stageId?: string; received: number; busy: boolean };
+
+/** What one phone has staged: the uploads it has open, and the finished ones it may not have used yet. */
+export type CompanionUploads = {
+  readonly open: Map<string, OpenUpload>;
+  finished: Array<{ readonly canvasName: string; readonly stageId: string; readonly at: number }>;
+};
+
+/** Unpairing: every upload the phone has open is dropped, and every finished one it did not use is let go. */
+export const releaseCompanionUploads = async (backend: CompanionBackend, uploads: CompanionUploads): Promise<void> => {
+  const all = [
+    ...[...uploads.open.values()].flatMap((upload) =>
+      upload.stageId === undefined ? [] : [{ canvasName: upload.canvasName, stageId: upload.stageId }],
+    ),
+    ...uploads.finished,
+  ];
+  uploads.open.clear();
+  uploads.finished = [];
+  await Promise.all(all.map(({ canvasName, stageId }) => backend.dropStaged(canvasName, stageId).catch(() => undefined)));
+};
+
+const OUT_OF_ORDER = "That piece is out of order. Send the file again from the start.";
+
+/** Raw bytes a standard padded base64 string decodes to, or undefined when it is not one. */
+const base64Bytes = (data: string): number | undefined => {
+  if (data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/u.test(data)) return undefined;
+  return (data.length / 4) * 3 - (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0);
+};
+
+/**
+ * One `content.stage` piece. Offset 0 starts the upload (dropping one already
+ * open for the same file) after asking the disk for the whole declared size;
+ * every later piece starts where the last ended, and none runs past the
+ * declared size. The last byte closes it: the Mac hashes the file and refuses
+ * one that is not what the phone named.
+ */
+const contentStage = async (
+  id: string,
+  backend: CompanionBackend,
+  uploads: CompanionUploads,
+  args: CompanionArgsByOp["content.stage"],
+): Promise<CompanionResponseFrame> => {
+  const { canvasName, sha256, byteLength, offset } = args;
+  const length = base64Bytes(args.data);
+  if (length === undefined || length < 1 || length > COMPANION_STAGE_CHUNK_MAX) {
+    return companionFail(id, companionError("invalid", "That piece is not standard base64 of 1 to 196608 bytes."));
+  }
+  if (offset + length > byteLength) {
+    return companionFail(id, companionError("invalid", "That piece runs past the end of the file."));
+  }
+  const key = `${canvasName}\n${sha256}\n${String(byteLength)}`;
+  let upload = uploads.open.get(key);
+  if (offset === 0) {
+    if (upload?.busy) return companionFail(id, companionError("invalid", "A piece of this file is still landing. Send pieces one at a time."));
+    if (upload !== undefined) {
+      uploads.open.delete(key);
+      if (upload.stageId !== undefined) await backend.dropStaged(canvasName, upload.stageId);
+    }
+    if (uploads.open.size >= COMPANION_STAGE_OPEN_MAX) {
+      return companionFail(id, companionError("rate-limited", `At most ${String(COMPANION_STAGE_OPEN_MAX)} files upload at once. Finish one first.`));
+    }
+    const room = await backend.admitStage(canvasName, byteLength);
+    if (!room.ok) return companionFail(id, room.error);
+    upload = { canvasName, received: 0, busy: false };
+    uploads.open.set(key, upload);
+  } else if (upload === undefined || upload.received !== offset || upload.busy) {
+    return companionFail(id, companionError("invalid", OUT_OF_ORDER));
+  }
+  const current = upload;
+  const forget = async (): Promise<void> => {
+    if (uploads.open.get(key) === current) uploads.open.delete(key);
+    if (current.stageId !== undefined) await backend.dropStaged(canvasName, current.stageId);
+  };
+  current.busy = true;
+  try {
+    const piece = await backend.stagePiece(canvasName, {
+      ...(current.stageId === undefined ? {} : { stageId: current.stageId }),
+      bytesBase64: args.data,
+    } as ContentStageArgs);
+    if (!piece.ok || "ref" in piece.value) {
+      await forget();
+      return companionFail(id, piece.ok ? companionError("internal", COMPANION_ERROR_COPY.internal) : piece.error);
+    }
+    current.stageId = piece.value.stageId;
+    current.received = piece.value.byteLength;
+    if (current.received < byteLength) return companionOk(id, "content.stage", { received: current.received });
+    // The whole file landed: close it, naming what it must hash to.
+    uploads.open.delete(key);
+    const closed = await backend.stagePiece(canvasName, {
+      stageId: current.stageId,
+      done: {
+        mediaType: args.mediaType,
+        ...(args.displayName === undefined ? {} : { displayName: args.displayName }),
+        expected: { sha256, byteLength },
+      },
+    } as ContentStageArgs);
+    if (!closed.ok || !("ref" in closed.value)) {
+      return companionFail(id, closed.ok ? companionError("internal", COMPANION_ERROR_COPY.internal) : closed.error);
+    }
+    const at = backend.now();
+    uploads.finished = [
+      ...uploads.finished.filter((held) => at - held.at < FINISHED_KEPT_MS),
+      { canvasName, stageId: current.stageId, at },
+    ];
+    return companionOk(id, "content.stage", { ref: closed.value.ref });
+  } catch {
+    await forget().catch(() => undefined);
+    return companionFail(id, companionError("internal", COMPANION_ERROR_COPY.internal));
+  } finally {
+    current.busy = false;
+  }
+};
 
 export type CompanionDeviceView = {
   readonly deviceId: string;
@@ -293,7 +436,10 @@ export const handleCompanionRequest = async (
         companionOk(id, "seat.get", { seat }),
       );
     case "signal.answer":
-      return respond(id, backend.answerSignal(frame.args.signalId, frame.args.text, "quiet" in frame.args), (signal) =>
+      return respond(
+        id,
+        backend.answerSignal(frame.args.signalId, frame.args.text, "quiet" in frame.args, frame.args.attachments ?? []),
+        (signal) =>
         companionOk(id, "signal.answer", { signal }),
       );
     case "signal.dismiss":
@@ -345,6 +491,16 @@ export const handleCompanionRequest = async (
         return await contentGet(id, backend, frame.args);
       } catch {
         return companionFail(id, companionError("internal", COMPANION_ERROR_COPY.internal));
+      } finally {
+        release();
+      }
+    }
+    case "content.stage": {
+      const release = context.gates.stage();
+      if (release === undefined)
+        return companionFail(id, companionError("rate-limited", "Send one piece at a time, and wait for it to land."));
+      try {
+        return await contentStage(id, backend, context.gates.uploads, frame.args);
       } finally {
         release();
       }

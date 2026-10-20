@@ -28,10 +28,10 @@ export const OPERATOR_DEFAULT_TIMEOUT_MS = 30_000;
 /** The longest wait a caller may ask for. */
 export const OPERATOR_MAX_TIMEOUT_MS = 15 * 60_000;
 /**
- * Room for one whole companion frame (16 KiB in, 512 KiB out) plus the
- * operator envelope that carries it.
+ * Room for one whole companion frame (288 KiB in, for a `content.stage`
+ * piece; 512 KiB out) plus the operator envelope that carries it.
  */
-export const OPERATOR_MAX_REQUEST_BYTES = 24 * 1024;
+export const OPERATOR_MAX_REQUEST_BYTES = 320 * 1024;
 export const OPERATOR_MAX_RESPONSE_BYTES = 544 * 1024;
 /** The refusal a connection gets while every operator control peer slot is taken. */
 export const OPERATOR_PEER_LIMIT_MESSAGE = "operator control peer limit reached";

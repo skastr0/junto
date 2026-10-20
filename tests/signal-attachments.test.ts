@@ -197,6 +197,10 @@ describe("attachment names and owners", () => {
     expect(attachmentName("C:\\shots\\before.png")).toBe("before.png");
     expect(attachmentName("a\u0000b.png")).toBe("ab.png");
     expect(attachmentName("///")).toBe("");
+    // Typed into a seat's prompt: no C1, no line separators, no bidi controls.
+    expect(attachmentName("a\u0085b\u2028c\u2029d.png")).toBe("abcd.png");
+    expect(attachmentName("photo\u202egnp.exe")).toBe("photognp.exe");
+    expect(attachmentName("x\u2066y\u2069\u202az.png")).toBe("xyz.png");
   });
 
   it("holds a signal's files under the signal in the content store", () => {

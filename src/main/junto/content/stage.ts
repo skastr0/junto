@@ -210,6 +210,8 @@ export type ContentStager = {
   readonly sweep: () => Effect.Effect<void>;
   /** How many uploads a seat has open. */
   readonly openCount: (seat: ContentStageSeat) => number;
+  /** Drop an upload this seat has open, as an idle one is; one mid-piece is left to the idle sweep. */
+  readonly drop: (seat: ContentStageSeat, stageId: string) => void;
 };
 
 export const makeContentStager = (
@@ -403,7 +405,14 @@ export const makeContentStager = (
       );
     });
 
-  return { stage, sweep, openCount };
+  const dropOpen: ContentStager["drop"] = (seat, stageId) => {
+    const target = open.get(stageId);
+    if (target === undefined || target.busy) return;
+    if (target.seat.canvasName !== seat.canvasName || target.seat.nodeId !== seat.nodeId) return;
+    drop(target);
+  };
+
+  return { stage, sweep, openCount, drop: dropOpen };
 };
 
 const stagers = new WeakMap<ContentServiceShape, ContentStager>();

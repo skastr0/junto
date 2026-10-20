@@ -29,6 +29,7 @@ import { ulid } from "ulid";
 import {
   handleCompanionRequest,
   makeCompanionGates,
+  releaseCompanionUploads,
   makeWriteLimiter,
   outcomeFail,
   outcomeOk,
@@ -467,7 +468,10 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
     forgetLink(deviceId);
     const removed = await repo((r) => r.remove(deviceId));
     limiters.delete(deviceId);
+    const deviceGates = gates.get(deviceId);
     gates.delete(deviceId);
+    // Its open uploads are dropped and the finished ones it never used let go.
+    if (deviceGates) void releaseCompanionUploads(backend, deviceGates.uploads);
     const wasMarked = keyStates.delete(deviceId);
     announce();
     try {

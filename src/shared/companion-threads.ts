@@ -73,6 +73,7 @@ export const companionThreadMessage = (
     text: text.text,
     ...(text.cut ? { textCut: true as const } : {}),
     at: Number.isFinite(message.at) ? message.at : 0,
+    ...(message.attachments === undefined || message.attachments.length === 0 ? {} : { attachments: message.attachments }),
     ...(mentions.length === 0 ? {} : { mentions }),
   };
 };

@@ -7,6 +7,8 @@ import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   COMPANION_MAX_INBOUND_BYTES,
+  COMPANION_MAX_REQUEST_BYTES,
+  COMPANION_STAGE_CHUNK_MAX,
   COMPANION_MAX_OUTBOUND_BYTES,
   COMPANION_OPS,
   COMPANION_PROTOCOL,
@@ -152,6 +154,15 @@ describe("request decoding", () => {
     "quickReplies.get": {},
     "portrait.get": { portraitIdentity: "planner", size: 96, theme: "dark" },
     "content.get": { sha256: "9165917e794ecf12afe96968051d9e450272e632486a9be839646fd1449bb95e", offset: 0, length: 4096 },
+    "content.stage": {
+      canvasName: "main",
+      sha256: "9165917e794ecf12afe96968051d9e450272e632486a9be839646fd1449bb95e",
+      byteLength: 3,
+      mediaType: "image/png",
+      displayName: "shot.png",
+      offset: 0,
+      data: "AAAA",
+    },
     "machines.list": {},
     "machine.get": { name: "mini", minLevel: "warn" },
     "tailnet.peers": {},
@@ -211,9 +222,37 @@ describe("request decoding", () => {
   });
 
   it("bounds inbound frames at 16 KiB and closes", () => {
-    const text = "y".repeat(COMPANION_MAX_INBOUND_BYTES);
+    const text = "y".repeat(COMPANION_MAX_REQUEST_BYTES);
     const decoded = decodeLine({ v: V, type: "request", id: "big", op: "mail.send", args: { canvasName: "m", nodeId: "n", text } });
-    expect(Result.isFailure(decoded) && decoded.failure).toMatchObject({ close: true, error: { code: "too-large" } });
+    expect(Result.isFailure(decoded) && decoded.failure).toMatchObject({ id: "", close: true, error: { code: "too-large" } });
+    const huge = decodeLine({ v: V, type: "request", id: "huge", op: "ping", args: { pad: "y".repeat(COMPANION_MAX_INBOUND_BYTES) } });
+    expect(Result.isFailure(huge) && huge.failure).toMatchObject({ close: true, error: { code: "too-large" } });
+  });
+
+  it("lets only a content.stage piece use the larger frame", () => {
+    const data = Buffer.alloc(COMPANION_STAGE_CHUNK_MAX, 7).toString("base64");
+    const piece = { canvasName: "m", sha256: "a".repeat(64), byteLength: COMPANION_STAGE_CHUNK_MAX * 2, mediaType: "image/png", offset: 0, data };
+    expect(Result.isSuccess(decodeLine({ v: V, type: "request", id: "s", op: "content.stage", args: piece }))).toBe(true);
+    const over = { ...piece, data: Buffer.alloc(COMPANION_STAGE_CHUNK_MAX + 3, 7).toString("base64") };
+    expect(Result.isFailure(decodeLine({ v: V, type: "request", id: "s2", op: "content.stage", args: over }))).toBe(true);
+    // Closed: a key it does not name is refused.
+    expect(Result.isFailure(decodeLine({ v: V, type: "request", id: "s3", op: "content.stage", args: { ...piece, path: "/etc" } }))).toBe(true);
+    const tooBig = { ...piece, byteLength: 25 * 1024 * 1024 + 1 };
+    expect(Result.isFailure(decodeLine({ v: V, type: "request", id: "s4", op: "content.stage", args: tooBig }))).toBe(true);
+  });
+
+  it("takes files on mail and answers, with text, files or both, never neither", () => {
+    const ref = { sha256: "b".repeat(64), byteLength: 10, mediaType: "image/png" };
+    const mail = Schema.decodeUnknownResult(CompanionArgs["mail.send"]);
+    expect(Result.isSuccess(mail({ canvasName: "m", nodeId: "n", text: "", attachments: [ref] }))).toBe(true);
+    expect(Result.isFailure(mail({ canvasName: "m", nodeId: "n", text: "" }))).toBe(true);
+    expect(Result.isFailure(mail({ canvasName: "m", nodeId: "n", text: "", attachments: [] }))).toBe(true);
+    expect(Result.isFailure(mail({ canvasName: "m", nodeId: "n", text: "x", attachments: Array(11).fill(ref) }))).toBe(true);
+    const answer = Schema.decodeUnknownResult(CompanionArgs["signal.answer"]);
+    const loud = answer({ signalId: "s", text: "", attachments: [ref] });
+    expect(Result.isSuccess(loud) && loud.success).toEqual({ signalId: "s", text: "", attachments: [ref] });
+    const quiet = answer({ signalId: "s", text: "", quiet: true, attachments: [ref] });
+    expect(Result.isSuccess(quiet) && quiet.success).toEqual({ signalId: "s", text: "", quiet: true, attachments: [ref] });
   });
 
   it("keeps a public key from smuggling authorized_keys options", () => {

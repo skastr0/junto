@@ -21,15 +21,20 @@
 
 import { Result, Schema } from "effect";
 import { AgentSignal, AgentSignalKind } from "./agent-signals";
-import { ContentSha256 } from "./content-ref";
+import { ContentDisplayName, ContentMediaType, ContentRef, ContentSha256 } from "./content-ref";
 import { FeedHealth, FeedRegion, OperatorFeed } from "./operator-feed";
 import { RingState } from "./rings";
 import { UrgencyLevel } from "./urgency";
 
 export const COMPANION_PROTOCOL = "junto-companion/1" as const;
 
-/** Phone to Mac. A larger frame is `too-large` and the channel closes. */
-export const COMPANION_MAX_INBOUND_BYTES = 16 * 1024;
+/**
+ * Phone to Mac. A larger frame is `too-large` and the channel closes. Sized for
+ * one `content.stage` piece; every other op keeps COMPANION_MAX_REQUEST_BYTES.
+ */
+export const COMPANION_MAX_INBOUND_BYTES = 288 * 1024;
+/** Phone to Mac, any op but `content.stage`. A larger frame is `too-large` and the channel closes. */
+export const COMPANION_MAX_REQUEST_BYTES = 16 * 1024;
 /** Mac to phone. */
 export const COMPANION_MAX_OUTBOUND_BYTES = 512 * 1024;
 /** The Mac closes a channel silent for this long. */
@@ -45,6 +50,14 @@ export const COMPANION_MAIL_DEFAULT_LIMIT = 50;
 export const COMPANION_MAIL_MAX_LIMIT = 200;
 /** Bytes one `content.get` returns at most: as base64 it stays under the outbound frame. */
 export const COMPANION_CONTENT_CHUNK_MAX = 256 * 1024;
+/** Raw bytes one `content.stage` piece carries at most: as base64 it stays under the inbound frame. */
+export const COMPANION_STAGE_CHUNK_MAX = 192 * 1024;
+/** Files one operator mail or answer carries at most. */
+export const COMPANION_ATTACHMENTS_MAX = 10;
+/** Bytes one attached file holds at most. */
+export const COMPANION_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
+/** Image types the desktop and the phone draw as a thumbnail; any other file is a chip. */
+export const COMPANION_THUMBNAIL_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/heic"] as const;
 /** `content.get` requests one phone may have unanswered at once. */
 export const COMPANION_CONTENT_IN_FLIGHT_MAX = 4;
 /** Log rows one `machine.get` returns at most, the newest that match. */
@@ -215,6 +228,8 @@ export const CompanionMail = Schema.Struct({
   /** The thread it is in: the root mail's id, its own when it starts one. */
   threadId: Schema.optionalKey(MailRef),
   inReplyTo: Schema.optionalKey(MailRef),
+  /** Files the mail carries; `content.get` serves their bytes. */
+  attachments: Schema.optionalKey(Schema.Array(ContentRef)),
 });
 export type CompanionMail = typeof CompanionMail.Type;
 
@@ -250,6 +265,8 @@ export const CompanionThreadMessage = Schema.Struct({
   /** The text was cut to its bound: a summary's preview, or a very long mail. */
   textCut: Schema.optionalKey(Schema.Literal(true)),
   at: Schema.Number,
+  /** Files the mail carries; `content.get` serves their bytes. */
+  attachments: Schema.optionalKey(Schema.Array(ContentRef)),
   /** Seats it names as a reference; they were not sent it. */
   mentions: Schema.optionalKey(Schema.Array(ThreadSeat).pipe(Schema.check(Schema.isMaxLength(COMPANION_MENTIONS_MAX)))),
 });
@@ -475,6 +492,7 @@ export const COMPANION_OPS = [
   "quickReplies.get",
   "portrait.get",
   "content.get",
+  "content.stage",
   "machines.list",
   "machine.get",
   "tailnet.peers",
@@ -495,6 +513,20 @@ export const COMPANION_WRITE_OPS: ReadonlySet<CompanionOpName> = new Set([
 
 const Empty = Schema.Struct({});
 
+/** Files the operator staged first, named by the ref `content.stage` answered. Only sha256 and byteLength are read. */
+const Attachments = Schema.Array(ContentRef).pipe(Schema.check(Schema.isMaxLength(COMPANION_ATTACHMENTS_MAX)));
+
+/** Text, or files, or both: a send with neither is `invalid`. */
+const textOrFiles = Schema.makeFilter(
+  ({ text, attachments }: { readonly text: string; readonly attachments?: ReadonlyArray<unknown> }) =>
+    text.length > 0 || (attachments?.length ?? 0) > 0 || "a send carries text, files, or both",
+);
+
+const SafeOffset = Schema.Number.pipe(
+  Schema.check(Schema.isInt()),
+  Schema.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
+);
+
 export const CompanionArgs = {
   "pair.complete": Schema.Struct({ publicKey: CompanionPublicKey, deviceName: CompanionDeviceName }),
   ping: Empty,
@@ -508,8 +540,17 @@ export const CompanionArgs = {
   // woken; its text may be empty (an acknowledgement). The quiet form decodes
   // first: the loud form would drop an unknown `quiet` and send mail.
   "signal.answer": Schema.Union([
-    Schema.Struct({ signalId: bounded(1, 128), text: bounded(0, COMPANION_MAX_TEXT), quiet: Schema.Literal(true) }),
-    Schema.Struct({ signalId: bounded(1, 128), text: Text }),
+    Schema.Struct({
+      signalId: bounded(1, 128),
+      text: bounded(0, COMPANION_MAX_TEXT),
+      quiet: Schema.Literal(true),
+      attachments: Schema.optionalKey(Attachments),
+    }),
+    Schema.Struct({
+      signalId: bounded(1, 128),
+      text: bounded(0, COMPANION_MAX_TEXT),
+      attachments: Schema.optionalKey(Attachments),
+    }).pipe(Schema.check(textOrFiles)),
   ]),
   "signal.dismiss": Schema.Struct({ signalId: bounded(1, 128) }),
   "mail.list": Schema.Struct({
@@ -525,11 +566,12 @@ export const CompanionArgs = {
   "mail.send": Schema.Struct({
     canvasName: CanvasName,
     nodeId: NodeId,
-    text: Text,
+    text: bounded(0, COMPANION_MAX_TEXT),
     threadId: Schema.optionalKey(MailId),
     inReplyTo: Schema.optionalKey(MailId),
     mentions: Schema.optionalKey(Schema.Array(NodeId).pipe(Schema.check(Schema.isMaxLength(COMPANION_MENTIONS_MAX)))),
-  }),
+    attachments: Schema.optionalKey(Attachments),
+  }).pipe(Schema.check(textOrFiles)),
   "quickReplies.get": Empty,
   "portrait.get": Schema.Struct({
     portraitIdentity: bounded(1, 256),
@@ -540,8 +582,23 @@ export const CompanionArgs = {
   }),
   "content.get": Schema.Struct({
     sha256: ContentSha256,
-    offset: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }))),
+    offset: SafeOffset,
     length: intBetween(1, COMPANION_CONTENT_CHUNK_MAX),
+  }),
+  /**
+   * One piece of a file on its way into the Mac content store, for a mail or
+   * an answer on `canvasName`. Offset 0 starts (or starts over) the upload of
+   * that sha256 and byteLength; each later piece starts where the last ended.
+   */
+  "content.stage": Schema.Struct({
+    canvasName: CanvasName,
+    sha256: ContentSha256,
+    byteLength: intBetween(1, COMPANION_ATTACHMENT_MAX_BYTES),
+    mediaType: ContentMediaType,
+    displayName: Schema.optionalKey(ContentDisplayName),
+    offset: SafeOffset,
+    /** Standard padded base64 of 1 to COMPANION_STAGE_CHUNK_MAX bytes. */
+    data: bounded(4, Math.ceil(COMPANION_STAGE_CHUNK_MAX / 3) * 4),
   }),
   "machines.list": Empty,
   /** `minLevel`: only log rows at or above it, so noise never pushes an error off the page. */
@@ -561,6 +618,7 @@ export const CompanionArgs = {
  */
 export const COMPANION_CLOSED_ARGS_OPS: ReadonlySet<CompanionOpName> = new Set([
   "content.get",
+  "content.stage",
   "mail.send",
   "threads.list",
   "thread.get",
@@ -587,6 +645,19 @@ export const CompanionResults = {
     replies: Schema.Array(Schema.String),
     /** The operator's quiet notes. Present: this Mac takes `signal.answer` with `quiet`. */
     quietNotes: Schema.optionalKey(Schema.Array(Schema.String)),
+    /**
+     * Present: this Mac takes `content.stage` and `attachments` on `mail.send`
+     * and `signal.answer`. Absent, attach nothing: an older Mac drops the key
+     * and the file would vanish.
+     */
+    attachments: Schema.optionalKey(
+      Schema.Struct({
+        maxCount: Schema.Number,
+        maxBytes: Schema.Number,
+        chunkBytes: Schema.Number,
+        thumbnailTypes: Schema.Array(Schema.String),
+      }),
+    ),
   }),
   "portrait.get": Schema.Union([
     Schema.Struct({ svg: Schema.String }),
@@ -603,6 +674,12 @@ export const CompanionResults = {
     /** Standard padded base64 of the bytes [offset, offset + length). */
     data: Schema.String,
   }),
+  "content.stage": Schema.Union([
+    /** Bytes the Mac holds so far: the next piece starts here. */
+    Schema.Struct({ received: Schema.Number }),
+    /** The last piece landed and the bytes hashed to what was named: attach this. */
+    Schema.Struct({ ref: ContentRef }),
+  ]),
   "machines.list": Schema.Struct({
     machines: Schema.Array(CompanionMachine).pipe(Schema.check(Schema.isMaxLength(32))),
   }),
@@ -641,6 +718,8 @@ export const COMPANION_ERROR_CODES = [
   "rate-limited",
   "internal",
   "unavailable",
+  "mismatch",
+  "disk-low",
 ] as const;
 export const CompanionErrorCode = Schema.Literals(COMPANION_ERROR_CODES);
 export type CompanionErrorCode = typeof CompanionErrorCode.Type;
@@ -825,6 +904,8 @@ export const COMPANION_ERROR_COPY: Readonly<Record<CompanionErrorCode, string>> 
   "rate-limited": "Too many changes at once. Try again in a moment.",
   internal: "Something went wrong on the Mac.",
   unavailable: "This file is not available on the Mac.",
+  mismatch: "The file changed on its way to the Mac. Attach it again.",
+  "disk-low": "The Mac is low on disk space.",
 };
 
 // --- codec -------------------------------------------------------------------
@@ -850,7 +931,8 @@ export type CompanionInboundFailure = {
 export const decodeCompanionRequestLine = (
   line: string,
 ): Result.Result<CompanionRequestFrame, CompanionInboundFailure> => {
-  if (utf8Bytes(line) + 1 > COMPANION_MAX_INBOUND_BYTES) {
+  const size = utf8Bytes(line) + 1;
+  if (size > COMPANION_MAX_INBOUND_BYTES) {
     return Result.fail({ id: "", error: companionError("too-large", COMPANION_ERROR_COPY["too-large"]), close: true });
   }
   let raw: unknown;
@@ -877,6 +959,10 @@ export const decodeCompanionRequestLine = (
   }
   const args = envelope.success.args ?? {};
   const op = envelope.success.op as CompanionOpName;
+  // Only a file piece needs the larger frame; it does not widen any other op.
+  if (op !== "content.stage" && size > COMPANION_MAX_REQUEST_BYTES) {
+    return Result.fail({ id: "", error: companionError("too-large", COMPANION_ERROR_COPY["too-large"]), close: true });
+  }
   const closed = !COMPANION_CLOSED_ARGS_OPS.has(op) ||
     Result.isSuccess(Schema.decodeUnknownResult(CompanionArgs[op], { onExcessProperty: "error" })(args));
   const frame = decodeRequestFrame({ ...(raw as object), args });

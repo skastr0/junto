@@ -313,7 +313,8 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
         ),
       });
     },
-    answerSignal: async (signalId, text, quiet) => {
+    answerSignal: async (signalId, text, quiet, attachments) => {
+      if (attachments.length > 0) return outcomeFail("invalid", "The demo does not take files.");
       const signal = signals.get(signalId);
       if (!signal) return outcomeFail("not-found", `No signal ${signalId}.`);
       if (signal.state !== "open") return outcomeFail("conflict", "That signal is no longer open.", signal);
@@ -350,6 +351,7 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
     },
     mailSend: async (canvasName, nodeId, text, thread: CompanionMailThread = {}) => {
       if (!known(canvasName) || !seatExists(nodeId)) return outcomeFail("not-found", "No such seat.");
+      if ((thread.attachments?.length ?? 0) > 0) return outcomeFail("invalid", "The demo does not take files.");
       const body = text.trim();
       if (!body) return outcomeFail("invalid", "Mail needs some text.");
       const mentions = [...new Set(thread.mentions ?? [])].filter((id) => id !== nodeId);
@@ -392,6 +394,10 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
       if (messages.length === 0) return outcomeFail("not-found", "That thread is not one of this seat's.");
       return outcomeOk(companionThreadMessages(messages));
     },
+    // The demo keeps no files: it does not advertise attachments, so a phone sends none.
+    stagePiece: async () => outcomeFail("invalid", "The demo does not take files."),
+    admitStage: async () => outcomeFail("invalid", "The demo does not take files."),
+    dropStaged: async () => undefined,
     quickReplies: async () => outcomeOk({ replies: DEMO_QUICK_REPLIES, quietNotes: DEMO_QUIET_NOTES }),
     portrait: async (portraitIdentity, size, theme, format) => {
       const svg = companionPortraitSvg({ portraitIdentity, size, theme });

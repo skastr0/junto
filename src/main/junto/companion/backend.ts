@@ -77,6 +77,7 @@ import { WorkService } from "../work/service";
 import { desktopActiveCanvas, desktopDoneUnread } from "./desktop-report";
 import { answerSignalAsOperator, dismissSignalAsOperator, type OperatorActionResult } from "./operator-actions";
 import { livePreambles } from "./preambles";
+import { companionStageBackend } from "./stage";
 
 // Portraits wear the packs this build bundles, as the renderer's do.
 installCosmeticPacks(decodeCosmeticPacks(overlayManifest.cosmetics));
@@ -468,7 +469,10 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
     });
   },
 
-  answerSignal: async (signalId, text, quiet) => fromAction(await answerSignalAsOperator(signalId, text, quiet), (signal) => signal),
+  answerSignal: async (signalId, text, quiet, attachments) =>
+    attachments.length > 0
+      ? outcomeFail("invalid", "This Mac cannot attach files to an answer yet.")
+      : fromAction(await answerSignalAsOperator(signalId, text, quiet), (signal) => signal),
   dismissSignal: async (signalId) => fromAction(await dismissSignalAsOperator(signalId), (signal) => signal),
 
   mailList: async (canvasName, nodeId, limit) => {
@@ -524,4 +528,5 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
 
   ...companionMachineBackend,
   ...companionThreadBackend,
+  ...companionStageBackend,
 });

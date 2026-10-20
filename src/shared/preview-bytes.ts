@@ -91,10 +91,15 @@ export const isTextHead = (head: Uint8Array): boolean => {
   }
 };
 
-/** A display name: the last segment only, nothing a terminal or a table would choke on. */
+/**
+ * A display name: the last segment only, nothing a terminal or a table would
+ * choke on. It is typed into a seat's prompt, so no control character (C0,
+ * DEL, C1), line or paragraph separator, or bidi control that could forge a
+ * line or reverse the path shown beside it.
+ */
 export const attachmentName = (raw: string): string => {
   const last = raw.replace(/\\/gu, "/").split("/").filter(Boolean).pop() ?? "";
-  return last.replace(/[\u0000-\u001f\u007f]/gu, "").trim().slice(0, 255);
+  return last.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/gu, "").trim().slice(0, 255);
 };
 
 /** How much of a file's start `attachmentMediaType` looks at. */
