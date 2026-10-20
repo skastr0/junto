@@ -69,6 +69,12 @@ const KIND_WORDS: Readonly<Record<AgentSignalKind, string>> = {
 export const AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE = "Acknowledged, no note";
 
 /**
+ * What an answer of files alone records: the store holds every answer with
+ * text, so main writes this in its place, and the files ride by reference.
+ */
+export const AGENT_SIGNAL_FILES_RESPONSE = "Files attached, no note";
+
+/**
  * The operator's answer as the seat reads it: typed into the seat as operator
  * mail, naming which of its signals it answers so the agent can match it.
  */

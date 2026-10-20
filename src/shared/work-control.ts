@@ -724,6 +724,11 @@ export const ListedAgentSignal = Schema.Struct({
   ...AgentSignal.fields,
   level: UrgencyLevel,
   rank: UrgencyRank,
+  /**
+   * The operator's answer files as the seat reads them: one line each, with
+   * its name, type, size and the local path to open. Absent when none.
+   */
+  responseFiles: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 export type ListedAgentSignal = typeof ListedAgentSignal.Type;
 

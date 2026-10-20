@@ -176,6 +176,8 @@ export const AgentSignalResponse = Schema.Struct({
   text: AgentSignalResponseText,
   /** Epoch ms. */
   at: Schema.Number,
+  /** Files the operator sent with the answer, in order. Absent when there are none. */
+  attachments: Schema.optionalKey(Schema.Array(ContentRef)),
 });
 export type AgentSignalResponse = typeof AgentSignalResponse.Type;
 

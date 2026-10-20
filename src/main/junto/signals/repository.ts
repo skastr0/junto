@@ -7,6 +7,7 @@ import {
   AgentSignalKind,
   AgentSignalState,
 } from "@shared/agent-signals";
+import type { ContentRef } from "@shared/wire/content-ref";
 import { StateTransactionOperation } from "../state/service";
 import { emitAgentSignalChanged } from "./changes";
 
@@ -108,10 +109,11 @@ export class AgentSignalRepository extends Context.Service<AgentSignalRepository
     readonly get: (
       signalId: string,
     ) => Effect.Effect<AgentSignal, AgentSignalRepositoryError>;
-    /** Operator answer: open to answered with the response recorded. */
+    /** Operator answer: open to answered with the response recorded, and its files in order. */
     readonly answer: (
       signalId: string,
       text: string,
+      files?: ReadonlyArray<ContentRef>,
     ) => Effect.Effect<AgentSignal, AgentSignalRepositoryError>;
     readonly dismiss: (
       signalId: string,
@@ -142,13 +144,21 @@ const SignalRow = Schema.Struct({
   closed_at: Schema.NullOr(Schema.Number),
   attachments_json: Schema.String,
   suggestions_json: Schema.String,
+  answer_files_json: Schema.String,
 });
 
 /**
- * A signal's columns, with its parts folded in two: what the operator can
- * open as `attachments_json`, and the seat's pre-baked replies as
- * `suggestions_json`. `from` names the row source the select reads signals
- * from.
+ * The part kind the operator's answer files are stored as, behind the seat's
+ * own parts; its body is the file's reference. A build that does not know it
+ * leaves it out, so it needs no migration.
+ */
+const ANSWER_FILE_PART_KIND = "answer-file";
+
+/**
+ * A signal's columns, with its parts folded in three: what the operator can
+ * open as `attachments_json`, the seat's pre-baked replies as
+ * `suggestions_json`, and the operator's answer files as `answer_files_json`.
+ * `from` names the row source the select reads signals from.
  */
 const columnsOf = (from: string): string => `
   ${from}.signal_id, ${from}.canvas_name, ${from}.node_id, ${from}.kind, ${from}.text, ${from}.detail,
@@ -168,9 +178,20 @@ const columnsOf = (from: string): string => `
       WHERE agent_signal_parts.signal_id = ${from}.signal_id AND agent_signal_parts.kind = 'suggest'
       ORDER BY position
     )
-  ) AS suggestions_json
+  ) AS suggestions_json,
+  (
+    SELECT json_group_array(json(body_json))
+    FROM (
+      SELECT * FROM agent_signal_parts
+      WHERE agent_signal_parts.signal_id = ${from}.signal_id AND agent_signal_parts.kind = '${ANSWER_FILE_PART_KIND}'
+      ORDER BY position
+    )
+  ) AS answer_files_json
 `;
 const COLUMNS = columnsOf("agent_signals");
+
+/** Written only by `answer` below, from refs main claimed. */
+const answerFilesOf = (json: string): ReadonlyArray<ContentRef> => JSON.parse(json) as ReadonlyArray<ContentRef>;
 
 type PartJson = {
   readonly kind: string;
@@ -241,7 +262,13 @@ const fromRow = (row: typeof SignalRow.Type): AgentSignal => ({
   state: row.state,
   ...(row.response_text === null || row.response_at === null
     ? {}
-    : { response: { text: row.response_text, at: Number(row.response_at) } }),
+    : {
+        response: {
+          text: row.response_text,
+          at: Number(row.response_at),
+          ...(answerFilesOf(row.answer_files_json).length > 0 ? { attachments: answerFilesOf(row.answer_files_json) } : {}),
+        },
+      }),
   ...(row.closed_at === null ? {} : { closedAt: Number(row.closed_at) }),
 });
 
@@ -381,19 +408,39 @@ export const AgentSignalRepositoryLive: Layer.Layer<
       Effect.mapError(persistence(operation)),
     ));
 
-    const answer = (signalId: string, text: string) => {
+    const answer = Effect.fn("agent-signals.answer")(function* (
+      signalId: string,
+      text: string,
+      files: ReadonlyArray<ContentRef> = [],
+    ) {
       const now = Date.now();
-      return close(
-        "answer",
-        signalId,
-        `
-          UPDATE agent_signals
-          SET state = 'answered', response_text = ?, response_at = ?, closed_at = ?
-          WHERE signal_id = ? AND state = 'open'
-        `,
-        [text, now, now, signalId],
-      );
-    };
+      const changed = yield* sql`
+        UPDATE agent_signals
+        SET state = 'answered', response_text = ${text}, response_at = ${now}, closed_at = ${now}
+        WHERE signal_id = ${signalId} AND state = 'open'
+      `.raw.pipe(Effect.flatMap(changes));
+      if (Number(changed.changes) === 0) {
+        return yield* notFound(signalId, `signal ${signalId} is not open`);
+      }
+      // The operator's files ride as parts behind the seat's own, in order.
+      const [after] = yield* sql<{ readonly next: number }>`
+        SELECT COALESCE(MAX(position) + 1, 0) AS next FROM agent_signal_parts WHERE signal_id = ${signalId}
+      `;
+      for (const [index, ref] of files.entries()) {
+        const body = JSON.stringify({
+          sha256: ref.sha256,
+          byteLength: ref.byteLength,
+          mediaType: ref.mediaType,
+          displayName: ref.displayName ?? "file",
+        });
+        yield* sql`
+          INSERT INTO agent_signal_parts(signal_id, position, kind, body_json)
+          VALUES (${signalId}, ${Number(after?.next ?? 0) + index}, ${ANSWER_FILE_PART_KIND}, ${body})
+        `;
+      }
+      return (yield* readOne(signalId))!;
+    }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "agent-signals.answer"),
+    Effect.mapError(persistence("answer")));
 
     const dismiss = (signalId: string) =>
       close(
@@ -456,7 +503,7 @@ export const AgentSignalRepositoryLive: Layer.Layer<
       listRaisedHands,
       listCanvas,
       get,
-      answer: (signalId, text) => told(answer(signalId, text)),
+      answer: (signalId, text, files) => told(answer(signalId, text, files)),
       dismiss: (signalId) => told(dismiss(signalId)),
       take: (input) =>
         takeRow(input).pipe(

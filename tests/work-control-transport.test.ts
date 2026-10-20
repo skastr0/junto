@@ -70,7 +70,7 @@ import { AgentSignalRepositoryLive } from "../src/main/junto/signals/repository"
 import { answerAgentSignal, dismissAgentSignal } from "../src/main/junto/signals/operator";
 import { putOperatorContent } from "../src/main/junto/content/operator-attachments";
 import { WORK_HOME_ENV } from "../src/shared/work-control";
-import { AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE, type AgentSignal } from "../src/shared/agent-signals";
+import { AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE, AGENT_SIGNAL_FILES_RESPONSE, type AgentSignal } from "../src/shared/agent-signals";
 import { THIS_MACHINE } from "./support/machines";
 import { closeMachineLog, installMachineLog, setLogMachine, writeLog } from "../src/main/junto/observability/logger";
 import { __resetJuntoHomeCache } from "../src/shared/junto-home";
@@ -1200,7 +1200,7 @@ describe("work control transport", () => {
     expect(seen?.response?.text).toBe(AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE);
   });
 
-  it("answers with a file and no text: the mail lists the file by a path the seat can read", async () => {
+  it("answers with a file and no text: the answer and the mail carry it by reference, signal list gives its path", async () => {
     const server = servers[0]!;
     const raised = (await call(server.socketPath, {
       token: token(),
@@ -1229,21 +1229,31 @@ describe("work control transport", () => {
       );
       expect(answered.ok).toBe(true);
       if (!answered.ok) return;
-      const line = answered.signal.response?.text ?? "";
-      expect(line).toMatch(/^Attached: look-a\.png \(image\/png, 70 bytes\): \//);
-      const path = line.slice(line.indexOf("): ") + 3);
-      expect(path.startsWith(workHome)).toBe(true);
-      expect(await readFile(path)).toEqual(png);
+      const file = expect.objectContaining({ displayName: "look-a.png", mediaType: "image/png", byteLength: png.length });
+      expect(answered.signal.response?.text).toBe(AGENT_SIGNAL_FILES_RESPONSE);
+      expect(answered.signal.response?.attachments).toEqual([file]);
+      // One way files reach a seat: delivery lists them from the mail's refs, never from its text.
       const repository = await runtime.runPromise(WorkRepository);
       const mail = (await runtime.runPromise(repository.mailbox("work-cli", "agent"))).find(
         (message) => message.messageId === answered.messageId,
       );
-      expect(mail?.parts[0]).toMatchObject({ kind: "text" });
-      expect((mail?.parts[0] as { text: string }).text).toContain(line);
-      expect(mail?.metadata?.attachments).toEqual([
-        expect.objectContaining({ displayName: "look-a.png", mediaType: "image/png", byteLength: png.length }),
-      ]);
-      // The same upload cannot ride on a second mail.
+      expect((mail?.parts[0] as { text: string }).text).not.toContain("Attached:");
+      expect(mail?.metadata?.attachments).toEqual([file]);
+
+      const listed = (await call(server.socketPath, {
+        token: token(),
+        op: "signal.list",
+        args: {},
+      })) as { ok: true; data: { signals: Array<AgentSignal & { responseFiles?: string[] }> } };
+      const seen = listed.data.signals.find((signal) => signal.signalId === raised.data.signal.signalId);
+      expect(seen?.response?.attachments).toEqual([file]);
+      const line = seen?.responseFiles?.[0] ?? "";
+      expect(line).toMatch(/^Attached: look-a\.png \(image\/png, 70 bytes\): \//);
+      const path = line.slice(line.indexOf("): ") + 3);
+      expect(path.startsWith(workHome)).toBe(true);
+      expect(await readFile(path)).toEqual(png);
+
+      // The same upload cannot ride on a second answer.
       const raisedAgain = (await call(server.socketPath, {
         token: token(),
         op: "signal.raise",

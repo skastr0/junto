@@ -134,6 +134,7 @@ import {
   type WorkResponseEnvelope,
 } from "@shared/work-control";
 import { ContentService } from "../content/service";
+import { operatorAttachmentLines } from "../content/operator-attachments";
 import { handleContentStage } from "./content-stage";
 import { handleSeatReferences, onboardReferenceFields } from "../references/seat-reads";
 import { noteSeatPreamble } from "./seat-preambles";
@@ -2397,10 +2398,27 @@ const dispatchOp = (
         const decoded = decodeArgs(SignalListArgs, args ?? {});
         if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
         const listed = yield* signals.listSeat(seat).pipe(Effect.mapError(signalError));
+        // The operator's answer files, each placed where this seat opens it.
+        const store = yield* Effect.serviceOption(ContentService);
+        const filesOf = (signal: (typeof listed)[number]) => {
+          const refs = signal.response?.attachments ?? [];
+          if (refs.length === 0 || Option.isNone(store)) return Effect.succeed({});
+          return operatorAttachmentLines(store.value, {
+            canvasName: signal.canvasName,
+            nodeId: signal.nodeId,
+            messageId: `answer-${signal.signalId}`,
+            refs,
+          }).pipe(
+            Effect.map((responseFiles) => ({ responseFiles })),
+            Effect.orElseSucceed(() => ({})),
+          );
+        };
+        const sorted = [...listed].sort(compareSignalListOrder);
+        const files = yield* Effect.forEach(sorted, filesOf);
         const result: SignalListResult = {
-          signals: [...listed].sort(compareSignalListOrder).map((signal) => {
+          signals: sorted.map((signal, index) => {
             const level = levelOfSignal(signal.kind);
-            return { ...signal, level, rank: rankOf(level) };
+            return { ...signal, level, rank: rankOf(level), ...files[index] };
           }),
           open: listed.filter((signal) => signal.state === "open").length,
         };
