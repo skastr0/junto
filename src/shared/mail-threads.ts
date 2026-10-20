@@ -5,7 +5,13 @@ import { COMPANION_MAX_TEXT } from "./wire/companion-protocol";
 import { messageIdTimeMs } from "./message-delivery";
 import type { Message } from "./work-model";
 import { OPERATOR_SEAT_ID } from "./work-reference";
-import type { MailParty, MailThreadMessage, MailThreadSummary } from "./wire/mail-threads";
+import type {
+  MailParty,
+  MailThreadMessage,
+  MailThreadMessagesPage,
+  MailThreadSummary,
+  MailThreadsPage,
+} from "./wire/mail-threads";
 
 /**
  * Mail threads: the mail that hangs off one root message, read from the
@@ -95,12 +101,18 @@ const entryOf = (row: Message, mailbox: string, seat: (nodeId: string) => SeatPa
   };
 };
 
+/** Code-unit order, so a cursor compares the way the sort does. */
+const compareId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/** Oldest first; the message id breaks a tie. */
+const byAge = (a: Pick<Entry, "at" | "messageId">, b: Pick<Entry, "at" | "messageId">): number => a.at - b.at || compareId(a.messageId, b.messageId);
+
 /** Every thread mail held, oldest first. */
 const entriesOf = (input: MailThreadsInput): ReadonlyArray<Entry> => {
   const seat = (nodeId: string): SeatParty => ({ kind: "seat", nodeId, name: input.nameOf(nodeId) ?? nodeId });
   return input.mailboxes
     .flatMap((mailbox) => mailbox.messages.flatMap((row) => entryOf(row, mailbox.nodeId, seat) ?? []))
-    .sort((a, b) => a.at - b.at || a.messageId.localeCompare(b.messageId));
+    .sort(byAge);
 };
 
 const involves = (entry: Entry, nodeId: string): boolean =>
@@ -141,11 +153,13 @@ const threadsTouching = (input: MailThreadsInput, nodeId: string): ReadonlyMap<s
   return threads;
 };
 
+/** Newest activity first; the thread id breaks a tie. */
+const byActivity = (a: { lastAt: number; threadId: string }, b: { lastAt: number; threadId: string }): number =>
+  b.lastAt - a.lastAt || compareId(b.threadId, a.threadId);
+
 /** The threads a seat wrote or was written to in, newest activity first. */
 export const seatMailThreads = (input: MailThreadsInput, nodeId: string): ReadonlyArray<MailThreadSummary> =>
-  [...threadsTouching(input, nodeId)]
-    .map(([threadId, entries]) => summaryOf(threadId, entries))
-    .sort((a, b) => b.lastAt - a.lastAt || b.threadId.localeCompare(a.threadId));
+  [...threadsTouching(input, nodeId)].map(([threadId, entries]) => summaryOf(threadId, entries)).sort(byActivity);
 
 /** One of a seat's threads, oldest first; empty when the seat is not in it. */
 export const seatMailThreadMessages = (
@@ -153,6 +167,85 @@ export const seatMailThreadMessages = (
   nodeId: string,
   threadId: string,
 ): ReadonlyArray<MailThreadMessage> => threadsTouching(input, nodeId).get(threadId) ?? [];
+
+// ---- Pages ----
+
+/** Threads in a page when the caller names no limit. */
+export const THREADS_PAGE_DEFAULT = 50;
+/** Messages in a page when the caller names no limit. */
+export const MESSAGES_PAGE_DEFAULT = 50;
+/** The most a page may hold, threads or messages. */
+export const PAGE_MAX = 200;
+
+const pageSize = (limit: number | undefined, fallback: number): number =>
+  Math.min(PAGE_MAX, Math.max(1, Math.trunc(limit ?? fallback)));
+
+/**
+ * A cursor is the sort key of the last item a page held: `<time>.<id>`. It
+ * names a place in the order, not a count, so mail arriving at the newest end
+ * moves nothing a reader has yet to see. A cursor that does not read is
+ * undefined, and the page then starts at the newest end.
+ */
+const cursorOf = (at: number, id: string): string => `${at}.${id}`;
+
+const readCursor = (cursor: string | undefined): { readonly at: number; readonly id: string } | undefined => {
+  if (cursor === undefined) return undefined;
+  const dot = cursor.indexOf(".");
+  const at = Number(cursor.slice(0, dot));
+  return dot > 0 && Number.isFinite(at) ? { at, id: cursor.slice(dot + 1) } : undefined;
+};
+
+/**
+ * One page of a seat's threads, newest activity first: the `limit` that come
+ * after `after` in that order, and `next` to ask for the page that follows,
+ * absent at the end. Only the page's threads are summarised.
+ */
+export const seatMailThreadsPage = (
+  input: MailThreadsInput,
+  nodeId: string,
+  page: { readonly limit?: number; readonly after?: string } = {},
+): MailThreadsPage => {
+  const limit = pageSize(page.limit, THREADS_PAGE_DEFAULT);
+  const after = readCursor(page.after);
+  const keyed = [...threadsTouching(input, nodeId)]
+    .map(([threadId, entries]) => ({ threadId, entries, lastAt: entries[entries.length - 1]!.at }))
+    .sort(byActivity);
+  const start = after === undefined ? 0 : keyed.findIndex((item) => byActivity(item, { lastAt: after.at, threadId: after.id }) > 0);
+  const rest = start < 0 ? [] : keyed.slice(start);
+  const held = rest.slice(0, limit);
+  const last = held[held.length - 1];
+  return {
+    threads: held.map((item) => summaryOf(item.threadId, item.entries)),
+    ...(rest.length > limit && last !== undefined ? { next: cursorOf(last.lastAt, last.threadId) } : {}),
+  };
+};
+
+/**
+ * One page of one thread, oldest first within the page: the newest `limit`
+ * messages, or those just before `before`. `older` asks for the page above it,
+ * absent at the thread's start.
+ */
+export const seatMailThreadMessagesPage = (
+  input: MailThreadsInput,
+  nodeId: string,
+  threadId: string,
+  page: { readonly limit?: number; readonly before?: string } = {},
+): MailThreadMessagesPage => {
+  const limit = pageSize(page.limit, MESSAGES_PAGE_DEFAULT);
+  const before = readCursor(page.before);
+  const entries = seatMailThreadMessages(input, nodeId, threadId);
+  const end =
+    before === undefined
+      ? entries.length
+      : entries.findIndex((entry) => byAge(entry, { at: before.at, messageId: before.id }) >= 0);
+  const older = end < 0 ? entries : entries.slice(0, end);
+  const messages = older.slice(-limit);
+  const first = messages[0];
+  return {
+    messages,
+    ...(older.length > limit && first !== undefined ? { older: cursorOf(first.at, first.messageId) } : {}),
+  };
+};
 
 // ---- Operator send ----
 
@@ -195,6 +288,20 @@ export const SeatThreadsQuery = Schema.Struct({
   canvasName: CanvasName,
   nodeId: NodeId,
 });
+
+const PageLimit = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: PAGE_MAX }));
+const PageCursor = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(256)));
+
+/** One page of a seat's threads: from the newest, or after the cursor a page gave. */
+export const SeatThreadsPageQuery = Schema.Struct({
+  canvasName: CanvasName,
+  nodeId: NodeId,
+  limit: Schema.optionalKey(PageLimit),
+  after: Schema.optionalKey(PageCursor),
+});
+/** As a caller sends it; main decodes it to `SeatThreadsPageQueryDecoded`. */
+export type SeatThreadsPageQuery = typeof SeatThreadsPageQuery.Encoded;
+export type SeatThreadsPageQueryDecoded = typeof SeatThreadsPageQuery.Type;
 /** As a caller sends it; main decodes it to `SeatThreadsQueryDecoded`. */
 export type SeatThreadsQuery = typeof SeatThreadsQuery.Encoded;
 export type SeatThreadsQueryDecoded = typeof SeatThreadsQuery.Type;
@@ -207,3 +314,15 @@ export const SeatThreadQuery = Schema.Struct({
 /** As a caller sends it; main decodes it to `SeatThreadQueryDecoded`. */
 export type SeatThreadQuery = typeof SeatThreadQuery.Encoded;
 export type SeatThreadQueryDecoded = typeof SeatThreadQuery.Type;
+
+/** One page of a thread's messages: the newest, or those just before the cursor a page gave. */
+export const SeatThreadPageQuery = Schema.Struct({
+  canvasName: CanvasName,
+  nodeId: NodeId,
+  threadId: MailMessageId,
+  limit: Schema.optionalKey(PageLimit),
+  before: Schema.optionalKey(PageCursor),
+});
+/** As a caller sends it; main decodes it to `SeatThreadPageQueryDecoded`. */
+export type SeatThreadPageQuery = typeof SeatThreadPageQuery.Encoded;
+export type SeatThreadPageQueryDecoded = typeof SeatThreadPageQuery.Type;

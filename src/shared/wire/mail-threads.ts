@@ -44,3 +44,15 @@ export const MailThreadSummary = Schema.Struct({
   canReply: Schema.Boolean,
 });
 export type MailThreadSummary = typeof MailThreadSummary.Type;
+
+/** One page of a seat's threads, newest activity first. `next` is the cursor for the page after it; absent at the end. */
+export type MailThreadsPage = {
+  readonly threads: ReadonlyArray<MailThreadSummary>;
+  readonly next?: string;
+};
+
+/** One page of a thread's messages, oldest first. `older` is the cursor for the page above it; absent at the thread's start. */
+export type MailThreadMessagesPage = {
+  readonly messages: ReadonlyArray<MailThreadMessage>;
+  readonly older?: string;
+};
