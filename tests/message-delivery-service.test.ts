@@ -5,6 +5,7 @@ import type { Message } from "../src/shared/work-model";
 import { mailExtensionMetadata, type MailExtension, type MailKind } from "../src/shared/crew";
 import {
   MAIL_BATCHING,
+  MAIL_DRAFT_RETELL_MS,
   MAIL_FILES_RETRY_MS,
   MAIL_HELD_RETRY_MS,
   MAIL_PASS_CHUNK,
@@ -666,6 +667,29 @@ describe("mail delivery", () => {
     expect(seat.writes).toHaveLength(1);
     expect([...seat.writes[0]!.matchAll(/, id (01[AB])\b/gu)].map((match) => match[1])).toEqual(["01A", "01B"]);
     expect(events.map((event) => event.messageId)).toEqual(["01A", "01B"]);
+  });
+
+  it("tells a draft hold again every ten minutes, with when the mail first waited", async () => {
+    vi.useFakeTimers();
+    const seat = rig({ held: () => "draft" });
+    const events: Array<{ held?: string; heldSince?: number }> = [];
+    seat.service.subscribeDelivered((event) => events.push(event));
+    seat.append(mail("01A", "first"));
+
+    void seat.service.deliver(canvas, nodeId, "01A");
+    await vi.advanceTimersByTimeAsync(50);
+    expect(events).toHaveLength(1);
+    const since = events[0]!.heldSince!;
+    expect(since).toBeTypeOf("number");
+
+    // The minute retries find the draft still there and say nothing new.
+    await vi.advanceTimersByTimeAsync(MAIL_DRAFT_RETELL_MS - MAIL_HELD_RETRY_MS);
+    expect(events).toHaveLength(1);
+    // Ten minutes on, the hold is told again, still from when it began.
+    await vi.advanceTimersByTimeAsync(2 * MAIL_HELD_RETRY_MS);
+    expect(events.map((event) => [event.held, event.heldSince])).toEqual([["draft", since], ["draft", since]]);
+    expect(seat.writes).toHaveLength(0);
+    vi.useRealTimers();
   });
 
   it("tells a dialog hold again every minute, retries by itself, and types the mail once the box is free", async () => {

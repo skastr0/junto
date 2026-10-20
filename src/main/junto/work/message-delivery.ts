@@ -88,6 +88,13 @@ export const MAIL_HELD_RETRY_MS = 60_000;
  */
 export const MAIL_FILES_RETRY_MS = 10_000;
 
+/**
+ * How often a draft hold is told on the seat again. The operator is usually
+ * looking at their own draft, but a hold that outlasts this is one nobody is
+ * looking at.
+ */
+export const MAIL_DRAFT_RETELL_MS = 10 * 60_000;
+
 /** How notices for one seat gather into one typed turn. */
 export type MailBatching = {
   /** A batch is typed once no mail has joined it for this long. */
@@ -311,7 +318,7 @@ export class MessageDeliveryService {
   /** Mail whose failed write was already told; cleared once it lands. */
   private readonly failedTold = new Set<string>();
   /** Held mail already told, with why and when; cleared once it lands. */
-  private readonly heldTold = new Map<string, { reason: MailHold; at: number }>();
+  private readonly heldTold = new Map<string, { reason: MailHold; at: number; since: number }>();
   /** One retry timer per held message; see MAIL_HELD_RETRY_MS. */
   private readonly heldRetries = new Map<string, ReturnType<typeof setTimeout>>();
   /** Told once per message typed into a seat (wire pulse, preambles). */
@@ -657,9 +664,10 @@ export class MessageDeliveryService {
   }
 
   /**
-   * Say on the seat that this mail is waiting and why. A draft is told once:
-   * the operator is looking at it. A dialog or an unreadable box is told
-   * again every minute, because that wait ends only when someone notices.
+   * Say on the seat that this mail is waiting, why, and since when. A draft
+   * is told again every ten minutes: the operator is usually looking at it.
+   * A dialog or an unreadable box is told again every minute, because that
+   * wait ends only when someone notices.
    */
   private tellHeld(
     canvas: string,
@@ -673,14 +681,16 @@ export class MessageDeliveryService {
     if (
       told !== undefined &&
       told.reason === reason &&
-      (reason === "draft" || now - told.at < MAIL_HELD_RETRY_MS)
+      now - told.at < (reason === "draft" ? MAIL_DRAFT_RETELL_MS : MAIL_HELD_RETRY_MS)
     ) {
       return;
     }
-    this.heldTold.set(key, { reason, at: now });
+    const since = told?.since ?? now;
+    this.heldTold.set(key, { reason, at: now, since });
     this.emitDelivered({
       ...wireTrafficOfMail({ canvasName: canvas, toNodeId: nodeId, message, at: now }),
       held: reason,
+      heldSince: since,
     });
   }
 

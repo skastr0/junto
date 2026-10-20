@@ -153,4 +153,11 @@ describe("mail", () => {
       text: "mail waits: Junto cannot read this seat's input box", action: "mail-held", tone: "amber",
     });
   });
+  it("says how long held mail has waited, from ten minutes on", () => {
+    const held = (minutes: number) =>
+      wirePreambles({ ...event, fromNodeId: "planner", kind: "notice", preview: "rebase", held: "draft", heldSince: NOW - minutes * 60_000 }, title, NOW)[0]?.text;
+    expect(held(9)).toBe("mail from planner waits for your draft: rebase");
+    expect(held(25)).toBe("mail from planner waits for your draft (25 min so far): rebase");
+    expect(held(14 * 60 + 20)).toBe("mail from planner waits for your draft (14 h so far): rebase");
+  });
 });

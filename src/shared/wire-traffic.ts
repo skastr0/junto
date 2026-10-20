@@ -41,10 +41,12 @@ export type WireTrafficEvent = {
   /**
    * The seat could not take the message, so it was not typed: it waits in
    * the mailbox. The value says why (the operator's draft, a dialog, an
-   * unreadable box, or the seat's status, see `MailHold`). Told once for a
-   * draft and repeated for the rest; never pulsed.
+   * unreadable box, or the seat's status, see `MailHold`). Told again every
+   * ten minutes for a draft and every minute for the rest; never pulsed.
    */
   readonly held?: MailHold;
+  /** With `held`: epoch ms when this message first waited, whatever the reason since. */
+  readonly heldSince?: number;
 };
 
 export const WIRE_TRAFFIC_PREVIEW_MAX = 80;

@@ -216,6 +216,14 @@ const HELD_REASON = {
   unsupported: "waits: this seat's harness cannot take mail right now",
 } as const satisfies Record<MailHold, string>;
 
+/** How long a held message has waited, once that is worth saying: ten minutes on. */
+const heldFor = (heldSince: number | undefined, now: number): string => {
+  if (heldSince === undefined) return "";
+  const minutes = Math.floor((now - heldSince) / 60_000);
+  if (minutes < 10) return "";
+  return minutes < 60 ? ` (${String(minutes)} min so far)` : ` (${String(Math.floor(minutes / 60))} h so far)`;
+};
+
 export const wirePreambles = (
   event: WireTrafficEvent,
   titleOf: (nodeId: string) => string | undefined,
@@ -237,7 +245,7 @@ export const wirePreambles = (
     const from = event.fromNodeId === undefined ? "mail" : `mail from ${event.fromName ?? titleOf(event.fromNodeId) ?? "a peer"}`;
     return [
       note("mail", event.canvasName, event.toNodeId, now, TTL.held, {
-        text: `${from} ${HELD_REASON[event.held]}${preview}`,
+        text: `${from} ${HELD_REASON[event.held]}${heldFor(event.heldSince, now)}${preview}`,
         provenance: "system",
         action: "mail-held",
         tone: "amber",
