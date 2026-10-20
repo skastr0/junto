@@ -1,6 +1,6 @@
 import { open } from "node:fs/promises";
 import { Effect, Option } from "effect";
-import type { ContentStageArgs } from "@shared/content-stage";
+import { CONTENT_STAGE_IDLE_MS, type ContentStageArgs } from "@shared/content-stage";
 import { resolveJuntoHome } from "@shared/junto-home";
 import {
   OPERATOR_ATTACHMENT_MAX_BYTES,
@@ -38,10 +38,15 @@ const MAX_MB = OPERATOR_ATTACHMENT_MAX_BYTES / (1024 * 1024);
 /**
  * Bytes each open operator upload holds so far, by canvas and stage id, so a
  * piece that would carry a file past the limit is refused before it is
- * written. An entry goes when its upload closes or the stager refuses it;
- * one refused for size stays, so the upload cannot go on.
+ * written. An entry goes when its upload closes, when it is refused (the
+ * stager drops the upload with it, so it cannot go on), and on the stager's
+ * own idle clock once no piece has come for that long.
  */
-const received = new Map<string, number>();
+const received = new Map<string, { readonly bytes: number; readonly at: number }>();
+
+const forgetIdle = (now: number): void => {
+  for (const [key, entry] of received) if (now - entry.at > CONTENT_STAGE_IDLE_MS) received.delete(key);
+};
 
 /** Raw bytes a standard Base64 piece decodes to. */
 const pieceBytes = (bytesBase64: string | undefined): number => {
@@ -55,7 +60,7 @@ const tooLarge = { ok: false, message: `A file is at most ${MAX_MB} MB.` } as co
 /**
  * One piece of an operator upload, staged in the Mac content store. The
  * piece that would cross the file limit is refused before it is written,
- * and its upload is not continued.
+ * and its upload is dropped.
  */
 export const putOperatorContent = (
   canvasName: string,
@@ -64,14 +69,19 @@ export const putOperatorContent = (
   Effect.gen(function* () {
     const content = yield* Effect.serviceOption(ContentService);
     if (Option.isNone(content)) return { ok: false, message: "The content store is unavailable." } as const;
+    const stager = contentStagerFor(content.value);
+    const now = Date.now();
+    forgetIdle(now);
     const key = args.stageId === undefined ? undefined : `${canvasName}\u0000${args.stageId}`;
-    const before = key === undefined ? 0 : (received.get(key) ?? 0);
+    const before = key === undefined ? 0 : (received.get(key)?.bytes ?? 0);
     if (before + pieceBytes(args.bytesBase64) > OPERATOR_ATTACHMENT_MAX_BYTES) {
-      // Held past the limit, so no later piece of this upload is taken either.
-      if (key !== undefined) received.set(key, Number.POSITIVE_INFINITY);
+      if (key !== undefined && args.stageId !== undefined) {
+        received.delete(key);
+        stager.drop(operatorStager(canvasName), args.stageId);
+      }
       return tooLarge;
     }
-    const staged = yield* Effect.result(contentStagerFor(content.value).stage(operatorStager(canvasName), args));
+    const staged = yield* Effect.result(stager.stage(operatorStager(canvasName), args));
     if (staged._tag === "Failure") {
       if (key !== undefined) received.delete(key);
       return { ok: false, message: staged.failure.message } as const;
@@ -80,10 +90,13 @@ export const putOperatorContent = (
     if ("ref" in result) {
       if (key !== undefined) received.delete(key);
     } else {
-      received.set(`${canvasName}\u0000${result.stageId}`, result.byteLength);
+      received.set(`${canvasName}\u0000${result.stageId}`, { bytes: result.byteLength, at: now });
     }
     return { ok: true, result } as const;
   });
+
+/** Open entries in the size count: for tests. */
+export const operatorUploadsCounted = (): number => received.size;
 
 /** Where a mail's files are held in the store: under the seat that receives it, by the mail. */
 export const operatorMailOwner = (canvasName: string, nodeId: string, messageId: string): ContentOwner => ({

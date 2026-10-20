@@ -24,6 +24,7 @@ import {
   claimOperatorAttachments,
   operatorAttachmentLines,
   operatorMailOwner,
+  operatorUploadsCounted,
   putOperatorContent,
 } from "../src/main/junto/content/operator-attachments";
 import { contentStoreRoot } from "../src/main/junto/content/paths";
@@ -145,12 +146,15 @@ describe("operator attachments, the size limit", () => {
     const stageId = first.result.stageId;
     // 24 MB in: one more 4 MB piece would cross 25 MB.
     for (let i = 0; i < 5; i += 1) expect((await run({ stageId, bytesBase64: piece })).ok).toBe(true);
+    const counted = operatorUploadsCounted();
     expect(await run({ stageId, bytesBase64: piece })).toEqual({ ok: false, message: "A file is at most 25 MB." });
-    // Nothing past the limit was taken, and the upload cannot go on with a smaller piece.
+    // The refused upload is forgotten and dropped: it cannot go on with a smaller piece.
+    expect(operatorUploadsCounted()).toBe(counted - 1);
     expect(await run({ stageId, bytesBase64: Buffer.from("x").toString("base64") })).toEqual({
       ok: false,
-      message: "A file is at most 25 MB.",
+      message: "no such upload is open for this seat; it may have expired, start the file over",
     });
+    expect(operatorUploadsCounted()).toBe(counted - 1);
   });
 
   it("takes a file of exactly 25 MB", async () => {
