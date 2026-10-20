@@ -17,6 +17,7 @@ import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import { useEffect, useState } from "react";
 import type { MentionableSeat, OperatorThreadSend, OperatorThreadSent } from "@shared/mail-threads";
+import type { ContentRef } from "@shared/wire/content-ref";
 import type { MailParty } from "@shared/wire/mail-threads";
 import { getJuntoApi } from "./junto-api";
 
@@ -50,6 +51,8 @@ export type SeatThreadMessage = {
   readonly mentions: ReadonlyArray<string>;
   /** Epoch ms. */
   readonly at: number;
+  /** Files the mail carries, by reference into the content store. */
+  readonly attachments?: ReadonlyArray<ContentRef>;
 };
 
 /** Threads in a page: the first on open, and each older page as the list nears its end. */
@@ -122,6 +125,7 @@ export const juntoSeatThreadsSource = (): SeatThreadsSource | undefined => {
           text: message.text,
           mentions: (message.mentions ?? []).map((seat) => seat.name),
           at: message.at,
+          ...(message.attachments === undefined || message.attachments.length === 0 ? {} : { attachments: message.attachments }),
         })),
         ...(page.older === undefined ? {} : { older: page.older }),
       };

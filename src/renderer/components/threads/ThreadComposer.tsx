@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
+import { useAttachments } from "../../lib/operator-attachments";
 import {
   mentionQueryAt,
   mentionsIn,
@@ -11,6 +12,7 @@ import {
   type MentionableSeat,
   type SeatAddress,
 } from "../../lib/seat-threads";
+import { AttachButton, AttachmentTray } from "../attachments/AttachmentTray";
 import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
 import { Textarea } from "../ui/Field";
@@ -45,6 +47,7 @@ export function ThreadComposer({
   readonly onCancel?: () => void;
 }) {
   const mentionables = useSeatThreadMentionables(seat);
+  const attachments = useAttachments(seat.canvasName);
   const [draft, setDraft] = useState("");
   const [picked, setPicked] = useState<ReadonlyArray<MentionableSeat>>([]);
   const [caret, setCaret] = useState(0);
@@ -95,9 +98,15 @@ export function ThreadComposer({
     setActive(0);
   };
 
+  // Files ride along: a mail may be only files, and waits for every one to be in.
+  const hasFiles = attachments.items.length > 0;
+  const uploading = attachments.items.some((item) => item.state === "uploading");
+  const unsendable = tooLong || (draft.trim() === "" && !hasFiles) || attachments.ready === undefined;
+
   const send = async (): Promise<void> => {
     const text = draft.trim();
-    if (text === "" || tooLong || sending) return;
+    const files = attachments.ready;
+    if (unsendable || files === undefined || sending) return;
     setSending(true);
     setFailure(undefined);
     const result = await sendSeatThread({
@@ -106,6 +115,7 @@ export function ThreadComposer({
       ...(mode === "reply" && inReplyTo !== undefined ? { inReplyTo } : {}),
       ...(mode === "reply" && inReplyTo === undefined && threadId !== undefined ? { threadId } : {}),
       ...(mentions.length > 0 ? { mentions: mentions.map((seat) => seat.nodeId) } : {}),
+      ...(files.length > 0 ? { attachments: files } : {}),
     });
     setSending(false);
     if (!result.ok) {
@@ -113,6 +123,7 @@ export function ThreadComposer({
       return;
     }
     setDraft("");
+    attachments.clear();
     setPicked([]);
     setCaret(0);
     onSent?.(result.threadId);
@@ -149,7 +160,7 @@ export function ThreadComposer({
 
   const wired = `@ names a seat connected to ${name}, who gets no copy`;
   return (
-    <div className="thread-composer" data-testid="thread-composer" data-mode={mode}>
+    <div className="thread-composer" data-testid="thread-composer" data-mode={mode} {...attachments.dropTarget}>
       {mode === "new" ? (
         <div className="thread-composer__to" data-testid="thread-composer-to">
           <span>To</span>
@@ -198,6 +209,7 @@ export function ThreadComposer({
           onKeyDown={onKeyDown}
         />
       </div>
+      <AttachmentTray attachments={attachments} />
       <div className="thread-composer__foot">
         {failure || tooLong ? (
           <span className="thread-composer__failure" role="alert" data-testid="thread-composer-failure">
@@ -207,11 +219,20 @@ export function ThreadComposer({
           <span className="thread-composer__hint" data-testid="thread-composer-mentions-full">
             {`A mail names at most ${THREAD_MENTIONS_MAX} seats.`}
           </span>
+        ) : uploading ? (
+          <span className="thread-composer__hint" data-testid="thread-composer-uploading">
+            Attaching files, then it sends.
+          </span>
+        ) : hasFiles && attachments.ready === undefined ? (
+          <span className="thread-composer__hint" data-testid="thread-composer-file-failed">
+            Remove the file that did not attach, or add it again.
+          </span>
         ) : (
           <span className="thread-composer__hint">
             {mode === "reply" ? `Enter sends, Shift+Enter is a new line, ${wired}` : wired}
           </span>
         )}
+        <AttachButton attachments={attachments} disabled={sending} />
         {mode === "new" && onCancel ? (
           <Button size="sm" variant="chrome" disabled={sending} onClick={onCancel}>
             Cancel
@@ -220,7 +241,7 @@ export function ThreadComposer({
         <Button
           size="sm"
           variant="chrome"
-          disabled={sending || tooLong || draft.trim() === ""}
+          disabled={sending || unsendable}
           data-testid="thread-composer-send"
           onClick={() => void send()}
         >

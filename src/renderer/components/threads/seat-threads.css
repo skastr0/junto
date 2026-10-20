@@ -332,3 +332,83 @@
   font-size: var(--text-body);
   color: var(--color-dim);
 }
+
+/* Files on a message: a thumbnail for an image, a chip for anything else. */
+.seat-threads__attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.seat-threads__message[data-mine="true"] .seat-threads__attachments {
+  justify-content: flex-end;
+}
+
+.seat-threads__attachment--image img {
+  display: block;
+  max-width: min(320px, 100%);
+  max-height: 240px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  background: var(--color-overlay-2);
+  object-fit: contain;
+}
+
+.seat-threads__attachment--file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 280px;
+  padding: 6px 10px 6px 6px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  background: var(--color-overlay-2);
+}
+
+.seat-threads__attachment-glyph {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-lg);
+  background: var(--color-overlay-1);
+  color: var(--color-dim);
+  font-size: var(--text-micro);
+  line-height: 1;
+}
+
+.seat-threads__attachment-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.seat-threads__attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-body);
+  color: var(--color-ink);
+}
+
+.seat-threads__attachment-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-micro);
+  color: var(--color-dim);
+}
+
+/* A file is being dragged over the composer. */
+.thread-composer[data-dragging="true"] {
+  outline: 1px dashed var(--color-cyan);
+  outline-offset: -4px;
+  background: color-mix(in oklab, var(--color-cyan) 6%, transparent);
+}

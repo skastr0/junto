@@ -18,6 +18,7 @@ import { Chip } from "../ui/Chip";
 import { Dialog } from "../ui/Dialog";
 import { Eyebrow } from "../ui/Eyebrow";
 import { IconButton } from "../ui/IconButton";
+import { MessageAttachments } from "./MessageAttachments";
 import { ThreadComposer } from "./ThreadComposer";
 import "./seat-threads.css";
 
@@ -271,17 +272,20 @@ function ThreadChat({
             <div className="seat-threads__message-head">
               <strong>{message.author}</strong> {threadTime(message.at)}
             </div>
-            <div className="seat-threads__bubble">
-              {mentionParts(message.text, message.mentions).map((part, index) =>
-                part.mention ? (
-                  <span key={index} className="seat-threads__mention" data-testid="seat-threads-mention">
-                    {part.text}
-                  </span>
-                ) : (
-                  part.text
-                ),
-              )}
-            </div>
+            {message.text !== "" || message.attachments === undefined ? (
+              <div className="seat-threads__bubble">
+                {mentionParts(message.text, message.mentions).map((part, index) =>
+                  part.mention ? (
+                    <span key={index} className="seat-threads__mention" data-testid="seat-threads-mention">
+                      {part.text}
+                    </span>
+                  ) : (
+                    part.text
+                  ),
+                )}
+              </div>
+            ) : null}
+            {message.attachments ? <MessageAttachments files={message.attachments} /> : null}
           </article>
         ))}
       </div>

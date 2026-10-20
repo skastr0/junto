@@ -23,6 +23,7 @@ import {
   type SeatThreadsSource,
   type SeatThreadSummary,
 } from "../src/renderer/lib/seat-threads";
+import { setOperatorContentPutter } from "../src/renderer/lib/operator-attachments";
 import { SeatThreadsButton } from "../src/renderer/components/threads/SeatThreads";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -267,6 +268,30 @@ describe("the Threads popup", () => {
   });
 });
 
+describe("files on a message", () => {
+  it("draws an image as a thumbnail and anything else as a chip, and a mail of only files has no empty bubble", async () => {
+    const fixture = fake();
+    const image = { sha256: "d".repeat(64), byteLength: 2048, mediaType: "image/png", displayName: "shot.png" } as never;
+    const doc = { sha256: "e".repeat(64), byteLength: 3 * 1024 * 1024, mediaType: "application/pdf", displayName: "plan.pdf" } as never;
+    fixture.state.messages.notes = [
+      { messageId: "m1", author: "you", mine: true, text: "", mentions: [], at: at(1, 2), attachments: [image, doc] },
+    ];
+    setSeatThreadsSource(fixture.source);
+    await render();
+    await click(q("seat-threads-button"));
+    const [thumb, chip] = all("seat-threads-attachment");
+    expect(thumb?.getAttribute("data-kind")).toBe("image");
+    expect(thumb?.querySelector("img")?.getAttribute("src")).toMatch(/^junto-content:\/\/object\/d{64}\?/u);
+    expect(chip?.getAttribute("data-kind")).toBe("file");
+    expect(chip?.textContent).toContain("plan.pdf");
+    expect(chip?.textContent).toContain("application/pdf, 3.0 MB");
+    expect(document.querySelector(".seat-threads__message .seat-threads__bubble")).toBeNull();
+    // An image the renderer cannot draw falls back to the chip.
+    act(() => thumb?.querySelector("img")?.dispatchEvent(new Event("error")));
+    expect(all("seat-threads-attachment")[0]?.getAttribute("data-kind")).toBe("file");
+  });
+});
+
 describe("the thread composer", () => {
   const sends: unknown[] = [];
   let reply: unknown = { ok: true, messageId: "m9", threadId: "notes", delivery: "delivered" };
@@ -324,6 +349,75 @@ describe("the thread composer", () => {
     await key("Enter");
     expect(sends).toEqual([{ canvasName: "factory", nodeId: "seat-1", text: "Thanks.", inReplyTo: "m2" }]);
     expect(field().value).toBe("");
+  });
+
+  describe("with files", () => {
+    const stored = (name: string, mediaType: string) => ({ sha256: "c".repeat(64), byteLength: 6, mediaType, displayName: name });
+    let release: (() => void) | undefined;
+    const putter = (hold = false) =>
+      setOperatorContentPutter(async (input) => {
+        if (hold) await new Promise<void>((resolve) => (release = resolve));
+        const done = input.stage.done;
+        return { ok: true, result: { ref: stored(String(done?.displayName), String(done?.mediaType)) } } as never;
+      });
+    const attach = async (...files: File[]) => {
+      const input = q("attach-files-input") as HTMLInputElement;
+      Object.defineProperty(input, "files", { configurable: true, value: files });
+      act(() => input.dispatchEvent(new Event("change", { bubbles: true })));
+      // The file is read by a FileReader, which settles on a later task.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      });
+      await flush();
+    };
+    const sendButton = () => q("thread-composer-send") as HTMLButtonElement;
+
+    beforeEach(() => {
+      URL.createObjectURL = () => "blob:preview";
+      URL.revokeObjectURL = () => undefined;
+    });
+    afterEach(() => setOperatorContentPutter(undefined));
+
+    it("sends a mail that is only a file, with the refs main will claim, and empties the tray", async () => {
+      putter();
+      await open();
+      expect(sendButton().disabled).toBe(true);
+      await attach(new File(["pixels"], "shot.png", { type: "image/png" }));
+      expect(all("attachment-chip")).toHaveLength(1);
+      expect(sendButton().disabled).toBe(false);
+      await click(sendButton());
+      expect(sends).toEqual([
+        { canvasName: "factory", nodeId: "seat-1", text: "", inReplyTo: "m2", attachments: [stored("shot.png", "image/png")] },
+      ]);
+      expect(all("attachment-chip")).toHaveLength(0);
+    });
+
+    it("waits for every file to be in before it sends, and keeps the draft", async () => {
+      putter(true);
+      await open();
+      await type("Look at this.");
+      await attach(new File(["pixels"], "shot.png", { type: "image/png" }));
+      expect(sendButton().disabled).toBe(true);
+      expect(q("thread-composer-uploading")).not.toBeNull();
+      await key("Enter");
+      expect(sends).toEqual([]);
+      await act(async () => release?.());
+      await flush();
+      expect(sendButton().disabled).toBe(false);
+      await key("Enter");
+      expect(sends).toHaveLength(1);
+      expect(sends[0]).toMatchObject({ text: "Look at this.", attachments: [{ displayName: "shot.png" }] });
+    });
+
+    it("keeps the files when main refuses the send", async () => {
+      putter();
+      reply = { ok: false, reason: "invalid", message: "A file was not uploaded, or it was already sent. Attach it again." };
+      await open();
+      await attach(new File(["x"], "notes.txt", { type: "text/plain" }));
+      await click(sendButton());
+      expect(q("thread-composer-failure")?.textContent).toContain("Attach it again");
+      expect(all("attachment-chip")).toHaveLength(1);
+    });
   });
 
   it("opens the wired seats on @, puts the chosen one in the draft and in mentions, never in To", async () => {
