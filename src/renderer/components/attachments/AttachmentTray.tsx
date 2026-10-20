@@ -66,7 +66,7 @@ function AttachmentChip({ item, onRemove }: { readonly item: AttachmentItem; rea
     <li
       className={[
         "flex max-w-56 items-center gap-2 rounded-md border py-1 pl-1 pr-1.5",
-        failed ? "border-crimson/40 bg-crimson/[0.06]" : "border-stroke bg-ink/[0.04]",
+        failed ? "border-crimson/40" : "border-stroke bg-ink/[0.04]",
       ].join(" ")}
       data-testid="attachment-chip"
       data-state={item.state}
@@ -77,7 +77,7 @@ function AttachmentChip({ item, onRemove }: { readonly item: AttachmentItem; rea
         ) : (
           <span className="flex flex-col items-center gap-0.5">
             <FileGlyph size={14} aria-hidden />
-            {extensionOf(item.name) ? <span className="text-micro leading-none">{extensionOf(item.name)}</span> : null}
+            {extensionOf(item.name) ? <span className="text-label leading-none">{extensionOf(item.name)}</span> : null}
           </span>
         )}
         {item.state === "uploading" ? (
@@ -87,10 +87,10 @@ function AttachmentChip({ item, onRemove }: { readonly item: AttachmentItem; rea
         ) : null}
       </span>
       <span className="flex min-w-0 flex-col">
-        <span className="truncate text-caption text-ink" title={item.name}>
+        <span className="truncate text-body text-ink" title={item.name}>
           {item.name}
         </span>
-        <span className={["truncate text-micro", failed ? "text-crimson-fg" : "text-dim"].join(" ")} title={item.error}>
+        <span className={["truncate text-label", failed ? "text-crimson-fg" : "text-dim"].join(" ")} title={item.error}>
           {failed ? (
             <>
               <AlertTriangle size={10} className="mr-1 inline align-[-1px]" aria-hidden />
@@ -124,7 +124,7 @@ export function AttachmentTray({ attachments }: { readonly attachments: Attachme
         </ul>
       ) : null}
       {notice ? (
-        <p className="text-caption text-crimson-fg" role="status">
+        <p className="text-label text-crimson-fg" role="status">
           {notice}
         </p>
       ) : null}

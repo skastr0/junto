@@ -657,6 +657,9 @@ export function OperatorFeed() {
     if (event.key === "Escape") return;
     if (event.defaultPrevented) return;
     if (isOperatorTyping(event.target) || event.metaKey || event.ctrlKey || event.altKey) return;
+    // The open composer owns its keys: an answer key on its buttons (Attach,
+    // a chip's Remove) would answer without the files it holds.
+    if (event.target instanceof Element && event.target.closest('[data-testid="signal-reply"]')) return;
     // The region and order menus read letters as type-ahead: keys that land
     // inside a listbox are the menu's, never j/k movement.
     if (event.target instanceof Element && event.target.closest('[role="listbox"]')) return;

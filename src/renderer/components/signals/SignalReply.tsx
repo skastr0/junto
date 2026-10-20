@@ -102,7 +102,11 @@ export function SignalReply({
   // Empty is allowed: a quiet answer with no note and no file acknowledges.
   const sendQuietly = (): void => answer("", reply.trim(), true);
   const mod = modKeyGlyph();
-  const waiting = filesIn ? undefined : "Waiting for the files to attach";
+  const waiting = filesIn
+    ? undefined
+    : attachments.items.some((item) => item.state === "failed")
+      ? "A file did not attach: remove it, or attach it again"
+      : "Waiting for the files to attach";
 
   return (
     <div ref={claimReplyFocus} className={className} data-testid="signal-reply" {...attachments.dropTarget}>

@@ -113,6 +113,8 @@ export type Attachments = {
     readonly onDragOver: (event: DragEvent) => void;
     readonly onDragLeave: (event: DragEvent) => void;
     readonly onDrop: (event: DragEvent) => void;
+    /** Marks the drop target, so the tray's drop edge lands on it alone. */
+    readonly "data-attach-drop": "true";
     readonly "data-dragging"?: "true";
   };
 };
@@ -252,6 +254,7 @@ export const useAttachments = (canvasName: string): Attachments => {
         setDragging(false);
         add([...(event.dataTransfer?.files ?? [])]);
       },
+      "data-attach-drop": "true",
       ...(dragging ? { "data-dragging": "true" as const } : {}),
     },
   };

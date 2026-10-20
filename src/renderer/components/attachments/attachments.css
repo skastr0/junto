@@ -1,5 +1,9 @@
-/* A composer a file is being dragged over: a dashed edge says it will take it. */
-[data-dragging="true"] {
+/*
+ * A composer a file is being dragged over: a dashed edge says it will take
+ * it. The one drop treatment for every composer that holds the tray, scoped
+ * to the drop target useAttachments spreads (data-attach-drop).
+ */
+[data-attach-drop][data-dragging="true"] {
   outline: 1px dashed var(--color-cyan);
   outline-offset: 2px;
   border-radius: var(--radius-md);

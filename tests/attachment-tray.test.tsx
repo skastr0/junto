@@ -262,6 +262,17 @@ describe("the signal answer box", () => {
     });
   });
 
+  it("says a failed file blocks the answer until it is removed, and marks itself as the drop target", async () => {
+    setOperatorContentPutter(async () => ({ ok: false, message: "The content store is unavailable." }));
+    const { button } = renderReply();
+    expect(host.querySelector('[data-testid="signal-reply"]')?.getAttribute("data-attach-drop")).toBe("true");
+    await pick([new File(["x"], "a.txt", { type: "text/plain" })]);
+    expect(button("Send reply").title).toBe("A file did not attach: remove it, or attach it again");
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Remove a.txt"]')!.click());
+    await flush();
+    expect(button("Send quietly").disabled).toBe(false);
+  });
+
   it("answers as before with no files: no options on a reply, silent on a quiet one", async () => {
     setOperatorContentPutter(fakeMain().put);
     const { respond, button } = renderReply();
