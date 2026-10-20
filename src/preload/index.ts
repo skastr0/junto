@@ -960,6 +960,7 @@ const terminalApi: JuntoTerminalApi = {
   seatThreadMessages: (query) => invoke(IPC_CHANNELS.seatThreadMessages, IPC_TIMEOUT_MS, query),
   seatThreadSend: (input) => invoke(IPC_CHANNELS.seatThreadSend, IPC_TIMEOUT_MS, input),
   seatThreadMentionables: (query) => invoke(IPC_CHANNELS.seatThreadMentionables, IPC_TIMEOUT_MS, query),
+  operatorContentPut: (input) => invoke(IPC_CHANNELS.operatorContentPut, IPC_TIMEOUT_MS, input),
 };
 
 const gitApi: JuntoGitApi = {

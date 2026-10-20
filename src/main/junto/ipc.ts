@@ -17,6 +17,8 @@ import {
   seatThreadsPage,
   sendOperatorThreadMail,
 } from "./work/operator-threads";
+import { OperatorContentPut, type OperatorContentPutResult } from "@shared/operator-attachments";
+import { putOperatorContent } from "./content/operator-attachments";
 import {
   IPC_CHANNELS,
   type BindingHint,
@@ -574,6 +576,13 @@ export const registerJuntoIpc = (): void => {
       // Fixed words: a thrown error may carry the mail's text.
       return { ok: false, reason: "failed", message: "The mail could not be sent." };
     }
+  });
+  // A file the operator attaches to mail, one piece at a time, staged as the
+  // operator; the mail that names it claims it.
+  privilegedIpc.handle(IPC_CHANNELS.operatorContentPut, async (_event, input: unknown): Promise<OperatorContentPutResult> => {
+    const decoded = Schema.decodeUnknownResult(OperatorContentPut, { onExcessProperty: "error" })(input);
+    if (Result.isFailure(decoded)) return { ok: false, message: "That piece of the file could not be read." };
+    return AppRuntime.runPromise(putOperatorContent(decoded.success.canvasName, decoded.success.stage));
   });
 
   // Portrait overrides: the operator's per-seat character customization. An

@@ -7,6 +7,7 @@ import type { WorkItemQuery, WorkActorQuery, WorkActorPage, WorkAttentionQuery, 
 import type { CanvasesChanged, Changed, Command, Opened, SheetChanged, SheetGrid } from "./model";
 import type { WorkMailQuery, WorkMailPage, WorkMailChanged } from "./work-mail";
 import type { MailThreadMessagesPage, MailThreadsPage } from "./wire/mail-threads";
+import type { OperatorContentPut, OperatorContentPutResult } from "./operator-attachments";
 import type {
   MentionableSeat,
   OperatorThreadSend,
@@ -453,6 +454,8 @@ export const IPC_CHANNELS = {
   seatThreadSend: "junto:seat-thread-send",
   /** Renderer → main: the seats a mention may name (wired to the seat). */
   seatThreadMentionables: "junto:seat-thread-mentionables",
+  /** Renderer → main: one piece of a file the operator attaches to mail, staged in the content store. */
+  operatorContentPut: "junto:operator-content-put",
   browserSessionChanged: "junto:browser-session-changed",
   // Developer observability ring (process-local; UI gated by advanced.logsExplorer)
   observabilityQuery: "junto:observability-query",
@@ -1680,6 +1683,12 @@ export interface JuntoTerminalApi {
   /** No threadId and no inReplyTo starts a thread; mentions name wired seats. */
   readonly seatThreadSend: (input: OperatorThreadSend) => Promise<OperatorThreadSent>;
   readonly seatThreadMentionables: (query: SeatThreadsQuery) => Promise<ReadonlyArray<MentionableSeat>>;
+  /**
+   * One piece of a file the operator attaches to a thread mail or a signal
+   * answer, staged in the Mac content store as the operator; the last piece
+   * answers the file's ContentRef, which the mail then names.
+   */
+  readonly operatorContentPut: (input: OperatorContentPut) => Promise<OperatorContentPutResult>;
 }
 
 // --- demo/scripting engine (--junto-demo only) ------------------------------
