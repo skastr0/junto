@@ -143,6 +143,15 @@ const waitedFor = (ms: number): string => {
   return hours < 48 ? `${String(hours)} h` : `${String(Math.floor(hours / 24))} d`;
 };
 
+/** A hold this build has words for; a newer main's reason is left out, never shown as text. */
+export const knownMailHold = (hold: string): hold is MailHold => Object.hasOwn(MAIL_WAIT_REASON, hold);
+
+const MAIL_WAITING_ITEM_PREFIX = "mail-waiting:";
+
+/** Held mail's feed item: shown with a jump to the seat, never answered, dismissed or notified. */
+export const isMailWaitingItem = (item: { readonly itemId: string }): boolean =>
+  item.itemId.startsWith(MAIL_WAITING_ITEM_PREFIX);
+
 /** "3 mails have waited 2 h: the box reads as your draft". */
 export const mailWaitText = (wait: FeedMailWait, nowMs: number): string =>
   `${wait.count === 1 ? "1 mail has" : `${String(wait.count)} mails have`} waited ${waitedFor(nowMs - wait.heldSince)}: ${MAIL_WAIT_REASON[wait.hold]}`;
@@ -297,9 +306,10 @@ export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
   // Not a signal and nothing to answer: the seat is the place to act.
   for (const entry of input.seats) {
     const wait = entry.mailWait;
-    if (!wait || wait.count <= 0) continue;
+    // The fact crosses IPC undecoded: a reason this build does not know lists nothing.
+    if (!wait || wait.count <= 0 || !knownMailHold(wait.hold)) continue;
     push(entry, {
-      itemId: `mail-waiting:${entry.seat.nodeId}`,
+      itemId: `${MAIL_WAITING_ITEM_PREFIX}${entry.seat.nodeId}`,
       kind: "attention",
       text: mailWaitText(wait, nowMs),
       since: wait.heldSince,

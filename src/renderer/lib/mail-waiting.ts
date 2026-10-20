@@ -1,6 +1,6 @@
 import { observable } from "@legendapp/state";
 import type { MailWaitingFact } from "@shared/mail-waiting";
-import type { FeedMailWait } from "@shared/operator-feed";
+import { knownMailHold, type FeedMailWait } from "@shared/operator-feed";
 
 /**
  * Each seat's mail-waiting fact (`@shared/mail-waiting`) as main last told
@@ -24,7 +24,8 @@ export type MailWaitingBridge = {
 export const mailWaiting$ = observable<Record<string, Record<string, FeedMailWait>>>({});
 
 const waitOf = (fact: MailWaitingFact): FeedMailWait | undefined =>
-  fact.count > 0 && fact.heldSince !== undefined && fact.hold !== undefined
+  // Undecoded off IPC: a reason this build has no words for keeps nothing.
+  fact.count > 0 && fact.heldSince !== undefined && fact.hold !== undefined && knownMailHold(fact.hold)
     ? { count: fact.count, heldSince: fact.heldSince, hold: fact.hold }
     : undefined;
 
@@ -46,9 +47,10 @@ export const mailWaitsOn = (
 ): ReadonlyMap<string, FeedMailWait> => new Map(Object.entries(store?.[canvasName] ?? {}));
 
 /**
- * Hear the facts, then read the ones that stand. A seat told while the read
- * was in flight keeps what it was told: the read may be older. Returns the
- * unsubscribe.
+ * Hear the facts, then read the ones that stand, which replace what the
+ * store held: a seat the read does not list no longer waits. A seat told
+ * while the read was in flight keeps what it was told: the read may be
+ * older. Returns the unsubscribe.
  */
 export const startMailWaitingWatch = (api: object): (() => void) => {
   // Read structurally: the window's API declares these once main wires them.
@@ -64,7 +66,18 @@ export const startMailWaitingWatch = (api: object): (() => void) => {
   void bridge.mailWaiting?.().then(
     (facts) => {
       if (stopped) return;
-      for (const fact of facts) if (!told.has(`${fact.canvasName}\n${fact.nodeId}`)) applyMailWaitingFact(fact);
+      const current = mailWaiting$.peek();
+      const next: Record<string, Record<string, FeedMailWait>> = {};
+      for (const [canvasName, byNode] of Object.entries(current)) {
+        for (const [nodeId, wait] of Object.entries(byNode)) {
+          if (told.has(`${canvasName}\n${nodeId}`)) (next[canvasName] ??= {})[nodeId] = wait;
+        }
+      }
+      for (const fact of facts) {
+        const wait = waitOf(fact);
+        if (wait && !told.has(`${fact.canvasName}\n${fact.nodeId}`)) (next[fact.canvasName] ??= {})[fact.nodeId] = wait;
+      }
+      mailWaiting$.set(next);
     },
     () => undefined,
   );

@@ -12,6 +12,7 @@ import {
   feedSeatsFromCanvas,
   feedStopOf,
   feedItemRank,
+  isMailWaitingItem,
   needsOperatorCount,
   OperatorFeed,
   type FeedItemKind,
@@ -152,6 +153,23 @@ describe("buildOperatorFeed", () => {
     expect(items.find((item) => item.seat.nodeId === "b")?.text).toBe("1 mail has waited 45 min: the seat is showing a dialog");
     expect(items.every((item) => item.signalId === undefined)).toBe(true);
     expect(feed.count).toBe(2);
+  });
+
+  it("leaves out held mail whose reason this build has no words for, and names the item for the notifier", () => {
+    const feed = buildOperatorFeed({
+      canvasName: "main",
+      nowMs: NOW,
+      seats: seats({
+        a: { mailWait: { count: 1, heldSince: 0, hold: "toString" as never } },
+        b: { mailWait: { count: 1, heldSince: 0, hold: "a probe's own sentence" as never } },
+        c: { mailWait: { count: 1, heldSince: 0, hold: "unreadable" } },
+      }),
+      signals: [],
+    });
+    const items = feed.sections.flatMap((section) => section.items);
+    expect(items.map((item) => item.itemId)).toEqual(["mail-waiting:c"]);
+    expect(isMailWaitingItem(items[0]!)).toBe(true);
+    expect(isMailWaitingItem({ itemId: "attention:c" })).toBe(false);
   });
 
   it("reads held mail off the seat map, and a count of none lists nothing", () => {

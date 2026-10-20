@@ -52,6 +52,21 @@ describe("the mail-waiting store", () => {
     expect(tell).toBeUndefined();
   });
 
+  it("lets a later read replace what the store held, and keeps no reason this build cannot word", async () => {
+    applyMailWaitingFact({ canvasName: "main", nodeId: "gone", count: 2, heldSince: 1_000, hold: "draft" });
+    const stop = startMailWaitingWatch({
+      mailWaiting: async () => [
+        { canvasName: "main", nodeId: "a", count: 1, heldSince: 1_000, hold: "draft" },
+        { canvasName: "main", nodeId: "new", count: 1, heldSince: 1_000, hold: "a newer reason" as never },
+      ],
+    });
+    await flush();
+    expect([...mailWaitsOn(mailWaiting$.peek(), "main").keys()]).toEqual(["a"]);
+    applyMailWaitingFact({ canvasName: "main", nodeId: "b", count: 1, heldSince: 1_000, hold: "toString" as never });
+    expect(mailWaitsOn(mailWaiting$.peek(), "main").has("b")).toBe(false);
+    stop();
+  });
+
   it("does nothing on a bridge with neither method", () => {
     const stop = startMailWaitingWatch({});
     stop();
