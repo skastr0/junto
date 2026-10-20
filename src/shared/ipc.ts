@@ -155,6 +155,11 @@ export type AgentSignalAnswerOptions = {
    * `signal list`.
    */
   readonly silent?: boolean;
+  /**
+   * Files the operator attached, each uploaded first through
+   * `operatorContentPut`. The answer then needs no text.
+   */
+  readonly attachments?: ReadonlyArray<ContentRef>;
 };
 
 export const IPC_CHANNELS = {

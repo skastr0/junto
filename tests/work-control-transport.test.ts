@@ -68,6 +68,8 @@ import {
 
 import { AgentSignalRepositoryLive } from "../src/main/junto/signals/repository";
 import { answerAgentSignal, dismissAgentSignal } from "../src/main/junto/signals/operator";
+import { putOperatorContent } from "../src/main/junto/content/operator-attachments";
+import { WORK_HOME_ENV } from "../src/shared/work-control";
 import { AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE, type AgentSignal } from "../src/shared/agent-signals";
 import { THIS_MACHINE } from "./support/machines";
 import { closeMachineLog, installMachineLog, setLogMachine, writeLog } from "../src/main/junto/observability/logger";
@@ -1196,6 +1198,64 @@ describe("work control transport", () => {
     const seen = listed.data.signals.find((signal) => signal.signalId === raised.data.signal.signalId);
     expect(seen?.state).toBe("answered");
     expect(seen?.response?.text).toBe(AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE);
+  });
+
+  it("answers with a file and no text: the mail lists the file by a path the seat can read", async () => {
+    const server = servers[0]!;
+    const raised = (await call(server.socketPath, {
+      token: token(),
+      op: "signal.raise",
+      args: { kind: "escalate", text: "which look?" },
+    })) as { ok: true; data: { signal: AgentSignal } };
+    const runtime = runtimes[runtimes.length - 1]!;
+    const workHome = await mkdtemp(join(tmpdir(), "junto-answer-files-"));
+    roots.push(workHome);
+    const prior = process.env[WORK_HOME_ENV];
+    process.env[WORK_HOME_ENV] = workHome;
+    try {
+      const png = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        "base64",
+      );
+      const put = await runtime.runPromise(
+        putOperatorContent("work-cli", {
+          bytesBase64: png.toString("base64"),
+          done: { mediaType: "application/octet-stream", displayName: "look-a.png" },
+        } as never),
+      );
+      if (!put.ok || !("ref" in put.result)) throw new Error("the upload did not close");
+      const answered = await runtime.runPromise(
+        answerAgentSignal(raised.data.signal.signalId, "", { attachments: [put.result.ref] }),
+      );
+      expect(answered.ok).toBe(true);
+      if (!answered.ok) return;
+      const line = answered.signal.response?.text ?? "";
+      expect(line).toMatch(/^Attached: look-a\.png \(image\/png, 70 bytes\): \//);
+      const path = line.slice(line.indexOf("): ") + 3);
+      expect(path.startsWith(workHome)).toBe(true);
+      expect(await readFile(path)).toEqual(png);
+      const repository = await runtime.runPromise(WorkRepository);
+      const mail = (await runtime.runPromise(repository.mailbox("work-cli", "agent"))).find(
+        (message) => message.messageId === answered.messageId,
+      );
+      expect(mail?.parts[0]).toMatchObject({ kind: "text" });
+      expect((mail?.parts[0] as { text: string }).text).toContain(line);
+      expect(mail?.metadata?.attachments).toEqual([
+        expect.objectContaining({ displayName: "look-a.png", mediaType: "image/png", byteLength: png.length }),
+      ]);
+      // The same upload cannot ride on a second mail.
+      const raisedAgain = (await call(server.socketPath, {
+        token: token(),
+        op: "signal.raise",
+        args: { kind: "escalate", text: "and this one?" },
+      })) as { ok: true; data: { signal: AgentSignal } };
+      expect(
+        await runtime.runPromise(answerAgentSignal(raisedAgain.data.signal.signalId, "same", { attachments: [put.result.ref] })),
+      ).toEqual({ ok: false, message: "A file was not uploaded, or it was already sent. Attach it again." });
+    } finally {
+      if (prior === undefined) delete process.env[WORK_HOME_ENV];
+      else process.env[WORK_HOME_ENV] = prior;
+    }
   });
 
   it("dismisses with no answer and no mail: the seat is not told", async () => {

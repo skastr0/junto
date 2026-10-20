@@ -18,6 +18,7 @@ import {
   type Attachments,
 } from "../src/renderer/lib/operator-attachments";
 import { AttachButton, AttachmentTray } from "../src/renderer/components/attachments/AttachmentTray";
+import { SignalReply } from "../src/renderer/components/signals/SignalReply";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -201,5 +202,71 @@ describe("the attachment tray", () => {
     });
     await flush();
     expect(latest!.ready?.map((item) => item.displayName)).toEqual(["image.png", "notes.md"]);
+  });
+});
+
+describe("the signal answer box", () => {
+  const renderReply = () => {
+    const respond = vi.fn(async () => ({ ok: true as const }));
+    const onDone = vi.fn();
+    act(() =>
+      root.render(
+        <SignalReply
+          signalId="sig-1"
+          canvasName="factory"
+          respond={respond}
+          dismiss={async () => ({ ok: true as const })}
+          onDone={onDone}
+        />,
+      ),
+    );
+    const button = (name: string) =>
+      [...host.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => candidate.textContent?.trim() === name)!;
+    return { respond, onDone, button };
+  };
+
+  it("sends a file with no text as the reply, once it is in, and waits while it uploads", async () => {
+    const main = fakeMain();
+    main.hold();
+    setOperatorContentPutter(main.put);
+    const { respond, onDone, button } = renderReply();
+    expect(button("Send reply").disabled).toBe(true);
+    await pick([new File(["png"], "shot.png", { type: "image/png" })]);
+    expect(button("Send reply").disabled).toBe(true);
+    expect(button("Send quietly").disabled).toBe(true);
+    expect(button("Send reply").title).toBe("Waiting for the files to attach");
+    main.release();
+    await flush();
+    expect(button("Send reply").disabled).toBe(false);
+    act(() => button("Send reply").click());
+    await flush();
+    expect(respond).toHaveBeenCalledWith("sig-1", "", { attachments: [ref("shot.png", 1, "image/png")] });
+    expect(onDone).toHaveBeenCalled();
+  });
+
+  it("sends quietly with the files and the note", async () => {
+    setOperatorContentPutter(fakeMain().put);
+    const { respond, button } = renderReply();
+    await pick([new File(["x"], "notes.md", { type: "text/markdown" })]);
+    const field = host.querySelector<HTMLTextAreaElement>("textarea")!;
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+      setter.call(field, "  see attached  ");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => button("Send quietly").click());
+    await flush();
+    expect(respond).toHaveBeenCalledWith("sig-1", "see attached", {
+      silent: true,
+      attachments: [ref("notes.md", 1, "text/markdown")],
+    });
+  });
+
+  it("answers as before with no files: no options on a reply, silent on a quiet one", async () => {
+    setOperatorContentPutter(fakeMain().put);
+    const { respond, button } = renderReply();
+    act(() => button("Send quietly").click());
+    await flush();
+    expect(respond).toHaveBeenCalledWith("sig-1", "", { silent: true });
   });
 });

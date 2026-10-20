@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { ulid } from "ulid";
 import {
   AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE,
@@ -8,7 +8,14 @@ import {
 } from "@shared/agent-signals";
 import { mailExtensionMetadata } from "@shared/crew";
 import { makeUserMessage } from "@shared/task";
+import type { ContentRef } from "@shared/wire/content-ref";
 import { operatorActorRef } from "@shared/work-reference";
+import {
+  claimOperatorAttachments,
+  operatorAttachmentLines,
+  operatorMailOwner,
+} from "../content/operator-attachments";
+import { ContentService } from "../content/service";
 import { WorkService } from "../work/service";
 import { releaseSignalAttachments } from "./attachments";
 import { AgentSignalRepository } from "./repository";
@@ -20,7 +27,9 @@ import { AgentSignalRepository } from "./repository";
  * seat is never typed into or started and reads the answer later through
  * `signal list`; a silent answer with no text acknowledges, recorded as
  * AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE; dismissing records it without mail or a
- * response.
+ * response. Files the operator attached are claimed for the answer, copied
+ * where the seat can read them, and listed one line each after the text, in
+ * the mail and in the recorded answer alike; with files the text may be empty.
  */
 
 export type SignalOperatorResult =
@@ -34,14 +43,14 @@ const repositoryMessage = (error: { readonly message: string }) => error.message
 export const answerAgentSignal = (
   signalId: string,
   response: string,
-  options?: { readonly silent?: boolean },
+  options?: { readonly silent?: boolean; readonly attachments?: ReadonlyArray<ContentRef> },
 ) =>
   Effect.gen(function* () {
     const silent = options?.silent === true;
+    const files = options?.attachments ?? [];
     const typed = response.trim();
-    if (!typed && !silent) return refused("an answer needs some text");
-    const text = typed || AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE;
-    if (text.length > AGENT_SIGNAL_MAX_RESPONSE_LENGTH) {
+    if (!typed && !silent && files.length === 0) return refused("an answer needs some text");
+    if (typed.length > AGENT_SIGNAL_MAX_RESPONSE_LENGTH) {
       return refused(`an answer is at most ${AGENT_SIGNAL_MAX_RESPONSE_LENGTH} characters`);
     }
     const signals = yield* AgentSignalRepository;
@@ -50,10 +59,42 @@ export const answerAgentSignal = (
     const signal = current.success;
     if (signal.state !== "open") return refused(`this signal is already ${signal.state}`);
 
+    // The mail's id names where its files are held and copied, mailed or not.
+    const id = ulid();
+    let lines: ReadonlyArray<string> = [];
+    let refs: ReadonlyArray<ContentRef> = [];
+    let releaseFiles: Effect.Effect<void> = Effect.void;
+    if (files.length > 0) {
+      const content = yield* Effect.serviceOption(ContentService);
+      if (Option.isNone(content)) return refused("files cannot be attached: the content store is unavailable");
+      const owner = operatorMailOwner(signal.canvasName, signal.nodeId, id);
+      const claimed = yield* Effect.result(claimOperatorAttachments(content.value, signal.canvasName, files, owner));
+      if (claimed._tag === "Failure") return refused(claimed.failure.message);
+      releaseFiles = content.value.releaseOwner(owner).pipe(Effect.ignore);
+      const placed = yield* Effect.result(
+        operatorAttachmentLines(content.value, {
+          canvasName: signal.canvasName,
+          nodeId: signal.nodeId,
+          messageId: id,
+          refs: claimed.success,
+        }),
+      );
+      if (placed._tag === "Failure") {
+        yield* releaseFiles;
+        return refused(placed.failure.message);
+      }
+      lines = placed.success;
+      refs = claimed.success;
+    }
+    const text = [typed, lines.join("\n")].filter(Boolean).join("\n\n") || AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE;
+    if (text.length > AGENT_SIGNAL_MAX_RESPONSE_LENGTH) {
+      yield* releaseFiles;
+      return refused(`an answer and its file lines are at most ${AGENT_SIGNAL_MAX_RESPONSE_LENGTH} characters; shorten the note`);
+    }
+
     let messageId: string | undefined;
     if (!silent) {
       const sender = operatorActorRef(signal.canvasName);
-      const id = ulid();
       const work = yield* WorkService;
       const appended = yield* work.workSystemMailboxNotify(
         signal.canvasName,
@@ -65,6 +106,8 @@ export const answerAgentSignal = (
           metadata: {
             factoryMail: true,
             agentSignalId: signal.signalId,
+            // As thread mail carries them: a thread reads its files back from here.
+            ...(refs.length > 0 ? { attachments: refs } : {}),
             ...mailExtensionMetadata({
               mailKind: "prompt",
               fromSeat: sender.seatId,
@@ -76,12 +119,19 @@ export const answerAgentSignal = (
           },
         }),
       );
-      if (!appended.ok) return refused(appended.message);
+      if (!appended.ok) {
+        yield* releaseFiles;
+        return refused(appended.message);
+      }
       messageId = appended.data.messageId;
     }
 
     const answered = yield* Effect.result(signals.answer(signalId, text));
-    if (answered._tag === "Failure") return refused(repositoryMessage(answered.failure));
+    if (answered._tag === "Failure") {
+      // Mailed, the files stay with the mail; recorded only, they go with the answer.
+      if (messageId === undefined) yield* releaseFiles;
+      return refused(repositoryMessage(answered.failure));
+    }
     yield* releaseSignalAttachments(answered.success);
     return {
       ok: true as const,

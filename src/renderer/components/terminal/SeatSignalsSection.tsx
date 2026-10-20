@@ -64,6 +64,7 @@ function SignalPopover({
       {open ? (
         <SignalReply
           signalId={signal.signalId}
+          canvasName={signal.canvasName}
           suggested={signal.suggestions}
           respond={respond}
           dismiss={dismiss}

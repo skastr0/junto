@@ -17,7 +17,7 @@ import {
   seatThreadsPage,
   sendOperatorThreadMail,
 } from "./work/operator-threads";
-import { OperatorContentPut, type OperatorContentPutResult } from "@shared/operator-attachments";
+import { OperatorAttachments, OperatorContentPut, type OperatorContentPutResult } from "@shared/operator-attachments";
 import { putOperatorContent } from "./content/operator-attachments";
 import {
   IPC_CHANNELS,
@@ -634,10 +634,13 @@ export const registerJuntoIpc = (): void => {
   privilegedIpc.handle(
     IPC_CHANNELS.agentSignalRespond,
     async (_event, signalId: string, text: string, options?: AgentSignalAnswerOptions) => {
+      const files = Schema.decodeUnknownResult(OperatorAttachments)(options?.attachments ?? []);
+      if (Result.isFailure(files)) return { ok: false as const, message: "The attached files could not be read." };
       const result = await runSignalOperator(
         "ipc.work.signal-answer",
         answerAgentSignal(String(signalId), String(text), {
           silent: options?.silent === true,
+          attachments: files.success,
         }),
       );
       // The answer is durable mail now; typing it into the seat follows the

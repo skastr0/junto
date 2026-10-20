@@ -4,6 +4,7 @@ import { OPERATOR_ATTACHMENTS_MAX, attachmentSizeLabel } from "@shared/operator-
 import type { AttachmentItem, Attachments } from "../../lib/operator-attachments";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
+import "./attachments.css";
 
 /**
  * The operator's files on a mail being written, one component for every
