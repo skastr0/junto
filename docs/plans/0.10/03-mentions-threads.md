@@ -67,10 +67,19 @@ Operator direction (2026-10-21): a combobox component, availability
 components, and side effect hooks that each composer chooses. Nothing about
 what a mention does is universal.
 
-1. **`MentionCombobox`** (`src/renderer/components/ui/`), built on
-   `Combobox`: the `@` and `#` query, the list, keyboard, inline chips, and
-   writing the link form into the text. It knows nothing about who may be
-   mentioned or what happens after.
+1. **`MentionCombobox`** (`src/renderer/components/ui/`): the `@` and `#`
+   query, the list, keyboard, inline chips, and writing the link form into
+   the text. It knows nothing about who may be mentioned or what happens
+   after. It follows the combobox pattern (ARIA from `lib/listbox-aria`) but
+   keeps its own key model, `mentionKeyIntent` in `lib/mention-draft`, unit
+   tested in `tests/mention-draft.test.ts`. It sits in a multi-line
+   composer, so its keys are its own only while an `@` list is open: Enter
+   and Tab pick, and every other key, send included, is the composer's.
+   `comboboxKeyIntent` (`lib/combobox.ts`) does not fit: it has no open
+   state and Enter always commits, which would take the composer's
+   Enter-to-send; Tab and ArrowRight accept ghost text, which a mention does
+   not have; Shift+Up/Down highlights, which would take text selection from
+   the textarea (product-keyboard).
 2. **Availability sources**, one per rule, each a hook returning candidates
    for a context:
    - `useConnectedSeats(seat)`: seats wired to a seat by an edge.
