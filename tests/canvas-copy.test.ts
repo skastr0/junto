@@ -218,6 +218,7 @@ describe("each kind, cut for each machine", () => {
     { kind: "file", id: asNodeId("spec"), ...inRemote(160), path: "/Users/op/private-dir/spec.md" },
     { kind: "link", id: asNodeId("docs"), ...inRemote(210), url: "https://docs.test/secret-path?token=1" },
     { kind: "git", id: asNodeId("repo"), ...inRemote(260), cwd: "/Users/op/private-repo" },
+    { kind: "git", id: asNodeId("named-repo"), ...inRemote(560), cwd: "/Users/op/other-repo", label: "Junto source" },
     { kind: "page", id: asNodeId("browser"), ...inRemote(310), url: "https://browser.test/secret-page", profile: "work-profile", host: "mini" as never, onRemove: "detach" },
     { kind: "note", id: asNodeId("memo"), ...inRemote(360), text: "Note body stays home." },
     { kind: "cron", id: asNodeId("nightly"), ...inRemote(410), host: "macbook" as never, label: "Nightly", expression: "0 3 * * *" },
@@ -233,6 +234,9 @@ describe("each kind, cut for each machine", () => {
       wire("lead-to-backlog", "lead", "backlog", "messages"),
       wire("lead-to-browser", "lead", "browser", "messages"),
       wire("lead-to-memo", "lead", "memo", "messages"),
+      wire("lead-to-spec", "lead", "spec", "messages"),
+      wire("lead-to-docs", "lead", "docs", "messages"),
+      wire("lead-to-repo", "lead", "repo", "messages"),
     ],
     seatIdOf: (node) => seatId(node.id === "lead" ? "1" : node.id === "peer" ? "2" : node.id === "solo" ? "3" : "4"),
   };
@@ -251,11 +255,13 @@ describe("each kind, cut for each machine", () => {
     ["task", "backlog", { kind: "task", id: "backlog", ...at(10), name: "Backlog" }],
     ["artifacts", "shelf", { kind: "artifacts", id: "shelf", ...at(60), label: "Shelf" }],
     ["label", "caption", { kind: "label", id: "caption", ...at(110), text: "Caption" }],
-    ["file", "spec", { kind: "stub", of: "file", id: "spec", ...at(160), label: "spec.md" }],
-    ["link", "docs", { kind: "stub", of: "link", id: "docs", ...at(210), label: "docs.test" }],
-    ["git", "repo", { kind: "stub", of: "git", id: "repo", ...at(260), label: "private-repo" }],
+    // A stub is named only by what the operator wrote, never by its path or address.
+    ["file", "spec", { kind: "stub", of: "file", id: "spec", ...at(160) }],
+    ["link", "docs", { kind: "stub", of: "link", id: "docs", ...at(210) }],
+    ["git", "repo", { kind: "stub", of: "git", id: "repo", ...at(260) }],
+    ["git", "named-repo", { kind: "stub", of: "git", id: "named-repo", ...at(560), label: "Junto source" }],
     // The editing machine's name, not the row's: pages live where the canvas is edited.
-    ["page", "browser", { kind: "stub", of: "page", id: "browser", ...at(310), label: "browser.test", host: "macbook" }],
+    ["page", "browser", { kind: "stub", of: "page", id: "browser", ...at(310), host: "macbook" }],
     ["note", "memo", undefined],
     ["cron", "nightly", undefined],
     ["relay", "relay", undefined],
@@ -275,8 +281,12 @@ describe("each kind, cut for each machine", () => {
           "Task contract body",
           "#ff0000",
           "private-dir",
+          "spec.md",
+          "docs.test",
           "secret-path",
-          "/Users/op/private-repo",
+          "private-repo",
+          "other-repo",
+          "browser.test",
           "secret-page",
           "work-profile",
           "Note body stays home",
@@ -286,11 +296,12 @@ describe("each kind, cut for each machine", () => {
         }
       });
 
-      it("keeps wires to resources and drops those to a page or a note", () => {
+      it("keeps wires to resources and drops those to a stub or a note", () => {
         const held = destination.copy().wires.map((kept) => kept.id);
         expect(held).toContain("lead-to-backlog");
-        expect(held).not.toContain("lead-to-browser");
-        expect(held).not.toContain("lead-to-memo");
+        for (const dropped of ["lead-to-browser", "lead-to-spec", "lead-to-docs", "lead-to-repo", "lead-to-memo"]) {
+          expect(held).not.toContain(dropped);
+        }
       });
 
       it("decodes as written", () => {
@@ -298,6 +309,14 @@ describe("each kind, cut for each machine", () => {
       });
     });
   }
+
+  it("names a file, a link or an unlabelled repository by nothing: no path, folder or address leaks through a default", () => {
+    for (const nodeId of ["spec", "docs", "repo"]) {
+      const stub = cutFor(MINI, "mini").resources.find((resource) => resource.id === nodeId)!;
+      expect(stub.kind).toBe("stub");
+      expect("label" in stub).toBe(false);
+    }
+  });
 
   it("gives a region's private parts only to the machine with a seat in it", () => {
     const remoteFor = (copy: CanvasCopy) => copy.regions.find((held) => held.id === "remote")!;

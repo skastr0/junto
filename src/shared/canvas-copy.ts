@@ -29,10 +29,9 @@ import {
   Wire,
   placement,
   regionStack,
-  titleOf,
   type Node,
 } from "./model";
-import { RESOURCE_KINDS } from "./region-reach";
+import type { ResourceKind } from "./region-reach";
 import type { SeatGuidance } from "./seat-guidance";
 
 /** The word a row may not use for a machine: it would mean a different one on every copy. */
@@ -105,20 +104,19 @@ export type StubOf = typeof StubOf.Type;
 
 /**
  * A node whose own fields are body, as a machine holding a copy sees it: what
- * it is, where it sits and what it is called. A page also names the machine it
+ * it is and where it sits, and a label only when the operator wrote one. No
+ * part of a path or an address names it. A page also names the machine it
  * lives on, the editing machine, and has nothing to drive.
  */
 export const Stub = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("stub"), of: StubOf, ...geometry, label: OneLine }),
-  Schema.Struct({ kind: Schema.Literal("stub"), of: Schema.Literal("page"), ...geometry, label: OneLine, host: HostId }),
+  Schema.Struct({ kind: Schema.Literal("stub"), of: StubOf, ...geometry, label: Schema.optionalKey(OneLine) }),
+  Schema.Struct({ kind: Schema.Literal("stub"), of: Schema.Literal("page"), ...geometry, host: HostId }),
 ]);
 export type Stub = typeof Stub.Type;
 
 const CopiedResource = Schema.Union([CopiedTask, CopiedArtifacts, CopiedLabel, Stub]);
 export type CopiedResource = typeof CopiedResource.Type;
 
-/** Every kind a seat reaches crosses as itself: a resource kind with no copy here does not compile. */
-const _everyResourceCrosses: ReadonlyArray<CopiedResource["kind"]> = RESOURCE_KINDS;
 
 export const CanvasCopy = Schema.Struct({
   canvasName: CanvasName,
@@ -186,9 +184,6 @@ const namesNoMachine = (node: Node): boolean => {
   );
 };
 
-/** A label fit for one line: what the operator sees on the card. */
-const oneLine = (text: string): string => text.replace(/[\r\n]+/g, " ").slice(0, 256);
-
 const placed = (node: Node) => ({
   id: node.id,
   x: node.x,
@@ -198,11 +193,18 @@ const placed = (node: Node) => ({
   z: node.z,
 });
 
+/** The kinds that cross: every kind a seat reaches, and the cards beside them. */
+type CrossingKind = ResourceKind | "label" | StubOf | "page";
+
+/** Takes only a kind that does not cross, so a crossing kind with no case fails to compile. */
+const staysHome = (_kind: Exclude<Node["kind"], CrossingKind>): undefined => undefined;
+
 /**
  * What every other machine holds of a node that is not a seat, a terminal or
  * a region. A kind crosses only when it is named here: a new kind stays home
- * until it is decided. Absent for a note, for what fires on its own host, for
- * the kinds 0.10 deletes, and for a kind this build has switched off.
+ * until it is decided, and a crossing kind left unnamed does not compile.
+ * Absent for a note, for what fires on its own host, for the kinds 0.10
+ * deletes, and for a kind this build has switched off.
  */
 const resourceOf = (node: Node, editorMachineName: HostId): CopiedResource | undefined => {
   if (!productNodeKindEnabled(node.kind)) return undefined;
@@ -215,12 +217,13 @@ const resourceOf = (node: Node, editorMachineName: HostId): CopiedResource | und
       return { kind: "label", ...placed(node), text: node.text };
     case "file":
     case "link":
+      return { kind: "stub", of: node.kind, ...placed(node) };
     case "git":
-      return { kind: "stub", of: node.kind, ...placed(node), label: oneLine(titleOf(node)) };
+      return { kind: "stub", of: "git", ...placed(node), ...(node.label === undefined ? {} : { label: node.label }) };
     case "page":
-      return { kind: "stub", of: "page", ...placed(node), label: oneLine(titleOf(node)), host: editorMachineName };
+      return { kind: "stub", of: "page", ...placed(node), host: editorMachineName };
     default:
-      return undefined;
+      return staysHome(node.kind);
   }
 };
 
@@ -314,8 +317,9 @@ export const exportCanvasCopy = (
   for (const seat of seats) {
     for (const region of regionStack(placed, seat.id)) mine.add(region.id);
   }
-  // A wire to a page would be something to drive it with: a page goes without one.
-  const wired = resources.filter((resource) => resource.kind !== "stub" || resource.of !== "page");
+  // No wire to a stub: the receiving machine keeps no stub to end it on, and
+  // a wire to a page would be something to drive it with.
+  const wired = resources.filter((resource) => resource.kind !== "stub");
   const held = new Set<string>([...seats, ...peers, ...terminals, ...regions, ...wired].map((node) => node.id));
   return {
     ok: true,

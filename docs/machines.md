@@ -55,10 +55,11 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    stays one frame. A region outline crosses as geometry and label only; its
    briefing, references, folders and environment go only where a local seat
    is in the region, as above. A file, a link or a
-   repository arrives as a stub: what it is, where it sits and what it is
-   called, with no path or address. A browser page goes elsewhere as a stub
-   shaped like a peer: id, geometry, label and the editing machine, with
-   nothing to drive it and no wire to it. Notes, what fires on its own host,
+   repository arrives as a stub: what it is and where it sits, with a label
+   only when the operator wrote one, never one taken from its path or
+   address. A browser page goes elsewhere as a stub shaped like a peer: id,
+   geometry and the editing machine, with nothing to drive it. No wire to a
+   stub crosses. Notes, what fires on its own host,
    the kinds 0.10 deletes and every kind that is off stay on the editing
    machine. The editing machine keeps everything. Whatever a machine
    once received it may still hold; removal does not take it back. There is
