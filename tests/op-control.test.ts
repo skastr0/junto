@@ -51,8 +51,8 @@ describe("op args", () => {
 
   it("list filters on queued or refused, never applied, with a bounded limit", () => {
     const decode = Schema.decodeUnknownResult(OpListArgs);
-    for (const ok of [{}, { state: "queued" }, { state: "refused", limit: 200 }]) expect(Result.isSuccess(decode(ok))).toBe(true);
-    for (const bad of [{ state: "applied" }, { limit: 0 }, { limit: 201 }, { limit: 1.5 }]) expect(Result.isFailure(decode(bad))).toBe(true);
+    for (const ok of [{}, { state: "queued" }, { state: "refused", limit: 200 }, { before: opId }]) expect(Result.isSuccess(decode(ok))).toBe(true);
+    for (const bad of [{ state: "applied" }, { limit: 0 }, { limit: 201 }, { limit: 1.5 }, { before: "op-1" }]) expect(Result.isFailure(decode(bad))).toBe(true);
   });
 
   it("an op view's state is closed", () => {

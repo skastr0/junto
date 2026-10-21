@@ -32,16 +32,25 @@ export class OpRepository extends Context.Service<OpRepository,
   {
     /** One write of the seat, or undefined when this machine wrote none with that opId for it. */
     readonly show: (scope: OpScope, opId: OpId) => Effect.Effect<OpView | undefined, OpReadError>;
-    /** The seat's writes, newest first; `state` keeps the queued or the refused ones. */
+    /** The seat's writes, newest first; `state` keeps the queued or the refused ones, `before` pages back. */
     readonly list: (
       scope: OpScope,
-      filter: { readonly state?: OpListState; readonly limit: number },
+      filter: { readonly state?: OpListState; readonly before?: OpId; readonly limit: number },
     ) => Effect.Effect<OpListResult, OpReadError>;
   }>()("@junto/main/OpRepository") {}
 
 const decodeRuling = Schema.decodeUnknownResult(Schema.Union([RulingAppliedResult, RulingRefusedResult]));
 
-type Narrow = { readonly opId?: OpId; readonly refusedOnly?: boolean; readonly limit: number };
+type Narrow = { readonly opId?: OpId; readonly before?: OpId; readonly refusedOnly?: boolean; readonly limit: number };
+
+/** The `op_id = ?` and `op_id < ?` conditions a narrow adds, over `column`, with their parameters. */
+const narrowed = (column: string, narrow: Narrow): { readonly sql: string; readonly params: ReadonlyArray<string> } => ({
+  sql: [
+    ...(narrow.opId === undefined ? [] : [`AND ${column} = ?`]),
+    ...(narrow.before === undefined ? [] : [`AND ${column} < ?`]),
+  ].join(" "),
+  params: [...(narrow.opId === undefined ? [] : [narrow.opId]), ...(narrow.before === undefined ? [] : [narrow.before])],
+});
 
 const parsed = (json: string): unknown => {
   try {
@@ -64,15 +73,16 @@ export const OpRepositoryLive: Layer.Layer<OpRepository, never, SqlClient.SqlCli
     );
 
     /** Rulings made here, for this seat. */
-    const ruledHere = (writer: InstallationId, scope: OpScope, narrow: Narrow) =>
-      Effect.flatMap(
+    const ruledHere = (writer: InstallationId, scope: OpScope, narrow: Narrow) => {
+      const where = narrowed("op_id", narrow);
+      return Effect.flatMap(
         sql.unsafe<{ op_id: string; kind: string; ruling_json: string }>(
           `SELECT op_id, kind, ruling_json FROM resource_rulings
            WHERE canvas_name = ? AND writer = ? AND actor_kind = 'seat' AND actor_node_id = ?
-             ${narrow.opId === undefined ? "" : "AND op_id = ?"}
+             ${where.sql}
              ${narrow.refusedOnly === true ? "AND kind = 'refused'" : ""}
            ORDER BY op_id DESC LIMIT ?`,
-          [scope.canvasName, writer, scope.seat, ...(narrow.opId === undefined ? [] : [narrow.opId]), narrow.limit],
+          [scope.canvasName, writer, scope.seat, ...where.params, narrow.limit],
         ),
         (rows) =>
           Effect.forEach(rows, (row) => {
@@ -82,10 +92,12 @@ export const OpRepositoryLive: Layer.Layer<OpRepository, never, SqlClient.SqlCli
               : Effect.fail(new OpReadError({ operation: "op.ruled-here", message: Result.isFailure(view) ? view.failure : `the ruling of ${row.op_id} is empty` }));
           }),
       );
+    };
 
     /** Rulings received from the editing machine, for this seat's writes from here. */
-    const ruledThere = (writer: InstallationId, scope: OpScope, narrow: Narrow) =>
-      Effect.flatMap(
+    const ruledThere = (writer: InstallationId, scope: OpScope, narrow: Narrow) => {
+      const where = narrowed("event.item_id", narrow);
+      return Effect.flatMap(
         sql.unsafe<{ result_json: string }>(
           `SELECT fact.result_json FROM work_events AS event
            JOIN work_facts AS fact USING (event_home, entity_home, seq)
@@ -93,10 +105,10 @@ export const OpRepositoryLive: Layer.Layer<OpRepository, never, SqlClient.SqlCli
              AND json_extract(fact.result_json, '$.writer') = ?
              AND json_extract(fact.result_json, '$.actor.kind') = 'seat'
              AND json_extract(fact.result_json, '$.actor.nodeId') = ?
-             ${narrow.opId === undefined ? "" : "AND event.item_id = ?"}
+             ${where.sql}
              ${narrow.refusedOnly === true ? "AND event.operation = 'ruling.refused'" : ""}
            ORDER BY event.item_id DESC LIMIT ?`,
-          [scope.canvasName, writer, scope.seat, ...(narrow.opId === undefined ? [] : [narrow.opId]), narrow.limit],
+          [scope.canvasName, writer, scope.seat, ...where.params, narrow.limit],
         ),
         (rows) =>
           Effect.forEach(rows, (row) => {
@@ -106,10 +118,12 @@ export const OpRepositoryLive: Layer.Layer<OpRepository, never, SqlClient.SqlCli
               : Effect.fail(new OpReadError({ operation: "op.ruled-there", message: "a ruling row does not decode" }));
           }),
       );
+    };
 
     /** This seat's commands written here that neither place has ruled. */
-    const queued = (writer: InstallationId, scope: OpScope, narrow: Narrow) =>
-      Effect.map(
+    const queued = (writer: InstallationId, scope: OpScope, narrow: Narrow) => {
+      const where = narrowed("event.item_id", narrow);
+      return Effect.map(
         sql.unsafe<{ op_id: string }>(
           `SELECT event.item_id AS op_id FROM work_events AS event
            JOIN work_facts AS fact USING (event_home, entity_home, seq)
@@ -117,7 +131,7 @@ export const OpRepositoryLive: Layer.Layer<OpRepository, never, SqlClient.SqlCli
              AND event.item_kind = 'command' AND event.operation = 'command.queued'
              AND json_extract(fact.result_json, '$.command.actor.kind') = 'seat'
              AND json_extract(fact.result_json, '$.command.actor.nodeId') = ?
-             ${narrow.opId === undefined ? "" : "AND event.item_id = ?"}
+             ${where.sql}
              AND NOT EXISTS (
                SELECT 1 FROM resource_rulings AS ruled
                WHERE ruled.canvas_name = event.item_canvas_name AND ruled.writer = event.event_home
@@ -131,10 +145,11 @@ export const OpRepositoryLive: Layer.Layer<OpRepository, never, SqlClient.SqlCli
                  AND json_extract(ruled.result_json, '$.writer') = event.event_home
              )
            ORDER BY event.item_id DESC LIMIT ?`,
-          [writer, writer, scope.canvasName, scope.seat, ...(narrow.opId === undefined ? [] : [narrow.opId]), narrow.limit],
+          [writer, writer, scope.canvasName, scope.seat, ...where.params, narrow.limit],
         ),
         (rows) => rows.map((row): OpView => ({ state: "queued", opId: row.op_id as OpId })),
       );
+    };
 
     /** First view per opId in source order, newest first. */
     const merged = (sources: ReadonlyArray<ReadonlyArray<OpView>>): ReadonlyArray<OpView> => {
@@ -159,13 +174,17 @@ export const OpRepositoryLive: Layer.Layer<OpRepository, never, SqlClient.SqlCli
         }),
       ).pipe(Effect.mapError((error) => (error instanceof OpReadError ? error : fail("op.show")(error))));
 
-    const list = (scope: OpScope, filter: { readonly state?: OpListState; readonly limit: number }) =>
+    const list = (scope: OpScope, filter: { readonly state?: OpListState; readonly before?: OpId; readonly limit: number }) =>
       withSqlRead(
         sql,
         Effect.gen(function* () {
           const writer = yield* self;
           if (writer === undefined) return { ops: [], more: false };
-          const narrow = { limit: filter.limit + 1, refusedOnly: filter.state === "refused" };
+          const narrow = {
+            limit: filter.limit + 1,
+            refusedOnly: filter.state === "refused",
+            ...(filter.before === undefined ? {} : { before: filter.before }),
+          };
           const views = merged([
             filter.state === "queued" ? [] : yield* ruledHere(writer, scope, narrow),
             filter.state === "queued" ? [] : yield* ruledThere(writer, scope, narrow),

@@ -20,7 +20,7 @@ import { WorkSocket } from "../core/socket";
 
 const DESCRIPTIONS = {
   show: "What became of one of this seat's writes, by the opId it returned: queued until the editing machine rules it, then applied, or refused with its error.",
-  list: `This seat's writes, newest first, each with its opId and state. --state keeps the queued or the refused ones; --limit is 1 to ${OP_LIST_MAX}, 50 when left out.`,
+  list: `This seat's writes, newest first, each with its opId and state. --state keeps the queued or the refused ones; --limit is 1 to ${OP_LIST_MAX}, 50 when left out. When more is true, --before with the last opId listed reads the next page.`,
 } as const;
 
 const timeoutOption = Flag.integer("timeout").pipe(
@@ -57,15 +57,17 @@ const listCommand = Command.make(
   {
     state: Flag.choice("state", OpListState.literals).pipe(Flag.optional, Flag.withDescription("Only the queued or only the refused writes")),
     limit: Flag.integer("limit").pipe(Flag.optional, Flag.withDescription(`How many, 1 to ${OP_LIST_MAX}`)),
+    before: Flag.string("before").pipe(Flag.optional, Flag.withDescription("Only writes older than this opId: the last one the previous page listed")),
     timeout: timeoutOption,
   },
-  ({ state, limit, timeout }) =>
+  ({ state, limit, before, timeout }) =>
     executeJsonCommand(
       "op list",
       Effect.gen(function* () {
         const args = yield* checked(OpListArgs, {
           ...(Option.isSome(state) ? { state: state.value } : {}),
           ...(Option.isSome(limit) ? { limit: limit.value } : {}),
+          ...(Option.isSome(before) ? { before: before.value.trim() } : {}),
         });
         return yield* call("op.list", args, timeout);
       }),

@@ -58,7 +58,11 @@ export const handleOpOp = (
       case "op.list": {
         const input = yield* decode(OpListArgs, args);
         return yield* repository.value
-          .list(scope, { ...(input.state === undefined ? {} : { state: input.state }), limit: Math.min(input.limit ?? OP_LIST_DEFAULT, OP_LIST_MAX) })
+          .list(scope, {
+            ...(input.state === undefined ? {} : { state: input.state }),
+            ...(input.before === undefined ? {} : { before: input.before }),
+            limit: Math.min(input.limit ?? OP_LIST_DEFAULT, OP_LIST_MAX),
+          })
           .pipe(Effect.mapError((error) => unreadable(error.message)));
       }
     }

@@ -119,7 +119,7 @@ afterAll(async () => {
 });
 
 const show = (opId: OpId) => runtime.runPromise(Effect.flatMap(OpRepository, (ops) => ops.show(scope, opId)));
-const list = (filter: { readonly state?: "queued" | "refused"; readonly limit: number }) =>
+const list = (filter: { readonly state?: "queued" | "refused"; readonly before?: OpId; readonly limit: number }) =>
   runtime.runPromise(Effect.flatMap(OpRepository, (ops) => ops.list(scope, filter)));
 
 describe("op show", () => {
@@ -161,5 +161,17 @@ describe("op list", () => {
     expect((await list({ state: "refused", limit: 50 })).ops.map((view) => view.opId)).toEqual([REFUSED]);
     expect(await list({ limit: 1 })).toMatchObject({ ops: [{ opId: APPLIED }], more: true });
     expect(await list({ limit: 3 })).toMatchObject({ more: false });
+  });
+
+  it("reads the next page with before, across all three places", async () => {
+    const first = await list({ limit: 1 });
+    const second = await list({ limit: 1, before: first.ops[0]!.opId });
+    const third = await list({ limit: 1, before: second.ops[0]!.opId });
+    expect([first, second, third].map((page) => [page.ops.map((view) => view.opId), page.more])).toEqual([
+      [[APPLIED], true],
+      [[REFUSED], true],
+      [[QUEUED], false],
+    ]);
+    expect(await list({ limit: 50, before: QUEUED })).toEqual({ ops: [], more: false });
   });
 });
