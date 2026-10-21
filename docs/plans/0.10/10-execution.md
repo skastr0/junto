@@ -74,7 +74,9 @@ everyone else reports by mail and on the needs-you feed.
   tables, task numbers, `flows`, state remap. Tests for state machine, rules
   and flow graph.
 - C5 Automation model and runner on the editing machine, claim slots renamed,
-  loop limits, firing history. Seat-state rules from pty. Writes admitted
+  loop limits, firing history. Seat-state rules from pty. Admission: automation
+  writes only from the operator or an overseer; seats read those in reach;
+  `RESOURCE_KINDS` never gains automations (operator ruling, 07). Writes admitted
   only from the operator or an overseer (operator ruling, 07); seats read.
 - C6 With remote: 02 queued writes section.
 
@@ -98,7 +100,8 @@ everyone else reports by mail and on the needs-you feed.
   CLI-minted opId with `--op-id`.
 - L2 `junto task` (rename, per-verb schemas).
 - L3 `junto artifact`, sheet markdown projection.
-- L4 `junto automation`.
+- L4 `junto automation`: seats read (list, show, history); writes are closed
+  overseer ops replacing scheduler fire, status and configure.
 - L5 `junto browser` ported to the standard envelope, `--tab`, kept out of
   the machine build.
 - L6 Onboard output: order, `commands`, reach section, guidance line,
@@ -145,9 +148,13 @@ everyone else reports by mail and on the needs-you feed.
 | Region reach contract | canvas, 945dc0d1c; property tests by product-automation (200 seeded canvases); open: `atOrBelow` not transitive through a node in two overlapping regions, canvas's call | landed |
 | Resource command contract | remote, cc270e4a8; type tests by product-automation, 1f2bd19f3, no defects | landed |
 | 02 queued writes, final pass | remote, c56245482 | done |
-| remote R2 to R6 | remote-work, remote-send, remote-seats (R2); remote-cut (R3); remote-core (R4); remote-window (R5); remote-security (R6); doctrine remote-design 659e44833, 52717c3a1 | started |
+| remote R2 rows, cap, paging; R3 copy; R5; R6 | 95ed7b998, 3ee4ad729, a194abcc2, 1dd8fdddd, 41db5ad26, 77f7a7134, f65727f16, 2f4c8d022, a530ccc85; facts ride in ruling.applied 387564472 | landed; ruler and replica fold, R4, stub kind next |
+| remote R2 to R6 (history) | remote-work, remote-send, remote-seats (R2); remote-cut (R3); remote-core (R4); remote-window (R5); remote-security (R6); doctrine remote-design 659e44833, 52717c3a1 | started |
 | Machine build define `__JUNTO_MACHINE_BUILD__` | cli owns, remote-core asserts the bundle | requested |
-| Automation contract | canvas-automation, 731327ee0 | in review by canvas-lead |
+| Automation domain, tables, runner plan | canvas-automation 9acfdfb16, e8955635b, 20328f683, f929f8afc, 740d7d686; history keeps newest 1,000 (4c771668a); open defects: edit widening reach, edit re-enabling, reassigned reviewer's old approval | landed, defects under fix |
+| Automations are operator and overseer only | operator ruling; 01 and 07 (f1a30d748) | decided |
+| Automations UI | product-settings 9503999c1, 84c9ed808, 25f16ff54; not mounted until the node kind and IPC land | landed, unmounted |
+| Seat-state trigger rules (P5) | pty, f913ccad3, 37 tests | done |
 | Mention contract | product-feed, `mention.ts` fb267e17a | landed |
 | Thread subject and anchor contract | pty-mail, `thread-subject.ts` 74b442b98; tests by product-feed 1e4c91e0b | landed |
 | Visual language v1 | product-typography: ResourceChip, TaskStateMark, StampTally, TwoPane, pending rows; 8888746da to e167586b4; on the feed | landed |
@@ -158,15 +165,27 @@ everyone else reports by mail and on the needs-you feed.
 | Migration slots | canvas-model keeps the list; numbers go out as steps land | running |
 | Artifact contract | product-shell, 3d9c5facc, 28 tests; shared edit reducer `ruleArtifactEdit` for ruler and pending view | landed |
 | Task model contract | canvas, `task-model.ts` d540d3f61, 84897c9aa; reach review fixes 4fd64a703 | landed, ruler migrating |
-| Tasks UI: verb bar, reviewers | product-modals, ebbd76ae2, offers only what the ruler admits | landed, continuing |
+| Tasks UI | product-modals ebbd76ae2, 470b887f4, Tasks node c0830492a; old board stays until main serves tasks | landed, unswapped |
+| Task op wire, TaskView, machine on contract | canvas cd37581ef, 0b55944dd, 50e5d51ea, fa799aec3; numbers #42 293b8e7aa | landed |
+| Blocked mark on seat ring; C1 reach in admitPure; C2 factory cuts | canvas ba0efac29; 73bf05d6d, 50a67cd60, dab3240b8, c0eecdae4; 3f359eb4b, 0b0ffe50d, 5f82c5de5 | landed |
+| Deletions step | waits on canvas-nodes' pad and sheet batch and the scheduler cut; operator: drop the 4 orphan pads | slipping |
+| Artifacts node UI | product-shell 7687e6b27, ed478fd5e, dc920f3b0, 88638ec11; domain e17595829, e1f8be7e5 | landed on stand-in source |
+| Requests and board UI; chat toolbar; PromptComposer | product-attention 6ae0b773e, a11ae0f19, a1ee80d50 | deleted |
+| Browser contracts: tabs, driver, box | product-attention 6af40a961, 5b35a2a9f; box crop claim with remote-security | landed |
+| Mention swaps | product-keyboard f918f4aa0, 31ef5e60f; PadPinThread dies with the pad | done |
+| Typecheck toolchain | tsrs 0.18 cold 7 s, 1.0 GiB vs tsc 5.9 160 s, 3.0 GiB; tech-lead swapping, performance-lead measuring | started |
+| Long mail text over 64 KiB | product-feed composers attach as file | assigned |
 | MentionCombobox, availability hooks | product-keyboard, 8ea979958, b02bb6f06, 6b8de8cee, 30 tests; accessibility approved with fix f42fbf264; typography approved with 3 CSS changes | landed; replacing old copies next |
 | Hermes Providers card | product-settings, 11b9db75b | landed |
 | One id source lock | product-verify, `tests/item-id-one-source.test.ts` | passing, commits after the four contracts land |
 | cli L4 `junto automation` | cli-external, review cli-overseer | started |
-| cli L5 `junto browser` port | cli-overseer, review cli-external | started |
+| cli L5 `junto browser` port | 0b8a303cb, b7bce45d9, 207f77db0; out of the machine build; server --tab waits on tabs | landed, in review |
 | cli L6 onboard output | cli-skill, review cli-protocol | started |
 | 02 queued writes design | canvas, remote | written (da44a4919), remote final pass |
 | Verification split | product-automation: deletions, reach, queued writes; product-verify: cli and product surfaces | started |
 | Flag removal | product-releases, after each deletion's last consumer | waiting on first deletion |
-| pty P1 to P5 | pty | started |
+| pty P1 delete lease | 478ad7409 | done |
+| pty P2 Hermes main side | c6b87b36c (-6,258 lines); chat IPC types, preload and flag left | mostly done |
+| pty P3 seat since and onboard | 2420e2e80 to ec25735dd; L6 format with cli; onboard mailbox read cost unmeasured | done |
+| pty P4 subject threads | 74b442b98, dd4bdf621, d5c91f844, 0d14ddde6; mail-threads and control.ts drops next | started |
 | product, all seats | product | started |
