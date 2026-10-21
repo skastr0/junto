@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TASKS_ENABLED } from "../src/shared/features";
 import { asCanvasName, type Node, type NodeOf } from "../src/shared/model";
-import { pinRuling, setRegionContract, setRegionDefaults, setRegionEnvironment } from "../src/renderer/lib/mutations";
+import { setRegionContract, setRegionDefaults, setRegionEnvironment } from "../src/renderer/lib/mutations";
 import { modelStore } from "../src/renderer/lib/use-model";
 import { state$ } from "../src/renderer/lib/state";
 import { note, region } from "./support/model-nodes";
@@ -96,31 +96,10 @@ describe("region settings change their field alone", () => {
     expect(show).toHaveBeenCalledTimes(2);
   });
 
-  it("pinning appends one ruling, preserving rules, prior rulings and all other fields", () => {
-    const before = open() as NodeOf<"region">;
-    const show = vi.spyOn(modelStore, "show");
-    pinRuling("works", "  Keep the shared folder.  ", "request-1");
-    // A build that gates tasks off pins nothing.
-    if (!TASKS_ENABLED) {
-      expect(held()).toEqual(before);
-      expect(show).not.toHaveBeenCalled();
-      return;
-    }
-    const after = held() as NodeOf<"region">;
-    const ruling = after.contract!.rulings!.at(-1)!;
-    expect(ruling).toEqual({ id: expect.any(String), pinnedAt: expect.any(String), text: "Keep the shared folder.", sourceRequestId: "request-1" });
-    expect(Number.isNaN(Date.parse(ruling.pinnedAt))).toBe(false);
-    expect(after).toEqual({ ...before, contract: { ...before.contract, rulings: [...before.contract!.rulings!, ruling] } });
-    expect(show).toHaveBeenCalledExactlyOnceWith({ _tag: "Edit", canvas: name, id: before.id, change: { kind: "region", contract: after.contract } });
-    pinRuling("works", " "); pinRuling("missing", "Ignored");
-    expect(show).toHaveBeenCalledTimes(1);
-  });
-
-  it("contract and pin refuse other node kinds", () => {
+  it("a contract refuses other node kinds", () => {
     const before = open(note("works"));
     const show = vi.spyOn(modelStore, "show");
     setRegionContract("works", { rules: [{ id: "r2", text: "Ship." }] });
-    pinRuling("works", "Ignored");
     expect(held()).toEqual(before); expect(show).not.toHaveBeenCalled();
   });
 

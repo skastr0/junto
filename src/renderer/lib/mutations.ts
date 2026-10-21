@@ -3,11 +3,10 @@ import { stripEmptyRegionDefaults } from "@shared/region-defaults";
 import { batch, observe } from "@legendapp/state";
 import type { ActorRef } from "@shared/work-protocol";
 import { formatNodeRef } from "@shared/node-ref";
-import { ulid } from "ulid";
 import { TASKS_ENABLED } from "@shared/features";
 import { boardRemovalWarnings, removalPolicy, wireRemovalWarnings } from "./deletion-impact";
 import type { Color, Command, Node, NodeOf, RegionContract, RegionDefaults, RegionEnvironment } from "@shared/model";
-import type { Ruling, TasksContract } from "@shared/work-model";
+import type { TasksContract } from "@shared/work-model";
 import { authoring } from "./authoring";
 import type { Canvas } from "@shared/model/canvas";
 import { added, gitEdited, pageEdited, recolored, regionEdited, removed as nodesRemoved, renamed, retexted, taskBoardEdited } from "./model-edits";
@@ -713,21 +712,3 @@ export const setBoardSettings = (id: string, contract: TasksContract | undefined
   commitCommands((canvas) => taskBoardEdited(canvas, id, { contract: cleaned ?? null }));
 };
 
-/** Pin an answer as a ruling, preserving the region's rules and previous rulings. */
-export const pinRuling = (regionId: string, text: string, sourceRequestId?: string): void => {
-  const trimmed = text.trim();
-  if (!trimmed || !TASKS_ENABLED) return;
-  commitCommands((canvas) => {
-    const region = canvas.nodes.get(regionId as Node["id"]);
-    if (region?.kind !== "region") return [];
-    const ruling: Ruling = {
-      id: ulid(),
-      text: trimmed,
-      pinnedAt: new Date().toISOString(),
-      ...(sourceRequestId ? { sourceRequestId } : {}),
-    };
-    return regionEdited(canvas, regionId, {
-      contract: { ...region.contract, rulings: [...(region.contract?.rulings ?? []), ruling] },
-    });
-  });
-};
