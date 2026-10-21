@@ -435,10 +435,12 @@ phase, and attention/occupancy are separate planes.
   work plane through `WorkService`.
 - Board/source IDs and tokens never leak into committed source.
 - `bun run typecheck && bun run test` gate every change.
-- Type check with tsrs: `bun run typecheck` for the whole tree (incremental,
-  about 1 cpu-s warm), `./node_modules/.bin/tsrs --noEmit -p <config>` for a
-  scoped config. `tsc` is TypeScript 7, kept for parity (`typecheck:tsc`);
-  it costs about four times the CPU and three times the memory.
+- Type check often: after each batch of edits, not only before a commit.
+  `bun run typecheck` is tsrs over the whole tree, about 1 cpu-s warm and
+  6 cold, which is cheaper than a scoped `tsc` ever was, so check the whole
+  tree and write no scoped tsconfig. One run at a time per seat, never in a
+  loop or a watch. `tsc` is TypeScript 7, kept for parity
+  (`typecheck:tsc`): about four times the CPU and three times the memory.
 - Host-touching code follows Machine safety (above) — fail closed, capability-first.
 - Agent reach follows Canvas physics (above): region reach for resource nodes, edges for seats and pages, ports, and a live generation credential. Region is geography, not a security domain.
 
