@@ -8,6 +8,7 @@ import {
   AutomationEditCliArgs,
   AutomationHistoryArgs,
   AutomationListArgs,
+  AutomationVersion,
   DefinitionInput,
   OpId,
   TargetText,
@@ -20,12 +21,7 @@ import {
   type TargetResolver,
   type TargetWant,
 } from "../src/shared/automation-control";
-import {
-  AutomationId,
-  AutomationVersion,
-  POLL_FLOOR_MS,
-  type TriggerKind,
-} from "../src/shared/automation-standin";
+import { AutomationId, POLL_MIN_EVERY_MS, type TriggerKind } from "../src/shared/automation";
 import type { MentionRef } from "../src/shared/mention";
 import { asNodeId } from "../src/shared/physics/schema";
 import { ItemId } from "../src/shared/work-ids";
@@ -75,19 +71,21 @@ describe("automation input", () => {
   });
 
   it("refuses a poll faster than the floor, an empty then, and unknown fields", () => {
-    expect(refused(AutomationCreateCliArgs, { ...draft, trigger: { kind: "poll", everyMs: POLL_FLOOR_MS - 1 } })).toBe(true);
-    expect(refused(AutomationCreateCliArgs, { ...draft, trigger: { kind: "poll", everyMs: POLL_FLOOR_MS } })).toBe(false);
+    expect(refused(AutomationCreateCliArgs, { ...draft, trigger: { kind: "poll", everyMs: POLL_MIN_EVERY_MS - 1 } })).toBe(true);
+    expect(refused(AutomationCreateCliArgs, { ...draft, trigger: { kind: "poll", everyMs: POLL_MIN_EVERY_MS } })).toBe(false);
     expect(refused(AutomationCreateCliArgs, { ...draft, then: [] })).toBe(true);
     expect(refused(AutomationCreateCliArgs, { ...draft, host: "mini" })).toBe(true);
   });
 
   it("decodes a webhook trigger so main can refuse it by name", () => {
     const value = ok(AutomationCreateCliArgs, { ...draft, trigger: { kind: "webhook", endpointId: "gh" } });
-    expect(reservedTriggerRefusal(value.trigger)).toMatchObject({
+    const resolved = resolveTargets({ trigger: value.trigger }, resolver());
+    if (!resolved.ok || resolved.value.trigger === undefined) throw new Error("unresolved");
+    expect(reservedTriggerRefusal(resolved.value.trigger)).toMatchObject({
       type: "InputError",
       details: { reason: "not_available", path: "trigger.kind" },
     });
-    expect(reservedTriggerRefusal(ok(AutomationCreateCliArgs, draft).trigger)).toBeUndefined();
+    expect(reservedTriggerRefusal({ kind: "poll", everyMs: POLL_MIN_EVERY_MS })).toBeUndefined();
   });
 
   it("needs the ids the CLI mints on the wire, and never from a seat", () => {

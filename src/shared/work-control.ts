@@ -133,7 +133,16 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 /** Agent → sheet: read the operator's grid (port sheet.read). */
 "sheet.read",
 /** Agent → relay: fire the scheduler pipeline now (port relay.trigger). */
-"relay.trigger",]);
+"relay.trigger",
+/** Automations in reach (plan 07): no edge, no port; region reach admits. */
+"automation.list",
+"automation.show",
+"automation.create",
+"automation.edit",
+"automation.enable",
+"automation.disable",
+"automation.run",
+"automation.history",]);
 export type WorkOpName = typeof WorkOpName.Type;
 
 // ---------------------------------------------------------------------------

@@ -135,6 +135,14 @@ const WORK_OPERATION_CLASSIFICATION = {
   "pad.patch": "authorial",
   "sheet.read": "read",
   "relay.trigger": "authorial",
+  "automation.list": "read",
+  "automation.show": "read",
+  "automation.history": "read",
+  "automation.create": "authorial",
+  "automation.edit": "authorial",
+  "automation.enable": "authorial",
+  "automation.disable": "authorial",
+  "automation.run": "authorial",
 } as const satisfies Record<WorkOpName, MainAuthoringWorkClassification>;
 
 export const classifyMainAuthoringWorkOperation = (

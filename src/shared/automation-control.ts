@@ -8,23 +8,34 @@
  * thin socket client and never decides what a name means. Pure: effect only.
  */
 import { Schema } from "effect";
-import type { MentionRef } from "./mention";
-import type { NodeId } from "./physics/schema";
-import type { WorkErrorBody } from "./work-control";
-import { OpId } from "./work-ids";
 import {
   AutomationId,
   AutomationLimits,
-  AutomationVersion,
   automationShape,
+  triggerRefusal,
   type Action,
+  type Automation,
   type AutomationDefinition,
   type Condition,
   type Trigger,
   type Watch,
-} from "./automation-standin";
+} from "./automation";
+import type { MentionKind, MentionOf, MentionRef } from "./mention";
+import type { NodeId } from "./physics/schema";
+import type { WorkErrorBody, WorkOpName } from "./work-control";
+import { OpId } from "./work-ids";
 
 export { OpId };
+
+// ---------------------------------------------------------------------------
+// Versions
+
+/** The head an edit was written against; a stale one is refused `Stale`. */
+export const AutomationVersion = Schema.String.pipe(
+  Schema.check(Schema.isMinLength(1), Schema.isMaxLength(64)),
+  Schema.brand("AutomationVersion"),
+);
+export type AutomationVersion = typeof AutomationVersion.Type;
 
 // ---------------------------------------------------------------------------
 // Target text
@@ -46,7 +57,7 @@ export const NodeText = Schema.String.pipe(
 );
 export type NodeText = typeof NodeText.Type;
 
-const input = automationShape(TargetText, NodeText);
+const input = automationShape(TargetText, TargetText, NodeText);
 
 export const TriggerInput = input.Trigger;
 export type TriggerInput = typeof TriggerInput.Type;
@@ -58,12 +69,6 @@ export const ActionInput = input.Action;
 export type ActionInput = typeof ActionInput.Type;
 export const DefinitionInput = input.Definition;
 export type DefinitionInput = typeof DefinitionInput.Type;
-
-/** Applied when a create names none. */
-export const DEFAULT_AUTOMATION_LIMITS: AutomationLimits = {
-  minIntervalMs: 60_000,
-  maxPerHour: 12,
-};
 
 // ---------------------------------------------------------------------------
 // Verb inputs. `*CliArgs` is what a seat writes; the bare name is the wire,
@@ -178,6 +183,8 @@ export const AUTOMATION_OPS = [
   "automation.history",
 ] as const;
 export type AutomationOp = (typeof AUTOMATION_OPS)[number];
+// Every automation op is a work op the socket carries.
+AUTOMATION_OPS satisfies ReadonlyArray<WorkOpName>;
 
 export const AUTOMATION_WRITE_OPS = [
   "automation.create",
@@ -187,6 +194,9 @@ export const AUTOMATION_WRITE_OPS = [
   "automation.run",
 ] as const satisfies ReadonlyArray<AutomationOp>;
 export type AutomationWriteOp = (typeof AUTOMATION_WRITE_OPS)[number];
+
+export const isAutomationOp = (op: string): op is AutomationOp =>
+  (AUTOMATION_OPS as ReadonlyArray<string>).includes(op);
 
 export const isAutomationWriteOp = (op: string): op is AutomationWriteOp =>
   (AUTOMATION_WRITE_OPS as ReadonlyArray<string>).includes(op);
@@ -212,12 +222,30 @@ export type AutomationWriteResult =
 
 export type AutomationDisposition = AutomationWriteResult["disposition"];
 
+/** An automation as reads return it: the stored record and the version an edit names. */
+export type AutomationView = Automation & { readonly version: AutomationVersion };
+
+/** The fields an edit replaces, resolved. */
+export type AutomationEdit = Partial<Pick<AutomationDefinition, "name" | "trigger" | "when" | "then" | "limits">>;
+
+/**
+ * The automation domain's op on a `ResourceCommand` (02). The command's
+ * target names the Automations node and, but for a create's own, the item.
+ * Proposed for canvas's automation.ts, whose ruler rules it.
+ */
+export type AutomationCommandOp =
+  | { readonly kind: "create"; readonly definition: AutomationDefinition }
+  | { readonly kind: "edit"; readonly baseVersion: AutomationVersion; readonly change: AutomationEdit }
+  | { readonly kind: "enable" }
+  | { readonly kind: "disable" }
+  | { readonly kind: "run" };
+
 // ---------------------------------------------------------------------------
 // Pure steps main runs on a definition
 
 /** 0.10 builds no webhook relay; its trigger is reserved and refused (07). */
-export const reservedTriggerRefusal = (trigger: TriggerInput): WorkErrorBody | undefined =>
-  trigger.kind === "webhook"
+export const reservedTriggerRefusal = (trigger: Trigger): WorkErrorBody | undefined =>
+  triggerRefusal(trigger) === "not_available"
     ? {
         type: "InputError",
         message: "webhook triggers are designed for and not built in this Junto release",
@@ -239,6 +267,24 @@ export type TargetWant =
   | "page"
   /** A comment's subject: a task, an artifact or a page. */
   | "subject";
+
+/** The mention kinds each target position takes. */
+export const WANTED_KINDS = {
+  seat: ["seat"],
+  task: ["task"],
+  artifact: ["artifact"],
+  page: ["page"],
+  subject: ["task", "artifact", "page"],
+} as const satisfies { readonly [W in TargetWant]: ReadonlyArray<MentionKind> };
+
+export type Wanted<W extends TargetWant> = MentionOf<(typeof WANTED_KINDS)[W][number]>;
+
+/** The refusal for a target that resolved to the wrong kind of thing. */
+export const wrongKindRefusal = (text: string, want: TargetWant, got: string, path: string): WorkErrorBody => ({
+  type: "InputError",
+  message: `${text} names a ${got}; this field takes ${WANTED_KINDS[want].join(" or ")}`,
+  details: { path, expected: WANTED_KINDS[want], received: got, retryable: false },
+});
 
 export interface TargetResolver {
   /** Resolve target text to a mention of the wanted kind, or refuse. */
@@ -273,10 +319,13 @@ export const resolveTargets = (
   },
   resolver: TargetResolver,
 ): { readonly ok: true; readonly value: ResolvedParts } | { readonly ok: false; readonly error: WorkErrorBody } => {
-  const ref = (text: TargetText, want: TargetWant, path: string): MentionRef => {
+  const ref = <W extends TargetWant>(text: TargetText, want: W, path: string): Wanted<W> => {
     const out = resolver.ref(text, want, path);
     if (isRefusal(out)) throw new Refused(out);
-    return out;
+    if (!(WANTED_KINDS[want] as ReadonlyArray<MentionKind>).includes(out.kind)) {
+      throw new Refused(wrongKindRefusal(text, want, out.kind, path));
+    }
+    return out as Wanted<W>;
   };
   const node = (text: NodeText, path: string): NodeId => {
     const out = resolver.node(text, path);
@@ -284,17 +333,24 @@ export const resolveTargets = (
     return out;
   };
 
+  const taskOf = (task: TargetText | { readonly node: NodeText }, at: string) =>
+    typeof task === "string" ? ref(task, "task", `${at}.task`) : { node: node(task.node, `${at}.task.node`) };
+
+  const condition = (c: ConditionInput, at: string): Condition => {
+    switch (c.kind) {
+      case "seat":
+        return { ...c, seat: ref(c.seat, "seat", `${at}.seat`) };
+      case "task":
+        return { ...c, task: taskOf(c.task, at) };
+    }
+  };
+
   const watch = (w: WatchInput, at: string): Watch => {
     switch (w.kind) {
       case "seat":
         return { ...w, seat: ref(w.seat, "seat", `${at}.seat`) };
       case "task":
-        return {
-          ...w,
-          task: typeof w.task === "string"
-            ? ref(w.task, "task", `${at}.task`)
-            : { node: node(w.task.node, `${at}.task.node`) },
-        };
+        return { ...w, task: taskOf(w.task, at) };
       case "artifact":
         return { ...w, artifact: ref(w.artifact, "artifact", `${at}.artifact`) };
       case "signal": {
@@ -330,7 +386,7 @@ export const resolveTargets = (
         ...(parts.trigger === undefined ? {} : { trigger: trigger(parts.trigger) }),
         ...(parts.when === undefined
           ? {}
-          : { when: parts.when.map((c, i) => ({ ...watch(c, `when[${i}]`), holds: true as const }) as Condition) }),
+          : { when: parts.when.map((c, i) => condition(c, `when[${i}]`)) }),
         ...(parts.then === undefined ? {} : { then: parts.then.map((a, i) => action(a, `then[${i}]`)) }),
       },
     };

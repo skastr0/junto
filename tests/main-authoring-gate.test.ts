@@ -202,6 +202,14 @@ describe("work-control main authoring classification", () => {
       "sheet.read": "read",
       "pad.patch": "authorial",
       "relay.trigger": "authorial",
+      "automation.list": "read",
+      "automation.show": "read",
+      "automation.history": "read",
+      "automation.create": "authorial",
+      "automation.edit": "authorial",
+      "automation.enable": "authorial",
+      "automation.disable": "authorial",
+      "automation.run": "authorial",
     } as const satisfies Record<
       WorkOpName,
       ReturnType<typeof classifyMainAuthoringWorkOperation>

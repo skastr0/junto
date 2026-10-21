@@ -152,6 +152,8 @@ import {
 import { contentObjectPath } from "../content/paths";
 import { ContentStoreError } from "../content/store";
 import { WorkService, type WorkOpResult } from "./service";
+import { AUTOMATION_WRITE_OPS, isAutomationOp } from "@shared/automation-control";
+import { handleAutomationOp, liveAutomationPorts } from "./automation-control";
 import { liveSeatObservation } from "./seat-observation-live";
 import { messageDelivery } from "./message-delivery";
 import { readMailExtension } from "@shared/crew";
@@ -215,6 +217,7 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
   "board.mark_read",
   "pad.patch",
   "relay.trigger",
+  ...AUTOMATION_WRITE_OPS,
   // Agent signals stay open while paused: raising a hand to the operator is
   // not a factory act, and a paused seat may need to say it is stuck.
 ]);
@@ -2354,6 +2357,16 @@ const dispatchOp = (
 
     if (op === "content.stage") {
       return yield* handleContentStage({ canvasName: caller.canvasName, nodeId: caller.nodeId }, args);
+    }
+
+    if (isAutomationOp(op)) {
+      const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
+      if (Result.isFailure(actor)) return yield* Effect.fail(actor.failure);
+      return yield* handleAutomationOp(op, args, {
+        canvas: board,
+        canvasName: caller.canvasName,
+        actor: { kind: "seat", seatId: actor.success.seatId, nodeId: asNodeId(caller.nodeId) },
+      }, liveAutomationPorts);
     }
 
     if (op === "references.list" || op === "references.read") {

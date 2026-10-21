@@ -355,6 +355,16 @@ export const requiresConnection = (op: WorkOpName | "overseer"): boolean => {
     // A seat stages only its own files; a stage id answers to its seat alone.
     case "content.stage":
       return false;
+    // Automations are reached through regions, not edges (plan 01).
+    case "automation.list":
+    case "automation.show":
+    case "automation.create":
+    case "automation.edit":
+    case "automation.enable":
+    case "automation.disable":
+    case "automation.run":
+    case "automation.history":
+      return false;
     case "tasks.list":
     case "tasks.wait":
     case "tasks.create":
