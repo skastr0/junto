@@ -66,6 +66,7 @@ export type ShortcutArea =
   | "Inside the needs-you feed"
   | "Inside a preview"
   | "Inside the drawing pad"
+  | "Inside a page"
   | "Writing a message";
 
 export const SHORTCUT_AREAS: ReadonlyArray<ShortcutArea> = [
@@ -77,6 +78,7 @@ export const SHORTCUT_AREAS: ReadonlyArray<ShortcutArea> = [
   "Inside the needs-you feed",
   "Inside a preview",
   "Inside the drawing pad",
+  "Inside a page",
   "Writing a message",
 ];
 
@@ -105,6 +107,8 @@ export type ShortcutId =
   | "front.close"
   | "rail.toggle"
   | "canvas.open"
+  | "page.address"
+  | "page.reload"
   | SurfaceKeyId;
 
 /**
@@ -408,6 +412,26 @@ const SHORTCUTS: ReadonlyArray<ShortcutDef> = [
     // Ctrl+W deletes a word in the shell.
     other: [],
     where: OVER_DIALOGS,
+  },
+  // A page in front: its chrome or the page itself has the keyboard. The page
+  // view's keys never reach this document, so these also ride the menu bar.
+  {
+    id: "page.address",
+    area: "Inside a page",
+    name: "Go to the address bar",
+    does: "Put the keyboard in the page's address bar, its address selected",
+    mac: ["Cmd+L"],
+    other: ["Ctrl+L"],
+    where: ["working", "field"],
+  },
+  {
+    id: "page.reload",
+    area: "Inside a page",
+    name: "Reload the page",
+    does: "Load the page in front again",
+    mac: ["Cmd+R"],
+    other: ["Ctrl+R"],
+    where: ["working", "field"],
   },
 ];
 

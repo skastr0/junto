@@ -29,6 +29,8 @@ describe("the app menu", () => {
       "Cmd+=",
       "Cmd+-",
       "Cmd+0",
+      "Cmd+L",
+      "Cmd+R",
       "Cmd+`",
       "Cmd+Shift+`",
       "Cmd+W",
@@ -47,6 +49,13 @@ describe("the app menu", () => {
     const roles = items(build(false)).map((item) => item.role);
     expect(roles).toContain("reload");
     expect(roles).toContain("toggleDevTools");
+  });
+
+  it("gives Cmd+R to the page in front, the development reload taking Cmd+Shift+R", () => {
+    const all = items(build(false));
+    expect(all.find((item) => item.role === "reload")!.accelerator).toBe("CmdOrCtrl+Shift+R");
+    expect(all.find((item) => item.label === "Reload Page")!.accelerator).toBe("Cmd+R");
+    expect(all.find((item) => item.label === "Go to Address Bar")!.accelerator).toBe("Cmd+L");
   });
 
   it("hands a table item's chord to the page instead of acting on it", () => {

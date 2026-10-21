@@ -34,6 +34,13 @@ const VIEW_ITEMS: ReadonlyArray<TableItem> = [
   { id: "canvas.zoomReset", label: "Canvas at 100 Percent" },
 ];
 
+// A page's view keeps its keys from the app's document, so the page chrome's
+// chords are claimed here and handed back as keydowns.
+const PAGE_ITEMS: ReadonlyArray<TableItem> = [
+  { id: "page.address", label: "Go to Address Bar" },
+  { id: "page.reload", label: "Reload Page" },
+];
+
 const AGENT_ITEMS: ReadonlyArray<TableItem> = [
   { id: "urgency.next", label: "Next Agent" },
   { id: "urgency.previous", label: "Previous Agent" },
@@ -98,7 +105,12 @@ export const appMenuTemplate = (input: AppMenuInput): MenuItemConstructorOptions
       label: "View",
       submenu: [
         ...fromTable(VIEW_ITEMS),
-        ...(input.packaged ? [] : [separator, { role: "reload" as const }, { role: "toggleDevTools" as const }]),
+        separator,
+        ...fromTable(PAGE_ITEMS),
+        // Cmd+R is the page's reload; the app's own moves to Cmd+Shift+R.
+        ...(input.packaged
+          ? []
+          : [separator, { role: "reload" as const, accelerator: "CmdOrCtrl+Shift+R" }, { role: "toggleDevTools" as const }]),
       ],
     },
     { label: "Agents", submenu: fromTable(AGENT_ITEMS) },

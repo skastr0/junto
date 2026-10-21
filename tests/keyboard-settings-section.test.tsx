@@ -87,6 +87,7 @@ describe("keyboard shortcuts section", () => {
       "Inside the needs-you feed",
       "Inside a preview",
       "Inside the drawing pad",
+      "Inside a page",
       "Writing a message",
     ]);
     expect(host.textContent).not.toContain(String.fromCharCode(0xb7));

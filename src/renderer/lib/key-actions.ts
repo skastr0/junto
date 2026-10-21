@@ -17,6 +17,7 @@ import { toggleSeatGitDetail } from "./git-summary";
 import type { KeyActions } from "./key-dispatcher";
 import { redo, undo } from "./mutations";
 import { openOperatorModal, toggleOperatorModal, type OperatorModalId } from "./operator-modal";
+import { runPageChromeKey } from "./page-chrome-keys";
 import { state$ } from "./state";
 import { spacePressesControl, stepToNextAgent } from "./urgency-step";
 import { modelStore, nodeAt } from "./use-model";
@@ -101,6 +102,9 @@ export const KEY_ACTIONS: KeyActions = {
   "front.close": () => {
     closeFront();
   },
+  // Taken only while a page's chrome shows.
+  "page.address": () => runPageChromeKey("address"),
+  "page.reload": () => runPageChromeKey("reload"),
   // The key is taken only when a swap happened.
   "mirrors.next": () => cycleActorMirror(1),
   "mirrors.previous": () => cycleActorMirror(-1),
