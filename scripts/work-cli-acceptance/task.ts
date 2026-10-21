@@ -55,6 +55,8 @@ export const taskArea: AcceptanceArea = {
     const linked = await step("task comment link", ["task", "comment", ref, `[@peer](junto://canvas/${canvas}?node=peer) please look at the link`]);
     const atName = await step("task comment @name", ["task", "comment", ref, "@peer please look at the name"]);
     const outOfReach = await step("task comment out of reach", ["task", "comment", ref, `[@outsider](junto://canvas/${canvas}?node=outsider) look`]);
+    // By name, a seat out of reach is no seat this comment can mention (cli-protocol, a50a1a912).
+    const nameOutOfReach = await step("task comment @name out of reach", ["task", "comment", ref, "@outsider look"]);
 
     const workerMail = await inboxOf(cli, worker);
     log("worker inbox", workerMail.listed.stdout || workerMail.listed.stderr);
@@ -66,6 +68,7 @@ export const taskArea: AcceptanceArea = {
       items.some((item) => item.metadata?.threadId === made?.taskId && item.metadata?.subjectNotice === notice && textOf(item).includes(words));
     const outsiderShow = await step("task show out of reach", ["task", "show", ref], outsider);
     const refused = envelopeOf(outOfReach.result);
+    const nameRefused = envelopeOf(nameOutOfReach.result);
 
     return [
       check("create", created.code === 0 && made?.disposition === "applied" && made?.state === "backlog" && typeof made?.taskId === "string", created),
@@ -83,6 +86,11 @@ export const taskArea: AcceptanceArea = {
         ? pass("@name mention reaches the seat")
         : pending("@name mention reaches the seat", "cli-protocol"),
       check("mention out of reach refused", refused?.ok === false && refused.error?.type === "ScopeError" && refused.error?.details?.reason === "not_in_reach", outOfReach.result),
+      check(
+        "@name out of reach is unknown",
+        nameRefused?.ok === false && nameRefused.error?.type === "UnknownTarget" && nameRefused.error?.details?.path === "text" && nameRefused.error?.details?.target === "@outsider",
+        nameOutOfReach.result,
+      ),
       // Out of reach, the task is not there to name (task-control.ts findTask).
       check(`task in ${nodes.region} is unknown from ${nodes.elsewhere}`, envelopeOf(outsiderShow.result)?.error?.type === "UnknownTarget", outsiderShow.result),
     ];
