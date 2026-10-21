@@ -18,10 +18,14 @@
  */
 import { nextCronOccurrenceIn } from "@shared/cron-expression";
 import type { NodeId } from "@shared/physics/schema";
+import type { TaskState } from "@shared/task-model";
+import type { ItemId } from "@shared/work-ids";
 import {
+  type ArtifactEvent,
   type Automation,
   type FiringCause,
   limitSkip,
+  type SeatBecomes,
   type SkipReason,
   type Trigger,
   triggerRefusal,
@@ -131,4 +135,56 @@ export const signalWatchMatches = (
 ): boolean => {
   if (watch.signal !== raised.signal) return false;
   return watch.from === undefined ? targets.has(raised.seat) : watch.from.nodeId === raised.seat;
+};
+
+/**
+ * Something that happened, as a change trigger hears it. `key` dedupes one
+ * transition: seat and epoch for a seat (pty's SeatStateFiring key), the fact
+ * id otherwise. `byAutomation` marks a fact an automation's own action wrote:
+ * it never triggers an automation (loop safety, 07).
+ */
+export type ChangeEvent =
+  | { readonly kind: "seat"; readonly key: string; readonly seat: NodeId; readonly becomes: SeatBecomes }
+  | {
+      readonly kind: "task";
+      readonly key: string;
+      readonly nodeId: NodeId;
+      readonly taskId: ItemId;
+      readonly becomes: TaskState;
+      readonly byAutomation: boolean;
+    }
+  | {
+      readonly kind: "artifact";
+      readonly key: string;
+      readonly nodeId: NodeId;
+      readonly artifactId: ItemId;
+      readonly event: ArtifactEvent;
+      readonly byAutomation: boolean;
+    }
+  | { readonly kind: "signal"; readonly key: string; readonly seat: NodeId; readonly signal: WatchedSignal };
+
+/** Whether a change fires a watch. `targets` are the automation's targets now. */
+export const changeMatches = (watch: Watch, event: ChangeEvent, targets: ReadonlySet<NodeId>): boolean => {
+  switch (watch.kind) {
+    case "seat":
+      return event.kind === "seat" && watch.seat.nodeId === event.seat && watch.becomes === event.becomes;
+    case "task": {
+      if (event.kind !== "task" || event.byAutomation || watch.becomes !== event.becomes) return false;
+      if (!("kind" in watch.task)) return watch.task.node === event.nodeId;
+      return watch.task.kind === "task" && watch.task.nodeId === event.nodeId && watch.task.taskId === event.taskId;
+    }
+    case "artifact":
+      return (
+        event.kind === "artifact" &&
+        !event.byAutomation &&
+        watch.event === event.event &&
+        watch.artifact.kind === "artifact" &&
+        watch.artifact.nodeId === event.nodeId &&
+        watch.artifact.artifactId === event.artifactId
+      );
+    case "signal":
+      return event.kind === "signal" && signalWatchMatches(watch, event, targets);
+    default:
+      return watch satisfies never;
+  }
 };
