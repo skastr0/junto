@@ -85,7 +85,7 @@ Say so with \`junto blocked "<what you need>"\`${TASKS_ENABLED ? ", and set the 
 const ARTIFACTS_SECTION = ARTIFACTS_ENABLED
   ? `### Artifacts never block
 
-Publishing artifacts is non-blocking product delivery. Ship intermediate and final outputs freely; they do not stop other seats.`
+Creating and editing artifacts is non-blocking product delivery. Ship intermediate and final outputs freely; they do not stop other seats.`
   : "";
 
 /** The loop step that says where work comes from: the board, or people. */

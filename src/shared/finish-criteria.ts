@@ -132,7 +132,7 @@ export const evaluateFinishCriteria = (params: {
         missing: "artifacts",
         message: `task "${params.task.id}" requires at least one completion artifact on node "${requiredNodeId}"`,
         next_step:
-          "Publish artifact(s) to the artifacts node with task linkage, then complete with completionEvidence.artifacts",
+          "Create the artifact on that node with junto artifact create --task <task id>, then cite it with junto task finish --artifact <node id>/<artifactId>",
       };
     }
     for (const ref of cited) {
@@ -149,7 +149,7 @@ export const evaluateFinishCriteria = (params: {
         return {
           missing: "artifacts.exist",
           message: `completion artifact "${ref.artifactId}" not found on node "${ref.nodeId}"`,
-          next_step: "Publish the artifact before completing, or fix the evidence ids",
+          next_step: "Create the artifact with junto artifact create before finishing, or fix the evidence ids",
         };
       }
       const link = found.task;
@@ -163,7 +163,7 @@ export const evaluateFinishCriteria = (params: {
           missing: "artifacts.taskLink",
           message: `artifact "${ref.artifactId}" is not linked to task "${params.task.id}"`,
           next_step:
-            "Re-publish (or publish) with task: { target: <task-sink>, id: <task-id> }",
+            "Create the artifact with junto artifact create --task <task id> and cite that one",
         };
       }
     }
@@ -182,7 +182,7 @@ export const evaluateFinishCriteria = (params: {
           return {
             missing: "artifacts.names",
             message: `required artifact name "${required}" is not present in completion evidence`,
-            next_step: `Publish an artifact named exactly "${required}" linked to this task and cite it`,
+            next_step: `Create an artifact titled exactly "${required}" with junto artifact create --task <task id> and cite it`,
           };
         }
       }

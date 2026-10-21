@@ -74,5 +74,5 @@ export const artifactDeletionWarning = (params: {
   ) {
     return null;
   }
-  return `This artifact can provide completion evidence for unfinished task “${taskDisplayTitle(task)}”. Deleting it may require publishing and citing a replacement.`;
+  return `This artifact can provide completion evidence for unfinished task “${taskDisplayTitle(task)}”. Deleting it may require creating and citing a replacement.`;
 };
