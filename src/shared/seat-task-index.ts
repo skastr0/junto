@@ -25,7 +25,7 @@ export type SeatTask = {
   readonly node: TaskNodeId;
   /** The seat waits on someone else: paused for input (`blocksAssignee`). */
   readonly blocked: boolean;
-  /** Epoch ms when the current state began. Absent until the task domain carries `stateSince`. */
+  /** Epoch ms when the current state began (`TaskView.stateSince`): how long the seat has been in it. */
   readonly since?: number;
 };
 
@@ -42,6 +42,7 @@ export const buildSeatTaskIndex = (views: ReadonlyArray<TaskView>): Record<strin
       state,
       node: view.current.node,
       blocked: blocksAssignee(state),
+      since: view.stateSince,
     };
   }
   return index;

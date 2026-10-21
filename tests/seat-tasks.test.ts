@@ -44,6 +44,24 @@ describe("seat task index", () => {
     expect(index[bo]).toMatchObject({ label: "#2", title: "beta", state: "input-required", blocked: true });
   });
 
+  it("carries when the current state began, kept by a write that leaves the state as it is", async () => {
+    let clock = 1_000;
+    const s = makeLocalTasksSource(
+      { downstream: () => [], stampDefaultOf: () => ({ required: 0 }), seatReaches: () => true },
+      { kind: "operator" },
+      () => clock,
+    );
+    const a = await make(s, "alpha");
+    clock = 2_000;
+    await s.apply(CANVAS, build, a, { kind: "assign", seat: ada });
+    clock = 3_000;
+    await s.apply(CANVAS, build, a, { kind: "reviewer-add", reviewer: { kind: "seat", seat: bo } });
+    expect(buildSeatTaskIndex(await s.all(CANVAS))[ada]).toMatchObject({ state: "assigned", since: 2_000 });
+    clock = 4_000;
+    await s.as({ kind: "seat", seat: ada }).apply(CANVAS, build, a, { kind: "start" });
+    expect(buildSeatTaskIndex(await s.all(CANVAS))[ada]).toMatchObject({ state: "working", since: 4_000 });
+  });
+
   it("leaves out an unassigned task and one that is no longer open", async () => {
     const s = source();
     const a = await make(s, "alpha");
