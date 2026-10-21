@@ -278,12 +278,16 @@ export const taskSchemas: ReadonlyArray<CommandSchemaContract> = VERBS.map((verb
   input_modes: ["argv"],
 }));
 
-const example = (verb: Verb, name: string, description: string, args: ReadonlyArray<string>, input: unknown): CommandExample => ({
+const OP = "01M5ESM1XHCJ7JYJDBC37MREBZ";
+const ID = "01M5ESMQ2ZT55QZ073EWPH10SG";
+
+/** The args as sent: a write carries the opId the CLI minted, and create the task's id too. */
+const example = (verb: Verb, name: string, description: string, args: ReadonlyArray<string>, input: object): CommandExample => ({
   command_id: opOf(verb),
   command: commandOf(verb),
   name,
   description,
-  input,
+  input: isTaskWriteOp(opOf(verb)) ? { opId: OP, ...(verb === "create" ? { taskId: ID } : {}), ...input } : input,
   args: [...commandOf(verb).split(" "), ...args],
 });
 
