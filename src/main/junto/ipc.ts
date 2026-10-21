@@ -126,7 +126,6 @@ import {
 } from "./signals/operator";
 import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
 import { WorkRepository } from "./work/repository";
-import { TaskRepository } from "./work/task-repository";
 import { CrewRepository } from "./work/crew-repository";
 import { makeCheckoutWatchComposition } from "./work/checkout-watch-composition";
 import type { CheckoutWatchSupervisor } from "./work/checkout-watch-live";
@@ -1407,7 +1406,6 @@ export const registerJuntoIpc = (): void => {
         host: termPlane.host,
         crew,
         workRepository,
-        tasks: yield* TaskRepository,
         messageDelivery,
         basisFor: canvasReceiptBasis,
         run: (effect) => AppRuntime.runPromise(effect),
