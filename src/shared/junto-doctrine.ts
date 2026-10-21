@@ -307,8 +307,6 @@ const referenceFor = (group: CommandGroup): string => {
       return REVIEWS_REFERENCE;
     case "artifacts":
       return ARTIFACTS_REFERENCE;
-    case "board":
-      return COMMAND_FAMILIES.board.note;
     case "browser":
       return BROWSER_REFERENCE;
   }
