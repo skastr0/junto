@@ -123,8 +123,13 @@ const dueAt = (pending: Pending): number =>
  * was idle all along. The cost: a hold or a gone grace running at the restart
  * settles silently and never fires.
  */
-export const seedSeatTriggers = (latest: Iterable<AgentSeatStateEvent>, now: number): SeatTriggers => {
-  const seats = new Map<SeatKey, SeatTrack>();
+export const seedSeatTriggers = (
+  latest: Iterable<AgentSeatStateEvent>,
+  now: number,
+  /** Seats already followed; a seeded seat replaces its track. */
+  base: SeatTriggers = emptySeatTriggers,
+): SeatTriggers => {
+  const seats = new Map(base.seats);
   for (const event of latest) {
     const seat = seatKeyOf(event.bindingId);
     if (Option.isNone(seat)) continue;
@@ -135,7 +140,7 @@ export const seedSeatTriggers = (latest: Iterable<AgentSeatStateEvent>, now: num
       retired: [],
     });
   }
-  return { seats, clock: now };
+  return { seats, clock: Math.max(base.clock, now) };
 };
 
 /** Settle every hold and grace due by `now`, oldest first. */
