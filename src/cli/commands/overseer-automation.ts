@@ -30,18 +30,15 @@ export const AUTOMATION_WRITE_CLI_SCHEMAS: { readonly [Op in AutomationWriteOp]:
   "automation.run": AutomationOneCliArgs,
 };
 
-/** Until canvas C5 and remote R2 land the store and the ruler, every write is refused. */
-const NOT_YET = ". Until the automation store and ruler ship, every write is refused not_available";
-
 export const AUTOMATION_WRITE_DESCRIPTIONS: { readonly [Op in AutomationWriteOp]: string } = {
   "automation.create":
-    "Create an automation on an Automations node: a schedule, poll or change trigger, conditions in when, and actions in then. It is created off unless enabled is true. Targets are @name, #<task number> or a junto:// link, at or below the node and in your reach" + NOT_YET,
+    "Create an automation on an Automations node: a schedule, poll or change trigger, conditions in when, and actions in then. It is created off unless enabled is true. Targets are @name, #<task number> or a junto:// link, at or below the node and in your reach",
   "automation.edit":
-    "Change an automation. Each field in change replaces the stored one; when: [] clears the conditions. baseVersion is the version show printed; a stale one is refused" + NOT_YET,
-  "automation.enable": "Turn an automation on" + NOT_YET,
-  "automation.disable": "Turn an automation off. Its history stays" + NOT_YET,
-  "automation.archive": "Archive an automation: it never fires again, and its history stays readable" + NOT_YET,
-  "automation.run": "Fire an automation now, as its trigger would: its conditions are checked and its limits apply" + NOT_YET,
+    "Change an automation. Each field in change replaces the stored one; when: [] clears the conditions. baseVersion is the version show printed; a stale one is refused",
+  "automation.enable": "Turn an automation on",
+  "automation.disable": "Turn an automation off. Its history stays",
+  "automation.archive": "Archive an automation: it never fires again, and its history stays readable",
+  "automation.run": "Fire an automation now, as its trigger would: its conditions are checked and its limits apply",
 };
 
 /** The wire args of one write: the input as given, with the ids filled in. */

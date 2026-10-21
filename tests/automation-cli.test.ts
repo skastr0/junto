@@ -30,6 +30,14 @@ describe("junto automation discovery", () => {
     for (const contract of automationSchemas) expect(renderSchemaContract(contract).input_modes).toEqual(["inline-json", "@file", "stdin"]);
   });
 
+  it("describes the writes as they behave: ruled on the editing machine, never queued", () => {
+    const writes = overseerSchemas.filter((s) => s.command_id.startsWith("overseer.automation."));
+    for (const { command_id, description } of [...writes, ...commandCapabilities.filter((c) => c.command_id.startsWith("automation."))]) {
+      expect(description, command_id).not.toMatch(/queued|until .* ships?|answers empty/i);
+    }
+    for (const { command_id, description } of writes) expect(description, command_id).toContain("refused not_available");
+  });
+
   it("has examples that decode under their own schema", () => {
     const writes = overseerExamples.filter((example) => example.command_id.startsWith("overseer.automation."));
     expect(writes.length).toBeGreaterThan(0);

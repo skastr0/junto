@@ -638,7 +638,7 @@ export const overseerSchemas: ReadonlyArray<CommandSchemaContract> = OVERSEER_CA
     command: commandNameFor(entry),
     schema_id: `overseer.${entry.operation}.input/v1`,
     description: isAutomationWriteOp(entry.operation)
-      ? `${AUTOMATION_WRITE_DESCRIPTIONS[entry.operation]}. Overseer; edges not required. Returns applied with the new version, or queued with the opId while the editing machine is away.`
+      ? `${AUTOMATION_WRITE_DESCRIPTIONS[entry.operation]}. Overseer; edges not required. Ruled on the machine that edits the canvas, and returns applied with the new version; on any other machine it is refused not_available, naming that machine.`
       : `${describeEntry(entry)}. Overseer; edges not required.`,
     // `secret put` documents what the command takes, which is not what the
     // wire carries: the value never is an argument.
