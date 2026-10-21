@@ -1,0 +1,90 @@
+/**
+ * `junto op show` and `junto op list` (plan 02, "Refusal and rollback"): what
+ * became of a resource write, read by its opId. A write is queued until the
+ * editing machine rules it, then applied or refused for good; a repeated
+ * opId reads the first ruling.
+ */
+import { Result, Schema } from "effect";
+import { WorkErrorBody } from "./work-control";
+import { OpId } from "./work-ids";
+
+const strict = { parseOptions: { onExcessProperty: "error" as const } };
+
+export const OP_LIST_MAX = 200;
+
+export const OpShowArgs = Schema.Struct({ opId: OpId }).annotate(strict);
+export type OpShowArgs = typeof OpShowArgs.Type;
+
+export const OpListState = Schema.Literals(["queued", "refused"]);
+export type OpListState = typeof OpListState.Type;
+
+export const OpListArgs = Schema.Struct({
+  state: Schema.optionalKey(OpListState),
+  limit: Schema.optionalKey(Schema.Int.pipe(Schema.check(Schema.isBetween({ minimum: 1, maximum: OP_LIST_MAX })))),
+}).annotate(strict);
+export type OpListArgs = typeof OpListArgs.Type;
+
+/**
+ * One write as `op show` prints it. `made` is the domain's record of what an
+ * applied write made (a task's id, an artifact's id and version); `root` is
+ * the opId whose refusal refused this one, itself when it was refused on its
+ * own merits.
+ */
+export type OpView =
+  | { readonly state: "queued"; readonly opId: OpId }
+  | { readonly state: "applied"; readonly opId: OpId; readonly made: Readonly<Record<string, unknown>> }
+  | { readonly state: "refused"; readonly opId: OpId; readonly error: WorkErrorBody; readonly root: OpId };
+
+export type OpState = OpView["state"];
+
+export type OpListResult = {
+  readonly ops: ReadonlyArray<OpView>;
+  /** True when more matched than `limit`. */
+  readonly more: boolean;
+};
+
+/** A row of `resource_rulings`, as every domain writes it. */
+export type StoredRulingRow = { readonly kind: string; readonly rulingJson: string };
+
+const StoredApplied = Schema.StructWithRest(Schema.Struct({ kind: Schema.Literal("applied") }), [
+  Schema.Record(Schema.String, Schema.Unknown),
+]);
+const StoredRefused = Schema.Struct({ kind: Schema.Literal("refused"), error: WorkErrorBody, root: OpId });
+
+/**
+ * The view of one write from its ruling, or from its queued row when it has
+ * none yet. Undefined when neither exists here. A ruling that does not decode
+ * fails: it is this machine's own record, so a bad one is a defect to report,
+ * never a state to guess.
+ */
+export const opViewOf = (
+  opId: OpId,
+  ruling: StoredRulingRow | undefined,
+  queued: boolean,
+): Result.Result<OpView | undefined, string> => {
+  if (ruling === undefined) return Result.succeed(queued ? { state: "queued", opId } : undefined);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(ruling.rulingJson);
+  } catch {
+    return Result.fail(`the ruling of ${opId} is not JSON`);
+  }
+  if (ruling.kind === "applied") {
+    const applied = Schema.decodeUnknownResult(StoredApplied)(parsed);
+    if (Result.isFailure(applied)) return Result.fail(`the ruling of ${opId} does not read as applied`);
+    const { kind: _kind, ...made } = applied.success;
+    return Result.succeed({ state: "applied", opId, made });
+  }
+  const refused = Schema.decodeUnknownResult(StoredRefused)(parsed);
+  if (ruling.kind !== "refused" || Result.isFailure(refused)) {
+    return Result.fail(`the ruling of ${opId} does not read as applied or refused`);
+  }
+  return Result.succeed({ state: "refused", opId, error: refused.success.error, root: refused.success.root });
+};
+
+/** No write with this opId was made here: unknown, never queued. */
+export const unknownOpError = (opId: OpId): WorkErrorBody => ({
+  type: "UnknownTarget",
+  message: `no write of this seat has opId ${opId}`,
+  details: { opId, retryable: false, next_step: "junto op list shows this seat's writes and their opIds" },
+});
