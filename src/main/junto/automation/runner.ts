@@ -33,7 +33,7 @@ import {
 } from "@shared/automation";
 import type { NodeId } from "@shared/physics/schema";
 import { automationTargets, type ReachCanvas } from "@shared/region-reach";
-import { type ChangeEvent, changeMatches, decide, dueSlot } from "./plan";
+import { type ChangeEvent, changeMatches, decide, dueSlot, nextSlot } from "./plan";
 import { type AutomationPersistenceError, AutomationRepository } from "./repository";
 
 const HOUR_MS = 60 * 60_000;
@@ -73,6 +73,18 @@ export type AutomationRunner = {
 };
 
 export const makeAutomationRunner = (ports: RunnerPorts): AutomationRunner => {
+  // The next slot per (automation, version, cursor). A sparse cron walks up
+  // to two years of minutes to find it, so it is found once, not every tick.
+  const nextSlots = new Map<string, number | undefined>();
+  const cachedNextSlot = (automation: Automation, trigger: Parameters<typeof nextSlot>[0], cursor: number) => {
+    const key = `${automation.automationId}:${automation.version}:${cursor}`;
+    if (!nextSlots.has(key)) {
+      for (const stale of nextSlots.keys()) if (stale.startsWith(`${automation.automationId}:`)) nextSlots.delete(stale);
+      nextSlots.set(key, nextSlot(trigger, cursor));
+    }
+    return nextSlots.get(key);
+  };
+
   const targetsOf = (canvasName: string, automation: Automation): ReadonlySet<NodeId> => {
     const canvas = ports.canvas(canvasName);
     if (canvas === undefined) return new Set();
@@ -131,6 +143,8 @@ export const makeAutomationRunner = (ports: RunnerPorts): AutomationRunner => {
         yield* repository.setCursor(canvasName, automation.automationId, ports.now());
         continue;
       }
+      const next = cachedNextSlot(automation, trigger, cursor);
+      if (next === undefined || next > ports.now()) continue;
       const due = dueSlot(trigger, cursor, ports.now());
       if (due === undefined) continue;
       if (automation.enabled) {
