@@ -334,7 +334,6 @@ export const registerJuntoIpc = (): void => {
     {
       task: (operation) => runMainAuthoring("ipc.resource.task-apply", operation),
       artifact: (operation) => runMainAuthoring("ipc.resource.artifact-apply", operation),
-      thread: (operation) => runMainAuthoring("ipc.resource.thread-post", operation),
     },
   );
   registerAutomationIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
