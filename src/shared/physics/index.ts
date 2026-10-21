@@ -75,7 +75,6 @@ export {
   ScopeDenialReason,
   admit,
   admitPure,
-  directedEdgeKey,
   undirectedEdgeKey,
 } from "./admit";
 export type {

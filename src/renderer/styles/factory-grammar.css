@@ -202,8 +202,6 @@
      warm hue at full chroma, 0.145 and up. These five are the only verbs that
      co-occur around a single tasks card, so they were placed first and
      everything else was fitted around them.
-   - WARM (participates, fires, wakes). Real consequence off the task
-     line: the same warm hues at roughly half the chroma.
    - COLD (messages, reviews, reads, edits, navigates, publishes,
      announces, chains). Nothing here leaves the canvas world, so nothing is
      warm: teal through violet, several of them near-grey. reviews shares the
@@ -233,13 +231,9 @@
   /* Hot: warm hue, chroma 0.145 and up. */
   --wire-verb-flows: oklch(0.79 0.15 335);
 
-  /* Warm: same hues, half the chroma. */
-  --wire-verb-participates: oklch(0.76 0.11 80);
-
   /* Cold: teal through violet, several near-grey. */
   --wire-verb-navigates: oklch(0.5 0.02 190);
   --wire-verb-messages: oklch(0.68 0.065 240);
-  --wire-verb-reviews: oklch(0.58 0.1 305);
 
   /* No verb compiled: draw it, quietly, in neutral ink. */
   --wire-verb-unset: oklch(0.48 0.008 250);
@@ -250,11 +244,8 @@
 html[data-theme="bright"] {
   --wire-verb-flows: oklch(0.62 0.16 339);
 
-  --wire-verb-participates: oklch(0.36 0.065 98);
-
   --wire-verb-navigates: oklch(0.44 0.025 192);
   --wire-verb-messages: oklch(0.53 0.07 236);
-  --wire-verb-reviews: oklch(0.4 0.09 305);
 
   --wire-verb-unset: oklch(0.62 0.008 250);
 }

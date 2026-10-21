@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { board, canvasOf, seat, wire } from "./support/model-nodes";
+import { canvasOf, page, seat, wire } from "./support/model-nodes";
 import {
   actorRailExpanded,
   actorRailMode,
@@ -9,12 +9,12 @@ import {
 import { sidebarSections$ } from "../src/renderer/lib/sidebar-sections";
 
 const doc = canvasOf(
-  [seat("lead"), seat("ada"), seat("bea"), seat("solo"), board("notes")],
+  [seat("lead"), seat("ada"), seat("bea"), seat("solo"), page("notes")],
   [
     wire("e1", "lead", "ada", "messages"),
     wire("e2", "bea", "lead", "messages"),
-    wire("e3", "lead", "ada", "reviews"),
-    wire("e4", "lead", "notes", "participates"),
+    wire("e3", "ada", "lead", "messages"),
+    wire("e4", "lead", "notes", "navigates"),
   ],
 );
 

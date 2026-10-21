@@ -1,4 +1,4 @@
-import { productNodeKindEnabled, productVerbEnabled } from "@shared/features";
+import { productNodeKindEnabled } from "@shared/features";
 import { validateFlowDag } from "@shared/flow-graph";
 import {
   asWireId,
@@ -71,12 +71,10 @@ export const renamed = (canvas: Canvas, id: string, name: string): Commands => {
     case "agent":
       return line === "" ? NONE : edited(canvas, id, "agent", { label: line });
     case "task":
-    case "requests":
       return edited(canvas, id, node.kind, { name: value });
     case "terminal":
     case "artifacts":
     case "automations":
-    case "board":
     case "git":
     case "region":
       return edited(canvas, id, node.kind, { label: value });
@@ -263,9 +261,9 @@ const wireable = (node: Node): boolean =>
  */
 export const verbsForDraw = (from: Node | undefined, to: Node | undefined): DrawVerbs => {
   if (from === undefined || to === undefined || !wireable(from) || !wireable(to)) return NO_VERBS;
-  const drawn = verbsForPair(verbKind(from), verbKind(to)).filter(productVerbEnabled);
+  const drawn = verbsForPair(verbKind(from), verbKind(to));
   if (drawn.length > 0) return { verbs: drawn, reversed: false };
-  const flipped = verbsForPair(verbKind(to), verbKind(from)).filter(productVerbEnabled);
+  const flipped = verbsForPair(verbKind(to), verbKind(from));
   return flipped.length > 0 ? { verbs: flipped, reversed: true } : NO_VERBS;
 };
 
@@ -357,7 +355,7 @@ export const reverbed = (canvas: Canvas, id: string, verb: Verb): Commands => {
   const from = canvas.nodes.get(wire.from);
   const to = canvas.nodes.get(wire.to);
   if (from === undefined || to === undefined) return NONE;
-  if (!verbsForPair(verbKind(from), verbKind(to)).filter(productVerbEnabled).includes(verb)) return NONE;
+  if (!verbsForPair(verbKind(from), verbKind(to)).includes(verb)) return NONE;
   return rewired(canvas, id, { verb, mask: null });
 };
 

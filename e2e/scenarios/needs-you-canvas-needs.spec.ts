@@ -6,14 +6,13 @@ import { ModelService } from "../../src/main/junto/model/service";
  * The top bar popover used to be the only place a work stoppage showed. It
  * is gone, so the feed must carry those needs. Real work is seeded through
  * the work repository, the way main writes it: a task Atlas claimed and then
- * left waiting on the operator (the stoppage, which holds Atlas up), and an
- * open request on a requests sink (a sink that wants input). Both are written
- * with origin times in the past, before the app has ever started: the app
- * that shows them never saw them begin, as after a quit and relaunch, so the
+ * left waiting on the operator (the stoppage, which holds Atlas up). It is
+ * written with origin times in the past, before the app has ever started: the
+ * app that shows it never saw it begin, as after a quit and relaunch, so the
  * only place the times can come from is the journal.
  *
  * Asserts:
- *   - the stoppage, the held seat and the sink each appear as a feed row, in their region
+ *   - the stoppage and the held seat each appear as a feed row, in their region
  *   - the top bar button counts them, and its number is the feed header's
  *   - the button toggles the feed and no popover exists
  *   - each row shows the time its need truly began, on first launch and after a reload
@@ -40,18 +39,16 @@ import { expect, launchJunto, test } from "../harness/launch";
 const CANVAS = "needs-you-canvas";
 // When each need began, well before this app process exists.
 const STOPPED_AT = Date.now() - 47 * 60_000;
-const ASKED_AT = Date.now() - 12 * 60_000;
 const iso = (ms: number): string => new Date(ms).toISOString();
 
 const ops = modelRegion({ id: "ops", label: "Ops", x: 0, y: 0, width: 760, height: 360 });
 const atlas = modelSeat({ id: "atlas", key: "local:e2e-needs-atlas", label: "Atlas", harness: "claude", x: 40, y: 80 });
-const asks = modelNode({ kind: "requests", id: "asks", x: 1000, y: 80, width: 240, height: 120, z: 0 });
 const board = modelNode({ kind: "task", id: "board", x: 400, y: 80, width: 240, height: 120, z: 0 });
-const nodes = [ops, atlas, board, asks];
+const nodes = [ops, atlas, board];
 // Atlas reaches the Tasks node through the Ops region, with no wire (01).
 const fixture = modelFixture(nodes, []);
 
-/** Atlas's claimed task waiting on the operator, and an open request Atlas raised. */
+/** Atlas's claimed task waiting on the operator. */
 const seedWork = async (sandbox: Sandbox): Promise<void> => {
   const state = makeStateEngineLive(join(sandbox.homeDir, ".junto", "state", "junto.db"));
   const repositories = Layer.provideMerge(
@@ -104,25 +101,6 @@ const seedWork = async (sandbox: Sandbox): Promise<void> => {
           originAt: iso(STOPPED_AT),
           receivedAt: iso(STOPPED_AT),
         });
-        yield* work.createRequest({
-          sink: { canvasName: CANVAS, nodeId: asks.id },
-          basis,
-          raisedBy: { seatId: seatId, canvasName: CANVAS, nodeId: atlas.id },
-          request: {
-            id: "req-staging-password",
-            state: "input-required",
-            claimedBy: seatId,
-            history: [
-              {
-                messageId: "msg-req-staging-password",
-                role: "agent",
-                parts: [{ kind: "text", text: "I need the staging database password to run the migration." }],
-              },
-            ],
-          },
-          originAt: iso(ASKED_AT),
-          receivedAt: iso(ASKED_AT),
-        });
       }),
     );
   } finally {
@@ -130,7 +108,7 @@ const seedWork = async (sandbox: Sandbox): Promise<void> => {
   }
 };
 
-test("a work stoppage, the seat it holds up and a sink wanting input are feed rows, counted, and show when they truly began", async () => {
+test("a work stoppage and the seat it holds up are feed rows, counted, and show when they truly began", async () => {
   const junto = await launchJunto({ seedModels: { [CANVAS]: fixture }, afterSeed: seedWork });
   try {
     const { page } = junto;
@@ -138,8 +116,8 @@ test("a work stoppage, the seat it holds up and a sink wanting input are feed ro
 
     // The button carries the count; there is no number in the label at zero.
     const trigger = page.getByTestId("operator-feed-trigger");
-    await expect(trigger).toHaveAttribute("aria-label", "Needs you, 3", { timeout: 20_000 });
-    await expect(trigger.locator(".operator-feed-trigger__count")).toHaveText("3");
+    await expect(trigger).toHaveAttribute("aria-label", "Needs you, 2", { timeout: 20_000 });
+    await expect(trigger.locator(".operator-feed-trigger__count")).toHaveText("2");
 
     // Pressing it opens the feed itself: the popover is gone.
     await trigger.click();
@@ -147,7 +125,7 @@ test("a work stoppage, the seat it holds up and a sink wanting input are feed ro
     await expect(modal).toBeVisible();
     await expect(page.getByTestId("needs-you-inbox")).toHaveCount(0);
     await expect(trigger).toHaveAttribute("aria-expanded", "true");
-    await expect(modal.locator(".operator-feed__status")).toHaveText("3 waiting across 2 regions");
+    await expect(modal.locator(".operator-feed__status")).toHaveText("2 waiting");
     const regionOf = (itemId: string): Locator =>
       modal.locator(".operator-feed__region", { has: page.locator(`[data-item-id='${itemId}']`) });
 
@@ -164,14 +142,7 @@ test("a work stoppage, the seat it holds up and a sink wanting input are feed ro
     await expect(held).toContainText("waiting on blocked work upstream");
     await expect(regionOf("held:atlas").locator(".operator-feed__region-label")).toHaveText("Ops");
 
-    // The requests sink that wants input, outside every region.
-    const input = modal.locator("[data-item-id='input:asks']");
-    await expect(input).toHaveAttribute("data-kind", "attention");
-    await expect(input.locator(".operator-feed__kind")).toHaveText("needs input");
-    await expect(regionOf("input:asks")).toHaveAttribute("data-open-field", "true");
-    // Urgency first: both blocked rows come before the needs input row.
-    await expect(modal.getByTestId("operator-feed-card")).toHaveCount(3);
-    await expect(modal.getByTestId("operator-feed-card").last()).toHaveAttribute("data-item-id", "input:asks");
+    await expect(modal.getByTestId("operator-feed-card")).toHaveCount(2);
 
     // The same press closes it, like the chord.
     await trigger.dispatchEvent("click");
@@ -179,11 +150,10 @@ test("a work stoppage, the seat it holds up and a sink wanting input are feed ro
     await expect(trigger).toHaveAttribute("aria-expanded", "false");
 
     // Each row says when its need truly began: the stoppage and the seat it
-    // holds up since the task started waiting, the sink since the request.
+    // holds up since the task started waiting.
     const began: ReadonlyArray<readonly [string, number]> = [
       ["stoppage:board", STOPPED_AT],
       ["held:atlas", STOPPED_AT],
-      ["input:asks", ASKED_AT],
     ];
     const expectTrueTimes = async (): Promise<void> => {
       for (const [id, at] of began) {
@@ -193,7 +163,6 @@ test("a work stoppage, the seat it holds up and a sink wanting input are feed ro
         expect(said).toBe(await page.evaluate((ms) => new Date(ms).toLocaleString(), at));
       }
       await expect(modal.locator("[data-item-id='stoppage:board'] time")).toHaveText(/^4[78]m$/);
-      await expect(modal.locator("[data-item-id='input:asks'] time")).toHaveText(/^1[23]m$/);
     };
     await trigger.click();
     await expectTrueTimes();
@@ -202,7 +171,7 @@ test("a work stoppage, the seat it holds up and a sink wanting input are feed ro
     // A reload reads the same journal: nothing is restamped as now.
     await page.reload();
     await expect(page.locator(".react-flow__node", { hasText: "Atlas" })).toBeVisible({ timeout: 30_000 });
-    await expect(trigger).toHaveAttribute("aria-label", "Needs you, 3", { timeout: 20_000 });
+    await expect(trigger).toHaveAttribute("aria-label", "Needs you, 2", { timeout: 20_000 });
     await trigger.click();
     await expectTrueTimes();
   } finally {

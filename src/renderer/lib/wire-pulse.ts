@@ -46,7 +46,7 @@ export type PulseTarget = {
 };
 
 /** Verbs that carry seat-to-seat traffic, best first. */
-const VERB_RANK: Record<string, number> = { messages: 0, reviews: 1 };
+const VERB_RANK: Record<string, number> = { messages: 0 };
 
 /**
  * The wire a message crossed: an edge joining sender and receiver, in either

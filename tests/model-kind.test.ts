@@ -24,18 +24,13 @@ describe("a card's glance", () => {
     expect(nodeAttention("task", glanceOf(states), false)).toBe(expected);
   });
 
-  it.each(queues)("requests holding %j follow their work counts", (...states) => {
-    const expected = states.length === 0 ? "empty" : states.some(state => ["input-required", "auth-required"].includes(state)) ? "fire" : "ice";
-    expect(nodeAttention("requests", glanceOf(states), false)).toBe(expected);
-  });
-
   it("artifacts are empty or idle by count", () => {
     expect(nodeAttention("artifacts", glanceOf([]), false)).toBe("empty");
     expect(nodeAttention("artifacts", { count: 2, needsHuman: false, allTerminal: false }, false)).toBe("idle");
   });
 
   it("only actors can be blocked; other kinds stay idle regardless of a blocked flag", () => {
-    for (const kind of ["agent", "terminal", "board", "note", "label", "region"] as const) {
+    for (const kind of ["agent", "terminal", "note", "label", "region"] as const) {
       expect(kindMayBeBlocked(kind)).toBe(kind === "agent");
       expect(nodeAttention(kind, NOTHING, true)).toBe(kind === "agent" ? "fire" : "idle");
       expect(nodeAttention(kind, NOTHING, false)).toBe(kind === "agent" ? "ice" : "idle");
@@ -58,7 +53,7 @@ describe("kind words", () => {
     expect(roleOfKind("region")).toBe("geography");
   });
 
-  it("reads work for the three kinds that hold it", () => {
+  it("reads work for the two kinds that hold it", () => {
     expect(NODE_KINDS.filter(holdsWork)).toEqual(["task", "artifacts"]);
     expect(holdsWork(undefined)).toBe(false);
   });

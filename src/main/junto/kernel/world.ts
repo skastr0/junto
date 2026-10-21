@@ -21,11 +21,10 @@ const heldReads = new WeakMap<KernelWork, WorkRead & WatchRead>();
 export const workOf = (world: World): WorkRead & WatchRead => {
   const known = heldReads.get(world.work);
   if (known !== undefined) return known;
-  const { tasks, boards, artifacts } = world.work;
+  const { tasks, artifacts } = world.work;
   const made: WorkRead & WatchRead = {
     itemsOf: (node) => tasks.get(node) ?? NO_TASKS,
     taskAt: (node, id) => tasks.get(node)?.find((task) => task.id === id),
-    board: (node) => boards.get(node),
     artifacts: (node) => artifacts.get(node) ?? 0,
   };
   heldReads.set(world.work, made);

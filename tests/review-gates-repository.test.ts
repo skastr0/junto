@@ -1,8 +1,8 @@
 /**
- * The repository's review gates, each read in the writer's own transaction:
- * a task verdict admits a seat on the task's reviewer list, and a commit
- * verdict admits a seat its receipt on this canvas reached. No edge grants
- * review.
+ * The repository's review receipts, read in the writer's own transaction: a
+ * commit the author's checkout shows is mailed to the seats on the task's
+ * reviewer list, never to the author, and to nobody taken off the list. No
+ * edge grants review.
  */
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
@@ -11,20 +11,17 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
-import { ReviewVerdict } from "../src/shared/crew";
 import { InstallationId } from "../src/shared/installation-id";
 import { CanvasFactBasis } from "../src/shared/work-protocol";
 import type { ActorSeatId } from "../src/shared/actor-seat";
 import type { ActorRef } from "../src/shared/work-protocol";
 import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { CrewRepository, CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import {
   createCanvasTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
-import { reviewSubjectProjection } from "../src/main/junto/work/reviews";
 import { seedCanvasRows } from "./support/seed-canvas";
 import { canvasOf, seat, taskBoard } from "./support/model-nodes";
 import { THIS_MACHINE } from "./support/machines";
@@ -35,8 +32,6 @@ const taskId = "01JZ00000000000000000000R1";
 const local = Schema.decodeUnknownSync(InstallationId)("cc-review-gates");
 const seatOf = (id: string): ActorSeatId => deriveActorSeatId(local, `binding-${id}`);
 const author = seatOf("author");
-const listed = seatOf("listed");
-const other = seatOf("other");
 
 const nodes = [
   seat("author"),
@@ -56,9 +51,7 @@ afterEach(async () => {
 const open = async () => {
   const root = join(tmpdir(), `junto-review-gates-${randomUUID()}`);
   const runtime = ManagedRuntime.make(
-    Layer.mergeAll(WorkRepositoryLive, CrewRepositoryLive).pipe(
-      Layer.provideMerge(makeStateEngineLive(join(root, "junto.db"))),
-    ),
+    Layer.provideMerge(WorkRepositoryLive, makeStateEngineLive(join(root, "junto.db"))),
   );
   opened.push({ root, dispose: () => runtime.dispose() });
   await runtime.runPromise(Effect.gen(function* () {
@@ -122,79 +115,36 @@ const setReviewers = (reviewers: ReadonlyArray<string>) => Effect.gen(function* 
   );
 });
 
-const postTaskVerdict = ({ runtime, basis }: Opened, reviewer: ActorSeatId, verdictId: string) =>
+/** Publish one fresh commit from the author's checkout; the seats whose mailbox got a receipt. */
+const receiptsFor = ({ runtime, basis }: Opened, sha: string) =>
   runtime.runPromise(Effect.gen(function* () {
     const repository = yield* WorkRepository;
-    const task = yield* repository.taskItem({ canvasName, nodeId: "board", itemId: taskId, kind: "task" });
-    const projection = reviewSubjectProjection({ installationId: local, canvasName, nodeId: "board", task: task! });
-    const verdict = Schema.decodeUnknownSync(ReviewVerdict)({
-      verdictId, kind: "green", reviewerSeatId: reviewer, authorSeatId: author,
-      subject: {
-        kind: "task", installationId: local, canvasName, nodeId: "board", taskId,
-        epoch: projection.epoch, subjectHash: projection.subjectHash,
-      },
-      subjectHash: projection.subjectHash, epoch: projection.epoch, findings: [], refs: [], postedAtMs: 1,
+    const records = yield* repository.publishCheckoutReceipts({
+      basis, canvasName, nodeId: "board", taskId, checkoutKey: `checkout-${sha.slice(0, 4)}`,
+      author: { fromSeat: author, senderGeneration: "g1", senderHarness: "claude" },
+      shas: [sha],
     });
-    return yield* repository.postReviewVerdict(verdict, { basis, canvasName });
+    return records.map((record) => record.nodeId).sort();
   }));
 
-const sha = "c".repeat(40);
-const receiptOn = ({ runtime }: Opened, canvas: string, reviewer: ActorSeatId) =>
-  runtime.runPromise(Effect.gen(function* () {
-    const crew = yield* CrewRepository;
-    yield* crew.recordReviewReceipt({
-      canvasName: canvas, sourceKind: "checkout", sourceId: `checkout-${canvas}`, refSha: sha,
-      reviewerSeatId: reviewer, authorSeatId: author, createdAt: at,
-    });
-  }));
-
-const postCommitVerdict = ({ runtime, basis }: Opened, reviewer: ActorSeatId, verdictId: string) =>
-  runtime.runPromise(Effect.gen(function* () {
-    const repository = yield* WorkRepository;
-    const verdict = Schema.decodeUnknownSync(ReviewVerdict)({
-      verdictId, kind: "green", reviewerSeatId: reviewer, authorSeatId: author,
-      subject: { kind: "commit", sha, subjectHash: "d".repeat(64) },
-      subjectHash: "d".repeat(64), epoch: 0, findings: [], refs: [], postedAtMs: 1,
-    });
-    return yield* repository.postReviewVerdict(verdict, { basis, canvasName });
-  }));
-
-describe("task verdict gate", () => {
-  it("admits a seat on the task's reviewer list", async () => {
+describe("review receipts", () => {
+  it("mail the listed reviewers and never the author", async () => {
     const rig = await open();
-    await seedTask(rig, ["listed"]);
-    expect(await postTaskVerdict(rig, listed, "v-listed")).toMatchObject({ created: true });
+    await seedTask(rig, ["listed", "author"]);
+    expect(await receiptsFor(rig, "a".repeat(40))).toEqual(["listed"]);
   });
 
-  it("refuses a seat that is not on the list", async () => {
+  it("mail nobody when the list is empty", async () => {
     const rig = await open();
-    await seedTask(rig, ["listed"]);
-    expect(await postTaskVerdict(rig, other, "v-other")).toEqual({ rejected: "not-a-reviewer" });
+    await seedTask(rig, []);
+    expect(await receiptsFor(rig, "b".repeat(40))).toEqual([]);
   });
 
-  it("refuses a reviewer taken off the list before the verdict lands", async () => {
+  it("stop for a reviewer taken off the list", async () => {
     const rig = await open();
-    await seedTask(rig, ["listed"]);
-    await rig.runtime.runPromise(setReviewers([]));
-    expect(await postTaskVerdict(rig, listed, "v-removed")).toEqual({ rejected: "not-a-reviewer" });
-  });
-});
-
-describe("commit verdict gate", () => {
-  it("refuses a seat no receipt for the sha reached", async () => {
-    const rig = await open();
-    expect(await postCommitVerdict(rig, listed, "c-none")).toEqual({ rejected: "not-a-reviewer" });
-  });
-
-  it("refuses a seat whose receipt for the sha is on another canvas", async () => {
-    const rig = await open();
-    await receiptOn(rig, otherCanvasName, listed);
-    expect(await postCommitVerdict(rig, listed, "c-elsewhere")).toEqual({ rejected: "not-a-reviewer" });
-  });
-
-  it("admits a seat its receipt on this canvas reached", async () => {
-    const rig = await open();
-    await receiptOn(rig, canvasName, listed);
-    expect(await postCommitVerdict(rig, listed, "c-here")).toMatchObject({ created: true });
+    await seedTask(rig, ["listed", "other"]);
+    expect(await receiptsFor(rig, "c".repeat(40))).toEqual(["listed", "other"]);
+    await rig.runtime.runPromise(setReviewers(["other"]));
+    expect(await receiptsFor(rig, "d".repeat(40))).toEqual(["other"]);
   });
 });

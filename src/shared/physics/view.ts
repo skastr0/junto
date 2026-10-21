@@ -5,7 +5,7 @@ import type { Node } from "../model/kinds";
 import { wireGrant, type Wire } from "../model/wire";
 import { RESOURCE_KINDS, isResourceKind, onOneLine, positionsOf, type Positions } from "../region-reach";
 import type { CapabilityView, NodeMeta } from "./admit";
-import { directedEdgeKey, undirectedEdgeKey } from "./admit";
+import { undirectedEdgeKey } from "./admit";
 import { asNodeId, type NodeId, type Port } from "./schema";
 
 // Pure canvas → CapabilityView adapter. No Node, no live process-bind.
@@ -135,7 +135,6 @@ const viewOf = (input: {
   // in admit.ts still intersects the resulting grant with target offers, so
   // the union can never smuggle a port the target does not offer.
   const pairPorts = new Map<string, HashSet.HashSet<Port>>();
-  let directedEdgePortMask = HashMap.empty<string, HashSet.HashSet<Port>>();
 
   for (const { from, to, wire } of input.joins) {
     const a = asNodeId(from);
@@ -145,18 +144,7 @@ const viewOf = (input: {
 
     const key = undirectedEdgeKey(from, to);
     const grant = wire === undefined ? undefined : wireGrant(wire, kinds);
-    const ports = HashSet.fromIterable(
-      (grant?.ports ?? []).filter((port) => port !== "verdict.post"),
-    );
-    if (wire?.verb === "reviews" && grant?.ports.includes("verdict.post")) {
-      const directedKey = directedEdgeKey(from, to);
-      const prior = HashMap.get(directedEdgePortMask, directedKey);
-      directedEdgePortMask = HashMap.set(
-        directedEdgePortMask,
-        directedKey,
-        HashSet.add(Option.getOrElse(prior, () => HashSet.empty<Port>()), "verdict.post"),
-      );
-    }
+    const ports = HashSet.fromIterable(grant?.ports ?? []);
     // A resource node is reached, never granted by a wire, so a wire to one
     // carries no mask.
     if (!resourceAt(from) && !resourceAt(to)) {
@@ -189,5 +177,5 @@ const viewOf = (input: {
     }
   }
 
-  return { nodeMeta, connected, regionPeers, edgePortMask, directedEdgePortMask, machine, reach };
+  return { nodeMeta, connected, regionPeers, edgePortMask, machine, reach };
 };

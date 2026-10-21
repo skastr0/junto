@@ -21,14 +21,11 @@
 //  - Author provenance comes from durable claim/receipt facts: the seat that
 //    claimed the task in the current epoch, or the seat whose receipt first
 //    introduced a commit sha. A client assertion never establishes either.
-//  - Posting a verdict requires a reviewer on the task's reviewer list (for
-//    a commit, a seat its receipt reached) and distinct stable seats —
-//    checked at post and re-checked at completion, so a reviewer taken off
-//    the list stops mattering. No edge grants review.
+//  - A verdict counts at completion only while its reviewer, a seat distinct
+//    from the author, is on the task's reviewer list, so a reviewer taken
+//    off the list stops mattering. No edge grants review.
 //  - A green verdict clears nothing by itself; the completion gate asks for
-//    a qualifying latest green on the exact binding. A blocking verdict is
-//    stored and applied (rejected + defect + epoch bump) in one owner
-//    transaction with the durable verdict row.
+//    a qualifying latest green on the exact binding.
 //  - Receipt mail is deduped exactly on (canvas, source, ref, reviewer):
 //    the same task fact or the same checkout observation can never mail the
 //    same reviewer twice for the same ref.
@@ -37,53 +34,15 @@ import {
   mailExtensionMetadata,
   type MailEvidenceRef,
   type ReviewVerdict,
-  type VerdictKind,
-  type VerdictSubject,
 } from "@shared/crew";
 import { taskEpoch, type RuleInForce } from "@shared/rules";
-import { canTransitionTaskState, makeUserMessage } from "@shared/task";
+import { makeUserMessage } from "@shared/task";
 import type { CompletionEvidence, Message, Task } from "@shared/work-model";
 import type { ActorSeatId } from "@shared/actor-seat";
 import type { ActorRef } from "@shared/work-reference";
 import type { Reviewer } from "@shared/task-model";
-import type { WorkErrorBody } from "@shared/work-control";
 import type { WorkRecordId } from "@shared/work-protocol";
 import { subjectHashOf, taskReviewSubjectHash } from "./review-subject-hash";
-
-// ---------------------------------------------------------------------------
-// Errors — WorkErrorType plus a machine `details.reason`, never a new type.
-
-export const REVIEW_REASON_REVIEWER_IS_AUTHOR = "reviewer-is-author";
-export const REVIEW_REASON_NOT_REVIEWER = "not-a-reviewer";
-export const REVIEW_REASON_SUBJECT_NOT_FOUND = "subject-not-found";
-export const REVIEW_REASON_STALE_SUBJECT = "stale-subject";
-export const REVIEW_REASON_AUTHOR_UNRESOLVED = "author-unresolved";
-export const REVIEW_REASON_MALFORMED = "malformed-verdict";
-export const REVIEW_REASON_SUBJECT_SETTLED = "subject-settled";
-
-const reviewError = (
-  type: WorkErrorBody["type"],
-  reason: string,
-  message: string,
-  details?: WorkErrorBody["details"],
-): WorkErrorBody => ({
-  type,
-  message,
-  details: { reason, ...(details ?? {}) },
-});
-
-export const reviewerIsAuthorError = (seatId: ActorSeatId): WorkErrorBody =>
-  reviewError(
-    "ReviewerIsAuthor",
-    REVIEW_REASON_REVIEWER_IS_AUTHOR,
-    "a verdict requires a reviewer seat distinct from the author seat",
-    {
-      retryable: false,
-      next_step:
-        "a different seat on the task's reviewers must post the verdict",
-      holder: seatId,
-    },
-  );
 
 // ---------------------------------------------------------------------------
 // Subject identity.
@@ -182,275 +141,6 @@ export const agentNodeForSeat = (
   actorRefs: ReadonlyArray<ActorRef>,
   seatId: ActorSeatId,
 ): ActorRef | undefined => actorRefs.find((actor) => actor.seatId === seatId);
-
-// ---------------------------------------------------------------------------
-// Verdict posting.
-
-/** What the caller asserts about a task subject; the server validates it. */
-export type VerdictPostInput =
-  | {
-      readonly kind: "task";
-      readonly taskId: string;
-      readonly epoch: number;
-      readonly subjectHash: string;
-    }
-  | { readonly kind: "commit"; readonly sha: string };
-
-export type ResolvedReviewSubject =
-  | { readonly kind: "task"; readonly projection: ReviewSubjectProjection }
-  | {
-      readonly kind: "commit";
-      readonly sha: string;
-      readonly authorSeatId?: ActorSeatId;
-    };
-
-export type ResolveTaskSubjectResult =
-  | { readonly ok: true; readonly subject: ResolvedReviewSubject }
-  | { readonly ok: false; readonly error: WorkErrorBody };
-
-/**
- * Validate a task-subject expectation against its live projection. Never
- * re-binds silently: a moved epoch or refs hash is a stale refusal carrying
- * both values so the caller can re-read and repost.
- */
-export const resolveTaskSubject = (input: {
-  readonly projection: ReviewSubjectProjection;
-  readonly expected: { readonly epoch: number; readonly subjectHash: string };
-}): ResolveTaskSubjectResult => {
-  const { projection, expected } = input;
-  if (
-    projection.epoch !== expected.epoch ||
-    projection.subjectHash !== expected.subjectHash
-  ) {
-    return {
-      ok: false,
-      error: reviewError(
-        "InputError",
-        REVIEW_REASON_STALE_SUBJECT,
-        `review subject moved since it was read — expected epoch ${expected.epoch} hash ${expected.subjectHash.slice(0, 12)}, current epoch ${projection.epoch} hash ${projection.subjectHash.slice(0, 12)}`,
-        {
-          retryable: true,
-          expected: {
-            epoch: expected.epoch,
-            subjectHash: expected.subjectHash,
-          },
-          received: {
-            epoch: projection.epoch,
-            subjectHash: projection.subjectHash,
-          },
-          next_step:
-            "re-read the review subject (msg read or task.show) and post again",
-        },
-      ),
-    };
-  }
-  return { ok: true, subject: { kind: "task", projection } };
-};
-
-export type VerdictPostEffect =
-  | { readonly kind: "green" }
-  | {
-      readonly kind: "blocking";
-      readonly defect: {
-        readonly summary: string;
-        readonly refs: ReadonlyArray<string>;
-      };
-    }
-  | {
-      /**
-       * Stored verdict with no work-side consequence: a blocking verdict on a
-       * standalone commit subject (a sha may belong to many tasks, so there
-       * is nothing honest to send back; task rejection requires an explicit
-       * task subject CAS).
-       */
-      readonly kind: "none";
-    };
-
-export type VerdictPostPlan =
-  | {
-      readonly ok: true;
-      readonly verdict: ReviewVerdict;
-      readonly effect: VerdictPostEffect;
-    }
-  | { readonly ok: false; readonly error: WorkErrorBody };
-
-/**
- * Plan one verdict posting. Pure: the caller supplies the admitted reviewer
- * (process-bound), the resolved current subject, whether the reviewer may
- * review it right now (on the task's reviewer list, or reached by the
- * commit's receipt), and the minted id/clock.
- * The returned `effect` tells the service whether the same owner transaction
- * must also run the send-back writers (blocking) or store the verdict alone
- * (green).
- */
-export const planVerdictPost = (input: {
-  readonly caller: { readonly seatId: ActorSeatId; readonly nodeId: string };
-  readonly subject: ResolvedReviewSubject;
-  readonly kind: VerdictKind;
-  readonly findings: ReadonlyArray<string>;
-  readonly refs: ReadonlyArray<MailEvidenceRef>;
-  readonly reviewerListed: boolean;
-  readonly verdictId: string;
-  readonly postedAtMs: number;
-}): VerdictPostPlan => {
-  const { caller, subject, kind, findings, refs } = input;
-  const cleanFindings = findings
-    .map((finding) => finding.trim())
-    .filter((finding) => finding.length > 0);
-
-  // Author identity first (root ruling): self-review refuses as
-  // ReviewerIsAuthor even when the reviewer is also not listed — the self-
-  // review is the more specific defect, and an author must never be told to
-  // ask to review themselves. An unresolved author precedes both: the
-  // self-review question is unanswerable without one. The p15 writer re-check
-  // mirrors this exact precedence after a live claim flip.
-  const authorSeatId =
-    subject.kind === "task"
-      ? subject.projection.authorSeatId
-      : subject.authorSeatId;
-  if (authorSeatId === undefined) {
-    return {
-      ok: false,
-      error: reviewError(
-        "InputError",
-        REVIEW_REASON_AUTHOR_UNRESOLVED,
-        "the review subject has no author provenance yet — no current-epoch claim or receipt names an author seat",
-        {
-          retryable: true,
-          next_step:
-            "post the verdict after the author claims the task or a receipt carries the ref",
-        },
-      ),
-    };
-  }
-  if (authorSeatId === caller.seatId) {
-    return { ok: false, error: reviewerIsAuthorError(caller.seatId) };
-  }
-  if (!input.reviewerListed) {
-    return {
-      ok: false,
-      error: reviewError(
-        "ScopeError",
-        REVIEW_REASON_NOT_REVIEWER,
-        "your seat is not a reviewer of this subject",
-        {
-          retryable: false,
-          next_step: "ask the operator to add your seat to the task's reviewers",
-        },
-      ),
-    };
-  }
-  if (kind === "blocking" && cleanFindings.length === 0) {
-    return {
-      ok: false,
-      error: reviewError(
-        "InputError",
-        REVIEW_REASON_MALFORMED,
-        "a blocking verdict requires at least one finding",
-        {
-          retryable: false,
-          next_step: "supply findings describing the defect",
-        },
-      ),
-    };
-  }
-
-  let epoch: number;
-  let subjectHash: string;
-  let subjectRef: VerdictSubject;
-  if (subject.kind === "task") {
-    const { projection } = subject;
-    if (
-      projection.state !== "working" &&
-      projection.state !== "submitted" &&
-      projection.state !== "input-required" &&
-      projection.state !== "completed"
-    ) {
-      return {
-        ok: false,
-        error: reviewError(
-          "InputError",
-          REVIEW_REASON_SUBJECT_SETTLED,
-          `task "${projection.taskId}" is ${projection.state} — no live review subject remains`,
-          { retryable: false },
-        ),
-      };
-    }
-    if (
-      kind === "blocking" &&
-      !canTransitionTaskState(projection.state, "rejected")
-    ) {
-      return {
-        ok: false,
-        error: reviewError(
-          "InputError",
-          REVIEW_REASON_SUBJECT_SETTLED,
-          `task "${projection.taskId}" cannot be sent back from ${projection.state}`,
-          {
-            retryable: false,
-            next_step:
-              "the task left the working state; re-read task.show for the current subject",
-          },
-        ),
-      };
-    }
-    epoch = projection.epoch;
-    subjectHash = projection.subjectHash;
-    subjectRef = {
-      kind: "task",
-      installationId: projection.installationId,
-      canvasName: projection.canvasName,
-      nodeId: projection.nodeId,
-      taskId: projection.taskId,
-      epoch: projection.epoch,
-      subjectHash,
-    };
-  } else {
-    epoch = 0;
-    const sha = normalizeSha(subject.sha);
-    subjectHash = reviewSubjectHash({ kind: "commit", sha });
-    subjectRef = { kind: "commit", sha, subjectHash };
-  }
-
-  const verdict: ReviewVerdict = {
-    verdictId: input.verdictId,
-    kind,
-    reviewerSeatId: caller.seatId,
-    reviewerNodeId: caller.nodeId,
-    authorSeatId,
-    subject: subjectRef,
-    subjectHash,
-    epoch,
-    findings: cleanFindings,
-    refs: refs.slice(),
-    postedAtMs: input.postedAtMs,
-  };
-
-  if (kind === "green") {
-    return { ok: true, verdict, effect: { kind: "green" } };
-  }
-  if (subject.kind === "commit") {
-    return { ok: true, verdict, effect: { kind: "none" } };
-  }
-  return {
-    ok: true,
-    verdict,
-    effect: {
-      kind: "blocking",
-      defect: {
-        summary:
-          cleanFindings.length === 1
-            ? cleanFindings[0]!
-            : cleanFindings
-                .map((finding, index) => `${index + 1}. ${finding}`)
-                .join("\n"),
-        refs: refs
-          .map((ref) => (ref.kind === "commit" ? ref.sha : undefined))
-          .filter((sha): sha is string => sha !== undefined),
-      },
-    },
-  };
-};
 
 // ---------------------------------------------------------------------------
 // Completion gate.

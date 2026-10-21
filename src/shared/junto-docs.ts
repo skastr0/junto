@@ -22,7 +22,7 @@ import {
   type KindSpec,
 } from "./physics/kinds";
 import { ALL_PORTS, type Port } from "./physics/schema";
-import { Seat, TaskBoard, Requests, Artifacts, Board, Page, Terminal } from "./model/kinds";
+import { Seat, TaskBoard, Artifacts, Page, Terminal } from "./model/kinds";
 import {
   SEAT_DOCTRINE,
   buildDoctrineBody,
@@ -42,10 +42,6 @@ export const PORT_DESCRIPTIONS: Readonly<Partial<Record<Port, string>>> = {
   "seat.wait": "Wait for a connected peer state with a bounded timeout.",
   "terminal.read": "Read settled terminal output from a connected peer; no input, resize or signal authority.",
   "browser.automate": "Control a granted page session (browser CLI).",
-  "board.list": "List bulletin-board topics and posts.",
-  "board.create_topic": "Create a board topic (does not notify agents).",
-  "board.post": "Post a note under a topic.",
-  "board.mark_read": "Mark a topic read without replying.",
 };
 
 // ── Per-kind data models (generated from the real schemas) ─────────────────
@@ -85,18 +81,9 @@ const NODE_EVENTS: Readonly<Record<string, readonly string[]>> = {
     "task.stamp — approve counts at the current epoch; changes sends the task back to working on a new epoch",
     "content.* — ContentRef materialization events for task media",
   ],
-  requests: [
-    "request.create — a request is raised (actor) or opened (operator)",
-    "request.resolve — the request is answered; the seat unblocks",
-    "task.transition — requests share the Task state machine",
-  ],
   artifacts: [
     "artifact.create, artifact.edit — versioned, ruled by the machine that edits the canvas",
     "artifact.comment — a thread on the artifact, whole or at an anchor",
-  ],
-  board: [
-    "board.topic_created / board.posted / board.mark_read — attention changes",
-    "board.wake — topic attention nudges seats (operator IPC only)",
   ],
   agent: [
     "msg.append — operator or peer messages land in the seat mailbox",
@@ -112,15 +99,13 @@ const NODE_EVENTS: Readonly<Record<string, readonly string[]>> = {
 };
 
 const SCHEMA_BY_KIND: Readonly<Record<string, Schema.Schema<unknown>>> = {
-  task: TaskBoard, requests: Requests, artifacts: Artifacts, board: Board,
+  task: TaskBoard, artifacts: Artifacts,
   agent: Seat, page: Page, terminal: Terminal,
 };
 
 const MODEL_NOTE: Readonly<Record<string, string>> = {
   task: "Task node: each task has a stable TaskId and a number (#42) and moves backlog, assigned, working, in-review, done. dependsOn holds TaskIds only, and a task cannot finish until each is done. Every rule in force needs a claim on the finish; stamps decide in-review.",
-  requests: "Requests sink: separately queried items share the Task state machine; resolving a request unblocks the seat.",
   artifacts: "Artifacts node: links, documents, pads, sheets and files, each versioned; every write is ruled by the machine that edits the canvas.",
-  board: "Board sink: the node holds its authored label; paged Work queries hold topics and posts.",
   agent: "Actor seat: the node holds identity, harness and launch settings. Mail is separately stored and paged per seat; terminal sessions are runtime facts. Identity is the seat credential.",
   page: "Browser surface: admitted page sessions controlled via the browser CLI.",
   terminal: "Terminal resource: PTY session surface.",
@@ -131,9 +116,7 @@ const KIND_NOTE: Readonly<Record<string, string>> = {
   agent: "The actor role: takes work from its reach and its mail, holds a mailbox, runs a harness.",
   task: "Tasks: assigned to a seat in the node's reach, worked and finished with junto task.",
   automations: "Automations: triggers, conditions and actions the editing machine runs, in place of the old cron, relay, watcher and timer schedulers. A seat reads the ones in its reach with `junto automation list`, `show` and `history`; only the operator and overseers write them.",
-  requests: "The operator's request queue. Seats no longer file requests; they raise agent signals (junto escalate, blocked, feedback) instead.",
   artifacts: "The delivery surface: create and edit outputs with junto artifact; artifacts never block.",
-  board: "The bulletin surface: optional shared context, never a decision inbox.",
   page: "The browser surface (feature-gated): page automation grants.",
   terminal: "A terminal resource sink (v1 access family only).",
 };
@@ -241,9 +224,7 @@ export const buildDoctrineDoc = (): string => {
   const body = buildDoctrineBody(
     [
       { id: "<task-node>", kind: "task" },
-      { id: "<requests-node>", kind: "requests" },
       { id: "<artifacts-node>", kind: "artifacts" },
-      { id: "<board-node>", kind: "board" },
       { id: "<peer-agent>", kind: "agent" },
     ].filter((target) => productNodeKindEnabled(target.kind)).map((target) => ({
       ...target,

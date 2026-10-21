@@ -562,8 +562,8 @@ describe("overseer region environment and secrets CLI", { timeout: SPAWNING_TEST
       [["overseer", "node", "recolor", '{"nodeIds":["n1","n2"],"color":null}'], "node.recolor", { nodeIds: ["n1", "n2"], color: null }],
       [["overseer", "node", "delete", '{"nodeIds":["n1"]}'], "node.delete", { nodeIds: ["n1"] }],
       [["overseer", "wire", "connect", '{"wire":{"from":"a","to":"b"}}'], "wire.connect", { wire: { from: "a", to: "b" } }],
-      [["overseer", "wire", "configure", '{"wireId":"w1","change":{"verb":"reviews","mask":null}}'], "wire.configure",
-        { wireId: "w1", change: { verb: "reviews", mask: null } }],
+      [["overseer", "wire", "configure", '{"wireId":"w1","change":{"verb":"messages","mask":null}}'], "wire.configure",
+        { wireId: "w1", change: { verb: "messages", mask: null } }],
       [["overseer", "wire", "list"], "wire.list", {}],
       [["overseer", "node", "create", '{"node":{"kind":"agent","harness":"claude","model":"opus","x":0,"y":0,"width":260,"height":120}}'], "node.create",
         { node: { kind: "agent", harness: "claude", model: "opus", x: 0, y: 0, width: 260, height: 120 } }],
@@ -684,9 +684,10 @@ describe("overseer region environment and secrets CLI", { timeout: SPAWNING_TEST
   it("prints for node create exactly the kinds main decodes", async () => {
     const shown = await runCli(["overseer", "schema", "show", "node.create"]);
     expect(shown.code).toBe(0);
-    for (const kind of ["agent", "terminal", "page", "task", "requests", "artifacts", "board", "note", "label", "file", "link", "git", "region"]) {
+    for (const kind of ["agent", "terminal", "page", "task", "artifacts", "note", "label", "file", "link", "git", "region"]) {
       expect(shown.stdout).toContain(`"${kind}"`);
     }
+    for (const kind of ["requests", "board"]) expect(shown.stdout).not.toContain(`"${kind}"`);
     expect(shown.stdout).not.toContain("ether");
     const batch = await runCli(["overseer", "schema", "show", "canvas.batch"]);
     expect(batch.stdout).toContain("expectedSeq");

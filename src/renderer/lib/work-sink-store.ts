@@ -7,7 +7,7 @@ type SinkApi = {
 };
 const emptyPage = (kind: WorkSinkKind): WorkSinkPage => ({ kind, items: [] }) as WorkSinkPage;
 const itemId = (item: WorkSinkPage["items"][number]) =>
-  "id" in item ? item.id : "artifactId" in item ? item.artifactId : item.topicId;
+  "id" in item ? item.id : item.artifactId;
 
 const mergePages = (kind: WorkSinkKind, pages: ReadonlyArray<WorkSinkPage>): WorkSinkPage => {
   const rows = new Map<string, WorkSinkPage["items"][number]>();

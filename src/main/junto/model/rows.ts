@@ -81,11 +81,8 @@ export const nodeToRow = (canvas: string, node: Node): SqlValues => {
         name: node.name ?? null,
         contract_json: json(node.contract),
       };
-    case "requests":
-      return { ...base, name: node.name ?? null };
     case "artifacts":
     case "automations":
-    case "board":
       return { ...base, label: node.label ?? null };
     case "note":
     case "label":
@@ -166,12 +163,8 @@ export const nodeFromRow = (kind: NodeKind, row: SqlRow): Node => {
         ...optionalJson(row, "contract_json", "contract"),
       };
       break;
-    case "requests":
-      fields = optional(row, "name");
-      break;
     case "artifacts":
     case "automations":
-    case "board":
       fields = label;
       break;
     case "note":

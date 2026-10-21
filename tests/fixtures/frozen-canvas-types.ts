@@ -11,8 +11,9 @@ import {
   verbsForPair,
   type VerbGrant,
 } from "../../src/shared/physics/verbs";
+import { Author } from "../../src/shared/author";
 import {
-  Artifact, BoardGlanceTopic, Task, TasksContract,
+  Artifact, Part, Task, TasksContract,
   Rule,
   Ruling,
 } from "../../src/shared/work-model";
@@ -84,9 +85,8 @@ const inferCandidate = (
     (sourceRole === "sink" && targetRole === "actor")
   ) {
     const sink = (sourceRole === "sink" ? source : target) as SinkKind;
-    if (sink === "board") {
-      return legacyEther?.wake === false ? "messages" : "participates";
-    }
+    // A board edge held `participates`, which left with the board (step 38).
+    if ((sink as string) === "board") return undefined;
     const table: { readonly [K in SinkKind]?: Verb } = ACCESS_VERB_FOR_SINK;
     return table[sink];
   }
@@ -94,6 +94,42 @@ const inferCandidate = (
   // A scheduler pairing holds no verb since 0.10 deleted the scheduler verbs.
   return undefined;
 };
+
+/** The board shapes as these fixtures froze them; the board node kind is gone. */
+const BoardTopicState = Schema.Literals(["open", "archived"]);
+const Count = Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0)));
+export const BoardPost = Schema.Struct({
+  postId: Schema.String,
+  topicId: Schema.String,
+  author: Author,
+  parts: Schema.Array(Part).pipe(Schema.check(Schema.isMinLength(1))),
+  position: Count,
+  createdAt: Schema.String,
+  tags: Schema.optionalKey(Schema.Array(Schema.String.pipe(Schema.check(Schema.isMinLength(1))))),
+});
+export const BoardTopic = Schema.Struct({
+  topicId: Schema.String,
+  title: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(512))),
+  state: BoardTopicState,
+  openedBy: Author,
+  openedAt: Schema.String,
+  postCount: Count,
+  lastActivityAt: Schema.String,
+  parts: Schema.optionalKey(Schema.Array(Part)),
+  posts: Schema.optionalKey(Schema.Array(BoardPost)),
+});
+export const WorkBoard = Schema.Struct({
+  topics: Schema.Array(Schema.Struct({ ...BoardTopic.fields, unreadPostCount: Count })),
+});
+export const BoardGlanceTopic = Schema.Struct({
+  topicId: Schema.String,
+  title: Schema.String,
+  state: BoardTopicState,
+  postCount: Schema.Number,
+  lastActivityAt: Schema.String,
+  authorLabel: Schema.optionalKey(Schema.String),
+  unreadPostCount: Schema.optionalKey(Schema.Number),
+});
 
 /** The pad glance as these fixtures froze it; the pad node kind is gone. */
 const PadGlance = Schema.Struct({
@@ -104,9 +140,6 @@ const PadGlance = Schema.Struct({
 
 export {
   Artifact,
-  BoardGlanceTopic,
-  BoardPost,
-  BoardTopic,
   Check,
   CheckResult,
   CheckSide,
@@ -152,7 +185,6 @@ export {
   VisitExit,
   Waiver,
   isContentPart,
-  WorkBoard,
   WorkMetadata,
 } from "../../src/shared/work-model";
 

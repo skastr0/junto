@@ -251,9 +251,9 @@ of seats must not cost it a frame, and one command must change one row.
 
 | source → target | verbs | compiled |
 |---|---|---|
-| agent → agent | `messages` \| `reviews` | msg ports; or directed `verdict.post` |
+| agent → agent | `messages` | msg ports |
 | agent → page | `navigates` | `browser.automate` |
-| task → task | `feeds` | no ports; `flow: true`, DAG-guarded task-path hop |
+| task → task | `flows` | no ports; `flow: true`, DAG-guarded task-path hop |
 | terminal (either side) | — | no verb reaches it yet |
 
 Plain connect (no picker) stamps the pair's first verb, `messages` between two seats.

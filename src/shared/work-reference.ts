@@ -58,12 +58,9 @@ export const operatorActorRef = (canvasName: string): ActorRef => ({
 
 export const WorkItemKind = Schema.Literals([
   "task",
-  "request",
   "message",
   "artifact",
   "delivery",
-  "topic",
-  "post",
   "command",
   "ruling",
 ]);

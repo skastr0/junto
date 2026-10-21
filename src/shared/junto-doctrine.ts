@@ -12,9 +12,7 @@
 
 import {
   ARTIFACTS_ENABLED,
-  BOARD_ENABLED,
   BROWSER_ENABLED,
-  REQUESTS_ENABLED,
   TASKS_ENABLED,
 } from "./features";
 import { PAST_SESSIONS_FRAMING } from "./seat-sessions";
@@ -42,9 +40,7 @@ import {
  */
 const WORK_SURFACE_WORDS: ReadonlyArray<string> = [
   ...(TASKS_ENABLED ? ["tasks"] : []),
-  ...(REQUESTS_ENABLED ? ["requests"] : []),
   ...(ARTIFACTS_ENABLED ? ["artifacts"] : []),
-  ...(BOARD_ENABLED ? ["boards"] : []),
   "other agents",
 ];
 

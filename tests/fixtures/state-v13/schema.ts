@@ -216,3 +216,15 @@ export const STATE_SCHEMA_V37_SQL = stepped(
   STATE_SCHEMA_V36_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 37)!.migrate,
 );
+
+// Version 38 kept the origins a seat ran code in (37 -> 38).
+export const STATE_SCHEMA_V38_SQL = stepped(
+  STATE_SCHEMA_V37_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 38)!.migrate,
+);
+
+// Version 39 deleted the bulletin board and the requests node (38 -> 39).
+export const STATE_SCHEMA_V39_SQL = stepped(
+  STATE_SCHEMA_V38_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 39)!.migrate,
+);

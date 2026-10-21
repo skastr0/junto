@@ -50,14 +50,10 @@ export const terminal = (id: string, more: Partial<NodeOf<"terminal">> = {}): No
 
 export const taskBoard = (id: string, more: Partial<NodeOf<"task">> = {}): NodeOf<"task"> =>
   ({ kind: "task", ...placed(id), ...more });
-export const requests = (id: string, more: Partial<NodeOf<"requests">> = {}): NodeOf<"requests"> =>
-  ({ kind: "requests", ...placed(id), ...more });
 export const artifacts = (id: string, more: Partial<NodeOf<"artifacts">> = {}): NodeOf<"artifacts"> =>
   ({ kind: "artifacts", ...placed(id), ...more });
 export const automations = (id: string, more: Partial<NodeOf<"automations">> = {}): NodeOf<"automations"> =>
   ({ kind: "automations", ...placed(id), ...more });
-export const board = (id: string, more: Partial<NodeOf<"board">> = {}): NodeOf<"board"> =>
-  ({ kind: "board", ...placed(id), ...more });
 export const page = (id: string, more: Partial<NodeOf<"page">> = {}): NodeOf<"page"> => ({
   kind: "page",
   ...placed(id),
@@ -100,7 +96,6 @@ export const worldOf = (canvas: Canvas, work: Partial<KernelWork> = {}, seatTask
   canvas,
   work: {
     tasks: work.tasks ?? new Map(),
-    boards: work.boards ?? new Map(),
     artifacts: work.artifacts ?? new Map(),
   },
   seatTasks,

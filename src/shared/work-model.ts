@@ -1,6 +1,5 @@
 import { Schema } from "effect";
 import { ActorSeatId } from "./actor-seat";
-import { Author } from "./author";
 import { ActorRef, TaskRef } from "./work-reference";
 import { ContentPart } from "./content";
 import { ReviewVerdict } from "./crew";
@@ -470,75 +469,3 @@ export const Artifact = Schema.Struct({
   metadata: Schema.optionalKey(WorkMetadata),
 });
 export type Artifact = typeof Artifact.Type;
-
-export const BoardTopicState = Schema.Literals(["open", "archived"]);
-export type BoardTopicState = typeof BoardTopicState.Type;
-
-/** Append-only post under a topic (Part[] body — not Message). */
-export const BoardPost = Schema.Struct({
-  postId: Schema.String,
-  topicId: Schema.String,
-  author: Author,
-  parts: Schema.Array(Part).pipe(Schema.check(Schema.isMinLength(1))),
-  /** Monotone per-topic position (0-based). */
-  position: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
-  createdAt: Schema.String,
-  /**
-   * Optional actor node ids tagged in this post (canvas card ids).
-   * Expand-only — historical posts omit. Soft tag-notify uses these.
-   */
-  tags: Schema.optionalKey(
-    Schema.Array(Schema.String.pipe(Schema.check(Schema.isMinLength(1)))),
-  ),
-});
-export type BoardPost = typeof BoardPost.Type;
-
-/** Topic shell (aggregate root). Posts stream separately or nested for list. */
-export const BoardTopic = Schema.Struct({
-  topicId: Schema.String,
-  title: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(512))),
-  state: BoardTopicState,
-  openedBy: Author,
-  openedAt: Schema.String,
-  postCount: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
-  lastActivityAt: Schema.String,
-  /** Opening body as first-class optional parts (also post 0 when present). */
-  parts: Schema.optionalKey(Schema.Array(Part)),
-  posts: Schema.optionalKey(Schema.Array(BoardPost)),
-});
-export type BoardTopic = typeof BoardTopic.Type;
-
-/**
- * Reader-local projected topic: a topic plus the operator's unread-post count
- * computed at the repository read boundary. Never a fact payload field —
- * actions and immutable results carry plain BoardTopic.
- */
-export const BoardTopicView = Schema.Struct({
-  ...BoardTopic.fields,
-  unreadPostCount: Schema.Number.pipe(
-    Schema.check(Schema.isInt()),
-    Schema.check(Schema.isGreaterThanOrEqualTo(0)),
-  ),
-});
-export type BoardTopicView = typeof BoardTopicView.Type;
-
-/** Board sink contents, read separately from the board node. */
-export const WorkBoard = Schema.Struct({
-  topics: Schema.Array(BoardTopicView),
-});
-export type WorkBoard = typeof WorkBoard.Type;
-
-/**
- * Canvas glance strip — titles + counts only. Full posts stay on list/detail.
- */
-export const BoardGlanceTopic = Schema.Struct({
-  topicId: Schema.String,
-  title: Schema.String,
-  state: BoardTopicState,
-  postCount: Schema.Number,
-  lastActivityAt: Schema.String,
-  authorLabel: Schema.optionalKey(Schema.String),
-  /** Operator's unread posts on this topic (own posts never count). */
-  unreadPostCount: Schema.optionalKey(Schema.Number),
-});
-export type BoardGlanceTopic = typeof BoardGlanceTopic.Type;

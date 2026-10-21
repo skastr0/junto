@@ -113,21 +113,21 @@ describe("work mutation seam — classification", () => {
       ],
       // upsert: the DO UPDATE tail is part of the INSERT, not a second write
       [
-        "INSERT INTO work_board_posts(a) VALUES (?) ON CONFLICT(a) DO UPDATE SET b = 1",
-        "work_board_posts",
+        "INSERT INTO work_delivery_receipts(a) VALUES (?) ON CONFLICT(a) DO UPDATE SET b = 1",
+        "work_delivery_receipts",
       ],
       [
-        "UPDATE work_board_topics SET post_count = 1 WHERE a = ?",
-        "work_board_topics",
+        "UPDATE work_task_finish SET a = 1 WHERE a = ?",
+        "work_task_finish",
       ],
       ["UPDATE OR REPLACE work_artifacts SET a = 1", "work_artifacts"],
       ["DELETE FROM work_task_messages WHERE a = ?", "work_task_messages"],
-      ["REPLACE INTO work_board_posts(a) VALUES (?)", "work_board_posts"],
+      ["REPLACE INTO work_delivery_receipts(a) VALUES (?)", "work_delivery_receipts"],
       // formatting must not be a bypass
       ["insert into work_tasks(a) values (?)", "work_tasks"],
       ['INSERT INTO "work_tasks"(a) VALUES (?)', "work_tasks"],
       ["INSERT INTO main.work_tasks(a) VALUES (?)", "work_tasks"],
-      ["-- comment\nDELETE FROM work_requests WHERE a = ?", "work_requests"],
+      ["-- comment\nDELETE FROM work_task_dependencies WHERE a = ?", "work_task_dependencies"],
       // reads and non-work writes are not the seam's business
       ["SELECT * FROM work_tasks", null],
       ["INSERT INTO known_installations(a) VALUES (?)", null],
@@ -260,7 +260,7 @@ describe("work mutation seam — the seam is the only route", () => {
     await succeeds(
       "test.cursor",
       Effect.gen(function* () {
-        yield* sql`DELETE FROM work_board_read_cursors WHERE 1 = 0`;
+        yield* sql`DELETE FROM work_exchange_cursors WHERE 1 = 0`;
       }),
     );
   });
@@ -500,7 +500,7 @@ describe("work mutation sink attribution", () => {
     // Expand computed table targets into the concrete projection tables the
     // repository supports, then check their sink attribution independently.
     const dynamic: ReadonlyArray<readonly [string, ReadonlyArray<string>]> = [
-      ["${table}", ["work_tasks", "work_requests"]],
+      ["${table}", ["work_tasks"]],
     ];
 
     const statements: Array<string> = [];
@@ -523,7 +523,8 @@ describe("work mutation sink attribution", () => {
         statements.push(sql);
       }
     }
-    expect(statements.length).toBeGreaterThan(20);
+    // The scan found the work plane's writes, not an empty file.
+    expect(statements.length).toBeGreaterThan(12);
 
     const unattributed: Array<string> = [];
     let attributed = 0;
@@ -540,6 +541,6 @@ describe("work mutation sink attribution", () => {
     expect(unattributed).toEqual([]);
     // Every table carrying a revision trigger that this source writes at all
     // is covered; the count is a floor so the scan cannot silently find none.
-    expect(attributed).toBeGreaterThanOrEqual(15);
+    expect(attributed).toBeGreaterThanOrEqual(10);
   });
 });

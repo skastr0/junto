@@ -1,7 +1,6 @@
 import { Effect, Exit } from "effect";
 import { ulid } from "ulid";
 import { hostsSnapshot } from "../hosts/snapshot";
-import { productVerbEnabled } from "@shared/features";
 import { actorRefResolverFromProjection } from "@shared/graph";
 import {
   asCanvasName,
@@ -637,7 +636,7 @@ const handleWireVerbs = (
     if (args.from === undefined || args.to === undefined) return { verbs: [] };
     const from = canvas.nodes.get(asNodeId(args.from));
     const to = canvas.nodes.get(asNodeId(args.to));
-    const verbs = verbsForEndpoints(from, to).filter(productVerbEnabled);
+    const verbs = verbsForEndpoints(from, to);
     const pairDefault = defaultVerbForPair(from?.kind, to?.kind);
     return {
       verbs,

@@ -127,7 +127,7 @@ describe("the way back from a command", () => {
   it("a rewire goes back to the old verb, mask and sides", () => {
     const command: Command = {
       _tag: "Rewire", canvas: name, id: "w2" as Wire["id"],
-      change: { verb: "reviews", mask: null, fromSide: "top", toSide: "left" },
+      change: { verb: "navigates", mask: null, fromSide: "top", toSide: "left" },
     };
     expect(back(before, command)).toEqual([
       { _tag: "Rewire", canvas: name, id: "w2", change: { verb: "messages", mask: ["msg.send"], fromSide: "right", toSide: null } },

@@ -18,8 +18,6 @@
 import { featureTierOn, type FeatureKey, type FeatureTier } from "./feature-catalog";
 
 declare const __JUNTO_BROWSER_ENABLED__: boolean | undefined;
-declare const __JUNTO_BOARD_ENABLED__: boolean | undefined;
-declare const __JUNTO_REQUESTS_ENABLED__: boolean | undefined;
 declare const __JUNTO_ARTIFACTS_ENABLED__: boolean | undefined;
 declare const __JUNTO_TASKS_ENABLED__: boolean | undefined;
 declare const __JUNTO_FLEET_UI_ENABLED__: boolean | undefined;
@@ -37,7 +35,6 @@ declare const __JUNTO_HARNESS_OMP_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_PRIME_AGENT_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_SETTINGS_ENABLED__: boolean | undefined;
 declare const __JUNTO_SEAT_AWARENESS_TIER__: FeatureTier | undefined;
-declare const __JUNTO_REVIEWS_ENABLED__: boolean | undefined;
 
 const envEnabled = (key: string): boolean => {
   try {
@@ -63,21 +60,6 @@ export const BROWSER_ENABLED: boolean =
   typeof __JUNTO_BROWSER_ENABLED__ === "boolean"
     ? __JUNTO_BROWSER_ENABLED__
     : envEnabled("JUNTO_BROWSER");
-
-/** Bulletin board sink — node authoring, wires, and the board CLI. */
-export const BOARD_ENABLED: boolean =
-  typeof __JUNTO_BOARD_ENABLED__ === "boolean"
-    ? __JUNTO_BOARD_ENABLED__
-    : envEnabled("JUNTO_BOARD");
-
-/**
- * Requests sink — node authoring, wires, and the escalate CLI. Input-required
- * work stays on the Tasks node, which owns the same attention states.
- */
-export const REQUESTS_ENABLED: boolean =
-  typeof __JUNTO_REQUESTS_ENABLED__ === "boolean"
-    ? __JUNTO_REQUESTS_ENABLED__
-    : envEnabled("JUNTO_REQUESTS");
 
 /** Artifacts sink — node authoring, wires, and the artifact CLI. */
 export const ARTIFACTS_ENABLED: boolean =
@@ -227,20 +209,8 @@ export const SEAT_AWARENESS_TIER: FeatureTier =
 /** Seat awareness is in this build at all (on or experimental). */
 export const SEAT_AWARENESS_COMPILED: boolean = SEAT_AWARENESS_TIER !== false;
 
-/**
- * The reviews connection family between two seats. Off in the ship profile:
- * seats connect only as messages. A reviews edge already on a canvas still
- * decodes and compiles; only authoring the verb is gated.
- */
-export const REVIEWS_ENABLED: boolean =
-  typeof __JUNTO_REVIEWS_ENABLED__ === "boolean"
-    ? __JUNTO_REVIEWS_ENABLED__
-    : envEnabled("JUNTO_REVIEWS");
-
 export const BUILD_FEATURES = {
   browser: BROWSER_ENABLED,
-  board: BOARD_ENABLED,
-  requests: REQUESTS_ENABLED,
   artifacts: ARTIFACTS_ENABLED,
   tasks: TASKS_ENABLED,
   fleetUi: FLEET_UI_ENABLED,
@@ -258,7 +228,6 @@ export const BUILD_FEATURES = {
   harnessPrimeAgent: HARNESS_PRIME_AGENT_ENABLED,
   harnessSettings: HARNESS_SETTINGS_ENABLED,
   seatAwareness: SEAT_AWARENESS_TIER,
-  reviews: REVIEWS_ENABLED,
 } as const satisfies Readonly<Record<FeatureKey, FeatureTier>>;
 
 /** The operator's experimental toggles, as the settings row stores them. */
@@ -292,20 +261,9 @@ export const seatAwarenessOn = (optIns: ExperimentalOptIns): boolean =>
 export const productNodeKindEnabled = (kind: string | undefined): boolean => {
   if (kind === "task") return TASKS_ENABLED;
   if (kind === "page") return BROWSER_ENABLED;
-  if (kind === "board") return BOARD_ENABLED;
-  if (kind === "requests") return REQUESTS_ENABLED;
   if (kind === "artifacts") return ARTIFACTS_ENABLED;
   return true;
 };
-
-/**
- * Whether this build may author an edge with this verb. The sibling of
- * {@link productNodeKindEnabled} for verbs: every surface that offers or
- * writes a new verb reads it. Stored edges never do; they decode and compile
- * whatever this says.
- */
-export const productVerbEnabled = (verb: string): boolean =>
-  verb === "reviews" ? REVIEWS_ENABLED : true;
 
 /**
  * Whether a capability token belongs to a surface this build enabled. The
@@ -313,12 +271,8 @@ export const productVerbEnabled = (verb: string): boolean =>
  * docs, capability inventories) rather than node kinds.
  */
 export const productPortEnabled = (port: string): boolean => {
-  // A verdict reviews a task board: no tasks, no review target.
-  if (port === "verdict.post") return TASKS_ENABLED;
   if (port.startsWith("tasks.")) return TASKS_ENABLED;
   if (port.startsWith("content.")) return TASKS_ENABLED;
-  if (port.startsWith("board.")) return BOARD_ENABLED;
-  if (port.startsWith("request.")) return REQUESTS_ENABLED;
   if (port.startsWith("artifact.")) return ARTIFACTS_ENABLED;
   if (port.startsWith("browser.")) return BROWSER_ENABLED;
   return true;

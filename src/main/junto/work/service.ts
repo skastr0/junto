@@ -88,8 +88,8 @@ import {
   type CheckPlanItem,
   type CheckSubmissionResult,
 } from "@shared/checks";
-import { WorkErrorDetails, type VerdictPostArgs, type WorkErrorBody } from "@shared/work-control";
-import type { MailSenderStamp, ReviewVerdict, VerdictSubject } from "@shared/crew";
+import { WorkErrorDetails } from "@shared/work-control";
+import type { MailSenderStamp, ReviewVerdict } from "@shared/crew";
 import { flowDestinations } from "@shared/flow-graph";
 import { regionStack } from "@shared/model/canvas";
 import { taskCommentRecipient } from "@shared/task-owner";
@@ -126,14 +126,11 @@ import { messageDelivery } from "./message-delivery";
 import { CrewRepository } from "./crew-repository";
 import {
   evaluateReviewGate,
-  planVerdictPost,
-  resolveTaskSubject,
   reviewAuthorSeat,
   reviewSubjectProjection,
   reviewerSeatsOf,
   type ReviewGateResult,
   type ReviewSubjectProjection,
-  type ResolvedReviewSubject,
 } from "./reviews";
 import { readTaskReviewers } from "./task-repository";
 
@@ -274,17 +271,6 @@ const toWorkServiceError = (error: unknown): WorkServiceError => {
     message: error instanceof Error ? error.message : String(error),
   });
 };
-
-const reviewServiceError = (error: WorkErrorBody): WorkServiceError =>
-  new WorkServiceError({
-    code: error.type === "ReviewerIsAuthor"
-      ? "reviewer_is_author"
-      : error.type === "ScopeError"
-        ? "scope_error"
-        : "invalid",
-    message: error.message,
-    ...(error.details === undefined ? {} : { details: error.details }),
-  });
 
 type WorkMutationOutcome<T> = {
   readonly value: T;
@@ -428,12 +414,6 @@ export interface WorkServiceId {
 }
 
 export interface WorkServiceShape {
-    readonly workVerdictPost: (
-      canvas: string,
-      target: string,
-      input: Omit<VerdictPostArgs, "target">,
-      reviewer: ActorRef,
-    ) => Effect.Effect<WorkOpResult<WorkVerdictPostResult>>;
     /** Read the canonical single home of one task through the app-owned seam. */
     readonly workTaskHome: (
       canvas: string,
@@ -544,8 +524,8 @@ export interface WorkServiceShape {
     readonly readArtifacts: (canvas: string, nodeId: string) => Effect.Effect<ReadonlyArray<Artifact>, WorkServiceError>;
     readonly readArtifact: (canvas: string, nodeId: string, id: string) => Effect.Effect<Artifact | undefined, WorkServiceError>;
     readonly readTopology: (canvas: string) => Effect.Effect<{ readonly canvas: Canvas; readonly actorRefs: ReadonlyArray<ActorRef> }, WorkServiceError>;
-    readonly readTask: (canvas: string, nodeId: string, id: string, kind?: "task" | "requests") => Effect.Effect<Task | undefined, WorkServiceError>;
-    readonly readTasks: (canvas: string, nodeId: string, kind?: "task" | "requests") => Effect.Effect<ReadonlyArray<Task>, WorkServiceError>;
+    readonly readTask: (canvas: string, nodeId: string, id: string) => Effect.Effect<Task | undefined, WorkServiceError>;
+    readonly readTasks: (canvas: string, nodeId: string) => Effect.Effect<ReadonlyArray<Task>, WorkServiceError>;
     readonly readMailbox: (canvas: string, nodeId: string) => Effect.Effect<ReadonlyArray<Message>, WorkServiceError>;
     readonly readMailMessage: (canvas: string, nodeId: string, messageId: string) => Effect.Effect<Message | undefined, WorkServiceError>;
     /** The newest mail seats `a` and `b` sent each other, both ways; `nodeId` is the mailbox it sits in. */
@@ -658,15 +638,6 @@ export interface WorkServiceShape {
 
 export type WorkService = WorkServiceId;
 
-export type WorkVerdictPostResult = {
-  readonly verdictId: string;
-  readonly subject: VerdictSubject;
-  readonly epoch: number;
-  readonly authorSeatId: ReviewVerdict["authorSeatId"];
-  readonly effect: "none" | "rejected";
-  readonly newEpoch?: number;
-};
-
 export const WorkService = Context.Service<WorkService, WorkServiceShape>("@junto/WorkService");
 
 export const WorkLive = Layer.effect(
@@ -703,8 +674,8 @@ export const WorkLive = Layer.effect(
       })).pipe(Effect.mapError(toWorkServiceError));
     });
 
-    const readItem = (canvasName: string, nodeId: string, itemId: string, kind: "task" | "requests" = "task") =>
-      repository.taskItem({ canvasName, nodeId, itemId, kind }).pipe(Effect.mapError(toWorkServiceError));
+    const readItem = (canvasName: string, nodeId: string, itemId: string) =>
+      repository.taskItem({ canvasName, nodeId, itemId, kind: "task" }).pipe(Effect.mapError(toWorkServiceError));
 
     const policyRows = Effect.fn("WorkService.policyRows")(function* (
       canvasName: string, nodeId: string, ids: ReadonlyArray<string>, artifactIds: ReadonlyArray<string> = [],
@@ -1070,7 +1041,7 @@ export const WorkLive = Layer.effect(
       );
 
     const itemHome = (
-      lane: "task" | "request",
+      lane: "task",
       canvasName: string,
       nodeId: string,
       itemId: string,
@@ -1088,87 +1059,6 @@ export const WorkLive = Layer.effect(
               : Effect.succeed(home)
         ),
       );
-
-    const planWorkVerdict = (
-      canvas: string,
-      target: string,
-      input: Omit<VerdictPostArgs, "target">,
-      reviewer: ActorRef,
-    ) => Effect.gen(function* () {
-      const [context, read] = yield* Effect.all([installationContext, readTopology(canvas)]);
-      if (reviewer.canvasName !== canvas ||
-        read.actorRefs.filter((actor) => sameActor(actor, reviewer)).length !== 1) {
-        return yield* new WorkServiceError({
-          code: "scope_error",
-          message: "reviewer no longer identifies a live actor seat on this canvas",
-          details: { reason: "reviewer-not-current", retryable: false },
-        });
-      }
-      let subject: ResolvedReviewSubject;
-      let reviewerListed: boolean;
-      if (input.subject.kind === "task") {
-        const expected = input.subject;
-        const node = yield* requireNode(read.topology, target);
-        const task = yield* readItem(canvas, target, expected.taskId);
-        if (task === undefined) {
-          return yield* new WorkServiceError({
-            code: "task_not_found",
-            message: `task "${input.subject.taskId}" not found at "${target}"`,
-          });
-        }
-        const home = yield* itemHome("task", canvas, target, task.id);
-        if (home !== context.localInstallationId) {
-          return yield* new WorkServiceError({
-            code: "wrong_home",
-            message: "review verdicts execute on the task home installation",
-          });
-        }
-        const projection = reviewSubjectProjection({
-          installationId: home,
-          canvasName: canvas,
-          nodeId: target,
-          task,
-        });
-        const resolved = resolveTaskSubject({ projection, expected: input.subject });
-        if (!resolved.ok) return yield* reviewServiceError(resolved.error);
-        subject = resolved.subject;
-        reviewerListed = reviewerSeatsOf({
-          reviewers: yield* readTaskReviewers(sql, canvas, task.id).pipe(Effect.mapError(toWorkServiceError)),
-          actorRefs: read.actorRefs,
-        }).some((listed) => listed.seatId === reviewer.seatId);
-      } else {
-        const sha = input.subject.sha.trim().toLowerCase();
-        const authorSeatId = yield* crew.firstAuthorForSha(sha).pipe(Effect.mapError(toWorkServiceError));
-        const author = read.actorRefs.find((actor) => actor.nodeId === target);
-        if (authorSeatId !== undefined && author?.seatId !== authorSeatId) {
-          return yield* new WorkServiceError({
-            code: "scope_error",
-            message: "commit target does not match its durable author provenance",
-            details: { reason: "commit-author-mismatch", retryable: false },
-          });
-        }
-        subject = {
-          kind: "commit",
-          sha,
-          ...(authorSeatId !== undefined && author !== undefined ? { authorSeatId: author.seatId } : {}),
-        };
-        // A commit's reviewers are the seats its receipts reached; the writer
-        // checks that in its own transaction.
-        reviewerListed = true;
-      }
-      const plan = planVerdictPost({
-        caller: { seatId: reviewer.seatId, nodeId: reviewer.nodeId },
-        subject,
-        kind: input.kind,
-        findings: input.findings ?? [],
-        refs: input.refs ?? [],
-        reviewerListed,
-        verdictId: ids.id(),
-        postedAtMs: Date.now(),
-      });
-      if (!plan.ok) return yield* reviewServiceError(plan.error);
-      return { context, read, plan };
-    });
 
     return WorkService.of({
       listTopologies: (canvasName) => withSqlRead(sql, Effect.gen(function* () {
@@ -1191,80 +1081,11 @@ export const WorkLive = Layer.effect(
       readArtifact: (canvas, nodeId, id) => repository.artifactItem(canvas, nodeId, id).pipe(Effect.mapError(toWorkServiceError)),
       readTopology: (canvas) => readTopology(canvas).pipe(Effect.map((read) => ({ canvas: read.topology, actorRefs: read.actorRefs }))),
       readTask: readItem,
-      readTasks: (canvas, nodeId, kind = "task") => repository.taskLane(canvas, nodeId, kind).pipe(Effect.mapError(toWorkServiceError)),
+      readTasks: (canvas, nodeId) => repository.taskLane(canvas, nodeId).pipe(Effect.mapError(toWorkServiceError)),
       readMailbox: (canvas, nodeId) => repository.mailbox(canvas, nodeId).pipe(Effect.mapError(toWorkServiceError)),
       readMailMessage: (canvas, nodeId, messageId) => repository.mailMessage(canvas, nodeId, messageId).pipe(Effect.mapError(toWorkServiceError)),
       readMailBetween: (canvas, a, b, limit) => repository.mailBetween(canvas, a, b, limit).pipe(Effect.mapError(toWorkServiceError)),
       readMailSentBy: (canvas, sender) => repository.mailSentBy(canvas, sender).pipe(Effect.mapError(toWorkServiceError)),
-      workVerdictPost: (canvas, target, input, reviewer) =>
-        asResult(
-          Effect.gen(function* () {
-            const { read, plan } = yield* planWorkVerdict(canvas, target, input, reviewer);
-            const result: WorkVerdictPostResult = {
-              verdictId: plan.verdict.verdictId,
-              subject: plan.verdict.subject,
-              epoch: plan.verdict.epoch,
-              authorSeatId: plan.verdict.authorSeatId,
-              effect: "none",
-            };
-            if (plan.effect.kind === "blocking" && plan.verdict.subject.kind === "task") {
-              const subject = plan.verdict.subject;
-              const defect = plan.effect.defect;
-              const policyWork = yield* policyRows(canvas, target, [subject.taskId]);
-              const policy = yield* runPolicy(() => workTaskTransition(policyWork, read.topology,
-                canvas,
-                target,
-                subject.taskId,
-                "rejected",
-                undefined,
-                ids,
-                undefined,
-                { defect },
-              ));
-              if (policy.sentBack === undefined) {
-                return yield* new WorkServiceError({
-                  code: "invalid",
-                  message: "blocking review did not produce a task defect transition",
-                });
-              }
-              const before = policyWork.taskAt(target, subject.taskId);
-              const message = before !== undefined && policy.task.history.length > before.history.length
-                ? policy.task.history.at(-1)
-                : undefined;
-              const moved = yield* repository.sendTaskBack({
-                sink: sinkRef(canvas, target),
-                basis: intentBasis(read.intentWitness),
-                taskId: subject.taskId,
-                ...(message === undefined ? {} : { message }),
-                visits: policy.task.visits ?? [],
-                ...(policy.task.defects === undefined ? {} : { defects: policy.task.defects }),
-                target: sinkRef(canvas, policy.sentBack.nodeId),
-                sentBackTask: policy.sentBack.task,
-                review: { verdict: plan.verdict },
-              }).pipe(Effect.mapError(toWorkServiceError));
-              return yield* complete({
-                value: { ...result, effect: "rejected" as const, newEpoch: taskEpoch(moved.value.sentBack) },
-                disposition: "applied",
-              });
-            }
-            const posted = yield* repository.postReviewVerdict(plan.verdict, {
-              basis: intentBasis(read.intentWitness),
-              canvasName: canvas,
-            }).pipe(Effect.mapError(toWorkServiceError));
-            if ("rejected" in posted) {
-              return yield* new WorkServiceError({
-                code: posted.rejected === "reviewer-is-author"
-                  ? "reviewer_is_author"
-                  : posted.rejected === "not-a-reviewer"
-                    ? "scope_error"
-                    : "invalid",
-                message: `review verdict refused at write: ${posted.rejected}`,
-                details: { reason: posted.rejected, retryable: posted.rejected === "stale-subject" },
-              });
-            }
-            return yield* complete({ value: result, disposition: "applied" });
-          }),
-        ),
       workTaskHome: (canvas, nodeId, taskId) =>
         itemHome("task", canvas, nodeId, taskId),
       workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria, rules, options, admin) =>

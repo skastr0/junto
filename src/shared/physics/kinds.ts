@@ -1,7 +1,6 @@
 import { Data, HashMap, HashSet, Match } from "effect";
 import {
   ARTIFACTS_ENABLED,
-  BOARD_ENABLED,
   BROWSER_ENABLED,
   TASKS_ENABLED,
 } from "../features";
@@ -37,16 +36,9 @@ export const ACTOR_ACTOR_INBOX_PORTS: ReadonlyArray<Port> = [
   "msg.prompt",
   "seat.wait",
   "terminal.read",
-  "verdict.post",
 ];
 
-// Verdicts review the work of a task board; without the tasks surface the
-// port has no runnable target, so it leaves the actor inbox with the gate.
-const msgOffers = portSet(
-  ...ACTOR_ACTOR_INBOX_PORTS.filter(
-    (port) => port !== "verdict.post" || TASKS_ENABLED,
-  ),
-);
+const msgOffers = portSet(...ACTOR_ACTOR_INBOX_PORTS);
 const taskOffers = TASKS_ENABLED
   ? portSet(
     "tasks.list",
@@ -62,22 +54,10 @@ const taskOffers = TASKS_ENABLED
 // capability surface — CLI grants, work ops, overseer admin, station wire —
 // fails closed on the same empty set. The gate lives here, at the one table
 // both admission and the work vocabulary read.
-// Requests offer no port: no verb joins an agent to the sink since raising a
-// hand became the universal agent signals. Overseer request administration is
-// admitted by the sink's work ops (physics/work-ports.ts), not by an edge.
-const requestsOffers = emptyOffers;
 const artifactsOffers = ARTIFACTS_ENABLED
   ? portSet("artifact.publish")
   : emptyOffers;
 const pageOffers = BROWSER_ENABLED ? portSet("browser.automate") : emptyOffers;
-const boardOffers = BOARD_ENABLED
-  ? portSet(
-    "board.list",
-    "board.create_topic",
-    "board.post",
-    "board.mark_read",
-  )
-  : emptyOffers;
 
 /**
  * The role a kind carries, decided by which literal group it was written into
@@ -106,12 +86,10 @@ export const KindSpecs = {
   agent: { kind: "agent", role: "actor", offers: msgOffers },
   page: { kind: "page", role: "sink", offers: pageOffers },
   task: { kind: "task", role: "sink", offers: taskOffers },
-  requests: { kind: "requests", role: "sink", offers: requestsOffers },
   artifacts: { kind: "artifacts", role: "sink", offers: artifactsOffers },
   // Automations offer no port: only the operator and overseers write them,
   // and seats read them by reach, never by an edge.
   automations: { kind: "automations", role: "sink", offers: emptyOffers },
-  board: { kind: "board", role: "sink", offers: boardOffers },
   // Terminal sink: tmux-like resource. Ports TBD in v1 — access family only.
   terminal: { kind: "terminal", role: "sink", offers: emptyOffers },
 } as const satisfies KindSpecTable;

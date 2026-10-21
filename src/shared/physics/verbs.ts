@@ -2,7 +2,7 @@
  * Semantic verbs — the single authored fact on an edge.
  *
  * An edge says one thing: *what this relationship is*. `verb` is the only word
- * the operator writes; ports, board wake and task-path flow are **compiled**
+ * the operator writes; ports and task-path flow are **compiled**
  * from the verb plus the two endpoint kinds. There is no second authoring
  * surface and no mirror to keep in sync.
  *
@@ -24,8 +24,6 @@ import {
 
 export const Verb = Schema.Literals([
   "messages",
-  "reviews",
-  "participates",
   "navigates",
   "flows",
 ]);
@@ -55,14 +53,13 @@ type VerbTable = {
  * Ordered source → target rows. The order is semantic: the row's source is the
  * verb's subject, whatever way the operator happened to drag.
  *
- * Two verbs per ordered pair is the ceiling (tested). Row order never decides
- * the default — `DEFAULT_CONNECT_VERBS` does. No verb grants access to a
- * resource node: a seat reaches those by region (01).
+ * Two verbs per ordered pair is the ceiling (tested). Where a pair holds two,
+ * a plain connect stamps the first. No verb grants access to a resource node:
+ * a seat reaches those by region (01).
  */
 export const VERB_TABLE = {
   agent: {
-    agent: ["messages", "reviews"],
-    board: ["messages", "participates"],
+    agent: ["messages"],
     page: ["navigates"],
   },
   task: {
@@ -88,21 +85,11 @@ export const verbsForPair = (
   return table[from]?.[to] ?? NO_VERBS;
 };
 
-/**
- * What a plain connect stamps where a pair holds two verbs: the fuller
- * relationship — participate, not just read the board — because the narrow
- * one is the deliberate choice, not the accident.
- */
-const DEFAULT_CONNECT_VERBS: ReadonlyArray<Verb> = ["participates"];
-
+/** What a plain connect stamps: the pair's first verb. */
 export const defaultVerbForPair = (
   source: string | undefined,
   target: string | undefined,
-): Verb | undefined => {
-  const verbs = verbsForPair(source, target);
-  if (verbs.length <= 1) return verbs[0];
-  return verbs.find((verb) => DEFAULT_CONNECT_VERBS.includes(verb)) ?? verbs[0];
-};
+): Verb | undefined => verbsForPair(source, target)[0];
 
 // ---------------------------------------------------------------------------
 // Compilation
@@ -114,27 +101,12 @@ export const defaultVerbForPair = (
 export type VerbGrant = {
   /** Ports this relationship opens. Empty for non-access verbs. */
   readonly ports: ReadonlyArray<Port>;
-  /** Board megaphone reaches this seat. */
-  readonly wake?: boolean;
   /** Task path hop between Tasks nodes (DAG-guarded). */
   readonly flow?: boolean;
 };
 
 const MSG_PORTS = [
   "msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read",
-] as const satisfies ReadonlyArray<Port>;
-
-const BOARD_MESSAGE_PORTS = [
-  "board.list",
-  "board.post",
-  "board.mark_read",
-] as const satisfies ReadonlyArray<Port>;
-
-const BOARD_PARTICIPATE_PORTS = [
-  "board.list",
-  "board.create_topic",
-  "board.post",
-  "board.mark_read",
 ] as const satisfies ReadonlyArray<Port>;
 
 const NO_PORTS: ReadonlyArray<Port> = [];
@@ -152,13 +124,7 @@ export const compileVerb = (
   if (!verbsForPair(source, target).includes(verb)) return undefined;
   switch (verb) {
     case "messages":
-      return target === "board"
-        ? { ports: BOARD_MESSAGE_PORTS, wake: false }
-        : { ports: MSG_PORTS };
-    case "reviews":
-      return { ports: ["verdict.post"] };
-    case "participates":
-      return { ports: BOARD_PARTICIPATE_PORTS, wake: true };
+      return { ports: MSG_PORTS };
     case "navigates":
       return { ports: ["browser.automate"] };
     case "flows":
@@ -179,8 +145,6 @@ export const compileVerb = (
  */
 export const VERB_COLOR_TOKEN: Record<Verb, string> = {
   messages: "--wire-verb-messages",
-  reviews: "--wire-verb-reviews",
-  participates: "--wire-verb-participates",
   navigates: "--wire-verb-navigates",
   flows: "--wire-verb-flows",
 };

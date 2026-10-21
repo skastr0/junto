@@ -20,11 +20,11 @@ const canvasOf = (nodes: Node[], wires: Wire[]): Canvas => canvasFromOpened({ ca
 
 describe("React Flow edges from the model", () => {
   it("draws a wire between its ends with its verb's colour", () => {
-    const canvas = canvasOf([seat("a", 0, 0), seat("b", 600, 0)], [wire("w", "a", "b", { verb: "reviews" })]);
+    const canvas = canvasOf([seat("a", 0, 0), seat("b", 600, 0)], [wire("w", "a", "b")]);
     const [edge] = flowEdgesFromModel(canvas);
     expect(edge).toMatchObject({
       id: "w", source: "a", target: "b", type: "wire", zIndex: 16,
-      data: { verb: "reviews", colorToken: VERB_COLOR_TOKEN.reviews, fromKind: "agent", toKind: "agent" },
+      data: { verb: "messages", colorToken: VERB_COLOR_TOKEN.messages, fromKind: "agent", toKind: "agent" },
     });
   });
 

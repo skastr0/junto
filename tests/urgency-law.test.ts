@@ -159,7 +159,6 @@ const ALLOWED: readonly Allowed[] = [
   { file: "src/renderer/lib/command-bar.ts", name: "kindRank", rule: "table", reason: `the palette's node kind groups; ${NOT_URGENCY}` },
   { file: "src/shared/impact/rank.ts", name: "rankStoppageSeeds", rule: "table", reason: `stoppage seeds by cone size; ${NOT_URGENCY}` },
   { file: "src/renderer/lib/modal-stack.ts", name: "LAYER_RANK", rule: "table", reason: `modal layers; ${NOT_URGENCY}` },
-  { file: "src/renderer/lib/wire-pulse.ts", name: "VERB_RANK", rule: "table", reason: `edge verbs; ${NOT_URGENCY}` },
   { file: "src/shared/rules.ts", name: "ADMISSION_RANK", rule: "table", reason: `task admission; ${NOT_URGENCY}` },
   { file: "src/shared/observability.ts", name: "OBSERVABILITY_LEVEL_RANK", rule: "table", reason: `log levels; ${NOT_URGENCY}` },
   { file: "src/shared/cosmetics/draw.ts", name: "DETAIL_RANK", rule: "table", reason: `cosmetic detail levels; ${NOT_URGENCY}` },

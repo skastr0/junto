@@ -3,14 +3,6 @@ export const FEATURE_CATALOG = {
     env: "JUNTO_BROWSER",
     define: "__JUNTO_BROWSER_ENABLED__",
   },
-  board: {
-    env: "JUNTO_BOARD",
-    define: "__JUNTO_BOARD_ENABLED__",
-  },
-  requests: {
-    env: "JUNTO_REQUESTS",
-    define: "__JUNTO_REQUESTS_ENABLED__",
-  },
   artifacts: {
     env: "JUNTO_ARTIFACTS",
     define: "__JUNTO_ARTIFACTS_ENABLED__",
@@ -127,15 +119,6 @@ export const FEATURE_CATALOG = {
       applies: "live",
     },
   },
-  /**
-   * The reviews connection family between two seats. Off, seats connect only
-   * as messages: no family choice when drawing, no swap to reviews, and no
-   * authoring path offers the verb. Existing reviews edges still decode.
-   */
-  reviews: {
-    env: "JUNTO_REVIEWS",
-    define: "__JUNTO_REVIEWS_ENABLED__",
-  },
 } as const;
 
 export type FeatureKey = keyof typeof FEATURE_CATALOG;
@@ -194,8 +177,6 @@ export const featureTierWord = (tier: FeatureTier): "on" | "experimental" | "off
  */
 export const SHIP_FEATURES: FeatureSet = {
   browser: false,
-  board: false,
-  requests: false,
   artifacts: false,
   tasks: false,
   // Machines: the window, the owner commands and seats on other machines.
@@ -208,7 +189,6 @@ export const SHIP_FEATURES: FeatureSet = {
   devTools: false,
   // Built and in the app, off until the operator turns it on in Settings.
   seatAwareness: "experimental",
-  reviews: false,
   harnessHermes: true,
   harnessKimi: true,
   harnessMuse: true,
@@ -221,8 +201,6 @@ export const SHIP_FEATURES: FeatureSet = {
 
 export const ALL_FEATURES: FeatureSet = {
   browser: true,
-  board: true,
-  requests: true,
   artifacts: true,
   tasks: true,
   fleetUi: true,
@@ -232,7 +210,6 @@ export const ALL_FEATURES: FeatureSet = {
   liveOverseer: true,
   devTools: true,
   seatAwareness: true,
-  reviews: true,
   harnessHermes: true,
   harnessKimi: true,
   harnessMuse: true,

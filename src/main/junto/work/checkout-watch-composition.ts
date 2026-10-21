@@ -115,7 +115,7 @@ export const makeCheckoutWatchComposition = (
     const claims: ProvenClaim[] = [];
     for (const node of canvas.nodes.values()) {
       if (node.kind !== "task") continue;
-      const tasks = yield* options.workRepository.taskLane(canvasName, node.id, "task");
+      const tasks = yield* options.workRepository.taskLane(canvasName, node.id);
       const context = claimContextFrom({
         canvasName,
         thisMachine,

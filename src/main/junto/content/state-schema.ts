@@ -55,8 +55,6 @@ export const CONTENT_STATE_SCHEMA_SQL = `
           'task',
           'message',
           'artifact',
-          'board_topic',
-          'board_post',
           'other'
         )
       ),

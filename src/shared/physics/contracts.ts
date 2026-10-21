@@ -91,19 +91,6 @@ export const NodeContracts: {
     ],
     inputs: [enqueueInput],
   },
-  requests: {
-    kind: "requests",
-    ports: portsOf("requests"),
-    events: [
-      {
-        id: "request.answered",
-        label: "A request is answered",
-        word: "completes",
-        equals: "completed",
-      },
-    ],
-    inputs: [],
-  },
   artifacts: {
     kind: "artifacts",
     ports: portsOf("artifacts"),
@@ -115,27 +102,6 @@ export const NodeContracts: {
         equals: "published",
       },
     ],
-    inputs: [],
-  },
-  board: {
-    kind: "board",
-    ports: portsOf("board"),
-    events: [
-      {
-        id: "board.post",
-        label: "A post lands",
-        word: "completes",
-        equals: "post",
-      },
-      {
-        id: "board.topic",
-        label: "A topic is created",
-        word: "completes",
-        equals: "topic",
-      },
-    ],
-    // No scheduler reaches a board: posting is an agent's port, never a fire
-    // action.
     inputs: [],
   },
   page: {

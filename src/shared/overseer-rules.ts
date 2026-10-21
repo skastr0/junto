@@ -1,4 +1,4 @@
-import { productNodeKindEnabled, productVerbEnabled } from "./features";
+import { productNodeKindEnabled } from "./features";
 import { validateFlowDag } from "./flow-graph";
 import {
   asNodeId,
@@ -420,9 +420,6 @@ export const planOverseerSteps = (input: {
               : `verb "${verb}" does not join a ${from.kind} to a ${to.kind}; wire verbs lists the ones that do`,
           );
         }
-        if (!productVerbEnabled(verb)) {
-          return reject("Forbidden", `verb "${verb}" is disabled in this Junto build`);
-        }
         const id = step.wire.id ?? input.mintId("wire");
         if (wires.has(id)) return reject("InvalidArguments", `wire "${id}" already exists`);
         const wire: Wire = { ...step.wire, id: asWireId(id), verb };
@@ -442,9 +439,6 @@ export const planOverseerSteps = (input: {
         }
         const verb = step.change.verb;
         if (verb !== undefined && verb !== wire.verb) {
-          if (!productVerbEnabled(verb)) {
-            return reject("Forbidden", `verb "${verb}" is disabled in this Junto build`);
-          }
           if (!verbsForEndpoints(from, to).includes(verb)) {
             return reject(
               "InvalidArguments",

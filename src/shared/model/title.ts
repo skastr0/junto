@@ -95,8 +95,6 @@ export const titleOf = (node: Node): string => {
       return regionName(node);
     case "task":
       return taskBoardTitle(node).name;
-    case "requests":
-      return named(node.name, ["request", "requests"]) ?? "requests";
     case "note":
     case "label":
       return firstLine(node.text) ?? "untitled";
@@ -110,7 +108,6 @@ export const titleOf = (node: Node): string => {
     case "terminal":
     case "artifacts":
     case "automations":
-    case "board":
       return compact(node.label) ?? node.kind;
   }
 };

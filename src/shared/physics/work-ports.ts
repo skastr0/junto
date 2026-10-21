@@ -101,17 +101,9 @@ export const OPS_BY_SINK = {
     "msg.reply",
     "msg.react",
   ],
-  requests: [
-    "msg.list",
-    "msg.send",
-    "msg.read",
-    "msg.reply",
-    "msg.react",
-  ],
   // Artifacts admit by reach (plan 05); no work op checks a port.
   artifacts: [],
   automations: [],
-  board: [],
   page: [],
   terminal: [],
 } as const satisfies Record<SinkKind, ReadonlyArray<TargetWorkOpName>>;

@@ -16,8 +16,6 @@ export type ContentOwnerKind =
   | "task"
   | "message"
   | "artifact"
-  | "board_topic"
-  | "board_post"
   | "other";
 
 export type ContentOwner = {
@@ -186,8 +184,6 @@ const RefRow = Schema.Struct({
     "task",
     "message",
     "artifact",
-    "board_topic",
-    "board_post",
     "other",
   ]),
   ownerCanvas: Schema.String,

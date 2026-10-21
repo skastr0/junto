@@ -314,7 +314,7 @@ export const executeOverseerWork = (
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
       yield* requireTarget(read.canvas, target, "task.list");
-      return { target, items: yield* catchWork(work.readTasks(canvas, target, "task")) };
+      return { target, items: yield* catchWork(work.readTasks(canvas, target)) };
     }
     if (op === "task.create") {
       const args = yield* decodeArgs(op, raw);
@@ -507,7 +507,7 @@ export const executeOverseerWork = (
       if (args.taskId) {
         yield* requireTarget(read.canvas, targetId, "msg.list");
         const task = yield* catchWork(
-          work.readTask(canvas, targetId, args.taskId, "task"),
+          work.readTask(canvas, targetId, args.taskId),
         );
         if (!task) {
           return yield* failBody({
@@ -659,7 +659,7 @@ export const executeOverseerWork = (
       const target = targetOf(caller, args.target);
       yield* requireTarget(read.canvas, target, "content.path");
       const task = yield* catchWork(
-        work.readTask(canvas, target, args.task, "task"),
+        work.readTask(canvas, target, args.task),
       );
       if (task === undefined) {
         return yield* failBody({
@@ -702,7 +702,7 @@ export const executeOverseerWork = (
       const target = targetOf(caller, args.target);
       yield* requireTarget(read.canvas, target, "content.materialize");
       const task = yield* catchWork(
-        work.readTask(canvas, target, args.task, "task"),
+        work.readTask(canvas, target, args.task),
       );
       if (task === undefined) {
         return yield* failBody({

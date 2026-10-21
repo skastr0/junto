@@ -3,8 +3,6 @@
  * Optional so bare `tsc` / vitest without define still typecheck.
  */
 declare const __JUNTO_BROWSER_ENABLED__: boolean | undefined;
-declare const __JUNTO_BOARD_ENABLED__: boolean | undefined;
-declare const __JUNTO_REQUESTS_ENABLED__: boolean | undefined;
 declare const __JUNTO_ARTIFACTS_ENABLED__: boolean | undefined;
 declare const __JUNTO_TASKS_ENABLED__: boolean | undefined;
 declare const __JUNTO_FLEET_UI_ENABLED__: boolean | undefined;

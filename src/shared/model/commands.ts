@@ -68,10 +68,8 @@ export const NodeEdit = Schema.Union([
     name: setOrClear(OneLine),
     contract: setOrClear(TasksContract),
   }),
-  edit("requests", { name: setOrClear(OneLine) }),
   edit("artifacts", { label }),
   edit("automations", { label }),
-  edit("board", { label }),
   edit("note", { text: set(Schema.String) }),
   edit("label", { text: set(Schema.String) }),
   edit("file", {

@@ -14,7 +14,7 @@ import { envelopeOf } from "./envelope";
 
 const { check, pass, pending } = casesFor("deleted");
 
-const FLAGS_ON = { JUNTO_BOARD: "1", JUNTO_REQUESTS: "1", JUNTO_TASKS: "1", JUNTO_ARTIFACTS: "1", JUNTO_BROWSER: "1" } as const;
+const FLAGS_ON = { JUNTO_TASKS: "1", JUNTO_ARTIFACTS: "1", JUNTO_BROWSER: "1" } as const;
 
 /** A command as typed: a family, or a family and its verb. Pending names the seats deleting one not yet confirmed gone. */
 type Gone = { readonly command: string } & ({ readonly confirmed: true } | { readonly confirmed: false; readonly on: string });

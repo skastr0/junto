@@ -8,12 +8,9 @@ export const WORK_SEAT_RECENT_OP_MAX_LABEL_CHARS = 160;
 
 export const WorkSeatRecentOpOperation = Schema.Literals([
   "task.claim",
-  "request.create",
   "message.append",
   "artifact.publish",
   "delivery.accepted",
-  "board.topic.create",
-  "board.post.append",
 ]);
 export type WorkSeatRecentOpOperation =
   typeof WorkSeatRecentOpOperation.Type;
@@ -35,10 +32,6 @@ export const WorkSeatRecentOpSummary = Schema.Union([
     taskId: Schema.optionalKey(BoundedWorkId),
   }),
   Schema.Struct({
-    kind: Schema.Literal("request"),
-    requestId: BoundedWorkId,
-  }),
-  Schema.Struct({
     kind: Schema.Literal("task"),
     taskId: BoundedWorkId,
   }),
@@ -50,16 +43,6 @@ export const WorkSeatRecentOpSummary = Schema.Union([
       itemId: BoundedWorkId,
       targetNodeId: WorkNodeId,
     }),
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("topic"),
-    topicId: BoundedWorkId,
-    title: SummaryLabel,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("post"),
-    postId: BoundedWorkId,
-    topicId: BoundedWorkId,
   }),
 ]);
 export type WorkSeatRecentOpSummary = typeof WorkSeatRecentOpSummary.Type;
@@ -80,19 +63,15 @@ export type WorkSeatRecentOp = typeof WorkSeatRecentOp.Type;
 
 export const WORK_SEAT_RECENT_OP_INCLUDED_OPERATIONS = [
   "task.claim",
-  "request.create",
   "message.append",
   "artifact.publish",
   "delivery.accepted",
-  "board.topic.create",
-  "board.post.append",
 ] as const satisfies ReadonlyArray<WorkSeatRecentOpOperation>;
 
 export const WORK_SEAT_RECENT_OP_EXCLUDED_OPERATIONS = [
   "task.create",
   "task.describe",
   "task.transition",
-  "request.resolve",
 ] as const satisfies ReadonlyArray<WorkOperation>;
 
 export const WorkSeatRecentOpsCoverage = Schema.Struct({

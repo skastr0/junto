@@ -160,45 +160,11 @@ export const mirrorTasksText = (items: ReadonlyArray<Task>): string => {
   return items.map(taskBrief).join("\n");
 };
 
-/** Requests node text mirror: identity line, attention count, briefs. */
-export const mirrorRequestsText = (
-  items: ReadonlyArray<Task>,
-  name?: string,
-): string => {
-  const pending = items.filter((item) => isAttentionTaskState(item.state)).length;
-  const identity = name?.replace(/\s+/g, " ").trim() || "requests";
-  const header = `${identity}\n${pending} pending`;
-  if (items.length === 0) return header;
-  return [header, ...items.map(taskBrief)].join("\n");
-};
-
 /** Artifacts node text mirror: active names (or artifact ids); skips archived. */
 export const mirrorArtifactsText = (items: ReadonlyArray<Artifact>): string => {
   const live = items.filter((item) => item.metadata?.archived !== true);
   if (live.length === 0) return "artifacts";
   return live.map((item) => item.name?.trim() || item.artifactId).join("\n");
-};
-
-/** First line of board node text is the authorial title. */
-export const boardTitleFromText = (title: string): string =>
-  title.trim().split("\n")[0]?.trim() || "board";
-
-/**
- * Board node text mirror: the authored title plus recent topic titles for
- * offline glance. The first line is operator-authored identity — the
- * projection and the persistence strip must both preserve it. Empty title falls back to the kind name, never a mood word like
- * "quiet" (that leaked into card titles and edge labels).
- */
-export const mirrorBoardText = (
-  title: string,
-  topics: ReadonlyArray<{ readonly title: string }>,
-): string => {
-  const head = boardTitleFromText(title);
-  if (topics.length === 0) return head;
-  return [
-    head,
-    ...topics.slice(0, 4).map((t) => `- ${t.title}`),
-  ].join("\n");
 };
 
 export const countByTaskState = (

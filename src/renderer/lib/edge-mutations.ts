@@ -1,6 +1,6 @@
 import { ulid } from "ulid";
 import { defaultVerbForPair, verbsForPair, type Verb } from "@shared/physics";
-import { productNodeKindEnabled, productVerbEnabled } from "@shared/features";
+import { productNodeKindEnabled } from "@shared/features";
 import { validateFlowDag, type FlowCycleError } from "@shared/flow-graph";
 import { removalTasks, removalWarnings } from "./deletion-impact";
 import { removeEdgesFromSelection, selectEdge, state$ } from "./state";
@@ -49,11 +49,9 @@ export const verbsForDraw = (
   ) {
     return NO_DRAW_VERBS;
   }
-  // A gated verb leaves the offer, so two seats with reviews off hold one
-  // verb, show no landing zones, and connect as messages.
-  const drawn = verbsForPair(fromKind, toKind).filter(productVerbEnabled);
+  const drawn = verbsForPair(fromKind, toKind);
   if (drawn.length > 0) return { verbs: drawn, reversed: false };
-  const flipped = verbsForPair(toKind, fromKind).filter(productVerbEnabled);
+  const flipped = verbsForPair(toKind, fromKind);
   return flipped.length > 0 ? { verbs: flipped, reversed: true } : NO_DRAW_VERBS;
 };
 

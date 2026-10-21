@@ -56,7 +56,7 @@ describe("seat awareness product gate", () => {
     expect(seatAwarenessOn({ seatAwareness: false })).toBe(SEAT_AWARENESS_TIER === true);
     expect(seatAwarenessOn({ seatAwareness: true })).toBe(SEAT_AWARENESS_COMPILED);
     // Another feature's toggle is not this one's.
-    expect(seatAwarenessOn({ reviews: true })).toBe(SEAT_AWARENESS_TIER === true);
+    expect(seatAwarenessOn({ audio: true })).toBe(SEAT_AWARENESS_TIER === true);
   });
 
   it("gates every surface on the resolved predicate, never the tier", () => {

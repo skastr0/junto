@@ -6,9 +6,7 @@ import type { ActorRef } from "../src/shared/work-reference";
 import type { ReviewVerdict } from "../src/shared/crew";
 import type { RuleInForce } from "../src/shared/rules";
 import {
-  REVIEW_REASON_NOT_REVIEWER,
   evaluateReviewGate,
-  planVerdictPost,
   reviewerSeatsOf,
   type ReviewSubjectProjection,
 } from "../src/main/junto/work/reviews";
@@ -36,29 +34,6 @@ describe("reviewerSeatsOf", () => {
       reviewers: [listed("a1"), listed("a2")],
       actorRefs: [ref("a1", seat("a")), ref("a2", seat("a"))],
     })).toEqual([{ nodeId: "a1", seatId: seat("a") }]);
-  });
-});
-
-describe("planVerdictPost", () => {
-  const post = (reviewerListed: boolean) => planVerdictPost({
-    caller: { seatId: seat("r"), nodeId: "r" },
-    subject: { kind: "commit", sha: "abc123", authorSeatId: seat("author") },
-    kind: "green",
-    findings: [],
-    refs: [],
-    reviewerListed,
-    verdictId: "v1",
-    postedAtMs: 1,
-  });
-
-  it("refuses a seat that is not a reviewer of the subject", () => {
-    const plan = post(false);
-    expect(plan.ok).toBe(false);
-    if (!plan.ok) expect(plan.error).toMatchObject({ details: { reason: REVIEW_REASON_NOT_REVIEWER } });
-  });
-
-  it("plans the verdict for a listed reviewer", () => {
-    expect(post(true).ok).toBe(true);
   });
 });
 

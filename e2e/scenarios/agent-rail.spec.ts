@@ -332,7 +332,8 @@ test("[fake-tui] the rail lists agents most urgent first under their own names, 
     modelSeat({ id: "zed", key: "local:order-zed", label: "Zed the reviewer", x: 360, y: 300 }),
   ];
   const talk = Schema.decodeUnknownSync(Node, { onExcessProperty: "error" })({
-    kind: "board", id: "talk", label: "Standup", x: 40, y: 420, width: 320, height: 220, z: 0,
+    kind: "page", id: "talk", url: "https://standup.example.com/", profile: "default", onRemove: "kill-session",
+    x: 40, y: 420, width: 320, height: 220, z: 0,
   });
   const all = [...seats, talk];
   const junto = await launchJunto({
@@ -341,7 +342,7 @@ test("[fake-tui] the rail lists agents most urgent first under their own names, 
         modelWire("w-amy", "hub", "amy", "messages", all),
         modelWire("w-bob", "hub", "bob", "messages", all),
         modelWire("w-zed", "hub", "zed", "messages", all),
-        modelWire("w-talk", "hub", "talk", "participates", all),
+        modelWire("w-talk", "hub", "talk", "navigates", all),
       ]),
     },
     afterSeed: installCrewSeatHarness,
@@ -366,12 +367,12 @@ test("[fake-tui] the rail lists agents most urgent first under their own names, 
       await expect(peer.getByTestId("actor-rail-go")).toHaveAccessibleName(new RegExp(`^Go to ${name}`));
     }
 
-    // Its other connections follow as rows: the board by its name and its kind word.
+    // Its other connections follow as rows: the page by its host and its kind word.
     const others = rail(page).getByTestId("actor-rail-others").locator("li");
     await expect(others).toHaveCount(1);
     await expect(others.first()).toHaveAttribute("data-peer-node-id", "talk");
-    await expect(others.first()).toHaveAttribute("data-peer-kind", "board");
-    await expect(others.first()).toContainText("Standup");
+    await expect(others.first()).toHaveAttribute("data-peer-kind", "page");
+    await expect(others.first()).toContainText("standup.example.com");
   } finally {
     await junto.close();
   }

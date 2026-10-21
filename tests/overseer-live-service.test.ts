@@ -22,7 +22,7 @@ import { SettingsLive } from "../src/main/junto/settings/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { nameThisMachine } from "./support/name-this-machine";
-import { WorkRevisions, WorkRevisionsLive, WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { WorkRevisions, WorkRevisionsLive, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { TaskRepositoryLive } from "../src/main/junto/work/task-repository";
 import { RulingRecorderLive } from "../src/main/junto/work/ruling-recorder";
 import { runOverseerTurn } from "../src/overseer-host/session";
@@ -283,9 +283,22 @@ describe("Live POC with the real canvas and durable journal", () => {
     const request = test.move(run);
     const constraint = await test.service.validateOperation(request, identity);
     const before = await test.graph();
-    const work = await test.runtime.runPromise(WorkRepository);
-    await test.runtime.runPromise(work.markBoardRead({ sink: { canvasName: "factory", nodeId: "first" },
-      topicId: "inspected", principalKey: "operator", lastReadPosition: 0 }));
+    // Work changes on the canvas, and nothing authorial does: one journal
+    // row, whose insert trigger moves the Work revision.
+    await test.runtime.runPromise(Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const at = "2026-01-01T00:00:00.000Z";
+      yield* sql.withTransaction(Effect.gen(function* () {
+        yield* sql`INSERT OR IGNORE INTO known_installations(installation_id, registered_at) VALUES ('elsewhere', ${at})`;
+        yield* sql`INSERT INTO work_event_sequences(event_home, entity_home, last_seq) VALUES ('elsewhere', 'elsewhere', '1')`;
+        yield* sql`INSERT INTO work_events(event_home, entity_home, seq, protocol, record_type, item_kind, item_id,
+            item_canvas_name, item_node_id, operation, content_sha256, origin_at, received_at)
+          VALUES ('elsewhere', 'elsewhere', '1', 'junto/work/v1', 'fact', 'message', 'inspected', 'factory', 'first',
+            'message.append', ${"a".repeat(64)}, ${at}, ${at})`;
+        yield* sql`INSERT INTO work_facts(event_home, entity_home, seq, result_json, basis_kind)
+          VALUES ('elsewhere', 'elsewhere', '1', '{}', 'historical')`;
+      }));
+    }));
     const after = await test.graph();
     expect(after.revision).toBe(before.revision);
     expect(after.workRevision).not.toBe(before.workRevision);

@@ -16,9 +16,6 @@ describe("what a node is called", () => {
 
   it("never returns an empty name", () => {
     const nodes: ReadonlyArray<Node> = [
-      { kind: "requests", ...at },
-      { kind: "requests", ...at, name: "Requests" },
-      { kind: "board", ...at },
       { kind: "note", ...at, text: "" },
       { kind: "note", ...at, text: "  first\nsecond" },
       { kind: "region", ...at, hold: false },

@@ -12,10 +12,6 @@ export type WorkRead = {
 
 /** The work a relay reads from the thing it watches. */
 export type WatchRead = Pick<WorkRead, "itemsOf"> & {
-  /** How many topics and posts a board holds; nothing when it holds none. */
-  readonly board: (
-    node: string,
-  ) => { readonly topics: number; readonly posts: number } | undefined;
   /** How many artifacts an artifacts node holds. */
   readonly artifacts: (node: string) => number;
 };

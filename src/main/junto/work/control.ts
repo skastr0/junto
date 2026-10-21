@@ -1583,9 +1583,7 @@ const dispatchOp = (
       if (decoded.success.taskId) {
         const gate = requireTarget(board, caller.nodeId, targetId, op);
         if ("type" in gate) return yield* Effect.fail(gate);
-        const node = gate.node!;
-        const kind = nodeKind(node);
-        const task = yield* work.readTask(caller.canvasName, targetId, decoded.success.taskId, kind === "task" ? "task" : "requests").pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
+        const task = yield* work.readTask(caller.canvasName, targetId, decoded.success.taskId).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
         if (!task) {
           return yield* Effect.fail({
             type: "UnknownTarget" as const,

@@ -33,7 +33,7 @@ describe("work sink store", () => {
     expect(off).toHaveBeenCalledOnce();
   });
   it("refuses a different kind returned for the requested sink", async () => {
-    const store = createWorkSinkStore(() => ({ workSinkPage: async () => ({ kind: "board", items: [] }), onWorkSinkChanged: () => () => {} }));
+    const store = createWorkSinkStore(() => ({ workSinkPage: async () => ({ kind: "artifacts", items: [] }), onWorkSinkChanged: () => () => {} }));
     const query = { canvasName: "factory", nodeId: "tasks", kind: "task" } as const;
     const release = store.retain(query);
     await flush();

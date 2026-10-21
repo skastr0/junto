@@ -31,7 +31,7 @@ import {
 } from "../src/main/junto/state/engine";
 import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
 import { seedCanvasRows } from "./support/seed-canvas";
-import { canvasOf, requests, seat as seatNode, taskBoard } from "./support/model-nodes";
+import { canvasOf, seat as seatNode, taskBoard } from "./support/model-nodes";
 import { THIS_MACHINE } from "./support/machines";
 
 const canvasName = "factory";
@@ -66,7 +66,6 @@ const atMinute = (minute: number): string =>
 const factoryNodes = [
   seatNode("recipient", { width: 240, height: 100, label: "Recipient" }),
   taskBoard("board", { x: 300, y: 0, width: 240, height: 120 }),
-  requests("asks", { x: 600, y: 0, width: 240, height: 120 }),
 ];
 /** The canvas as its rows hold it, at the sequence the rig seeds. */
 const factoryCanvas = { ...canvasOf(factoryNodes, [], canvasName), seq: 1 };
@@ -141,7 +140,6 @@ const openRepository = async (
 
 
 const board = { canvasName, nodeId: "board" };
-const asks = { canvasName, nodeId: "asks" };
 const note = (messageId: string, text: string) => ({
   messageId,
   role: "user" as const,
@@ -159,7 +157,7 @@ describe("WorkRepository stateSince projection", () => {
       task: { id, state: "submitted", history: [note(`brief-${id}`, id)] },
       originAt: atMinute(1), receivedAt: atMinute(1),
     }));
-    expect(await runtime.runPromise(repository.taskLane(canvasName, "board", "task"))).toHaveLength(2);
+    expect(await runtime.runPromise(repository.taskLane(canvasName, "board"))).toHaveLength(2);
     await runtime.runPromise(Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       // Disposable fixture corruption proves unrelated histories are not decoded.
@@ -174,7 +172,7 @@ describe("WorkRepository stateSince projection", () => {
     expect(rows[0]).toMatchObject({ nodeId: "board", item: { id: "selected", history: [{ parts: [{ kind: "text", text: "selected" }] }] } });
     expect(await runtime.runPromise(repository.taskRowsByIds(canvasName, []))).toEqual([]);
     expect(await runtime.runPromise(repository.taskRowsByIds(otherCanvasName, ["selected"]))).toEqual([]);
-    await expect(runtime.runPromise(repository.taskLane(canvasName, "board", "task"))).rejects.toThrow();
+    await expect(runtime.runPromise(repository.taskLane(canvasName, "board"))).rejects.toThrow();
     // A commit must not hydrate that same unrelated history as a result snapshot.
     const changed = await runtime.runPromise(repository.describeTask({
       sink: board, basis, taskId: "selected", message: note("changed-brief", "Changed selected task."),
@@ -234,32 +232,15 @@ describe("WorkRepository stateSince projection", () => {
     expect(task?.metadata).toBeUndefined();
   });
 
-  it("stamps a request with the time it was raised", async () => {
-    const { runtime, repository, basis } = await openRepository(installation("cc-state-since-req"));
-    const seat = actor("1", "recipient");
-    await runtime.runPromise(
-      repository.createRequest({
-        sink: asks,
-        basis,
-        raisedBy: seat,
-        request: { id: "r1", state: "input-required", claimedBy: seat.seatId, history: [note("m1", "Which region?")] },
-        originAt: atMinute(3),
-        receivedAt: atMinute(3),
-      }),
-    );
-    const request = await runtime.runPromise(repository.taskItem({ canvasName, nodeId: "asks", itemId: "r1", kind: "requests" }));
-    expect(request).toMatchObject({ id: "r1", stateSince: atMinute(3) });
-  });
-
   it("keeps the time through a full close and reopen of the database", async () => {
     const { runtime, repository, basis, root } = await openRepository(installation("cc-state-since-reopen"));
-    const seat = actor("1", "recipient");
+    const dependencyScope = createCanvasTaskDependencyScopeCapability({ canvas: factoryCanvas, authoringSink: board });
     await runtime.runPromise(
-      repository.createRequest({
-        sink: asks,
+      repository.createTask({
+        sink: board,
         basis,
-        raisedBy: seat,
-        request: { id: "r1", state: "input-required", claimedBy: seat.seatId, history: [note("m1", "Which region?")] },
+        dependencyScope,
+        task: { id: "t1", state: "submitted", history: [note("m1", "Which region?")] },
         originAt: atMinute(3),
         receivedAt: atMinute(3),
       }),
@@ -272,19 +253,19 @@ describe("WorkRepository stateSince projection", () => {
     );
     opened.push({ root, dispose: () => reopened.dispose() });
     const again = await reopened.runPromise(WorkRepository);
-    const request = await reopened.runPromise(again.taskItem({ canvasName, nodeId: "asks", itemId: "r1", kind: "requests" }));
-    expect(request).toMatchObject({ id: "r1", stateSince: atMinute(3) });
+    const task = await reopened.runPromise(again.taskItem({ canvasName, nodeId: "board", itemId: "t1", kind: "task" }));
+    expect(task).toMatchObject({ id: "t1", stateSince: atMinute(3) });
   });
 
   it("reads a row written before the stamp existed as since its last fact", async () => {
     const { runtime, repository, basis } = await openRepository(installation("cc-state-since-old"));
-    const seat = actor("1", "recipient");
+    const dependencyScope = createCanvasTaskDependencyScopeCapability({ canvas: factoryCanvas, authoringSink: board });
     await runtime.runPromise(
-      repository.createRequest({
-        sink: asks,
+      repository.createTask({
+        sink: board,
         basis,
-        raisedBy: seat,
-        request: { id: "r1", state: "input-required", claimedBy: seat.seatId, history: [note("m1", "Which region?")] },
+        dependencyScope,
+        task: { id: "t1", state: "submitted", history: [note("m1", "Which region?")] },
         originAt: atMinute(3),
         receivedAt: atMinute(3),
       }),
@@ -294,11 +275,11 @@ describe("WorkRepository stateSince projection", () => {
       sql.withTransaction(
         unjournaledWorkMutationEffect(
           "test.fixture-seed",
-          sql.unsafe("UPDATE work_requests SET metadata_json = NULL WHERE request_id = ?", ["r1"]),
+          sql.unsafe(`UPDATE work_tasks SET metadata_json = json_remove(metadata_json, '$."junto.tasks".stateSince') WHERE task_id = ?`, ["t1"]),
         ),
       ),
     );
-    const request = await runtime.runPromise(repository.taskItem({ canvasName, nodeId: "asks", itemId: "r1", kind: "requests" }));
-    expect(request?.stateSince).toBe(atMinute(3));
+    const task = await runtime.runPromise(repository.taskItem({ canvasName, nodeId: "board", itemId: "t1", kind: "task" }));
+    expect(task?.stateSince).toBe(atMinute(3));
   });
 });

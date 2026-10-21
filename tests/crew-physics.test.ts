@@ -32,7 +32,6 @@ describe("crew wire authority", () => {
       expect(allows(canvas, "author", "reviewer", port), port).toBe(true);
       expect(allows(canvas, "reviewer", "author", port), port).toBe(true);
     }
-    expect(allows(canvas, "reviewer", "author", "verdict.post")).toBe(false);
   });
 
   it("attenuates prompt independently, and an empty mask grants nothing", () => {
@@ -47,9 +46,9 @@ describe("crew wire authority", () => {
   });
 
   it("cannot manufacture review, task update, input or signal power in a mask", () => {
-    const masked = messages(["verdict.post", "tasks.update", "terminal.read"]);
+    const masked = messages(["tasks.update", "terminal.read"]);
     expect(wireGrant(masked, wireKinds(seats))?.ports).toEqual(["terminal.read"]);
-    expect(allows(canvasWith([masked]), "reviewer", "author", "verdict.post")).toBe(false);
+    expect(decodes({ ...messages(), mask: ["verdict.post"] })).toBe(false);
     for (const invalid of ["terminal.write", "terminal.resize", "terminal.signal"]) {
       expect(decodes({ ...messages(), mask: [invalid] }), invalid).toBe(false);
     }

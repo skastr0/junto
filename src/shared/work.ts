@@ -156,8 +156,8 @@ const requireSink = <K extends SinkKind>(
  */
 const requireMessageInbox = (node: Node): void => {
   const actor = requireActor(node, "an actor inbox");
-  // The required inbox is the enabled vocabulary: a gated port (verdict.post
-  // without tasks) is absent from every actor's offers in this build.
+  // The required inbox is the enabled vocabulary: a port gated off in this
+  // build is absent from every actor's offers.
   const holdsInbox = ACTOR_ACTOR_INBOX_PORTS
     .filter((port) => productPortEnabled(port))
     .every((port) => HashSet.has(actor.offers, port));

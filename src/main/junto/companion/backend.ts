@@ -260,9 +260,6 @@ const ACTIVITY_KIND: Readonly<Record<WorkSeatRecentOp["operation"], CompanionAct
   "delivery.accepted": "mail",
   "artifact.publish": "work",
   "task.claim": "work",
-  "request.create": "work",
-  "board.topic.create": "work",
-  "board.post.append": "work",
 } as Readonly<Record<WorkSeatRecentOp["operation"], CompanionActivity["kind"]>>;
 
 const activityFor = async (canvasName: string, canvas: Canvas, nodeId: string): Promise<ReadonlyArray<CompanionActivity>> => {

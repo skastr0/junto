@@ -37,13 +37,8 @@ export const Port = Schema.Literals(["tasks.list", "tasks.create",
 "msg.prompt",
 "seat.wait",
 "terminal.read",
-"verdict.post",
 "artifact.publish",
-"browser.automate",
-"board.list",
-"board.create_topic",
-"board.post",
-"board.mark_read",]);
+"browser.automate",]);
 export type Port = typeof Port.Type;
 
 export const ALL_PORTS: ReadonlyArray<Port> = [
@@ -56,13 +51,8 @@ export const ALL_PORTS: ReadonlyArray<Port> = [
   "msg.prompt",
   "seat.wait",
   "terminal.read",
-  "verdict.post",
   "artifact.publish",
   "browser.automate",
-  "board.list",
-  "board.create_topic",
-  "board.post",
-  "board.mark_read",
 ];
 
 export const portSet = (...ports: ReadonlyArray<Port>): HashSet.HashSet<Port> =>
@@ -84,10 +74,8 @@ export const ActorKind = Schema.Literals(["agent" as const]);
 export type ActorKind = typeof ActorKind.Type;
 
 export const SinkKind = Schema.Literals(["page", "task",
-"requests",
 "artifacts",
 "automations",
-"board",
 "terminal",]);
 export type SinkKind = typeof SinkKind.Type;
 

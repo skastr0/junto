@@ -156,10 +156,8 @@ describe("RTS bottom bar follows displayed facts", () => {
     expect(commits).toBe(0);
     act(() => modelStore.node$(canvasName, task.id).set({ ...task, label: "Shipping" } as Node));
     expect(host.textContent).toContain("Planner messages Shipping");
-    act(() => modelStore.wire$(canvasName, wire.id).set({ ...wire, verb: "reviews" }));
-    expect(host.textContent).toContain("Planner reviews Shipping");
     act(() => modelStore.wire$(canvasName, wire.id).delete());
-    expect(host.textContent).not.toContain("Planner reviews Shipping");
+    expect(host.textContent).not.toContain("Planner messages Shipping");
     expect(reactErrors()).toEqual([]);
   });
 

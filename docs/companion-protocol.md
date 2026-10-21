@@ -373,8 +373,8 @@ type RingForm = "work" | "reverse" | "snake" | "call" | "wait" | "halt" | "glint
 
 type CanvasNode = {
   nodeId: string;
-  kind: "agent" | "peer" | "terminal" | "page" | "task" | "requests" | "artifacts" | "automations"
-      | "board" | "note" | "label" | "file" | "link" | "git" | "region";
+  kind: "agent" | "peer" | "terminal" | "page" | "task" | "artifacts" | "automations"
+      | "note" | "label" | "file" | "link" | "git" | "region";
   frame: { x: number; y: number; width: number; height: number };   // canvas units
   z: number;                   // paint order, lowest first
   label?: string;              // the card's title, at most 256 characters

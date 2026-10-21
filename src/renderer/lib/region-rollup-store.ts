@@ -158,8 +158,8 @@ export const createRegionRollupStore = (
             const agents = new Set(ordered.filter((member) => nodes.get(member as Node["id"])?.kind === "agent"));
             const relevantWires = wires.filter((wire) => {
               const from = nodes.get(wire.from), to = nodes.get(wire.to);
-              return (agents.has(wire.from) && (to?.kind === "task" || to?.kind === "requests")) ||
-                (agents.has(wire.to) && (from?.kind === "task" || from?.kind === "requests"));
+              return (agents.has(wire.from) && to?.kind === "task") ||
+                (agents.has(wire.to) && from?.kind === "task");
             }).map((wire) => wire.id);
             if (!sameIds(membership.members[id].peek(), ordered)) membership.members[id].set(ordered);
             if (!sameIds(membership.wires[id].peek(), relevantWires)) membership.wires[id].set(relevantWires);

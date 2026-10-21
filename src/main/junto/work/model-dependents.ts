@@ -7,9 +7,8 @@ import { workProjectionChanges } from "./projection-changes";
 
 /** Child tables first; historical records and review provenance are retained. */
 const currentTables = [
-  "work_board_read_cursors", "work_board_posts", "work_board_topics",
   "work_artifacts", "work_task_dependencies", "work_task_finish",
-  "work_task_messages", "work_task_transitions", "work_tasks", "work_requests", "work_messages",
+  "work_task_messages", "work_task_transitions", "work_tasks", "work_messages",
 ] as const;
 
 export const WorkModelDependentsLive = Layer.effect(ModelDependents, Effect.gen(function* () {

@@ -627,8 +627,7 @@ export const runWorkCliAcceptance = async () => {
     log(
       "canvas after",
       JSON.stringify({
-        tasks: (await runtime.runPromise(repository.taskLane(CANVAS, TASKS, "task"))).map((task) => ({ id: task.id, state: task.state })),
-        requests: (await runtime.runPromise(repository.taskLane(CANVAS, REQS, "requests"))).map((task) => ({ id: task.id, state: task.state })),
+        tasks: (await runtime.runPromise(repository.taskLane(CANVAS, TASKS))).map((task) => ({ id: task.id, state: task.state })),
         artifacts: (await runtime.runPromise(repository.artifactLane(CANVAS, ARTS))).map((artifact) => ({ id: artifact.artifactId, name: artifact.name })),
       }, null, 2),
     );

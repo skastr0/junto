@@ -1,13 +1,10 @@
 import { Schema } from "effect";
 import { Seq } from "./model/events";
 import { ActorSeatId } from "./actor-seat";
-import { Author } from "./author";
 import { InstallationId } from "./installation-id";
 import { CommandQueuedResult, RulingAppliedResult, RulingRefusedResult } from "./command-row";
 import {
   Artifact,
-  BoardPost,
-  BoardTopic,
   Message,
   Task,
 } from "./work-model";
@@ -125,13 +122,9 @@ export const WorkOperation = Schema.Literals(["task.create",
 "task.describe",
 "task.transition",
 "task.claim",
-"request.create",
-"request.resolve",
 "message.append",
 "artifact.publish",
 "delivery.accepted",
-"board.topic.create",
-"board.post.append",
 "command.queued",
 "ruling.applied",
 "ruling.refused",]);
@@ -157,10 +150,6 @@ export const MessageAppendDestination = Schema.Union([Schema.Struct({
 Schema.Struct({
   kind: Schema.Literal("task"),
   itemId: BoundedWorkId,
-}),
-Schema.Struct({
-  kind: Schema.Literal("request"),
-  itemId: BoundedWorkId,
 }),]);
 export type MessageAppendDestination =
   typeof MessageAppendDestination.Type;
@@ -180,7 +169,7 @@ const destinationMatchesMessage = (
   input.destination.kind === "mailbox" ||
     input.message.taskId === input.destination.itemId
     ? true
-    : "task/request message destination must equal Message.taskId";
+    : "task message destination must equal Message.taskId";
 
 export const TaskCreateResult = Schema.Struct({
   operation: Schema.Literal("task.create"),
@@ -211,28 +200,6 @@ export const TaskClaimResult = Schema.Struct({
 );
 export type TaskClaimResult = typeof TaskClaimResult.Type;
 
-export const RequestResult = Schema.Struct({
-  operation: Schema.Literals(["request.create", "request.resolve"]),
-  request: Task,
-}).pipe(
-  Schema.check(Schema.makeFilter((result) => {
-    if (result.operation === "request.create") {
-      return (
-        (result.request.state === "input-required" &&
-          result.request.claimedBy !== undefined) ||
-        "request.create result requires an input-required request with a claimant"
-      );
-    }
-    return (
-      ((result.request.state === "completed" ||
-        result.request.state === "rejected") &&
-        result.request.claimedBy !== undefined) ||
-      "request.resolve result requires a completed or rejected request with its original claimant"
-    );
-  })),
-);
-export type RequestResult = typeof RequestResult.Type;
-
 export const MessageAppendResult = Schema.Struct({
   operation: Schema.Literal("message.append"),
   ...MessageAppendPayload,
@@ -252,29 +219,12 @@ export const DeliveryAcceptedResult = Schema.Struct({
 });
 export type DeliveryAcceptedResult = typeof DeliveryAcceptedResult.Type;
 
-export const BoardTopicCreateResult = Schema.Struct({
-  operation: Schema.Literal("board.topic.create"),
-  topic: BoardTopic,
-  createdBy: Author,
-});
-export type BoardTopicCreateResult = typeof BoardTopicCreateResult.Type;
-
-export const BoardPostAppendResult = Schema.Struct({
-  operation: Schema.Literal("board.post.append"),
-  post: BoardPost,
-  createdBy: Author,
-});
-export type BoardPostAppendResult = typeof BoardPostAppendResult.Type;
-
 export const WorkResult = Schema.Union([TaskCreateResult,
 TaskMutationResult,
 TaskClaimResult,
-RequestResult,
 MessageAppendResult,
 ArtifactPublishResult,
 DeliveryAcceptedResult,
-BoardTopicCreateResult,
-BoardPostAppendResult,
 CommandQueuedResult,
 RulingAppliedResult,
 RulingRefusedResult,]);
@@ -323,9 +273,6 @@ const itemMatchesResult = (
     case "task.transition":
     case "task.claim":
       return item.kind === "task" && item.itemId === result.task.id;
-    case "request.create":
-    case "request.resolve":
-      return item.kind === "request" && item.itemId === result.request.id;
     case "message.append":
       return (
         item.kind === "message" && item.itemId === result.message.messageId
@@ -341,10 +288,6 @@ const itemMatchesResult = (
         item.kind === "delivery" &&
         item.itemId === result.receipt.deliveryId
       );
-    case "board.topic.create":
-      return item.kind === "topic" && item.itemId === result.topic.topicId;
-    case "board.post.append":
-      return item.kind === "post" && item.itemId === result.post.postId;
     case "command.queued":
       return (
         item.kind === "command" &&
@@ -361,12 +304,9 @@ const itemMatchesResult = (
 const noPriorMaterialFact = (operation: WorkOperation): boolean =>
   operation === "task.create" ||
   operation === "task.claim" ||
-  operation === "request.create" ||
   operation === "message.append" ||
   operation === "artifact.publish" ||
   operation === "delivery.accepted" ||
-  operation === "board.topic.create" ||
-  operation === "board.post.append" ||
   operation === "command.queued" ||
   operation === "ruling.applied" ||
   operation === "ruling.refused";

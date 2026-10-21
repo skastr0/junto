@@ -21,7 +21,7 @@ it("seeds native kinds and sink names into the durable model", async () => {
     const frame = { x: 0, y: 0, width: 240, height: 100, z: 0 };
     await writeFixtureModel(sandbox, "sinks", modelFixture([
       modelNode({ ...frame, id: "task", kind: "task", name: "Board", contract: { rules: [] } }),
-      modelNode({ ...frame, id: "requests", kind: "requests", name: "Inbox" }),
+      modelNode({ ...frame, id: "shelf", kind: "artifacts", label: "Shelf" }),
     ]));
     const runtime = ManagedRuntime.make(Layer.provideMerge(Layer.provide(ModelService.layer, ModelDependents.empty), Layer.provideMerge(makeSeatSessionRepositoryLive(), makeStateEngineLive(join(sandbox.homeDir, ".junto", "state", "junto.db")))));
     try {
@@ -36,7 +36,7 @@ it("seeds native kinds and sink names into the durable model", async () => {
         expect(native.wires).toMatchObject([{ from: "seat-a", to: "seat-b", verb: "messages", mask: ["msg.list"] }]);
         const sinks = yield* model.open("sinks");
         expect(sinks.nodes.find((node) => node.id === "task")).toMatchObject({ kind: "task", name: "Board", contract: { rules: [] } });
-        expect(sinks.nodes.find((node) => node.id === "requests")).toMatchObject({ kind: "requests", name: "Inbox" });
+        expect(sinks.nodes.find((node) => node.id === "shelf")).toMatchObject({ kind: "artifacts", label: "Shelf" });
       }));
     } finally { await runtime.dispose(); }
   } finally { await destroySandbox(sandbox); }

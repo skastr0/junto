@@ -81,13 +81,52 @@ const TINY_PNG = Buffer.from(
   "base64",
 );
 
+/**
+ * Old mailbox rows, seeded in the row shape directly rather than through the
+ * repository's current write path, each behind its own historical journal
+ * fact so every foreign key holds. Declared journal-free: the fixture pins
+ * how an OLD projection row survives the backfill.
+ */
+const seedLegacyMessages = (
+  sql: SqlClient.SqlClient,
+  messages: ReadonlyArray<readonly [messageId: string, partsJson: string]>,
+) =>
+  Effect.runPromise(
+    sql.withTransaction(
+      unjournaledWorkMutationEffect(
+        "test.fixture-seed",
+        Effect.gen(function* () {
+          const now = "2026-01-01T00:00:00.000Z";
+          yield* sql`INSERT INTO known_installations(installation_id, registered_at) VALUES ('home1', ${now})`;
+          yield* sql`INSERT INTO work_event_sequences(event_home, entity_home, last_seq)
+            VALUES ('home1', 'home1', ${String(messages.length)})`;
+          for (const [index, [messageId, partsJson]] of messages.entries()) {
+            const seq = String(index + 1);
+            yield* sql`INSERT INTO work_events(
+                event_home, entity_home, seq, protocol, record_type, item_kind, item_id,
+                item_canvas_name, item_node_id, operation, content_sha256, origin_at, received_at
+              ) VALUES ('home1', 'home1', ${seq}, 'junto/work/v1', 'fact', 'message', ${messageId},
+                'main', 'mailbox', 'message.append', ${"a".repeat(64)}, ${now}, ${now})`;
+            yield* sql`INSERT INTO work_facts(event_home, entity_home, seq, result_json, basis_kind)
+              VALUES ('home1', 'home1', ${seq}, '{}', 'historical')`;
+            yield* sql`INSERT INTO work_messages(
+                canvas_name, node_id, message_id, position, entity_home, actor_seat_id,
+                fact_event_home, fact_entity_home, fact_seq, role, parts_json, origin_at, received_at
+              ) VALUES ('main', 'mailbox', ${messageId}, ${index}, 'home1', ${`seat_${"a".repeat(64)}`},
+                'home1', 'home1', ${seq}, 'agent', ${partsJson}, ${now}, ${now})`;
+          }
+        }),
+      ),
+    ),
+  );
+
 describe("inline media migration", () => {
   it("rewrites parts_json base64 into ContentRef, records object, marks complete", async () => {
     const home = await tempRoot("junto-inline-media-");
     const { installOps, sql, manifest, projections, contentRoot } =
       await openEngines(home);
 
-    const boardParts = JSON.stringify([
+    const legacyParts = JSON.stringify([
       {
         kind: "raw",
         bytesBase64: TINY_PNG.toString("base64"),
@@ -95,33 +134,7 @@ describe("inline media migration", () => {
       },
     ]);
 
-    // work_board_topics has no FK to events — clean seed surface.
-    // Declared journal-free: this fixture must pin how an OLD projection row
-    // survives the backfill, so it seeds the row shape directly rather than
-    // going through the repository's current write path.
-    await Effect.runPromise(
-      sql.withTransaction(
-        unjournaledWorkMutationEffect(
-          "test.fixture-seed",
-          sql`
-            INSERT INTO work_board_topics(
-              canvas_name,
-              node_id,
-              topic_id,
-              title,
-              state,
-              author_kind,
-              parts_json,
-              post_count,
-              last_activity_at,
-              created_at,
-              updated_at
-            ) VALUES ('main', 'board-1', 'topic-1', 'legacy media', 'open', 'operator',
-              ${boardParts}, 0, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')
-          `,
-        ),
-      ),
-    );
+    await seedLegacyMessages(sql, [["msg-1", legacyParts]]);
 
     const digest = createHash("sha256").update(TINY_PNG).digest("hex");
 
@@ -146,7 +159,7 @@ describe("inline media migration", () => {
     );
 
     expect(operations).toEqual([
-      "content.inline-media.rewrite.work_board_topics",
+      "content.inline-media.rewrite.work_messages",
     ]);
     expect(report.status).toBe("complete");
     expect(report.objectsIngested).toBe(1);
@@ -155,8 +168,8 @@ describe("inline media migration", () => {
     const row = (
       await Effect.runPromise(
         sql<{ readonly parts_json: string }>`
-            SELECT parts_json FROM work_board_topics
-            WHERE canvas_name = 'main' AND node_id = 'board-1' AND topic_id = 'topic-1'
+            SELECT parts_json FROM work_messages
+            WHERE canvas_name = 'main' AND node_id = 'mailbox' AND message_id = 'msg-1'
           `,
       )
     )[0];
@@ -309,27 +322,12 @@ describe("inline media migration", () => {
           bytesBase64: bytes.toString("base64"),
         },
       ]);
-    await Effect.runPromise(
-      sql.withTransaction(
-        unjournaledWorkMutationEffect(
-          "test.fixture-seed",
-          Effect.gen(function* () {
-            for (const [topicId, bytes] of [
-              ["topic-a", firstBytes],
-              ["topic-b", secondBytes],
-            ] as const) {
-              yield* sql`INSERT INTO work_board_topics(
-          canvas_name, node_id, topic_id, title, state, author_kind, parts_json,
-          post_count, last_activity_at, created_at, updated_at
-        ) VALUES ('main', 'board', ${topicId}, 'historical', 'open', 'operator', ${inline(bytes)},
-          0, '2026-01-01', '2026-01-01', '2026-01-01')`;
-            }
-            yield* sql`CREATE TEMP TRIGGER fail_second_ref BEFORE INSERT ON content_refs
-        WHEN NEW.owner_record_id = 'topic-b' BEGIN SELECT RAISE(ABORT, 'injected ref failure'); END`;
-          }),
-        ),
-      ),
-    );
+    await seedLegacyMessages(sql, [
+      ["msg-a", inline(firstBytes)],
+      ["msg-b", inline(secondBytes)],
+    ]);
+    await Effect.runPromise(sql`CREATE TEMP TRIGGER fail_second_ref BEFORE INSERT ON content_refs
+      WHEN NEW.owner_record_id = 'msg-b' BEGIN SELECT RAISE(ABORT, 'injected ref failure'); END`);
 
     const run = () =>
       runInlineMediaMigration({
@@ -350,11 +348,11 @@ describe("inline media migration", () => {
       )?.status,
     ).toBe("pending");
     const partial = await Effect.runPromise(sql<{
-      topic_id: string;
+      message_id: string;
       parts_json: string;
     }>`
-      SELECT topic_id, parts_json FROM work_board_topics ORDER BY topic_id`);
-    expect(partial.map((row) => row.topic_id)).toEqual(["topic-a", "topic-b"]);
+      SELECT message_id, parts_json FROM work_messages ORDER BY message_id`);
+    expect(partial.map((row) => row.message_id)).toEqual(["msg-a", "msg-b"]);
     expect(JSON.parse(partial[0]!.parts_json)).toEqual([
       {
         kind: "content",

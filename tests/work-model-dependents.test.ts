@@ -11,7 +11,7 @@ import { ModelDependents } from "../src/main/junto/model/dependents";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { ActorRef, IntentFactBasis } from "../src/shared/work-protocol";
 import { seedCanvasRows } from "./support/seed-canvas";
-import { artifacts, board, canvasOf, note, seat, taskBoard } from "./support/model-nodes";
+import { artifacts, canvasOf, note, seat, taskBoard } from "./support/model-nodes";
 import { THIS_MACHINE } from "./support/machines";
 
 it("removes mailbox rows in the owning transaction and preserves immutable records", async () => {
@@ -27,7 +27,7 @@ it("removes mailbox rows in the owning transaction and preserves immutable recor
         yield* sql`INSERT INTO installation VALUES (1,'local-installation','2026-10-07')`;
         yield* sql`INSERT INTO machine_configuration(singleton, machine_name, supervised_preferred, configured_at) VALUES (1, ${THIS_MACHINE}, 1, '2026-10-07')`;
         yield* seedCanvasRows({ seq: 1, canvases: new Map([["factory", {
-          nodes: [...["sender", "inbox", "other"].map((id) => seat(id)), note("empty-note"), board("board"), tasks, artifacts("artifacts")],
+          nodes: [...["sender", "inbox", "other"].map((id) => seat(id)), note("empty-note"), tasks, artifacts("artifacts")],
         }]]) });
       }));
       const sentBy = Schema.decodeUnknownSync(ActorRef)({ seatId: `seat_${"a".repeat(64)}`, canvasName: "factory", nodeId: "sender" });
@@ -50,14 +50,6 @@ it("removes mailbox rows in the owning transaction and preserves immutable recor
       yield* repo.acceptDelivery({ sink: inbox, basis, receipt: {
         deliveryId: "delivered-inbox", deliveredItem: { kind: "message", sink: inbox, itemId: "mail-inbox" },
         actor: sentBy, acceptedAt: "2026-10-07",
-      } });
-      const boardSink = { canvasName: "factory", nodeId: "board" };
-      const author = { kind: "operator" as const };
-      yield* repo.createBoardTopic({ sink: boardSink, basis, createdBy: author, topic: {
-        topicId: "topic", title: "Topic", state: "open", openedBy: author, openedAt: "2026-10-07", postCount: 0, lastActivityAt: "2026-10-07",
-      } });
-      yield* repo.appendBoardPost({ sink: boardSink, basis, createdBy: author, post: {
-        postId: "post", topicId: "topic", author, parts: [{ kind: "text", text: "Post" }], position: 0, createdAt: "2026-10-07",
       } });
       const recordsBefore = yield* sql`SELECT * FROM work_events ORDER BY seq`;
       const factsBefore = yield* sql`SELECT * FROM work_facts ORDER BY seq`;
@@ -88,7 +80,6 @@ it("removes mailbox rows in the owning transaction and preserves immutable recor
         expect((yield* repo.mailbox("factory", "other"))).toHaveLength(1);
         yield* sql.withTransaction(dependents.removeCanvas("factory"));
         expect(notifications.splice(0)).toEqual([
-          { canvasName: "factory", nodeId: "board", kind: "work" },
           { canvasName: "factory", nodeId: "other", kind: "mail" },
         ]);
         yield* sql.withTransaction(dependents.removeCanvas("factory"));

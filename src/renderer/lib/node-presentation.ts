@@ -14,7 +14,7 @@ export const detailOf = (node: Node): string => {
     case "stub": return node.host ?? "";
     case "terminal": return node.host;
     case "task": return node.contract?.instructions?.trim().split("\n")[0] ?? "";
-    case "requests": case "artifacts": case "automations": case "board": return "";
+    case "artifacts": case "automations": return "";
   }
 };
 

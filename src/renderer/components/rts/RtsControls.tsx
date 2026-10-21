@@ -22,7 +22,6 @@ import type { TasksIncoming } from "@shared/work-model";
 import {
   BROWSER_ENABLED,
   productNodeKindEnabled,
-  productVerbEnabled,
 } from "@shared/features";
 import { verbsForPair, type Verb } from "@shared/physics";
 import { titleOf } from "@shared/model/title";
@@ -125,7 +124,7 @@ const edgeVerbView = (canvasName: string, edge: Wire): EdgeVerbView => {
   const sibling = verb === undefined
     ? undefined
     : verbsForPair(fromNode?.kind, toNode?.kind)
-      .find(candidate => candidate !== verb && productVerbEnabled(candidate));
+      .find(candidate => candidate !== verb);
   return {
     verb, sibling, fromLabel, toLabel,
     sentence: verb === undefined

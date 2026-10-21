@@ -12,15 +12,11 @@ it("counts a whole sink while excluding unrelated work contents and old-kind row
   const queries: string[] = [];
   database.exec(`
     CREATE TABLE task_boards(canvas_name TEXT,id TEXT);
-    CREATE TABLE request_boards(canvas_name TEXT,id TEXT);
     CREATE TABLE artifact_boards(canvas_name TEXT,id TEXT);
     CREATE TABLE task_heads(canvas_name TEXT,node_id TEXT,state TEXT);
-    CREATE TABLE work_requests(canvas_name TEXT,node_id TEXT,state TEXT);
     CREATE TABLE work_artifacts(canvas_name TEXT,node_id TEXT);
     INSERT INTO task_boards VALUES ('factory','tasks'),('factory','empty');
-    INSERT INTO request_boards VALUES ('factory','asks');
     INSERT INTO artifact_boards VALUES ('factory','artifacts');
-    INSERT INTO work_requests VALUES ('factory','asks','completed');
     INSERT INTO work_artifacts VALUES ('factory','artifacts'),('factory','tasks');
   `);
   const insert = database.prepare("INSERT INTO task_heads VALUES ('factory','tasks',?)");
@@ -33,7 +29,6 @@ it("counts a whole sink while excluding unrelated work contents and old-kind row
       expect(() => Schema.decodeUnknownSync(Schema.Array(WorkSinkGlance))(glances)).not.toThrow();
       expect(glances.find((glance) => glance.nodeId === "tasks")).toEqual({ nodeId: "tasks", count: 1002, needsHuman: true, allTerminal: false, inputRequired: 1, authRequired: 0 });
       expect(glances.find((glance) => glance.nodeId === "empty")).toMatchObject({ count: 0, allTerminal: true, needsHuman: false });
-      expect(glances.find((glance) => glance.nodeId === "asks")).toMatchObject({ count: 1, allTerminal: true });
       expect(glances.find((glance) => glance.nodeId === "artifacts")).toMatchObject({ count: 1, allTerminal: false });
       const targeted = yield* readWorkGlances(sql, { canvasName: "factory", nodeId: "tasks" });
       expect(targeted).toEqual([glances.find((glance) => glance.nodeId === "tasks")]);
@@ -47,12 +42,9 @@ it("returns every human wait and active claim with only their first-line brief",
   const database = new DatabaseSync(":memory:");
   database.exec(`
     CREATE TABLE task_boards(canvas_name TEXT,id TEXT);
-    CREATE TABLE request_boards(canvas_name TEXT,id TEXT);
     CREATE TABLE work_task_messages(canvas_name TEXT,node_id TEXT,parent_lane TEXT,item_id TEXT,position INT,parts_json TEXT);
     CREATE TABLE work_tasks(canvas_name TEXT,node_id TEXT,task_id TEXT,state TEXT,actor_seat_id TEXT,metadata_json TEXT,origin_at TEXT);
-    CREATE TABLE work_requests(canvas_name TEXT,node_id TEXT,request_id TEXT,state TEXT,actor_seat_id TEXT,metadata_json TEXT,origin_at TEXT);
     INSERT INTO task_boards VALUES ('factory','tasks');
-    INSERT INTO request_boards VALUES ('factory','asks');
   `);
   const seat = `seat_${"a".repeat(64)}`;
   const insert = database.prepare("INSERT INTO work_tasks VALUES ('factory',?,? ,?, ?,NULL,'2026-10-07T12:00:00.000Z')");

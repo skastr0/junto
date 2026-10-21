@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-import { productVerbEnabled } from "../src/shared/features";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -171,7 +170,7 @@ it("reads note fields by id and updates the draft when native text changes", asy
   expect(document.querySelector<HTMLTextAreaElement>('[aria-label="Note text"]')?.value).toBe("After");
 });
 
-it("changes a native wire verb as one undoable command and returns the old mask", async () => {
+it("offers no second verb between two seats: they connect only as messages", async () => {
   publish("source", agent("Planner")); publish("peer", agent("Reviewer"));
   const nativeWire = decodeWire({ id: "connection", from: "source", to: "peer", verb: "messages", mask: ["msg.send"] });
   releaseCanvas = modelStore.adopt({
@@ -183,19 +182,6 @@ it("changes a native wire verb as one undoable command and returns the old mask"
   (window as unknown as { junto: unknown }).junto = { ...window.junto, modelCommand };
   await mount(<KindSurface />);
   expect(document.body.textContent).toContain("Planner messages Reviewer");
-  // A build with reviews gated off offers no second verb for this pair.
-  if (!productVerbEnabled("reviews")) {
-    expect(document.querySelector('[aria-label="Change to reviews"]')).toBeNull();
-    return;
-  }
-  await click('[aria-label="Change to reviews"]');
-  await act(async () => { await flushPendingCanvasSave(); await flush(); });
-  expect(modelCommand).toHaveBeenCalledOnce();
-  expect(modelCommand).toHaveBeenCalledWith({
-    _tag: "Rewire", canvas, id: "connection", change: { verb: "reviews", mask: null },
-  });
-  expect(modelStore.wire$(canvas, "connection").peek()?.verb).toBe("reviews");
-  await act(async () => { undo(); await flushPendingCanvasSave(); await flush(); });
-  expect(modelCommand).toHaveBeenCalledTimes(2);
-  expect(modelStore.wire$(canvas, "connection").peek()).toMatchObject({ verb: "messages", mask: ["msg.send"] });
+  expect(document.querySelector('[aria-label^="Change to"]')).toBeNull();
+  expect(modelCommand).not.toHaveBeenCalled();
 });

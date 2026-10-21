@@ -7,7 +7,7 @@ import { ActorRail } from "../src/renderer/components/terminal/ActorRail";
 import { SeatCollaborationBlock } from "../src/renderer/components/terminal/SeatCollaborationBlock";
 import { state$ } from "../src/renderer/lib/state";
 import { modelStore } from "../src/renderer/lib/use-model";
-import { board, seat, wire } from "./support/model-nodes";
+import { page, seat, wire } from "./support/model-nodes";
 
 // The terminal family reads the node store. Each case mounts the real
 // component with the window document empty, so a read of it would show nothing.
@@ -50,12 +50,12 @@ it("the agent rail draws a seat's connected agents and its other connections fro
       seat("ada", { label: "Ada" as never }),
       seat("bea", { label: "Bea" as never }),
       seat("solo", { label: "Solo" as never }),
-      board("talk"),
+      page("talk"),
     ],
     [
       wire("w1", "lead", "ada", "messages"),
       wire("w2", "bea", "lead", "messages"),
-      wire("w3", "lead", "talk", "participates"),
+      wire("w3", "lead", "talk", "navigates"),
     ],
   );
   await act(async () => root.render(<ActorRail node={{ id: "lead" }} />));
@@ -63,8 +63,8 @@ it("the agent rail draws a seat's connected agents and its other connections fro
   expect(seats.map((element) => element.dataset.peerNodeId).sort()).toEqual(["ada", "bea"]);
   expect(host.querySelector('[aria-label^="Go to Ada"]')).not.toBeNull();
   const others = [...host.querySelectorAll<HTMLElement>('[data-testid="actor-rail-others"] li')];
-  expect(others.map((element) => [element.dataset.peerNodeId, element.dataset.peerKind])).toEqual([["talk", "board"]]);
-  expect(others[0]!.textContent).toContain("board");
+  expect(others.map((element) => [element.dataset.peerNodeId, element.dataset.peerKind])).toEqual([["talk", "page"]]);
+  expect(others[0]!.textContent).toContain("page");
 
   // A wire that goes takes its seat out of the rail, with no document to say so.
   await act(async () => hold([seat("lead"), seat("ada")], []));

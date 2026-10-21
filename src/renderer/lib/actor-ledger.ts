@@ -178,18 +178,10 @@ export const recentOpLabel = (op: WorkSeatRecentOp): string => {
         : "published an artifact";
     case "task.claim":
       return "claimed a task";
-    case "request.create":
-      return "raised a request";
     case "delivery.accepted":
       return summary.kind === "delivery"
         ? `delivery accepted - ${summary.delivered.kind}`
         : "delivery accepted";
-    case "board.topic.create":
-      return summary.kind === "topic"
-        ? `opened topic ${summary.title}`
-        : "opened a topic";
-    case "board.post.append":
-      return "posted to the board";
     default:
       return "worked";
   }

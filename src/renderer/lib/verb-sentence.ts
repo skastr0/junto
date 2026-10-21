@@ -7,8 +7,6 @@ import type { Verb } from "@shared/physics";
  */
 const VERB_SENTENCE = {
   messages: "{from} messages {to}",
-  reviews: "{from} reviews {to}",
-  participates: "{from} takes part in {to}",
   navigates: "{from} drives {to}",
   flows: "{from} flows into {to}",
 } as const satisfies Record<Verb, string>;

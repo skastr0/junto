@@ -50,8 +50,6 @@ const PARTS_TARGETS: ReadonlyArray<
   ["message", "content.inline-media.rewrite.work_messages"],
   ["task-message", "content.inline-media.rewrite.work_task_messages"],
   ["artifact", "content.inline-media.rewrite.work_artifacts"],
-  ["board-topic", "content.inline-media.rewrite.work_board_topics"],
-  ["board-post", "content.inline-media.rewrite.work_board_posts"],
 ];
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
@@ -145,10 +143,6 @@ const ownerFor = (row: WorkContentProjectionRow): ContentOwner => {
       return { ...base, kind: "message", recordId: row.messageId };
     case "artifact":
       return { ...base, kind: "artifact", recordId: row.artifactId };
-    case "board-topic":
-      return { ...base, kind: "board_topic", recordId: row.topicId };
-    case "board-post":
-      return { ...base, kind: "board_post", recordId: row.postId };
   }
 };
 

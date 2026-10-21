@@ -445,7 +445,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
         <div className="rts-cmd-keys-rail" role="toolbar" aria-label="Node actions">
           <div className="rts-cmd-keys rts-cmd-keys--col" aria-label="Actions">
             {role === "sink" &&
-            (entityKind === "task" || entityKind === "requests" || entityKind === "artifacts") ? (
+            (entityKind === "task" || entityKind === "artifacts") ? (
               <CmdKey
                 label="Open detail"
                 title="Open the work surface"

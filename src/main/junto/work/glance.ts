@@ -15,8 +15,6 @@ const CountRow = Schema.Struct({
 const lanes = [
   { table: "task_heads", nodes: "task_boards", visible: "AND work.state != 'archived'",
     states: { input: "'input-required'", auth: undefined, terminal: "'done','canceled','archived'" } },
-  { table: "work_requests", nodes: "request_boards", visible: "",
-    states: { input: "'input-required'", auth: "'auth-required'", terminal: "'completed','canceled','failed','rejected','archived'" } },
   { table: "work_artifacts", nodes: "artifact_boards", visible: "", states: undefined },
 ] as const;
 

@@ -203,17 +203,6 @@ const queueNode: NodeOf<"task"> = {
   height: 140,
 };
 
-const requestsNode: NodeOf<"requests"> = {
-  id: asNodeId("demo-g-requests"),
-  kind: "requests",
-  z: 0,
-  name: "requests",
-  x: -460,
-  y: 220,
-  width: 260,
-  height: 120,
-};
-
 const artifactsNode: NodeOf<"artifacts"> = {
   id: asNodeId("demo-g-artifacts"),
   kind: "artifacts",
@@ -274,7 +263,6 @@ at(36, sfxOp("alert"));
 // Rung 5 — the question surfaces, gets answered, the fleet re-greens.
 at(
   42,
-  addNodesOp([requestsNode]),
   selectOp(["demo-g-h06", "demo-g-requests"]),
   cameraFit(["demo-g-h06", "demo-g-requests", "demo-g-tasks"], 1.5, 0.2),
   sfxOp("request"),

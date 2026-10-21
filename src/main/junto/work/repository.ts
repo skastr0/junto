@@ -51,7 +51,6 @@ import {
   ActorSeatId as ActorSeatIdSchema,
   type ActorSeatId,
 } from "@shared/actor-seat";
-import type { Author } from "@shared/author";
 import { InstallationId } from "@shared/installation-id";
 import {
   Artifact,
@@ -66,11 +65,6 @@ import {
   type Task as TaskValue,
   type TaskAdmission,
   type TaskState,
-  type BoardTopic as BoardTopicValue,
-  type BoardTopicView as BoardTopicViewValue,
-  type BoardPost as BoardPostValue,
-  BoardTopic,
-  BoardPost,
 } from "@shared/work-model";
 import {
   WORK_SEAT_RECENT_OPS_COVERAGE,
@@ -145,7 +139,6 @@ import {
   CrewRepository,
   CrewRepositoryLive,
   CrewRepositoryError,
-  type ReviewReceiptInput,
 } from "./crew-repository";
 import { unjournaledWorkMutationEffect } from "./mutation-seam";
 import {
@@ -174,16 +167,6 @@ export type ReviewReceiptRecord = {
   readonly message: MessageValue;
 };
 
-/**
- * Result of a live-validated verdict post: the stored verdict, or a typed
- * refusal the service maps without parsing a message.
- */
-export type PostReviewVerdictResult =
-  | { readonly verdict: ReviewVerdict; readonly created: boolean }
-  | {
-      readonly rejected:
-        "reviewer-is-author" | "stale-subject" | "not-a-reviewer";
-    };
 import { canonicalJson } from "./canonical-json";
 import { taskReviewSubjectHash } from "./review-subject-hash";
 import { WorkJournal, WorkJournalLive } from "./journal";
@@ -313,35 +296,6 @@ const MessageReceiptRow = Schema.Struct({
   delivery_id: Schema.String,
   accepted_at: Schema.String,
 });
-const BoardPostRow = Schema.Struct({
-  post_id: Schema.String,
-  topic_id: Schema.String,
-  position: Schema.Number,
-  author_kind: Schema.String,
-  author_seat_id: Schema.Union([Schema.Null, Schema.String]),
-  author_node_id: Schema.Union([Schema.Null, Schema.String]),
-  author_label: Schema.Union([Schema.Null, Schema.String]),
-  parts_json: Schema.String,
-  tags_json: Schema.Union([Schema.Null, Schema.String]),
-  created_at: Schema.String,
-});
-const BoardCursorRow = Schema.Struct({
-  topic_id: Schema.String,
-  last_read_position: Schema.Number,
-});
-const BoardTopicRow = Schema.Struct({
-  topic_id: Schema.String,
-  title: Schema.String,
-  state: Schema.String,
-  author_kind: Schema.String,
-  author_seat_id: Schema.Union([Schema.Null, Schema.String]),
-  author_node_id: Schema.Union([Schema.Null, Schema.String]),
-  author_label: Schema.Union([Schema.Null, Schema.String]),
-  parts_json: Schema.String,
-  post_count: Schema.Number,
-  last_activity_at: Schema.String,
-  created_at: Schema.String,
-});
 const ArtifactProjectionRow = Schema.Struct({
   artifact_id: Schema.String,
   name: Schema.Union([Schema.Null, Schema.String]),
@@ -357,12 +311,9 @@ const CountRow = Schema.Struct({ n: Schema.Number });
 const RecentSeatOpRowSchema = Schema.Struct({
   operation: Schema.Union([
     Schema.Literal("task.claim"),
-    Schema.Literal("request.create"),
     Schema.Literal("message.append"),
     Schema.Literal("artifact.publish"),
     Schema.Literal("delivery.accepted"),
-    Schema.Literal("board.topic.create"),
-    Schema.Literal("board.post.append"),
   ]),
   origin_at: Schema.String,
   applied_at: Schema.String,
@@ -371,10 +322,7 @@ const RecentSeatOpRowSchema = Schema.Struct({
     Schema.Literal("message"),
     Schema.Literal("task"),
     Schema.Literal("artifact"),
-    Schema.Literal("request"),
     Schema.Literal("delivery"),
-    Schema.Literal("topic"),
-    Schema.Literal("post"),
   ]),
   item_id: Schema.String,
   summary_label: Schema.Union([Schema.Null, Schema.String]),
@@ -383,10 +331,7 @@ const RecentSeatOpRowSchema = Schema.Struct({
     Schema.Literal("message"),
     Schema.Literal("task"),
     Schema.Literal("artifact"),
-    Schema.Literal("request"),
     Schema.Literal("delivery"),
-    Schema.Literal("topic"),
-    Schema.Literal("post"),
   ]),
   related_id: Schema.Union([Schema.Null, Schema.String]),
   related_node_id: Schema.Union([Schema.Null, Schema.String]),
@@ -419,23 +364,15 @@ const StoredTaskStateRow = Schema.Struct({
 });
 const NextPositionRow = Schema.Struct({ next_position: Schema.Number });
 const TaskIdRow = Schema.Struct({ task_id: Schema.String });
-const BoardStateRow = Schema.Struct({ state: Schema.String });
-const MaxPositionRow = Schema.Struct({
-  m: Schema.Union([Schema.Null, Schema.Number]),
-});
 const TaskClaimFactRowSchema = Schema.Struct({
   operation: Schema.Union([
     Schema.Literal("task.claim"),
-    Schema.Literal("request.create"),
     Schema.Literal("message.append"),
     Schema.Literal("artifact.publish"),
     Schema.Literal("delivery.accepted"),
-    Schema.Literal("board.topic.create"),
-    Schema.Literal("board.post.append"),
     Schema.Literal("task.create"),
     Schema.Literal("task.describe"),
     Schema.Literal("task.transition"),
-    Schema.Literal("request.resolve"),
   ]),
   predecessor_event_home: Schema.Union([Schema.Null, Schema.String]),
   predecessor_entity_home: Schema.Union([Schema.Null, Schema.String]),
@@ -454,7 +391,6 @@ const ReviewReceiptKeyRow = Schema.Struct({
   reviewer_seat_id: Schema.String,
 });
 const ReviewAuthorRow = Schema.Struct({ author_seat_id: Schema.String });
-const VerdictIdRow = Schema.Struct({ verdict_id: Schema.String });
 const ArtifactRowSchema = Schema.Struct({
   artifact_id: Schema.String,
   name: Schema.Union([Schema.Null, Schema.String]),
@@ -678,22 +614,6 @@ const recordWithHash = (
   return Schema.decodeUnknownSync(WorkFact, strictDecode)(candidate);
 };
 
-/** Force every seed post author to the admitted writer (anti-forgery). */
-const topicWithBoundAuthors = (
-  topic: BoardTopicValue,
-  createdBy: Author,
-): BoardTopicValue => {
-  const posts = topic.posts?.map((post) => ({
-    ...post,
-    author: createdBy,
-  }));
-  return {
-    ...topic,
-    openedBy: createdBy,
-    ...(posts === undefined ? {} : { posts }),
-  };
-};
-
 const item = (
   kind: WorkItemRef["kind"],
   itemId: string,
@@ -861,16 +781,6 @@ export type SendBackTaskInput = LocalWorkInput & {
   readonly target: SinkRefValue;
   /** Policy-built submitted epoch-bumped task re-homed at `target`. */
   readonly sentBackTask: TaskValue;
-  /**
-   * Blocking review, written in the SAME transaction as the send-back so the
-   * rejection and the immutable verdict (and its optional receipt) commit
-   * atomically. The verdict is bound to the epoch it judged; the send-back
-   * bumps the epoch, so a stale concurrent verdict cannot bless the new one.
-   */
-  readonly review?: {
-    readonly verdict: ReviewVerdict;
-    readonly receipt?: ReviewReceiptInput;
-  };
 };
 
 /** Operator approval of a task waiting at an `approval`-admission board. */
@@ -908,18 +818,6 @@ export type ClaimLocalTaskInput = Omit<LocalWorkInput, "dependencyScope"> & {
   readonly actor: ActorRef;
 };
 
-export type CreateRequestInput = LocalWorkInput & {
-  readonly request: TaskValue;
-  readonly raisedBy: ActorRef;
-};
-
-export type ResolveRequestInput = LocalWorkInput & {
-  readonly requestId: string;
-  readonly response: string;
-  readonly disposition: "completed" | "rejected";
-  readonly message?: MessageValue;
-};
-
 export type AppendMessageInput = LocalWorkInput & {
   readonly message: MessageValue;
   readonly sentBy: ActorRef;
@@ -933,16 +831,6 @@ export type PublishArtifactInput = LocalWorkInput & {
 
 export type AcceptDeliveryInput = LocalWorkInput & {
   readonly receipt: DeliveryReceipt;
-};
-
-export type CreateBoardTopicInput = LocalWorkInput & {
-  readonly topic: BoardTopicValue;
-  readonly createdBy: Author;
-};
-
-export type AppendBoardPostInput = LocalWorkInput & {
-  readonly post: BoardPostValue;
-  readonly createdBy: Author;
 };
 
 /** A resource command this machine queues for the editing machine to rule. */
@@ -1518,7 +1406,7 @@ const messageFromRow = (
 const loadThread = Effect.fn("work.loadThread")(function* (
   reader: SqlClient.SqlClient,
   sink: SinkRefValue,
-  lane: "task" | "request",
+  lane: "task",
   itemId: string,
 ): Effect.fn.Return<ReadonlyArray<MessageValue>, WorkSqlFailure> {
   const rows = yield* SqlSchema.findAll({
@@ -1563,7 +1451,7 @@ const loadThread = Effect.fn("work.loadThread")(function* (
 const loadThreadsByItem = Effect.fn("work.loadThreadsByItem")(function* (
   reader: SqlClient.SqlClient,
   sink: SinkRefValue,
-  lane: "task" | "request",
+  lane: "task",
   itemIds?: ReadonlyArray<string>,
 ): Effect.fn.Return<
   ReadonlyMap<string, ReadonlyArray<MessageValue>>,
@@ -2127,7 +2015,7 @@ const applyTaskRecordPatch = (
 const taskFromRow = Effect.fn("work.taskFromRow")(function* (
   reader: SqlClient.SqlClient,
   sink: SinkRefValue,
-  lane: "task" | "request",
+  lane: "task",
   row: TaskRow,
   dependsOn?: ReadonlyArray<string>,
   finish?: {
@@ -2136,10 +2024,10 @@ const taskFromRow = Effect.fn("work.taskFromRow")(function* (
   },
   history?: ReadonlyArray<MessageValue>,
 ): Effect.fn.Return<TaskValue, WorkSqlFailure> {
-  // Constructed, not decoded — see messageFromRow. Every `work_tasks` /
-  // `work_requests` row is the materialization of a `Task` the write path
-  // already strict-decoded (createTask / transitionTask / claimTask /
-  // resolveRequest all decode before commitLocalFact), and state / seat id /
+  // Constructed, not decoded — see messageFromRow. Every `work_tasks` row is
+  // the materialization of a `Task` the write path already strict-decoded
+  // (createTask / transitionTask / claimTask all decode before
+  // commitLocalFact), and state / seat id /
   // JSON columns carry SQL CHECK domains. Field order is the `Task` schema
   // order the decode used to emit.
   const lifted = yield* Effect.try(
@@ -2262,11 +2150,11 @@ const loadTaskVerdictsMap = Effect.fn("work.loadTaskVerdictsMap")(function* (
 const loadLaneTasks = Effect.fn("work.loadLaneTasks")(function* (
   reader: SqlClient.SqlClient,
   sink: SinkRefValue,
-  lane: "task" | "request",
+  lane: "task",
   itemIds?: ReadonlyArray<string>,
 ): Effect.fn.Return<ReadonlyArray<TaskValue>, WorkSqlFailure> {
-  const table = lane === "task" ? "work_tasks" : "work_requests";
-  const id = lane === "task" ? "task_id" : "request_id";
+  const table = "work_tasks";
+  const id = "task_id";
   const dependsMap =
     lane === "task" ? yield* loadTaskDependsOnMap(reader, sink, itemIds) : undefined;
   const finishMap =
@@ -2274,11 +2162,8 @@ const loadLaneTasks = Effect.fn("work.loadLaneTasks")(function* (
   const verdictsMap =
     lane === "task" ? yield* loadTaskVerdictsMap(reader, sink, itemIds) : undefined;
   const threads = yield* loadThreadsByItem(reader, sink, lane, itemIds);
-  // Requests: newest first (operator triage). Tasks keep oldest-first claim order.
-  const orderBy =
-    lane === "request"
-      ? `ORDER BY created_at DESC, ${id} DESC`
-      : `ORDER BY created_at, ${id}`;
+  // Tasks keep oldest-first claim order.
+  const orderBy = `ORDER BY created_at, ${id}`;
   return yield* Effect.forEach(
     yield* SqlSchema.findAll({
       Request: WorkSqlBindings,
@@ -2578,180 +2463,6 @@ const mailRowsWithReceipts = Effect.fn("work.mail.receipts")(function* (
   })));
 });
 
-const boardAuthorFromRow = (row: {
-  readonly author_kind: string;
-  readonly author_seat_id: string | null;
-  readonly author_node_id: string | null;
-  readonly author_label: string | null;
-}): Author => ({
-  kind: row.author_kind === "operator" ? "operator" : "actor",
-  ...(row.author_seat_id
-    ? { seatId: row.author_seat_id as Author["seatId"] }
-    : {}),
-  ...(row.author_node_id ? { nodeId: row.author_node_id } : {}),
-  ...(row.author_label ? { label: row.author_label } : {}),
-});
-
-/**
- * Every board post on one sink, grouped by topic, in one statement.
- *
- * `work_board_posts_thread` indexes (canvas_name, node_id, topic_id, position),
- * so the sink-wide ORDER BY topic_id, position walks the index in order and
- * each group keeps exactly the per-topic ordering the per-topic query produced.
- */
-const loadBoardPostsByTopic = Effect.fn("work.loadBoardPostsByTopic")(
-  function* (
-    reader: SqlClient.SqlClient,
-    sink: SinkRefValue,
-    topicId?: string,
-  ): Effect.fn.Return<
-    ReadonlyMap<string, ReadonlyArray<BoardPostValue>>,
-    WorkSqlFailure
-  > {
-    const rows = yield* SqlSchema.findAll({
-      Request: WorkSqlBindings,
-      Result: BoardPostRow,
-      execute: (bindings) =>
-        reader.unsafe(
-          `
-      SELECT
-        post_id,
-        topic_id,
-        position,
-        author_kind,
-        author_seat_id,
-        author_node_id,
-        author_label,
-        parts_json,
-        tags_json,
-        created_at
-      FROM work_board_posts
-      WHERE canvas_name = ? AND node_id = ?
-      ${topicId === undefined ? "" : "AND topic_id = ?"}
-      ORDER BY topic_id, position
-    `,
-          bindings,
-        ),
-    })([sink.canvasName, sink.nodeId, ...(topicId === undefined ? [] : [topicId])]);
-    const byTopic = new Map<string, BoardPostValue[]>();
-    for (const row of rows) {
-      const tagsRaw =
-        typeof row.tags_json === "string"
-          ? yield* Effect.try(parseJson.bind(undefined, row.tags_json))
-          : undefined;
-      const tags =
-        Array.isArray(tagsRaw) && tagsRaw.every((t) => typeof t === "string")
-          ? (tagsRaw as string[])
-          : undefined;
-      const post: BoardPostValue = {
-        postId: row.post_id,
-        topicId: row.topic_id,
-        author: boardAuthorFromRow(row),
-        parts: (yield* Effect.try(
-          parseJson.bind(undefined, row.parts_json),
-        )) as BoardPostValue["parts"],
-        position: row.position,
-        createdAt: row.created_at,
-        ...(tags && tags.length > 0 ? { tags } : {}),
-      };
-      const group = byTopic.get(row.topic_id);
-      if (group === undefined) byTopic.set(row.topic_id, [post]);
-      else group.push(post);
-    }
-    return byTopic;
-  },
-);
-
-/**
- * Operator read cursors for one board sink, keyed by topic id. Unread is the
- * pad-glance pattern: join the cursors table with the fixed "operator"
- * principal at the read boundary; a missing cursor reads every post.
- */
-const loadOperatorReadCursors = Effect.fn("work.loadOperatorReadCursors")(
-  function* (
-    reader: SqlClient.SqlClient,
-    sink: SinkRefValue,
-  ): Effect.fn.Return<Map<string, number>, WorkSqlFailure> {
-    const rows = yield* SqlSchema.findAll({
-      Request: WorkSqlBindings,
-      Result: BoardCursorRow,
-      execute: (bindings) =>
-        reader.unsafe(
-          `
-        SELECT topic_id, MAX(last_read_position) AS last_read_position
-        FROM work_board_read_cursors
-        WHERE canvas_name = ? AND node_id = ? AND principal_key = 'operator'
-        GROUP BY topic_id
-      `,
-          bindings,
-        ),
-    })([sink.canvasName, sink.nodeId]);
-    return new Map(rows.map((row) => [row.topic_id, row.last_read_position]));
-  },
-  Effect.catch(() => Effect.succeed(new Map<string, number>())),
-);
-
-const loadBoardTopics = Effect.fn("work.loadBoardTopics")(
-  function* (
-    reader: SqlClient.SqlClient,
-    sink: SinkRefValue,
-    topicId?: string,
-  ): Effect.fn.Return<ReadonlyArray<BoardTopicViewValue>, WorkSqlFailure> {
-    const postsByTopic = yield* loadBoardPostsByTopic(reader, sink, topicId);
-    const readCursors = yield* loadOperatorReadCursors(reader, sink);
-    const rows = yield* SqlSchema.findAll({
-      Request: WorkSqlBindings,
-      Result: BoardTopicRow,
-      execute: (bindings) =>
-        reader.unsafe(
-          `
-          SELECT
-            topic_id,
-            title,
-            state,
-            author_kind,
-            author_seat_id,
-            author_node_id,
-            author_label,
-            parts_json,
-            post_count,
-            last_activity_at,
-            created_at
-          FROM work_board_topics
-          WHERE canvas_name = ? AND node_id = ?
-          ${topicId === undefined ? "" : "AND topic_id = ?"}
-          ORDER BY last_activity_at DESC, topic_id
-        `,
-          bindings,
-        ),
-    })([sink.canvasName, sink.nodeId, ...(topicId === undefined ? [] : [topicId])]);
-    return yield* Effect.try(() =>
-      rows.map((row): BoardTopicViewValue => {
-        const parts = parseJson(row.parts_json);
-        const posts = postsByTopic.get(row.topic_id) ?? [];
-        const lastRead = readCursors.get(row.topic_id) ?? -1;
-        const unreadPostCount = posts.filter(
-          (post) => post.author.kind !== "operator" && post.position > lastRead,
-        ).length;
-        return {
-          topicId: row.topic_id,
-          title: row.title,
-          state: row.state as BoardTopicViewValue["state"],
-          openedBy: boardAuthorFromRow(row),
-          openedAt: row.created_at,
-          postCount: row.post_count,
-          lastActivityAt: row.last_activity_at,
-          unreadPostCount,
-          ...(Array.isArray(parts) && parts.length > 0
-            ? { parts: parts as BoardTopicViewValue["parts"] }
-            : {}),
-          ...(posts.length > 0 ? { posts } : {}),
-        };
-      }),
-    );
-  },
-);
-
 const loadArtifacts = Effect.fn("work.loadArtifacts")(function* (
   reader: SqlClient.SqlClient,
   sink: SinkRefValue,
@@ -2822,26 +2533,26 @@ export const readWorkAttention = Effect.fn("work.attention")(function* (
   const query = yield* Schema.decodeUnknownEffect(WorkAttentionQuery, strictDecode)(input);
   const rows = yield* SqlSchema.findAll({
     Request: WorkSqlBindings,
-    Result: Schema.Struct({ node_id: Schema.String, item_id: Schema.String, kind: Schema.Literals(["task", "requests"]),
+    Result: Schema.Struct({ node_id: Schema.String, item_id: Schema.String, kind: Schema.Literal("task"),
       state: Schema.Literals(["working", "input-required", "auth-required"]),
       actor_seat_id: Schema.NullOr(ActorSeatIdSchema),
       metadata_json: Schema.NullOr(Schema.String), origin_at: Schema.String, brief: Schema.NullOr(Schema.String) }),
-    execute: (bindings) => reader.unsafe(["work_tasks", "work_requests"].map((table) => `
-      SELECT work.node_id, '${table === "work_tasks" ? "task" : "requests"}' AS kind, ${table === "work_tasks" ? "task_id" : "request_id"} AS item_id,
+    execute: (bindings) => reader.unsafe(`
+      SELECT work.node_id, 'task' AS kind, task_id AS item_id,
         work.state, work.actor_seat_id, work.metadata_json, work.origin_at,
         (SELECT json_extract(part.value, '$.text') FROM json_each(
           (SELECT message.parts_json FROM work_task_messages AS message
             WHERE message.canvas_name = work.canvas_name AND message.node_id = work.node_id
-              AND message.parent_lane = '${table === "work_tasks" ? "task" : "request"}'
-              AND message.item_id = work.${table === "work_tasks" ? "task_id" : "request_id"}
+              AND message.parent_lane = 'task'
+              AND message.item_id = work.task_id
             ORDER BY message.position LIMIT 1)
         ) AS part WHERE json_extract(part.value, '$.kind') = 'text' ORDER BY part.key LIMIT 1) AS brief
-      FROM ${table} AS work JOIN ${table === "work_tasks" ? "task_boards" : "request_boards"} AS node
+      FROM work_tasks AS work JOIN task_boards AS node
         ON node.canvas_name = work.canvas_name AND node.id = work.node_id
       WHERE work.canvas_name = ?
         ${query.nodeId === undefined ? "" : "AND work.node_id = ?"}
-        AND (state IN ('input-required','auth-required') OR (state = 'working' AND actor_seat_id IS NOT NULL))`).join(" UNION ALL "), bindings),
-  })([0, 1].flatMap(() => [query.canvasName, ...(query.nodeId === undefined ? [] : [query.nodeId])]));
+        AND (state IN ('input-required','auth-required') OR (state = 'working' AND actor_seat_id IS NOT NULL))`, bindings),
+  })([query.canvasName, ...(query.nodeId === undefined ? [] : [query.nodeId])]);
   return rows.map((row) => ({ nodeId: row.node_id, kind: row.kind, item: {
     id: row.item_id, state: row.state, history: [],
     ...(row.brief === null ? {} : { metadata: { title: row.brief.split(/\r?\n/, 1)[0] ?? row.item_id } }),
@@ -2886,7 +2597,6 @@ export const readWorkActorPage = Effect.fn("work.actor.page")(function* (
 ): Effect.fn.Return<WorkActorPage, WorkSqlFailure> {
   const query = yield* Schema.decodeUnknownEffect(WorkActorQuery, strictDecode)(input);
   const [table, nodes, id] = query.kind === "task" ? ["work_tasks", "task_boards", "task_id"]
-    : query.kind === "requests" ? ["work_requests", "request_boards", "request_id"]
     : ["work_artifacts", "artifact_boards", "artifact_id"];
   const limit = query.limit ?? WORK_SINK_PAGE_SIZE;
   const rows = yield* SqlSchema.findAll({
@@ -2919,7 +2629,7 @@ export const readWorkActorPage = Effect.fn("work.actor.page")(function* (
   }
   const items: WorkLaneRow[] = [];
   for (const [nodeId, ids] of grouped) {
-    for (const item of yield* loadLaneTasks(reader, { canvasName: query.canvasName, nodeId }, query.kind === "task" ? "task" : "request", ids))
+    for (const item of yield* loadLaneTasks(reader, { canvasName: query.canvasName, nodeId }, "task", ids))
       items.push({ nodeId, item });
   }
   items.sort((a, b) => b.item.id.localeCompare(a.item.id) || a.nodeId.localeCompare(b.nodeId));
@@ -2933,10 +2643,7 @@ export const readWorkSinkPage = Effect.fn("work.sink.page")(function* (
 ): Effect.fn.Return<WorkSinkPage, WorkSqlFailure> {
   const query = yield* Schema.decodeUnknownEffect(WorkSinkQuery, strictDecode)(input);
   const sink = { canvasName: query.canvasName, nodeId: query.nodeId };
-  const [table, id] = query.kind === "task" ? ["work_tasks", "task_id"]
-    : query.kind === "requests" ? ["work_requests", "request_id"]
-    : query.kind === "artifacts" ? ["work_artifacts", "artifact_id"]
-    : ["work_board_topics", "topic_id"];
+  const [table, id] = query.kind === "task" ? ["work_tasks", "task_id"] : ["work_artifacts", "artifact_id"];
   const limit = query.limit ?? WORK_SINK_PAGE_SIZE;
   const rows = yield* SqlSchema.findAll({
     Request: WorkSqlBindings, Result: Schema.Struct({ id: Schema.String }),
@@ -2949,30 +2656,12 @@ export const readWorkSinkPage = Effect.fn("work.sink.page")(function* (
   const ids = rows.slice(0, limit).map((row) => row.id);
   const next = rows.length > limit ? { nextBeforeId: ids.at(-1)! } : {};
   const byIdDescending = (a: string, b: string) => a < b ? 1 : a > b ? -1 : 0;
-  if (query.kind === "task" || query.kind === "requests") return {
-    kind: query.kind, items: ids.length === 0 ? [] : [...(yield* loadLaneTasks(reader, sink, query.kind === "task" ? "task" : "request", ids))].sort((a, b) => byIdDescending(a.id, b.id)), ...next,
+  if (query.kind === "task") return {
+    kind: "task", items: ids.length === 0 ? [] : [...(yield* loadLaneTasks(reader, sink, "task", ids))].sort((a, b) => byIdDescending(a.id, b.id)), ...next,
   };
-  if (query.kind === "artifacts") return {
+  return {
     kind: "artifacts", items: ids.length === 0 ? [] : [...(yield* loadArtifacts(reader, sink, ids))].sort((a, b) => byIdDescending(a.artifactId, b.artifactId)), ...next,
   };
-  const topics = ids.length === 0 ? [] : yield* reader.unsafe<{
-    topic_id: string; title: string; state: "open" | "archived"; post_count: number;
-    last_activity_at: string; author_label: string | null; unread: number;
-  }>(`SELECT topic_id,title,state,post_count,last_activity_at,author_label,
-    (SELECT count(*) FROM work_board_posts AS post
-      LEFT JOIN work_board_read_cursors AS cursor
-      ON cursor.canvas_name = post.canvas_name AND cursor.node_id = post.node_id
-        AND cursor.topic_id = post.topic_id AND cursor.principal_key = 'operator'
-      WHERE post.canvas_name = topic.canvas_name AND post.node_id = topic.node_id
-        AND post.topic_id = topic.topic_id AND post.author_kind != 'operator'
-        AND post.position > coalesce(cursor.last_read_position,-1)) AS unread
-    FROM work_board_topics AS topic WHERE canvas_name = ? AND node_id = ?
-      AND topic_id IN (${ids.map(() => "?").join(",")})`, [sink.canvasName, sink.nodeId, ...ids]);
-  return { kind: "board", items: topics.map((row) => ({
-    topicId: row.topic_id, title: row.title, state: row.state,
-    postCount: row.post_count, lastActivityAt: row.last_activity_at,
-    unreadPostCount: row.unread, ...(row.author_label === null ? {} : { authorLabel: row.author_label }),
-  })), ...next };
 });
 
 const normalizeRecentOpsLimit = (limit: number | undefined): number => {
@@ -3000,8 +2689,6 @@ const recentOpSummary = (
   switch (row.operation) {
     case "task.claim":
       return { kind: "task", taskId: row.item_id };
-    case "request.create":
-      return { kind: "request", requestId: row.item_id };
     case "message.append":
       return { kind: "message", messageId: row.item_id };
     case "artifact.publish":
@@ -3028,25 +2715,6 @@ const recentOpSummary = (
           itemId: row.related_id,
           targetNodeId: row.related_node_id,
         },
-      };
-    case "board.topic.create":
-      const topicTitle = boundedRecentOpLabel(row.summary_label);
-      if (topicTitle === undefined) {
-        throw new Error("board topic summary is missing its title");
-      }
-      return {
-        kind: "topic",
-        topicId: row.item_id,
-        title: topicTitle,
-      };
-    case "board.post.append":
-      if (row.related_id === null) {
-        throw new Error("board post summary is missing its topic id");
-      }
-      return {
-        kind: "post",
-        postId: row.item_id,
-        topicId: row.related_id,
       };
     default:
       // The corrective startup conversion removes invalid operations before
@@ -3098,12 +2766,9 @@ const recentOpsForSeat = Effect.fn("work.recentOpsForSeat")(function* (
           AND fact_event.item_canvas_name = ?
           AND fact_event.operation IN (
             'task.claim',
-            'request.create',
             'message.append',
             'artifact.publish',
-            'delivery.accepted',
-            'board.topic.create',
-            'board.post.append'
+            'delivery.accepted'
           )
       ),
       attributed AS (
@@ -3112,26 +2777,12 @@ const recentOpsForSeat = Effect.fn("work.recentOpsForSeat")(function* (
           CASE operation
             WHEN 'task.claim' THEN
               json_extract(result_json, '$.claimedBy.seatId')
-            WHEN 'request.create' THEN
-              json_extract(result_json, '$.request.claimedBy')
             WHEN 'message.append' THEN
               json_extract(result_json, '$.sentBy.seatId')
             WHEN 'artifact.publish' THEN
               json_extract(result_json, '$.publishedBy.seatId')
             WHEN 'delivery.accepted' THEN
               json_extract(result_json, '$.receipt.actor.seatId')
-            WHEN 'board.topic.create' THEN
-              CASE
-                WHEN json_extract(result_json, '$.createdBy.kind') = 'actor'
-                  THEN json_extract(result_json, '$.createdBy.seatId')
-                ELSE NULL
-              END
-            WHEN 'board.post.append' THEN
-              CASE
-                WHEN json_extract(result_json, '$.createdBy.kind') = 'actor'
-                  THEN json_extract(result_json, '$.createdBy.seatId')
-                ELSE NULL
-              END
             ELSE NULL
           END AS actor_seat_id
         FROM fact_rows
@@ -3149,11 +2800,6 @@ const recentOpsForSeat = Effect.fn("work.recentOpsForSeat")(function* (
             1,
             ${WORK_SEAT_RECENT_OP_MAX_LABEL_CHARS}
           )
-          WHEN 'board.topic.create' THEN substr(
-            json_extract(result_json, '$.topic.title'),
-            1,
-            ${WORK_SEAT_RECENT_OP_MAX_LABEL_CHARS}
-          )
           ELSE NULL
         END AS summary_label,
         CASE operation
@@ -3166,8 +2812,6 @@ const recentOpsForSeat = Effect.fn("work.recentOpsForSeat")(function* (
             json_extract(result_json, '$.artifact.task.itemId')
           WHEN 'delivery.accepted' THEN
             json_extract(result_json, '$.receipt.deliveredItem.itemId')
-          WHEN 'board.post.append' THEN
-            json_extract(result_json, '$.post.topicId')
           ELSE NULL
         END AS related_id,
         CASE operation
@@ -3250,12 +2894,12 @@ const currentIdentity = (
 
 const selectTaskIdentity = Effect.fn("work.selectTaskIdentity")(function* (
   reader: SqlClient.SqlClient,
-  lane: "task" | "request",
+  lane: "task",
   sink: SinkRefValue,
   itemId: string,
 ): Effect.fn.Return<IdentityRow | undefined, WorkSqlFailure> {
-  const table = lane === "task" ? "work_tasks" : "work_requests";
-  const id = lane === "task" ? "task_id" : "request_id";
+  const table = "work_tasks";
+  const id = "task_id";
   return yield* SqlSchema.findOneOption({
     Request: WorkSqlBindings,
     Result: IdentityRowSchema,
@@ -3281,7 +2925,7 @@ const selectTaskIdentity = Effect.fn("work.selectTaskIdentity")(function* (
 
 const loadTask = Effect.fn("work.loadTask")(function* (
   reader: SqlClient.SqlClient,
-  lane: "task" | "request",
+  lane: "task",
   sink: SinkRefValue,
   itemId: string,
 ): Effect.fn.Return<
@@ -3290,8 +2934,8 @@ const loadTask = Effect.fn("work.loadTask")(function* (
 > {
   const row = yield* selectTaskIdentity(reader, lane, sink, itemId);
   if (row === undefined) return undefined;
-  const table = lane === "task" ? "work_tasks" : "work_requests";
-  const id = lane === "task" ? "task_id" : "request_id";
+  const table = "work_tasks";
+  const id = "task_id";
   const detail = yield* SqlSchema.findOneOption({
     Request: WorkSqlBindings,
     Result: TaskRowSchema,
@@ -3493,7 +3137,7 @@ const unwrapStateFailure = <E extends Error>(
 
 const writeTaskMessages = Effect.fn("work.writeTaskMessages")(function* (
   writer: SqlClient.SqlClient,
-  lane: "task" | "request",
+  lane: "task",
   sink: SinkRefValue,
   task: TaskValue,
   fact: WorkFactValue,
@@ -3565,7 +3209,7 @@ const writeTaskMessages = Effect.fn("work.writeTaskMessages")(function* (
 
 const writeTransition = Effect.fn("work.writeTransition")(function* (
   writer: SqlClient.SqlClient,
-  lane: "task" | "request",
+  lane: "task",
   sink: SinkRefValue,
   task: TaskValue,
   fromState: TaskState | null,
@@ -3634,15 +3278,15 @@ const writeTransition = Effect.fn("work.writeTransition")(function* (
 
 const writeTask = Effect.fn("work.writeTask")(function* (
   writer: SqlClient.SqlClient,
-  lane: "task" | "request",
+  lane: "task",
   sink: SinkRefValue,
   task: TaskValue,
   fact: WorkFactValue,
   receivedAt: DisplayTimestampValue,
 ): Effect.fn.Return<void, WorkSqlFailure> {
   const previous = yield* selectTaskIdentity(writer, lane, sink, task.id);
-  const table = lane === "task" ? "work_tasks" : "work_requests";
-  const id = lane === "task" ? "task_id" : "request_id";
+  const table = "work_tasks";
+  const id = "task_id";
   const stored = yield* SqlSchema.findOneOption({
     Request: WorkSqlBindings,
     Result: StoredTaskStateRow,
@@ -4083,17 +3727,6 @@ const materializeFact = Effect.fn("work.materializeFact")(function* (
         receivedAt,
       );
       return;
-    case "request.create":
-    case "request.resolve":
-      yield* writeTask(
-        writer,
-        "request",
-        fact.item.sink,
-        fact.body.request,
-        fact,
-        receivedAt,
-      );
-      return;
     case "message.append": {
       const destination = fact.body.destination;
       if (destination.kind === "mailbox") {
@@ -4130,113 +3763,6 @@ const materializeFact = Effect.fn("work.materializeFact")(function* (
     case "delivery.accepted":
       yield* writeDelivery(writer, fact.body.receipt, fact, receivedAt);
       return;
-    case "board.topic.create": {
-      const createdBy = fact.body.createdBy;
-      const topic = topicWithBoundAuthors(fact.body.topic, createdBy);
-      yield* writer.unsafe(
-        `
-          INSERT INTO work_board_topics(
-            canvas_name, node_id, topic_id, title, state,
-            author_kind, author_seat_id, author_node_id, author_label,
-            parts_json, post_count, last_activity_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-        [
-          fact.item.sink.canvasName,
-          fact.item.sink.nodeId,
-          topic.topicId,
-          topic.title,
-          topic.state,
-          createdBy.kind,
-          createdBy.seatId ?? null,
-          createdBy.nodeId ?? null,
-          createdBy.label ?? null,
-          JSON.stringify(topic.parts ?? []),
-          topic.postCount,
-          topic.lastActivityAt,
-          topic.openedAt,
-          topic.lastActivityAt,
-        ],
-      );
-      for (const post of topic.posts ?? []) {
-        const tags = post.tags && post.tags.length > 0 ? post.tags : undefined;
-        yield* writer.unsafe(
-          `
-            INSERT INTO work_board_posts(
-              canvas_name, node_id, topic_id, post_id, position,
-              author_kind, author_seat_id, author_node_id, author_label,
-              parts_json, tags_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `,
-          [
-            fact.item.sink.canvasName,
-            fact.item.sink.nodeId,
-            post.topicId,
-            post.postId,
-            post.position,
-            createdBy.kind,
-            createdBy.seatId ?? null,
-            createdBy.nodeId ?? null,
-            createdBy.label ?? null,
-            JSON.stringify(post.parts),
-            tags ? JSON.stringify(tags) : null,
-            post.createdAt,
-          ],
-        );
-      }
-      return;
-    }
-    case "board.post.append": {
-      // Position authority is the fact body (assigned at apply/mint time).
-      const post = fact.body.post;
-      const createdBy = fact.body.createdBy;
-      const tags = post.tags && post.tags.length > 0 ? post.tags : undefined;
-      const inserted = yield* writer
-        .unsafe(
-          `
-          INSERT INTO work_board_posts(
-            canvas_name, node_id, topic_id, post_id, position,
-            author_kind, author_seat_id, author_node_id, author_label,
-            parts_json, tags_json, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(canvas_name, node_id, topic_id, post_id) DO NOTHING
-        `,
-          [
-            fact.item.sink.canvasName,
-            fact.item.sink.nodeId,
-            post.topicId,
-            post.postId,
-            post.position,
-            createdBy.kind,
-            createdBy.seatId ?? null,
-            createdBy.nodeId ?? null,
-            createdBy.label ?? null,
-            JSON.stringify(post.parts),
-            tags ? JSON.stringify(tags) : null,
-            post.createdAt,
-          ],
-        )
-        .raw.pipe(Effect.flatMap(Schema.decodeUnknownEffect(WorkRunResult)));
-      if (Number(inserted.changes) > 0) {
-        yield* writer.unsafe(
-          `
-            UPDATE work_board_topics
-            SET post_count = post_count + 1,
-                last_activity_at = ?,
-                updated_at = ?
-            WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
-          `,
-          [
-            post.createdAt,
-            post.createdAt,
-            fact.item.sink.canvasName,
-            fact.item.sink.nodeId,
-            post.topicId,
-          ],
-        );
-      }
-      return;
-    }
   }
 });
 
@@ -4627,8 +4153,7 @@ export interface WorkRepositoryShape {
   /** Exact policy inputs across the task's visited boards and prerequisite ids. */
   readonly taskRowsByIds: (canvasName: string, ids: ReadonlyArray<string>) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly item: TaskValue }>, WorkRepositoryError>;
   /** Explicit full lane read for agent list commands. */
-  readonly taskLane: (canvasName: string, nodeId: string, kind: "task" | "requests") => Effect.Effect<ReadonlyArray<TaskValue>, WorkRepositoryError>;
-  readonly boardTopics: (canvasName: string, nodeId: string, topicId?: string) => Effect.Effect<ReadonlyArray<BoardTopicViewValue>, WorkRepositoryError>;
+  readonly taskLane: (canvasName: string, nodeId: string) => Effect.Effect<ReadonlyArray<TaskValue>, WorkRepositoryError>;
   readonly artifactLane: (canvasName: string, nodeId: string) => Effect.Effect<ReadonlyArray<ArtifactValue>, WorkRepositoryError>;
   readonly artifactIds: (canvasName: string, nodeId: string) => Effect.Effect<ReadonlyArray<string>, WorkRepositoryError>;
   readonly artifactItem: (canvasName: string, nodeId: string, id: string) => Effect.Effect<ArtifactValue | undefined, WorkRepositoryError>;
@@ -4652,7 +4177,7 @@ export interface WorkRepositoryShape {
     readonly limit?: number;
   }) => Effect.Effect<WorkSeatRecentOpsFeed, WorkRepositoryError>;
   readonly itemHome: (
-    lane: "task" | "request",
+    lane: "task",
     canvasName: string,
     nodeId: string,
     itemId: string,
@@ -4695,20 +4220,6 @@ export interface WorkRepositoryShape {
     input: SendBackTaskInput,
   ) => Effect.Effect<LocalFactResult<SendBackTaskValue>, RepositoryFailure>;
   /**
-   * Post a review verdict with live-task authority, validated and inserted in
-   * one transaction: recompute the subject from the live task, refuse a
-   * self-review, a moved epoch/hash/author, or a reviewer not on the task's
-   * reviewer list (for a commit, not reached by its receipt on this canvas),
-   * then store the immutable verdict.
-   */
-  readonly postReviewVerdict: (
-    verdict: ReviewVerdict,
-    opts: {
-      readonly basis: IntentFactBasisValue;
-      readonly canvasName: string;
-    },
-  ) => Effect.Effect<PostReviewVerdictResult, RepositoryFailure>;
-  /**
    * Atomic checkout-watch receipt writer: fresh-reads the task and its live
    * claimant (refusing a changed author), the task's reviewer list, and the
    * intent basis, then composes commit-subject receipt mail for the
@@ -4736,12 +4247,6 @@ export interface WorkRepositoryShape {
   readonly recordCheckResults: (
     input: RecordCheckResultsInput,
   ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
-  readonly createRequest: (
-    input: CreateRequestInput,
-  ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
-  readonly resolveRequest: (
-    input: ResolveRequestInput,
-  ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
   readonly appendMessage: (
     input: AppendMessageInput,
   ) => Effect.Effect<LocalFactResult<MessageValue>, RepositoryFailure>;
@@ -4751,20 +4256,6 @@ export interface WorkRepositoryShape {
   readonly acceptDelivery: (
     input: AcceptDeliveryInput,
   ) => Effect.Effect<LocalFactResult<DeliveryReceipt>, RepositoryFailure>;
-  /** Command Center-homed board mutations (global sink; work_events facts). */
-  readonly createBoardTopic: (
-    input: CreateBoardTopicInput,
-  ) => Effect.Effect<LocalFactResult<BoardTopicValue>, RepositoryFailure>;
-  readonly appendBoardPost: (
-    input: AppendBoardPostInput,
-  ) => Effect.Effect<LocalFactResult<BoardPostValue>, RepositoryFailure>;
-  readonly markBoardRead: (input: {
-    readonly sink: SinkRefValue;
-    readonly topicId: string;
-    readonly principalKey: string;
-    readonly lastReadPosition: number;
-    readonly updatedAt?: string;
-  }) => Effect.Effect<void, RepositoryFailure>;
   /** Operator soft-archive / restore via metadata.archived (no work fact). */
   readonly setArtifactArchived: (input: {
     readonly sink: SinkRefValue;
@@ -4920,7 +4411,7 @@ export const WorkRepositoryLive = Layer.effect(
         );
 
     const itemHome = (
-      lane: "task" | "request",
+      lane: "task",
       canvasName: string,
       nodeId: string,
       itemId: string,
@@ -5997,32 +5488,6 @@ export const WorkRepositoryLive = Layer.effect(
               originAt,
               receivedAt,
             });
-            if (input.review !== undefined) {
-              // CAS against the loaded current task: a blocking verdict is bound to
-              // the epoch it judged. If the task was reclaimed and its epoch moved
-              // since the verdict was formed, this write is stale and must not land
-              // — otherwise a delayed old-epoch blocking would kill a fresh claim.
-              const currentEpoch = current.task.epoch ?? 0;
-              if (input.review.verdict.epoch !== currentEpoch) {
-                return yield* Effect.fail(
-                  authorityError(
-                    "invalid-transition",
-                    `stale review: verdict epoch ${String(input.review.verdict.epoch)} ` +
-                      `no longer matches the current task epoch ${String(currentEpoch)}`,
-                  ),
-                );
-              }
-              // Immutable blocking verdict in the same transaction as the reject.
-              yield* (yield* CrewRepository).postVerdictWithin(
-                input.review.verdict,
-              );
-              const receipt = input.review.receipt;
-              if (receipt !== undefined) {
-                yield* (yield* CrewRepository).recordReviewReceiptWithin(
-                  receipt,
-                );
-              }
-            }
             return {
               value: { rejected, sentBack: sentBackTask },
               record: rejectedFact.record,
@@ -6355,155 +5820,6 @@ export const WorkRepositoryLive = Layer.effect(
       );
     };
 
-    const postReviewVerdict = (
-      verdict: ReviewVerdict,
-      opts: {
-        readonly basis: IntentFactBasisValue;
-        readonly canvasName: string;
-      },
-    ): Effect.Effect<PostReviewVerdictResult, RepositoryFailure> => {
-      const subject = verdict.subject;
-      if (subject.kind === "commit") {
-        // A commit subject carries no live task to CAS, but still requires live
-        // authority: the author is the durable first-seen-sha provenance, the
-        // reviewer may not be that author, and a receipt for the sha must have
-        // reached the reviewer. Only the task epoch/hash CAS
-        // and the work-side effect are omitted (a sha may belong to many tasks).
-        return transaction(
-          "work.review.post-verdict",
-          {
-            canvasName: opts.canvasName,
-            nodeId: verdict.reviewerNodeId ?? "review",
-          },
-          (
-            writer: SqlClient.SqlClient,
-          ): Effect.Effect<
-            PostReviewVerdictResult,
-            WorkSqlFailure,
-            ModelRecords | CrewRepository
-          > =>
-            Effect.gen(function* () {
-              const provenance = yield* SqlSchema.findOneOption({
-                Request: WorkSqlBindings,
-                Result: ReviewAuthorRow,
-                execute: (bindings) =>
-                  writer.unsafe(
-                    `SELECT author_seat_id FROM work_review_receipts
-               WHERE ref_sha = ? ORDER BY created_at, source_id LIMIT 1`,
-                    bindings,
-                  ),
-              })([subject.sha.trim().toLowerCase()]).pipe(
-                Effect.map(Option.getOrUndefined),
-              );
-              if (provenance === undefined) {
-                return { rejected: "not-a-reviewer" };
-              }
-              const authorSeat = provenance.author_seat_id as ActorSeatId;
-              if (verdict.reviewerSeatId === authorSeat) {
-                return { rejected: "reviewer-is-author" };
-              }
-              // A commit's reviewers on this canvas are the seats its receipts
-              // here reached; a receipt on another canvas admits nobody here.
-              const receipted = yield* SqlSchema.findOneOption({
-                Request: WorkSqlBindings,
-                Result: ReviewReceiptKeyRow,
-                execute: (bindings) =>
-                  writer.unsafe(
-                    `SELECT ref_sha, reviewer_seat_id FROM work_review_receipts
-               WHERE canvas_name = ? AND ref_sha = ? AND reviewer_seat_id = ? LIMIT 1`,
-                    bindings,
-                  ),
-              })([opts.canvasName, subject.sha.trim().toLowerCase(), verdict.reviewerSeatId]);
-              if (Option.isNone(receipted)) {
-                return { rejected: "not-a-reviewer" };
-              }
-              const before = yield* SqlSchema.findOneOption({
-                Request: WorkSqlBindings,
-                Result: VerdictIdRow,
-                execute: (bindings) =>
-                  writer.unsafe(
-                    `SELECT verdict_id FROM work_review_verdicts WHERE verdict_id = ?`,
-                    bindings,
-                  ),
-              })([verdict.verdictId]).pipe(Effect.map(Option.getOrUndefined));
-              yield* (yield* CrewRepository).postVerdictWithin(verdict);
-              return { verdict, created: before === undefined };
-            }),
-        );
-      }
-      const sink = { canvasName: opts.canvasName, nodeId: subject.nodeId };
-      return transaction(
-        "work.review.post-verdict",
-        sink,
-        (
-          writer: SqlClient.SqlClient,
-        ): Effect.Effect<
-          PostReviewVerdictResult,
-          WorkSqlFailure,
-          ModelRecords | CrewRepository
-        > =>
-          Effect.gen(function* () {
-            const { installationId } =
-              yield* canonicalLocalWorkAuthority(writer);
-            const current = yield* loadTask(
-              writer,
-              "task",
-              sink,
-              subject.taskId,
-            );
-            if (current === undefined) {
-              return { rejected: "stale-subject" };
-            }
-            // Recompute the subject from the live task's canonical completion
-            // refs — never a cached derived hash.
-            const projection = reviewSubjectProjection({
-              installationId,
-              canvasName: opts.canvasName,
-              nodeId: subject.nodeId,
-              task: current.task,
-            });
-            const authorSeat = reviewAuthorSeat(current.task);
-            if (authorSeat === undefined) {
-              // No live author: there is nothing to review yet.
-              return { rejected: "not-a-reviewer" };
-            }
-            // Self-review: the reviewer is (or has become) the current author.
-            if (verdict.reviewerSeatId === authorSeat) {
-              return { rejected: "reviewer-is-author" };
-            }
-            // Stale: the live epoch, subject hash, or author moved since the
-            // verdict was formed.
-            if (
-              projection.epoch !== verdict.epoch ||
-              projection.subjectHash !== verdict.subjectHash ||
-              verdict.authorSeatId !== authorSeat
-            ) {
-              return { rejected: "stale-subject" };
-            }
-            // The reviewer is on the task's reviewer list, re-read in the same writer.
-            const { actorRefs: refsHere } = yield* readReviewCanvas(writer, opts.canvasName);
-            const listed = reviewerSeatsOf({
-              reviewers: yield* readTaskReviewers(writer, opts.canvasName, subject.taskId),
-              actorRefs: refsHere,
-            });
-            if (!listed.some((reviewer) => reviewer.seatId === verdict.reviewerSeatId)) {
-              return { rejected: "not-a-reviewer" };
-            }
-            const before = yield* SqlSchema.findOneOption({
-              Request: WorkSqlBindings,
-              Result: VerdictIdRow,
-              execute: (bindings) =>
-                writer.unsafe(
-                  `SELECT verdict_id FROM work_review_verdicts WHERE verdict_id = ?`,
-                  bindings,
-                ),
-            })([verdict.verdictId]).pipe(Effect.map(Option.getOrUndefined));
-            yield* (yield* CrewRepository).postVerdictWithin(verdict);
-            return { verdict, created: before === undefined };
-          }),
-      );
-    };
-
     const promoteTask = (
       input: PromoteTaskInput,
     ): Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure> => {
@@ -6665,144 +5981,6 @@ export const WorkRepositoryLive = Layer.effect(
               ),
               body: { operation: "task.transition", task },
               value: task,
-              originAt,
-              receivedAt,
-            });
-          }),
-      );
-    };
-
-    const createRequest = (
-      input: CreateRequestInput,
-    ): Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure> => {
-      const originAt = timestamp(input.originAt);
-      const receivedAt = timestamp(input.receivedAt);
-      const request = Schema.decodeUnknownSync(
-        Task,
-        strictDecode,
-      )(input.request);
-      return transaction(
-        "work.request.create",
-        input.sink,
-        (writer: SqlClient.SqlClient) =>
-          Effect.gen(function* () {
-            const { installationId: localInstallationId } =
-              yield* canonicalLocalWorkAuthority(writer);
-            if (
-              request.state !== "input-required" ||
-              request.claimedBy !== input.raisedBy.seatId
-            ) {
-              return yield* Effect.fail(
-                authorityError(
-                  "authority-mismatch",
-                  "request must be input-required work claimed by its exact raiser",
-                ),
-              );
-            }
-            if (
-              (yield* selectTaskIdentity(
-                writer,
-                "request",
-                input.sink,
-                request.id,
-              )) !== undefined
-            ) {
-              return yield* Effect.fail(
-                authorityError(
-                  "identity-conflict",
-                  `request "${request.id}" already exists`,
-                ),
-              );
-            }
-            return yield* commitLocalFact(writer, {
-              localInstallationId,
-              sink: input.sink,
-              basis: input.basis,
-              item: item("request", request.id, input.sink),
-              operation: "request.create",
-              predecessor: null,
-              body: { operation: "request.create", request },
-              value: request,
-              originAt,
-              receivedAt,
-            });
-          }),
-      );
-    };
-
-    const resolveRequest = (
-      input: ResolveRequestInput,
-    ): Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure> => {
-      const originAt = timestamp(input.originAt);
-      const receivedAt = timestamp(input.receivedAt);
-      const message =
-        input.message === undefined
-          ? undefined
-          : Schema.decodeUnknownSync(Message, strictDecode)(input.message);
-      return transaction(
-        "work.request.resolve",
-        input.sink,
-        (writer: SqlClient.SqlClient) =>
-          Effect.gen(function* () {
-            if (message !== undefined) {
-            }
-            const { installationId: localInstallationId } =
-              yield* canonicalLocalWorkAuthority(writer);
-            const current = yield* loadTask(
-              writer,
-              "request",
-              input.sink,
-              input.requestId,
-            );
-            if (current === undefined) {
-              return yield* Effect.fail(
-                authorityError(
-                  "missing-entity",
-                  `request "${input.requestId}" does not exist`,
-                ),
-              );
-            }
-            if (current.row.entity_home !== localInstallationId) {
-              return yield* Effect.fail(
-                authorityError(
-                  "authority-mismatch",
-                  "local installation does not own this request",
-                ),
-              );
-            }
-            if (
-              !canTransitionTaskState(current.task.state, input.disposition)
-            ) {
-              return yield* Effect.fail(
-                authorityError(
-                  "invalid-transition",
-                  `cannot resolve request "${input.requestId}" from ${current.task.state}`,
-                ),
-              );
-            }
-            const request = yield* Schema.decodeUnknownEffect(
-              Task,
-              strictDecode,
-            )({
-              ...current.task,
-              state: input.disposition,
-              response: input.response,
-              history:
-                message === undefined
-                  ? current.task.history
-                  : [...current.task.history, message],
-            });
-            return yield* commitLocalFact(writer, {
-              localInstallationId,
-              sink: input.sink,
-              basis: input.basis,
-              item: item("request", request.id, input.sink),
-              operation: "request.resolve",
-              predecessor: yield* Effect.try(
-                currentIdentity.bind(undefined, current.row),
-              ),
-              body: { operation: "request.resolve", request },
-              value: request,
               originAt,
               receivedAt,
             });
@@ -7018,244 +6196,6 @@ export const WorkRepositoryLive = Layer.effect(
             });
           }),
         input.receipt.deliveredItem.kind === "message" ? "mail" : "work",
-      );
-    };
-
-    const createBoardTopic = (
-      input: CreateBoardTopicInput,
-    ): Effect.Effect<LocalFactResult<BoardTopicValue>, RepositoryFailure> => {
-      const originAt = timestamp(input.originAt);
-      const receivedAt = timestamp(input.receivedAt);
-      const createdBy = input.createdBy;
-      const topic = topicWithBoundAuthors(
-        Schema.decodeUnknownSync(BoardTopic, strictDecode)(input.topic),
-        createdBy,
-      );
-      return transaction(
-        "work.board.topic.create",
-        input.sink,
-        (writer: SqlClient.SqlClient) =>
-          Effect.gen(function* () {
-            const authority = yield* canonicalLocalWorkAuthority(writer);
-            if (
-              (yield* SqlSchema.findOneOption({
-                Request: WorkSqlBindings,
-                Result: ExistsRow,
-                execute: (bindings) =>
-                  writer.unsafe(
-                    `
-              SELECT 1 FROM work_board_topics
-              WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
-            `,
-                    bindings,
-                  ),
-              })([
-                input.sink.canvasName,
-                input.sink.nodeId,
-                topic.topicId,
-              ]).pipe(Effect.map(Option.getOrUndefined))) !== undefined
-            ) {
-              return yield* Effect.fail(
-                authorityError(
-                  "identity-conflict",
-                  `topic "${topic.topicId}" already exists`,
-                ),
-              );
-            }
-            return yield* commitLocalFact(writer, {
-              localInstallationId: authority.installationId,
-              sink: input.sink,
-              basis: input.basis,
-              item: item("topic", topic.topicId, input.sink),
-              operation: "board.topic.create",
-              predecessor: null,
-              body: {
-                operation: "board.topic.create",
-                topic,
-                createdBy,
-              },
-              value: topic,
-              originAt,
-              receivedAt,
-            });
-          }),
-      );
-    };
-
-    const appendBoardPost = (
-      input: AppendBoardPostInput,
-    ): Effect.Effect<LocalFactResult<BoardPostValue>, RepositoryFailure> => {
-      const originAt = timestamp(input.originAt);
-      const receivedAt = timestamp(input.receivedAt);
-      const post = Schema.decodeUnknownSync(
-        BoardPost,
-        strictDecode,
-      )(input.post);
-      const createdBy = input.createdBy;
-      return transaction(
-        "work.board.post.append",
-        input.sink,
-        (writer: SqlClient.SqlClient) =>
-          Effect.gen(function* () {
-            const authority = yield* canonicalLocalWorkAuthority(writer);
-            const topic = yield* SqlSchema.findOneOption({
-              Request: WorkSqlBindings,
-              Result: BoardStateRow,
-              execute: (bindings) =>
-                writer.unsafe(
-                  `
-            SELECT state FROM work_board_topics
-            WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
-          `,
-                  bindings,
-                ),
-            })([input.sink.canvasName, input.sink.nodeId, post.topicId]).pipe(
-              Effect.map(Option.getOrUndefined),
-            );
-            if (topic === undefined) {
-              return yield* Effect.fail(
-                authorityError(
-                  "missing-entity",
-                  `topic "${post.topicId}" does not exist`,
-                ),
-              );
-            }
-            if (topic.state === "archived") {
-              return yield* Effect.fail(
-                authorityError(
-                  "invalid-transition",
-                  `topic "${post.topicId}" is archived`,
-                ),
-              );
-            }
-            const maxPos = yield* SqlSchema.findOneOption({
-              Request: WorkSqlBindings,
-              Result: MaxPositionRow,
-              execute: (bindings) =>
-                writer.unsafe(
-                  `
-            SELECT MAX(position) AS m FROM work_board_posts
-            WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
-          `,
-                  bindings,
-                ),
-            })([input.sink.canvasName, input.sink.nodeId, post.topicId]).pipe(
-              Effect.map(Option.getOrUndefined),
-            );
-            if (
-              (yield* SqlSchema.findOneOption({
-                Request: WorkSqlBindings,
-                Result: ExistsRow,
-                execute: (bindings) =>
-                  writer.unsafe(
-                    `
-              SELECT 1 FROM work_board_posts
-              WHERE canvas_name = ? AND node_id = ? AND topic_id = ? AND post_id = ?
-            `,
-                    bindings,
-                  ),
-              })([
-                input.sink.canvasName,
-                input.sink.nodeId,
-                post.topicId,
-                post.postId,
-              ]).pipe(Effect.map(Option.getOrUndefined))) !== undefined
-            ) {
-              return yield* Effect.fail(
-                authorityError(
-                  "identity-conflict",
-                  `post "${post.postId}" already exists`,
-                ),
-              );
-            }
-            const position =
-              typeof maxPos?.m === "number" && Number.isFinite(maxPos.m)
-                ? maxPos.m + 1
-                : 0;
-            const stored = { ...post, author: createdBy, position };
-            return yield* commitLocalFact(writer, {
-              localInstallationId: authority.installationId,
-              sink: input.sink,
-              basis: input.basis,
-              item: item("post", stored.postId, input.sink),
-              operation: "board.post.append",
-              predecessor: null,
-              body: {
-                operation: "board.post.append",
-                post: stored,
-                createdBy,
-              },
-              value: stored,
-              originAt,
-              receivedAt,
-            });
-          }),
-      );
-    };
-
-    const markBoardRead = (input: {
-      readonly sink: SinkRefValue;
-      readonly topicId: string;
-      readonly principalKey: string;
-      readonly lastReadPosition: number;
-      readonly updatedAt?: string;
-    }): Effect.Effect<void, RepositoryFailure> => {
-      const updatedAt = timestamp(input.updatedAt);
-      return transaction(
-        "work.board.mark_read",
-        input.sink,
-        (writer: SqlClient.SqlClient) =>
-          Effect.gen(function* () {
-            // Clamp to the topic's real max inside the write transaction: an
-            // oversized request acknowledges nothing past the stored posts, and
-            // the MAX() UPSERT keeps existing cursors monotone. An empty topic
-            // clamps to -1 so its future first post stays unread.
-            const topicMax = yield* SqlSchema.findOneOption({
-              Request: WorkSqlBindings,
-              Result: MaxPositionRow,
-              execute: (bindings) =>
-                writer.unsafe(
-                  `
-            SELECT MAX(position) AS m FROM work_board_posts
-            WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
-          `,
-                  bindings,
-                ),
-            })([input.sink.canvasName, input.sink.nodeId, input.topicId]).pipe(
-              Effect.map(Option.getOrUndefined),
-            );
-            const topicMaxPosition =
-              typeof topicMax?.m === "number" && Number.isFinite(topicMax.m)
-                ? topicMax.m
-                : -1;
-            const clamped = Math.max(
-              -1,
-              Math.min(Math.trunc(input.lastReadPosition), topicMaxPosition),
-            );
-            yield* writer.unsafe(
-              `
-            INSERT INTO work_board_read_cursors(
-              canvas_name, node_id, topic_id, principal_key,
-              last_read_position, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(canvas_name, node_id, topic_id, principal_key)
-            DO UPDATE SET
-              last_read_position = MAX(
-                work_board_read_cursors.last_read_position,
-                excluded.last_read_position
-              ),
-              updated_at = excluded.updated_at
-          `,
-              [
-                input.sink.canvasName,
-                input.sink.nodeId,
-                input.topicId,
-                input.principalKey,
-                clamped,
-                updatedAt,
-              ],
-            );
-          }),
       );
     };
 
@@ -7999,35 +6939,21 @@ export const WorkRepositoryLive = Layer.effect(
       kernelWork: Effect.fn("WorkRepository.kernelWork")((canvasName: string) =>
         withSqlRead(sql, Effect.gen(function* () {
           const tasks = new Map<string, ReadonlyArray<TaskValue>>();
-          for (const lane of ["task", "request"] as const) {
-            const table = lane === "task" ? "work_tasks" : "work_requests";
-            const nodeTable = lane === "task" ? "task_boards" : "request_boards";
-            const id = lane === "task" ? "task_id" : "request_id";
-            const rows = yield* SqlSchema.findAll({
-              Request: Schema.String,
-              Result: Schema.Struct({ node_id: Schema.String, item_id: Schema.String }),
-              execute: (canvas) => sql.unsafe(`SELECT work.node_id,work.${id} AS item_id FROM ${table} AS work
-                JOIN ${nodeTable} AS node ON node.canvas_name=work.canvas_name AND node.id=work.node_id
-                WHERE work.canvas_name=? ${lane === "task" ? "AND work.state != 'archived'" : ""}
-                ORDER BY node.z_index,node.id,work.created_at,work.${id}`, [canvas]),
-            })(canvasName);
-            const byNode = new Map<string, string[]>();
-            for (const row of rows) {
-              const ids = byNode.get(row.node_id) ?? [];
-              ids.push(row.item_id); byNode.set(row.node_id, ids);
-            }
-            for (const [nodeId, ids] of byNode)
-              tasks.set(nodeId, yield* loadLaneTasks(sql, { canvasName, nodeId }, lane, ids));
-          }
-          const boards = new Map<string, { readonly topics: number; readonly posts: number }>();
-          for (const row of yield* SqlSchema.findAll({
+          const rows = yield* SqlSchema.findAll({
             Request: Schema.String,
-            Result: Schema.Struct({ node_id: Schema.String, topics: Schema.Number, posts: Schema.Number }),
-            execute: (canvas) => sql`SELECT work.node_id,COUNT(*) AS topics,SUM(work.post_count) AS posts
-              FROM work_board_topics AS work
-              JOIN boards AS node ON node.canvas_name=work.canvas_name AND node.id=work.node_id
-              WHERE work.canvas_name=${canvas} GROUP BY work.node_id`,
-          })(canvasName)) boards.set(row.node_id, { topics: row.topics, posts: row.posts });
+            Result: Schema.Struct({ node_id: Schema.String, item_id: Schema.String }),
+            execute: (canvas) => sql`SELECT work.node_id,work.task_id AS item_id FROM work_tasks AS work
+              JOIN task_boards AS node ON node.canvas_name=work.canvas_name AND node.id=work.node_id
+              WHERE work.canvas_name=${canvas} AND work.state != 'archived'
+              ORDER BY node.z_index,node.id,work.created_at,work.task_id`,
+          })(canvasName);
+          const byNode = new Map<string, string[]>();
+          for (const row of rows) {
+            const ids = byNode.get(row.node_id) ?? [];
+            ids.push(row.item_id); byNode.set(row.node_id, ids);
+          }
+          for (const [nodeId, ids] of byNode)
+            tasks.set(nodeId, yield* loadLaneTasks(sql, { canvasName, nodeId }, "task", ids));
           const artifacts = new Map<string, number>();
           for (const row of yield* SqlSchema.findAll({
             Request: Schema.String,
@@ -8036,7 +6962,7 @@ export const WorkRepositoryLive = Layer.effect(
               JOIN artifact_boards AS node ON node.canvas_name=work.canvas_name AND node.id=work.node_id
               WHERE work.canvas_name=${canvas} GROUP BY work.node_id`,
           })(canvasName)) artifacts.set(row.node_id, row.count);
-          return { tasks, boards, artifacts };
+          return { tasks, artifacts };
         })).pipe(Effect.mapError((error) => toRepositoryError("work.kernel.read", error))),
       ),
       taskRowsByIds: Effect.fn("WorkRepository.taskRowsByIds")((canvasName: string, requested: ReadonlyArray<string>) =>
@@ -8063,13 +6989,9 @@ export const WorkRepositoryLive = Layer.effect(
           return result;
         })).pipe(Effect.mapError((error) => toRepositoryError("work.tasks.selected", error))),
       ),
-      taskLane: Effect.fn("WorkRepository.taskLane")((canvasName: string, nodeId: string, kind: "task" | "requests") =>
-        withSqlRead(sql, loadLaneTasks(sql, { canvasName, nodeId }, kind === "task" ? "task" : "request")).pipe(
+      taskLane: Effect.fn("WorkRepository.taskLane")((canvasName: string, nodeId: string) =>
+        withSqlRead(sql, loadLaneTasks(sql, { canvasName, nodeId }, "task")).pipe(
           Effect.mapError((error) => toRepositoryError("work.tasks.list", error)),
-        )),
-      boardTopics: Effect.fn("WorkRepository.boardTopics")((canvasName: string, nodeId: string, topicId?: string) =>
-        withSqlRead(sql, loadBoardTopics(sql, { canvasName, nodeId }, topicId)).pipe(
-          Effect.mapError((error) => toRepositoryError("work.board.topics", error)),
         )),
       artifactLane: Effect.fn("WorkRepository.artifactLane")((canvasName: string, nodeId: string) =>
         withSqlRead(sql, loadArtifacts(sql, { canvasName, nodeId })).pipe(
@@ -8092,7 +7014,7 @@ export const WorkRepositoryLive = Layer.effect(
       taskItem: Effect.fn("WorkRepository.taskItem")((input: WorkItemQuery) =>
         withSqlRead(sql, Effect.gen(function* () {
           const query = yield* Schema.decodeUnknownEffect(WorkItemQuery, strictDecode)(input);
-          return (yield* loadLaneTasks(sql, query, query.kind === "task" ? "task" : "request", [query.itemId]))[0];
+          return (yield* loadLaneTasks(sql, query, "task", [query.itemId]))[0];
         })).pipe(
           Effect.provideService(StateTransactionOperation, "work.item"),
           Effect.mapError((error) => toRepositoryError("work.item", error)),
@@ -8165,18 +7087,12 @@ export const WorkRepositoryLive = Layer.effect(
       claimLocalTask,
       sendTaskOn,
       sendTaskBack,
-      postReviewVerdict,
       publishCheckoutReceipts,
       promoteTask,
       recordCheckResults,
-      createRequest,
-      resolveRequest,
       appendMessage,
       publishArtifact,
       acceptDelivery,
-      createBoardTopic,
-      appendBoardPost,
-      markBoardRead,
       setArtifactArchived,
       deleteArtifact,
       recordCanvasCopySent,
@@ -8205,17 +7121,11 @@ export type WorkContentProjectionRow = {
   | { readonly kind: "message"; readonly messageId: string }
   | {
       readonly kind: "task-message";
-      readonly lane: "task" | "request";
+      readonly lane: "task";
       readonly itemId: string;
       readonly messageId: string;
     }
   | { readonly kind: "artifact"; readonly artifactId: string }
-  | { readonly kind: "board-topic"; readonly topicId: string }
-  | {
-      readonly kind: "board-post";
-      readonly topicId: string;
-      readonly postId: string;
-    }
 );
 export type WorkContentProjectionKind = WorkContentProjectionRow["kind"];
 
@@ -8244,8 +7154,6 @@ export const WorkContentProjectionsLive = Layer.effect(
       message: "work_messages",
       "task-message": "work_task_messages",
       artifact: "work_artifacts",
-      "board-topic": "work_board_topics",
-      "board-post": "work_board_posts",
     } as const;
     const exists = SqlSchema.findOneOption({
       Request: Schema.String,
@@ -8268,7 +7176,7 @@ export const WorkContentProjectionsLive = Layer.effect(
       Request: Schema.Void,
       Result: Schema.Struct({
         ...common,
-        parent_lane: Schema.Literals(["task", "request"]),
+        parent_lane: Schema.Literal("task"),
         item_id: Schema.String,
         message_id: Schema.String,
       }),
@@ -8280,22 +7188,6 @@ export const WorkContentProjectionsLive = Layer.effect(
       Result: Schema.Struct({ ...common, artifact_id: Schema.String }),
       execute: () =>
         sql`SELECT canvas_name, node_id, artifact_id, parts_json FROM work_artifacts`,
-    });
-    const topics = SqlSchema.findAll({
-      Request: Schema.Void,
-      Result: Schema.Struct({ ...common, topic_id: Schema.String }),
-      execute: () =>
-        sql`SELECT canvas_name, node_id, topic_id, parts_json FROM work_board_topics`,
-    });
-    const posts = SqlSchema.findAll({
-      Request: Schema.Void,
-      Result: Schema.Struct({
-        ...common,
-        topic_id: Schema.String,
-        post_id: Schema.String,
-      }),
-      execute: () =>
-        sql`SELECT canvas_name, node_id, topic_id, post_id, parts_json FROM work_board_posts`,
     });
     const scan = Effect.fn("work.contentProjections.scan")(
       function* (kind: WorkContentProjectionKind) {
@@ -8333,27 +7225,6 @@ export const WorkContentProjectionsLive = Layer.effect(
                 partsJson: row.parts_json,
               }),
             );
-          case "board-topic":
-            return (yield* topics(undefined)).map(
-              (row): WorkContentProjectionRow => ({
-                kind,
-                canvasName: row.canvas_name,
-                nodeId: row.node_id,
-                topicId: row.topic_id,
-                partsJson: row.parts_json,
-              }),
-            );
-          case "board-post":
-            return (yield* posts(undefined)).map(
-              (row): WorkContentProjectionRow => ({
-                kind,
-                canvasName: row.canvas_name,
-                nodeId: row.node_id,
-                topicId: row.topic_id,
-                postId: row.post_id,
-                partsJson: row.parts_json,
-              }),
-            );
         }
       },
       Effect.mapError((error) =>
@@ -8374,13 +7245,6 @@ export const WorkContentProjectionsLive = Layer.effect(
             case "artifact":
               return sql`UPDATE work_artifacts SET parts_json = ${partsJson}
           WHERE canvas_name = ${row.canvasName} AND node_id = ${row.nodeId} AND artifact_id = ${row.artifactId}`;
-            case "board-topic":
-              return sql`UPDATE work_board_topics SET parts_json = ${partsJson}
-          WHERE canvas_name = ${row.canvasName} AND node_id = ${row.nodeId} AND topic_id = ${row.topicId}`;
-            case "board-post":
-              return sql`UPDATE work_board_posts SET parts_json = ${partsJson}
-          WHERE canvas_name = ${row.canvasName} AND node_id = ${row.nodeId}
-            AND topic_id = ${row.topicId} AND post_id = ${row.postId}`;
           }
         })();
         yield* unjournaledWorkMutationEffect(

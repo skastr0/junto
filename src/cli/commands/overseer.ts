@@ -791,7 +791,7 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     name: "change a wire's verb and clear its mask",
     description: "change may set verb, and set or clear (null) mask, fromSide and toSide. A wire's two ends are fixed: disconnect and connect to move one.",
     args: ["overseer", "wire", "configure"],
-    input: { wireId: "wire-1", change: { verb: "reviews", mask: null } },
+    input: { wireId: "wire-1", change: { verb: "messages", mask: null } },
   },
   {
     command_id: commandIdFor("wire.verbs"),

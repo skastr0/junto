@@ -9,9 +9,9 @@ import { BUILD_FEATURES, overseerOperationEnabled } from "../src/shared/features
 import { OVERSEER_CATALOG, OVERSEER_OPERATION_NAMES } from "../src/shared/overseer-control";
 import { overseerCapabilities, overseerExamples, overseerSchemas } from "../src/cli/commands/overseer";
 
-// The build under test says which it is: these five surfaces are all off in
+// The build under test says which it is: these three surfaces are all off in
 // a ship build and all on with every feature on.
-const SURFACES = ["tasks", "requests", "artifacts", "board", "browser"] as const;
+const SURFACES = ["tasks", "artifacts", "browser"] as const;
 const profile = SURFACES.every((key) => BUILD_FEATURES[key] === false)
   ? "ship"
   : SURFACES.every((key) => BUILD_FEATURES[key] === true)

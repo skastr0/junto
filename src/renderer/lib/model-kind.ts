@@ -51,7 +51,7 @@ export const taskCounts = (tasks: ReadonlyArray<TaskView> | undefined): SinkCoun
 /**
  * A card's glance (`data-attention`). A task board: empty with nothing on it,
  * fire when an item needs a human, ice when every item is finished, idle
- * otherwise. Requests: empty, fire, else ice. Artifacts: empty or idle.
+ * otherwise. Artifacts: empty or idle.
  * Anything that can be blocked: fire when it is, ice when not. The rest idle.
  */
 export const nodeAttention = (
@@ -63,10 +63,6 @@ export const nodeAttention = (
     if (glance.count === 0) return "empty";
     if (glance.needsHuman) return "fire";
     return glance.allTerminal ? "ice" : "idle";
-  }
-  if (kind === "requests") {
-    if (glance.count === 0) return "empty";
-    return glance.needsHuman ? "fire" : "ice";
   }
   if (kind === "artifacts") return glance.count === 0 ? "empty" : "idle";
   if (roleOfKind(kind) === "actor" || kindMayBeBlocked(kind)) return blocked ? "fire" : "ice";

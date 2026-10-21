@@ -87,7 +87,7 @@ describe("verb table", () => {
       }
     }
     expect(matrix).toEqual({
-      "agent>agent": ["messages", "reviews"],
+      "agent>agent": ["messages"],
       "agent>page": ["navigates"],
     });
   });

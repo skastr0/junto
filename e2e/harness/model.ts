@@ -147,17 +147,17 @@ export const grantOverseer = async (page: Page, canvas: string, id: string, over
   await page.evaluate((command) => window.junto!.modelCommand(command), decodeCommand({ _tag: "GrantOverseer", canvas, id, overseer }));
 };
 
-export const readTaskItems = (page: Page, canvasName: string, nodeId: string, kind: "task" | "requests" = "task"): Promise<ReadonlyArray<Task>> =>
-  page.evaluate(async ({ canvasName, nodeId, kind }) => {
+export const readTaskItems = (page: Page, canvasName: string, nodeId: string): Promise<ReadonlyArray<Task>> =>
+  page.evaluate(async ({ canvasName, nodeId }) => {
     const items: Task[] = [];
     let beforeId: string | undefined;
     do {
-      const result = await window.junto!.workSinkPage({ canvasName, nodeId, kind, limit: 200, ...(beforeId ? { beforeId } : {}) });
-      if (result.kind !== "task" && result.kind !== "requests") throw new Error("Unexpected Work sink reply");
+      const result = await window.junto!.workSinkPage({ canvasName, nodeId, kind: "task", limit: 200, ...(beforeId ? { beforeId } : {}) });
+      if (result.kind !== "task") throw new Error("Unexpected Work sink reply");
       items.push(...result.items); beforeId = result.nextBeforeId;
     } while (beforeId);
     return items;
-  }, { canvasName, nodeId, kind });
+  }, { canvasName, nodeId });
 
 export const readArtifactItems = (page: Page, canvasName: string, nodeId: string): Promise<ReadonlyArray<Artifact>> =>
   page.evaluate(async ({ canvasName, nodeId }) => {

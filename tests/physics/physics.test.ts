@@ -194,7 +194,7 @@ describe("physics admitPure", () => {
   });
 
   it("a verb the pair cannot hold grants nothing", () => {
-    const doc = canvasOf([agent("agent"), pageAt("p1")], [wire("e1", "agent", "p1", "reviews")]);
+    const doc = canvasOf([agent("agent"), pageAt("p1")], [wire("e1", "agent", "p1", "messages")]);
     const view = canvasToCapabilityView(doc, VIEW);
     const denied = admitPure(
       view,
@@ -356,7 +356,7 @@ describe("physics across machines", () => {
   ) => admitPure(canvasToCapabilityView(doc, { editingMachine }), asNodeId(from), asNodeId(to), port);
 
   const otherPorts = ACTOR_ACTOR_INBOX_PORTS.filter(
-    (port) => port !== "msg.send" && port !== "verdict.post",
+    (port) => port !== "msg.send",
   );
 
   it("same machine: a seat automates a page it is wired to, as before", () => {

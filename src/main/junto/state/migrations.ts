@@ -45,6 +45,11 @@ import {
   migrateCanvasDeletions,
 } from "./migrate-canvas-deletions";
 import { RELAY_TRIGGER_PORT_REPLACED_TABLES, migrateRelayTriggerPort } from "./migrate-relay-trigger-port";
+import {
+  BOARD_REQUESTS_REMOVED_TABLES,
+  BOARD_REQUESTS_REPLACED_TABLES,
+  migrateBoardRequests,
+} from "./migrate-board-requests";
 import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-models-state-schema";
 import {
   actualStateSchemaSha256,
@@ -458,7 +463,19 @@ export const STATE_SCHEMA_V38_IDENTITY = {
     "6312197ca401a3d11f1a679fabe46c1ca5081360679106e70384c8b4d7e310b8",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 38;
+/**
+ * Version 39 deletes the bulletin board and the requests node (0.10): their
+ * nodes, tables and wires, the `participates` verb, the board ports, the
+ * request lane of the old task store, the board owners of content refs, and
+ * the journal rows of the retired board, request and pad operations.
+ * Consolidate.
+ */
+export const STATE_SCHEMA_V39_IDENTITY = {
+  actualSchemaSha256:
+    "2abb7480b4f58d93bc0d6731bab5d98090679109a74e709472cd63461e9a9f5c",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 39;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -466,7 +483,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 38;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V37_IDENTITY;
+  STATE_SCHEMA_V39_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -736,6 +753,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     migrate: (database) => {
       database.exec(BROWSER_TOUCHED_ORIGINS_STATE_SCHEMA_SQL);
     },
+  },
+  {
+    fromVersion: 38,
+    toVersion: 39,
+    name: "delete the bulletin board and the requests node",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V38_IDENTITY,
+    removesTables: [...BOARD_REQUESTS_REMOVED_TABLES],
+    replacesTables: [...BOARD_REQUESTS_REPLACED_TABLES],
+    migrate: migrateBoardRequests,
   },
 ];
 

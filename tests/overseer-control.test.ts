@@ -229,7 +229,7 @@ describe("overseer command contract", () => {
       fails(decodeOverseerArgs("wire.connect", { wire }));
     }
     fails(decodeOverseerArgs("wire.connect", { edge: { from: "a", to: "b" } }));
-    succeeds(decodeOverseerArgs("wire.configure", { wireId: "w1", change: { verb: "reviews", mask: null, toSide: null } }));
+    succeeds(decodeOverseerArgs("wire.configure", { wireId: "w1", change: { verb: "messages", mask: null, toSide: null } }));
     fails(decodeOverseerArgs("wire.configure", { wireId: "w1", change: { from: "c" } }));
     fails(decodeOverseerArgs("wire.configure", { wireId: "w1", change: { verb: null } }));
     fails(decodeOverseerArgs("wire.configure", { edgeId: "w1", changes: {} }));

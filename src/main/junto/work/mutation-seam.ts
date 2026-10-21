@@ -74,7 +74,6 @@ export const WORK_PLANE_TABLE_ROLES: ReadonlyMap<string, WorkPlaneTableRole> =
     ["work_event_sequences", "allocation"],
     // the materialized world
     ["work_tasks", "projection"],
-    ["work_requests", "projection"],
     ["work_task_messages", "projection"],
     ["work_task_transitions", "projection"],
     ["work_task_dependencies", "projection"],
@@ -88,10 +87,7 @@ export const WORK_PLANE_TABLE_ROLES: ReadonlyMap<string, WorkPlaneTableRole> =
     ["work_review_verdicts", "projection"],
     ["work_review_receipts", "projection"],
     ["work_review_checkout_observations", "projection"],
-    ["work_board_topics", "projection"],
-    ["work_board_posts", "projection"],
     // per-principal read positions
-    ["work_board_read_cursors", "cursor"],
     ["work_exchange_cursors", "cursor"],
     // trigger-maintained
     ["work_canvas_revisions", "derived"],
@@ -436,13 +432,9 @@ export type WorkStatementBindings =
  */
 export const CANVAS_REVISION_TABLES: ReadonlySet<string> = new Set([
   "work_artifacts",
-  "work_board_posts",
-  "work_board_read_cursors",
-  "work_board_topics",
   "work_delivery_receipts",
   "work_events",
   "work_messages",
-  "work_requests",
   "work_review_verdicts",
   "work_task_dependencies",
   "work_task_finish",

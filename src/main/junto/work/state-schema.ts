@@ -211,65 +211,10 @@ export const WORK_STATE_SCHEMA_SQL = `
       ON UPDATE RESTRICT
   ) STRICT, WITHOUT ROWID;
 
-  CREATE TABLE IF NOT EXISTS work_requests (
-    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
-    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
-    request_id TEXT NOT NULL CHECK (length(request_id) BETWEEN 1 AND 256),
-    entity_home TEXT NOT NULL,
-    actor_seat_id TEXT NOT NULL
-      CHECK (
-        length(actor_seat_id) = 69
-        AND substr(actor_seat_id, 1, 5) = 'seat_'
-        AND substr(actor_seat_id, 6) NOT GLOB '*[^a-f0-9]*'
-      ),
-    fact_event_home TEXT NOT NULL,
-    fact_entity_home TEXT NOT NULL,
-    fact_seq TEXT NOT NULL,
-    state TEXT NOT NULL
-      CHECK (
-        state IN (
-          'input-required',
-          'auth-required',
-          'completed',
-          'rejected'
-        )
-      ),
-    brief_message_id TEXT NOT NULL
-      CHECK (length(brief_message_id) BETWEEN 1 AND 256),
-    artifact_ids_json TEXT
-      CHECK (artifact_ids_json IS NULL OR json_valid(artifact_ids_json)),
-    metadata_json TEXT
-      CHECK (
-        metadata_json IS NULL
-        OR (
-          json_valid(metadata_json)
-          AND json_type(metadata_json, '$.claimedBy') IS NULL
-        )
-      ),
-    reason TEXT,
-    response TEXT,
-    created_at TEXT NOT NULL CHECK (length(created_at) BETWEEN 1 AND 64),
-    updated_at TEXT NOT NULL CHECK (length(updated_at) BETWEEN 1 AND 64),
-    origin_at TEXT NOT NULL CHECK (length(origin_at) BETWEEN 1 AND 64),
-    received_at TEXT NOT NULL CHECK (length(received_at) BETWEEN 1 AND 64),
-    PRIMARY KEY (canvas_name, node_id, request_id),
-    UNIQUE (fact_event_home, fact_entity_home, fact_seq),
-    CHECK (entity_home = fact_entity_home),
-    CHECK (fact_event_home = fact_entity_home),
-    FOREIGN KEY (entity_home)
-      REFERENCES known_installations(installation_id)
-      ON DELETE RESTRICT
-      ON UPDATE RESTRICT,
-    FOREIGN KEY (fact_event_home, fact_entity_home, fact_seq)
-      REFERENCES work_facts(event_home, entity_home, seq)
-      ON DELETE RESTRICT
-      ON UPDATE RESTRICT
-  ) STRICT, WITHOUT ROWID;
-
   CREATE TABLE IF NOT EXISTS work_task_messages (
     canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
     node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
-    parent_lane TEXT NOT NULL CHECK (parent_lane IN ('task', 'request')),
+    parent_lane TEXT NOT NULL CHECK (parent_lane IN ('task')),
     item_id TEXT NOT NULL CHECK (length(item_id) BETWEEN 1 AND 256),
     message_id TEXT NOT NULL CHECK (length(message_id) BETWEEN 1 AND 256),
     position INTEGER NOT NULL CHECK (position >= 0),
@@ -444,7 +389,7 @@ export const WORK_STATE_SCHEMA_SQL = `
     node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
     item_id TEXT NOT NULL CHECK (length(item_id) BETWEEN 1 AND 256),
     ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
-    lane TEXT NOT NULL CHECK (lane IN ('task', 'request')),
+    lane TEXT NOT NULL CHECK (lane IN ('task')),
     entity_home TEXT NOT NULL,
     actor_seat_id TEXT
       CHECK (
@@ -464,9 +409,7 @@ export const WORK_STATE_SCHEMA_SQL = `
           'task.create',
           'task.describe',
           'task.transition',
-          'task.claim',
-          'request.create',
-          'request.resolve'
+          'task.claim'
         )
       ),
     from_state TEXT,
@@ -602,76 +545,6 @@ export const WORK_STATE_SCHEMA_SQL = `
       ON UPDATE RESTRICT
   ) STRICT, WITHOUT ROWID;
 
-  CREATE TABLE IF NOT EXISTS work_board_topics (
-    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
-    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
-    topic_id TEXT NOT NULL CHECK (length(topic_id) BETWEEN 1 AND 256),
-    title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 512),
-    state TEXT NOT NULL CHECK (state IN ('open', 'archived')),
-    author_kind TEXT NOT NULL CHECK (author_kind IN ('operator', 'actor')),
-    author_seat_id TEXT
-      CHECK (
-        author_seat_id IS NULL
-        OR (
-          length(author_seat_id) = 69
-          AND substr(author_seat_id, 1, 5) = 'seat_'
-          AND substr(author_seat_id, 6) NOT GLOB '*[^a-f0-9]*'
-        )
-      ),
-    author_node_id TEXT
-      CHECK (author_node_id IS NULL OR length(author_node_id) BETWEEN 1 AND 256),
-    author_label TEXT
-      CHECK (author_label IS NULL OR length(author_label) BETWEEN 1 AND 256),
-    parts_json TEXT NOT NULL CHECK (json_valid(parts_json)),
-    post_count INTEGER NOT NULL DEFAULT 0 CHECK (post_count >= 0),
-    last_activity_at TEXT NOT NULL CHECK (length(last_activity_at) BETWEEN 1 AND 64),
-    created_at TEXT NOT NULL CHECK (length(created_at) BETWEEN 1 AND 64),
-    updated_at TEXT NOT NULL CHECK (length(updated_at) BETWEEN 1 AND 64),
-    PRIMARY KEY (canvas_name, node_id, topic_id)
-  ) STRICT, WITHOUT ROWID;
-
-  CREATE TABLE IF NOT EXISTS work_board_posts (
-    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
-    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
-    topic_id TEXT NOT NULL CHECK (length(topic_id) BETWEEN 1 AND 256),
-    post_id TEXT NOT NULL CHECK (length(post_id) BETWEEN 1 AND 256),
-    position INTEGER NOT NULL CHECK (position >= 0),
-    author_kind TEXT NOT NULL CHECK (author_kind IN ('operator', 'actor')),
-    author_seat_id TEXT
-      CHECK (
-        author_seat_id IS NULL
-        OR (
-          length(author_seat_id) = 69
-          AND substr(author_seat_id, 1, 5) = 'seat_'
-          AND substr(author_seat_id, 6) NOT GLOB '*[^a-f0-9]*'
-        )
-      ),
-    author_node_id TEXT
-      CHECK (author_node_id IS NULL OR length(author_node_id) BETWEEN 1 AND 256),
-    author_label TEXT
-      CHECK (author_label IS NULL OR length(author_label) BETWEEN 1 AND 256),
-    parts_json TEXT NOT NULL CHECK (json_valid(parts_json)),
-    tags_json TEXT
-      CHECK (tags_json IS NULL OR json_valid(tags_json)),
-    created_at TEXT NOT NULL CHECK (length(created_at) BETWEEN 1 AND 64),
-    PRIMARY KEY (canvas_name, node_id, topic_id, post_id),
-    UNIQUE (canvas_name, node_id, topic_id, position),
-    FOREIGN KEY (canvas_name, node_id, topic_id)
-      REFERENCES work_board_topics(canvas_name, node_id, topic_id)
-      ON DELETE RESTRICT
-      ON UPDATE RESTRICT
-  ) STRICT, WITHOUT ROWID;
-
-  CREATE TABLE IF NOT EXISTS work_board_read_cursors (
-    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
-    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
-    topic_id TEXT NOT NULL CHECK (length(topic_id) BETWEEN 1 AND 256),
-    principal_key TEXT NOT NULL CHECK (length(principal_key) BETWEEN 1 AND 256),
-    last_read_position INTEGER NOT NULL CHECK (last_read_position >= -1),
-    updated_at TEXT NOT NULL CHECK (length(updated_at) BETWEEN 1 AND 64),
-    PRIMARY KEY (canvas_name, node_id, topic_id, principal_key)
-  ) STRICT, WITHOUT ROWID;
-
   CREATE TABLE IF NOT EXISTS work_canvas_revisions (
     canvas_name TEXT NOT NULL
       PRIMARY KEY
@@ -687,9 +560,6 @@ export const WORK_STATE_SCHEMA_SQL = `
     WHERE
       actor_seat_id IS NOT NULL
       AND state IN ('working', 'input-required', 'auth-required');
-
-  CREATE INDEX IF NOT EXISTS work_requests_node
-    ON work_requests(canvas_name, node_id, created_at, request_id);
 
   CREATE INDEX IF NOT EXISTS work_task_messages_thread
     ON work_task_messages(
@@ -718,12 +588,6 @@ export const WORK_STATE_SCHEMA_SQL = `
 
   CREATE INDEX IF NOT EXISTS work_task_dependencies_dep
     ON work_task_dependencies(canvas_name, node_id, depends_on_task_id);
-
-  CREATE INDEX IF NOT EXISTS work_board_topics_node
-    ON work_board_topics(canvas_name, node_id, last_activity_at, topic_id);
-
-  CREATE INDEX IF NOT EXISTS work_board_posts_thread
-    ON work_board_posts(canvas_name, node_id, topic_id, position);
 
   CREATE INDEX IF NOT EXISTS work_events_item_history
     ON work_events(
@@ -774,20 +638,6 @@ export const WORK_STATE_SCHEMA_SQL = `
     );
   END;
 
-  CREATE TRIGGER IF NOT EXISTS work_requests_home_immutable
-  BEFORE UPDATE OF entity_home ON work_requests
-  WHEN OLD.entity_home <> NEW.entity_home
-  BEGIN
-    SELECT RAISE(ABORT, 'work request home is immutable');
-  END;
-
-  CREATE TRIGGER IF NOT EXISTS work_requests_actor_immutable
-  BEFORE UPDATE OF actor_seat_id ON work_requests
-  WHEN OLD.actor_seat_id <> NEW.actor_seat_id
-  BEGIN
-    SELECT RAISE(ABORT, 'work request actor seat is immutable');
-  END;
-
   CREATE TRIGGER IF NOT EXISTS work_task_messages_home_immutable
   BEFORE UPDATE OF entity_home ON work_task_messages
   WHEN OLD.entity_home <> NEW.entity_home
@@ -806,18 +656,6 @@ export const WORK_STATE_SCHEMA_SQL = `
         WHERE canvas_name = NEW.canvas_name
           AND node_id = NEW.node_id
           AND task_id = NEW.item_id
-          AND entity_home = NEW.entity_home
-      )
-    )
-    OR
-    (
-      NEW.parent_lane = 'request'
-      AND EXISTS (
-        SELECT 1
-        FROM work_requests
-        WHERE canvas_name = NEW.canvas_name
-          AND node_id = NEW.node_id
-          AND request_id = NEW.item_id
           AND entity_home = NEW.entity_home
       )
     )
@@ -915,87 +753,6 @@ export const WORK_STATE_SCHEMA_SQL = `
     SELECT RAISE(ABORT, 'work delivery receipt home is immutable');
   END;
 
-  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_board_topics_insert
-    AFTER INSERT ON work_board_topics
-    BEGIN
-      INSERT INTO work_canvas_revisions(canvas_name, revision)
-      VALUES (NEW.canvas_name, 1)
-      ON CONFLICT(canvas_name) DO UPDATE
-        SET revision = work_canvas_revisions.revision + 1;
-    END;
-
-  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_board_topics_update
-    AFTER UPDATE ON work_board_topics
-    BEGIN
-      INSERT INTO work_canvas_revisions(canvas_name, revision)
-      VALUES (NEW.canvas_name, 1)
-      ON CONFLICT(canvas_name) DO UPDATE
-        SET revision = work_canvas_revisions.revision + 1;
-    END;
-
-  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_board_topics_delete
-    AFTER DELETE ON work_board_topics
-    BEGIN
-      INSERT INTO work_canvas_revisions(canvas_name, revision)
-      VALUES (OLD.canvas_name, 1)
-      ON CONFLICT(canvas_name) DO UPDATE
-        SET revision = work_canvas_revisions.revision + 1;
-    END;
-
-  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_board_posts_insert
-    AFTER INSERT ON work_board_posts
-    BEGIN
-      INSERT INTO work_canvas_revisions(canvas_name, revision)
-      VALUES (NEW.canvas_name, 1)
-      ON CONFLICT(canvas_name) DO UPDATE
-        SET revision = work_canvas_revisions.revision + 1;
-    END;
-
-  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_board_posts_update
-    AFTER UPDATE ON work_board_posts
-    BEGIN
-      INSERT INTO work_canvas_revisions(canvas_name, revision)
-      VALUES (NEW.canvas_name, 1)
-      ON CONFLICT(canvas_name) DO UPDATE
-        SET revision = work_canvas_revisions.revision + 1;
-    END;
-
-  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_board_posts_delete
-    AFTER DELETE ON work_board_posts
-    BEGIN
-      INSERT INTO work_canvas_revisions(canvas_name, revision)
-      VALUES (OLD.canvas_name, 1)
-      ON CONFLICT(canvas_name) DO UPDATE
-        SET revision = work_canvas_revisions.revision + 1;
-    END;
-
-  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_board_cursors_insert
-    AFTER INSERT ON work_board_read_cursors
-    BEGIN
-      INSERT INTO work_canvas_revisions(canvas_name, revision)
-      VALUES (NEW.canvas_name, 1)
-      ON CONFLICT(canvas_name) DO UPDATE
-        SET revision = work_canvas_revisions.revision + 1;
-    END;
-
-  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_board_cursors_update
-    AFTER UPDATE ON work_board_read_cursors
-    BEGIN
-      INSERT INTO work_canvas_revisions(canvas_name, revision)
-      VALUES (NEW.canvas_name, 1)
-      ON CONFLICT(canvas_name) DO UPDATE
-        SET revision = work_canvas_revisions.revision + 1;
-    END;
-
-  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_board_cursors_delete
-    AFTER DELETE ON work_board_read_cursors
-    BEGIN
-      INSERT INTO work_canvas_revisions(canvas_name, revision)
-      VALUES (OLD.canvas_name, 1)
-      ON CONFLICT(canvas_name) DO UPDATE
-        SET revision = work_canvas_revisions.revision + 1;
-    END;
-
   CREATE TRIGGER IF NOT EXISTS work_canvas_revision_tasks_insert
     AFTER INSERT ON work_tasks
     BEGIN
@@ -1016,33 +773,6 @@ export const WORK_STATE_SCHEMA_SQL = `
 
   CREATE TRIGGER IF NOT EXISTS work_canvas_revision_tasks_delete
     AFTER DELETE ON work_tasks
-    BEGIN
-      INSERT INTO work_canvas_revisions(canvas_name, revision)
-      VALUES (OLD.canvas_name, 1)
-      ON CONFLICT(canvas_name) DO UPDATE
-        SET revision = work_canvas_revisions.revision + 1;
-    END;
-
-  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_requests_insert
-    AFTER INSERT ON work_requests
-    BEGIN
-      INSERT INTO work_canvas_revisions(canvas_name, revision)
-      VALUES (NEW.canvas_name, 1)
-      ON CONFLICT(canvas_name) DO UPDATE
-        SET revision = work_canvas_revisions.revision + 1;
-    END;
-
-  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_requests_update
-    AFTER UPDATE ON work_requests
-    BEGIN
-      INSERT INTO work_canvas_revisions(canvas_name, revision)
-      VALUES (NEW.canvas_name, 1)
-      ON CONFLICT(canvas_name) DO UPDATE
-        SET revision = work_canvas_revisions.revision + 1;
-    END;
-
-  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_requests_delete
-    AFTER DELETE ON work_requests
     BEGIN
       INSERT INTO work_canvas_revisions(canvas_name, revision)
       VALUES (OLD.canvas_name, 1)

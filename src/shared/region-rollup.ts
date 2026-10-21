@@ -111,15 +111,15 @@ export interface RegionRollupInput extends LiveTrustViews {
   readonly seatTierByNodeId?: ReadonlyMap<string, SeatNeedTier>;
 }
 
-// Rollcall ordering: message-bearing actor seats first, then the two work
-// stores an operator reads next, then everything else. Exhaustive over NodeSpec
+// Rollcall ordering: message-bearing actor seats first, then the task board
+// an operator reads next, then everything else. Exhaustive over NodeSpec
 // — a new kind has to be ranked here rather than silently landing in "rest".
 // A raw terminal ranks with the rest: it carries no messages to read.
 const kindRank = (kind: string): number =>
   Match.value(resolveSpec({ isGroup: false, kind })).pipe(
     Match.tagsExhaustive({
       Actor: () => 0,
-      Sink: (spec) => (spec.kind === "task" || spec.kind === "requests" ? 1 : 2),
+      Sink: (spec) => (spec.kind === "task" ? 1 : 2),
       Geography: () => 2,
     }),
   );

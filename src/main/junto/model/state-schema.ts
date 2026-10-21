@@ -42,10 +42,8 @@ export const KIND_TABLES = {
   terminal: "terminals",
   page: "pages",
   task: "task_boards",
-  requests: "request_boards",
   artifacts: "artifact_boards",
   automations: "automation_boards",
-  board: "boards",
   note: "notes",
   label: "labels",
   file: "file_cards",
@@ -153,10 +151,8 @@ export const MODEL_STATE_SCHEMA_SQL = `
     name TEXT,
     contract_json TEXT CHECK (contract_json IS NULL OR json_valid(contract_json))`,
   )}
-  ${table("request_boards", "name TEXT")}
   ${table("artifact_boards", "label TEXT")}
   ${AUTOMATION_BOARDS_STATE_SCHEMA_SQL}
-  ${table("boards", "label TEXT")}
   ${table("notes", "text TEXT NOT NULL")}
   ${table("labels", "text TEXT NOT NULL")}
   ${table("file_cards", "path TEXT NOT NULL, subpath TEXT")}
@@ -168,7 +164,7 @@ export const MODEL_STATE_SCHEMA_SQL = `
     id TEXT NOT NULL CHECK (length(id) BETWEEN 1 AND 256),
     from_id TEXT NOT NULL,
     to_id TEXT NOT NULL,
-    verb TEXT NOT NULL CHECK (verb IN ('messages', 'reviews', 'participates', 'navigates', 'flows')),
+    verb TEXT NOT NULL CHECK (verb IN ('messages', 'navigates', 'flows')),
     from_side TEXT CHECK (from_side IN ('top', 'right', 'bottom', 'left')),
     to_side TEXT CHECK (to_side IN ('top', 'right', 'bottom', 'left')),
     mask_json TEXT CHECK (mask_json IS NULL OR json_valid(mask_json)),

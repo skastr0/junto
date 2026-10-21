@@ -8,9 +8,9 @@ import { Region } from "./region";
 // Every kind of thing that can sit on a canvas, each with exactly the fields
 // it has. The `kind` word is the one the rest of the app already uses for it.
 //
-// Nothing here is live work. Mail, tasks, requests, artifacts, and board
-// posts are rows of their own, read by the id of the thing they belong
-// to, and never ride along on it.
+// Nothing here is live work. Mail, tasks and artifacts are rows of their
+// own, read by the id of the thing they belong to, and never ride along on
+// it.
 
 const NonEmpty = Schema.String.pipe(Schema.check(Schema.isMinLength(1)));
 
@@ -124,13 +124,6 @@ export const TaskBoard = Schema.Struct({
 });
 export type TaskBoard = typeof TaskBoard.Type;
 
-export const Requests = Schema.Struct({
-  kind: Schema.Literal("requests"),
-  ...placement,
-  name: Schema.optionalKey(OneLine),
-});
-export type Requests = typeof Requests.Type;
-
 export const Artifacts = Schema.Struct({
   kind: Schema.Literal("artifacts"),
   ...placement,
@@ -149,14 +142,6 @@ export const Automations = Schema.Struct({
   label: Schema.optionalKey(OneLine),
 });
 export type Automations = typeof Automations.Type;
-
-/** A bulletin board. Topics and posts are work rows keyed by this id. */
-export const Board = Schema.Struct({
-  kind: Schema.Literal("board"),
-  ...placement,
-  label: Schema.optionalKey(OneLine),
-});
-export type Board = typeof Board.Type;
 
 // ── Things that only sit there ──────────────────────────────────────────────
 
@@ -238,10 +223,8 @@ export const Node = Schema.Union([
   Terminal,
   Page,
   TaskBoard,
-  Requests,
   Artifacts,
   Automations,
-  Board,
   Note,
   Label,
   FileCard,
@@ -260,10 +243,8 @@ export const NODE_KINDS = [
   "terminal",
   "page",
   "task",
-  "requests",
   "artifacts",
   "automations",
-  "board",
   "note",
   "label",
   "file",

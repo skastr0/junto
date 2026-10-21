@@ -74,7 +74,7 @@ it("a claim completed while waiting for the authoring gate cannot emit checkout 
 
 it("a canvas change during claim inventory rejects the pass instead of replacing its baseline", async () => {
   const f = await fixture();
-  const watch = makeCheckoutWatchComposition({ ...f.options, workRepository: { ...f.options.workRepository, taskLane: () => { f.resequence(); return f.options.workRepository.taskLane("factory", "queue", "task"); } } });
+  const watch = makeCheckoutWatchComposition({ ...f.options, workRepository: { ...f.options.workRepository, taskLane: () => { f.resequence(); return f.options.workRepository.taskLane("factory", "queue"); } } });
   try {
     await expect(Effect.runPromise(watch.scanOnce())).rejects.toMatchObject({ reason: "checkout-intent-changed" });
     expect(f.receipts).toEqual([]);
