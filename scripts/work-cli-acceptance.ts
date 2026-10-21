@@ -59,6 +59,8 @@ import {
 } from "../src/main/junto/settings/service";
 import { WORK_MAX_FRAME_BYTES, WORK_TOKEN_ENV } from "../src/shared/work-control";
 import { IntentFactBasis } from "../src/shared/work-protocol";
+import { composeOverseer, type OverseerComposition } from "../src/main/junto/overseer/composition";
+import { ActorSeatOccupyLive } from "../src/main/junto/term/actor-seat-occupy-live";
 import { ARTIFACTS_ENABLED, TASKS_ENABLED } from "../src/shared/features";
 import { ArtifactRepositoryLive } from "../src/main/junto/work/artifact-repository";
 import { makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
@@ -450,8 +452,9 @@ export const runWorkCliAcceptance = async () => {
     WorkLive,
     ruledLive,
   );
+  // The occupy service the overseer composition runs over, as core-product.ts has it.
   const runtime = ManagedRuntime.make((
-    Layer.mergeAll(workLive, PausePlaneAllPlaying) as never),
+    Layer.provideMerge(ActorSeatOccupyLive, Layer.mergeAll(workLive, PausePlaneAllPlaying)) as never),
   );
   // Name the disposable machine before authoring its canvas.
   const settings = await runtime.runPromise(SettingsService);
@@ -509,16 +512,24 @@ export const runWorkCliAcceptance = async () => {
   }
 
   let server: Awaited<ReturnType<typeof startWorkControlServer>> | undefined;
+  let overseer: OverseerComposition | undefined;
   let primaryFailed = false;
   let primaryFailure: unknown;
   const cleanupFailures: unknown[] = [];
   try {
+    // The overseer surface the app composes (index.ts): without it every
+    // overseer verb answers RuntimeDown. This core has no window to capture.
+    overseer = await composeOverseer({
+      run: (effect, options) => runtime.runPromise(effect as never, options),
+      captureApplicationPage: async () => ({ ok: false, unavailable: true, reason: "the acceptance core has no window" }),
+    });
     server = await startWorkControlServer({
       version: "acceptance",
       workHome,
       home: root,
       credentials,
       run: (effect) => runtime.runPromise(effect),
+      onOverseer: overseer.onOverseer,
     });
 
     const env: NodeJS.ProcessEnv = {
@@ -690,6 +701,7 @@ export const runWorkCliAcceptance = async () => {
         }),
       );
     }
+    overseer?.dispose();
     try {
       await runtime.dispose();
     } catch (error) {
