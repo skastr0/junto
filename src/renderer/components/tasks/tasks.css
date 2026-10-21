@@ -243,3 +243,20 @@
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
+
+/* Default approvals for new tasks on a node */
+
+.stamp-default {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+}
+
+.stamp-default output {
+  min-width: 1.5ch;
+  color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}

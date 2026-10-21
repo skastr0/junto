@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { asNodeId } from "@shared/model";
 import { ruleTaskCommand, taskRefusalMessage, type TaskContext } from "@shared/task-machine";
 import {
@@ -12,9 +12,13 @@ import {
   type TaskCore,
 } from "@shared/task-model";
 import { ItemId } from "@shared/work-ids";
+import { mintItemId } from "@shared/resource-command";
 import { Eyebrow, TaskStateMark } from "../ui";
 import { TaskVerbBar } from "../work/TaskVerbBar";
 import { TaskReviewers } from "../work/TaskReviewers";
+import { SeatTaskStrip } from "../nodes/SeatTaskStrip";
+import { publishSeatTaskIndex } from "../../lib/seat-tasks";
+import { StampDefaultControl } from "../tasks/StampDefaultControl";
 import type { SeatChoice } from "../../lib/task-ui";
 
 /**
@@ -174,10 +178,55 @@ function Frame({ entry }: { readonly entry: Case }) {
   );
 }
 
+const STRIPS: ReadonlyArray<{ readonly seat: string; readonly label: string; readonly state: "assigned" | "working" | "input-required" | "in-review"; readonly title: string }> = [
+  { seat: "strip-assigned", label: "#4", state: "assigned", title: "Wire the board to the real source" },
+  { seat: "strip-working", label: "#2", state: "working", title: "Tasks node on the local source" },
+  { seat: "strip-paused", label: "#7", state: "input-required", title: "Waiting on the operator to pick a board" },
+  { seat: "strip-review", label: "#3", state: "in-review", title: "Delete the factory-era admission UI" },
+];
+
+/** The seat card strips, drawn from the real store. */
+function SeatStrips() {
+  useEffect(() => {
+    publishSeatTaskIndex(
+      Object.fromEntries(
+        STRIPS.map((strip) => [
+          strip.seat,
+          {
+            taskId: mintItemId(),
+            label: strip.label,
+            title: strip.title,
+            state: strip.state,
+            node: BUILD,
+            blocked: strip.state === "input-required",
+          },
+        ]),
+      ),
+    );
+    return () => publishSeatTaskIndex({});
+  }, []);
+  return (
+    <section className="grid gap-2">
+      <Eyebrow>Seat card strips, one per state a seat holds</Eyebrow>
+      <div className="grid w-64 gap-2 rounded-lg border border-stroke bg-raise p-3">
+        {STRIPS.map((strip) => (
+          <SeatTaskStrip key={strip.seat} nodeId={strip.seat} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function TaskControlsGallery() {
+  const [defaultRequired, setDefaultRequired] = useState(1);
   return (
     <main className="mx-auto grid max-w-xl gap-5 p-6 text-ink" data-testid="task-controls-gallery">
       <h1 className="m-0 text-lg font-semibold">Tasks controls</h1>
+      <SeatStrips />
+      <section className="grid gap-2">
+        <Eyebrow>Default approvals for new tasks on a node</Eyebrow>
+        <StampDefaultControl required={defaultRequired} onChange={setDefaultRequired} />
+      </section>
       {CASES.map((entry) => (
         <Frame key={entry.label} entry={entry} />
       ))}
