@@ -78,7 +78,8 @@ export const artifactArea: AcceptanceArea = {
       ),
       check(
         "a document refuses a cells anchor",
-        misplaced.code === 1 && wrong?.ok === false && wrong.error?.type === "InputError" && wrong.error?.details?.path === "anchor",
+        misplaced.code === 1 && wrong?.ok === false && wrong.error?.type === "InputError" && wrong.error?.details?.path === "anchor" &&
+          wrong.error?.details?.retryable === false,
         misplaced,
       ),
     ];

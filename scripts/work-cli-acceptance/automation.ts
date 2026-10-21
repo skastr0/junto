@@ -95,14 +95,17 @@ export const automationArea: AcceptanceArea = {
       inApp.runPromise<ReadonlyArray<Record<string, unknown>>>(Effect.flatMap(SqlClient.SqlClient, (client) => client.unsafe(statement)));
     const [own] = await sql(`SELECT editor_installation_id AS editor FROM canvases WHERE canvas_name = '${canvas}'`);
     const restore = own?.editor == null ? "NULL" : `'${String(own.editor)}'`;
-    await sql(`INSERT INTO known_installations(installation_id,registered_at) VALUES ('${EDITOR.installation}','2026-10-21T00:00:00Z')`);
-    await sql(`INSERT INTO machine_peers(machine_name,installation_id,bound_at) VALUES ('${EDITOR.machine}','${EDITOR.installation}','2026-10-21T00:00:00Z')`);
     let offEditor: Awaited<ReturnType<typeof cli>>;
     try {
+      await sql(`INSERT INTO known_installations(installation_id,registered_at) VALUES ('${EDITOR.installation}','2026-10-21T00:00:00Z')`);
+      await sql(`INSERT INTO machine_peers(machine_name,installation_id,bound_at) VALUES ('${EDITOR.machine}','${EDITOR.installation}','2026-10-21T00:00:00Z')`);
       await sql(`UPDATE canvases SET editor_installation_id = '${EDITOR.installation}' WHERE canvas_name = '${canvas}'`);
       offEditor = await cli(["overseer", "automation", "create", JSON.stringify({ ...ruledInput, name: "off the editor" })], overseer);
     } finally {
+      // Later areas see the canvas, and this core's atlas, as they were.
       await sql(`UPDATE canvases SET editor_installation_id = ${restore} WHERE canvas_name = '${canvas}'`);
+      await sql(`DELETE FROM machine_peers WHERE machine_name = '${EDITOR.machine}'`);
+      await sql(`DELETE FROM known_installations WHERE installation_id = '${EDITOR.installation}'`);
     }
     log("overseer automation create off the editing machine", offEditor.stdout || offEditor.stderr);
     const off = envelopeOf(offEditor);
@@ -123,7 +126,8 @@ export const automationArea: AcceptanceArea = {
       check("history reads its firings", history.code === 0 && read?.ok === true && Array.isArray(read.data?.firings), history),
       check(
         "history refuses a before that is no firing id",
-        paged.code === 1 && badBefore?.ok === false && badBefore.error?.type === "InputError" && badBefore.error?.details?.path === "before",
+        paged.code === 1 && badBefore?.ok === false && badBefore.error?.type === "InputError" && badBefore.error?.details?.path === "before" &&
+          badBefore.error?.details?.retryable === false,
         paged,
       ),
       // A seat with no overseer flag is refused before the overseer grant is read (control.ts, op "overseer").
