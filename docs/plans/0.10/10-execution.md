@@ -21,10 +21,14 @@ everyone else reports by mail and on the needs-you feed.
   flags, tables, docs and tests are gone and `bun run verify` passes.
 - **Commit in small atomic pieces, as you go.** Your own files only, by
   explicit path. Never touch another agent's uncommitted change.
+- **Proof is types first** (operator, 2026-10-21). Contracts are typed so
+  misuse fails `tsc`: closed unions, branded ids, exhaustive matches,
+  type-level tests where a shape matters. Unit tests on pure modules and
+  reducers. `bun run typecheck` and the unit tests gate every commit. Real-app
+  and e2e runs are expensive: they come later, batched per milestone, not per
+  change.
 - **Review.** Every change gets a review from a seat that did not write it.
   Tokens, type or shared UI components also go through product-typography.
-  product-automation or product-verify checks it in the real app before it
-  is reported done.
 - **The operator reviews through the needs-you feed, with pictures.** Every
   UI change is reported with `junto feedback` carrying screenshots
   (`--attach`), before and after (`--compare`) or a video (`--video`), and
@@ -114,7 +118,7 @@ everyone else reports by mail and on the needs-you feed.
 | product-keyboard | `MentionCombobox` on `Combobox`, availability hooks, keyboard. |
 | product-typography | Visual language for mention chips, artifact and automation panes; reviews every shared UI change. |
 | product-accessibility | Listbox and combobox semantics, every new surface. |
-| product-automation, product-verify | Real-app verification of every landed change, split by track; screenshots to the feed. |
+| product-automation, product-verify | Now: contract and type-level tests beside each contract owner, review of tests in every track, quick screenshots of UI changes for the feed. Later: batched real-app and e2e runs per milestone. |
 | product-releases | Flags of deleted features out of both profiles; 0.10 notes; version bump when the release cut is called. |
 
 ## Tracker
