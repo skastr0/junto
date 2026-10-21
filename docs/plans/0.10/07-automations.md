@@ -98,8 +98,11 @@ edit by one overseer still fits the targets of both.
   any machine as today.
 - Schedules reuse the claim slots (`scheduler_interval_state`, renamed
   `automation_firings`) so a restart never fires a slot twice.
-- Change triggers read the fact stream (02) and seat state from the existing
-  runtime.
+- Change triggers read task changes from the applied task rulings
+  (`resource_rulings`, 02) since a per-canvas cursor
+  (`automation_ruling_cursors`), one change per ruling in the order rulings
+  landed, so open to working to done between two passes fires both. Seat
+  state comes from the existing runtime.
 - **Seat states are not stable raw** (pty-lead): working to idle holds only
   700 ms for the rings (`src/main/junto/term/agent-state/seat-state-machine.ts:47-55`),
   attention republishes every 800 ms, a fifth state `unknown` exists
@@ -114,7 +117,7 @@ edit by one overseer still fits the targets of both.
   (an absent reply target is allowed, `message-delivery.ts:120`); never as
   the operator.
 - **Loop safety.** Facts written by an automation's action do not trigger
-  automations. `limits` cap every automation; a cap reached disables nothing,
+  automations: a ruling with `actor_kind = automation` fires nothing. `limits` cap every automation; a cap reached disables nothing,
   it skips and records the skip.
 - Every firing is recorded (fired, skipped and why, actions ruled), shown in
   the main pane, and listed by `junto automation history`.
@@ -138,7 +141,7 @@ connection it opens. Shape reserved now so nothing in 0.10 blocks it:
 
 | | |
 |---|---|
-| Kept | `cron-expression.ts`, claim slot logic, kernel tick as the clock |
+| Kept | `cron-expression.ts`, claim slots and coalescing; the clock is `AUTOMATION_TICK` (`src/main/junto/automation/live.ts`), a 15 s loop that finds due slots, not the kernel tick |
 | Reshaped | Claim slots renamed and keyed by automation; scheduler effects become `Action`s |
 | Deleted | `cron`, `relay`, `watcher`, `timer` kinds and tables; verbs `announces`, `fires`, `wakes`, `enqueues`, `chains`; `scheduler-effects.ts` wiring; Region Pulse tables, `PulseRecord`, `pulseLogRetention`; `LegacyEdgeEther`, `inferVerb`; host fields on schedulers |
 | New | `automations` kind and node, `automation.ts`, firing history, CLI `junto automation list|show|create|edit|enable|disable|run|history`, UI |
