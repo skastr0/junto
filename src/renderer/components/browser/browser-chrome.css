@@ -9,21 +9,35 @@
   flex-shrink: 0;
   border-bottom: 1px solid var(--color-stroke);
   background: var(--color-raise-2);
-  transition: border-color 160ms ease-out;
 }
 
-/* The line where the page begins carries who drives it: a seat at work, or you holding it. */
-.browser-chrome[data-driver="seat-live"] {
-  border-bottom-color: color-mix(in oklab, var(--color-cyan) 70%, transparent);
+/* The line where the page begins carries who drives it: a seat at work, or
+   you holding it. Always drawn over the stroke, it fades in and out with
+   opacity only, on the compositor. */
+.browser-chrome::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 -1px;
+  height: 1px;
+  background: var(--color-amber);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease-out;
 }
 
-.browser-chrome[data-driver="operator-held"] {
-  border-bottom-color: var(--color-amber);
+.browser-chrome[data-driver="seat-live"]::after {
+  background: color-mix(in oklab, var(--color-cyan) 70%, transparent);
+  opacity: 1;
+}
+
+.browser-chrome[data-driver="operator-held"]::after {
+  opacity: 1;
 }
 
 /* The shown tab loading: a short bright run along that line, on the compositor. */
 .browser-chrome__progress {
   position: absolute;
+  z-index: 1;
   inset: auto 0 -1px;
   height: 2px;
   overflow: hidden;
@@ -223,6 +237,11 @@
   .tab-strip__loading {
     animation: none;
     border-style: dashed;
+  }
+
+  /* The run holds still at the start of the line, so loading still reads. */
+  .browser-chrome__progress::before {
+    animation: none;
   }
 }
 
