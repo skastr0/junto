@@ -24,6 +24,22 @@ import { AppRuntime } from "../../runtime";
 import { ModelService } from "../model/service";
 import { SettingsService } from "../settings/service";
 import { makePageTargetResolver, type PageTargetResolver } from "./page-target";
+import { postOperatorPageBox } from "../work/page-box-comment";
+import type { Rect } from "@shared/page-box";
+
+/** The most of a box comment's text the chrome may send; the writer bounds it again. */
+const BOX_COMMENT_TEXT_MAX = 64 * 1024;
+
+/** A box exactly as the chrome sends it: four finite numbers, nothing else. */
+const boxArg = (value: unknown): Rect | undefined => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const keys = Object.keys(value);
+  if (keys.length !== 4 || !["x", "y", "w", "h"].every((key) => keys.includes(key))) return undefined;
+  const { x, y, w, h } = value as Record<string, unknown>;
+  return [x, y, w, h].every((n) => typeof n === "number" && Number.isFinite(n))
+    ? { x: x as number, y: y as number, w: w as number, h: h as number }
+    : undefined;
+};
 
 export const resolveBrowserPageTarget: PageTargetResolver = (ref) =>
   AppRuntime.runPromise(
@@ -167,6 +183,14 @@ export const registerBrowserIpc = (
   });
   onPage(IPC_CHANNELS.browserTakeOver, [1], (sessionId) => browserSessions.takeOver(sessionId));
   onPage(IPC_CHANNELS.browserRelease, [1], (sessionId) => browserSessions.release(sessionId));
+  onPage(IPC_CHANNELS.browserCommentBox, [3], (sessionId, [box, text]) => {
+    const rect = boxArg(box);
+    if (rect === undefined) return invalidArguments("a box is x, y, w and h in page pixels");
+    if (typeof text !== "string" || text.trim() === "" || text.length > BOX_COMMENT_TEXT_MAX) {
+      return invalidArguments("a comment's text is required");
+    }
+    return AppRuntime.runPromise(postOperatorPageBox(browserSessions, { sessionId, rect, text }));
+  });
   onPage(IPC_CHANNELS.browserGoto, [2, 3], (sessionId, [url, tab]) => {
     if (!isBrowserUrlArg(url)) return invalidArguments("bounded url required");
     let target = sessionId;

@@ -671,6 +671,8 @@ const browserApi: JuntoBrowserApi = {
     subscribe<BrowserSessionInfo>(IPC_CHANNELS.browserSessionChanged, listener),
   browserPageState: (sessionId) => invoke(IPC_CHANNELS.browserPageState, IPC_TIMEOUT_MS, sessionId),
   browserTakeOver: (sessionId) => invoke(IPC_CHANNELS.browserTakeOver, IPC_TIMEOUT_MS, sessionId),
+  browserCommentBox: (sessionId, box, text) =>
+    invoke(IPC_CHANNELS.browserCommentBox, IPC_TIMEOUT_MS, sessionId, box, text),
   browserRelease: (sessionId) => invoke(IPC_CHANNELS.browserRelease, IPC_TIMEOUT_MS, sessionId),
   browserGoto: (sessionId, url, tab) =>
     tab === undefined

@@ -27,6 +27,8 @@ import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import { postSubjectComment, type SubjectCommentContext } from "../src/main/junto/work/subject-comment";
+import { postOperatorPageBox } from "../src/main/junto/work/page-box-comment";
+import { formatNodeRef } from "../src/shared/node-ref";
 import { canvasOf, page, region, seat as seatNode } from "./support/model-nodes";
 import { nameThisMachine } from "./support/name-this-machine";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
@@ -160,6 +162,42 @@ describe("a page box comment", () => {
     expect(failure(refused)).toMatchObject({ type: "InputError" });
     const { createHash } = await import("node:crypto");
     expect(await owners(createHash("sha256").update(PNG).digest("hex"))).toEqual([]);
+    expect(await rows()).toEqual([]);
+  });
+});
+
+describe("the operator's box comment", () => {
+  const sessions = (url: string, owners: Array<string>) => ({
+    state: (sessionId: string) =>
+      sessionId === "s1"
+        ? ({ ok: true, data: { sessionId, ref: formatNodeRef({ canvasName: CANVAS, nodeId: PAGE }), nodeId: PAGE } } as never)
+        : ({ ok: false, code: "not_found", message: "no session" } as never),
+    captureBoxForOwner: async (owner: string, _sessionId: string, rect: Rect) => {
+      owners.push(owner);
+      return { ok: true as const, data: { png: PNG, url, scroll: { x: 0, y: 0 }, rect } };
+    },
+  });
+
+  it("takes the shot from the operator's own view and posts as operator mail", async () => {
+    const owners: Array<string> = [];
+    const posted = await runtime.runPromise(
+      postOperatorPageBox(sessions("https://example.com/", owners), { sessionId: "s1", rect: { x: 1, y: 2, w: 30, h: 40 }, text: "look" }),
+    );
+    if (!posted.ok) throw new Error(posted.message);
+    expect(owners).toEqual(["junto-ui"]);
+    const row = (await rows()).find((message) => message.messageId === posted.data.messageId)!;
+    expect(row.metadata?.senderName).toBe("operator");
+    expect(pageShotOf(row)).toBeDefined();
+  });
+
+  it("refuses a page that is not open, and says why a box was refused", async () => {
+    const owners: Array<string> = [];
+    expect(
+      await runtime.runPromise(postOperatorPageBox(sessions("https://example.com/", owners), { sessionId: "s2", rect: { x: 1, y: 2, w: 3, h: 4 }, text: "x" })),
+    ).toMatchObject({ ok: false, code: "invalid" });
+    expect(
+      await runtime.runPromise(postOperatorPageBox(sessions("about:blank", owners), { sessionId: "s1", rect: { x: 1, y: 2, w: 3, h: 4 }, text: "x" })),
+    ).toMatchObject({ ok: false, code: "invalid", message: expect.stringMatching(/http or https/) });
     expect(await rows()).toEqual([]);
   });
 });

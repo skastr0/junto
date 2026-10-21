@@ -327,6 +327,7 @@ export const IPC_CHANNELS = {
   /** Renderer → main: the page chrome's reads and the operator's commands on a page. */
   browserPageState: "junto:browser-page-state",
   browserTakeOver: "junto:browser-take-over",
+  browserCommentBox: "junto:browser-comment-box",
   browserRelease: "junto:browser-release",
   browserGoto: "junto:browser-goto",
   browserTraverse: "junto:browser-traverse",
@@ -1455,6 +1456,15 @@ export interface JuntoBrowserApi {
   /** The page's tabs and who drives it; any tab's session names the page. */
   readonly browserPageState: (sessionId: string) => Promise<BrowserOpResult<BrowserChromeState>>;
   readonly browserTakeOver: (sessionId: string) => Promise<BrowserOpResult<BrowserSessionInfo>>;
+  /**
+   * The operator's comment on a box of the page, in page CSS pixels. Main
+   * takes the shot from the operator's own view; the renderer sends no bytes.
+   */
+  readonly browserCommentBox: (
+    sessionId: string,
+    box: { readonly x: number; readonly y: number; readonly w: number; readonly h: number },
+    text: string,
+  ) => Promise<BrowserOpResult<{ readonly messageId: string; readonly threadId: string }>>;
   readonly browserRelease: (sessionId: string) => Promise<BrowserOpResult<BrowserSessionInfo>>;
   /** Go on the named tab, or the shown one. */
   readonly browserGoto: (
