@@ -224,7 +224,7 @@ describe.runIf(TASKS_ENABLED)("task verbs", () => {
   });
 
   it("assigns to the caller when no seat is named, or when it names itself", async () => {
-    for (const seat of [undefined, "@alpha", "seat-a"]) {
+    for (const seat of [undefined, "@alpha", "seat-a", "me", "@me"]) {
       const submitted: Array<ResourceCommand<TaskCommand>> = [];
       await run("task.assign", { opId: OP, task: ID, ...(seat === undefined ? {} : { seat }) }, portsWith(applied(), submitted));
       expect(submitted[0]?.op).toEqual({ kind: "assign", seat: "seat-a" });
@@ -354,7 +354,7 @@ describe.runIf(TASKS_ENABLED)("task verbs", () => {
     commented.length = 0;
     people.length = 0;
     const exit = await run("task.comment", { opId: OP, task: "#42", text: "Looks right" }, portsWith(applied()));
-    expect(exit).toEqual(Exit.succeed({ disposition: "applied", opId: OP, taskId: ID, threadId: "t1", messageId: "m1" }));
+    expect(exit).toEqual(Exit.succeed({ disposition: "applied", opId: OP, taskId: ID, threadId: "t1", messageId: "m1", notified: [] }));
     expect(commented).toEqual([{ subject: { kind: "task", nodeId: "tasks-1", taskId: ID }, text: "Looks right", actor: caller.actor, opId: OP }]);
     expect(people).toEqual([[]]);
   });

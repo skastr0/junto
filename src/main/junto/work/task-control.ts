@@ -66,6 +66,8 @@ import { TASKS_ENABLED } from "@shared/features";
 import { postSubjectComment, type SubjectCommentContext } from "./subject-comment";
 import { noteResourceChanged, onResourceChanged } from "./resource-changes";
 import { TaskRepository, type TaskCanvasEnv, type TaskSubmitOutcome } from "./task-repository";
+import { WorkService } from "./service";
+import { threadSubjectOf } from "@shared/thread-subject";
 
 /** How a task is named once its text is read. */
 export type TaskLookup =
@@ -96,6 +98,8 @@ export type TaskPorts = {
     input: Extract<SubjectCommentInput, { readonly subject: { readonly kind: "task" } }>,
     context: SubjectCommentContext,
   ) => Effect.Effect<SubjectCommented, WorkErrorBody>;
+  /** How many rows the task's thread holds at its node. Absent, show names the thread without a count. */
+  readonly threadCount?: (canvasName: string, task: TaskView) => Effect.Effect<number, WorkErrorBody>;
   /** Told each time a canvas's tasks change: what a wait wakes on. */
   readonly changes: (listener: (canvasName: string) => void) => () => void;
   readonly now: () => number;
@@ -226,6 +230,14 @@ export const liveTaskPorts: TaskPorts = (() => {
         );
       }),
     comment: postSubjectComment,
+    threadCount: (canvasName, task) =>
+      Effect.serviceOption(WorkService).pipe(
+        Effect.flatMap((work) => Option.isNone(work) ? Effect.fail(notBuilt("the work service")) : work.value.readMailbox(canvasName, task.current.node).pipe(Effect.mapError(storeError))),
+        Effect.map((rows) => rows.filter((row) => {
+          const on = threadSubjectOf(row);
+          return on?.kind === "task" && on.nodeId === task.current.node && on.taskId === task.taskId;
+        }).length),
+      ),
   };
 })();
 
@@ -471,8 +483,8 @@ const onlyNodeInReach = (caller: TaskCaller, ports: TaskPorts): Effect.Effect<No
  * its name, its id or a ref.
  */
 const findSeat = (caller: TaskCaller, near: NodeId, text: string | undefined, path: string): Effect.Effect<SeatNodeId, WorkErrorBody> => {
-  if (text === undefined || text === "me") return Effect.succeed(seatNodeId(caller.actor.nodeId));
-  const wanted = text.startsWith("@") ? text.slice(1) : text;
+  const wanted = text?.startsWith("@") ? text.slice(1) : text;
+  if (text === undefined || wanted === undefined || wanted === "me") return Effect.succeed(seatNodeId(caller.actor.nodeId));
   const link = wanted.startsWith("junto://") ? parseMentionHref(wanted) : undefined;
   const ids = new Set<NodeId>([caller.actor.nodeId, ...seatsInReach(caller.canvas, near).map((seat) => seat.id)]);
   const seats = [...ids].flatMap((id) => caller.canvas.nodes.get(id) ?? []);
@@ -660,7 +672,14 @@ export const handleTaskOp = (
         const input = yield* decode(TASK_ARGS[op], args);
         const task = yield* findTask(caller, ports, input.task);
         const marks = yield* pendingOf(caller, ports);
-        return { task: withPendingMark(task, task.taskId, marks), ...pendingUnknownOf(marks) };
+        const comments = ports.threadCount === undefined ? undefined : yield* ports.threadCount(caller.canvasName, task);
+        // The thread is read with msg list, by the task's node and id.
+        const thread = {
+          threadId: task.taskId,
+          ...(comments === undefined ? {} : { comments }),
+          read: `junto msg list '${JSON.stringify({ target: task.current.node, taskId: task.taskId })}'`,
+        };
+        return { task: withPendingMark(task, task.taskId, marks), thread, ...pendingUnknownOf(marks) };
       }
       case "task.rules": {
         const input = yield* decode(TASK_ARGS[op], args);
@@ -698,8 +717,8 @@ export const handleTaskOp = (
         return yield* waitTask(caller, ports, input);
       }
       case "task.comment": {
-        const { disposition, opId, taskId, threadId, messageId } = yield* commentOnTask(caller, ports, yield* decode(TASK_ARGS[op], args));
-        return { disposition, opId, taskId, threadId, messageId };
+        const { disposition, opId, taskId, threadId, messageId, notified } = yield* commentOnTask(caller, ports, yield* decode(TASK_ARGS[op], args));
+        return { disposition, opId, taskId, threadId, messageId, notified };
       }
       case "task.create": {
         const input = yield* decode(TASK_ARGS[op], args);

@@ -99,6 +99,11 @@ describe.runIf(TASKS_ENABLED)("task list and show", () => {
     ...(pending === undefined ? {} : { pending }),
   });
   const marked = ports(() => Effect.succeed(new Map([[T1, mark]])));
+  // show names the task's thread and how to read it; with no count port, no count.
+  const thread = (task: TaskView) => ({
+    threadId: task.taskId,
+    read: `junto msg list '${JSON.stringify({ target: task.current.node, taskId: task.taskId })}'`,
+  });
   const run = (op: "task.list" | "task.show", args: unknown, with_: TaskPorts) => Effect.runPromise(handleTaskOp(op, args, caller, with_));
 
   it("list marks a pending task with its at-risk state, and leaves the rest as they were", async () => {
@@ -108,18 +113,23 @@ describe.runIf(TASKS_ENABLED)("task list and show", () => {
   });
 
   it("show marks a pending task", async () => {
-    expect(await run("task.show", { task: T1 }, marked)).toEqual({ task: { ...view(T1, 1), ...mark } });
-    expect(await run("task.show", { task: T2 }, marked)).toEqual({ task: view(T2, 2) });
+    expect(await run("task.show", { task: T1 }, marked)).toEqual({ task: { ...view(T1, 1), ...mark }, thread: thread(view(T1, 1)) });
+    expect(await run("task.show", { task: T2 }, marked)).toEqual({ task: view(T2, 2), thread: thread(view(T2, 2)) });
   });
 
   it("marks nothing without the port", async () => {
-    expect(await run("task.show", { task: T1 }, ports())).toEqual({ task: view(T1, 1) });
+    expect(await run("task.show", { task: T1 }, ports())).toEqual({ task: view(T1, 1), thread: thread(view(T1, 1)) });
   });
 
   it("answers list and show when the queue cannot be read, and says the marks are unknown", async () => {
     const unread = ports(() => Effect.succeed(undefined));
     expect(await run("task.list", {}, unread)).toEqual({ tasks: [view(T1, 1), view(T2, 2)], more: false, pendingUnknown: true });
-    expect(await run("task.show", { task: T1 }, unread)).toEqual({ task: view(T1, 1), pendingUnknown: true });
+    expect(await run("task.show", { task: T1 }, unread)).toEqual({ task: view(T1, 1), thread: thread(view(T1, 1)), pendingUnknown: true });
+  });
+
+  it("show counts the task's thread when the port can", async () => {
+    const counted: TaskPorts = { ...ports(), threadCount: () => Effect.succeed(3) };
+    expect(await run("task.show", { task: T1 }, counted)).toMatchObject({ thread: { ...thread(view(T1, 1)), comments: 3 } });
   });
 });
 
