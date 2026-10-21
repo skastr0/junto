@@ -6,6 +6,9 @@ import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, it } from "vitest";
 import { automationIpcHandlers } from "../src/main/junto/automation/ipc";
 import { AutomationRunnerLive } from "../src/main/junto/automation/live";
+import { liveAutomationPorts } from "../src/main/junto/work/automation-control";
+import { asNodeId } from "../src/shared/physics/schema";
+import { OpId } from "../src/shared/work-ids";
 import { makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
 import { ModelDependents } from "../src/main/junto/model/dependents";
 import { ModelLive } from "../src/main/junto/model/layer";
@@ -44,7 +47,12 @@ const recorder = Layer.effect(
 );
 
 const run = async (
-  test: (handlers: ReturnType<typeof automationIpcHandlers>, changed: AutomationsChanged[], sql: (statement: string) => Promise<void>) => Promise<void>,
+  test: (
+    handlers: ReturnType<typeof automationIpcHandlers>,
+    changed: AutomationsChanged[],
+    sql: (statement: string) => Promise<void>,
+    inApp: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>,
+  ) => Promise<void>,
 ) => {
   const home = await mkdtemp(join(tmpdir(), "junto-automation-ipc-"));
   const runtime = ManagedRuntime.make(
@@ -74,7 +82,12 @@ const run = async (
     );
     const changed: AutomationsChanged[] = [];
     const exec = (statement: string) => runtime.runPromise(Effect.flatMap(SqlClient.SqlClient, (sql) => sql.unsafe(statement)).pipe(Effect.asVoid));
-    await test(automationIpcHandlers((effect) => runtime.runPromise(effect), (event) => changed.push(event)), changed, exec);
+    await test(
+      automationIpcHandlers((effect) => runtime.runPromise(effect), (event) => changed.push(event)),
+      changed,
+      exec,
+      (effect) => runtime.runPromise(effect),
+    );
   } finally {
     await runtime.dispose();
     await rm(home, { recursive: true, force: true });
@@ -136,4 +149,36 @@ describe("automation IPC", () => {
         [{ kind: "run" }, { kind: "fired", actions: [{ index: 0, ruling: "refused", reason: "not_available" }] }],
       ]);
     }));
+});
+
+describe("the CLI's live automation ports", () => {
+  const OVERSEER_RUN = OpId.make("01M5ESKJFC1A88R1MH1NEZWJ40");
+
+  it("read the store, write through the one path, and tell every window", () =>
+    run(async (handlers, changed, _sql, inApp) => {
+      await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: false, definition } });
+      const listed = await inApp(liveAutomationPorts.automations("factory", asNodeId(NODE)));
+      expect(listed.map((a) => a.name)).toEqual(["Standup"]);
+
+      const ran = await inApp(liveAutomationPorts.submit({
+        opId: OVERSEER_RUN,
+        canvasName: "factory",
+        actor: { kind: "operator" },
+        target: { kind: "automation", nodeId: asNodeId(NODE), itemId: ID as never },
+        basis: null,
+        after: [],
+        op: { kind: "run" },
+      }));
+      expect(ran).toMatchObject({ disposition: "applied", opId: OVERSEER_RUN, automationId: ID });
+      expect(changed).toHaveLength(2);
+
+      // Node-wide history: every automation on the node, newest first.
+      const firings = await inApp(liveAutomationPorts.firings("factory", asNodeId(NODE), { limit: 10 }));
+      expect(firings.map((f) => f.cause)).toEqual([{ kind: "run" }]);
+    }));
+
+  it("refuse as not built where the automation store is not", async () => {
+    const exit = await Effect.runPromiseExit(liveAutomationPorts.automations("factory", asNodeId(NODE)));
+    expect(JSON.stringify(exit)).toContain("not_available");
+  });
 });

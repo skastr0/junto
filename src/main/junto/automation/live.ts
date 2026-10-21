@@ -30,7 +30,7 @@ import { postSubjectComment } from "../work/subject-comment";
 import type { SubjectCommentInput } from "@shared/subject-comment";
 import { RefusalReason as RefusalReasonSchema, type RefusalReason } from "@shared/resource-command";
 import type { WorkErrorBody } from "@shared/work-control";
-import type { OpId } from "@shared/work-ids";
+import { OpId } from "@shared/work-ids";
 import { type AutomationPersistenceError, AutomationRepository } from "./repository";
 import { makeAutomationRunner, type RunnerPorts } from "./runner";
 
@@ -51,15 +51,18 @@ const decodeAutomationNode = Schema.decodeUnknownOption(AutomationNodeId);
 
 const notAvailable = (index: number): ActionRuling => ({ index, ruling: "refused", reason: "not_available" });
 
-/** The thread subject a comment action names: the whole task, artifact or page. */
-const subjectOf = (on: Extract<Action, { readonly kind: "comment" }>["on"]) => {
+/** A comment on the whole task, artifact or page a comment action names; each arm is checked against its own input. */
+const commentOn = (
+  on: Extract<Action, { readonly kind: "comment" }>["on"],
+  rest: Pick<SubjectCommentInput, "text" | "actor" | "opId">,
+): SubjectCommentInput => {
   switch (on.kind) {
     case "task":
-      return { kind: "task", nodeId: on.nodeId, taskId: on.taskId };
+      return { ...rest, subject: { kind: "task", nodeId: on.nodeId, taskId: on.taskId } };
     case "artifact":
-      return { kind: "artifact", nodeId: on.nodeId, artifactId: on.artifactId };
+      return { ...rest, subject: { kind: "artifact", nodeId: on.nodeId, artifactId: on.artifactId } };
     case "page":
-      return { kind: "page", nodeId: on.nodeId };
+      return { ...rest, subject: { kind: "page", nodeId: on.nodeId } };
   }
 };
 
@@ -106,13 +109,12 @@ export const performAction = (
         if (canvas === undefined || (action.anchor !== undefined && action.anchor.kind !== "whole")) return notAvailable(index);
         const posted = yield* Effect.result(
           postSubjectComment(
-            {
-              subject: subjectOf(action.on),
+            commentOn(action.on, {
               text: action.text,
               actor: { kind: "automation", nodeId: automation.nodeId, automationId: automation.automationId },
               // Derived from the firing, so a retried firing posts the comment once.
-              opId: automationMailId(firingId, index) as OpId,
-            } as SubjectCommentInput,
+              opId: OpId.make(automationMailId(firingId, index)),
+            }),
             { canvas, canvasName, people: [] },
           ),
         );

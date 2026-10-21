@@ -3,12 +3,19 @@
 // `automationTargets`, and hand each write to the ruler as a ResourceCommand
 // (02). Seats read on the work socket; only the operator and overseers write,
 // through the overseer plane, and the domain refuses any other seat. The
-// store, the ruler and the runner are canvas's (C5) and remote's (R2); they
-// reach this file through `AutomationPorts`, so the verbs are whole before
-// those land and switch over without changing here.
+// store, the ruler and the runner reach this file through `AutomationPorts`;
+// `liveAutomationPorts` is the app's, over automation/apply.ts.
 
-import { Effect, Result, Schema } from "effect";
-import type { Automation, AutomationAuthor, AutomationOp, Firing } from "@shared/automation";
+import { type Context, Effect, Option, Result, Schema } from "effect";
+import {
+  FIRINGS_PAGE_MAX,
+  FiringId,
+  type Automation,
+  type AutomationAuthor,
+  type AutomationId,
+  type AutomationOp,
+  type Firing,
+} from "@shared/automation";
 import {
   AutomationCreateArgs,
   AutomationEditArgs,
@@ -33,6 +40,8 @@ import { reaches } from "@shared/region-reach";
 import type { ResourceActor, ResourceCommand } from "@shared/resource-command";
 import type { WorkErrorBody } from "@shared/work-control";
 import { isItemId, type ItemId, type OpId } from "@shared/work-ids";
+import { type AutomationApplyServices, applyAutomationCommand } from "../automation/apply";
+import { AutomationRepository } from "../automation/repository";
 import { automationTargetResolver } from "./automation-targets";
 
 export type HistoryQuery = {
@@ -73,17 +82,71 @@ const notBuilt = (what: string): WorkErrorBody => ({
   details: { reason: "not_available", retryable: false },
 });
 
+const persistence = (error: unknown): WorkErrorBody => ({
+  type: "RuntimeDown",
+  message: `the automation store failed: ${String((error as { readonly message?: unknown } | undefined)?.message ?? error)}`,
+  details: { retryable: true },
+});
+
 /**
- * Until canvas C5 adds the Automations kind and its store, and remote R2 the
- * local ruler, a canvas has no Automations node: list answers empty and every
- * verb that names a node refuses it as unknown.
+ * Run a store or ruler effect in the app's own services. A build without the
+ * automation store (a bare socket in a test) refuses as not built.
+ */
+const inApp = <A>(what: string, effect: Effect.Effect<A, unknown, AutomationApplyServices>): Effect.Effect<A, WorkErrorBody> =>
+  Effect.gen(function* () {
+    if (Option.isNone(yield* Effect.serviceOption(AutomationRepository))) return yield* Effect.fail(notBuilt(what));
+    const services = (yield* Effect.context<never>()) as Context.Context<AutomationApplyServices>;
+    return yield* effect.pipe(Effect.provideContext(services), Effect.mapError(persistence));
+  });
+
+const newestFirst = (a: Firing, b: Firing) => (a.firingId < b.firingId ? 1 : a.firingId > b.firingId ? -1 : 0);
+
+/**
+ * The automation store and the one write path (automation/apply.ts): the
+ * canvas's Automations nodes, their automations and firings, and every write
+ * ruled on this machine when it edits the canvas.
  */
 export const liveAutomationPorts: AutomationPorts = {
-  nodes: () => [],
-  automations: () => Effect.fail(notBuilt("the automation store")),
-  firings: () => Effect.fail(notBuilt("automation history")),
-  submit: () => Effect.fail(notBuilt("the automation ruler")),
+  nodes: (canvas) => [...canvas.nodes.values()].filter((node) => node.kind === "automations"),
+  automations: (canvasName, nodeId) =>
+    inApp("the automation store", Effect.gen(function* () {
+      return yield* (yield* AutomationRepository).list(canvasName, nodeId);
+    })),
+  firings: (canvasName, nodeId, query) =>
+    Effect.gen(function* () {
+      const before = query.before === undefined ? undefined : decodeFiringId(query.before);
+      if (before !== undefined && Option.isNone(before)) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: `${query.before} is not a firing id`,
+          details: { path: "before", retryable: false },
+        });
+      }
+      const page = { limit: Math.min(query.limit, FIRINGS_PAGE_MAX), ...(before === undefined ? {} : { before: before.value }) };
+      return yield* inApp("automation history", Effect.gen(function* () {
+        const store = yield* AutomationRepository;
+        // One automation's page, or every automation on the node merged newest first.
+        const ids = query.automationId !== undefined
+          ? [query.automationId as AutomationId]
+          : (yield* store.list(canvasName, nodeId)).map((automation) => automation.automationId);
+        const firings: Array<Firing> = [];
+        for (const automationId of ids) firings.push(...(yield* store.firings(canvasName, { automationId, ...page })));
+        return firings.sort(newestFirst).slice(0, page.limit);
+      }));
+    }),
+  submit: (command) =>
+    Effect.flatMap(inApp("the automation ruler", applyAutomationCommand(command)), (outcome) =>
+      outcome.kind === "refused"
+        ? Effect.fail(outcome.error)
+        : Effect.succeed({
+            disposition: "applied",
+            opId: outcome.opId,
+            automationId: outcome.automation.automationId,
+            version: outcome.automation.version,
+          } as const)),
 };
+
+const decodeFiringId = Schema.decodeUnknownOption(FiringId);
 
 const decode = <S extends Schema.Top>(schema: S, args: unknown): Effect.Effect<S["Type"], WorkErrorBody> => {
   const decoded = Schema.decodeUnknownResult(schema as never, { onExcessProperty: "error" })(args ?? {});
