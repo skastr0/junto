@@ -128,7 +128,9 @@ test("# and @ offer what is in reach, a sent mention is a chip that opens, a tas
     await page.keyboard.press("Escape");
 
     const failures: string[] = [];
+    const only = process.env.MENTION_VERIFY_ONLY?.split(",");
     const section = async (name: string, body: () => Promise<void>): Promise<void> => {
+      if (only !== undefined && !only.includes(name)) return;
       try {
         await body();
         console.log(`SECTION ${name}: ok`);
