@@ -115,11 +115,7 @@ export const RefusalReason = Schema.Literals([
 ]);
 export type RefusalReason = typeof RefusalReason.Type;
 
-/**
- * `stale` and `rebase_conflict` become the new `Stale` type when cli-protocol
- * lands it in `work-control.ts` (02 Contracts); until then they ride on
- * `InvalidTransition` with `details.reason`, which callers already read.
- */
+/** `stale` and `rebase_conflict` are both `Stale`; `details.reason` tells them apart (02 Contracts). */
 export const REFUSAL: { readonly [R in RefusalReason]: { readonly type: WorkErrorType; readonly retryable: boolean } } = {
   not_in_reach: { type: "ScopeError", retryable: false },
   unknown_target: { type: "UnknownTarget", retryable: false },
@@ -127,8 +123,8 @@ export const REFUSAL: { readonly [R in RefusalReason]: { readonly type: WorkErro
   invalid_transition: { type: "InvalidTransition", retryable: false },
   already_held: { type: "ClaimConflict", retryable: false },
   reviewer_is_author: { type: "ReviewerIsAuthor", retryable: false },
-  stale: { type: "InvalidTransition", retryable: true },
-  rebase_conflict: { type: "InvalidTransition", retryable: true },
+  stale: { type: "Stale", retryable: true },
+  rebase_conflict: { type: "Stale", retryable: true },
   depends_on_refused: { type: "InvalidTransition", retryable: false },
   not_available: { type: "InputError", retryable: false },
   queue_full: { type: "RuntimeDown", retryable: true },

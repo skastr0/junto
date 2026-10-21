@@ -184,6 +184,7 @@ describe("envelope", () => {
   it("marks only stale, rebase conflicts and a full queue as retryable", () => {
     const retryable = (Object.keys(REFUSAL) as RefusalReason[]).filter((reason) => REFUSAL[reason].retryable).sort();
     expect(retryable).toEqual(["queue_full", "rebase_conflict", "stale"]);
+    expect([REFUSAL.stale.type, REFUSAL.rebase_conflict.type]).toEqual(["Stale", "Stale"]);
   });
 
   it("closes the id, reason and actor types", () => {
