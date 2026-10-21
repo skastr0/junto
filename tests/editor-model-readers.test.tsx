@@ -98,7 +98,7 @@ it("a mounted cron follows its native schedule and connected actions", async () 
 it("the mounted pad mention picker offers the actors its host passes", async () => {
   const pin = Schema.decodeUnknownSync(PadPin)({ id: "pin", x: 0, y: 0, z: 0, mentions: [], posts: [], unread: false });
   const pad = { ...emptyPad(), pins: [pin] };
-  const render = (label: string) => root.render(<PadEditor pad={pad} mentionActors={[{ nodeId: "worker", label, wake: false }]}
+  const render = (label: string) => root.render(<PadEditor pad={pad} pins={{ kind: "pins", mentionActors: [{ nodeId: "worker", label, wake: false }] }}
     onCommit={async () => ({ ok: true, pad })} onReadPad={async () => pad} onClose={() => {}} />);
   await act(async () => render("Scout"));
   const svg = host.querySelector<SVGSVGElement>('[data-testid="pad-svg"]')!;

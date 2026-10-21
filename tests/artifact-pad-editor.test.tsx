@@ -42,11 +42,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("renders a pinless pad with the pin tool hidden", async () => {
+it("renders a pinless pad with no P tool, and P selects nothing", async () => {
   await act(async () => root.render(<ArtifactPadEditor pad={emptyPad()} onPatch={onPatch} />));
   expect(host.querySelector('[data-testid="pad-svg"]')).not.toBeNull();
-  expect(host.querySelector<HTMLButtonElement>('[data-testid="pad-tool-pin"]')?.hidden ?? true).toBe(true);
-  expect(host.querySelector('[data-testid="artifact-pad-comment"]')).toBeNull();
+  expect(host.querySelector('[data-testid="pad-tool-pin"]')).toBeNull();
+  await act(async () => svg().dispatchEvent(new KeyboardEvent("keydown", { key: "p", bubbles: true })));
+  await drag([20, 30], [80, 70]);
+  expect(onPatch).not.toHaveBeenCalled();
   expect(host.querySelector('[data-testid="pad-pin"]')).toBeNull();
 });
 
@@ -64,11 +66,15 @@ it("the comment tool turns a dragged area into a box and writes no pin", async (
   await act(async () => root.render(
     <ArtifactPadEditor pad={emptyPad()} onPatch={onPatch} onCommentBox={onCommentBox} />,
   ));
-  await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="artifact-pad-comment"]')!.click());
+  const tool = host.querySelector<HTMLButtonElement>('[data-testid="pad-tool-pin"]')!;
+  expect(tool.getAttribute("aria-label")).toBe("Comment on an area (P)");
+  await act(async () => tool.click());
   await drag([20, 30], [80, 70]);
   expect(onCommentBox).toHaveBeenCalledWith({ x: 20, y: 30, w: 60, h: 40 });
   expect(onPatch).not.toHaveBeenCalled();
   expect(host.querySelector('[data-testid="pad-pin"]')).toBeNull();
+  await drag([90, 90], [90, 90]);
+  expect(onCommentBox).toHaveBeenCalledTimes(1);
 });
 
 it("read only renders the pad without tools", async () => {

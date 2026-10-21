@@ -12,6 +12,7 @@ import {
   Image as ImageIcon,
   MapPin,
   Maximize2,
+  MessageSquare,
   MousePointer2,
   Pencil,
   Square,
@@ -267,16 +268,28 @@ const PadImageEl = ({
   </g>
 );
 
+/** An area on the pad, in pad units, top left and size. */
+export type PadArea = { readonly x: number; readonly y: number; readonly w: number; readonly h: number };
+
+/**
+ * What the P tool does. `pins` writes pins with threads whose mentions are
+ * the host's list. `area` drags a box and hands it to the host, writing
+ * nothing. `none` has no P tool.
+ */
+export type PadPins =
+  | { readonly kind: "pins"; readonly mentionActors: ReadonlyArray<BoardConnectedActor> }
+  | { readonly kind: "area"; readonly onArea: (area: PadArea) => void }
+  | { readonly kind: "none" };
+
 export function PadEditor({
   pad: remotePad,
-  mentionActors,
+  pins,
   onCommit,
   onReadPad,
   onClose,
 }: {
   readonly pad: Pad;
-  /** Who a pin may mention; the host decides. */
-  readonly mentionActors: ReadonlyArray<BoardConnectedActor>;
+  readonly pins: PadPins;
   /** Queued pad write; resolves with the authoritative outcome. */
   readonly onCommit: (patches: ReadonlyArray<PadPatch>) => Promise<PadCommitOutcome>;
   /** Read (and mark pin threads read) through the host's acceptance path. */
@@ -739,6 +752,7 @@ export function PadEditor({
       }
       switch (action?.type) {
         case "tool":
+          if (action.tool === "pin" && pins.kind === "none") return;
           setTool(action.tool);
           setEditingLabel(false);
           return;
@@ -942,7 +956,16 @@ export function PadEditor({
       return;
     }
     if (current.kind === "pin") {
-      void commit([upsertPinPatch(draftPinFromDrag(current.id, current.start, scene))]);
+      const draft = draftPinFromDrag(current.id, current.start, scene);
+      if (pins.kind === "pins") {
+        void commit([upsertPinPatch(draft)]);
+        return;
+      }
+      // An area pick writes nothing; a bare click picks no area.
+      setSelectedId(undefined);
+      if (pins.kind === "area" && draft.bounds !== undefined) {
+        pins.onArea({ x: draft.x - draft.bounds.w / 2, y: draft.y - draft.bounds.h / 2, w: draft.bounds.w, h: draft.bounds.h });
+      }
       return;
     }
     if (current.kind === "ink") {
@@ -1109,9 +1132,15 @@ export function PadEditor({
           <ToolButton tool="label" current={tool} onSelect={setTool} label="Label (L)">
             <Type size={13} />
           </ToolButton>
-          <ToolButton tool="pin" current={tool} onSelect={setTool} label="Pin (P)">
-            <MapPin size={13} />
-          </ToolButton>
+          {pins.kind === "pins" ? (
+            <ToolButton tool="pin" current={tool} onSelect={setTool} label="Pin (P)">
+              <MapPin size={13} />
+            </ToolButton>
+          ) : pins.kind === "area" ? (
+            <ToolButton tool="pin" current={tool} onSelect={setTool} label="Comment on an area (P)">
+              <MessageSquare size={13} />
+            </ToolButton>
+          ) : null}
           <ToolButton tool="image" current={tool} onSelect={setTool} label="Image (I)">
             <ImageIcon size={13} />
           </ToolButton>
@@ -1297,14 +1326,18 @@ export function PadEditor({
             <PadGlyph className="pad-empty__mark" />
             <strong>Mark the page</strong>
             <span>
-              Draw boxes, drop images, ink, and pin look-here crops.
+              {pins.kind === "pins"
+                ? "Draw boxes, drop images, ink, and pin look-here crops."
+                : pins.kind === "area"
+                  ? "Draw boxes, drop images, ink, and comment on an area."
+                  : "Draw boxes, drop images, and ink."}
             </span>
             <div className="pad-empty__keys">
               <span><Kbd>R</Kbd> box</span>
               <span><Kbd>O</Kbd> ellipse</span>
               <span><Kbd>T</Kbd> triangle</span>
               <span><Kbd>L</Kbd> label</span>
-              <span><Kbd>P</Kbd> pin</span>
+              {pins.kind === "none" ? null : <span><Kbd>P</Kbd> {pins.kind === "pins" ? "pin" : "comment"}</span>}
               <span><Kbd>I</Kbd> image</span>
               <span><Kbd>D</Kbd> ink</span>
             </div>
@@ -1349,10 +1382,10 @@ export function PadEditor({
           />
         ) : null}
       </div>
-      {selectedPin ? (
+      {selectedPin && pins.kind === "pins" ? (
         <PadPinThread
           pin={selectedPin}
-          actors={mentionActors}
+          actors={pins.mentionActors}
           onCommit={commit}
         />
       ) : null}
