@@ -33,7 +33,8 @@ describe("quit confirm prompt", () => {
     expect(prompt.defaultId).toBe(0);
     expect(prompt.cancelId).toBe(0);
     expect(QUIT_CONFIRM_ACCEPT_INDEX).toBe(1);
-    expect(prompt.detail).toMatch(/Watchers and kernel timers/i);
+    expect(prompt.detail).toMatch(/Automations and schedules on this machine/i);
+    expect(prompt.detail).not.toMatch(/watcher|timer/i);
     expect(prompt.detail).toMatch(/control sockets/i);
     expect(prompt.detail).toMatch(/1 local terminal session/);
     expect(prompt.detail).toMatch(/including detached sessions/);

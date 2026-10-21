@@ -51,7 +51,7 @@ export const buildQuitConfirmPrompt = (snapshot: LiveWorkSnapshot): QuitConfirmP
     detail:
       `${inventory}\n\n` +
       "Pauses on quit:\n" +
-      "• Watchers and kernel timers\n" +
+      "• Automations and schedules on this machine\n" +
       "• Local control sockets\n\n" +
       "Stops on quit:\n" +
       "• Local terminal sessions (including detached sessions)",

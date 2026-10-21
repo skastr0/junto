@@ -1868,7 +1868,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
 }
 
 // WINDOW CLOSE ≠ QUIT on macOS: last window close leaves the app running —
-// kernel, region watchers/timers, and control sockets stay live with zero
+// kernel, automations, and control sockets stay live with zero
 // windows. Dock icon remains; activate recreates the window.
 // Non-darwin still quits when all windows close (platform convention).
 app.on("window-all-closed", () => {

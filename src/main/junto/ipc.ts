@@ -126,6 +126,7 @@ import {
 } from "./signals/operator";
 import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
 import { WorkRepository } from "./work/repository";
+import { TaskRepository } from "./work/task-repository";
 import { CrewRepository } from "./work/crew-repository";
 import { makeCheckoutWatchComposition } from "./work/checkout-watch-composition";
 import type { CheckoutWatchSupervisor } from "./work/checkout-watch-live";
@@ -364,7 +365,7 @@ export const registerJuntoIpc = (): void => {
     );
   }
 
-  // The kernel plane: watcher/timer evaluation over every hydrated canvas,
+  // The kernel plane: seat and task evaluation over every hydrated canvas,
   // running continuously in main regardless of window state.
   privilegedIpc.handle(IPC_CHANNELS.getKernelState, () =>
     AppRuntime.runPromise(Effect.map(KernelService, (kernel) => kernel.getSnapshot())),
@@ -1406,6 +1407,7 @@ export const registerJuntoIpc = (): void => {
         host: termPlane.host,
         crew,
         workRepository,
+        tasks: yield* TaskRepository,
         messageDelivery,
         basisFor: canvasReceiptBasis,
         run: (effect) => AppRuntime.runPromise(effect),
