@@ -1,5 +1,5 @@
 import type { NodeId } from "./model/base";
-import type { WorkErrorType } from "./work-control";
+import type { RefusalReason } from "./resource-command";
 import { isItemId, isTaskNumber, type ItemId, type TaskNumber } from "./work-ids";
 
 export type { TaskNumber } from "./work-ids";
@@ -130,14 +130,14 @@ export type TaskCore = {
 // ── commands ───────────────────────────────────────────────────────────────
 
 /**
- * Who writes. The operator, and an overseer carrying its authority, needs no
- * reach. A seat carries whether it reaches the task node at the sequence the
- * write is ruled at (01 rule 3); the assignee's own transitions on its task
- * are admitted by the assignment instead (01 rule 6).
+ * Who writes, as the ruler hands it to the task domain. Reach (01) is checked
+ * by the ruler before the domain rules (`resource-command.ts`), except where
+ * `reachExempt` says the assignment admits the command instead (01 rule 6).
  */
 export type TaskActor =
   | { readonly kind: "operator" }
-  | { readonly kind: "seat"; readonly seat: SeatNodeId; readonly inReach: boolean };
+  | { readonly kind: "seat"; readonly seat: SeatNodeId }
+  | { readonly kind: "automation"; readonly automation: NodeId };
 
 /** The task ops of a `ResourceCommand` (02). Closed: add a case here first. */
 export type TaskCommand =
@@ -210,45 +210,59 @@ export type TaskEffect =
     readonly layer: TaskCore;
   };
 
+/** Why a command was refused, in task terms. Travels under a `RefusalReason`. */
+export type TaskRefusalDetail =
+  | { readonly kind: "illegal-transition"; readonly from: TaskState; readonly command: TaskCommandKind }
+  | { readonly kind: "not-assignee"; readonly assignee?: SeatNodeId }
+  | { readonly kind: "already-assigned"; readonly assignee: SeatNodeId }
+  | { readonly kind: "seat-busy"; readonly seat: SeatNodeId; readonly taskId: TaskId }
+  | { readonly kind: "not-reviewer"; readonly reviewer: Reviewer }
+  | { readonly kind: "own-task"; readonly seat: SeatNodeId }
+  | { readonly kind: "stale-epoch"; readonly expected: number }
+  | { readonly kind: "next-required"; readonly choices: ReadonlyArray<TaskNodeId> }
+  | { readonly kind: "next-not-downstream"; readonly next: TaskNodeId; readonly choices: ReadonlyArray<TaskNodeId> }
+  | { readonly kind: "invalid-policy"; readonly required: number }
+  | { readonly kind: "dependency-cycle"; readonly through: ReadonlyArray<TaskId> }
+  | { readonly kind: "unknown-task"; readonly taskId: TaskId }
+  | { readonly kind: "task-exists"; readonly taskId: TaskId };
+
+export type TaskRefusalKind = TaskRefusalDetail["kind"];
+
 /**
- * Why a command was refused. `reason` is the wire's `details.reason`, so it
- * is snake_case like every reason (cli-lead).
+ * The one closed wire reason each task refusal travels as
+ * (`RefusalReason`, `resource-command.ts`), so tasks add no reason of their
+ * own. Exhaustive by type.
  */
-export type TaskRefusal =
-  | { readonly reason: "illegal_transition"; readonly from: TaskState; readonly command: TaskCommandKind }
-  | { readonly reason: "out_of_reach" }
-  | { readonly reason: "not_assignee"; readonly assignee?: SeatNodeId }
-  | { readonly reason: "already_assigned"; readonly assignee: SeatNodeId }
-  | { readonly reason: "seat_busy"; readonly seat: SeatNodeId; readonly taskId: TaskId }
-  | { readonly reason: "not_reviewer"; readonly reviewer: Reviewer }
-  | { readonly reason: "own_task"; readonly seat: SeatNodeId }
-  | { readonly reason: "stale_epoch"; readonly expected: number }
-  | { readonly reason: "next_required"; readonly choices: ReadonlyArray<TaskNodeId> }
-  | { readonly reason: "next_not_downstream"; readonly next: TaskNodeId; readonly choices: ReadonlyArray<TaskNodeId> }
-  | { readonly reason: "invalid_policy"; readonly required: number }
-  | { readonly reason: "dependency_cycle"; readonly through: ReadonlyArray<TaskId> }
-  | { readonly reason: "unknown_task"; readonly taskId: TaskId }
-  | { readonly reason: "task_exists"; readonly taskId: TaskId };
+export const TASK_REFUSAL_REASON = {
+  "illegal-transition": "invalid_transition",
+  "not-assignee": "invalid_transition",
+  "already-assigned": "already_held",
+  "seat-busy": "already_held",
+  "not-reviewer": "invalid_input",
+  "own-task": "reviewer_is_author",
+  "stale-epoch": "stale",
+  "next-required": "invalid_input",
+  "next-not-downstream": "invalid_input",
+  "invalid-policy": "invalid_input",
+  "dependency-cycle": "invalid_input",
+  "unknown-task": "unknown_target",
+  "task-exists": "invalid_input",
+} as const satisfies Readonly<Record<TaskRefusalKind, RefusalReason>>;
 
-export type TaskRefusalReason = TaskRefusal["reason"];
+export type TaskRefusal = { readonly reason: RefusalReason; readonly detail: TaskRefusalDetail };
 
-/** The wire error each refusal travels as. Exhaustive by type. */
-export const TASK_REFUSAL_ERROR = {
-  illegal_transition: "InvalidTransition",
-  out_of_reach: "ScopeError",
-  not_assignee: "ScopeError",
-  already_assigned: "ClaimConflict",
-  seat_busy: "ClaimConflict",
-  not_reviewer: "ScopeError",
-  own_task: "ReviewerIsAuthor",
-  stale_epoch: "Stale",
-  next_required: "InputError",
-  next_not_downstream: "InputError",
-  invalid_policy: "InputError",
-  dependency_cycle: "InputError",
-  unknown_task: "UnknownTarget",
-  task_exists: "InputError",
-} as const satisfies Readonly<Record<TaskRefusalReason, WorkErrorType>>;
+export const taskRefusal = (detail: TaskRefusalDetail): TaskRefusal => ({
+  reason: TASK_REFUSAL_REASON[detail.kind],
+  detail,
+});
+
+/**
+ * The assignee's own transitions on its open task are admitted by the
+ * assignment, not by reach, so a seat moved away from its task is never stuck
+ * holding it (01 rule 6). Everything else needs reach.
+ */
+export const reachExempt = (task: Pick<TaskCore, "state" | "assignee">, actor: TaskActor, command: TaskCommand): boolean =>
+  ASSIGNEE_ONLY[command.kind] && actor.kind === "seat" && actor.seat === task.assignee && isOpenTaskState(task.state);
 
 export type TaskRuling =
   | { readonly ok: true; readonly task: TaskCore; readonly effects: ReadonlyArray<TaskEffect> }

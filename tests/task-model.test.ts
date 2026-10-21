@@ -14,7 +14,10 @@ import {
   remapLegacyTaskState,
   reviewerKey,
   seatNodeId,
-  TASK_REFUSAL_ERROR,
+  reachExempt,
+  TASK_REFUSAL_REASON,
+  taskNodeId,
+  taskRefusal,
   TASK_STATES,
   taskNumber,
   type SeatNodeId,
@@ -22,10 +25,11 @@ import {
   type TaskId,
   type TaskNodeId,
   type TaskNumber,
-  type TaskRefusalReason,
+  type TaskCore,
+  type TaskRefusalKind,
   type TaskState,
 } from "../src/shared/task-model";
-import { WorkErrorType } from "../src/shared/work-control";
+import { RefusalReason } from "../src/shared/resource-command";
 
 describe("task model", () => {
   it("splits every state into open, closed or backlog, once each", () => {
@@ -45,11 +49,24 @@ describe("task model", () => {
     expect(only.sort()).toEqual(["finish", "pause", "resume", "start"]);
   });
 
-  it("maps every refusal onto a wire error type", () => {
-    for (const type of Object.values(TASK_REFUSAL_ERROR)) {
-      expect(WorkErrorType.literals).toContain(type);
-    }
-    for (const reason of Object.keys(TASK_REFUSAL_ERROR)) expect(reason).toMatch(/^[a-z]+(_[a-z]+)*$/);
+  it("sends every task refusal under one of the shared wire reasons", () => {
+    for (const reason of Object.values(TASK_REFUSAL_REASON)) expect(RefusalReason.literals).toContain(reason);
+    expect(taskRefusal({ kind: "stale-epoch", expected: 3 })).toEqual({
+      reason: "stale",
+      detail: { kind: "stale-epoch", expected: 3 },
+    });
+  });
+
+  it("exempts only the assignee's own transitions on its open task from reach", () => {
+    const seat = seatNodeId(asNodeId("agent-1"));
+    const other = seatNodeId(asNodeId("agent-2"));
+    const task = (state: TaskCore["state"]): Pick<TaskCore, "state" | "assignee"> => ({ state, assignee: seat });
+    expect(reachExempt(task("working"), { kind: "seat", seat }, { kind: "finish" })).toBe(true);
+    expect(reachExempt(task("working"), { kind: "seat", seat }, { kind: "cancel" })).toBe(false);
+    expect(reachExempt(task("working"), { kind: "seat", seat: other }, { kind: "finish" })).toBe(false);
+    expect(reachExempt(task("done"), { kind: "seat", seat }, { kind: "start" })).toBe(false);
+    expect(reachExempt(task("working"), { kind: "operator" }, { kind: "finish" })).toBe(false);
+    void taskNodeId;
   });
 
   it("reads and writes task numbers as people type them", () => {
@@ -110,7 +127,7 @@ describe("task model types", () => {
     // @ts-expect-error: the old states are gone from the model.
     const old: TaskState = "submitted";
     void old;
-    expectTypeOf<keyof typeof TASK_REFUSAL_ERROR>().toEqualTypeOf<TaskRefusalReason>();
+    expectTypeOf<keyof typeof TASK_REFUSAL_REASON>().toEqualTypeOf<TaskRefusalKind>();
     expectTypeOf<keyof typeof ASSIGNEE_ONLY>().toEqualTypeOf<TaskCommandKind>();
   });
 });
