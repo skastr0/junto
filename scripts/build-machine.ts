@@ -139,6 +139,16 @@ export const bundleMachineCore = async (outdir: string, input: {
   if (/createRequire\(\s*["']file:/.test(core)) throw new Error("the core resolves packages from a build-machine path");
 };
 
+/** The machine's bin/junto, as the machine build compiles it: no browser CLI (__JUNTO_MACHINE_BUILD__). */
+export const compileMachineCli = (outfile: string, input: {
+  readonly target: keyof typeof NODE_DIGESTS;
+  readonly build: string;
+  readonly version: string;
+  readonly features: ReturnType<typeof resolveBuildFeatures>;
+}): void => {
+  run(process.execPath, ["build", "--compile", `--target=bun-${input.target}`, "--no-compile-autoload-dotenv", "--no-compile-autoload-bunfig", "--no-compile-autoload-tsconfig", "--no-compile-autoload-package-json", "--external=original-fs", ...featureBunDefineArgs(input.features), `--define=APP_VERSION=${JSON.stringify(input.version)}`, `--define=__JUNTO_BUILD_ID__=${JSON.stringify(input.build)}`, "--define=__JUNTO_MACHINE_BUILD__=true", "--outfile", outfile, join(repoRoot, "src/cli/main.ts")], repoRoot);
+};
+
 export const buildMachine = async (input: BuildMachineInput) => {
   if (`${process.platform}-${process.arch}` !== input.target) throw new Error("native machine bundles must be built on their target architecture");
   const output = resolve(input.output);
@@ -162,7 +172,7 @@ export const buildMachine = async (input: BuildMachineInput) => {
       }
     }
     await stageMachinePty(stage, input.target);
-    run(process.execPath, ["build", "--compile", `--target=bun-${input.target}`, "--no-compile-autoload-dotenv", "--no-compile-autoload-bunfig", "--no-compile-autoload-tsconfig", "--no-compile-autoload-package-json", "--external=original-fs", ...featureBunDefineArgs(features), `--define=APP_VERSION=${JSON.stringify(pkg.version)}`, `--define=__JUNTO_BUILD_ID__=${JSON.stringify(build)}`, "--define=__JUNTO_MACHINE_BUILD__=true", "--outfile", join(stage, "bin/junto"), join(repoRoot, "src/cli/main.ts")], repoRoot);
+    compileMachineCli(join(stage, "bin/junto"), {target: input.target, build, version: pkg.version, features});
     if (buildIdentity(repoRoot) !== build) throw new Error("source changed during build; rebuild this bundle");
     const node = join(stage, "bin/node");
     const nodeMetadata = await lstat(node);
