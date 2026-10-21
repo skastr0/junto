@@ -4,6 +4,7 @@
  * transaction, or none of them does, and only the editing machine records.
  */
 import { randomUUID } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -114,6 +115,17 @@ describe("recording a ruling", () => {
     expect(await counts()).toEqual(before);
   });
 
+  it("records on a canvas that names no editor, which is this machine's own", async () => {
+    await runtime.runPromise(
+      Effect.flatMap(SqlClient.SqlClient, (sql) => sql`UPDATE canvases SET editor_installation_id = NULL WHERE canvas_name = 'factory'`),
+    );
+    try {
+      expect(Exit.isSuccess(await run(submit(input(op("01M5EX0000000000000000000E"), "applied"))))).toBe(true);
+    } finally {
+      await setEditor(SELF);
+    }
+  });
+
   it("refuses on a machine that does not edit the canvas, and writes nothing", async () => {
     await setEditor(MINI);
     try {
@@ -124,5 +136,22 @@ describe("recording a ruling", () => {
     } finally {
       await setEditor(SELF);
     }
+  });
+});
+
+describe("the one caller of writeRuling", () => {
+  const sources = (dir: string): ReadonlyArray<string> =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(dir, entry.name);
+      return entry.isDirectory() ? sources(path) : /\.tsx?$/.test(entry.name) ? [path] : [];
+    });
+
+  it("is the recorder: no other file under src/ writes a ruling row", () => {
+    const root = join(import.meta.dirname, "..");
+    const callers = sources(join(root, "src"))
+      .filter((path) => /\bwriteRuling\s*\(/.test(readFileSync(path, "utf8")))
+      .map((path) => path.slice(root.length + 1));
+    // WorkRepository.recordRuling, which RulingRecorder.record calls.
+    expect(callers).toEqual(["src/main/junto/work/repository.ts"]);
   });
 });

@@ -59,7 +59,8 @@ import type { WorkErrorBody } from "@shared/work-control";
 import type { ItemId, OpId } from "@shared/work-ids";
 import { ContentService } from "../content/service";
 import { StateTransactionOperation } from "../state/service";
-import { writeRuling, type RulingRecord } from "./resource-rulings";
+import type { RulingRecord } from "./resource-rulings";
+import { RulingRecorder, type RulingRecordFailed } from "./ruling-recorder";
 
 export class ArtifactPersistenceError extends Schema.TaggedError<ArtifactPersistenceError>()(
   "ArtifactPersistenceError",
@@ -228,7 +229,7 @@ const outcomeOf = (
   return { kind: "applied", opId: ruling.opId, artifactId, version: entry!.artifact.version, facts: ruling.facts };
 };
 
-const persistence = (operation: string) => (error: SqlError.SqlError | Schema.SchemaError | ArtifactPersistenceError) =>
+const persistence = (operation: string) => (error: SqlError.SqlError | Schema.SchemaError | RulingRecordFailed | ArtifactPersistenceError) =>
   error instanceof ArtifactPersistenceError ? error : ArtifactPersistenceError.make({ operation, message: error.message, cause: error });
 
 /** A stored row that no longer decodes: refused loudly, never read as absent and written over. */
@@ -329,11 +330,12 @@ export const projectArtifactFacts = (
     }
   });
 
-export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlClient.SqlClient | ContentService> = Layer.effect(
+export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlClient.SqlClient | ContentService | RulingRecorder> = Layer.effect(
   ArtifactRepository,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const content = yield* ContentService;
+    const recorder = yield* RulingRecorder;
 
     const headRow = SqlSchema.findOneOption({
       Request: Schema.Struct({ canvas: Schema.String, id: Schema.String }),
@@ -590,8 +592,18 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
         outcome.kind === "applied"
           ? { kind: "applied", artifactId: outcome.artifactId, version: outcome.version }
           : { kind: "refused", error: outcome.error, root: outcome.root };
-      // The ruling and its facts commit together, or neither does.
-      yield* writeRuling(sql, { canvas, writer, command, record });
+      // The ruling and its facts commit together, or neither does. Its row
+      // carries the domain's facts, each bounded inline, never the kept edits.
+      yield* recorder.record({
+        canvasName: canvas,
+        writer,
+        command,
+        kind: "artifact",
+        record,
+        // Artifact facts are plain JSON data; a replica decodes them with ArtifactFact.
+        ruling: ruling as ResourceRuling<typeof Schema.Json.Type>,
+        at: new Date(now).toISOString(),
+      });
       return outcome;
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "artifacts.submit"), Effect.mapError(persistence("submit")));
 

@@ -7878,7 +7878,8 @@ export const WorkRepositoryLive = Layer.effect(
             "SELECT seq, editor_installation_id AS editor FROM canvases WHERE canvas_name = ?",
             [input.canvasName],
           );
-          if (canvas[0] === undefined || canvas[0].editor !== self) {
+          // No editor named is this machine's own canvas, as the model reads it (canvasEdits).
+          if (canvas[0] === undefined || (canvas[0].editor !== null && canvas[0].editor !== self)) {
             return yield* Effect.fail(
               authorityError("authority-mismatch", "only the machine that edits a canvas rules its commands"),
             );

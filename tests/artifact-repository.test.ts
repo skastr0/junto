@@ -19,6 +19,8 @@ import {
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { ContentService, makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
+import { writeRuling } from "../src/main/junto/work/resource-rulings";
+import { RulingRecorder } from "../src/main/junto/work/ruling-recorder";
 import {
   ArtifactRepository,
   ArtifactRepositoryLive,
@@ -27,6 +29,19 @@ import {
   projectArtifactFacts,
 } from "../src/main/junto/work/artifact-repository";
 
+// The ruling's row as the recorder writes it; its fact row needs a canvas this machine edits (tests/ruling-recorder.test.ts).
+const recorder = Layer.effect(
+  RulingRecorder,
+  Effect.map(SqlClient.SqlClient, (sql) =>
+    RulingRecorder.of({
+      record: (input) =>
+        writeRuling(sql, { canvas: input.canvasName, writer: input.writer, command: input.command, record: input.record }).pipe(
+          Effect.asVoid,
+          Effect.orDie,
+        ),
+    })),
+);
+
 let root: string;
 let runtime: ManagedRuntime.ManagedRuntime<ArtifactRepository | ContentService | SqlClient.SqlClient, unknown>;
 
@@ -34,7 +49,7 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "junto-artifacts-"));
   const content = makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true });
   runtime = ManagedRuntime.make(
-    Layer.provideMerge(ArtifactRepositoryLive, content).pipe(
+    Layer.provideMerge(Layer.provide(ArtifactRepositoryLive, recorder), content).pipe(
       Layer.provideMerge(Layer.mergeAll(makeStateEngineLive(join(root, "junto.db")), makeInstallOpsLive(join(root, "install-ops.db")))),
     ),
   );
