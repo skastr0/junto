@@ -31,6 +31,7 @@ import {
 } from "@shared/command-row";
 import type { ResourceCommand, ResourceKind, ResourceRuling } from "@shared/resource-command";
 import { writeRuling, type RulingRecord } from "./resource-rulings";
+import { refusalNoticeWrite } from "./refusal-notice";
 import type { OpId } from "@shared/work-ids";
 import { RulingFoldRefused, foldRuling } from "./ruling-projection";
 import { assertWorkRowBound, pageExchangeRows } from "@shared/exchange-bounds";
@@ -7661,6 +7662,26 @@ export const WorkRepositoryLive = Layer.effect(
                       Effect.fail(refuseExchange(refused.message)),
                     ),
                   );
+                } else if (fact.body.operation === "ruling.refused") {
+                  // One of this machine's own commands was refused: its seat is told, once, from the refused node.
+                  const notice = yield* refusalNoticeWrite(writer, self, frame.canvasName, fact.body);
+                  if (notice !== undefined) {
+                    const canvas = yield* writer.unsafe<{ seq: number }>("SELECT seq FROM canvases WHERE canvas_name = ?", [frame.canvasName]);
+                    const basis = { kind: "canvas" as const, canvasName: frame.canvasName, seq: canvas[0]?.seq ?? 0 };
+                    yield* commitLocalFact(writer, {
+                      localInstallationId: self,
+                      sink: notice.sink,
+                      basis,
+                      item: item("message", notice.message.messageId, notice.sink),
+                      operation: "message.append",
+                      predecessor: null,
+                      body: { operation: "message.append", message: notice.message, sentBy: notice.sentBy, destination: { kind: "mailbox" } },
+                      value: notice.message,
+                      originAt: receivedAt,
+                      receivedAt,
+                    });
+                    mail.push({ canvasName: frame.canvasName, nodeId: notice.sink.nodeId, message: notice.message });
+                  }
                 }
               }
             }
