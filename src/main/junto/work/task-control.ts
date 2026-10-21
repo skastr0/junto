@@ -35,9 +35,11 @@ import {
   type TaskView,
 } from "@shared/task-model";
 import type { SubjectCommentInput, SubjectCommented } from "@shared/subject-comment";
+import { taskPeopleOf } from "@shared/task-notices";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { OpId } from "@shared/work-ids";
 import { MachineRepository } from "../machines/repository";
+import { postSubjectComment, type SubjectCommentContext } from "./subject-comment";
 import { deliverTaskEffects, type TaskDelivery } from "./task-delivery";
 import { TaskRepository, type TaskCanvasEnv, type TaskSubmitOutcome } from "./task-repository";
 
@@ -63,8 +65,8 @@ export type TaskPorts = {
   readonly deliver: (delivery: TaskDelivery) => Effect.Effect<void, WorkErrorBody>;
   /** A comment in the task's thread: pty's one write path, `postSubjectComment` (03). */
   readonly comment: (
-    canvasName: string,
     input: Extract<SubjectCommentInput, { readonly subject: { readonly kind: "task" } }>,
+    context: SubjectCommentContext,
   ) => Effect.Effect<SubjectCommented, WorkErrorBody>;
 };
 
@@ -121,7 +123,7 @@ export const liveTaskPorts: TaskPorts = (() => {
           : withRepo((repo) =>
             Effect.flatMap(machines.value.installationId, (writer) => repo.submit(writer, command, context, env)))),
     deliver: deliverTaskEffects,
-    comment: () => Effect.fail(notBuilt("task threads")),
+    comment: postSubjectComment,
   };
 })();
 
@@ -206,7 +208,13 @@ export const taskLookupOf = (text: string): TaskLookup | undefined => {
  * assignee's moves need no reach, 01 rule 6). A task out of reach reads as
  * missing, so a probe never learns what lies outside.
  */
-const findTask = (caller: TaskCaller, ports: TaskPorts, text: string, path = "task"): Effect.Effect<TaskView, WorkErrorBody> =>
+const findTask = (
+  caller: TaskCaller,
+  ports: TaskPorts,
+  text: string,
+  path = "task",
+  assigneeExempt = true,
+): Effect.Effect<TaskView, WorkErrorBody> =>
   Effect.gen(function* () {
     const lookup = taskLookupOf(text);
     if (lookup === undefined) {
@@ -218,7 +226,7 @@ const findTask = (caller: TaskCaller, ports: TaskPorts, text: string, path = "ta
     }
     const task = yield* ports.find(caller.canvas, caller.canvasName, lookup);
     const visible = task !== undefined &&
-      (reaches(caller.canvas, caller.actor.nodeId, task.current.node) || task.current.assignee === caller.actor.nodeId);
+      (reaches(caller.canvas, caller.actor.nodeId, task.current.node) || (assigneeExempt && task.current.assignee === caller.actor.nodeId));
     if (!visible) {
       return yield* Effect.fail(unknown(path, text, `no task ${lookup.kind === "number" ? formatTaskNumber(lookup.number) : lookup.taskId} in this seat's reach`));
     }
@@ -362,7 +370,11 @@ const submitted = (caller: TaskCaller, ports: TaskPorts, written: ResourceComman
         opId: written.opId,
         task: outcome.task,
         effects: outcome.effects,
-      });
+      }).pipe(
+        // The ruling is committed: a lost notice must not turn an applied write
+        // into a retry, whose replay owes no mail and would never send it.
+        Effect.catch((error) => Effect.logWarning("task notices were not delivered", { opId: written.opId, error })),
+      );
     }
     return yield* writeResultOf(outcome, written.opId);
   });
@@ -402,13 +414,16 @@ export const handleTaskOp = (
       }
       case "task.comment": {
         const input = yield* decode(TASK_ARGS[op], args);
-        const task = yield* findTask(caller, ports, input.task);
-        const sent = yield* ports.comment(caller.canvasName, {
+        // A comment admits by reach alone (03): the assignee exemption is for moves.
+        const task = yield* findTask(caller, ports, input.task, "task", false);
+        const sent = yield* ports.comment({
           subject: { kind: "task", nodeId: task.current.node, taskId: task.taskId },
           text: input.text,
           actor: caller.actor,
           opId: input.opId,
-        });
+        }, { canvas: caller.canvas, canvasName: caller.canvasName, people: taskPeopleOf(task.current) }).pipe(
+          Effect.mapError((error): WorkErrorBody => ({ ...error, details: { ...error.details, opId: input.opId } })),
+        );
         return { disposition: "applied", opId: input.opId, taskId: task.taskId, threadId: sent.threadId, messageId: sent.messageId };
       }
       case "task.create": {

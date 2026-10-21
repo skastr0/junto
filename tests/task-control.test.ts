@@ -167,7 +167,8 @@ const applied = (overrides: Partial<TaskRecord> = {}): TaskSubmitOutcome => ({
   replay: false,
 });
 
-const commented: Array<Parameters<TaskPorts["comment"]>[1]> = [];
+const commented: Array<Parameters<TaskPorts["comment"]>[0]> = [];
+const people: Array<ReadonlyArray<string>> = [];
 
 const portsWith = (outcome: TaskSubmitOutcome, submitted: Array<ResourceCommand<TaskCommand>> = []): TaskPorts => ({
   nodes: (c) => [...c.nodes.values()].filter((node) => node.kind === "task"),
@@ -182,8 +183,9 @@ const portsWith = (outcome: TaskSubmitOutcome, submitted: Array<ResourceCommand<
     return Effect.succeed(outcome);
   },
   deliver: () => Effect.void,
-  comment: (_, input) => {
+  comment: (input, context) => {
     commented.push(input);
+    people.push(context.people);
     return Effect.succeed({ threadId: "t1" as MailMessageId, messageId: "m1" as MailMessageId, notified: [] });
   },
 });
@@ -269,6 +271,18 @@ describe("task verbs", () => {
     }
   });
 
+  it("answers applied when the ruling's mail cannot go out", async () => {
+    const ports = { ...portsWith(applied()), deliver: () => Effect.fail<WorkErrorBody>({ type: "RuntimeDown", message: "no work service" }) };
+    const exit = await run("task.start", { opId: OP, task: "#42" }, ports);
+    expect(exit).toEqual(Exit.succeed({ disposition: "applied", opId: OP, taskId: ID, number: 42, state: "assigned" }));
+  });
+
+  it("puts the opId on a refused comment", async () => {
+    const ports = { ...portsWith(applied()), comment: () => Effect.fail<WorkErrorBody>({ type: "ScopeError", message: "not in reach", details: { reason: "not_in_reach" } }) };
+    const error = failure(await run("task.comment", { opId: OP, task: "#42", text: "hi" }, ports));
+    expect(error.details).toEqual({ reason: "not_in_reach", opId: OP });
+  });
+
   it("names the operator as a reviewer", async () => {
     const submitted: Array<ResourceCommand<TaskCommand>> = [];
     await run("task.reviewer-add", { opId: OP, task: "#42", reviewer: "operator" }, portsWith(applied(), submitted));
@@ -281,9 +295,11 @@ describe("task verbs", () => {
 
   it("comments in the task's thread", async () => {
     commented.length = 0;
+    people.length = 0;
     const exit = await run("task.comment", { opId: OP, task: "#42", text: "Looks right" }, portsWith(applied()));
     expect(exit).toEqual(Exit.succeed({ disposition: "applied", opId: OP, taskId: ID, threadId: "t1", messageId: "m1" }));
     expect(commented).toEqual([{ subject: { kind: "task", nodeId: "tasks-1", taskId: ID }, text: "Looks right", actor: caller.actor, opId: OP }]);
+    expect(people).toEqual([[]]);
   });
 
   it("lists the task nodes in reach and says when there are more", async () => {
