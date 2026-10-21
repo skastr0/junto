@@ -139,6 +139,10 @@ describe("task command wire", () => {
     });
     const next = Result.getOrThrow(decode({ kind: "finish", next: "agent-1" }));
     expect(checkTaskCommand(next, kindOf).ok).toBe(false);
+    const evidence = { artifacts: [], claims: [{ ruleId: "r1", text: "Tests pass" }] };
+    const answered = Result.getOrThrow(decode({ kind: "finish", next: "task-2", evidence }));
+    expect(checkTaskCommand(answered, kindOf)).toEqual({ ok: true, command: { kind: "finish", next: "task-2", evidence } });
+    expect(Result.isFailure(decode({ kind: "finish", evidence: { claims: [] } }))).toBe(true);
     const operator = Result.getOrThrow(decode({ kind: "reviewer-add", reviewer: { kind: "operator" } }));
     expect(checkTaskCommand(operator, kindOf)).toEqual({ ok: true, command: { kind: "reviewer-add", reviewer: { kind: "operator" } } });
   });

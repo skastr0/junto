@@ -152,6 +152,7 @@ describe("task refusals", () => {
     "target-mismatch": { kind: "target-mismatch", target: "01M5ETKKW2KX682NBXQZYA69MY" as never, taskId: "01M5ETKKW2KX682NBXQZYA69MZ" as never },
     "wrong-node": { kind: "wrong-node", nodeId: asNodeId("n"), expected: "agent" },
     "not-in-reach": { kind: "not-in-reach", nodeId: asNodeId("n") },
+    "rules-unmet": { kind: "rules-unmet", missing: "claim", message: "Rule r1 needs a claim", nextStep: "Finish with a claim for r1", ruleId: "r1" },
   };
 
   it("sends every detail under a closed wire reason and keeps the detail whole", () => {

@@ -485,6 +485,8 @@ export const taskRefusalMessage = (detail: TaskRefusalDetail): string => {
       return `${detail.nodeId} is not ${detail.expected === "agent" ? "a seat" : "a task node"}`;
     case "not-in-reach":
       return `${detail.nodeId} is outside your reach`;
+    case "rules-unmet":
+      return `${detail.message}. ${detail.nextStep}`;
   }
 };
 

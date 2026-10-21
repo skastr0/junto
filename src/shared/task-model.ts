@@ -3,6 +3,7 @@ import type { NodeId } from "./model/base";
 import type { NodeKind } from "./model/kinds";
 import { NodeId as NodeIdSchema } from "./physics/schema";
 import type { RefusalReason } from "./resource-command";
+import { CompletionEvidence } from "./work-model";
 import { isItemId, isTaskNumber, ItemId, type TaskNumber } from "./work-ids";
 
 export type { TaskNumber } from "./work-ids";
@@ -179,7 +180,11 @@ export type TaskCommand =
   | { readonly kind: "start" }
   | { readonly kind: "pause" }
   | { readonly kind: "resume" }
-  | { readonly kind: "finish"; readonly next?: TaskNodeId }
+  /**
+   * `evidence` answers the rules in force on the task's node (claims, waivers,
+   * cited artifacts and commits); rules and checks are unchanged in 0.10 (04).
+   */
+  | { readonly kind: "finish"; readonly next?: TaskNodeId; readonly evidence?: CompletionEvidence }
   | { readonly kind: "cancel" }
   | { readonly kind: "archive" }
   | { readonly kind: "depend"; readonly on: TaskId }
@@ -260,7 +265,15 @@ export type TaskRefusalDetail =
    * A node the command names is outside reach: the assignee seat that does
    * not reach the task node, or the task node `depend` points at.
    */
-  | { readonly kind: "not-in-reach"; readonly nodeId: NodeId };
+  | { readonly kind: "not-in-reach"; readonly nodeId: NodeId }
+  /** A finish whose evidence does not answer a rule in force on the node. */
+  | {
+      readonly kind: "rules-unmet";
+      readonly missing: string;
+      readonly message: string;
+      readonly nextStep: string;
+      readonly ruleId?: string;
+    };
 
 export type TaskRefusalKind = TaskRefusalDetail["kind"];
 
@@ -287,6 +300,7 @@ export const TASK_REFUSAL_REASON = {
   "target-mismatch": "invalid_input",
   "wrong-node": "invalid_input",
   "not-in-reach": "not_in_reach",
+  "rules-unmet": "invalid_input",
 } as const satisfies Readonly<Record<TaskRefusalKind, RefusalReason>>;
 
 export type TaskRefusal = { readonly reason: RefusalReason; readonly detail: TaskRefusalDetail };
@@ -343,7 +357,11 @@ export const TaskCommandWire = Schema.Union([
   bare("start"),
   bare("pause"),
   bare("resume"),
-  Schema.Struct({ kind: Schema.Literal("finish"), next: Schema.optionalKey(NodeIdSchema) }),
+  Schema.Struct({
+    kind: Schema.Literal("finish"),
+    next: Schema.optionalKey(NodeIdSchema),
+    evidence: Schema.optionalKey(CompletionEvidence),
+  }),
   bare("cancel"),
   bare("archive"),
   Schema.Struct({ kind: Schema.Literal("depend"), on: ItemId }),
@@ -394,9 +412,10 @@ export const checkTaskCommand = (
         : fail(bad);
     }
     case "finish": {
-      if (wire.next === undefined) return { ok: true, command: { kind: "finish" } };
+      const evidence = wire.evidence === undefined ? {} : { evidence: wire.evidence };
+      if (wire.next === undefined) return { ok: true, command: { kind: "finish", ...evidence } };
       return kindOf(wire.next) === "task"
-        ? { ok: true, command: { kind: "finish", next: taskNodeId(wire.next) } }
+        ? { ok: true, command: { kind: "finish", next: taskNodeId(wire.next), ...evidence } }
         : fail(taskRefusal({ kind: "wrong-node", nodeId: wire.next, expected: "task" }));
     }
     case "create":
