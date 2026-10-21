@@ -187,12 +187,23 @@ describe("who a review can go to", () => {
     { kind: "git", id: asNodeId("git"), cwd: "/repo", x: 300, y: 300, width: 50, height: 50, z: 0 } as Node,
   ]);
 
-  it("lists the innermost region's agents first, then each containing region's, never outsiders", () => {
+  it("lists the seats in reach: the innermost region's first, then each containing region's, then the root's", () => {
     const fromSeat = reviewCandidates(doc, "a");
-    expect(fromSeat.map((candidate) => candidate.nodeId)).toEqual(["a", "b", "lead"]);
+    // `far` sits loose on the root, which is on one line with every region (01).
+    expect(fromSeat.map((candidate) => candidate.nodeId)).toEqual(["a", "b", "lead", "far"]);
     expect(fromSeat[0]?.regionPath).toEqual(["Team", "unnamed region"]);
     // Opened from a git node in the same region: the same agents.
-    expect(reviewCandidates(doc, "git").map((candidate) => candidate.nodeId)).toEqual(["a", "b", "lead"]);
+    expect(reviewCandidates(doc, "git").map((candidate) => candidate.nodeId)).toEqual(["a", "b", "lead", "far"]);
+  });
+
+  it("never offers a seat in a sibling region", () => {
+    const siblings = canvasOf([
+      region("left", { x: 0, y: 0, width: 400, height: 400 }),
+      region("right", { x: 500, y: 0, width: 400, height: 400 }),
+      agent("mine", "Mine", 50, 50),
+      agent("theirs", "Theirs", 550, 50),
+    ]);
+    expect(reviewCandidates(siblings, "mine").map((candidate) => candidate.nodeId)).toEqual(["mine"]);
   });
 
   it("from the open field, or from nowhere, offers every agent on the canvas", () => {
@@ -206,6 +217,7 @@ describe("who a review can go to", () => {
       "Atlas, Team / unnamed region",
       "Atlas, Team / unnamed region",
       "Lead",
+      "Far",
     ]);
   });
 });
