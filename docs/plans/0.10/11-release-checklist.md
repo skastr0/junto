@@ -82,9 +82,9 @@ deletions report the commit only.
 - [x] Browser (ships on): tabs, takeover and release
       without 403, box comments.
       Receipt: turn-on run a98a640f9 (product-lead).
-- [ ] Reach and queued writes, two machines: a seat on another machine queues
+- [x] Reach and queued writes, two machines: a seat on another machine queues
       commands, a stale write names the winner, one notice each.
-      Partial (remote-verify, via product-lead): 16 of 16 R2, notices, signal files and pending marks pass. RELEASE BLOCKER, cut on hold: a seat moved between machines wedges the link on a duplicate delivery receipt; fixed in 5a410572c, rerun 1c pending. Known limit shipped in the notes: after a move the new machine shows the seat's earlier mail once more in its terminal. Tick after 1c passes.
+      Partial (remote-verify, via product-lead): 16 of 16 R2, notices, signal files and pending marks pass. RELEASE BLOCKER, cut on hold: a seat moved between machines wedges the link on a duplicate delivery receipt; fixed in 5a410572c, rerun 1c pending. Known limit shipped in the notes: after a move the new machine shows the seat's earlier mail once more in its terminal. Receipt: 1c rerun PASS on 5a410572c (remote-lead, ~/junto-receipts/milestone-010/run-5a410572c-new/RESULTS.md). Known limit added to the notes: after a dropped link, held mail and signals can wait minutes, and `junto machine status` reconnects at once.
 - [x] Deleted features really gone in the packaged app: no pin control, no
       Requests node, no bulletin board, no chat button, no Providers card,
       Hermes still opens as a terminal seat.
