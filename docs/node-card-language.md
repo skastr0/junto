@@ -98,8 +98,12 @@ and do not join the seat ring-room solve; clusters stay seats only.
 - Notes keep a 10 by 26 screen-px amber tick; labels floor at 13 screen px.
 - A disc never paints past its node's box: the 26 screen-px floor applies only down
   to the box size, so it never touches a seat ring the ring-room solve placed
-  beside it. Where a box is too small to show a disc (overview), the region's
-  urgency frame carries blocked and needs-you.
+  beside it. Where a box is too small to show a disc (overview), the status
+  goes up to the region: non-seat nodes (a blocked or needs-you task board, a
+  failed automation, a failed page) publish into the same urgency feed that
+  seats use, so the region frame leans to their state too. The frame shows the
+  worst state only (blocked over needs-you over review), as it does today, and
+  at overview only the outer region's held tint shows for nested regions.
 
 ## Names, focus and keys
 
