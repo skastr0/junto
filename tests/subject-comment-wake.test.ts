@@ -7,7 +7,7 @@ import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 import { MachineRepository } from "../src/main/junto/machines/repository";
 import { onResourceChanged } from "../src/main/junto/work/resource-changes";
-import { WorkService } from "../src/main/junto/work/service";
+import { WorkService, type WorkServiceShape } from "../src/main/junto/work/service";
 import { postSubjectComment } from "../src/main/junto/work/subject-comment";
 import { asNodeId, type Canvas, type Node } from "../src/shared/model";
 import { ItemId, OpId } from "../src/shared/work-ids";
@@ -20,7 +20,7 @@ const canvas = {
   wires: new Map(),
 } as unknown as Canvas;
 
-const comment = (work: Partial<WorkService["Service"]>) =>
+const comment = (work: Partial<WorkServiceShape>) =>
   postSubjectComment(
     {
       subject: { kind: "artifact", nodeId: ARTIFACTS, artifactId: ItemId.make("01M5ESKJFC1A88R1MH1NEZWJ70") },
@@ -30,7 +30,7 @@ const comment = (work: Partial<WorkService["Service"]>) =>
     },
     { canvas, canvasName: "factory", people: [SEAT] },
   ).pipe(
-    Effect.provideService(WorkService, work as WorkService["Service"]),
+    Effect.provideService(WorkService, work as WorkServiceShape),
     Effect.provideService(MachineRepository, { installationId: Effect.succeed("mini") } as unknown as MachineRepository["Service"]),
   );
 
