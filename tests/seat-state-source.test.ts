@@ -1,4 +1,4 @@
-import { Effect, Fiber, Queue, Stream } from "effect";
+import { Clock, Effect, Fiber, Queue, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vitest";
 import type { AgentSeatState, AgentSeatStateEvent } from "../src/shared/agent-seat-state";
@@ -304,6 +304,34 @@ describe("seat-state source: a lost link is not gone", () => {
       live(ev("seat-r", "e2", "working", 220_000)),
     ];
     expect(await runFeeds(timed, 200_000 + GRACE * 3)).toEqual([`seat-r working@${HOLD}`]);
+  });
+
+  it("a hold that came due with the link up fires when its timer is late and the lost link is taken first", async () => {
+    let wall = 0;
+    // A timer that never wakes: the lost link is taken before any tick.
+    const lateTimers: Clock.Clock = {
+      currentTimeMillisUnsafe: () => wall,
+      currentTimeMillis: Effect.sync(() => wall),
+      currentTimeNanosUnsafe: () => BigInt(wall) * 1_000_000n,
+      currentTimeNanos: Effect.sync(() => BigInt(wall) * 1_000_000n),
+      monotonicTimeNanosUnsafe: () => BigInt(wall) * 1_000_000n,
+      monotonicTimeNanos: Effect.sync(() => BigInt(wall) * 1_000_000n),
+      sleep: () => Effect.never,
+    };
+    const emitted = await Effect.gen(function* () {
+      const feeds = yield* Queue.unbounded<SeatStateFeed>();
+      const source = yield* makeSeatStateSource(Stream.fromQueue(feeds));
+      const out: SeatStateFiring[] = [];
+      yield* source.firings.pipe(Stream.runForEach((f) => Effect.sync(() => out.push(f))), Effect.forkScoped);
+      yield* settle;
+      yield* Queue.offer(feeds, { machine: REMOTE, kind: "live", event: ev("seat-r", "e1", "idle", 0) });
+      yield* settle;
+      wall = HOLD + 10_000;
+      yield* Queue.offer(feeds, { machine: REMOTE, kind: "lost" });
+      yield* settle;
+      return out.map((f) => `${f.seat} ${f.becomes}@${f.at}`);
+    }).pipe(Effect.scoped, Effect.provideService(Clock.Clock, lateTimers), Effect.runPromise);
+    expect(emitted).toEqual([`seat-r idle@${HOLD}`]);
   });
 
   it("a lost link touches only the seats of that machine", async () => {

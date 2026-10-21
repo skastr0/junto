@@ -104,6 +104,9 @@ export const makeSeatStateSource = (feeds: Stream.Stream<SeatStateFeed>) =>
     const take = (feed: SeatStateFeed) =>
       Effect.gen(function* () {
         if (feed.kind === "lost") {
+          // What came due while the link was up fires first, even when its
+          // timer runs late under load and the lost link is taken before it.
+          yield* fold({ _tag: "Tick", now: yield* Clock.currentTimeMillis });
           const lost = [...machineOf].flatMap(([bindingId, machine]) => (machine === feed.machine ? [bindingId] : []));
           for (const bindingId of lost) unheard.add(bindingId);
           state = loseSeatTriggers(state, lost);
