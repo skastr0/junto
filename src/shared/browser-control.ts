@@ -19,10 +19,11 @@ import {
   isValidBrowserSessionId,
   utf8ByteLength,
 } from "./browser-limits";
+import { BrowserTabId } from "./browser-tab";
 
 // Browser control-plane protocol: the wire contract between the Electron-hosted
 // HTTP server (main/junto/browser/control.ts) and the agent CLI
-// (scripts/browser-cli.ts). Pure module — no Node imports — so both ends and
+// (`junto browser`, src/cli/commands/browser.ts). Pure module — no Node imports — so both ends and
 // tests share one source of truth. Transport is a local Unix domain socket only
 // and every request carries a bearer token; this file only knows shapes,
 // admission bounds, and paths-as-strings.
@@ -255,25 +256,32 @@ const SessionId = Schema.String.pipe(
   { message: "sessionId must be nonempty bounded ASCII" },)),
 );
 
+// `tab` names one tab of the page; without it the command acts on the active tab.
+const TabField = Schema.optionalKey(BrowserTabId);
+
 export const OpenRequest = Schema.Struct({
   ref: boundedString("ref", BROWSER_MAX_REF_BYTES),
+  tab: TabField,
 });
 export type OpenRequest = typeof OpenRequest.Type;
 
 export const GotoRequest = Schema.Struct({
   sessionId: SessionId,
   url: boundedString("url", BROWSER_MAX_URL_BYTES),
+  tab: TabField,
 });
 export type GotoRequest = typeof GotoRequest.Type;
 
 export const EvalRequest = Schema.Struct({
   sessionId: SessionId,
   code: boundedString("code", BROWSER_MAX_EVAL_CODE_BYTES),
+  tab: TabField,
 });
 export type EvalRequest = typeof EvalRequest.Type;
 
 export const ScreenshotRequest = Schema.Struct({
   sessionId: SessionId,
+  tab: TabField,
 });
 export type ScreenshotRequest = typeof ScreenshotRequest.Type;
 
