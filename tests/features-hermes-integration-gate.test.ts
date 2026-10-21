@@ -9,7 +9,6 @@ import {
   HARNESS_OMP_ENABLED,
   HARNESS_PRIME_AGENT_ENABLED,
   HERMES_INTEGRATION_ENABLED,
-  productHostCapabilities,
 } from "../src/shared/features";
 import { managedHarnessEnabled } from "../src/shared/managed-terminal-templates";
 import {
@@ -76,18 +75,14 @@ describe("Hermes integration product gate", () => {
           host: THIS_MACHINE,
         }).harness,
       ).toBe("claude");
-      expect(THIS_MACHINE_CAPABILITIES).toContain("hermes");
-      expect(productHostCapabilities(["terminal", "hermes"])).toEqual([
-        "terminal",
-      ]);
+      expect(THIS_MACHINE_CAPABILITIES).not.toContain("hermes");
       const choices = actorHostChoicesFromEnrollment(
           [
             {
               id: "station-a",
               label: "Station A",
               isThisMachine: false,
-              capabilities: ["terminal", "hermes"],
-              hermesId: "hermes-a",
+              capabilities: ["terminal"],
             },
           ],
           { id: THIS_MACHINE, agentHost: THIS_MACHINE, label: "this machine" },
@@ -122,7 +117,7 @@ describe("Hermes integration product gate", () => {
         "hermes",
       );
       expect(managedHarnessEnabled("hermes")).toBe(true);
-      expect(THIS_MACHINE_CAPABILITIES).toContain("hermes");
+      expect(THIS_MACHINE_CAPABILITIES).not.toContain("hermes");
     },
   );
 });
