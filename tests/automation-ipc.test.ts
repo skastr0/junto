@@ -26,12 +26,16 @@ import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 import { seat } from "./support/model-nodes";
 import type { AutomationDefinition, AutomationsChanged } from "../src/shared/automation";
 import { Command } from "../src/shared/model";
-import { Automations, TaskBoard } from "../src/shared/model/kinds";
+import { Artifacts, Automations, TaskBoard } from "../src/shared/model/kinds";
+import { WorkService, type WorkServiceShape } from "../src/main/junto/work/service";
+import { makeUserMessage } from "../src/shared/task";
+import { threadSubjectMetadata } from "../src/shared/thread-subject";
 
 const command = Schema.decodeUnknownSync(Command);
 const NODE = "automations-1";
 const ID = "01M5ESKJFC1A88R1MH1NEZWJ2Q";
 const TASKS = "tasks-1";
+const ARTIFACTS = "artifacts-1";
 const SEAT = "agent-a";
 
 const definition: AutomationDefinition = {
@@ -62,6 +66,8 @@ const run = async (
     sql: (statement: string) => Promise<void>,
     inApp: <A, E>(effect: Effect.Effect<A, E, TaskRepository | AutomationRunnerService | ModelService>) => Promise<A>,
   ) => Promise<void>,
+  /** A stand-in work service; without it the runner has none, as where it is not built. */
+  work?: Partial<WorkServiceShape>,
 ) => {
   const home = await mkdtemp(join(tmpdir(), "junto-automation-ipc-"));
   const runtime = ManagedRuntime.make(
@@ -73,6 +79,7 @@ const run = async (
         recorder,
         Layer.provide(TaskRepositoryLive, recorder),
         makeMachineRepositoryLive({ defaultName: () => THIS_MACHINE }),
+        work === undefined ? Layer.empty : Layer.succeed(WorkService, work as WorkServiceShape),
       ),
     ).pipe(
       Layer.provideMerge(makeStateEngineLive(join(home, "junto.db"))),
@@ -95,7 +102,8 @@ const run = async (
         yield* model.command(command({ _tag: "CreateCanvas", canvas: "factory" }), "operator");
         const node = Schema.decodeUnknownSync(Automations)({ kind: "automations", id: NODE, x: 0, y: 0, width: 240, height: 160, z: 0 });
         const tasks = Schema.decodeUnknownSync(TaskBoard)({ kind: "task", id: TASKS, x: 300, y: 0, width: 240, height: 160, z: 0 });
-        yield* model.command(command({ _tag: "Add", canvas: "factory", nodes: [node, tasks, seat(SEAT)], wires: [] }), "operator");
+        const artifacts = Schema.decodeUnknownSync(Artifacts)({ kind: "artifacts", id: ARTIFACTS, x: 600, y: 0, width: 240, height: 160, z: 0 });
+        yield* model.command(command({ _tag: "Add", canvas: "factory", nodes: [node, tasks, artifacts, seat(SEAT)], wires: [] }), "operator");
       }),
     );
     const changed: AutomationsChanged[] = [];
@@ -257,6 +265,46 @@ describe("change triggers, woken by a task write", () => {
       }));
       expect(tasks.map((task) => task.title).sort()).toEqual(["By hand", "Plan the day"]);
     }));
+});
+
+describe("comment triggers, read from each Artifacts node's mailbox", () => {
+  const ARTIFACT = "01M5ESKJFC1A88R1MH1NEZWJ70";
+  const comment = (messageId: string) =>
+    makeUserMessage({
+      messageId,
+      text: "Looks good",
+      contextId: "factory",
+      metadata: threadSubjectMetadata({ kind: "artifact", nodeId: asNodeId(ARTIFACTS), artifactId: ItemId.make(ARTIFACT) }),
+    });
+
+  it("fire once per new comment after a failed read, never for the comments the node already held", () => {
+    let mailbox = [comment("01M5ESKJFC1A88R1MH1NEZWJ71"), comment("01M5ESKJFC1A88R1MH1NEZWJ72")];
+    let down = false;
+    const work: Partial<WorkServiceShape> = {
+      readMailbox: () => (down ? Effect.fail({ _tag: "WorkServiceError", message: "the mailbox is down" } as never) : Effect.succeed(mailbox)),
+    };
+    return run(async (handlers, _changed, _sql, inApp) => {
+      const onComment = {
+        ...definition,
+        trigger: { kind: "change", on: { kind: "artifact", artifact: { kind: "artifact", nodeId: ARTIFACTS, artifactId: ARTIFACT }, event: "commented" } },
+        limits: { minIntervalMs: 0, maxPerHour: 60 },
+      };
+      await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: true, definition: onComment as never } });
+      const wake = Effect.gen(function* () {
+        yield* (yield* AutomationRunnerService).wake("factory");
+      });
+      await inApp(wake); // the baseline: two old comments
+
+      down = true;
+      await inApp(wake); // the read fails: the node keeps its two
+      down = false;
+      mailbox = [...mailbox, comment("01M5ESKJFC1A88R1MH1NEZWJ73")];
+      await inApp(wake);
+
+      const { firings } = await handlers.firings("factory", { automationId: ID });
+      expect(firings.map((f) => f.cause)).toEqual([{ kind: "change", key: `artifact:${ARTIFACT}:commented:01M5ESKJFC1A88R1MH1NEZWJ73` }]);
+    }, work);
+  });
 });
 
 describe("signal and seat-state triggers", () => {

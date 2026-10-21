@@ -399,14 +399,19 @@ export const AutomationRunnerLive = Layer.effect(
     // With the runtime seat-state source, seat changes are its firings; without it, the task index says them.
     const seatStates = yield* Effect.serviceOption(SeatStateSource);
     const artifactStore = yield* Effect.serviceOption(ArtifactRepository);
-    // The comments each Artifacts node holds: rows whose thread subject is one of its artifacts.
-    const readComments = (canvasName: string, canvas: Canvas): Effect.Effect<ReadonlyArray<ArtifactCommentRow>> => {
+    // The comments each Artifacts node holds: rows whose thread subject is one
+    // of its artifacts. A node whose mailbox could not be read is named in
+    // `unread`, never taken as holding none.
+    const readComments = (
+      canvasName: string,
+      canvas: Canvas,
+    ): Effect.Effect<{ readonly comments: ReadonlyArray<ArtifactCommentRow>; readonly unread: ReadonlySet<string> }> => {
       const nodes = [...canvas.nodes.values()].filter((node) => node.kind === "artifacts");
-      if (Option.isNone(work) || nodes.length === 0) return Effect.succeed([]);
+      if (Option.isNone(work) || nodes.length === 0) return Effect.succeed({ comments: [], unread: new Set() });
       return Effect.forEach(nodes, (node) =>
         work.value.readMailbox(canvasName, node.id).pipe(
           Effect.map((rows) =>
-            rows.flatMap((row): ReadonlyArray<ArtifactCommentRow> => {
+            Option.some(rows.flatMap((row): ReadonlyArray<ArtifactCommentRow> => {
               const subject = threadSubjectOf(row);
               if (subject?.kind !== "artifact") return [];
               return [{
@@ -415,11 +420,16 @@ export const AutomationRunnerLive = Layer.effect(
                 node: node.id,
                 byAutomation: row.metadata?.senderGeneration === "automation",
               }];
-            }),
+            })),
           ),
-          Effect.orElseSucceed(() => [] as ReadonlyArray<ArtifactCommentRow>),
+          Effect.orElseSucceed(() => Option.none<ReadonlyArray<ArtifactCommentRow>>()),
         ),
-      ).pipe(Effect.map((all) => all.flat()));
+      ).pipe(
+        Effect.map((read) => ({
+          comments: read.flatMap((rows) => Option.getOrElse(rows, () => [])),
+          unread: new Set(nodes.flatMap((node, i) => (Option.isNone(read[i]!) ? [node.id as string] : []))),
+        })),
+      );
     };
     const readArtifacts = (canvasName: string, canvas: Canvas): Effect.Effect<ReadonlyArray<ArtifactVersionRow>> => {
       const nodeIds = [...canvas.nodes.values()].filter((node) => node.kind === "artifacts").map((node) => node.id);
@@ -505,9 +515,11 @@ export const AutomationRunnerLive = Layer.effect(
             readConditionView(canvasName, canvas),
             readArtifacts(canvasName, canvas),
             readComments(canvasName, canvas),
-          ]), ([read, artifacts, comments]) => {
-            const view: ConditionView = { ...read, artifacts, comments };
+          ]), ([read, artifacts, { comments: readNow, unread }]) => {
             const before = views.get(canvasName);
+            // A node whose read failed keeps the comments it held, so the next good read finds only new ones.
+            const comments = [...readNow, ...(before?.comments ?? []).filter((comment) => unread.has(comment.node))];
+            const view: ConditionView = { ...read, artifacts, comments };
             const changes = changesBetween(before, view, automationWrote, Option.isNone(seatStates));
             // Keep the tasks and artifacts this read left out, as they were, for the next diff.
             const seen = new Set(view.tasks.map((task) => task.taskId));
