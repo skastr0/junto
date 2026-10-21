@@ -140,6 +140,18 @@ export const EXCHANGE_MAX_SIGNALS_PER_FRAME = 32;
 /** What one signal may name when it crosses: more than this, and the rest stay where it was raised. */
 export const EXCHANGE_MAX_SIGNAL_ATTACHMENTS = 64;
 /**
+ * The largest file a crossing signal may name. A seat may attach a file of
+ * any size, but the editing machine pulls what crosses when the operator
+ * opens it, so a larger file stays on the seat's machine, unnamed here.
+ */
+export const EXCHANGE_MAX_SIGNAL_FILE_BYTES = 1024 * 1024 * 1024;
+
+/** The files an attachment names, each within the crossing cap. */
+export const signalAttachmentCrosses = (attachment: AgentSignalAttachment): boolean => {
+  const files = !("kind" in attachment) ? [attachment.ref] : attachment.kind === "compare" ? [attachment.before, attachment.after] : [];
+  return files.every((ref) => ref.byteLength <= EXCHANGE_MAX_SIGNAL_FILE_BYTES);
+};
+/**
  * The most a signals frame says, encoded, under the link's 1 MiB frame. A
  * signal that does not fit alone crosses without what it attached.
  */
@@ -165,7 +177,12 @@ export const ExchangeSignal = Schema.Struct({
   /** The seat's pre-baked replies. */
   suggestions: Schema.optionalKey(AgentSignalSuggestions),
   /** What the seat attached, in its order, with the raise. */
-  attachments: Schema.optionalKey(Schema.Array(AgentSignalAttachment).pipe(Schema.check(Schema.isMaxLength(EXCHANGE_MAX_SIGNAL_ATTACHMENTS)))),
+  attachments: Schema.optionalKey(
+    Schema.Array(AgentSignalAttachment).pipe(
+      Schema.check(Schema.isMaxLength(EXCHANGE_MAX_SIGNAL_ATTACHMENTS)),
+      Schema.check(Schema.makeFilter((attachments) => attachments.every(signalAttachmentCrosses) || "a crossing signal names a file over the crossing cap")),
+    ),
+  ),
   createdAt: Epoch,
   closing: Schema.optionalKey(
     Schema.Union([

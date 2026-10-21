@@ -23,13 +23,11 @@ import { IntentFactBasis } from "../src/shared/work-protocol";
 import { operatorActorRef } from "../src/shared/work-reference";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   MENTIONABLE_TABLES_V46,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V45_IDENTITY,
   STATE_SCHEMA_V46_IDENTITY,
 } from "../src/main/junto/state/migrations";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import { expectedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
 import { MENTIONABLE, readMentions, rebuildMentions } from "../src/main/junto/work/mention-backlinks";
 import { listMentions, type MentionIpcPorts } from "../src/main/junto/work/mention-ipc";
@@ -130,11 +128,9 @@ afterAll(async () => {
 });
 
 describe("state step 45 to 46: the backlinks table", () => {
-  it("starts from the version-45 witness and ends at the version-46 one, which is the head", () => {
+  it("starts from the version-45 witness and ends at the version-46 one", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V45_SQL)).toEqual(STATE_SCHEMA_V45_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V46_SQL)).toEqual(STATE_SCHEMA_V46_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V46_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V46_IDENTITY);
   });
 
   it("backfills from its own frozen kind tables, which are today's at 46", () => {

@@ -40,6 +40,7 @@ import { migrateTaskStateSince } from "./migrate-task-state-since";
 import { migrateTaskChecks } from "./migrate-task-checks";
 import { migrateTaskArchivedFrom } from "./migrate-task-archived-from";
 import { migrateTaskFinishNotes } from "./migrate-task-finish-notes";
+import { migrateSignalContentOwner } from "./migrate-signal-content-owner";
 import { WORK_MENTIONS_SQL } from "../work/mention-state-schema";
 import { rebuildMentions } from "../work/mention-backlinks";
 import {
@@ -597,7 +598,18 @@ export const STATE_SCHEMA_V46_IDENTITY = {
     "b71de53b744f1c5ca8b7c90ac3c600b58a66c6184f04648a299b96503ba41af4",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 46;
+/**
+ * Version 47 gives a signal's files an owner kind of their own (plan 02):
+ * `content_refs` rebuilt with `signal` in its owner kind CHECK, each
+ * `{ other, signal:<id> }` row moved to `{ signal, <id> }` in the same copy
+ * (`migrate-signal-content-owner.ts`). Consolidate.
+ */
+export const STATE_SCHEMA_V47_IDENTITY = {
+  actualSchemaSha256:
+    "34452160b8cd729a99fbabbed23eae8393f1bcfae9c181557f56d2e074570f11",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 47;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -605,7 +617,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 46;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V46_IDENTITY;
+  STATE_SCHEMA_V47_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -957,6 +969,15 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
       database.exec(WORK_MENTIONS_SQL);
       rebuildMentions(database, MENTIONABLE_TABLES_V46);
     },
+  },
+  {
+    fromVersion: 46,
+    toVersion: 47,
+    name: "give a signal's files an owner kind of their own",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V46_IDENTITY,
+    replacesTables: ["content_refs"],
+    migrate: (database) => migrateSignalContentOwner(database),
   },
 ];
 

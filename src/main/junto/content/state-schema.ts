@@ -55,7 +55,8 @@ export const CONTENT_STATE_SCHEMA_SQL = `
           'task',
           'message',
           'artifact',
-          'other'
+          'other',
+          'signal'
         )
       ),
     owner_canvas TEXT NOT NULL

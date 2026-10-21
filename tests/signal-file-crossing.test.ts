@@ -20,7 +20,8 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import type { AgentSignal, AgentSignalAttachment } from "../src/shared/agent-signals";
 import { InstallationId } from "../src/shared/installation-id";
 import type { ContentRef } from "../src/shared/wire/content-ref";
-import { signalStatedTo, type CanvasPlacement, type ExchangeSignal } from "../src/shared/work-exchange";
+import { EXCHANGE_MAX_SIGNAL_FILE_BYTES, decodeExchangeFrame, signalStatedTo, type CanvasPlacement, type ExchangeSignal } from "../src/shared/work-exchange";
+import { Result } from "effect";
 
 const id = Schema.decodeUnknownSync(InstallationId);
 const EDITOR = id("macbook");
@@ -57,6 +58,20 @@ describe("what a raise keeps of what crossed", () => {
     expect(taken[1]).toMatchObject({ kind: "compare", before: { mediaType: "application/octet-stream" }, after: { mediaType: "application/octet-stream" } });
     expect(taken.map((attachment) => ("kind" in attachment ? attachment.kind : "file"))).toEqual(["file", "compare", "commit", "link"]);
     expect(signalFileRefs(taken).map((ref) => ref.sha256)).toEqual([NOTES.sha256, BEFORE.sha256, AFTER.sha256]);
+  });
+
+  it("refuses at decode a crossing signal that names a file over the crossing cap", () => {
+    const frame = (byteLength: number) => ({
+      kind: "signals",
+      canvasName: "factory",
+      canvasId: "canvas-factory",
+      signals: [{ signalId: "sig-1", nodeId: "peer", kind: "blocked", text: "look", createdAt: 1, attachments: [{ ref: { ...NOTES, byteLength } }] }],
+    });
+    expect(Result.isSuccess(decodeExchangeFrame(frame(EXCHANGE_MAX_SIGNAL_FILE_BYTES)))).toBe(true);
+    expect(Result.isFailure(decodeExchangeFrame(frame(EXCHANGE_MAX_SIGNAL_FILE_BYTES + 1)))).toBe(true);
+    expect(Result.isFailure(decodeExchangeFrame(frame(4 * 1024 ** 4)))).toBe(true);
+    const compare = { ...frame(4), signals: [{ ...frame(4).signals[0], attachments: [{ kind: "compare", before: BEFORE, after: { ...AFTER, byteLength: EXCHANGE_MAX_SIGNAL_FILE_BYTES + 1 } }] }] };
+    expect(Result.isFailure(decodeExchangeFrame(compare))).toBe(true);
   });
 
   it("crosses with the raise to the editing machine, and never back with the operator's closing", () => {

@@ -12,12 +12,9 @@ import {
   ContentTimestamp,
 } from "@shared/content";
 
-export type ContentOwnerKind =
-  | "task"
-  | "message"
-  | "artifact"
-  | "other"
-  | "signal";
+/** The owner kinds `content_refs.owner_kind` admits; the row decoder reads the same list. */
+export const CONTENT_OWNER_KINDS = ["task", "message", "artifact", "other", "signal"] as const;
+export type ContentOwnerKind = (typeof CONTENT_OWNER_KINDS)[number];
 
 export type ContentOwner = {
   readonly kind: ContentOwnerKind;
@@ -181,12 +178,7 @@ const RefRow = Schema.Struct({
   ...IdentityRow.fields,
   mediaType: ContentMediaType,
   displayName: Schema.NullOr(ContentDisplayName),
-  ownerKind: Schema.Literals([
-    "task",
-    "message",
-    "artifact",
-    "other",
-  ]),
+  ownerKind: Schema.Literals(CONTENT_OWNER_KINDS),
   ownerCanvas: Schema.String,
   ownerNode: Schema.String,
   ownerRecordId: Schema.String,

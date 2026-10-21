@@ -68,7 +68,8 @@ const boot = async () => {
   const claim = (inputs: Parameters<typeof claimSignalAttachments>[2], to = signal) =>
     Effect.runPromise(Effect.result(claimSignalAttachments(content, to, inputs, noResources)));
   const owners = async (bytes: Buffer) =>
-    (await Effect.runPromise(content.listRefs(sha(bytes)))).map((row) => row.owner.recordId);
+    // Kind and record: a signal's file is held under the signal kind, by the signal's id.
+    (await Effect.runPromise(content.listRefs(sha(bytes)))).map((row) => `${row.owner.kind}:${row.owner.recordId}`);
   return { content, stage, claim, owners };
 };
 
@@ -208,10 +209,10 @@ describe("attachment names and owners", () => {
 
   it("holds a signal's files under the signal in the content store", () => {
     expect(signalAttachmentOwner({ signalId: "s1", canvasName: "factory", nodeId: "atlas" })).toEqual({
-      kind: "other",
+      kind: "signal",
       canvasName: "factory",
       nodeId: "atlas",
-      recordId: "signal:s1",
+      recordId: "s1",
     });
   });
 });

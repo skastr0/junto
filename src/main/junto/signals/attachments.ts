@@ -40,14 +40,14 @@ export type AttachmentRefusal = {
 
 export { attachmentName };
 
-/** The content store owner a signal's attachments are held under. */
+/** The content store owner a signal's attachments are held under: the signal, by its id (state step 47). */
 export const signalAttachmentOwner = (
   signal: Pick<AgentSignal, "signalId" | "canvasName" | "nodeId">,
 ): ContentOwner => ({
-  kind: "other",
+  kind: "signal",
   canvasName: signal.canvasName,
   nodeId: signal.nodeId,
-  recordId: `signal:${signal.signalId}`,
+  recordId: signal.signalId,
 });
 
 const readHead = async (path: string, limit: number): Promise<Buffer> => {

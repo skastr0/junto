@@ -270,3 +270,9 @@ export const STATE_SCHEMA_V46_SQL = stepped(
   STATE_SCHEMA_V45_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 46)!.migrate,
 );
+
+// Version 47 gave a signal's files an owner kind of their own (46 -> 47).
+export const STATE_SCHEMA_V47_SQL = stepped(
+  STATE_SCHEMA_V46_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 47)!.migrate,
+);

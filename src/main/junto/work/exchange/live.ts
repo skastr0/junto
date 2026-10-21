@@ -17,7 +17,7 @@ import type { InstallationId } from "@shared/installation-id";
 import { asCanvasName, type Seat } from "@shared/model";
 import { APP_REFERENCE_PLACE, type ReferencePlace, type StoredReference } from "@shared/references";
 import type { AgentSignal } from "@shared/agent-signals";
-import { EXCHANGE_MAX_SIGNAL_ATTACHMENTS, type CanvasPlacement, type ExchangeSignal } from "@shared/work-exchange";
+import { EXCHANGE_MAX_SIGNAL_ATTACHMENTS, signalAttachmentCrosses, type CanvasPlacement, type ExchangeSignal } from "@shared/work-exchange";
 import type { Message } from "@shared/work-model";
 import { deriveActorSeatId } from "../../actor-seat-id";
 import { MachineRepository } from "../../machines/repository";
@@ -61,7 +61,7 @@ const stated = (signal: AgentSignal): ExchangeSignal => ({
   ...(signal.suggestions === undefined ? {} : { suggestions: signal.suggestions }),
   ...(signal.attachments === undefined || signal.attachments.length === 0
     ? {}
-    : { attachments: signal.attachments.slice(0, EXCHANGE_MAX_SIGNAL_ATTACHMENTS) }),
+    : { attachments: signal.attachments.filter(signalAttachmentCrosses).slice(0, EXCHANGE_MAX_SIGNAL_ATTACHMENTS) }),
   createdAt: signal.createdAt,
   ...(signal.state === "open" || signal.closedAt === undefined
     ? {}

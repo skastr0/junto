@@ -51,11 +51,11 @@ import { ModelService } from "./junto/model/service";
 import { SqlClient } from "effect/unstable/sql";
 import { shotEntitled } from "./junto/content/shot-entitlement";
 import { sweepPurgedShotCopies, unlessShotPurged } from "./junto/work/shot-purge";
-import { OWNER_ENTITLEMENT, isPullableOwnerKind, operatorReachesResource } from "@shared/content-pull";
+import { OWNER_ENTITLEMENT, isPullableOwnerKind } from "@shared/content-pull";
 import { signalFileEntitled } from "./junto/content/signal-entitlement";
 import { AgentSignalRepository } from "./junto/signals/repository";
-import { SignalFilePuller, judgeArrivedSignalFile } from "./junto/signals/file-puller";
-import { signalFileRefs } from "./junto/signals/taken-attachments";
+import { SignalFilePuller } from "./junto/signals/file-puller";
+import { pullSignalFile as pullSignalFileHere } from "./junto/signals/file-pull";
 import type { ActorSeatOccupy } from "./junto/term/actor-seat-occupy";
 import { startSeat, stopSeat } from "./junto/term/seat-control";
 import { BoatPlane, boatPlaneLayer } from "./junto/boat/plane";
@@ -234,36 +234,19 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
     // A shot the operator purged is never pulled again (B7).
     return yield* unlessShotPurged(sql, owner, pull, () => failed("the operator removed this shot"));
   });
-  const pullSignalFile: MachineCoreRows["Service"]["pullSignalFile"] = ({ signal, ref }) => Effect.gen(function* () {
-    const failed = (message: string) => new ContentPullFailed({ sha256: ref.sha256, byteLength: ref.byteLength, message });
-    if (!signalFileRefs(signal.attachments).some((named) => named.sha256 === ref.sha256 && named.byteLength === ref.byteLength)) {
-      return yield* Effect.fail(failed("the signal attached no such file"));
-    }
-    const placement = yield* exchange.placement(signal.canvasName);
-    const home = placement?.seatOf(signal.nodeId)?.machine;
-    if (placement === undefined || home === undefined) return yield* Effect.fail(failed("this machine does not hold the seat's canvas"));
-    // The seat's own machine holds its files already.
-    if (home === self) return;
-    if (placement.editor !== self) return yield* Effect.fail(failed("only the machine that edits the canvas pulls a seat's file"));
-    const seatMachine = (yield* machines.peers.pipe(Effect.orElseSucceed(() => []))).find((peer) => peer.installationId === home);
-    if (seatMachine === undefined) return yield* Effect.fail(failed("the machine the seat lives on is not set up here"));
-    yield* pullContent({
-      root: store.root,
-      ask: (request) => links.request(seatMachine.machineName, "content", request),
-      // Kept as its own bytes say it is, never as its reference stated.
-      keep: (kept, keptOwner) => Effect.gen(function* () {
-        const judged = judgeArrivedSignalFile(store.root, kept, signal);
-        if ("refused" in judged) return yield* Effect.fail(failed(judged.refused));
-        yield* store.keepPublished({ ref: { ...kept, mediaType: judged.mediaType } as ContentRef, owner: keptOwner });
-        yield* signals.judgeFile(signal.signalId, kept, judged.mediaType);
-      }),
-      once: (object, transfer) => Effect.flatMap(Effect.promise(() => pulls.pull(object, () => Effect.runPromiseExit(transfer))), (exit) => exit),
-    }, {
-      ref,
-      owner: { kind: "signal", canvasName: signal.canvasName, nodeId: signal.nodeId, recordId: signal.signalId },
-      reached: operatorReachesResource(signal.canvasName, signal.nodeId as never),
-    });
-  });
+  const pullSignalFile: MachineCoreRows["Service"]["pullSignalFile"] = (input) => pullSignalFileHere({
+    self,
+    placement: (canvasName) => exchange.placement(canvasName),
+    machineName: (machine) => machines.peers.pipe(
+      Effect.map((peers) => peers.find((peer) => peer.installationId === machine)?.machineName),
+      Effect.orElseSucceed(() => undefined),
+    ),
+    ask: (machineName, request) => links.request(machineName, "content", request),
+    root: store.root,
+    keep: (ref, owner) => store.keepPublished({ ref, owner }),
+    judged: (signalId, object, mediaType) => signals.judgeFile(signalId, object, mediaType),
+    once: (object, transfer) => Effect.flatMap(Effect.promise(() => pulls.pull(object, () => Effect.runPromiseExit(transfer))), (exit) => exit),
+  }, input);
   const stopFollowing = yield* followLocalCommits(exchange);
   yield* Effect.addFinalizer(() => Effect.sync(() => {
     stopFollowing();
