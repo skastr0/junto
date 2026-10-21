@@ -5,13 +5,13 @@ import type { WorkOpName } from "../work-control";
 import type { Port, SinkKind } from "./schema";
 
 // Exhaustive WorkOp → Port map for target-scoped work ops.
-// Meta/seat-local ops (ping/doctor/capabilities/onboard/preamble, and the
+// Meta/seat-local ops (ping/doctor/capabilities/onboard/since/preamble, and the
 // universal agent signals) are not
 // ported — they are not edge-scoped host capabilities.
 
 export type TargetWorkOpName = Exclude<
   WorkOpName,
-  "ping" | "doctor" | "capabilities" | "onboard" | "offboard" | "preamble" | "overseer" | "overseer.live" | "msg.sent"
+  "ping" | "doctor" | "capabilities" | "onboard" | "since" | "offboard" | "preamble" | "overseer" | "overseer.live" | "msg.sent"
   | "signal.raise" | "signal.clear" | "signal.list" | "op.show" | "op.list" | "env.report" | "logs.read" | "references.list" | "references.read" | "content.stage"
   // Automations are not reached through an edge port (plan 07).
   | AutomationOp

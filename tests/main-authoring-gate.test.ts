@@ -190,8 +190,6 @@ describe("work-control main authoring classification", () => {
       "signal.list": "read",
       "op.show": "read",
       "op.list": "read",
-      "op.show": "read",
-      "op.list": "read",
       "env.report": "read",
       "logs.read": "read",
       "references.list": "read",
