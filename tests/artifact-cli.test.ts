@@ -92,6 +92,12 @@ describe("junto artifact discovery", () => {
       expect(allExamples).toContainEqual(example);
     }
   });
+
+  it("promises a comment its thread row, not a version", () => {
+    const comment = artifactSchemas.find((s) => s.command_id === "artifact.comment")!;
+    expect(comment.description).toContain("threadId");
+    expect(comment.description).not.toContain("version");
+  });
 });
 
 describe("junto artifact", () => {

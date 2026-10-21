@@ -246,9 +246,12 @@ export const artifactSchemas: ReadonlyArray<CommandSchemaContract> = VERBS.map((
   command_id: opOf(verb),
   command: `artifact ${verb}`,
   schema_id: `${opOf(verb)}.input/v1`,
-  description: isArtifactWriteOp(opOf(verb))
-    ? `${DESCRIPTIONS[verb]} The CLI mints the opId (--op-id retries one). Returns applied with the new version, or queued with the opId while the editing machine is away.`
-    : DESCRIPTIONS[verb],
+  // A comment is a thread row, no artifact version: its receipt names the row.
+  description: verb === "comment"
+    ? `${DESCRIPTIONS[verb]} The CLI mints the opId (--op-id retries one). Returns applied with the threadId, the messageId and the seats notified.`
+    : isArtifactWriteOp(opOf(verb))
+      ? `${DESCRIPTIONS[verb]} The CLI mints the opId (--op-id retries one). Returns applied with the new version, or queued with the opId while the editing machine is away.`
+      : DESCRIPTIONS[verb],
   schema: ARTIFACT_ARGS[opOf(verb)] as Schema.Top,
   input_modes: ["argv"],
 }));
