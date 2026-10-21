@@ -35,6 +35,7 @@
  */
 import { Schema } from "effect";
 import { isValidCronExpression } from "./cron-expression";
+import { InstallationId } from "./installation-id";
 import { ArtifactMention, MentionRef, PageMention, TaskMention } from "./mention";
 import { NodeId } from "./physics/schema";
 import type { AutomationAuthor as ReachAuthor } from "./region-reach";
@@ -165,8 +166,17 @@ export const automationShape = <Ref extends Schema.Top, Commentable extends Sche
     Schema.Struct({ kind: Schema.Literal("schedule"), cron: Cron, timezone: Timezone }),
     Schema.Struct({ kind: Schema.Literal("poll"), everyMs: Bounded(POLL_MIN_EVERY_MS, 7 * 24 * 60 * 60_000) }),
     Schema.Struct({ kind: Schema.Literal("change"), on: Watch }),
-    /** Reserved: decodes so the shape is fixed, refused in 0.10 (`triggerRefusal`). */
-    Schema.Struct({ kind: Schema.Literal("webhook"), endpointId: Text(128) }),
+    /**
+     * Reserved: decodes so the shape is fixed, refused in 0.10 (`triggerRefusal`).
+     * The endpoint secret is a machine secret on the editing machine (Rule 9,
+     * docs/machines.md): `ownerInstallation` names that machine, and a move of
+     * editing re-mints the secret.
+     */
+    Schema.Struct({
+      kind: Schema.Literal("webhook"),
+      endpointId: Text(128),
+      ownerInstallation: Schema.optionalKey(InstallationId),
+    }),
   ]);
 
   const Action = Schema.Union([

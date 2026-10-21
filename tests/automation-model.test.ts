@@ -54,6 +54,9 @@ describe("Automation schema", () => {
     const on = { kind: "seat", seat: seat("agent-a"), becomes: "idle" } as const;
     expect(decodes(base({ trigger: { kind: "change", on } })).trigger.kind).toBe("change");
     expect(decodes(base({ trigger: { kind: "webhook", endpointId: "ep-1" } })).trigger.kind).toBe("webhook");
+    // The endpoint's owning machine is reserved (Rule 9); a malformed one does not decode.
+    expect(decodes(base({ trigger: { kind: "webhook", endpointId: "ep-1", ownerInstallation: "mini" } })).trigger).toMatchObject({ ownerInstallation: "mini" });
+    expect(() => decodes(base({ trigger: { kind: "webhook", endpointId: "ep-1", ownerInstallation: "" } }))).toThrow();
   });
 
   it("refuses a poll under the floor", () => {
@@ -169,6 +172,7 @@ describe("automationShape", () => {
 describe("triggerRefusal", () => {
   it("refuses only webhooks in 0.10", () => {
     expect(triggerRefusal({ kind: "webhook", endpointId: "ep" })).toBe("not_available");
+    expect(triggerRefusal({ kind: "webhook", endpointId: "ep", ownerInstallation: "mini" as never })).toBe("not_available");
     expect(triggerRefusal(decodes(base()).trigger)).toBeUndefined();
   });
 });
