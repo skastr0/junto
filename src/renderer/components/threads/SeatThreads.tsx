@@ -92,13 +92,24 @@ export function SeatThreadsPopup({
   const listRef = useRef<HTMLElement>(null);
   // The next older page when the list is scrolled near its end, or when what
   // is read does not yet fill the column and so cannot be scrolled. After a
-  // failed page only the reader's next scroll asks again.
+  // failed page only the reader's next scroll asks again. A folded list has
+  // no height and asks for nothing until it shows again.
   const fillList = (retry: boolean) => {
     const list = listRef.current;
-    if (!list || next === undefined || loadingMore || (error !== "" && !retry)) return;
+    if (!list || list.clientHeight === 0 || next === undefined || loadingMore || (error !== "" && !retry)) return;
     if (list.scrollHeight - list.scrollTop - list.clientHeight < LIST_NEAR_END) void loadMoreSeatThreads(seat);
   };
   useEffect(() => fillList(false), [threads, next, loadingMore, error]);
+  // Unfolded, or grown by Maximize: fill what is in view now.
+  const fillListNow = useRef(fillList);
+  fillListNow.current = fillList;
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const observer = new ResizeObserver(() => fillListNow.current(false));
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, []);
   const [selection, setSelection] = useState<Selection>();
   const { withYou, betweenSeats } = groupSeatThreads(threads);
 

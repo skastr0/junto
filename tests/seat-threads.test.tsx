@@ -31,6 +31,22 @@ import { seat as seatNode, taskBoard } from "./support/model-nodes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+// jsdom has no ResizeObserver: a test fires the observed callbacks itself, as a layout change would.
+const resized = new Set<() => void>();
+globalThis.ResizeObserver = class {
+  readonly fire: () => void;
+  constructor(fire: () => void) {
+    this.fire = fire;
+  }
+  observe() {
+    resized.add(this.fire);
+  }
+  unobserve() {}
+  disconnect() {
+    resized.delete(this.fire);
+  }
+} as unknown as typeof ResizeObserver;
+
 const SEAT = { canvasName: "factory", seatId: "seat-1" };
 const at = (hours: number, minutes: number) => new Date(2026, 9, 19, hours, minutes).getTime();
 
@@ -282,7 +298,8 @@ describe("the Threads popup", () => {
     expect(dialog?.getAttribute("data-maximized")).toBe("true");
     await click(dialog?.querySelector('[aria-label="Sidebar"]') ?? null);
     expect(dialog?.querySelector(".two-pane")?.getAttribute("data-sidebar")).toBe("collapsed");
-    await click(dialog?.querySelector('[aria-label="Sidebar"]') ?? null);
+    await click(dialog?.querySelector('.two-pane__strip [aria-label="Sidebar"]') ?? null);
+    expect(dialog?.querySelector(".two-pane")?.getAttribute("data-sidebar")).toBeNull();
   });
 
   it("draws a message's markdown, with its mention links as chips inside it", async () => {
@@ -309,14 +326,14 @@ describe("the Threads popup", () => {
 
   it("lists a thread by its first line as words, and heads it with the whole subject on hover", async () => {
     const fixture = fake();
-    fixture.state.threads = [thread({ threadId: "notes", title: "Ship **V** with `junto.db` in place" })];
+    fixture.state.threads = [thread({ threadId: "notes", title: "Ship **V** with `junto.db` in place, keep __init__" })];
     setSeatThreadsSource(fixture.source);
     await render();
     await click(q("seat-threads-button"));
-    expect(document.querySelector(".seat-threads__row-title")?.textContent).toBe("Ship V with junto.db in place");
+    expect(document.querySelector(".seat-threads__row-title")?.textContent).toBe("Ship V with junto.db in place, keep __init__");
     const title = document.querySelector(".seat-threads__chat-title");
-    expect(title?.textContent).toBe("Ship V with junto.db in place");
-    expect(title?.getAttribute("title")).toBe("Ship **V** with `junto.db` in place");
+    expect(title?.textContent).toBe("Ship V with junto.db in place, keep __init__");
+    expect(title?.getAttribute("title")).toBe("Ship **V** with `junto.db` in place, keep __init__");
   });
 
   it("closes and lets go of the source when nothing holds it", async () => {
@@ -726,6 +743,30 @@ describe("paging in the popup", () => {
     await flush();
     expect(calls).toEqual([undefined, "t049"]);
     expect(all("seat-threads-row")).toHaveLength(100);
+  });
+
+  it("asks for no older page while the list is folded, and fills it once it shows again", async () => {
+    // A folded list is hidden and has no height.
+    define("clientHeight", function () {
+      return this.closest("[hidden]") === null ? VIEW : 0;
+    });
+    const { source, calls } = pagedSource();
+    setSeatThreadsSource(source);
+    await render();
+    await click(q("seat-threads-button"));
+    const list = document.querySelector<HTMLElement>(".seat-threads__list")!;
+    list.scrollTop = list.scrollHeight - VIEW - 100;
+    await click(document.querySelector('[aria-label="Sidebar"]'));
+    act(() => list.dispatchEvent(new Event("scroll")));
+    act(() => resized.forEach((fire) => fire()));
+    await flush();
+    expect(calls).toEqual([undefined]);
+
+    // Folded, the toggle that shows is the strip's.
+    await click(document.querySelector('.two-pane__strip [aria-label="Sidebar"]'));
+    act(() => resized.forEach((fire) => fire()));
+    await flush();
+    expect(calls).toEqual([undefined, "t049"]);
   });
 
   it("keeps the older pages when the head is read again after new mail", async () => {

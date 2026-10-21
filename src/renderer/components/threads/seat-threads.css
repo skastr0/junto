@@ -2,9 +2,13 @@
    its sidebar and the chat in its main pane. FocusSurface owns the size,
    Maximize, the layer, focus and Escape; TwoPane owns the collapse. */
 
-/* The test handle wraps the TwoPane without boxing it. */
+/* The panel's one child: it fills the panel, and the TwoPane fills it. */
 .seat-threads__shell {
-  display: contents;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
 /* The list scrolls under its header and New thread, which stay put. */
