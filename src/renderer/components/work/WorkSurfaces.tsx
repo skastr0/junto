@@ -296,7 +296,7 @@ export function TasksDetail({
       {...(initialItemId === undefined ? {} : { initialTaskId: initialItemId })}
       seats={seatChoicesInReach(canvas, node, nameOf)}
       nodeName={nameOf}
-      seatLabel={(id) => (canvas.nodes.has(asNodeId(id)) ? nameOf(id) : "A removed seat")}
+      seatLabel={(id) => (canvas.nodes.has(asNodeId(id)) ? nameOf(id) : "removed seat")}
       onClose={onClose}
     />
   );

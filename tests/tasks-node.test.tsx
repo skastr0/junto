@@ -107,13 +107,13 @@ describe("SelectedTask", () => {
         seats={seats}
         facts={facts}
         nodeName={() => "Build board"}
-        seatName={() => "A removed seat"}
+        seatName={() => "removed seat"}
         now={10_000}
         error={null}
         apply={async () => undefined}
       />,
     );
-    expect(html).toContain("@A removed seat");
+    expect(html).toContain("@removed seat");
     expect(html).not.toContain("agent-01M5F4GBYY55Z25NNYZQ91P3J0");
   });
 
