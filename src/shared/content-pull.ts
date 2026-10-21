@@ -10,13 +10,15 @@
  * asker is linked for. The asker publishes the object only once the whole of
  * it matches its sha256, so no peer makes it keep a wrong body.
  *
- * A refusal says what the asker does next, and carries the digest, the size
- * and the reason only: never bytes or a store path.
+ * A refusal says what the asker does next. It crosses as its reason alone;
+ * each side logs it with the digest, the size and the reason, never bytes or
+ * a store path.
  */
 import { Schema } from "effect";
 import { resourcesInReach, type ReachCanvas } from "./region-reach";
 import type { NodeId } from "./model/base";
 import { WorkCanvasName } from "./work-reference";
+import { ContentByteLength, ContentSha256 } from "./wire/content-ref";
 
 /** One piece's bytes: as base64 with its envelope, well inside one 1 MiB link frame. */
 export const CONTENT_PULL_PIECE_BYTES = 512 * 1024;
@@ -36,8 +38,8 @@ const Bytes = Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Sche
 /** Ask for the piece of one object that starts at `offset`. */
 export const ContentPullRequest = Schema.Struct({
   canvasName: WorkCanvasName,
-  sha256: Sha256,
-  byteLength: Bytes,
+  sha256: ContentSha256,
+  byteLength: ContentByteLength,
   offset: Bytes,
 });
 export type ContentPullRequest = typeof ContentPullRequest.Type;
@@ -62,6 +64,17 @@ export type ContentPullPiece = typeof ContentPullPiece.Type;
 export const ContentPullReason = Schema.Literals(["not-editor", "not-held", "range"]);
 export type ContentPullReason = typeof ContentPullReason.Type;
 
+/**
+ * The refusal as it crosses the link: the reason and fixed words. The link's
+ * failure encoder redacts any 64-hex string, so the digest stays home; the
+ * asker knows what it asked for.
+ */
+export class ContentPullRefusal extends Schema.TaggedError<ContentPullRefusal>()("ContentPullRefusal", {
+  reason: ContentPullReason,
+  message: Schema.String,
+}) {}
+
+/** The refusal on the asking machine, about the object it asked for. */
 export class ContentPullRefused extends Schema.TaggedError<ContentPullRefused>()("ContentPullRefused", {
   reason: ContentPullReason,
   sha256: Sha256,
@@ -75,8 +88,11 @@ const SENTENCE: Record<ContentPullReason, string> = {
   range: "the piece asked for is outside the object",
 };
 
-export const contentPullRefused = (reason: ContentPullReason, ref: { readonly sha256: string; readonly byteLength: number }): ContentPullRefused =>
-  new ContentPullRefused({ reason, sha256: ref.sha256, byteLength: ref.byteLength, message: SENTENCE[reason] });
+export const contentPullRefusal = (reason: ContentPullReason): ContentPullRefusal =>
+  new ContentPullRefusal({ reason, message: SENTENCE[reason] });
+
+export const contentPullRefused = (refusal: ContentPullRefusal, ref: { readonly sha256: string; readonly byteLength: number }): ContentPullRefused =>
+  new ContentPullRefused({ reason: refusal.reason, sha256: ref.sha256, byteLength: ref.byteLength, message: SENTENCE[refusal.reason] });
 
 /** What the editing machine knows when a piece is asked for. */
 export type ContentPullFacts = {

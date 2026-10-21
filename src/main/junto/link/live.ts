@@ -195,7 +195,7 @@ export const makeMachineLink = (options: { readonly build: string }) => Effect.g
   return MachineLink.of({
     setChannels: (next) => Effect.try({ try: () => {
       if (configured || allSessions.size !== 0 || listener !== undefined) throw new LinkUnavailable({ reason: "channels-bound", message: "Link channels are already bound" });
-      for (const name of Object.keys(next)) if (name !== "rows" && name !== "seats" && name !== "status" && name !== "inventory" && name !== "settings" && name !== "native-config") throw new LinkUnavailable({ reason: "unknown-channel", message: `Unknown link channel ${name}` });
+      for (const name of Object.keys(next)) if (name !== "rows" && name !== "seats" && name !== "status" && name !== "inventory" && name !== "settings" && name !== "native-config" && name !== "content") throw new LinkUnavailable({ reason: "unknown-channel", message: `Unknown link channel ${name}` });
       channels = Object.freeze({ ...next });
       configured = true;
     }, catch: (cause) => toLinkError(cause) }),

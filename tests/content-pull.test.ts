@@ -8,16 +8,17 @@ import { describe, expect, it } from "vitest";
 import {
   CONTENT_PULL_PIECE_BYTES,
   ContentPullPiece,
-  ContentPullRefused,
+  ContentPullRefusal,
   ContentPullRequest,
   admitContentPull,
   contentPullPieceLength,
+  contentPullRefusal,
   contentPullRefused,
   type ContentPullFacts,
 } from "../src/shared/content-pull";
 import { LINK_FRAME_MAX_BYTES } from "../src/shared/exchange-bounds";
 
-const request = (over: Partial<ContentPullRequest> = {}): ContentPullRequest =>
+const request = (over: Record<string, unknown> = {}): ContentPullRequest =>
   Schema.decodeUnknownSync(ContentPullRequest)({ canvasName: "factory", sha256: "a".repeat(64), byteLength: 1000, offset: 0, ...over });
 const held: ContentPullFacts = { edits: true, peerLinked: true, heldVerified: true, owners: [{ kind: "artifact", canvasName: "factory" }] };
 
@@ -52,11 +53,12 @@ describe("admitting a pull", () => {
     expect(admitContentPull(request({ offset: 5000 }), { ...held, heldVerified: false })).toBe("not-held");
   });
 
-  it("refuses with the digest, the size and the reason only", () => {
-    const refused = contentPullRefused("not-held", { sha256: "a".repeat(64), byteLength: 1000 });
+  it("crosses as its reason and fixed words, and is told on the asker with the digest and the size", () => {
+    const refusal = contentPullRefusal("not-held");
     // As it crosses the link: the channel's failure schema encodes exactly these.
-    expect(Object.keys(Schema.encodeSync(ContentPullRefused)(refused)).sort()).toEqual(["_tag", "byteLength", "message", "reason", "sha256"]);
-    expect(refused.message).not.toMatch(/\//);
+    expect(Object.keys(Schema.encodeSync(ContentPullRefusal)(refusal)).sort()).toEqual(["_tag", "message", "reason"]);
+    expect(refusal.message).not.toMatch(/\//);
+    expect(contentPullRefused(refusal, { sha256: "a".repeat(64), byteLength: 1000 })).toMatchObject({ reason: "not-held", sha256: "a".repeat(64), byteLength: 1000 });
   });
 });
 
