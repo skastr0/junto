@@ -45,6 +45,7 @@ const view = (over: Partial<TaskView> = {}): TaskView => ({
 const draw = (v: TaskView, all: ReadonlyArray<TaskView> = [v]) =>
   renderToStaticMarkup(
     <SelectedTask
+      canvasName="factory"
       view={v}
       all={all}
       seats={seats}
@@ -80,6 +81,7 @@ describe("SelectedTask", () => {
   it("says a write stands when its mail did not go, and tells the operator not to repeat it", () => {
     const html = renderToStaticMarkup(
       <SelectedTask
+      canvasName="factory"
         view={view()}
         all={[view()]}
         seats={seats}
@@ -102,6 +104,7 @@ describe("SelectedTask", () => {
     });
     const html = renderToStaticMarkup(
       <SelectedTask
+      canvasName="factory"
         view={gone}
         all={[gone]}
         seats={seats}
@@ -244,6 +247,7 @@ describe("queued writes", () => {
     const task = view({ taskId: a });
     const html = renderToStaticMarkup(
       <SelectedTask
+      canvasName="factory"
         view={task}
         all={[task]}
         seats={seats}

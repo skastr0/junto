@@ -14,6 +14,7 @@ import {
   makeLocalSubjectThreads,
   setSubjectThreadsSource,
   type SubjectThreadsSource,
+  type ThreadPostOutcome,
 } from "../src/renderer/lib/subject-threads-source";
 
 const ada = asNodeId("seat-ada");
@@ -29,6 +30,22 @@ describe("textPieces", () => {
     expect(pieces[1]).toMatchObject({ kind: "mention", ref: { kind: "seat", nodeId: ada }, label: "@Ada" });
     expect(pieces[3]).toMatchObject({ kind: "gone", label: "@Xan" });
     expect(textPieces("plain", kinds)).toEqual([{ kind: "text", text: "plain" }]);
+  });
+});
+
+describe("a mention of a node that is gone", () => {
+  it("draws as the kind its trigger named, a task for # and a seat for @", () => {
+    const html = renderToStaticMarkup(
+      <ThreadPosts
+        threads={[{ threadId: "t", posts: [{ messageId: "m", author: { kind: "operator" }, text: `${mentionLink({ kind: "task", nodeId: asNodeId("tasks-x"), taskId: mintItemId() }, "#9 Old", "factory")} ${mentionLink({ kind: "seat", nodeId: asNodeId("seat-x") }, "@Xan", "factory")}`, at: 1 }] }]}
+        now={2}
+        seatName={() => undefined}
+        nodeKindOf={() => undefined}
+        onOpen={() => undefined}
+      />,
+    );
+    expect(html).toContain('data-kind="task"');
+    expect(html).toContain('data-kind="seat"');
   });
 });
 
@@ -64,6 +81,46 @@ describe("ThreadPosts", () => {
     expect(html).toContain("You");
     expect(html).toContain("@Ada");
     expect(html).toMatch(/<button[^>]*class="resource-chip"/);
+  });
+});
+
+describe("the local subject threads, as main puts them", () => {
+  const board = asNodeId("tasks-build");
+  const art = asNodeId("artifacts-a");
+  const task = mintItemId() as TaskId;
+  const subject = { kind: "task", nodeId: board, taskId: task } as const;
+
+  it("keeps a task's posts in the thread whose id is the task's, and accepts a thread id it has not seen", async () => {
+    const source = makeLocalSubjectThreads();
+    const a = await source.post("c", subject, { text: "one", opId: "op1" });
+    const b = await source.post("c", subject, { text: "two", opId: "op2" });
+    expect(a).toMatchObject({ ok: true, threadId: task });
+    expect(b).toMatchObject({ ok: true, threadId: task });
+    const named = await source.post("c", subject, { text: "elsewhere", opId: "op3", threadId: "t-other" });
+    expect(named).toMatchObject({ ok: true, threadId: "t-other" });
+    const threads = await source.threads("c", subject);
+    expect(threads.map((thread) => [thread.threadId, thread.posts.length])).toEqual([[task, 2], ["t-other", 1]]);
+  });
+
+  it("starts a new thread for each artifact post that names none", async () => {
+    const source = makeLocalSubjectThreads();
+    const artifact = { kind: "artifact", nodeId: art, artifactId: mintItemId() } as const;
+    await source.post("c", artifact, { text: "a", opId: "o1" });
+    await source.post("c", artifact, { text: "b", opId: "o2" });
+    expect((await source.threads("c", artifact)).map((thread) => thread.posts.length)).toEqual([1, 1]);
+  });
+
+  it("answers a replay with the first result, a refusal included, and judges nothing again", async () => {
+    const source = makeLocalSubjectThreads();
+    const first = await source.post("c", subject, { text: "  ", opId: "same" });
+    expect(first).toEqual({ ok: false, message: "Write something to post." });
+    expect(await source.post("c", subject, { text: "now with words", opId: "same" })).toEqual(first);
+    expect(await source.threads("c", subject)).toEqual([]);
+    const posted = await source.post("c", subject, { text: "real", opId: "other" });
+    expect(await source.post("c", subject, { text: "real", opId: "other" })).toEqual(posted);
+    expect((await source.threads("c", subject))[0]?.posts).toHaveLength(1);
+    // The same op id on another subject or canvas is another write.
+    expect((await source.post("c2", subject, { text: "x", opId: "other" })).ok).toBe(true);
   });
 });
 
@@ -115,6 +172,42 @@ describe("TaskThread", () => {
     expect(host.textContent).toContain("Needs a second look");
     expect(host.textContent).toContain("Comments, 1");
     expect(host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Comment on this task"]')!.value).toBe("");
+  });
+
+  it("clears what was sent but keeps what was typed while it was in flight", async () => {
+    let release: () => void = () => undefined;
+    const slow: SubjectThreadsSource = {
+      threads: async () => [],
+      post: () =>
+        new Promise<ThreadPostOutcome>((resolve) => {
+          release = () => resolve({ ok: true, threadId: "t", messageId: "m" });
+        }),
+      subscribe: () => () => undefined,
+    };
+    setSubjectThreadsSource(slow);
+    await mount();
+    const field = await typeInto("First");
+    await enter(field);
+    await typeInto("First and more");
+    await act(async () => release());
+    expect(host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Comment on this task"]')!.value).toBe("First and more");
+  });
+
+  it("recovers when the post throws: the button works again and the text stays", async () => {
+    const broken: SubjectThreadsSource = {
+      threads: async () => [],
+      post: vi.fn(async () => {
+        throw new Error("The bridge dropped.");
+      }),
+      subscribe: () => () => undefined,
+    };
+    setSubjectThreadsSource(broken);
+    await mount();
+    await typeInto("Please");
+    const button = () => [...host.querySelectorAll("button")].find((b) => b.textContent === "Comment")!;
+    await act(async () => button().click());
+    expect(host.querySelector('[data-testid="task-thread-failure"]')?.textContent).toBe("The bridge dropped.");
+    expect(button().disabled).toBe(false);
   });
 
   it("keeps the text and says why when the post is refused", async () => {

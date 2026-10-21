@@ -84,6 +84,10 @@ export function TasksNode({
   const queued = useMemo(() => pendingByTask(writes), [writes]);
   const queuedNew = useMemo(() => queuedCreates(tasks, writes), [tasks, writes]);
   const [selectedId, setSelectedId] = useState<string | null>(initialTaskId ?? null);
+  // Opened again on another task while this pane is up (a mention chip): follow it.
+  useEffect(() => {
+    if (initialTaskId !== undefined && initialTaskId !== "") setSelectedId(initialTaskId);
+  }, [initialTaskId]);
   const [filter, setFilter] = useState<StateFilter>("all");
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
@@ -241,7 +245,7 @@ export function TasksNode({
 
 /** The selected task: its head, verbs, reviewers and layers. */
 export function SelectedTask({
-  canvasName = "",
+  canvasName,
   view,
   all,
   seats,
@@ -254,7 +258,7 @@ export function SelectedTask({
   queued = [],
   apply,
 }: {
-  readonly canvasName?: string;
+  readonly canvasName: string;
   readonly view: TaskView;
   readonly all: ReadonlyArray<TaskView>;
   readonly seats: ReadonlyArray<SeatChoice>;

@@ -12,7 +12,7 @@ import {
   type SubjectThread,
 } from "../../lib/subject-threads-source";
 import { nodeAt } from "../../lib/use-model";
-import { selectNode } from "../../lib/state";
+import { selectNode, state$ } from "../../lib/state";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { Button, Eyebrow, ResourceChip } from "../ui";
 import { MentionCombobox } from "../ui/MentionCombobox";
@@ -27,7 +27,9 @@ export const openMention = (ref: MentionRef): void => {
   switch (ref.kind) {
     case "seat":
     case "page":
+      // Select it and bring it into view: it may be off screen.
       selectNode(ref.nodeId);
+      state$.focusNodeId.set(ref.nodeId);
       return;
     case "task":
       openWorkDetail(ref.nodeId, { itemId: ref.taskId });
@@ -56,7 +58,8 @@ function PostText({
           case "text":
             return <span key={index}>{piece.text}</span>;
           case "gone":
-            return <ResourceChip key={index} kind="seat" label={piece.label.replace(/^[@#]/, "")} missing />;
+            // A mention of a node that is gone keeps the kind its trigger named: # a task, @ a seat.
+            return <ResourceChip key={index} kind={piece.label.startsWith("#") ? "task" : "seat"} label={piece.label.replace(/^[@#]/, "")} missing />;
           case "mention": {
             const chip = mentionLabelKind(piece.ref, piece.label);
             return <ResourceChip key={index} kind={chip.kind} label={chip.label} number={chip.number} onOpen={() => onOpen(piece.ref)} />;
@@ -84,7 +87,7 @@ export function ThreadPosts({
   const posts = threads.flatMap((thread) => thread.posts).sort((a, b) => a.at - b.at);
   if (posts.length === 0) return <p className="task-thread__empty">No comments yet.</p>;
   return (
-    <ol className="task-thread__posts" aria-label="Comments">
+    <ol className="task-thread__posts" aria-label="Posts">
       {posts.map((post) => (
         <li key={post.messageId} className="task-thread__post" data-testid="task-thread-post">
           <div className="task-thread__meta">
@@ -138,22 +141,27 @@ export function TaskThread({
   const resources = useResourcesInReach(canvasName, node, { tasksOf });
   const candidates = useMemo(() => [...seats, ...resources], [seats, resources]);
   const nodeKindOf = useCallback((nodeId: NodeId): NodeKind | undefined => nodeAt(canvasName, nodeId)?.kind, [canvasName]);
+  const count = threads.reduce((sum, thread) => sum + thread.posts.length, 0);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  const setField = useCallback((element: HTMLTextAreaElement | null) => {
-    void element;
-  }, []);
   const ready = text.trim().length > 0 && !sending;
 
   const send = async (): Promise<void> => {
     if (!ready) return;
+    const sent = text.trim();
     setSending(true);
     setFailure(null);
-    const outcome = await subjectThreadsSource().post(canvasName, { kind: "task", nodeId: node, taskId }, { text: text.trim(), opId: newPostOpId() });
-    setSending(false);
-    if (outcome.ok) setText("");
-    else setFailure(outcome.message);
+    try {
+      const outcome = await subjectThreadsSource().post(canvasName, { kind: "task", nodeId: node, taskId }, { text: sent, opId: newPostOpId() });
+      // Clear only what was sent: anything typed while it was in flight stays.
+      if (outcome.ok) setText((now) => (now.trim() === sent ? "" : now));
+      else setFailure(outcome.message);
+    } catch (cause) {
+      setFailure(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSending(false);
+    }
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -165,14 +173,17 @@ export function TaskThread({
   };
 
   return (
-    <section className="task-thread" aria-label="Comments" data-testid="task-thread">
+    <section className="task-thread" aria-label="Comment thread" data-testid="task-thread">
       <header className="task-thread__head">
         <MessageSquare size={13} aria-hidden />
-        <Eyebrow tone="steel">Comments, {threads.reduce((sum, thread) => sum + thread.posts.length, 0)}</Eyebrow>
+        <Eyebrow tone="steel">Comments, {count}</Eyebrow>
+        {/* New posts are said politely, by count, wherever they come from. */}
+        <span className="sr-only" role="status" aria-live="polite">
+          {count === 1 ? "1 comment" : `${count} comments`}
+        </span>
       </header>
       <ThreadPosts threads={threads} now={now} seatName={seatName} nodeKindOf={nodeKindOf} onOpen={openMention} />
       <MentionCombobox
-        fieldRef={setField}
         dense
         value={text}
         onValueChange={(next) => {
@@ -181,9 +192,9 @@ export function TaskThread({
         }}
         canvasName={canvasName}
         candidates={candidates}
-        listLabel={(trigger) => (trigger === "@" ? "Seats in reach of this task" : "Tasks and pages in reach")}
+        listLabel={(trigger) => (trigger === "@" ? "Seats and pages in reach of this task" : "Tasks in reach of this task")}
         noun={{ one: "match", other: "matches" }}
-        placeholder="Comment on this task. @ names a seat, # a task or page"
+        placeholder="Comment on this task. @ names a seat or page, # a task"
         aria-label="Comment on this task"
         rows={3}
         onKeyDown={onKeyDown}
