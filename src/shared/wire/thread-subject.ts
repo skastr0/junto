@@ -77,7 +77,10 @@ export const LinesAnchor = Schema.Struct({
   file: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(LINES_FILE_MAX)),
   from: Line,
   to: Line,
+  /** The removed text's line numbers; absent, the new text's. */
+  side: Schema.optionalKey(Schema.Literal("deletions")),
 }).check(Schema.makeFilter((lines) => lines.from <= lines.to || "a lines anchor ends at or after its first line"));
+export type LinesAnchor = typeof LinesAnchor.Type;
 
 /**
  * Where on a resource a thread hangs: the whole of it, or one place in it.

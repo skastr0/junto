@@ -2,6 +2,7 @@ import { Result, Schema } from "effect";
 import type { NodeId } from "./physics/schema";
 import type { ContentRef } from "./wire/content-ref";
 import {
+  LinesAnchor,
   ResourceSubject,
   TEXT_QUOTE_MAX,
   ThreadSubject,
@@ -108,6 +109,31 @@ export const pageShotOf = (message: {
   const subject = threadSubjectOf(message);
   return subject?.kind === "page" ? subject.anchor?.shot : undefined;
 };
+
+/**
+ * A mailbox row's place: a git review comment is a row in the reviewed
+ * seat's mailbox thread (its mailbox subject), anchored on lines of a file.
+ * Kept beside the row's text, which says the same in words.
+ */
+export const MAIL_LINES_ANCHOR_KEY = "linesAnchor";
+
+const decodeLines = Schema.decodeUnknownResult(LinesAnchor, { onExcessProperty: "error" });
+const encodeLines = Schema.encodeSync(LinesAnchor);
+
+/** A row's lines anchor, or undefined; one that does not read is none. */
+export const linesAnchorOf = (message: {
+  readonly metadata?: Readonly<Record<string, unknown>> | undefined;
+}): LinesAnchor | undefined => {
+  const held = message.metadata?.[MAIL_LINES_ANCHOR_KEY];
+  if (held === undefined) return undefined;
+  const read = decodeLines(held);
+  return Result.isSuccess(read) ? read.success : undefined;
+};
+
+/** The metadata a mailbox row anchored on lines carries. */
+export const linesAnchorMetadata = (anchor: LinesAnchor): { readonly [MAIL_LINES_ANCHOR_KEY]: unknown } => ({
+  [MAIL_LINES_ANCHOR_KEY]: encodeLines(anchor),
+});
 
 /** The metadata a row in a subject thread carries. */
 export const threadSubjectMetadata = (subject: ResourceSubject): { readonly [THREAD_SUBJECT_KEY]: unknown } => ({

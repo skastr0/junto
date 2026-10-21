@@ -5,7 +5,7 @@ import { COMPANION_MAX_TEXT } from "./wire/companion-protocol";
 import { OperatorAttachments } from "./operator-attachments";
 import { ContentRef } from "./wire/content-ref";
 import { messageIdTimeMs } from "./message-delivery";
-import { subjectLabel, threadSubjectOf, type ResourceSubject } from "./thread-subject";
+import { LinesAnchor, subjectLabel, threadSubjectOf, type ResourceSubject } from "./thread-subject";
 import type { Message } from "./work-model";
 import { OPERATOR_SEAT_ID } from "./work-reference";
 import { NOTICE_SEAT_ID } from "./mail-author";
@@ -318,6 +318,16 @@ export const OperatorThreadSend = Schema.Struct({
   attachments: Schema.optionalKey(OperatorAttachments),
   threadId: Schema.optionalKey(MailMessageId),
   inReplyTo: Schema.optionalKey(MailMessageId),
+  /**
+   * A git review's mail (03 section 4): a seat it mentions must be one the
+   * review can go to from `anchorNodeId` (`reviewCandidates`), not one wired
+   * to the seat, and receives the row in the same thread. A line comment's
+   * row carries its `anchor`.
+   */
+  review: Schema.optionalKey(Schema.Struct({
+    anchorNodeId: Schema.optionalKey(NodeId),
+    anchor: Schema.optionalKey(LinesAnchor),
+  })),
 });
 /** As a caller sends it; main decodes it to `OperatorThreadSendDecoded`. */
 export type OperatorThreadSend = typeof OperatorThreadSend.Encoded;

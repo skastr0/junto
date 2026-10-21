@@ -21,7 +21,8 @@ import { OPERATOR_SEAT_ID, operatorActorRef } from "../src/shared/work-reference
 import type { Message } from "../src/shared/work-model";
 import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
-import { page as pageNode, seat as seatNode, wire } from "./support/model-nodes";
+import { linesAnchorOf } from "../src/shared/thread-subject";
+import { page as pageNode, region, seat as seatNode, wire } from "./support/model-nodes";
 import { postSubjectComment } from "../src/main/junto/work/subject-comment";
 import { mentionLink } from "../src/shared/mention";
 import { ModelService } from "../src/main/junto/model/service";
@@ -463,6 +464,38 @@ describe("operator threads", () => {
     expect(await runtime.runPromise(mentionableSeats(CANVAS, "agent") as Effect.Effect<any, unknown, never>)).toEqual([
       { nodeId: "peer", name: "peer" },
     ]);
+  });
+
+  it("a review's row carries its lines, and a seat it mentions gets the row in the same thread, wired or not", async () => {
+    const lines = { kind: "lines", file: "src/a.ts", from: 3, to: 5, side: "deletions" } as const;
+    const text = `src/a.ts, lines 3 to 5. ${mentionLink({ kind: "seat", nodeId: asNodeId("loner") }, "loner", CANVAS)} owns this`;
+    const root = await send({ nodeId: "agent", text: "Code review from the operator.", review: { anchorNodeId: "agent" } });
+    const sent = await send({ nodeId: "agent", text, threadId: root.threadId, review: { anchorNodeId: "agent", anchor: lines } });
+    expect(sent).toMatchObject({ threadId: root.threadId, copies: [{ nodeId: "loner", messageId: expect.any(String) }] });
+    expect(linesAnchorOf(await stored("agent", sent.messageId))).toEqual(lines);
+    const [copy] = await mailbox("loner");
+    expect(copy).toMatchObject({
+      messageId: sent.copies[0].messageId,
+      parts: [{ kind: "text", text }],
+      metadata: { threadId: root.threadId, copyOf: sent.messageId },
+    });
+    expect(linesAnchorOf(copy!)).toEqual(lines);
+    expect(linesAnchorOf(await stored("agent", root.messageId))).toBeUndefined();
+    expect(await mailbox("peer")).toEqual([]);
+  });
+
+  it("a review refuses a seat out of reach of where it was opened, writing nothing", async () => {
+    await runtime.runPromise(seedCanvas(CANVAS, [
+      region("left", { x: -10, y: 0, width: 300, height: 120 }),
+      region("right", { x: 310, y: 0, width: 160, height: 120 }),
+    ]));
+    const text = `see ${mentionLink({ kind: "seat", nodeId: asNodeId("loner") }, "loner", CANVAS)}`;
+    expect(await send({ nodeId: "agent", text, review: { anchorNodeId: "agent" } })).toEqual({
+      ok: false, reason: "invalid", message: "loner cannot receive this review.",
+    });
+    expect(await send({ nodeId: "loner", text: "for you", review: { anchorNodeId: "agent" } })).toMatchObject({ ok: false, reason: "invalid" });
+    expect(await mailbox("agent")).toEqual([]);
+    expect(await mailbox("loner")).toEqual([]);
   });
 
   it("seat to seat threads show to the operator without a reply", async () => {

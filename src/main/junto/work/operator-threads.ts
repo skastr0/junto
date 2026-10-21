@@ -6,7 +6,8 @@
  * Operator mail is what the desktop and the phone already write: one row in
  * the browsed seat's mailbox through `workSystemMailboxNotify`, handed to
  * `messageDelivery`. A mention is the link in the text, kept nowhere else; a
- * mentioned seat is sent nothing.
+ * mentioned seat is sent nothing, except in a git review's mail, where it
+ * receives the row in the same thread (03 section 2, the review's side effect).
  *
  * Mail text never enters a refusal: every refusal here is fixed words and
  * typed ids, and a failed write is reported without the store's message.
@@ -15,7 +16,8 @@ import { Effect, Option } from "effect";
 import { ulid } from "ulid";
 import { mailExtensionMetadata, type MailMessageId } from "@shared/crew";
 import { mentionedOnce, mentionsOf } from "@shared/mention";
-import { threadSubjectOf, type ResourceSubject } from "@shared/thread-subject";
+import { linesAnchorMetadata, threadSubjectOf, type ResourceSubject } from "@shared/thread-subject";
+import { reviewCandidates } from "@shared/review-candidates";
 import { OpId } from "@shared/work-ids";
 import { asNodeId, type Canvas } from "@shared/model";
 import { titleOf } from "@shared/model/title";
@@ -131,6 +133,8 @@ type Refused = Extract<OperatorThreadSent, { ok: false }>;
 export type OperatorThreadWritten = {
   readonly messageId: string;
   readonly threadId: string;
+  /** A review's copies: the row each mentioned seat received in the thread, by seat. */
+  readonly copies?: ReadonlyArray<{ readonly nodeId: string; readonly messageId: string }>;
   /** A comment on the thread's subject: held at the resource, its notices already handed to delivery. */
   readonly comment?: true;
 };
@@ -150,16 +154,28 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
     const files = send.attachments ?? [];
     if (!text && files.length === 0) return refused("invalid", "Mail needs some text or a file.");
 
-    const wired = mentionableIn(canvas, nodeId);
-    // A seat the text links must be wired to this seat, as the composer offers.
     const mentions = mentionedOnce(mentionsOf(text, (id) => canvas.nodes.get(id)?.kind))
       .flatMap((ref) => (ref.kind === "seat" && ref.nodeId !== nodeId ? [ref.nodeId as string] : []));
-    for (const id of mentions) {
-      if (!wired.some((peer) => peer.nodeId === id)) {
-        const peer = canvas.nodes.get(asNodeId(id));
-        const name = peer === undefined ? id : titleOf(peer);
-        return refused("invalid", `${name} is not connected to ${titleOf(seat)}, so it cannot be mentioned here.`);
+    const nameOf = (id: string): string => {
+      const peer = canvas.nodes.get(asNodeId(id));
+      return peer === undefined ? id : titleOf(peer);
+    };
+    const { review } = send;
+    if (review === undefined) {
+      // A seat the text links must be wired to this seat, as the composer offers.
+      const wired = mentionableIn(canvas, nodeId);
+      for (const id of mentions) {
+        if (!wired.some((peer) => peer.nodeId === id)) {
+          return refused("invalid", `${nameOf(id)} is not connected to ${titleOf(seat)}, so it cannot be mentioned here.`);
+        }
       }
+    } else {
+      // A review goes to, and copies, only the seats it can go to from where it was opened.
+      const reachable = new Set(reviewCandidates(canvas, review.anchorNodeId).map((candidate) => candidate.nodeId));
+      for (const id of [nodeId, ...mentions]) {
+        if (!reachable.has(id)) return refused("invalid", `${nameOf(id)} cannot receive this review.`);
+      }
+      if (files.length > 0) return refused("invalid", "A review takes no files.");
     }
 
     // The thread: the parent's, the one named, or a new one rooted here.
@@ -187,6 +203,7 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
       ? undefined
       : seatMailThreadMessages(input, nodeId, threadId).find((message) => message.subject !== undefined)?.subject;
     if (subject !== undefined && threadId !== undefined) {
+      if (review !== undefined) return refused("invalid", "A review is not a comment on a resource.");
       if (files.length > 0) return refused("invalid", "A comment takes no files yet.");
       const base = {
         text,
@@ -226,11 +243,11 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
       claimedFiles = claimed.success;
     }
     const work = yield* WorkService;
-    const write = (said: string, attachments: ReadonlyArray<ContentRef>) => work.workSystemMailboxNotify(
+    const write = (to: string, id: string, root: string | undefined, copyOf?: string) => (said: string, attachments: ReadonlyArray<ContentRef>) => work.workSystemMailboxNotify(
       canvasName,
-      nodeId,
+      to,
       makeUserMessage({
-        messageId,
+        messageId: id,
         text: said,
         contextId: canvasName,
         metadata: {
@@ -244,14 +261,17 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
             senderHarness: "unknown",
           }),
           // A new thread's root carries no threadId; its id is the thread.
-          ...(threadId === undefined ? {} : { threadId }),
+          ...(root === undefined ? {} : { threadId: root }),
           ...(send.inReplyTo === undefined ? {} : { inReplyTo: send.inReplyTo }),
           ...(attachments.length === 0 ? {} : { attachments }),
+          ...(review?.anchor === undefined ? {} : linesAnchorMetadata(review.anchor)),
+          // A copy names the row it copies, so a mention in it counts once (backlinks).
+          ...(copyOf === undefined ? {} : { copyOf }),
         },
       }),
     );
     // A row main will not write goes again with the text as a file.
-    const mailed = yield* writeMailCarryingText(write, { text, attachments: claimedFiles, owner, filesText: THREAD_TEXT_FILE_NOTE });
+    const mailed = yield* writeMailCarryingText(write(nodeId, messageId, threadId), { text, attachments: claimedFiles, owner, filesText: THREAD_TEXT_FILE_NOTE });
     const result = mailed.written;
     // The store's message is not passed on: it is not the operator's to read,
     // and nothing may carry the mail's text out of the mailbox.
@@ -259,7 +279,19 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
       if (mailed.attachments.length > 0) yield* releaseMailFiles(owner);
       return refused("failed", "The mail could not be written.");
     }
-    return { messageId: result.data.messageId, threadId: threadId ?? result.data.messageId };
+    const thread = threadId ?? result.data.messageId;
+    // A review's mentioned seats receive the row in the same thread, each its own.
+    const copies: Array<{ readonly nodeId: string; readonly messageId: string }> = [];
+    if (review !== undefined) {
+      for (const to of mentions) {
+        const copyId = ulid();
+        const copyOwner = operatorMailOwner(canvasName, to, copyId);
+        const copied = yield* writeMailCarryingText(write(to, copyId, thread, result.data.messageId), { text, attachments: [], owner: copyOwner, filesText: THREAD_TEXT_FILE_NOTE });
+        if (!copied.written.ok) return refused("failed", `The mail was written, but its copy to ${nameOf(to)} could not be.`);
+        copies.push({ nodeId: to, messageId: copied.written.data.messageId });
+      }
+    }
+    return { messageId: result.data.messageId, threadId: thread, ...(copies.length === 0 ? {} : { copies }) };
   });
 
 /** After the write: delivery, in the protocol's three words. */
@@ -273,6 +305,10 @@ export const deliverOperatorThreadMail = async (
   const state = sent.comment === true
     ? ("delivered" as const)
     : await messageDelivery.deliver(canvasName, nodeId, sent.messageId).catch(() => "failed" as const);
+  // A review's copies go on their own; the send answers for the seat it was written to.
+  for (const copy of sent.copies ?? []) {
+    await messageDelivery.deliver(canvasName, copy.nodeId, copy.messageId).catch(() => "failed" as const);
+  }
   return {
     ok: true,
     messageId: sent.messageId,
