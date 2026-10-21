@@ -1982,11 +1982,11 @@ const dispatchOp = (
       if (Result.isFailure(sentBy)) return yield* Effect.fail(sentBy.failure);
       // The parent is mail to this seat, and its thread is the reply's.
       const parent = yield* work.readMailMessage(caller.canvasName, caller.nodeId, inReplyTo).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
-      if (refusedByKind !== undefined && (parent === undefined || threadSubjectOf(parent)?.nodeId !== target)) {
       // A comment read from a task's thread (msg list on the task) is no
       // mail of this seat's: the thread is answered on the task.
       const onTask = !toOperator && findNode(board, target)?.kind === "task";
       const taskStep = 'answer in the task\'s thread with junto task comment <task> "...", the task as #42, its id or its junto:// ref';
+      if (refusedByKind !== undefined && (parent === undefined || threadSubjectOf(parent)?.nodeId !== target)) {
         return yield* Effect.fail(onTask ? { ...refusedByKind, details: { ...refusedByKind.details, next_step: taskStep } } : refusedByKind);
       }
       if (parent === undefined) {
