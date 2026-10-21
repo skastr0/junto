@@ -2,7 +2,7 @@
 import { CLI_VERSION } from "./core/constants";
 import { earlyDispatchFromArgv } from "./early-dispatch";
 import { ARTIFACTS_ENABLED, BOARD_ENABLED, BROWSER_ENABLED,
-  LIVE_OVERSEER_ENABLED, PAD_ENABLED, SHEET_ENABLED, TASKS_ENABLED } from "@shared/features";
+  LIVE_OVERSEER_ENABLED, TASKS_ENABLED } from "@shared/features";
 
 export { earlyDispatchFromArgv } from "./early-dispatch";
 
@@ -17,8 +17,6 @@ const disabledCliGroup = (args: ReadonlyArray<string>): string | undefined => {
   if (!TASKS_ENABLED && group === "rulings") return "rulings";
   if (!TASKS_ENABLED && group === "content") return "content";
   if (!BOARD_ENABLED && group === "board") return "board";
-  if (!PAD_ENABLED && group === "pad") return "pad";
-  if (!SHEET_ENABLED && group === "sheet") return "sheet";
   if (!ARTIFACTS_ENABLED && group === "artifact") return "artifact";
   if (!BROWSER_ENABLED && group === "browser") return "browser";
   return undefined;
