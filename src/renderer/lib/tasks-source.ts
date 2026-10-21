@@ -70,6 +70,8 @@ export interface TasksSource {
 type Stored = {
   readonly createdAt: number;
   readonly updatedAt: number;
+  /** When the current state began; a write that leaves the state as it is keeps it. */
+  readonly stateSince: number;
   readonly layers: ReadonlyArray<ClosedTaskLayer>;
 };
 
@@ -85,6 +87,7 @@ const viewOf = (record: TaskRecord, stored: Stored): TaskView => {
     dependsOn,
     createdAt: stored.createdAt,
     updatedAt: stored.updatedAt,
+    stateSince: stored.stateSince,
   };
 };
 
@@ -107,7 +110,7 @@ export const makeLocalTasksSource = (
   const boardOf = (canvasName: string): TaskBoardState => boards.get(canvasName) ?? emptyTaskBoard();
   const views = (canvasName: string): ReadonlyArray<TaskView> =>
     [...boardOf(canvasName).tasks.values()].map((record) =>
-      viewOf(record, stored.get(record.id) ?? { createdAt: 0, updatedAt: 0, layers: [] }),
+      viewOf(record, stored.get(record.id) ?? { createdAt: 0, updatedAt: 0, stateSince: 0, layers: [] }),
     );
 
   const writtenBy = (writer: TaskActor): TasksSource => ({
@@ -117,6 +120,7 @@ export const makeLocalTasksSource = (
       const at = now();
       const full: TaskDomainEnv = { ...env, at };
       const state = boardOf(canvasName);
+      const was = state.tasks.get(taskId)?.state;
       const ruling = ruleTaskBoardCommand(state, { node, taskId }, writer, command, full);
       if (!ruling.ok) return { ok: false, message: taskRefusalMessage(ruling.refusal.detail), refusal: ruling.refusal };
       boards.set(
@@ -130,6 +134,7 @@ export const makeLocalTasksSource = (
       stored.set(taskId, {
         createdAt: before?.createdAt ?? at,
         updatedAt: at,
+        stateSince: before !== undefined && was === ruling.task.state ? before.stateSince : at,
         layers: [...(before?.layers ?? []), ...closed],
       });
       for (const listener of listeners) listener();

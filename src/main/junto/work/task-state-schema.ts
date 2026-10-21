@@ -4,7 +4,8 @@
  * local ruler's rulings on task commands.
  *
  * - `task_heads` is what list and the ruler read: the task as it stands, on
- *   the node it sits on now. Keyed by canvas and task id (a ULID); the number
+ *   the node it sits on now. `state_since` is when its current state began;
+ *   `updated_at` moves on any write. Keyed by canvas and task id (a ULID); the number
  *   is unique per canvas and never reused.
  * - `task_layers` keeps every layer a task closed by being sent on, in order,
  *   as the layer stood when it closed.
@@ -33,6 +34,7 @@ export const TASKS_STATE_SCHEMA_SQL = `
     next_node_id TEXT CHECK (next_node_id IS NULL OR length(next_node_id) BETWEEN 1 AND 256),
     created_at INTEGER NOT NULL CHECK (created_at >= 0),
     updated_at INTEGER NOT NULL CHECK (updated_at >= created_at),
+    state_since INTEGER NOT NULL CHECK (state_since BETWEEN created_at AND updated_at),
     PRIMARY KEY (canvas_name, task_id),
     UNIQUE (canvas_name, number),
     CHECK ((state IN ('assigned', 'working', 'input-required', 'in-review')) = (assignee_node_id IS NOT NULL)

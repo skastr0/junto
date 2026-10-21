@@ -149,7 +149,10 @@ export type TaskView = {
   readonly layers: ReadonlyArray<ClosedTaskLayer>;
   readonly dependsOn: ReadonlyArray<TaskId>;
   readonly createdAt: number;
+  /** Moves on any write. */
   readonly updatedAt: number;
+  /** When the current state began (epoch ms), kept across writes that leave the state as it is: how long it has waited. */
+  readonly stateSince: number;
   readonly pending?: { readonly opId: string };
 };
 

@@ -257,6 +257,17 @@ describe("task repository", () => {
     expect(Option.getOrThrow(await withRepo((repo) => repo.get(canvas, taskId))).current.state).toBe("in-review");
   });
 
+  it("keeps when the state began across writes that leave it, and moves it when the state changes", async () => {
+    const { taskId } = await create("one");
+    const since = async () => Option.getOrThrow(await withRepo((repo) => repo.get(canvas, taskId))).stateSince;
+    const created = await since();
+    database.prepare("UPDATE task_heads SET created_at = 0, state_since = 0 WHERE task_id = ?").run(taskId);
+    applied(await submit(command({ kind: "edit", title: "renamed" }, taskId)));
+    expect(await since()).toBe(0);
+    applied(await submit(command({ kind: "assign", seat: ada }, taskId)));
+    expect(await since()).toBeGreaterThanOrEqual(created);
+  });
+
   it("lists by state, archived left out by default", async () => {
     const { taskId } = await create("one");
     applied(await submit(command({ kind: "cancel" }, taskId)));

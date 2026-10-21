@@ -34,6 +34,7 @@ import { migrateRulingActor } from "./migrate-ruling-actor";
 import { migrateArtifactBodyRefs } from "./migrate-artifact-body-refs";
 import { migrateTaskModel } from "./migrate-task-model";
 import { migrateReviewStamps } from "./migrate-review-stamps";
+import { migrateTaskStateSince } from "./migrate-task-state-since";
 import {
   CANVAS_DELETIONS_CORRECTED_TABLES,
   CANVAS_DELETIONS_REMOVED_TABLES,
@@ -425,7 +426,17 @@ export const STATE_SCHEMA_V35_IDENTITY = {
     "cbe4024d72a8dd25b14a9b1575225f0084fe043c5c8d9312523dcf8b61c01cd9",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 35;
+/**
+ * Version 36 keeps when each task's state began (plan 04, the seat ring's
+ * stall times): `task_heads` rebuilt with `state_since`, backfilled from the
+ * task's last stored transition (`migrate-task-state-since.ts`).
+ */
+export const STATE_SCHEMA_V36_IDENTITY = {
+  actualSchemaSha256:
+    "f63759002b670cfae4730bbba7a47414624d0e14fb96d7a24cd9d2785a44346e",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 36;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -433,7 +444,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 35;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V35_IDENTITY;
+  STATE_SCHEMA_V36_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -675,6 +686,15 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V34_IDENTITY,
     replacesTables: [...RELAY_TRIGGER_PORT_REPLACED_TABLES],
     migrate: migrateRelayTriggerPort,
+  },
+  {
+    fromVersion: 35,
+    toVersion: 36,
+    name: "keep when each task's state began",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V35_IDENTITY,
+    replacesTables: ["task_heads"],
+    migrate: (database) => migrateTaskStateSince(database),
   },
 ];
 

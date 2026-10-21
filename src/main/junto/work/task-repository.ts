@@ -122,6 +122,7 @@ const HeadRow = Schema.Struct({
   next_node_id: Schema.NullOr(Schema.String),
   created_at: Schema.Number,
   updated_at: Schema.Number,
+  state_since: Schema.Number,
 });
 type HeadRow = typeof HeadRow.Type;
 
@@ -202,6 +203,7 @@ const viewOf = (row: HeadRow, task: TaskRecord, layers: ReadonlyArray<ClosedTask
     dependsOn,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    stateSince: row.state_since,
   };
 };
 
@@ -239,11 +241,13 @@ export const projectTaskFact = (sql: SqlClient.SqlClient, canvas: string, fact: 
       }
     }
     yield* sql`
-      INSERT INTO task_heads (canvas_name, task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at)
+      INSERT INTO task_heads (canvas_name, task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since)
       VALUES (${canvas}, ${task.id}, ${task.number}, ${task.node}, ${task.title}, ${task.body ?? null}, ${task.state},
         ${task.assignee ?? null}, ${task.epoch}, ${task.stampPolicy.required}, ${JSON.stringify(task.reviewers)},
-        ${JSON.stringify(task.dependsOn)}, ${task.next ?? null}, ${at}, ${at})
+        ${JSON.stringify(task.dependsOn)}, ${task.next ?? null}, ${at}, ${at}, ${at})
       ON CONFLICT (canvas_name, task_id) DO UPDATE SET
+        -- A write that leaves the state as it is keeps when that state began.
+        state_since = CASE WHEN task_heads.state = excluded.state THEN task_heads.state_since ELSE excluded.state_since END,
         node_id = excluded.node_id, title = excluded.title, body = excluded.body, state = excluded.state,
         assignee_node_id = excluded.assignee_node_id, epoch = excluded.epoch,
         stamps_required = excluded.stamps_required, reviewers_json = excluded.reviewers_json,
@@ -262,14 +266,14 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
       Request: Schema.Struct({ canvas: Schema.String, id: Schema.String }),
       Result: HeadRow,
       execute: ({ canvas, id }) => sql`
-        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at FROM task_heads WHERE canvas_name = ${canvas} AND task_id = ${id}`,
+        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since FROM task_heads WHERE canvas_name = ${canvas} AND task_id = ${id}`,
     });
 
     const canvasRows = SqlSchema.findAll({
       Request: Schema.Struct({ canvas: Schema.String }),
       Result: HeadRow,
       execute: ({ canvas }) => sql`
-        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at FROM task_heads WHERE canvas_name = ${canvas} ORDER BY number`,
+        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since FROM task_heads WHERE canvas_name = ${canvas} ORDER BY number`,
     });
 
     const nextNumberRow = SqlSchema.findOneOption({
@@ -395,7 +399,7 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
         Request: Schema.Void,
         Result: HeadRow,
         execute: () => sql`
-          SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at FROM task_heads
+          SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since FROM task_heads
           WHERE canvas_name = ${canvasName}
             AND ${sql.in("node_id", query.nodeIds)}
             AND ${sql.in("state", states)}

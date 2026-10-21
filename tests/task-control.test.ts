@@ -142,6 +142,7 @@ const view = (taskId: ItemId, number: number, node = tnode, current: Partial<Tas
   dependsOn: [],
   createdAt: 1,
   updatedAt: 1,
+  stateSince: 1,
 });
 
 // #42 and #43 sit on tasks-1, in reach; #44 sits on tasks-2, out of it.

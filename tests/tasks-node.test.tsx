@@ -36,6 +36,7 @@ const view = (over: Partial<TaskView> = {}): TaskView => ({
   dependsOn: [],
   createdAt: 1,
   updatedAt: 1,
+  stateSince: 1,
   ...over,
 });
 const draw = (v: TaskView, all: ReadonlyArray<TaskView> = [v]) =>
