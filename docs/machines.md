@@ -579,6 +579,13 @@ git reset -q HEAD -- "${PATHS[@]}"
 git show --stat --oneline HEAD
 ```
 
+- Read `PARENT` once, at the top, and build everything from it: `read-tree`,
+  `write-tree`, the diff, `commit-tree -p "$PARENT"` and `update-ref ... "$PARENT"`
+  run in one command. Never re-read `HEAD` between `read-tree` and
+  `update-ref`: a tree built from an older head committed onto a newer one
+  silently reverts whatever landed in between, and `update-ref`'s compare
+  cannot see it (7202b070b reverted 13e3eb346 that way). On a refusal, redo
+  the whole block from `PARENT=`.
 - The index is yours alone: named for your seat, held in `$IDX`, removed on
   exit. Never find an index by listing or globbing a directory, and never
   remove one you did not create in that command.
