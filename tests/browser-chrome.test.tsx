@@ -4,7 +4,7 @@ import { asNodeId } from "../src/shared/model";
 import type { BrowserChromeState } from "../src/shared/browser-chrome";
 import { initialPageDriving, reducePageDriving } from "../src/shared/page-driver";
 import { initialPageTabs, reducePageTabs } from "../src/shared/page-tabs";
-import { BrowserChrome } from "../src/renderer/components/browser/BrowserChrome";
+import { BrowserChrome, PendingChrome } from "../src/renderer/components/browser/BrowserChrome";
 
 const seat = asNodeId("seat-ada");
 const tabsTwo = (() => {
@@ -97,6 +97,18 @@ describe("BrowserChrome", () => {
     expect(seatRuns).toContain('data-driver="seat-live"');
     const held = draw({ tabs: tabsTwo, driving: reducePageDriving(initialPageDriving, { kind: "take-over", at: 1 }) });
     expect(held).toContain('data-driver="operator-held"');
+  });
+
+  it("keeps the chrome's face while a page opens or after it ends, a failure said as an alert", () => {
+    const opening = renderToStaticMarkup(
+      <PendingChrome title="Docs" url="https://docs.example.com/a" status="Opening…" trailing={<button type="button">Close</button>} />,
+    );
+    expect(opening).toContain('class="browser-chrome__top"');
+    expect(opening).toContain('<span class="address-bar__quiet">https://</span>docs.example.com');
+    expect(opening).toContain('role="status">Opening…');
+    expect(opening).toContain('class="browser-chrome__window"><button type="button">Close</button>');
+    const failed = renderToStaticMarkup(<PendingChrome title="Docs" url="https://docs.example.com/a" status="Could not open" alert />);
+    expect(failed).toContain('data-alert="true" role="alert">Could not open');
   });
 
   it("puts the surface's own actions in the tab band, apart from the page's row", () => {

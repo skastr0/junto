@@ -12,8 +12,8 @@ import { getJuntoApi } from "../../lib/junto-api";
 import { claimFocus } from "../../lib/focus-ownership";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { useTwoClickArm } from "../../lib/two-click-arm";
-import { Button, OverlayHeader } from "../ui";
-import { BrowserChrome } from "../browser/BrowserChrome";
+import { Button, FocusMaximizeButton } from "../ui";
+import { BrowserChrome, PendingChrome } from "../browser/BrowserChrome";
 import { browserChromeApi, runChromeCommand, useBrowserChromeState } from "../../lib/browser-chrome-source";
 import { titleOf } from "@shared/model/title";
 import { nodeAt } from "../../lib/use-model";
@@ -215,8 +215,20 @@ export function BrowserSurfaceSlot({
     if (candidate && !alerts.includes(candidate)) alerts.push(candidate);
   }
 
+  // The pending chrome's one line: the page opening, or why it is not.
+  const pendingStatus = endedStory
+    ? "Session ended"
+    : opFailedOpen
+      ? "Could not open"
+      : stateLabel === "attach failed"
+        ? "Could not place the page"
+        : stateLabel === "browser surface API unavailable"
+          ? "The browser is not in this build"
+          : "Opening…";
+
   const pageActions = (
     <>
+      <FocusMaximizeButton />
       <Button
         size="xs"
         variant={stopArm.armed ? "danger" : "chrome"}
@@ -284,18 +296,13 @@ export function BrowserSurfaceSlot({
               trailing={pageActions}
             />
           ) : (
-          <OverlayHeader
-            eyebrow={`page - ${payload.browser.profile}`}
-            title={session?.title ?? payload.title}
-            status={
-              <>
-                {session?.url ?? payload.url}
-                {" - "}
-                {stateLabel}
-              </>
-            }
-            actions={pageActions}
-          />
+            <PendingChrome
+              title={session?.title || payload.title}
+              url={session?.url ?? payload.url}
+              status={pendingStatus}
+              alert={opFailedOpen || stateLabel === "attach failed"}
+              trailing={pageActions}
+            />
           )}
           {endedStory ? (
             <div

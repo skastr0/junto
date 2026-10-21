@@ -268,6 +268,39 @@
   color: var(--color-dim);
 }
 
+/* The pending chrome's address: where the page will be, not yet a field. It
+   sits where the live field will, past the room back, forward and reload take
+   (three 24px buttons and their 4px gaps), so nothing moves when the chrome comes. */
+.browser-chrome__address {
+  flex: 1;
+  min-width: 0;
+  margin-left: 84px;
+  min-height: 28px;
+  padding: 0 9px;
+  overflow: hidden;
+  border: 1px dashed var(--color-stroke);
+  border-radius: var(--radius-md);
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  line-height: 26px;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.browser-chrome__status {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  color: var(--color-dim);
+  font-size: var(--text-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-chrome__status[data-alert="true"] {
+  color: var(--color-crimson);
+}
+
 /* Who drives, and the one control over it, in one piece. */
 .driver-control {
   display: inline-flex;

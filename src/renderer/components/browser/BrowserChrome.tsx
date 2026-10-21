@@ -358,6 +358,60 @@ export function NavigationBlockNotice({ state }: { readonly state: BrowserChrome
 }
 
 /**
+ * The chrome before the page's own state is served, or after its session
+ * ended: the same two bands, one tab named for the page, its address read
+ * only and one line of status, so opening a page never flashes another face.
+ */
+export function PendingChrome({
+  title,
+  url,
+  status,
+  alert = false,
+  trailing,
+}: {
+  readonly title: string;
+  readonly url: string;
+  readonly status: string;
+  /** The status is a failure, not a wait. */
+  readonly alert?: boolean;
+  readonly trailing?: ReactNode;
+}) {
+  const parts = addressParts(url);
+  return (
+    <div className="browser-chrome" data-testid="browser-chrome-pending" data-driver="idle">
+      <div className="browser-chrome__top">
+        <div className="tab-strip">
+          <div className="tab-strip__list">
+            <div className="tab-strip__tab" data-active="true">
+              <span className="tab-strip__label" title={url === "" ? title : `${title}\n${url}`}>
+                <span className="truncate">{title}</span>
+              </span>
+            </div>
+          </div>
+        </div>
+        {trailing === undefined ? null : <div className="browser-chrome__window">{trailing}</div>}
+      </div>
+      <div className="browser-chrome__row">
+        <span className="browser-chrome__address" title={url}>
+          {parts === undefined ? (
+            url
+          ) : (
+            <>
+              <span className="address-bar__quiet">{parts.before}</span>
+              {parts.host}
+              <span className="address-bar__quiet">{parts.after}</span>
+            </>
+          )}
+        </span>
+        <span className="browser-chrome__status" data-alert={alert ? "true" : undefined} role={alert ? "alert" : "status"}>
+          {status}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/**
  * The page's chrome (plan 06): tab strip, address bar, who is driving and the
  * operator's takeover. `onCommand` runs one command and answers its outcome;
  * a refusal is said here in one line and nothing is lost. `trailing` is where
