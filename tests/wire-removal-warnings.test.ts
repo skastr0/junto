@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { boardRemovalWarnings, removalPolicy, wireRemovalWarnings } from "../src/renderer/lib/deletion-impact";
-import { taskPolicyRead } from "../src/renderer/lib/work-task-policy-store";
+import { boardRemovalWarnings, openTasksOf, removalTasks, wireRemovalWarnings } from "../src/renderer/lib/deletion-impact";
 import { canvasOf, seat, taskBoard, wire } from "./support/model-nodes";
+import { taskView } from "./support/seat-tasks";
 
 // What removing a wire does to tasks on their way, asked of the model canvas.
 
@@ -15,7 +15,7 @@ const ab = wire("ab", "a", "b", "flows");
 const ac = wire("ac", "a", "c", "flows");
 const mail = wire("mail", "worker", "a", "messages");
 const canvas = canvasOf(boards, [ab, ac, mail]);
-const noWork = taskPolicyRead([]);
+const noWork = openTasksOf([]);
 
 describe("removing wires from the model canvas", () => {
   it("says when a board loses its last Next board, and not when one remains", () => {
@@ -30,14 +30,32 @@ describe("removing wires from the model canvas", () => {
     expect(wireRemovalWarnings(canvas, [ab, ac], noWork, new Set(["a"]))).toEqual([]);
   });
 
-  it("says nothing of a board that holds no live task and no visit names", () => {
+  it("counts the open tasks a removed board holds, and the closed ones not at all", () => {
+    const tasksOf = openTasksOf([
+      taskView("a", { current: { state: "working" } }),
+      taskView("a", { current: { state: "in-review" } }),
+      taskView("a", { current: { state: "done" } }),
+      taskView("b", { current: { state: "canceled" } }),
+    ]);
+    expect(boardRemovalWarnings(canvas, new Set(["a"]), tasksOf)).toEqual(["“Build” holds 2 live tasks."]);
+    expect(boardRemovalWarnings(canvas, new Set(["b"]), tasksOf)).toEqual([]);
+  });
+
+  it("says which open tasks on the earlier board lose a Next board", () => {
+    const tasksOf = openTasksOf([taskView("a", { current: { state: "backlog" } }), taskView("b", { current: { state: "working" } })]);
+    expect(wireRemovalWarnings(canvas, [ab], tasksOf)).toEqual([
+      "“Build” has 1 live task that will lose “Review” as its Next board.",
+    ]);
+  });
+
+  it("says nothing of a board that holds no live task", () => {
     expect(boardRemovalWarnings(canvas, new Set(["a", "worker"]), noWork)).toEqual([]);
     expect(boardRemovalWarnings(canvas, new Set(["worker"]), noWork)).toEqual([]);
   });
 
-  it("reads the task policy only when a task path or a task board is going", () => {
+  it("reads the tasks only when a task path or a task board is going", () => {
     // No path and no board: answered at once, with nothing read.
-    expect(removalPolicy("factory", canvas, new Set(), [mail])).not.toBeInstanceOf(Promise);
-    expect(removalPolicy("factory", canvas, new Set(["worker"]), [])).not.toBeInstanceOf(Promise);
+    expect(removalTasks("factory", canvas, new Set(), [mail])).not.toBeInstanceOf(Promise);
+    expect(removalTasks("factory", canvas, new Set(["worker"]), [])).not.toBeInstanceOf(Promise);
   });
 });

@@ -2,7 +2,7 @@ import { ulid } from "ulid";
 import { defaultVerbForPair, verbsForPair, type Verb } from "@shared/physics";
 import { productNodeKindEnabled, productVerbEnabled } from "@shared/features";
 import { validateFlowDag, type FlowCycleError } from "@shared/flow-graph";
-import { removalPolicy, wireRemovalWarnings } from "./deletion-impact";
+import { removalTasks, wireRemovalWarnings } from "./deletion-impact";
 import { removeEdgesFromSelection, selectEdge, state$ } from "./state";
 import { canvasAsItStands, commitCommands, parseSide } from "./mutations";
 import { connected, removed, type Connected } from "./model-edits";
@@ -87,12 +87,12 @@ export const deleteEdges = async (ids: ReadonlyArray<string>): Promise<void> => 
   const wires = [...canvas.wires.values()].filter((wire) => going.has(wire.id));
   if (wires.length === 0) return;
   const label = wires.length === 1 ? "this relation" : `${wires.length} relations`;
-  const pendingPolicy = removalPolicy(state$.canvasName.peek(), canvas, new Set(), wires);
-  const policy = pendingPolicy instanceof Promise ? await pendingPolicy : pendingPolicy;
-  // The canvas moved while the policy was being read: what was asked about is
+  const pendingTasks = removalTasks(state$.canvasName.peek(), canvas, new Set(), wires);
+  const tasksOf = pendingTasks instanceof Promise ? await pendingTasks : pendingTasks;
+  // The canvas moved while the tasks were being read: what was asked about is
   // no longer what would be removed.
   if (canvasAsItStands().seq !== canvas.seq) return;
-  const impactWarnings = wireRemovalWarnings(canvas, wires, policy);
+  const impactWarnings = wireRemovalWarnings(canvas, wires, tasksOf);
   const impactCopy = impactWarnings.length === 0 ? "" : ` ${impactWarnings.join(" ")}`;
   if (typeof window !== "undefined" && typeof window.confirm === "function" && !window.confirm(`Delete ${label}?${impactCopy}`)) return;
   removeEdgesFromSelection(going);

@@ -4,7 +4,7 @@ import { batch, observe } from "@legendapp/state";
 import type { ActorRef } from "@shared/work-protocol";
 import { formatNodeRef } from "@shared/node-ref";
 import { TASKS_ENABLED } from "@shared/features";
-import { boardRemovalWarnings, removalPolicy, wireRemovalWarnings } from "./deletion-impact";
+import { boardRemovalWarnings, removalTasks, wireRemovalWarnings } from "./deletion-impact";
 import type { Color, Command, Node, NodeOf, RegionContract, RegionDefaults, RegionEnvironment } from "@shared/model";
 import type { TasksContract } from "@shared/work-model";
 import { authoring } from "./authoring";
@@ -376,13 +376,13 @@ const deleteNodesInternal = async (
   const connectedEdges = removedWires.length;
   const nodeLabel = existingNodes.length === 1 ? "this node" : `${existingNodes.length} nodes`;
   const relationLabel = connectedEdges === 0 ? "" : ` Connected edges (${connectedEdges}) will also be removed.`;
-  const policy = await removalPolicy(canvasName, canvas, removed, removedWires);
-  // The canvas changed while the policy was read: the question would be about
+  const tasksOf = await removalTasks(canvasName, canvas, removed, removedWires);
+  // The canvas changed while the tasks were read: the question would be about
   // a canvas the operator is no longer looking at.
   if (state$.canvasName.peek() !== canvasName || state$.docEpoch.peek() !== docEpoch) return;
   const impactWarnings = [
-    ...boardRemovalWarnings(canvas, removed, policy),
-    ...wireRemovalWarnings(canvas, removedWires, policy, removed),
+    ...boardRemovalWarnings(canvas, removed, tasksOf),
+    ...wireRemovalWarnings(canvas, removedWires, tasksOf, removed),
   ];
   const impactCopy =
     impactWarnings.length === 0 ? "" : `\n${impactWarnings.join("\n")}`;

@@ -61,7 +61,6 @@ import { findOpenPosition, syncPositions } from "../lib/geometry";
 import { observe } from "@legendapp/state";
 import { heldBy } from "../lib/model-edits";
 import { modelStore, nodeAt, titleAt, useCanvas } from "../lib/use-model";
-import { workAttentionStore } from "../lib/use-work-sink";
 import { seatTasks$ } from "../lib/seat-tasks";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { thisMachineName } from "../lib/machines";
@@ -335,17 +334,11 @@ function useCanvasDocument(
         open$.wires.get();
         rebuild();
       }),
-      // What is blocked depends on the claim rows of the work sinks, which the
-      // work store keeps for as long as this canvas is shown.
+      // What is blocked depends on the task each seat holds, which the app
+      // keeps for the open canvas.
       observe(() => {
-        const name = state$.canvasName.get();
-        if (!name) return;
-        workAttentionStore.state(name).itemsByNodeId.get();
+        seatTasks$.bySeat.get();
         rebuild();
-      }),
-      observe((event) => {
-        const name = state$.canvasName.get();
-        if (name) event.onCleanup = workAttentionStore.retain(name);
       }),
       state$.actorRefs.onChange(() => rebuild()),
       kernel$.executionRev.onChange(() => rebuild()),
