@@ -38,8 +38,10 @@ Every-row cap and byte paging landed with `a194abcc2` and `1dd8fdddd`.
 Design change `387564472`: resource facts ride inside `ruling.applied`, so
 rows still stand alone and no predecessor crosses; the rule 4 sentence for
 it lands when the code carries facts in the ruling (today it carries fact
-seqs). Still held: that sentence, seat occupancy, and the queue bound with
-`queue_full`.
+seqs). Stated in rule 4 but not yet built: "rules it against region reach
+on its own canvas" (from `c0eecdae4`) describes the ruler, not on main yet.
+Still held: that sentence, the ruler, seat occupancy, and the queue bound
+with `queue_full`.
 
 `docs/machines.md:71-72`. Replace
 
@@ -120,7 +122,9 @@ only from the machine that edits the canvas.
 Landed with `95ed7b998`: rulings to every machine, a command to the editing
 machine only and never relayed. Ruling shape landed with `3ee4ad729`: a
 refusal carries only the closed `RefusalReason`, an optional head and the
-root. Still held: resource facts for every machine, and the refused body
+root. Stated but not yet enforced: "never text a seat or a domain
+wrote", since `expected` is still any string up to 128 characters filled by
+the domain (remote-work gives it a token shape). Still held: resource facts for every machine, and the refused body
 ref served only to the writer.
 
 `docs/machines.md:76-77`. Replace
