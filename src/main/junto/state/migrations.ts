@@ -33,6 +33,7 @@ import { migrateRetireOnRemove } from "./migrate-retire-on-remove";
 import { migrateRulingActor } from "./migrate-ruling-actor";
 import { migrateArtifactBodyRefs } from "./migrate-artifact-body-refs";
 import { migrateTaskModel } from "./migrate-task-model";
+import { migrateReviewStamps } from "./migrate-review-stamps";
 import {
   CANVAS_DELETIONS_CORRECTED_TABLES,
   CANVAS_DELETIONS_REMOVED_TABLES,
@@ -149,6 +150,14 @@ export type StateSchemaMigration = {
   readonly replacesTables?: ReadonlyArray<string>;
   /** Exact columns retired by an operator-authorized consolidation rebuild. */
   readonly retiresColumns?: Readonly<Record<string, ReadonlyArray<string>>>;
+  /**
+   * Columns of `replacesTables` tables whose rebuild drops their NOT NULL:
+   * the column keeps its name, type, default, key and position, and only
+   * becomes nullable. Nothing else about a named column may change, it may
+   * not be tightened, and every named column must be one the step relaxes.
+   * Only valid on a consolidation step.
+   */
+  readonly relaxesNotNull?: Readonly<Record<string, ReadonlyArray<string>>>;
   /**
    * Durable tables this consolidation step retires: their content is migrated
    * into the canonical replacement inside the same step, then the table is
@@ -384,7 +393,18 @@ export const STATE_SCHEMA_V32_IDENTITY = {
     "c9311b4af0b6f7dd1293b087cbf4402b67c5f184cd90b951cd8bd2bdd291ffda",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 32;
+/**
+ * Version 33 names each review verdict's reviewer kind, so the operator can
+ * stamp and a task stamp is keyed by its reviewer's node (0.10, plan 04,
+ * ruling 1b): `work_review_verdicts` rebuilt with `reviewer_kind` and seat
+ * ids required only where a verdict needs them.
+ */
+export const STATE_SCHEMA_V33_IDENTITY = {
+  actualSchemaSha256:
+    "d3c517a7a11922df59dbd3159fec503ab5f4824889ab8d0d46bf30e597d5b234",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 33;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -392,7 +412,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 32;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V32_IDENTITY;
+  STATE_SCHEMA_V33_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -606,6 +626,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     correctiveWriteTables: [...CANVAS_DELETIONS_CORRECTED_TABLES],
     migrate: migrateCanvasDeletions,
   },
+  {
+    fromVersion: 32,
+    toVersion: 33,
+    name: "name each review verdict's reviewer kind",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V32_IDENTITY,
+    replacesTables: ["work_review_verdicts"],
+    relaxesNotNull: { work_review_verdicts: ["reviewer_seat_id", "author_seat_id"] },
+    migrate: (database) => migrateReviewStamps(database),
+  },
 ];
 
 export const STATE_SCHEMA_MIGRATION_PLAN: StateSchemaMigrationPlan = {
@@ -779,8 +809,21 @@ const assertExpandSchemaPreserved = (
   removedTables: ReadonlySet<string> = new Set(),
   retiredColumns: Readonly<Record<string, ReadonlyArray<string>>> = {},
   renamedTables: Readonly<Record<string, string>> = {},
+  relaxedNotNull: Readonly<Record<string, ReadonlyArray<string>>> = {},
 ): void => {
   const after = expandSchemaSnapshot(database);
+  // A declared relax names a column the step really relaxes, so a stale one cannot widen a later rebuild.
+  for (const [tableName, columns] of Object.entries(relaxedNotNull)) {
+    for (const columnName of columns) {
+      const beforeColumn = before.tables.get(tableName)?.get(columnName);
+      const afterColumn = after.tables.get(tableName)?.get(columnName);
+      if (beforeColumn?.notNull !== 1 || afterColumn?.notNull !== 0) {
+        throw new Error(
+          `state schema consolidation step declared ${tableName}.${columnName} relaxed but does not drop its NOT NULL`,
+        );
+      }
+    }
+  }
   /** An object's stored text as SQLite leaves it once the renamed tables carry their new names. */
   const renamed = (sql: string | null): string | null => {
     if (sql === null) return null;
@@ -811,9 +854,13 @@ const assertExpandSchemaPreserved = (
         if (afterColumn !== undefined) throw new Error(`consolidation retained retired column ${tableName}.${columnName}`);
         continue;
       }
+      // A relaxed column is the same column once its NOT NULL is put back.
+      const compared = relaxedNotNull[tableName]?.includes(columnName) === true && afterColumn !== undefined
+        ? { ...afterColumn, notNull: 1 }
+        : afterColumn;
       if (
-        afterColumn === undefined ||
-        JSON.stringify(afterColumn) !== JSON.stringify(beforeColumn)
+        compared === undefined ||
+        JSON.stringify(compared) !== JSON.stringify(beforeColumn)
       ) {
         throw new Error(
           `state schema startup migration changed durable column ${tableName}.${columnName}`,
@@ -1091,6 +1138,7 @@ const runMigrationStep = (
       removesTables,
       migration.retiresColumns,
       migration.renamesTables,
+      migration.relaxesNotNull,
     );
   } finally {
     database.setAuthorizer(null);
@@ -1157,6 +1205,10 @@ export const validateStateSchemaMigrationPlan = (
       (migration.retiresColumns !== undefined && (
         migration.safety !== STATE_SCHEMA_CONSOLIDATE_SAFETY ||
         Object.keys(migration.retiresColumns).some((table) => !migration.replacesTables?.includes(table))
+      )) ||
+      (migration.relaxesNotNull !== undefined && (
+        migration.safety !== STATE_SCHEMA_CONSOLIDATE_SAFETY ||
+        Object.keys(migration.relaxesNotNull).some((table) => !migration.replacesTables?.includes(table))
       ))
     ) {
       throw new Error(

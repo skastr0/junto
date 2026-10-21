@@ -1,8 +1,10 @@
 /**
  * Durable schema for the crew review additions.
  *
- *  - `work_review_verdicts`: immutable, seat-stamped, epoch-bound green/blocking
- *    verdicts on a task or commit subject. The primary key is the deterministic
+ *  - `work_review_verdicts`: immutable, epoch-bound green/blocking verdicts
+ *    on a task or commit subject, each naming its reviewer's kind (a seat or
+ *    the operator). A task stamp is one, keyed by the reviewer's node
+ *    (`task-stamps.ts`); a seat's verdict on a commit carries its seat ids. The primary key is the deterministic
  *    verdict id, so a re-post at the same (subject, reviewer, epoch) conflicts
  *    and is refused rather than mutating a recorded judgement.
  *  - `work_review_receipts` and `work_review_checkout_observations`: the
@@ -14,19 +16,26 @@ export const CREW_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS work_review_verdicts (
     verdict_id TEXT NOT NULL CHECK (length(verdict_id) BETWEEN 1 AND 256),
     kind TEXT NOT NULL CHECK (kind IN ('green', 'blocking')),
-    reviewer_seat_id TEXT NOT NULL
+    reviewer_kind TEXT NOT NULL CHECK (reviewer_kind IN ('seat', 'operator')),
+    reviewer_seat_id TEXT
       CHECK (
-        length(reviewer_seat_id) = 69
-        AND substr(reviewer_seat_id, 1, 5) = 'seat_'
-        AND substr(reviewer_seat_id, 6) NOT GLOB '*[^a-f0-9]*'
+        reviewer_seat_id IS NULL
+        OR (
+          length(reviewer_seat_id) = 69
+          AND substr(reviewer_seat_id, 1, 5) = 'seat_'
+          AND substr(reviewer_seat_id, 6) NOT GLOB '*[^a-f0-9]*'
+        )
       ),
     reviewer_node_id TEXT
       CHECK (reviewer_node_id IS NULL OR length(reviewer_node_id) BETWEEN 1 AND 256),
-    author_seat_id TEXT NOT NULL
+    author_seat_id TEXT
       CHECK (
-        length(author_seat_id) = 69
-        AND substr(author_seat_id, 1, 5) = 'seat_'
-        AND substr(author_seat_id, 6) NOT GLOB '*[^a-f0-9]*'
+        author_seat_id IS NULL
+        OR (
+          length(author_seat_id) = 69
+          AND substr(author_seat_id, 1, 5) = 'seat_'
+          AND substr(author_seat_id, 6) NOT GLOB '*[^a-f0-9]*'
+        )
       ),
     subject_kind TEXT NOT NULL CHECK (subject_kind IN ('task', 'commit')),
     subject_task_installation TEXT
@@ -67,6 +76,21 @@ export const CREW_STATE_SCHEMA_SQL = `
         AND subject_task_node IS NULL
         AND subject_task_item IS NULL
         AND subject_epoch IS NULL
+      )
+    ),
+    CHECK ((reviewer_seat_id IS NULL) = (author_seat_id IS NULL)),
+    CHECK (
+      (
+        reviewer_kind = 'operator'
+        AND subject_kind = 'task'
+        AND reviewer_seat_id IS NULL
+        AND reviewer_node_id IS NULL
+      )
+      OR (reviewer_kind = 'seat' AND subject_kind = 'commit' AND reviewer_seat_id IS NOT NULL)
+      OR (
+        reviewer_kind = 'seat'
+        AND subject_kind = 'task'
+        AND (reviewer_node_id IS NOT NULL OR reviewer_seat_id IS NOT NULL)
       )
     ),
     PRIMARY KEY (verdict_id)

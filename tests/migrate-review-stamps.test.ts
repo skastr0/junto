@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CREW_STATE_SCHEMA_SQL } from "../src/main/junto/work/crew-schema";
+import { STATE_SCHEMA_V32_SQL } from "./fixtures/state-v13/schema";
 import { migrateReviewStamps } from "../src/main/junto/state/migrate-review-stamps";
 
 const SEAT = `seat_${"a".repeat(64)}`;
@@ -9,8 +9,8 @@ let db: DatabaseSync;
 
 beforeEach(() => {
   db = new DatabaseSync(":memory:");
-  db.exec("CREATE TABLE work_canvas_revisions (canvas_name TEXT PRIMARY KEY, revision INTEGER NOT NULL) STRICT");
-  db.exec(CREW_STATE_SCHEMA_SQL);
+  // The tables as version 32 left them, before the step.
+  db.exec(STATE_SCHEMA_V32_SQL);
 });
 
 afterEach(() => db.close());

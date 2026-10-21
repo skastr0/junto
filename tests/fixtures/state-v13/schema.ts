@@ -186,3 +186,9 @@ export const STATE_SCHEMA_V32_SQL = stepped(
   STATE_SCHEMA_V31_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 32)!.migrate,
 );
+
+// Version 33 named each review verdict's reviewer kind (32 -> 33).
+export const STATE_SCHEMA_V33_SQL = stepped(
+  STATE_SCHEMA_V32_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 33)!.migrate,
+);
