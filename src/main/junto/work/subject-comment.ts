@@ -13,8 +13,16 @@
  * 3. One notice per seat owed one: the resource's people, everyone it
  *    mentions, and everyone who posted in the thread before, never the
  *    poster. A mentioned seat's notice is a mention; the rest are comments.
+ *
+ * A page box comment (B7, remote-security's screenshot ruling) sends only
+ * the box. The caller hands in `captureBox`, bound to its own right to the
+ * live page (the operator's view, or a seat's live browser grant on this
+ * machine); main takes the shot, stores it staged to the writer, and claims
+ * it for the comment's own record before the row is written. A failed write
+ * lets the claim go. Nothing of the shot is told beyond its digest and size.
  */
-import { Effect, Option } from "effect";
+import { Effect, Option, Schema } from "effect";
+import { ulid } from "ulid";
 import type { MailMessageId } from "@shared/crew";
 import { mentionsOf } from "@shared/mention";
 import type { Canvas } from "@shared/model";
@@ -31,7 +39,22 @@ import {
 } from "@shared/subject-comment";
 import { subjectNoticeRecipients, subjectNoticeRow } from "@shared/subject-notice";
 import { makeUserMessage } from "@shared/task";
-import { sameSubject, subjectLabel, threadSubjectMetadata, threadSubjectOf, type ResourceSubject } from "@shared/thread-subject";
+import {
+  BoxAnchor,
+  PageBoxAnchor,
+  sameSubject,
+  subjectLabel,
+  threadSubjectMetadata,
+  threadSubjectOf,
+  type ResourceSubject,
+} from "@shared/thread-subject";
+import type { Rect } from "@shared/page-box";
+import { operatorActorRef } from "@shared/work-reference";
+import type { ContentRef } from "@shared/wire/content-ref";
+import type { BrowserPageBoxShot } from "../browser/sessions";
+import type { ContentOwner } from "../content/manifest";
+import { ContentService } from "../content/service";
+import { claimStagedContent, contentStageOwner } from "../content/stage";
 import type { WorkErrorBody } from "@shared/work-control";
 import { mailExtensionMetadata, mailThreadOf } from "@shared/crew";
 import { MachineRepository } from "../machines/repository";
@@ -45,6 +68,11 @@ export type SubjectCommentContext = {
   readonly canvasName: string;
   /** The resource's people: a task's assignee and seat reviewers, an artifact's author. */
   readonly people: ReadonlyArray<NodeId>;
+  /**
+   * A page box's shot from the live page, bound to the writer's own right to
+   * it. Without it a page comment names no box.
+   */
+  readonly captureBox?: (rect: Rect) => Effect.Effect<BrowserPageBoxShot, WorkErrorBody>;
 };
 
 const runtimeDown = (message: string): WorkErrorBody => ({ type: "RuntimeDown", message, details: { retryable: true } });
@@ -57,6 +85,37 @@ const withoutAnchor = (subject: ResourceSubject): ResourceSubject => {
 };
 
 const posterNode = (actor: ResourceActor): NodeId | undefined => (actor.kind === "seat" ? asNodeId(actor.nodeId) : undefined);
+
+const isBoxRect = Schema.is(BoxAnchor);
+
+/** Let go of a shot whose comment was not written. */
+const releaseShot = (owner: ContentOwner): Effect.Effect<void> =>
+  Effect.serviceOption(ContentService).pipe(
+    Effect.flatMap((content) => (Option.isNone(content) ? Effect.void : content.value.releaseOwner(owner).pipe(Effect.ignore))),
+  );
+const isPageBox = Schema.is(PageBoxAnchor);
+
+/**
+ * The shot stored and held by the comment's own record: put under the
+ * writer's own stage owner, then claimed from it, so the record holds only
+ * bytes this writer staged. The writer is the operator or the posting seat.
+ */
+const holdShot = (
+  shot: BrowserPageBoxShot,
+  stager: { readonly canvasName: string; readonly nodeId: string },
+  owner: ContentOwner,
+): Effect.Effect<ContentRef, WorkErrorBody> =>
+  Effect.gen(function* () {
+    const content = yield* Effect.serviceOption(ContentService);
+    if (Option.isNone(content)) return yield* Effect.fail(runtimeDown("the content store is not running in this process"));
+    const staged = yield* content.value
+      .put({ source: shot.png, mediaType: "image/png", displayName: "page-box.png", owner: contentStageOwner(stager, ulid()) })
+      .pipe(Effect.mapError(() => runtimeDown(`the shot (${String(shot.png.byteLength)} bytes) could not be stored`)));
+    const claimed = yield* claimStagedContent(content.value, { ...stager, ref: staged.ref, owner }).pipe(
+      Effect.mapError(() => runtimeDown(`the shot ${staged.ref.sha256} could not be claimed for its comment`)),
+    );
+    return claimed.ref;
+  });
 
 export const postSubjectComment = (
   input: SubjectCommentInput,
@@ -137,7 +196,58 @@ export const postSubjectComment = (
         details: { path: "threadId", retryable: false },
       });
     }
-    const subject = rooted ?? asked;
+    // A page box: a new comment's shot, taken now; a reply copies its thread's.
+    const boxAsked = input.subject.kind === "page" ? (input as Extract<SubjectCommentInput, { readonly subject: { readonly kind: "page" } }>).anchor : undefined;
+    let pageBox: PageBoxAnchor | undefined;
+    let shotOwner: ContentOwner | undefined;
+    if (boxAsked !== undefined) {
+      if (input.threadId !== undefined) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: "a reply copies its thread's box and takes no new shot: send no box",
+          details: { path: "anchor", retryable: false },
+        });
+      }
+      const box = { kind: "box" as const, x: boxAsked.x, y: boxAsked.y, w: boxAsked.w, h: boxAsked.h };
+      if (!isBoxRect(box)) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: "a box is x, y, w and h in page pixels, its width and height above zero",
+          details: { path: "anchor", retryable: false },
+        });
+      }
+      const again = held.find((row) => row.messageId === messageId);
+      const before = again === undefined ? undefined : threadSubjectOf(again);
+      if (before?.kind === "page" && before.anchor !== undefined) {
+        // The same write again: its row holds its shot already.
+        pageBox = before.anchor;
+      } else {
+        if (context.captureBox === undefined || input.actor.kind === "automation") {
+          return yield* Effect.fail<WorkErrorBody>({
+            type: "ScopeError",
+            message: "a box is drawn on the live page: only the operator, or a seat driving the page on this machine",
+            details: { reason: "not_in_reach", path: "anchor", retryable: false },
+          });
+        }
+        const shot = yield* context.captureBox(box);
+        const stager = input.actor.kind === "operator"
+          ? { canvasName, nodeId: operatorActorRef(canvasName).nodeId }
+          : { canvasName, nodeId: input.actor.nodeId as string };
+        shotOwner = { kind: "message", canvasName, nodeId, recordId: messageId };
+        const ref = yield* holdShot(shot, stager, shotOwner);
+        const anchor = { ...box, url: shot.url, scroll: shot.scroll, shot: ref };
+        if (!isPageBox(anchor)) {
+          yield* releaseShot(shotOwner);
+          return yield* Effect.fail<WorkErrorBody>({
+            type: "InputError",
+            message: "the page's address cannot be named on a comment: open an http or https page",
+            details: { path: "anchor", retryable: false },
+          });
+        }
+        pageBox = anchor;
+      }
+    }
+    const subject = rooted ?? commentSubjectOf(input, pageBox);
     const earlier = thread.flatMap((row) => {
       const by = row.metadata?.senderNodeId;
       // A far live overseer that posted on a task is told of what follows, as any earlier poster.
@@ -159,7 +269,10 @@ export const postSubjectComment = (
       makeUserMessage({ messageId, text, contextId: canvasName, metadata }),
       mail.sentBy,
     );
-    if (!row.ok) return yield* Effect.fail(runtimeDown(row.message));
+    if (!row.ok) {
+      if (shotOwner !== undefined) yield* releaseShot(shotOwner);
+      return yield* Effect.fail(runtimeDown(row.message));
+    }
     // The comment stands: on a task or an artifact it is a change of it, so panes read again and change triggers wake.
     if (input.subject.kind !== "page") noteResourceChanged(input.subject.kind, canvasName);
 
