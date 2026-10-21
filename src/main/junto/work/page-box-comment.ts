@@ -4,8 +4,10 @@
  * and main takes the shot and stages it under the operator's stage owner,
  * keyed by a shot id. The composer shows those bytes; posting names the id,
  * so the comment carries exactly the shot the operator saw (remote-security's
- * ask), claimed on the one comment path (subject-comment.ts). A shot not
- * posted is dropped. The renderer never sends bytes.
+ * ask), claimed on the one comment path (subject-comment.ts). A post
+ * refused before the shot was claimed (its words, a mention out of reach)
+ * keeps the shot staged for a retry; posted, discarded or lost, it is spent.
+ * The renderer never sends bytes.
  */
 import { Effect, Option } from "effect";
 import { ulid } from "ulid";
@@ -46,7 +48,7 @@ export type OperatorPageBoxCommented =
   | { readonly ok: true; readonly data: { readonly messageId: MailMessageId; readonly threadId: MailMessageId } }
   | Refused;
 
-type Staged = StagedPageShot & { readonly sessionId: string; readonly owner: ContentOwner };
+type Staged = StagedPageShot & { readonly sessionId: string; readonly owner: ContentOwner; posting: boolean };
 
 /** The most unposted shots held at once; the oldest goes first. */
 const STAGED_MAX = 8;
@@ -65,6 +67,26 @@ const take = (sessionId: string, shotId: string): Staged | undefined => {
   staged.delete(shotId);
   return held;
 };
+
+/** Whether the shot's own stage still holds its bytes: no claim took them. */
+const stillStaged = (shot: Staged): Effect.Effect<boolean> =>
+  Effect.serviceOption(ContentService).pipe(
+    Effect.flatMap((content) =>
+      Option.isNone(content)
+        ? Effect.succeed(false)
+        : content.value.listRefs(shot.ref.sha256).pipe(
+            Effect.map((rows) =>
+              rows.some(({ owner }) =>
+                owner.kind === shot.owner.kind &&
+                owner.canvasName === shot.owner.canvasName &&
+                owner.nodeId === shot.owner.nodeId &&
+                owner.recordId === shot.owner.recordId,
+              ),
+            ),
+            Effect.orElseSucceed(() => false),
+          ),
+    ),
+  );
 
 /** The page a session shows: its canvas and node. */
 const pageOf = (sessions: Pick<BrowserSessionService, "state">, sessionId: string) => {
@@ -118,6 +140,7 @@ export const startOperatorPageBox = (
       url: shot.url,
       scroll: shot.scroll,
       rect: shot.rect,
+      posting: false,
     });
     return {
       ok: true,
@@ -125,24 +148,29 @@ export const startOperatorPageBox = (
     };
   });
 
-/** Post the comment with exactly the staged shot; the staged shot is dropped either way. */
+/**
+ * Post the comment with exactly the staged shot. Posted, the shot is spent;
+ * refused before its claim, it stays staged for a retry.
+ */
 export const postOperatorPageBox = (
   sessions: Pick<BrowserSessionService, "state">,
   request: { readonly sessionId: string; readonly shotId: string; readonly text: string },
 ): Effect.Effect<OperatorPageBoxCommented, never, ModelService> =>
   Effect.gen(function* () {
-    const shot = take(request.sessionId, request.shotId);
-    if (shot === undefined) return refused("invalid", "That shot was already posted or dropped: draw the box again.");
+    const shot = staged.get(request.shotId);
+    if (shot === undefined || shot.sessionId !== request.sessionId) {
+      return refused("invalid", "That shot was already posted or dropped: draw the box again.");
+    }
+    if (shot.posting) return refused("invalid", "That comment is being posted.");
     const page = pageOf(sessions, request.sessionId);
     if (page === undefined) {
+      take(request.sessionId, request.shotId);
       yield* release(shot.owner);
       return refused("invalid", "That page is not open.");
     }
     const canvas = yield* Effect.flatMap(ModelService, (model) => model.canvas(page.canvasName)).pipe(Effect.result);
-    if (canvas._tag === "Failure") {
-      yield* release(shot.owner);
-      return refused("failed", "The canvas could not be read.");
-    }
+    if (canvas._tag === "Failure") return refused("failed", "The canvas could not be read.");
+    shot.posting = true;
     const posted = yield* Effect.result(
       postSubjectComment(
         {
@@ -155,8 +183,13 @@ export const postOperatorPageBox = (
         { canvas: canvas.success, canvasName: page.canvasName, people: [], pageShot: () => Effect.succeed(shot) },
       ),
     );
-    // A claimed shot moved to the comment; one not claimed lets go here.
-    yield* release(shot.owner);
+    shot.posting = false;
+    // Posted, the claim moved the shot to the comment. Refused with the shot
+    // still staged, it waits for a retry; otherwise it is spent.
+    if (posted._tag === "Success" || !(yield* stillStaged(shot))) {
+      take(request.sessionId, request.shotId);
+      yield* release(shot.owner);
+    }
     return posted._tag === "Failure"
       ? toldOf(posted.failure)
       : { ok: true, data: { messageId: posted.success.messageId, threadId: posted.success.threadId } };

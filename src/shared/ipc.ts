@@ -1479,7 +1479,10 @@ export interface JuntoBrowserApi {
    * no box. The renderer never sends bytes.
    */
   readonly browserBoxStart: (sessionId: string) => Promise<BrowserOpResult<BrowserBoxStarted>>;
-  /** Post the comment with exactly the staged shot; it is dropped either way. */
+  /**
+   * Post the comment with exactly the staged shot. Posted, the shot is spent;
+   * refused before it was claimed (the text, a mention), it stays for a retry.
+   */
   readonly browserBoxPost: (
     sessionId: string,
     shotId: string,

@@ -227,6 +227,19 @@ describe("the operator's box comment", () => {
     expect(await postDraft(draft.shotId)).toMatchObject({ ok: false, code: "invalid", message: expect.stringMatching(/already posted/) });
   });
 
+  it("keeps the shot for a retry when the post is refused before its claim", async () => {
+    const started = await start();
+    if (!started.ok || started.data.kind !== "drawn") throw new Error("not drawn");
+    const { shotId } = started.data.draft;
+    const send = (text: string) => runtime.runPromise(postOperatorPageBox(sessions("https://example.com/"), { sessionId: "s1", shotId, text }));
+    expect(await send("   ")).toMatchObject({ ok: false, code: "invalid" });
+    expect(await rows()).toEqual([]);
+    const posted = await send("fixed words");
+    if (!posted.ok) throw new Error(posted.message);
+    expect(await rows()).toHaveLength(1);
+    expect(await send("again")).toMatchObject({ ok: false, message: expect.stringMatching(/already posted/) });
+  });
+
   it("drops a shot that is discarded, and ends with no box on Escape", async () => {
     const started = await start();
     if (!started.ok || started.data.kind !== "drawn") throw new Error("not drawn");
