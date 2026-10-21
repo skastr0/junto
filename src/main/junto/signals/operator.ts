@@ -14,6 +14,7 @@ import { operatorActorRef } from "@shared/work-reference";
 import { claimOperatorAttachments, operatorMailOwner } from "../content/operator-attachments";
 import { ContentService } from "../content/service";
 import { WorkService } from "../work/service";
+import { planAnswerCopies, sendAnswerCopies } from "./answer-mentions";
 import { releaseSignalAttachments } from "./attachments";
 import { AgentSignalRepository } from "./repository";
 
@@ -56,6 +57,9 @@ export const answerAgentSignal = (
     if (current._tag === "Failure") return refused(repositoryMessage(current.failure));
     const signal = current.success;
     if (signal.state !== "open") return refused(`this signal is already ${signal.state}`);
+    // Seats the answer copies, judged before anything is written. A quiet answer mails no one.
+    const copies = silent ? { ok: true as const, seats: [], seatName: undefined } : yield* planAnswerCopies(signal, typed);
+    if (!copies.ok) return refused(copies.message);
 
     // The mail's id names where its files are held, mailed or not.
     const id = ulid();
@@ -105,6 +109,7 @@ export const answerAgentSignal = (
         return refused(appended.message);
       }
       messageId = appended.data.messageId;
+      yield* sendAnswerCopies(signal, copies.seatName ?? signal.nodeId, text, messageId, copies.seats);
     }
 
     const answered = yield* Effect.result(signals.answer(signalId, text, refs));
