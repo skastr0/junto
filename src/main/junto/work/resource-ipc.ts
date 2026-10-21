@@ -243,6 +243,8 @@ export const applyArtifact = (
     // The operator writes no automation, so no automation author is known.
     const outcome = yield* ports.artifacts.submit(command, rulingContextOf(canvas, () => undefined));
     if (outcome.kind === "refused") return { kind: "refused" as const, opId, error: outcome.error };
+    // Queued for the machine that edits the canvas: `junto op show` reads what became of it.
+    if (outcome.kind === "queued") return { kind: "queued" as const, opId };
     return { kind: "applied" as const, opId, facts: outcome.facts };
   }).pipe(Effect.catch((error: WorkErrorBody) => Effect.succeed({ kind: "refused" as const, opId, error })));
 

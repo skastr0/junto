@@ -46,6 +46,9 @@ import type { SubjectCommentInput, SubjectCommented } from "@shared/subject-comm
 import { subjectAnchorOf } from "@shared/thread-subject";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { ItemId, OpId } from "@shared/work-ids";
+import { ArtifactFact } from "@shared/artifact-domain";
+import type { QueuedCommand } from "@shared/command-row";
+import { ResourceSubmit } from "./resource-submit";
 import type {
   ArtifactHeadRead,
   ArtifactListQuery,
@@ -76,7 +79,8 @@ export type ArtifactPorts = {
     artifactId: ItemId,
     page: { readonly limit: number; readonly before?: ArtifactVersion },
   ) => Effect.Effect<{ readonly versions: ReadonlyArray<ArtifactVersionRead>; readonly more: boolean }, WorkErrorBody>;
-  readonly submit: (command: ResourceCommand<ArtifactOp>, context: RulingContext) => Effect.Effect<ArtifactSubmitOutcome, WorkErrorBody>;
+  /** Rule a command here when this machine edits the canvas; otherwise queue it for the machine that does. */
+  readonly submit: (command: ResourceCommand<ArtifactOp>, context: RulingContext) => Effect.Effect<ArtifactWriteOutcome, WorkErrorBody>;
   /** Post a comment on a resource: the one write path for comments (03). */
   readonly comment: (input: SubjectCommentInput, context: SubjectCommentContext) => Effect.Effect<SubjectCommented, WorkErrorBody>;
   /** The task node a task sits on, when the task exists. */
@@ -107,6 +111,49 @@ const notBuilt: WorkErrorBody = {
   details: { reason: "not_available", retryable: false },
 };
 
+/** What an artifact write came to: ruled here or there, or queued for the editing machine (02). */
+export type ArtifactWriteOutcome = ArtifactSubmitOutcome | { readonly kind: "queued"; readonly opId: OpId };
+
+const decodeArtifactFacts = Schema.decodeUnknownResult(Schema.Array(ArtifactFact), { onExcessProperty: "error" });
+
+/**
+ * A command queued for the editing machine, as the seat's write answers it.
+ * An applied ruling that came back was folded here before it was read, so the
+ * head this machine holds is the version it made.
+ */
+const queuedOutcome = (
+  repo: ArtifactRepository["Service"],
+  submit: ResourceSubmit["Service"],
+  command: ResourceCommand<ArtifactOp>,
+  editor: Parameters<ResourceSubmit["Service"]["queue"]>[1],
+): Effect.Effect<ArtifactWriteOutcome, WorkErrorBody> =>
+  Effect.flatMap(
+    // The wire form of an artifact op is the op itself.
+    submit.queue(command as QueuedCommand, editor),
+    (outcome): Effect.Effect<ArtifactWriteOutcome, WorkErrorBody> => {
+      switch (outcome.kind) {
+        case "queued":
+          return Effect.succeed({ kind: "queued", opId: command.opId });
+        case "refused":
+          return Effect.succeed({ kind: "refused", opId: command.opId, error: outcome.error, root: outcome.root });
+        case "applied": {
+          const facts = decodeArtifactFacts(outcome.ruling.facts);
+          const artifactId = command.target.itemId;
+          if (Result.isFailure(facts) || artifactId === undefined) {
+            return Effect.fail(storeError({ message: `the ruling of ${command.opId} names no artifact this build reads` }));
+          }
+          return repo.head(command.canvasName, artifactId).pipe(
+            Effect.mapError(storeError),
+            Effect.flatMap((head) =>
+              Option.isNone(head)
+                ? Effect.fail(storeError({ message: `the artifact ruled by ${command.opId} is not held here` }))
+                : Effect.succeed({ kind: "applied" as const, opId: command.opId, artifactId, version: head.value.artifact.version, facts: facts.success })),
+          );
+        }
+      }
+    },
+  );
+
 /** Every port through the ArtifactRepository in the running core. */
 export const liveArtifactPorts: ArtifactPorts = (() => {
   const withRepo = <A>(use: (repo: ArtifactRepository["Service"]) => Effect.Effect<A, { readonly message: string }>) =>
@@ -122,6 +169,11 @@ export const liveArtifactPorts: ArtifactPorts = (() => {
     submit: (command, context) =>
       withRepo((repo) =>
         Effect.gen(function* () {
+          const remote = yield* Effect.serviceOption(ResourceSubmit);
+          if (Option.isSome(remote)) {
+            const route = yield* remote.value.route(command.canvasName).pipe(Effect.mapError((error) => ({ message: error.message })));
+            if (route.kind === "editor") return yield* queuedOutcome(repo, remote.value, command, route.editor).pipe(Effect.mapError((error) => ({ message: error.message })));
+          }
           const writer = yield* repo.localWriter();
           if (Option.isNone(writer)) return yield* Effect.fail({ message: "this machine has no installation id yet" });
           return yield* repo.submit(writer.value, command, context);
@@ -375,13 +427,23 @@ const checkTasks = (
     ), { discard: true });
 
 /** An applied ruling as the CLI's result; a refusal as its error, carrying the opId. */
-export const writeResult = (outcome: ArtifactSubmitOutcome): Effect.Effect<ArtifactWriteResult, WorkErrorBody> =>
-  outcome.kind === "applied"
-    ? Effect.succeed({ disposition: "applied", opId: outcome.opId, artifactId: outcome.artifactId, version: outcome.version })
-    : Effect.fail({ ...outcome.error, details: { ...outcome.error.details, opId: outcome.opId } });
+export const writeResult = (
+  outcome: ArtifactWriteOutcome,
+  written: Pick<ResourceCommand<ArtifactOp>, "target">,
+): Effect.Effect<ArtifactWriteResult, WorkErrorBody> => {
+  switch (outcome.kind) {
+    case "applied":
+      return Effect.succeed({ disposition: "applied", opId: outcome.opId, artifactId: outcome.artifactId, version: outcome.version });
+    case "refused":
+      return Effect.fail({ ...outcome.error, details: { ...outcome.error.details, opId: outcome.opId } });
+    // Durable and will be ruled: a success. `junto op show` reads what became of it.
+    case "queued":
+      return Effect.succeed({ disposition: "queued", opId: outcome.opId, artifactId: written.target.itemId! });
+  }
+};
 
 const submit = (caller: ArtifactCaller, ports: ArtifactPorts, write: ResourceCommand<ArtifactOp>) =>
-  Effect.flatMap(ports.submit(write, rulingContext(caller)), writeResult);
+  Effect.flatMap(ports.submit(write, rulingContext(caller)), (outcome) => writeResult(outcome, write));
 
 /** One artifact verb, for a seat the work socket admitted. */
 export const handleArtifactOp = (
