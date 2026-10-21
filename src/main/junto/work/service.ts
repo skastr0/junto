@@ -902,16 +902,26 @@ export const WorkLive = Layer.effect(
                     message: copy,
                     sentBy,
                     destination: { kind: "mailbox" },
-                  }),
+                  }).pipe(
+                    Effect.map((appended) => ({ value: appended.value as typeof appended.value | undefined })),
+                    Effect.catchIf(
+                      (error): error is WorkAuthorityError =>
+                        error instanceof WorkAuthorityError && error.reason === "identity-conflict",
+                      () => Effect.succeed({ value: undefined }),
+                    ),
+                  ),
                 );
-                if (delivered.disposition === "applied") {
+                if (delivered.disposition === "applied" && delivered.value !== undefined) {
                   messageDelivery.notifyAppended(
                     canvas,
                     ownerRef.nodeId,
                     delivered.value,
                   );
                 }
-              }).pipe(Effect.catch(() => Effect.succeed(undefined)));
+                // The comment stands: a notice already written is identity-conflict,
+                // above; any other failure to tell the owner is logged, never dropped.
+              }).pipe(Effect.catch((error) =>
+                Effect.logWarning("task comment owner notice not written", { canvas, nodeId, taskId, comment: message.messageId, error: String(error) })));
             }
             return yield* complete(outcome);
           }),
