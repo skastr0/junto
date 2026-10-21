@@ -55,6 +55,7 @@ import {
   emptyRuled,
   overlay,
   type PendingEntry,
+  precheck,
   rule,
 } from "@shared/resource-command";
 import { canonicalJson } from "@shared/work-canonical-json";
@@ -157,6 +158,18 @@ export class ArtifactRepository extends Context.Service<ArtifactRepository,
       command: ResourceCommand<ArtifactOp>,
       context: RulingContext,
     ) => Effect.Effect<ArtifactSubmitOutcome, ArtifactPersistenceError>;
+    /**
+     * The writer's check of a command it is about to queue for the editing
+     * machine, over the ruled artifacts held here and its own unruled
+     * `queued` commands (`precheck`): the refusal when it is definite, else
+     * none. Reads only: no ruling, no row, no notice.
+     */
+    readonly precheck: (
+      writer: InstallationId,
+      queued: ReadonlyArray<ResourceCommand<ArtifactOp>>,
+      command: ResourceCommand<ArtifactOp>,
+      context: RulingContext,
+    ) => Effect.Effect<Option.Option<Extract<ArtifactSubmitOutcome, { readonly kind: "refused" }>>, ArtifactPersistenceError>;
   }>()("@junto/ArtifactRepository") {}
 
 const HeadRow = Schema.Struct({
@@ -655,6 +668,27 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
       }).pending;
     }, Effect.mapError(persistence("overlay")));
 
-    return ArtifactRepository.of({ list, head, body, history, localWriter, submit, overlay: overlayOf });
+    const precheckOf = Effect.fn("artifacts.precheck")(function* (
+      writer: InstallationId,
+      queued: ReadonlyArray<ResourceCommand<ArtifactOp>>,
+      command: ResourceCommand<ArtifactOp>,
+      context: RulingContext,
+    ) {
+      const canvas = command.canvasName;
+      const commands = [...queued, command];
+      const entries = new Map<ItemId, ArtifactEntry>();
+      for (const id of new Set(commands.flatMap(({ target }) => (target.itemId === undefined ? [] : [target.itemId])))) {
+        const entry = yield* readEntry(canvas, id);
+        if (Option.isSome(entry)) entries.set(id, entry.value);
+      }
+      const rulings = new Map<CommandKey, ResourceRuling<ArtifactFact>>();
+      for (const each of commands) {
+        for (const [key, ruling] of yield* priorRulings(canvas, writer, each)) rulings.set(key, ruling);
+      }
+      const domain = artifactDomain({ now: Date.now, bodyRef: artifactBodyRef });
+      return Option.fromNullishOr(precheck(domain, { state: entries, rulings }, writer, queued, command, context));
+    }, Effect.mapError(persistence("precheck")));
+
+    return ArtifactRepository.of({ list, head, body, history, localWriter, submit, overlay: overlayOf, precheck: precheckOf });
   }),
 );

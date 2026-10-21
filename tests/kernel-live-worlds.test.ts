@@ -49,6 +49,8 @@ it("holds the model's canvases and follows their tasks", async () => {
       },
       get: () => Effect.succeed(Option.none()),
       submit: () => Effect.die(new Error("the kernel rules no task")),
+      precheck: () => Effect.succeed(Option.none()),
+      overlay: () => Effect.succeed([]),
     }),
   );
   const stubsLive = Layer.mergeAll(

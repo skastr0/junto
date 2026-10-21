@@ -57,6 +57,7 @@ import { operatorActorRef } from "@shared/work-reference";
 import type { QueuedCommand } from "@shared/command-row";
 import { decodeTaskFacts } from "@shared/task-fact-wire";
 import { ResourceSubmit } from "./resource-submit";
+import { localQueue, queuedTaskCommands } from "./queued-commands";
 import { MachineRepository } from "../machines/repository";
 import { productDisabledError } from "./authz";
 import { linkMentionsAt } from "./mention-links";
@@ -159,6 +160,19 @@ const queuedOutcome = (
     },
   );
 
+/**
+ * A command this machine would queue, refused at once when the ruled tasks
+ * held here and this writer's queue already refuse it for good (`precheck`).
+ * Answered to the caller only: no row, no ruling, no notice.
+ */
+const precheckTask = (command: ResourceCommand<TaskCommand>, context: RulingContext, env: TaskCanvasEnv) =>
+  Effect.gen(function* () {
+    const repo = yield* Effect.serviceOption(TaskRepository);
+    const queue = yield* localQueue(command.canvasName);
+    if (Option.isNone(repo) || queue === undefined) return Option.none();
+    return yield* repo.value.precheck(queue.writer, queuedTaskCommands(queue.commands), command, context, env).pipe(Effect.mapError(storeError));
+  });
+
 /** Every port through the TaskRepository in the running core. */
 export const liveTaskPorts: TaskPorts = (() => {
   const withRepo = <A>(use: (repo: TaskRepository["Service"]) => Effect.Effect<A, { readonly message: string }>) =>
@@ -189,7 +203,10 @@ export const liveTaskPorts: TaskPorts = (() => {
       Effect.gen(function* () {
         const remote = yield* Effect.serviceOption(ResourceSubmit);
         const route = Option.isNone(remote) ? ({ kind: "here" } as const) : yield* remote.value.route(command.canvasName);
-        if (Option.isSome(remote) && route.kind === "editor") return yield* queuedOutcome(remote.value, command, route.editor);
+        if (Option.isSome(remote) && route.kind === "editor") {
+          const refused = yield* precheckTask(command, context, env);
+          return Option.isSome(refused) ? refused.value : yield* queuedOutcome(remote.value, command, route.editor);
+        }
         const machines = yield* Effect.serviceOption(MachineRepository);
         if (Option.isNone(machines)) return yield* Effect.fail(notBuilt("this machine's installation id"));
         return yield* withRepo((repo) =>

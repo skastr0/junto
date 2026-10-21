@@ -170,12 +170,17 @@ export type DomainVerdict<Fact> =
  * `reachExempt` may read only state that ruled facts made: the overlay replays
  * every seat's unruled commands, so an exemption that read another seat's
  * pending change would tell a caller about writes outside its reach.
+ * `definite` says a refusal `rule` gave on some ruled state holds on every
+ * state the editing machine can have ruled since: nothing a later ruling makes
+ * could admit the command. Opt-in: absent, no refusal is definite, so a write
+ * on a machine that does not edit the canvas is queued (`precheck`).
  */
 export type ResourceDomain<State, Op, Fact> = {
   readonly kind: ResourceKind;
   readonly rule: (state: State, command: ResourceCommand<Op>) => DomainVerdict<Fact>;
   readonly apply: (state: State, fact: Fact) => State;
   readonly reachExempt?: (state: State, command: ResourceCommand<Op>) => boolean;
+  readonly definite?: (refusal: Refusal, command: ResourceCommand<Op>) => boolean;
 };
 
 export type RulingContext = {
@@ -233,14 +238,7 @@ const ruleWithReachOn = <State, Op, Fact>(
   });
   for (const earlier of command.after) {
     const dependency = ruled.rulings.get(commandKey(writer, earlier));
-    if (dependency?.kind === "refused") {
-      const refusal: Refusal = {
-        reason: "depends_on_refused",
-        message: `This builds on ${earlier}, which was refused`,
-        next_step: `Read the refusal of ${dependency.root} with junto op show ${dependency.root}`,
-      };
-      return record({ kind: "refused", opId: command.opId, error: refusalError(refusal, dependency.root), root: dependency.root }, ruled.state);
-    }
+    if (dependency?.kind === "refused") return record(dependsOnRefused(command.opId, earlier, dependency.root), ruled.state);
   }
   const admitted = context.inReach(command.actor, command.target) || domain.reachExempt?.(reachState, command) === true;
   const verdict: DomainVerdict<Fact> = admitted
@@ -250,6 +248,64 @@ const ruleWithReachOn = <State, Op, Fact>(
     return record({ kind: "refused", opId: command.opId, error: refusalError(verdict.refusal), root: command.opId }, ruled.state);
   }
   return record({ kind: "applied", opId: command.opId, facts: verdict.facts }, verdict.facts.reduce(domain.apply, ruled.state));
+};
+
+type Refused = Extract<ResourceRuling<never>, { readonly kind: "refused" }>;
+
+/** The refusal of a command whose `after` reaches `earlier`, refused with `root`. */
+const dependsOnRefused = (opId: OpId, earlier: OpId, root: OpId): Refused => {
+  const refusal: Refusal = {
+    reason: "depends_on_refused",
+    message: `This builds on ${earlier}, which was refused`,
+    next_step: `Read the refusal of ${root} with junto op show ${root}`,
+  };
+  return { kind: "refused", opId, error: refusalError(refusal, root), root };
+};
+
+/**
+ * The writing machine's check of a command it is about to queue for the
+ * editing machine: the refusal it already has, when that refusal is definite,
+ * else undefined and the command is queued. Reads only; it writes no ruling.
+ *
+ * The command is ruled on the last ruled state, never the overlay's preview:
+ * a refusal met only on top of an unruled command could be ruled otherwise
+ * once that command is, so it is not definite. The writer's unruled `queued`
+ * commands count through `after`: one that builds on a refused ruling, or on
+ * a queued command this check finds definitely refused, is refused
+ * `depends_on_refused` with that root. Reach is judged as the ruler judges
+ * it; a command out of reach here is queued, since reach can grow.
+ */
+export const precheck = <State, Op, Fact>(
+  domain: ResourceDomain<State, Op, Fact>,
+  ruled: Ruled<State, Fact>,
+  writer: InstallationId,
+  queued: ReadonlyArray<ResourceCommand<Op>>,
+  command: ResourceCommand<Op>,
+  context: RulingContext,
+): Refused | undefined => {
+  const refused = new Map<OpId, Refused>();
+  const check = (next: ResourceCommand<Op>): Refused | undefined => {
+    for (const earlier of next.after) {
+      const dependency = ruled.rulings.get(commandKey(writer, earlier));
+      if (dependency?.kind === "refused") return dependsOnRefused(next.opId, earlier, dependency.root);
+      const root = refused.get(earlier)?.root;
+      if (root !== undefined) return dependsOnRefused(next.opId, earlier, root);
+    }
+    if (domain.definite === undefined) return undefined;
+    if (!context.inReach(next.actor, next.target) && domain.reachExempt?.(ruled.state, next) !== true) return undefined;
+    const verdict = domain.rule(ruled.state, next);
+    return verdict.kind === "refuse" && domain.definite(verdict.refusal, next)
+      ? { kind: "refused", opId: next.opId, error: refusalError(verdict.refusal), root: next.opId }
+      : undefined;
+  };
+  // A resend of a command already ruled or queued is answered by the queue, as before.
+  if (ruled.rulings.has(commandKey(writer, command.opId)) || queued.some(({ opId }) => opId === command.opId)) return undefined;
+  for (const earlier of queued) {
+    if (ruled.rulings.has(commandKey(writer, earlier.opId))) continue;
+    const found = check(earlier);
+    if (found !== undefined) refused.set(earlier.opId, found);
+  }
+  return check(command);
 };
 
 /** The earlier pending commands a new command builds on: those of this writer that touch the same item, or the same node when it names no item. */

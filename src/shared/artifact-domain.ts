@@ -147,6 +147,12 @@ export const artifactDomain = (deps: {
   kind: "artifact",
   rule: (state, command) => ruleArtifactCommand(state, command, deps.now(), deps.bodyRef),
   apply: applyArtifactFact,
+  // No later ruling lifts a create's refusal: its body is its own, and no
+  // ruling removes an artifact that exists. Nor a target of the wrong shape.
+  // An edit's refusal reads the head, which later rulings move; archived is
+  // left by restore.
+  definite: (refusal, { target, op }) =>
+    refusal.reason === "invalid_input" && (target.kind !== "artifact" || target.itemId === undefined || op.op === "create"),
 });
 
 export const ruleArtifactCommand = (

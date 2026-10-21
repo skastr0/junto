@@ -8,5 +8,7 @@ export const NoTasksLive = Layer.succeed(
     list: () => Effect.succeed({ tasks: [], more: false }),
     get: () => Effect.succeed(Option.none()),
     submit: () => Effect.die(new Error("NoTasksLive rules no task")),
+    precheck: () => Effect.succeed(Option.none()),
+    overlay: () => Effect.succeed([]),
   }),
 );

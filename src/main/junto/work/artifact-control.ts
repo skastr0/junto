@@ -51,6 +51,7 @@ import { operatorActorRef } from "@shared/work-reference";
 import { ArtifactFact } from "@shared/artifact-domain";
 import type { QueuedCommand } from "@shared/command-row";
 import { ResourceSubmit } from "./resource-submit";
+import { localQueue, queuedArtifactCommands } from "./queued-commands";
 import type {
   ArtifactHeadRead,
   ArtifactListQuery,
@@ -182,7 +183,15 @@ export const liveArtifactPorts: ArtifactPorts = (() => {
           const remote = yield* Effect.serviceOption(ResourceSubmit);
           if (Option.isSome(remote)) {
             const route = yield* remote.value.route(command.canvasName).pipe(Effect.mapError((error) => ({ message: error.message })));
-            if (route.kind === "editor") return yield* queuedOutcome(repo, remote.value, command, route.editor).pipe(Effect.mapError((error) => ({ message: error.message })));
+            if (route.kind === "editor") {
+              // Refused at once when the ruled artifacts held here and this writer's queue already refuse it for good: answered to the caller only.
+              const queue = yield* localQueue(command.canvasName);
+              const refused = queue === undefined
+                ? Option.none()
+                : yield* repo.precheck(queue.writer, queuedArtifactCommands(queue.commands), command, context);
+              if (Option.isSome(refused)) return refused.value;
+              return yield* queuedOutcome(repo, remote.value, command, route.editor).pipe(Effect.mapError((error) => ({ message: error.message })));
+            }
           }
           const writer = yield* repo.localWriter();
           if (Option.isNone(writer)) return yield* Effect.fail({ message: "this machine has no installation id yet" });

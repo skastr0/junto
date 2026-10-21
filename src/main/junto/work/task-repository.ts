@@ -19,10 +19,14 @@ import type { InstallationId } from "@shared/installation-id";
 import type { NodeId } from "@shared/physics/schema";
 import {
   type CommandKey,
+  type PendingEntry,
   type ResourceCommand,
   type ResourceRuling,
   type RulingContext,
   commandKey,
+  emptyRuled,
+  overlay,
+  precheck,
   rule,
 } from "@shared/resource-command";
 import {
@@ -105,6 +109,27 @@ export class TaskRepository extends Context.Service<TaskRepository,
       context: RulingContext,
       env: TaskCanvasEnv,
     ) => Effect.Effect<TaskSubmitOutcome, TaskPersistenceError>;
+    /**
+     * The writer's check of a command it is about to queue for the editing
+     * machine, over the ruled tasks held here and its own unruled `queued`
+     * commands (`precheck`): the refusal when it is definite, else none.
+     * Reads only: no ruling, no row, no notice.
+     */
+    readonly precheck: (
+      writer: InstallationId,
+      queued: ReadonlyArray<ResourceCommand<TaskCommand>>,
+      command: ResourceCommand<TaskCommand>,
+      context: RulingContext,
+      env: TaskCanvasEnv,
+    ) => Effect.Effect<Option.Option<Extract<TaskSubmitOutcome, { readonly kind: "refused" }>>, TaskPersistenceError>;
+    /** What this machine reads of its queued commands over the ruled tasks held here (`overlay`, read-your-writes 02). */
+    readonly overlay: (
+      canvasName: string,
+      writer: InstallationId,
+      queued: ReadonlyArray<ResourceCommand<TaskCommand>>,
+      context: RulingContext,
+      env: TaskCanvasEnv,
+    ) => Effect.Effect<ReadonlyArray<PendingEntry>, TaskPersistenceError>;
   }>()("@junto/TaskRepository") {}
 
 // ── rows ───────────────────────────────────────────────────────────────────
@@ -537,6 +562,33 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
       return outcome;
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "tasks.submit"), Effect.mapError(persistence("submit")));
 
-    return TaskRepository.of({ list, get, submit });
+    const precheckOf = Effect.fn("tasks.precheck")(function* (
+      writer: InstallationId,
+      queued: ReadonlyArray<ResourceCommand<TaskCommand>>,
+      command: ResourceCommand<TaskCommand>,
+      context: RulingContext,
+      env: TaskCanvasEnv,
+    ) {
+      const canvas = command.canvasName;
+      const state = yield* readBoard(canvas);
+      const rulings = new Map<CommandKey, ResourceRuling<TaskFact>>();
+      for (const each of [...queued, command]) {
+        for (const [key, ruling] of yield* priorRulings(canvas, writer, each)) rulings.set(key, ruling);
+      }
+      return Option.fromNullishOr(precheck(taskDomain({ ...env, at: Date.now() }), { state, rulings }, writer, queued, command, context));
+    }, Effect.mapError(persistence("precheck")));
+
+    const overlayOf = Effect.fn("tasks.overlay")(function* (
+      canvasName: string,
+      writer: InstallationId,
+      queued: ReadonlyArray<ResourceCommand<TaskCommand>>,
+      context: RulingContext,
+      env: TaskCanvasEnv,
+    ) {
+      const state = yield* readBoard(canvasName);
+      return overlay(taskDomain({ ...env, at: Date.now() }), emptyRuled<TaskBoardState, TaskFact>(state), writer, queued, context).pending;
+    }, Effect.mapError(persistence("overlay")));
+
+    return TaskRepository.of({ list, get, submit, precheck: precheckOf, overlay: overlayOf });
   }),
 );

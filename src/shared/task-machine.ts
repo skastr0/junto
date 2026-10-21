@@ -693,6 +693,46 @@ const targetOf = (command: ResourceCommand<TaskCommand>): { readonly node: TaskN
 };
 
 /**
+ * Whether no later ruling can lift a task refusal (`ResourceDomain.definite`).
+ * A closed state is never left for an open one: done and canceled move only
+ * to archived, archived to nothing, and every command refused on done or
+ * canceled is refused on archived too, so an invalid transition from any
+ * closed state stands. No ruling removes a task, so one that exists stays.
+ * The rest refuse the command's own shape. Every other refusal reads state a
+ * later ruling may change: assignee, reach, flows, rules, checks, dependencies.
+ */
+const isDefiniteTaskRefusal = (detail: TaskRefusalDetail): boolean => {
+  switch (detail.kind) {
+    case "illegal-transition":
+      return isClosedTaskState(detail.from);
+    case "task-exists":
+    case "invalid-policy":
+    case "cannot-review":
+    case "target-mismatch":
+      return true;
+    case "not-assignee":
+    case "already-assigned":
+    case "seat-busy":
+    case "not-reviewer":
+    case "own-task":
+    case "stale-epoch":
+    case "next-required":
+    case "next-not-downstream":
+    case "dependency-cycle":
+    case "unknown-task":
+    case "wrong-node":
+    case "not-in-reach":
+    case "rules-unmet":
+    case "checks-unmet":
+    case "deps-unmet":
+      return false;
+  }
+};
+
+const isTaskRefusalDetail = (expected: unknown): expected is TaskRefusalDetail =>
+  typeof expected === "object" && expected !== null && typeof (expected as { readonly kind?: unknown }).kind === "string";
+
+/**
  * The task domain for `resource-command.ts`'s ruler. Built per ruling with
  * the canvas and clock it is ruled against; the writing machine builds the
  * same one for its overlay.
@@ -724,6 +764,8 @@ export const taskDomain = (env: TaskDomainEnv): ResourceDomain<TaskBoardState, T
     const task = target === undefined ? undefined : state.tasks.get(target.taskId);
     return task !== undefined && reachExempt(task, taskActorOf(command.actor), command.op);
   },
+  // `unknown_target` from a command naming no task carries no detail: never definite.
+  definite: (refusal) => isTaskRefusalDetail(refusal.expected) && isDefiniteTaskRefusal(refusal.expected),
 });
 
 /** How a task reads in a message: its number when it has one. */
