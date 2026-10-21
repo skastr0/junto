@@ -4,6 +4,7 @@
  * layer read.
  */
 import { ageLabel } from "../artifacts/artifacts-pane-model";
+import type { TaskPendingWrite } from "@shared/resource-ipc";
 import type { TaskContext } from "@shared/task-machine";
 import {
   formatTaskNumber,
@@ -12,6 +13,8 @@ import {
   type SeatNodeId,
   type StampPolicy,
   type TaskNodeId,
+  type TaskCommandWire,
+  type TaskId,
   type TaskState,
   type TaskView,
 } from "@shared/task-model";
@@ -157,3 +160,61 @@ export const agoLabel = (at: number, now: number): string => {
   if (label === "now") return "just now";
   return /^\d+[mhd]$/.test(label) ? `${label} ago` : `on ${label}`;
 };
+
+/** A write this machine has queued, said as the act it will be when ruled. Exhaustive over the wire. */
+export const queuedWords = (command: TaskCommandWire, nameOf: (id: string) => string): string => {
+  switch (command.kind) {
+    case "create":
+      return `Create "${command.title}"`;
+    case "edit":
+      return "Edit title or details";
+    case "assign":
+      return `Assign to ${nameOf(command.seat)}`;
+    case "unassign":
+      return "Unassign";
+    case "start":
+      return "Start";
+    case "pause":
+      return "Pause";
+    case "resume":
+      return "Resume";
+    case "finish":
+      return command.next === undefined ? "Finish" : `Finish, send on to ${nameOf(command.next)}`;
+    case "cancel":
+      return "Cancel";
+    case "archive":
+      return "Archive";
+    case "depend":
+      return "Add a dependency";
+    case "undepend":
+      return "Remove a dependency";
+    case "reviewer-add":
+      return `Add reviewer ${command.reviewer.kind === "operator" ? "you" : nameOf(command.reviewer.seat)}`;
+    case "reviewer-remove":
+      return `Remove reviewer ${command.reviewer.kind === "operator" ? "you" : nameOf(command.reviewer.seat)}`;
+    case "stamp-policy":
+      return `Require ${command.required} ${command.required === 1 ? "approval" : "approvals"}`;
+    case "stamp":
+      return command.verdict === "approve" ? "Approve" : "Ask for changes";
+  }
+};
+
+/** The queued writes of each task, in queue order. */
+export const pendingByTask = (writes: ReadonlyArray<TaskPendingWrite>): ReadonlyMap<TaskId, ReadonlyArray<TaskPendingWrite>> => {
+  const by = new Map<TaskId, TaskPendingWrite[]>();
+  for (const write of writes) by.set(write.taskId, [...(by.get(write.taskId) ?? []), write]);
+  return by;
+};
+
+export type QueuedCreate = { readonly taskId: TaskId; readonly title: string };
+
+/** Tasks whose create is queued and which the list does not hold yet: shown, dashed, where they will land. */
+export const queuedCreates = (
+  tasks: ReadonlyArray<TaskView>,
+  writes: ReadonlyArray<TaskPendingWrite>,
+): ReadonlyArray<QueuedCreate> =>
+  writes.flatMap((write) =>
+    write.command.kind === "create" && !tasks.some((view) => view.taskId === write.taskId)
+      ? [{ taskId: write.taskId, title: write.command.title }]
+      : [],
+  );

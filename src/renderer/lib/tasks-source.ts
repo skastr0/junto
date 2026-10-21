@@ -21,7 +21,7 @@ import {
   type TaskRecord,
 } from "@shared/task-machine";
 import { mintOpId } from "@shared/resource-command";
-import { taskEnvOf, taskRefusalOf, type TaskResourceApi } from "@shared/resource-ipc";
+import { taskEnvOf, taskRefusalOf, type TaskPendingWrite, type TaskResourceApi } from "@shared/resource-ipc";
 import type {
   ClosedTaskLayer,
   TaskActor,
@@ -61,6 +61,8 @@ export interface TasksSource {
     taskId: TaskId,
     command: TaskCommand,
   ) => Promise<TaskRuling>;
+  /** This machine's writes to the node's tasks that have no ruling yet, in queue order. */
+  readonly pending: (canvasName: string, node: TaskNodeId) => Promise<ReadonlyArray<TaskPendingWrite>>;
   /** The canvas's facts the ruler is asked in, to check a command before it is sent. */
   readonly facts: (canvasName: string) => Promise<TaskFacts>;
   /** Called after any change; returns the unsubscribe. */
@@ -140,6 +142,7 @@ export const makeLocalTasksSource = (
       for (const listener of listeners) listener();
       return { ok: true };
     },
+    pending: async () => [],
     facts: async () => env,
     subscribe: (listener) => {
       listeners.add(listener);
@@ -175,6 +178,7 @@ export const makeIpcTasksSource = (api: TaskResourceApi): TasksSource => ({
       }
     }
   },
+  pending: (canvasName, node) => api.pending(canvasName, node),
   facts: async (canvasName) => taskEnvOf(await api.context(canvasName)),
   subscribe: (listener) => api.onChanged(() => listener()),
 });
@@ -226,6 +230,10 @@ const NO_FACTS: TaskFacts = {
 /** The canvas's ruling facts; nothing is reachable until they are read. */
 export const useTaskFacts = (canvasName: string): TaskFacts =>
   useSourced(() => tasksSource().facts(canvasName), NO_FACTS, canvasName);
+
+/** This machine's unruled writes to the node's tasks, kept fresh. */
+export const useNodePending = (canvasName: string, node: TaskNodeId): ReadonlyArray<TaskPendingWrite> =>
+  useSourced(() => tasksSource().pending(canvasName, node), NONE, `${canvasName}\u0000${node}`);
 
 export const useCanvasTasks = (canvasName: string): ReadonlyArray<TaskView> =>
   useSourced(() => tasksSource().all(canvasName), NONE, canvasName);

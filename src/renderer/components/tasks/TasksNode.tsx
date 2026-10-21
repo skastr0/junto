@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Search, Settings2 } from "lucide-react";
 import { mintItemId } from "@shared/resource-command";
+import type { TaskPendingWrite } from "@shared/resource-ipc";
 import type { TaskCommand, TaskId, TaskNodeId, TaskView } from "@shared/task-model";
-import { tasksSource, useCanvasTasks, useNodeTasks, useTaskFacts } from "../../lib/tasks-source";
+import { tasksSource, useCanvasTasks, useNodePending, useNodeTasks, useTaskFacts } from "../../lib/tasks-source";
 import { type SeatChoice } from "../../lib/task-ui";
 import { claimFocusOnMount, releaseFocus } from "../../lib/focus-ownership";
 import { FocusSurface } from "../FocusSurface";
@@ -29,6 +30,9 @@ import {
   numberLabel,
   numberOfTask,
   openCount,
+  pendingByTask,
+  queuedCreates,
+  queuedWords,
   taskContextFor,
   visibleTasks,
   type StateFilter,
@@ -72,6 +76,9 @@ export function TasksNode({
   const tasks = useNodeTasks(canvasName, node);
   const all = useCanvasTasks(canvasName);
   const facts = useTaskFacts(canvasName);
+  const writes = useNodePending(canvasName, node);
+  const queued = useMemo(() => pendingByTask(writes), [writes]);
+  const queuedNew = useMemo(() => queuedCreates(tasks, writes), [tasks, writes]);
   const [selectedId, setSelectedId] = useState<string | null>(initialTaskId ?? null);
   const [filter, setFilter] = useState<StateFilter>("all");
   const [query, setQuery] = useState("");
@@ -153,18 +160,30 @@ export function TasksNode({
         </div>
       </div>
       <div className="tasks-list" role="list" aria-label="Tasks">
-        {listed.map((view) => (
+        {queuedNew.map((entry) => (
           <ListRow
-            key={view.taskId}
-            leading={<TaskStateMark state={view.current.state} pending={view.pending !== undefined} />}
-            title={view.title}
-            meta={numberLabel(view)}
-            selected={view.taskId === selected?.taskId}
-            pending={view.pending !== undefined}
-            onClick={() => setSelectedId(view.taskId)}
+            key={entry.taskId}
+            leading={<TaskStateMark state="backlog" pending />}
+            title={entry.title}
+            meta="queued"
+            pending
           />
         ))}
-        {listed.length === 0 && tasks.length > 0 ? <p className="tasks-list__none">No task matches.</p> : null}
+        {listed.map((view) => {
+          const waits = view.pending !== undefined || queued.has(view.taskId);
+          return (
+            <ListRow
+              key={view.taskId}
+              leading={<TaskStateMark state={view.current.state} pending={waits} />}
+              title={view.title}
+              meta={numberLabel(view)}
+              selected={view.taskId === selected?.taskId}
+              pending={waits}
+              onClick={() => setSelectedId(view.taskId)}
+            />
+          );
+        })}
+        {listed.length === 0 && queuedNew.length === 0 && tasks.length > 0 ? <p className="tasks-list__none">No task matches.</p> : null}
       </div>
     </>
   );
@@ -206,6 +225,7 @@ export function TasksNode({
             now={now}
             error={error}
             notice={notice}
+            queued={queued.get(selected.taskId) ?? []}
             apply={(command) => apply(selected.taskId, command)}
           />
         </TwoPane>
@@ -225,6 +245,7 @@ export function SelectedTask({
   now,
   error,
   notice = null,
+  queued = [],
   apply,
 }: {
   readonly view: TaskView;
@@ -237,6 +258,8 @@ export function SelectedTask({
   readonly error: string | null;
   /** A write that stands but whose mail did not go. */
   readonly notice?: string | null;
+  /** This machine's queued writes to this task, not yet ruled. */
+  readonly queued?: ReadonlyArray<TaskPendingWrite>;
   readonly apply: (command: TaskCommand) => Promise<string | undefined>;
 }) {
   const { current } = view;
@@ -287,6 +310,16 @@ export function SelectedTask({
         <p className="task-error" role="alert">
           {error}
         </p>
+      ) : null}
+      {queued.length > 0 ? (
+        <div className="task-queued" role="status" data-testid="task-queued">
+          <span>Waiting to be ruled</span>
+          <ul>
+            {queued.map((write) => (
+              <li key={write.opId}>{queuedWords(write.command, seatName)}</li>
+            ))}
+          </ul>
+        </div>
       ) : null}
       {notice ? (
         <p className="task-notice" role="status" data-testid="task-notice">

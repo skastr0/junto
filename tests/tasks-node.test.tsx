@@ -11,6 +11,9 @@ import { GALLERY_BUILD, GALLERY_CANVAS, GALLERY_QA, seed } from "../src/renderer
 import { makeLocalTasksSource, tasksSource } from "../src/renderer/lib/tasks-source";
 import { seatChoicesInReach } from "../src/renderer/components/tasks/tasks-canvas";
 import type { ReachCanvas, ReachNode } from "../src/shared/region-reach";
+import { pendingByTask, queuedCreates, queuedWords } from "../src/renderer/components/tasks/tasks-pane-model";
+import type { TaskPendingWrite } from "../src/shared/resource-ipc";
+import { OpId } from "../src/shared/work-ids";
 import { SelectedTask } from "../src/renderer/components/tasks/TasksNode";
 import type { TaskCanvasFacts } from "../src/renderer/components/tasks/tasks-pane-model";
 
@@ -184,5 +187,53 @@ describe("seats in reach of a task node", () => {
     const names: Record<string, string> = { "seat-zed": "Zed", "seat-amy": "Amy", "seat-far": "Far" };
     const found = seatChoicesInReach(canvas, taskNodeId(asNodeId("tasks-a")), (id) => names[id] ?? id);
     expect(found.map((seat) => seat.name)).toEqual(["Amy", "Zed"]);
+  });
+});
+
+describe("queued writes", () => {
+  const write = (taskId: TaskId, command: TaskPendingWrite["command"]): TaskPendingWrite => ({
+    opId: OpId.make("01JZ0000000000000000000A01"),
+    taskId,
+    command,
+  });
+  const a = mintItemId() as TaskId;
+  const b = mintItemId() as TaskId;
+  const nameOf = (id: string) => (id === "seat-ada" ? "Ada" : id);
+
+  it("says every queued command as the act it will be", () => {
+    expect(queuedWords({ kind: "assign", seat: "seat-ada" as never }, nameOf)).toBe("Assign to Ada");
+    expect(queuedWords({ kind: "create", taskId: a, title: "Ship" }, nameOf)).toBe('Create "Ship"');
+    expect(queuedWords({ kind: "stamp-policy", required: 1 }, nameOf)).toBe("Require 1 approval");
+    expect(queuedWords({ kind: "stamp", verdict: "changes" }, nameOf)).toBe("Ask for changes");
+    expect(queuedWords({ kind: "reviewer-add", reviewer: { kind: "operator" } }, nameOf)).toBe("Add reviewer you");
+    expect(queuedWords({ kind: "finish" }, nameOf)).toBe("Finish");
+  });
+
+  it("groups writes by task and finds creates the list does not hold yet", () => {
+    const held = view({ taskId: a });
+    const writes = [write(a, { kind: "start" }), write(b, { kind: "create", taskId: b, title: "Not here yet" }), write(a, { kind: "pause" })];
+    expect(pendingByTask(writes).get(a)?.map((w) => w.command.kind)).toEqual(["start", "pause"]);
+    expect(queuedCreates([held], writes)).toEqual([{ taskId: b, title: "Not here yet" }]);
+    expect(queuedCreates([held, view({ taskId: b })], writes)).toEqual([]);
+  });
+
+  it("shows what a task waits on, in queue order, on its pane", () => {
+    const task = view({ taskId: a });
+    const html = renderToStaticMarkup(
+      <SelectedTask
+        view={task}
+        all={[task]}
+        seats={seats}
+        facts={facts}
+        nodeName={() => "Build board"}
+        seatName={nameOf}
+        now={10_000}
+        error={null}
+        queued={[write(a, { kind: "assign", seat: "seat-ada" as never }), write(a, { kind: "start" })]}
+        apply={async () => undefined}
+      />,
+    );
+    expect(html).toContain("Waiting to be ruled");
+    expect(html.indexOf("Assign to Ada")).toBeLessThan(html.indexOf("Start"));
   });
 });
