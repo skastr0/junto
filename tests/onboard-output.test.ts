@@ -36,6 +36,8 @@ import {
 } from "../src/main/junto/seat-guidance/repository";
 import { ONBOARD_GUIDANCE, SEAT_GUIDANCE_LINE } from "../src/shared/seat-onboarding";
 import { productPortEnabled, TASKS_ENABLED } from "../src/shared/features";
+import { AgentSignalRepository } from "../src/main/junto/signals/repository";
+import { SINCE_UNAVAILABLE } from "../src/main/junto/work/seat-since-read";
 
 const CANVAS = "onboard";
 const PEERS = ["peer-a", "peer-b", "peer-c"] as const;
@@ -159,6 +161,30 @@ const onboard = async () => {
 };
 
 describe("junto onboard output", () => {
+  it("still onboards, with since marked unavailable, when the since read dies", async () => {
+    await write(PEERS);
+    // A signals service missing the method the read calls: a defect, not a failure.
+    const broken = { listSeat: () => Effect.die(new TypeError("listSeat broke")) } as unknown as AgentSignalRepository["Service"];
+    await server.close();
+    server = await startWorkControlServer({
+      version: "test",
+      workHome: process.env.JUNTO_WORK_HOME!,
+      home: root,
+      run: (effect) => runtime.runPromise(effect.pipe(Effect.provideService(AgentSignalRepository, broken))),
+      authoringGate: createMainAuthoringGate(),
+    });
+    seatCredential = publishSeatCredential(server.credentials, { agentKey: "local:agent" });
+    const error = console.error;
+    console.error = () => undefined;
+    try {
+      const data = await onboard();
+      expect(data.since).toEqual(SINCE_UNAVAILABLE);
+      expect(data.guidance).toEqual([...ONBOARD_GUIDANCE]);
+    } finally {
+      console.error = error;
+    }
+  });
+
   it("reads most stable first: the operator's words, then who and what, then since the last session", async () => {
     await write(PEERS);
     const data = await onboard();

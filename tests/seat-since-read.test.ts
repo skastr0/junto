@@ -6,10 +6,10 @@
  * mail between other seats, a reply to the operator, receipts, a signal
  * answered by mail and a comment held at a task node.
  */
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { ulid } from "ulid";
 import { describe, expect, it } from "vitest";
-import { seatMailboxes } from "../src/main/junto/work/seat-since-read";
+import { SINCE_UNAVAILABLE, onboardSinceSection, seatMailboxes } from "../src/main/junto/work/seat-since-read";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import type { AgentSignal } from "../src/shared/agent-signals";
 import { mailExtensionMetadata } from "../src/shared/crew";
@@ -148,5 +148,46 @@ describe("the since read takes only the seat's own mail", () => {
   it("reads nothing but its own mailbox when it sent nothing, and nothing at all when it is not a seat", () => {
     expect(seatMailboxes(PEER, SEATS, [], [])).toEqual([{ nodeId: PEER, messages: [] }]);
     expect(seatMailboxes(TASK, SEATS, CANVAS[TASK]!, sentBy(TASK))).toEqual([]);
+  });
+});
+
+describe("onboard's since section", () => {
+  const quiet = <A>(run: () => Promise<A>): Promise<A> => {
+    const error = console.error;
+    console.error = () => undefined;
+    return run().finally(() => {
+      console.error = error;
+    });
+  };
+
+  it("is the read when it succeeds", async () => {
+    await expect(Effect.runPromise(onboardSinceSection(Effect.succeed({ unread: 2 }), "factory/seat"))).resolves.toEqual({ unread: 2 });
+  });
+
+  it("is marked unavailable, never a dead onboard, when the read fails, dies or its render throws", async () => {
+    const reads = [
+      Effect.fail("store down"),
+      Effect.die(new TypeError("listSeatAnswered is not a function")),
+      Effect.succeed(1).pipe(Effect.map((): number => {
+        throw new Error("render broke");
+      })),
+    ];
+    for (const read of reads) {
+      await expect(quiet(() => Effect.runPromise(onboardSinceSection(read, "factory/seat")))).resolves.toEqual(SINCE_UNAVAILABLE);
+    }
+  });
+
+  it("logs the cause, with where it was read", async () => {
+    const logged: unknown[][] = [];
+    const error = console.error;
+    console.error = (...args: unknown[]) => void logged.push(args);
+    try {
+      await Effect.runPromise(onboardSinceSection(Effect.die(new Error("boom")), "factory/agent-1"));
+    } finally {
+      console.error = error;
+    }
+    expect(logged).toHaveLength(1);
+    expect(String(logged[0]![0])).toContain("factory/agent-1");
+    expect(String(logged[0]![1])).toContain("boom");
   });
 });

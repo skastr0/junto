@@ -5,7 +5,7 @@
  * projected by the pure `seatSince`. Nothing here writes, and nothing is
  * stored.
  */
-import { Clock, Effect, Option } from "effect";
+import { Cause, Clock, Effect, Option } from "effect";
 import type { HeldMailbox } from "@shared/mail-threads";
 import { asNodeId, type Canvas } from "@shared/model";
 import { titleOf } from "@shared/model/title";
@@ -82,3 +82,25 @@ export const readSeatSince = (
     );
     return since;
   });
+
+/** Onboard's since section when it cannot be read: onboard stands without it. */
+export const SINCE_UNAVAILABLE = { unavailable: "since your last session is not available" } as const;
+
+/**
+ * Onboard's since section: the read as rendered, or, on any failure or
+ * defect (a bug in the read or the render, a service missing a method), the
+ * cause logged and the section marked unavailable. Since is one section of
+ * onboard, and onboard never dies with it.
+ */
+export const onboardSinceSection = <A, E, R>(
+  read: Effect.Effect<A, E, R>,
+  where: string,
+): Effect.Effect<A | typeof SINCE_UNAVAILABLE, never, R> =>
+  read.pipe(
+    Effect.catchCause((cause) =>
+      Effect.sync(() => {
+        console.error(`[onboard] since unavailable for ${where}:`, Cause.pretty(cause));
+        return SINCE_UNAVAILABLE;
+      }),
+    ),
+  );

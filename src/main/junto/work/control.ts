@@ -153,7 +153,7 @@ import { handleArtifactOp, liveArtifactPorts } from "./artifact-control";
 import { TASK_WRITE_OPS, isTaskControlOp } from "@shared/task-control";
 import { handleTaskOp, liveTaskPorts } from "./task-control";
 import { liveSeatObservation } from "./seat-observation-live";
-import { readSeatSince } from "./seat-since-read";
+import { onboardSinceSection, readSeatSince } from "./seat-since-read";
 import { messageDelivery } from "./message-delivery";
 import { readMailExtension } from "@shared/crew";
 import { noticeTakesReply, subjectNoticeKindOf } from "@shared/subject-notice";
@@ -1436,10 +1436,11 @@ const dispatchOp = (
         tools,
         // Since your last session: replies owed and awaited, open signals,
         // silent answers since the previous session started, unread mail.
-        // A failed read says so instead of dropping the section.
-        since: yield* readSeatSince(board, caller.canvasName, caller.nodeId, history?.previousStartedAt).pipe(
-          Effect.map(renderSince),
-          Effect.orElseSucceed(() => ({ unreadable: "since your last session could not be read" })),
+        // A read that fails or dies is logged and marked unavailable, and
+        // onboard stands without it.
+        since: yield* onboardSinceSection(
+          readSeatSince(board, caller.canvasName, caller.nodeId, history?.previousStartedAt).pipe(Effect.map(renderSince)),
+          `${caller.canvasName}/${caller.nodeId}`,
         ),
         // This seat's last session and a count of the earlier ones: history
         // for continuity, never work to resume.
