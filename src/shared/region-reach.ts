@@ -53,7 +53,10 @@ export const isResourceKind = (kind: NodeKind): kind is ResourceKind => isOneOf(
 export const isCommentableKind = (kind: NodeKind): kind is CommentableKind => isOneOf(COMMENTABLE_KINDS, kind);
 export const isSeatKind = (kind: NodeKind): kind is SeatKind => isOneOf(SEAT_KINDS, kind);
 
-/** Who wrote an automation. The operator's reach is the whole canvas. */
+/**
+ * Who wrote an automation: the operator, whose reach is the whole canvas, or
+ * an overseer seat (07: only the operator and overseers write automations).
+ */
 export type AutomationAuthor =
   | { readonly kind: "operator" }
   | { readonly kind: "seat"; readonly seat: NodeId };
@@ -162,7 +165,7 @@ export const seatsInReach = (canvas: ReachCanvas, nodeId: NodeId): ReadonlyArray
 
 /**
  * What an automation may act on: seats and resources at or below its own
- * positions, and, when a seat wrote it, also in that seat's reach. Call it at
+ * positions, and, when an overseer seat wrote it, also in that seat's reach. Call it at
  * fire time so the author's current position counts (07).
  */
 export const automationTargets = (
