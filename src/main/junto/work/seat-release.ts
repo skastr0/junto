@@ -21,7 +21,7 @@ import type { Canvas, Command } from "@shared/model";
 import { mintOpId, type ResourceCommand } from "@shared/resource-command";
 import { OPEN_TASK_STATES, type SeatNodeId, type TaskCommand, type TaskId, type TaskNodeId } from "@shared/task-model";
 import { MachineRepository } from "../machines/repository";
-import { modelError } from "../model/records";
+import { ModelRefused, modelError } from "../model/records";
 import { ModelService } from "../model/service";
 import { afterSqlCommit } from "../state/sql-commit";
 import { noteResourceChanged } from "./resource-changes";
@@ -70,6 +70,8 @@ export const commandReleasingSeats = (command: Command, source: "operator" | "ov
         const canvasName = command.canvas;
         const before = seatsMove ? yield* model.canvas(canvasName) : undefined;
         const result = yield* model.command(command, source);
+        // A removed canvas takes what its seat deletes released with it.
+        if (command._tag === "RemoveCanvas") yield* sql`DELETE FROM task_seat_releases WHERE canvas_name = ${canvasName}`;
         if (!seatsMove || before === undefined) return result satisfies ReleasingCommandResult;
         const after = yield* model.canvas(canvasName);
         const had = agentIds(before);
@@ -79,6 +81,9 @@ export const commandReleasingSeats = (command: Command, source: "operator" | "ov
         if (gone.length === 0 && back.length === 0) return result satisfies ReleasingCommandResult;
         const writer = yield* machines.installationId;
         // The task's head row as stored: any ruling that writes the task changes it.
+        // A whole-row match also means a release made before task_heads gains a
+        // column never matches after it: that task stays in the backlog and is
+        // counted as kept, which is the safe way to be wrong.
         const headOf = (canvas: string, taskId: string) =>
           Effect.map(
             sql<Record<string, unknown>>`SELECT * FROM task_heads WHERE canvas_name = ${canvas} AND task_id = ${taskId}`,
@@ -95,7 +100,12 @@ export const commandReleasingSeats = (command: Command, source: "operator" | "ov
             const seat = task.current.assignee;
             if (seat === undefined || !gone.includes(seat)) continue;
             const outcome = yield* tasks.submit(writer, taskCommand(canvasName, task.current.node, task.taskId, { kind: "unassign" }), context, env);
-            if (outcome.kind !== "applied") continue;
+            // A release the ruler refuses would leave the task held by a seat that is gone: the delete does not happen.
+            if (outcome.kind !== "applied") {
+              return yield* Effect.fail(
+                new ModelRefused({ rule: `The seat's task ${task.taskId} could not go back to the backlog, so the seat stays: ${outcome.error.message}` }),
+              );
+            }
             yield* sql`
               INSERT OR REPLACE INTO task_seat_releases (canvas_name, seat_node_id, task_id, released_head)
               VALUES (${canvasName}, ${seat}, ${task.taskId}, ${yield* headOf(canvasName, task.taskId)})`;

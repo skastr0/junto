@@ -149,6 +149,10 @@ describe("a removed seat lets go of its task", () => {
     await rule(taskId, { kind: "edit", title: "fix the tabs" });
     expect(await putBack(node)).toEqual({ seq: 1, tasksKept: 1 });
     expect(await taskOf(taskId)).toMatchObject({ state: "backlog" });
+    // The restore consumed the row: a second delete and undo of the seat counts nothing twice.
+    expect(database.prepare("SELECT count(*) AS n FROM task_seat_releases").get()).toEqual({ n: 0 });
+    await remove("ada");
+    expect(await putBack(node)).toEqual({ seq: 1 });
   });
 
   it("a region deleted with its selected seats releases them", async () => {
