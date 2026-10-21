@@ -5,6 +5,7 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, it } from "vitest";
 import { automationIpcHandlers } from "../src/main/junto/automation/ipc";
+import { AutomationRunnerLive } from "../src/main/junto/automation/live";
 import { makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
 import { ModelDependents } from "../src/main/junto/model/dependents";
 import { ModelLive } from "../src/main/junto/model/layer";
@@ -47,7 +48,10 @@ const run = async (
 ) => {
   const home = await mkdtemp(join(tmpdir(), "junto-automation-ipc-"));
   const runtime = ManagedRuntime.make(
-    Layer.mergeAll(Layer.provide(ModelLive, ModelDependents.empty), makeAutomationRepositoryLive(), recorder).pipe(
+    Layer.provideMerge(
+      AutomationRunnerLive,
+      Layer.mergeAll(Layer.provide(ModelLive, ModelDependents.empty), makeAutomationRepositoryLive(), recorder),
+    ).pipe(
       Layer.provideMerge(makeStateEngineLive(join(home, "junto.db"))),
     ),
   );
@@ -120,5 +124,16 @@ describe("automation IPC", () => {
       expect(await handlers.apply("factory", create)).toMatchObject({ kind: "refused", refusal: { reason: "not_available" } });
       expect(changed).toEqual([]);
       expect((await handlers.list("factory", { nodeId: NODE })).automations).toEqual([]);
+    }));
+
+  it("fires a run now, as the automation, and records what each action was ruled", () =>
+    run(async (handlers) => {
+      await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: false, definition } });
+      expect(await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "run" } })).toMatchObject({ kind: "applied" });
+      const { firings } = await handlers.firings("factory", { automationId: ID });
+      // A disabled automation still runs by hand; create-task's port has not landed, so it is refused, never fired as done.
+      expect(firings.map((f) => [f.cause, f.outcome])).toEqual([
+        [{ kind: "run" }, { kind: "fired", actions: [{ index: 0, ruling: "refused", reason: "not_available" }] }],
+      ]);
     }));
 });

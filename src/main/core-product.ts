@@ -15,6 +15,7 @@ import { TaskRepositoryLive } from "./junto/work/task-repository";
 import { RulingRecorderLive } from "./junto/work/ruling-recorder";
 import { ResourceRulerLive } from "./junto/work/resource-ruler";
 import { makeAutomationRepositoryLive } from "./junto/automation/repository";
+import { AutomationRunnerLive, AutomationRunnerLoopLive } from "./junto/automation/live";
 import { ReferencesRepositoryLive } from "./junto/references/repository";
 import { ReferencesFollowCanvasLive } from "./junto/references/follow-canvas";
 import { SeatSessionRepositoryLive } from "./junto/seat-sessions/repository";
@@ -81,7 +82,13 @@ export const makeCoreProductLayer = (home: string) => {
   const pause = Layer.provideMerge(PausePlaneLaunchPlayingLive, hosts);
   const occupants = Layer.provideMerge(ActorSeatOccupyLive, pause);
   return Layer.provideMerge(
-    Layer.mergeAll(Layer.provideMerge(KernelLive, WorkLive), CanvasControlQueries.layer, Layer.provideMerge(NativeConfigLive, HarnessInventoryLive)),
+    Layer.mergeAll(
+      Layer.provideMerge(KernelLive, WorkLive),
+      // The automation runner and its loop, on every canvas this machine edits.
+      Layer.provideMerge(AutomationRunnerLoopLive, Layer.provideMerge(AutomationRunnerLive, WorkLive)),
+      CanvasControlQueries.layer,
+      Layer.provideMerge(NativeConfigLive, HarnessInventoryLive),
+    ),
     occupants,
   );
 };

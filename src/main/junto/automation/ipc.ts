@@ -26,6 +26,7 @@ import { OpId } from "@shared/work-ids";
 import { ModelRecords } from "../model/records";
 import { ModelService } from "../model/service";
 import type { RulingRecorder } from "../work/ruling-recorder";
+import { AutomationRunnerService } from "./live";
 import { AutomationRepository } from "./repository";
 import { automationEnvOf, submitAutomationCommand } from "./ruler";
 
@@ -114,6 +115,11 @@ export const automationIpcHandlers = (run: AutomationsRun, changed: (event: Auto
         automationEnvOf(canvas),
       );
       if (outcome.kind === "refused") return { kind: "refused", refusal: refusalOf(outcome.error) } as const;
+      // An applied run fires now, so its firing is in the history the pane rereads.
+      if (request.op.kind === "run" && outcome.facts.length > 0) {
+        const runner = yield* Effect.serviceOption(AutomationRunnerService);
+        if (Option.isSome(runner)) yield* runner.value.onRun(name, request.automationId);
+      }
       changed({ canvasName: name, nodeId: request.nodeId });
       return outcome.archived ? ({ kind: "applied" } as const) : ({ kind: "applied", automation: outcome.automation } as const);
     })),
