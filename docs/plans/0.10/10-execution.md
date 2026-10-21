@@ -69,7 +69,7 @@ everyone else reports by mail and on the needs-you feed.
   factory tick and claim prompt, task edge roles and admission, `cron`,
   `relay`, `watcher`, `timer`, Region Pulse, legacy edges, `from-legacy-row`
   (floor v13), pad and sheet node kinds. Blocked mark moves to the seat ring.
-- C3 Migration chain: v26 deletions now; every other step numbered when it lands, from canvas-model's slot list.
+- C3 Migration chain: the deletions step now; every step numbered when it lands, from canvas-model's slot list.
 - C4 Task model, state machine, assignment invariants, stamps on the verdict
   tables, task numbers, `flows`, state remap. Tests for state machine, rules
   and flow graph.
@@ -154,7 +154,7 @@ everyone else reports by mail and on the needs-you feed.
 | Listbox ARIA model | product-accessibility, a07e90e17 | landed |
 | Task state machine (pure) | canvas-writers, eeb17e7d3, 34 tests | in review |
 | Flow graph tests | canvas-writers, c521f4c56 | in review |
-| Migration slots | canvas-model keeps the list; only v26 fixed | running |
+| Migration slots | canvas-model keeps the list; numbers go out as steps land | running |
 | Artifact contract | product-shell, 3d9c5facc, 28 tests; shared edit reducer `ruleArtifactEdit` for ruler and pending view | landed |
 | Task model contract | canvas, `task-model.ts` d540d3f61, 84897c9aa; reach review fixes 4fd64a703 | landed, ruler migrating |
 | Tasks UI: verb bar, reviewers | product-modals, ebbd76ae2, offers only what the ruler admits | landed, continuing |

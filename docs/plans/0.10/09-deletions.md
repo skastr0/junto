@@ -75,14 +75,14 @@ its tests and its CLI surface are gone and `bun run verify` passes.
 - Kinds, tables, `reads` and `edits` verbs. Domains and editors are kept and
   move under artifacts.
 
-## Migrations (v26, then numbered as they land)
+## Migrations (numbered as they land)
 
 One step per phase, each landing with its code; canvas owns the chain and
-reviews every step (canvas-lead). Only v26 (phase 0 deletions) is a fixed
-number; every other step gets its number when it lands, from the slot list
-canvas-model keeps. Queued steps: collapse `entity_home`, ruling table and
+reviews every step (canvas-lead). Every step, the phase 0 deletions
+included, gets its number when it lands, from the slot list canvas-model
+keeps; a ready expand-only step does not wait behind a blocked one. Queued steps: collapse `entity_home`, ruling table and
 fact families; task state remap; automations; `artifact_versions`
-(cli-identity). Collapsing `entity_home` belongs to its own step, not v26. Wires with
+(cli-identity). Collapsing `entity_home` belongs to its own step, not the deletions step. Wires with
 removed verbs go by a filtered copy forward (the guard allows row deletes
 only in replaced or removed tables, `src/main/junto/state/migrations.ts:1089-1105`);
 the live canvas has 420 wires, all `messages`. Pad and sheet: 0 exist, so
@@ -128,4 +128,4 @@ changes with it.
   the settings channel's `hermesHostSnapshots`
   (`src/main/junto/settings/link-wire.ts:34,68-69`). Cut those writers and the
   settings field in the same change as the `host_registry` rebuild, which
-  lands in canvas's v26 migration with remote's column and CHECK spec.
+  lands in canvas's deletions step with remote's column and CHECK spec.
