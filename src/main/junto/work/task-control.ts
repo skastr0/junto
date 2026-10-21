@@ -12,7 +12,7 @@ import { titleOf } from "@shared/model/title";
 import type { NodeId } from "@shared/physics/schema";
 import { automationTargets, reaches, seatsInReach, type AutomationAuthor } from "@shared/region-reach";
 import { rulingContextOf } from "@shared/ruling-context";
-import { evaluateRules, rulesInForce } from "@shared/rules";
+import { boardContractOf, evaluateRules, rulesInForce } from "@shared/rules";
 import type { ResourceActor, ResourceCommand, RulingContext } from "@shared/resource-command";
 import {
   TASK_ARGS,
@@ -40,7 +40,7 @@ import {
 import type { SubjectCommentInput, SubjectCommented } from "@shared/subject-comment";
 import { taskPeopleOf } from "@shared/task-notices";
 import type { WorkErrorBody } from "@shared/work-control";
-import type { CompletionEvidence } from "@shared/work-model";
+import { stampDefaultOfContract, type CompletionEvidence } from "@shared/work-model";
 import type { OpId } from "@shared/work-ids";
 import type { QueuedCommand } from "@shared/command-row";
 import { decodeTaskFacts } from "@shared/task-fact-wire";
@@ -226,8 +226,7 @@ export const taskCanvasEnv = (canvas: Canvas, automationAuthor: AutomationAuthor
     [...canvas.wires.values()]
       .filter((wire) => wire.verb === TASK_FLOW_VERB && wire.from === node)
       .map((wire) => taskNodeId(wire.to)),
-  // Task nodes set no stamp default yet (04): none is required.
-  stampDefaultOf: () => ({ required: 0 }),
+  stampDefaultOf: (node) => stampDefaultOfContract(boardContractOf(canvas, node)),
   seatReaches: (seat, node) => reaches(canvas, seat, node),
   automationReaches: (automation, node) => {
     const author = automationAuthor(automation);

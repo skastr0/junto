@@ -341,6 +341,13 @@ describe("what the ruler reads of the canvas", () => {
     expect(taskCanvasEnv(automations, () => ({ kind: "operator" })).automationReaches?.(auto, taskNodeId(asNodeId("tasks-2")))).toBe(false);
   });
 
+  it("gives a task node's stamp default from its contract, and none without one", () => {
+    const stamped = { ...canvas, nodes: new Map<string, unknown>([...canvas.nodes].map(([id, node]) =>
+      [id, id === "tasks-1" ? { ...(node as object), contract: { stampDefault: { required: 2 } } } : node])) } as unknown as Canvas;
+    expect(taskCanvasEnv(stamped).stampDefaultOf(tnode)).toEqual({ required: 2 });
+    expect(taskCanvasEnv(stamped).stampDefaultOf(taskNodeId(asNodeId("tasks-3")))).toEqual({ required: 0 });
+  });
+
   it("refuses a finish that leaves a rule in force unanswered, and lets a claim through", () => {
     const ruled = { ...canvas, nodes: new Map<string, unknown>([...canvas.nodes].map(([id, node]) =>
       [id, id === "tasks-1" ? { ...(node as object), contract: { rules: [{ id: "tests", text: "Tests pass" }] } } : node])) } as unknown as Canvas;

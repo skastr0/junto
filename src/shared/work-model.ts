@@ -225,8 +225,17 @@ export const TasksContract = Schema.Struct({
   rules: Schema.optionalKey(Schema.Array(Rule)),
   incoming: Schema.optionalKey(TasksIncoming),
   outgoing: Schema.optionalKey(TasksOutgoing),
+  /** The stamps a task needs when it is created here or arrives here (04); omitted, none. */
+  stampDefault: Schema.optionalKey(Schema.Struct({
+    required: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  })),
 });
 export type TasksContract = typeof TasksContract.Type;
+
+/** A task node's stamp default, as the ruler applies it. */
+export const stampDefaultOfContract = (contract: TasksContract | undefined): { readonly required: number } => ({
+  required: contract?.stampDefault?.required ?? 0,
+});
 
 /** Resolve admission with product default `auto` when omitted. */
 export const resolveTaskAdmission = (
