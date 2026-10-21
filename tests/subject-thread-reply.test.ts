@@ -21,7 +21,10 @@ import type { MailMessageId, MailSenderStamp } from "../src/shared/crew";
 import type { Message } from "../src/shared/work-model";
 import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
-import { region, seat as seatNode, taskBoard, wire } from "./support/model-nodes";
+import { canvasOf, region, seat as seatNode, taskBoard, wire } from "./support/model-nodes";
+import { deliverTaskEffects } from "../src/main/junto/work/task-delivery";
+import { seatNodeId, taskNodeId } from "../src/shared/task-model";
+import type { ActorSeatId } from "../src/shared/actor-seat";
 import { startWorkControlServer, type WorkControlServer } from "../src/main/junto/work/control";
 import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
@@ -59,6 +62,14 @@ const makeRuntime = (root: string) => {
 const seat = (id: string, x: number) =>
   seatNode(id, { x, y: 40, width: 120, height: 48, bindingId: `bind-${id}` as never, launch: { kind: "harness", argv: ["claude"] } });
 
+const NODES = [
+  region("team", { x: -40, y: -40, width: 900, height: 400 }),
+  seat("agent", 0),
+  seat("peer", 160),
+  taskBoard(BOARD, { x: 400, y: 40, width: 200, height: 100 }),
+];
+const WIRES = [wire("agent-peer", "agent", "peer", "messages"), wire("peer-agent", "peer", "agent", "messages")];
+
 let root: string;
 let runtime: ReturnType<typeof makeRuntime>;
 let server: WorkControlServer;
@@ -81,18 +92,7 @@ beforeEach(async () => {
   for (const id of ["agent", "peer"]) {
     tokens[id] = publishSeatCredential(server.credentials, { agentKey: `local:${id}` });
   }
-  await runtime.runPromise(
-    seedCanvas(
-      CANVAS,
-      [
-        region("team", { x: -40, y: -40, width: 900, height: 400 }),
-        seat("agent", 0),
-        seat("peer", 160),
-        taskBoard(BOARD, { x: 400, y: 40, width: 200, height: 100 }),
-      ],
-      [wire("agent-peer", "agent", "peer", "messages"), wire("peer-agent", "peer", "agent", "messages")],
-    ),
-  );
+  await runtime.runPromise(seedCanvas(CANVAS, NODES, WIRES));
 });
 
 afterEach(async () => {
@@ -202,5 +202,36 @@ describe("subject threads", () => {
     const noticeId = await notice(taskId, "assignment");
     const held = (await mailbox("peer")).find((message) => message.messageId === noticeId);
     expect(held === undefined ? undefined : threadSubjectOf(held)).toEqual({ kind: "task", nodeId: BOARD, taskId });
+  });
+
+  it("a ruling's notices are delivered as the actor's mail, once however often it is delivered", async () => {
+    const taskId = ItemId.make("01M5ESKX20QX0HA3Y6SHEPXBCX");
+    const agentSeat = `seat_${"a".repeat(64)}` as ActorSeatId;
+    const delivery = {
+      canvas: canvasOf(NODES, WIRES, CANVAS),
+      canvasName: CANVAS,
+      actor: { kind: "seat", seatId: agentSeat, nodeId: asNodeId("agent") },
+      opId: OpId.make("01M5ESMJV6GNZ0891YFFWS0S3P"),
+      task: {
+        id: taskId,
+        number: 3 as never,
+        title: "fix tabs",
+        dependsOn: [],
+        state: "assigned",
+        node: taskNodeId(asNodeId(BOARD)),
+        assignee: seatNodeId(asNodeId("peer")),
+        epoch: 1,
+        stampPolicy: { required: 0 },
+        reviewers: [],
+        stamps: [],
+      },
+      effects: [{ kind: "assignment-notice", seat: seatNodeId(asNodeId("peer")) }, { kind: "number-minted", number: 3 as never }],
+    } as const;
+    await runtime.runPromise(deliverTaskEffects(delivery) as Effect.Effect<void>);
+    await runtime.runPromise(deliverTaskEffects(delivery) as Effect.Effect<void>);
+    const told = (await mailbox("peer")).filter((message) => threadSubjectOf(message) !== undefined);
+    expect(told).toHaveLength(1);
+    expect(told[0]?.metadata).toMatchObject({ fromSeat: agentSeat, senderNodeId: "agent", subjectNotice: "assignment", threadId: taskId });
+    expect((await mailbox("agent")).filter((message) => threadSubjectOf(message) !== undefined)).toEqual([]);
   });
 });
