@@ -19,8 +19,15 @@ everyone else reports by mail and on the needs-you feed.
   the channel arrives.
 - **The old path dies with the new one.** A track is done when its old code,
   flags, tables, docs and tests are gone and `bun run verify` passes.
-- **Commit in small atomic pieces, as you go.** Your own files only, by
-  explicit path. Never touch another agent's uncommitted change.
+- **Commit in small atomic pieces, as you go**, by the private index method
+  in `docs/machines.md` ("Committing in the shared checkout"). Never a bare
+  `git commit`, `git commit -a` or `git add -A`. Never touch another agent's
+  uncommitted change.
+- **Heavy runs** (operator, 2026-10-21): full typecheck, `test` or `verify`,
+  vitest over more than 3 files, e2e. At most 10 machine-wide, in the shared
+  checkout, none while the one-minute load is above 40. Team shares: product
+  2, remote 2, canvas 2, pty 1, cli 1, performance 1, pi 1; each lead grants
+  its team's. No worktrees.
 - **Proof is types first** (operator, 2026-10-21). Contracts are typed so
   misuse fails `tsc`: closed unions, branded ids, exhaustive matches,
   type-level tests where a shape matters. Unit tests on pure modules and
