@@ -161,34 +161,46 @@ describe("the text a seat learns commands from", () => {
     expect([...new Set(refused)]).toEqual([]);
   });
 
+  const OVERSEER_SURFACES: Readonly<Record<string, string>> = {
+    "overseer skill": OVERSEER_SKILL_MARKDOWN,
+    "overseer help": helpOf((path) => path.startsWith("overseer")),
+  };
+
   // The overseer skill names its verbs bare (`node create`), relative to `junto overseer`.
-  it.each([
-    ["overseer skill", OVERSEER_SKILL_MARKDOWN],
-    ["overseer help", helpOf((path) => path.startsWith("overseer"))],
-  ])("%s names only dispatched commands", (_, text) => {
-    const refused = namedCommands(text, overseer).filter((command) => !resolvesNamed(command, overseer));
+  it.each(Object.keys(OVERSEER_SURFACES))("%s names only dispatched commands", (surface) => {
+    const refused = namedCommands(OVERSEER_SURFACES[surface]!, overseer).filter((command) => !resolvesNamed(command, overseer));
     expect([...new Set(refused)]).toEqual([]);
   });
 
-  /**
-   * Commands the 0.10 deletions removed, and the waiver a finish no longer
-   * takes. Overseer commands that still dispatch (overseer task claim) are
-   * the overseer surface's, and the resolver above checks them.
-   */
+  /** Commands and ops the 0.10 deletions removed from every surface, and the waiver a finish no longer takes. */
   const DELETED: ReadonlyArray<RegExp> = [
     /\bjunto (?:pad|sheet|tasks)\b/,
-    /(?<!overseer )\btask (?:claim|update|promote|verdict)\b/,
-    /(?<!overseer )\bartifact publish\b/,
+    /\bartifact[ .]publish\b/,
     /\bscheduler[ .](?:fire|status|configure)\b/,
     /\brelay\.trigger\b/,
-    /(?<!overseer )\bautomation (?:create|edit|enable|disable|archive|run)\b/,
     /--waive\b/,
     /\bwaivers?\b/i,
   ];
 
+  /**
+   * Deleted for a plain seat, still dispatched for an overseer until the old
+   * task store and the reviews edge go: overseer task claim, update and
+   * promote, overseer automation writes, and verdict post.
+   */
+  const DELETED_FOR_SEATS: ReadonlyArray<RegExp> = [
+    /(?<!overseer )\btask (?:claim|update|promote|verdict)\b/,
+    /(?<!overseer )\bautomation (?:create|edit|enable|disable|archive|run)\b/,
+  ];
+
+  const deletedIn = (text: string, patterns: ReadonlyArray<RegExp>) =>
+    patterns.flatMap((pattern) => text.match(pattern) ?? []);
+
   it.each(Object.keys(SEAT_SURFACES))("%s names no deleted command or op", (surface) => {
-    const text = SEAT_SURFACES[surface]!;
-    expect(DELETED.flatMap((pattern) => text.match(pattern) ?? [])).toEqual([]);
+    expect(deletedIn(SEAT_SURFACES[surface]!, [...DELETED, ...DELETED_FOR_SEATS])).toEqual([]);
+  });
+
+  it.each(Object.keys(OVERSEER_SURFACES))("%s names no deleted command or op", (surface) => {
+    expect(deletedIn(OVERSEER_SURFACES[surface]!, DELETED)).toEqual([]);
   });
 
   it("the resolver refuses a group's unknown command and passes a leaf's arguments", () => {

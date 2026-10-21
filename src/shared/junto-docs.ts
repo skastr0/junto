@@ -80,9 +80,10 @@ type NodeDoc = {
 
 const NODE_EVENTS: Readonly<Record<string, readonly string[]>> = {
   task: [
-    "task.create — one submitted Task is persisted immediately with a stable TaskId; omitted admission is approval",
-    "task.claim — submitted → working only after admission and every dependsOn TaskId is completed",
-    "task.transition — completed sends the task on (sent-on) or closes it (completed); a defect sends it back (sent-back); state changes may carry completionEvidence",
+    "task.create — a task starts in backlog with a stable TaskId and its number (#42)",
+    "task.assign, task.start, task.pause, task.resume — assigned, working, input-required and back",
+    "task.finish — in-review while it waits on stamps, then done or sent on to the next node; refused rules-unmet while a rule in force has no claim",
+    "task.stamp — approve counts at the current epoch; changes sends the task back to working on a new epoch",
     "content.* — ContentRef materialization events for task media",
   ],
   requests: [
@@ -117,7 +118,7 @@ const SCHEMA_BY_KIND: Readonly<Record<string, Schema.Schema<unknown>>> = {
 };
 
 const MODEL_NOTE: Readonly<Record<string, string>> = {
-  task: "Tasks board: one stable TaskId is persisted immediately. Omitted admission is approval — the operator's approval lets a seat claim; admission never loosens the board's base admission (Immediate / Approval / Me). dependsOn contains TaskIds only and gates claim until every prerequisite completes. Finish criteria + completionEvidence gate the completed transition; every rule in force needs a claim (or a waiver when the chosen path no longer reaches its board); checks gate sending on.",
+  task: "Task node: each task has a stable TaskId and a number (#42) and moves backlog, assigned, working, in-review, done. dependsOn holds TaskIds only, and a task cannot finish until each is done. Every rule in force needs a claim on the finish; stamps decide in-review.",
   requests: "Requests sink: separately queried items share the Task state machine; resolving a request unblocks the seat.",
   artifacts: "Artifacts node: links, documents, pads, sheets and files, each versioned; every write is ruled by the machine that edits the canvas.",
   board: "Board sink: the node holds its authored label; paged Work queries hold topics and posts.",
@@ -129,7 +130,7 @@ const MODEL_NOTE: Readonly<Record<string, string>> = {
 
 const KIND_NOTE: Readonly<Record<string, string>> = {
   agent: "The actor role: takes work from its reach and its mail, holds a mailbox, runs a harness.",
-  task: "The pull queue: submitted tasks are claimed by seats that reach the board.",
+  task: "Tasks: assigned to a seat in the node's reach, worked and finished with junto task.",
   automations: "Automations: triggers, conditions and actions the editing machine runs, in place of the old cron, relay, watcher and timer schedulers. A seat reads the ones in its reach with `junto automation list`, `show` and `history`; only the operator and overseers write them.",
   requests: "The operator's request queue. Seats no longer file requests; they raise agent signals (junto escalate, blocked, feedback) instead.",
   artifacts: "The delivery surface: create and edit outputs with junto artifact; artifacts never block.",
@@ -273,10 +274,10 @@ export const buildDoctrineDoc = (): string => {
     ...(TASKS_ENABLED
       ? [
         "### Why completion is earned",
-        "`completed` is earned: the server rejects the transition unless",
-        "finish criteria are met and evidence is attached (artifacts exist, linked,",
-        "named exactly; git SHAs well-formed and counted). The agent submits; the",
-        "server ratifies. Operators can QA-reject back to Queue with a comment.",
+        "`done` is earned: `task finish` is refused until every rule in force",
+        "has a claim, and a task that needs stamps waits in `in-review` until its",
+        "reviewers approve. The seat submits; the server rules. A reviewer who",
+        "stamps `changes` sends the task back to `working` with what to change.",
         "",
       ]
       : [
@@ -316,7 +317,7 @@ export const buildDoctrineDoc = (): string => {
     "region's is the one you get.",
     "",
     "### The operational events",
-    `Beyond the doctrine you receive: ${TASKS_ENABLED ? "claim notices (task data at claim), " : ""}connection`,
+    `Beyond the doctrine you receive: ${TASKS_ENABLED ? "task notices in the task's thread (assignment, stamps), " : ""}connection`,
     "messages (what you can now reach or no longer reach), an onboarding nudge",
     "(only while the seat has not onboarded), repair notes (environment fixes), and mail. All are compact; the",
     "full context is always one `onboard` away.",
@@ -330,13 +331,13 @@ export const buildDoctrineDoc = (): string => {
 const FACTORY_CONCEPT = TASKS_ENABLED
   ? [
     "## The task queue",
-    "Tasks are a pull queue. The canvas (reach + live state) decides what is",
-    "available; seats claim and work. Claims are atomic and delivered as a",
-    "complete CLI task briefing. Idle seats wait — they do not invent backlog.",
+    "A task is assigned to a seat in its node's reach, by the operator, a",
+    "lead or the seat itself, and the notice arrives as mail in the task's",
+    "thread. Idle seats wait; they do not invent backlog.",
   ]
   : [
     "## Seats and edges",
-    "There is no claim queue in this build. Work reaches a seat from the",
+    "There is no task queue in this build. Work reaches a seat from the",
     "operator, its region briefing, and mail over its edges. The resources in its",
     "region are in its reach; edges join it to the seats it mails. Idle seats",
     "wait and do not invent backlog.",
@@ -346,9 +347,9 @@ const FACTORY_CONCEPT = TASKS_ENABLED
 const COMPLETION_CONCEPT = TASKS_ENABLED
   ? [
     "## Earned completion",
-    "Completion is a server verdict, not a harness assertion: finish criteria",
-    "are hard gates enforced on the `completed` transition, with evidence",
-    "(artifacts + git SHAs) verified by the task home.",
+    "Completion is a server ruling, not a harness assertion: `task finish` is",
+    "refused while a rule in force has no claim, and the stamps a task needs",
+    "decide when `in-review` becomes `done`.",
   ]
   : [
     "## Honest reporting",
