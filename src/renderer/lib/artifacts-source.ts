@@ -31,11 +31,11 @@ import {
   emptyArtifactState,
 } from "@shared/artifact-domain";
 import type { NodeId } from "@shared/physics/schema";
-import type { OpOverlay } from "@shared/op-control";
 import {
   ARTIFACT_HISTORY_PAGE,
   type ArtifactApplyOutcome,
   type ArtifactHead,
+  type ArtifactPendingWrite,
   type ArtifactResourceApi,
   type ResourceChanged,
   type ResourceIpcApi,
@@ -45,7 +45,6 @@ import {
   type ItemId,
   mintItemId,
   mintOpId,
-  type OpId,
   type ResourceActor,
   rule,
   type Ruled,
@@ -73,23 +72,9 @@ export interface ArtifactThread {
 
 export type ArtifactRuling = ArtifactApplyOutcome;
 
-/**
- * One of this machine's artifact writes the editing machine has not ruled
- * yet, with the overlay's read of it (02 read-your-writes, `OpOverlay`):
- * pending applies on the ruled state as it stands; at_risk would be refused,
- * or waits for the artifact's base to be pulled here. Never another
- * machine's. Overlay absent: the build has no overlay reader for it.
- */
-export interface ArtifactPendingWrite {
-  readonly opId: OpId;
-  readonly artifactId: ItemId;
-  readonly op: ArtifactOp;
-  readonly overlay?: OpOverlay;
-}
+export type { ArtifactPendingWrite };
 
 export interface ArtifactsSource extends ArtifactResourceApi {
-  /** This machine's unruled writes to the node's artifacts, in queue order. */
-  readonly pending: (canvasName: string, nodeId: NodeId) => Promise<ReadonlyArray<ArtifactPendingWrite>>;
   readonly threads: (canvasName: string, artifactId: ItemId) => Promise<ReadonlyArray<ArtifactThread>>;
   /** Start a thread (no `threadId`) or reply in one. A reply to a thread that is not there is refused: null. */
   readonly comment: (
@@ -278,8 +263,7 @@ export const withLocalThreads = (main: ArtifactResourceApi, local: ArtifactsSour
   history: main.history,
   body: main.body,
   apply: main.apply,
-  // Main's queue read joins the API when remote serves it to the window; until then the local one.
-  pending: (main as Partial<Pick<ArtifactsSource, "pending">>).pending ?? local.pending,
+  pending: main.pending,
   threads: local.threads,
   comment: local.comment,
   resolve: local.resolve,
