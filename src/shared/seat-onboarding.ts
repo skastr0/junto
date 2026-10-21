@@ -201,11 +201,11 @@ export const COMMAND_FAMILIES: Readonly<Record<CommandFamily, FamilySpec>> = {
     docsKind: "page",
     note: "The grant is live: a page edge works in this session as soon as it appears.",
     rows: [
-      { port: "browser.automate", intent: "list granted pages", command: () => "junto browser pages --json" },
-      { port: "browser.automate", intent: "open a granted page", command: () => "junto browser open <node-ref> --json" },
-      { port: "browser.automate", intent: "navigate", command: () => "junto browser goto" },
-      { port: "browser.automate", intent: "inspect", command: () => "junto browser eval" },
-      { port: "browser.automate", intent: "capture", command: () => "junto browser shot" },
+      { port: "browser.automate", intent: "list granted pages", command: () => "junto browser pages" },
+      { port: "browser.automate", intent: "open a granted page", command: () => "junto browser open <node-ref>" },
+      { port: "browser.automate", intent: "navigate", command: () => "junto browser goto <sessionId> <url> [--tab <tab>]" },
+      { port: "browser.automate", intent: "inspect", command: () => "junto browser eval <sessionId> <code> [--tab <tab>]" },
+      { port: "browser.automate", intent: "capture", command: () => "junto browser shot <sessionId> [--tab <tab>]" },
     ],
   },
 };

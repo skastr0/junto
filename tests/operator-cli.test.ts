@@ -12,7 +12,6 @@ import {
   OperatorSocket,
   OperatorSocketLive,
 } from "../src/cli/core/operator-socket";
-import { browserCliArgsFromArgv } from "../src/cli/browser-argv";
 import { __resetJuntoHomeCache } from "../src/shared/junto-home";
 import { WORK_TOKEN_ENV } from "../src/shared/work-control";
 import { OWNER_COMMAND_REFUSAL } from "../src/cli/core/owner-access";
@@ -127,36 +126,5 @@ describe("operator socket client", () => {
     if (result._tag === "Failure") {
       expect(result.failure.message).toMatch(/match the request/);
     }
-  });
-});
-
-describe("top-level browser dispatch", () => {
-  it("does not treat a later browser argument as the browser command", () => {
-    expect(
-      browserCliArgsFromArgv([
-        "bun",
-        "/$bunfs/root/junto",
-        "docs",
-        "node",
-        "browser",
-      ]),
-    ).toBeUndefined();
-    expect(
-      browserCliArgsFromArgv([
-        "bun",
-        "/$bunfs/root/junto",
-        "browser",
-        "doctor",
-        "--json",
-      ]),
-    ).toEqual(["doctor", "--json"]);
-    expect(
-      browserCliArgsFromArgv([
-        "/Users/dev/.bun/bin/bun",
-        "/Users/dev/Projects/junto/src/cli/main.ts",
-        "browser",
-        "doctor",
-      ]),
-    ).toEqual(["doctor"]);
   });
 });

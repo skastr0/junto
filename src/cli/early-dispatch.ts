@@ -1,7 +1,7 @@
 /**
  * Pure early argv dispatch for the unified packaged CLI.
  *
- * Stdio relays and browser control bypass the Effect CLI tree.
+ * Stdio relays bypass the Effect CLI tree.
  */
 import { CONTENT_TRANSFER_COMMAND } from "../main/junto/content/helper-contract";
 import { COMPANION_STDIO_COMMAND } from "./protocol-command-names";
@@ -10,7 +10,6 @@ import { ownerCommandRefusal } from "./core/owner-access";
 export type EarlyDispatch =
   | { readonly kind: "owner-refused"; readonly message: string }
   | { readonly kind: "overseer-host"; readonly args: ReadonlyArray<string> }
-  | { readonly kind: "browser"; readonly args: ReadonlyArray<string> }
   | { readonly kind: "content-transfer"; readonly args: ReadonlyArray<string> }
   | { readonly kind: "companion-stdio"; readonly args: ReadonlyArray<string> }
   | { readonly kind: "link"; readonly args: ReadonlyArray<string> }
@@ -32,9 +31,6 @@ export const earlyDispatchFromArgv = (
   }
   if (user[0] === "link") return { kind: "link", args: user.slice(1) };
   if (user[0] === "overseer-host") return { kind: "overseer-host", args: user.slice(1) };
-  if (user[0] === "browser") {
-    return { kind: "browser", args: user.slice(1) };
-  }
   if (user[0] === COMPANION_STDIO_COMMAND) {
     return { kind: "companion-stdio", args: user.slice(1) };
   }

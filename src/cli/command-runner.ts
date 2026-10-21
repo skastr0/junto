@@ -2,7 +2,7 @@ import { Command } from "effect/unstable/cli";
 import { Effect, Layer } from "effect";
 import { CLI_NAME, CLI_VERSION } from "./core/constants";
 import { setExitCode, writeCauseEnvelope, writeFailureEnvelope } from "./core/output";
-import { ARTIFACTS_ENABLED, BOARD_ENABLED, PAD_ENABLED, SHEET_ENABLED, TASKS_ENABLED } from "@shared/features";
+import { ARTIFACTS_ENABLED, BOARD_ENABLED, BROWSER_ENABLED, PAD_ENABLED, SHEET_ENABLED, TASKS_ENABLED } from "@shared/features";
 
 type Entry = { readonly name: string; readonly enabled?: boolean; readonly load: () => Promise<Command.Command.Any> };
 const commands: readonly Entry[] = [
@@ -35,6 +35,11 @@ const commands: readonly Entry[] = [
   { name: "artifact", enabled: ARTIFACTS_ENABLED, load: async () => (await import("./commands/work")).artifactCommand },
   { name: "overseer", load: async () => (await import("./commands/overseer")).overseerCommand },
   { name: "automation", load: async () => (await import("./commands/automation")).automationCommand },
+  // Inline on purpose: bun drops the browser CLI from the machine bundle only
+  // when the define is tested at this site. Through a module const it stays.
+  ...((typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__)
+    ? []
+    : [{ name: "browser", enabled: BROWSER_ENABLED, load: async () => (await import("./commands/browser")).browserCommand }]),
 ];
 
 /** Full discovery for root help/errors; a known invocation loads only its family. */

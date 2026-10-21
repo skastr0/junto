@@ -18,10 +18,10 @@ describe("unified CLI early dispatch", () => {
       .toEqual({ kind: "cli", args: ["msg", "list"] });
   });
 
-  it("routes browser / content-transfer before Effect CLI", () => {
+  it("routes content-transfer before Effect CLI, and browser through it", () => {
     expect(earlyDispatchFromArgv(["bun", "junto", "browser", "doctor"])).toEqual({
-      kind: "browser",
-      args: ["doctor"],
+      kind: "cli",
+      args: ["browser", "doctor"],
     });
     expect(
       earlyDispatchFromArgv([

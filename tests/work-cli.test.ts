@@ -261,11 +261,14 @@ describe("schema/examples from validating schemas", () => {
 
   it("matches browser discovery to the compiled product surface", () => {
     const browserCommandIds = [
+      "browser.doctor",
+      "browser.profiles",
       "browser.pages",
+      "browser.sessions",
       "browser.open",
       "browser.goto",
       "browser.eval",
-      "browser.screenshot",
+      "browser.shot",
       "browser.close",
       "browser.stop",
     ];
@@ -307,7 +310,7 @@ describe("schema/examples from validating schemas", () => {
           {
             port: "browser.automate",
             command: "junto browser",
-            discover: "junto browser pages --json",
+            discover: "junto browser pages",
           },
         ],
       });

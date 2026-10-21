@@ -39,13 +39,13 @@ describe("browser hard product gate", () => {
       expect(main).toContain(
         "if (BROWSER_ENABLED && productRuntimeStarted)",
       );
-      expect(cli).toContain('dispatch.kind === "browser"');
+      expect(cli).toContain('if (!BROWSER_ENABLED && group === "browser") return "browser";');
       expect(canvas).toContain("addPage: () => {\n    if (!BROWSER_ENABLED) return;");
       expect(linkNode).toContain('const isPage = BROWSER_ENABLED && kind === "page";');
 
       const runtime = spawnSync(
         "bun",
-        ["scripts/browser-cli.ts", "doctor", "--json"],
+        ["src/cli/main.ts", "browser", "doctor"],
         {
           cwd: process.cwd(),
           encoding: "utf8",
@@ -58,7 +58,7 @@ describe("browser hard product gate", () => {
       expect(runtime.status).toBe(2);
       expect(runtime.stdout).toBe("");
       expect(runtime.stderr).toContain(
-        "Browser is disabled in this Junto build",
+        "junto browser: disabled in this Junto build",
       );
     },
   );

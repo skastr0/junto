@@ -31,7 +31,7 @@ export const commandSurfaceEnabled = (commandId: string): boolean => {
 const BROWSER_INVOCATION: CapabilityInvocation = {
   port: "browser.automate",
   command: "junto browser",
-  discover: "junto browser pages --json",
+  discover: "junto browser pages",
 };
 
 const PAD_READ_INVOCATIONS: ReadonlyArray<CapabilityInvocation> = [
@@ -111,7 +111,9 @@ const invocationsForConnected = (value: unknown): unknown => {
     if (!isRecord(entry) || !Array.isArray(entry.grants)) return entry;
     const grants = entry.grants;
     const invocations: CapabilityInvocation[] = [];
-    if (BROWSER_ENABLED && entry.grants.includes("browser.automate")) {
+    // Inline on purpose, like the CLI's own guard: a machine bundle has no junto browser to teach.
+    const machineBuild = typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__;
+    if (!machineBuild && BROWSER_ENABLED && entry.grants.includes("browser.automate")) {
       invocations.push(BROWSER_INVOCATION);
     }
     if (PAD_ENABLED && entry.grants.includes("pad.read")) {

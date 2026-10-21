@@ -2,11 +2,8 @@
 import { CLI_VERSION } from "./core/constants";
 import { earlyDispatchFromArgv } from "./early-dispatch";
 import { ARTIFACTS_ENABLED, BOARD_ENABLED, BROWSER_ENABLED,
-  LIVE_OVERSEER_ENABLED, PAD_ENABLED, SHEET_ENABLED, TASKS_ENABLED } from "@shared/features";
+  LIVE_OVERSEER_ENABLED, TASKS_ENABLED } from "@shared/features";
 
-declare const __JUNTO_BROWSER_ENABLED__: boolean | undefined;
-const browserCliAvailable = typeof __JUNTO_BROWSER_ENABLED__ !== "boolean" || BROWSER_ENABLED;
-export { browserCliArgsFromArgv } from "./browser-argv";
 export { earlyDispatchFromArgv } from "./early-dispatch";
 
 /**
@@ -20,9 +17,8 @@ const disabledCliGroup = (args: ReadonlyArray<string>): string | undefined => {
   if (!TASKS_ENABLED && group === "rulings") return "rulings";
   if (!TASKS_ENABLED && group === "content") return "content";
   if (!BOARD_ENABLED && group === "board") return "board";
-  if (!PAD_ENABLED && group === "pad") return "pad";
-  if (!SHEET_ENABLED && group === "sheet") return "sheet";
   if (!ARTIFACTS_ENABLED && group === "artifact") return "artifact";
+  if (!BROWSER_ENABLED && group === "browser") return "browser";
   return undefined;
 };
 
@@ -44,18 +40,13 @@ if (import.meta.main) {
       process.stderr.write("Junto live conversation is disabled in this build\n");
       process.exitCode = 2;
     }
-  } else if (dispatch.kind === "browser") {
-    // Inline on purpose: bun drops the browser CLI from the machine bundle only
-    // when the define is tested at this site. Through a module const it stays.
-    if (typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__) {
-      process.stderr.write("junto browser: the browser runs in the desktop app, not on a Junto Remote machine\n");
-      process.exitCode = 2;
-    } else if (!browserCliAvailable) {
-      process.stderr.write("junto browser: disabled in this build\n");
-      process.exitCode = 2;
-    } else {
-      await (await import("../../scripts/browser-cli")).runBrowserCli(dispatch.args);
-    }
+  } else if (
+    dispatch.kind === "cli" &&
+    dispatch.args[0] === "browser" &&
+    typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__
+  ) {
+    process.stderr.write("junto browser: the browser runs in the desktop app, not on a Junto Remote machine\n");
+    process.exitCode = 2;
   } else if (
     dispatch.kind === "cli" &&
     disabledCliGroup(dispatch.args) !== undefined

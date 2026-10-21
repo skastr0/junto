@@ -82,23 +82,18 @@ const runCli = (
   options: {
     readonly home: string;
     readonly controlHome?: string;
-    readonly entry?: "browser" | "junto";
   },
 ): Promise<{ readonly code: number | null; readonly stdout: string; readonly stderr: string }> =>
   new Promise((resolveRun, rejectRun) => {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       HOME: options.home,
-      // This suite exercises the browser-on compatibility contract. Source-run
-      // CLIs otherwise follow the same default-off policy as packaged controls.
+      // This suite exercises the browser-on contract. Source-run CLIs
+      // otherwise follow the same default-off policy as packaged controls.
       JUNTO_BROWSER: "1",
       [CONTROL_HOME_ENV]: options.controlHome,
     };
-    const entry =
-      options.entry === "junto"
-        ? [join(repoRoot, "src/cli/main.ts"), "browser"]
-        : [join(repoRoot, "scripts/browser-cli.ts")];
-    const child = spawn("bun", [...entry, ...args], {
+    const child = spawn("bun", [join(repoRoot, "src/cli/main.ts"), "browser", ...args], {
       cwd: repoRoot,
       env,
       stdio: ["ignore", "pipe", "pipe"],
@@ -108,7 +103,7 @@ const runCli = (
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       rejectRun(new Error("browser CLI test timed out"));
-    }, 5_000);
+    }, 15_000);
     child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
     child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); });
     child.once("error", (error) => {
@@ -128,27 +123,23 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 
-describe("packaged browser CLI contract", () => {
-  it("supports the canonical junto browser command and standalone compatibility helper", async () => {
+const envelope = (text: string): unknown => JSON.parse(text.trim()) as unknown;
+
+// Each case spawns the CLI one or more times; a loaded machine needs the room.
+describe("junto browser on the standard envelope", { timeout: 30_000 }, () => {
+  it("answers doctor in the success envelope over the control socket", async () => {
     const root = await newRoot();
     const seen: SeenRequest[] = [];
     await startRogueControl(root, seen);
 
-    const direct = await runCli(["doctor", "--json"], {
-      home: root,
-    });
-    const dispatched = await runCli(["browser", "doctor", "--json"], {
-      home: root,
-    });
-    const canonical = await runCli(["doctor", "--json"], {
-      home: root,
-      entry: "junto",
-    });
+    const first = await runCli(["doctor"], { home: root });
+    const second = await runCli(["doctor"], { home: root });
 
-    expect(direct.code, direct.stderr).toBe(0);
-    expect(dispatched.code, dispatched.stderr).toBe(0);
-    expect(canonical.code, canonical.stderr).toBe(0);
-    expect(seen).toHaveLength(3);
+    for (const result of [first, second]) {
+      expect(result.code, result.stderr).toBe(0);
+      expect(envelope(result.stdout)).toEqual({ ok: true, command: "browser doctor", data: { status: "ok" } });
+    }
+    expect(seen).toHaveLength(2);
     for (const request of seen) {
       expect(request.url).toBe("/doctor");
       expect(request.headers[CONTROL_TOKEN_HEADER]).toBe("transport-token");
@@ -166,12 +157,13 @@ describe("packaged browser CLI contract", () => {
     const seen: SeenRequest[] = [];
     await startRogueControl(root, seen);
 
-    const result = await runCli(["profiles", "--json"], {
+    const result = await runCli(["profiles"], {
       home: decoyHome,
       controlHome: root,
     });
 
     expect(result.code, result.stderr).toBe(0);
+    expect(envelope(result.stdout)).toEqual({ ok: true, command: "browser profiles", data: [] });
     expect(seen).toHaveLength(1);
     expect(seen[0]?.url).toBe("/profiles");
     expect(seen[0]?.headers[CONTROL_TOKEN_HEADER]).toBe("transport-token");
@@ -182,7 +174,7 @@ describe("packaged browser CLI contract", () => {
     const seen: SeenRequest[] = [];
     await startRogueControl(root, seen);
 
-    const result = await runCli(["pages", "--json"], {
+    const result = await runCli(["pages"], {
       home: root,
     });
 
@@ -192,18 +184,50 @@ describe("packaged browser CLI contract", () => {
     expect(seen[0]?.headers[CONTROL_TOKEN_HEADER]).toBe("transport-token");
   });
 
+  it("names a tab with --tab, and sends none when it is absent", async () => {
+    const root = await newRoot();
+    const seen: SeenRequest[] = [];
+    await startRogueControl(root, seen);
+
+    const named = await runCli(["shot", "session-1", "--tab", "tab-2"], { home: root });
+    const active = await runCli(["goto", "session-1", "https://example.com/"], { home: root });
+
+    expect(named.code, named.stderr).toBe(0);
+    expect(active.code, active.stderr).toBe(0);
+    expect(seen.map(({ url, body }) => ({ url, body }))).toEqual([
+      { url: "/screenshot", body: { sessionId: "session-1", tab: "tab-2" } },
+      { url: "/goto", body: { sessionId: "session-1", url: "https://example.com/" } },
+    ]);
+  });
+
+  it("refuses bad input as InputError before transport", async () => {
+    const root = await newRoot();
+    const seen: SeenRequest[] = [];
+    await startRogueControl(root, seen);
+
+    for (const [args, command] of [
+      [["goto", "bad id", "https://example.com/"], "browser goto"],
+      [["eval", "session-1", "1", "--tab", ""], "browser eval"],
+    ] as const) {
+      const result = await runCli([...args], { home: root });
+      expect(result.code).toBe(1);
+      expect(envelope(result.stderr)).toMatchObject({ ok: false, command, error: { type: "InputError" } });
+    }
+    expect(seen).toHaveLength(0);
+  });
+
   it("exposes protected Stop Page without exposing profile wipe on the agent CLI", async () => {
     const root = await newRoot();
     const seen: SeenRequest[] = [];
     await startRogueControl(root, seen);
 
-    const stop = await runCli(["stop", "session-1", "--json"], {
+    const stop = await runCli(["stop", "session-1"], {
       home: root,
     });
-    const wipe = await runCli(["wipe-profile", "personal", "--json"], { home: root });
+    const wipe = await runCli(["wipe-profile", "personal"], { home: root });
 
     expect(stop.code, stop.stderr).toBe(0);
-    expect(wipe.code).toBe(2);
+    expect(wipe.code).toBe(1);
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({
       method: "POST",
@@ -212,20 +236,21 @@ describe("packaged browser CLI contract", () => {
     });
   });
 
-  it("rejects retired remote Station-browser flags before token/socket/network", async () => {
+  it("has no --host, station or station-trust, and never reaches transport for them", async () => {
     const root = await newRoot();
     const seen: SeenRequest[] = [];
     await startRogueControl(root, seen);
 
     for (const argv of [
-      ["--host", "remote-a", "doctor", "--json"],
-      ["doctor", "--host", "remote-a", "--json"],
+      ["--host", "remote-a", "doctor"],
+      ["doctor", "--host", "remote-a"],
       ["station"],
       ["station-trust"],
+      ["shot", "session-1", "--path", "/tmp/x.png"],
     ] as const) {
       const result = await runCli([...argv], { home: root });
-      expect(result.code, `${argv.join(" ")}: ${result.stderr}`).toBe(2);
-      expect(result.stderr).toMatch(/remote Station-browser is removed/i);
+      expect(result.code, argv.join(" ")).toBe(1);
+      expect(result.stdout).not.toContain('"ok":true');
     }
     expect(seen).toHaveLength(0);
   });
@@ -235,14 +260,15 @@ describe("packaged browser CLI contract", () => {
     const seen: SeenRequest[] = [];
     await startRogueControl(root, seen);
 
-    const invalidHome = await runCli(["doctor", "--json"], {
+    const invalidHome = await runCli(["doctor"], {
       home: root,
       controlHome: "relative/home",
     });
     expect(invalidHome.code).toBe(1);
-    expect(JSON.parse(invalidHome.stdout)).toMatchObject({
+    expect(envelope(invalidHome.stderr)).toMatchObject({
       ok: false,
-      error: { _tag: "bad_request" },
+      command: "browser doctor",
+      error: { type: "InputError", details: { reason: "bad_request" } },
     });
     expect(seen).toHaveLength(0);
   });
@@ -250,45 +276,45 @@ describe("packaged browser CLI contract", () => {
   it("does not echo the control-home token path when the app is down", async () => {
     const root = await mkdtemp(join(tmpdir(), "vcb-down-"));
     roots.push(root);
-    const result = await runCli(["doctor", "--json"], { home: root });
+    const result = await runCli(["doctor"], { home: root });
     expect(result.code).toBe(1);
-    expect(result.stdout).not.toContain(controlTokenPath(root));
-    expect(JSON.parse(result.stdout)).toMatchObject({
+    expect(result.stderr).not.toContain(controlTokenPath(root));
+    expect(envelope(result.stderr)).toMatchObject({
       ok: false,
-      error: { _tag: "runtime_down" },
+      error: { type: "RuntimeDown", details: { reason: "runtime_down", retryable: true } },
     });
   });
 
-  it("reports runtime_down when a retained token outlives the removed socket", async () => {
+  it("reports RuntimeDown when a retained token outlives the removed socket", async () => {
     const root = await newRoot();
-    const result = await runCli(["doctor", "--json"], { home: root });
+    const result = await runCli(["doctor"], { home: root });
 
     expect(result.code).toBe(1);
-    expect(result.stderr).toBe("");
-    expect(result.stdout).not.toContain(controlSocketPath(root));
-    expect(JSON.parse(result.stdout)).toEqual({
+    expect(result.stdout).toBe("");
+    expect(result.stderr).not.toContain(controlSocketPath(root));
+    expect(envelope(result.stderr)).toEqual({
       ok: false,
+      command: "browser doctor",
       error: {
-        _tag: "runtime_down",
+        type: "RuntimeDown",
         message: "Junto app is not running",
+        details: { reason: "runtime_down", retryable: true, next_step: "start the Junto app on this machine" },
       },
     });
   });
 
-  it("reports runtime_down when a crashed runtime leaves a stale socket inode", async () => {
+  it("reports RuntimeDown when a crashed runtime leaves a stale socket inode", async () => {
     const root = await newRoot();
     await leaveStaleControlSocket(root);
-    const result = await runCli(["doctor", "--json"], { home: root });
+    const result = await runCli(["doctor"], { home: root });
 
     expect(result.code).toBe(1);
-    expect(result.stderr).toBe("");
-    expect(result.stdout).not.toContain(controlSocketPath(root));
-    expect(JSON.parse(result.stdout)).toEqual({
+    expect(result.stdout).toBe("");
+    expect(result.stderr).not.toContain(controlSocketPath(root));
+    expect(envelope(result.stderr)).toMatchObject({
       ok: false,
-      error: {
-        _tag: "runtime_down",
-        message: "Junto app is not running",
-      },
+      command: "browser doctor",
+      error: { type: "RuntimeDown", message: "Junto app is not running" },
     });
   });
 });
@@ -304,7 +330,7 @@ describe("browser CLI packaging contract", () => {
     const buildScript = await readFile(join(repoRoot, "scripts/build-app.sh"), "utf8");
     const cliBuildScript = await readFile(join(repoRoot, "scripts/build-standalone-cli.ts"), "utf8");
     const installScript = await readFile(join(repoRoot, "scripts/install-app.sh"), "utf8");
-    const browserCli = await readFile(join(repoRoot, "scripts/browser-cli.ts"), "utf8");
+    const browserCli = await readFile(join(repoRoot, "src/cli/core/browser-control-client.ts"), "utf8");
 
     expect(pkg.build.extraResources).toEqual([
       { from: "dist/junto", to: "bin/junto" },

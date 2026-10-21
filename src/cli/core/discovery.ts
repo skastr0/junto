@@ -1,13 +1,5 @@
 import { Schema } from "effect";
 import {
-  CloseRequest,
-  EvalRequest,
-  GotoRequest,
-  OpenRequest,
-  ScreenshotRequest,
-  StopRequest,
-} from "../../shared/browser-control";
-import {
   ARTIFACTS_ENABLED,
   BOARD_ENABLED,
   BROWSER_ENABLED,
@@ -17,6 +9,7 @@ import {
   TASKS_ENABLED,
 } from "../../shared/features";
 import { SeatReadArgs, SeatWaitArgs, TaskWaitArgs } from "../../shared/seat-control";
+import { browserCapabilities, browserExamples, browserSchemas } from "../commands/browser-contract";
 import {
   ArtifactPublishCliArgs,
   BoardListArgs,
@@ -556,63 +549,6 @@ export const padTaggedSchema: CommandSchemaContract = {
   input_modes: inputModes,
 };
 
-const browserSchema = (
-  operation: string,
-  command: string,
-  description: string,
-  schema: Schema.Top,
-): CommandSchemaContract => ({
-  command_id: `browser.${operation}`,
-  command: `browser ${command}`,
-  schema_id: `browser.${operation}.input/v1`,
-  description,
-  schema,
-  input_modes: ["positional"],
-});
-
-export const browserPagesSchema = browserSchema(
-  "pages",
-  "pages",
-  "List page nodes admitted by the caller's live browser.automate edges.",
-  EmptyArgs,
-);
-export const browserOpenSchema = browserSchema(
-  "open",
-  "open <junto-ref>",
-  "Open or reuse a granted page session.",
-  OpenRequest,
-);
-export const browserGotoSchema = browserSchema(
-  "goto",
-  "goto <sessionId> <url>",
-  "Navigate an admitted browser session.",
-  GotoRequest,
-);
-export const browserEvalSchema = browserSchema(
-  "eval",
-  "eval <sessionId> <code>",
-  "Evaluate JavaScript in an admitted browser session.",
-  EvalRequest,
-);
-export const browserScreenshotSchema = browserSchema(
-  "screenshot",
-  "shot <sessionId>",
-  "Capture a server-owned PNG from an admitted browser session.",
-  ScreenshotRequest,
-);
-export const browserCloseSchema = browserSchema(
-  "close",
-  "close <sessionId>",
-  "Detach a browser surface while keeping its session warm.",
-  CloseRequest,
-);
-export const browserStopSchema = browserSchema(
-  "stop",
-  "stop <sessionId>",
-  "Destroy an admitted browser session.",
-  StopRequest,
-);
-
 const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   onboardSchema,
   offboardSchema,
@@ -663,17 +599,7 @@ const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   ...overseerSchemas,
   ...automationSchemas,
   // Inline on purpose: a module const would keep the browser rows in the machine bundle.
-  ...((typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__) ? [] : BROWSER_ENABLED
-    ? [
-        browserPagesSchema,
-        browserOpenSchema,
-        browserGotoSchema,
-        browserEvalSchema,
-        browserScreenshotSchema,
-        browserCloseSchema,
-        browserStopSchema,
-      ]
-    : []),
+  ...((typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__) ? [] : BROWSER_ENABLED ? browserSchemas : []),
 ];
 
 /** Schemas a feature gate has turned off never leave discovery. */
@@ -1434,29 +1360,7 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     args: ["pad", "tagged", '{"target":"pad-1"}'],
   },
   // Inline on purpose: a module const would keep the browser rows in the machine bundle.
-  ...((typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__) ? [] : BROWSER_ENABLED
-    ? [
-        {
-          command_id: "browser.pages",
-          command: "browser pages",
-          name: "list granted pages",
-          args: ["browser", "pages", "--json"],
-          input: {},
-        },
-        {
-          command_id: "browser.open",
-          command: "browser open <junto-ref>",
-          name: "open a granted page",
-          args: [
-            "browser",
-            "open",
-            "junto://canvas/work?node=page-1",
-            "--json",
-          ],
-          input: { ref: "junto://canvas/work?node=page-1" },
-        },
-      ]
-    : []),
+  ...((typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__) ? [] : BROWSER_ENABLED ? browserExamples : []),
   ...envReportExamples,
   ...logsReadExamples,
   ...referencesExamples,
@@ -1889,63 +1793,7 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     examples: allExamples.filter((e) => e.command_id === "pad.tagged"),
   },
   // Inline on purpose: a module const would keep the browser rows in the machine bundle.
-  ...((typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__) ? [] : BROWSER_ENABLED
-    ? [
-        {
-          command_id: "browser.pages",
-          command: "browser pages",
-          category: "discovery" as const,
-          description:
-            "List page nodes granted through browser.automate edges.",
-          schemas: [browserPagesSchema],
-          examples: allExamples.filter((e) => e.command_id === "browser.pages"),
-        },
-        {
-          command_id: "browser.open",
-          command: "browser open",
-          category: "workflow" as const,
-          description: "Open or reuse a granted page session.",
-          schemas: [browserOpenSchema],
-          examples: allExamples.filter((e) => e.command_id === "browser.open"),
-        },
-        {
-          command_id: "browser.goto",
-          command: "browser goto",
-          category: "workflow" as const,
-          description: "Navigate an admitted browser session.",
-          schemas: [browserGotoSchema],
-        },
-        {
-          command_id: "browser.eval",
-          command: "browser eval",
-          category: "workflow" as const,
-          description: "Evaluate JavaScript in an admitted browser session.",
-          schemas: [browserEvalSchema],
-        },
-        {
-          command_id: "browser.screenshot",
-          command: "browser shot",
-          category: "workflow" as const,
-          description: "Capture a server-owned page screenshot.",
-          schemas: [browserScreenshotSchema],
-        },
-        {
-          command_id: "browser.close",
-          command: "browser close",
-          category: "workflow" as const,
-          description:
-            "Detach a browser surface while keeping its session warm.",
-          schemas: [browserCloseSchema],
-        },
-        {
-          command_id: "browser.stop",
-          command: "browser stop",
-          category: "workflow" as const,
-          description: "Destroy an admitted browser session.",
-          schemas: [browserStopSchema],
-        },
-      ]
-    : []),
+  ...((typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__) ? [] : BROWSER_ENABLED ? browserCapabilities : []),
   envReportCapability,
   logsReadCapability,
   ...referencesCapabilities,
