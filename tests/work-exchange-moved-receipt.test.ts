@@ -222,7 +222,7 @@ describe("a seat that moves from M2 to M3", () => {
     expect(editor.exchange.linked(M3)).toBe(true);
     expect(m3.exchange.linked(EDITOR)).toBe(true);
     expect(await inbox(editor, "lead")).toContain("raised-on-m3");
-    // The relayed receipt changed nothing: M2's row is the one held.
+    // M3's own receipt, sent straight to the editing machine, changed nothing: M2's row is the one held.
     expect(await receipts(editor)).toEqual(held);
     const own = await m3.runtime.runPromise(
       m3.repository.exchangeRows({ canvasName: "factory", writer: M3, after: "0", limit: 64, bytes: EXCHANGE_ROWS_PAGE_BYTES }),
@@ -248,7 +248,9 @@ describe("a seat that moves from M2 to M3", () => {
     const forged = { ...semantic, originAt, contentSha256: workRecordContentSha256(semantic as never) };
     const frame = { kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: M3, facts: [forged], through: seq } as unknown as RowsFrame;
 
+    const through = await throughOf(editor, M3);
     await expect(editor.runtime.runPromise(editor.exchange.receive(M3, frame))).rejects.toBeInstanceOf(ExchangeClosed);
+    expect(await throughOf(editor, M3)).toBe(through);
     expect(await receipts(editor)).toEqual([
       { delivery_id: mailboxMessageDeliveryId("factory", "mover", "typed-on-both"), delivered_item_id: "typed-on-both", fact_event_home: M2 },
     ]);
