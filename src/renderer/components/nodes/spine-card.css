@@ -57,6 +57,7 @@
 
 .spine-chip[data-dashed="true"] {
   border-style: dashed;
+  border-color: var(--color-dim);
   background: transparent;
 }
 
@@ -69,7 +70,9 @@
   box-shadow: 0 0 0 1px var(--color-main);
 }
 
-.react-flow__node:focus-visible {
+/* The flow node's own ring (factory-grammar.css) would circle an invisible
+   box; a spine node's ring is on its chip. */
+.react-flow .react-flow__node:has(.junto-node[data-look="spine"]):focus-visible {
   outline: none;
 }
 
@@ -90,10 +93,10 @@
 
 .spine-chip[data-hue="green"] .spine-chip__glyph > svg { stroke: var(--color-green); }
 .spine-chip[data-hue="violet"] .spine-chip__glyph > svg { stroke: var(--color-violet); }
-.spine-chip[data-hue="amber"] .spine-chip__glyph > svg { stroke: var(--color-amber); }
+.spine-chip[data-hue="amber"] .spine-chip__glyph > svg { stroke: var(--color-amber-fg); }
 .spine-chip[data-hue="indigo"] .spine-chip__glyph > svg { stroke: var(--color-indigo); }
 .spine-chip[data-hue="orange"] .spine-chip__glyph > svg { stroke: var(--color-orange); }
-.spine-chip[data-hue="cyan"] .spine-chip__glyph > svg { stroke: var(--color-cyan); }
+.spine-chip[data-hue="cyan"] .spine-chip__glyph > svg { stroke: var(--color-cyan-fg); }
 .spine-chip[data-hue="steel"] .spine-chip__glyph > svg { stroke: var(--color-steel); }
 .spine-chip[data-hue="dim"] .spine-chip__glyph > svg { stroke: var(--color-dim); }
 
@@ -269,6 +272,17 @@
   text-overflow: ellipsis;
 }
 
+.spine__detail {
+  flex: none;
+  color: var(--color-dim);
+  font-size: var(--text-label);
+}
+
+.spine__row[data-tone="crimson"]::before { border-top-color: var(--color-crimson); }
+.spine__row[data-tone="crimson"] .spine__mark { color: var(--color-crimson-fg); }
+.spine__row[data-tone="amber"]::before { border-top-color: var(--color-amber); }
+.spine__row[data-tone="amber"] .spine__mark { color: var(--color-amber-fg); }
+
 /* Far and overview: the chip becomes a held disc with its glyph and status
    pip; everything else hides by visibility. The disc never joins the seat
    ring-room solve and no card gathers into a seat cluster. */
@@ -312,6 +326,12 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[dat
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__node.selected .spine-chip {
   outline: calc(2px * var(--node-s, 1)) solid var(--color-main);
   outline-offset: calc(2px * var(--node-s, 1));
+}
+
+/* Focus beats selection at far too: the keyboard must see where it is. */
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__node:focus-visible .spine-chip {
+  outline: calc(2px * var(--node-s, 1)) solid var(--color-cyan);
+  outline-offset: calc(3px * var(--node-s, 1));
 }
 
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-pip {

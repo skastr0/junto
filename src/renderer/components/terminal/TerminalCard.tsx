@@ -19,11 +19,13 @@ import { renameTerminalNode } from "../../lib/mutations";
 import { useNodeFieldOf } from "../../lib/use-model";
 import { SeatTaskStrip } from "../nodes/SeatTaskStrip";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
-import { InstrumentSeat } from "../nodes/InstrumentSeat";
+import { SpineCard, type SpineStatus } from "../nodes/SpineCard";
+import { useNodeUrgency } from "../../lib/use-node-urgency";
+import { RegionUrgency } from "@shared/wire/urgency";
 
 /**
- * Terminal node body — identity + status only, in the seat's language:
- * its glyph in a living ring, the name, one line (InstrumentSeat).
+ * Terminal node body: identity and status only, a Spines leaf
+ * (docs/node-card-language.md): the chip, a status tag, one line.
  * Open via double-click or the selection toolbar (TerminalToolbarActions).
  * No Start/Open/Kill buttons on the card.
  * Managed-agent seat state paints attention (amber + !) / working (cyan).
@@ -137,12 +139,27 @@ export function TerminalCard({
     session,
     graphBlocked,
   });
+  const spineStatus: SpineStatus | undefined = graphBlocked
+    ? "blocked"
+    : status?.seatState === "attention"
+      ? "needs-you"
+      : status?.seatState === "working" || running
+        ? "working"
+        : undefined;
+  useNodeUrgency(
+    id,
+    spineStatus === "blocked"
+      ? RegionUrgency.group.blocked
+      : spineStatus === "needs-you"
+        ? RegionUrgency.group["needs-you"]
+        : undefined,
+  );
   if (status === undefined)
     return <div className="text-body text-dim">unbound terminal</div>;
 
   if (native === undefined)
     return <div className="text-body text-dim">unbound terminal</div>;
-  const { label, presentation, seatState, subtitle, activity, complete } = status;
+  const { label, presentation, seatState, subtitle, complete } = status;
   // One line: what it runs or why it stopped, and where when it is not here.
   const line = isOnMachine(native.hostId, thisMachine)
     ? subtitle
@@ -161,14 +178,12 @@ export function TerminalCard({
       data-process-name={status.processName}
       data-seat-complete={complete ? "true" : undefined}
     >
-      <InstrumentSeat
-        activity={
-          seatState === "attention" && seatEvent?.reason
-            ? { ...activity, label: seatEvent.reason }
-            : activity
-        }
-        glyph={<SquareTerminal size={16} strokeWidth={1.8} />}
-        title={
+      <SpineCard
+        glyph={<SquareTerminal strokeWidth={1.8} />}
+        hue="steel"
+        name={label}
+        status={spineStatus}
+        nameEditor={
           renaming && onRenameDone ? (
             <FirstLineRenameInput
               initial={label}
@@ -176,17 +191,11 @@ export function TerminalCard({
               onCommit={commitRename}
               onDone={onRenameDone}
             />
-          ) : (
-            <div className="truncate font-mono text-body-lg font-semibold leading-snug text-ink" title={label}>
-              {label}
-            </div>
-          )
+          ) : undefined
         }
-        line={line}
-        lineTitle={line}
-      >
-        {TASKS_ENABLED ? <SeatTaskStrip nodeId={id} /> : null}
-      </InstrumentSeat>
+        body={{ kind: "leaf", line: seatState === "attention" && seatEvent?.reason ? seatEvent.reason : line }}
+      />
+      {TASKS_ENABLED ? <SeatTaskStrip nodeId={id} /> : null}
     </div>
   );
 }

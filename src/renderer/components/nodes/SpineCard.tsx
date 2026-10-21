@@ -39,6 +39,10 @@ export type SpineRow = {
   /** A 12px mark before the text: a type glyph, a state glyph, an on dot. */
   readonly mark?: ReactNode;
   readonly text: ReactNode;
+  /** Dim words after the text: an automation's trigger. */
+  readonly detail?: string;
+  /** A flagged row: its tick and mark take the tone. */
+  readonly tone?: "crimson" | "amber";
 };
 
 /** At most this many rows hang from a spine; the rest read as "+N more". */
@@ -64,13 +68,18 @@ export type SpineCardProps = {
         readonly kind: "spine";
         readonly meta: string;
         readonly rows: ReadonlyArray<SpineRow>;
-        /** Rows beyond the ones shown; shown rows are capped at SPINE_ROWS_MAX. */
+        /**
+         * Rows held but not passed. Pass every row, or pass a few and say how
+         * many more: rows past SPINE_ROWS_MAX are added to this, never both.
+         */
         readonly more?: number;
       };
   /** Peer and stub: a dashed chip, no fill. */
   readonly dashed?: boolean;
   /** Stands in for the glyph: a peer's portrait disc. */
   readonly portrait?: ReactNode;
+  /** Stands in for the name while it is being renamed (a FirstLineRenameInput). */
+  readonly nameEditor?: ReactNode;
 };
 
 export function SpineStatusTag({ status }: { readonly status: SpineStatus }) {
@@ -83,7 +92,7 @@ export function SpineStatusTag({ status }: { readonly status: SpineStatus }) {
   );
 }
 
-export function SpineCard({ glyph, hue, name, count, status, trailing, body, dashed = false, portrait }: SpineCardProps) {
+export function SpineCard({ glyph, hue, name, count, status, trailing, body, dashed = false, portrait, nameEditor }: SpineCardProps) {
   const rows = body?.kind === "spine" ? body.rows.slice(0, SPINE_ROWS_MAX) : [];
   const more = body?.kind === "spine" ? (body.more ?? 0) + Math.max(0, body.rows.length - SPINE_ROWS_MAX) : 0;
   const look = status === undefined ? undefined : SPINE_STATUS[status];
@@ -94,7 +103,11 @@ export function SpineCard({ glyph, hue, name, count, status, trailing, body, das
           <span className="spine-chip__glyph" aria-hidden>
             {portrait ?? glyph}
           </span>
-          <span className="spine-chip__name">{name}</span>
+          {nameEditor ?? (
+            <span className="spine-chip__name" title={name}>
+              {name}
+            </span>
+          )}
           {count === undefined ? null : <span className="spine-chip__count">{count}</span>}
           {trailing === undefined ? null : <span className="spine-chip__trailing">{trailing}</span>}
           {look === undefined ? null : <span className="spine-pip spine-shape" data-shape={look.shape} aria-hidden />}
@@ -106,13 +119,14 @@ export function SpineCard({ glyph, hue, name, count, status, trailing, body, das
         <ul className="spine">
           <li className="spine__meta">{body.meta}</li>
           {rows.map((row) => (
-            <li key={row.key} className="spine__row">
+            <li key={row.key} className="spine__row" data-tone={row.tone}>
               {row.mark === undefined ? null : (
                 <span className="spine__mark" aria-hidden>
                   {row.mark}
                 </span>
               )}
               <span className="spine__text">{row.text}</span>
+              {row.detail === undefined ? null : <span className="spine__detail">{row.detail}</span>}
             </li>
           ))}
           {more > 0 ? <li className="spine__more">+{more} more</li> : null}

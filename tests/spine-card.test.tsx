@@ -59,6 +59,19 @@ describe("SpineCard", () => {
     expect(host.querySelector(".spine__more")?.textContent).toBe("+4 more");
   });
 
+  it("draws a row's dim detail and its flag tone", () => {
+    render(
+      <SpineCard
+        glyph={glyph}
+        hue="amber"
+        name="Jobs"
+        body={{ kind: "spine", meta: "1 on, 0 off", rows: [{ key: "a", text: "nightly", detail: "every day at 9", tone: "crimson" }] }}
+      />,
+    );
+    expect(host.querySelector(".spine__detail")?.textContent).toBe("every day at 9");
+    expect(host.querySelector(".spine__row")?.getAttribute("data-tone")).toBe("crimson");
+  });
+
   it("gives a leaf one line and no spine; a dashed chip for peers and stubs", () => {
     render(<SpineCard glyph={glyph} hue="dim" name="report.pdf" dashed body={{ kind: "leaf", line: "docs/report.pdf" }} />);
     expect(host.querySelector(".spine-leaf")?.textContent).toBe("docs/report.pdf");

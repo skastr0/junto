@@ -2,10 +2,9 @@ import { useEffect, useState } from "react";
 import { GitBranch } from "lucide-react";
 import type { NodeOf } from "@shared/model";
 import type { GitStatus } from "@shared/git";
-import type { ActivitySpec } from "../../lib/activity";
 import { getJuntoApi } from "../../lib/junto-api";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
-import { InstrumentSeat } from "../nodes/InstrumentSeat";
+import { SpineCard } from "../nodes/SpineCard";
 import { editText } from "../../lib/mutations";
 import "./git.css";
 
@@ -66,49 +65,27 @@ export function GitCard({
   const ahead = status?.ahead ?? 0;
   const behind = status?.behind ?? 0;
   const head = status?.head;
-  // Status the seat way: in step rests still, out of step with upstream
-  // breathes cyan, an unreadable folder is the stopped ring.
-  const activity: ActivitySpec = error && !status
-    ? { mode: "static", tone: "steel", glyph: "off", label: error }
-    : ahead > 0 || behind > 0
-      ? { mode: "static", tone: "cyan", glyph: "dot", label: `${String(ahead)} ahead, ${String(behind)} behind upstream` }
-      : { mode: "static", tone: "steel", label: status ? "in step with upstream" : "reading" };
   const sync = [ahead > 0 ? `↑${String(ahead)}` : "", behind > 0 ? `↓${String(behind)}` : ""].filter(Boolean).join(" ");
-  const lineTitle = head
-    ? `${status?.branch ?? ""} ${shortSha(head.sha)} ${head.subject} (+${String(head.stats?.additions ?? 0)} −${String(head.stats?.deletions ?? 0)})`
-    : error;
+  const line =
+    error && !status
+      ? error
+      : [status?.branch ?? "reading", sync, head ? `${shortSha(head.sha)} ${head.subject}` : status ? "no commits" : ""]
+          .filter(Boolean)
+          .join(" ");
 
   return (
     <div className="git-glance h-full w-full" data-testid="git-card">
-      <InstrumentSeat
-        activity={activity}
-        glyph={<GitBranch size={16} strokeWidth={1.8} />}
-        title={
+      <SpineCard
+        glyph={<GitBranch strokeWidth={1.8} />}
+        hue="orange"
+        name={label}
+        status={error && !status ? "off" : undefined}
+        nameEditor={
           renaming && onRenameDone ? (
-            <FirstLineRenameInput
-              initial={label}
-              ariaLabel="Rename git"
-              onCommit={commitRename}
-              onDone={onRenameDone}
-            />
-          ) : (
-            <div className="truncate font-mono text-[13px] font-semibold leading-snug text-ink" title={label}>
-              {label}
-            </div>
-          )
+            <FirstLineRenameInput initial={label} ariaLabel="Rename git" onCommit={commitRename} onDone={onRenameDone} />
+          ) : undefined
         }
-        lineTitle={lineTitle}
-        line={
-          error && !status ? (
-            error
-          ) : (
-            <>
-              <span className="git-glance__branch text-ink">{status?.branch ?? "reading"}</span>
-              {sync ? <span className="git-glance__sync text-cyan-fg"> {sync}</span> : null}
-              {head ? <span> {head.subject}</span> : status ? <span> no commits</span> : null}
-            </>
-          )
-        }
+        body={{ kind: "leaf", line }}
       />
     </div>
   );

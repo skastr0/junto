@@ -20,7 +20,7 @@ import { TasksNode } from "../tasks/TasksNode";
 import { tasksCardBody } from "../tasks/tasks-pane-model";
 import { useNodeUrgency } from "../../lib/use-node-urgency";
 import { RegionUrgency } from "@shared/wire/urgency";
-import { TaskStateMark } from "../ui";
+import { ResourceGlyphMark, TaskStateMark } from "../ui";
 import { SpineCard, type SpineStatus } from "../nodes/SpineCard";
 import { seatChoicesInReach } from "../tasks/tasks-canvas";
 import { installIpcTasksSource, useNodeTasks } from "../../lib/tasks-source";
@@ -184,35 +184,26 @@ export function TasksCard({
 }
 
 export function ArtifactsCard({ nodeId }: { readonly nodeId: string }) {
-  const items = useNodeArtifacts(use$(state$.canvasName) || "", asNodeId(nodeId)).filter(
-    (entry) => !entry.artifact.archived,
-  );
+  const canvasName = use$(state$.canvasName) || "";
+  const name = useNodeValue(canvasName, nodeId, (node) => (node === undefined ? "Artifacts" : titleOf(node)));
+  const items = useNodeArtifacts(canvasName, asNodeId(nodeId)).filter((entry) => !entry.artifact.archived);
   return (
-    <div className="factory-glance factory-glance--artifacts flex h-full w-full flex-col overflow-hidden" data-testid="artifacts-card">
-      <SinkGlanceHead
-        nodeId={nodeId}
-        fallback="artifacts"
-        // The shelf keeps its kind label; artifact names live in Work.
-        displayLabel="artifacts"
-        decal={<Package size={15} />}
-        trailing={
-          <span className="text-caption tabular-nums" style={{ color: DIM }}>
-            {items.length}
-          </span>
-        }
+    <div data-testid="artifacts-card">
+      <SpineCard
+        glyph={<Package />}
+        hue="violet"
+        name={name}
+        count={items.length}
+        body={{
+          kind: "spine",
+          meta: items.length === 1 ? "1 artifact" : `${items.length} artifacts`,
+          rows: items.map(({ artifact }) => ({
+            key: artifact.artifactId,
+            mark: <ResourceGlyphMark kind="artifact" artifactType={artifact.type} size={12} />,
+            text: artifact.title,
+          })),
+        }}
       />
-      <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
-        {items.slice(0, 4).map(({ artifact }) => (
-          <div key={artifact.artifactId} className="factory-glance__row factory-glance__row--artifact truncate text-label" style={{ color: INK }}>
-            {artifact.title}
-          </div>
-        ))}
-        {items.length === 0 ? (
-          <div className="factory-glance__empty text-caption" style={{ color: DIM }}>
-            quiet
-          </div>
-        ) : null}
-      </div>
     </div>
   );
 }
