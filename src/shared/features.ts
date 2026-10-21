@@ -291,8 +291,6 @@ export const seatAwarenessOn = (optIns: ExperimentalOptIns): boolean =>
  */
 export const productNodeKindEnabled = (kind: string | undefined): boolean => {
   if (kind === "task") return TASKS_ENABLED;
-  // The scheduler kinds are gone from the product; old nodes decode, never author.
-  if (kind === "cron" || kind === "timer" || kind === "relay" || kind === "watcher" || kind === "gauge") return false;
   if (kind === "page") return BROWSER_ENABLED;
   if (kind === "board") return BOARD_ENABLED;
   if (kind === "requests") return REQUESTS_ENABLED;
