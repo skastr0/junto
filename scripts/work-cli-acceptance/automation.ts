@@ -105,8 +105,8 @@ export const automationArea: AcceptanceArea = {
       ),
       // Automations nodes and their store live only on the editing machine, so the write splits by machine.
       pending("an overseer on the editing machine writes an automation, ruled and applied", "remote"),
-      // The net runs one machine; this waits on a second core.
-      pending("an overseer's write from another machine is refused not_available, naming the editing machine", "remote-work"),
+      // Automation writes are not queued; canvas-automation adds the refusal that names the editing machine.
+      pending("an overseer's write from another machine is refused not_available, naming the editing machine", "canvas-automation"),
     ];
   },
 };
