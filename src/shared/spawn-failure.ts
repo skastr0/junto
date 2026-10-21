@@ -33,6 +33,8 @@ const MISSING_CLI_RE = /ENOENT|not found|command not found|posix_spawnp failed/i
  */
 export const launchRefusalCopy = {
   noFolder: "no folder is chosen for this seat",
+  homeFolder: (path: string): string =>
+    `Junto will not start a seat in your home folder ${path}; pick a project folder`,
   folderMissing: (path: string): string => `the folder ${path} does not exist`,
   notAFolder: (path: string): string => `${path} is not a folder`,
   launchIncomplete: "its launch settings are incomplete",

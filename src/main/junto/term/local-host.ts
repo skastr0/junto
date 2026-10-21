@@ -7,7 +7,7 @@
 
 import { thisMachineName } from "./machine-name";
 import { EventEmitter } from "node:events";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import * as os from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -655,6 +655,22 @@ const isUsableCwd = (cwd: string): boolean => {
   }
 };
 
+/**
+ * True when the path is this machine's home folder, in any spelling: realpath
+ * collapses a trailing slash, `.`/`..` and symlinks, and the native call also
+ * folds a case-flipped spelling on APFS. A path that does not resolve is not
+ * home; isUsableCwd refuses it on its own.
+ */
+const isHomeFolder = (cwd: string): boolean => {
+  const home = os.homedir();
+  if (!home) return false;
+  try {
+    return realpathSync.native(cwd) === realpathSync.native(home);
+  } catch {
+    return false;
+  }
+};
+
 /** An actor seat whose harness launch does not name an executable argv. */
 export type AgentLaunchUnresolvable = {
   readonly code: "agent_launch_unresolvable";
@@ -809,6 +825,19 @@ export const resolveLaunch = (
         unresolvable(
           "the seat has no working directory — choose a folder for this seat",
           launchRefusalCopy.noFolder,
+        ),
+      );
+    }
+    // A harness started in the home folder meets its trust prompt there, and
+    // its own file tools sweep the whole home under Junto's macOS identity.
+    // Checked here, on the machine that spawns, so a remote seat is held to
+    // its own host's home. A terminal seat may still open in home.
+    if (isHomeFolder(cwd)) {
+      return Result.fail(
+        unresolvable(
+          `the seat's working directory is the home folder: ${cwd}`,
+          // A symlink to home is named as home, not by its own path.
+          launchRefusalCopy.homeFolder(displayPath(os.homedir())),
         ),
       );
     }

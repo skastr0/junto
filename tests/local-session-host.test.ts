@@ -6,7 +6,7 @@ import type {
   AppTerminalLease,
 } from "../src/main/junto/app-process-plane";
 import { homedir, tmpdir } from "node:os";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   expandTerminalCwd,
@@ -421,6 +421,55 @@ describe("LocalSessionHost", () => {
     expect(seatWithoutArgv.failure).toMatchObject({
       code: "agent_launch_unresolvable",
       harness: "claude",
+    });
+  });
+
+  describe("an agent seat in the home folder", () => {
+    // The harness is a real file so the home rule is the only thing left that
+    // can refuse these seats.
+    const agentIn = (cwd: string) =>
+      resolveLaunch({
+        kind: "agent",
+        harness: "codex",
+        agentKey: "local:codex",
+        launch: { kind: "harness", argv: ["/bin/sh"], cwd },
+      });
+
+    // os.homedir() reads HOME, so the home under test is a scratch folder.
+    let root: string;
+    let home: string;
+    beforeEach(() => {
+      root = mkdtempSync(join(tmpdir(), "junto-home-seat-"));
+      home = join(root, "home");
+      mkdirSync(home);
+      vi.stubEnv("HOME", home);
+    });
+    afterEach(() => {
+      rmSync(root, { recursive: true, force: true });
+    });
+
+    it("is refused, plain, with a trailing slash, as ~, and through a symlink", () => {
+      const link = join(root, "home-link");
+      symlinkSync(home, link);
+      for (const cwd of [home, `${home}/`, "~", "~/", link]) {
+        const resolved = agentIn(cwd);
+        if (!Result.isFailure(resolved)) throw new Error(`a seat in ${cwd} must not resolve`);
+        expect(resolved.failure, cwd).toMatchObject({
+          code: "agent_launch_unresolvable",
+          operatorReason: "Junto will not start a seat in your home folder ~; pick a project folder",
+        });
+      }
+    });
+
+    it("is allowed in a folder inside home", () => {
+      const project = join(home, "project");
+      mkdirSync(project);
+      expect(Result.isSuccess(agentIn(project))).toBe(true);
+      expect(Result.isSuccess(agentIn("~/project"))).toBe(true);
+    });
+
+    it("leaves a terminal seat free to open there", () => {
+      expect(Result.isSuccess(resolveLaunch({ kind: "terminal", launch: { kind: "shell", cwd: home } }))).toBe(true);
     });
   });
 
