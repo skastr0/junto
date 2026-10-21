@@ -53,6 +53,20 @@
   padding-left: 1.5em;
 }
 
+/* The base reset takes list markers away; markdown lists keep theirs. A task
+   list's checkbox is its marker. */
+.artifact-markdown ul {
+  list-style: disc;
+}
+
+.artifact-markdown ol {
+  list-style: decimal;
+}
+
+.artifact-markdown .contains-task-list {
+  list-style: none;
+}
+
 .artifact-markdown li {
   margin: 0.25em 0;
 }
