@@ -305,7 +305,10 @@ describe("review stamps", () => {
       reviewer: asSeat(dee),
     });
     const automation: TaskActor = { kind: "automation", automation: asNodeId("auto-1") };
-    expect(refused(one(inReview, automation, { kind: "stamp", verdict: "approve" })).kind).toBe("illegal-transition");
+    expect(refused(one(inReview, automation, { kind: "stamp", verdict: "approve" }))).toEqual({
+      kind: "cannot-review",
+      actor: "automation",
+    });
   });
 
   it("takes stamps only in review", () => {
@@ -428,6 +431,15 @@ describe("the task domain under the ruler", () => {
     expect(ruled.ruling.error.details).toMatchObject({ reason: "invalid_transition", expected: { kind: "not-assignee" } });
   });
 
+  it("refuses a create whose target names another task", () => {
+    const create = { ...command({ kind: "operator" }, { kind: "create", taskId: T1, title: "a" }, T2) };
+    const ruled = rule(taskDomain(env()), emptyRuled(emptyTaskBoard()), writer, create, { inReach: () => true });
+    expect(ruled.ruling.kind === "refused" && ruled.ruling.error.details).toMatchObject({
+      reason: "invalid_input",
+      expected: { kind: "target-mismatch", target: T2, taskId: T1 },
+    });
+  });
+
   it("refuses a command that names no task", () => {
     const ruled = rule(taskDomain(env()), emptyRuled(emptyTaskBoard()), writer, command({ kind: "operator" }, { kind: "start" }), { inReach: () => true });
     expect(ruled.ruling.kind === "refused" && ruled.ruling.error.details?.reason).toBe("unknown_target");
@@ -477,6 +489,9 @@ describe("refusal text", () => {
       { kind: "dependency-cycle", through: [T1] },
       { kind: "unknown-task", taskId: T1 },
       { kind: "task-exists", taskId: T1 },
+      { kind: "cannot-review", actor: "automation" },
+      { kind: "target-mismatch", target: T1, taskId: T2 },
+      { kind: "wrong-node", nodeId: build, expected: "agent" },
     ];
     for (const detail of details) expect(taskRefusalMessage(detail)).not.toBe("");
     expect(taskRefusalMessage({ kind: "illegal-transition", from: "done", command: "start" })).toBe("A done task cannot start");

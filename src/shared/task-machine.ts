@@ -306,7 +306,8 @@ export const ruleTaskCommand = <T extends TaskCore>(
       return settle({ ...task, stampPolicy: { required: command.required } });
     case "stamp": {
       const reviewer = reviewerOf(actor);
-      if (reviewer === undefined || task.state !== "in-review") return illegal(task, command);
+      if (reviewer === undefined) return refuse({ kind: "cannot-review", actor: actor.kind });
+      if (task.state !== "in-review") return illegal(task, command);
       if (reviewer.kind === "seat") {
         if (reviewer.seat === task.assignee) return refuse({ kind: "own-task", seat: reviewer.seat });
         if (!listed(task.reviewers, reviewer)) return refuse({ kind: "not-reviewer", reviewer });
@@ -449,6 +450,12 @@ export const taskRefusalMessage = (detail: TaskRefusalDetail): string => {
       return `No task ${detail.taskId} on this task node`;
     case "task-exists":
       return `Task ${detail.taskId} already exists`;
+    case "cannot-review":
+      return `An ${detail.actor} does not review tasks`;
+    case "target-mismatch":
+      return `The command names task ${detail.target} but creates ${detail.taskId}`;
+    case "wrong-node":
+      return `${detail.nodeId} is not ${detail.expected === "agent" ? "a seat" : "a task node"}`;
   }
 };
 
@@ -488,6 +495,9 @@ export const taskDomain = (env: TaskDomainEnv): ResourceDomain<TaskBoardState, T
     const target = targetOf(command);
     if (target === undefined) {
       return { kind: "refuse", refusal: { reason: "unknown_target", message: "Name the task this command acts on" } };
+    }
+    if (command.op.kind === "create" && command.target.itemId !== undefined && command.target.itemId !== command.op.taskId) {
+      return { kind: "refuse", refusal: toRefusal(taskRefusal({ kind: "target-mismatch", target: command.target.itemId, taskId: command.op.taskId })) };
     }
     const ruled = ruleTaskBoardCommand(state, target, taskActorOf(command.actor), command.op, env);
     return ruled.ok
