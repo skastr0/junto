@@ -515,6 +515,31 @@ describe("operator threads", () => {
     expect(reviewCopyId(sent.messageId, asNodeId("loner"))).not.toBe(reviewCopyId(sent.messageId, asNodeId("peer")));
   });
 
+  it("a review's copy that cannot be written is skipped: the row and the other copies stand", async () => {
+    const link = (id: string) => mentionLink({ kind: "seat", nodeId: asNodeId(id) }, id, CANVAS);
+    const text = `Look here, ${link("loner")} and ${link("peer")}`;
+    const sending = Effect.flatMap(WorkService, (work) =>
+      sendOperatorThreadMail(
+        Schema.decodeUnknownSync(OperatorThreadSendSchema)({ canvasName: CANVAS, nodeId: "agent", text, review: { anchorNodeId: "agent" } }),
+      ).pipe(
+        Effect.provideService(WorkService, {
+          ...work,
+          // Only the copy to loner fails; every other write goes through.
+          workSystemMailboxNotify: (canvas: string, node: string, message: Message, ...rest: ReadonlyArray<unknown>) =>
+            node === "loner"
+              ? Effect.succeed({ ok: false as const, code: "invalid" as const, message: "mailbox down" })
+              : (work.workSystemMailboxNotify as (...args: ReadonlyArray<unknown>) => unknown)(canvas, node, message, ...rest),
+        } as never),
+      ),
+    );
+    const sent = await runtime.runPromise(sending as Effect.Effect<any, unknown, never>);
+    expect(sent).toMatchObject({ copies: [{ nodeId: "peer", messageId: expect.any(String) }] });
+    expect(sent.copies).toHaveLength(1);
+    expect(await stored("agent", sent.messageId)).toBeDefined();
+    expect(await mailbox("loner")).toEqual([]);
+    expect((await mailbox("peer")).map((row) => row.messageId)).toEqual([reviewCopyId(sent.messageId, asNodeId("peer"))]);
+  });
+
   it("a review opened from a place no longer on the canvas is refused, never sent to every agent", async () => {
     const text = `see ${mentionLink({ kind: "seat", nodeId: asNodeId("loner") }, "loner", CANVAS)}`;
     expect(await send({ nodeId: "agent", text, review: { anchorNodeId: "gone-git" } })).toEqual({
