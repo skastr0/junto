@@ -15,15 +15,6 @@ import {
   SEAT_OFFBOARD_MAX_SEATS,
 } from "./seat-offboard";
 import { OFFBOARD_MODES } from "./seat-sessions";
-import {
-  CompletionEvidence,
-  FinishCriteria,
-  Part,
-  TaskAdmission,
-  TaskRule,
-  TaskState,
-  WorkMetadata,
-} from "./work-model";
 
 /**
  * Agent-native operator command contract.
@@ -68,17 +59,6 @@ export const OVERSEER_OPERATION_NAMES = [
   "wire.connect",
   "wire.configure",
   "wire.disconnect",
-  "task.list",
-  "task.create",
-  "task.claim",
-  "task.describe",
-  "task.update",
-  "task.show",
-  "task.rules",
-  "task.check",
-  "task.promote",
-  "task.comment",
-  "task.respond",
   "artifact.list",
   "artifact.get",
   "artifact.archive",
@@ -316,91 +296,6 @@ export const OverseerCanvasBatch = Schema.Struct({
 
 // Work plane ---------------------------------------------------------------
 
-const TaskIdentity = Schema.Struct({
-  ...SinkTarget,
-  task: Id,
-});
-const TaskCreate = Schema.Struct({
-  ...SinkTarget,
-  brief: NonEmpty,
-  reason: Schema.optionalKey(Schema.String),
-  metadata: Schema.optionalKey(WorkMetadata),
-  media: Schema.optionalKey(Schema.Array(Part)),
-  dependsOn: Schema.optionalKey(Schema.Array(Id)),
-  finishCriteria: Schema.optionalKey(FinishCriteria),
-  rules: Schema.optionalKey(Schema.Array(TaskRule)),
-  admission: Schema.optionalKey(TaskAdmission),
-  waitFor: Schema.optionalKey(NonNegativeInt),
-});
-const TaskClaim = Schema.Struct({
-  ...SinkTarget,
-  task: Id,
-  actor: Schema.optionalKey(Id),
-});
-const TaskDescribe = Schema.Struct({
-  ...SinkTarget,
-  task: Id,
-  brief: NonEmpty,
-});
-const TaskDefect = Schema.Struct({
-  summary: NonEmpty,
-  refs: Schema.optionalKey(Schema.Array(Schema.String)),
-  target: Schema.optionalKey(Id),
-});
-const TaskUpdate = Schema.Struct({
-  ...SinkTarget,
-  task: Id,
-  state: TaskState,
-  note: Schema.optionalKey(Schema.String),
-  completionEvidence: Schema.optionalKey(CompletionEvidence),
-  next: Schema.optionalKey(Id),
-  waitFor: Schema.optionalKey(NonNegativeInt),
-  defect: Schema.optionalKey(TaskDefect),
-  handoffNote: Schema.optionalKey(Schema.String),
-}).pipe(
-  Schema.check(Schema.makeFilter(({ state, completionEvidence }) =>
-    completionEvidence === undefined || state === "completed" ||
-    "completionEvidence is only allowed when state is completed",)),
-  Schema.check(Schema.makeFilter(({ state, next }) =>
-    next === undefined || state === "completed" ||
-    "next is only allowed when state is completed",)),
-  Schema.check(Schema.makeFilter(({ state, waitFor }) =>
-    waitFor === undefined || state === "completed" ||
-    "waitFor is only allowed when state is completed",)),
-  Schema.check(Schema.makeFilter(({ state, handoffNote }) =>
-    handoffNote === undefined || state === "completed" ||
-    "handoffNote is only allowed when state is completed",)),
-  Schema.check(Schema.makeFilter(({ state, defect }) =>
-    defect === undefined || state === "rejected" ||
-    "defect is only allowed when state is rejected",)),
-);
-const TaskCheck = Schema.Struct({
-  ...SinkTarget,
-  task: Id,
-  next: Schema.optionalKey(Id),
-  results: Schema.Array(Schema.Struct({
-    checkId: Id,
-    side: Schema.Literals(["outgoing", "incoming"]),
-    exitCode: Schema.Number.pipe(Schema.check(Schema.isInt())),
-    outputTail: Schema.String,
-  })),
-});
-const TaskPromote = Schema.Struct({
-  ...SinkTarget,
-  task: Id,
-  note: Schema.optionalKey(Schema.String),
-});
-const TaskComment = Schema.Struct({
-  ...SinkTarget,
-  task: Id,
-  text: NonEmpty,
-});
-const TaskRespond = Schema.Struct({
-  ...SinkTarget,
-  task: Id,
-  responseText: NonEmpty,
-  disposition: Schema.Literals(["working", "rejected"]),
-});
 const ArtifactIdentity = Schema.Struct({
   ...SinkTarget,
   artifact: Id,
@@ -662,17 +557,6 @@ export const OverseerArgsSchemas = {
   "wire.connect": Schema.Struct({ ...CanvasOptional, ...WireConnect }),
   "wire.configure": Schema.Struct({ ...CanvasOptional, ...WireConfigure }),
   "wire.disconnect": Schema.Struct({ ...CanvasOptional, ...WireDisconnect }),
-  "task.list": Schema.Struct(SinkTarget),
-  "task.create": TaskCreate,
-  "task.claim": TaskClaim,
-  "task.describe": TaskDescribe,
-  "task.update": TaskUpdate,
-  "task.show": TaskIdentity,
-  "task.rules": Schema.Struct({ ...SinkTarget, task: Schema.optionalKey(Id) }),
-  "task.check": TaskCheck,
-  "task.promote": TaskPromote,
-  "task.comment": TaskComment,
-  "task.respond": TaskRespond,
   "artifact.list": Schema.Struct(SinkTarget),
   "artifact.get": ArtifactIdentity,
   "artifact.archive": ArtifactArchive,
@@ -803,9 +687,6 @@ export const OVERSEER_READ_ONLY_OPERATIONS = [
   "wire.list",
   "wire.get",
   "wire.verbs",
-  "task.list",
-  "task.show",
-  "task.rules",
   "artifact.list",
   "artifact.get",
   "content.path",

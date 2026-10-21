@@ -31,9 +31,7 @@ import {
   type ObservabilityLogEntry,
   type ObservabilityQuery,
   type ObservabilitySnapshot,
-  type WorkOpResult,
 } from "@shared/ipc";
-import type { Task } from "@shared/work-model";
 import type { AutomationsChanged } from "@shared/automation";
 import {
   ARTIFACTS_ENABLED,

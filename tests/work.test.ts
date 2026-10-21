@@ -147,17 +147,12 @@ describe("WorkService — mail", () => {
     expect(appended).not.toHaveProperty("doc");
     expect(appended).not.toHaveProperty("revision");
     expect(kernelChanges).toEqual([]);
-    const created = await workRuntime.runPromise(work.workTaskCreate(name, "tasks", "A kernel-visible task", { details: "Run a task." }));
-    if (!created.ok) throw new Error(`${created.code}: ${created.message}`);
-    expect(kernelChanges).toEqual([[name, "tasks"]]);
     offKernel();
-    await workRuntime.runPromise(work.workTaskCreate(name, "tasks", "After unsubscribe", { details: "Run another task." }));
-    expect(kernelChanges).toEqual([[name, "tasks"]]);
     const messages = await workRuntime.runPromise(repository.mailbox(name, "recipient"));
     expect(
       messages
     ).toEqual([expect.objectContaining({ messageId: "inbox-lane-1" })]);
-    // Mail and tasks are work: the canvas itself did not move.
+    // Mail is work: the canvas itself did not move.
     expect(await seqOf(name)).toBe(seqBefore);
   });
 

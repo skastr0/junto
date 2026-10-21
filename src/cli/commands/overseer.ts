@@ -730,7 +730,7 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     command_id: commandIdFor("node.create"),
     command: "overseer node create",
     name: "create a note",
-    description: "A node is told by its kind (agent, terminal, page, task, requests, artifacts, automations, board, note, label, file, link, git, region) with that kind's own fields; a seat is drafted by harness and choices instead (see the seat example). Leave id out for main to mint it; the answer carries the node with its id. A new node goes on top.",
+    description: "A node is told by its kind (agent, terminal, page, task, artifacts, automations, note, label, file, link, git, region) with that kind's own fields; a seat is drafted by harness and choices instead (see the seat example). Leave id out for main to mint it; the answer carries the node with its id. A new node goes on top.",
     args: ["overseer", "node", "create"],
     input: {
       node: { kind: "note", text: "Ship on green.", x: 0, y: 0, width: 220, height: 84 },
@@ -799,13 +799,6 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     name: "which verbs two nodes allow",
     args: ["overseer", "wire", "verbs"],
     input: { from: "a", to: "b" },
-  },
-  {
-    command_id: commandIdFor("task.list"),
-    command: "overseer task list",
-    name: "list tasks on a sink",
-    args: ["overseer", "task", "list"],
-    input: { target: "tasks-1" },
   },
   {
     command_id: commandIdFor("agent.reseat"),

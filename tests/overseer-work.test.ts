@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Result, Schema } from "effect";
 import { ActorSeatId } from "../src/shared/actor-seat";
-import { overseerOperationEnabled, productNodeKindEnabled } from "../src/shared/features";
+import { OVERSEER_OPERATION_NAMES } from "../src/shared/overseer-control";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { NodeOf } from "../src/shared/model";
 import { canvasOf, seat, taskBoard } from "./support/model-nodes";
@@ -268,7 +268,7 @@ describe("executeOverseerWork", () => {
       /^[a-f0-9]{64}$/,
     );
   });
-  it("lists tasks, and reads a task thread, from their rows", async () => {
+  it("has no task operations: an overseer uses junto task like any seat", async () => {
     await runtime.runPromise(
       seedCanvas("rows", [
         ...factoryNodes("rows"),
@@ -277,40 +277,13 @@ describe("executeOverseerWork", () => {
     );
     await grantOverseer("rows", "boss", true);
     const { actor } = await actorOn("rows", "boss");
-    const call = (operation: string, args: Record<string, unknown>) =>
-      run(
-        executeOverseerWork(
-          { canvasName: "rows", nodeId: "boss" },
-          { operation: operation as never, args },
-          overseerWorkAdmin(actor),
-        ),
-      ) as Promise<Record<string, unknown>>;
-    const tasksOn = productNodeKindEnabled("task");
-    // A kind this build gates off is out of the catalog, and its rows are refused.
-    expect(overseerOperationEnabled("task.list")).toBe(tasksOn);
-    if (!tasksOn) {
-      await expect(call("task.list", { target: "todo" })).rejects.toThrow(
-        /kind task is disabled in this Junto build/u,
-      );
-    }
-
-    if (tasksOn) {
-      expect(await call("task.list", { target: "todo" })).toEqual({ target: "todo", items: [] });
-      await call("task.create", {
-        target: "todo",
-        brief: "write the report",
-        metadata: { details: "the quarterly one" },
-      });
-      const listed = (await call("task.list", { target: "todo" })) as {
-        readonly items: ReadonlyArray<{ readonly id: string; readonly history: ReadonlyArray<unknown> }>;
-      };
-      expect(listed.items).toHaveLength(1);
-      const taskId = listed.items[0]!.id;
-
-      const thread = await call("msg.list", { target: "todo", taskId });
-      expect(thread).toMatchObject({ target: "todo", taskId });
-      expect(thread["items"]).toEqual(listed.items[0]!.history);
-      await expect(call("msg.list", { target: "todo", taskId: "missing" })).rejects.toBeDefined();
-    }
+    expect(OVERSEER_OPERATION_NAMES.filter((name) => name.startsWith("task."))).toEqual([]);
+    await expect(run(
+      executeOverseerWork(
+        { canvasName: "rows", nodeId: "boss" },
+        { operation: "task.list" as never, args: { target: "todo" } },
+        overseerWorkAdmin(actor),
+      ),
+    )).rejects.toBeDefined();
   });
 });

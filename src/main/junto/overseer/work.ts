@@ -6,7 +6,6 @@
  * compiled ActorRef at every use, never impersonates OPERATOR_SEAT_ID, and
  * never treats WorkOpResult `{ ok: false }` as success.
  */
-import type { OldTaskStoreOp } from "@shared/physics/work-ports";
 import { Buffer } from "node:buffer";
 import { Effect, Result } from "effect";
 import { ulid } from "ulid";
@@ -60,17 +59,6 @@ export { overseerWorkAdmin };
 export type OverseerWorkCaller = OverseerCaller;
 
 const WORK_OPERATIONS = new Set<string>([
-  "task.list",
-  "task.create",
-  "task.claim",
-  "task.describe",
-  "task.update",
-  "task.show",
-  "task.rules",
-  "task.check",
-  "task.promote",
-  "task.comment",
-  "task.respond",
   "artifact.list",
   "artifact.get",
   "artifact.archive",
@@ -179,7 +167,7 @@ const actorAuthor = (canvas: Canvas, actor: ActorRef): Author => {
 const requireTarget = (
   canvas: Canvas,
   targetId: string,
-  op: WorkOpName | OldTaskStoreOp,
+  op: WorkOpName,
 ): Effect.Effect<void, WorkErrorBody> => {
   const admitted = admitOverseerWorkTarget(canvas, targetId, op);
   if (Result.isFailure(admitted)) return failBody(admitted.failure);
@@ -310,156 +298,6 @@ export const executeOverseerWork = (
     const raw = decoded.args;
     const op = decoded.operation;
 
-    if (op === "task.list") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "task.list");
-      return { target, items: yield* catchWork(work.readTasks(canvas, target)) };
-    }
-    if (op === "task.create") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "task.create");
-      const result = yield* work.workTaskCreate(
-        canvas,
-        target,
-        args.brief,
-        args.metadata,
-        args.reason,
-        args.media,
-        args.dependsOn,
-        args.finishCriteria,
-        args.rules,
-        {
-          admission: args.admission,
-          admissionOmitted: "inherit",
-          ...(args.waitFor !== undefined ? { waitForMs: args.waitFor } : {}),
-          raisedBy: actor,
-        },
-        admin,
-      );
-      return exposeMutation(yield* fromWorkResult(result));
-    }
-    if (op === "task.claim") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "task.claim");
-      const assignee =
-        args.actor === undefined
-          ? actor
-          : (yield* topologyOf(canvas)).actorRefs.find(
-              (candidate) =>
-                candidate.canvasName === canvas && candidate.nodeId === args.actor,
-            ) ??
-            origin.actorRefs.find(
-              (candidate) => candidate.nodeId === args.actor,
-            );
-      if (assignee === undefined) {
-        return yield* failBody({
-          type: "UnknownTarget",
-          message: `actor "${args.actor}" is not a compiled seat`,
-          details: { target: args.actor, retryable: false },
-        });
-      }
-      const result = yield* work.workTaskClaim(canvas, target, args.task, assignee, admin);
-      return exposeMutation(yield* fromWorkResult(result));
-    }
-    if (op === "task.describe") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "task.update");
-      const result = yield* work.workTaskDescribe(canvas, target, args.task, args.brief);
-      return exposeMutation(yield* fromWorkResult(result));
-    }
-    if (op === "task.update") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "task.update");
-      const result = yield* work.workTaskTransition(
-        canvas,
-        target,
-        args.task,
-        args.state,
-        args.note,
-        args.completionEvidence,
-        {
-          ...(args.next !== undefined ? { next: args.next } : {}),
-          ...(args.defect !== undefined ? { defect: args.defect } : {}),
-          ...(args.waitFor !== undefined ? { waitForMs: args.waitFor } : {}),
-          ...(args.handoffNote !== undefined ? { handoffNote: args.handoffNote } : {}),
-        },
-      );
-      return exposeMutation(yield* fromWorkResult(result));
-    }
-    if (op === "task.show") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "task.show");
-      return yield* catchWork(work.workTaskShow(canvas, target, args.task, "operator"));
-    }
-    if (op === "task.rules") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "task.rules");
-      return yield* catchWork(work.workTaskRules(canvas, target, args.task));
-    }
-    if (op === "task.check") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "task.check");
-      const result = yield* work.workTaskCheck(
-        canvas,
-        target,
-        args.task,
-        args.results,
-        args.next,
-      );
-      return exposeMutation(yield* fromWorkResult(result));
-    }
-    if (op === "task.promote") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "task.update");
-      const result = yield* work.workTaskPromote(canvas, target, args.task, args.note, admin);
-      return exposeMutation(yield* fromWorkResult(result));
-    }
-    if (op === "task.comment") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "task.update");
-      const result = yield* work.workTaskComment(
-        canvas,
-        target,
-        args.task,
-        makeUserMessage({
-          messageId: ulid(),
-          text: args.text,
-          contextId: canvas,
-          taskId: args.task,
-          metadata: {
-            taskComment: true,
-            fromSeat: actor.nodeId,
-            "junto.taskThread.kind": "comment",
-          },
-        }),
-        admin,
-      );
-      return exposeMutation(yield* fromWorkResult(result));
-    }
-    if (op === "task.respond") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "task.update");
-      const result = yield* work.workTaskRespond(
-        canvas,
-        target,
-        args.task,
-        args.responseText,
-        args.disposition,
-        admin,
-      );
-      return exposeMutation(yield* fromWorkResult(result));
-    }
     if (op === "artifact.list") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
