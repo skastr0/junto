@@ -106,6 +106,8 @@ export interface BrowserViewEvents {
   readonly admitsTopLevel: (url: string, byPage: boolean) => boolean;
   /** The operator pressed a key, clicked or tapped in the view itself. */
   readonly onOperatorInput: () => void;
+  /** A new main-frame document committed: what ran in the last one is gone. */
+  readonly onDocumentCommitted: () => void;
   /**
    * Electron reports an unplanned WebContents loss through either
    * `render-process-gone` or `destroyed`. The adapter coalesces both signals
@@ -300,11 +302,13 @@ interface SessionEntry {
   /** Who asked for the pending step: a guest's never lands once the operator holds the page. */
   stepOwner: string | undefined;
   /**
-   * The generation a seat last evaluated in. Code it left may still run in
-   * that document, so while the operator holds it, the page itself still
-   * goes nowhere the holders' grants do not reach. A new document is clean.
+   * The grants of every seat that evaluated in the committed document. Code
+   * a seat left may still run there, so a navigation the page starts must
+   * pass each of them, whoever holds the page now and after those seats'
+   * holds end. Never empty when set; cleared only when a new document
+   * commits, as a start that never commits leaves the old document in place.
    */
-  touchedGeneration: string | undefined;
+  touchedBy: Set<BrowserGuestTopLevelGuard> | undefined;
   activeOperation: ActiveOperation | undefined;
   lastActiveAt: number;
   view: BrowserViewHandle;
@@ -997,6 +1001,13 @@ export class BrowserSessionService {
    * or no seat does, the ordinary browser policy alone decides.
    */
   private admitsTopLevel(entry: SessionEntry, url: string, byPage: boolean): boolean {
+    // Code a seat left fires on the operator's own click; in that document
+    // only the browser itself (the operator's chrome) goes off its grants.
+    if (byPage && entry.touchedBy !== undefined) {
+      for (const guard of entry.touchedBy) {
+        if (!guard(url)) return false;
+      }
+    }
     if (this.drivingOf(entry).control.kind === "operator-held") {
       // A seat's step asked before the operator took over must not land after:
       // the first start while it is pending is that step, and is refused.
@@ -1004,9 +1015,7 @@ export class BrowserSessionService {
         this.clearStepPending(entry);
         return false;
       }
-      // A listener a seat left fires on the operator's own click; in that
-      // document only the operator's chrome goes off the grants.
-      return !byPage || entry.touchedGeneration !== entry.sessionId || this.withinHolderGrants(entry, url);
+      return true;
     }
     return this.withinHolderGrants(entry, url);
   }
@@ -2139,7 +2148,7 @@ export class BrowserSessionService {
       navigationInFlight: undefined,
       stepPending: undefined,
       stepOwner: undefined,
-      touchedGeneration: undefined,
+      touchedBy: undefined,
       activeOperation: undefined,
       lastActiveAt: this.now(),
       view: undefined as unknown as BrowserViewHandle,
@@ -2164,6 +2173,9 @@ export class BrowserSessionService {
           onTitle: (sessionId, title) => this.titleChanged(entry, sessionId, title),
           admitsTopLevel: (url, byPage) => this.admitsTopLevel(entry, url, byPage),
           onOperatorInput: () => this.takeOverEntry(entry),
+          onDocumentCommitted: () => {
+            entry.touchedBy = undefined;
+          },
           onUnexpectedTermination: () => this.viewTerminatedUnexpectedly(entry),
         },
       );
@@ -2674,7 +2686,11 @@ export class BrowserSessionService {
       timeoutMs: BROWSER_EVAL_TIMEOUT_MS,
       ...(signal !== undefined ? { signal } : {}),
       run: () => {
-        if (owner !== entry.owner) entry.touchedGeneration = entry.sessionId;
+        if (owner !== entry.owner) {
+          // An unbound seat binds the document to nowhere: fail closed.
+          const guard = entry.guests.get(owner)?.admitsTopLevel ?? (() => false);
+          (entry.touchedBy ??= new Set()).add(guard);
+        }
         return entry.view.executeJavaScript!(code);
       },
     });

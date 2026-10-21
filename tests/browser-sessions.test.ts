@@ -1234,12 +1234,37 @@ describe("BrowserSessionService", () => {
     expect(events.admitsTopLevel("https://touched.example.com/2", true)).toBe(true);
     expect(events.admitsTopLevel("https://elsewhere.example.net/", false)).toBe(true);
 
-    // A new document is the operator's alone.
+    // A start that never commits leaves the seat's document, and its mark.
     const next = service.goto(ui.data.sessionId, "https://touched.example.com/2");
     if (!next.ok) throw new Error("goto failed");
     events.onNavigationStart({ url: "https://touched.example.com/2", isSameDocument: false, expectedSessionId: next.data.sessionId });
+    expect(events.admitsTopLevel("https://elsewhere.example.net/", true)).toBe(false);
+    // A new document committed is the operator's alone.
+    events.onDocumentCommitted();
     events.onLoadOk(next.data.sessionId);
     expect(events.admitsTopLevel("https://elsewhere.example.net/", true)).toBe(true);
+  });
+
+  it("judges a marked document by every seat that evaluated in it, after their holds end", async () => {
+    const { service, views } = makeDefaultService();
+    const page = target("outlived");
+    const ui = await service.open(page);
+    if (!ui.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(ui.data.sessionId);
+    const events = views[0]!.events;
+    const onlyA = (url: string) => new URL(url).origin === "https://outlived.example.com";
+    const alsoB = (url: string) => ["https://outlived.example.com", "https://b.example.org"].includes(new URL(url).origin);
+    expect(await service.openForOwner("job-a", page, undefined, undefined, onlyA)).toMatchObject({ ok: true });
+    expect(await service.openForOwner("job-b", page, undefined, undefined, alsoB)).toMatchObject({ ok: true });
+    expect(await service.evalForOwner("job-a", ui.data.sessionId, "1")).toMatchObject({ ok: true });
+    expect(await service.evalForOwner("job-b", ui.data.sessionId, "1")).toMatchObject({ ok: true });
+
+    await expect(service.stopForOwner("job-a", ui.data.sessionId)).resolves.toMatchObject({ ok: true });
+    await expect(service.stopForOwner("job-b", ui.data.sessionId)).resolves.toMatchObject({ ok: true });
+    // No seat holds the page, yet the code they left is still bound by both grants.
+    expect(events.admitsTopLevel("https://b.example.org/", true)).toBe(false);
+    expect(events.admitsTopLevel("https://outlived.example.com/2", true)).toBe(true);
+    expect(events.admitsTopLevel("https://b.example.org/", false)).toBe(true);
   });
 
   it("gives a page tabs, one view each, and moves the surface's view to the active one", async () => {

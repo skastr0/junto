@@ -277,6 +277,7 @@ describe("electron browser view generation seam", () => {
     const ambiguous: string[] = [];
     const unexpectedTerminations: number[] = [];
     const operatorInputs: number[] = [];
+    const commits: number[] = [];
     const guard = { admits: (_url: string, _byPage?: boolean): boolean => true };
     const byPage: boolean[] = [];
     let pageGeneration = 1;
@@ -297,6 +298,7 @@ describe("electron browser view generation seam", () => {
           return guard.admits(url, initiatedByPage);
         },
         onOperatorInput: () => operatorInputs.push(1),
+        onDocumentCommitted: () => commits.push(1),
         onUnexpectedTermination: () => unexpectedTerminations.push(1),
       },
     );
@@ -315,6 +317,7 @@ describe("electron browser view generation seam", () => {
       operatorInputs,
       guard,
       byPage,
+      commits,
     };
   };
 
@@ -345,6 +348,7 @@ describe("electron browser view generation seam", () => {
       onTitle: () => undefined,
       admitsTopLevel: () => true,
       onOperatorInput: () => undefined,
+      onDocumentCommitted: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
 
@@ -383,6 +387,7 @@ describe("electron browser view generation seam", () => {
       onTitle: () => undefined,
       admitsTopLevel: () => true,
       onOperatorInput: () => undefined,
+      onDocumentCommitted: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
     const view = electron.views.at(-1);
@@ -427,6 +432,7 @@ describe("electron browser view generation seam", () => {
       onTitle: () => undefined,
       admitsTopLevel: () => true,
       onOperatorInput: () => undefined,
+      onDocumentCommitted: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
     const view = electron.views.at(-1);
@@ -473,6 +479,7 @@ describe("electron browser view generation seam", () => {
       onTitle: () => undefined,
       admitsTopLevel: () => true,
       onOperatorInput: () => undefined,
+      onDocumentCommitted: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
     const view = electron.views.at(-1);
@@ -510,6 +517,7 @@ describe("electron browser view generation seam", () => {
       onTitle: () => undefined,
       admitsTopLevel: () => true,
       onOperatorInput: () => undefined,
+      onDocumentCommitted: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
     const view = electron.views.at(-1);
@@ -660,6 +668,17 @@ describe("electron browser view generation seam", () => {
     // A same-document step is not a new top-level document.
     webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/#x", { isSameDocument: true }));
     expect(webContents.stopCalls).toBe(1);
+  });
+
+  it("says a new main-frame document committed only when one does", async () => {
+    const { handle, webContents, commits } = await setup();
+    handle.loadUrl("https://example.com/start", "session-1");
+    webContents.emit("did-start-navigation", navigation("https://example.com/start"));
+    expect(commits).toHaveLength(0);
+    webContents.emit("did-navigate-in-page", {}, "https://example.com/start#x", true);
+    expect(commits).toHaveLength(0);
+    webContents.emit("did-navigate", {}, "https://example.com/start", 200, "OK");
+    expect(commits).toHaveLength(1);
   });
 
   it("reports the operator's key, click or tap, never a pointer passing over", async () => {
