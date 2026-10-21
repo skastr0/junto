@@ -118,14 +118,15 @@ the set grows by one (cli-lead):
 | Written against an old version | `Stale` (new), retryable | `expected`: the head version |
 | Feature reserved, not built (webhook) | `InputError` | `reason` |
 
-- Link: a new `Channel` literal on the existing request and response frames
-  (`src/main/junto/link/protocol.ts:8,13-15`); no new frame type and no credit
-  (only `rows` is windowed). Two bounds close the whole link if hit: more
-  than 32 requests in flight (`src/main/junto/link/session.ts:32,281`), so the
-  caller keeps a per-link bound and a queue, as seat input does since
-  7fa64afb0; and a ruling slower than 30 s (`session.ts:284`), so a ruling
-  never waits on content bytes. Expected round trip on LAN 20 to 150 ms,
-  unmeasured until the channel exists.
+- Link: no new channel. Commands travel as `command.queued` rows and
+  rulings as `ruling.*` facts, both on `rows` (see "Editing machine away"). An
+  earlier draft used request and response frames; it is dropped because two
+  bounds there close the whole link: more than 32 requests in flight
+  (`src/main/junto/link/session.ts:32,281`) and a reply slower than 30 s
+  (`session.ts:284`). `rows` is windowed with credit and has neither. A
+  ruling never waits on content bytes. Expected round trip on LAN 20 to
+  150 ms (ping to the mini 10 to 123 ms, average 62), unmeasured until it is
+  built.
 - Routing: a direct link to the editing machine, no relaying. In v1 the
   editor opens every link, so every machine with a seat is already linked
   (inferred, not checked on a three machine canvas).
@@ -170,20 +171,27 @@ unreachable. Written by canvas-lead and remote-lead; points marked
    ruling comes back in milliseconds and the queue is invisible. With it
    down, the row waits, as mail waits (`docs/machines.md:82-85`). No branch
    decides "offline".
-3. **(remote)** This replaces the request and ruling channel proposed under
-   Contracts. A machine that does not edit the canvas offers only its own
-   rows, and only to the editing machine
+3. **No command channel** (remote-lead). This replaces the request and
+   ruling channel of the first draft (Contracts). A machine that does not
+   edit the canvas offers only its own rows, and only to the editing machine
    (`src/main/junto/work/exchange/session.ts:273-276`). Cursors, catch up
    and credit drain the backlog after a return, so the 32-in-flight and 30 s
-   bounds (`session.ts:32,281,284`) no longer apply to commands. Command rows
+   bounds (`session.ts:32,281,284`) never apply to commands. Command rows
    are not resource state, so Rule 4 holds. The exchange filter admits
-   `command.queued` only from the machine that placement says the actor is
-   on (condition 1), the same rule as mail. `operator` commands are written
-   on the editing machine itself, so the operator never queues.
-4. **The CLI says which happened**, as mail does. It waits briefly for the
-   ruling (**(remote)**: about 2 s) and then returns `applied`, `refused`
-   (the typed error) or `queued` with the opId. `queued` is a success. A
-   later `junto task show` or `junto queue list` shows the outcome.
+   `command.queued` only from the machine that placement says the actor was
+   on when the row was written (condition 1), the same rule and the same
+   placement history as mail (`docs/machines.md:72-75`). `operator` commands
+   are written on the editing machine itself, so the operator never queues.
+   Rulings are the editing machine's facts: `ruling.applied` and
+   `ruling.refused` go to every machine, and only the editing machine may
+   write them; one from any other writer closes the link.
+4. **The CLI says which happened**, as mail does. While a link to the
+   editing machine is open it waits up to 2 s for the ruling (remote-lead:
+   one LAN round trip is 20 to 150 ms, so 2 s covers a slow ruling without
+   making a seat wait on a dead link). With no link open it does not wait.
+   It then returns `applied`, `refused` (the typed error) or `queued` with
+   the opId. `queued` is a success. A later `junto task show` or
+   `junto queue list` shows the outcome.
 
 ### Pending state
 
@@ -195,9 +203,13 @@ unreachable. Written by canvas-lead and remote-lead; points marked
   and never state.
 - Pending commands are visible only on the machine that wrote them. In v1
   every link runs between the editing machine and one other machine, so no
-  other machine receives them before they are ruled. **(remote)**: this
-  stays true if machines ever link to each other directly. Pending rows are
-  for the editing machine only and are never relayed for display.
+  other machine receives them before they are ruled. This stays true if
+  machines ever link to each other directly, because entitlement, not
+  topology, enforces it (remote-lead): `entitledTo`
+  (`src/shared/work-exchange.ts:273-284`) gives a `command.queued` row to
+  the editing machine only. Without that rule the editing machine, which
+  offers every writer's rows to every peer (`session.ts:273-275`), would
+  relay one machine's pending commands to the others.
 - Ids are minted by the writer and never change at ruling: task ids are
   already ULIDs (`src/main/junto/work/service.ts:213`), and artifact ids and
   thread ids follow the same pattern. A mention written against a pending
@@ -307,18 +319,42 @@ are not trusted and a priority rule would only move the surprise elsewhere.
    head), the opIds of the refused dependents and a `next_step`.
    `junto queue list` shows the pending and refused commands of the seat's
    own machine.
-5. **Bounded.** **(remote)** The pending queue per machine and canvas has
-   a count and byte bound, as every buffer must
-   (`docs/security-doctrine.md:194-196`). Size it so no realistic absence
-   reaches it. Hitting it is the only write refusal related to the editing
-   machine being away, and it is typed and retryable.
+5. **Bounded** (remote-lead), as every buffer must be
+   (`docs/security-doctrine.md:194-196`):
+   - **One row** is at most 64 KiB. Text over that, and every artifact body,
+     travels as a content ref, so a ruling never needs bytes. Pad and sheet
+     patches stay inline under the cap.
+   - **The queue**, meaning unruled rows per machine and canvas, holds at
+     most 50,000 rows and 256 MiB. Estimate: ten busy seats at 20 commands an
+     hour each fill a week's absence with about 34,000.
+   - **Drain**, estimated and not measured: `rows` moves about one 1 MiB
+     window per round trip, roughly 16 MiB/s on LAN. A full queue takes
+     about 16 s to cross, plus one transaction per ruling on the editing
+     machine. Live commands from other machines go on their own links and
+     interleave with it.
+   - Paging must count bytes, not only rows (Contracts, Size).
+   - **Reaching the bound** is the only write refusal related to the editing
+     machine being away. It is a typed, retryable `QueueFull` reason, given
+     at once on the writing machine.
 
 ### Moving the editing machine
 
-**(remote)** A queued command names the canvas, not a machine, so it
-drains to whichever machine edits when a link exists. Rulings rebuild from
-facts (condition 3), so an opId ruled before the move is answered from
-facts and is not ruled twice.
+Remote-lead. Today the editing machine is set only by migration
+(`src/main/junto/state/migrations.ts:580`) and no move command exists.
+This is designed for and not built in 0.10:
+
+- **A queued command names the canvas, not a machine.** Catch up is driven
+  by what the receiving peer reports it holds (`have`), not by what the old
+  editor acknowledged, so every unruled row drains to whichever machine
+  edits when a link to it exists.
+- **The move is a fact.** It names the old editing machine's last fact seq.
+  The new editing machine rules nothing for that canvas until it holds the
+  old one's facts through that seq.
+- **No opId is ruled twice.** Rulings rebuild from facts (condition 3), so an
+  opId the old editor already ruled is answered from facts.
+- **Without the old editing machine's facts,** for example when it is lost,
+  ruling cannot resume safely. That case is a recovery for the operator,
+  not an automatic path.
 
 ## Kept, reshaped, deleted
 
@@ -327,18 +363,18 @@ facts and is not ruled twice.
 | Kept | Editing machine authority, Rule 4, `rows` channel, cursors and catch up, content transfer, mail relay |
 | Reshaped | `canvas-copy.ts` cut (all non-host nodes everywhere), `entity_home` on tasks and artifacts (always the editing machine; the per-machine lane key goes), entitlement for resource facts, signal attachments as refs |
 | Deleted | Host fields on cron and relay (07), page host selection (06) |
-| New | `commands` link channel, `resource-command.ts`, ruling table keyed by opId, fact families per domain |
+| New | `command.queued` rows and `ruling.*` facts on `rows` (no new link channel), `resource-command.ts`, ruling table keyed by (writer, opId), fact families per domain, pending overlay, `junto queue list` |
 
 ## Questions
 
-- **remote**: A request and ruling channel on the link: any reason it cannot
-  sit beside `rows` with its own credit? Expected round trip over the SSH
-  link for a ruling?
-- **remote**: v1 lets only the editing machine open links
-  (`docs/machines.md:88-91`). Does a seat machine that is not linked to the
-  editor directly route commands through it, or is a direct link required?
-- **remote**: Windowless machines (`scripts/build-machine.ts:137`): any
-  resource store that would pull Electron into the core?
+- ~~**remote**: request and ruling channel~~ Answered: no channel; commands
+  and rulings are rows (Contracts, "Editing machine away").
+- ~~**remote**: routing~~ Answered: a direct link to the editing machine, no
+  relaying (Contracts).
+- ~~**remote**: windowless machines~~ Answered: no. The build refuses a core
+  that imports Electron (`scripts/build-machine.ts:137`, tested by
+  `tests/machine-core-bundle.test.ts:16`); the pad and sheet domains and the
+  pending reducer are pure modules in `src/shared/`.
 - ~~**canvas**: copy size~~ Answered: geometry and labels in the copy,
   bodies as facts or refs (Contracts).
 - ~~**cli**: error contract~~ Answered: mapped onto `WorkErrorType` above.
