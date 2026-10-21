@@ -69,7 +69,12 @@ export const usePortraitConfig = (identity: string): PortraitConfig | undefined 
 const FADE_MS = 220;
 
 export interface AgentPortraitProps {
-  /** Stable seat identity, the canvas node id. Never the display name. */
+  /**
+   * Stable seat identity, the canvas node id. Never the display name, with
+   * one exception: a seat no node here names (a peer's, a removed seat in a
+   * mention) is drawn from its name by ResourceChip, a second identity space
+   * that never meets a live seat's face.
+   */
   readonly identity: string;
   /** Rendered box in CSS px; picks the detail tier. */
   readonly size: number;
