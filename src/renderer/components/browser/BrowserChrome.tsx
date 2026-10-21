@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
-import { ArrowLeft, ArrowRight, Hand, Plus, RotateCw, Undo2, X } from "lucide-react";
-import type { BrowserChromeState } from "@shared/browser-chrome";
+import { ArrowLeft, ArrowRight, Hand, MessageSquarePlus, Plus, RotateCw, Undo2, X } from "lucide-react";
+import type { BrowserBoxApi, BrowserBoxDraft, BrowserChromeState } from "@shared/browser-chrome";
 import type { BrowserTabId } from "@shared/browser-tab";
 import { activeTab } from "@shared/page-tabs";
 import type { ChromeCommand } from "../../lib/browser-chrome-source";
@@ -9,6 +9,7 @@ import type { BrowserChromeOutcome } from "@shared/browser-chrome";
 import { claimFocus } from "../../lib/focus-ownership";
 import { registerPageChromeKeys } from "../../lib/page-chrome-keys";
 import { Button, IconButton, Input, StatusDot } from "../ui";
+import { BoxCommentComposer } from "./BoxCommentComposer";
 import "./browser-chrome.css";
 
 /** Who is driving the page, as a mark and one sentence. A running seat's lamp pulses. */
@@ -255,6 +256,8 @@ export function BrowserChrome({
   onCommand,
   onFocusPage,
   controls,
+  box,
+  sessionId,
   trailing,
 }: {
   readonly state: BrowserChromeState;
@@ -265,6 +268,9 @@ export function BrowserChrome({
   readonly onFocusPage: () => void;
   /** The id of the surface region the tabs control. */
   readonly controls?: string;
+  /** Comment on an area, when main serves it; with the page's session id. */
+  readonly box?: BrowserBoxApi;
+  readonly sessionId?: string;
   readonly trailing?: ReactNode;
 }) {
   const [pending, setPending] = useState(false);
@@ -277,6 +283,38 @@ export function BrowserChrome({
         if (!outcome.ok) setRefused(refusalLine(outcome.refusal));
       })
       .finally(() => setPending(false));
+  };
+  // A comment on an area: drawing in the page, then the staged shot shown before it posts.
+  const [drawing, setDrawing] = useState(false);
+  const [draft, setDraft] = useState<BrowserBoxDraft | null>(null);
+  const [posting, setPosting] = useState(false);
+  const canBox = box !== undefined && sessionId !== undefined;
+  const startBox = (): void => {
+    if (box === undefined || sessionId === undefined || drawing) return;
+    setDrawing(true);
+    setRefused(null);
+    void box
+      .start(sessionId)
+      .then((result) => {
+        if (result.kind === "drawn") setDraft(result.draft);
+        else if (result.kind === "refused") setRefused(refusalLine(result.refusal));
+      })
+      .finally(() => setDrawing(false));
+  };
+  const discardBox = (): void => {
+    if (box !== undefined && sessionId !== undefined && draft !== null) void box.discard(sessionId, draft.shotId);
+    setDraft(null);
+  };
+  const postBox = (text: string): void => {
+    if (box === undefined || sessionId === undefined || draft === null) return;
+    setPosting(true);
+    void box
+      .post(sessionId, draft.shotId, text)
+      .then((outcome) => {
+        if (outcome.ok) setDraft(null);
+        else setRefused(refusalLine(outcome.refusal));
+      })
+      .finally(() => setPosting(false));
   };
   // While this chrome shows it is the page in front for Cmd+L and Cmd+R (the
   // menu hands them back as keydowns, so they work while the page has focus).
@@ -299,9 +337,23 @@ export function BrowserChrome({
       <div className="browser-chrome__row">
         <AddressBar state={state} pending={pending} onCommand={run} onRefused={setRefused} onFocusPage={onFocusPage} inputRef={addressRef} />
         <DriverMark state={state} now={now} seatName={seatName} />
+        {canBox ? (
+          <Button
+            size="xs"
+            variant="chrome"
+            disabled={pending || drawing || draft !== null}
+            data-testid="browser-comment-area"
+            title="Draw a box on the page to comment on it"
+            onClick={startBox}
+          >
+            <MessageSquarePlus size={12} aria-hidden />
+            {drawing ? "Draw on the page" : "Comment on an area"}
+          </Button>
+        ) : null}
         <TakeoverControl state={state} pending={pending} onCommand={run} />
         {trailing}
       </div>
+      {draft === null ? null : <BoxCommentComposer draft={draft} pending={posting} onPost={postBox} onDiscard={discardBox} />}
       {refused === null ? null : (
         <p className="browser-chrome__refused" role="alert" data-testid="browser-chrome-refused">
           {refused}

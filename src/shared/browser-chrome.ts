@@ -52,6 +52,55 @@ export type BrowserChromeOutcome =
   | { readonly ok: true }
   | { readonly ok: false; readonly refusal: BrowserChromeRefusal };
 
+/** A box on the page, in page CSS pixels (a `PageBoxRequest` without its kind). */
+export type BrowserBoxRect = {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+};
+
+/**
+ * A box the operator drew, with the shot main took of it and is holding. The
+ * shot is staged under `shotId`: posting names that id, so the comment carries
+ * exactly the image shown, never a second capture taken later (remote-security's
+ * ask: what crosses machines is what the operator saw and chose). PNG bytes,
+ * encoded by main (`page-shot.ts`).
+ */
+export type BrowserBoxDraft = {
+  readonly shotId: string;
+  readonly rect: BrowserBoxRect;
+  /** The page the box was drawn on, as the comment will carry it. */
+  readonly url: string;
+  readonly width: number;
+  readonly height: number;
+  readonly png: Uint8Array;
+};
+
+/** How box drawing ended: a box with its staged shot, no box (Escape, left the page), or a refusal. */
+export type BrowserBoxResult =
+  | { readonly kind: "drawn"; readonly draft: BrowserBoxDraft }
+  | { readonly kind: "ended" }
+  | { readonly kind: "refused"; readonly refusal: BrowserChromeRefusal };
+
+/**
+ * Commenting on an area of the page. Absent when main does not serve it: the
+ * chrome then offers no comment control. The box itself is drawn in the page's
+ * view (a native view paints above the window, so the window cannot draw over it).
+ */
+export type BrowserBoxApi = {
+  /**
+   * Enter box drawing on the page's view. Resolves when drawing ends: with the
+   * staged draft when the operator releases a box, `ended` without one, or the
+   * refusal when the capture was refused (`page-shot.ts` words, as `invalid`).
+   */
+  readonly start: (sessionId: string) => Promise<BrowserBoxResult>;
+  /** Post the comment with exactly the staged shot; the staged shot is dropped either way. */
+  readonly post: (sessionId: string, shotId: string, text: string) => Promise<BrowserChromeOutcome>;
+  /** Drop a staged shot the operator did not post. */
+  readonly discard: (sessionId: string, shotId: string) => Promise<void>;
+};
+
 /** The chrome's commands are the operator's. `sessionId` is the page's session. */
 export type BrowserChromeApi = {
   readonly state: (sessionId: string) => Promise<BrowserChromeState | undefined>;
@@ -72,6 +121,8 @@ export type BrowserChromeApi = {
    * surface root instead. The one place focus goes to the page.
    */
   readonly focusPage: (sessionId: string) => Promise<boolean>;
+  /** Comment on an area, when main serves it. */
+  readonly box?: BrowserBoxApi;
   /** Said whenever this page's state changed, by anyone (a seat, the operator, the page itself). */
   readonly onChanged: (listener: (sessionId: string) => void) => () => void;
 };

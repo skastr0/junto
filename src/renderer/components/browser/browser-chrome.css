@@ -121,3 +121,44 @@
   font-size: var(--text-body);
   white-space: nowrap;
 }
+
+/* A comment on an area: the shot first, then the words. */
+
+.box-composer {
+  display: grid;
+  gap: 8px;
+  margin: 0 10px 8px;
+  padding: 10px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  background: var(--color-raise);
+}
+
+.box-composer__shot {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.box-composer__shot img {
+  max-width: 100%;
+  max-height: 180px;
+  width: auto;
+  height: auto;
+  justify-self: start;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-sm);
+  object-fit: contain;
+}
+
+.box-composer__shot figcaption {
+  color: var(--color-dim);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}
+
+.box-composer__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}

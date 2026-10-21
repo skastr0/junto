@@ -275,6 +275,8 @@ export function BrowserSurfaceSlot({
                 });
               }}
               controls={surfaceId}
+              box={chrome.box}
+              sessionId={sessionId}
               trailing={pageActions}
             />
           ) : (
