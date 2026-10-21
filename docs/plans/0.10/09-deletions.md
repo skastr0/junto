@@ -1,0 +1,110 @@
+# 09 Deletions
+
+Proposed owner: each area's owner deletes its own; canvas owns the migration.
+Reviewers: everyone whose area a deletion touches.
+
+Phase 0. A deletion is done when the code, its tables, its flags, its docs,
+its tests and its CLI surface are gone and `bun run verify` passes.
+
+## By feature
+
+### Requests node
+- Kind and ports: `src/shared/model/kinds.ts:128-133`,
+  `src/shared/physics/schema.ts:99`, `src/shared/physics/kinds.ts:69-71`,
+  `src/shared/physics/work-ports.ts:132-138`, `src/shared/work-sinks.ts`.
+- Tables `work_requests`, `request_boards`; repository
+  `src/main/junto/work/repository.ts:3393-3524`; `src/shared/work.ts:1123-1205`;
+  overseer `request.*`; UI `RequestsCard`, `RequestInbox`.
+- Hazard: the execution graph and attention treat requests as a stoppage
+  source (`src/shared/execution-graph.ts:119-157`, `canvas-needs.ts:84`,
+  `digest.ts:238`); `Ruling.sourceRequestId`. The `junto escalate` command is
+  agent signals and stays.
+
+### Bulletin board node
+- Kind, `work-model.ts:468-550`, ports, verbs `messages` to board and
+  `participates`; tables `work_board_topics`, `work_board_posts`,
+  `work_board_read_cursors`; `board-wake.ts`, `board-delivery.ts`; UI
+  `BoardCard`, `BoardDetail`; CLI `src/cli/commands/work.ts:439-529`.
+- Hazard: pad uses `BoardAuthor` and `board-actors` (`src/shared/pad.ts:112-116`).
+  Pad pins and posts move to threads (03, 05), which removes the dependency.
+  Until then extract the author type.
+- Not this: `TaskBoard`, `BoardSettings`, `task-board.css` are tasks.
+
+### Reviews edge
+- `verbs.ts:109,176,363`, wires CHECK, `features.ts` gate, edge authoring,
+  onboarding and doctrine text.
+- Hazard: it is the only grant of `verdict.post`. Delete it in the same
+  change that moves reviewer eligibility onto the task (04), or tasks with a
+  `requires-review` rule cannot finish.
+
+### Hermes integration (keep the Hermes terminal harness)
+- `src/main/junto/hermes/`, `src/main/junto/adapters/hermes.ts`,
+  `src/main/junto/chat/` and `src/renderer/components/chat/`, chat state and
+  chrome, `src/shared/legacy-surfaces.ts`, `snapshots.ts`, `entities.ts`,
+  Providers card and `hermesHostSnapshots`, host identity `hermesId` and the
+  host registry columns and capability bit.
+- Hazards, in order: seat deletion goes through the chat service delete lease
+  (`src/main/junto/overseer/native.ts:1354-1370`, `chat/node-delete.ts`); seat
+  ring occupancy reads chat state (`occupancy-feed.ts:54`); the kernel
+  subscribes to snapshots; the canvas-control wire has a `snapshots` field;
+  host registry CHECKs need a table rebuild. Cut the seat deletion lease
+  first.
+
+### Pinning
+- Renderer only: `surface-registry.ts` pinned zone, `dock-state.ts`,
+  `WorkSurfaceDock.tsx` and CSS, `PinButton` in eight surfaces,
+  `tests/surface-dock.test.ts`.
+- Not this: ruling pins, session pins, pad pins.
+
+### Factory and edge roles (04, 01)
+- `factory-tick.ts`, `factory-claim-prompt.ts`, the kernel factory block,
+  reclaim grace, `claimable`, task admission and promote, verbs `manages`,
+  `contributes`, `works`, `publishes`, `participates`, `reads`, `edits`.
+
+### Schedulers and legacy (07)
+- `cron`, `relay`, `watcher`, `timer` kinds and tables, verbs `announces`,
+  `fires`, `wakes`, `enqueues`, `chains`; Region Pulse tables and their
+  repository, `PulseRecord`, `pulseLogRetention`; `LegacyEdgeEther` and
+  `inferVerb`.
+- `src/shared/model/from-legacy-row.ts` is needed only by migration 12 to 13
+  (`src/main/junto/state/migrations.ts:513-530`). Deleting it raises the
+  oldest database Junto can open to v13. (Operator decision 5.)
+
+### Pad and sheet node kinds (05)
+- Kinds, tables, `reads` and `edits` verbs. Domains and editors are kept and
+  move under artifacts.
+
+## Migration (v26)
+
+One migration, using the `removesTables` precedent
+(`src/main/junto/state/migrations.ts:394-401,515-518`):
+
+1. Delete nodes and wires of removed kinds and verbs; rebuild the
+   `wires.verb` CHECK.
+2. Drop the removed tables.
+3. Rebuild the host registry without Hermes columns.
+4. Collapse `entity_home` lanes on tasks and artifacts (02).
+5. `bun run schema:identity`.
+
+Peers on an older build cannot send copies with removed kinds: a build
+mismatch already closes the link (`src/main/junto/link/protocol.ts:6`). The
+companion protocol's kind list (`src/shared/wire/companion-protocol.ts:296-316`)
+changes with it.
+
+## Flags after 0.10
+
+| Flag | After |
+|---|---|
+| `requests`, `board`, `reviews`, `hermesIntegration`, `pinning`, `cron`, `relay`, `pad`, `sheet` | Deleted with their features |
+| `tasks`, `artifacts`, `browser` | Deleted; the features ship on |
+| `automations` | None; ships on |
+| `usage`, `helpMap`, `liveOverseer`, `seatAwareness` | Not in this plan; operator to decide |
+| Harness gates that exist only as a way back off, `fleetUi`, `audio`, `harnessSettings` | Deleted, features stay (Operator decision 6) |
+| `devTools` | Kept, never on in production |
+
+## Questions
+
+- **canvas**: Owning the v26 migration: one migration or one per phase?
+- **pty**: Seat deletion through the chat service lease: who owns cutting it?
+- **remote**: Hermes host identity removal touches the host registry:
+  anything on remote machines that reads `hermesId`?
