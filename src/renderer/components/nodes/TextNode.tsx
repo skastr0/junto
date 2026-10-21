@@ -26,7 +26,6 @@ import { timerActivity, watcherActivity } from "../../lib/activity";
 import { accentColor, INK } from "../../lib/theme";
 import { kernel$ } from "../../lib/kernel-view";
 import type { WatcherRuntimeState } from "../../lib/kernel-view";
-import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
 import { productNodeKindEnabled, TASKS_ENABLED } from "@shared/features";
 import { consumeWorkDetailOpen, workDetailOpen$ } from "../../lib/work-detail-open";
@@ -49,7 +48,6 @@ import { SeatMessageToolbarAction } from "./SeatMessage";
 import { SeatOffboardToolbarAction } from "./SeatOffboard";
 import { CustomizeAgentToolbarAction } from "../agent-editor/AgentEditor";
 import { StartParamsToolbarAction } from "../customize/ParamsSection";
-import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
 import { claimFocus } from "../../lib/focus-ownership";
 import { IconButton } from "../ui";
 import { nodeAt, useNodeFieldOf, useNodeValue, useNodeOf } from "../../lib/use-model";
@@ -455,12 +453,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
             <WithNode canvas={canvasName} id={id} kind={isAgent ? "agent" : "terminal"}>{(node) => <TerminalToolbarActions node={node} />}</WithNode>
           </>
         ) : isAgent ? (
-          <>
-            <CustomizeAgentToolbarAction seatId={id} />
-            {ACP_CHAT_SURFACE_HIDDEN ? null : (
-              <WithNode canvas={canvasName} id={id} kind="agent">{(node) => <AgentChatToolbarActions node={node} />}</WithNode>
-            )}
-          </>
+          <CustomizeAgentToolbarAction seatId={id} />
         ) : entityKind === "task" && TASKS_ENABLED ? (
           <TaskToolbarActions nodeId={id} />
         ) : isCron ? (
