@@ -11,18 +11,16 @@
  * is added to both.
  */
 import { Schema } from "effect";
+import { MentionRef } from "./mention";
+import { NodeId } from "./physics/schema";
+import { ItemId } from "./work-ids";
 
 // ---------------------------------------------------------------------------
 // Ids
 
-const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
-
-/** Minted by the CLI process on create and kept by the ruling (02). */
-export const AutomationId = Schema.String.pipe(
-  Schema.check(Schema.isPattern(ULID)),
-  Schema.brand("AutomationId"),
-);
-export type AutomationId = typeof AutomationId.Type;
+/** An item on its Automations node, minted by the CLI process on create and kept by the ruling (02). */
+export const AutomationId = ItemId;
+export type AutomationId = ItemId;
 
 /** The head an edit was written against; a stale one is refused `Stale`. */
 export const AutomationVersion = Schema.String.pipe(
@@ -201,20 +199,7 @@ export const automationShape = <Ref extends Schema.Top, Node extends Schema.Top>
 // ---------------------------------------------------------------------------
 // The stored form
 
-/** Stand-in for plan 03's `MentionRef` (`src/shared/mention.ts`, product-feed). */
-export const MentionRef = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("seat"), nodeId: Schema.String }),
-  Schema.Struct({ kind: Schema.Literal("task"), nodeId: Schema.String, taskId: Schema.String }),
-  Schema.Struct({
-    kind: Schema.Literal("artifact"),
-    nodeId: Schema.String,
-    artifactId: Schema.String,
-  }),
-  Schema.Struct({ kind: Schema.Literal("page"), nodeId: Schema.String }),
-]);
-export type MentionRef = typeof MentionRef.Type;
-
-const stored = automationShape(MentionRef, Schema.String);
+const stored = automationShape(MentionRef, NodeId);
 
 export const Trigger = stored.Trigger;
 export type Trigger = typeof Trigger.Type;
@@ -230,7 +215,7 @@ export type AutomationDefinition = typeof AutomationDefinition.Type;
 
 export const Automation = Schema.Struct({
   automationId: AutomationId,
-  nodeId: Schema.String,
+  nodeId: NodeId,
   ...stored.Definition.fields,
 });
 export type Automation = typeof Automation.Type;

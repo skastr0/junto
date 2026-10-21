@@ -24,9 +24,11 @@ import {
   AutomationId,
   AutomationVersion,
   POLL_FLOOR_MS,
-  type MentionRef,
   type TriggerKind,
 } from "../src/shared/automation-standin";
+import type { MentionRef } from "../src/shared/mention";
+import { asNodeId } from "../src/shared/physics/schema";
+import { ItemId } from "../src/shared/work-ids";
 import type { WorkErrorBody } from "../src/shared/work-control";
 
 const decode = <S extends Schema.Top>(schema: S) => (value: unknown) =>
@@ -109,19 +111,21 @@ describe("automation input", () => {
   });
 });
 
-const seat = (nodeId: string): MentionRef => ({ kind: "seat", nodeId });
+const seat = (nodeId: string): MentionRef => ({ kind: "seat", nodeId: asNodeId(nodeId) });
+const TASK = ItemId.make("01M5ETAKR8YSPP5Y22H4KH2YMW");
+const ARTIFACT = ItemId.make("01M5ESMQ2ZT55QZ073EWPH10SG");
 
 const resolver = (seen: Array<[string, TargetWant | "node", string]> = []): TargetResolver => ({
   ref: (text, want, path) => {
     seen.push([text, want, path]);
     if (text === "@nobody") return { type: "UnknownTarget", message: "no seat named nobody", details: { path } };
     if (want === "seat") return seat(`agent-${text.slice(1)}`);
-    if (want === "task") return { kind: "task", nodeId: "task-1", taskId: "t42" };
-    return { kind: "artifact", nodeId: "artifacts-1", artifactId: "a1" };
+    if (want === "task") return { kind: "task", nodeId: asNodeId("task-1"), taskId: TASK };
+    return { kind: "artifact", nodeId: asNodeId("artifacts-1"), artifactId: ARTIFACT };
   },
   node: (text, path) => {
     seen.push([text, "node", path]);
-    return `node:${text}`;
+    return asNodeId(`node:${text}`);
   },
 });
 
@@ -202,7 +206,7 @@ describe("automation types", () => {
     expectTypeOf<string>().not.toMatchTypeOf<AutomationId>();
     expectTypeOf<string>().not.toMatchTypeOf<AutomationVersion>();
     // @ts-expect-error an edit's base version is branded
-    const bad: Schema.Schema.Type<typeof AutomationEditCliArgs> = { target: "a", automation: "b", baseVersion: "v1", change: {} };
+    const bad: typeof AutomationEditCliArgs.Type = { target: "a", automation: "b", baseVersion: "v1", change: {} };
     void bad;
   });
 
@@ -216,7 +220,7 @@ describe("automation types", () => {
   });
 
   it("closes the trigger kinds", () => {
-    type InputKind = Schema.Schema.Type<typeof DefinitionInput>["trigger"]["kind"];
+    type InputKind = (typeof DefinitionInput.Type)["trigger"]["kind"];
     expectTypeOf<InputKind>().toEqualTypeOf<TriggerKind>();
   });
 });

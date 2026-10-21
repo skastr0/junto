@@ -8,7 +8,10 @@
  * thin socket client and never decides what a name means. Pure: effect only.
  */
 import { Schema } from "effect";
+import type { MentionRef } from "./mention";
+import type { NodeId } from "./physics/schema";
 import type { WorkErrorBody } from "./work-control";
+import { OpId } from "./work-ids";
 import {
   AutomationId,
   AutomationLimits,
@@ -17,22 +20,11 @@ import {
   type Action,
   type AutomationDefinition,
   type Condition,
-  type MentionRef,
   type Trigger,
   type Watch,
 } from "./automation-standin";
 
-// ---------------------------------------------------------------------------
-// Ids
-
-const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
-
-/**
- * Stand-in for cli-protocol's opId (L1): a bare ULID minted by the CLI
- * process, resent with `--op-id` on a retry so the command applies once.
- */
-export const OpId = Schema.String.pipe(Schema.check(Schema.isPattern(ULID)), Schema.brand("OpId"));
-export type OpId = typeof OpId.Type;
+export { OpId };
 
 // ---------------------------------------------------------------------------
 // Target text
@@ -252,7 +244,7 @@ export interface TargetResolver {
   /** Resolve target text to a mention of the wanted kind, or refuse. */
   readonly ref: (text: TargetText, want: TargetWant, path: string) => MentionRef | WorkErrorBody;
   /** Resolve a node named by id, name or ref, or refuse. */
-  readonly node: (text: NodeText, path: string) => string | WorkErrorBody;
+  readonly node: (text: NodeText, path: string) => NodeId | WorkErrorBody;
 }
 
 class Refused {
@@ -286,7 +278,7 @@ export const resolveTargets = (
     if (isRefusal(out)) throw new Refused(out);
     return out;
   };
-  const node = (text: NodeText, path: string): string => {
+  const node = (text: NodeText, path: string): NodeId => {
     const out = resolver.node(text, path);
     if (typeof out !== "string") throw new Refused(out);
     return out;
