@@ -8,10 +8,13 @@ import {
   isWarmBrowserSession,
   reduceBrowserSession,
   warmPoolEvictions,
+  type BrowserHistory,
   type BrowserProfileWipeReceipt,
   type BrowserSessionMachine,
   type BrowserStopReceipt,
+  type BrowserTraverseStep,
 } from "@shared/browser";
+import type { Rect } from "@shared/page-box";
 import {
   BROWSER_CAPTURE_TIMEOUT_MS,
   BROWSER_EVAL_TIMEOUT_MS,
@@ -67,7 +70,16 @@ export interface BrowserViewHandle {
   /** Production resolves this only after Electron emits `destroyed`. */
   whenDestroyed?(): Promise<void>;
   executeJavaScript?(code: string): Promise<unknown>;
-  capturePagePng?(): Promise<Uint8Array>;
+  /** The whole viewport, or the part of it `rect` names in CSS pixels. */
+  capturePagePng?(rect?: Rect): Promise<Uint8Array>;
+  /**
+   * Steps the view's own history or reloads it. The navigation this starts
+   * arrives through `onNavigationStart` like any the page starts itself.
+   */
+  traverse?(step: BrowserTraverseStep): void;
+  history?(): BrowserHistory;
+  /** The page's viewport and scroll as its renderer reports them; untrusted. */
+  readViewport?(): Promise<unknown>;
 }
 
 export interface BrowserViewEvents {
@@ -80,6 +92,8 @@ export interface BrowserViewEvents {
   readonly onLoadOk: (sessionId: string, title?: string) => void;
   readonly onLoadFail: (sessionId: string, message: string) => void;
   readonly onNavigationUrl: (sessionId: string, url: string) => void;
+  /** The page renamed itself; its title shows in the page chrome. */
+  readonly onTitle: (sessionId: string, title: string) => void;
   /**
    * Electron reports an unplanned WebContents loss through either
    * `render-process-gone` or `destroyed`. The adapter coalesces both signals
@@ -1139,6 +1153,11 @@ export class BrowserSessionService {
     this.emit(entry);
   }
 
+  private titleChanged(entry: SessionEntry, sessionId: string, title: string): void {
+    if (entry.sessionId !== sessionId) return;
+    this.reduceCurrent(entry, { type: "titled", title: clampUtf8Bytes(title, BROWSER_MAX_TITLE_BYTES) });
+  }
+
   private register(entry: SessionEntry): void {
     this.sessions.set(entry.sessionId, entry);
     this.ownerRefSessions(entry.owner, true).set(entry.ref, entry.sessionId);
@@ -1583,6 +1602,7 @@ export class BrowserSessionService {
           onLoadFail: (sessionId, message) =>
             this.finishGeneration(entry, sessionId, { type: "load_fail", message }),
           onNavigationUrl: (sessionId, url) => this.updateGenerationUrl(entry, sessionId, url),
+          onTitle: (sessionId, title) => this.titleChanged(entry, sessionId, title),
           onUnexpectedTermination: () => this.viewTerminatedUnexpectedly(entry),
         },
         owner === BROWSER_UI_SESSION_OWNER || entry.currentOrigin === undefined
@@ -1741,6 +1761,64 @@ export class BrowserSessionService {
       return { ok: true, data: this.info(entry) };
     } catch (error) {
       this.destroySession(entry.sessionId);
+      return err("failed", error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  traverse(sessionId: string, step: BrowserTraverseStep): BrowserResult<BrowserSessionInfo> {
+    return this.traverseForOwner(BROWSER_UI_SESSION_OWNER, sessionId, step);
+  }
+
+  /**
+   * Back, forward or reload on the live view. Like goto it waits for a
+   * settled page: a step taken while a navigation is in flight would read
+   * as two overlapping navigations and end the session.
+   */
+  traverseForOwner(
+    owner: string,
+    sessionId: string,
+    step: BrowserTraverseStep,
+  ): BrowserResult<BrowserSessionInfo> {
+    if (this.uiShutdownClosedAt !== undefined) return this.uiShutdownRefusal();
+    const entry = this.entryForOwner(owner, sessionId);
+    if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
+    const view = entry.view;
+    if (view.traverse === undefined || view.history === undefined) {
+      return err("unsupported_capability", "this browser view cannot step its history");
+    }
+    if (entry.navigationInFlight !== undefined) {
+      return err("invalid", "a top-level navigation is already in flight");
+    }
+    if (entry.activeOperation !== undefined) {
+      return err("invalid", "the page is busy with another operation");
+    }
+    try {
+      if (step !== "reload") {
+        const history = view.history();
+        if (step === "back" ? !history.canGoBack : !history.canGoForward) {
+          return err("invalid", `there is no page to go ${step} to`);
+        }
+      }
+      entry.lastActiveAt = this.now();
+      view.traverse(step);
+    } catch (error) {
+      return err("failed", error instanceof Error ? error.message : String(error));
+    }
+    return { ok: true, data: this.info(entry) };
+  }
+
+  history(sessionId: string): BrowserResult<BrowserHistory> {
+    return this.historyForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
+  }
+
+  historyForOwner(owner: string, sessionId: string): BrowserResult<BrowserHistory> {
+    const entry = this.entryForOwner(owner, sessionId);
+    if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
+    if (entry.view.history === undefined) return { ok: true, data: { canGoBack: false, canGoForward: false } };
+    try {
+      const { canGoBack, canGoForward } = entry.view.history();
+      return { ok: true, data: { canGoBack, canGoForward } };
+    } catch (error) {
       return err("failed", error instanceof Error ? error.message : String(error));
     }
   }

@@ -115,6 +115,15 @@ describe("browser delete decision matrix", () => {
 });
 
 describe("browser session state machine", () => {
+  it("takes a page's new title without changing its state, and none once destroyed", () => {
+    const ready = reduceBrowserSession(reduceBrowserSession(initialBrowserSession(), { type: "open" }), { type: "load_ok", title: "Old" });
+    const renamed = reduceBrowserSession(ready, { type: "titled", title: "New" });
+    expect(renamed).toEqual({ state: "ready", title: "New" });
+    expect(reduceBrowserSession(renamed, { type: "titled", title: "New" })).toBe(renamed);
+    const destroyed = reduceBrowserSession(renamed, { type: "destroy" });
+    expect(reduceBrowserSession(destroyed, { type: "titled", title: "Later" })).toBe(destroyed);
+  });
+
   it("opens into loading then ready", () => {
     let m = initialBrowserSession();
     expect(m.state).toBe("idle");

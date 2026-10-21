@@ -54,6 +54,8 @@ export type BrowserSessionEvent =
   | { readonly type: "load_start" }
   | { readonly type: "load_ok"; readonly title?: string }
   | { readonly type: "load_fail"; readonly message: string }
+  /** The page renamed itself after its load settled. */
+  | { readonly type: "titled"; readonly title: string }
   | { readonly type: "reload" }
   | { readonly type: "detach" }
   | { readonly type: "reattach" }
@@ -88,6 +90,8 @@ export const reduceBrowserSession = (
       return { state: "ready", title: event.title ?? machine.title };
     case "load_fail":
       return { state: "failed", title: machine.title, lastError: event.message };
+    case "titled":
+      return machine.title === event.title ? machine : { ...machine, title: event.title };
     case "detach":
       if (machine.state === "idle") return machine;
       return { ...machine, state: "detached" };
@@ -102,6 +106,15 @@ export const reduceBrowserSession = (
       return machine;
   }
 };
+
+/** A step through a page's own history, or a reload of where it is. */
+export type BrowserTraverseStep = "back" | "forward" | "reload";
+
+/** Whether the page has somewhere to step to, read from its view. */
+export interface BrowserHistory {
+  readonly canGoBack: boolean;
+  readonly canGoForward: boolean;
+}
 
 export const isWarmBrowserSession = (state: BrowserSessionState): boolean =>
   state === "loading" || state === "ready" || state === "failed" || state === "detached";

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   PAGE_BOX_MIN_CSS_PX,
   captureCrop,
+  decodePageViewport,
   dragRect,
   pageBoxOf,
   viewportRectOf,
@@ -51,5 +52,17 @@ describe("page box geometry", () => {
     expect(viewportRectOf(rect, { ...viewport, scroll: { x: 0, y: 1000 } })).toEqual({ x: 100, y: 250, w: 200, h: 150 });
     expect(viewportRectOf(rect, { ...viewport, scroll: { x: 0, y: 0 } })).toBeUndefined();
     expect(viewportRectOf(rect, { ...viewport, scroll: { x: 0, y: 1400 } })).toBeUndefined();
+  });
+
+  it("believes a reported viewport only when every part is a bounded finite number", () => {
+    expect(decodePageViewport(viewport)).toEqual(viewport);
+    expect(decodePageViewport({ ...viewport, extra: 1 })).toEqual(viewport);
+    expect(decodePageViewport(null)).toBeUndefined();
+    expect(decodePageViewport({ ...viewport, width: 0 })).toBeUndefined();
+    expect(decodePageViewport({ ...viewport, height: Number.NaN })).toBeUndefined();
+    expect(decodePageViewport({ ...viewport, scroll: { x: -1, y: 0 } })).toBeUndefined();
+    expect(decodePageViewport({ ...viewport, scroll: "0,0" })).toBeUndefined();
+    expect(decodePageViewport({ ...viewport, devicePixelRatio: 0 })).toBeUndefined();
+    expect(decodePageViewport({ ...viewport, devicePixelRatio: 9 })).toBeUndefined();
   });
 });

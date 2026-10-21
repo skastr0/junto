@@ -62,6 +62,17 @@ const electron = vi.hoisted(() => {
     closeCalls = 0;
     closeError: Error | undefined;
     stopCalls = 0;
+    reloadCalls = 0;
+    readonly captureRects: unknown[] = [];
+    readonly historySteps: string[] = [];
+    readonly navigationHistory = {
+      back: false,
+      forward: false,
+      canGoBack: () => this.navigationHistory.back,
+      canGoForward: () => this.navigationHistory.forward,
+      goBack: () => this.historySteps.push("back"),
+      goForward: () => this.historySteps.push("forward"),
+    };
     destroyed = false;
     backgroundThrottling = true;
     readonly setBackgroundThrottlingCalls: boolean[] = [];
@@ -125,6 +136,9 @@ const electron = vi.hoisted(() => {
     stop(): void {
       this.stopCalls += 1;
     }
+    reload(): void {
+      this.reloadCalls += 1;
+    }
     isDestroyed(): boolean {
       return this.destroyed;
     }
@@ -140,7 +154,8 @@ const electron = vi.hoisted(() => {
       this.isolatedCalls.push({ worldId, scripts, userGesture });
       return Promise.resolve({ __juntoEval: 1, status: "ok", json: "null" });
     }
-    capturePage(): Promise<{ toPNG(): Uint8Array }> {
+    capturePage(rect?: unknown): Promise<{ toPNG(): Uint8Array }> {
+      this.captureRects.push(rect);
       return Promise.resolve({ toPNG: () => new Uint8Array([1]) });
     }
     setBackgroundThrottling(allowed: boolean): void {
@@ -258,6 +273,7 @@ describe("electron browser view generation seam", () => {
     const urls: Array<readonly [string, string]> = [];
     const completed: Array<readonly [string, string | undefined]> = [];
     const failed: Array<readonly [string, string]> = [];
+    const titles: Array<readonly [string, string]> = [];
     const ambiguous: string[] = [];
     const unexpectedTerminations: number[] = [];
     let pageGeneration = 1;
@@ -272,6 +288,7 @@ describe("electron browser view generation seam", () => {
         onNavigationUrl: (sessionId, url) => urls.push([sessionId, url]),
         onLoadOk: (sessionId, title) => completed.push([sessionId, title]),
         onLoadFail: (sessionId, message) => failed.push([sessionId, message]),
+        onTitle: (sessionId, title) => titles.push([sessionId, title]),
         onUnexpectedTermination: () => unexpectedTerminations.push(1),
       },
       exactTopLevelOrigin === undefined ? undefined : { exactTopLevelOrigin },
@@ -285,6 +302,7 @@ describe("electron browser view generation seam", () => {
       urls,
       completed,
       failed,
+      titles,
       ambiguous,
       unexpectedTerminations,
     };
@@ -314,6 +332,7 @@ describe("electron browser view generation seam", () => {
       onNavigationUrl: () => undefined,
       onLoadOk: () => undefined,
       onLoadFail: () => undefined,
+      onTitle: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
 
@@ -349,6 +368,7 @@ describe("electron browser view generation seam", () => {
       onNavigationUrl: () => undefined,
       onLoadOk: () => undefined,
       onLoadFail: () => undefined,
+      onTitle: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
     const view = electron.views.at(-1);
@@ -390,6 +410,7 @@ describe("electron browser view generation seam", () => {
       onNavigationUrl: () => undefined,
       onLoadOk: () => undefined,
       onLoadFail: () => undefined,
+      onTitle: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
     const view = electron.views.at(-1);
@@ -433,6 +454,7 @@ describe("electron browser view generation seam", () => {
       onNavigationUrl: () => undefined,
       onLoadOk: () => undefined,
       onLoadFail: () => undefined,
+      onTitle: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
     const view = electron.views.at(-1);
@@ -467,6 +489,7 @@ describe("electron browser view generation seam", () => {
       onNavigationUrl: () => undefined,
       onLoadOk: () => undefined,
       onLoadFail: () => undefined,
+      onTitle: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
     const view = electron.views.at(-1);
@@ -691,6 +714,47 @@ describe("electron browser view generation seam", () => {
       worldId: BROWSER_AUTOMATION_WORLD_ID,
       userGesture: false,
       scripts: [{ code: expect.stringContaining("document.title") }],
+    });
+  });
+
+  it("steps the view's own history and reads where it can go", async () => {
+    const { handle, webContents } = await setup();
+    expect(handle.history?.()).toEqual({ canGoBack: false, canGoForward: false });
+    webContents.navigationHistory.back = true;
+    expect(handle.history?.()).toEqual({ canGoBack: true, canGoForward: false });
+    handle.traverse?.("back");
+    handle.traverse?.("forward");
+    handle.traverse?.("reload");
+    expect(webContents.historySteps).toEqual(["back", "forward"]);
+    expect(webContents.reloadCalls).toBe(1);
+
+    webContents.destroyed = true;
+    handle.traverse?.("reload");
+    expect(webContents.reloadCalls).toBe(1);
+    expect(handle.history?.()).toEqual({ canGoBack: false, canGoForward: false });
+  });
+
+  it("reports a renamed page under its current generation, and nothing before one", async () => {
+    const { webContents, titles } = await setup();
+    webContents.emit("page-title-updated", {}, "too early", true);
+    expect(titles).toEqual([]);
+    webContents.emit("did-start-navigation", navigation("https://example.com/"));
+    webContents.emit("page-title-updated", {}, "Inbox (3)", true);
+    expect(titles).toEqual([["page-1", "Inbox (3)"]]);
+  });
+
+  it("captures a box in CSS pixels and reads the viewport in the automation world", async () => {
+    const { handle, webContents } = await setup();
+    await handle.capturePagePng?.();
+    await handle.capturePagePng?.({ x: 10, y: 20, w: 30, h: 40 });
+    expect(webContents.captureRects).toEqual([undefined, { x: 10, y: 20, width: 30, height: 40 }]);
+
+    await handle.readViewport?.();
+    expect(webContents.mainWorldEvalCalls).toBe(0);
+    expect(webContents.isolatedCalls.at(-1)).toMatchObject({
+      worldId: BROWSER_AUTOMATION_WORLD_ID,
+      userGesture: false,
+      scripts: [{ code: expect.stringContaining("devicePixelRatio") }],
     });
   });
 

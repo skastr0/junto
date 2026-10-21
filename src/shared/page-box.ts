@@ -47,6 +47,36 @@ export interface PageBox {
   readonly crop: Rect;
 }
 
+/** Bounds a reported viewport must sit inside to be believed. */
+export const PAGE_VIEWPORT_MAX_CSS_PX = 16_384;
+export const PAGE_VIEWPORT_MAX_SCROLL_CSS_PX = 10_000_000;
+export const PAGE_VIEWPORT_MAX_DEVICE_PIXEL_RATIO = 8;
+
+const finiteIn = (value: unknown, low: number, high: number): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value >= low && value <= high;
+
+/**
+ * Pure: the viewport a page view reported, or undefined when any part of it
+ * is missing, not a finite number, or out of bounds. The report comes from
+ * inside the page's renderer, so it is read as untrusted.
+ */
+export const decodePageViewport = (value: unknown): PageViewport | undefined => {
+  if (typeof value !== "object" || value === null) return undefined;
+  const { width, height, scroll, devicePixelRatio } = value as Record<string, unknown>;
+  if (typeof scroll !== "object" || scroll === null) return undefined;
+  const { x, y } = scroll as Record<string, unknown>;
+  if (
+    !finiteIn(width, 1, PAGE_VIEWPORT_MAX_CSS_PX) ||
+    !finiteIn(height, 1, PAGE_VIEWPORT_MAX_CSS_PX) ||
+    !finiteIn(x, 0, PAGE_VIEWPORT_MAX_SCROLL_CSS_PX) ||
+    !finiteIn(y, 0, PAGE_VIEWPORT_MAX_SCROLL_CSS_PX) ||
+    !finiteIn(devicePixelRatio, Number.MIN_VALUE, PAGE_VIEWPORT_MAX_DEVICE_PIXEL_RATIO)
+  ) {
+    return undefined;
+  }
+  return { width, height, scroll: { x, y }, devicePixelRatio };
+};
+
 export type PageBoxResult =
   | { readonly ok: true; readonly box: PageBox }
   | { readonly ok: false; readonly refusal: { readonly kind: "too_small"; readonly min: number } };

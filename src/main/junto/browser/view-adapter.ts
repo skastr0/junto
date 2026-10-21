@@ -357,6 +357,13 @@ const runBoundedEvalInPage = async (
   }
 };
 
+/**
+ * Read in the automation world, where the page's own globals cannot shadow
+ * these window properties. The result is still decoded as untrusted.
+ */
+const VIEWPORT_SCRIPT =
+  "({ width: innerWidth, height: innerHeight, scroll: { x: scrollX, y: scrollY }, devicePixelRatio })";
+
 export const buildBoundedEvalScript = (source: string): string => {
   if (!isUtf8WithinLimit(source, BROWSER_MAX_EVAL_CODE_BYTES)) {
     throw new RangeError("eval source exceeds the hard limit");
@@ -500,6 +507,10 @@ const makeElectronViewAdapter = (
     if (active === undefined || normalizeUrl(view.webContents.getURL()) !== active.url) return;
     activeNavigation = undefined;
     events.onLoadOk(active.sessionId, view.webContents.getTitle() || undefined);
+  });
+  view.webContents.on("page-title-updated", (_event, title) => {
+    if (currentSessionId === undefined) return;
+    events.onTitle(currentSessionId, title);
   });
   view.webContents.on("did-fail-load", (_e, code, description, validatedUrl, isMainFrame) => {
     // -3 (ABORTED) fires on in-page redirects/cancelled provisional loads;
@@ -657,10 +668,44 @@ const makeElectronViewAdapter = (
         [{ code: buildBoundedEvalScript(code) }],
         false,
       ),
-    capturePagePng: async () => {
-      const image = await view.webContents.capturePage();
+    capturePagePng: async (rect) => {
+      const image = await view.webContents.capturePage(rect === undefined
+        ? undefined
+        : { x: rect.x, y: rect.y, width: rect.w, height: rect.h });
       return new Uint8Array(image.toPNG());
     },
+    traverse: (step) => {
+      if (initializationFailure !== undefined) throw initializationFailure;
+      if (view.webContents.isDestroyed()) return;
+      switch (step) {
+        case "back":
+          view.webContents.navigationHistory.goBack();
+          return;
+        case "forward":
+          view.webContents.navigationHistory.goForward();
+          return;
+        case "reload":
+          view.webContents.reload();
+          return;
+        default: {
+          const unknown: never = step;
+          throw new Error(`unknown history step: ${String(unknown)}`);
+        }
+      }
+    },
+    history: () =>
+      view.webContents.isDestroyed()
+        ? { canGoBack: false, canGoForward: false }
+        : {
+            canGoBack: view.webContents.navigationHistory.canGoBack(),
+            canGoForward: view.webContents.navigationHistory.canGoForward(),
+          },
+    readViewport: () =>
+      view.webContents.executeJavaScriptInIsolatedWorld(
+        BROWSER_AUTOMATION_WORLD_ID,
+        [{ code: VIEWPORT_SCRIPT }],
+        false,
+      ),
   };
   return handle;
 };

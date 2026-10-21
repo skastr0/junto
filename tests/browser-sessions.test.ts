@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { warmPoolEvictions } from "../src/shared/browser";
+import { warmPoolEvictions, type BrowserHistory } from "../src/shared/browser";
 import {
   BROWSER_CAPTURE_TIMEOUT_MS,
   BROWSER_EVAL_TIMEOUT_MS,
@@ -86,6 +86,7 @@ interface SpyView {
   readonly destroyedPromise: Promise<void>;
   readonly resolveDestroyed: () => void;
   destroyed: boolean;
+  history: BrowserHistory;
 }
 
 const makeSpyAdapter = (acknowledgeDestroy = true, throwAfterDestroy = false) => {
@@ -103,6 +104,7 @@ const makeSpyAdapter = (acknowledgeDestroy = true, throwAfterDestroy = false) =>
       destroyedPromise,
       resolveDestroyed,
       destroyed: false,
+      history: { canGoBack: false, canGoForward: false },
     };
     views.push(spy);
     return {
@@ -130,6 +132,8 @@ const makeSpyAdapter = (acknowledgeDestroy = true, throwAfterDestroy = false) =>
         };
       },
       capturePagePng: async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+      traverse: (step) => spy.calls.push(`traverse:${step}`),
+      history: () => spy.history,
     };
   };
   return { adapter, views };
@@ -2935,4 +2939,84 @@ describe("BrowserSessionService", () => {
     await expect(retry).resolves.toMatchObject({ ok: true, data: { alreadyStopped: true } });
     expect(service.overseerDeleteSessionsForRef(timedPage.ref)).toEqual([]);
   }, 30_000);
+
+  describe("history steps and live titles", () => {
+    const settled = async (nodeId: string) => {
+      const made = makeDefaultService();
+      const opened = await made.service.open(target(nodeId));
+      if (!opened.ok) throw new Error("open failed");
+      made.views[0]?.events.onLoadOk(opened.data.sessionId);
+      return { ...made, view: made.views[0]!, sessionId: opened.data.sessionId };
+    };
+
+    it("steps back and forward only where the view has a page to go to", async () => {
+      const { service, view, sessionId } = await settled("history-steps");
+      expect(service.traverse(sessionId, "back")).toMatchObject({ ok: false, code: "invalid" });
+      expect(service.traverse(sessionId, "forward")).toMatchObject({ ok: false, code: "invalid" });
+      expect(view.calls.filter((call) => call.startsWith("traverse:"))).toEqual([]);
+
+      view.history = { canGoBack: true, canGoForward: false };
+      expect(service.history(sessionId)).toEqual({ ok: true, data: { canGoBack: true, canGoForward: false } });
+      expect(service.traverse(sessionId, "back")).toMatchObject({ ok: true, data: { sessionId } });
+      expect(service.traverse(sessionId, "reload")).toMatchObject({ ok: true });
+      expect(view.calls.filter((call) => call.startsWith("traverse:"))).toEqual(["traverse:back", "traverse:reload"]);
+    });
+
+    it("a step the page started rotates the generation like any page navigation", async () => {
+      const { service, view, sessionId } = await settled("history-rotation");
+      view.history = { canGoBack: true, canGoForward: false };
+      expect(service.traverse(sessionId, "back")).toMatchObject({ ok: true });
+      const next = view.events.onNavigationStart({ url: "https://history-rotation.example.com/before", isSameDocument: false });
+      expect(next).toBeDefined();
+      expect(next).not.toBe(sessionId);
+      expect(service.state(sessionId)).toMatchObject({ ok: false, code: "not_found" });
+      expect(service.traverse(next!, "reload")).toMatchObject({
+        ok: false,
+        code: "invalid",
+        message: "a top-level navigation is already in flight",
+      });
+      view.events.onLoadOk(next!);
+      expect(service.traverse(next!, "reload")).toMatchObject({ ok: true });
+    });
+
+    it("refuses a step while the first load is in flight, and a view that cannot step", async () => {
+      const { service, views } = makeDefaultService();
+      const opened = await service.open(target("history-busy"));
+      if (!opened.ok) throw new Error("open failed");
+      expect(service.traverse(opened.data.sessionId, "reload")).toMatchObject({ ok: false, code: "invalid" });
+      expect(views[0]?.calls.some((call) => call.startsWith("traverse:"))).toBe(false);
+
+      const plain: BrowserViewAdapter = () => ({
+        loadUrl: async () => undefined,
+        attach: () => undefined,
+        setBounds: () => undefined,
+        detach: () => undefined,
+        destroy: () => undefined,
+      });
+      const bare = makeService(plain).service;
+      const bareOpened = await bare.open(target("history-bare"));
+      if (!bareOpened.ok) throw new Error("open failed");
+      expect(bare.traverse(bareOpened.data.sessionId, "reload")).toMatchObject({
+        ok: false,
+        code: "unsupported_capability",
+      });
+      expect(bare.history(bareOpened.data.sessionId)).toEqual({
+        ok: true,
+        data: { canGoBack: false, canGoForward: false },
+      });
+      expect(bare.traverse("no-such-session", "back")).toMatchObject({ ok: false, code: "not_found" });
+    });
+
+    it("takes a page's new title for its current generation only, bounded", async () => {
+      const { service, view, sessionId } = await settled("history-title");
+      view.events.onTitle(sessionId, "Inbox (3)");
+      expect(service.state(sessionId)).toMatchObject({ ok: true, data: { title: "Inbox (3)" } });
+      view.events.onTitle("stale-generation", "Not this one");
+      expect(service.state(sessionId)).toMatchObject({ ok: true, data: { title: "Inbox (3)" } });
+      view.events.onTitle(sessionId, "t".repeat(BROWSER_MAX_TITLE_BYTES + 10));
+      const state = service.state(sessionId);
+      if (!state.ok) throw new Error("state failed");
+      expect(state.data.title).toBe(clampUtf8Bytes("t".repeat(BROWSER_MAX_TITLE_BYTES + 10), BROWSER_MAX_TITLE_BYTES));
+    });
+  });
 });
