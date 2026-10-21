@@ -16,8 +16,13 @@ and `MAIL_ONBOARD_POINTER`, `src/shared/message-delivery.ts:114`, or the
 injection line, `src/shared/managed-terminal-injection.ts:50`). A cache prefix
 ends at the first differing byte, so no order of onboard shares a prefix with
 the previous session. Within a session it is cached once written. The order
-below is for reading. A cross-session cache win would need the stable part
-delivered at launch, before any variable text: an open question for pty.
+below is for reading. Delivering the stable part at launch was measured and
+dropped (pty-lead): the harness puts per-session bytes in its system prompt
+first, so anything added at launch is rewritten every session too (this
+seat's fresh sessions each write about 21k tokens); fresh sessions start
+after the 60 minute cache window by design (`src/shared/seat-offboard.ts:128`);
+and a launch carrier needs a second path per harness. The most it could save
+is about 3 to 4k tokens per session start.
 
 ## Today
 
@@ -59,7 +64,7 @@ Order, most stable first:
    - Mail threads where the last message is to you and you have not replied.
    - Mail threads where you wrote last and wait on a reply.
    - Your open signals.
-   - Operator answers to your signals since your last session ended.
+   - Operator answers to your signals since the previous session started.
    - A count of unread mail.
    - After 04: your task and its state; reviews you owe.
 4. **Last note**, if the previous session left one (below).
@@ -152,6 +157,4 @@ reverted session record. Automatic closes stay turnless.
   threads, the existing thread derivation, no index.
 - ~~**cli**: field order~~ Answered: printed in insertion order
   (`src/cli/core/output.ts:67`); no integer-like keys today.
-- **pty**: Deliver the stable part (guidance, briefing, region and seat
-  instructions) at launch, before any per-session text, so it can share a
-  cache prefix across sessions? Worth it, or not?
+- ~~**pty**: stable part at launch~~ Answered: not worth it (Target, above).
