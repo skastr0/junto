@@ -99,14 +99,14 @@ const rule = (taskId: TaskId | undefined, op: TaskCommand, actor: ResourceActor 
     if (outcome.kind !== "applied") throw new Error(outcome.error.message);
   }));
 
-/** A task on the board, assigned to ada and taken to `state`. */
+/** A task on the board, assigned to ada and taken to `state`; one in review waits on a stamp. */
 const heldByAda = async (state: TaskState = "assigned"): Promise<TaskId> => {
   const taskId = mintItemId();
-  await rule(undefined, { kind: "create", taskId, title: "fix tabs" });
+  await rule(undefined, { kind: "create", taskId, title: "fix tabs", ...(state === "in-review" ? { stampPolicy: { required: 1 } } : {}) });
   await rule(taskId, { kind: "assign", seat: ada });
-  if (state === "working" || state === "input-required" || state === "done") await rule(taskId, { kind: "start" }, adaActor);
+  if (state === "working" || state === "input-required" || state === "in-review" || state === "done") await rule(taskId, { kind: "start" }, adaActor);
   if (state === "input-required") await rule(taskId, { kind: "pause" }, adaActor);
-  if (state === "done") await rule(taskId, { kind: "finish" }, adaActor);
+  if (state === "done" || state === "in-review") await rule(taskId, { kind: "finish" }, adaActor);
   return taskId;
 };
 
@@ -118,7 +118,7 @@ const remove = (...ids: string[]) => run({ _tag: "Remove", canvas: asCanvasName(
 const putBack = (node: Node) => run({ _tag: "Add", canvas: asCanvasName(NAME), nodes: [node], wires: [] });
 
 describe("a removed seat lets go of its task", () => {
-  it.each<TaskState>(["assigned", "working", "input-required"])("a delete sends a task %s back to the backlog, with a line in its thread", async (state) => {
+  it.each<TaskState>(["assigned", "working", "input-required", "in-review"])("a delete sends a task %s back to the backlog, with a line in its thread", async (state) => {
     const taskId = await heldByAda(state);
     await remove("ada");
     const task = await taskOf(taskId);
