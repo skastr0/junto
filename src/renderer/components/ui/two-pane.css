@@ -1,0 +1,105 @@
+/* TwoPane: sidebar list, main pane, optional rail. */
+
+.two-pane {
+  container-type: inline-size;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  grid-template-columns: clamp(220px, 24cqw, 280px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  background: var(--color-ground);
+}
+
+.two-pane[data-rail="true"] {
+  grid-template-columns: clamp(220px, 22cqw, 280px) minmax(0, 1fr) clamp(260px, 26cqw, 320px);
+}
+
+.two-pane__sidebar,
+.two-pane__main,
+.two-pane__rail {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.two-pane__sidebar {
+  border-right: 1px solid var(--color-stroke);
+  background: var(--color-raise-2);
+}
+
+.two-pane__rail {
+  border-left: 1px solid var(--color-stroke);
+  background: var(--color-raise-2);
+}
+
+/* Narrow: the rail drops under the main pane. */
+@container (max-width: 56rem) {
+  .two-pane[data-rail="true"] {
+    grid-template-columns: clamp(200px, 30cqw, 260px) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(120px, 36%);
+  }
+
+  .two-pane[data-rail="true"] .two-pane__sidebar {
+    grid-row: 1 / span 2;
+  }
+
+  .two-pane[data-rail="true"] .two-pane__rail {
+    border-left: 0;
+    border-top: 1px solid var(--color-stroke);
+  }
+}
+
+.pane-header {
+  display: flex;
+  height: 36px;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--color-stroke);
+}
+
+.pane-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pane-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 32px 24px;
+  text-align: center;
+}
+
+.pane-empty__glyph {
+  color: var(--color-faint);
+  margin-bottom: 4px;
+}
+
+.pane-empty__title {
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
+}
+
+.pane-empty__hint {
+  margin: 0;
+  max-width: 36ch;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}
+
+.pane-empty__action {
+  margin-top: 8px;
+}
