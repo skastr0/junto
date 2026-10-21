@@ -12,11 +12,9 @@ import { workDetailOpen$ } from "../src/renderer/lib/work-detail-open";
 import { TaskBoard } from "../src/renderer/components/work/TaskBoard";
 import { TaskEnqueueSurface } from "../src/renderer/components/work/TaskEnqueueSurface";
 import { ConnectEditor } from "../src/renderer/components/rts/ConnectEditor";
-import { PadPinThread } from "../src/renderer/components/pad/PadPinThread";
 import { KindSurface } from "../src/renderer/components/rts/KindSurface";
 import { NodeFieldEditors } from "../src/renderer/components/InspectorFields";
 import { flushPendingCanvasSave, undo } from "../src/renderer/lib/mutations";
-import { PadPin } from "../src/shared/pad";
 import type { Artifact, Task } from "../src/shared/work-model";
 import type { WorkSinkQuery } from "../src/shared/work-sinks";
 
@@ -159,19 +157,6 @@ it("unbinds enqueue when its native task node disappears", async () => {
   expect(document.querySelector('[data-testid="task-enqueue-surface"]')).toBeTruthy();
   await act(async () => { modelStore.node$(canvas, "queue").delete(); await flush(); });
   expect(document.body.textContent).toContain("task enqueue - unbound");
-});
-
-it("resolves pad post authors from native nodes instead of a document node list", async () => {
-  publish("worker", agent("Planner"));
-  const pin = Schema.decodeUnknownSync(PadPin)({
-    id: "pin", x: 0, y: 0, mentions: [],
-    posts: [{ postId: "post", author: { kind: "actor", nodeId: "worker", label: "Old name" },
-      parts: [{ kind: "text", text: "Ready" }] }],
-  });
-  await mount(<PadPinThread pin={pin} actors={[]} onCommit={async () => true} />);
-  expect(document.querySelector(".board-post strong")?.textContent).toBe("Planner");
-  await act(async () => { publish("worker", agent("Reviewer")); await flush(); });
-  expect(document.querySelector(".board-post strong")?.textContent).toBe("Reviewer");
 });
 
 it("lists connection targets and follows native names and wires without a document mirror", async () => {

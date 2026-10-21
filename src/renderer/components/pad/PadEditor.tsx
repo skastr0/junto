@@ -10,7 +10,6 @@ import {
 import {
   Circle,
   Image as ImageIcon,
-  MapPin,
   Maximize2,
   MessageSquare,
   MousePointer2,
@@ -22,7 +21,6 @@ import {
 } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { Result } from "effect";
-import type { BoardConnectedActor } from "@shared/board-actors";
 import type { ContentRef } from "@shared/content";
 import { contentObjectUrl } from "@shared/content-url";
 import {
@@ -35,7 +33,6 @@ import {
   type PadShape,
   type PadSide,
 } from "@shared/pad";
-import { PadPinThread } from "./PadPinThread";
 import {
   anchorPoint,
   contentBounds,
@@ -272,12 +269,10 @@ const PadImageEl = ({
 export type PadArea = { readonly x: number; readonly y: number; readonly w: number; readonly h: number };
 
 /**
- * What the P tool does. `pins` writes pins with threads whose mentions are
- * the host's list. `area` drags a box and hands it to the host, writing
+ * What the P tool does. `area` drags a box and hands it to the host, writing
  * nothing. `none` has no P tool.
  */
 export type PadPins =
-  | { readonly kind: "pins"; readonly mentionActors: ReadonlyArray<BoardConnectedActor> }
   | { readonly kind: "area"; readonly onArea: (area: PadArea) => void }
   | { readonly kind: "none" };
 
@@ -292,8 +287,8 @@ export function PadEditor({
   readonly pins: PadPins;
   /** Queued pad write; resolves with the authoritative outcome. */
   readonly onCommit: (patches: ReadonlyArray<PadPatch>) => Promise<PadCommitOutcome>;
-  /** Read (and mark pin threads read) through the host's acceptance path. */
-  readonly onReadPad: (pinId?: string) => Promise<Pad | null>;
+  /** A fresh read through the host's acceptance path. */
+  readonly onReadPad: () => Promise<Pad | null>;
   readonly onClose: () => void;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -368,7 +363,6 @@ export function PadEditor({
   const theme = use$(themeMode$);
   const pal = useMemo(() => padSvgPalette(theme), [theme]);
   const inkColor = defaultInkColor(theme);
-  const selectedPin = selectedId ? pinById(pad, selectedId) : undefined;
 
   const selected = selectedId
     ? shapeById(pad, selectedId) ?? imageById(pad, selectedId) ?? pinById(pad, selectedId)
@@ -427,13 +421,6 @@ export function PadEditor({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: wheel/resize bind to this SVG; originOf/fit read refs
   }, []);
-
-  useEffect(() => {
-    if (!selectedPin) return;
-    // Marks the pin thread read and accepts a fresh pad through the host so
-    // agent replies written while the pad is open become visible.
-    void onReadPad(selectedPin.id);
-  }, [onReadPad, selectedPin?.id]);
 
   const dispatchCommit = useCallback(
     async (task: CommitTask): Promise<boolean> => {
@@ -957,10 +944,6 @@ export function PadEditor({
     }
     if (current.kind === "pin") {
       const draft = draftPinFromDrag(current.id, current.start, scene);
-      if (pins.kind === "pins") {
-        void commit([upsertPinPatch(draft)]);
-        return;
-      }
       // An area pick writes nothing; a bare click picks no area.
       setSelectedId(undefined);
       if (pins.kind === "area" && draft.bounds !== undefined) {
@@ -1132,11 +1115,7 @@ export function PadEditor({
           <ToolButton tool="label" current={tool} onSelect={setTool} label="Label (L)">
             <Type size={13} />
           </ToolButton>
-          {pins.kind === "pins" ? (
-            <ToolButton tool="pin" current={tool} onSelect={setTool} label="Pin (P)">
-              <MapPin size={13} />
-            </ToolButton>
-          ) : pins.kind === "area" ? (
+          {pins.kind === "area" ? (
             <ToolButton tool="pin" current={tool} onSelect={setTool} label="Comment on an area (P)">
               <MessageSquare size={13} />
             </ToolButton>
@@ -1326,18 +1305,16 @@ export function PadEditor({
             <PadGlyph className="pad-empty__mark" />
             <strong>Mark the page</strong>
             <span>
-              {pins.kind === "pins"
-                ? "Draw boxes, drop images, ink, and pin look-here crops."
-                : pins.kind === "area"
-                  ? "Draw boxes, drop images, ink, and comment on an area."
-                  : "Draw boxes, drop images, and ink."}
+              {pins.kind === "area"
+                ? "Draw boxes, drop images, ink, and comment on an area."
+                : "Draw boxes, drop images, and ink."}
             </span>
             <div className="pad-empty__keys">
               <span><Kbd>R</Kbd> box</span>
               <span><Kbd>O</Kbd> ellipse</span>
               <span><Kbd>T</Kbd> triangle</span>
               <span><Kbd>L</Kbd> label</span>
-              {pins.kind === "none" ? null : <span><Kbd>P</Kbd> {pins.kind === "pins" ? "pin" : "comment"}</span>}
+              {pins.kind === "area" ? <span><Kbd>P</Kbd> comment</span> : null}
               <span><Kbd>I</Kbd> image</span>
               <span><Kbd>D</Kbd> ink</span>
             </div>
@@ -1382,13 +1359,6 @@ export function PadEditor({
           />
         ) : null}
       </div>
-      {selectedPin && pins.kind === "pins" ? (
-        <PadPinThread
-          pin={selectedPin}
-          actors={pins.mentionActors}
-          onCommit={commit}
-        />
-      ) : null}
       </div>
     </div>
   );

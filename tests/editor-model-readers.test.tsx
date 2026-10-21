@@ -12,8 +12,6 @@ import { SaveToGroupPicker } from "../src/renderer/components/rts/SaveToGroupPic
 import { CommandBar } from "../src/renderer/components/command-bar/CommandBar";
 import { dock$ } from "../src/renderer/lib/dock-state";
 import { agentSeat$ } from "../src/renderer/lib/agent-seat-state";
-import { PadEditor } from "../src/renderer/components/pad/PadEditor";
-import { PadPin, emptyPad } from "../src/shared/pad";
 import { RegionPathsModal } from "../src/renderer/components/RegionPathsModal";
 
 vi.mock("../src/renderer/components/node-palette/HostDirectoryPicker", () => ({
@@ -71,28 +69,6 @@ it("mounted region paths follow native defaults without a document copy", async 
   await act(async () => modelStore.node$(canvas, "subject").delete());
   expect(document.querySelector('[data-testid="path"]')).toBeNull();
 });
-
-it("the mounted pad mention picker offers the actors its host passes", async () => {
-  const pin = Schema.decodeUnknownSync(PadPin)({ id: "pin", x: 0, y: 0, z: 0, mentions: [], posts: [], unread: false });
-  const pad = { ...emptyPad(), pins: [pin] };
-  const render = (label: string) => root.render(<PadEditor pad={pad} pins={{ kind: "pins", mentionActors: [{ nodeId: "worker", label, wake: false }] }}
-    onCommit={async () => ({ ok: true, pad })} onReadPad={async () => pad} onClose={() => {}} />);
-  await act(async () => render("Scout"));
-  const svg = host.querySelector<SVGSVGElement>('[data-testid="pad-svg"]')!;
-  svg.setPointerCapture = () => {};
-  await act(async () => svg.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 0, clientY: 0 })));
-  const reply = host.querySelector<HTMLTextAreaElement>('[aria-label="Pin reply"]')!;
-  expect(reply).not.toBeNull();
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(reply, "@");
-    reply.setSelectionRange(1, 1);
-    reply.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-  expect(host.textContent).toContain("Scout");
-  await act(async () => render("Renamed Scout"));
-  expect(host.textContent).toContain("Renamed Scout");
-});
-
 
 it("the mounted command bar finds native region paths and opens current note content", async () => {
   publish({ ...rect, id: "region", kind: "region", label: "Research", hold: false, instruction: "Read carefully", width: 1000, height: 1000 });
