@@ -12,6 +12,8 @@
  */
 import { Schema } from "effect";
 import { InstallationId } from "./installation-id";
+import type { NodeKind } from "./model/kinds";
+import { COMMENTABLE_KINDS } from "./region-reach";
 import {
   COMMAND_ROW_MAX_BYTES,
   QUEUE_MAX_BYTES,
@@ -199,6 +201,26 @@ export class CommandQueueFull extends Schema.TaggedError<CommandQueueFull>()("Co
   opId: OpId,
   rows: Schema.Int,
   bytes: Schema.Int,
+}) {}
+
+/**
+ * The node kinds a command's target may name, by its resource kind. A thread
+ * hangs on any node that takes comments. A command whose target names another
+ * kind of node is refused `unknown_target`, at queue time and at ruling, never
+ * handed to a domain.
+ */
+export const TARGET_NODE_KINDS: { readonly [K in ResourceKind]: ReadonlyArray<NodeKind> } = {
+  task: ["task"],
+  artifact: ["artifacts"],
+  automation: ["automations"],
+  thread: COMMENTABLE_KINDS,
+};
+
+/** The target names no node of its kind on this machine's copy: refused at once on the writing machine. */
+export class CommandTargetUnknown extends Schema.TaggedError<CommandTargetUnknown>()("CommandTargetUnknown", {
+  opId: OpId,
+  kind: ResourceKind,
+  nodeId: Schema.String,
 }) {}
 
 /** What became of one command, as this machine knows it (`junto op show`). */

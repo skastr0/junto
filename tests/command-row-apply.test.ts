@@ -20,7 +20,7 @@ import { WORK_PROTOCOL } from "../src/shared/work-protocol";
 import { TASKS_STATE_SCHEMA_SQL } from "../src/main/junto/work/task-state-schema";
 import { artifactBodyRef } from "../src/main/junto/work/artifact-repository";
 import { seedCanvasRows } from "./support/seed-canvas";
-import { seat } from "./support/model-nodes";
+import { seat, taskBoard } from "./support/model-nodes";
 
 const id = Schema.decodeUnknownSync(InstallationId);
 const EDITOR = id("macbook");
@@ -54,7 +54,7 @@ const boot = async (self: InstallationId): Promise<Machine> => {
         Effect.gen(function* () {
           yield* sql`INSERT INTO known_installations(installation_id, registered_at) VALUES (${self}, ${at})`;
           yield* sql`INSERT INTO installation(singleton, installation_id, created_at) VALUES (1, ${self}, ${at})`;
-          yield* seedCanvasRows({ seq: 1, canvases: new Map([["factory", { nodes: [seat("peer", { y: 0 })] }]]) });
+          yield* seedCanvasRows({ seq: 1, canvases: new Map([["factory", { nodes: [seat("peer", { y: 0 }), taskBoard("board-1", { y: 200 })] }]]) });
         }),
       );
     }),
@@ -193,6 +193,18 @@ describe("the seat's machine queues a command and reads what became of it", () =
     );
   const state = () => mini.runtime.runPromise(mini.repository.commandState("factory", MINI, queuedOp));
   const load = () => mini.runtime.runPromise(mini.repository.commandQueueLoad("factory"));
+
+  it("refuses at once a command whose target names a node of another kind, and writes nothing", async () => {
+    const before = await facts(mini);
+    const aimed = await mini.runtime.runPromiseExit(
+      mini.repository.queueCommand({
+        command: { ...command, opId: Schema.decodeUnknownSync(OpId)("01M5EWQ00000000000000000Q9"), target: { kind: "task", nodeId: "peer" } } as never,
+        basis: { kind: "canvas", canvasName: "factory", seq: 1 } as never,
+      }),
+    );
+    expect(Exit.isFailure(aimed) && Cause.pretty(aimed.cause).includes("CommandTargetUnknown")).toBe(true);
+    expect(await facts(mini)).toBe(before);
+  });
 
   it("knows nothing of a command it never wrote", async () => {
     expect(await state()).toEqual({ kind: "unknown" });

@@ -17,6 +17,8 @@ import {
 } from "@shared/work-exchange";
 import {
   CommandQueueFull,
+  CommandTargetUnknown,
+  TARGET_NODE_KINDS,
   RulingAppliedResult,
   RulingRefusedResult,
   commandRowWrittenBy,
@@ -34,6 +36,7 @@ import { writeRuling, type RulingRecord } from "./resource-rulings";
 import { refusalNoticeWrite } from "./refusal-notice";
 import type { OpId } from "@shared/work-ids";
 import { RulingFoldRefused, foldRuling } from "./ruling-projection";
+import { KIND_TABLES } from "../model/state-schema";
 import { assertWorkRowBound, pageExchangeRows } from "@shared/exchange-bounds";
 import { createHash } from "node:crypto";
 import { Cause, Context, Effect, Option, Result, Layer, Schema } from "effect";
@@ -4779,7 +4782,7 @@ export interface WorkRepositoryShape {
    */
   readonly queueCommand: (
     input: QueueCommandInput,
-  ) => Effect.Effect<LocalFactResult<OpId>, RepositoryFailure | CommandQueueFull>;
+  ) => Effect.Effect<LocalFactResult<OpId>, RepositoryFailure | CommandQueueFull | CommandTargetUnknown>;
   /**
    * Record a ruling on the machine that edits the canvas: its row in
    * `resource_rulings` and its `ruling.*` fact for every machine, in the
@@ -7756,6 +7759,21 @@ export const WorkRepositoryLive = Layer.effect(
      * a ruling for this writer and its opId is held, which is the editing
      * machine's row or, on the editing machine, its own.
      */
+    /** Whether a command's target names a node, on this machine's copy, of a kind its resource kind may name. */
+    const targetNamesItsKind = (
+      reader: SqlClient.SqlClient,
+      canvasName: string,
+      target: { readonly kind: ResourceKind; readonly nodeId: string },
+    ) => {
+      const tables = TARGET_NODE_KINDS[target.kind].map((kind) => KIND_TABLES[kind]);
+      return reader
+        .unsafe<{ found: number }>(
+          tables.map((table) => `SELECT 1 AS found FROM ${table} WHERE canvas_name = ? AND id = ?`).join(" UNION ALL "),
+          tables.flatMap(() => [canvasName, target.nodeId]),
+        )
+        .pipe(Effect.map((rows) => rows.length > 0));
+    };
+
     const queueLoadOf = (reader: SqlClient.SqlClient, self: string, canvasName: string) =>
       reader
         .unsafe<{ rows: number; bytes: number | null }>(
@@ -7784,13 +7802,18 @@ export const WorkRepositoryLive = Layer.effect(
 
     const queueCommand = (
       input: QueueCommandInput,
-    ): Effect.Effect<LocalFactResult<OpId>, RepositoryFailure | CommandQueueFull> => {
+    ): Effect.Effect<LocalFactResult<OpId>, RepositoryFailure | CommandQueueFull | CommandTargetUnknown> => {
       const { command } = input;
       const sink = { canvasName: command.canvasName, nodeId: command.target.nodeId };
       const body = { operation: "command.queued" as const, command };
       return transaction("work.command.queue", sink, (writer: SqlClient.SqlClient) =>
         Effect.gen(function* () {
           const self = (yield* canonicalLocalWorkAuthority(writer)).installationId;
+          if (!(yield* targetNamesItsKind(writer, command.canvasName, command.target))) {
+            return yield* Effect.fail(
+              new CommandTargetUnknown({ opId: command.opId, kind: command.target.kind, nodeId: command.target.nodeId }),
+            );
+          }
           const load = yield* queueLoadOf(writer, self, command.canvasName);
           const rowBytes = new TextEncoder().encode(JSON.stringify(body)).byteLength;
           if (!queueAdmits(load, rowBytes)) {
@@ -7809,7 +7832,7 @@ export const WorkRepositoryLive = Layer.effect(
             receivedAt: timestamp(input.receivedAt),
           });
         }),
-      ) as Effect.Effect<LocalFactResult<OpId>, RepositoryFailure | CommandQueueFull>;
+      ) as Effect.Effect<LocalFactResult<OpId>, RepositoryFailure | CommandQueueFull | CommandTargetUnknown>;
     };
 
     const commandQueueLoad = (canvasName: string): Effect.Effect<QueueLoad, WorkRepositoryError> =>
