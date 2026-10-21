@@ -418,8 +418,8 @@ describe("StateEngine", () => {
 
     await runtime.runPromise(
       sql.withTransaction(sql`
-        INSERT INTO kernel_armed_regions(canvas_name, region_id, armed_at)
-        VALUES ('transaction', 'kept', '2026-07-27T00:00:00.000Z')
+        INSERT INTO factory_pause_canvases(canvas_name, playing, ever_played, updated_at)
+        VALUES ('transaction-kept', 1, 1, '2026-07-27T00:00:00.000Z')
       `),
     );
 
@@ -427,8 +427,8 @@ describe("StateEngine", () => {
       Effect.result(
         sql.withTransaction(Effect.gen(function* () {
           yield* sql`
-            INSERT INTO kernel_armed_regions(canvas_name, region_id, armed_at)
-            VALUES ('transaction', 'lost', '2026-07-27T00:01:00.000Z')
+            INSERT INTO factory_pause_canvases(canvas_name, playing, ever_played, updated_at)
+            VALUES ('transaction-lost', 1, 1, '2026-07-27T00:01:00.000Z')
           `;
           return yield* Effect.fail(new Error("stop"));
         })),
@@ -438,22 +438,22 @@ describe("StateEngine", () => {
 
     await runtime.runPromise(
       sql.withTransaction(sql`
-        INSERT INTO kernel_armed_regions(canvas_name, region_id, armed_at)
-        VALUES ('transaction', 'recovered', '2026-07-27T00:02:00.000Z')
+        INSERT INTO factory_pause_canvases(canvas_name, playing, ever_played, updated_at)
+        VALUES ('transaction-recovered', 1, 1, '2026-07-27T00:02:00.000Z')
       `),
     );
 
     const rows = await runtime.runPromise(
-      sql<{ region_id: string }>`
-        SELECT region_id
-        FROM kernel_armed_regions
-        WHERE canvas_name = 'transaction'
-        ORDER BY region_id
+      sql<{ canvas_name: string }>`
+        SELECT canvas_name
+        FROM factory_pause_canvases
+        WHERE canvas_name GLOB 'transaction-*'
+        ORDER BY canvas_name
       `,
     );
     expect(rows).toEqual([
-      { region_id: "kept" },
-      { region_id: "recovered" },
+      { canvas_name: "transaction-kept" },
+      { canvas_name: "transaction-recovered" },
     ]);
   });
 
@@ -471,8 +471,8 @@ describe("StateEngine", () => {
             chunks.push(chunk.length);
             for (const value of chunk) {
               yield* sql`
-                INSERT INTO kernel_armed_regions(canvas_name, region_id, armed_at)
-                VALUES ('chunks', ${`region-${value.toString().padStart(2, "0")}`}, '2026-07-27T00:00:00.000Z')
+                INSERT INTO factory_pause_canvases(canvas_name, playing, ever_played, updated_at)
+                VALUES (${`chunks-${value.toString().padStart(2, "0")}`}, 1, 1, '2026-07-27T00:00:00.000Z')
               `;
             }
           }));
@@ -485,8 +485,8 @@ describe("StateEngine", () => {
     const count = await runtime.runPromise(
       sql<{ count: number }>`
         SELECT count(*) AS count
-        FROM kernel_armed_regions
-        WHERE canvas_name = 'chunks'
+        FROM factory_pause_canvases
+        WHERE canvas_name GLOB 'chunks-*'
       `.pipe(Effect.map((rows) => rows[0]?.count)),
     );
     expect(count).toBe(17);
