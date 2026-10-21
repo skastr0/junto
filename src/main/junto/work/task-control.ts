@@ -388,7 +388,8 @@ const findTask = (
     const visible = task !== undefined && (actor.kind === "operator" ||
       seatReachesTaskNode(caller.canvas, actor.nodeId, task.current.node) || (assigneeExempt && task.current.assignee === actor.nodeId));
     if (!visible) {
-      return yield* Effect.fail(unknown(path, text, `no task ${lookup.kind === "number" ? formatTaskNumber(lookup.number) : lookup.taskId} in this seat's reach`));
+      const missing = unknown(path, text, `no task ${lookup.kind === "number" ? formatTaskNumber(lookup.number) : lookup.taskId} in this seat's reach`);
+      return yield* Effect.fail<WorkErrorBody>({ ...missing, details: { ...missing.details, next_step: "run junto task list to see the tasks in reach" } });
     }
     return task;
   });

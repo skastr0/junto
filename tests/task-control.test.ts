@@ -257,6 +257,12 @@ describe.runIf(TASKS_ENABLED)("task verbs", () => {
     expect(hidden.message).toBe("no task #44 in this seat's reach");
   });
 
+  it("points a comment on a missing task number to the list of tasks in reach", async () => {
+    const missing = failure(await run("task.comment", { opId: OP, task: "#9999", text: "hi" }, portsWith(applied())));
+    expect(missing.type).toBe("UnknownTarget");
+    expect(missing.details?.next_step).toBe("run junto task list to see the tasks in reach");
+  });
+
   it("refuses rules, wait and check on a task or node out of reach, as missing", async () => {
     const ports = portsWith(applied());
     const byTask = failure(await run("task.rules", { task: "#44" }, ports));
