@@ -21,6 +21,16 @@ const electron = vi.hoisted(() => {
     readonly setDevicePermissionHandler = vi.fn();
     readonly setDisplayMediaRequestHandler = vi.fn();
     readonly setDownloadPath = vi.fn();
+    readonly clearStorageData = vi.fn(async (_options: unknown) => undefined);
+    readonly serviceWorkers = (() => {
+      const listeners = new Set<Listener>();
+      return {
+        listeners,
+        on: (_event: string, listener: Listener) => { listeners.add(listener); },
+        off: (_event: string, listener: Listener) => { listeners.delete(listener); },
+        emit: (scope: string) => { for (const listener of listeners) listener({}, { scope }); },
+      };
+    })();
     resolveHost(): Promise<{ endpoints: ReadonlyArray<{ address: string }> }> {
       return Promise.resolve({ endpoints: [{ address: "93.184.216.34" }] });
     }
@@ -278,6 +288,7 @@ describe("electron browser view generation seam", () => {
     const unexpectedTerminations: number[] = [];
     const operatorInputs: number[] = [];
     const commits: number[] = [];
+    const workers: string[] = [];
     const guard = { admits: (_url: string, _byPage?: boolean): boolean => true };
     const byPage: boolean[] = [];
     let pageGeneration = 1;
@@ -299,6 +310,7 @@ describe("electron browser view generation seam", () => {
         },
         onOperatorInput: () => operatorInputs.push(1),
         onDocumentCommitted: () => commits.push(1),
+        onServiceWorkerRegistered: (scope) => workers.push(scope),
         onUnexpectedTermination: () => unexpectedTerminations.push(1),
       },
     );
@@ -318,6 +330,7 @@ describe("electron browser view generation seam", () => {
       guard,
       byPage,
       commits,
+      workers,
     };
   };
 
@@ -349,6 +362,7 @@ describe("electron browser view generation seam", () => {
       admitsTopLevel: () => true,
       onOperatorInput: () => undefined,
       onDocumentCommitted: () => undefined,
+      onServiceWorkerRegistered: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
 
@@ -388,6 +402,7 @@ describe("electron browser view generation seam", () => {
       admitsTopLevel: () => true,
       onOperatorInput: () => undefined,
       onDocumentCommitted: () => undefined,
+      onServiceWorkerRegistered: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
     const view = electron.views.at(-1);
@@ -433,6 +448,7 @@ describe("electron browser view generation seam", () => {
       admitsTopLevel: () => true,
       onOperatorInput: () => undefined,
       onDocumentCommitted: () => undefined,
+      onServiceWorkerRegistered: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
     const view = electron.views.at(-1);
@@ -480,6 +496,7 @@ describe("electron browser view generation seam", () => {
       admitsTopLevel: () => true,
       onOperatorInput: () => undefined,
       onDocumentCommitted: () => undefined,
+      onServiceWorkerRegistered: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
     const view = electron.views.at(-1);
@@ -518,6 +535,7 @@ describe("electron browser view generation seam", () => {
       admitsTopLevel: () => true,
       onOperatorInput: () => undefined,
       onDocumentCommitted: () => undefined,
+      onServiceWorkerRegistered: () => undefined,
       onUnexpectedTermination: () => undefined,
     });
     const view = electron.views.at(-1);
@@ -668,6 +686,18 @@ describe("electron browser view generation seam", () => {
     // A same-document step is not a new top-level document.
     webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/#x", { isSameDocument: true }));
     expect(webContents.stopCalls).toBe(1);
+  });
+
+  it("hears its profile's service worker registrations while it lives, and clears one origin's", async () => {
+    const { handle, webContents, workers } = await setup();
+    const partition = electron.sessions.get("persist:test")!;
+    partition.serviceWorkers.emit("https://example.com/");
+    expect(workers).toEqual(["https://example.com/"]);
+    await handle.clearServiceWorkers?.("https://example.com");
+    expect(partition.clearStorageData).toHaveBeenCalledWith({ origin: "https://example.com", storages: ["serviceworkers"] });
+    webContents.emit("destroyed");
+    partition.serviceWorkers.emit("https://example.com/again");
+    expect(workers).toHaveLength(1);
   });
 
   it("says a new main-frame document committed only when one does", async () => {

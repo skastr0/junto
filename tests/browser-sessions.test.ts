@@ -130,6 +130,9 @@ const makeSpyAdapter = (acknowledgeDestroy = true, throwAfterDestroy = false) =>
       capturePagePng: async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
       traverse: (step) => spy.calls.push(`traverse:${step}`),
       history: () => spy.history,
+      clearServiceWorkers: async (origin) => {
+        spy.calls.push(`clear-sw:${origin}`);
+      },
     };
   };
   return { adapter, views };
@@ -1235,7 +1238,16 @@ describe("BrowserSessionService", () => {
     const inGrant = (url: string) => new URL(url).origin === "https://touched.example.com";
     expect(await service.openForOwner("job-a", page, undefined, undefined, inGrant)).toMatchObject({ ok: true });
     const events = views[0]!.events;
+    expect(views[0]?.calls).not.toContain("clear-sw:https://touched.example.com");
     expect(await service.evalForOwner("job-a", ui.data.sessionId, "1")).toMatchObject({ ok: true });
+    // Nothing a seat could have left in the origin stays on disk, now or later.
+    expect(views[0]?.calls.filter((call) => call === "clear-sw:https://touched.example.com")).toHaveLength(1);
+    events.onServiceWorkerRegistered("https://touched.example.com/app/");
+    events.onServiceWorkerRegistered("https://untouched.example.org/");
+    expect(views[0]?.calls.filter((call) => call.startsWith("clear-sw:"))).toEqual([
+      "clear-sw:https://touched.example.com",
+      "clear-sw:https://touched.example.com",
+    ]);
 
     expect(service.takeOver(ui.data.sessionId)).toMatchObject({ ok: true });
     expect(events.admitsTopLevel("https://elsewhere.example.net/", true)).toBe(false);

@@ -83,6 +83,8 @@ export interface BrowserViewHandle {
   history?(): BrowserHistory;
   /** The page's viewport and scroll as its renderer reports them; untrusted. */
   readViewport?(): Promise<unknown>;
+  /** Unregisters every service worker of `origin` in the view's profile. */
+  clearServiceWorkers?(origin: string): Promise<void>;
 }
 
 export interface BrowserViewEvents {
@@ -108,6 +110,8 @@ export interface BrowserViewEvents {
   readonly onOperatorInput: () => void;
   /** A new main-frame document committed, at `url`. */
   readonly onDocumentCommitted: (url: string) => void;
+  /** A service worker was registered in the view's profile, for `scope`. */
+  readonly onServiceWorkerRegistered: (scope: string) => void;
   /**
    * Electron reports an unplanned WebContents loss through either
    * `render-process-gone` or `destroyed`. The adapter coalesces both signals
@@ -1042,7 +1046,12 @@ export class BrowserSessionService {
     }
   }
 
-  /** A seat evaluates in the view: its grant binds what that origin's pages start. */
+  /**
+   * A seat evaluates in the view: its grant binds what that origin's pages
+   * start. The origin's service workers go now, and any registered after,
+   * so nothing a seat left there is on disk to intercept a later page, this
+   * run or the next. A site's own worker there goes too.
+   */
   private markTouched(entry: SessionEntry, owner: string): void {
     // An unbound seat binds the origin to nowhere: fail closed.
     const guard = entry.guests.get(owner)?.admitsTopLevel ?? (() => false);
@@ -1050,6 +1059,22 @@ export class BrowserSessionService {
     const touched = this.touchedOrigins.get(key);
     if (touched === undefined) this.touchedOrigins.set(key, new Set([guard]));
     else touched.add(guard);
+    const origin = entry.documentOrigin ?? entry.currentOrigin;
+    if (origin !== undefined) this.clearServiceWorkers(entry, origin);
+  }
+
+  private serviceWorkerRegistered(entry: SessionEntry, scope: string): void {
+    const origin = exactBrowserOrigin(scope);
+    if (origin === undefined) return;
+    if (this.touchedOrigins.has(`${entry.profile}\0${origin}`)) this.clearServiceWorkers(entry, origin);
+  }
+
+  private clearServiceWorkers(entry: SessionEntry, origin: string): void {
+    try {
+      void entry.view.clearServiceWorkers?.(origin).catch(() => undefined);
+    } catch {
+      // The registration's next report clears it again.
+    }
   }
 
   /** Every holder's grant reaches `url`; a guest with no origin bound never refuses. */
@@ -2247,6 +2272,7 @@ export class BrowserSessionService {
           onDocumentCommitted: (url) => {
             entry.documentOrigin = exactBrowserOrigin(url);
           },
+          onServiceWorkerRegistered: (scope) => this.serviceWorkerRegistered(entry, scope),
           onUnexpectedTermination: () => this.viewTerminatedUnexpectedly(entry),
         },
       );

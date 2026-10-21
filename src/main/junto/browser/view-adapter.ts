@@ -422,8 +422,14 @@ const makeElectronViewAdapter = (
     unexpectedTerminationReported = true;
     events.onUnexpectedTermination();
   };
+  // The profile's service worker registrations, said to this view while it lives.
+  const onServiceWorkerRegistered = (_event: unknown, details: { readonly scope: string }): void => {
+    events.onServiceWorkerRegistered(details.scope);
+  };
+  browserPartition.serviceWorkers.on("registration-completed", onServiceWorkerRegistered);
   const destroyed = new Promise<void>((resolveDestroyed) => {
     view.webContents.once("destroyed", () => {
+      browserPartition.serviceWorkers.off("registration-completed", onServiceWorkerRegistered);
       resolveDestroyed();
       reportUnexpectedTermination();
     });
@@ -647,6 +653,8 @@ const makeElectronViewAdapter = (
       logicallyAttached = false;
       detachFromHost();
     },
+    clearServiceWorkers: (origin) =>
+      browserPartition.clearStorageData({ origin, storages: ["serviceworkers"] }),
     stopLoading: () => {
       if (!view.webContents.isDestroyed()) view.webContents.stop();
     },

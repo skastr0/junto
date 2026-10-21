@@ -34,11 +34,7 @@ import { modelError } from "../model/records";
 import type { ModelNodeReader } from "../node-ref-resolver";
 import type { TermPlane } from "../term/plane";
 import { terminalObserverPlane } from "../term/observer";
-import {
-  BROWSER_UI_SESSION_OWNER,
-  pageOriginGuard,
-  type BrowserSessionService,
-} from "../browser/sessions";
+import { pageOriginGuard, type BrowserSessionService } from "../browser/sessions";
 import { makePageTargetResolver } from "../browser/page-target";
 import { readGitLog, readGitShow, readGitStatus } from "../adapters/git";
 import {
