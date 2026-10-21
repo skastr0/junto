@@ -99,7 +99,7 @@ export const makeLocalBrowserChrome = (homeUrl = "https://example.com/"): LocalB
       }),
     traverse: async (sessionId, step) =>
       tabsEvent(sessionId, (tabs) => reducePageTabs(tabs, { kind: "loading", tab: tabs.active, loading: step === "reload" })),
-    openTab: async (sessionId, url) => tabsEvent(sessionId, (tabs) => reducePageTabs(tabs, { kind: "open", url: url ?? homeUrl, activate: true })),
+    openTab: async (sessionId, url) => tabsEvent(sessionId, (tabs) => reducePageTabs(tabs, { kind: "open", url: url ?? "", activate: true })),
     closeTab: async (sessionId, tab) => tabsEvent(sessionId, (tabs) => reducePageTabs(tabs, { kind: "close", tab })),
     activateTab: async (sessionId, tab) => tabsEvent(sessionId, (tabs) => reducePageTabs(tabs, { kind: "activate", tab })),
     focusPage: async () => true,

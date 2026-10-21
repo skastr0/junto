@@ -20,7 +20,8 @@ describe("addressTarget", () => {
 
   it("refuses what main refuses, in the policy's words", () => {
     expect(addressTarget("")).toEqual({ ok: false, message: "Type an address." });
-    expect(addressTarget("localhost:3000")).toMatchObject({ ok: false });
+    expect(addressTarget("localhost:3000")).toMatchObject({ ok: false, message: expect.stringContaining("Local and internal") });
+    expect(addressTarget("example.com:8080/x")).toEqual({ ok: true, url: "https://example.com:8080/x" });
     expect(addressTarget("https://192.168.1.1")).toMatchObject({ ok: false, message: expect.stringContaining("Private") });
     expect(addressTarget("file:///etc/passwd")).toMatchObject({ ok: false, message: expect.stringContaining("http and https") });
   });

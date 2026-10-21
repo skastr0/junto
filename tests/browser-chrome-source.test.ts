@@ -26,6 +26,13 @@ describe("local browser chrome", () => {
     });
   });
 
+  it("opens a new tab blank, so tabs do not repeat the home page", async () => {
+    const chrome = makeLocalBrowserChrome("https://example.com/");
+    await runChromeCommand(chrome, S, { kind: "openTab" });
+    const tabs = (await chrome.state(S))!.tabs.tabs;
+    expect(tabs.map((tab) => tab.url)).toEqual(["https://example.com/", ""]);
+  });
+
   it("goes to an address on the active tab", async () => {
     const chrome = makeLocalBrowserChrome();
     await runChromeCommand(chrome, S, { kind: "goto", url: "https://next.example.com/" });

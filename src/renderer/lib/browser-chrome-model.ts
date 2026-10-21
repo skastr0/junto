@@ -18,7 +18,9 @@ export type AddressTarget =
 export const addressTarget = (typed: string): AddressTarget => {
   const text = typed.trim();
   if (text === "") return { ok: false, message: "Type an address." };
-  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(text) ? text : `https://${text}`;
+  // A scheme, but not `host:port`: `localhost:3000` is an address with no scheme, not a "localhost:" one.
+  const hasScheme = /^[a-z][a-z0-9+.-]*:(?!\d+(?:[/?#]|$))/i.test(text);
+  const withScheme = hasScheme ? text : `https://${text}`;
   const decision = classifyBrowserTarget(withScheme);
   return decision.allowed
     ? { ok: true, url: decision.normalizedUrl }
