@@ -78,7 +78,8 @@ export const isAllowedByBrowserTestOnlyExactOriginGrant = (
   }
 };
 
-export type BrowserTopLevelNavigationGuard = (url: string) => boolean;
+/** `byPage`: a frame started the navigation; false when the browser itself did. */
+export type BrowserTopLevelNavigationGuard = (url: string, byPage: boolean) => boolean;
 export type BrowserTopLevelNavigationRejection =
   | BrowserTargetRejection
   | "origin_mismatch";
@@ -307,10 +308,11 @@ export const installBrowserWebPolicy = (
   hardenBrowserPartition(webContents.session, testOnlyGrant);
   managedBrowserContents.add(webContents);
   const prevent = (event: Event): void => event.preventDefault();
-  const topLevelNavigationAllowed = (url: string): boolean => {
+  const topLevelNavigationAllowed = (url: string, initiator: unknown): boolean => {
     if (topLevelNavigationGuard === undefined) return true;
     try {
-      return topLevelNavigationGuard(url);
+      // Only an explicit null means the browser started it; unknown is the page's.
+      return topLevelNavigationGuard(url, initiator !== null);
     } catch {
       return false;
     }
@@ -320,7 +322,7 @@ export const installBrowserWebPolicy = (
   ): void => {
     if (
       event.isMainFrame &&
-      !topLevelNavigationAllowed(event.url)
+      !topLevelNavigationAllowed(event.url, event.initiator)
     ) {
       event.preventDefault();
       events.onBlockedTopLevelNavigation?.("origin_mismatch");
@@ -342,7 +344,7 @@ export const installBrowserWebPolicy = (
   ): void => {
     if (
       event.isMainFrame &&
-      !topLevelNavigationAllowed(event.url)
+      !topLevelNavigationAllowed(event.url, event.initiator)
     ) {
       event.preventDefault();
       events.onBlockedTopLevelNavigation?.("origin_mismatch");

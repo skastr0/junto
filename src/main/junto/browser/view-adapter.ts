@@ -449,7 +449,7 @@ const makeElectronViewAdapter = (
         },
       },
       testOnlyGrant,
-      (url) => events.admitsTopLevel(url),
+      (url, byPage) => events.admitsTopLevel(url, byPage),
     );
   } catch (error) {
     // Return a teardown-capable failed handle instead of throwing after the
@@ -475,7 +475,7 @@ const makeElectronViewAdapter = (
     const normalizedUrl = normalizeUrl(details.url);
     // History steps and reloads never pass will-frame-navigate, so a page
     // the seats hold refuses a start outside their grants here, before commit.
-    if (!details.isSameDocument && !events.admitsTopLevel(normalizedUrl)) {
+    if (!details.isSameDocument && !events.admitsTopLevel(normalizedUrl, details.initiator !== null)) {
       view.webContents.stop();
       return;
     }

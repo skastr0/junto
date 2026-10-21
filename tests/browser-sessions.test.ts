@@ -1123,20 +1123,20 @@ describe("BrowserSessionService", () => {
     views[0]?.events.onLoadOk(ui.data.sessionId);
     const events = views[0]!.events;
     // No seat holds it: the ordinary browser policy alone decides.
-    expect(events.admitsTopLevel("https://elsewhere.example.net/")).toBe(true);
+    expect(events.admitsTopLevel("https://elsewhere.example.net/", true)).toBe(true);
 
     const inGrant = (url: string) => new URL(url).origin === "https://held.example.com";
     expect(await service.openForOwner("job-a", page, undefined, undefined, inGrant)).toMatchObject({ ok: true });
     // An overseer is not origin-bound.
     expect(await service.openForOwner("job-b", page)).toMatchObject({ ok: true });
-    expect(events.admitsTopLevel("https://held.example.com/next")).toBe(true);
-    expect(events.admitsTopLevel("https://elsewhere.example.net/")).toBe(false);
+    expect(events.admitsTopLevel("https://held.example.com/next", true)).toBe(true);
+    expect(events.admitsTopLevel("https://elsewhere.example.net/", true)).toBe(false);
 
     // The operator going off the grant takes the page over first.
     const away = service.goto(ui.data.sessionId, "https://elsewhere.example.net/");
     expect(away).toMatchObject({ ok: true });
     expect(service.drivingFor(away.ok ? away.data.sessionId : "")?.control.kind).toBe("operator-held");
-    expect(events.admitsTopLevel("https://elsewhere.example.net/")).toBe(true);
+    expect(events.admitsTopLevel("https://elsewhere.example.net/", true)).toBe(true);
   });
 
   it("takes the page over on the operator's input: seats are refused, a running one ends, release resumes", async () => {
@@ -1177,6 +1177,69 @@ describe("BrowserSessionService", () => {
     expect(service.release(ui.data.sessionId)).toMatchObject({ ok: true });
     expect(service.drivingFor(ui.data.sessionId)?.control.kind).toBe("shared");
     expect(await service.evalForOwner("job-a", ui.data.sessionId, "1")).toMatchObject({ ok: true });
+  });
+
+  it("lets the operator reload an off-grant page and refuses to hand it back there", async () => {
+    const { service, views } = makeDefaultService();
+    const page = target("handback");
+    const ui = await service.open(page);
+    if (!ui.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(ui.data.sessionId);
+    const inGrant = (url: string) => new URL(url).origin === "https://handback.example.com";
+    expect(await service.openForOwner("job-a", page, undefined, undefined, inGrant)).toMatchObject({ ok: true });
+    const events = views[0]!.events;
+
+    const away = service.goto(ui.data.sessionId, "https://elsewhere.example.net/");
+    if (!away.ok) throw new Error("goto failed");
+    events.onNavigationStart({ url: "https://elsewhere.example.net/", isSameDocument: false, expectedSessionId: away.data.sessionId });
+    events.onLoadOk(away.data.sessionId);
+    expect(service.release(away.data.sessionId)).toMatchObject({ ok: false, code: "invalid" });
+    expect(service.drivingFor(away.data.sessionId)?.control.kind).toBe("operator-held");
+    expect(service.traverse(away.data.sessionId, "reload")).toMatchObject({ ok: true });
+    expect(events.admitsTopLevel("https://elsewhere.example.net/", false)).toBe(true);
+  });
+
+  it("refuses a seat's wait and drops a seat's pending step once the operator takes over", async () => {
+    const { service, views } = makeDefaultService();
+    const page = target("step");
+    const ui = await service.open(page);
+    if (!ui.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(ui.data.sessionId);
+    views[0]!.history = { canGoBack: true, canGoForward: false };
+    expect(await service.openForOwner("job-a", page)).toMatchObject({ ok: true });
+    expect(service.traverseForOwner("job-a", ui.data.sessionId, "back")).toMatchObject({ ok: true });
+
+    views[0]?.events.onOperatorInput();
+    expect(views[0]?.calls).toContain("stop-loading");
+    // The seat's step, should it start now, is refused; the next start is free.
+    expect(views[0]?.events.admitsTopLevel("https://step.example.com/before", true)).toBe(false);
+    expect(views[0]?.events.admitsTopLevel("https://step.example.com/before", true)).toBe(true);
+    await expect(service.awaitNavigationTerminalForOwner("job-a", ui.data.sessionId))
+      .resolves.toMatchObject({ ok: false, code: "operator_holds" });
+  });
+
+  it("keeps a document a seat evaluated in within the grants, but for the operator's chrome", async () => {
+    const { service, views } = makeDefaultService();
+    const page = target("touched");
+    const ui = await service.open(page);
+    if (!ui.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(ui.data.sessionId);
+    const inGrant = (url: string) => new URL(url).origin === "https://touched.example.com";
+    expect(await service.openForOwner("job-a", page, undefined, undefined, inGrant)).toMatchObject({ ok: true });
+    const events = views[0]!.events;
+    expect(await service.evalForOwner("job-a", ui.data.sessionId, "1")).toMatchObject({ ok: true });
+
+    expect(service.takeOver(ui.data.sessionId)).toMatchObject({ ok: true });
+    expect(events.admitsTopLevel("https://elsewhere.example.net/", true)).toBe(false);
+    expect(events.admitsTopLevel("https://touched.example.com/2", true)).toBe(true);
+    expect(events.admitsTopLevel("https://elsewhere.example.net/", false)).toBe(true);
+
+    // A new document is the operator's alone.
+    const next = service.goto(ui.data.sessionId, "https://touched.example.com/2");
+    if (!next.ok) throw new Error("goto failed");
+    events.onNavigationStart({ url: "https://touched.example.com/2", isSameDocument: false, expectedSessionId: next.data.sessionId });
+    events.onLoadOk(next.data.sessionId);
+    expect(events.admitsTopLevel("https://elsewhere.example.net/", true)).toBe(true);
   });
 
   it("aborting navigation destroys its view and invalidates its rotated sessionId", async () => {

@@ -36,6 +36,7 @@ import type { TermPlane } from "../term/plane";
 import { terminalObserverPlane } from "../term/observer";
 import {
   BROWSER_UI_SESSION_OWNER,
+  pageOriginGuard,
   type BrowserSessionService,
 } from "../browser/sessions";
 import { makePageTargetResolver } from "../browser/page-target";
@@ -953,7 +954,7 @@ const handlePage = async (
         return { ok: false, code: "not_found", message: overseerPageMessage(still.denial) };
       }
       return resolver(ref);
-    });
+    }, pageOriginGuard(resolved.data.url));
     if (!opened.ok) return fail("RuntimeDown", opened.message);
     return ok(opened.data);
   }

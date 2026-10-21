@@ -277,7 +277,8 @@ describe("electron browser view generation seam", () => {
     const ambiguous: string[] = [];
     const unexpectedTerminations: number[] = [];
     const operatorInputs: number[] = [];
-    const guard = { admits: (_url: string): boolean => true };
+    const guard = { admits: (_url: string, _byPage?: boolean): boolean => true };
+    const byPage: boolean[] = [];
     let pageGeneration = 1;
     const handle = await electronViewAdapter(
       "persist:test",
@@ -291,7 +292,10 @@ describe("electron browser view generation seam", () => {
         onLoadOk: (sessionId, title) => completed.push([sessionId, title]),
         onLoadFail: (sessionId, message) => failed.push([sessionId, message]),
         onTitle: (sessionId, title) => titles.push([sessionId, title]),
-        admitsTopLevel: (url) => guard.admits(url),
+        admitsTopLevel: (url, initiatedByPage) => {
+          byPage.push(initiatedByPage);
+          return guard.admits(url, initiatedByPage);
+        },
         onOperatorInput: () => operatorInputs.push(1),
         onUnexpectedTermination: () => unexpectedTerminations.push(1),
       },
@@ -310,6 +314,7 @@ describe("electron browser view generation seam", () => {
       unexpectedTerminations,
       operatorInputs,
       guard,
+      byPage,
     };
   };
 
@@ -636,7 +641,7 @@ describe("electron browser view generation seam", () => {
   });
 
   it("refuses a top-level start or redirect the holders' grants do not reach", async () => {
-    const { handle, webContents, starts, guard } = await setup();
+    const { handle, webContents, starts, guard, byPage } = await setup();
     guard.admits = (url) => new URL(url).origin === "https://example.com";
     handle.loadUrl("https://example.com/start", "session-1");
     webContents.emit("did-start-navigation", navigation("https://example.com/start"));
@@ -647,6 +652,11 @@ describe("electron browser view generation seam", () => {
     webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/back"));
     expect(webContents.stopCalls).toBe(1);
     expect(starts.map((start) => start.url)).not.toContain("https://elsewhere.example.net/back");
+    // A start with no initiator frame is the browser's own: the guard hears that.
+    byPage.length = 0;
+    webContents.emit("did-start-navigation", { ...navigation("https://example.com/again"), initiator: null });
+    webContents.emit("did-start-navigation", navigation("https://example.com/page-started"));
+    expect(byPage).toEqual([false, true]);
     // A same-document step is not a new top-level document.
     webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/#x", { isSameDocument: true }));
     expect(webContents.stopCalls).toBe(1);

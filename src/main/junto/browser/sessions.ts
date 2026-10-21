@@ -92,8 +92,10 @@ export interface BrowserViewEvents {
   /**
    * Whether the page may start a cross-document top-level navigation to
    * `url`. Asked before the view commits to it, history steps and reloads too.
+   * `byPage`: a frame started it (script, link, form, page history call), not
+   * the browser itself (the operator's chrome, a loadURL).
    */
-  readonly admitsTopLevel: (url: string) => boolean;
+  readonly admitsTopLevel: (url: string, byPage: boolean) => boolean;
   /** The operator pressed a key, clicked or tapped in the view itself. */
   readonly onOperatorInput: () => void;
   /**
@@ -230,6 +232,12 @@ interface ActiveOperation {
 /** Where a guest's grant lets the page go; absent, the guest is not origin-bound. */
 export type BrowserGuestTopLevelGuard = (url: string) => boolean;
 
+/** A guard bound to one page's own origin, as its node names it. */
+export const pageOriginGuard = (pageUrl: string): BrowserGuestTopLevelGuard => {
+  const origin = exactBrowserOrigin(pageUrl);
+  return (url) => origin !== undefined && exactBrowserOrigin(url) === origin;
+};
+
 interface GuestHold {
   readonly admitsTopLevel: BrowserGuestTopLevelGuard | undefined;
 }
@@ -261,6 +269,14 @@ interface SessionEntry {
    * navigating; the mark lapses on its own if no navigation follows.
    */
   stepPending: ReturnType<typeof setTimeout> | undefined;
+  /** Who asked for the pending step: a guest's never lands once the operator holds the page. */
+  stepOwner: string | undefined;
+  /**
+   * The generation a seat last evaluated in. Code it left may still run in
+   * that document, so while the operator holds it, the page itself still
+   * goes nowhere the holders' grants do not reach. A new document is clean.
+   */
+  touchedGeneration: string | undefined;
   activeOperation: ActiveOperation | undefined;
   lastActiveAt: number;
   view: BrowserViewHandle;
@@ -949,8 +965,23 @@ export class BrowserSessionService {
    * reaches, as each guest is bound to its own. Once the operator holds it,
    * or no seat does, the ordinary browser policy alone decides.
    */
-  private admitsTopLevel(entry: SessionEntry, url: string): boolean {
-    if (entry.driving.control.kind === "operator-held") return true;
+  private admitsTopLevel(entry: SessionEntry, url: string, byPage: boolean): boolean {
+    if (entry.driving.control.kind === "operator-held") {
+      // A seat's step asked before the operator took over must not land after:
+      // the first start while it is pending is that step, and is refused.
+      if (entry.stepPending !== undefined && entry.stepOwner !== entry.owner) {
+        this.clearStepPending(entry);
+        return false;
+      }
+      // A listener a seat left fires on the operator's own click; in that
+      // document only the operator's chrome goes off the grants.
+      return !byPage || entry.touchedGeneration !== entry.sessionId || this.withinHolderGrants(entry, url);
+    }
+    return this.withinHolderGrants(entry, url);
+  }
+
+  /** Every holder's grant reaches `url`; a guest with no origin bound never refuses. */
+  private withinHolderGrants(entry: SessionEntry, url: string): boolean {
     for (const hold of entry.guests.values()) {
       if (hold.admitsTopLevel !== undefined && !hold.admitsTopLevel(url)) return false;
     }
@@ -974,6 +1005,9 @@ export class BrowserSessionService {
   private takeOverEntry(entry: SessionEntry): void {
     if (!this.isCurrent(entry) || entry.driving.control.kind === "operator-held") return;
     entry.driving = reducePageDriving(entry.driving, { kind: "take-over", at: this.now() });
+    // A seat's step not yet started: ask the view to drop it. admitsTopLevel
+    // refuses it should it start anyway.
+    if (entry.stepPending !== undefined && entry.stepOwner !== entry.owner) entry.view.stopLoading?.();
     const operation = entry.activeOperation;
     if (operation !== undefined && operation.owner !== entry.owner) {
       this.failGuestOperation(
@@ -1004,7 +1038,13 @@ export class BrowserSessionService {
     const entry = this.entryForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
     if (entry.driving.control.kind === "operator-held") {
+      // A page no seat may act on cannot be handed back; once shared it would
+      // refuse even the operator's own reload.
       entry.driving = reducePageDriving(entry.driving, { kind: "release", at: this.now() });
+      if (!this.withinHolderGrants(entry, entry.currentUrl ?? entry.url)) {
+        entry.driving = reducePageDriving(entry.driving, { kind: "take-over", at: this.now() });
+        return err("invalid", "the page is outside a seat's grant; go back within it to hand it back");
+      }
       this.emit(entry);
     }
     return { ok: true, data: this.info(entry) };
@@ -1314,6 +1354,7 @@ export class BrowserSessionService {
     if (entry.stepPending === undefined) return;
     clearTimeout(entry.stepPending);
     entry.stepPending = undefined;
+    entry.stepOwner = undefined;
   }
 
   private titleChanged(entry: SessionEntry, sessionId: string, title: string): void {
@@ -1799,6 +1840,8 @@ export class BrowserSessionService {
       driving: initialPageDriving,
       navigationInFlight: undefined,
       stepPending: undefined,
+      stepOwner: undefined,
+      touchedGeneration: undefined,
       activeOperation: undefined,
       lastActiveAt: this.now(),
       view: undefined as unknown as BrowserViewHandle,
@@ -1821,7 +1864,7 @@ export class BrowserSessionService {
             this.finishGeneration(entry, sessionId, { type: "load_fail", message }),
           onNavigationUrl: (sessionId, url) => this.updateGenerationUrl(entry, sessionId, url),
           onTitle: (sessionId, title) => this.titleChanged(entry, sessionId, title),
-          admitsTopLevel: (url) => this.admitsTopLevel(entry, url),
+          admitsTopLevel: (url, byPage) => this.admitsTopLevel(entry, url, byPage),
           onOperatorInput: () => this.takeOverEntry(entry),
           onUnexpectedTermination: () => this.viewTerminatedUnexpectedly(entry),
         },
@@ -1924,7 +1967,7 @@ export class BrowserSessionService {
     }
     // The operator going where a seat's grant does not reach takes the page
     // over first, so no seat is carried off its grant.
-    if (owner === entry.owner && !this.admitsTopLevel(entry, url)) this.takeOverEntry(entry);
+    if (owner === entry.owner && !this.withinHolderGrants(entry, url)) this.takeOverEntry(entry);
     entry.lastActiveAt = this.now();
     let sameDocument = false;
     try {
@@ -2013,9 +2056,15 @@ export class BrowserSessionService {
     if (entry.activeOperation !== undefined) {
       return err("invalid", "the page is busy with another operation");
     }
-    // Back and forward go where the seats' grants may not reach; the operator
-    // stepping there takes the page over first. A reload stays put.
-    if (owner === entry.owner && step !== "reload") this.takeOverEntry(entry);
+    // Back and forward go where the seats' grants may not reach, and a reload
+    // of a page outside them would be refused: the operator doing either
+    // takes the page over first.
+    if (
+      owner === entry.owner &&
+      (step !== "reload" || !this.withinHolderGrants(entry, entry.currentUrl ?? entry.url))
+    ) {
+      this.takeOverEntry(entry);
+    }
     try {
       if (step !== "reload") {
         const history = view.history();
@@ -2025,8 +2074,10 @@ export class BrowserSessionService {
       }
       entry.lastActiveAt = this.now();
       view.traverse(step);
+      entry.stepOwner = owner;
       entry.stepPending = setTimeout(() => {
         entry.stepPending = undefined;
+        entry.stepOwner = undefined;
       }, BROWSER_STEP_START_MS);
     } catch (error) {
       return err("failed", error instanceof Error ? error.message : String(error));
@@ -2322,7 +2373,10 @@ export class BrowserSessionService {
       kind: "eval",
       timeoutMs: BROWSER_EVAL_TIMEOUT_MS,
       ...(signal !== undefined ? { signal } : {}),
-      run: () => entry.view.executeJavaScript!(code),
+      run: () => {
+        if (owner !== entry.owner) entry.touchedGeneration = entry.sessionId;
+        return entry.view.executeJavaScript!(code);
+      },
     });
     return executed.ok ? decodeEvalEnvelope(executed.data) : executed;
   }
@@ -2549,6 +2603,9 @@ export class BrowserSessionService {
     if (entry === undefined) {
       return Promise.resolve(err("not_found", `no session for ${sessionId}`));
     }
+    // A seat does not watch the operator's own navigation.
+    const held = this.guestRefusal(entry, owner);
+    if (held !== undefined) return Promise.resolve(held);
     if (entry.navigationInFlight !== sessionId) {
       if (entry.machine.state === "failed") {
         return Promise.resolve(err("failed", entry.machine.lastError ?? "navigation failed"));
