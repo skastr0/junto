@@ -6,10 +6,13 @@ Draft for 0.10, written from landed commits and kept current by product-releases
 
 - Plan work on Tasks. A task has a number, a state, an assignee and reviewers,
   and reviewers stamp it. A task can depend on tasks on any board in reach.
-  The operator can stamp too.
+  The operator can stamp too. A task cannot finish until what it depends on
+  is done and its checks are green, and a handoff note and the work it cited
+  travel with it when it is sent on. Comments on a task are threads.
 - Write and keep documents in Artifacts. The Artifacts node replaces the old
   library, with a document editor, a sheet editor, a pad editor, history and a
-  comments rail. Each edit is versioned.
+  comments rail. Each edit is versioned, and comments are threads that take
+  mentions.
 - Run work on a schedule with Automations. Set a schedule, a poll, a change or
   a seat's state as the trigger, edit it in the Automations node, and read
   every firing in its history. Only the operator and overseers write
@@ -20,8 +23,8 @@ Draft for 0.10, written from landed commits and kept current by product-releases
   it.
 - Attach a task or an artifact to a signal. It shows in the feed as a chip
   that opens it.
-- Reply on a task comment as a thread. A reply posts to its subject, and the
-  notice names that subject.
+- Reply to a thread and the reply posts to its subject. The notice names that
+  subject.
 - Use the resource nodes within a seat's reach without drawing an edge to
   them. Seats still connect to seats by wire.
 - Open a copy of a canvas with every resource kept as its place and label.
@@ -36,6 +39,12 @@ Draft for 0.10, written from landed commits and kept current by product-releases
 - Upgrade a canvas with tasks without losing any. Open tasks whose task board
   no longer exists are canceled but stay readable with their history, and
   tasks sent on fold into their heads. Wires, seats and regions are unchanged.
+- Start agent seats in a working folder. Junto refuses to start an agent seat
+  in the home folder, from Add item, the CLI or a remote machine, because the
+  harness would meet its trust prompt for the whole account. Terminal seats may
+  still open there. No existing seat on the live canvas used home.
+- Upgrade a canvas that used old published artifacts. They are dropped, and
+  Artifacts replaces them.
 - Remove pinning. The pinned dock and every pin control are gone.
 - Remove the Requests node and the bulletin board. Escalate from a seat with
   `junto escalate` as before.
