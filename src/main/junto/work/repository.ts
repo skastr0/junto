@@ -8,10 +8,10 @@ import {
   ExchangeFact,
   authorOf,
   compareSequence,
+  editorTakesFromNoPeer,
   entitledTo,
   peerMayPassOn,
   writtenByItsAuthor,
-  writtenByTheOperator,
   type CanvasPlacement,
   type RowsFrame,
 } from "@shared/work-exchange";
@@ -8274,13 +8274,14 @@ export const WorkRepositoryLive = Layer.effect(
               if (workRecordContentSha256(semantic) !== fact.contentSha256) {
                 return yield* Effect.fail(refuseExchange("a row does not match its hash"));
               }
-              // The machine that edits the canvas judges an author against
-              // where its seat was at the count the row states. Any other
-              // machine takes the editing machine's rows as already judged,
-              // and judges a writer's own rows against the copy it holds.
+              // The machine that edits the canvas judges a seat against where
+              // it was at the count the row states, and takes the operator's
+              // and an automation's rows from no peer: only it writes those.
+              // Any other machine takes the editing machine's rows as already
+              // judged, and judges a writer's own rows against the copy it holds.
               const authored =
                 placement.editor === self
-                  ? !writtenByTheOperator(fact) && (yield* exchangeAuthorWasThere(writer, fact))
+                  ? !editorTakesFromNoPeer(fact) && (yield* exchangeAuthorWasThere(writer, fact))
                   : peer === placement.editor || writtenByItsAuthor(fact, placement);
               if (!authored) {
                 return yield* Effect.fail(refuseExchange("a row was not written where its author lives"));

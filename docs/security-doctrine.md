@@ -258,9 +258,12 @@ work kinds through the link.
 Before registering a writer, materializing a row or advancing a cursor, the
 receiver verifies the peer's authority for that exact canvas, the row's writer,
 author and subject, and the recipient's entitlement. A machine writes for its
-own seats. Operator mail and signal answers or dismissals come from the
-canvas's editing machine. A receipt cannot claim delivery to another machine's
-seat. Rejection leaves rows and cursor unchanged.
+own seats. Operator mail, an automation's mail and signal answers or
+dismissals come from the canvas's editing machine, where automations run; the
+editing machine takes them from no peer. A mail author is one of a closed set
+of kinds (seat, operator, automation), each admitted from one machine; an
+identity on a node that is not its own is no author. A receipt cannot claim
+delivery to another machine's seat. Rejection leaves rows and cursor unchanged.
 
 A machine may relay other writers' rows only for canvases it keeps in full.
 Coverage and cursor advancement are scoped to the canvas and writer; progress

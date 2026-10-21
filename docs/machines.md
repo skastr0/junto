@@ -74,7 +74,8 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    transfer of authority, no conflict handling. Applying a row twice changes
    nothing. A machine writes only for its own seats: mail from a seat, and a
    receipt or signal for a seat, are valid only from the machine that seat is
-   on; an answer to a signal only from the machine that edits the canvas. A
+   on; mail from the operator or an automation, and an answer to a signal,
+   only from the machine that edits the canvas. A
    row that breaks this, or that arrives twice with different content, closes
    the link. Only mail, receipts, signals and session facts are exchanged;
    the exchange has its own closed list and admits nothing else. The editing

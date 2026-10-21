@@ -2294,7 +2294,7 @@ const dispatchOp = (
       // sender wrote: the repository stamps it from sentBy on every mailbox
       // row (admitMailboxMessage), and the exchange takes a row authored as
       // the operator only from the machine that edits the canvas
-      // (writtenByItsAuthor, writtenByTheOperator).
+      // (writtenByItsAuthor, editorTakesFromNoPeer).
       if (toOperator && !(parent.metadata?.fromSeat === OPERATOR_SEAT_ID && parent.metadata?.senderName === "operator")) {
         return yield* Effect.fail({
           type: "ScopeError" as const,

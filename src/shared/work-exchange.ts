@@ -23,13 +23,12 @@ import {
 import { CanvasCopy } from "./canvas-copy";
 import { commandRowEntitled } from "./command-row";
 import { InstallationId } from "./installation-id";
+import { mailAuthorOf, type MailAuthor } from "./mail-author";
 import { Seq } from "./model";
-import { WorkCanvasName, OPERATOR_SEAT_ID, operatorActorRef } from "./work-reference";
+import { WorkCanvasName } from "./work-reference";
 import { WorkFact } from "./work-protocol";
 
 export const EXCHANGE_MAX_FACTS_PER_FRAME = 64;
-
-const OPERATOR_NODE_ID = operatorActorRef("").nodeId;
 
 /** A sequence a machine is caught up through; zero is "nothing yet". */
 export const ExchangeThrough = Schema.String.pipe(
@@ -238,37 +237,68 @@ export const peerMayPassOn = (
   placement: CanvasPlacement,
 ): boolean => placement.holds(peer) && (peer === writer || peer === placement.editor);
 
-/** Is the author of this row the operator, exactly: the operator's node and the operator's identity, on mail. */
-export const writtenByTheOperator = (fact: ExchangeFact): boolean => {
-  const author = authorOf(fact);
-  return (
-    fact.body.operation === "message.append" &&
-    author.seatId === OPERATOR_SEAT_ID &&
-    author.nodeId === OPERATOR_NODE_ID
-  );
+/**
+ * Who wrote this row, by kind. Only mail has an operator or an automation
+ * author; a receipt under either identity is malformed.
+ */
+export const rowAuthorOf = (fact: ExchangeFact): MailAuthor => {
+  const author = mailAuthorOf(authorOf(fact));
+  return author.kind === "seat" || fact.body.operation === "message.append" ? author : { kind: "malformed" };
 };
 
 /**
- * Was this row written where its author lives? Mail and receipts of a seat
- * come only from that seat's machine and carry that seat's own identity; the
- * operator's mail comes only from the machine that edits the canvas.
+ * The one machine this author writes on, or none. A seat writes on the
+ * machine it lives on, under that seat's own identity. The operator and an
+ * automation write only on the machine that edits the canvas: automations run
+ * there and nowhere else.
  */
+export const authorWritesOn = (author: MailAuthor, placement: CanvasPlacement): InstallationId | undefined => {
+  switch (author.kind) {
+    case "seat": {
+      const seat = placement.seatOf(author.nodeId);
+      return seat !== undefined && seat.seatId === author.seatId ? seat.machine : undefined;
+    }
+    case "operator":
+    case "automation":
+      return placement.editor;
+    case "malformed":
+      return undefined;
+    default: {
+      const unreachable: never = author;
+      return unreachable;
+    }
+  }
+};
+
+/** Was this row written on the machine its author writes on? */
 export const writtenByItsAuthor = (
   fact: ExchangeFact,
   placement: CanvasPlacement,
 ): boolean => {
-  const writer = fact.id.route.eventHome;
-  const author = authorOf(fact);
-  if (author.seatId === OPERATOR_SEAT_ID || author.nodeId === OPERATOR_NODE_ID) {
-    return (
-      fact.body.operation === "message.append" &&
-      author.seatId === OPERATOR_SEAT_ID &&
-      author.nodeId === OPERATOR_NODE_ID &&
-      writer === placement.editor
-    );
+  const machine = authorWritesOn(rowAuthorOf(fact), placement);
+  return machine !== undefined && machine === fact.id.route.eventHome;
+};
+
+/**
+ * Does the machine that edits the canvas refuse this row from every peer? It
+ * does for an author only it writes for (the operator, an automation) and for
+ * one no machine writes for. A seat's row it judges against where that seat
+ * was at the canvas count the row states.
+ */
+export const editorTakesFromNoPeer = (fact: ExchangeFact): boolean => {
+  const author = rowAuthorOf(fact);
+  switch (author.kind) {
+    case "seat":
+      return false;
+    case "operator":
+    case "automation":
+    case "malformed":
+      return true;
+    default: {
+      const unreachable: never = author;
+      return unreachable;
+    }
   }
-  const seat = placement.seatOf(author.nodeId);
-  return seat !== undefined && seat.machine === writer && seat.seatId === author.seatId;
 };
 
 /**
