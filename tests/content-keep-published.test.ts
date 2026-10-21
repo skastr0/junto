@@ -47,3 +47,33 @@ it("keeps a published object under its owner, and only then holds it verified", 
   expect((await runtime.runPromise(store.listRefs(ref.sha256))).map((row) => row.owner)).toEqual([owner]);
   await runtime.runPromise(Effect.void);
 });
+
+it("keeps one body under two artifacts: one let go, the other still reads it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "junto-keep-"));
+  roots.push(root);
+  const runtime = ManagedRuntime.make(
+    Layer.provideMerge(
+      makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
+      Layer.mergeAll(makeStateEngineLive(join(root, "state", "junto.db")), makeInstallOpsLive(join(root, "state", "install-ops.db"))),
+    ),
+  );
+  runtimes.push(runtime);
+  const store = await runtime.runPromise(ContentService);
+  const bytes = Buffer.from("the same body\n".repeat(4096));
+  const ref = { sha256: createHash("sha256").update(bytes).digest("hex"), byteLength: bytes.length, mediaType: "text/markdown" } as ContentRef;
+  await receiveContentTransfer({ root: store.root, ref, source: bytes, expectedOffset: 0 });
+  const first = { kind: "artifact" as const, canvasName: "factory", nodeId: "artifacts-1", recordId: "artifact-1@1" };
+  const second = { kind: "artifact" as const, canvasName: "factory", nodeId: "artifacts-2", recordId: "artifact-2@1" };
+  await runtime.runPromise(store.keepPublished({ ref, owner: first }));
+  await runtime.runPromise(store.keepPublished({ ref, owner: second }));
+  const sweep = () => runtime.runPromise(store.collectGarbage({ dryRun: false, orphanGraceMs: 0, partialGraceMs: 0 }));
+
+  await runtime.runPromise(store.releaseOwner(first));
+  await sweep();
+  expect((await runtime.runPromise(store.availability(ref))).state).toBe("verified");
+
+  // The sweep does drop it once no artifact names it.
+  await runtime.runPromise(store.releaseOwner(second));
+  await sweep();
+  expect((await runtime.runPromise(store.availability(ref))).state).not.toBe("verified");
+});

@@ -15,7 +15,7 @@ import { ContentPullRefused, CONTENT_PULL_PIECE_BYTES, operatorReachesResource, 
 import { InstallationId } from "../src/shared/installation-id";
 import type { NodeId } from "../src/shared/model/base";
 import type { ContentRef } from "../src/shared/wire/content-ref";
-import { makeContentChannel, pullContent, type PulledOwner } from "../src/main/junto/content/pull";
+import { makeContentChannel, makeContentPulls, pullContent, type PulledOwner } from "../src/main/junto/content/pull";
 import { contentObjectPath, contentPartialPath } from "../src/main/junto/content/paths";
 import { ingestContentBytes } from "../src/main/junto/content/store";
 import { contentTransferPartialId, statContentForTransfer } from "../src/main/junto/content/transfer-local";
@@ -127,6 +127,19 @@ it("takes nothing that does not match its digest", async () => {
   expect(existsSync(contentObjectPath(miniRoot, ref.sha256))).toBe(false);
   expect(existsSync(contentPartialPath(miniRoot, contentTransferPartialId(ref.sha256)))).toBe(false);
   expect(kept).toEqual([]);
+});
+
+it("joins two pulls of one body into one transfer, and keeps it under each owner", async () => {
+  const { ref, served, kept, deps } = await setUp();
+  const pulls = makeContentPulls();
+  const joined = { ...deps, once: <E>(object: ContentRef, transfer: Effect.Effect<void, E>) => Effect.flatMap(Effect.promise(() => pulls.pull(object, () => Effect.runPromiseExit(transfer))), (exit) => exit) };
+  const other: PulledOwner = { ...owner, nodeId: "artifacts-2", recordId: "artifact-2@1" };
+  await Promise.all([
+    Effect.runPromise(pullContent(joined, { ref, owner, reached })),
+    Effect.runPromise(pullContent(joined, { ref, owner: other, reached: operatorReachesResource("factory", "artifacts-2" as NodeId) })),
+  ]);
+  expect(served).toEqual([0, CONTENT_PULL_PIECE_BYTES, 2 * CONTENT_PULL_PIECE_BYTES]);
+  expect(kept.map((entry) => entry.owner).sort((a, b) => a.nodeId.localeCompare(b.nodeId))).toEqual([owner, other]);
 });
 
 it("keeps a body only under the resource that was reached", async () => {

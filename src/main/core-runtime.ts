@@ -183,9 +183,9 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
       root: store.root,
       ask: (request) => links.request(editor.machineName, "content", request),
       keep: (kept, keptOwner) => store.keepPublished({ ref: kept, owner: keptOwner }),
+      once: (object, transfer) => Effect.flatMap(Effect.promise(() => pulls.pull(object, () => Effect.runPromiseExit(transfer))), (exit) => exit),
     }, { ref, owner, reached });
-    const exit = yield* Effect.promise(() => pulls.pull(ref, () => Effect.runPromiseExit(pull)));
-    return yield* exit;
+    return yield* pull;
   });
   const stopFollowing = yield* followLocalCommits(exchange);
   yield* Effect.addFinalizer(() => Effect.sync(() => {
