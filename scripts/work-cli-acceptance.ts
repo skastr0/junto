@@ -21,7 +21,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { createConnection } from "node:net";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import {
@@ -335,8 +335,31 @@ const seed = () => Schema.decodeUnknownSync(Command)({
   wires: [],
 });
 
+/** The homes a CLI the net spawns reads; each must lie inside the run's sandbox. */
+export const SANDBOXED_HOMES = ["JUNTO_WORK_HOME", "JUNTO_BROWSER_HOME"] as const;
+
+/**
+ * The env a CLI the net spawns runs with: the browser home in the sandbox
+ * unless one inside it is named, and every home checked inside it. A home
+ * outside the sandbox, the operator's real app at ~/ among them, is refused
+ * before anything is spawned.
+ */
+export const sandboxedCliEnv = (sandbox: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
+  const held: NodeJS.ProcessEnv = { ...env, JUNTO_BROWSER_HOME: env.JUNTO_BROWSER_HOME ?? join(sandbox, "browser-home") };
+  const inside = resolve(sandbox) + sep;
+  for (const key of SANDBOXED_HOMES) {
+    const home = held[key];
+    if (home === undefined || !resolve(home).startsWith(inside)) {
+      throw new Error(`work CLI acceptance refuses ${key}=${String(home)}: it is outside the sandbox ${sandbox}`);
+    }
+  }
+  return held;
+};
+
+/** The one way the net spawns the CLI: every call's env through sandboxedCliEnv. */
 const runCli = (
   processPlane: AppProcessPlane,
+  sandbox: string,
   args: string[],
   env: NodeJS.ProcessEnv,
   cwd: string,
@@ -344,7 +367,7 @@ const runCli = (
   runBoundedWorkCliCommand(processPlane, {
     command: CLI,
     args,
-    env,
+    env: sandboxedCliEnv(sandbox, env),
     cwd,
   });
 
@@ -535,6 +558,8 @@ export const runWorkCliAcceptance = async () => {
       // dist/junto reads these at run time: the 0.10 verbs the net drives.
       ...CLI_FEATURES,
       JUNTO_WORK_HOME: workHome,
+      // Over whatever the shell had: no call reaches the operator's app.
+      JUNTO_BROWSER_HOME: join(root, "browser-home"),
       [WORK_TOKEN_ENV]: mint.credential,
     };
 
@@ -551,6 +576,7 @@ export const runWorkCliAcceptance = async () => {
     const cliAs = (args: ReadonlyArray<string>, as?: AcceptanceSeat, extra?: NodeJS.ProcessEnv) =>
       runCli(
         processPlane,
+        root,
         [...args],
         { ...env, ...extra, ...(as === undefined ? {} : { [WORK_TOKEN_ENV]: seatTokens.get(as.agentKey) }) },
         outside,

@@ -8,8 +8,11 @@ import {
   type AppProcessLease,
   type AppProcessPlane,
 } from "../src/main/junto/app-process-plane";
+import { readdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import {
   runBoundedWorkCliCommand,
+  sandboxedCliEnv,
   WorkCliCommandFailure,
 } from "../scripts/work-cli-acceptance";
 
@@ -258,5 +261,48 @@ describe("work CLI acceptance process safety", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  describe("the sandbox every spawned CLI runs in", () => {
+    const sandbox = join(tmpdir(), "junto-work-acc-lock");
+    const work = join(sandbox, "work");
+
+    it("puts the browser home in the sandbox when none is named, and keeps one inside it", () => {
+      expect(sandboxedCliEnv(sandbox, { JUNTO_WORK_HOME: work }).JUNTO_BROWSER_HOME).toBe(join(sandbox, "browser-home"));
+      expect(sandboxedCliEnv(sandbox, { JUNTO_WORK_HOME: work, JUNTO_BROWSER_HOME: join(sandbox, "outside", "b") }).JUNTO_BROWSER_HOME).toBe(join(sandbox, "outside", "b"));
+    });
+
+    it("refuses a home outside the sandbox: the operator's, an escape, a sibling, or none", () => {
+      for (const home of [join(homedir(), ".junto"), join(sandbox, "..", "x"), `${sandbox}-sibling`]) {
+        expect(() => sandboxedCliEnv(sandbox, { JUNTO_WORK_HOME: work, JUNTO_BROWSER_HOME: home })).toThrow(/outside the sandbox/);
+        expect(() => sandboxedCliEnv(sandbox, { JUNTO_WORK_HOME: home })).toThrow(/outside the sandbox/);
+      }
+      expect(() => sandboxedCliEnv(sandbox, {})).toThrow(/JUNTO_WORK_HOME/);
+    });
+
+    it("is the env a spawned CLI reads", async () => {
+      const result = await runBoundedWorkCliCommand(makePlane(), {
+        command: process.execPath,
+        args: ["-e", "process.stdout.write(process.env.JUNTO_BROWSER_HOME ?? 'unset')"],
+        cwd: process.cwd(),
+        env: sandboxedCliEnv(sandbox, { ...process.env, JUNTO_BROWSER_HOME: undefined, JUNTO_WORK_HOME: work }),
+      });
+      expect(result.stdout).toBe(join(sandbox, "browser-home"));
+    });
+
+    it("is the only way the net spawns one", () => {
+      const source = readFileSync(join(__dirname, "..", "scripts", "work-cli-acceptance.ts"), "utf8");
+      // One call, inside runCli, which wraps its env.
+      expect(source.match(/runBoundedWorkCliCommand\(/g)?.length).toBe(1);
+      expect(source).toMatch(/runBoundedWorkCliCommand\(processPlane, \{\s*command: CLI,\s*args,\s*env: sandboxedCliEnv\(sandbox, env\),/);
+      expect(source.match(/\brunCli\(/g)?.length).toBe(1);
+      // Areas spawn nothing themselves: they reach the CLI only through the context.
+      const dir = join(__dirname, "..", "scripts", "work-cli-acceptance");
+      const areas = readdirSync(dir).filter((file) => file.endsWith(".ts"));
+      expect(areas.length).toBeGreaterThan(0);
+      for (const area of areas) {
+        expect({ area, spawns: /child_process|spawn\(|execFile|runBoundedWorkCliCommand/.test(readFileSync(join(dir, area), "utf8")) }).toEqual({ area, spawns: false });
+      }
+    });
   });
 });
