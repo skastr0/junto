@@ -7,7 +7,7 @@ import {
 import { executionContextForCanvas } from "./helpers/actor-ref-fixtures";
 import { canvasOf, note, page, region, seat } from "./support/model-nodes";
 import { THIS_MACHINE } from "./support/machines";
-import { heldTask } from "./support/seat-tasks";
+import { heldTask, taskView } from "./support/seat-tasks";
 
 type DigestFixtureViews = Omit<DigestLiveViews, "resolveActorRef" | "itemsOf" | "heldBy">;
 
@@ -171,7 +171,7 @@ it("reads explicit Work waits and authored verbs from model rows", async () => {
   const next = Schema.decodeUnknownSync(Node)({ kind: "task", id: "next", name: "Next", x: 400, y: 0, width: 100, height: 50, z: 2 });
   const id = asWireId("path");
   const canvas = { name: asCanvasName("factory"), seq: 7, nodes: new Map([worker, queue, next].map((node) => [node.id, node])), wires: new Map([[id, { id, from: queue.id, to: next.id, verb: "flows" as const }]]) };
-  const live: DigestLiveViews = { resolveActorRef: (ref) => ref.nodeId === worker.id ? { canvasName: "factory", nodeId: worker.id, seatId } : undefined, itemsOf: (nodeId) => nodeId === queue.id ? [{ id: "waiting", state: "input-required", claimedBy: seatId, history: [] }] : [], heldBy: { [worker.id]: heldTask(queue.id, { title: "waiting" }) } };
+  const live: DigestLiveViews = { resolveActorRef: (ref) => ref.nodeId === worker.id ? { canvasName: "factory", nodeId: worker.id, seatId } : undefined, itemsOf: (nodeId) => nodeId === queue.id ? [taskView(queue.id, { title: "waiting", current: { state: "input-required" } })] : [], heldBy: { [worker.id]: heldTask(queue.id, { title: "waiting" }) } };
   const text = digestCanvasWithActorRefs(canvas, live);
   expect(text).toContain("edges :: 1");
   expect(text).toContain("Queue :: task");
@@ -181,4 +181,31 @@ it("reads explicit Work waits and authored verbs from model rows", async () => {
   const idle = digestCanvasWithActorRefs(canvas, { ...live, itemsOf: () => [], heldBy: {} });
   expect(idle).toContain("Queue --flows--> Next");
   expect(idle).not.toContain("blockers");
+});
+
+it("counts settled tasks and lists each task's stamps against its epoch", async () => {
+  const { Schema } = await import("effect");
+  const { Node, asCanvasName } = await import("../src/shared/model");
+  const { seatNodeId } = await import("../src/shared/task-model");
+  const reviewer = Schema.decodeUnknownSync(Node)({ kind: "agent", id: "rev", label: "Rev", agentKey: "local:rev", host: THIS_MACHINE, bindingId: "rev", harness: "codex", overseer: false, x: 0, y: 0, width: 100, height: 50, z: 0 });
+  const queue = Schema.decodeUnknownSync(Node)({ kind: "task", id: "queue", name: "Queue", x: 200, y: 0, width: 100, height: 50, z: 1 });
+  const canvas = { name: asCanvasName("factory"), seq: 1, nodes: new Map([reviewer, queue].map((node) => [node.id, node])), wires: new Map() };
+  const rev = { kind: "seat" as const, seat: seatNodeId(reviewer.id) };
+  const tasks = [
+    taskView(queue.id, { title: "ship it", current: { state: "in-review", epoch: 1, stampPolicy: { required: 1 }, reviewers: [rev], stamps: [
+      { reviewer: rev, verdict: "changes", epoch: 0, text: "tests", at: 1 },
+      { reviewer: rev, verdict: "approve", epoch: 1, subjectHash: "abcdef0123456789", at: 2 },
+    ] } }),
+    taskView(queue.id, { title: "done one", current: { state: "done" } }),
+  ];
+  const text = digestCanvasWithActorRefs(canvas, { resolveActorRef: () => undefined, itemsOf: (id) => id === queue.id ? tasks : [], heldBy: {} });
+  expect(text).toContain("  tasks: 1/2 settled");
+  expect(text).toContain([
+    "reviews",
+    "Queue",
+    "ship it :: epoch 1 :: assignee - :: stamps 1/1 :: review -",
+    "  #1 changes Rev epoch 0 (old epoch) - tests",
+    "  #2 approve Rev epoch 1 subject abcdef012345 (current)",
+  ].join("\n"));
+  expect(text).not.toContain("done one ::");
 });

@@ -2,7 +2,6 @@ import { observable, observe } from "@legendapp/state";
 import { describe, expect, it, vi } from "vitest";
 import { Schema } from "effect";
 import { Node, asCanvasName, type Changed, type Opened, type Wire } from "../src/shared/model";
-import { Task } from "../src/shared/work-model";
 import type { RegionRollup } from "../src/shared/region-rollup";
 import { deriveRegionRollups } from "../src/shared/region-rollup";
 import type { WorkSurfaceActivity } from "../src/shared/terminal";
@@ -35,12 +34,11 @@ const harness = async (nodes: Node[], wires: Wire[] = []) => {
   const close = model.open(name);
   await model.ready(name);
   const refs = observable([actorRefFixture("seat", name)]);
-  const items = observable<Record<string, Task[]>>({});
   const surfaces = observable<Record<string, WorkSurfaceActivity>>({});
   const held = observable<Record<string, SeatTask | undefined>>({});
   const derive = vi.fn(deriveRegionRollups);
   const store = createRegionRollupStore({
-    model, actorRefs: () => refs.get(), items: (_canvas, id) => items[id].get() ?? [],
+    model, actorRefs: () => refs.get(),
     heldTask: (seatNodeId) => held[seatNodeId].get(),
     surface: (binding) => surfaces[binding].get(),
   }, derive);
@@ -49,7 +47,7 @@ const harness = async (nodes: Node[], wires: Wire[] = []) => {
   const byId = (id: string) => state.byRegionId[id].peek() as RegionRollup;
   const computed = () => derive.mock.calls.map(([input]) => [...input.canvas.nodes.values()].find((n) => n.kind === "region")?.id);
   const change = (rows: Partial<Changed>) => notify?.({ canvas: name, seq: ++seq, nodes: [], wires: [], removedNodes: [], removedWires: [], ...rows } as Changed);
-  return { model, state, byId, items, refs, surfaces, held, derive, computed, change, dispose: () => { release(); close(); } };
+  return { model, state, byId, refs, surfaces, held, derive, computed, change, dispose: () => { release(); close(); } };
 };
 
 describe("local per-region rollups", () => {
@@ -93,9 +91,6 @@ describe("local per-region rollups", () => {
       h.derive.mockClear();
       h.change({ wires: [wire("w", "seat", "other-tasks")] });
       expect(h.computed().sort()).toEqual(["inner", "outer"]);
-      h.derive.mockClear();
-      h.items.tasks.set([]);
-      expect(h.derive).not.toHaveBeenCalled();
       h.change({ removedNodes: ["inner" as Node["id"]] });
       expect(h.state.regionIds.peek()).toEqual(["outer"]);
       expect(h.state.byRegionId.inner.peek()).toBeUndefined();

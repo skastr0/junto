@@ -7,11 +7,27 @@
  */
 import { batch, observable, observe } from "@legendapp/state";
 import { buildSeatTaskIndex, type SeatTask } from "@shared/seat-task-index";
+import type { TaskView } from "@shared/task-model";
 import { getJuntoApi } from "./junto-api";
 import { state$ } from "./state";
 import { installIpcTasksSource, tasksSource } from "./tasks-source";
 
 export const seatTasks$ = observable<{ bySeat: Record<string, SeatTask | undefined> }>({ bySeat: {} });
+
+/**
+ * Every task of the open canvas but the archived, by the task node it sits
+ * on, from the same read: what the operator feed's needs count.
+ */
+export const canvasTasks$ = observable<{ byNode: Record<string, ReadonlyArray<TaskView>> }>({ byNode: {} });
+
+const publishCanvasTasks = (views: ReadonlyArray<TaskView>): void => {
+  const byNode: Record<string, TaskView[]> = {};
+  for (const view of views) {
+    if (view.current.state === "archived") continue;
+    (byNode[view.current.node] ??= []).push(view);
+  }
+  canvasTasks$.byNode.set(byNode);
+};
 
 export { buildSeatTaskIndex, type SeatTask };
 
@@ -47,12 +63,18 @@ let generation = 0;
 export const refreshSeatTasks = async (canvasName: string): Promise<void> => {
   const mine = ++generation;
   if (canvasName === "") {
-    publishSeatTaskIndex({});
+    batch(() => {
+      publishSeatTaskIndex({});
+      publishCanvasTasks([]);
+    });
     return;
   }
   const views = await tasksSource().all(canvasName);
   if (mine !== generation) return;
-  publishSeatTaskIndex(buildSeatTaskIndex(views));
+  batch(() => {
+    publishSeatTaskIndex(buildSeatTaskIndex(views));
+    publishCanvasTasks(views);
+  });
 };
 
 let stop: (() => void) | undefined;

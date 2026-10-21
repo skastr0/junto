@@ -42,16 +42,6 @@ export const useSinkAttention = (canvasName: string, nodeId: string, enabled = t
   return enabled && canvasName ? { ...glance, items } : { ...fallback, items: emptyTasks };
 };
 
-/** The execution graph takes compact complete claim rows, never content pages. */
-export const useCanvasWorkItems = (canvasName: string) => {
-  const state = workAttentionStore.state(canvasName);
-  useEffect(() => {
-    if (canvasName) return workAttentionStore.retain(canvasName);
-  }, [canvasName]);
-  const items = use$(state.itemsByNodeId);
-  return useMemo(() => (nodeId: string) => items[nodeId] ?? emptyTasks, [items]);
-};
-
 
 /** Batched consumers observe compact counts and claims, never content pages. */
 export const useCanvasWorkAttention = (canvasName: string) => {

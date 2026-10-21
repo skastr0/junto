@@ -26,3 +26,25 @@ export const readSeatTaskIndex = (
     const { tasks: views } = yield* tasks.list(canvas.name, { nodeIds, states: OPEN_TASK_STATES, limit: OPEN_TASK_LIMIT });
     return buildSeatTaskIndex([...views].sort(byCreated));
   });
+
+/** The most tasks a canvas-wide read takes. */
+const CANVAS_TASK_LIMIT = 10_000;
+
+/**
+ * Every task of a canvas but the archived, by the task node each sits on now,
+ * oldest first: what the digest and the companion's needs read.
+ */
+export const readTasksByNode = (
+  tasks: Pick<Context.Service.Shape<typeof TaskRepository>, "list">,
+  canvas: Canvas,
+): Effect.Effect<ReadonlyMap<string, ReadonlyArray<TaskView>>, TaskPersistenceError> =>
+  Effect.gen(function* () {
+    const nodeIds = [...canvas.nodes.values()].filter((node) => node.kind === "task").map((node) => taskNodeId(node.id));
+    const byNode = new Map<string, TaskView[]>();
+    if (nodeIds.length === 0) return byNode;
+    const { tasks: views } = yield* tasks.list(canvas.name, { nodeIds, limit: CANVAS_TASK_LIMIT });
+    for (const view of [...views].sort(byCreated)) {
+      byNode.set(view.current.node, [...(byNode.get(view.current.node) ?? []), view]);
+    }
+    return byNode;
+  });

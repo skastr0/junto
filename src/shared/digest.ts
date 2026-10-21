@@ -14,8 +14,9 @@ import {
 import type { OccupancySpectrumName } from "./occupancy";
 import { resolveSpec, roleOf, type FactoryRole } from "./physics";
 import { deriveRegionRollups } from "./region-rollup";
-import { readReviewVerdict, type ReviewVerdict } from "./crew";
-import { rulesInForce, taskEpoch } from "./rules";
+import { rulesInForce } from "./rules";
+import { isClosedTaskState } from "./task-model";
+import { currentApprovals } from "./task-machine";
 
 // Deterministic text projection of spatial kinds and exact Work rows.
 // Model paint order makes repeat reads byte-identical.
@@ -39,7 +40,7 @@ const titleOf = (node: Node): string => node.kind === "region" && !node.label?.t
 
 /** Required actor authority plus optional trust/occupancy views. */
 export type DigestLiveViews = LiveTrustViews & {
-  /** Exact current Work rows supplied separately from the spatial model. */
+  /** The tasks on each task node, from the 0.10 store, supplied apart from the spatial model. */
   readonly itemsOf: WorkItemsOf;
   /** The open task each seat holds: what blocks a seat. */
   readonly heldBy: SeatTaskIndex;
@@ -102,7 +103,6 @@ export const digestCanvas = (
     const rollupLines = ["region rollups"];
     for (const rollup of deriveRegionRollups({
       canvas,
-      itemsOf,
       heldBy: live.heldBy,
       canvasName: name,
       resolveActorRef: live.resolveActorRef,
@@ -202,14 +202,7 @@ export const digestCanvas = (
       // Work rows are supplied separately from spatial kinds.
       if (node.kind === "task") {
         const items = itemsOf(node.id);
-        const open = items.filter(
-          (item) =>
-            item.state !== "completed" &&
-            item.state !== "canceled" &&
-            item.state !== "failed" &&
-            item.state !== "rejected" &&
-            item.state !== "archived",
-        ).length;
+        const open = items.filter((item) => !isClosedTaskState(item.current.state)).length;
         entityLines.push(`  tasks: ${items.length - open}/${items.length} settled`);
       }
       if (node.kind === "artifacts") {
@@ -263,60 +256,34 @@ export const digestCanvas = (
     sections.push(impactLines);
   }
 
-  // reviews — the durable verdict chain a task carries plus whether a
-  // board/task-provenance requires-review rule arms it. Projection, never
-  // judgment: the completion gate stays service-side, so the digest shows
-  // the exact binding (epoch + subject hash prefix) each verdict addresses
-  // and marks entries stale vs the task's CURRENT projected binding. No
-  // timestamps (digest contract); chain order is postedAtMs then id.
+  // reviews: each task's stamps at the node it sits on, and whether a board
+  // requires-review rule arms it there. Projection, never judgment: the
+  // ruler decides. Each stamp shows the epoch it binds to and is marked
+  // current or old epoch against the task's own. No timestamps (digest
+  // contract); stamps keep the order they were given.
   const reviewLines = ["reviews"];
   for (const node of nodes) {
     const items = itemsOf(node.id);
     if (items.length === 0) continue;
+    const armed = rulesInForce(canvas, node.id).some(
+      ({ rule, provenance }) => rule.kind === "requires-review" && provenance.kind !== "region",
+    );
     const boardLines: string[] = [];
     for (const task of items) {
-      const armed = rulesInForce(canvas, node.id, task).some(
-        ({ rule, provenance }) =>
-          rule.kind === "requires-review" && provenance.kind !== "region",
-      );
-      const verdicts = [...(task.verdicts ?? [])]
-        .map(readReviewVerdict)
-        .filter((v): v is ReviewVerdict => v !== undefined)
-        .sort(
-          (a: ReviewVerdict, b: ReviewVerdict) =>
-            a.postedAtMs - b.postedAtMs ||
-            (a.verdictId < b.verdictId ? -1 : a.verdictId > b.verdictId ? 1 : 0),
-        );
-      const currentHash =
-        task.subjectHash !== undefined && task.subjectHash.length > 0
-          ? task.subjectHash
-          : undefined;
-      if (!armed && verdicts.length === 0) continue;
-      const epoch = taskEpoch(task);
-      const taskTitle =
-        task.history[0]?.parts
-          .filter((part) => part.kind === "text")
-          .map((part) => ("text" in part ? part.text : ""))
-          .join(" ")
-          .trim() || task.id;
-      const head = [
-        taskTitle,
+      const { epoch, stamps, stampPolicy, assignee } = task.current;
+      if (!armed && stamps.length === 0 && stampPolicy.required === 0) continue;
+      boardLines.push([
+        task.title,
         `epoch ${epoch}`,
-        `subject ${currentHash !== undefined ? currentHash.slice(0, 12) : "-"}`,
-        `author ${task.claimedBy ?? "-"}`,
+        `assignee ${assignee === undefined ? "-" : titleForId(assignee)}`,
+        `stamps ${currentApprovals(task.current)}/${stampPolicy.required}`,
         armed ? "review required" : "review -",
-      ].join(" :: ");
-      boardLines.push(head);
-      verdicts.forEach((verdict, index) => {
-        const markers = [
-          verdict.epoch === epoch
-            ? verdict.subjectHash === currentHash
-              ? "current"
-              : "stale refs"
-            : "old epoch",
-        ];
+      ].join(" :: "));
+      stamps.forEach((stamp, index) => {
+        const reviewer = stamp.reviewer.kind === "operator" ? "operator" : titleForId(stamp.reviewer.seat);
+        const subject = stamp.subjectHash === undefined ? "" : ` subject ${stamp.subjectHash.slice(0, 12)}`;
         boardLines.push(
-          `  #${index + 1} ${verdict.kind} ${verdict.reviewerSeatId} -> ${verdict.authorSeatId} epoch ${verdict.epoch} subject ${verdict.subjectHash.slice(0, 12)} (${markers[0]})${verdict.findings.length > 0 ? ` - ${verdict.findings.join("; ")}` : ""}`,
+          `  #${index + 1} ${stamp.verdict} ${reviewer} epoch ${stamp.epoch}${subject} (${stamp.epoch === epoch ? "current" : "old epoch"})${stamp.text === undefined ? "" : ` - ${stamp.text}`}`,
         );
       });
     }

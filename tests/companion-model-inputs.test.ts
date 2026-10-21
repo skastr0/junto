@@ -6,9 +6,8 @@ import { feedSeatsFromCanvas, feedRegionForCanvas } from "../src/shared/operator
 import { feedCanvasModelNeeds } from "../src/shared/canvas-needs";
 import { deriveExecutionGraph } from "../src/shared/execution-graph";
 import { mailboxRows } from "../src/renderer/lib/actor-ledger";
-import type { Task } from "../src/shared/work-model";
 import { THIS_MACHINE } from "./support/machines";
-import { heldTask } from "./support/seat-tasks";
+import { heldTask, taskView } from "./support/seat-tasks";
 
 const seatId = Schema.decodeUnknownSync(ActorSeatId)(`seat_${"d".repeat(64)}`);
 const decode = Schema.decodeUnknownSync(Node);
@@ -26,7 +25,7 @@ it("companion seats carry canonical identity, harness and region from model kind
 });
 
 it("companion canvas needs use separately queried Work waits and their real start time", () => {
-  const items: Task[] = [{ id: "waiting", state: "input-required", claimedBy: seatId, stateSince: "2026-10-07T10:00:00.000Z", history: [] }];
+  const items = [taskView(task.id, { title: "waiting", stateSince: Date.parse("2026-10-07T10:00:00.000Z"), current: { state: "input-required" } })];
   const itemsOf = (nodeId: string) => nodeId === task.id ? items : [];
   const graph = deriveExecutionGraph(canvas, {
     canvasName: "factory",

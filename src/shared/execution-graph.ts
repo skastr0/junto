@@ -1,5 +1,4 @@
-import type { Task } from "./work-model";
-import type { TaskId, TaskNodeId } from "./task-model";
+import type { TaskId, TaskNodeId, TaskView } from "./task-model";
 import type { SeatTask } from "./seat-task-index";
 import type { ActorRefResolver } from "./attention";
 import type { Canvas } from "./model/canvas";
@@ -41,7 +40,8 @@ export type ExecutionGraphContext = LiveTrustViews & {
 /** The open task each seat holds, by seat node id. */
 export type SeatTaskIndex = Readonly<Record<string, SeatTask | undefined>>;
 
-export type WorkItemsOf = (nodeId: string) => ReadonlyArray<Task>;
+/** The tasks on a task node, as the 0.10 store reads them. */
+export type WorkItemsOf = (nodeId: string) => ReadonlyArray<TaskView>;
 
 /** Why a seat is blocked: one task it holds is waiting for input. */
 export type BlockedReason = {
@@ -54,13 +54,10 @@ export type BlockedReason = {
   readonly since?: number;
 };
 
-/** The earliest `stateSince` among items, as epoch ms. */
-export const earliestStateSince = (items: ReadonlyArray<Pick<Task, "stateSince">>): number | undefined => {
+/** The earliest `stateSince` among tasks, as epoch ms. */
+export const earliestStateSince = (items: ReadonlyArray<Pick<TaskView, "stateSince">>): number | undefined => {
   let earliest: number | undefined;
-  for (const item of items) {
-    const at = item.stateSince === undefined ? Number.NaN : Date.parse(item.stateSince);
-    if (!Number.isNaN(at) && (earliest === undefined || at < earliest)) earliest = at;
-  }
+  for (const item of items) if (earliest === undefined || item.stateSince < earliest) earliest = item.stateSince;
   return earliest;
 };
 

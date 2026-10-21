@@ -1,6 +1,5 @@
 import { batch, observable, observe } from "@legendapp/state";
 import type { ActorRef } from "@shared/work-protocol";
-import type { Task } from "@shared/work-model";
 import type { Node, Wire } from "@shared/model";
 import { asCanvasName } from "@shared/model";
 import { regionMembers } from "@shared/model/canvas";
@@ -18,7 +17,6 @@ import { keepUnchanged, type createModelStore } from "./model-store";
 export type RegionRollupSources = {
   readonly model: ReturnType<typeof createModelStore>;
   readonly actorRefs: () => ReadonlyArray<ActorRef>;
-  readonly items: (canvas: string, nodeId: string) => ReadonlyArray<Task>;
   /** The open task a seat holds (`seatTasks$`): what blocks it. */
   readonly heldTask: (seatNodeId: string) => SeatTask | undefined;
   readonly surface: (bindingId: string) => WorkSurfaceActivity | undefined;
@@ -106,7 +104,6 @@ export const createRegionRollupStore = (
         canvas: { name: asCanvasName(canvasName), seq: 0, nodes, wires },
         canvasName,
         resolveActorRef: actorRefResolverFromProjection(refs),
-        itemsOf: (id) => sources.items(canvasName, id),
         heldBy,
         terminalStatusByNodeId,
         seatTierByNodeId,

@@ -167,7 +167,6 @@ const todayRollup = (scenario: Scenario): string | undefined => {
   const [rollup] = deriveRegionRollups({
     canvas,
     canvasName: "main",
-    itemsOf: () => [],
     heldBy: {},
     resolveActorRef: () => undefined,
     ...(surface ? { terminalStatusByNodeId: new Map([["a", surface]]) } : {}),

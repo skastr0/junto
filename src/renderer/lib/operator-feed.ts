@@ -5,7 +5,8 @@ import type { Canvas, Node } from "@shared/model";
 import type { AgentSignal } from "@shared/agent-signals";
 import { feedCanvasModelNeeds } from "@shared/canvas-needs";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
-import { seatTasks$ } from "./seat-tasks";
+import { canvasTasks$, seatTasks$ } from "./seat-tasks";
+import type { TaskView } from "@shared/task-model";
 import {
   buildOperatorFeed,
   feedSectionsInRegion,
@@ -31,7 +32,6 @@ import { seatAwareness$ } from "./seat-awareness";
 import { state$ } from "./state";
 import { threadHealthView, useHealthClock } from "./thread-health";
 import { useCanvas } from "./use-model";
-import { useCanvasWorkItems } from "./use-work-sink";
 
 /**
  * The desktop's reading of the operator feed: joins the live planes (declared
@@ -94,11 +94,14 @@ const liveWantsInput = (nodes: Iterable<Node>): ReadonlyMap<string, number | und
   return out;
 };
 
+const NO_TASKS: ReadonlyArray<TaskView> = [];
+
 /** The open canvas's needs that no seat declared, read from the live stores. */
 const useCanvasNeeds = (): ReadonlyArray<FeedCanvasNeed> => {
   const canvasName = use$(state$.canvasName);
   const canvas = useCanvas(canvasName);
-  const itemsOf = useCanvasWorkItems(canvasName);
+  const byNode = use$(canvasTasks$.byNode);
+  const itemsOf = useMemo(() => (nodeId: string) => byNode[nodeId] ?? NO_TASKS, [byNode]);
   const heldBy = use$(seatTasks$.bySeat);
   const actorRefs = use$(state$.actorRefs);
   const execution = use$(kernel$.execution);

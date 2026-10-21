@@ -8,7 +8,7 @@ import { asNodeId } from "../src/shared/model";
 import { mintItemId } from "../src/shared/resource-command";
 import { OPEN_TASK_STATES, seatNodeId, taskNodeId, type TaskState, type TaskView } from "../src/shared/task-model";
 import type { TaskListQuery } from "../src/main/junto/work/task-repository";
-import { readSeatTaskIndex } from "../src/main/junto/work/seat-task-read";
+import { readSeatTaskIndex, readTasksByNode } from "../src/main/junto/work/seat-task-read";
 import { canvasOf, note, seat, taskBoard } from "./support/model-nodes";
 
 const ada = seatNodeId(asNodeId("ada"));
@@ -50,5 +50,14 @@ describe("main's read of the task each seat holds", () => {
     const store = storeOf([]);
     expect(await Effect.runPromise(readSeatTaskIndex(store.tasks, canvasOf([seat("ada")])))).toEqual({});
     expect(store.queries).toEqual([]);
+  });
+});
+
+describe("main's read of the tasks on each task node", () => {
+  it("asks for the canvas's task nodes, archived left out by the store, and keeps each node's oldest first", async () => {
+    const store = storeOf([view("later", "input-required", 20), view("first", "working", 10)]);
+    const byNode = await Effect.runPromise(readTasksByNode(store.tasks, canvasOf([seat("ada"), taskBoard("board")])));
+    expect(store.queries).toEqual([{ nodeIds: ["board"], limit: 10_000 }]);
+    expect(byNode.get("board")?.map((task) => task.title)).toEqual(["first", "later"]);
   });
 });

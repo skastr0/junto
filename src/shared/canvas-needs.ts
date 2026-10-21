@@ -1,7 +1,6 @@
 import { asNodeId, inPaintOrder, type Canvas, type Node } from "./model";
 import { titleOf } from "./model/title";
 import type { WorkItemsOf } from "./execution-graph";
-import { needsHuman } from "./attention";
 import { earliestStateSince, type ExecutionGraph } from "./execution-graph";
 import { rankStoppageSeeds } from "./impact";
 import { attentionText, feedRegionForCanvas, type FeedCanvasNeed } from "./operator-feed";
@@ -14,7 +13,7 @@ import { attentionText, feedRegionForCanvas, type FeedCanvasNeed } from "./opera
  * Pure over the canvas and its execution graph, so the desktop and the
  * companion backend count the same needs. Every time is the true one: a stop
  * began when its reason says (`BlockedReason.since`), a sink has wanted input
- * since its earliest waiting item entered that state (`Task.stateSince`).
+ * since its earliest waiting task entered that state (`TaskView.stateSince`).
  * Where no time is known the need carries none; one is never made up.
  */
 
@@ -77,7 +76,7 @@ export const feedCanvasModelNeeds = (input: {
     if (graph.blocked.has(node.id)) add(node.id, "held", "blocked", "waiting on blocked work upstream", stoppedSince.get(node.id));
   }
   for (const node of nodes) {
-    const waiting = (node.kind === "task" ? itemsOf(node.id) : []).filter(needsHuman);
+    const waiting = (node.kind === "task" ? itemsOf(node.id) : []).filter((task) => task.current.state === "input-required");
     if (waiting.length > 0) add(node.id, "input", "attention", attentionText(""), earliestStateSince(waiting));
   }
   for (const [nodeId, since] of input.wantsInput ?? []) add(nodeId, "input", "attention", attentionText(""), since);

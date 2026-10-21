@@ -47,8 +47,8 @@ describe("stop reasons carry when the stop began", () => {
     expect(reason && "since" in reason).toBe(false);
   });
 
-  it("earliestStateSince ignores items with no readable time", () => {
-    expect(earliestStateSince([{ stateSince: LATER }, {}, { stateSince: "not a date" }, { stateSince: FIRST }])).toBe(Date.parse(FIRST));
-    expect(earliestStateSince([{}])).toBeUndefined();
+  it("earliestStateSince takes the earliest, and none of no tasks", () => {
+    expect(earliestStateSince([{ stateSince: Date.parse(LATER) }, { stateSince: Date.parse(FIRST) }])).toBe(Date.parse(FIRST));
+    expect(earliestStateSince([])).toBeUndefined();
   });
 });

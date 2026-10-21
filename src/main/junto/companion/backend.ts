@@ -23,6 +23,9 @@ import { rollupSeatSignals } from "@shared/agent-signals";
 import { asNodeId, regionStack, type Canvas, type Node, type Seat } from "@shared/model";
 import { titleOf as nodeTitle } from "@shared/model/title";
 import type { WorkItemsOf } from "@shared/execution-graph";
+import type { TaskView } from "@shared/task-model";
+import { TaskRepository } from "../work/task-repository";
+import { readTasksByNode } from "../work/seat-task-read";
 import { SqlClient } from "effect/unstable/sql";
 import { withSqlRead } from "../state/sql-read";
 import { outcomeFail, outcomeOk, type CompanionBackend, type CompanionOutcome } from "@shared/companion-core";
@@ -100,16 +103,11 @@ type CanvasView = {
 const readView = async (canvasName: string, includeWork = true): Promise<CanvasView | undefined> => {
   const read = await AppRuntime.runPromise(Effect.gen(function* () {
     const model = yield* ModelService;
-    const work = yield* WorkRepository;
+    const taskStore = yield* TaskRepository;
     const sql = yield* SqlClient.SqlClient;
     return yield* withSqlRead(sql, Effect.gen(function* () {
       const canvas = yield* model.canvas(canvasName);
-      const rows = includeWork ? yield* work.attentionItems({ canvasName }) : [];
-      const tasks = new Map<string, (typeof rows)[number]["item"][]>();
-      for (const row of rows) {
-        const lane = tasks.get(row.nodeId) ?? [];
-        lane.push(row.item); tasks.set(row.nodeId, lane);
-      }
+      const tasks = includeWork ? yield* readTasksByNode(taskStore, canvas) : new Map<string, ReadonlyArray<TaskView>>();
       return { canvas, itemsOf: (nodeId: string) => tasks.get(nodeId) ?? [] };
     }));
   }).pipe(Effect.catch(() => Effect.succeed(undefined))));

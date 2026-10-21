@@ -29,7 +29,6 @@ const deriveRegionRollups = (input: RegionRollupFixtureInput) => {
     ...rest,
     canvas: canvasOf(doc.nodes, doc.edges),
     // No canvas here holds work.
-    itemsOf: () => [],
     heldBy: {},
     canvasName: "factory",
     resolveActorRef: (ref) => refs.get(ref.nodeId),

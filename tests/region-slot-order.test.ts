@@ -16,7 +16,6 @@ const deriveRegionRollups = (canvas: Canvas) => {
   const context = executionContextForCanvas(canvas);
   return deriveRegionRollupsWithContext({
     canvas,
-    itemsOf: () => [],
     heldBy: {},
     canvasName: context.canvasName,
     resolveActorRef: context.resolveActorRef,
