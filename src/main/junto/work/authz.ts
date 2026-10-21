@@ -30,7 +30,7 @@ import {
 import { canvasToCapabilityView } from "@shared/physics/view";
 import type { TargetCandidate, WorkErrorBody, WorkOpName } from "@shared/work-control";
 import { resolveTarget, type ResolvedTarget } from "@shared/target-resolution";
-import { reaches, resourcesInReach, seatsInReach } from "@shared/region-reach";
+import { resourcesInReach, seatReachesTaskNode, seatsInReach } from "@shared/region-reach";
 import { linkTypedMentions } from "@shared/typed-mentions";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
 import type { ActorRef } from "@shared/work-protocol";
@@ -568,7 +568,7 @@ const callerMachine = (doc: Canvas, callerId: string): string => {
 
 /**
  * A reach-admitted task op (TASK_REACH_OPS): the target is a task node in the
- * caller's reach, or the operator's. No edge and no port; plan 04.
+ * caller's reach (any on its canvas for a live overseer seat), or the operator's. No edge and no port; plan 04.
  */
 const admitTaskReach = (
   doc: Canvas,
@@ -581,7 +581,8 @@ const admitTaskReach = (
     return Result.fail(featureDisabledError(callerId, target.id, kind, op));
   }
   if (kind !== "task") return Result.fail(scopeError(callerId, target.id, "wrong_kind", { kind, op }));
-  if (callerId === OPERATOR_SEAT_ID || reaches(doc, asNodeId(callerId), asNodeId(target.id))) {
+  // A live overseer seat reaches every task node on its canvas, as the task verbs do.
+  if (callerId === OPERATOR_SEAT_ID || seatReachesTaskNode(doc, asNodeId(callerId), asNodeId(target.id))) {
     return Result.succeed({ node: target });
   }
   return Result.fail({

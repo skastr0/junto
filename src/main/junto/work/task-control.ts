@@ -10,7 +10,7 @@ import { parseMentionHref } from "@shared/mention";
 import type { Canvas, Node } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import type { NodeId } from "@shared/physics/schema";
-import { automationTargets, reaches, seatsInReach, type AutomationAuthor } from "@shared/region-reach";
+import { automationTargets, seatReachesTaskNode, seatsInReach, type AutomationAuthor } from "@shared/region-reach";
 import { rulingContextOf } from "@shared/ruling-context";
 import { boardContractOf, evaluateRules, requiredChecks, rulesInForce, type RequiredCheck } from "@shared/rules";
 import type { ResourceActor, ResourceCommand, RulingContext } from "@shared/resource-command";
@@ -257,18 +257,6 @@ export const checkStatusOf = (required: RequiredCheck, runs: ReadonlyArray<Check
   if (run === undefined) return "missing";
   if (run.command !== required.check.command) return "stale";
   return run.exitCode === 0 ? "green" : "red";
-};
-
-/**
- * Whether a seat reaches a task node: by region reach, or, for a live
- * overseer seat, any Tasks node on its own canvas with no edge, as
- * admitOverseerWorkTarget admits (authz.ts). The flag is read off the canvas
- * this call read, never cached. What the seat may do there stays the ruler's.
- */
-export const seatReachesTaskNode = (canvas: Canvas, seat: NodeId, node: NodeId): boolean => {
-  if (reaches(canvas, seat, node)) return true;
-  const self = canvas.nodes.get(seat);
-  return self?.kind === "agent" && self.overseer === true && canvas.nodes.get(node)?.kind === "task";
 };
 
 /** The ruler's view of the canvas: flows downstream, stamp defaults, and seat and automation reach. */

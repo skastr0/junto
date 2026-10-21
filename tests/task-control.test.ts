@@ -22,7 +22,9 @@ import {
   type TaskCommandKind,
   type TaskView,
 } from "../src/shared/task-model";
-import { ruleTaskBoardCommand, type TaskRecord } from "../src/shared/task-machine";
+import { emptyTaskBoard, ruleTaskBoardCommand, taskDomain, type TaskRecord } from "../src/shared/task-machine";
+import { emptyRuled, rule } from "../src/shared/resource-command";
+import { rulingContextOf } from "../src/shared/ruling-context";
 import type { Canvas } from "../src/shared/model";
 import { asNodeId } from "../src/shared/physics/schema";
 import type { ActorSeatId } from "../src/shared/actor-seat";
@@ -129,6 +131,13 @@ const caller: TaskCaller = {
   canvas,
   canvasName: "factory",
   actor: { kind: "seat", seatId: "seat-generation-a" as ActorSeatId, nodeId: asNodeId("seat-a") },
+};
+
+/** alpha with the overseer flag on or off. */
+const flagged = (overseer: boolean): TaskCaller => {
+  const nodes = new Map(canvas.nodes);
+  nodes.set(asNodeId("seat-a"), { ...canvas.nodes.get(asNodeId("seat-a"))!, overseer } as never);
+  return { ...caller, canvas: { ...canvas, nodes } as unknown as Canvas };
 };
 
 const tnode = taskNodeId(asNodeId("tasks-1"));
@@ -265,12 +274,7 @@ describe("task verbs", () => {
   });
 
   it("lets a live overseer seat reach any Tasks node on its own canvas, with no edge", async () => {
-    // alpha with the overseer flag on or off; tasks-2 sits in sibling region S, unwired.
-    const flagged = (overseer: boolean): TaskCaller => {
-      const nodes = new Map(canvas.nodes);
-      nodes.set(asNodeId("seat-a"), { ...canvas.nodes.get(asNodeId("seat-a"))!, overseer } as never);
-      return { ...caller, canvas: { ...canvas, nodes } as unknown as Canvas };
-    };
+    // tasks-2 sits in sibling region S, unwired.
     // A task whose node is on no node of this canvas: another canvas's.
     const elsewhere = view(HIDDEN, 45, taskNodeId(asNodeId("tasks-9")));
     const ports: TaskPorts = {
@@ -572,6 +576,25 @@ describe("what the ruler reads of the canvas", () => {
     const target = { kind: "task" as const, nodeId: asNodeId("tasks-2") };
     expect(context.inReach(caller.actor, target)).toBe(false);
     expect(context.inReach({ kind: "operator" }, target)).toBe(true);
+  });
+
+  it("rules an overseer's write on a far Tasks node applied, and the same seat's refused with the flag off", () => {
+    // The real gate: rule() admits on the ruling context, then the task domain rules.
+    const far = { kind: "task" as const, nodeId: asNodeId("tasks-2"), itemId: ID };
+    const create = (on: boolean) => {
+      const at = flagged(on).canvas;
+      return rule(taskDomain({ ...taskCanvasEnv(at), at: 1 }), emptyRuled(emptyTaskBoard()), "install-1" as never, {
+        opId: OP, canvasName: "factory", actor: caller.actor, target: far, basis: null, after: [],
+        op: { kind: "create", taskId: ID, title: "Ship it" },
+      }, taskRulingContext(at)).ruling;
+    };
+    expect(create(true).kind).toBe("applied");
+    const off = create(false);
+    expect(off.kind === "refused" && off.error.details?.reason).toBe("not_in_reach");
+    // An artifact node stays plain reach, overseer or not.
+    const artifact = { kind: "artifact" as const, nodeId: asNodeId("tasks-2") };
+    expect(rulingContextOf({ nodes: new Map([...flagged(true).canvas.nodes].map(([id, node]) => [id, id === "tasks-2" ? { ...node, kind: "artifact" } : node])) } as never, () => undefined)
+      .inReach(caller.actor, artifact)).toBe(false);
   });
 });
 

@@ -40,6 +40,19 @@ describe.runIf(TASKS_ENABLED)("task ops admitted by reach", () => {
     expect(Result.isFailure(seat) && seat.failure.details?.missing).toBe("compatible target kind");
   });
 
+  it("admits a live overseer seat to every task node on its canvas, content included", () => {
+    const flagged = (overseer: boolean) => {
+      const nodes = new Map(canvas.nodes);
+      nodes.set("seat-c" as never, { ...canvas.nodes.get("seat-c" as never)!, overseer } as never);
+      return { ...canvas, nodes } as unknown as Canvas;
+    };
+    for (const op of TASK_REACH_OPS) expect(Result.isSuccess(admitWorkTarget(flagged(true), "seat-c", "tasks-1", op)), op).toBe(true);
+    const off = admitWorkTarget(flagged(false), "seat-c", "tasks-1", "content.path");
+    expect(Result.isFailure(off) && off.failure.details?.reason).toBe("out_of_reach");
+    // Reach to every task node is not reach to a seat.
+    expect(Result.isFailure(admitWorkTarget(flagged(true), "seat-c", "seat-a", "content.path"))).toBe(true);
+  });
+
   it("admits the operator anywhere, and an overseer at a task node only", () => {
     expect(Result.isSuccess(admitWorkTarget(canvas, OPERATOR_SEAT_ID, "tasks-1", "rulings"))).toBe(true);
     expect(Result.isSuccess(admitOverseerWorkTarget(canvas, "tasks-1", "task.claim"))).toBe(true);

@@ -7,12 +7,13 @@
  * automation.
  */
 import type { NodeId } from "./model/base";
-import { automationTargets, reaches, type AutomationAuthor, type ReachCanvas } from "./region-reach";
+import { automationTargets, seatReachesTaskNode, type AutomationAuthor, type ReachCanvas } from "./region-reach";
 import type { ResourceActor, ResourceRef, RulingContext } from "./resource-command";
 
 /**
  * Reach for every actor kind. The operator reaches every node on the canvas;
- * a seat, which must be an agent node, what `reaches` says from it; an automation what
+ * a seat, which must be an agent node, what `reaches` says from it, and a
+ * live overseer seat every task node too (`seatReachesTaskNode`); an automation what
  * `automationTargets` gives it, with its author as it stands now. A target
  * or actor node the canvas does not hold is out of reach, and so is an
  * automation whose author is not known.
@@ -30,7 +31,7 @@ export const rulingContextOf = (
       case "seat": {
         // Only a seat acts (01 rule 4): a peer row or any other node never does.
         const seat = actor.nodeId as string as NodeId;
-        return canvas.nodes.get(seat)?.kind === "agent" && reaches(canvas, seat, targetId);
+        return canvas.nodes.get(seat)?.kind === "agent" && seatReachesTaskNode(canvas, seat, targetId);
       }
       case "automation": {
         const automation = actor.nodeId as string as NodeId;

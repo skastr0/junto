@@ -135,6 +135,18 @@ export const reaches = (canvas: ReachCanvas, from: NodeId, to: NodeId): boolean 
   return a !== undefined && b !== undefined && onOneLine(canvas, a, b);
 };
 
+/**
+ * Whether a seat reaches a task node: by region reach, or, for a live
+ * overseer seat, any Tasks node on the same canvas with no edge, as
+ * admitOverseerWorkTarget admits (authz.ts). The flag is read off the canvas
+ * the caller holds, never cached; what the seat may do there stays the ruler's.
+ */
+export const seatReachesTaskNode = (canvas: ReachCanvas, seat: NodeId, node: NodeId): boolean => {
+  if (reaches(canvas, seat, node)) return true;
+  const self = canvas.nodes.get(seat);
+  return self?.kind === "agent" && "overseer" in self && self.overseer === true && canvas.nodes.get(node)?.kind === "task";
+};
+
 const inReachOf = (
   canvas: ReachCanvas,
   anchorId: NodeId,
