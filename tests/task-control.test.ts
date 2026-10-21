@@ -350,7 +350,7 @@ describe("task rules and wait", () => {
     expect(Exit.isSuccess(exit) ? exit.value : undefined).toEqual({
       node: "tasks-1",
       rules: [{ rule: { id: "tests", text: "Tests pass" }, provenance: { kind: "board", boardId: "tasks-1" } }],
-      task: { taskId: ID, unanswered: [{ ruleId: "tests", text: "Tests pass" }] },
+      task: { taskId: ID, unanswered: [{ ruleId: "tests", text: "Tests pass" }], checks: [{ destination: "tasks-3", checks: [] }] },
     });
     const node = await at(portsWith(applied()))("task.rules", { node: "tasks-3" });
     expect(Exit.isSuccess(node) ? node.value : undefined).toEqual({ node: "tasks-3", rules: [] });
@@ -405,6 +405,64 @@ describe("task rules and wait", () => {
     state = "working";
     const timedOut = failure(await at(ports)("task.wait", { task: "#42", until: "done", timeoutMs: 30 }));
     expect(timedOut).toMatchObject({ type: "Timeout", details: { from: "working", to: "done" } });
+  });
+});
+
+describe("task check", () => {
+  // tasks-1 runs "unit" on the way out; tasks-3 runs "smoke" on the way in.
+  const checked = { ...canvas, nodes: new Map<string, unknown>([...canvas.nodes].map(([id, node]) =>
+    [id, id === "tasks-1"
+      ? { ...(node as object), contract: { outgoing: { checks: [{ id: "unit", label: "Unit", command: "bun test" }] } } }
+      : id === "tasks-3"
+        ? { ...(node as object), contract: { incoming: { checks: [{ id: "smoke", label: "Smoke", command: "./smoke" }] } } }
+        : node])) } as unknown as Canvas;
+  const at = (ports: TaskPorts) => (op: TaskControlOp, args: unknown) =>
+    Effect.runPromiseExit(handleTaskOp(op, args, { ...caller, canvas: checked }, ports));
+  const unit = (exitCode: number) => ({ checkId: "unit", side: "outgoing" as const, exitCode, outputTail: "ok" });
+
+  it("reports runs with the command the node names, the incoming ones toward the next node", async () => {
+    const submitted: Array<ResourceCommand<TaskCommand>> = [];
+    const exit = await at(portsWith(applied(), submitted))("task.check", {
+      opId: OP, task: "#42", results: [unit(0), { checkId: "smoke", side: "incoming", exitCode: 1, outputTail: "x".repeat(20_000) }],
+    });
+    expect(Exit.isSuccess(exit)).toBe(true);
+    const sent = submitted[0]!.op as Extract<TaskCommand, { kind: "check" }>;
+    expect(sent.kind).toBe("check");
+    expect(sent.results[0]).toEqual({ checkId: "unit", side: "outgoing", command: "bun test", exitCode: 0, outputTail: "ok" });
+    expect(sent.results[1]).toMatchObject({ checkId: "smoke", command: "./smoke", exitCode: 1 });
+    expect(sent.results[1]!.outputTail).toHaveLength(8 * 1024);
+  });
+
+  it("refuses a check the node does not name", async () => {
+    const exit = await at(portsWith(applied()))("task.check", { opId: OP, task: "#42", results: [{ ...unit(0), checkId: "lint" }] });
+    expect(failure(exit)).toMatchObject({ type: "UnknownTarget", details: { path: "results.0.checkId", received: "lint" } });
+  });
+
+  it("finds each required check green, red, missing or stale toward the next node, and finish refuses until green", () => {
+    const env = taskCanvasEnv(checked);
+    const next = taskNodeId(asNodeId("tasks-3"));
+    const run = (checkId: string, side: "outgoing" | "incoming", command: string, exitCode: number) =>
+      ({ checkId, side, command, exitCode, outputTail: "", epoch: 0, at: 1, ...(side === "incoming" ? { destination: next } : {}) });
+    expect(env.checksUnmet(tnode, next, [])).toEqual({ red: [], missing: ["unit", "smoke"] });
+    expect(env.checksUnmet(tnode, next, [run("unit", "outgoing", "bun test", 1), run("smoke", "incoming", "./old-smoke", 0)]))
+      .toEqual({ red: ["unit"], missing: ["smoke"] });
+    expect(env.checksUnmet(tnode, next, [run("unit", "outgoing", "bun test", 0), run("smoke", "incoming", "./smoke", 0)])).toBeUndefined();
+    // With nowhere to go, only the node's own outgoing checks are required.
+    expect(env.checksUnmet(taskNodeId(asNodeId("tasks-3")), undefined, [])).toBeUndefined();
+  });
+
+  it("shows the checks in task rules with their status", async () => {
+    const ran = { ...tasks[0]!, current: { ...tasks[0]!.current, state: "working" as const, checks: [
+      { checkId: "unit", side: "outgoing" as const, command: "bun test", exitCode: 1, outputTail: "", epoch: 0, at: 1 },
+    ] } };
+    const exit = await at({ ...portsWith(applied()), find: () => Effect.succeed(ran) })("task.rules", { task: "#42" });
+    expect(Exit.isSuccess(exit) ? (exit.value as { task: { checks: unknown } }).task.checks : undefined).toEqual([{
+      destination: "tasks-3",
+      checks: [
+        { checkId: "unit", side: "outgoing", label: "Unit", command: "bun test", status: "red" },
+        { checkId: "smoke", side: "incoming", label: "Smoke", command: "./smoke", status: "missing" },
+      ],
+    }]);
   });
 });
 

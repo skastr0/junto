@@ -35,6 +35,7 @@ import { migrateArtifactBodyRefs } from "./migrate-artifact-body-refs";
 import { migrateTaskModel } from "./migrate-task-model";
 import { migrateReviewStamps } from "./migrate-review-stamps";
 import { migrateTaskStateSince } from "./migrate-task-state-since";
+import { migrateTaskChecks } from "./migrate-task-checks";
 import {
   CANVAS_DELETIONS_CORRECTED_TABLES,
   CANVAS_DELETIONS_REMOVED_TABLES,
@@ -436,7 +437,17 @@ export const STATE_SCHEMA_V36_IDENTITY = {
     "f63759002b670cfae4730bbba7a47414624d0e14fb96d7a24cd9d2785a44346e",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 36;
+/**
+ * Version 37 keeps the check runs on a task's current layer (plan 04, task
+ * check): `task_heads` rebuilt with `checks_json`, each task starting with
+ * none (`migrate-task-checks.ts`).
+ */
+export const STATE_SCHEMA_V37_IDENTITY = {
+  actualSchemaSha256:
+    "b260ce08f7be0bba01c816fa737358da770a7e939bc26aa30ab85d5726c0a491",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 37;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -444,7 +455,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 36;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V36_IDENTITY;
+  STATE_SCHEMA_V37_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -695,6 +706,15 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V35_IDENTITY,
     replacesTables: ["task_heads"],
     migrate: (database) => migrateTaskStateSince(database),
+  },
+  {
+    fromVersion: 36,
+    toVersion: 37,
+    name: "keep the check runs on each task",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V36_IDENTITY,
+    replacesTables: ["task_heads"],
+    migrate: (database) => migrateTaskChecks(database),
   },
 ];
 

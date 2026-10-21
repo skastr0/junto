@@ -12,7 +12,7 @@ import { titleOf } from "@shared/model/title";
 import type { NodeId } from "@shared/physics/schema";
 import { automationTargets, reaches, seatsInReach, type AutomationAuthor } from "@shared/region-reach";
 import { rulingContextOf } from "@shared/ruling-context";
-import { boardContractOf, evaluateRules, rulesInForce } from "@shared/rules";
+import { boardContractOf, evaluateRules, requiredChecks, rulesInForce, type RequiredCheck } from "@shared/rules";
 import type { ResourceActor, ResourceCommand, RulingContext } from "@shared/resource-command";
 import {
   TASK_ARGS,
@@ -21,6 +21,7 @@ import {
   TASK_WAIT_MAX_MS,
   type TaskCommandOp,
   type TaskControlOp,
+  type TaskCheckArgs,
   type TaskRulesResult,
   type TaskWaitArgs,
   type TaskWaitResult,
@@ -33,6 +34,9 @@ import {
   seatNodeId,
   TASK_FLOW_VERB,
   taskNodeId,
+  CHECK_OUTPUT_TAIL_MAX,
+  type CheckResult,
+  type CheckRun,
   type Reviewer,
   type SeatNodeId,
   type TaskCommand,
@@ -233,6 +237,28 @@ export type AutomationAuthorOf = (automation: NodeId) => AutomationAuthor | unde
 
 const noAutomationAuthor: AutomationAuthorOf = () => undefined;
 
+/** The checks a finish from `node` toward `next` needs: its outgoing ones, and the next node's incoming ones. */
+export const checksToward = (canvas: Canvas, node: TaskNodeId, next: TaskNodeId | undefined): ReadonlyArray<RequiredCheck> =>
+  next === undefined
+    ? (boardContractOf(canvas, node)?.outgoing?.checks ?? []).map((check) => ({ check, side: "outgoing" as const }))
+    : requiredChecks(canvas, node, next);
+
+export type CheckStatus = "green" | "red" | "missing" | "stale";
+
+/**
+ * A required check against the runs at the current epoch: green when its
+ * latest run passed with the command the node names now, red when it failed,
+ * stale when the node's command has changed since, missing with no run.
+ */
+export const checkStatusOf = (required: RequiredCheck, runs: ReadonlyArray<CheckResult>, next: TaskNodeId | undefined): CheckStatus => {
+  const run = runs.find((candidate) =>
+    candidate.checkId === required.check.id && candidate.side === required.side &&
+    (required.side === "outgoing" || candidate.destination === next));
+  if (run === undefined) return "missing";
+  if (run.command !== required.check.command) return "stale";
+  return run.exitCode === 0 ? "green" : "red";
+};
+
 /** The ruler's view of the canvas: flows downstream, stamp defaults, and seat and automation reach. */
 export const taskCanvasEnv = (canvas: Canvas, automationAuthor: AutomationAuthorOf = noAutomationAuthor): TaskCanvasEnv => ({
   downstream: (node) =>
@@ -247,6 +273,13 @@ export const taskCanvasEnv = (canvas: Canvas, automationAuthor: AutomationAuthor
   },
   // The rules in force on the node: its regions' and its own. A task carries no
   // rules of its own in 0.10, so a waiver answers none of these (04).
+  checksUnmet: (node, next, runs) => {
+    const statuses = checksToward(canvas, node, next).map((required) => ({ id: required.check.id, status: checkStatusOf(required, runs, next) }));
+    const red = statuses.filter((entry) => entry.status === "red").map((entry) => entry.id);
+    // A stale run answers a command the node no longer names: as good as none.
+    const missing = statuses.filter((entry) => entry.status === "missing" || entry.status === "stale").map((entry) => entry.id);
+    return red.length === 0 && missing.length === 0 ? undefined : { red, missing };
+  },
   rulesUnmet: (node, _taskId, evidence) => {
     const failure = evaluateRules({ rules: rulesInForce(canvas, node), evidence });
     return failure === undefined
@@ -437,6 +470,42 @@ const command = (caller: TaskCaller, opId: OpId, node: NodeId, taskId: TaskId, o
 // ---------------------------------------------------------------------------
 // Verbs
 
+/**
+ * A check report as the ruler takes it: each run carries the command its
+ * node names for that check now, and an incoming run answers the next node,
+ * named or the only one. A check the node does not name is refused here.
+ */
+const checkCommandOf = (caller: TaskCaller, task: TaskView, input: TaskCheckArgs): Effect.Effect<TaskCommand, WorkErrorBody> =>
+  Effect.gen(function* () {
+    const downstream = taskCanvasEnv(caller.canvas).downstream(task.current.node);
+    const next = input.next === undefined
+      ? (downstream.length === 1 ? downstream[0] : undefined)
+      : taskNodeId((yield* findNode(downstream.flatMap((id) => caller.canvas.nodes.get(id) ?? []), input.next, "next", "downstream task node")).id);
+    const runs: CheckRun[] = [];
+    for (const [index, run] of input.results.entries()) {
+      if (run.side === "incoming" && next === undefined) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: "an incoming check answers the next node; name it with next",
+          details: { path: "next", retryable: false, ...(downstream.length === 0 ? {} : { hint: downstream.join(", ") }) },
+        });
+      }
+      const contract = boardContractOf(caller.canvas, run.side === "outgoing" ? task.current.node : next!);
+      const check = (run.side === "outgoing" ? contract?.outgoing?.checks : contract?.incoming?.checks)?.find((entry) => entry.id === run.checkId);
+      if (check === undefined) {
+        return yield* Effect.fail(unknown(`results.${index}.checkId`, run.checkId, `no ${run.side} check "${run.checkId}" on that node`));
+      }
+      runs.push({
+        checkId: run.checkId,
+        side: run.side,
+        command: check.command,
+        exitCode: run.exitCode,
+        outputTail: run.outputTail.slice(-CHECK_OUTPUT_TAIL_MAX),
+      });
+    }
+    return { kind: "check", results: runs, ...(input.next === undefined || next === undefined ? {} : { next }) } satisfies TaskCommand;
+  });
+
 /** The command a write verb makes, once its refs are resolved. */
 const commandOf = (
   op: Exclude<TaskCommandOp, "task.create">,
@@ -479,6 +548,8 @@ const commandOf = (
           (node) => ({ kind, next: taskNodeId(node.id), ...evidence }),
         );
     }
+    case "check":
+      return checkCommandOf(caller, task, input as unknown as TaskCheckArgs);
     case "depend":
     case "undepend":
       return Effect.map(findTask(caller, ports, input.on as string, "on"), (on) => ({ kind, on: on.taskId }));
@@ -557,12 +628,25 @@ export const handleTaskOp = (
         const task = yield* findTask(caller, ports, input.task);
         // The list finish evaluates: none is answered until the finish carries its claims.
         const rules = rulesInForce(caller.canvas, task.current.node);
+        const runs = (task.current.checks ?? []).filter((run) => run.epoch === task.current.epoch);
+        const downstream = taskCanvasEnv(caller.canvas).downstream(task.current.node);
+        const toward = (next: TaskNodeId | undefined) => ({
+          ...(next === undefined ? {} : { destination: next }),
+          checks: checksToward(caller.canvas, task.current.node, next).map((required) => ({
+            checkId: required.check.id,
+            side: required.side,
+            label: required.check.label,
+            command: required.check.command,
+            status: checkStatusOf(required, runs, next),
+          })),
+        });
         return {
           node: task.current.node,
           rules,
           task: {
             taskId: task.taskId,
             unanswered: rules.flatMap(({ rule }) => (rule.kind === "requires-review" ? [] : [{ ruleId: rule.id, text: rule.text }])),
+            checks: downstream.length === 0 ? [toward(undefined)] : downstream.map(toward),
           },
         } satisfies TaskRulesResult;
       }

@@ -42,6 +42,7 @@ const COMMANDS: { readonly [K in TaskCommandKind]: Extract<TaskCommand, { kind: 
   pause: { kind: "pause" },
   resume: { kind: "resume" },
   finish: { kind: "finish" },
+  check: { kind: "check", results: [{ checkId: "tests", side: "outgoing", command: "bun test", exitCode: 0, outputTail: "" }] },
   cancel: { kind: "cancel" },
   archive: { kind: "archive" },
   depend: { kind: "depend", on: "01M5ETKKW2KX682NBXQZYA69MZ" as never },
@@ -153,6 +154,7 @@ describe("task refusals", () => {
     "wrong-node": { kind: "wrong-node", nodeId: asNodeId("n"), expected: "agent" },
     "not-in-reach": { kind: "not-in-reach", nodeId: asNodeId("n") },
     "rules-unmet": { kind: "rules-unmet", missing: "claim", message: "Rule r1 needs a claim", nextStep: "Finish with a claim for r1", ruleId: "r1" },
+    "checks-unmet": { kind: "checks-unmet", red: ["tests"], missing: [] },
   };
 
   it("sends every detail under a closed wire reason and keeps the detail whole", () => {

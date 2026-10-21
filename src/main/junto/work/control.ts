@@ -45,7 +45,6 @@ import { operatorFilesOf } from "@shared/mail-threads";
 import { levelOfSignal, rankOf } from "@shared/wire/urgency";
 import { seatStateRuntime } from "../term/agent-state";
 import { probeManagedHarnessInstalls } from "../term/templates/harness-install";
-import type { Task } from "@shared/work-model";
 import {
   normalizePreambleText,
   seatToolPreamble,
@@ -97,7 +96,6 @@ import {
   OnboardArgs,
   SinceArgs,
   RulingsArgs,
-  TasksCheckArgs,
   WORK_MAX_FRAME_BYTES,
   WORK_PROTOCOL_VERSION,
   WorkOpName,
@@ -227,7 +225,6 @@ import {
   boardContractOf,
   regionContractOf,
   rulesInForce,
-  taskAdmissionState,
 } from "@shared/rules";
 import { regionStack } from "@shared/model/canvas";
 import { flowDestinations, reachableBoards } from "@shared/flow-graph";
@@ -602,45 +599,6 @@ const mapWorkCode = (
         details: { ...details, retryable: details?.retryable ?? false },
       };
   }
-};
-
-/**
- * Seat-wire only. Operator approve / reject IPC is the door into unadmitted
- * tasks; a connected seat must not update or run checks on a submitted row
- * whose admission is not yet claimable.
- */
-const refuseUnadmittedSubmitted = (
-  task: Task | undefined,
-  node: Node | undefined,
-  contract: import("@shared/work-model").TasksContract | undefined,
-): WorkErrorBody | undefined => {
-  if (task === undefined || task.state !== "submitted") return undefined;
-  const admission = taskAdmissionState(
-    task,
-    contract,
-    Date.now(),
-  );
-  if (admission === "claimable") return undefined;
-  const refusal =
-    admission === "approval"
-      ? `task "${task.id}" awaits operator approval at board "${node?.id ?? "?"}"`
-      : admission === "waiting"
-        ? `task "${task.id}" is not claimable before ${task.waitUntil} (wait before starting)`
-        : `board "${node?.id ?? "?"}" is set to Me — the operator works tasks here; no seat update`;
-  return {
-    type: "InputError",
-    message: refusal,
-    details: {
-      target: task.id,
-      retryable: false,
-      next_step:
-        admission === "approval"
-          ? "wait for the operator to approve this task, or claim another task"
-          : admission === "waiting"
-            ? "wait until the wait before starting passes, or claim another task"
-            : "only the operator works tasks at this board",
-    },
-  };
 };
 
 type WorkMutationOutcome<T> = {
@@ -1595,47 +1553,6 @@ const dispatchOp = (
             ),
           ),
         );
-    }
-
-    if (op === "task.check") {
-      const decoded = decodeArgs(TasksCheckArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
-      if ("type" in gate) return yield* Effect.fail(gate);
-      const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Result.isFailure(actor)) return yield* Effect.fail(actor.failure);
-      const task = yield* work.readTask(caller.canvasName, decoded.success.target, decoded.success.task).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
-      if (
-        task?.claimedBy !== undefined &&
-        task.claimedBy !== actor.success.seatId
-      ) {
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "ClaimConflict",
-          message:
-            `task "${decoded.success.task}" is claimed by another seat; only the claiming seat runs its checks`,
-          details: {
-            holder: task.claimedBy,
-            caller: actor.success.seatId,
-            retryable: false,
-            next_step:
-              "only the claiming seat runs checks on this task",
-          },
-        });
-      }
-      const unadmitted = refuseUnadmittedSubmitted(task, gate.node, boardContractOf(read.canvas, gate.node?.id ?? ""));
-      if (unadmitted !== undefined) {
-        return yield* Effect.fail(unadmitted);
-      }
-      const result = yield* work.workTaskCheck(
-        caller.canvasName,
-        decoded.success.target,
-        decoded.success.task,
-        decoded.success.results,
-        decoded.success.next,
-      );
-      const mapped = fromWorkResult(result);
-      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      return exposeWorkMutation(mapped.success);
     }
 
     if (op === "msg.list") {

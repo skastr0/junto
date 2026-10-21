@@ -30,6 +30,7 @@ export const TASKS_STATE_SCHEMA_SQL = `
     epoch INTEGER NOT NULL CHECK (epoch >= 0),
     stamps_required INTEGER NOT NULL CHECK (stamps_required >= 0),
     reviewers_json TEXT NOT NULL CHECK (json_valid(reviewers_json)),
+    checks_json TEXT NOT NULL CHECK (json_valid(checks_json)),
     depends_on_json TEXT NOT NULL CHECK (json_valid(depends_on_json)),
     next_node_id TEXT CHECK (next_node_id IS NULL OR length(next_node_id) BETWEEN 1 AND 256),
     created_at INTEGER NOT NULL CHECK (created_at >= 0),

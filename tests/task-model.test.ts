@@ -47,9 +47,9 @@ describe("task model", () => {
     expect(TASK_STATES.filter(blocksAssignee)).toEqual(["input-required"]);
   });
 
-  it("lets only the assignee start, pause, resume and finish", () => {
+  it("lets only the assignee start, pause, resume, check and finish", () => {
     const only = (Object.keys(ASSIGNEE_ONLY) as TaskCommandKind[]).filter((kind) => ASSIGNEE_ONLY[kind]);
-    expect(only.sort()).toEqual(["finish", "pause", "resume", "start"]);
+    expect(only.sort()).toEqual(["check", "finish", "pause", "resume", "start"]);
   });
 
   it("sends every task refusal under one of the shared wire reasons", () => {

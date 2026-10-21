@@ -482,15 +482,77 @@ describe("finish against the rules in force", () => {
   });
 });
 
+describe("check runs", () => {
+  // The build node's outgoing "unit" and qa's incoming "smoke", judged as main's env judges them.
+  const checked = env({
+    downstream: (node) => (node === build ? [qa] : []),
+    checksUnmet: (node, next, runs) => {
+      const needs = [
+        ...(node === build ? [{ id: "unit", side: "outgoing" as const }] : []),
+        ...(next === qa ? [{ id: "smoke", side: "incoming" as const }] : []),
+      ];
+      const runOf = (need: (typeof needs)[number]) => runs.find((run) => run.checkId === need.id && run.side === need.side);
+      const red = needs.filter((need) => (runOf(need)?.exitCode ?? 0) !== 0).map((need) => need.id);
+      const missing = needs.filter((need) => runOf(need) === undefined).map((need) => need.id);
+      return red.length === 0 && missing.length === 0 ? undefined : { red, missing };
+    },
+  });
+  const working = record({ state: "working", assignee: ada });
+  const unit = (exitCode: number) => ({ checkId: "unit", side: "outgoing" as const, command: "bun test", exitCode, outputTail: "" });
+  const smoke = { checkId: "smoke", side: "incoming" as const, command: "./smoke", exitCode: 0, outputTail: "" };
+
+  it("takes the assignee's runs while working, at the current epoch, the newer replacing the older", () => {
+    const ran = run(working, [
+      [seat(ada), { kind: "check", results: [unit(1)] }],
+      [seat(ada), { kind: "check", results: [unit(0), smoke] }],
+    ], checked);
+    expect(ran.checks).toEqual([
+      { ...unit(0), epoch: 0, at: 1_000 },
+      { ...smoke, epoch: 0, at: 1_000, destination: qa },
+    ]);
+    expect(refused(one(working, seat(bo), { kind: "check", results: [unit(0)] }, checked))).toMatchObject({ kind: "not-assignee" });
+    expect(refused(one(record({ state: "assigned", assignee: ada }), seat(ada), { kind: "check", results: [unit(0)] }, checked)))
+      .toMatchObject({ kind: "illegal-transition", from: "assigned", command: "check" });
+  });
+
+  it("refuses a finish with a required check red or not run, after the rules", () => {
+    expect(refused(one(working, seat(ada), { kind: "finish" }, checked))).toEqual({ kind: "checks-unmet", red: [], missing: ["unit", "smoke"] });
+    const red = run(working, [[seat(ada), { kind: "check", results: [unit(1), smoke] }]], checked);
+    expect(refused(one(red, seat(ada), { kind: "finish" }, checked))).toEqual({ kind: "checks-unmet", red: ["unit"], missing: [] });
+    const rules = env({ ...checked, rulesUnmet: () => ({ missing: "claims", message: "Rule r1 needs a claim", nextStep: "claim it" }) });
+    expect(refused(one(working, seat(ada), { kind: "finish" }, rules)).kind).toBe("rules-unmet");
+    const green = run(working, [[seat(ada), { kind: "check", results: [unit(0), smoke] }]], checked);
+    expect(ok(one(green, seat(ada), { kind: "finish" }, checked)).task).toMatchObject({ node: qa, state: "backlog", epoch: 1 });
+  });
+
+  it("starts each new epoch with no checks: sent on, and changes asked", () => {
+    const green = run(working, [[seat(ada), { kind: "check", results: [unit(0), smoke] }]], checked);
+    const sent = ok(one(green, seat(ada), { kind: "finish" }, checked));
+    expect(sent.task.checks).toBeUndefined();
+    expect(sent.effects).toEqual([expect.objectContaining({ kind: "sent-on", layer: expect.objectContaining({ checks: green.checks }) })]);
+    const reviewed = run(record({ state: "working", assignee: ada, reviewers: [asSeat(bo)], stampPolicy: { required: 1 } }), [
+      [seat(ada), { kind: "check", results: [unit(0), smoke] }],
+      [seat(ada), { kind: "finish" }],
+      [seat(bo), { kind: "stamp", verdict: "changes" }],
+    ], checked);
+    expect(reviewed).toMatchObject({ state: "working", epoch: 1 });
+    expect(reviewed.checks).toBeUndefined();
+    expect(refused(one(reviewed, seat(ada), { kind: "finish" }, checked))).toEqual({ kind: "checks-unmet", red: [], missing: ["unit", "smoke"] });
+  });
+});
+
 describe("a return trip", () => {
   it("arrives back on a node it passed at a later epoch, with none of its old approvals current", () => {
     const there = env({ downstream: (node) => (node === build ? [qa] : [build]), stampDefaultOf: () => ({ required: 1 }) });
-    const approved = ok(one(
+    const approved = run(
       record({ state: "working", assignee: ada, reviewers: [asSeat(bo)], stampPolicy: { required: 1 } }),
-      seat(ada),
-      { kind: "finish" },
+      [
+        [seat(ada), { kind: "check", results: [{ checkId: "unit", side: "outgoing", command: "bun test", exitCode: 0, outputTail: "" }] }],
+        [seat(ada), { kind: "finish" }],
+      ],
       there,
-    )).task;
+    );
+    expect(approved.checks).toHaveLength(1);
     const atQa = ok(one(approved, seat(bo), { kind: "stamp", verdict: "approve" }, there)).task;
     expect(atQa).toMatchObject({ node: qa, epoch: 1 });
     const back = run(atQa, [
@@ -500,6 +562,8 @@ describe("a return trip", () => {
       [operator, { kind: "stamp", verdict: "approve" }],
     ], there);
     expect(back).toMatchObject({ node: build, epoch: 2, state: "backlog" });
+    // It arrives with no check runs: the first pass's do not answer this epoch.
+    expect(back.checks).toBeUndefined();
     // Even with the first pass's stamp put back, it is not current here.
     expect(currentApprovals({ ...back, reviewers: [asSeat(bo)], stamps: approved.stamps.concat(
       { reviewer: asSeat(bo), verdict: "approve", epoch: 0, at: 1 },

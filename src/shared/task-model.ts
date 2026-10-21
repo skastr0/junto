@@ -112,6 +112,32 @@ export type Stamp = {
   readonly at: number;
 };
 
+/** A check's side: the node it leaves, or the node it arrives at. */
+export type CheckSide = "outgoing" | "incoming";
+
+/** At most this many bytes of a check's output travel and stay. */
+export const CHECK_OUTPUT_TAIL_MAX = 8 * 1024;
+/** At most this many results one check command carries. */
+export const CHECK_RESULTS_MAX = 64;
+
+/** One check run, as the assignee ran it and reported it. Junto never runs a check. */
+export type CheckRun = {
+  readonly checkId: string;
+  readonly side: CheckSide;
+  /** The command as the node's contract named it when the check ran: a changed command makes it stale. */
+  readonly command: string;
+  readonly exitCode: number;
+  readonly outputTail: string;
+};
+
+/** A check run kept on the layer: it counts only at its epoch. */
+export type CheckResult = CheckRun & {
+  readonly epoch: number;
+  /** The next node an incoming check belongs to. */
+  readonly destination?: TaskNodeId;
+  readonly at: number;
+};
+
 // ── a task on its current layer ────────────────────────────────────────────
 
 /**
@@ -127,6 +153,8 @@ export type TaskCore = {
   readonly stampPolicy: StampPolicy;
   readonly reviewers: ReadonlyArray<Reviewer>;
   readonly stamps: ReadonlyArray<Stamp>;
+  /** Check runs at the current epoch; absent, none. A new epoch starts with none. */
+  readonly checks?: ReadonlyArray<CheckResult>;
   /** The node named at finish, held while the task is in review. */
   readonly next?: TaskNodeId;
 };
@@ -188,6 +216,8 @@ export type TaskCommand =
    * cited artifacts and commits); rules and checks are unchanged in 0.10 (04).
    */
   | { readonly kind: "finish"; readonly next?: TaskNodeId; readonly evidence?: CompletionEvidence }
+  /** Check runs the assignee reports; `next` names the node whose incoming checks they answer. */
+  | { readonly kind: "check"; readonly results: ReadonlyArray<CheckRun>; readonly next?: TaskNodeId }
   | { readonly kind: "cancel" }
   | { readonly kind: "archive" }
   | { readonly kind: "depend"; readonly on: TaskId }
@@ -214,6 +244,7 @@ export const ASSIGNEE_ONLY = {
   pause: true,
   resume: true,
   finish: true,
+  check: true,
   cancel: false,
   archive: false,
   depend: false,
@@ -276,7 +307,9 @@ export type TaskRefusalDetail =
       readonly message: string;
       readonly nextStep: string;
       readonly ruleId?: string;
-    };
+    }
+  /** A finish with a required check red, or with no run, at the current epoch. */
+  | { readonly kind: "checks-unmet"; readonly red: ReadonlyArray<string>; readonly missing: ReadonlyArray<string> };
 
 export type TaskRefusalKind = TaskRefusalDetail["kind"];
 
@@ -304,6 +337,7 @@ export const TASK_REFUSAL_REASON = {
   "wrong-node": "invalid_input",
   "not-in-reach": "not_in_reach",
   "rules-unmet": "invalid_input",
+  "checks-unmet": "invalid_input",
 } as const satisfies Readonly<Record<TaskRefusalKind, RefusalReason>>;
 
 export type TaskRefusal = { readonly reason: RefusalReason; readonly detail: TaskRefusalDetail };
@@ -365,6 +399,17 @@ export const TaskCommandWire = Schema.Union([
     next: Schema.optionalKey(NodeIdSchema),
     evidence: Schema.optionalKey(CompletionEvidence),
   }),
+  Schema.Struct({
+    kind: Schema.Literal("check"),
+    results: Schema.Array(Schema.Struct({
+      checkId: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(256))),
+      side: Schema.Literals(["outgoing", "incoming"]),
+      command: Schema.String.pipe(Schema.check(Schema.isMaxLength(4096))),
+      exitCode: Schema.Int,
+      outputTail: Schema.String.pipe(Schema.check(Schema.isMaxLength(CHECK_OUTPUT_TAIL_MAX))),
+    })).pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(CHECK_RESULTS_MAX))),
+    next: Schema.optionalKey(NodeIdSchema),
+  }),
   bare("cancel"),
   bare("archive"),
   Schema.Struct({ kind: Schema.Literal("depend"), on: ItemId }),
@@ -419,6 +464,12 @@ export const checkTaskCommand = (
       if (wire.next === undefined) return { ok: true, command: { kind: "finish", ...evidence } };
       return kindOf(wire.next) === "task"
         ? { ok: true, command: { kind: "finish", next: taskNodeId(wire.next), ...evidence } }
+        : fail(taskRefusal({ kind: "wrong-node", nodeId: wire.next, expected: "task" }));
+    }
+    case "check": {
+      if (wire.next === undefined) return { ok: true, command: { kind: "check", results: wire.results } };
+      return kindOf(wire.next) === "task"
+        ? { ok: true, command: { kind: "check", results: wire.results, next: taskNodeId(wire.next) } }
         : fail(taskRefusal({ kind: "wrong-node", nodeId: wire.next, expected: "task" }));
     }
     case "create":

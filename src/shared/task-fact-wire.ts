@@ -29,6 +29,17 @@ const Stamp = Schema.Struct({
   at: Schema.Number,
 });
 
+const CheckResult = Schema.Struct({
+  checkId: Schema.String,
+  side: Schema.Literals(["outgoing", "incoming"]),
+  command: Schema.String,
+  exitCode: Schema.Int,
+  outputTail: Schema.String,
+  epoch: Count,
+  destination: Schema.optionalKey(NodeId),
+  at: Schema.Number,
+});
+
 const coreFields = {
   state: Schema.Literals(TASK_STATES),
   node: NodeId,
@@ -37,6 +48,7 @@ const coreFields = {
   stampPolicy: Schema.Struct({ required: Count }),
   reviewers: Schema.Array(Reviewer),
   stamps: Schema.Array(Stamp),
+  checks: Schema.optionalKey(Schema.Array(CheckResult)),
   next: Schema.optionalKey(NodeId),
 };
 

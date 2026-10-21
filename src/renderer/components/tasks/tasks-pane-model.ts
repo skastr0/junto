@@ -180,6 +180,8 @@ export const queuedWords = (command: TaskCommandWire, nameOf: (id: string) => st
       return "Resume";
     case "finish":
       return command.next === undefined ? "Finish" : `Finish, send on to ${nameOf(command.next)}`;
+    case "check":
+      return `Report ${command.results.length} check ${command.results.length === 1 ? "run" : "runs"}`;
     case "cancel":
       return "Cancel";
     case "archive":

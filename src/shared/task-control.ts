@@ -14,7 +14,7 @@
  */
 import { Schema } from "effect";
 import type { TaskCommandKind, TaskState, TaskView } from "./task-model";
-import { STAMPS_REQUIRED_MAX, TASK_STATES } from "./task-model";
+import { CHECK_RESULTS_MAX, STAMPS_REQUIRED_MAX, TASK_STATES } from "./task-model";
 import type { WorkErrorBody } from "./work-control";
 import { CompletionEvidence } from "./work-model";
 import type { RuleInForce } from "./rules";
@@ -128,6 +128,26 @@ export const TaskFinishArgs = Schema.Struct({
 }).annotate(strict);
 export type TaskFinishArgs = typeof TaskFinishArgs.Type;
 
+/**
+ * Check runs the assignee reports, each as the agent ran it in its own
+ * environment: Junto never runs a check. `next` names the node whose
+ * incoming checks they answer, when the task flows to several. The command
+ * each check ran is the node's, read when the report is ruled.
+ */
+export const TaskCheckArgs = Schema.Struct({
+  opId: OpId,
+  task: TaskRefText,
+  next: Schema.optionalKey(TaskNodeText),
+  results: Schema.Array(Schema.Struct({
+    checkId: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(256))),
+    side: Schema.Literals(["outgoing", "incoming"]),
+    exitCode: Schema.Int,
+    /** The output's last bytes; a longer tail is cut to its last CHECK_OUTPUT_TAIL_MAX. */
+    outputTail: Schema.String,
+  })).pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(CHECK_RESULTS_MAX))),
+}).annotate(strict);
+export type TaskCheckArgs = typeof TaskCheckArgs.Type;
+
 export const TaskDependArgs = Schema.Struct({
   opId: OpId,
   task: TaskRefText,
@@ -183,6 +203,7 @@ export const TASK_COMMAND_OPS = {
   "task.pause": "pause",
   "task.resume": "resume",
   "task.finish": "finish",
+  "task.check": "check",
   "task.cancel": "cancel",
   "task.archive": "archive",
   "task.depend": "depend",
@@ -223,6 +244,7 @@ export const TASK_ARGS = {
   "task.pause": TaskOneArgs,
   "task.resume": TaskOneArgs,
   "task.finish": TaskFinishArgs,
+  "task.check": TaskCheckArgs,
   "task.cancel": TaskOneArgs,
   "task.archive": TaskOneArgs,
   "task.depend": TaskDependArgs,
@@ -237,7 +259,7 @@ export const TASK_ARGS = {
 export const isTaskWriteOp = (op: string): op is TaskWriteOp =>
   op === "task.comment" || Object.hasOwn(TASK_COMMAND_OPS, op);
 
-/** The ops `handleTaskOp` answers; check keeps its own handler. */
+/** The ops `handleTaskOp` answers. */
 export const isTaskControlOp = (op: string): op is TaskControlOp =>
   Object.hasOwn(TASK_ARGS, op);
 
@@ -248,7 +270,21 @@ export const isTaskControlOp = (op: string): op is TaskControlOp =>
 export type TaskRulesResult = {
   readonly node: string;
   readonly rules: ReadonlyArray<RuleInForce>;
-  readonly task?: { readonly taskId: ItemId; readonly unanswered: ReadonlyArray<{ readonly ruleId: string; readonly text: string }> };
+  readonly task?: {
+    readonly taskId: ItemId;
+    readonly unanswered: ReadonlyArray<{ readonly ruleId: string; readonly text: string }>;
+    /** The checks a finish needs, toward each node the task may go on to (none named when it goes nowhere). */
+    readonly checks: ReadonlyArray<{
+      readonly destination?: string;
+      readonly checks: ReadonlyArray<{
+        readonly checkId: string;
+        readonly side: "outgoing" | "incoming";
+        readonly label: string;
+        readonly command: string;
+        readonly status: "green" | "red" | "missing" | "stale";
+      }>;
+    }>;
+  };
 };
 
 /** The task as the wait left it: in the awaited state. */

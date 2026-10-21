@@ -64,7 +64,7 @@ export class TaskPersistenceError extends Schema.TaggedError<TaskPersistenceErro
  * repository's. The rules in force are required here, so no caller can rule a
  * finish without them.
  */
-export type TaskCanvasEnv = Omit<TaskDomainEnv, "at"> & Required<Pick<TaskDomainEnv, "rulesUnmet">>;
+export type TaskCanvasEnv = Omit<TaskDomainEnv, "at"> & Required<Pick<TaskDomainEnv, "rulesUnmet" | "checksUnmet">>;
 
 export type TaskListQuery = {
   readonly nodeIds: ReadonlyArray<NodeId>;
@@ -123,6 +123,7 @@ const HeadRow = Schema.Struct({
   created_at: Schema.Number,
   updated_at: Schema.Number,
   state_since: Schema.Number,
+  checks_json: Schema.String,
 });
 type HeadRow = typeof HeadRow.Type;
 
@@ -134,6 +135,17 @@ const ReviewerJson = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("operator") }),
 ]);
 const decodeReviewers = Schema.decodeUnknownResult(Schema.Array(ReviewerJson));
+const CheckResultJson = Schema.Struct({
+  checkId: Schema.String,
+  side: Schema.Literals(["outgoing", "incoming"]),
+  command: Schema.String,
+  exitCode: Schema.Int,
+  outputTail: Schema.String,
+  epoch: Schema.Int,
+  destination: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)))),
+  at: Schema.Number,
+});
+const decodeChecks = Schema.decodeUnknownResult(Schema.Array(CheckResultJson));
 const decodeTaskIds = Schema.decodeUnknownResult(Schema.Array(ItemId));
 const isTaskState = (value: string): value is TaskState => (TASK_STATES as ReadonlyArray<string>).includes(value);
 
@@ -174,10 +186,11 @@ export const taskOfRow = (row: HeadRow, stamps: ReadonlyArray<Stamp> | undefined
   const number = taskNumber(row.number);
   const reviewers = decodeReviewers(parse(row.reviewers_json));
   const dependsOn = decodeTaskIds(parse(row.depends_on_json));
+  const checks = decodeChecks(parse(row.checks_json));
   const id = Schema.decodeUnknownOption(ItemId)(row.task_id);
   if (
     number === undefined || Option.isNone(id) || !isTaskState(row.state) || Result.isFailure(reviewers) ||
-    stamps === undefined || Result.isFailure(dependsOn)
+    stamps === undefined || Result.isFailure(dependsOn) || Result.isFailure(checks)
   ) {
     return undefined;
   }
@@ -194,6 +207,14 @@ export const taskOfRow = (row: HeadRow, stamps: ReadonlyArray<Stamp> | undefined
     stampPolicy: { required: row.stamps_required },
     reviewers: reviewers.success.map(asReviewer),
     stamps,
+    ...(checks.success.length === 0
+      ? {}
+      : {
+        checks: checks.success.map(({ destination, ...run }) => ({
+          ...run,
+          ...(destination === undefined ? {} : { destination: taskNodeId(destination as NodeId) }),
+        })),
+      }),
     ...(row.next_node_id === null ? {} : { next: taskNodeId(row.next_node_id as NodeId) }),
   };
 };
@@ -259,17 +280,17 @@ export const projectTaskFact = (sql: SqlClient.SqlClient, canvas: string, fact: 
       }
     }
     yield* sql`
-      INSERT INTO task_heads (canvas_name, task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since)
+      INSERT INTO task_heads (canvas_name, task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json)
       VALUES (${canvas}, ${task.id}, ${task.number}, ${task.node}, ${task.title}, ${task.body ?? null}, ${task.state},
         ${task.assignee ?? null}, ${task.epoch}, ${task.stampPolicy.required}, ${JSON.stringify(task.reviewers)},
-        ${JSON.stringify(task.dependsOn)}, ${task.next ?? null}, ${at}, ${at}, ${at})
+        ${JSON.stringify(task.dependsOn)}, ${task.next ?? null}, ${at}, ${at}, ${at}, ${JSON.stringify(task.checks ?? [])})
       ON CONFLICT (canvas_name, task_id) DO UPDATE SET
         -- A write that leaves the state as it is keeps when that state began.
         state_since = CASE WHEN task_heads.state = excluded.state THEN task_heads.state_since ELSE excluded.state_since END,
         node_id = excluded.node_id, title = excluded.title, body = excluded.body, state = excluded.state,
         assignee_node_id = excluded.assignee_node_id, epoch = excluded.epoch,
         stamps_required = excluded.stamps_required, reviewers_json = excluded.reviewers_json,
-        depends_on_json = excluded.depends_on_json,
+        depends_on_json = excluded.depends_on_json, checks_json = excluded.checks_json,
         next_node_id = excluded.next_node_id, updated_at = excluded.updated_at`;
     yield* writeTaskStamps(sql, canvas, task);
   });
@@ -284,14 +305,14 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
       Request: Schema.Struct({ canvas: Schema.String, id: Schema.String }),
       Result: HeadRow,
       execute: ({ canvas, id }) => sql`
-        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since FROM task_heads WHERE canvas_name = ${canvas} AND task_id = ${id}`,
+        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json FROM task_heads WHERE canvas_name = ${canvas} AND task_id = ${id}`,
     });
 
     const canvasRows = SqlSchema.findAll({
       Request: Schema.Struct({ canvas: Schema.String }),
       Result: HeadRow,
       execute: ({ canvas }) => sql`
-        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since FROM task_heads WHERE canvas_name = ${canvas} ORDER BY number`,
+        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json FROM task_heads WHERE canvas_name = ${canvas} ORDER BY number`,
     });
 
     const nextNumberRow = SqlSchema.findOneOption({
@@ -417,7 +438,7 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
         Request: Schema.Void,
         Result: HeadRow,
         execute: () => sql`
-          SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since FROM task_heads
+          SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json FROM task_heads
           WHERE canvas_name = ${canvasName}
             AND ${sql.in("node_id", query.nodeIds)}
             AND ${sql.in("state", states)}

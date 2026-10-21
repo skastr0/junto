@@ -11,6 +11,7 @@ import {
   seatNodeId,
   taskNumber,
   taskRefusal,
+  type CheckResult,
   type Reviewer,
   type SeatNodeId,
   type Stamp,
@@ -73,7 +74,17 @@ export type TaskDomainEnv = {
    * task-level rules. Without it no rule is checked, as in a preview.
    */
   readonly rulesUnmet?: (node: TaskNodeId, taskId: TaskId, evidence: CompletionEvidence | undefined) => RulesUnmet | undefined;
+  /**
+   * The checks a finish from `node` toward `next` still needs (the node's
+   * outgoing checks and the next node's incoming ones, `requiredChecks`),
+   * against the check runs at the current epoch. Without it no check is
+   * checked, as in a preview.
+   */
+  readonly checksUnmet?: (node: TaskNodeId, next: TaskNodeId | undefined, results: ReadonlyArray<CheckResult>) => ChecksUnmet | undefined;
 };
+
+/** The required checks a finish found red or never run, by check id, as `checks-unmet` reports them. */
+export type ChecksUnmet = { readonly red: ReadonlyArray<string>; readonly missing: ReadonlyArray<string> };
 
 /** A rule a finish's evidence leaves unanswered, as `rules-unmet` reports it. */
 export type RulesUnmet = {
@@ -168,6 +179,8 @@ export type TaskContext = {
   readonly seatReaches: (seat: SeatNodeId) => boolean;
   /** The first rule in force on this task's node a finish's evidence leaves unanswered; absent, none is checked. */
   readonly rulesUnmet?: (evidence: CompletionEvidence | undefined) => RulesUnmet | undefined;
+  /** The checks toward `next` still red or not run at the current epoch; absent, none is checked. */
+  readonly checksUnmet?: (next: TaskNodeId | undefined, results: ReadonlyArray<CheckResult>) => ChecksUnmet | undefined;
 };
 
 /** A ruling on one task that keeps whatever else the task carries. */
@@ -190,7 +203,7 @@ const resolveNext = (
 };
 
 /** The task without the keys named, still typed as the task: those keys are optional on it. */
-const without = <T extends TaskCore>(task: T, ...keys: ReadonlyArray<"assignee" | "next">): T => {
+const without = <T extends TaskCore>(task: T, ...keys: ReadonlyArray<"assignee" | "next" | "checks">): T => {
   const rest: Partial<T> = { ...task };
   for (const key of keys) delete rest[key];
   return rest as T;
@@ -205,6 +218,7 @@ const layerOf = (task: TaskCore): TaskCore => ({
   stampPolicy: task.stampPolicy,
   reviewers: task.reviewers,
   stamps: task.stamps,
+  ...(task.checks !== undefined ? { checks: task.checks } : {}),
 });
 
 /**
@@ -225,7 +239,7 @@ const layerRules = <T extends TaskCore>(ctx: TaskContext) => {
     if (task.next === undefined) return rule(closed);
     return rule(
       {
-        ...without(closed, "assignee"),
+        ...without(closed, "assignee", "checks"),
         state: "backlog",
         node: task.next,
         epoch: task.epoch + 1,
@@ -308,6 +322,9 @@ export const ruleTaskCommand = <T extends TaskCore>(
       // Statement rules need claims; a requires-review rule is left to the stamps.
       const unmet = ctx.rulesUnmet?.(command.evidence);
       if (unmet !== undefined) return refuse({ kind: "rules-unmet", ...unmet });
+      // Rules first, then checks: each a refusal of its own.
+      const checks = ctx.checksUnmet?.(next.next, (task.checks ?? []).filter((run) => run.epoch === task.epoch));
+      if (checks !== undefined) return refuse({ kind: "checks-unmet", ...checks });
       const finished: T = { ...without(task, "next"), ...(next.next ? { next: next.next } : {}), state: "in-review" };
       if (stampsMet(finished)) return complete(finished);
       const stamped = new Set(currentStamps(finished).map((stamp) => reviewerKey(stamp.reviewer)));
@@ -318,6 +335,24 @@ export const ruleTaskCommand = <T extends TaskCore>(
           reviewer,
         })),
       );
+    }
+    case "check": {
+      if (task.state !== "working") return illegal(task, command);
+      // An incoming run belongs to the node it arrives at: the one named, or the only one.
+      const incoming = command.results.some((run) => run.side === "incoming");
+      const next = incoming || command.next !== undefined ? resolveNext(ctx.downstream, command.next) : { ok: true as const };
+      if (!next.ok) return refuse(next.detail);
+      const runs: ReadonlyArray<CheckResult> = command.results.map((run) => ({
+        ...run,
+        epoch: task.epoch,
+        at: ctx.at,
+        ...(run.side === "incoming" && next.next !== undefined ? { destination: next.next } : {}),
+      }));
+      // A newer run of the same check replaces the older; runs of earlier epochs are dropped.
+      const key = (run: CheckResult) => `${run.side}:${run.checkId}:${run.destination ?? ""}`;
+      const replaced = new Set(runs.map(key));
+      const kept = (task.checks ?? []).filter((run) => run.epoch === task.epoch && !replaced.has(key(run)));
+      return rule({ ...task, checks: [...kept, ...runs] });
     }
     case "cancel":
       // Closed states stay closed: a done layer may already have been sent on.
@@ -364,9 +399,9 @@ export const ruleTaskCommand = <T extends TaskCore>(
       };
       const stamped: T = { ...task, stamps: [...task.stamps, stamp] };
       if (command.verdict === "approve") return settle(stamped);
-      // Changes asked: back to work on a new epoch; every earlier stamp stops counting.
+      // Changes asked: back to work on a new epoch, with no checks run; every earlier stamp stops counting.
       const epoch = task.epoch + 1;
-      return rule({ ...without(stamped, "next"), state: "working", epoch }, [
+      return rule({ ...without(stamped, "next", "checks"), state: "working", epoch }, [
         { kind: "defect", epoch, by: reviewer, ...(command.text !== undefined ? { text: command.text } : {}) },
       ]);
     }
@@ -391,6 +426,7 @@ export const taskContextOf = (state: TaskBoardState, task: Pick<TaskRecord, "id"
   stampDefaultOf: env.stampDefaultOf,
   seatReaches: (seat) => env.seatReaches(seat, task.node),
   ...(env.rulesUnmet === undefined ? {} : { rulesUnmet: (evidence) => env.rulesUnmet!(task.node, task.id, evidence) }),
+  ...(env.checksUnmet === undefined ? {} : { checksUnmet: (next, results) => env.checksUnmet!(task.node, next, results) }),
 });
 
 /**
@@ -508,6 +544,13 @@ export const taskRefusalMessage = (detail: TaskRefusalDetail): string => {
       return `${detail.nodeId} is outside your reach`;
     case "rules-unmet":
       return `${detail.message}. ${detail.nextStep}`;
+    case "checks-unmet": {
+      const parts = [
+        ...(detail.red.length === 0 ? [] : [`red: ${detail.red.join(", ")}`]),
+        ...(detail.missing.length === 0 ? [] : [`not run: ${detail.missing.join(", ")}`]),
+      ];
+      return `Required checks are not green at this epoch (${parts.join("; ")}). Run them and report each with task check`;
+    }
   }
 };
 

@@ -210,3 +210,9 @@ export const STATE_SCHEMA_V36_SQL = stepped(
   STATE_SCHEMA_V35_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 36)!.migrate,
 );
+
+// Version 37 kept the check runs on each task (36 -> 37).
+export const STATE_SCHEMA_V37_SQL = stepped(
+  STATE_SCHEMA_V36_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 37)!.migrate,
+);

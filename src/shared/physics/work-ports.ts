@@ -30,13 +30,12 @@ export type TargetWorkOpName = Exclude<
 export type OldTaskStoreOp = "task.claim" | "task.update";
 
 /**
- * Task ops that keep their 0.9 handlers (checks, rulings and a task's
- * content; plan 04 leaves their behavior as it is) and the old store's
+ * Task ops that keep their 0.9 handlers (rulings and a task's content;
+ * plan 04 leaves their behavior as it is) and the old store's
  * writes. A task node in the caller's reach admits them, as it does the task
  * verbs; content is admitted by the reach of the task node it reads. No port.
  */
 export const TASK_REACH_OPS = [
-  "task.check",
   "rulings",
   "content.path",
   "content.stat",

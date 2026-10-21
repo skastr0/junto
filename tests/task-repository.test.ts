@@ -79,6 +79,7 @@ const env = (over: Partial<TaskCanvasEnv> = {}): TaskCanvasEnv => ({
   downstream: () => [],
   stampDefaultOf: () => ({ required: 0 }),
   rulesUnmet: () => undefined,
+  checksUnmet: () => undefined,
   seatReaches: () => true,
   ...over,
 });
@@ -266,6 +267,16 @@ describe("task repository", () => {
     expect(await since()).toBe(0);
     applied(await submit(command({ kind: "assign", seat: ada }, taskId)));
     expect(await since()).toBeGreaterThanOrEqual(created);
+  });
+
+  it("keeps the check runs on the head and reads them back", async () => {
+    const { taskId } = await create("checked");
+    applied(await submit(command({ kind: "assign", seat: ada }, taskId)));
+    applied(await submit(command({ kind: "start" }, taskId, { actor: adaActor })));
+    const run = { checkId: "unit", side: "outgoing" as const, command: "bun test", exitCode: 0, outputTail: "ok" };
+    applied(await submit(command({ kind: "check", results: [run] }, taskId, { actor: adaActor })));
+    const read = Option.getOrThrow(await withRepo((repo) => repo.get(canvas, taskId)));
+    expect(read.current.checks).toEqual([{ ...run, epoch: 0, at: expect.any(Number) }]);
   });
 
   it("lists by state, archived left out by default", async () => {
