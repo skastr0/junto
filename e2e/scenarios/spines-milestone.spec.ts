@@ -208,6 +208,13 @@ test("spines: every kind beside seats, near, fit and far, dark and bright, block
       const fit = await scaleOf(page);
       await page.locator(".react-flow").screenshot({ path: join(SHOTS, `${theme}-fit-${fit.toFixed(2)}.png`) });
       const far = await zoomTo(page, 0.26);
+      // Every far disc is one size, whatever its node's box (terminal and git are short and wide).
+      const discs = await page.locator(".junto-node[data-look=\"spine\"] .spine-chip").evaluateAll((chips) =>
+        chips.map((chip) => ({ id: chip.closest(".react-flow__node")?.getAttribute("data-id") ?? "", size: chip.getBoundingClientRect().width })),
+      );
+      expect(discs.length, "spine discs at far").toBeGreaterThan(8);
+      const sizes = discs.map((disc) => disc.size);
+      expect(Math.max(...sizes) - Math.min(...sizes), `${theme} far disc sizes ${JSON.stringify(discs)}`).toBeLessThanOrEqual(1);
       await page.mouse.move(5, 5);
       await page.locator(".react-flow").screenshot({ path: join(SHOTS, `${theme}-far-${far.toFixed(2)}.png`) });
       console.log(`${theme}: near ${near.toFixed(2)}, fit ${fit.toFixed(2)}, far ${far.toFixed(2)}`);

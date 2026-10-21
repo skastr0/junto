@@ -315,9 +315,11 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-leaf {
 }
 
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-chip {
-  /* Held at 26 screen px, but never past the node's own box. */
-  width: min(100cqmin, max(28px, calc(26px * var(--node-s, 1))));
-  height: min(100cqmin, max(28px, calc(26px * var(--node-s, 1))));
+  /* Held at 26 screen px and the same size on every node: capped by the
+     node's width, never its height, so a short wide box (terminal, git, a
+     page) does not shrink its disc below the rest. */
+  width: min(100cqw, max(28px, calc(26px * var(--node-s, 1))));
+  height: min(100cqw, max(28px, calc(26px * var(--node-s, 1))));
   justify-content: center;
   padding: 0;
   border: calc(1.5px * var(--node-s, 1)) solid color-mix(in oklab, var(--color-ink) 55%, transparent);
