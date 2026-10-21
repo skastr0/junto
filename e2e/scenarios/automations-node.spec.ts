@@ -121,3 +121,113 @@ test("the Automations node: create, edit, stale edit, toggle, run now, history, 
     await junto.close();
   }
 });
+
+/** Where keyboard focus sits: what a screen reader would be on. */
+const focusAt = (page: Page): Promise<string> =>
+  page.evaluate(() => {
+    const element = document.activeElement;
+    if (!element || element === document.body) return "body";
+    const name = element.getAttribute("aria-label") ?? element.textContent?.trim().slice(0, 40) ?? "";
+    const role = element.getAttribute("role") ?? element.tagName.toLowerCase();
+    return `${role} "${name}"${element.closest('[data-testid="automations-node"]') ? "" : " (outside the pane)"}`;
+  });
+
+test("the Automations node by keyboard: create, pick, save, toggle, run now, archive", async () => {
+  await mkdir(SHOTS, { recursive: true });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: fixture } });
+  const landed: Record<string, string> = {};
+  // What a screen reader is given: the pane's accessibility tree at each state.
+  const tree = async (pane: ReturnType<Page["getByTestId"]>, name: string): Promise<void> => {
+    await writeFile(join(SHOTS, `aria-${name}.yaml`), await pane.ariaSnapshot());
+  };
+  try {
+    const { page } = junto;
+    await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
+    await expect(page.locator(`.react-flow__node[data-id="${NODE}"]`)).toBeVisible({ timeout: 30_000 });
+    await page.getByRole("button", { name: /fit all/i }).click();
+    await page.locator(`.react-flow__node[data-id="${NODE}"]`).dblclick();
+    const pane = page.getByTestId("automations-node");
+    await expect(pane).toBeVisible({ timeout: 20_000 });
+    landed.opened = await focusAt(page);
+
+    // Create with Enter on the empty state's button.
+    await pane.getByRole("button", { name: "New automation" }).last().focus();
+    await page.keyboard.press("Enter");
+    const editor = pane.getByTestId("automation-editor");
+    await expect(editor).toBeVisible();
+    landed.created = await focusAt(page);
+
+    await editor.getByLabel("Automation name").focus();
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.type("Keyboard standup");
+    // The mention picker: type, the first match is highlighted, Enter puts it in.
+    await editor.getByLabel("Mail to").focus();
+    await page.keyboard.type("@lead");
+    const mailTo = editor.getByLabel("Mail to");
+    await expect(mailTo).toHaveAttribute("aria-expanded", "true");
+    await expect(mailTo).toHaveAttribute("aria-activedescendant", /.+/);
+    await page.keyboard.press("Enter");
+    await expect(mailTo).toHaveAttribute("aria-expanded", "false");
+    await expect(mailTo).toHaveValue(/@lead/);
+    landed.mailToValue = JSON.stringify(await mailTo.inputValue());
+    // Tab from the picker reaches the mail text, the next field.
+    await page.keyboard.press("Tab");
+    landed.tabFromMailTo = await focusAt(page);
+    await editor.getByLabel("Mail text").focus();
+    await page.keyboard.type("Post your plan.");
+    await shot(page, "10-keyboard-draft-dark");
+    await tree(pane, "draft");
+
+    // Save with Enter.
+    await editor.getByRole("button", { name: "Save", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await expect(pane.getByRole("button", { name: /Keyboard standup/ })).toBeVisible({ timeout: 10_000 });
+    landed.saved = await focusAt(page);
+    await tree(pane, "saved");
+
+    // Toggle with Space.
+    await editor.getByRole("switch", { name: "Automation on" }).focus();
+    await page.keyboard.press("Space");
+    await expect(editor.getByText("On", { exact: true })).toBeVisible({ timeout: 10_000 });
+    landed.toggled = await focusAt(page);
+
+    // Run now with Enter.
+    await pane.getByRole("button", { name: "Run now" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(pane.locator(".automation-history__row")).toHaveCount(1, { timeout: 15_000 });
+    landed.ran = await focusAt(page);
+    await shot(page, "11-keyboard-ran-dark");
+
+    // Archive: Enter opens the confirm, Escape closes it, then confirm by keyboard.
+    await pane.getByRole("button", { name: "Archive", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    const confirm = page.getByRole("alertdialog", { name: /Archive Keyboard standup/ });
+    await expect(confirm).toBeVisible();
+    landed.confirmOpened = await focusAt(page);
+    await writeFile(join(SHOTS, "aria-confirm.yaml"), await confirm.ariaSnapshot());
+    await shot(page, "12-keyboard-confirm-dark");
+    await page.keyboard.press("Escape");
+    await expect(confirm).toHaveCount(0);
+    await expect(pane).toBeVisible();
+    landed.confirmEscaped = await focusAt(page);
+    await page.keyboard.press("Enter");
+    await expect(confirm).toBeVisible();
+    await confirm.getByRole("button", { name: "Archive", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await expect(pane.getByText("No automations yet")).toBeVisible({ timeout: 10_000 });
+    landed.archived = await focusAt(page);
+    await shot(page, "13-keyboard-archived-dark");
+
+    // No press leaves the keyboard on the body (07a93b9a6).
+    expect(landed).toMatchObject({
+      tabFromMailTo: 'input "Mail text"',
+      toggled: 'switch "Automation on"',
+    });
+    for (const step of ["saved", "ran", "confirmEscaped", "archived"] as const) {
+      expect(landed[step], step).not.toBe("body");
+    }
+  } finally {
+    await writeFile(join(SHOTS, "keyboard-focus.json"), `${JSON.stringify(landed, null, 2)}\n`);
+    await junto.close();
+  }
+});
