@@ -25,7 +25,9 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { Page } from "@playwright/test";
+import { mentionLink } from "../../src/shared/mention";
 import type { Region } from "../../src/shared/model";
+import { asNodeId } from "../../src/shared/physics/schema";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 
 import { expect, launchJunto, test } from "../harness/launch";
@@ -65,11 +67,14 @@ const addedLine = (detail: ReturnType<Page["getByTestId"]>, index: number) =>
 
 /** Move to the plus beside an added line the way a hand does; returns where it is. */
 const reachPlusOn = async (page: Page, detail: ReturnType<Page["getByTestId"]>, index: number): Promise<{ x: number; y: number }> => {
-  await addedLine(detail, index).hover();
-  const plus = detail.locator("[data-utility-button]").first();
-  await expect(plus).toBeVisible();
-  const box = (await plus.boundingBox())!;
-  const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  // The plus shows while its line is hovered; a render between hover and measure hides it, so both are retried together.
+  let box: { x: number; y: number; width: number; height: number } | null = null;
+  await expect(async () => {
+    await addedLine(detail, index).hover({ timeout: 2_000 });
+    box = await detail.locator("[data-utility-button]").first().boundingBox({ timeout: 2_000 });
+    expect(box).not.toBeNull();
+  }).toPass({ timeout: 20_000 });
+  const at = { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
   await page.mouse.move(at.x, at.y, { steps: 6 });
   return at;
 };
@@ -207,12 +212,24 @@ test("[fake-tui] a review reaches its seat as one thread, and a mentioned seat g
       "2 comments follow in this thread, one mail each. The line numbers are from the state named above; check them against your working copy.",
     ].join("\n");
     const onLine3 = ["parser.ts, line 3", "   +  const kept = parts.filter(Boolean);", "Comment: Why keep a second name here?"].join("\n");
-    const onLine4 = ["parser.ts, line 4", "   +  return kept;", "Comment: Brook should check this @Brook"].join("\n");
-    await expect.poll(async () => {
-      const log = await seatA.stdinLog();
-      return log.includes(root) && log.includes(onLine3) && log.includes(onLine4);
-    }, { timeout: 20_000 }).toBe(true);
-    await expect.poll(async () => (await seatB.stdinLog()).includes(onLine4), { timeout: 20_000 }).toBe(true);
+    // A mention is the link in the text, and mail is typed as written: the seat reads the link.
+    const onLine4 = [
+      "parser.ts, line 4",
+      "   +  return kept;",
+      `Comment: Brook should check this ${mentionLink({ kind: "seat", nodeId: asNodeId("brook") }, "@Brook", CANVAS)}`,
+    ].join("\n");
+    try {
+      await expect.poll(async () => {
+        const log = await seatA.stdinLog();
+        return log.includes(root) && log.includes(onLine3) && log.includes(onLine4);
+      }, { timeout: 20_000 }).toBe(true);
+      await expect.poll(async () => (await seatB.stdinLog()).includes(onLine4), { timeout: 20_000 }).toBe(true);
+    } catch (error) {
+      // What each seat was typed, kept with the run's results for a diff against the rows above.
+      await test.info().attach("atlas-stdin.txt", { body: await seatA.stdinLog(), contentType: "text/plain" });
+      await test.info().attach("brook-stdin.txt", { body: await seatB.stdinLog(), contentType: "text/plain" });
+      throw error;
+    }
     const a = await seatA.stdinLog();
     const b = await seatB.stdinLog();
     expect(reviewsIn(a)).toBe(1);
