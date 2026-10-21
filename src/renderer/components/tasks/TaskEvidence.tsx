@@ -31,7 +31,8 @@ const useEvidenceHeads = (canvasName: string, nodeId: string): Heads => {
           if (live && mine === latest) setHeads({ state: "ready", heads: list });
         })
         .catch(() => {
-          if (live && mine === latest) setHeads({ state: "failed" });
+          // A failed re-read keeps the last good list: real titles never turn into a failure.
+          if (live && mine === latest) setHeads((prev) => (prev.state === "ready" ? prev : { state: "failed" }));
         });
     };
     read();
@@ -58,9 +59,10 @@ function EvidenceArtifacts({
   return (
     <>
       {artifactIds.map((id) => {
-        if (read.state === "loading") return <ResourceChip key={id} kind="artifact" label="Loading" pending />;
-        // A failed read is not a gone artifact: say it could not be read, and the artifact may be fine.
-        if (read.state === "failed") return <ResourceChip key={id} kind="artifact" label="Could not be read" missing />;
+        // `pending` means a queued command to a screen reader, which this is not.
+        if (read.state === "loading") return <ResourceChip key={id} kind="artifact" label="Loading" />;
+        // A failed read is not a gone artifact: the artifact may be fine, so it is not called unavailable.
+        if (read.state === "failed") return <ResourceChip key={id} kind="artifact" label="Could not be read" />;
         const head = read.heads.find((entry) => entry.artifact.artifactId === id);
         return head === undefined ? (
           <ResourceChip key={id} kind="artifact" label="Gone" missing />

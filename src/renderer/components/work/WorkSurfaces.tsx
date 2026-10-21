@@ -162,7 +162,7 @@ export function TasksCard({
           data-testid="tasks-glance-completed"
           aria-label={`${glance.backlog} in backlog, ${glance.done} done`}
         >
-          {glance.backlog > 0 ? `${glance.backlog} backlog - ${glance.done} done` : `${glance.done} done`}
+          {glance.backlog > 0 ? `${glance.backlog} backlog, ${glance.done} done` : `${glance.done} done`}
         </span>
       </div>
       <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">

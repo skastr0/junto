@@ -159,12 +159,53 @@ describe("evidence chips and the artifact read", () => {
     expect(host.textContent).not.toContain("Loading");
   });
 
+  it("names the chips for a screen reader truthfully: loading is not queued, and a gone artifact is unavailable", async () => {
+    let land: (heads: Awaited<ReturnType<ArtifactsSource["list"]>>) => void = () => undefined;
+    setArtifactsSource({ list: () => new Promise((resolve) => (land = resolve)), onChanged: () => () => undefined } as unknown as ArtifactsSource);
+    await act(async () => {
+      root.render(<TaskEvidence canvasName="c" evidence={one} />);
+    });
+    expect(host.textContent).toContain("Loading");
+    expect(host.textContent).not.toContain("queued");
+    await act(async () => land([]));
+    expect(host.textContent).toContain("unavailable");
+  });
+
+  it("keeps the last good titles when a later read fails", async () => {
+    let calls = 0;
+    let change: () => void = () => undefined;
+    setArtifactsSource({
+      list: async () => {
+        calls += 1;
+        if (calls > 1) throw new Error("dropped");
+        return [{ artifact: { artifactId: "a1", title: "Release notes", type: "document" } } as never];
+      },
+      onChanged: (listener: () => void) => {
+        change = listener;
+        return () => undefined;
+      },
+    } as unknown as ArtifactsSource);
+    await act(async () => {
+      root.render(<TaskEvidence canvasName="c" evidence={one} />);
+    });
+    await act(async () => undefined);
+    expect(host.textContent).toContain("Release notes");
+    await act(async () => change());
+    await act(async () => undefined);
+    expect(calls).toBe(2);
+    expect(host.textContent).toContain("Release notes");
+    expect(host.textContent).not.toContain("Could not be read");
+  });
+
   it("says a failed read could not be read, which is not an artifact that is gone", async () => {
     await mount(async () => {
       throw new Error("The bridge dropped.");
     });
     expect(host.textContent).toContain("Could not be read");
     expect(host.textContent).not.toContain("Gone");
+    // The artifact may be fine, so a failed read is not called unavailable or queued.
+    expect(host.textContent).not.toContain("unavailable");
+    expect(host.textContent).not.toContain("queued");
   });
 
   it("says an artifact the node no longer holds is gone", async () => {
