@@ -149,8 +149,9 @@ connection it opens. Shape reserved now so nothing in 0.10 blocks it:
   facts start on each seat's own machine. Cost: with the editing machine's
   lid closed, schedules stop for every machine. On return a schedule fires
   once for its latest missed slot, with `when` rechecked and `limits`
-  applied. It never fires in a burst; the earlier missed slots are recorded
-  as skipped. This is today's cron coalescing
+  applied. It never fires in a burst; that one firing records how many
+  earlier slots were missed (a count, capped at `MISSED_SLOTS_COUNTED`),
+  never a row per slot. This is today's cron coalescing
   (`src/main/junto/kernel/cycle.ts:406`). The automation
   node is the mail and ruling principal. Loop safety catches direct facts
   only; a loop through a seat (mail, the seat acts, its fact fires the
