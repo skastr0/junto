@@ -37,7 +37,7 @@ const nodes: Node[] = [
   decode({ kind: "link", id: "ref", url: "https://effect.website/docs", ...at(620, 460, 240, 80) }),
   { ...modelNote("note", "# Release notes\nShip the seat rings first, then the card pass.\n- rings move\n- crest for overseers", 900, 480), height: 100 },
   decode({ kind: "label", id: "label", text: "Staging", ...at(1260, 480, 160, 40) }),
-  decode({ kind: "peer", id: "remote", label: "reviewer", host: "macbook", seatId: "seat-remote-1", ...at(40, 340, 240, 96) }),
+  decode({ kind: "peer", id: "remote", label: "reviewer", host: "macbook", seatId: `seat_${"a".repeat(64)}`, ...at(40, 340, 240, 96) }),
   decode({ kind: "stub", id: "stub-git", of: "git", label: "other repo", ...at(1260, 300, 200, 80) }),
   decode({ kind: "stub", id: "stub-page", of: "page", host: "macbook", ...at(1260, 40, 200, 80) }),
 ];
