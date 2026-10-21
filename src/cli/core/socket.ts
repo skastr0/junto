@@ -273,6 +273,10 @@ const ndjsonCall = (
     });
   });
 
+/** A core error's next_step, carried only when it is text: the CLI error takes no undefined. */
+const nextStepOf = (details: { readonly next_step?: unknown } | undefined): { readonly next_step?: string } =>
+  typeof details?.next_step === "string" ? { next_step: details.next_step } : {};
+
 export const WorkSocketLive = Layer.succeed(
   WorkSocket,
   WorkSocket.of({
@@ -292,7 +296,7 @@ export const WorkSocketLive = Layer.succeed(
             return yield* Effect.fail(
               new AuthError({
                 message: envelope.error.message,
-                next_step: envelope.error.details?.next_step as string | undefined,
+                ...nextStepOf(envelope.error.details),
               }),
             );
           }
@@ -300,7 +304,7 @@ export const WorkSocketLive = Layer.succeed(
             return yield* Effect.fail(
               new RuntimeDown({
                 message: envelope.error.message,
-                next_step: envelope.error.details?.next_step as string | undefined,
+                ...nextStepOf(envelope.error.details),
               }),
             );
           }
