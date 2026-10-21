@@ -109,7 +109,6 @@ export const answerAgentSignal = (
         return refused(appended.message);
       }
       messageId = appended.data.messageId;
-      yield* sendAnswerCopies(signal, copies.seatName ?? signal.nodeId, text, messageId, copies.seats);
     }
 
     const answered = yield* Effect.result(signals.answer(signalId, text, refs));
@@ -119,6 +118,8 @@ export const answerAgentSignal = (
       return refused(repositoryMessage(answered.failure));
     }
     yield* releaseSignalAttachments(answered.success);
+    // Copies go only once the answer stands: a refused answer told no one.
+    if (messageId !== undefined) yield* sendAnswerCopies(signal, copies.seatName ?? signal.nodeId, text, messageId, copies.seats);
     return {
       ok: true as const,
       signal: answered.success,

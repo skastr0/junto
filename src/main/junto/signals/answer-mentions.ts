@@ -69,7 +69,8 @@ export const planAnswerCopies = (signal: Pick<AgentSignal, "canvasName" | "nodeI
     const wired = yield* Effect.result(
       mentionableSeats(signal.canvasName, signal.nodeId).pipe(Effect.provideService(ModelService, model.value)),
     );
-    const connected = new Set(wired._tag === "Success" ? wired.success.map((entry) => entry.nodeId) : []);
+    if (wired._tag === "Failure") return { ok: false as const, message: `the seats wired to ${seatName} could not be read to copy mentioned seats` };
+    const connected = new Set(wired.success.map((entry) => entry.nodeId));
     const copies = answerCopies(text, seat, kindOf, connected);
     if (copies.ok) return { ok: true as const, seats: copies.seats, seatName };
     return {
