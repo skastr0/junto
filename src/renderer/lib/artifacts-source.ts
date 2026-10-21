@@ -14,7 +14,10 @@
  */
 import { useEffect, useRef, useState } from "react";
 import type { Anchor } from "@shared/thread-subject";
-import { type ArtifactOp, type ArtifactVersion, type ArtifactVersionRecord } from "@shared/artifact";
+import { Result } from "effect";
+import { canonicalJson } from "@shared/work-canonical-json";
+import type { ContentRef } from "@shared/content";
+import { type ArtifactBody, type ArtifactOp, ruleArtifactEdit, type ArtifactVersion, type ArtifactVersionRecord } from "@shared/artifact";
 import {
   artifactDomain,
   type ArtifactEntry,
@@ -77,12 +80,31 @@ export interface ArtifactsSource {
 
 const LOCAL_WRITER = "local" as InstallationId;
 
+/**
+ * The stand-in's body ref: a 256-bit FNV-1a digest of the canonical body,
+ * not a cryptographic one. Main's domain uses sha256 over the same bytes.
+ */
+export const localBodyRef = (body: ArtifactBody): ContentRef => {
+  const bytes = new TextEncoder().encode(canonicalJson(body));
+  let hex = "";
+  for (let lane = 0; lane < 8; lane += 1) {
+    let hash = (0x811c9dc5 ^ lane) >>> 0;
+    for (const byte of bytes) hash = Math.imul(hash ^ byte, 0x01000193) >>> 0;
+    hex += hash.toString(16).padStart(8, "0");
+  }
+  return {
+    sha256: hex as ContentRef["sha256"],
+    byteLength: bytes.byteLength as ContentRef["byteLength"],
+    mediaType: "application/json" as ContentRef["mediaType"],
+  };
+};
+
 /** An in-memory source, as the stand-in and for tests. Every write is `actor`'s. */
 export const makeLocalArtifactsSource = (
   actor: ResourceActor = { kind: "operator" },
   now: () => number = Date.now,
 ): ArtifactsSource => {
-  const domain = artifactDomain(now);
+  const domain = artifactDomain({ now, bodyRef: localBodyRef });
   const ruled = new Map<string, Ruled<ArtifactState, ArtifactFact>>();
   const versions = new Map<ItemId, ReadonlyArray<ArtifactVersionRecord>>();
   const threads = new Map<string, ArtifactThread>();
@@ -92,27 +114,57 @@ export const makeLocalArtifactsSource = (
   };
   const ruledOf = (canvasName: string) => ruled.get(canvasName) ?? emptyRuled<ArtifactState, ArtifactFact>(emptyArtifactState());
 
-  const record = (fact: ArtifactFact): void => {
+  const record = (fact: ArtifactFact, state: ArtifactState): void => {
     const push = (artifactId: ItemId, entry: ArtifactVersionRecord): void => {
       versions.set(artifactId, [entry, ...(versions.get(artifactId) ?? [])]);
     };
+    // The stand-in keeps every version's body by hand; main serves them by bodyRef.
     if (fact.fact === "artifact.created") {
+      const body = state.get(fact.artifact.artifactId)?.body;
+      if (body == null) return;
       push(fact.artifact.artifactId, {
         artifactId: fact.artifact.artifactId,
         version: fact.artifact.version,
         author: fact.artifact.createdBy,
         at: fact.artifact.updatedAt,
-        body: fact.body,
+        body,
       });
     } else if (fact.fact === "artifact.edited") {
-      push(fact.artifactId, { artifactId: fact.artifactId, version: fact.version, author: fact.author, at: fact.at, body: fact.body });
+      const body = state.get(fact.artifactId)?.body;
+      if (body == null) return;
+      push(fact.artifactId, { artifactId: fact.artifactId, version: fact.version, author: fact.author, at: fact.at, body });
     }
+  };
+
+  /**
+   * A body too big to ride in its fact folds as not loaded; main loads it by
+   * ref. The stand-in has no content store, so it puts back the body the op
+   * itself made.
+   */
+  const hydrate = (
+    state: ArtifactState,
+    itemId: ItemId,
+    before: ArtifactEntry | undefined,
+    op: ArtifactOp,
+  ): ArtifactState => {
+    const entry = state.get(itemId);
+    if (entry === undefined || entry.body !== null) return state;
+    let body: ArtifactBody | null = null;
+    if (op.op === "create") body = op.body;
+    else if (op.op === "edit" && op.edit.kind === "replace") body = op.edit.body;
+    else if (op.op === "edit" && before?.body != null) {
+      const since = before.edits.slice(Math.max(0, op.edit.baseVersion + 1 - before.editsFrom));
+      const next = ruleArtifactEdit({ version: before.artifact.version, body: before.body }, op.edit, since);
+      body = Result.isSuccess(next) ? next.success.body : null;
+    }
+    return body === null ? state : new Map(state).set(itemId, { ...entry, body });
   };
 
   return {
     list: async (canvasName, nodeId) => artifactsOnNode(ruledOf(canvasName).state, nodeId),
     history: async (_canvasName, artifactId) => versions.get(artifactId) ?? [],
     apply: async (canvasName, nodeId, itemId, op) => {
+      const before = ruledOf(canvasName).state.get(itemId);
       const result = rule(
         domain,
         ruledOf(canvasName),
@@ -128,9 +180,10 @@ export const makeLocalArtifactsSource = (
         },
         { inReach: () => true },
       );
-      ruled.set(canvasName, result.ruled);
+      const state = hydrate(result.ruled.state, itemId, before, op);
+      ruled.set(canvasName, { ...result.ruled, state });
       if (result.ruling.kind === "applied") {
-        result.ruling.facts.forEach(record);
+        for (const fact of result.ruling.facts) record(fact, state);
         changed();
       }
       return result.ruling;

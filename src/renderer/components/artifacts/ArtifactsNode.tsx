@@ -261,6 +261,7 @@ function SelectedArtifact({
 
   const base = artifact.version as ArtifactVersion;
   const editor = (() => {
+    if (body === null) return <PaneEmpty title="Loading this version" hint="Its body is on its way from the editing machine." />;
     switch (body.type) {
       case "document":
         return (

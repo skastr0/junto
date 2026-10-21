@@ -87,6 +87,21 @@ describe("local artifacts source", () => {
     expect(entry?.body).toEqual({ type: "document", markdown: "first" });
   });
 
+  it("keeps a body too big for its fact, as main does by ref", async () => {
+    const source = makeLocalArtifactsSource();
+    const doc = mintItemId();
+    const big = "x".repeat(60 * 1024);
+    await source.apply("c", node, doc, { op: "create", title: "Big", body: { type: "document", markdown: big } });
+    const [entry] = await source.list("c", node);
+    expect(entry?.body).toEqual({ type: "document", markdown: big });
+    const edited = await source.apply("c", node, doc, {
+      op: "edit",
+      edit: { kind: "patch", type: "document", baseVersion: 1 as never, patches: [{ op: "splice", at: 0, remove: 1, insert: "y" }] },
+    });
+    expect(edited.kind).toBe("applied");
+    expect((await source.history("c", doc)).map((record) => record.version)).toEqual([2, 1]);
+  });
+
   it("threads: a whole anchor is stored as no anchor, replies join, resolve toggles", async () => {
     const source = makeLocalArtifactsSource();
     const doc = mintItemId();
