@@ -18,6 +18,7 @@ import {
   QUEUE_MAX_ROWS,
   RefusalReason,
   ResourceActor,
+  ResourceKind,
   type CommandKey,
   type ResourceCommand,
   commandKey,
@@ -52,9 +53,14 @@ export const CommandQueuedResult = Schema.Struct({
 );
 export type CommandQueuedResult = typeof CommandQueuedResult.Type;
 
-/** The ids of the facts a ruling applied, all the editing machine's own, written in the ruling's transaction. */
-const RuledFactSeqs = Schema.Array(Schema.String.pipe(Schema.check(Schema.isPattern(/^[1-9][0-9]*$/)), Schema.check(Schema.isMaxLength(32))))
-  .pipe(Schema.check(Schema.isMinLength(1)));
+/**
+ * The facts a ruling applied, as its domain wrote them. Like the op, the
+ * transport does not know the domains: every machine folds them through the
+ * projection of the domain `kind` names, which decodes them with its closed
+ * fact schema. They travel in the ruling's own row, so every fact carries its
+ * opId and is written in the ruling's transaction.
+ */
+const RuledFacts = Schema.Array(Schema.Json).pipe(Schema.check(Schema.isMinLength(1)));
 
 const rulingKeyFields = {
   /** The machine whose `command.queued` row this rules. */
@@ -67,7 +73,8 @@ const rulingKeyFields = {
 export const RulingAppliedResult = Schema.Struct({
   operation: Schema.Literal("ruling.applied"),
   ...rulingKeyFields,
-  facts: RuledFactSeqs,
+  kind: ResourceKind,
+  facts: RuledFacts,
 });
 export type RulingAppliedResult = typeof RulingAppliedResult.Type;
 

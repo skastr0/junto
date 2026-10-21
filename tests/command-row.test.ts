@@ -81,7 +81,7 @@ const refused = row(
 
 const applied = row(
   editor,
-  { operation: "ruling.applied", writer: mini, opId, actor: command.actor, facts: ["39"] },
+  { operation: "ruling.applied", writer: mini, opId, actor: command.actor, kind: "task", facts: [{ fact: "task.started" }] },
   { kind: "ruling", itemId: opId, sink: { canvasName: "factory", nodeId: "board-1" } },
   "40",
 );
