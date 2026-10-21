@@ -388,6 +388,8 @@ export type ControlRouteName = keyof typeof CONTROL_ROUTES;
 
 export const CONTROL_TOKEN_HEADER = "x-junto-token";
 export const CONTROL_REQUEST_ID_HEADER = "x-junto-request-id";
+/** Seat generation credential (`JUNTO_WORK_TOKEN`); identity for protected routes. */
+export const CONTROL_SEAT_CREDENTIAL_HEADER = "x-junto-seat-credential";
 
 /** Child-only environment inputs. Values never enter argv or query strings. */
 export const CONTROL_HOME_ENV = "JUNTO_BROWSER_HOME";

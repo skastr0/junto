@@ -63,6 +63,7 @@ import { releaseDemoRuntimeIsolation } from "./junto/demo/runtime-isolation";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
 import { ModelService } from "./junto/model/service";
 import { ModelRecords } from "./junto/model/records";
+import { PausePlane } from "./junto/pause-plane";
 import { resolveControlHome } from "./junto/control-home";
 import { registerDemoIpcHandlers } from "./junto/demo/ipc";
 import { registerNotificationIpc } from "./junto/notifications/ipc";
@@ -1783,6 +1784,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           if (admissionCleanupRan) acquiredCanvasUnsubscribe();
           else canvasUnsubscribe = acquiredCanvasUnsubscribe;
 
+          const pausePlane = await AppRuntime.runPromise(PausePlane);
           browserControl = await startBrowserControlServer({
             sessions: composition.sessions,
             capabilities: composition.registry,
@@ -1791,6 +1793,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             home: browserControlHome,
             edgeGrant,
             listCanvasModels,
+            // The work socket's pause source, read on every request.
+            canvasPlaying: (canvasName) => pausePlane.stateFor(canvasName).playing,
             // A seat's box comment, posted as the seat the grant names.
             postPageBoxComment: (input) =>
               mainAuthoringGate.run("control.browser.box-comment", () =>

@@ -8,6 +8,7 @@ import {
   CONTROL_HOME_ENV,
   CONTROL_REQUEST_ID_HEADER,
   CONTROL_ROUTES,
+  CONTROL_SEAT_CREDENTIAL_HEADER,
   CONTROL_TOKEN_HEADER,
   controlErr,
   controlSocketPath,
@@ -22,14 +23,16 @@ import {
   BROWSER_CONTROL_MAX_REQUEST_BODY_BYTES,
   BROWSER_CONTROL_MAX_RESPONSE_BYTES,
 } from "../../shared/browser-limits";
+import { WORK_TOKEN_ENV } from "../../shared/work-control";
 import { browserWireError } from "./browser-errors";
 import { WireError } from "./errors";
 
 /**
  * The browser control plane as `junto browser` speaks it: HTTP over the
- * app-hosted unix socket, carrying the owner-local transport token. The
- * server admits the calling process through its navigates edge grant; this
- * side holds no capability secret. A dead socket is the typed RuntimeDown.
+ * app-hosted unix socket, carrying the owner-local transport token and the
+ * seat generation credential. The server admits the seat that credential
+ * names through its navigates edge grant; this side holds no capability
+ * secret. A dead socket is the typed RuntimeDown.
  */
 
 // Bounds the whole round trip, so a page script that never resolves cannot
@@ -56,6 +59,7 @@ const httpOverSocket = (
   socketPath: string,
   route: { method: string; path: string },
   token: string,
+  seatCredential: string | undefined,
   body: unknown,
 ): Promise<ControlEnvelope<unknown>> =>
   new Promise((resolve) => {
@@ -95,6 +99,9 @@ const httpOverSocket = (
           "content-type": "application/json",
           [CONTROL_TOKEN_HEADER]: token,
           [CONTROL_REQUEST_ID_HEADER]: requestId,
+          ...(seatCredential === undefined
+            ? {}
+            : { [CONTROL_SEAT_CREDENTIAL_HEADER]: seatCredential }),
           ...(encodedBody === undefined
             ? {}
             : { "content-length": String(Buffer.byteLength(encodedBody)) }),
@@ -197,6 +204,14 @@ const controlHome = (): Result.Result<string, WireError> => {
   return Result.succeed(normalize(configured));
 };
 
+// The seat's credential from its environment, never argv or logs. Absent, the
+// request still goes: token-only routes answer, and protected ones refuse it
+// as an AuthError in main's words.
+const seatCredential = (): string | undefined => {
+  const value = process.env[WORK_TOKEN_ENV]?.trim() ?? "";
+  return value.length > 0 ? value : undefined;
+};
+
 /** One control route, its data on success and a WireError otherwise. */
 export const callBrowserControl = (
   route: ControlRouteName,
@@ -211,7 +226,7 @@ export const callBrowserControl = (
         browserWireError(controlErr("runtime_down", "control token unavailable, is the app running?").error),
     });
     const envelope = yield* Effect.tryPromise({
-      try: () => httpOverSocket(controlSocketPath(home), CONTROL_ROUTES[route], token, body),
+      try: () => httpOverSocket(controlSocketPath(home), CONTROL_ROUTES[route], token, seatCredential(), body),
       // A request that throws before it is sent is a failed call, not a defect.
       catch: () => browserWireError(controlErr("failed", "browser control request failed").error),
     });

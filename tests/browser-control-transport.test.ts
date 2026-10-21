@@ -13,6 +13,7 @@ import {
   CONTROL_MAX_BODY_BYTES,
   CONTROL_MAX_HEADER_BYTES,
   CONTROL_REQUEST_ID_HEADER,
+  CONTROL_SEAT_CREDENTIAL_HEADER,
   CONTROL_TOKEN_HEADER,
   controlDir,
   controlShotsDir,
@@ -90,11 +91,12 @@ const admittingEdgeGrant = (
   expectedPrincipal: BrowserAutomationPrincipal,
 ): EdgeGrantService => ({
   processMap: makeProcessIdentityMap(),
-  admitSocket: vi.fn(async () => ({
+  admitCredential: vi.fn(async () => ({
     ok: true as const,
     secret,
     expectedPrincipal,
     principal: { kind: "agent" as const, agentKey: AGENT_KEY },
+    canvasName: "work",
     targetCount: 1,
   })),
   admitPrincipal: async () => ({
@@ -102,6 +104,7 @@ const admittingEdgeGrant = (
     secret,
     expectedPrincipal,
     principal: { kind: "agent", agentKey: AGENT_KEY },
+    canvasName: "work",
     targetCount: 1,
   }),
   clear: () => {},
@@ -111,7 +114,7 @@ const admittingEdgeGrant = (
 
 const denyingEdgeGrant = (): EdgeGrantService => ({
   processMap: makeProcessIdentityMap(),
-  admitSocket: async () => ({
+  admitCredential: async () => ({
     ok: false,
     denial: "process_unbound",
     message: "connecting process is not a registered agent process — open the agent in Junto first",
@@ -214,6 +217,7 @@ const startStack = async (
       resolvePageTarget: resolver,
       version: "transport-test",
       home: root,
+      canvasPlaying: () => true,
       edgeGrant,
       listCanvasModels,
     },
@@ -367,13 +371,33 @@ describe("browser control Unix transport", () => {
       excess.write(requestHead("GET", "/profiles", protectedHeaders(token)));
     });
     await new Promise<void>((resolve) => excess.once("close", resolve));
-    expect(edgeGrant.admitSocket).not.toHaveBeenCalled();
+    expect(edgeGrant.admitCredential).not.toHaveBeenCalled();
     first.destroy();
     await new Promise<void>((resolve) => first.once("close", resolve));
     await new Promise<void>((resolve) => setTimeout(resolve, 20));
     const response = await rawExchange(server.socketPath, [requestHead("GET", "/doctor", [[CONTROL_TOKEN_HEADER, token]])], true);
     expect(statusOf(response)).toBe(200);
   });
+
+  it("admits protected routes on the presented seat credential and leaves /doctor token-only", async () => {
+    const root = await newRoot();
+    const { server, token, edgeGrant } = await startStack(root);
+    const doctor = await rawExchange(server.socketPath, [requestHead("GET", "/doctor", [[CONTROL_TOKEN_HEADER, token]])], true);
+    expect(statusOf(doctor)).toBe(200);
+    expect(edgeGrant.admitCredential).not.toHaveBeenCalled();
+
+    const credential = `junto-seat-${"a".repeat(43)}`;
+    await rawExchange(
+      server.socketPath,
+      [requestHead("GET", "/profiles", [...protectedHeaders(token), [CONTROL_SEAT_CREDENTIAL_HEADER, credential]])],
+      true,
+    );
+    expect(edgeGrant.admitCredential).toHaveBeenLastCalledWith(credential);
+
+    await rawExchange(server.socketPath, [requestHead("GET", "/profiles", protectedHeaders(token))], true);
+    expect(edgeGrant.admitCredential).toHaveBeenLastCalledWith(undefined);
+  });
+
   it("normalizes the control directory, token, shots, and socket to owner-only modes", async () => {
     const root = await newRoot();
     await mkdir(controlDir(root), { recursive: true, mode: 0o777 });
@@ -449,7 +473,7 @@ describe("browser control Unix transport", () => {
     let clearCalls = 0;
     const edgeGrant: EdgeGrantService = {
       processMap: makeProcessIdentityMap(),
-      admitSocket: async () => ({
+      admitCredential: async () => ({
         ok: false,
         denial: "closed",
         message: "browser control is closing",
@@ -473,6 +497,7 @@ describe("browser control Unix transport", () => {
         resolvePageTarget,
         version: "transport-test",
         home: root,
+        canvasPlaying: () => true,
         edgeGrant,
         listCanvasModels,
       },
@@ -663,12 +688,12 @@ describe("browser control Unix transport", () => {
     const capabilities = makeBrowserCapabilityRegistry();
     capabilityRegistries.push(capabilities);
     const edgeStarted = deferred<void>();
-    const edgeResult = deferred<Awaited<ReturnType<EdgeGrantService["admitSocket"]>>>();
+    const edgeResult = deferred<Awaited<ReturnType<EdgeGrantService["admitCredential"]>>>();
     let admissionCalls = 0;
     let clearCalls = 0;
     const edgeGrant: EdgeGrantService = {
       processMap: makeProcessIdentityMap(),
-      admitSocket: async () => {
+      admitCredential: async () => {
         admissionCalls += 1;
         edgeStarted.resolve();
         return edgeResult.promise;
@@ -691,6 +716,7 @@ describe("browser control Unix transport", () => {
         resolvePageTarget,
         version: "transport-test",
         home: root,
+        canvasPlaying: () => true,
         edgeGrant,
         listCanvasModels,
       },
@@ -781,6 +807,7 @@ describe("browser control Unix transport", () => {
           resolvePageTarget,
           version: "transport-test",
           home: root,
+          canvasPlaying: () => true,
           edgeGrant: denyingEdgeGrant(),
           listCanvasModels,
         },
@@ -812,6 +839,7 @@ describe("browser control Unix transport", () => {
           resolvePageTarget,
           version: "transport-test",
           home: root,
+          canvasPlaying: () => true,
           edgeGrant: denyingEdgeGrant(),
           listCanvasModels,
         },

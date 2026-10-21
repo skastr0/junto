@@ -30,6 +30,7 @@ import {
   CONTROL_MAX_HEADER_BYTES,
   CONTROL_REQUEST_ID_HEADER,
   CONTROL_REQUEST_TIMEOUT_MS,
+  CONTROL_SEAT_CREDENTIAL_HEADER,
   CONTROL_TOKEN_HEADER,
   controlDir,
   controlErr,
@@ -318,9 +319,14 @@ export interface ControlDeps {
   };
   /**
    * Process-bind + edge authz admission. When present, protected routes admit
-   * through it. It refuses every socket caller in this build.
+   * through it on the seat generation credential the request presents.
    */
   readonly edgeGrant?: EdgeGrantService;
+  /**
+   * Whether the canvas plays, read from the pause plane on every request and
+   * never cached. On a paused canvas a seat reads but does not act.
+   */
+  readonly canvasPlaying: (canvasName: string) => boolean;
   /**
    * Server lifecycle hook. The HTTP host uses this to retain the actual route
    * promise after the request-facing cancellation race has settled.
@@ -357,6 +363,12 @@ const removeScreenshot = async (path: string): Promise<void> => {
   await unlink(path);
 };
 
+// The work socket's pause rule: a seat on a paused canvas may read (pages,
+// sessions, profiles, screenshot) and wind down (close, stop) but not act.
+// /comment carries its own pause refusal in its own words.
+const PAUSE_REFUSED_ACTIONS: ReadonlySet<BrowserCapabilityAction> = new Set(["open", "goto", "eval"]);
+const PAUSED_CANVAS_MESSAGE = "This canvas is paused: a seat acts when the operator plays it.";
+
 interface ControlAuthorization {
   readonly capability: string;
   /** Exact registry identity minted during process/edge admission. */
@@ -366,6 +378,8 @@ interface ControlAuthorization {
 
 interface ControlRouteHandler {
   readonly action: BrowserCapabilityAction | null;
+  /** The refusal for an admitted seat on this canvas when it is paused and the route acts. */
+  readonly pausedRefusal: (canvasName: string) => ControlEnvelope<never> | undefined;
   readonly preflight: (
     capability: string | undefined,
     expectedPrincipal?: BrowserAutomationPrincipal,
@@ -567,6 +581,10 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
     run: ControlRouteHandler["run"],
   ): ControlRouteHandler => ({
     action,
+    pausedRefusal: (canvasName) =>
+      action !== null && PAUSE_REFUSED_ACTIONS.has(action) && !deps.canvasPlaying(canvasName)
+        ? controlErr("forbidden", PAUSED_CANVAS_MESSAGE)
+        : undefined,
     preflight: (capability, expectedPrincipal) =>
       action === null
         ? { ok: true }
@@ -1061,8 +1079,9 @@ const edgeGrantHttp = (
     };
   }
   if (
-    denial === "unavailable" ||
     denial === "process_unbound" ||
+    denial === "seat_suspended" ||
+    denial === "process_offboarded" ||
     denial === "closed" ||
     denial === "canvas_unreadable" ||
     denial === "not_found"
@@ -1127,6 +1146,8 @@ export const dispatchControlRequest = async (
     if (admit?.kind === "principal") {
       const edge = await admit.edgeGrant.admitPrincipal(admit.principal);
       if (!edge.ok) return edgeGrantHttp(edge.denial, edge.message);
+      const paused = handler.pausedRefusal(edge.canvasName);
+      if (paused !== undefined) return { status: 403, envelope: paused };
       secret = edge.secret;
       expectedPrincipal = edge.expectedPrincipal;
     } else if (admit?.kind === "lease") {
@@ -1399,6 +1420,8 @@ export const startBrowserControlServer = async (
     /** Canonical SQLite-backed documents for page listing and edge admission. */
     readonly listCanvasModels: ListCanvasModels;
     readonly edgeGrant: EdgeGrantService;
+    /** The pause plane's per-request read; see ControlDeps. */
+    readonly canvasPlaying: (canvasName: string) => boolean;
     readonly postPageBoxComment?: PostPageBoxComment;
   },
   runtime: BrowserControlRuntime = defaultControlRuntime,
@@ -1478,6 +1501,7 @@ export const startBrowserControlServer = async (
     listDocuments: options.listCanvasModels,
     shotsDir: controlShotsDir(home),
     edgeGrant,
+    canvasPlaying: options.canvasPlaying,
     ...(options.postPageBoxComment === undefined ? {} : { postPageBoxComment: options.postPageBoxComment }),
     retainRouteOperation: (action, operation) =>
       retainFlight("route-operation", `route:${action}`, operation),
@@ -1546,9 +1570,9 @@ export const startBrowserControlServer = async (
           return;
         }
         const presentedRequestId = fixedHeader(req, CONTROL_REQUEST_ID_HEADER);
-        // Protected routes: edge-grant admission only. Client
-        // capability secrets are not identity — edge-grant mints an internal
-        // lease after process admission.
+        // Protected routes: edge-grant admission on the seat generation
+        // credential only. Client capability secrets are not identity —
+        // edge-grant mints an internal lease after seat admission.
         let processAdmission:
           | {
               readonly capability: string;
@@ -1559,7 +1583,7 @@ export const startBrowserControlServer = async (
           const edge = await retainFlight(
             "edge-admission",
             "edge-admission",
-            edgeGrant.admitSocket(req.socket),
+            edgeGrant.admitCredential(fixedHeader(req, CONTROL_SEAT_CREDENTIAL_HEADER)),
           );
           if (shuttingDown || controller.signal.aborted) {
             // An admission that crossed the shutdown boundary never reaches a
@@ -1571,6 +1595,11 @@ export const startBrowserControlServer = async (
           if (!edge.ok) {
             const denied = edgeGrantHttp(edge.denial, edge.message);
             respond(denied.status, denied.envelope, true);
+            return;
+          }
+          const paused = handler.pausedRefusal(edge.canvasName);
+          if (paused !== undefined) {
+            respond(403, paused, true);
             return;
           }
           processAdmission = {

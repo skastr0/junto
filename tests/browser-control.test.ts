@@ -337,6 +337,7 @@ describe("control route handlers", () => {
       capabilities,
       resolvePageTarget,
       version: "0.0.0-test",
+      canvasPlaying: () => true,
       listDocuments: async () => [{
         name: "work",
         doc: canvasOf(

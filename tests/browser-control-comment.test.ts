@@ -83,6 +83,7 @@ describe("POST /comment", () => {
       version: "0.0.0-test",
       listDocuments: async () => [{ name: "work", doc: canvasOf([pageNode("n1", { url: TARGET.url, profile: TARGET.profile })], [], "work") }],
       shotsDir: join(root, "shots"),
+      canvasPlaying: () => true,
       ...(options.post === undefined ? {} : { postPageBoxComment: options.post }),
     });
     const call = (path: string, body: unknown) =>

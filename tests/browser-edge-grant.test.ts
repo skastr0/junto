@@ -1,5 +1,4 @@
 import { mkdtemp, rm } from "node:fs/promises";
-import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -31,11 +30,14 @@ import {
 } from "../src/main/junto/browser/sessions";
 import { localBrowserTestMachineName } from "./browser-test-machine";
 import {
-  makeProcessIdentityMap,
-  type ProcessIdentityMap,
   type ProcessPrincipal,
   OFFBOARDED_SESSION_MESSAGE,
 } from "../src/main/junto/process-identity";
+import {
+  makeSeatCredentialRegistry,
+  mintSeatCredential,
+  type SeatCredentialRegistry,
+} from "../src/main/junto/work/seat-credentials";
 import type {
   PageTargetResolver,
   ResolvedPageTarget,
@@ -160,7 +162,7 @@ describe.runIf(BROWSER_ENABLED)("browser edge-grant process-bind dual admit", ()
     doc: Canvas,
     resolvePageTargetOverride?: PageTargetResolver,
     identity?: {
-      readonly processMap: ProcessIdentityMap;
+      readonly credentials: SeatCredentialRegistry;
     },
   ) => {
     let sessionCounter = 0;
@@ -192,6 +194,8 @@ describe.runIf(BROWSER_ENABLED)("browser edge-grant process-bind dual admit", ()
       editsCanvas: async () => true,
       ...(identity ?? {}),
     });
+    // The pause plane as the work socket reads it; flipped per test.
+    const pause = { playing: true };
     const handlers = makeControlHandlers({
       sessions,
       capabilities,
@@ -200,8 +204,9 @@ describe.runIf(BROWSER_ENABLED)("browser edge-grant process-bind dual admit", ()
       listDocuments: listCanvasModels,
       shotsDir: join(root, "shots"),
       edgeGrant,
+      canvasPlaying: (canvasName) => canvasName === "work" && pause.playing,
     });
-    return { handlers, edgeGrant, capabilities };
+    return { handlers, edgeGrant, capabilities, pause };
   };
 
   it("admits protected routes only through process principals or internal leases", async () => {
@@ -422,8 +427,7 @@ describe.runIf(BROWSER_ENABLED)("browser edge-grant process-bind dual admit", ()
     expect(capabilities.stats().activeCapabilities).toBe(0);
   });
 
-  // Skipped: the browser is off and its socket admission refuses in this build; not ported to the seat credential.
-  it.skip("admits a registered agent seat on protected routes via its human page edge", async () => {
+  it("admits a live seat credential on protected routes via its human page edge", async () => {
     const doc = terminalCanvas();
 
     const terminalPrincipal: ProcessPrincipal = {
@@ -432,24 +436,24 @@ describe.runIf(BROWSER_ENABLED)("browser edge-grant process-bind dual admit", ()
       canvasName: "work",
       nodeId: "terminal",
     };
-    const processMap = makeProcessIdentityMap();
-    expect(processMap.bind(process.pid, terminalPrincipal)).toBe(true);
+    const credentials = makeSeatCredentialRegistry();
+    const mint = mintSeatCredential();
+    expect(credentials.publish(mint, terminalPrincipal)).toBe(true);
 
     const { handlers, edgeGrant, capabilities } = makeStack(
       doc,
       undefined,
-      {
-        processMap,
-      },
+      { credentials },
     );
 
-    // admitSocket was the product gate: connecting process → main-owned process map
-    // → browser edge grant. The agent seat is the one actor, so the human page
-    // edge is the whole authority — no kind ACL sits behind it.
-    const admittedSocket = await edgeGrant.admitSocket({} as Socket);
-    expect(admittedSocket).toMatchObject({ ok: true, targetCount: 1 });
-    if (!admittedSocket.ok) return;
-    expect(admittedSocket.principal).toMatchObject({ agentKey: "local:terminal" });
+    // admitCredential is the product gate: seat generation credential → the
+    // registry the work socket admits on → browser edge grant. The agent seat
+    // is the one actor, so the human page edge is the whole authority — no
+    // kind ACL sits behind it.
+    const admittedSeat = await edgeGrant.admitCredential(mint.credential);
+    expect(admittedSeat).toMatchObject({ ok: true, targetCount: 1 });
+    if (!admittedSeat.ok) return;
+    expect(admittedSeat.principal).toMatchObject({ agentKey: "local:terminal" });
 
     const token = rotateControlToken(join(root, "terminal-token"));
     const admitted = await dispatchControlRequest(
@@ -477,33 +481,100 @@ describe.runIf(BROWSER_ENABLED)("browser edge-grant process-bind dual admit", ()
     }
     expect(capabilities.stats().activeCapabilities).toBeGreaterThan(0);
 
-    // Grant revocation must follow the terminal process out, exactly as it does
-    // for an agent — an admitted kind that is never revoked is the worse bug.
-    processMap.clear();
-    expect(capabilities.stats()).toMatchObject({ activeCapabilities: 0 });
-    await expect(edgeGrant.admitSocket({} as Socket)).resolves.toMatchObject({
-      ok: false,
-      denial: "process_unbound",
-    });
+    // An absent or wrong credential names no seat.
+    for (const presented of [undefined, "", mintSeatCredential().credential]) {
+      await expect(edgeGrant.admitCredential(presented)).resolves.toMatchObject({
+        ok: false,
+        denial: "process_unbound",
+      });
+    }
 
-    // A process whose seat moved on to a fresh session (an offboard drain) is
-    // refused here in the same words as on the work socket.
-    const generation = processMap.bindGeneration(process.pid, terminalPrincipal);
-    expect(generation).toBeDefined();
-    await expect(edgeGrant.admitSocket({} as Socket)).resolves.toMatchObject({ ok: true });
-    expect(processMap.unbindGeneration(generation!)).toBe(true);
-    await expect(edgeGrant.admitSocket({} as Socket)).resolves.toMatchObject({
+    // A detached seat fails closed until reattach.
+    expect(credentials.suspend(mint.credential)).toBe(true);
+    await expect(edgeGrant.admitCredential(mint.credential)).resolves.toMatchObject({
       ok: false,
-      denial: "process_unbound",
+      denial: "seat_suspended",
+    });
+    expect(credentials.reanchor(mint.credential, terminalPrincipal)).toBe(true);
+    await expect(edgeGrant.admitCredential(mint.credential)).resolves.toMatchObject({ ok: true });
+
+    // A stale credential, its seat moved on to a fresh session, is refused in
+    // the same words as on the work socket, and its grant follows it out.
+    expect(credentials.revoke(mint.credential, "offboarded")).toBe(true);
+    expect(capabilities.stats()).toMatchObject({ activeCapabilities: 0 });
+    await expect(edgeGrant.admitCredential(mint.credential)).resolves.toMatchObject({
+      ok: false,
+      denial: "process_offboarded",
       message: OFFBOARDED_SESSION_MESSAGE,
     });
-    expect(capabilities.stats()).toMatchObject({ activeCapabilities: 0 });
   });
 
-  // Skipped: the browser is off and its socket admission refuses in this build; not ported to the seat credential.
-  it.skip("denies a live stale process when its agent anchor conflicts with a reused node id", async () => {
-    const processMap = makeProcessIdentityMap();
-    expect(processMap.bind(process.pid, {
+  it("keeps a live seat with no page edge a scope refusal, not a credential fault", async () => {
+    const credentials = makeSeatCredentialRegistry();
+    const mint = mintSeatCredential();
+    expect(credentials.publish(mint, { agentKey: "local:default" })).toBe(true);
+    const { edgeGrant, capabilities } = makeStack(browserCanvas(false), undefined, { credentials });
+
+    await expect(edgeGrant.admitCredential(mint.credential)).resolves.toMatchObject({
+      ok: false,
+      denial: "not_connected",
+    });
+    expect(capabilities.stats().activeCapabilities).toBe(0);
+  });
+
+  it("refuses a live seat on a paused canvas every acting route, keeps reads open, and lets it act on play", async () => {
+    const credentials = makeSeatCredentialRegistry();
+    const mint = mintSeatCredential();
+    const principal: ProcessPrincipal = { agentKey: "local:default" };
+    expect(credentials.publish(mint, principal)).toBe(true);
+    const { handlers, edgeGrant, pause } = makeStack(browserCanvas(true), undefined, { credentials });
+    const token = rotateControlToken(join(root, "paused-token"));
+    let sequence = 0;
+    const send = (method: string, path: string, body: unknown) =>
+      dispatchControlRequest(
+        handlers,
+        token,
+        { method, path, token, requestId: (++sequence).toString(16).padStart(32, "0"), body },
+        undefined,
+        { kind: "principal", edgeGrant, principal },
+      );
+    const pausedRefusal = {
+      status: 403,
+      envelope: {
+        ok: false,
+        error: { _tag: "forbidden", message: "This canvas is paused: a seat acts when the operator plays it." },
+      },
+    };
+
+    pause.playing = false;
+    // The credential still admits the seat; the pause plane, read on this
+    // request, is what refuses the act.
+    await expect(edgeGrant.admitCredential(mint.credential)).resolves.toMatchObject({ ok: true, canvasName: "work" });
+    await expect(send("POST", "/open", { ref: REF_PAGE })).resolves.toMatchObject(pausedRefusal);
+    await expect(send("POST", "/goto", { sessionId: "s", url: TARGET.url })).resolves.toMatchObject(pausedRefusal);
+    await expect(send("POST", "/eval", { sessionId: "s", code: "1" })).resolves.toMatchObject(pausedRefusal);
+    await expect(send("GET", "/pages", undefined)).resolves.toMatchObject({ status: 200 });
+    await expect(send("GET", "/sessions", undefined)).resolves.toMatchObject({ status: 200 });
+
+    pause.playing = true;
+    const opened = await send("POST", "/open", { ref: REF_PAGE });
+    expect(opened.status, JSON.stringify(opened.envelope)).toBe(200);
+    if (!opened.envelope.ok) return;
+    const { sessionId } = opened.envelope.data as { readonly sessionId: string };
+    const went = await send("POST", "/goto", { sessionId, url: TARGET.url });
+    expect(went.status, JSON.stringify(went.envelope)).toBe(200);
+    const evaluated = await send("POST", "/eval", { sessionId, code: "1" });
+    expect(evaluated.envelope).not.toMatchObject(pausedRefusal.envelope);
+
+    // Pause is read per request, never cached with the grant.
+    pause.playing = false;
+    await expect(send("POST", "/goto", { sessionId, url: TARGET.url })).resolves.toMatchObject(pausedRefusal);
+  });
+
+  it("denies a live stale seat when its agent anchor conflicts with a reused node id", async () => {
+    const credentials = makeSeatCredentialRegistry();
+    const mint = mintSeatCredential();
+    expect(credentials.publish(mint, {
       nodeId: "agent",
       canvasName: "work",
       agentKey: "local:retired",
@@ -512,17 +583,14 @@ describe.runIf(BROWSER_ENABLED)("browser edge-grant process-bind dual admit", ()
     const { edgeGrant, capabilities } = makeStack(
       browserCanvas(true),
       undefined,
-      {
-        processMap,
-      },
+      { credentials },
     );
 
-    await expect(edgeGrant.admitSocket({} as Socket)).resolves.toMatchObject({
+    await expect(edgeGrant.admitCredential(mint.credential)).resolves.toMatchObject({
       ok: false,
       denial: "not_found",
     });
     expect(capabilities.stats().activeCapabilities).toBe(0);
-    processMap.clear();
   });
 
   it("rejects a capability paired with a different registry principal", async () => {
@@ -680,16 +748,14 @@ describe.runIf(BROWSER_ENABLED)("browser edge-grant process-bind dual admit", ()
     lease.release();
   });
 
-  // Skipped: the browser is off and its socket admission refuses in this build; not ported to the seat credential.
-  it.skip("revokes only an exited process binding and remints for its replacement", async () => {
+  it("revokes only an ended generation's grant and remints for its replacement", async () => {
     const doc = browserCanvas(true);
-    const processMap = makeProcessIdentityMap();
+    const credentials = makeSeatCredentialRegistry();
     const principal: ProcessPrincipal = { agentKey: "local:default" };
-    expect(processMap.bind(process.pid, principal)).toBe(true);
-    const { edgeGrant, capabilities } = makeStack(doc, undefined, {
-      processMap,
-    });
-    const first = await edgeGrant.admitSocket({} as Socket);
+    const firstMint = mintSeatCredential();
+    expect(credentials.publish(firstMint, principal)).toBe(true);
+    const { edgeGrant, capabilities } = makeStack(doc, undefined, { credentials });
+    const first = await edgeGrant.admitCredential(firstMint.credential);
     expect(first.ok).toBe(true);
     if (!first.ok) return;
     const lease = capabilities.authorize(
@@ -698,11 +764,12 @@ describe.runIf(BROWSER_ENABLED)("browser edge-grant process-bind dual admit", ()
       { requestId: "00000000-0000-4000-8000-000000000099", expectedPrincipal: first.expectedPrincipal },
     );
 
-    processMap.unbind(process.pid);
+    expect(credentials.revoke(firstMint.credential, "replaced")).toBe(true);
     expect(lease.signal.aborted).toBe(true);
     expect(capabilities.stats().activeCapabilities).toBe(0);
-    expect(processMap.bind(process.pid, principal)).toBe(true);
-    const replacement = await edgeGrant.admitSocket({} as Socket);
+    const nextMint = mintSeatCredential();
+    expect(credentials.publish(nextMint, principal)).toBe(true);
+    const replacement = await edgeGrant.admitCredential(nextMint.credential);
     expect(replacement.ok).toBe(true);
     if (replacement.ok) expect(replacement.secret).not.toBe(first.secret);
     lease.release();

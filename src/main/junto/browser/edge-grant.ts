@@ -1,5 +1,4 @@
 import { asNodeId, type Canvas } from "@shared/model";
-import type { Socket } from "node:net";
 import { createHash } from "node:crypto";
 import {
   BROWSER_CAPABILITY_ACTIONS,
@@ -12,9 +11,14 @@ import { resolveBrowserCallerFromProcess } from "./process-bind";
 import type { PageTargetResolver } from "./page-target";
 import {
   getProcessIdentityMap,
+  OFFBOARDED_SESSION_MESSAGE,
   type ProcessIdentityMap,
   type ProcessPrincipal,
 } from "../process-identity";
+import {
+  getSeatCredentialRegistry,
+  type SeatCredentialRegistry,
+} from "../work/seat-credentials";
 import { isThisMachine } from "@shared/machine-identity";
 import { parseNodeRef } from "@shared/node-ref";
 import {
@@ -29,8 +33,8 @@ export interface CanvasChangeDetail {
   readonly next?: Canvas;
 }
 
-// Edge-grant admission for an already-resolved principal:
-//   registered principal → canvas actor node → edges → pages
+// Edge-grant admission:
+//   seat generation credential → live principal → canvas actor node → edges → pages
 //   mint a short-lived capability under the hood so existing handlers keep
 //   their lease model. Agents never present nodeRef or capability secrets.
 //
@@ -56,8 +60,9 @@ const exactHttpOrigin = (value: string): string | undefined => {
 };
 
 export type EdgeGrantDenial =
-  | "unavailable"
   | "process_unbound"
+  | "seat_suspended"
+  | "process_offboarded"
   | "not_found"
   | "ambiguous"
   | "caller_wrong_kind"
@@ -74,14 +79,19 @@ export type EdgeGrantResult =
       /** Registry-created identity that owns `secret`; never caller supplied. */
       readonly expectedPrincipal: BrowserAutomationPrincipal;
       readonly principal: ProcessPrincipal;
+      /** The canvas the admitted seat sits on; its pause state rules acting routes. */
+      readonly canvasName: string;
       readonly targetCount: number;
     }
   | { readonly ok: false; readonly denial: EdgeGrantDenial; readonly message: string };
 
 export interface EdgeGrantService {
   readonly processMap: ProcessIdentityMap;
-  /** Admit from a connected control socket (product path). */
-  readonly admitSocket: (socket: Socket) => Promise<EdgeGrantResult>;
+  /**
+   * Admit the seat generation credential a control request presents (product
+   * path). The same registry lookup the work socket admits on.
+   */
+  readonly admitCredential: (credential: string | undefined) => Promise<EdgeGrantResult>;
   /** Admit from an already-resolved principal (tests / internal). */
   readonly admitPrincipal: (principal: ProcessPrincipal) => Promise<EdgeGrantResult>;
   readonly clear: () => void;
@@ -124,6 +134,7 @@ export interface EdgeGrantDependencies {
   readonly capabilities: BrowserCapabilityRegistry;
   readonly resolvePageTarget: PageTargetResolver;
   readonly processMap?: ProcessIdentityMap;
+  readonly credentials?: SeatCredentialRegistry;
   readonly wallNow?: () => number;
   readonly ttlMs?: number;
   /**
@@ -187,6 +198,7 @@ export const makeEdgeGrantService = (
   dependencies: EdgeGrantDependencies,
 ): EdgeGrantService => {
   const processMap = dependencies.processMap ?? getProcessIdentityMap();
+  const credentials = dependencies.credentials ?? getSeatCredentialRegistry();
   const wallNow = dependencies.wallNow ?? Date.now;
   const ttlMs = dependencies.ttlMs ?? EDGE_GRANT_TTL_MS;
   const cache = new Map<string, CacheEntry>();
@@ -195,6 +207,13 @@ export const makeEdgeGrantService = (
   let lastReceipts: ReadonlyArray<EdgeRevocationReceipt> = Object.freeze([]);
   processMap.subscribe((principal) => {
     const cacheKey = processKeyOf(principal);
+    revokeCacheEntry(cacheKey);
+    capabilityPrincipals.delete(cacheKey);
+  });
+  // A generation that ends takes its grant with it; the next one remints.
+  credentials.subscribe((event) => {
+    if (event.type !== "revoked") return;
+    const cacheKey = processKeyOf(event.principal);
     revokeCacheEntry(cacheKey);
     capabilityPrincipals.delete(cacheKey);
   });
@@ -466,6 +485,7 @@ export const makeEdgeGrantService = (
           secret: existing.secret,
           expectedPrincipal: existing.principal,
           principal,
+          canvasName: match.canvasName,
           targetCount: targets.length,
         };
       }
@@ -496,6 +516,7 @@ export const makeEdgeGrantService = (
             secret: existing.secret,
             expectedPrincipal: existing.principal,
             principal,
+            canvasName: match.canvasName,
             targetCount: existing.targets.length,
           };
         }
@@ -564,18 +585,38 @@ export const makeEdgeGrantService = (
       secret: grant.secret,
       expectedPrincipal: capPrincipal,
       principal,
+      canvasName: match.canvasName,
       targetCount: targets.length,
     };
   };
 
-  // The browser is off in this build and its routes have not moved to the
-  // seat generation credential, so a socket caller names no seat. Refuse.
-  const admitSocket = async (_socket: Socket): Promise<EdgeGrantResult> =>
-    fail("unavailable", "Browser control is not available in this build");
+  // Live credentials admit as their seat, suspended ones fail closed until
+  // canvas reattach, revoked ones hear the offboarded sentence, and absent or
+  // unknown values are strangers. Sentences match the work socket's.
+  const admitCredential = async (
+    credential: string | undefined,
+  ): Promise<EdgeGrantResult> => {
+    const found =
+      credential === undefined ? { status: "unknown" as const } : credentials.lookup(credential);
+    if (found.status === "live") return admitPrincipal(found.principal);
+    if (found.status === "suspended") {
+      return fail(
+        "seat_suspended",
+        "this seat is detached from its canvas — reattach it on the canvas and retry",
+      );
+    }
+    if (found.status === "revoked") {
+      return fail("process_offboarded", OFFBOARDED_SESSION_MESSAGE);
+    }
+    return fail(
+      "process_unbound",
+      "connecting process presents no live seat credential — run the CLI from inside your Junto seat",
+    );
+  };
 
   return Object.freeze({
     processMap,
-    admitSocket,
+    admitCredential,
     admitPrincipal,
     clear: () => {
       changeSequence += 1;

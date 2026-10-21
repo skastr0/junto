@@ -232,18 +232,19 @@ const admittingEdgeGrant = (
       secret: tuple.secret,
       expectedPrincipal: tuple.expectedPrincipal,
       principal: { kind: "agent" as const, agentKey: "browser-containment-probe" },
+      canvasName,
       targetCount: tuple.targetCount,
     };
   };
 
   return {
     processMap: processBoundEdgeGrant.processMap,
-    admitSocket: async (socket) => {
+    admitCredential: async (credential) => {
       const mode = await readAdmitMode(admitModePath);
       if (mode === "terminal" || mode === "unbound") {
         if (mode === "unbound") processBoundEdgeGrant.processMap.unbind(probePeerPid);
         try {
-          const result = await processBoundEdgeGrant.admitSocket(socket);
+          const result = await processBoundEdgeGrant.admitCredential(credential);
           if (result.ok) throw new Error(`${mode} peer unexpectedly received browser authority`);
           onDenial(mode, result);
           return result;
@@ -256,7 +257,7 @@ const admittingEdgeGrant = (
       if (mode !== "process-bound") {
         return admitTuple(mode as Exclude<AdmitMode, "process-bound" | "terminal" | "unbound">);
       }
-      const result = await processBoundEdgeGrant.admitSocket(socket);
+      const result = await processBoundEdgeGrant.admitCredential(credential);
       if (result.ok) recordProcessBoundAdmission(result);
       return result;
     },
@@ -784,6 +785,7 @@ void app.whenReady().then(async () => {
     resolvePageTarget,
     version: app.getVersion(),
     home: controlHome,
+    canvasPlaying: () => true,
     listCanvasModels,
     edgeGrant: admittingEdgeGrant(
       admissionTuples,

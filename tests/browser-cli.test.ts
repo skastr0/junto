@@ -9,12 +9,14 @@ import {
   BROWSER_MAX_COMMENT_TEXT_BYTES,
   CONTROL_HOME_ENV,
   CONTROL_REQUEST_ID_HEADER,
+  CONTROL_SEAT_CREDENTIAL_HEADER,
   CONTROL_TOKEN_HEADER,
   controlDir,
   controlSocketPath,
   controlTokenPath,
   isValidControlRequestId,
 } from "../src/shared/browser-control";
+import { WORK_TOKEN_ENV } from "../src/shared/work-control";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const roots: string[] = [];
@@ -88,6 +90,7 @@ const runCli = (
   options: {
     readonly home: string;
     readonly controlHome?: string;
+    readonly seatCredential?: string;
   },
 ): Promise<{ readonly code: number | null; readonly stdout: string; readonly stderr: string }> =>
   new Promise((resolveRun, rejectRun) => {
@@ -98,6 +101,8 @@ const runCli = (
       // otherwise follow the same default-off policy as packaged controls.
       JUNTO_BROWSER: "1",
       [CONTROL_HOME_ENV]: options.controlHome,
+      // Never the running seat's own credential.
+      [WORK_TOKEN_ENV]: options.seatCredential,
     };
     const child = spawn("bun", [join(repoRoot, "src/cli/main.ts"), "browser", ...args], {
       cwd: repoRoot,
@@ -175,19 +180,22 @@ describe("junto browser on the standard envelope", { timeout: 30_000 }, () => {
     expect(seen[0]?.headers[CONTROL_TOKEN_HEADER]).toBe("transport-token");
   });
 
-  it("sends protected commands without a capability secret (process-bind path)", async () => {
+  it("sends protected commands with the seat credential and no capability secret", async () => {
     const root = await newRoot();
     const seen: SeenRequest[] = [];
     await startRogueControl(root, seen);
+    const seatCredential = `junto-seat-${"b".repeat(43)}`;
 
-    const result = await runCli(["pages"], {
-      home: root,
-    });
+    const result = await runCli(["pages"], { home: root, seatCredential });
+    const bare = await runCli(["pages"], { home: root });
 
     expect(result.code, result.stderr).toBe(0);
-    expect(seen).toHaveLength(1);
+    expect(bare.code, bare.stderr).toBe(0);
+    expect(seen).toHaveLength(2);
     expect(seen[0]?.url).toBe("/pages");
     expect(seen[0]?.headers[CONTROL_TOKEN_HEADER]).toBe("transport-token");
+    expect(seen[0]?.headers[CONTROL_SEAT_CREDENTIAL_HEADER]).toBe(seatCredential);
+    expect(seen[1]?.headers[CONTROL_SEAT_CREDENTIAL_HEADER]).toBeUndefined();
   });
 
   it("names a tab with --tab, and sends none when it is absent", async () => {
