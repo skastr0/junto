@@ -22,6 +22,7 @@ const view = (title: string, state: TaskState, createdAt: number): TaskView =>
     dependsOn: [],
     createdAt,
     updatedAt: createdAt,
+    stateSince: createdAt + 1,
   }) as unknown as TaskView;
 
 const storeOf = (views: ReadonlyArray<TaskView>) => {
@@ -43,7 +44,7 @@ describe("main's read of the task each seat holds", () => {
     const store = storeOf([view("later", "input-required", 20), view("first", "working", 10)]);
     const index = await Effect.runPromise(readSeatTaskIndex(store.tasks, canvasOf([seat("ada"), taskBoard("board"), note("memo", "memo")])));
     expect(store.queries).toEqual([{ nodeIds: ["board"], states: OPEN_TASK_STATES, limit: 10_000 }]);
-    expect(index.ada).toMatchObject({ title: "first", state: "working", blocked: false });
+    expect(index.ada).toMatchObject({ title: "first", state: "working", blocked: false, since: 11 });
   });
 
   it("does not read the store for a canvas with no task node", async () => {
