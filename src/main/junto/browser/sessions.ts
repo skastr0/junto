@@ -106,8 +106,8 @@ export interface BrowserViewEvents {
   readonly admitsTopLevel: (url: string, byPage: boolean) => boolean;
   /** The operator pressed a key, clicked or tapped in the view itself. */
   readonly onOperatorInput: () => void;
-  /** A new main-frame document committed: what ran in the last one is gone. */
-  readonly onDocumentCommitted: () => void;
+  /** A new main-frame document committed, at `url`. */
+  readonly onDocumentCommitted: (url: string) => void;
   /**
    * Electron reports an unplanned WebContents loss through either
    * `render-process-gone` or `destroyed`. The adapter coalesces both signals
@@ -302,13 +302,10 @@ interface SessionEntry {
   /** Who asked for the pending step: a guest's never lands once the operator holds the page. */
   stepOwner: string | undefined;
   /**
-   * The grants of every seat that evaluated in the committed document. Code
-   * a seat left may still run there, so a navigation the page starts must
-   * pass each of them, whoever holds the page now and after those seats'
-   * holds end. Never empty when set; cleared only when a new document
-   * commits, as a start that never commits leaves the old document in place.
+   * The origin of the document committed in the view, which a start that
+   * never commits leaves in place. Moves only on a main-frame commit.
    */
-  touchedBy: Set<BrowserGuestTopLevelGuard> | undefined;
+  documentOrigin: string | undefined;
   activeOperation: ActiveOperation | undefined;
   lastActiveAt: number;
   view: BrowserViewHandle;
@@ -640,6 +637,15 @@ export class BrowserSessionService {
   /** Owner, then tab slot (page ref and tab), to the view's current session. */
   private readonly sessionIdByOwnerRef = new Map<string, Map<string, string>>();
   private readonly pages = new Map<string, PageRecord>();
+  /**
+   * The grants of every seat that evaluated in a document of an origin, by
+   * profile and origin. Seat code outlives its document: a service worker it
+   * registered, or a page back from the back-forward cache, runs on in that
+   * origin. So a navigation a page of that origin starts, in any view of the
+   * profile, must pass each of them, for the life of the app, whoever holds
+   * the page and after those seats' holds end. Never empty when set.
+   */
+  private readonly touchedOrigins = new Map<string, Set<BrowserGuestTopLevelGuard>>();
   private readonly pageListeners = new Set<(ref: string) => void>();
   private readonly pendingOpenByOwnerRef = new Map<string, Map<string, PendingOpen>>();
   private readonly ownerEpochs = new Map<string, number>();
@@ -1001,11 +1007,14 @@ export class BrowserSessionService {
    * or no seat does, the ordinary browser policy alone decides.
    */
   private admitsTopLevel(entry: SessionEntry, url: string, byPage: boolean): boolean {
-    // Code a seat left fires on the operator's own click; in that document
+    // Code a seat left fires on the operator's own click; from that origin
     // only the browser itself (the operator's chrome) goes off its grants.
-    if (byPage && entry.touchedBy !== undefined) {
-      for (const guard of entry.touchedBy) {
-        if (!guard(url)) return false;
+    if (byPage) {
+      const touched = this.touchedOrigins.get(this.originKey(entry));
+      if (touched !== undefined) {
+        for (const guard of touched) {
+          if (!guard(url)) return false;
+        }
       }
     }
     if (this.drivingOf(entry).control.kind === "operator-held") {
@@ -1018,6 +1027,20 @@ export class BrowserSessionService {
       return true;
     }
     return this.withinHolderGrants(entry, url);
+  }
+
+  private originKey(entry: SessionEntry): string {
+    return `${entry.profile}\0${entry.documentOrigin ?? entry.currentOrigin ?? ""}`;
+  }
+
+  /** A seat evaluates in the view: its grant binds what that origin's pages start. */
+  private markTouched(entry: SessionEntry, owner: string): void {
+    // An unbound seat binds the origin to nowhere: fail closed.
+    const guard = entry.guests.get(owner)?.admitsTopLevel ?? (() => false);
+    const key = this.originKey(entry);
+    const touched = this.touchedOrigins.get(key);
+    if (touched === undefined) this.touchedOrigins.set(key, new Set([guard]));
+    else touched.add(guard);
   }
 
   /** Every holder's grant reaches `url`; a guest with no origin bound never refuses. */
@@ -1224,19 +1247,37 @@ export class BrowserSessionService {
       : { ok: true, data: this.info(shown) };
   }
 
-  /** The operator shows another tab of the page in its surface. */
-  activateTab(sessionId: string, tab: BrowserTabId): BrowserResult<BrowserSessionInfo> {
-    const entry = this.entryForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
-    if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
-    const page = this.pages.get(entry.ref);
-    if (page === undefined) return err("not_found", `no session for ${sessionId}`);
-    if (!page.tabs.tabs.some((candidate) => candidate.id === tab)) {
-      return err("not_found", `no tab ${tab} on this page`);
-    }
-    const shown = this.activateTabOf(entry.ref, tab);
-    return shown === undefined
-      ? err("not_found", `no tab ${tab} on this page`)
-      : { ok: true, data: this.info(shown) };
+  /**
+   * The operator shows another tab of the page in its surface. A tab whose
+   * view went reopens where it last was.
+   */
+  activateTab(sessionId: string, tab: BrowserTabId): Promise<BrowserResult<BrowserSessionInfo>> {
+    return this.runUiOperation("open", async () => {
+      const entry = this.entryForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
+      const page = entry === undefined ? undefined : this.pages.get(entry.ref);
+      if (entry === undefined || page === undefined) return err("not_found", `no session for ${sessionId}`);
+      const listed = page.tabs.tabs.find((candidate) => candidate.id === tab);
+      if (listed === undefined) return err("not_found", `no tab ${tab} on this page`);
+      if (this.tabEntry(entry.ref, tab) === undefined) {
+        const profileSnapshot = this.profileGate.snapshot(entry.profile);
+        if (profileSnapshot === undefined) return err("forbidden", "browser profile is unavailable");
+        const reopened = await this.openResolved(
+          BROWSER_UI_SESSION_OWNER,
+          this.ownerEpoch(BROWSER_UI_SESSION_OWNER),
+          profileSnapshot,
+          { ref: entry.ref, nodeId: entry.nodeId, url: entry.targetUrl, profile: entry.profile },
+          this.refEpoch(entry.ref),
+          undefined,
+          undefined,
+          { tab, url: listed.url },
+        );
+        if (!reopened.ok) return reopened;
+      }
+      const shown = this.activateTabOf(entry.ref, tab);
+      return shown === undefined
+        ? err("not_found", `no tab ${tab} on this page`)
+        : { ok: true, data: this.info(shown) };
+    });
   }
 
   /**
@@ -1251,14 +1292,15 @@ export class BrowserSessionService {
     const activated = reducePageTabs(page.tabs, { kind: "activate", tab });
     if (!activated.ok) return undefined;
     page.tabs = activated.state;
-    const bounds = previous?.attached === true ? previous.bounds : undefined;
+    let bounds = previous?.attached === true ? previous.bounds : undefined;
     if (previous !== undefined && previous.attached) {
       try {
         previous.view.detach();
         previous.attached = false;
         this.reduceCurrent(previous, { type: "detach" });
       } catch {
-        // The adapter keeps reporting it attached; the surface will retry.
+        // The old view still shows: never place a second one over it.
+        bounds = undefined;
       }
     }
     if (bounds !== undefined && !next.attached) {
@@ -1622,24 +1664,22 @@ export class BrowserSessionService {
   }
 
   /**
-   * A tab's view went. Another tab of the page closes with it, and the page
-   * shows its new active tab; the page's last tab stays, to reopen in place,
-   * and the operator's hold ends with the page's last view.
+   * A tab's view went (evicted, stopped, crashed, timed out). The tab stays
+   * listed where it was, showing where it last was, and reopens there when
+   * shown; only the operator's closeTab takes a tab away. The operator's
+   * hold ends with the page's last view.
    */
   private tabViewEnded(entry: SessionEntry): void {
     const page = this.pages.get(entry.ref);
     if (page === undefined) return;
-    const wasActive = page.tabs.active === entry.tab;
-    const closed = reducePageTabs(page.tabs, { kind: "close", tab: entry.tab });
-    if (closed.ok) {
-      page.tabs = closed.state;
-      if (wasActive) {
-        const next = this.tabEntry(entry.ref, page.tabs.active);
-        if (next !== undefined) this.emit(next);
-      }
-    } else if (closed.refusal.kind === "last_tab") {
-      page.driving = initialPageDriving;
+    for (const event of [
+      { kind: "navigated", tab: entry.tab, url: entry.url, canGoBack: false, canGoForward: false },
+      { kind: "titled", tab: entry.tab, title: entry.machine.title ?? "" },
+      { kind: "loading", tab: entry.tab, loading: false },
+    ] as const) {
+      this.applyTabs(page, event);
     }
+    if (this.pageEntries(entry.ref).length === 0) page.driving = initialPageDriving;
     this.notifyPage(entry.ref);
   }
 
@@ -1668,6 +1708,20 @@ export class BrowserSessionService {
     const page = this.pages.get(ref);
     if (page === undefined) return [];
     return page.tabs.tabs.flatMap((tab) => this.tabEntry(ref, tab.id) ?? []);
+  }
+
+  /**
+   * The tab of the page this owner acts on: the operator's is the shown tab;
+   * a seat's is the tab it holds, the shown one first, as a seat follows its
+   * own tab, never the operator's switch.
+   */
+  private heldTabFor(owner: string, ref: string): SessionEntry | undefined {
+    const page = this.pages.get(ref);
+    if (page === undefined) return undefined;
+    const active = this.tabEntry(ref, page.tabs.active);
+    if (owner === BROWSER_UI_SESSION_OWNER) return active;
+    if (active !== undefined && active.guests.has(owner)) return active;
+    return this.pageEntries(ref).find((entry) => entry.guests.has(owner));
   }
 
   private isActiveTab(entry: SessionEntry): boolean {
@@ -2015,6 +2069,12 @@ export class BrowserSessionService {
     if (exactBrowserOrigin(target.url) === undefined) {
       return err("forbidden", "automation target has no exact browser origin");
     }
+    // A seat already on a tab of this page stays on it.
+    const held = this.heldTabFor(guest, target.ref);
+    if (held !== undefined && isWarmBrowserSession(held.machine.state)) {
+      held.lastActiveAt = this.now();
+      return { ok: true, data: this.info(held) };
+    }
     const guestEpoch = this.ownerEpoch(guest);
     const refEpoch = this.refEpoch(target.ref);
     const opened = await this.openForOwnerAdmitted(BROWSER_UI_SESSION_OWNER, target, signal, revalidateTarget);
@@ -2148,7 +2208,7 @@ export class BrowserSessionService {
       navigationInFlight: undefined,
       stepPending: undefined,
       stepOwner: undefined,
-      touchedBy: undefined,
+      documentOrigin: undefined,
       activeOperation: undefined,
       lastActiveAt: this.now(),
       view: undefined as unknown as BrowserViewHandle,
@@ -2173,8 +2233,8 @@ export class BrowserSessionService {
           onTitle: (sessionId, title) => this.titleChanged(entry, sessionId, title),
           admitsTopLevel: (url, byPage) => this.admitsTopLevel(entry, url, byPage),
           onOperatorInput: () => this.takeOverEntry(entry),
-          onDocumentCommitted: () => {
-            entry.touchedBy = undefined;
+          onDocumentCommitted: (url) => {
+            entry.documentOrigin = exactBrowserOrigin(url);
           },
           onUnexpectedTermination: () => this.viewTerminatedUnexpectedly(entry),
         },
@@ -2686,11 +2746,7 @@ export class BrowserSessionService {
       timeoutMs: BROWSER_EVAL_TIMEOUT_MS,
       ...(signal !== undefined ? { signal } : {}),
       run: () => {
-        if (owner !== entry.owner) {
-          // An unbound seat binds the document to nowhere: fail closed.
-          const guard = entry.guests.get(owner)?.admitsTopLevel ?? (() => false);
-          (entry.touchedBy ??= new Set()).add(guard);
-        }
+        if (owner !== entry.owner) this.markTouched(entry, owner);
         return entry.view.executeJavaScript!(code);
       },
     });
@@ -2779,11 +2835,7 @@ export class BrowserSessionService {
   }
 
   sessionIdForRefForOwner(owner: string, ref: string): string | undefined {
-    const page = this.pages.get(ref);
-    const sessionId =
-      page === undefined
-        ? undefined
-        : this.ownerRefSessions(BROWSER_UI_SESSION_OWNER)?.get(tabSlot(ref, page.tabs.active));
+    const sessionId = this.heldTabFor(owner, ref)?.sessionId;
     return sessionId !== undefined && this.entryForOwner(owner, sessionId) !== undefined
       ? sessionId
       : undefined;

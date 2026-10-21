@@ -507,7 +507,7 @@ const makeElectronViewAdapter = (
   });
   // did-navigate is the main frame's own cross-document commit.
   view.webContents.on("did-navigate", (_event, url) => {
-    events.onDocumentCommitted();
+    events.onDocumentCommitted(normalizeUrl(url));
     if (activeNavigation === undefined) return;
     const normalizedUrl = normalizeUrl(url);
     activeNavigation = { ...activeNavigation, url: normalizedUrl };
