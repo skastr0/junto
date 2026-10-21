@@ -8,6 +8,7 @@
 import { matchMention, mentionLinksOf, mentionRefOf, type MentionLinkAt, type MentionRef } from "@shared/mention";
 import type { NodeKind } from "@shared/model/kinds";
 import type { NodeId } from "@shared/physics/schema";
+import type { ResourceSubject } from "@shared/thread-subject";
 import { activateNodeSurface } from "./activate-node-surface";
 import type { ResourceKind } from "./resource-visuals";
 import { openWorkDetail } from "./work-detail-open";
@@ -41,6 +42,20 @@ export const mentionChipOf = (
     ? { kind, label: numbered[2]!, number: Number(numbered[1]) }
     : { kind, label: bare(link.label) };
   return ref === undefined ? chip : { ...chip, ref };
+};
+
+/**
+ * The chip for a thread's subject, named by the thread's title (a task
+ * thread is listed as `#42 fix tabs`). Gone, it keeps the subject's kind.
+ */
+export const subjectChipOf = (
+  subject: ResourceSubject,
+  title: string,
+  nodeKindOf: (nodeId: NodeId) => NodeKind | undefined,
+): MentionChip => {
+  const item = subject.kind === "task" ? subject.taskId : subject.kind === "artifact" ? subject.artifactId : undefined;
+  const chip = mentionChipOf({ target: { nodeId: subject.nodeId, ...(item === undefined ? {} : { item }) }, label: title }, nodeKindOf);
+  return chip.ref === undefined ? { ...chip, kind: subject.kind } : chip;
 };
 
 /** A text cut at its mention links: plain text, and a chip for each link. */

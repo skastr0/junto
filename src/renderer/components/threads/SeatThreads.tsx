@@ -13,14 +13,14 @@ import {
   type SeatAddress,
   type SeatThreadSummary,
 } from "../../lib/seat-threads";
-import { mentionChipParts, openMention } from "../../lib/mention-open";
+import { mentionChipParts, openMention, subjectChipOf, type MentionChip } from "../../lib/mention-open";
 import { useCanvas } from "../../lib/use-model";
 import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
 import { Dialog } from "../ui/Dialog";
 import { Eyebrow } from "../ui/Eyebrow";
 import { IconButton } from "../ui/IconButton";
-import { ResourceChip } from "../ui/ResourceChip";
+import { ResourceChip, ResourceGlyphMark } from "../ui/ResourceChip";
 import { MessageAttachments } from "./MessageAttachments";
 import { ThreadComposer } from "./ThreadComposer";
 import "./seat-threads.css";
@@ -120,7 +120,10 @@ export function SeatThreadsPopup({
         aria-current={shown?.kind === "thread" && shown.threadId === item.threadId ? "true" : undefined}
         onClick={() => setSelection({ kind: "thread", threadId: item.threadId })}
       >
-        <span className="seat-threads__row-title">{item.title}</span>
+        <span className="seat-threads__row-title">
+          {item.subject ? <ResourceGlyphMark kind={item.subject.kind} /> : null}
+          {item.title}
+        </span>
         <span className="seat-threads__row-meta">
           <span className="seat-threads__row-who">{participantsLine(item.participants)}</span>
           <span className="seat-threads__row-time">{threadTime(item.lastAt)}</span>
@@ -206,6 +209,16 @@ export function SeatThreadsPopup({
   );
 }
 
+/** One mention or subject, drawn as a chip; opening it leaves the threads first. */
+function MentionChipView({ chip, onLeave, testId }: { readonly chip: MentionChip; readonly onLeave: () => void; readonly testId: string }) {
+  const { ref, ...drawn } = chip;
+  const open = ref === undefined ? undefined : () => {
+    onLeave();
+    openMention(ref);
+  };
+  return <ResourceChip {...drawn} missing={ref === undefined} {...(open === undefined ? {} : { onOpen: open })} data-testid={testId} />;
+}
+
 function ThreadChat({
   seat,
   name,
@@ -241,12 +254,13 @@ function ThreadChat({
     if (stream.scrollTop < CHAT_NEAR_TOP) void loadOlderMessages(seat, thread.threadId);
   };
   useEffect(() => fillStream(false), [messages, older, loadingMore, error]);
+  const subject = thread.subject ? subjectChipOf(thread.subject, thread.title, kindOf) : undefined;
   const count = `${thread.messageCount} ${thread.messageCount === 1 ? "message" : "messages"}`;
   const lastId = messages.at(-1)?.messageId;
   return (
     <>
       <header className="seat-threads__chat-head">
-        <h3 className="seat-threads__chat-title">{thread.title}</h3>
+        <h3 className="seat-threads__chat-title">{subject ? <MentionChipView chip={subject} onLeave={onLeave} testId="seat-threads-subject" /> : thread.title}</h3>
         <div className="seat-threads__chat-meta">
           {thread.participants.map((who) => (
             <Chip key={who} tone={who === "you" ? "cyan" : "steel"}>
@@ -284,23 +298,7 @@ function ThreadChat({
               <div className="seat-threads__bubble">
                 {mentionChipParts(message.text, kindOf).map((part, index) => {
                   if ("text" in part) return part.text;
-                  const { ref, ...chip } = part.chip;
-                  return (
-                    <ResourceChip
-                      key={index}
-                      {...chip}
-                      missing={ref === undefined}
-                      {...(ref === undefined
-                        ? {}
-                        : {
-                            onOpen: () => {
-                              onLeave();
-                              openMention(ref);
-                            },
-                          })}
-                      data-testid="seat-threads-mention"
-                    />
-                  );
+                  return <MentionChipView key={index} chip={part.chip} onLeave={onLeave} testId="seat-threads-mention" />;
                 })}
               </div>
             ) : null}

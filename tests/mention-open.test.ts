@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { NodeKind } from "../src/shared/model/kinds";
 import type { NodeId } from "../src/shared/physics/schema";
-import { mentionChipParts } from "../src/renderer/lib/mention-open";
+import type { ResourceSubject } from "../src/shared/thread-subject";
+import { mentionChipParts, subjectChipOf } from "../src/renderer/lib/mention-open";
 
 const ITEM = "01M5ESSJRFWT6RVS5HMWMGJXGD";
 const KINDS: Record<string, NodeKind> = { s: "agent", t: "task", a: "artifacts", p: "page" };
@@ -32,5 +33,14 @@ describe("mention chips", () => {
       { kind: "task", label: "done", number: 7 },
       { kind: "artifact", label: "doc" },
     ]);
+  });
+
+  it("a thread's subject is a chip named by the thread's title, and keeps its kind when gone", () => {
+    const onTask = { kind: "task", nodeId: "t", taskId: ITEM } as unknown as ResourceSubject;
+    expect(subjectChipOf(onTask, "#42 fix tabs", kindOf)).toEqual({
+      kind: "task", label: "fix tabs", number: 42, ref: { kind: "task", nodeId: "t", taskId: ITEM },
+    });
+    const gonePage = { kind: "page", nodeId: "gone" } as unknown as ResourceSubject;
+    expect(subjectChipOf(gonePage, "example.com", kindOf)).toEqual({ kind: "page", label: "example.com" });
   });
 });

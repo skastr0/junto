@@ -17,6 +17,7 @@ import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import { useEffect, useState } from "react";
 import type { MentionableSeat, OperatorThreadSend, OperatorThreadSent } from "@shared/mail-threads";
+import type { ResourceSubject } from "@shared/thread-subject";
 import type { ContentRef } from "@shared/wire/content-ref";
 import type { MailParty } from "@shared/wire/mail-threads";
 import { getJuntoApi } from "./junto-api";
@@ -37,6 +38,8 @@ export type SeatThreadSummary = {
   readonly messageCount: number;
   /** The operator is in it and may write in it. */
   readonly canReply: boolean;
+  /** A comment thread's task, artifact or page; absent for a mailbox thread. */
+  readonly subject?: ResourceSubject;
 };
 
 /** One message in a thread. */
@@ -103,6 +106,7 @@ export const juntoSeatThreadsSource = (): SeatThreadsSource | undefined => {
           lastAt: thread.lastAt,
           messageCount: thread.messageCount,
           canReply: thread.canReply,
+          ...(thread.subject === undefined ? {} : { subject: thread.subject }),
         })),
         ...(page.next === undefined ? {} : { next: page.next }),
       };

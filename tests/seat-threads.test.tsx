@@ -539,6 +539,32 @@ describe("the thread composer", () => {
     expect(all("seat-threads-message")[0]?.querySelector(".seat-threads__bubble")?.textContent).toBe("Ask @cli-lead, Seat first.");
   });
 
+  it("a comment thread shows its subject: a glyph in the list, a chip in the header that opens it", async () => {
+    const { state, change } = await open();
+    const task = "01M5ESSJRFWT6RVS5HMWMGJXGD";
+    state.threads = [
+      thread({
+        threadId: "on-task",
+        title: "#42 fix tabs",
+        lastAt: at(3, 0),
+        subject: { kind: "task", nodeId: "board", taskId: task } as unknown as NonNullable<SeatThreadSummary["subject"]>,
+      }),
+      ...state.threads,
+    ];
+    change();
+    await flush();
+    const row = document.querySelector('[data-thread-id="on-task"]')!;
+    expect(row.querySelector(".seat-threads__row-title svg")).not.toBeNull();
+    expect(document.querySelector('[data-thread-id="notes"] .seat-threads__row-title svg')).toBeNull();
+    await click(row);
+    const subject = q("seat-threads-subject")!;
+    expect(subject.querySelector(".resource-chip__number")?.textContent).toBe("#42");
+    expect(subject.querySelector(".resource-chip__label")?.textContent).toBe("fix tabs");
+    await click(subject);
+    expect(workDetailOpen$.get()).toEqual({ nodeId: "board", itemId: task });
+    expect(q("seat-threads")).toBeNull();
+  });
+
   it("a task mention is a chip that leaves the threads and opens the task on its board; a gone node is unavailable", async () => {
     const { state, change } = await open();
     const task = "01M5ESSJRFWT6RVS5HMWMGJXGD";

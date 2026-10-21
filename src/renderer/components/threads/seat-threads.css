@@ -106,6 +106,12 @@
   line-height: var(--leading-dense);
 }
 
+/* A comment thread's kind, before its resource's name. */
+.seat-threads__row-title > svg {
+  margin-inline-end: 6px;
+  vertical-align: -1px;
+}
+
 .seat-threads__row-meta {
   display: flex;
   align-items: center;
