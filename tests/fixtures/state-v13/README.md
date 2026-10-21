@@ -14,4 +14,4 @@ taken through the real steps 1 -> 13, then vacuumed. Each holds
 `PRAGMA user_version = 13` and records `STATE_SCHEMA_V13_IDENTITY`. Those
 steps are gone, so the databases cannot be remade. Never regenerate them.
 
-`schema.ts` composes the frozen schema text of versions 13 to 24.
+`schema.ts` composes the frozen schema text of versions 13 to 25.

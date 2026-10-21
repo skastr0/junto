@@ -1,5 +1,5 @@
 /**
- * The frozen state schemas, version 13 through version 24, built only from
+ * The frozen state schemas, version 13 through version 25, built only from
  * frozen text and frozen steps so no later schema change can move a
  * historical witness.
  * Version 14 is its frozen fragments; version 13 is version 14 with the mail
@@ -32,7 +32,7 @@ export const STATE_SCHEMA_V14_SQL = withoutProposalStorage(STATE_SCHEMA_FRAGMENT
  * A later version is the earlier one with that step's own migration run on
  * it. A step never follows the head, so the result is frozen with the step.
  */
-const stepped = (
+export const stepped = (
   sql: string,
   migrate: (database: DatabaseSync) => void,
 ): string => {
@@ -138,3 +138,9 @@ const MAIL_HOME_TRIGGER_V13_SQL = `
   END;
 `;
 export const STATE_SCHEMA_V13_SQL = `${STATE_SCHEMA_V14_SQL}\n${MAIL_HOME_TRIGGER_V13_SQL}`;
+
+// Version 25 retired on_remove from seats and terminals (24 -> 25).
+export const STATE_SCHEMA_V25_SQL = stepped(
+  STATE_SCHEMA_V24_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 25)!.migrate,
+);
