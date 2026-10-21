@@ -205,7 +205,12 @@ describe("codex", () => {
 const kimiRetrying = (cause: string) =>
   expect.objectContaining({ _tag: "Retrying", cause, attempt: 2, max: 10, retryInMs: expect.any(Number) });
 
-describe("kimi", () => {
+/**
+ * Kimi's retry and limit recordings run to ~800 chunks, and each awaits a
+ * grid write: a replay takes ~3s on a loaded machine, past the 5s default
+ * for the tests that replay two or three of them.
+ */
+describe("kimi", { timeout: 30_000 }, () => {
   it("retry-overloaded, retry-rate, retry-network: the status line under the retry names the cause", async () => {
     for (const [scenario, cause] of [
       ["retry-overloaded", "overloaded"],
