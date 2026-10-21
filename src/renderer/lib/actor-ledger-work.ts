@@ -12,21 +12,12 @@ import type { ActorRef } from "@shared/work-protocol";
 import { taskAdmissionState } from "@shared/rules";
 import { taskBrief, isAttentionTaskState } from "@shared/task";
 import { isArtifactArchived } from "@shared/work";
-import { claimedTaskForActorNode } from "./claimed-task";
 
 /**
  * Pure projections of an actor's work-kernel standing for ledger-style UI:
  * the task it currently holds, the tasks it raised, and the requests
  * (escalations) it raised. The caller supplies independently queried Work rows.
  */
-
-export type ClaimedTaskRow = {
-  readonly taskId: string;
-  readonly sinkNodeId: string;
-  readonly state: TaskState;
-  readonly title: string;
-  readonly needsInput: boolean;
-};
 
 export type RaisedTaskRow = {
   readonly taskId: string;
@@ -122,23 +113,6 @@ export const seatIdForActorNode = (
   nodeId: string,
 ): ActorSeatId | undefined =>
   actorRefs.find((candidate) => candidate.nodeId === nodeId)?.seatId;
-
-/** The one active task an actor node holds, shaped for a ledger row. */
-export const claimedTaskRow = (
-  rows: ReadonlyArray<WorkLaneRow>,
-  actorRefs: ReadonlyArray<ActorRef>,
-  nodeId: string,
-): ClaimedTaskRow | undefined => {
-  const claimed = claimedTaskForActorNode(rows, actorRefs, nodeId);
-  if (claimed === undefined) return undefined;
-  return {
-    taskId: claimed.task.id,
-    sinkNodeId: claimed.sinkNodeId,
-    state: claimed.task.state,
-    title: taskTitle(claimed.task, "Untitled task"),
-    needsInput: claimed.task.state === "input-required",
-  };
-};
 
 /** Awaiting approval first, then newest first (ULID ids sort by birth order). */
 const compareRaisedTaskRows = (a: RaisedTaskRow, b: RaisedTaskRow): number => {

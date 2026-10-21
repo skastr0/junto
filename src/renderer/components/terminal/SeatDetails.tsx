@@ -34,7 +34,6 @@ import "./actor-ledger-mail.css";
 import {
   artifactRowsForSeat,
   boardRowsForActor,
-  claimedTaskRow,
   raisedTaskRowsForSeat,
   requestRowsForSeat,
   seatIdForActorNode,
@@ -47,7 +46,8 @@ import { SIGNALS_SECTION, useSeatSignals } from "../../lib/agent-signals-view";
 import { clearSectionReveal, sidebarSections$ } from "../../lib/sidebar-sections";
 import { getJuntoApi } from "../../lib/junto-api";
 import { modKeyGlyph } from "../../lib/platform";
-import { Button, Chip, IconButton, Popover, type ChipTone } from "../ui";
+import { Button, Chip, IconButton, Popover, TaskStateMark, type ChipTone } from "../ui";
+import { seatTasks$, type SeatTask } from "../../lib/seat-tasks";
 import { DetailsGroup } from "./DetailsGroup";
 import { SeatSignalsSection } from "./SeatSignalsSection";
 import { OnboardingSection } from "./OnboardingSection";
@@ -362,10 +362,8 @@ function SeatDetails({ node, session }: { readonly node: SeatFace; readonly sess
     return inPaintOrder(held).filter((entry) => peerIds.has(entry.id) && entry.kind === "board").map((entry) => entry.id as string);
   }, [held, node.id, live]);
   const boardPages = usePeerBoards(live ? canvas : "", peerBoardIds);
-  const claim = useMemo(
-    () => live ? claimedTaskRow(attentionRows, actorRefs, node.id) : undefined,
-    [attentionRows, actorRefs, node.id, live],
-  );
+  const seatTask = use$(() => seatTasks$.bySeat[node.id].get()) as SeatTask | undefined;
+  const claim = live ? seatTask : undefined;
   const requests = useMemo(
     () => live && seatId !== undefined && requestPage.page.kind === "requests" ? requestRowsForSeat(requestPage.page.items, seatId) : [],
     [requestPage.page, seatId, live],
@@ -474,20 +472,18 @@ function SeatDetails({ node, session }: { readonly node: SeatFace; readonly sess
       {claim ? (
         <DetailsGroup
           title="task"
-          count={claim.needsInput ? 1 : undefined}
+          count={claim.blocked ? 1 : undefined}
           countTone="amber"
         >
           <div
             className="actor-ledger__item-row actor-ledger__item-row--static"
             data-testid="actor-ledger-claim"
-            title={`Task ${claim.taskId} on ${claim.sinkNodeId}`}
+            title={`${claim.label} ${claim.title}`}
           >
             <span className="actor-ledger__item-head">
-              <Chip tone={taskStateTone(claim.state)}>
-                {claim.needsInput ? "needs you" : claim.state}
-              </Chip>
+              <TaskStateMark state={claim.state} withLabel />
             </span>
-            <span className="actor-ledger__item-title">{claim.title}</span>
+            <span className="actor-ledger__item-title">{claim.label} {claim.title}</span>
           </div>
         </DetailsGroup>
       ) : null}

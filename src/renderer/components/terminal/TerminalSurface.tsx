@@ -7,7 +7,6 @@ import type { Seat, Terminal as TerminalNode } from "@shared/model";
 import type { JuntoTerminalApi } from "@shared/ipc";
 import { terminalBindingOf, type TerminalOutputBatch } from "@shared/terminal";
 import { terminalSettings, type TerminalSettings } from "@shared/settings";
-import { claimedTaskBrief } from "../../lib/claimed-task";
 import { MONO_CELL } from "../../lib/focus-measure";
 import { use$ } from "@legendapp/state/react";
 import {
@@ -36,8 +35,8 @@ import {
 } from "../../lib/terminal-viewport";
 import { attachXtermAutoCopy } from "../../lib/xterm-auto-copy";
 import { playCue } from "../../lib/sound";
-import type { ClaimedTask } from "../../lib/claimed-task";
-import { claimedTask$ } from "../../lib/claimed-task-index";
+import { seatTasks$, type SeatTask } from "../../lib/seat-tasks";
+import { tasksSource } from "../../lib/tasks-source";
 import { state$ } from "../../lib/state";
 import { modelStore, useNodeOf, useNodeValue, useOpenCanvas } from "../../lib/use-model";
 import { titleOf } from "@shared/model/title";
@@ -62,7 +61,6 @@ import {
   type SessionLoadPhase,
 } from "../../lib/session-load";
 import { TASKS_ENABLED } from "@shared/features";
-import { releaseTaskToQueue } from "../../lib/work-actions";
 import {
   claimFocus,
   shouldClaimFocusOnSurfaceOpen,
@@ -743,9 +741,9 @@ export function TerminalSurface({
   const canvasName = use$(() => terminal$.canvasByNodeId[node.id].get() ?? state$.canvasName.get());
   // An open terminal holds its canvas open in the node store.
   useOpenCanvas(canvasName);
-  // One key of the canvas-wide claimed-task index, as the seat card reads it:
+  // One key of the canvas-wide seat task store, as the seat card reads it:
   // an open terminal does not hear the whole document.
-  const claimedTask = use$(() => claimedTask$.byNodeId[node.id].get()) as ClaimedTask | undefined;
+  const heldTask = use$(() => seatTasks$.bySeat[node.id].get()) as SeatTask | undefined;
   const agentSeat = node.kind === "agent";
   // Control classification comes from the node kind, never optional binding
   // fields. The exact actor surface is validated separately before its
@@ -2016,16 +2014,12 @@ export function TerminalSurface({
     status,
   });
   const releaseClaim = async (): Promise<void> => {
-    if (!claimedTask || releasePending) return;
+    if (!heldTask || releasePending) return;
     setReleasePending(true);
     setReleaseError("");
     try {
-      const result = await releaseTaskToQueue(
-        canvasName,
-        claimedTask.sinkNodeId,
-        claimedTask.task.id,
-      );
-      if (result && !result.ok) setReleaseError(result.message);
+      const result = await tasksSource().apply(canvasName, heldTask.node, heldTask.taskId, { kind: "unassign" });
+      if (!result.ok) setReleaseError(result.message);
     } catch (cause) {
       setReleaseError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -2201,16 +2195,16 @@ export function TerminalSurface({
           terminal refits. In a grid cell too: a seat the operator is looking
           at is asked, never yanked. */}
       {agentSeat ? <SeatCacheDuePopup canvasName={canvasName} seatId={node.id} /> : null}
-      {claimedTask && TASKS_ENABLED && !grid ? (
+      {heldTask && TASKS_ENABLED && !grid ? (
         <div
           className="flex items-center gap-2 border-b border-stroke bg-cyan/[0.045] px-3 py-1.5 text-body"
           role="status"
         >
           <span className="shrink-0 uppercase tracking-eyebrow text-cyan-fg">
-            Claimed task
+            Assigned task
           </span>
           <strong className="min-w-0 flex-1 truncate text-ink">
-            {claimedTaskBrief(claimedTask.task)}
+            {heldTask.label} {heldTask.title}
           </strong>
           {releaseError ? (
             <span className="max-w-[32ch] truncate text-crimson-fg" title={releaseError}>

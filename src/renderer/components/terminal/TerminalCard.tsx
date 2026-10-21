@@ -17,7 +17,7 @@ import { getJuntoApi } from "../../lib/junto-api";
 import { isOnMachine, machineLabelIn, useMachines, useThisMachineName } from "../../lib/machines";
 import { renameTerminalNode } from "../../lib/mutations";
 import { useNodeFieldOf } from "../../lib/use-model";
-import { ClaimedTaskStrip } from "../nodes/ClaimedTaskStrip";
+import { SeatTaskStrip } from "../nodes/SeatTaskStrip";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { InstrumentSeat } from "../nodes/InstrumentSeat";
 
@@ -185,7 +185,7 @@ export function TerminalCard({
         line={line}
         lineTitle={line}
       >
-        {TASKS_ENABLED ? <ClaimedTaskStrip nodeId={id} /> : null}
+        {TASKS_ENABLED ? <SeatTaskStrip nodeId={id} /> : null}
       </InstrumentSeat>
     </div>
   );

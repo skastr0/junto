@@ -20,7 +20,7 @@ import { terminal$ } from "../../lib/terminal-state";
 import { accentColor, INK } from "../../lib/theme";
 import { useNodeFieldOf } from "../../lib/use-model";
 import { AgentSeat, SeatName } from "./AgentSeat";
-import { ClaimedTaskStrip } from "./ClaimedTaskStrip";
+import { SeatTaskStrip } from "./SeatTaskStrip";
 import { FirstLineRenameInput } from "./FirstLineRenameInput";
 
 const NO_BINDING = "__junto-seat-card-no-binding__";
@@ -159,7 +159,7 @@ export function SeatCard({
         cache={cache}
         host={hostId}
       >
-        {TASKS_ENABLED ? <ClaimedTaskStrip nodeId={id} /> : null}
+        {TASKS_ENABLED ? <SeatTaskStrip nodeId={id} /> : null}
       </AgentSeat>
     </div>
   );

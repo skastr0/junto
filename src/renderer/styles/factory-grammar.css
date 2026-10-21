@@ -98,7 +98,7 @@
 }
 /* An overseer seat wears its crest on the ring (ActivityMark), in the
    grid, focus header and inspector too: one border, no tab, no stripe. */
-.factory-agent-card:not(:has([data-testid="claimed-task"])) {
+.factory-agent-card:not(:has([data-testid="seat-task"])) {
   justify-content: center;
 }
 .junto-node[data-node-kind="task"] { border-radius: 8px 4px 4px 8px; }
