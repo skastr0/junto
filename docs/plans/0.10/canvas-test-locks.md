@@ -60,7 +60,8 @@ It does not enter the chain while `reviews` is kept;
 `tests/canvas-deletions-migration.test.ts` then asserts reviews wires go.
 
 The step also stores `feeds` as `flows`, and its CHECK has no `feeds`. It
-does not enter the chain until physics writes `flows` (today `verbs.ts` still
-names `feeds`), or every task to task wire write fails the CHECK.
+enters the chain in the same commit that makes physics write `flows` (today
+`verbs.ts` still names `feeds`): the head CHECK has no `flows`, so neither can
+land first, and apart, one side's task to task wire writes fail a CHECK.
 `participates` stays in the CHECK while boards and request boards are live
 kinds (133f7adbf).
