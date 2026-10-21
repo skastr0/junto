@@ -24,10 +24,11 @@ everyone else reports by mail and on the needs-you feed.
   `git commit`, `git commit -a` or `git add -A`. Never touch another agent's
   uncommitted change.
 - **Heavy runs** (operator, 2026-10-21): full typecheck, `test` or `verify`,
-  vitest over more than 3 files, e2e. At most 10 machine-wide, in the shared
-  checkout, none while the one-minute load is above 40. Team shares: product
-  2, remote 2, canvas 2, pty 1, cli 1, performance 1, pi 1; each lead grants
-  its team's. No worktrees.
+  vitest over more than 3 files, e2e. At most 25 machine-wide (raised from
+  10 by the operator once typecheck moved to tsrs), in the shared checkout,
+  none while the one-minute load is above 40. Team shares: product 5, remote
+  5, canvas 5, pty 3, cli 3, performance 2, pi 2; each lead grants its
+  team's. No worktrees.
 - **Proof is types first** (operator, 2026-10-21). Contracts are typed so
   misuse fails `tsc`: closed unions, branded ids, exhaustive matches,
   type-level tests where a shape matters. Unit tests on pure modules and
