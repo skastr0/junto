@@ -277,6 +277,8 @@ export function BrowserSurfaceSlot({
               controls={surfaceId}
               box={chrome.box}
               sessionId={sessionId}
+              canvasName={canvasName}
+              nodeId={payload.nodeId}
               trailing={pageActions}
             />
           ) : (

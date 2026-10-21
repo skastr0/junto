@@ -258,6 +258,8 @@ export function BrowserChrome({
   controls,
   box,
   sessionId,
+  canvasName,
+  nodeId,
   trailing,
 }: {
   readonly state: BrowserChromeState;
@@ -271,6 +273,9 @@ export function BrowserChrome({
   /** Comment on an area, when main serves it; with the page's session id. */
   readonly box?: BrowserBoxApi;
   readonly sessionId?: string;
+  /** The canvas and the page node, for the seats a comment may mention. */
+  readonly canvasName?: string;
+  readonly nodeId?: string;
   readonly trailing?: ReactNode;
 }) {
   const [pending, setPending] = useState(false);
@@ -353,7 +358,9 @@ export function BrowserChrome({
         <TakeoverControl state={state} pending={pending} onCommand={run} />
         {trailing}
       </div>
-      {draft === null ? null : <BoxCommentComposer draft={draft} pending={posting} onPost={postBox} onDiscard={discardBox} />}
+      {draft === null ? null : (
+        <BoxCommentComposer draft={draft} canvasName={canvasName ?? ""} nodeId={nodeId ?? ""} pending={posting} onPost={postBox} onDiscard={discardBox} />
+      )}
       {refused === null ? null : (
         <p className="browser-chrome__refused" role="alert" data-testid="browser-chrome-refused">
           {refused}

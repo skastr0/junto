@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useCallback, useState, type KeyboardEvent } from "react";
 import type { BrowserBoxDraft } from "@shared/browser-chrome";
+import { asNodeId } from "@shared/model";
 import { pngDataUrl } from "../../lib/png-data-url";
-import { Button, Textarea } from "../ui";
+import { Button } from "../ui";
+import { MentionCombobox } from "../ui/MentionCombobox";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
+import { useSeatsInReach } from "../../lib/mention-sources";
 
 const hostOf = (url: string): string => {
   try {
@@ -20,16 +23,25 @@ const hostOf = (url: string): string => {
  */
 export function BoxCommentComposer({
   draft,
+  canvasName,
+  nodeId,
   pending = false,
   onPost,
   onDiscard,
 }: {
   readonly draft: BrowserBoxDraft;
+  /** The canvas and the page node: `@` names a seat in the page's reach, the only seats a comment on it may mention. */
+  readonly canvasName: string;
+  readonly nodeId: string;
   readonly pending?: boolean;
   readonly onPost: (text: string) => void;
   readonly onDiscard: () => void;
 }) {
   const [text, setText] = useState("");
+  const seats = useSeatsInReach(canvasName, asNodeId(nodeId));
+  const setField = useCallback((element: HTMLTextAreaElement | null) => {
+    claimFocusOnMount(element);
+  }, []);
   const ready = text.trim().length > 0 && !pending;
   return (
     <form
@@ -47,16 +59,21 @@ export function BoxCommentComposer({
           This image goes with your comment, from {hostOf(draft.url)}. Nothing else of the page does.
         </figcaption>
       </figure>
-      <Textarea
-        ref={claimFocusOnMount}
+      <MentionCombobox
+        fieldRef={setField}
         dense
-        aria-label="Comment"
-        placeholder="What about this area?"
-        rows={3}
         value={text}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+        onValueChange={(next) => setText(next)}
+        canvasName={canvasName}
+        candidates={seats}
+        listLabel={() => "Seats in reach of this page"}
+        noun={{ one: "seat", other: "seats" }}
+        placeholder="What about this area? @ names a seat in reach"
+        aria-label="Comment"
+        rows={3}
+        onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
+          if (event.nativeEvent.isComposing) return;
+          if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
             if (ready) onPost(text.trim());
           }

@@ -33,6 +33,8 @@ const mount = async (box: BrowserBoxApi | undefined) => {
         onFocusPage={() => undefined}
         box={box}
         sessionId="s1"
+        canvasName="factory"
+        nodeId="page-1"
       />,
     );
   });
@@ -96,6 +98,22 @@ describe("comment on an area", () => {
     });
     expect(box.post).toHaveBeenCalledWith("s1", "shot-1", "This heading is wrong");
     expect(host.querySelector('[data-testid="box-comment-composer"]')).toBeNull();
+  });
+
+  it("sends on Enter and keeps Shift+Enter for a new line", async () => {
+    const box = fakeBox(async () => ({ kind: "drawn", draft }));
+    await mount(box);
+    await click('[data-testid="browser-comment-area"]');
+    await typeInto('textarea[aria-label="Comment"]', "Fix this");
+    const field = host.querySelector('textarea[aria-label="Comment"]')!;
+    await act(async () => {
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true, cancelable: true }));
+    });
+    expect(box.post).not.toHaveBeenCalled();
+    await act(async () => {
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+    expect(box.post).toHaveBeenCalledWith("s1", "shot-1", "Fix this");
   });
 
   it("drops the staged shot when discarded, and posts nothing", async () => {
