@@ -260,7 +260,7 @@ const THREAD_B = demoMailId(DEMO_T0 - 30 * MIN, "D3M0", 4);
 
 /** Thread mail, oldest first: operator mail, seat replies to it, and seat mail in its threads. */
 export const DEMO_THREAD_MAIL: ReadonlyArray<CompanionThreadMessage> = [
-  { messageId: THREAD_A, threadId: THREAD_A, from: OP, to: [seatParty("atlas", "Atlas")], mine: true, text: "Run the schema migration against staging.\nUse the rollback script if the dry run fails.", at: DEMO_T0 - 40 * MIN, mentions: [seatParty("relay", "Relay")] },
+  { messageId: THREAD_A, threadId: THREAD_A, from: OP, to: [seatParty("atlas", "Atlas")], mine: true, text: "Run the schema migration against staging.\nUse the rollback script if the dry run fails.", at: DEMO_T0 - 40 * MIN },
   { messageId: demoMailId(DEMO_T0 - 15 * MIN, "D3M0", 2), threadId: THREAD_A, inReplyTo: THREAD_A, from: seatParty("atlas", "Atlas"), to: [OP], mine: false, text: "Dry run passed. Waiting on the staging password before the real run.", at: DEMO_T0 - 15 * MIN },
   { messageId: demoMailId(DEMO_T0 - 12 * MIN, "D3M0", 3), threadId: THREAD_A, from: seatParty("relay", "Relay"), to: [seatParty("atlas", "Atlas")], mine: false, text: "The API tests pass on my branch. I will hold the deploy until the migration lands.", at: DEMO_T0 - 12 * MIN },
   { messageId: THREAD_B, threadId: THREAD_B, from: OP, to: [seatParty("quill", "Quill")], mine: true, text: "Design the empty state for the inbox.", at: DEMO_T0 - 30 * MIN },

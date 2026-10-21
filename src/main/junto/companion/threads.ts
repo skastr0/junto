@@ -2,9 +2,8 @@
  * The phone's mail threads: `threads.list`, `thread.get` and `mail.send`, on
  * the desktop's own thread reads and operator send (work/operator-threads.ts).
  *
- * A phone's mail goes to the seat it is written to and no one else; its
- * mentions are references kept on the row, checked on this Mac against the
- * seats wired to that seat. The send runs under the main authoring gate as
+ * A phone's mail goes to the seat it is written to and no one else; a
+ * mention is the link in its text. The send runs under the main authoring gate as
  * `companion.mail-send`, as the phone's mail always has. Every refusal is a
  * fixed sentence (companion-threads.ts).
  */

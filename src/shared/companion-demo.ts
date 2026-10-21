@@ -27,6 +27,7 @@ import {
 } from "./companion-core";
 import { companionConnected, companionThreadMessages, companionThreads } from "./companion-threads";
 import { seatMailThreadMessages, seatMailThreads, type MailThreadsInput } from "./mail-threads";
+import { mentionedOnce, mentionsOf } from "./mention";
 import { makeAgentMessage, makeUserMessage } from "./task";
 import type { Message } from "./work-model";
 import { OPERATOR_SEAT_ID } from "./work-reference";
@@ -59,7 +60,6 @@ const demoThreadRow = (message: CompanionThreadMessage): { readonly nodeId: stri
     // A thread's root carries no threadId; its id is the thread.
     ...(message.threadId === message.messageId ? {} : { threadId: message.threadId }),
     ...(message.inReplyTo === undefined ? {} : { inReplyTo: message.inReplyTo }),
-    ...(message.mentions === undefined ? {} : { mentions: message.mentions.map((seat) => seat.nodeId) }),
   };
   const to = message.to[0]!;
   const base = { messageId: message.messageId, text: message.text, contextId: DEMO_CANVAS };
@@ -242,7 +242,7 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
     nodeId: string,
     text: string,
     at: number,
-    thread: { readonly threadId?: string; readonly inReplyTo?: string; readonly mentions?: ReadonlyArray<string> } = {},
+    thread: { readonly threadId?: string; readonly inReplyTo?: string } = {},
   ): CompanionMail => {
     const seat = SEATS.find((candidate) => candidate.id === nodeId)!;
     mailSeq += 1;
@@ -260,8 +260,6 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
       ...(thread.inReplyTo === undefined ? {} : { inReplyTo: thread.inReplyTo }),
     };
     mail.push(message);
-    const name = (id: string) => SEATS.find((candidate) => candidate.id === id)?.name ?? id;
-    const mentions = (thread.mentions ?? []).map((id) => ({ kind: "seat" as const, nodeId: id, name: name(id) }));
     threadRows.push(
       demoThreadRow({
         messageId,
@@ -272,7 +270,6 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
         mine: true,
         text,
         at,
-        ...(mentions.length === 0 ? {} : { mentions }),
       }),
     );
     noteActivity(nodeId, { at, label: "got your mail", kind: "mail" });
@@ -354,8 +351,10 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
       if ((thread.attachments?.length ?? 0) > 0) return outcomeFail("invalid", "The demo does not take files.");
       const body = text.trim();
       if (!body) return outcomeFail("invalid", "Mail needs some text.");
-      const mentions = [...new Set(thread.mentions ?? [])].filter((id) => id !== nodeId);
-      if (mentions.some((id) => !(DEMO_CONNECTED[nodeId] ?? []).includes(id))) {
+      // A seat the text links must be wired here, as on the Mac.
+      const linked = mentionedOnce(mentionsOf(body, (id) => (seatExists(id) ? "agent" : undefined)))
+        .flatMap((ref) => (ref.kind === "seat" && ref.nodeId !== nodeId ? [ref.nodeId as string] : []));
+      if (linked.some((id) => !(DEMO_CONNECTED[nodeId] ?? []).includes(id))) {
         return outcomeFail("invalid", "A mentioned seat is not connected to this one.");
       }
       const threads = seatMailThreads(threadsInput(), nodeId);
@@ -380,7 +379,6 @@ export const makeDemoBackend = (machineName: string, portraitPng?: DemoPortraitP
         appendOperatorMail(nodeId, body, tick(), {
           ...(threadId === undefined ? {} : { threadId }),
           ...(thread.inReplyTo === undefined ? {} : { inReplyTo: thread.inReplyTo }),
-          mentions,
         }),
       );
     },

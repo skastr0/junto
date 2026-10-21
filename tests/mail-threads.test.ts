@@ -23,6 +23,7 @@ import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
 import { page as pageNode, seat as seatNode, wire } from "./support/model-nodes";
 import { postSubjectComment } from "../src/main/junto/work/subject-comment";
+import { mentionLink } from "../src/shared/mention";
 import { ModelService } from "../src/main/junto/model/service";
 import { OpId } from "../src/shared/work-ids";
 import type { MailMessageId } from "../src/shared/crew";
@@ -45,7 +46,6 @@ import {
   sendOperatorThreadMail,
 } from "../src/main/junto/work/operator-threads";
 import {
-  MAIL_MENTIONS_MAX,
   OPERATOR_MAIL_MAX_TEXT,
   OperatorThreadSend as OperatorThreadSendSchema,
   type OperatorThreadSend,
@@ -440,24 +440,23 @@ describe("operator threads", () => {
     expect(await send({ nodeId: "agent", text: "?", threadId: "01JB2C3D4E5F6G7H8J9K0M1N2Z" })).toMatchObject({ ok: false, reason: "not-found" });
   });
 
-  it("a mention is a reference on the mail: the mentioned seat gets nothing and is not in the thread", async () => {
-    const started = await send({ nodeId: "agent", text: "@peer has the numbers", mentions: ["peer"] });
+  it("a mention is the link in the text: nothing is kept beside it, and the mentioned seat gets nothing", async () => {
+    const text = `${mentionLink({ kind: "seat", nodeId: asNodeId("peer") }, "peer", CANVAS)} has the numbers`;
+    const started = await send({ nodeId: "agent", text });
     expect(started).toMatchObject({ messageId: expect.any(String), threadId: started.messageId });
-    expect((await stored("agent", started.messageId)).metadata).toMatchObject({ mentions: ["peer"] });
+    expect((await stored("agent", started.messageId)).metadata).not.toHaveProperty("mentions");
     expect(await mailbox("peer")).toEqual([]);
 
     const [message] = await messagesOf("agent", started.threadId);
-    expect(message).toMatchObject({
-      to: [{ kind: "seat", nodeId: "agent", name: "agent" }],
-      mentions: [{ kind: "seat", nodeId: "peer", name: "peer" }],
-    });
+    expect(message).toMatchObject({ to: [{ kind: "seat", nodeId: "agent", name: "agent" }], text });
+    expect(message).not.toHaveProperty("mentions");
     const [thread] = await threadsOf("agent");
     expect(thread!.participants).toEqual([{ kind: "operator" }, { kind: "seat", nodeId: "agent", name: "agent" }]);
     expect(await threadsOf("peer")).toEqual([]);
   });
 
   it("refuses a mention of a seat not wired to the seat, writing nothing", async () => {
-    const refused = await send({ nodeId: "agent", text: "hi", mentions: ["loner"] });
+    const refused = await send({ nodeId: "agent", text: `hi ${mentionLink({ kind: "seat", nodeId: asNodeId("loner") }, "loner", CANVAS)}` });
     expect(refused).toEqual({ ok: false, reason: "invalid", message: "loner is not connected to agent, so it cannot be mentioned here." });
     expect(await mailbox("agent")).toEqual([]);
     expect(await mailbox("loner")).toEqual([]);
@@ -544,12 +543,12 @@ describe("remote-security's terms on threads", () => {
       { ...ok, attachments: [{ ...file, sha256: "not a digest" }] },
       { ...ok, threadId: "thread-1" },
       { ...ok, inReplyTo: "msg_01" },
-      { ...ok, mentions: Array.from({ length: MAIL_MENTIONS_MAX + 1 }, (_, i) => `seat-${i}`) },
+      // A mention is the link in the text: a list beside it is no field of the send.
+      { ...ok, mentions: ["seat-1"] },
       { ...ok, extra: true },
     ]) {
       expect(decode(bad)._tag).toBe("Failure");
     }
-    expect(decode({ ...ok, mentions: Array.from({ length: MAIL_MENTIONS_MAX }, (_, i) => `seat-${i}`) })._tag).toBe("Success");
   });
 
   it("a failed write is refused in fixed words: the mail's text never leaves the mailbox", async () => {

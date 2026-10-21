@@ -59,7 +59,6 @@ export const outcomeFail = <A = never>(
 export type CompanionMailThread = {
   readonly threadId?: string;
   readonly inReplyTo?: string;
-  readonly mentions?: ReadonlyArray<string>;
   /** Files this phone staged (`content.stage`), by the ref it was answered. */
   readonly attachments?: ReadonlyArray<ContentRef>;
 };
@@ -90,7 +89,7 @@ export type CompanionBackend = {
     nodeId: string,
     limit: number,
   ) => Promise<CompanionOutcome<ReadonlyArray<CompanionMail>>>;
-  /** To this seat alone; `thread` places it in a thread, and its mentions are references only. */
+  /** To this seat alone; `thread` places it in a thread. A mention is the link in the text. */
   readonly mailSend: (
     canvasName: string,
     nodeId: string,
@@ -459,7 +458,8 @@ export const handleCompanionRequest = async (
         (messages) => companionOk(id, "mail.list", { messages }),
       );
     case "mail.send": {
-      const { canvasName, nodeId, text, ...thread } = frame.args;
+      // A phone's `mentions` list goes nowhere: a mention is the link in the text.
+      const { canvasName, nodeId, text, mentions: _mentions, ...thread } = frame.args;
       return respond(id, backend.mailSend(canvasName, nodeId, text, thread), (message) =>
         companionOk(id, "mail.send", { message }),
       );

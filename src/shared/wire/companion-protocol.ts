@@ -267,8 +267,6 @@ export const CompanionThreadMessage = Schema.Struct({
   at: Schema.Number,
   /** Files the mail carries; `content.get` serves their bytes. */
   attachments: Schema.optionalKey(Schema.Array(ContentRef)),
-  /** Seats it names as a reference; they were not sent it. */
-  mentions: Schema.optionalKey(Schema.Array(ThreadSeat).pipe(Schema.check(Schema.isMaxLength(COMPANION_MENTIONS_MAX)))),
 });
 export type CompanionThreadMessage = typeof CompanionThreadMessage.Type;
 
@@ -556,8 +554,9 @@ export const CompanionArgs = {
   }),
   /**
    * With neither id, a new thread to the seat; `inReplyTo`, a reply in that
-   * mail's thread; `threadId` alone, a mail into that thread. `mentions` are
-   * references only: the mail goes to this seat and no one else.
+   * mail's thread; `threadId` alone, a mail into that thread. The mail goes
+   * to this seat and no one else; a mention is the link in its text.
+   * `mentions` is read from a phone that still sends it and kept nowhere.
    */
   "mail.send": Schema.Struct({
     canvasName: CanvasName,

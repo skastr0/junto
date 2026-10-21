@@ -1473,7 +1473,7 @@ export interface JuntoTerminalApi {
    */
   readonly seatThreadsList: (query: SeatThreadsPageQuery) => Promise<MailThreadsPage>;
   readonly seatThreadMessages: (query: SeatThreadPageQuery) => Promise<MailThreadMessagesPage>;
-  /** No threadId and no inReplyTo starts a thread; mentions name wired seats. */
+  /** No threadId and no inReplyTo starts a thread; a mention is a link in the text to a wired seat. */
   readonly seatThreadSend: (input: OperatorThreadSend) => Promise<OperatorThreadSent>;
   readonly seatThreadMentionables: (query: SeatThreadsQuery) => Promise<ReadonlyArray<MentionableSeat>>;
   /**

@@ -29,8 +29,6 @@ export const MailThreadMessage = Schema.Struct({
   at: Schema.Number,
   /** Files the mail carries, by reference into the Mac content store; the bytes are served by `content.get`. */
   attachments: Schema.optionalKey(Schema.Array(ContentRef)),
-  /** Seats the mail names as a reference; they are not sent it. */
-  mentions: Schema.optionalKey(Schema.Array(Schema.Struct({ kind: Schema.Literal("seat"), nodeId: Schema.String, name: Schema.String }))),
   /** The resource the thread is about; absent for a seat's mailbox thread. */
   subject: Schema.optionalKey(ResourceSubject),
 });

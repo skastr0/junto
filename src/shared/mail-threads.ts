@@ -85,11 +85,6 @@ const partyKey = (party: MailParty): string => (party.kind === "operator" ? "ope
 type Entry = MailThreadMessage;
 type SeatParty = Extract<MailParty, { kind: "seat" }>;
 
-const mentionsOf = (row: Message, seat: (nodeId: string) => SeatParty): ReadonlyArray<SeatParty> => {
-  const held = row.metadata?.mentions;
-  return Array.isArray(held) ? held.filter((id): id is string => typeof id === "string").map(seat) : [];
-};
-
 /**
  * One mailbox row as thread mail, or undefined when it is not conversation:
  * receipts, Junto's own prompts, a seat's private notes, and a task comment
@@ -132,7 +127,6 @@ const entryOf = (
     to = seat(mailbox);
   }
   const inReplyTo = stringField(row, "inReplyTo");
-  const mentions = mentionsOf(row, seat);
   // Files only on the operator's mail: a seat's metadata never names a digest.
   const attachments = from.kind === "operator" ? attachmentsOf(row) : [];
   return {
@@ -145,7 +139,6 @@ const entryOf = (
     text: text(row),
     at: messageIdTimeMs(row.messageId) ?? 0,
     ...(attachments.length === 0 ? {} : { attachments }),
-    ...(mentions.length === 0 ? {} : { mentions }),
     ...(subject === undefined ? {} : { subject }),
   };
 };
@@ -306,16 +299,15 @@ export const seatMailThreadMessagesPage = (
 
 // ---- Operator send ----
 
-/** The most seats one mail may mention. */
-export const MAIL_MENTIONS_MAX = 32;
 /** Operator mail text, the same bound as the phone's and a signal answer. */
 export const OPERATOR_MAIL_MAX_TEXT = COMPANION_MAX_TEXT;
 
 /**
  * The operator writes in a seat's threads, always to that seat alone: with
  * neither id, a new thread; with `inReplyTo`, a reply in that mail's thread;
- * with `threadId` alone, a mail into that thread. `mentions` are references
- * only, seats wired to this seat, kept on the mail; they receive nothing.
+ * with `threadId` alone, a mail into that thread. A mention is the link in
+ * the text (mention.ts); nothing is kept beside it, and the seat it names
+ * receives nothing.
  */
 export const OperatorThreadSend = Schema.Struct({
   canvasName: CanvasName,
@@ -326,7 +318,6 @@ export const OperatorThreadSend = Schema.Struct({
   attachments: Schema.optionalKey(OperatorAttachments),
   threadId: Schema.optionalKey(MailMessageId),
   inReplyTo: Schema.optionalKey(MailMessageId),
-  mentions: Schema.optionalKey(Schema.Array(NodeId).pipe(Schema.check(Schema.isMaxLength(MAIL_MENTIONS_MAX)))),
 });
 /** As a caller sends it; main decodes it to `OperatorThreadSendDecoded`. */
 export type OperatorThreadSend = typeof OperatorThreadSend.Encoded;

@@ -5,8 +5,8 @@
  *
  * Operator mail is what the desktop and the phone already write: one row in
  * the browsed seat's mailbox through `workSystemMailboxNotify`, handed to
- * `messageDelivery`. Mentions are references kept on that row; a mentioned
- * seat is sent nothing.
+ * `messageDelivery`. A mention is the link in the text, kept nowhere else; a
+ * mentioned seat is sent nothing.
  *
  * Mail text never enters a refusal: every refusal here is fixed words and
  * typed ids, and a failed write is reported without the store's message.
@@ -14,6 +14,7 @@
 import { Effect, Option } from "effect";
 import { ulid } from "ulid";
 import { mailExtensionMetadata, type MailMessageId } from "@shared/crew";
+import { mentionedOnce, mentionsOf } from "@shared/mention";
 import { threadSubjectOf, type ResourceSubject } from "@shared/thread-subject";
 import { OpId } from "@shared/work-ids";
 import { asNodeId, type Canvas } from "@shared/model";
@@ -150,7 +151,9 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
     if (!text && files.length === 0) return refused("invalid", "Mail needs some text or a file.");
 
     const wired = mentionableIn(canvas, nodeId);
-    const mentions = [...new Set(send.mentions ?? [])].filter((id) => id !== nodeId);
+    // A seat the text links must be wired to this seat, as the composer offers.
+    const mentions = mentionedOnce(mentionsOf(text, (id) => canvas.nodes.get(id)?.kind))
+      .flatMap((ref) => (ref.kind === "seat" && ref.nodeId !== nodeId ? [ref.nodeId as string] : []));
     for (const id of mentions) {
       if (!wired.some((peer) => peer.nodeId === id)) {
         const peer = canvas.nodes.get(asNodeId(id));
@@ -243,7 +246,6 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
           // A new thread's root carries no threadId; its id is the thread.
           ...(threadId === undefined ? {} : { threadId }),
           ...(send.inReplyTo === undefined ? {} : { inReplyTo: send.inReplyTo }),
-          ...(mentions.length === 0 ? {} : { mentions }),
           ...(attachments.length === 0 ? {} : { attachments }),
         },
       }),

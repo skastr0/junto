@@ -123,7 +123,7 @@ are Markdown. Names below match `src/shared/companion-protocol.ts`.
 | `signal.answer` | `{ "signalId": string, "text": string, "quiet"?: true, "attachments"?: ContentRef[] }` (1 to 8000 chars; 0 to 8000 with `quiet` or with files; at most 10 files) | `{ "signal": AgentSignal }` |
 | `signal.dismiss` | `{ "signalId": string }` | `{ "signal": AgentSignal }` |
 | `mail.list` | `{ "canvasName": string, "nodeId": string, "limit"?: number }` (default 50, max 200) | `{ "messages": Mail[] }` newest first |
-| `mail.send` | `{ "canvasName": string, "nodeId": string, "text": string, "threadId"?: ULID, "inReplyTo"?: ULID, "mentions"?: string[], "attachments"?: ContentRef[] }` (text 1 to 8000 chars, 0 to 8000 with files; at most 32 mentions and 10 files; closed: any other key is `invalid`) | `{ "message": Mail }` |
+| `mail.send` | `{ "canvasName": string, "nodeId": string, "text": string, "threadId"?: ULID, "inReplyTo"?: ULID, "mentions"?: string[], "attachments"?: ContentRef[] }` (text 1 to 8000 chars, 0 to 8000 with files; at most 10 files; `mentions`, at most 32, is read and kept nowhere; closed: any other key is `invalid`) | `{ "message": Mail }` |
 | `quickReplies.get` | `{}` | `{ "replies": string[], "quietNotes"?: string[], "attachments"?: { "maxCount": number, "maxBytes": number, "chunkBytes": number, "thumbnailTypes": string[] } }` (the operator's quick replies and quiet notes from desktop Settings; `attachments` is the files gate, below) |
 | `portrait.get` | `{ "portraitIdentity": string, "size": number, "theme": "bright" \| "dark", "format"?: "svg" \| "png" }` | `{ "svg": string }`, or with `format: "png"` `{ "png": string }` |
 | `content.get` | `{ "sha256": string, "offset": number, "length": number }` (closed: any other key is `invalid`) | `{ "sha256": string, "offset": number, "length": number, "byteLength": number, "data": string }` |
@@ -154,10 +154,11 @@ Semantics:
   own id is the thread); with `inReplyTo`, it is a reply in that mail's
   thread; with `threadId` alone, a mail into that thread. Either must be one
   of this seat's threads (`not-found` otherwise; `invalid` when the two
-  disagree). `mentions` are references only: seats wired to this one by an
-  edge (`SeatDetail.connected`), kept on the mail; they are sent nothing. A
-  seat not wired here is `invalid`, "A mentioned seat is not connected to
-  this one." Every refusal is a fixed sentence.
+  disagree). A mention is the link in the text: seats wired to this one by an
+  edge (`SeatDetail.connected`), kept nowhere beside the text; they are sent
+  nothing. A linked seat not wired here is `invalid`, "A mentioned seat is
+  not connected to this one." A `mentions` list from an older phone is read
+  and kept nowhere. Every refusal is a fixed sentence.
 - `threads.list` and `thread.get` are the desktop's Threads: the mail that
   hangs off one root, between the operator and a seat or between seats, and a
   seat's replies to the operator. A summary's `last.text` is a preview of at
@@ -403,7 +404,6 @@ type ThreadMessage = {
   mine: boolean;                              // the operator wrote it
   text: string; textCut?: true; at: number;
   attachments?: ContentRef[];                 // files the mail carries; content.get serves them
-  mentions?: { kind: "seat"; nodeId: string; name: string }[];  // references; not recipients
 };
 type ThreadSummary = {
   threadId: string;

@@ -498,7 +498,7 @@ export const registerJuntoIpc = (): void => {
   );
 
   // Mail threads, for a seat's Threads popup: reads through the shared
-  // derivation, and the operator's send into a thread with mentions.
+  // derivation, and the operator's send into a thread.
   privilegedIpc.handle(IPC_CHANNELS.seatThreadsList, (_event, input: unknown) =>
     AppRuntime.runPromise(Effect.gen(function* () {
       const query = yield* Schema.decodeUnknownEffect(SeatThreadsPageQuery, { onExcessProperty: "error" })(input);

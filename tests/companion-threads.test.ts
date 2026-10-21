@@ -14,6 +14,8 @@ import {
   companionThreads,
 } from "../src/shared/companion-threads";
 import { demoRequest, makeDemoHost } from "../src/shared/companion-demo";
+import { mentionLink } from "../src/shared/mention";
+import { asNodeId } from "../src/shared/physics/schema";
 import {
   COMPANION_MAX_OUTBOUND_BYTES,
   COMPANION_THREAD_PREVIEW_MAX,
@@ -39,7 +41,6 @@ const worstMessage = (n: number): MailThreadMessage => ({
   mine: false,
   text: "\u0001".repeat(200_000),
   at: n,
-  mentions: Array.from({ length: 40 }, (_, i) => worstSeat(i)),
 });
 
 describe("the phone's cut of a thread", () => {
@@ -115,7 +116,7 @@ describe("threads against the demo", () => {
     const thread = await host.call(frame("thread.get", { canvasName: DEMO_CANVAS, nodeId: "atlas", threadId: root.threadId }));
     expect(thread).toMatchObject({
       ok: true,
-      result: { cut: false, messages: [{ messageId: root.messageId, mentions: [{ nodeId: "relay" }] }, { messageId: atlasReply.messageId, to: [{ kind: "operator" }] }, {}] },
+      result: { cut: false, messages: [{ messageId: root.messageId }, { messageId: atlasReply.messageId, to: [{ kind: "operator" }] }, {}] },
     });
     expect(await host.call(frame("thread.get", { canvasName: DEMO_CANVAS, nodeId: "quill", threadId: root.threadId }))).toMatchObject({
       ok: false,
@@ -125,18 +126,20 @@ describe("threads against the demo", () => {
     expect(seat).toMatchObject({ ok: true, result: { seat: { connected: [{ nodeId: "relay", name: "Relay" }] } } });
   });
 
-  it("replies in a thread to the browsed seat alone, mentions as references, and starts a new one", async () => {
+  it("replies in a thread to the browsed seat alone, a mention as a link in the text, and starts a new one", async () => {
     const host = makeDemoHost({ appVersion: "test", machineName: "test-mac" });
+    const text = `Go ahead, ${mentionLink({ kind: "seat", nodeId: asNodeId("relay") }, "Relay", DEMO_CANVAS)}.`;
     const reply = await host.call(
-      frame("mail.send", { canvasName: DEMO_CANVAS, nodeId: "atlas", text: "Go ahead.", inReplyTo: atlasReply.messageId, mentions: ["relay"] }),
+      // A list beside the text from an older phone is read and kept nowhere.
+      frame("mail.send", { canvasName: DEMO_CANVAS, nodeId: "atlas", text, inReplyTo: atlasReply.messageId, mentions: ["relay"] }),
     );
     expect(reply).toMatchObject({ ok: true, result: { message: { nodeId: "atlas", threadId: root.threadId, inReplyTo: atlasReply.messageId } } });
     const thread = await host.call(frame("thread.get", { canvasName: DEMO_CANVAS, nodeId: "atlas", threadId: root.threadId }));
     expect(thread.ok && "messages" in thread.result && thread.result.messages.at(-1)).toMatchObject({
-      text: "Go ahead.",
+      text,
       to: [{ kind: "seat", nodeId: "atlas" }],
-      mentions: [{ nodeId: "relay" }],
     });
+    expect(thread.ok && "messages" in thread.result && thread.result.messages.at(-1)).not.toHaveProperty("mentions");
 
     const fresh = await host.call(frame("mail.send", { canvasName: DEMO_CANVAS, nodeId: "quill", text: "New topic." }));
     const sent = fresh.ok && "message" in fresh.result ? fresh.result.message : undefined;
@@ -149,7 +152,7 @@ describe("threads against the demo", () => {
 
   it("refuses a mention of a seat not wired here, and mail into another seat's thread, in fixed words", async () => {
     const host = makeDemoHost({ appVersion: "test", machineName: "test-mac" });
-    expect(await host.call(frame("mail.send", { canvasName: DEMO_CANVAS, nodeId: "atlas", text: "Hi", mentions: ["quill"] }))).toMatchObject({
+    expect(await host.call(frame("mail.send", { canvasName: DEMO_CANVAS, nodeId: "atlas", text: `Hi ${mentionLink({ kind: "seat", nodeId: asNodeId("quill") }, "Quill", DEMO_CANVAS)}` }))).toMatchObject({
       ok: false,
       error: { code: "invalid", message: "A mentioned seat is not connected to this one." },
     });

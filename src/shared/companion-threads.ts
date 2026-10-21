@@ -12,7 +12,6 @@
 import type { MailParty, MailThreadMessage, MailThreadSummary } from "./wire/mail-threads";
 import {
   COMPANION_MAX_OUTBOUND_BYTES,
-  COMPANION_MENTIONS_MAX,
   COMPANION_THREAD_MESSAGES_MAX,
   COMPANION_THREAD_PREVIEW_MAX,
   COMPANION_THREAD_TEXT_MAX,
@@ -62,7 +61,6 @@ export const companionThreadMessage = (
   const from = partyOf(message.from);
   if (from === undefined) return undefined;
   const text = clipText(message.text, textMax);
-  const mentions = (message.mentions ?? []).flatMap((seat) => seatOf(seat) ?? []).slice(0, COMPANION_MENTIONS_MAX);
   return {
     messageId: message.messageId,
     threadId: message.threadId,
@@ -74,7 +72,6 @@ export const companionThreadMessage = (
     ...(text.cut ? { textCut: true as const } : {}),
     at: Number.isFinite(message.at) ? message.at : 0,
     ...(message.attachments === undefined || message.attachments.length === 0 ? {} : { attachments: message.attachments }),
-    ...(mentions.length === 0 ? {} : { mentions }),
   };
 };
 
