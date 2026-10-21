@@ -36,16 +36,12 @@ import { ModelService } from "./model/service";
 import { ModelActorRefs } from "./model/actor-refs";
 import { Command, CanvasName, asNodeId } from "@shared/model";
 
-import { registerChatIpc } from "./chat/ipc";
-import { ChatServiceContext } from "./chat/service";
-import { HermesPlane } from "./hermes/plane";
 import {
   ARTIFACTS_ENABLED,
   BOARD_ENABLED,
   BROWSER_ENABLED,
   CRON_ENABLED,
   FLEET_UI_ENABLED,
-  HERMES_INTEGRATION_ENABLED,
   RELAY_ENABLED,
   REQUESTS_ENABLED,
   SEAT_AWARENESS_COMPILED,
@@ -162,12 +158,7 @@ import {
 import { onSeatViewQuestions } from "./term/seat-views";
 import { regionEnvReport, regionEnvStaleSeats } from "./region-env/report-ipc";
 import {
-  scheduleManagedPulseReady,
-  setManagedPulseDeliver,
-} from "./term/managed-pulse-bridge";
-import {
   factoryBoardTransport,
-  factoryPulseTransport,
   wireFactorySupervisor,
 } from "./term/factory-delivery-composition";
 import { terminalObserverPlane } from "./term/observer";
@@ -373,23 +364,6 @@ export const registerJuntoIpc = (): void => {
       AppRuntime.runPromise(Effect.flatMap(UsageService, (usage) => usage.refresh())),
     );
   }
-
-  if (HERMES_INTEGRATION_ENABLED) {
-    privilegedIpc.handle(IPC_CHANNELS.agentMessage, (_event, key: string, text: string) =>
-      AppRuntime.runPromise(HermesPlane).then((plane) => plane.fetchAgentMessage(key, text)),
-    );
-  }
-
-  // The attached-chat plane (hermes ACP sessions per agent node). Shares its
-  // ChatService instance with KernelService below — a pulse-driven turn and
-  // a human reuse the same live ACP session per agent.
-  void registerChatIpc(
-    privilegedIpc,
-    () => BrowserWindow.getAllWindows()
-      .map((window) => window.webContents)
-      .filter(isTrustedMainWebContents),
-    AppRuntime.runPromise(ChatServiceContext),
-  );
 
   // The kernel plane: watcher/timer evaluation over every hydrated canvas,
   // running continuously in main regardless of window state.
@@ -1522,25 +1496,7 @@ export const registerJuntoIpc = (): void => {
 
       let productAutomationSuspended = false;
       let checkoutWatch: CheckoutWatchSupervisor | undefined;
-      const managedPulseReadyCancels = new Map<
-        string,
-        { readonly epoch: string; readonly cancel: () => void }
-      >();
       const acceptedClaudeRecoveryEpoch = new Map<string, string>();
-      const cancelManagedPulseReady = (
-        bindingId: string,
-        epoch?: string,
-      ): void => {
-        const pending = managedPulseReadyCancels.get(bindingId);
-        if (
-          pending === undefined ||
-          (epoch !== undefined && pending.epoch !== epoch)
-        ) {
-          return;
-        }
-        pending.cancel();
-        managedPulseReadyCancels.delete(bindingId);
-      };
       // Advisory seat-awareness sidecar, an experimental feature. Enrollment is
       // the Settings toggle: a discovered key is not consent. Off, the plane is
       // not running at all; on with no key it publishes missing_key. The toggle
@@ -1586,9 +1542,6 @@ export const registerJuntoIpc = (): void => {
       coreMail.seats.onSuspend(() => {
         productAutomationSuspended = true;
         checkoutWatch?.stop();
-        setManagedPulseDeliver(undefined);
-        for (const pending of managedPulseReadyCancels.values()) pending.cancel();
-        managedPulseReadyCancels.clear();
       });
       // Operator multi-prompt (RTS): the operator's text is prompt mail from
       // the operator, delivered like any other mail — at once when the seat
@@ -1714,46 +1667,20 @@ export const registerJuntoIpc = (): void => {
         subscribeSnapshots: (listener) =>
           terminalObserverPlane.subscribeGlobal(listener),
       });
-      const writeManagedPulse = factoryPulseTransport({
-        pulse: { setDeliver: setManagedPulseDeliver },
-        drive: managedDrive,
-        driveReady,
-      });
       // Grok ≥1.5s post-spawn before first paste (verified trap).
       termPlane.host.subscribeEvents((payload) => {
         if (payload.type === "output") return;
         if (payload.type !== "session") return;
         const bindingId = payload.bindingId;
-        const epoch = payload.epoch;
         if (payload.status === "exited") {
-          cancelManagedPulseReady(bindingId, epoch);
           acceptedClaudeRecoveryEpoch.delete(bindingId);
           return;
         }
         if (payload.status !== "running") return;
-        cancelManagedPulseReady(bindingId);
         acceptedClaudeRecoveryEpoch.delete(bindingId);
         const harness = seatStateRuntime.machine.getSlot(bindingId)?.harness;
         const settleMs = harnessRecordFor(harness)?.pty.postSpawnSettleMs;
-        if (settleMs !== undefined) {
-          managedDrive.markSpawned(bindingId, settleMs);
-          const cancel = scheduleManagedPulseReady(
-            { bindingId, epoch },
-            settleMs,
-            () => {
-              const pending = managedPulseReadyCancels.get(bindingId);
-              if (pending?.epoch !== epoch) return false;
-              managedPulseReadyCancels.delete(bindingId);
-              const live = termPlane.host.get(bindingId);
-              return (
-                !productAutomationSuspended &&
-                live?.epoch === epoch &&
-                live.status === "running"
-              );
-            },
-          );
-          managedPulseReadyCancels.set(bindingId, { epoch, cancel });
-        }
+        if (settleMs !== undefined) managedDrive.markSpawned(bindingId, settleMs);
       }, { replayCurrentSessions: true });
       // A seat's declared signals ride its own snapshot, so its needs carry them.
       wireSeatReports({
@@ -1800,13 +1727,6 @@ export const registerJuntoIpc = (): void => {
           }
         }
       });
-      // Kernel pulses for managed seats (not ACP).
-      setManagedPulseDeliver(
-        productAutomationSuspended
-          ? undefined
-          : (bindingId, text) => writeManagedPulse(bindingId, text),
-      );
-
       // Bulletin board operator megaphone reuses managed-prompt transport.
       const { configureBoardDelivery } = yield* Effect.promise(
         () => import("./work/board-delivery"),
