@@ -332,9 +332,11 @@ const stampCommand = Command.make(
   "stamp",
   {
     task: taskArg,
-    verdict: Argument.choice("verdict", ["approve", "changes"] as const),
+    verdict: Argument.choice("verdict", ["approve", "changes"] as const).pipe(
+      Argument.withDescription("approve, or changes (with --text saying what to change)"),
+    ),
     text: Flag.string("text").pipe(Flag.optional, Flag.withDescription("What to change, with changes; a note with approve")),
-    subjectHash: Flag.string("subject-hash").pipe(Flag.optional, Flag.withDescription("The review subject hash task show printed")),
+    subjectHash: Flag.string("subject-hash").pipe(Flag.optional, Flag.withDescription("Optional: the hash of what you reviewed, a commit sha say, kept on the stamp")),
     opId: opIdFlag,
     timeout: timeoutFlag,
   },
