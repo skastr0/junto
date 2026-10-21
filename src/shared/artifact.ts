@@ -23,6 +23,7 @@
 import { Result, Schema } from "effect";
 import { ContentRef } from "./content";
 import { NodeId } from "./physics/schema";
+import { ResourceActor } from "./resource-command";
 import { Anchor } from "./thread-subject";
 import { ItemId } from "./work-ids";
 import {
@@ -82,12 +83,9 @@ export type ArtifactType = typeof ArtifactType.Type;
 
 export const ARTIFACT_TYPES: ReadonlyArray<ArtifactType> = ArtifactType.literals;
 
-/** Who wrote something: the operator in the app, or a seat through the CLI. */
-export const ArtifactActor = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("operator") }),
-  Schema.Struct({ kind: Schema.Literal("seat"), nodeId: NodeId }),
-]);
-export type ArtifactActor = typeof ArtifactActor.Type;
+/** Who wrote something: the resource command's actor (operator, seat or automation). */
+export const ArtifactActor = ResourceActor;
+export type ArtifactActor = ResourceActor;
 
 // ---------------------------------------------------------------------------
 // Bodies
@@ -313,26 +311,24 @@ export const decodeArtifactEdit = Schema.decodeUnknownResult(ArtifactEdit, STRIC
 // ---------------------------------------------------------------------------
 // Commands (the artifact domain of ResourceOp, 02)
 
+const Title = NonEmptyString.pipe(Schema.check(Schema.isMaxLength(ARTIFACT_MAX_TITLE_LENGTH)));
+
+/**
+ * The op of an artifact command. The artifact is the command's
+ * `target.itemId`, never a field here: on `create` the creator mints it.
+ */
 export const ArtifactOp = Schema.Union([
   Schema.Struct({
     op: Schema.Literal("create"),
-    title: NonEmptyString.pipe(Schema.check(Schema.isMaxLength(ARTIFACT_MAX_TITLE_LENGTH))),
+    title: Title,
     body: ArtifactBody,
     taskIds: Schema.optionalKey(Schema.Array(ItemId)),
   }),
-  Schema.Struct({ op: Schema.Literal("edit"), artifactId: ArtifactId, edit: ArtifactEdit }),
-  Schema.Struct({
-    op: Schema.Literal("retitle"),
-    artifactId: ArtifactId,
-    title: NonEmptyString.pipe(Schema.check(Schema.isMaxLength(ARTIFACT_MAX_TITLE_LENGTH))),
-  }),
-  Schema.Struct({ op: Schema.Literal("archive"), artifactId: ArtifactId }),
-  Schema.Struct({ op: Schema.Literal("restore"), artifactId: ArtifactId }),
-  Schema.Struct({
-    op: Schema.Literal("tasks"),
-    artifactId: ArtifactId,
-    taskIds: Schema.Array(ItemId),
-  }),
+  Schema.Struct({ op: Schema.Literal("edit"), edit: ArtifactEdit }),
+  Schema.Struct({ op: Schema.Literal("retitle"), title: Title }),
+  Schema.Struct({ op: Schema.Literal("archive") }),
+  Schema.Struct({ op: Schema.Literal("restore") }),
+  Schema.Struct({ op: Schema.Literal("tasks"), taskIds: Schema.Array(ItemId) }),
 ]);
 export type ArtifactOp = typeof ArtifactOp.Type;
 
@@ -408,6 +404,8 @@ export const admitsAnchor = <T extends ArtifactType>(
 export const ArtifactEditErrorCode = Schema.Literals([
   /** The base is behind the head and the edit cannot rebase. `expected` is the head. */
   "stale",
+  /** The base is behind and the versions since touched what this patch touches. `expected` is the head. */
+  "rebase_conflict",
   /** The edit's type is not the artifact's type. */
   "type_mismatch",
   /** The base names a version after the head. */
@@ -427,7 +425,7 @@ export class ArtifactEditError extends Schema.TaggedError<ArtifactEditError>()(
   {
     code: ArtifactEditErrorCode,
     message: Schema.String,
-    /** Set on `stale` and `future_base`: the head version. */
+    /** Set on `stale`, `rebase_conflict` and `future_base`: the head version. */
     expected: Schema.optionalKey(ArtifactVersion),
   },
 ) {}
@@ -474,10 +472,18 @@ export const ruleArtifactEdit = (
   }
   if (edit.baseVersion < head.version) {
     const behind = head.version - edit.baseVersion;
-    if (since.length !== behind || !rebases(edit, since)) {
+    const rebase = since.length === behind ? rebases(edit, since) : "stale";
+    if (rebase === "stale") {
       return fail(
         "stale",
         `written against version ${edit.baseVersion}, the head is ${head.version}`,
+        head.version,
+      );
+    }
+    if (rebase === "conflict") {
+      return fail(
+        "rebase_conflict",
+        `written against version ${edit.baseVersion}; the versions since changed the same places`,
         head.version,
       );
     }
@@ -714,20 +720,28 @@ const sheetCollides = (a: SheetPatchEdit, b: SheetPatchEdit): boolean => {
   return false;
 };
 
-const rebases = (edit: ArtifactEdit, since: ReadonlyArray<ArtifactEdit>): boolean => {
-  if (edit.kind !== "patch" || edit.type === "document") return false;
+/**
+ * Whether a patch written against an old base still applies: `stale` when it
+ * cannot rebase at all (a replace or a text patch on either side), `conflict`
+ * when it touches what the versions since touched.
+ */
+const rebases = (
+  edit: ArtifactEdit,
+  since: ReadonlyArray<ArtifactEdit>,
+): "ok" | "stale" | "conflict" => {
+  if (edit.kind !== "patch" || edit.type === "document") return "stale";
   for (const prior of since) {
-    if (prior.kind !== "patch" || prior.type !== edit.type) return false;
+    if (prior.kind !== "patch" || prior.type !== edit.type) return "stale";
     if (edit.type === "sheet" && prior.type === "sheet") {
-      if (sheetCollides(edit, prior)) return false;
+      if (sheetCollides(edit, prior)) return "conflict";
       continue;
     }
     const mine = patchKeys(edit);
     const theirs = patchKeys(prior);
-    if (mine === "all" || theirs === "all") return false;
-    for (const key of mine) if (theirs.has(key)) return false;
+    if (mine === "all" || theirs === "all") return "stale";
+    for (const key of mine) if (theirs.has(key)) return "conflict";
   }
-  return true;
+  return "ok";
 };
 
 // ---------------------------------------------------------------------------

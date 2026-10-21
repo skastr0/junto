@@ -181,17 +181,19 @@ describe("rebase", () => {
     expect(Result.isSuccess(ruled) && ruled.success.version).toBe(3);
   });
 
-  it("is stale when both write the same cell", () => {
+  it("is a rebase conflict when both write the same cell", () => {
     const prior = sheetEdit(1, { op: "cell", rowId: "r1", columnId: "c1", value: "theirs" });
     const mine = sheetEdit(1, { op: "cell", rowId: "r1", columnId: "c1", value: "mine" });
-    expect(codeOf(ruleArtifactEdit(head, mine, [prior]))).toBe("stale");
+    expect(codeOf(ruleArtifactEdit(head, mine, [prior]))).toBe("rebase_conflict");
   });
 
-  it("is stale when the row or column under the cell was changed", () => {
+  it("is a rebase conflict when the row or column under the cell was changed", () => {
     const mine = sheetEdit(1, { op: "cell", rowId: "r2", columnId: "c1", value: "mine" });
-    expect(codeOf(ruleArtifactEdit(head, mine, [sheetEdit(1, { op: "row.remove", rowId: "r2" })]))).toBe("stale");
+    expect(codeOf(ruleArtifactEdit(head, mine, [sheetEdit(1, { op: "row.remove", rowId: "r2" })]))).toBe(
+      "rebase_conflict",
+    );
     expect(codeOf(ruleArtifactEdit(head, mine, [sheetEdit(1, { op: "column.rename", columnId: "c1", name: "B" })]))).toBe(
-      "stale",
+      "rebase_conflict",
     );
   });
 
@@ -204,7 +206,7 @@ describe("rebase", () => {
     const padHead = { version: v(2), body: emptyBody("pad") };
     const prior = padEdit(1, "a");
     expect(codeOf(ruleArtifactEdit(padHead, padEdit(1, "b"), [prior]))).toBe("ok");
-    expect(codeOf(ruleArtifactEdit(padHead, padEdit(1, "a"), [prior]))).toBe("stale");
+    expect(codeOf(ruleArtifactEdit(padHead, padEdit(1, "a"), [prior]))).toBe("rebase_conflict");
   });
 
   it("keys a replace and a document patch as touching everything", () => {
