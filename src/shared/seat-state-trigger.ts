@@ -8,8 +8,11 @@
  * into firings an automation runner can act on (07-automations.md, runner
  * rules, owned by pty):
  *
- * - Only a change of settled state fires, per seat and generation (epoch). A
- *   new epoch starts fresh: no settled state, no hold, no open episode.
+ * - Only a change of settled state fires. Each firing is keyed by seat and
+ *   generation (epoch). A new epoch drops the old one's hold, pending gone
+ *   and attention episode, and keeps its settled state: a cache cut that
+ *   comes back idle never left idle, so it fires nothing. An event with no
+ *   epoch never stands for a new generation.
  * - `unknown` neither fires nor resets a hold.
  * - `idle` and `working` fire once they have held for 30 s. Any other known
  *   state cancels the hold; the same state re-published keeps it.
@@ -117,7 +120,8 @@ const dueAt = (pending: Pending): number =>
 /**
  * The state as the runner finds it on start: each seat's latest event is
  * already settled and fires nothing, so a restart never re-fires a seat that
- * was idle all along.
+ * was idle all along. The cost: a hold or a gone grace running at the restart
+ * settles silently and never fires.
  */
 export const seedSeatTriggers = (latest: Iterable<AgentSeatStateEvent>, now: number): SeatTriggers => {
   const seats = new Map<SeatKey, SeatTrack>();
@@ -160,9 +164,15 @@ const observe = (
   let current: SeatTrack = track ?? { epoch: event.epoch, inAttention: false, retired: [] };
   if (current.retired.includes(event.epoch)) return { track };
   if (event.epoch !== current.epoch) {
-    // A new generation took the seat: a pending gone is cancelled, and the
-    // new epoch starts fresh.
-    current = { epoch: event.epoch, inAttention: false, retired: retire(current.retired, current.epoch) };
+    if (event.epoch === "") return { track };
+    // A new generation took the seat: a pending gone and hold are dropped, the
+    // episode ends, and what the seat had settled into carries over.
+    current = {
+      epoch: event.epoch,
+      ...(current.settled === undefined ? {} : { settled: current.settled }),
+      inAttention: false,
+      retired: retire(current.retired, current.epoch),
+    };
   } else if (current.settled === "gone" || current.pending?.becomes === "gone") {
     // This generation has gone; anything more from it is late.
     return { track };

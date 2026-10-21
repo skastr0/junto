@@ -152,7 +152,7 @@ describe("seat-state triggers: gone waits 60 s for a new generation", () => {
 });
 
 describe("seat-state triggers: keyed by seat and epoch", () => {
-  it("a new epoch starts fresh holds and its own transitions", () => {
+  it("a new epoch drops the old hold and keeps what had settled", () => {
     const { fired } = run([
       event("idle", 0),
       tick(HOLD),
@@ -161,8 +161,38 @@ describe("seat-state triggers: keyed by seat and epoch", () => {
       tick(80_000),
       event("idle", 90_000, { epoch: "e2" }),
       tick(120_000),
+      event("working", 130_000, { epoch: "e2" }),
+      tick(160_000),
     ]);
-    expect(fired).toEqual([`seat-a/e1 idle@${HOLD}`, "seat-a/e2 idle@120000"]);
+    expect(fired).toEqual([`seat-a/e1 idle@${HOLD}`, "seat-a/e2 working@160000"]);
+  });
+
+  it("a cache cut of an idle seat is invisible: gone, a new epoch within 60 s, idle again fires nothing", () => {
+    const { fired } = run([
+      event("idle", 0),
+      tick(HOLD),
+      event("gone", 40_000, { reason: "generation_unbound" }),
+      event("unknown", 45_000, { epoch: "e2", reason: "generation_replaced" }),
+      event("idle", 50_000, { epoch: "e2" }),
+      tick(50_000 + HOLD),
+      tick(40_000 + GRACE * 2),
+    ]);
+    expect(fired).toEqual([`seat-a/e1 idle@${HOLD}`]);
+  });
+
+  it("an open attention episode ends with its generation", () => {
+    const { fired } = run([event("attention", 0), event("unknown", 1_000, { epoch: "e2" }), event("attention", 2_000, { epoch: "e2" })]);
+    expect(fired).toEqual(["seat-a/e1 attention@0", "seat-a/e2 attention@2000"]);
+  });
+
+  it("a seat that has gone fires its next generation's state after the hold", () => {
+    const { fired } = run([event("idle", 0), tick(HOLD), event("gone", 40_000), tick(40_000 + GRACE), event("idle", 200_000, { epoch: "e2" }), tick(200_000 + HOLD)]);
+    expect(fired).toEqual([`seat-a/e1 idle@${HOLD}`, `seat-a/e1 gone@${40_000 + GRACE}`, `seat-a/e2 idle@${200_000 + HOLD}`]);
+  });
+
+  it("an event with no epoch never stands for a new generation", () => {
+    const { fired } = run([event("gone", 0), event("unknown", 1_000, { epoch: "" }), tick(GRACE)]);
+    expect(fired).toEqual([`seat-a/e1 gone@${GRACE}`]);
   });
 
   it("a replaced generation's late events are ignored", () => {
