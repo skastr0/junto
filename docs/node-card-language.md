@@ -105,6 +105,10 @@ and do not join the seat ring-room solve; clusters stay seats only.
   seats use, so the region frame leans to their state too. The frame shows the
   worst state only (blocked over needs-you over review), as it does today, and
   at overview only the outer region's held tint shows for nested regions.
+  A body that shows a blocked, needs-you or failed tag calls
+  `useNodeUrgency(id, urgency)` (`src/renderer/lib/use-node-urgency.ts`, a95e36ee8);
+  Failed counts as blocked. It clears on unmount. Tasks (product-modals),
+  Automations (product-settings) and Page (product-attention) own their call.
 
 ## Names, focus and keys
 
