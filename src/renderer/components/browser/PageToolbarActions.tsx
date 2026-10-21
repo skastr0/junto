@@ -1,7 +1,6 @@
 import { useMemo } from "react";
-import { PINNING_ENABLED } from "@shared/features";
 import { use$ } from "@legendapp/state/react";
-import { Globe, Pin, SquareX } from "lucide-react";
+import { Globe, SquareX } from "lucide-react";
 import type { NodeOf } from "@shared/model";
 import { formatNodeRef } from "@shared/node-ref";
 import { browser$ } from "../../lib/browser-state";
@@ -34,17 +33,13 @@ export function PageToolbarActions({ node }: { readonly node: NodeOf<"page"> }) 
 
   if (!browser || !pageRef) return null;
 
-  const open = (zone: "focus" | "pinned" = "focus") => {
-    void openDockBrowser(
-      pageRef,
-      {
-        nodeId: node.id,
-        browser,
-        url,
-        title: session?.title ?? hostOf(url),
-      },
-      zone,
-    );
+  const open = () => {
+    void openDockBrowser(pageRef, {
+      nodeId: node.id,
+      browser,
+      url,
+      title: session?.title ?? hostOf(url),
+    });
   };
 
   return (
@@ -57,26 +52,11 @@ export function PageToolbarActions({ node }: { readonly node: NodeOf<"page"> }) 
         onPointerDown={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          open("focus");
+          open();
         }}
       >
         <Globe size={14} />
       </IconButton>
-      {PINNING_ENABLED ? (
-        <IconButton
-          className="nodrag nopan"
-          aria-label="Open page pinned"
-          title="Open page pinned"
-          data-testid="node-toolbar-page-pin"
-          onPointerDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            open("pinned");
-          }}
-        >
-          <Pin size={14} />
-        </IconButton>
-      ) : null}
       <IconButton
         className="nodrag nopan"
         aria-label={armed ? "Confirm stop page" : "Stop page"}

@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
-import { PINNING_ENABLED } from "@shared/features";
 import { use$ } from "@legendapp/state/react";
-import { Pin, PinOff, X } from "lucide-react";
+import { X } from "lucide-react";
 
 import {
   markdownImageLine,
@@ -12,8 +11,6 @@ import {
   closeWorkbenchSurface,
   dock$,
   markNoteSurfaceSaved,
-  pinWorkbenchSurface,
-  unpinWorkbenchSurface,
   updateNoteSurfaceDraft,
 } from "../../lib/dock-state";
 import { editText } from "../../lib/mutations";
@@ -90,8 +87,6 @@ export function NoteSurface({
     );
   }
 
-  const pinned = zone === "pinned";
-
   const insertAtCursor = (snippet: string): void => {
     const element = textareaRef.current;
     const current = element?.value ?? payload.draft;
@@ -158,19 +153,6 @@ export function NoteSurface({
           title={payload.title.replace(/^#+\s*/, "") || "untitled"}
           actions={
             <>
-              {PINNING_ENABLED ? (
-                <IconButton
-                  size="sm"
-                  aria-label={pinned ? "Unpin note editor" : "Pin note editor"}
-                  title={pinned ? "Move to focus" : "Pin to side dock"}
-                  onClick={() => {
-                    if (pinned) unpinWorkbenchSurface(surface.id);
-                    else pinWorkbenchSurface(surface.id);
-                  }}
-                >
-                  {pinned ? <PinOff size={13} /> : <Pin size={13} />}
-                </IconButton>
-              ) : null}
               <Button
                 size="xs"
                 variant="chrome"

@@ -150,5 +150,5 @@ export const subscribeBrowserSessionEvents = (): (() => void) => {
   return activeUnsubscribe;
 };
 
-// Surface open/close moved to dock-state.ts — the WorkSurfaceDock owns the
-// attach placeholder now; this module keeps only push-fed session state.
+// Surface open/close lives in dock-state.ts and the workbench owns the
+// attach placeholder; this module keeps only push-fed session state.

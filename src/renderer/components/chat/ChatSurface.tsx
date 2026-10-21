@@ -1,11 +1,8 @@
-import { Pin, PinOff, X } from "lucide-react";
-import { PINNING_ENABLED } from "@shared/features";
+import { X } from "lucide-react";
 import type { WorkSurface, WorkZone } from "../../lib/surface-registry";
 import {
   closeWorkbenchSurface,
   dock$,
-  pinWorkbenchSurface,
-  unpinWorkbenchSurface,
 } from "../../lib/dock-state";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { IconButton } from "../ui";
@@ -31,22 +28,8 @@ export function ChatSurface({
     );
   }
 
-  const pinned = zone === "pinned";
   const actions = (
     <>
-      {PINNING_ENABLED ? (
-        <IconButton
-          size="md"
-          aria-label={pinned ? "Unpin ACP chat" : "Pin ACP chat"}
-          title={pinned ? "Move to focus" : "Pin to side dock"}
-          onClick={() => {
-            if (pinned) unpinWorkbenchSurface(surface.id);
-            else pinWorkbenchSurface(surface.id);
-          }}
-        >
-          {pinned ? <PinOff size={14} /> : <Pin size={14} />}
-        </IconButton>
-      ) : null}
       <IconButton
         size="md"
         tone="danger"

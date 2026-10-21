@@ -69,8 +69,7 @@ body {
   box-sizing: border-box;
   padding: 16px;
 }
-/* In-tree overlay (WorkFocusShell): only cover the canvas column so the
-   pinned stage dock stays above the hit-test layer for wheel/scroll. */
+/* In-tree overlay (WorkFocusShell): only cover the canvas column. */
 .focus-surface.focus-surface--contain-parent {
   position: absolute;
   inset: 0;
@@ -245,8 +244,7 @@ html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent 
   overflow: hidden;
 }
 /* The focus panel is the one frame. A surface inside it (terminal, browser,
-   chat, note) keeps its own border only in the pinned dock, where slots
-   stand side by side; in focus, split panes meet at a hairline. */
+   chat, note) drops its own border; split panes meet at a hairline. */
 .work-focus-shell .dock-slot {
   border: 0;
   border-radius: 0;
@@ -262,7 +260,7 @@ html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent 
 }
 .focus-surface__panel.work-focus-shell__panel {
   /* Width is the user's dial; height is stage-fixed so every work surface
-     (browser, terminal, split) opens at the same height as the pinned dock
+     (browser, terminal, split) opens at the same height
      instead of inheriting whatever box the last resize happened to leave. */
   resize: horizontal;
   overflow: hidden;
@@ -477,23 +475,6 @@ html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent 
   height: 100%;
   color: var(--color-faint);
   font-size: var(--text-body-lg);
-}
-.workbench-resize-handle {
-  position: absolute;
-  z-index: 5;
-  touch-action: none;
-}
-.workbench-resize-handle--left {
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 6px;
-  cursor: col-resize;
-  background: transparent;
-}
-.workbench-resize-handle--left:hover,
-.workbench-resize-handle--left:active {
-  background: color-mix(in oklab, var(--color-main) 25%, transparent);
 }
 
 /* Generic desktop chrome. macOS adds hiddenInset geometry below. */
@@ -2350,9 +2331,8 @@ ol.note-md__list > .note-md__li::before {
   font-style: italic;
 }
 
-/* Expanded note editor. One frame: the panel (or the pinned dock slot) is
-   the only border; see the focus shell rules above. Inside it the shared
-   header, a borderless writing surface and a quiet footer with the keys,
+/* Expanded note editor. One frame: the panel is the only border; see the
+   focus shell rules above. Inside it the shared header, a borderless writing surface and a quiet footer with the keys,
    divided by hairlines, never boxed. */
 .note-edit-modal {
   display: flex;

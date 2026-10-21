@@ -48,7 +48,7 @@ const probeLayout = async (
     const host = surface.querySelector(".native-terminal-surface__xterm");
     const xterm = host?.querySelector(".xterm") ?? null;
     const pane = surface.closest(".workbench-pane");
-    const panel = surface.closest(".focus-surface__panel") ?? surface.closest(".work-surface-dock");
+    const panel = surface.closest(".focus-surface__panel");
     const status =
       surface.querySelector(".native-terminal-surface__status")?.textContent?.trim() ?? "";
     const geom = status.match(/(\d+)\s*[×x]\s*(\d+)/);

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { PINNING_ENABLED } from "@shared/features";
 import { use$ } from "@legendapp/state/react";
 import type { BrowserOpResult, BrowserSessionInfo, JuntoBrowserApi } from "@shared/ipc";
 import { browser$, clearBrowserSessionIfUnchanged } from "../../lib/browser-state";
@@ -7,9 +6,7 @@ import {
   BROWSER_ZERO_BOUNDS,
   closeDockBrowser,
   dock$,
-  pinWorkbenchSurface,
   stopDockBrowser,
-  unpinWorkbenchSurface,
 } from "../../lib/dock-state";
 import type { WorkZone } from "../../lib/surface-registry";
 import { getJuntoApi } from "../../lib/junto-api";
@@ -185,7 +182,6 @@ export function BrowserSurfaceSlot({
 
   if (!payload) return null;
 
-  const pinned = zone === "pinned";
   const endedStory = ended || destroyed;
   // Failed opens are not "waiting": the refusal (alert lane) is the truth.
   const opFailedOpen = opError?.op === "open";
@@ -234,21 +230,6 @@ export function BrowserSurfaceSlot({
             }
             actions={
               <>
-                {PINNING_ENABLED ? (
-                  <Button
-                    size="xs"
-                    variant="chrome"
-                    title={pinned ? "Move to focus shell" : "Pin to side dock"}
-                    onPointerDown={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if (pinned) unpinWorkbenchSurface(pageRef);
-                      else pinWorkbenchSurface(pageRef);
-                    }}
-                  >
-                    {pinned ? "Unpin" : "Pin"}
-                  </Button>
-                ) : null}
                 <Button
                   size="xs"
                   variant={stopArm.armed ? "danger" : "chrome"}

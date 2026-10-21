@@ -1,11 +1,8 @@
 import { use$ } from "@legendapp/state/react";
-import { PINNING_ENABLED } from "@shared/features";
 import {
   activateWorkbenchSurface,
   dock$,
-  pinWorkbenchSurface,
   setWorkbenchLayout,
-  unpinWorkbenchSurface,
 } from "../../lib/dock-state";
 import {
   surfaceById,
@@ -21,7 +18,7 @@ const LAYOUTS: ReadonlyArray<{ mode: LayoutMode; glyph: string; title: string }>
 ];
 
 /**
- * Zone chrome: layout toggle + tab strip for surplus MRU surfaces + pin-all.
+ * Zone chrome: layout toggle + tab strip for surplus MRU surfaces.
  * Tabs are non-pane surfaces (visiblePanes.tabs); clicking promotes to front.
  */
 export function WorkbenchChrome({
@@ -40,7 +37,8 @@ export function WorkbenchChrome({
       ? dock$.registry.focusLayout.get()
       : dock$.registry.pinnedLayout.get(),
   );
-  const zoneSurfaceFingerprint = use$(() =>
+  // Re-render when this zone's surfaces change: tab labels read the registry.
+  use$(() =>
     JSON.stringify(
       dock$.registry.surfaces
         .get()
@@ -49,7 +47,6 @@ export function WorkbenchChrome({
     ),
   );
   const registry = dock$.registry.peek();
-  const hasZoneSurfaces = zoneSurfaceFingerprint !== "[]";
 
   const cycleLayout = () => {
     const current =
@@ -59,18 +56,6 @@ export function WorkbenchChrome({
     const i = LAYOUTS.findIndex((l) => l.mode === current);
     const next = LAYOUTS[(i + 1) % LAYOUTS.length]!.mode;
     setWorkbenchLayout(zone, next);
-  };
-
-  const pinAll = () => {
-    for (const s of dock$.registry.surfaces.peek()) {
-      if (s.zone === "focus") pinWorkbenchSurface(s.id);
-    }
-  };
-
-  const unpinAll = () => {
-    for (const s of dock$.registry.surfaces.peek()) {
-      if (s.zone === "pinned") unpinWorkbenchSurface(s.id);
-    }
   };
 
   // Pane + surplus tabs in one strip (click promotes / routes keyboard).
@@ -143,26 +128,6 @@ export function WorkbenchChrome({
           ))}
         </button>
 
-        {PINNING_ENABLED && zone === "focus" && hasZoneSurfaces ? (
-          <button
-            type="button"
-            className="workbench-chrome__btn"
-            title="Pin all focus surfaces to side dock"
-            onClick={pinAll}
-          >
-            Pin all
-          </button>
-        ) : null}
-        {PINNING_ENABLED && zone === "pinned" && hasZoneSurfaces ? (
-          <button
-            type="button"
-            className="workbench-chrome__btn"
-            title="Move all pinned surfaces back to focus"
-            onClick={unpinAll}
-          >
-            Unpin all
-          </button>
-        ) : null}
       </div>
     </div>
   );

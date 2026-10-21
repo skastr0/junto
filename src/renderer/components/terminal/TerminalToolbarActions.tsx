@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { PINNING_ENABLED } from "@shared/features";
-import { CircleStop, Compass, Pin, SquareTerminal } from "lucide-react";
+import { CircleStop, Compass, SquareTerminal } from "lucide-react";
 import type { Seat, Terminal } from "@shared/model";
 import { terminalBindingOf } from "@shared/terminal";
 import { sendOnboardNudge, useSeatOnboardingOf } from "../../lib/seat-onboarding";
@@ -14,9 +13,9 @@ import { Button, IconButton } from "../ui";
 
 /**
  * Selection-toolbar actions for native terminal nodes.
- * Open is one-click; open-pinned lands in the side dock; stop ends the seat's
- * process in two clicks, and the armed second click reads as words ("Stop
- * process?") so the confirm is legible without a tooltip. Never on the card body.
+ * Open is one-click; stop ends the seat's process in two clicks, and the armed
+ * second click reads as words ("Stop process?") so the confirm is legible
+ * without a tooltip. Never on the card body.
  * A seat whose agent has not onboarded also gets the nudge: one click types
  * the one-sentence pointer to `junto onboard`, and a refusal reads as words.
  *
@@ -86,20 +85,6 @@ export function TerminalToolbarActions({ node }: { readonly node: Seat | Termina
       >
         <SquareTerminal size={14} />
       </IconButton>
-      {PINNING_ENABLED ? (
-        <IconButton
-          className="nodrag nopan"
-          aria-label="Open terminal pinned"
-          title="Open terminal pinned"
-          onPointerDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            void openTerminal(node, "pinned");
-          }}
-        >
-          <Pin size={14} />
-        </IconButton>
-      ) : null}
       {agentSeat && onboarding === "not-onboarded" ? (
         nudgeProblem ? (
           <Button

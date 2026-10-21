@@ -71,14 +71,6 @@ const MachinesWindow = __JUNTO_FLEET_UI_ENABLED__
       return { default: mod.MachinesWindow };
     })
   : () => null;
-// Pinning is off in every profile. Like the Machines window above, the define identifier
-// wraps import() here so the dock and its styles are left out of the build.
-const WorkSurfaceDock = __JUNTO_PINNING_ENABLED__
-  ? lazy(async () => {
-      const mod = await import("./components/WorkSurfaceDock");
-      return { default: mod.WorkSurfaceDock };
-    })
-  : null;
 import { WorkFocusShell } from "./components/workbench";
 import { PersistentTerminalHost } from "./components/terminal/PersistentTerminalHost";
 import { TerminalGridFocus } from "./components/terminal/TerminalGridFocus";
@@ -627,13 +619,6 @@ export function App() {
         <DemoLayer />
         <FirstRunIntro />
         </div>
-        {WorkSurfaceDock ? (
-          <Suspense fallback={null}>
-            <CountedSurface id="work-dock">
-              <WorkSurfaceDock />
-            </CountedSurface>
-          </Suspense>
-        ) : null}
       </div>
       <ConfirmHost />
       <OperatorModalHost />

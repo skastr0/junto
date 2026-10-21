@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { PINNING_ENABLED } from "@shared/features";
 import { use$ } from "@legendapp/state/react";
-import { Pin, PinOff, X } from "lucide-react";
+import { X } from "lucide-react";
 import type { Part, WorkMetadata } from "@shared/work-model";
 import type { TaskCreateOptions, WorkOpResult } from "@shared/ipc";
 import { resolveTaskAdmission } from "@shared/work-model";
@@ -9,8 +8,6 @@ import type { WorkSurface, WorkZone } from "../../lib/surface-registry";
 import {
   closeWorkbenchSurface,
   dock$,
-  pinWorkbenchSurface,
-  unpinWorkbenchSurface,
 } from "../../lib/dock-state";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
@@ -65,7 +62,6 @@ export function TaskEnqueueSurface({
     );
   }
 
-  const pinned = zone === "pinned";
   const create = async (
     title: string,
     details: string,
@@ -112,19 +108,6 @@ export function TaskEnqueueSurface({
 
   const actions = (
     <>
-      {PINNING_ENABLED ? (
-        <IconButton
-          size="md"
-          aria-label={pinned ? "Unpin task enqueue" : "Pin task enqueue"}
-          title={pinned ? "Move to focus" : "Pin to side dock"}
-          onClick={() => {
-            if (pinned) unpinWorkbenchSurface(surface.id);
-            else pinWorkbenchSurface(surface.id);
-          }}
-        >
-          {pinned ? <PinOff size={14} /> : <Pin size={14} />}
-        </IconButton>
-      ) : null}
       <IconButton
         size="md"
         tone="danger"

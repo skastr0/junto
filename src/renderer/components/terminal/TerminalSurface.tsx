@@ -12,10 +12,7 @@ import { MONO_CELL } from "../../lib/focus-measure";
 import { use$ } from "@legendapp/state/react";
 import {
   closeFocusModalSurface,
-  dock$,
-  pinWorkbenchSurface,
   terminalSurfaceId,
-  unpinWorkbenchSurface,
 } from "../../lib/dock-state";
 import { getJuntoApi } from "../../lib/junto-api";
 import { isOnMachine, machineLabelIn, useMachines, useThisMachineName } from "../../lib/machines";
@@ -64,10 +61,7 @@ import {
   sessionLoadPresentation,
   type SessionLoadPhase,
 } from "../../lib/session-load";
-import {
-  PINNING_ENABLED,
-  TASKS_ENABLED,
-} from "@shared/features";
+import { TASKS_ENABLED } from "@shared/features";
 import { releaseTaskToQueue } from "../../lib/work-actions";
 import {
   claimFocus,
@@ -125,7 +119,7 @@ type LiveEvent = TerminalOutputBatch | {
 /** Must match CSS padding on `.native-terminal-surface__xterm .xterm`. */
 const XTERM_PAD_X = 16; // 8 + 8
 const XTERM_PAD_Y = 12; // 6 + 6
-/** Debounce layout thrash from pin/focus/dock animations. */
+/** Debounce layout thrash from focus/split animations. */
 const RESIZE_DEBOUNCE_MS = 48;
 /** After open/attach, wait for focus-shell enter + stored size apply. */
 const SETTLE_FITS_MS = [0, 50, 160, 320, 600] as const;
@@ -630,7 +624,7 @@ export const applyTerminalPreferences = (
 /**
  * Geometry authority: host box → cols×rows.
  * Never trust FitAddon or the live .xterm node — both size to the current
- * grid and freeze pin/focus/dock growth. flex:1;height:0 host is the pane.
+ * grid and freeze focus/split growth. flex:1;height:0 host is the pane.
  */
 const measureHost = (
   host: HTMLElement,
@@ -666,27 +660,6 @@ function SurfaceSeatRing({ canvas, id, px }: { readonly canvas: string; readonly
 
 function HeldSeatRing({ seat, px }: { readonly seat: NodeOf<"agent">; readonly px: number }) {
   return <SeatRingView node={seat} px={px} glance={useSeatGlanceOf(seat)} />;
-}
-
-/**
- * Pinning (a surface docked beside the canvas) is behind PINNING_ENABLED and
- * off; this button and its read of the dock exist only in a build that turns
- * it on.
- */
-function PinButton({ surfaceId }: { readonly surfaceId: string }) {
-  const pinned = use$(() =>
-    dock$.registry.surfaces.get().find((surface) => surface.id === surfaceId)?.zone === "pinned",
-  );
-  return (
-    <Button
-      size="xs"
-      variant="chrome"
-      title={pinned ? "Move to focus shell" : "Pin to side dock"}
-      onClick={() => (pinned ? unpinWorkbenchSurface(surfaceId) : pinWorkbenchSurface(surfaceId))}
-    >
-      {pinned ? "Unpin" : "Pin"}
-    </Button>
-  );
 }
 
 export function TerminalSurface({
@@ -802,7 +775,7 @@ export function TerminalSurface({
 
   /**
    * Host-box geometry is authority once getBoundingClientRect is real.
-   * Do not max with FitAddon — that blocked focus→pin shrink when Fit still
+   * Do not max with FitAddon — that blocked a focus shrink when Fit still
    * reported the larger focus canvas. Island defense is CSS (flex:1;height:0).
    *
    * `term.refresh` only on a real cols×rows change or an explicit force
@@ -1213,7 +1186,7 @@ export function TerminalSurface({
 
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const settleTimers: ReturnType<typeof setTimeout>[] = [];
-    /** Last real host box — detect pin reflow size jumps. */
+    /** Last real host box — detect reflow size jumps. */
     let lastHostBox = { w: 0, h: 0 };
     /** Previous RO sample was parked/invisible (<40px). Unpark needs force fit. */
     let prevHostTiny = true;
@@ -1253,7 +1226,7 @@ export function TerminalSurface({
         (Math.abs(w - lastHostBox.w) > 24 || Math.abs(h - lastHostBox.h) > 24);
       prevHostTiny = nowTiny;
       if (nowReal) lastHostBox = { w, h };
-      // Pin/dock reflow or unpark: settle the local viewport. pushResize only
+      // Split reflow or unpark: settle the local viewport. pushResize only
       // signals the child if the measured terminal geometry actually changed.
       if (grewBack || sizeJump) {
         hardFitBurst();
@@ -1263,13 +1236,12 @@ export function TerminalSurface({
     });
     observer.observe(host);
     if (root) observer.observe(root);
-    // Focus panel + workbench panes reflow on pin/split/stored focusSize.
+    // Focus panel + workbench panes reflow on split/stored focusSize.
     const ancestors = [
       root?.closest(".focus-surface__panel"),
       root?.closest(".workbench-pane"),
       root?.closest(".workbench-panes"),
       root?.closest(".work-focus-shell"),
-      root?.closest(".work-surface-dock"),
       root?.closest(".dock-slot"),
     ];
     for (const el of ancestors) {
@@ -2172,7 +2144,6 @@ export function TerminalSurface({
         middle={agentSeat ? <SeatGitLine node={node} /> : undefined}
         actions={
           <>
-            {PINNING_ENABLED ? <PinButton surfaceId={surfaceId} /> : null}
             {agentSeat && !grid ? (
               <SeatDetailsButton
                 node={node}
