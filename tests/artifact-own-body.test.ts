@@ -133,6 +133,19 @@ it("reads its own small edit at once, as every replica does: the edit applied to
   }
 });
 
+it("leaves the next version pending, and folds on, when the version before is a row that does not decode", async () => {
+  const a3 = item(3);
+  await write(a3, { op: "create", title: "A3", body: { type: "document", markdown: "kept" } });
+  await mini.runtime.runPromise(Effect.flatMap(SqlClient.SqlClient, (sql) =>
+    // The table takes only valid JSON (json_valid), so the bad row is JSON that is no body.
+    sql`UPDATE artifact_versions SET inline_body_json = '{"type":"scroll"}' WHERE canvas_name = 'factory' AND artifact_id = ${a3} AND version = 1`));
+  await write(a3, { op: "edit", edit: { kind: "patch", type: "document", baseVersion: 1, patches: [{ op: "splice", at: 4, remove: 0, insert: " on" }] } } as unknown as ArtifactOp);
+  const row = await mini.runtime.runPromise(Effect.flatMap(SqlClient.SqlClient, (sql) =>
+    sql<{ version: number; pending: number }>`SELECT version, inline_body_json IS NULL AS pending FROM artifact_versions WHERE canvas_name = 'factory' AND artifact_id = ${a3} AND version = 2`));
+  expect(row).toEqual([{ version: 2, pending: 1 }]);
+  expect((await headOn(other, a3)).body).toEqual({ type: "document", markdown: "kept on" });
+});
+
 it("reads its own large edit and large create from its own command, where no fact carries the body", async () => {
   const a2 = item(2);
   await write(a2, { op: "create", title: "A2", body: big("a") });

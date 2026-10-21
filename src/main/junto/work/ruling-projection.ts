@@ -12,7 +12,7 @@
  */
 import { Effect, Option, Result, Schema } from "effect";
 import type { SqlClient, SqlError } from "effect/unstable/sql";
-import { decodeArtifactBody, decodeArtifactOp, type ArtifactBody, type ArtifactOp } from "@shared/artifact";
+import { ArtifactBody, decodeArtifactOp, type ArtifactOp } from "@shared/artifact";
 import { ArtifactFact, bodyAfter } from "@shared/artifact-domain";
 import { CommandQueuedResult, type RulingAppliedResult } from "@shared/command-row";
 import type { ContentRef } from "@shared/wire/content-ref";
@@ -35,6 +35,7 @@ type Fold = (
 
 const decodeArtifactFacts = Schema.decodeUnknownResult(Schema.Array(ArtifactFact), { onExcessProperty: "error" });
 const decodeCommandRow = Schema.decodeUnknownOption(Schema.fromJsonString(CommandQueuedResult));
+const decodeHeldBody = Schema.decodeUnknownOption(Schema.fromJsonString(ArtifactBody), { onExcessProperty: "error" });
 
 /** The op of this machine's own artifact command the ruling answers: its edit or body came from here. */
 const ownArtifactOp = (sql: SqlClient.SqlClient, canvasName: string, ruling: RulingAppliedResult) =>
@@ -61,7 +62,7 @@ const ownArtifactOp = (sql: SqlClient.SqlClient, canvasName: string, ruling: Rul
     return Result.isSuccess(op) ? op.success : undefined;
   });
 
-/** A version's body as this machine holds it in its row, or null. */
+/** A version's body as this machine holds it in its row, or null: a row that does not decode leaves the next version pending, never the fold stopped. */
 const heldBody = (sql: SqlClient.SqlClient, canvasName: string, artifactId: string, version: number) =>
   Effect.map(
     sql.unsafe<{ inline_body_json: string | null }>(
@@ -70,9 +71,7 @@ const heldBody = (sql: SqlClient.SqlClient, canvasName: string, artifactId: stri
     ),
     (rows): ArtifactBody | null => {
       const json = rows[0]?.inline_body_json;
-      if (json === undefined || json === null) return null;
-      const body = decodeArtifactBody(JSON.parse(json));
-      return Result.isSuccess(body) ? body.success : null;
+      return json === undefined || json === null ? null : Option.getOrNull(decodeHeldBody(json));
     },
   );
 
