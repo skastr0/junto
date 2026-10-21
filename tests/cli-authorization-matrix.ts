@@ -7,6 +7,7 @@ import {
   admitPure,
   asNodeId,
   isTargetWorkOp,
+  isTaskReachOp,
   portForWorkOp,
   type Port,
   type TargetWorkOpName,
@@ -123,6 +124,8 @@ export const classifyCliCommand = (commandId: string): CliCoverageLane | undefin
   // And to artifacts (plan 05) and tasks (plan 04).
   if (commandId.startsWith("artifact.")) return "reach";
   if (commandId.startsWith("task.")) return "reach";
+  // A task op that moved off the edge ports onto reach admission stays here.
+  if (isTaskReachOp(commandId)) return "reach";
   return undefined;
 };
 

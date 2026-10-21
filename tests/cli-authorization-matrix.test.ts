@@ -19,6 +19,7 @@ describe("CLI authorization matrix", () => {
     expect(manifest).toContainEqual({ commandId: "overseer.automation.create", lane: "overseer-plane" });
     if (manifest.some(({ commandId }) => commandId.startsWith("task."))) {
       expect(manifest).toContainEqual({ commandId: "task.create", lane: "reach" });
+      expect(manifest).toContainEqual({ commandId: "rulings", lane: "reach" });
     }
     expect(manifest).toContainEqual({ commandId: "overseer.skill", lane: "discovery" });
     expect(manifest).toContainEqual({ commandId: "overseer.status", lane: "overseer-plane" });
