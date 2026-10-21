@@ -28,7 +28,6 @@ export type AcceptanceContext = {
   readonly nodes: {
     readonly agent: string;
     readonly tasks: string;
-    readonly requests: string;
     readonly artifacts: string;
     readonly region: string;
     readonly elsewhere: string;

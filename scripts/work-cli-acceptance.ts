@@ -77,7 +77,6 @@ const CLI = join(REPO, "dist/junto");
 const CANVAS = "work-acc";
 const AGENT = "agent";
 const TASKS = "tasks";
-const REQS = "req";
 const ARTS = "art";
 const CLI_TIMEOUT_MS = 10_000;
 /** The feature flags the CLI and the core run with: the resource verbs under test. */
@@ -324,7 +323,6 @@ const seed = () => Schema.decodeUnknownSync(Command)({
       label: "agent", agentKey: "local:default", host: "acceptance", overseer: false,
       bindingId: "work-acceptance-agent", harness: "claude" },
     { kind: "task", id: TASKS, x: 240, y: 40, width: 160, height: 80, z: 1 },
-    { kind: "requests", id: REQS, x: 440, y: 40, width: 160, height: 80, z: 2 },
     { kind: "artifacts", id: ARTS, x: 640, y: 40, width: 160, height: 80, z: 3 },
     { kind: "region", id: "region", x: 0, y: 0, width: 900, height: 200, z: 4,
       label: "Acceptance", hold: false, instruction: "accept the work plane" },
@@ -588,7 +586,7 @@ export const runWorkCliAcceptance = async () => {
     };
     const context: AcceptanceContext = {
       canvas: CANVAS,
-      nodes: { agent: AGENT, tasks: TASKS, requests: REQS, artifacts: ARTS, region: "region", elsewhere: "elsewhere" },
+      nodes: { agent: AGENT, tasks: TASKS, artifacts: ARTS, region: "region", elsewhere: "elsewhere" },
       cli: cliAs,
       call: async (op, args, as) =>
         JSON.parse(await socketFrame(socketPath, {
