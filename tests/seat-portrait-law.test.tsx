@@ -12,7 +12,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ResourceChip, ResourceGlyphMark } from "../src/renderer/components/ui";
 import { mentionMark } from "../src/renderer/components/ui/ResourceChip";
+import { PostText } from "../src/renderer/components/tasks/TaskThread";
 import { RESOURCE_KIND_VISUAL } from "../src/renderer/lib/resource-visuals";
+import { mentionLink } from "../src/shared/mention";
 import { asNodeId } from "../src/shared/physics/schema";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -64,6 +66,19 @@ describe("seat portrait law", () => {
     render(<ResourceGlyphMark kind="seat" seat="agent-01" />);
     expectPortrait(host);
     expect(mentionMark({ kind: "seat", nodeId: asNodeId("agent-01") })).toEqual({ kind: "seat", seat: "agent-01" });
+  });
+
+  it("a seat mentioned in a task or artifact comment wears its node's portrait, and a gone one its name's", () => {
+    const seatOf = (text: string) => {
+      render(<PostText text={text} nodeKindOf={(id) => (id === "agent-01" ? "agent" : undefined)} onOpen={() => undefined} />);
+      return expectPortrait(host.querySelector(".resource-chip"));
+    };
+    const live = seatOf(mentionLink({ kind: "seat", nodeId: asNodeId("agent-01") }, "@product-feed", "factory"));
+    render(<ResourceChip kind="seat" seat="agent-01" label="product-feed" />);
+    expect(live).toBe(expectPortrait(host.querySelector(".resource-chip")));
+    const gone = seatOf(mentionLink({ kind: "seat", nodeId: asNodeId("agent-02") }, "@Xan", "factory"));
+    render(<ResourceChip kind="seat" label="Xan" />);
+    expect(gone).toBe(expectPortrait(host.querySelector(".resource-chip")));
   });
 
   it("other kinds keep their glyph and never a portrait", () => {

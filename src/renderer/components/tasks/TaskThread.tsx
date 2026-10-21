@@ -16,6 +16,7 @@ import { nodeAt } from "../../lib/use-model";
 import { selectNode, state$ } from "../../lib/state";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { Button, Eyebrow, ResourceChip } from "../ui";
+import { mentionMark } from "../ui/ResourceChip";
 import { MentionCombobox } from "../ui/MentionCombobox";
 import { actorLabel } from "../artifacts/artifacts-pane-model";
 import { stateLabel } from "../../lib/task-ui";
@@ -62,10 +63,12 @@ export function PostText({
             return <span key={index}>{piece.text}</span>;
           case "gone":
             // A mention of a node that is gone keeps the kind its trigger named: # a task, @ a seat.
-            return <ResourceChip key={index} kind={piece.label.startsWith("#") ? "task" : "seat"} label={piece.label.replace(/^[@#]/, "")} missing />;
+            return piece.label.startsWith("#")
+              ? <ResourceChip key={index} kind="task" label={piece.label.slice(1)} missing />
+              : <ResourceChip key={index} kind="seat" label={piece.label.replace(/^@/, "")} missing />;
           case "mention": {
             const chip = mentionLabelKind(piece.ref, piece.label);
-            return <ResourceChip key={index} kind={chip.kind} label={chip.label} number={chip.number} onOpen={() => onOpen(piece.ref)} />;
+            return <ResourceChip key={index} {...mentionMark(piece.ref)} label={chip.label} number={chip.number} onOpen={() => onOpen(piece.ref)} />;
           }
         }
       })}
