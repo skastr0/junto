@@ -146,10 +146,11 @@ export const automationArea: AcceptanceArea = {
           seen.code === 0 && seenBody?.data?.automation?.automationId === rule.data?.automationId,
         ruled.code === 0 ? seen : ruled,
       ),
-      // Automation writes are not queued: a copy refuses them and names where to go.
+      // Automation writes are not queued: a copy refuses them and names where to go. The overseer
+      // surface types the core's InputError as InvalidArguments (overseer/dispatch.ts).
       check(
         "an overseer's write from another machine is refused not_available, naming the editing machine",
-        offEditor.code === 1 && off?.ok === false && off.error?.type === "InputError" && off.error?.details?.reason === "not_available" &&
+        offEditor.code === 1 && off?.ok === false && off.error?.type === "InvalidArguments" && off.error?.details?.reason === "not_available" &&
           String(off.error?.message).includes(EDITOR.machine) && String(off.error?.details?.next_step).includes(EDITOR.machine),
         offEditor,
       ),
