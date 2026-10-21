@@ -50,7 +50,7 @@ import { withSqlRead } from "../state/sql-read";
 import { afterSqlCommit } from "../state/sql-commit";
 import { ModelRecords, ModelError } from "../model/records";
 import { deriveActorSeatId } from "../actor-seat-id";
-import { Node, Wire, asCanvasName, asNodeId, regionStack as modelRegionStack, wireKinds, wireGrant, type Canvas } from "@shared/model";
+import { asCanvasName, type Canvas } from "@shared/model";
 import {
   ActorSeatId as ActorSeatIdSchema,
   type ActorSeatId,
@@ -58,7 +58,6 @@ import {
 import { InstallationId } from "@shared/installation-id";
 import {
   Artifact,
-  CheckResult,
   CompletionEvidence,
   FinishCriteria,
   Message,
@@ -103,32 +102,6 @@ import {
   type WorkResult,
   type WorkSha256 as WorkSha256Value,
 } from "@shared/work-protocol";
-import {
-  canTransitionTaskState,
-  isTerminalTaskState,
-  taskWithTransitionState,
-} from "@shared/task";
-import {
-  collectContentRefsFromTask,
-  taskContentPendingMessage,
-  taskContentReadiness,
-} from "@shared/content";
-import {
-  taskIndexById,
-  taskIsClaimReady,
-  validateTaskDependsOn,
-} from "@shared/task-deps";
-import {
-  bodySha256Of,
-} from "./body-sha256";
-import {
-  evaluateFinishCriteria,
-  normalizeCompletionEvidence,
-} from "@shared/finish-criteria";
-import {
-  normalizeRuleEvidence,
-  TASK_APPROVED_METADATA_KEY,
-} from "@shared/rules";
 import { StateTransactionOperation } from "../state/service";
 import { ContentManifest, ContentManifestError } from "../content/manifest";
 import {
@@ -145,12 +118,8 @@ import { unjournaledWorkMutationEffect } from "./mutation-seam";
 import {
   agentNodeForSeat,
   planCheckoutReceiptMail,
-  planReceiptMail,
   receiptDedupeKey,
-  receiptSourceForRecord,
   receiptSourceId,
-  reviewAuthorSeat,
-  reviewSubjectProjection,
   reviewerSeatsOf,
 } from "./reviews";
 import { readTaskReviewers } from "./task-repository";
@@ -372,150 +341,6 @@ const WorkRunResult = Schema.Struct({
 
 const strictDecode = { onExcessProperty: "error" } as const;
 
-const MAX_TASK_DEPENDENCY_SCOPE_NODE_IDS = 256;
-
-declare const TaskDependencyScopeCapabilityTypeId: unique symbol;
-
-/**
- * Frozen process-local authority for one exact authenticated intent topology.
- * The handle has no fields. Runtime authority is only the private WeakMap.
- */
-export type TaskDependencyScopeCapability = {
-  readonly [TaskDependencyScopeCapabilityTypeId]: true;
-};
-
-type TaskTopologyAuthorityMode =
-  "canvas-current";
-
-type TaskActorGrant = {
-  readonly actorNodeId: string;
-  readonly grants: ReadonlyArray<"tasks.create" | "tasks.claim">;
-};
-
-type TaskDependencyScopeCapabilityData = {
-  readonly mode: TaskTopologyAuthorityMode;
-  readonly basis: IntentFactBasisValue;
-  readonly authoringSink: SinkRefValue;
-  /** Hash of the exact raw canvas body containing the authoring sink. */
-  readonly canvasBodySha256: string;
-  readonly allowedTaskSinkNodeIds: ReadonlyArray<string>;
-  readonly sinkHostId: string;
-  readonly actorGrants: ReadonlyArray<TaskActorGrant>;
-};
-
-const taskDependencyScopeCapabilities = new WeakMap<
-  object,
-  TaskDependencyScopeCapabilityData
->();
-
-const freezeCapabilityInput = <A>(
-  value: A,
-  seen = new WeakSet<object>(),
-): A => {
-  if (value === null || typeof value !== "object") return value;
-  const object = value as object;
-  if (seen.has(object)) return value;
-  seen.add(object);
-  for (const child of Object.values(object)) {
-    freezeCapabilityInput(child, seen);
-  }
-  return Object.freeze(value);
-};
-
-const compareCodeUnits = (left: string, right: string): number =>
-  left < right ? -1 : left > right ? 1 : 0;
-
-const topologyTypeError = (message: string): never => {
-  throw new TypeError(`Task topology authority is invalid: ${message}`);
-};
-
-const canonicalTaskTopologyIndex = (canvas: Canvas, authoringSink: SinkRefValue) => {
-  if (canvas.name !== authoringSink.canvasName) return topologyTypeError("sink names a different canvas");
-  const nodes = new Map([...canvas.nodes].map(([id, input]) => {
-    const node = Schema.decodeUnknownSync(Node, strictDecode)(structuredClone(input));
-    if (id !== node.id) return topologyTypeError("node map key differs from its id");
-    return [id, node] as const;
-  }));
-  const wires = [...canvas.wires].map(([id, input]) => {
-    const wire = Schema.decodeUnknownSync(Wire, strictDecode)(structuredClone(input));
-    if (id !== wire.id || !nodes.has(wire.from) || !nodes.has(wire.to)) return topologyTypeError("wire identity or endpoint is missing");
-    return wire;
-  });
-  const sink = nodes.get(asNodeId(authoringSink.nodeId));
-  if (sink?.kind !== "task") return topologyTypeError("authoring sink is not a task board");
-  const regions = modelRegionStack({ ...canvas, nodes }, sink.id);
-  const contains = (outer: { x: number; y: number; width: number; height: number }, inner: typeof outer) =>
-    inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width && inner.y + inner.height <= outer.y + outer.height;
-  for (let index = 1; index < regions.length; index++) if (!contains(regions[index - 1]!, regions[index]!) || contains(regions[index]!, regions[index - 1]!))
-    return topologyTypeError("task board is inside ambiguous overlapping regions");
-  const region = regions.at(-1);
-  const allowedTaskSinkNodeIds = [...nodes.values()].filter((node) => node.kind === "task" && (region === undefined || contains(region, node))).map((node) => node.id).sort(compareCodeUnits);
-  if (allowedTaskSinkNodeIds.length > MAX_TASK_DEPENDENCY_SCOPE_NODE_IDS) throw new RangeError("Task topology contains too many task boards");
-  const kinds = wireKinds(nodes.values());
-  const grants = new Map<string, Set<"tasks.create" | "tasks.claim">>();
-  for (const wire of wires) {
-    const actor = wire.from === sink.id ? wire.to : wire.to === sink.id ? wire.from : undefined;
-    if (actor === undefined || nodes.get(actor)?.kind !== "agent") continue;
-    const grant = wireGrant(wire, kinds);
-    if (!grant) continue;
-    const held = grants.get(actor) ?? new Set<"tasks.create" | "tasks.claim">();
-    for (const port of ["tasks.create", "tasks.claim"] as const) if (grant.ports.includes(port)) held.add(port);
-    if (held.size) grants.set(actor, held);
-  }
-  return {
-    allowedTaskSinkNodeIds: Object.freeze(allowedTaskSinkNodeIds),
-    sinkHostId: "local",
-    actorGrants: Object.freeze([...grants].sort(([a], [b]) => compareCodeUnits(a, b)).map(([actorNodeId, held]) => Object.freeze({ actorNodeId, grants: Object.freeze([...held].sort(compareCodeUnits)) }))),
-  };
-};
-
-const mintTaskDependencyScopeCapability = (input: {
-  readonly mode: TaskTopologyAuthorityMode;
-  readonly basis: IntentFactBasisValue;
-  readonly authoringSink: SinkRefValue;
-  readonly canvas: Canvas;
-  readonly rawCanvasBody?: string;
-}): TaskDependencyScopeCapability => {
-  const basis = freezeCapabilityInput(
-    Schema.decodeUnknownSync(
-      IntentFactBasis,
-      strictDecode,
-    )(structuredClone(input.basis)),
-  );
-  const authoringSink = freezeCapabilityInput(
-    Schema.decodeUnknownSync(
-      SinkRef,
-      strictDecode,
-    )(structuredClone(input.authoringSink)),
-  );
-  const index = canonicalTaskTopologyIndex(input.canvas, authoringSink);
-  const capability = Object.freeze(
-    Object.create(null) as object,
-  ) as TaskDependencyScopeCapability;
-  taskDependencyScopeCapabilities.set(
-    capability,
-    Object.freeze({
-      mode: input.mode,
-      basis,
-      authoringSink,
-      canvasBodySha256: input.rawCanvasBody === undefined ? "" : bodySha256Of(input.rawCanvasBody),
-      ...index,
-    }),
-  );
-  return capability;
-};
-
-/** Mint task admission from the exact model sequence the policy read. */
-export const createCanvasTaskDependencyScopeCapability = (input: {
-  readonly canvas: Canvas;
-  readonly authoringSink: SinkRefValue;
-}): TaskDependencyScopeCapability => mintTaskDependencyScopeCapability({
-  mode: "canvas-current",
-  basis: { kind: "canvas", canvasName: input.canvas.name, seq: input.canvas.seq },
-  authoringSink: input.authoringSink,
-  canvas: input.canvas,
-});
-
 const now = (): DisplayTimestampValue =>
   Schema.decodeUnknownSync(DisplayTimestamp)(new Date().toISOString());
 
@@ -625,7 +450,6 @@ export type WorkRepositoryInput = {
 
 export type LocalWorkInput = WorkRepositoryInput & {
   readonly basis: IntentFactBasisValue;
-  readonly dependencyScope?: TaskDependencyScopeCapability;
 };
 
 export type AppendMessageInput = LocalWorkInput & {
@@ -682,8 +506,6 @@ export type LocalFactResult<A> = {
 export type WorkCommandAuthorization =
   | {
       readonly _tag: "admitted";
-      /** Captured current/retained server scope; process-local, never wire data. */
-      readonly taskDependencyScope?: TaskDependencyScopeCapability;
     }
   | {
       readonly _tag: "rejected";

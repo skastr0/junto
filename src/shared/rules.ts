@@ -124,38 +124,6 @@ export const evaluateRules = (params: {
 
 export const taskEpoch = (task: Task): number => task.epoch ?? 0;
 
-/** Reattach trimmed claims and waivers after base evidence normalization. */
-export const normalizeRuleEvidence = (
-  normalized: CompletionEvidence | undefined,
-  raw: CompletionEvidence | undefined,
-): CompletionEvidence | undefined => {
-  if (raw === undefined) return normalized;
-  const claims = (raw.claims ?? [])
-    .map((entry) => {
-      const refs = (entry.refs ?? [])
-        .map((ref) => ref.trim())
-        .filter((ref) => ref.length > 0);
-      return {
-        ruleId: entry.ruleId.trim(),
-        text: entry.text.trim(),
-        ...(refs.length > 0 ? { refs } : {}),
-      };
-    })
-    .filter((entry) => entry.ruleId.length > 0 && entry.text.length > 0);
-  const waivers = (raw.waivers ?? [])
-    .map((entry) => ({
-      ruleId: entry.ruleId.trim(),
-      reason: entry.reason.trim(),
-    }))
-    .filter((entry) => entry.ruleId.length > 0 && entry.reason.length > 0);
-  if (claims.length === 0 && waivers.length === 0) return normalized;
-  return {
-    ...(normalized ?? { artifacts: [] }),
-    ...(claims.length > 0 ? { claims } : {}),
-    ...(waivers.length > 0 ? { waivers } : {}),
-  };
-};
-
 export type RequiredCheck = {
   readonly check: Check;
   readonly side: CheckSide;
@@ -174,7 +142,4 @@ export const requiredChecks = (
     ...incoming.map((check) => ({ check, side: "incoming" as const })),
   ];
 };
-
-/** Epoch-scoped operator approval marker. */
-export const TASK_APPROVED_METADATA_KEY = "junto.tasks.approvedEpoch";
 

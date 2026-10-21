@@ -35,55 +35,17 @@ import {
   type MailEvidenceRef,
   type ReviewVerdict,
 } from "@shared/crew";
-import { taskEpoch, type RuleInForce } from "@shared/rules";
+import { type RuleInForce } from "@shared/rules";
 import { makeUserMessage } from "@shared/task";
-import type { CompletionEvidence, Message, Task } from "@shared/work-model";
+import type { Message, Task } from "@shared/work-model";
 import type { ActorSeatId } from "@shared/actor-seat";
 import type { ActorRef } from "@shared/work-reference";
 import type { Reviewer } from "@shared/task-model";
-import type { WorkRecordId } from "@shared/work-protocol";
-import { subjectHashOf, taskReviewSubjectHash } from "./review-subject-hash";
 
 // ---------------------------------------------------------------------------
 // Subject identity.
 
-/**
- * The canonical subject hash. One implementation lives in the pure hash
- * module so every plane hashes identical bytes; this alias keeps the
- * reviews vocabulary at the call sites.
- */
-export const reviewSubjectHash = subjectHashOf;
-
 const normalizeSha = (sha: string): string => sha.trim().toLowerCase();
-
-/** Commit refs a completion carries, canonicalized (lowercase, deduped). */
-export const completionCommitRefs = (
-  task: Task,
-): ReadonlyArray<MailEvidenceRef> => {
-  const commits = task.completionEvidence?.git?.commits ?? [];
-  const seen = new Set<string>();
-  const refs: MailEvidenceRef[] = [];
-  for (const raw of commits) {
-    const sha = normalizeSha(raw);
-    if (sha.length === 0 || seen.has(sha)) continue;
-    seen.add(sha);
-    refs.push({ kind: "commit", sha });
-  }
-  return refs;
-};
-
-/**
- * The seat whose work is under review: the current-epoch claimant. Falls
- * back to the open visit's claimant for rows that released the column copy
- * but still live an open visit.
- */
-export const reviewAuthorSeat = (task: Task): ActorSeatId | undefined =>
-  task.claimedBy ??
-  [...(task.visits ?? [])]
-    .reverse()
-    .find(
-      (visit) => visit.epoch === taskEpoch(task) && visit.exit === undefined,
-    )?.claimedBy;
 
 /** The review-facing projection of a task's current review subject. */
 export type ReviewSubjectProjection = {
@@ -96,44 +58,6 @@ export type ReviewSubjectProjection = {
   readonly subjectHash: string;
   readonly refs: ReadonlyArray<MailEvidenceRef>;
   readonly authorSeatId?: ActorSeatId;
-};
-
-/**
- * Derive the current review subject of a live task row. The same projection
- * backs verdict posting, the completion gate, task.show, receipt mail, and
- * the digest — one derivation, five consumers, no drift.
- */
-export const reviewSubjectProjection = (input: {
-  readonly installationId: string;
-  readonly canvasName: string;
-  readonly nodeId: string;
-  readonly task: Task;
-  /**
-   * Evidence this projection hashes instead of the stored row's — the
-   * completion gate projects the subject as it will exist once the
-   * in-flight completion lands, so a green on those exact refs satisfies
-   * it. Everything else (epoch, author) still comes from the live row.
-   */
-  readonly evidenceOverride?: CompletionEvidence;
-}): ReviewSubjectProjection => {
-  const { installationId, canvasName, nodeId, task } = input;
-  const epoch = taskEpoch(task);
-  const authorSeatId = reviewAuthorSeat(task);
-  return {
-    installationId,
-    canvasName,
-    nodeId,
-    taskId: task.id,
-    state: task.state,
-    epoch,
-    subjectHash: taskReviewSubjectHash(input),
-    refs: completionCommitRefs(
-      input.evidenceOverride !== undefined
-        ? { ...task, completionEvidence: input.evidenceOverride }
-        : task,
-    ),
-    ...(authorSeatId !== undefined ? { authorSeatId } : {}),
-  };
 };
 
 /** The live agent node one seat currently occupies. */
@@ -290,16 +214,6 @@ export type ReceiptSource =
     }
   | { readonly kind: "checkout"; readonly checkoutKey: string };
 
-/** The only spelling of a task-fact source: read it off the record itself. */
-export const receiptSourceForRecord = (record: {
-  readonly id: WorkRecordId;
-}): ReceiptSource => ({
-  kind: "task-fact",
-  eventHome: record.id.route.eventHome,
-  entityHome: record.id.route.entityHome,
-  seq: record.id.seq,
-});
-
 /**
  * The serialized source identity stored in ReviewReceiptInput.sourceId.
  * receiptDedupeKey builds on this, so the dedupe key and the persisted
@@ -365,132 +279,6 @@ export type ReceiptMailPlan = {
   readonly mail: ReadonlyArray<ReceiptMail>;
   /** Observations suppressed because an exact (source, ref, reviewer) row exists. */
   readonly coalesced: number;
-};
-
-/**
- * Compose receipt mail to the author's current reviewers for refs that
- * arrived on one durable source. One mail per reviewer carrying every still-
- * fresh ref; exact (source, ref, reviewer) duplicates coalesce. The sender
- * stamp is the author's seat — supplied by the service from the author's
- * admitted context, never claimed in the payload.
- */
-export const planReceiptMail = (input: {
-  readonly canvasName: string;
-  readonly nodeId: string;
-  readonly task: Task;
-  readonly refs: ReadonlyArray<MailEvidenceRef>;
-  readonly source: ReceiptSource;
-  readonly reviewers: ReadonlyArray<{
-    readonly nodeId: string;
-    readonly seatId: ActorSeatId;
-  }>;
-  readonly author: {
-    readonly seatId: ActorSeatId;
-    readonly generation: string;
-    readonly harness: string;
-  };
-  readonly contextId: string;
-  /**
-   * Server-derived projection of the committed fact's task — the ONLY
-   * source of the subject CAS handed to the reviewer (root: no task-read
-   * grant widening; the receipt itself carries epoch + subjectHash + the
-   * target sink so a reviewer with no task read can post verbatim).
-   */
-  readonly projection: ReviewSubjectProjection;
-  readonly alreadySent: (dedupeKey: string) => boolean;
-  readonly messageId: () => string;
-}): ReceiptMailPlan => {
-  // Canonicalize at the boundary: the within-batch fresh comparison and the
-  // emitted dedupe keys must see the same bytes (normalizeSha), or one key
-  // ships twice in a single mail. Empty shas never reach a reviewer.
-  const commitRefs = input.refs
-    .filter(
-      (ref): ref is Extract<MailEvidenceRef, { kind: "commit" }> =>
-        ref.kind === "commit",
-    )
-    .map((ref) => ({ kind: "commit" as const, sha: normalizeSha(ref.sha) }))
-    .filter((ref) => ref.sha.length > 0);
-  const mail: ReceiptMail[] = [];
-  let coalesced = 0;
-  for (const reviewer of input.reviewers) {
-    const fresh: typeof commitRefs = [];
-    for (const ref of commitRefs) {
-      const key = receiptDedupeKey({
-        canvasName: input.canvasName,
-        source: input.source,
-        refSha: ref.sha,
-        reviewerSeatId: reviewer.seatId,
-      });
-      if (input.alreadySent(key)) {
-        coalesced += 1;
-      } else if (!fresh.some((kept) => kept.sha === ref.sha)) {
-        fresh.push(ref);
-      }
-    }
-    if (fresh.length === 0) continue;
-    const title =
-      input.task.history[0]?.parts
-        .filter((part) => part.kind === "text")
-        .map((part) => ("text" in part ? part.text : ""))
-        .join(" ")
-        .trim() || input.task.id;
-    const subject = `receipt: ${title} — ${fresh.length} commit ref${fresh.length === 1 ? "" : "s"}`;
-    // Actionable verbatim: exact CAS subject plus the target sink, derived
-    // from the committed fact's projection — never guessed from a sha (a
-    // commit may belong to many tasks).
-    const receiptSubject: ReceiptSubject = {
-      kind: "task",
-      taskId: input.projection.taskId,
-      epoch: input.projection.epoch,
-      subjectHash: input.projection.subjectHash,
-    };
-    const body = [
-      `${subject} (task ${input.projection.taskId} at ${input.projection.nodeId}, epoch ${input.projection.epoch})`,
-      ...fresh.map((ref) => `ref: ${ref.sha}`),
-      `subject: ${input.projection.subjectHash}`,
-      `review: read the refs, then post your verdict against this subject at ${input.projection.nodeId}`,
-    ].join("\n");
-    const refs: ReadonlyArray<MailEvidenceRef> = [
-      { kind: "task", taskId: input.task.id },
-      ...fresh,
-    ];
-    // Foreign arrival in the reviewer's mailbox: user-role with the author's
-    // seat stamp in metadata (server-attributed by the caller, never claimed
-    // by any sender payload).
-    const message: Message = makeUserMessage({
-      messageId: input.messageId(),
-      text: body,
-      contextId: input.contextId,
-      taskId: input.task.id,
-      metadata: {
-        ...mailExtensionMetadata({
-          mailKind: "receipt",
-          subject,
-          refs,
-          fromSeat: input.author.seatId,
-          senderGeneration: input.author.generation,
-          senderHarness: input.author.harness,
-        }),
-        reviewSubject: receiptSubject,
-        referenceTaskIds: [input.task.id],
-      },
-    });
-    mail.push({
-      reviewerSeatId: reviewer.seatId,
-      reviewerNodeId: reviewer.nodeId,
-      message,
-      subject: receiptSubject,
-      dedupeKeys: fresh.map((ref) =>
-        receiptDedupeKey({
-          canvasName: input.canvasName,
-          source: input.source,
-          refSha: ref.sha,
-          reviewerSeatId: reviewer.seatId,
-        }),
-      ),
-    });
-  }
-  return { mail, coalesced };
 };
 
 /**
