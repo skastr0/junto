@@ -210,8 +210,10 @@ export const callBrowserControl = (
       catch: () =>
         browserWireError(controlErr("runtime_down", "control token unavailable, is the app running?").error),
     });
-    const envelope = yield* Effect.promise(() =>
-      httpOverSocket(controlSocketPath(home), CONTROL_ROUTES[route], token, body),
-    );
+    const envelope = yield* Effect.tryPromise({
+      try: () => httpOverSocket(controlSocketPath(home), CONTROL_ROUTES[route], token, body),
+      // A request that throws before it is sent is a failed call, not a defect.
+      catch: () => browserWireError(controlErr("failed", "browser control request failed").error),
+    });
     return envelope.ok ? envelope.data : yield* Effect.fail(browserWireError(envelope.error));
   });
