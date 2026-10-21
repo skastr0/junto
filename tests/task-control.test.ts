@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { Effect, Exit, Result, Schema } from "effect";
 import {
   TASK_ARGS,
@@ -386,6 +386,21 @@ describe("task rules and wait", () => {
     const woke = await waiting;
     expect(Exit.isSuccess(woke) ? woke.value : undefined).toMatchObject({ state: "in-review" });
     expect(listeners.size).toBe(0);
+
+    // A woken wait leaves no deadline timer armed.
+    vi.useFakeTimers();
+    try {
+      state = "working";
+      const again = at(ports)("task.wait", { task: "#42", until: "in-review", timeoutMs: 600_000 });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.getTimerCount()).toBe(1);
+      state = "in-review";
+      for (const listener of [...listeners]) listener("factory");
+      expect(Exit.isSuccess(await again)).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
 
     state = "working";
     const timedOut = failure(await at(ports)("task.wait", { task: "#42", until: "done", timeoutMs: 30 }));

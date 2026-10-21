@@ -353,8 +353,12 @@ const waitTask = (caller: TaskCaller, ports: TaskPorts, input: TaskWaitArgs): Ef
         }
         yield* Effect.callback<void>((resume) => {
           if (changed) return resume(Effect.void);
-          wake = () => resume(Effect.void);
+          // A wake clears the deadline timer itself: the cleanup below runs only on interrupt.
           const timer = setTimeout(() => resume(Effect.void), left);
+          wake = () => {
+            clearTimeout(timer);
+            resume(Effect.void);
+          };
           return Effect.sync(() => clearTimeout(timer));
         });
         return undefined;
