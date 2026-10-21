@@ -8,7 +8,7 @@ import {
   HARNESS_MUSE_ENABLED,
   HARNESS_OMP_ENABLED,
   HARNESS_PRIME_AGENT_ENABLED,
-  HERMES_INTEGRATION_ENABLED,
+  LIVE_OVERSEER_ENABLED,
 } from "../src/shared/features";
 import { managedHarnessEnabled } from "../src/shared/managed-terminal-templates";
 import {
@@ -20,17 +20,16 @@ import { actorHostChoicesFromEnrollment } from "../src/renderer/components/node-
 import { newSeat } from "../src/renderer/lib/model-factories";
 import { THIS_MACHINE } from "./support/machines";
 
-describe("Hermes integration product gate", () => {
+describe("Hermes terminal harness without the integration", () => {
   it("preserves durable decode vocabulary in every profile", () => {
     expect(HARNESS_IDS).toContain("hermes");
   });
 
-  it.runIf(!HERMES_INTEGRATION_ENABLED)(
-    "removes Hermes integration while retaining the independent ACP chat plane",
+  it(
+    "keeps the Hermes terminal seat on its own harness gate",
     () => {
       // The managed Hermes TUI seat rides its own `harnessHermes` gate (ship
-      // ON), so the template stays authorable while the deep integration is
-      // off. Durable HARNESS_IDS retain every decode vocabulary entry in
+      // ON). Durable HARNESS_IDS retain every decode vocabulary entry in
       // either profile.
       expect(allTemplates().map((template) => template.harness)).toEqual([
         "claude",
@@ -47,6 +46,7 @@ describe("Hermes integration product gate", () => {
         ...(HARNESS_AMP_ENABLED ? ["amp" as const] : []),
         ...(HARNESS_FX_ENABLED ? ["fx" as const] : []),
         ...(HARNESS_OMP_ENABLED ? ["omp" as const] : []),
+        ...(LIVE_OVERSEER_ENABLED ? ["junto-overseer" as const] : []),
       ]);
       expect(managedHarnessEnabled("hermes")).toBe(HARNESS_HERMES_ENABLED);
       expect(managedHarnessEnabled("kimi")).toBe(HARNESS_KIMI_ENABLED);
@@ -96,17 +96,6 @@ describe("Hermes integration product gate", () => {
       expect(terminalIpc).toMatch(
         /if \(!managedHarnessEnabled\(node\.harness\)\)\s+return yield\* new HarnessDisabled\(/u,
       );
-    },
-  );
-
-  it.runIf(HERMES_INTEGRATION_ENABLED)(
-    "restores Hermes as an independent all-on product",
-    () => {
-      expect(allTemplates().map((template) => template.harness)).toContain(
-        "hermes",
-      );
-      expect(managedHarnessEnabled("hermes")).toBe(true);
-      expect(THIS_MACHINE_CAPABILITIES).not.toContain("hermes");
     },
   );
 });

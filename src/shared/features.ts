@@ -31,7 +31,6 @@ declare const __JUNTO_USAGE_ENABLED__: boolean | undefined;
 declare const __JUNTO_HELP_MAP_ENABLED__: boolean | undefined;
 declare const __JUNTO_AUDIO_ENABLED__: boolean | undefined;
 declare const __JUNTO_LIVE_OVERSEER_ENABLED__: boolean | undefined;
-declare const __JUNTO_HERMES_INTEGRATION_ENABLED__: boolean | undefined;
 declare const __JUNTO_DEV_TOOLS_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_HERMES_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_KIMI_ENABLED__: boolean | undefined;
@@ -148,11 +147,6 @@ export const AUDIO_ENABLED: boolean =
     ? __JUNTO_AUDIO_ENABLED__
     : envEnabled("JUNTO_AUDIO");
 
-export const HERMES_INTEGRATION_ENABLED: boolean =
-  typeof __JUNTO_HERMES_INTEGRATION_ENABLED__ === "boolean"
-    ? __JUNTO_HERMES_INTEGRATION_ENABLED__
-    : envEnabled("JUNTO_HERMES");
-
 /**
  * Developer diagnostics in Advanced settings + logs explorer chrome.
  * Compile-time only: ship profile injects false; prod never shows install
@@ -166,9 +160,7 @@ export const DEV_TOOLS_ENABLED: boolean =
 /**
  * Hermes managed TUI seat — ON; the gate stays as the way back off.
  *
- * Independent of `HERMES_INTEGRATION_ENABLED`: that flag is the deep ACP chat
- * plane and fleet host identity, which stay off in ship. The terminal seat is
- * `hermes chat --tui` on a PTY like every other harness and needs none of it.
+ * The terminal seat is `hermes chat --tui` on a PTY like every other harness.
  * Known limit carried by the template: Hermes chips multiline bracketed
  * paste, so typed delivery beyond the `-q` spawn prompt is single-line only.
  */
@@ -297,7 +289,6 @@ export const BUILD_FEATURES = {
   helpMap: HELP_MAP_ENABLED,
   audio: AUDIO_ENABLED,
   liveOverseer: LIVE_OVERSEER_ENABLED,
-  hermesIntegration: HERMES_INTEGRATION_ENABLED,
   devTools: DEV_TOOLS_ENABLED,
   harnessHermes: HARNESS_HERMES_ENABLED,
   harnessKimi: HARNESS_KIMI_ENABLED,

@@ -35,7 +35,6 @@ describe("compile-time feature profiles", () => {
       // Sound ships on at a gentle default volume.
       audio: true,
       liveOverseer: false,
-      hermesIntegration: false,
       devTools: false,
       // Seat awareness (Jev) and seat collaboration ship experimental: built
       // into the app, off until the operator turns them on in Settings.
@@ -43,7 +42,6 @@ describe("compile-time feature profiles", () => {
       // Seats connect only as messages; the reviews family is off.
       reviews: false,
       // Every managed harness ships ON; each gate remains the way back off.
-      // The Hermes TUI seat is one of them; only the ACP integration stays off.
       harnessHermes: true,
       harnessKimi: true,
       harnessMuse: true,

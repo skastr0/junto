@@ -58,16 +58,6 @@ export const FEATURE_CATALOG = {
     define: "__JUNTO_AUDIO_ENABLED__",
   },
   /**
-   * Deep Hermes integration: the ACP chat plane, fleet host identity
-   * (`hermesId` agent hosts), portfolio snapshots, and the Providers settings
-   * card. The managed Hermes TERMINAL seat is `harnessHermes` below and does
-   * not depend on this gate.
-   */
-  hermesIntegration: {
-    env: "JUNTO_HERMES",
-    define: "__JUNTO_HERMES_INTEGRATION_ENABLED__",
-  },
-  /**
    * Advanced diagnostics for developers: install provenance (build/updater,
    * update feed URL, host id, data path), logs explorer chrome. Never on
    * ship/prod — only all-on and explicit dev overrides.
@@ -85,7 +75,7 @@ export const FEATURE_CATALOG = {
   /**
    * Hermes as a managed TUI seat (`hermes chat --tui` on a real PTY). Only the
    * terminal template, palette entry, seat factory, and `hermes profile list`
-   * picker step ride this gate; the ACP plane stays under `hermesIntegration`.
+   * picker step ride this gate.
    */
   harnessHermes: {
     env: "JUNTO_HARNESS_HERMES",
@@ -246,7 +236,6 @@ export const SHIP_FEATURES: FeatureSet = {
   // The procedural sound engine, at a gentle default volume.
   audio: true,
   liveOverseer: false,
-  hermesIntegration: false,
   devTools: false,
   // Built and in the app, off until the operator turns it on in Settings.
   seatAwareness: "experimental",
@@ -277,7 +266,6 @@ export const ALL_FEATURES: FeatureSet = {
   helpMap: true,
   audio: true,
   liveOverseer: true,
-  hermesIntegration: true,
   devTools: true,
   seatAwareness: true,
   reviews: true,

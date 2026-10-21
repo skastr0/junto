@@ -26,8 +26,6 @@ describe("managed harness product gates", () => {
     expect(ship.features.harnessOmp).toBe(true);
     expect(ship.features.harnessPrimeAgent).toBe(true);
     expect(SHIP_FEATURES.harnessHermes).toBe(true);
-    // The TUI seat ships while the deep ACP integration does not.
-    expect(SHIP_FEATURES.hermesIntegration).toBe(false);
     expect(SHIP_FEATURES.harnessKimi).toBe(true);
     expect(SHIP_FEATURES.harnessMuse).toBe(true);
     expect(SHIP_FEATURES.harnessAmp).toBe(true);

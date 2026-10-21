@@ -16,7 +16,6 @@ declare const __JUNTO_USAGE_ENABLED__: boolean | undefined;
 declare const __JUNTO_HELP_MAP_ENABLED__: boolean | undefined;
 declare const __JUNTO_AUDIO_ENABLED__: boolean | undefined;
 declare const __JUNTO_LIVE_OVERSEER_ENABLED__: boolean | undefined;
-declare const __JUNTO_HERMES_INTEGRATION_ENABLED__: boolean | undefined;
 declare const __JUNTO_DEV_TOOLS_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_HERMES_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_KIMI_ENABLED__: boolean | undefined;
