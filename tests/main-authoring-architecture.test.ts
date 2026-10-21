@@ -138,6 +138,8 @@ describe("main authoring architecture", () => {
       // notice per seat; this is the classified authoring listener, not a
       // renderer/control ingress.
       "src/main/junto/work/edge-map-notify.ts",
+      // Mailboxes held between reads for the thread lists; it only reads.
+      "src/main/junto/work/mailbox-cache.ts",
       // Mail threads read the mailboxes; the operator's send runs only under
       // the classified ipc.work.thread-send handler in ipc.ts.
       "src/main/junto/work/operator-threads.ts",
@@ -145,6 +147,11 @@ describe("main authoring architecture", () => {
       "src/main/junto/work/seat-observation-live.ts",
       // Prompt mail to a seat, written only under ipc.work.message-append.
       "src/main/junto/work/seat-prompt.ts",
+      // Since your last session, for onboard and junto since; it only reads.
+      "src/main/junto/work/seat-since-read.ts",
+      // The one resource comment write, reached only from the classified
+      // msg.send, msg.reply, task comment and operator thread send paths.
+      "src/main/junto/work/subject-comment.ts",
       // A ruling's notices go out as the actor's mail, only from the ruled task command.
       "src/main/junto/work/task-delivery.ts",
     ]);
