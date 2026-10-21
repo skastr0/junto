@@ -458,6 +458,8 @@ export const AutomationRunnerLive = Layer.effect(
     // The canvas as it stood when this pass began; the ports read it synchronously.
     const canvases = new Map<string, Canvas>();
     const views = new Map<string, ConditionView>();
+    // The Artifacts nodes of each canvas whose comments have had a good read.
+    const commentsRead = new Map<string, Set<string>>();
     // The last state an automation wrote on each task, and when it began. The
     // diff that sees that task next takes the mark: it is the automation's
     // only if the row is that state from that moment; anything later is not.
@@ -516,10 +518,18 @@ export const AutomationRunnerLive = Layer.effect(
             readArtifacts(canvasName, canvas),
             readComments(canvasName, canvas),
           ]), ([read, artifacts, { comments: readNow, unread }]) => {
-            const before = views.get(canvasName);
+            const held = views.get(canvasName);
             // A node whose read failed keeps the comments it held, so the next good read finds only new ones.
-            const comments = [...readNow, ...(before?.comments ?? []).filter((comment) => unread.has(comment.node))];
+            const comments = [...readNow, ...(held?.comments ?? []).filter((comment) => unread.has(comment.node))];
             const view: ConditionView = { ...read, artifacts, comments };
+            // A node's first good read is its baseline: what it holds then fires nothing, as on a first pass.
+            const baselined = commentsRead.get(canvasName) ?? new Set<string>();
+            const baseline = readNow.filter((comment) => !baselined.has(comment.node));
+            const before = held === undefined ? held : { ...held, comments: [...(held.comments ?? []), ...baseline] };
+            for (const node of canvas.nodes.values()) {
+              if (node.kind === "artifacts" && !unread.has(node.id)) baselined.add(node.id);
+            }
+            commentsRead.set(canvasName, baselined);
             const changes = changesBetween(before, view, automationWrote, Option.isNone(seatStates));
             // Keep the tasks and artifacts this read left out, as they were, for the next diff.
             const seen = new Set(view.tasks.map((task) => task.taskId));
@@ -535,6 +545,7 @@ export const AutomationRunnerLive = Layer.effect(
           Effect.sync(() => {
             canvases.delete(canvasName);
             views.delete(canvasName);
+            commentsRead.delete(canvasName);
             return [] as ReadonlyArray<ChangeEvent>;
           }),
         ),

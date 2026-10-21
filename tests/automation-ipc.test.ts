@@ -305,6 +305,34 @@ describe("comment triggers, read from each Artifacts node's mailbox", () => {
       expect(firings.map((f) => f.cause)).toEqual([{ kind: "change", key: `artifact:${ARTIFACT}:commented:01M5ESKJFC1A88R1MH1NEZWJ73` }]);
     }, work);
   });
+
+  it("take a node's first good read as its baseline, when its read failed on the runner's first pass", () => {
+    let mailbox = [comment("01M5ESKJFC1A88R1MH1NEZWJ71"), comment("01M5ESKJFC1A88R1MH1NEZWJ72")];
+    let down = true;
+    const work: Partial<WorkServiceShape> = {
+      readMailbox: () => (down ? Effect.fail({ _tag: "WorkServiceError", message: "the mailbox is down" } as never) : Effect.succeed(mailbox)),
+    };
+    return run(async (handlers, _changed, _sql, inApp) => {
+      const onComment = {
+        ...definition,
+        trigger: { kind: "change", on: { kind: "artifact", artifact: { kind: "artifact", nodeId: ARTIFACTS, artifactId: ARTIFACT }, event: "commented" } },
+        limits: { minIntervalMs: 0, maxPerHour: 60 },
+      };
+      await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: true, definition: onComment as never } });
+      const wake = Effect.gen(function* () {
+        yield* (yield* AutomationRunnerService).wake("factory");
+      });
+      await inApp(wake); // a cold runner whose first read fails
+      down = false;
+      await inApp(wake); // the node's first good read: its baseline
+      expect((await handlers.firings("factory", { automationId: ID })).firings).toEqual([]);
+
+      mailbox = [...mailbox, comment("01M5ESKJFC1A88R1MH1NEZWJ73")];
+      await inApp(wake);
+      const { firings } = await handlers.firings("factory", { automationId: ID });
+      expect(firings.map((f) => f.cause)).toEqual([{ kind: "change", key: `artifact:${ARTIFACT}:commented:01M5ESKJFC1A88R1MH1NEZWJ73` }]);
+    }, work);
+  });
 });
 
 describe("signal and seat-state triggers", () => {
