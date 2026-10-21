@@ -21,7 +21,7 @@ import {
   type KindSpec,
 } from "./physics/kinds";
 import { ALL_PORTS, type Port } from "./physics/schema";
-import { Seat, TaskBoard, Requests, Artifacts, Board, Page, Terminal, Cron, Relay, Watcher } from "./model/kinds";
+import { Seat, TaskBoard, Requests, Artifacts, Board, Page, Terminal } from "./model/kinds";
 import {
   SEAT_DOCTRINE,
   buildDoctrineBody,
@@ -110,16 +110,11 @@ const NODE_EVENTS: Readonly<Record<string, readonly string[]>> = {
     "browser.session — session open/close/detach lifecycle",
   ],
   terminal: ["terminal.session — PTY attach/detach lifecycle"],
-  cron: ["cron.fire — durable timer due", "cron.next_fire — schedule projection"],
-  relay: ["relay.trigger — agent-fired run"],
-  watcher: ["watcher.satisfied — stat threshold crossed"],
-  timer: ["timer.fire — durable timer due"],
 };
 
 const SCHEMA_BY_KIND: Readonly<Record<string, Schema.Schema<unknown>>> = {
   task: TaskBoard, requests: Requests, artifacts: Artifacts, board: Board,
   agent: Seat, page: Page, terminal: Terminal,
-  cron: Cron, timer: Cron, relay: Relay, watcher: Watcher,
 };
 
 const MODEL_NOTE: Readonly<Record<string, string>> = {
@@ -130,26 +125,18 @@ const MODEL_NOTE: Readonly<Record<string, string>> = {
   agent: "Actor seat: the node holds identity, harness and launch settings. Mail is separately stored and paged per seat; terminal sessions are runtime facts. Identity is the seat credential.",
   page: "Browser surface: admitted page sessions controlled via the browser CLI.",
   terminal: "Terminal resource: PTY session surface.",
-  cron: "Time scheduler: durable due times projected as nextFire.",
-  relay: "Canvas-node scheduler: fires when an agent triggers the relay.trigger port.",
-  watcher: "Stat watcher: threshold crossing projection (product-dormant in v1).",
-  timer: "Timer scheduler: durable interval scheduling.",
   automations: "Automations node: each automation has a schedule, poll or change trigger, conditions in `when` and actions in `then`, and is created off unless enabled. Firings are kept as history, each with its actions' rulings or why it was skipped.",
 };
 
 const KIND_NOTE: Readonly<Record<string, string>> = {
   agent: "The actor role: takes work from its reach and its mail, holds a mailbox, runs a harness.",
   task: "The pull queue: submitted tasks are claimed by seats that reach the board.",
-  automations: "Automations: triggers, conditions and actions the editing machine runs. A seat reads the ones in its reach with `junto automation list`, `show` and `history`; only the operator and overseers write them.",
+  automations: "Automations: triggers, conditions and actions the editing machine runs, in place of the old cron, relay, watcher and timer schedulers. A seat reads the ones in its reach with `junto automation list`, `show` and `history`; only the operator and overseers write them.",
   requests: "The operator's request queue. Seats no longer file requests; they raise agent signals (junto escalate, blocked, feedback) instead.",
   artifacts: "The delivery surface: publish outputs; artifacts never block.",
   board: "The bulletin surface: optional shared context, never a decision inbox.",
   page: "The browser surface (feature-gated): page automation grants.",
   terminal: "A terminal resource sink (v1 access family only).",
-  cron: "Time scheduler (feature-gated).",
-  relay: "Relay scheduler (feature-gated): agent-fired automation.",
-  watcher: "Stat watcher (product-dormant).",
-  timer: "Timer scheduler (feature-gated).",
 };
 
 const buildNodeDocs = (): ReadonlyArray<NodeDoc> =>
@@ -173,6 +160,9 @@ const buildNodeDocs = (): ReadonlyArray<NodeDoc> =>
 export const NODE_DOCS: ReadonlyArray<NodeDoc> = buildNodeDocs().filter((doc) =>
   productNodeKindEnabled(doc.kind),
 );
+
+/** Ports some kind this build documents offers; a removed kind's port leaves with it. */
+const OFFERED_PORTS: ReadonlySet<string> = new Set(NODE_DOCS.flatMap((doc) => doc.offers));
 
 // ── Catalog ────────────────────────────────────────────────────────────────
 
@@ -373,7 +363,7 @@ export const buildConceptsDoc = (): string =>
     "",
     "## Grants and ports",
     `A resource in reach, and an edge to a seat, hand the seat the ports that node offers. The port set:`,
-    ...ALL_PORTS.filter((port) => productPortEnabled(port)).map(
+    ...ALL_PORTS.filter((port) => productPortEnabled(port) && OFFERED_PORTS.has(port)).map(
       (p) => `- \`${p}\` — ${PORT_DESCRIPTIONS[p]}`,
     ),
     "",

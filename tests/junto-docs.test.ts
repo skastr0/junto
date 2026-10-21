@@ -78,6 +78,16 @@ describe("junto docs catalog", () => {
     expect(doc).not.toContain("No native node schema.");
   });
 
+  it.each(["cron", "relay", "watcher", "timer", "gauge", "pad", "sheet"])("the removed %s kind has no docs page", (kind) => {
+    expect(buildNodeKindDoc(kind)).toBeUndefined();
+    expect(buildNodesCatalogDoc()).not.toContain(`| ${kind} |`);
+  });
+
+  it("the port set lists no port of a removed kind, and points schedulers at Automations", () => {
+    expect(buildConceptsDoc()).not.toContain("relay.trigger");
+    expect(buildNodeKindDoc("automations")).toContain("in place of the old cron, relay, watcher and timer schedulers");
+  });
+
   it("concepts doc covers seats, grants, ladder", () => {
     const c = buildConceptsDoc();
     expect(c).toContain("## Seats");
