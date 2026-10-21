@@ -30,8 +30,8 @@ import {
 import { canvasToCapabilityView } from "@shared/physics/view";
 import type { TargetCandidate, WorkErrorBody, WorkOpName } from "@shared/work-control";
 import { resolveTarget, type ResolvedTarget } from "@shared/target-resolution";
-import { resourcesInReach, seatReachesTaskNode, seatsInReach } from "@shared/region-reach";
-import { linkTypedMentions } from "@shared/typed-mentions";
+import { isResourceKind, reaches, resourcesInReach, resourcesSeatReaches, seatReachesTaskNode, seatsInReach } from "@shared/region-reach";
+import { linkMentionTokens, matchTypedMention, type ResolvedName } from "@shared/typed-mentions";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
 import type { ActorRef } from "@shared/work-protocol";
 import { Result, Match } from "effect";
@@ -823,15 +823,28 @@ export const resolveWorkTarget = (
       details: { path: "target", retryable: false, next_step: "send the ref exactly as Junto printed it" },
     });
   }
+  return Result.fail(targetRefusal(doc, wanted, resolved.reason, resolved.typed.kind === "number", resolved.candidates));
+};
+
+/**
+ * A target nothing matched (`none`, every candidate listed) or that several
+ * match (`ambiguous`, only those listed), in the one refusal shape.
+ */
+const targetRefusal = (
+  doc: Canvas,
+  wanted: string,
+  reason: "none" | "ambiguous",
+  byNumber: boolean,
+  candidates: ReadonlyArray<TargetCandidate>,
+): WorkErrorBody => {
   const line = (candidate: TargetCandidate): string => {
     const node = findNode(doc, candidate.nodeId);
     const label = node !== undefined && candidate.itemId === undefined ? seatLabel(seatIdentity(doc, node)) : candidate.name;
     const number = candidate.number === undefined ? "" : `#${candidate.number} `;
     return `${number}${label} [${candidate.itemId ?? candidate.nodeId}]`;
   };
-  const candidates = resolved.candidates;
-  if (resolved.reason === "ambiguous") {
-    return Result.fail({
+  if (reason === "ambiguous") {
+    return {
       type: "InputError",
       message: `"${wanted}" names ${candidates.length} things you can reach: ${candidates.map(line).join("; ")}`,
       details: {
@@ -840,10 +853,10 @@ export const resolveWorkTarget = (
         candidates,
         next_step: "send again with the node id of the one you mean",
       },
-    });
+    };
   }
-  const what = resolved.typed.kind === "number" ? `no task you can reach is ${wanted}` : `nothing you can reach is called "${wanted}"`;
-  return Result.fail({
+  const what = byNumber ? `no task you can reach is ${wanted}` : `nothing you can reach is called "${wanted}"`;
+  return {
     type: "UnknownTarget",
     message: candidates.length === 0
       ? `${what}, and this seat reaches nothing for this command`
@@ -856,7 +869,7 @@ export const resolveWorkTarget = (
         ? "ask the operator to wire this seat to the one it should reach"
         : "send again with one of these names or ids",
     },
-  });
+  };
 };
 
 /** Who a mention in a seat's mail can name: the seats wired to it (03 section 3). */
@@ -870,38 +883,110 @@ export const resourceMentionCandidates = (doc: Canvas, nodeId: string): Readonly
     .filter((node): node is Node => node?.kind === "agent")
     .map(candidateOf);
 
+/** Where a text is written (03 section 3): a seat's mail, or the comments on a resource or a page. */
+export type MentionPlace = { readonly kind: "mail" } | { readonly kind: "comments"; readonly nodeId: string };
+
 /**
- * The text with each `@name` rewritten to its seat's mention link (03,
- * "Writing from the CLI"), every name resolved by `resolveWorkTarget` among
- * `candidates`. A name nothing matches is refused UnknownTarget, a name two
- * seats share InputError with the candidates, each naming the token.
+ * The task boards, Artifacts nodes and pages a mention may name (03 section
+ * 3). In mail, those in the writer's reach, and for a live overseer every
+ * task node too (`resourcesSeatReaches`). In comments, those in reach of the
+ * resource commented on, itself included, whoever writes. Sorted by id.
  */
-export const linkSeatMentions = (
+export const mentionNodesAt = (doc: Canvas, writerId: string, place: MentionPlace): ReadonlyArray<Node> => {
+  const isPage = (node: Node): boolean => node.kind === "page";
+  if (place.kind === "mail") {
+    const seat = asNodeId(writerId);
+    const reached: ReadonlyArray<{ readonly id: string }> = [
+      ...resourcesSeatReaches(doc, seat),
+      ...[...doc.nodes.values()].filter((node) => isPage(node) && reaches(doc, seat, node.id)),
+    ];
+    return reached
+      .map((node) => findNode(doc, node.id))
+      .filter((node): node is Node => node !== undefined)
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }
+  const from = asNodeId(place.nodeId);
+  return [...doc.nodes.values()]
+    .filter((node) => (isResourceKind(node.kind) || isPage(node)) && (node.id === from || reaches(doc, from, node.id)))
+    .sort((a, b) => a.id.localeCompare(b.id));
+};
+
+/** What a mention in a text may name: seats and pages by name, tasks and artifacts as items on their nodes. */
+export type MentionCandidates = {
+  readonly seats: ReadonlyArray<TargetCandidate>;
+  readonly pages: ReadonlyArray<TargetCandidate>;
+  /** Tasks and artifacts, each with its `itemId`, a task with its number. */
+  readonly items: ReadonlyArray<TargetCandidate>;
+};
+
+/** A page node's mention candidates, beside the seats a place offers. */
+export const pageMentionCandidates = (nodes: ReadonlyArray<Node>): ReadonlyArray<TargetCandidate> =>
+  nodes.filter((node) => node.kind === "page").map(candidateOf);
+
+const fold = (text: string): string => text.trim().toLowerCase();
+
+/**
+ * The text with every token rewritten to its mention link (03, "Writing from
+ * the CLI"): `@name` a seat or a page, `#42` a task by its number, `#name` a
+ * task or an artifact by its title, each among `candidates`. A token nothing
+ * matches is refused UnknownTarget, one several match InputError with those
+ * candidates, each naming the token.
+ */
+export const linkMentions = (
   doc: Canvas,
   canvasName: string,
   callerId: string,
   text: string,
-  candidates: ReadonlyArray<TargetCandidate>,
+  candidates: MentionCandidates,
 ): Result.Result<string, WorkErrorBody> =>
-  linkTypedMentions(text, canvasName, (name) => {
-    const token = `@${name}`;
+  linkMentionTokens(text, canvasName, (token) => {
+    const typed = matchTypedMention(token, {
+      at: (at) => `@${at.name}`,
+      number: (number) => `#${number.number}`,
+      hash: (hash) => `#${hash.name}`,
+    });
     const refused = (error: WorkErrorBody): WorkErrorBody => ({
       ...error,
-      message: `${token}: ${error.message}`,
-      details: { ...error.details, path: "text", target: token, retryable: false },
+      message: `${typed}: ${error.message}`,
+      details: { ...error.details, path: "text", target: typed, retryable: false },
     });
-    const resolved = resolveWorkTarget(doc, callerId, name, "msg.send", () => candidates);
-    if (Result.isFailure(resolved)) return Result.fail(refused(resolved.failure));
-    // An id resolves to any node it names; a mention names only a seat it may.
-    const seat = candidates.find((candidate) => candidate.itemId === undefined && candidate.nodeId === resolved.success.nodeId);
-    if (seat === undefined) {
-      return Result.fail(refused({
-        type: "UnknownTarget",
-        message: `no seat you can mention here is ${name}`,
-        details: { candidates, next_step: "mention one of these seats by its name" },
-      }));
-    }
-    return Result.succeed({ ref: { kind: "seat", nodeId: seat.nodeId }, label: `@${seat.name}` });
+    const tasks = candidates.items.filter((candidate) => candidate.kind === "task");
+    const item = (found: TargetCandidate | undefined): Result.Result<ResolvedName, WorkErrorBody> => {
+      if (found?.itemId === undefined) {
+        return Result.fail(refused(targetRefusal(doc, typed, "none", token.kind === "number", token.kind === "number" ? tasks : candidates.items)));
+      }
+      const number = found.number === undefined ? "" : `${found.number} `;
+      return Result.succeed(found.kind === "task"
+        ? { ref: { kind: "task", nodeId: found.nodeId, taskId: found.itemId }, label: `#${number}${found.name}` }
+        : { ref: { kind: "artifact", nodeId: found.nodeId, artifactId: found.itemId }, label: `#${found.name}` });
+    };
+    return matchTypedMention<Result.Result<ResolvedName, WorkErrorBody>>(token, {
+      at: ({ name }) => {
+        const named = [...candidates.seats, ...candidates.pages];
+        const resolved = resolveWorkTarget(doc, callerId, name, "msg.send", () => named);
+        if (Result.isFailure(resolved)) return Result.fail(refused(resolved.failure));
+        // An id resolves to any node it names; a mention names only a seat or a page it may.
+        const found = named.find((candidate) => candidate.nodeId === resolved.success.nodeId);
+        if (found === undefined) {
+          return Result.fail(refused({
+            type: "UnknownTarget",
+            message: `no seat or page you can mention here is ${name}`,
+            details: { candidates: named, next_step: "mention one of these by its name" },
+          }));
+        }
+        return Result.succeed({
+          ref: found.kind === "agent" ? { kind: "seat", nodeId: found.nodeId } : { kind: "page", nodeId: found.nodeId },
+          label: `@${found.name}`,
+        });
+      },
+      number: ({ number }) => item(tasks.find((candidate) => candidate.number === number)),
+      hash: ({ name }) => {
+        const matches = candidates.items.filter((candidate) => fold(candidate.name) === fold(name));
+        return matches.length > 1
+          ? Result.fail(refused(targetRefusal(doc, typed, "ambiguous", false, matches)))
+          : item(matches[0]);
+      },
+    });
   });
 
 /** Every node a wire joins to the caller, either way, once each. */

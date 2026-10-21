@@ -61,7 +61,8 @@ import { BodyPuller } from "../content/body-puller";
 import type { PulledOwner } from "../content/pull";
 import { ArtifactRepository, type ArtifactBodyRead } from "./artifact-repository";
 import { TaskRepository } from "./task-repository";
-import { linkSeatMentions, productDisabledError, resourceMentionCandidates } from "./authz";
+import { productDisabledError } from "./authz";
+import { linkMentionsAt } from "./mention-links";
 import { ARTIFACTS_ENABLED } from "@shared/features";
 import { postSubjectComment, type SubjectCommentContext } from "./subject-comment";
 
@@ -596,17 +597,18 @@ export const commentOnArtifact = (
     if (anchor?.kind === "lines") {
       return yield* Effect.fail(inputError(`a ${head.artifact.type} does not take a lines anchor`, "anchor"));
     }
-    // Each @name becomes its mention link: a seat in reach of the artifact (03).
+    // Each mention becomes its link: in reach of the artifact, whoever writes (03).
     const callerId = caller.actor.kind === "seat" ? caller.actor.nodeId : operatorActorRef(caller.canvasName).nodeId;
-    const text = linkSeatMentions(caller.canvas, caller.canvasName, callerId, input.text, resourceMentionCandidates(caller.canvas, head.artifact.nodeId));
-    if (Result.isFailure(text)) return yield* Effect.fail({ ...text.failure, details: { ...text.failure.details, opId: input.opId } });
+    const text = yield* linkMentionsAt(caller.canvas, caller.canvasName, callerId, input.text, { kind: "comments", nodeId: head.artifact.nodeId }).pipe(
+      Effect.mapError((error): WorkErrorBody => ({ ...error, details: { ...error.details, opId: input.opId } })),
+    );
     const author = head.artifact.createdBy;
     const posted = yield* ports
       .comment(
         {
           subject: { kind: "artifact", nodeId: head.artifact.nodeId, artifactId: input.artifact },
           ...(anchor === undefined ? {} : { anchor }),
-          text: text.success,
+          text,
           actor: caller.actor,
           opId: input.opId,
           ...(input.threadId === undefined ? {} : { threadId: input.threadId }),

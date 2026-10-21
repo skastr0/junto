@@ -40,7 +40,7 @@ const NODE_KIND = { task: "task", artifact: "artifacts" } as const satisfies Rec
 const isResourceInput = (input: AgentSignalAttachmentInput): input is ResourceInput =>
   "kind" in input && (input.kind === "task" || input.kind === "artifact");
 
-const candidateOf = (item: ReachedItem): TargetCandidate => ({
+export const candidateOf = (item: ReachedItem): TargetCandidate => ({
   kind: NODE_KIND[item.kind],
   nodeId: item.nodeId,
   itemId: item.itemId,
@@ -122,20 +122,27 @@ const storeError = (error: { readonly message: string }): WorkErrorBody => ({
   details: { retryable: true },
 });
 
-/**
- * Every task or artifact in the seat's reach, of the kinds the signal names,
- * read from the task store and the artifact store, archived artifacts too.
- * A store this runtime does not run is named in `missing`: only that kind is
- * refused. Past `SCAN_LIMIT` items of one kind the rest read as not in reach.
- */
+/** Every task or artifact in the seat's reach, of the kinds the signal names (`readItemsOn`). */
 const readReachedItems = (
   board: Canvas,
   canvasName: string,
   seatId: NodeId,
   kinds: ReadonlySet<ResourceKind>,
 ): Effect.Effect<{ readonly items: ReadonlyArray<ReachedItem>; readonly missing: ReadonlySet<ResourceKind> }, WorkErrorBody> =>
+  readItemsOn(canvasName, resourcesSeatReaches(board, seatId), kinds);
+
+/**
+ * Every task or artifact on these nodes, of these kinds, read from the task
+ * store and the artifact store, archived artifacts too. A store this runtime
+ * does not run is named in `missing`: only that kind is refused. Past
+ * `SCAN_LIMIT` items of one kind the rest read as not there.
+ */
+export const readItemsOn = (
+  canvasName: string,
+  reached: ReadonlyArray<{ readonly id: NodeId; readonly kind: string }>,
+  kinds: ReadonlySet<ResourceKind>,
+): Effect.Effect<{ readonly items: ReadonlyArray<ReachedItem>; readonly missing: ReadonlySet<ResourceKind> }, WorkErrorBody> =>
   Effect.gen(function* () {
-    const reached = resourcesSeatReaches(board, seatId);
     const nodesOf = (kind: ResourceKind) => reached.filter((node) => node.kind === NODE_KIND[kind]).map((node) => node.id);
     const items: ReachedItem[] = [];
     const missing = new Set<ResourceKind>();

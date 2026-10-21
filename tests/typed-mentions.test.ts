@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Result } from "effect";
 import { mentionHref, mentionLinksOf, type MentionRef } from "../src/shared/mention";
 import { asNodeId } from "../src/shared/physics/schema";
-import { linkMentionTokens, linkTypedMentions, matchTypedMention, typedMentionsOf, type TypedMention } from "../src/shared/typed-mentions";
+import { linkMentionTokens, matchTypedMention, typedMentionsOf, type TypedMention } from "../src/shared/typed-mentions";
 
 const names = (text: string) => typedMentionsOf(text).flatMap((mention) => (mention.kind === "at" ? [mention.name] : []));
 const typed = (text: string) =>
@@ -72,13 +72,14 @@ describe("typedMentionsOf: the @name tokens a writer typed", () => {
 
 const seat = (id: string): MentionRef => ({ kind: "seat", nodeId: asNodeId(id) });
 
-describe("linkTypedMentions: each @name rewritten to its mention link", () => {
+describe("linkMentionTokens: each @name rewritten to its mention link", () => {
   const seats: Record<string, string> = { "cli-lead": "agent-01LEAD", "product-feed": "agent-01FEED" };
-  const resolve = (name: string) =>
+  const byName = (name: string) =>
     seats[name] === undefined ? Result.fail(`unknown ${name}`) : Result.succeed({ ref: seat(seats[name]!), label: `@${name}` });
+  const resolve = (token: TypedMention) => byName(token.kind === "at" ? token.name : `#${token.kind}`);
 
   it("rewrites each name in place to the link, and nothing else", () => {
-    const linked = linkTypedMentions("@cli-lead, ask @product-feed about `@cli-lead`.", "factory", resolve);
+    const linked = linkMentionTokens("@cli-lead, ask @product-feed about `@cli-lead`.", "factory", resolve);
     const lead = `[@cli-lead](${mentionHref(seat("agent-01LEAD"), "factory")})`;
     const feed = `[@product-feed](${mentionHref(seat("agent-01FEED"), "factory")})`;
     expect(linked).toEqual(Result.succeed(`${lead}, ask ${feed} about \`@cli-lead\`.`));
@@ -87,20 +88,20 @@ describe("linkTypedMentions: each @name rewritten to its mention link", () => {
 
   it("leaves a text without names exactly as it was, and is stable on its own output", () => {
     const text = "no names here, ops@junto.dev";
-    expect(linkTypedMentions(text, "factory", resolve)).toEqual(Result.succeed(text));
-    const once = Result.getOrThrow(linkTypedMentions("@cli-lead", "factory", resolve));
-    expect(linkTypedMentions(once, "factory", resolve)).toEqual(Result.succeed(once));
+    expect(linkMentionTokens(text, "factory", resolve)).toEqual(Result.succeed(text));
+    const once = Result.getOrThrow(linkMentionTokens("@cli-lead", "factory", resolve));
+    expect(linkMentionTokens(once, "factory", resolve)).toEqual(Result.succeed(once));
   });
 
   it("asks once per name, and refuses with the first name's refusal in text order", () => {
     const asked: string[] = [];
-    const counting = (name: string) => {
-      asked.push(name);
-      return resolve(name);
+    const counting = (token: TypedMention) => {
+      asked.push(token.kind === "at" ? token.name : token.kind);
+      return resolve(token);
     };
-    expect(Result.isSuccess(linkTypedMentions("@cli-lead @cli-lead", "factory", counting))).toBe(true);
+    expect(Result.isSuccess(linkMentionTokens("@cli-lead @cli-lead", "factory", counting))).toBe(true);
     expect(asked).toEqual(["cli-lead"]);
-    expect(linkTypedMentions("@cli-lead @ghost @nobody", "factory", resolve)).toEqual(Result.fail("unknown ghost"));
+    expect(linkMentionTokens("@cli-lead @ghost @nobody", "factory", resolve)).toEqual(Result.fail("unknown ghost"));
   });
 });
 
@@ -124,12 +125,5 @@ describe("linkMentionTokens: every token rewritten, by a resolver that handles e
 
   it("refuses with the first token that does not resolve", () => {
     expect(linkMentionTokens("#42 then #9 then #spec", "factory", resolve)).toEqual(Result.fail("no task #9"));
-  });
-
-  it("linkTypedMentions still resolves @names alone and leaves # as typed", () => {
-    const byName = (name: string) =>
-      name === "cli-lead" ? Result.succeed({ ref: seat("agent-01LEAD"), label: "@cli-lead" }) : Result.fail(`unknown ${name}`);
-    const linked = Result.getOrThrow(linkTypedMentions("@cli-lead see #42 and #spec", "factory", byName));
-    expect(linked.endsWith(" see #42 and #spec")).toBe(true);
   });
 });

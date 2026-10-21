@@ -214,13 +214,11 @@ import {
   nodeKind,
   nodeTitle,
   regionStackFor,
-  linkSeatMentions,
-  mailMentionCandidates,
   regionVisibility,
   resolveWorkTarget,
-  resourceMentionCandidates,
   summarizeNode,
 } from "./authz";
+import { linkMentionsAt } from "./mention-links";
 import { resolveTaskAdmission } from "@shared/work-model";
 import {
   boardContractOf,
@@ -1787,12 +1785,10 @@ const dispatchOp = (
           });
         }
       }
-      // Each @name becomes its mention link: a seat in reach of the task, or wired to this one (03).
-      const linked = linkSeatMentions(board, caller.canvasName, caller.nodeId, typed, taskThread === undefined
-        ? mailMentionCandidates(board, caller.nodeId)
-        : resourceMentionCandidates(board, taskThread.subject.nodeId));
-      if (Result.isFailure(linked)) return yield* Effect.fail(linked.failure);
-      const text = linked.success;
+      // Each mention becomes its link: in reach of the task, or this seat's mail (03).
+      const text = yield* linkMentionsAt(board, caller.canvasName, caller.nodeId, typed, taskThread === undefined
+        ? { kind: "mail" }
+        : { kind: "comments", nodeId: taskThread.subject.nodeId });
       // A comment on a 0.10 task posts on the one comment path (03).
       if (taskThread !== undefined && taskThread.subject.kind === "task") {
         const posted = yield* postSubjectComment(
@@ -2032,12 +2028,10 @@ const dispatchOp = (
           });
         }
       }
-      // Each @name becomes its mention link: a seat in reach of the subject, or wired to this one (03).
-      const linked = linkSeatMentions(board, caller.canvasName, caller.nodeId, typed, subject === undefined
-        ? mailMentionCandidates(board, caller.nodeId)
-        : resourceMentionCandidates(board, subject.nodeId));
-      if (Result.isFailure(linked)) return yield* Effect.fail(linked.failure);
-      const text = linked.success;
+      // Each mention becomes its link: in reach of the subject, or this seat's mail (03).
+      const text = yield* linkMentionsAt(board, caller.canvasName, caller.nodeId, typed, subject === undefined
+        ? { kind: "mail" }
+        : { kind: "comments", nodeId: subject.nodeId });
       // Mark the parent mail read on own inbox first (idempotent).
       const marked = yield* work.workMessageMarkRead(
         caller.canvasName,

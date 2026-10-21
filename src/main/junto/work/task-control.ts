@@ -58,7 +58,8 @@ import type { QueuedCommand } from "@shared/command-row";
 import { decodeTaskFacts } from "@shared/task-fact-wire";
 import { ResourceSubmit } from "./resource-submit";
 import { MachineRepository } from "../machines/repository";
-import { linkSeatMentions, productDisabledError, resourceMentionCandidates } from "./authz";
+import { productDisabledError } from "./authz";
+import { linkMentionsAt } from "./mention-links";
 import { TASKS_ENABLED } from "@shared/features";
 import { postSubjectComment, type SubjectCommentContext } from "./subject-comment";
 import { noteResourceChanged, onResourceChanged } from "./resource-changes";
@@ -723,13 +724,14 @@ export const commentOnTask = (
     if (input.node !== undefined && task.current.node !== input.node) {
       return yield* Effect.fail(unknown("task", input.task, `no task ${input.task} on node ${input.node}`));
     }
-    // Each @name becomes its mention link: a seat in reach of the task (03).
+    // Each mention becomes its link: in reach of the task, whoever writes (03).
     const callerId = caller.actor.kind === "seat" ? caller.actor.nodeId : operatorActorRef(caller.canvasName).nodeId;
-    const text = linkSeatMentions(caller.canvas, caller.canvasName, callerId, input.text, resourceMentionCandidates(caller.canvas, task.current.node));
-    if (Result.isFailure(text)) return yield* Effect.fail({ ...text.failure, details: { ...text.failure.details, opId: input.opId } });
+    const text = yield* linkMentionsAt(caller.canvas, caller.canvasName, callerId, input.text, { kind: "comments", nodeId: task.current.node }).pipe(
+      Effect.mapError((error): WorkErrorBody => ({ ...error, details: { ...error.details, opId: input.opId } })),
+    );
     const sent = yield* ports.comment({
       subject: { kind: "task", nodeId: task.current.node, taskId: task.taskId },
-      text: text.success,
+      text,
       actor: caller.actor,
       opId: input.opId,
     }, { canvas: caller.canvas, canvasName: caller.canvasName, people: taskPeopleOf(task.current) }).pipe(

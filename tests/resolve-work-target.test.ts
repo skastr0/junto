@@ -1,16 +1,23 @@
-import { Result } from "effect";
+import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import {
-  linkSeatMentions,
   mailMentionCandidates,
+  mentionNodesAt,
   resolveWorkTarget,
   resourceMentionCandidates,
+  type MentionPlace,
 } from "../src/main/junto/work/authz";
-import { mentionLink } from "../src/shared/mention";
+import { ArtifactRepository } from "../src/main/junto/work/artifact-repository";
+import { linkMentionsAt } from "../src/main/junto/work/mention-links";
+import { TaskRepository } from "../src/main/junto/work/task-repository";
+import { resourceNodesInReach } from "../src/renderer/lib/mention-sources";
+import type { Canvas } from "../src/shared/model";
+import { mentionLink, type MentionRef } from "../src/shared/mention";
 import { asNodeId } from "../src/shared/physics/schema";
 import { titleOf } from "../src/shared/model/title";
 import { resourcesInReach } from "../src/shared/region-reach";
-import { artifacts, canvasOf, region, seat, taskBoard, wire } from "./support/model-nodes";
+import type { ItemId } from "../src/shared/work-ids";
+import { artifacts, canvasOf, page, region, seat, taskBoard, wire } from "./support/model-nodes";
 
 // Region A holds the caller, board-a and the shared artifacts; region B holds board-b.
 const canvas = canvasOf(
@@ -58,7 +65,38 @@ describe("resolveWorkTarget", () => {
   });
 });
 
-describe("linkSeatMentions", () => {
+type Item = { readonly id: string; readonly node: string; readonly title: string; readonly number?: number; readonly archived?: true };
+
+// The task and artifact stores, holding these items: `list` answers by node, and artifacts by archived too.
+const withItems = (tasks: ReadonlyArray<Item>, docs: ReadonlyArray<Item>) =>
+  <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<A, E> =>
+    effect.pipe(
+      Effect.provideService(TaskRepository, {
+        list: (_canvas: string, query: { readonly nodeIds?: ReadonlyArray<string> }) =>
+          Effect.succeed({
+            tasks: tasks
+              .filter((task) => query.nodeIds?.includes(task.node) ?? true)
+              .map((task) => ({ taskId: task.id, title: task.title, number: task.number, current: { node: task.node } })),
+            more: false,
+          }),
+      } as never),
+      Effect.provideService(ArtifactRepository, {
+        list: (_canvas: string, query: { readonly nodeIds?: ReadonlyArray<string>; readonly archived?: boolean }) =>
+          Effect.succeed({
+            artifacts: docs
+              .filter((doc) => (query.nodeIds?.includes(doc.node) ?? true) && (doc.archived === true) === (query.archived === true))
+              .map((doc) => ({ artifactId: doc.id, nodeId: doc.node, title: doc.title })),
+            more: false,
+          }),
+      } as never),
+    );
+
+const linked = (doc: Canvas, writer: string, text: string, place: MentionPlace, stores = withItems([], [])) =>
+  Effect.runSync(Effect.result(stores(linkMentionsAt(doc, "factory", writer, text, place))));
+
+const MAIL: MentionPlace = { kind: "mail" };
+
+describe("linkMentionsAt: @seat", () => {
   const link = (id: string, name: string) => mentionLink({ kind: "seat", nodeId: asNodeId(id) }, `@${name}`, "factory");
 
   it("offers mail the wired seats, and a resource's comments the seats in its reach", () => {
@@ -68,20 +106,19 @@ describe("linkSeatMentions", () => {
   });
 
   it("rewrites each @name to its seat's link with the seat's own name, by name or by id", () => {
-    const linked = linkSeatMentions(canvas, "factory", "caller", "@REVIEWER and @peer, not ops@x.dev", mailMentionCandidates(canvas, "caller"));
-    expect(linked).toEqual(Result.succeed(`${link("peer", "reviewer")} and ${link("peer", "reviewer")}, not ops@x.dev`));
+    expect(linked(canvas, "caller", "@REVIEWER and @peer, not ops@x.dev", MAIL))
+      .toEqual(Result.succeed(`${link("peer", "reviewer")} and ${link("peer", "reviewer")}, not ops@x.dev`));
   });
 
   it("refuses an unknown name UnknownTarget, naming the token and every seat it could mention", () => {
-    const refused = linkSeatMentions(canvas, "factory", "caller", "hi @nobody", mailMentionCandidates(canvas, "caller"));
-    expect(Result.isFailure(refused) && refused.failure).toMatchObject({
-      type: "UnknownTarget",
-      details: { path: "text", target: "@nobody", candidates: [{ nodeId: "peer", name: "reviewer" }] },
+    expect(Result.getFailure(linked(canvas, "caller", "hi @nobody", MAIL))).toMatchObject({
+      _tag: "Some",
+      value: { type: "UnknownTarget", details: { path: "text", target: "@nobody", candidates: [{ nodeId: "peer", name: "reviewer" }] } },
     });
   });
 
-  it("refuses the id of a node that is no seat it can mention", () => {
-    const refused = linkSeatMentions(canvas, "factory", "caller", "@board-a", resourceMentionCandidates(canvas, "docs"));
+  it("refuses the id of a node that is no seat or page it can mention", () => {
+    const refused = linked(canvas, "caller", "@board-a", { kind: "comments", nodeId: "docs" });
     expect(Result.isFailure(refused) && refused.failure).toMatchObject({ type: "UnknownTarget", details: { target: "@board-a" } });
   });
 
@@ -93,10 +130,136 @@ describe("linkSeatMentions", () => {
       seat("two", { x: 400, y: 20, width: 100, height: 50, label: "twin" }),
       artifacts("docs", { x: 600, y: 20, width: 100, height: 50, label: "Docs" }),
     ]);
-    const refused = linkSeatMentions(twins, "factory", "caller", "@twin", resourceMentionCandidates(twins, "docs"));
+    const refused = linked(twins, "caller", "@twin", { kind: "comments", nodeId: "docs" });
     expect(Result.isFailure(refused) && refused.failure).toMatchObject({
       type: "InputError",
       details: { target: "@twin", candidates: [{ nodeId: "one" }, { nodeId: "two" }] },
     });
+  });
+});
+
+// Outer holds the writer and its reviewer; inner-1 and inner-2 sit side by side
+// inside it, so the writer reaches both and neither reaches the other. Far is
+// a region of its own, holding a live overseer.
+const nested = canvasOf(
+  [
+    region("outer", { x: 0, y: 0, width: 2000, height: 1000 }, { label: "Outer" }),
+    region("inner-1", { x: 50, y: 50, width: 800, height: 400 }, { label: "One" }),
+    region("inner-2", { x: 1000, y: 50, width: 800, height: 400 }, { label: "Two" }),
+    region("far", { x: 0, y: 2000, width: 1000, height: 400 }, { label: "Far" }),
+    seat("caller", { x: 50, y: 600 }),
+    seat("peer", { x: 300, y: 600, label: "reviewer" }),
+    taskBoard("board-1", { x: 100, y: 100, name: "Backlog" }),
+    artifacts("docs-1", { x: 400, y: 100, label: "Docs" }),
+    page("page-1", { x: 100, y: 300, url: "https://handbook.dev/" }),
+    taskBoard("board-2", { x: 1100, y: 100, name: "Other" }),
+    page("page-2", { x: 1100, y: 300, url: "https://elsewhere.dev/" }),
+    taskBoard("board-far", { x: 100, y: 2100, name: "Far" }),
+    page("page-far", { x: 400, y: 2250, url: "https://far.dev/" }),
+    seat("boss", { x: 600, y: 2100, overseer: true }),
+  ],
+  [wire("caller-peer", "caller", "peer", "messages")],
+);
+
+const T42 = "01M5ESSJRFWT6RVS5HMWMGJX42";
+const T43 = "01M5ESSJRFWT6RVS5HMWMGJX43";
+const T7 = "01M5ESSJRFWT6RVS5HMWMGJXG7";
+const T9 = "01M5ESSJRFWT6RVS5HMWMGJXG9";
+const SPEC = "01M5ESSJRFWT6RVS5HMWMGJXSP";
+const NOTES = "01M5ESSJRFWT6RVS5HMWMGJXNT";
+const OLD = "01M5ESSJRFWT6RVS5HMWMGJXD0";
+
+const stores = withItems(
+  [
+    { id: T42, node: "board-1", title: "fix tabs", number: 42 },
+    { id: T43, node: "board-1", title: "spec", number: 43 },
+    { id: T7, node: "board-2", title: "ship it", number: 7 },
+    { id: T9, node: "board-far", title: "far task", number: 9 },
+  ],
+  [
+    { id: SPEC, node: "docs-1", title: "spec" },
+    { id: NOTES, node: "docs-1", title: "notes" },
+    { id: OLD, node: "docs-1", title: "old", archived: true },
+  ],
+);
+
+const linkOf = (ref: MentionRef, label: string) => mentionLink(ref, label, "factory");
+const task42 = linkOf({ kind: "task", nodeId: asNodeId("board-1"), taskId: T42 as ItemId }, "#42 fix tabs");
+const notes = linkOf({ kind: "artifact", nodeId: asNodeId("docs-1"), artifactId: NOTES as ItemId }, "#notes");
+const handbook = linkOf({ kind: "page", nodeId: asNodeId("page-1") }, "@handbook.dev");
+const refusal = (result: Result.Result<string, unknown>) => (Result.isFailure(result) ? result.failure : undefined);
+
+describe("linkMentionsAt: tasks, artifacts and pages in mail, in the writer's reach", () => {
+  it("resolves #42, #title and @page in reach to their links, beside @seat", () => {
+    const peer = linkOf({ kind: "seat", nodeId: asNodeId("peer") }, "@reviewer");
+    expect(linked(nested, "caller", "@reviewer take #42, see #Notes and @handbook.dev", MAIL, stores))
+      .toEqual(Result.succeed(`${peer} take ${task42}, see ${notes} and ${handbook}`));
+  });
+
+  it("refuses a task, an artifact or a page out of reach, with what it could name", () => {
+    expect(refusal(linked(nested, "caller", "#9", MAIL, stores))).toMatchObject({
+      type: "UnknownTarget",
+      details: { path: "text", target: "#9", candidates: [{ itemId: T42 }, { itemId: T43 }, { itemId: T7 }] },
+    });
+    expect(refusal(linked(nested, "caller", "#far", MAIL, stores))).toMatchObject({ type: "UnknownTarget", details: { target: "#far" } });
+    expect(refusal(linked(nested, "caller", "@far.dev", MAIL, stores))).toMatchObject({ type: "UnknownTarget", details: { target: "@far.dev" } });
+  });
+
+  it("refuses a #title a task and an artifact share, listing both", () => {
+    expect(refusal(linked(nested, "caller", "#spec", MAIL, stores))).toMatchObject({
+      type: "InputError",
+      details: { path: "text", target: "#spec", candidates: [{ kind: "task", itemId: T43 }, { kind: "artifacts", itemId: SPEC }] },
+    });
+  });
+
+  it("does not offer an archived artifact", () => {
+    expect(refusal(linked(nested, "caller", "#old", MAIL, stores))).toMatchObject({ type: "UnknownTarget", details: { target: "#old" } });
+  });
+
+  it("lets a live overseer name a task on any board, and artifacts and pages only in its reach", () => {
+    expect(linked(nested, "boss", "#42", MAIL, stores)).toEqual(Result.succeed(task42));
+    expect(refusal(linked(nested, "boss", "#notes", MAIL, stores))).toMatchObject({ type: "UnknownTarget" });
+    expect(refusal(linked(nested, "boss", "@handbook.dev", MAIL, stores))).toMatchObject({ type: "UnknownTarget" });
+  });
+});
+
+describe("linkMentionsAt: tasks, artifacts and pages in comments, in the resource's reach", () => {
+  const onBoard: MentionPlace = { kind: "comments", nodeId: "board-1" };
+
+  it("resolves what the resource reaches, itself included, whoever writes", () => {
+    expect(linked(nested, "caller", "#42 and #notes", onBoard, stores)).toEqual(Result.succeed(`${task42} and ${notes}`));
+    expect(linked(nested, "operator", "#42", { kind: "comments", nodeId: "docs-1" }, stores)).toEqual(Result.succeed(task42));
+  });
+
+  it("refuses what the writer reaches and the resource does not", () => {
+    expect(refusal(linked(nested, "caller", "#7", onBoard, stores))).toMatchObject({ type: "UnknownTarget", details: { target: "#7" } });
+    expect(refusal(linked(nested, "caller", "@elsewhere.dev", onBoard, stores))).toMatchObject({ type: "UnknownTarget" });
+    expect(linked(nested, "caller", "#7 and @elsewhere.dev", MAIL, stores)).toSatisfy(Result.isSuccess);
+  });
+
+  it("gives a live overseer no more than the resource reaches", () => {
+    expect(refusal(linked(nested, "boss", "#9", onBoard, stores))).toMatchObject({ type: "UnknownTarget", details: { target: "#9" } });
+  });
+});
+
+describe("mentionNodesAt: what main resolves is what the composer offers", () => {
+  const ids = (nodes: ReadonlyArray<{ readonly id: string }>) => nodes.map((node) => node.id).sort();
+
+  it("in mail, the writer's reach exactly as the composer's resourceNodesInReach", () => {
+    for (const writer of ["caller", "peer"]) {
+      expect(ids(mentionNodesAt(nested, writer, MAIL))).toEqual(ids(resourceNodesInReach(nested, asNodeId(writer))));
+    }
+  });
+
+  it("in comments, the resource's reach as the composer's, and the resource itself", () => {
+    for (const nodeId of ["board-1", "docs-1", "page-1", "board-2", "board-far"]) {
+      expect(ids(mentionNodesAt(nested, "caller", { kind: "comments", nodeId })))
+        .toEqual(ids([...resourceNodesInReach(nested, asNodeId(nodeId)), { id: nodeId }]));
+    }
+  });
+
+  it("for a live overseer's mail, the composer's reach and every task board", () => {
+    expect(ids(mentionNodesAt(nested, "boss", MAIL)))
+      .toEqual(ids([...resourceNodesInReach(nested, asNodeId("boss")), { id: "board-1" }, { id: "board-2" }]));
   });
 });

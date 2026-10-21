@@ -122,16 +122,20 @@ const tokenKey = (token: TypedMention): string =>
 /** What a token resolves to: the mention and the label its link shows. */
 export type ResolvedName = { readonly ref: MentionRef; readonly label: string };
 
-const linkTokens = <E>(
+/**
+ * The text with every token rewritten to its mention link on `canvasName`.
+ * Each token is resolved once; the first that does not resolve, in text
+ * order, refuses the whole text with its refusal.
+ */
+export const linkMentionTokens = <E>(
   text: string,
   canvasName: string,
-  tokens: ReadonlyArray<TypedMention>,
   resolve: (token: TypedMention) => Result.Result<ResolvedName, E>,
 ): Result.Result<string, E> => {
   const links = new Map<string, string>();
   let out = "";
   let at = 0;
-  for (const token of tokens) {
+  for (const token of typedMentionsOf(text)) {
     const key = tokenKey(token);
     let link = links.get(key);
     if (link === undefined) {
@@ -145,31 +149,3 @@ const linkTokens = <E>(
   }
   return Result.succeed(out + text.slice(at));
 };
-
-/**
- * The text with every token rewritten to its mention link on `canvasName`.
- * Each token is resolved once; the first that does not resolve, in text
- * order, refuses the whole text with its refusal.
- */
-export const linkMentionTokens = <E>(
-  text: string,
-  canvasName: string,
-  resolve: (token: TypedMention) => Result.Result<ResolvedName, E>,
-): Result.Result<string, E> => linkTokens(text, canvasName, typedMentionsOf(text), resolve);
-
-/**
- * `@name` tokens alone, by name; `#` tokens stay as typed. The seat-only
- * resolver's entry point until main resolves every kind with
- * `linkMentionTokens` (cli-protocol), which retires it.
- */
-export const linkTypedMentions = <E>(
-  text: string,
-  canvasName: string,
-  resolve: (name: string) => Result.Result<ResolvedName, E>,
-): Result.Result<string, E> =>
-  linkTokens(
-    text,
-    canvasName,
-    typedMentionsOf(text).filter((token) => token.kind === "at"),
-    (token) => resolve(token.kind === "at" ? token.name : ""),
-  );
