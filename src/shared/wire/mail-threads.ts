@@ -38,7 +38,7 @@ export type MailThreadMessage = typeof MailThreadMessage.Type;
 
 export const MailThreadSummary = Schema.Struct({
   threadId: Schema.String,
-  /** The root mail's first line, or the oldest mail's when the root is not held. */
+  /** A subject thread's resource name (a task thread is `#42 fix tabs`); else the root mail's first line, or the oldest mail's when the root is not held. */
   title: Schema.String,
   /** Everyone who wrote or was written to, in order of first appearance. */
   participants: Schema.Array(MailParty),

@@ -21,7 +21,12 @@ import { OPERATOR_SEAT_ID, operatorActorRef } from "../src/shared/work-reference
 import type { Message } from "../src/shared/work-model";
 import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
-import { seat as seatNode, wire } from "./support/model-nodes";
+import { page as pageNode, seat as seatNode, wire } from "./support/model-nodes";
+import { postSubjectComment } from "../src/main/junto/work/subject-comment";
+import { ModelService } from "../src/main/junto/model/service";
+import { OpId } from "../src/shared/work-ids";
+import type { MailMessageId } from "../src/shared/crew";
+import { asNodeId } from "../src/shared/physics/schema";
 import { startWorkControlServer, type WorkControlServer } from "../src/main/junto/work/control";
 import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
@@ -344,6 +349,28 @@ describe("operator threads", () => {
     runtime.runPromise(
       seatThreadMessages(CANVAS, nodeId, threadId) as Effect.Effect<ReadonlyArray<MailThreadMessage>, unknown, never>,
     );
+
+  it("lists a page thread as the page, and the operator's reply in it is a comment held at the page", async () => {
+    await runtime.runPromise(
+      seedCanvas(CANVAS, [pageNode("web", { x: 600, y: 40, width: 200, height: 120 })], []),
+    );
+    const root = await runtime.runPromise(postSubjectComment(
+      { subject: { kind: "page", nodeId: asNodeId("web") }, text: "look at the header", actor: { kind: "operator" }, opId: OpId.make(ulid()) },
+      { canvas: await runtime.runPromise(Effect.flatMap(ModelService, (model) => model.canvas(CANVAS))), canvasName: CANVAS, people: [asNodeId("agent")] },
+    ) as Effect.Effect<{ threadId: MailMessageId }, unknown, never>);
+    const threadId = root.threadId;
+    const [listed] = await threadsOf("agent");
+    expect(listed).toMatchObject({ threadId, subject: { kind: "page", nodeId: "web" } });
+    expect(listed?.title).not.toContain("look at the header");
+
+    const sent = await send({ nodeId: "agent", threadId, text: "fixed it" });
+    expect(sent, JSON.stringify(sent)).toMatchObject({ threadId, comment: true });
+    const held = (await mailbox("web")).find((message) => message.messageId === sent.messageId);
+    expect(held?.metadata).toMatchObject({ threadId, fromSeat: OPERATOR_SEAT_ID, senderName: "operator" });
+    const notices = (await mailbox("agent")).filter((message) => message.metadata?.threadId === threadId);
+    expect(notices).toHaveLength(2);
+    expect(await send({ nodeId: "agent", threadId, text: "and a file", attachments: [] })).toMatchObject({ comment: true });
+  });
 
   it("carries files the operator staged: claimed for the mail, named as main recorded them, read back in the thread", async () => {
     const bytes = Buffer.from("not really a png");

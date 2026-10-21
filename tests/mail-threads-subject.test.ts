@@ -68,4 +68,12 @@ describe("subject threads in a mailbox", () => {
     expect(seatMailThreads(input, WORKER)).toEqual([]);
     expect(seatMailThreads({ ...input, mailboxes: [{ nodeId: WORKER, messages: [{ ...notice!, taskId: TASK }] }] }, WORKER)).toHaveLength(1);
   });
+
+  it("lists a task thread as the task, and its label when the task has no name to read", () => {
+    const mailboxes = [{ nodeId: WORKER, messages: notices(["01M5ESMJV6GNZ0891YFFWS0S3P"]) }];
+    const named = seatMailThreads({ mailboxes, nameOf: () => undefined, subjectNameOf: (subject) => (subject.kind === "task" ? "#7 fix tabs" : undefined) }, WORKER);
+    expect(named[0]?.title).toBe("#7 fix tabs");
+    const unnamed = seatMailThreads({ mailboxes, nameOf: () => undefined }, WORKER);
+    expect(unnamed[0]?.title).toBe(`task ${TASK} at ${NODE}`);
+  });
 });

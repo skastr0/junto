@@ -13,7 +13,9 @@
  */
 import { Effect, Option } from "effect";
 import { ulid } from "ulid";
-import { mailExtensionMetadata } from "@shared/crew";
+import { mailExtensionMetadata, type MailMessageId } from "@shared/crew";
+import { threadSubjectOf, type ResourceSubject } from "@shared/thread-subject";
+import { OpId } from "@shared/work-ids";
 import { asNodeId, type Canvas } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import { makeUserMessage } from "@shared/task";
@@ -38,6 +40,14 @@ import { ContentService } from "../content/service";
 import { heldMailbox } from "./mailbox-cache";
 import type { WorkRepository } from "./repository";
 import { WorkService } from "./service";
+import { postSubjectComment } from "./subject-comment";
+import { subjectNameAt, subjectPeopleAt } from "./subject-people";
+
+/** One key per resource, whatever place on it a thread hangs. */
+const subjectKey = (subject: ResourceSubject): string =>
+  subject.kind === "task" ? `task:${subject.nodeId}:${subject.taskId}`
+  : subject.kind === "artifact" ? `artifact:${subject.nodeId}:${subject.artifactId}`
+  : `page:${subject.nodeId}`;
 
 const agentSeatsOf = (canvas: Canvas) => [...canvas.nodes.values()].filter((node) => node.kind === "agent");
 
@@ -50,7 +60,25 @@ const threadsInput = (canvasName: string) =>
       heldMailbox(canvasName, seat.id).pipe(Effect.map((messages) => ({ nodeId: seat.id as string, messages }))),
     );
     const names = new Map(seats.map((seat) => [seat.id as string, titleOf(seat)]));
-    const input: MailThreadsInput = { mailboxes, nameOf: (nodeId) => names.get(nodeId) };
+    // Each subject held is named once: a task thread is listed as the task.
+    const subjects = new Map<string, ResourceSubject>();
+    for (const mailbox of mailboxes) {
+      for (const row of mailbox.messages) {
+        const subject = threadSubjectOf(row);
+        if (subject !== undefined) subjects.set(subjectKey(subject), subject);
+      }
+    }
+    const subjectNames = new Map<string, string>();
+    yield* Effect.forEach(subjects, ([key, subject]) =>
+      Effect.map(subjectNameAt(canvas, canvasName, subject), (name) => {
+        if (name !== undefined) subjectNames.set(key, name);
+      }),
+    );
+    const input: MailThreadsInput = {
+      mailboxes,
+      nameOf: (nodeId) => names.get(nodeId),
+      subjectNameOf: (subject) => subjectNames.get(subjectKey(subject)),
+    };
     return { canvas, input };
   });
 
@@ -99,7 +127,12 @@ export const mentionableSeats = (canvasName: string, nodeId: string) =>
 
 type Refused = Extract<OperatorThreadSent, { ok: false }>;
 /** The row written, before delivery. */
-export type OperatorThreadWritten = { readonly messageId: string; readonly threadId: string };
+export type OperatorThreadWritten = {
+  readonly messageId: string;
+  readonly threadId: string;
+  /** A comment on the thread's subject: held at the resource, its notices already handed to delivery. */
+  readonly comment?: true;
+};
 const refused = (reason: Refused["reason"], message: string): Refused => ({ ok: false, reason, message });
 
 /**
@@ -143,6 +176,36 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
         return refused("not-found", "That thread is not one of this seat's.");
       }
       threadId = send.threadId;
+    }
+
+    // A reply in a subject thread is the operator's comment on the subject,
+    // on the one comment path: held at the resource, its people told.
+    const subject = threadId === undefined
+      ? undefined
+      : seatMailThreadMessages(input, nodeId, threadId).find((message) => message.subject !== undefined)?.subject;
+    if (subject !== undefined && threadId !== undefined) {
+      if (files.length > 0) return refused("invalid", "A comment takes no files yet.");
+      const base = {
+        text,
+        actor: { kind: "operator" as const },
+        opId: OpId.make(ulid()),
+        threadId: threadId as MailMessageId,
+        ...(send.inReplyTo === undefined ? {} : { inReplyTo: send.inReplyTo as MailMessageId }),
+      };
+      // The seat whose thread the operator wrote in is told, beside the resource's people.
+      const context = { canvas, canvasName, people: [asNodeId(nodeId), ...(yield* subjectPeopleAt(canvas, canvasName, subject))] };
+      const posted = yield* Effect.result(postSubjectComment(
+        subject.kind === "task"
+          ? { ...base, subject: { kind: "task", nodeId: subject.nodeId, taskId: subject.taskId } }
+          : subject.kind === "artifact"
+            ? { ...base, subject: { kind: "artifact", nodeId: subject.nodeId, artifactId: subject.artifactId } }
+            : { ...base, subject: { kind: "page", nodeId: subject.nodeId } },
+        context,
+      ));
+      if (posted._tag === "Failure") {
+        return refused(posted.failure.type === "ScopeError" ? "invalid" : "failed", posted.failure.type === "ScopeError" ? "A seat mentioned here cannot reach this resource." : "The comment could not be written.");
+      }
+      return { messageId: posted.success.messageId, threadId: posted.success.threadId, comment: true as const };
     }
 
     const sender = operatorActorRef(canvasName);
@@ -204,7 +267,10 @@ export const deliverOperatorThreadMail = async (
   sent: Refused | OperatorThreadWritten,
 ): Promise<OperatorThreadSent> => {
   if ("ok" in sent) return sent;
-  const state = await messageDelivery.deliver(canvasName, nodeId, sent.messageId).catch(() => "failed" as const);
+  // A comment is held at its resource; each seat it tells has its notice in delivery already.
+  const state = sent.comment === true
+    ? ("delivered" as const)
+    : await messageDelivery.deliver(canvasName, nodeId, sent.messageId).catch(() => "failed" as const);
   return {
     ok: true,
     messageId: sent.messageId,

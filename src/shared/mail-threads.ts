@@ -5,7 +5,7 @@ import { COMPANION_MAX_TEXT } from "./wire/companion-protocol";
 import { OperatorAttachments } from "./operator-attachments";
 import { ContentRef } from "./wire/content-ref";
 import { messageIdTimeMs } from "./message-delivery";
-import { threadSubjectOf } from "./thread-subject";
+import { subjectLabel, threadSubjectOf, type ResourceSubject } from "./thread-subject";
 import type { Message } from "./work-model";
 import { OPERATOR_SEAT_ID } from "./work-reference";
 import { NOTICE_SEAT_ID } from "./mail-author";
@@ -41,6 +41,8 @@ export type MailThreadsInput = {
   readonly mailboxes: ReadonlyArray<HeldMailbox>;
   /** A seat's display name; the node id stands in when it has none. */
   readonly nameOf: (nodeId: string) => string | undefined;
+  /** The name a subject thread is listed under, `#42 fix tabs`; its subject's label stands in when it has none. */
+  readonly subjectNameOf?: (subject: ResourceSubject) => string | undefined;
 };
 
 const OPERATOR: MailParty = { kind: "operator" };
@@ -165,7 +167,7 @@ const entriesOf = (input: MailThreadsInput): ReadonlyArray<Entry> => {
 const involves = (entry: Entry, nodeId: string): boolean =>
   [entry.from, ...entry.to].some((party) => party.kind === "seat" && party.nodeId === nodeId);
 
-const summaryOf = (threadId: string, entries: ReadonlyArray<Entry>): MailThreadSummary => {
+const summaryOf = (input: MailThreadsInput, threadId: string, entries: ReadonlyArray<Entry>): MailThreadSummary => {
   const first = entries[0]!;
   const last = entries[entries.length - 1]!;
   const root = entries.find((entry) => entry.messageId === threadId) ?? first;
@@ -178,7 +180,10 @@ const summaryOf = (threadId: string, entries: ReadonlyArray<Entry>): MailThreadS
   }
   return {
     threadId,
-    title: root.text.split(/\r?\n/, 1)[0]?.trim() || (root.attachments?.[0]?.displayName ?? ""),
+    // A subject thread is listed as its resource: a task thread as the task.
+    title: subject !== undefined
+      ? (input.subjectNameOf?.(subject) ?? subjectLabel(subject))
+      : root.text.split(/\r?\n/, 1)[0]?.trim() || (root.attachments?.[0]?.displayName ?? ""),
     participants: [...participants.values()],
     startedAt: first.at,
     lastAt: last.at,
@@ -211,7 +216,7 @@ const byActivity = (a: { lastAt: number; threadId: string }, b: { lastAt: number
 
 /** The threads a seat wrote or was written to in, newest activity first. */
 export const seatMailThreads = (input: MailThreadsInput, nodeId: string): ReadonlyArray<MailThreadSummary> =>
-  [...threadsTouching(input, nodeId)].map(([threadId, entries]) => summaryOf(threadId, entries)).sort(byActivity);
+  [...threadsTouching(input, nodeId)].map(([threadId, entries]) => summaryOf(input, threadId, entries)).sort(byActivity);
 
 /** One of a seat's threads, oldest first; empty when the seat is not in it. */
 export const seatMailThreadMessages = (
@@ -267,7 +272,7 @@ export const seatMailThreadsPage = (
   const held = rest.slice(0, limit);
   const last = held[held.length - 1];
   return {
-    threads: held.map((item) => summaryOf(item.threadId, item.entries)),
+    threads: held.map((item) => summaryOf(input, item.threadId, item.entries)),
     ...(rest.length > limit && last !== undefined ? { next: cursorOf(last.lastAt, last.threadId) } : {}),
   };
 };

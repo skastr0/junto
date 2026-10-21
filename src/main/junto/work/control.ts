@@ -161,12 +161,11 @@ import { messageDelivery } from "./message-delivery";
 import { readMailExtension } from "@shared/crew";
 import { noticeTakesReply, subjectNoticeKindOf } from "@shared/subject-notice";
 import { taskNodeId } from "@shared/task-model";
-import { taskPeopleOf, taskSubjectOf, taskThreadOf } from "@shared/task-notices";
+import { taskSubjectOf, taskThreadOf } from "@shared/task-notices";
 import { subjectLabel, threadSubjectOf, type ResourceSubject } from "@shared/thread-subject";
-import { isItemId, OpId, type ItemId } from "@shared/work-ids";
-import type { NodeId as PhysicsNodeId } from "@shared/physics/schema";
+import { isItemId, OpId } from "@shared/work-ids";
 import { postSubjectComment } from "./subject-comment";
-import { liveTaskPorts } from "./task-control";
+import { subjectPeopleAt } from "./subject-people";
 import { handleOpOp, isOpOp } from "./op-control";
 import {
   AgentSignalRepository,
@@ -487,17 +486,6 @@ const taskThreadAt = (
   const task = { node: taskNodeId(asNodeId(nodeId)), taskId };
   return { subject: taskSubjectOf(task), threadId: taskThreadOf(task) };
 };
-
-/**
- * A 0.10 task's people, told of each comment: its assignee and its seat
- * reviewers. None when the task store does not hold the task (a task from
- * before the task model) or is not running.
- */
-const taskPeopleAt = (board: Canvas, canvasName: string, taskId: ItemId): Effect.Effect<ReadonlyArray<PhysicsNodeId>> =>
-  liveTaskPorts.find(board, canvasName, { kind: "id", taskId }).pipe(
-    Effect.map((view) => (view === undefined ? [] : taskPeopleOf(view.current))),
-    Effect.orElseSucceed((): ReadonlyArray<PhysicsNodeId> => []),
-  );
 
 /** The thread metadata a reply to `parent` carries. One rule for all mail. */
 const replyThreadMetadata = (parent: Message): { readonly inReplyTo: string; readonly threadId: string } => ({
@@ -2245,7 +2233,7 @@ const dispatchOp = (
             actor: { kind: "seat", seatId: sentBy.success.seatId, nodeId: asNodeId(caller.nodeId) },
             opId: OpId.make(ulid()),
           },
-          { canvas: board, canvasName: caller.canvasName, people: yield* taskPeopleAt(board, caller.canvasName, taskThread.subject.taskId) },
+          { canvas: board, canvasName: caller.canvasName, people: yield* subjectPeopleAt(board, caller.canvasName, taskThread.subject) },
         );
         return { ...posted, recipient };
       }
@@ -2492,18 +2480,15 @@ const dispatchOp = (
           threadId: mailThreadOf(parent) as MailMessageId,
           inReplyTo: inReplyTo as MailMessageId,
         };
-        const context = { canvas: board, canvasName: caller.canvasName };
-        const posted = subject.kind === "task"
-          ? yield* postSubjectComment(
-              { ...base, subject: { kind: "task", nodeId: subject.nodeId, taskId: subject.taskId } },
-              { ...context, people: yield* taskPeopleAt(board, caller.canvasName, subject.taskId) },
-            )
-          : yield* postSubjectComment(
-              subject.kind === "artifact"
-                ? { ...base, subject: { kind: "artifact", nodeId: subject.nodeId, artifactId: subject.artifactId } }
-                : { ...base, subject: { kind: "page", nodeId: subject.nodeId } },
-              { ...context, people: [] },
-            );
+        const context = { canvas: board, canvasName: caller.canvasName, people: yield* subjectPeopleAt(board, caller.canvasName, subject) };
+        const posted = yield* postSubjectComment(
+          subject.kind === "task"
+            ? { ...base, subject: { kind: "task", nodeId: subject.nodeId, taskId: subject.taskId } }
+            : subject.kind === "artifact"
+              ? { ...base, subject: { kind: "artifact", nodeId: subject.nodeId, artifactId: subject.artifactId } }
+              : { ...base, subject: { kind: "page", nodeId: subject.nodeId } },
+          context,
+        );
         return {
           ...posted,
           inReplyTo,
