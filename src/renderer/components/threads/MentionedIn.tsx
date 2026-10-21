@@ -61,7 +61,7 @@ export function MentionedIn({
           const node = nodes.get(place.nodeId);
           const label = nameOf?.(place) ?? (node === undefined ? place.nodeId : titleOf(node));
           return (
-            <li key={entry.messageId} className="mentioned-in__row" data-testid="mentioned-in-row">
+            <li key={entry.messageId} className="mentioned-in__row" data-testid="mentioned-in-row" data-message={entry.messageId}>
               <ResourceChip
                 {...mentionMark(place)}
                 label={label}

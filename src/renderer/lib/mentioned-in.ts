@@ -34,17 +34,21 @@ export const useMentionedIn = (canvasName: string, target: MentionRef): Mentione
     readonly next?: MentionCursor;
     readonly loaded: boolean;
   }>({ key, entries: [], loaded: false });
-  const reading = useRef(0);
+  // A first-page read always wins: starting and landing each begin a new
+  // generation, and an earlier page read in flight across either is dropped
+  // when it lands (its cursor belongs to the list the first page replaced).
+  const generation = useRef(0);
 
   useEffect(() => {
     const api = mentionsApi();
     if (api === undefined) return;
     let live = true;
     const first = (): void => {
-      const read = ++reading.current;
+      const read = ++generation.current;
       void api.list(canvasName, targetRef.current, { limit: MENTIONED_IN_PAGE }).then(
         (page) => {
-          if (live && read === reading.current) {
+          if (live && read === generation.current) {
+            generation.current += 1;
             setHeld({ key, entries: page.entries, loaded: true, ...(page.next === undefined ? {} : { next: page.next }) });
           }
         },
@@ -66,10 +70,10 @@ export const useMentionedIn = (canvasName: string, target: MentionRef): Mentione
   const loadMore = useCallback(() => {
     const api = mentionsApi();
     if (api === undefined || next === undefined) return;
-    const read = ++reading.current;
+    const read = generation.current;
     void api.list(canvasName, targetRef.current, { before: next, limit: MENTIONED_IN_PAGE }).then(
       (page) => {
-        if (read !== reading.current) return;
+        if (read !== generation.current) return;
         setHeld((was) =>
           was.key !== key
             ? was
