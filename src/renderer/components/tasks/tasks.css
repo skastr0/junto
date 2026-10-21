@@ -325,6 +325,11 @@
   font-weight: 600;
 }
 
+.task-thread__meta span {
+  color: var(--color-faint);
+  font-size: var(--text-label);
+}
+
 .task-thread__text {
   margin: 2px 0 0;
   color: var(--color-ink);
@@ -332,6 +337,11 @@
   line-height: var(--leading-body);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* A chip is taller than a line of text: its margin box keeps the rhythm of lines that hold one. */
+.task-thread__text .resource-chip {
+  margin-block: -2px;
 }
 
 .task-thread__empty {
@@ -342,7 +352,7 @@
 
 .task-thread__foot {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: flex-end;
   gap: 8px;
 }
