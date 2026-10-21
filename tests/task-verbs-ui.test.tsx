@@ -146,6 +146,8 @@ describe("TaskReviewers", () => {
     expect(panel(core({ state: "working", assignee: ada }))).toContain("No reviewers. Finishing completes the task.");
     expect(panel(core({ state: "canceled" }))).not.toContain("Finishing completes");
     const done = panel(core({ state: "done", reviewers: [asSeat(bo)] }));
+    expect(done).toContain("did not stamp");
+    expect(done).not.toContain("no stamp yet");
     expect(done).not.toContain("Remove Bo");
     expect(done).not.toContain("Add reviewer");
   });

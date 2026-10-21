@@ -28,12 +28,12 @@ const verdictWord = (stamp: Stamp): string =>
   stamp.verdict === "approve" ? "approved" : "asked for changes";
 
 /** Now: approved, or waiting. Asking for changes starts a new round, so the ask reads as the earlier round. */
-const stampChip = (current: Stamp | undefined, earlier: Stamp | undefined, waiting: boolean): { tone: ChipTone; word: string } =>
+const stampChip = (current: Stamp | undefined, earlier: Stamp | undefined, waiting: boolean, closed: boolean): { tone: ChipTone; word: string } =>
   current !== undefined
     ? { tone: "green", word: verdictWord(current) }
     : earlier !== undefined
       ? { tone: "steel", word: `${verdictWord(earlier)}, earlier round` }
-      : { tone: "steel", word: waiting ? "waiting" : "no stamp yet" };
+      : { tone: "steel", word: closed ? "did not stamp" : waiting ? "waiting" : "no stamp yet" };
 
 const OPERATOR_ADD = "operator";
 
@@ -153,7 +153,7 @@ export function TaskReviewers({
           {task.reviewers.map((reviewer) => {
             const stamp = stampOf(task, reviewer);
             const earlier = earlierStampOf(task, reviewer);
-            const chip = stampChip(stamp, earlier, inReview);
+            const chip = stampChip(stamp, earlier, inReview, closed);
             return (
               <li
                 key={reviewerKey(reviewer)}

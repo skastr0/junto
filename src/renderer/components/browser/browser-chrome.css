@@ -1,0 +1,103 @@
+/* The page chrome (plan 06): tab strip, address bar, driver mark, takeover. */
+
+.browser-chrome {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--color-stroke);
+  background: var(--color-raise-2);
+}
+
+.browser-chrome__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+}
+
+.browser-chrome__refused {
+  margin: 0 10px 6px;
+  padding-left: 8px;
+  border-left: 2px solid var(--color-crimson);
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}
+
+.tab-strip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px 0;
+  overflow-x: auto;
+}
+
+.tab-strip__tab {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 200px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  color: var(--color-dim);
+}
+
+.tab-strip__tab[data-active="true"] {
+  border-color: var(--color-stroke);
+  background: var(--color-raise);
+  color: var(--color-ink);
+}
+
+.tab-strip__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: var(--text-body);
+  text-align: left;
+}
+
+.tab-strip__loading {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--color-faint);
+  border-top-color: var(--color-ink);
+  border-radius: 50%;
+  animation: tab-strip-spin 0.9s linear infinite;
+}
+
+@keyframes tab-strip-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.address-bar {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.address-bar > :last-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.driver-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  white-space: nowrap;
+}
