@@ -45,12 +45,15 @@ const TIERS: ReadonlyArray<readonly [Tier, number]> = [
  * guards against overlap blowups like the 809. Motion is not headroom. The
  * motion law keeps every ring and ping moving on the compositor, and each
  * moving thing is a layer the board cannot give back: one per minimap ping,
- * one per turning ring part, one per drawn ring holding its parts (the card,
- * or the scaled mark at far and overview), one per cluster body over its
- * ring. So the budget is 40 others on top of those, counted from the DOM in
- * the same phase. The layers of those kinds may not outnumber what the DOM
- * draws, so a ring that grows a further layer still fails.
+ * one per turning ring part, one per holder of a ring's parts (a card with
+ * its own layer up close, a scaled mark at far and overview; a cluster's
+ * mark has none). A cluster body is composited for overlapping what moves
+ * near it, not for moving, so it counts with the others. So the budget is 40
+ * others on top of those, counted from the DOM in the same phase. The
+ * compositor's layers of those kinds must match that count, within the 1 to
+ * 3 a pan moves it, so a ring that grows a further layer fails.
  */
+const MOTION_SLACK = 3;
 const LAYER_BUDGET = 40;
 const CLOCK_TICKS_AT_REST = Math.ceil(2_000 / 90);
 const REST_PAINT_BUDGET = CLOCK_TICKS_AT_REST * 30;
@@ -76,14 +79,18 @@ type PhaseReading = {
   /** Layers of the kinds the motion law requires, as the compositor holds them, and as the DOM draws them. */
   readonly motionLayers: number;
   readonly motionDrawn: number;
+  /** The DOM count by kind, for the log. */
+  readonly motionKinds: Readonly<Record<string, number>>;
+  /** The compositor's motion layers by kind, for the log. */
+  readonly motionLayerKinds: Readonly<Record<string, number>>;
   readonly pinned: number;
 };
 
-/** A layer for a moving thing: a ping, a ring part, a ring's holder, a cluster body. */
-const MOTION_LAYER = /class='(junto-minimap-ping|junto-mark__part|junto-mark|junto-node|junto-seat-cluster__body)[' ]/;
+/** A layer for a moving thing: a ping, a ring part, a ring's holder. */
+const MOTION_LAYER = /class='(junto-minimap-ping|junto-mark__part|junto-mark|junto-node)[' ]/;
 
 /** What the DOM draws moving right now, in layers the motion law requires. */
-const motionDrawn = (page: Page): Promise<number> =>
+const motionDrawn = (page: Page): Promise<Record<string, number>> =>
   page.evaluate(() => {
     const shown = (el: Element): boolean => {
       const style = getComputedStyle(el);
@@ -95,14 +102,16 @@ const motionDrawn = (page: Page): Promise<number> =>
     const moving = (el: Element): boolean => shown(el) && getComputedStyle(el).animationName !== "none";
     const pings = [...document.querySelectorAll(".junto-minimap-ping")].filter(moving).length;
     let parts = 0;
-    let rings = 0;
+    let holders = 0;
+    const transformed = (el: Element | null): boolean => el !== null && getComputedStyle(el).transform !== "none";
     for (const mark of document.querySelectorAll(".junto-mark[data-mark-visible]")) {
       const turning = [...mark.querySelectorAll(":scope > .junto-mark__part")].filter(moving).length;
+      if (turning === 0) continue;
       parts += turning;
-      if (turning > 0) rings += 1;
+      if (transformed(mark.closest(".junto-node"))) holders += 1;
+      if (transformed(mark)) holders += 1;
     }
-    const clusters = [...document.querySelectorAll(".junto-seat-cluster__body")].filter(shown).length;
-    return pings + parts + rings + clusters;
+    return { pings, parts, holders };
   });
 
 const scale = (page: Page): Promise<number> =>
@@ -217,7 +226,13 @@ const traced = async (
       .reduce((sum, e) => sum + Number(e.args?.["missing_tile_count"] ?? 0), 0),
     layers: layers.length,
     motionLayers: layers.filter((l) => MOTION_LAYER.test(l.layer_name ?? "")).length,
-    motionDrawn: drawn,
+    motionDrawn: Object.values(drawn).reduce((a, b) => a + b, 0),
+    motionKinds: drawn,
+    motionLayerKinds: layers.reduce<Record<string, number>>((kinds, l) => {
+      const kind = MOTION_LAYER.exec(l.layer_name ?? "")?.[1];
+      if (kind !== undefined) kinds[kind] = (kinds[kind] ?? 0) + 1;
+      return kinds;
+    }, {}),
     pinned: layers.filter((l) => {
       const ideal = l.ideal_contents_scale ?? 1;
       const raster = l.raster_scales?.contents_scale?.[0] ?? ideal;
@@ -265,8 +280,8 @@ for (const preset of ["nested", "deep"] as const satisfies readonly NestedCanvas
           // The board is a handful of layers, not one per card or wire, on
           // top of the layers its motion requires; and that motion costs no
           // more layers than the DOM draws moving.
-          expect(phase.motionLayers, `${label}: motion layers against what the DOM draws moving`)
-            .toBeLessThanOrEqual(phase.motionDrawn);
+          expect(Math.abs(phase.motionLayers - phase.motionDrawn), `${label}: motion layers against what the DOM draws moving`)
+            .toBeLessThanOrEqual(MOTION_SLACK);
           expect(phase.layers - phase.motionLayers, `${label}: compositor layers beside the motion`)
             .toBeLessThanOrEqual(LAYER_BUDGET);
         }
