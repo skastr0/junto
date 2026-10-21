@@ -1124,7 +1124,7 @@ export class BrowserSessionService {
         // Fails closed until the next start clears the record: say so, or a
         // full record reads as a broken browser.
         console.error("[browser] the record of origins seats ran code in is full; seat evals are refused until Junto restarts");
-        this.noticeOnPage(entry, TOUCHED_ORIGINS_FULL_NOTICE);
+        if (this.isCurrent(entry)) this.noticeOnPage(entry, TOUCHED_ORIGINS_FULL_NOTICE);
         throw new Error(`eval refused: ${TOUCHED_ORIGINS_FULL_NOTICE}`);
       }
       throw new Error("eval refused: its origin could not be recorded");

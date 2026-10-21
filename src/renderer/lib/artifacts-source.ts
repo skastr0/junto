@@ -329,17 +329,23 @@ export const useNodeArtifacts = (canvasName: string, nodeId: NodeId): ReadonlyAr
 /**
  * How many live (unarchived) artifacts a node holds, for its card's glance.
  * Any artifact change on the canvas re-reads, but only a change of this
- * count repaints the card.
+ * count repaints the card. Only the latest read lands, and a failed read
+ * keeps the last count.
  */
 export const useNodeArtifactCount = (canvasName: string, nodeId: NodeId, enabled: boolean): number => {
   const [count, setCount] = useState(0);
   useEffect(() => {
     if (!enabled || !canvasName) return;
     let live = true;
+    let generation = 0;
     const refresh = (): void => {
-      void artifactsSource().list(canvasName, nodeId).then((heads) => {
-        if (live) setCount(heads.filter((head) => !head.artifact.archived).length);
-      });
+      const mine = ++generation;
+      artifactsSource().list(canvasName, nodeId).then(
+        (heads) => {
+          if (live && mine === generation) setCount(heads.filter((head) => !head.artifact.archived).length);
+        },
+        () => undefined,
+      );
     };
     refresh();
     const unsubscribe = artifactsSource().onChanged((changed) => {
