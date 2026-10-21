@@ -145,6 +145,7 @@ export function PreviewedMarkdown({
                     state={tile.state}
                     src={tile.src}
                     extension={tile.extension}
+                    detail={tile.detail}
                     glyph={tile.text ? <FileText size={16} aria-hidden /> : tile.video ? <Film size={16} aria-hidden /> : undefined}
                     playable={tile.video}
                     // An attachment's caption is all that tells two files apart by ear.

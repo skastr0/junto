@@ -66,27 +66,22 @@ import { registerUpdateIpc } from "./update/ipc";
 import { UsageService } from "./usage/usage-service";
 import { WorkService } from "./work/service";
 import { ContentService } from "./content/service";
-import { contentObjectUrl } from "@shared/content-url";
-import type { ContentRef } from "@shared/content";
 import type { AgentSignal } from "@shared/agent-signals";
 import { messageDelivery } from "./work/message-delivery";
 import { appendSeatPrompt, type SeatPromptInput } from "./work/seat-prompt";
 import { AgentSignalRepository } from "./signals/repository";
 import { SignalFilePuller } from "./signals/file-puller";
-import { signalFileRefs } from "./signals/taken-attachments";
+import { readSignalAttachmentPreview } from "./signals/attachment-preview";
 import { onAgentSignalChanged } from "./signals/changes";
 import { wireSeatReports } from "./term/agent-state/seat-reports";
 import {
   locatePreviewForReveal,
-  readAttachmentPreview,
-  readComparePreview,
   readPreview,
   type PreviewThumbnailer,
 } from "./preview/read";
 import { remoteVideos } from "./preview/remote-video";
 import {
   PREVIEW_THUMB_EDGE,
-  previewLinkName,
   type PreviewPlayResult,
   type PreviewRequest,
   type PreviewResult,
@@ -689,21 +684,12 @@ export const registerJuntoIpc = (): void => {
         dataUrl: `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`,
       };
     }
-    let signal = await previewSourceSignal(request?.source);
-    // An attachment is served by the signal's own list: its place there, then
-    // the content store's file for that reference. No path from anyone.
+    const signal = await previewSourceSignal(request?.source);
     if (target?.kind === "attachment") {
-      let attachment = Number.isInteger(target.index) ? signal?.attachments?.[target.index] : undefined;
-      if (!attachment || !signal) return { ok: false, reason: "not-named" };
-      const open = (ref: ContentRef) =>
-        AppRuntime.runPromise(Effect.flatMap(ContentService, (content) => content.openForRead(ref))).catch(() => undefined);
-      // A seat's file on another machine is pulled here the first time the
-      // operator opens it, and the signal then reads it as its bytes say.
-      const away: Array<ContentRef> = [];
-      for (const ref of signalFileRefs([attachment])) if ((await open(ref))?.state !== "verified") away.push(ref);
-      if (away.length > 0) {
-        const named = signal;
-        const pulled = await AppRuntime.runPromise(
+      return readSignalAttachmentPreview({
+        open: (ref) => AppRuntime.runPromise(Effect.flatMap(ContentService, (content) => content.openForRead(ref))).catch(() => undefined),
+        // Only the operator's open of a file reaches here: the seat's machine is asked for it now.
+        pull: (named, away) => AppRuntime.runPromise(
           Effect.serviceOption(SignalFilePuller).pipe(
             Effect.flatMap((puller) =>
               Option.isNone(puller)
@@ -714,36 +700,8 @@ export const registerJuntoIpc = (): void => {
             ),
             Effect.orElseSucceed(() => undefined),
           ),
-        ).catch(() => undefined);
-        signal = pulled ?? signal;
-        attachment = signal.attachments?.[target.index] ?? attachment;
-      }
-      if ("kind" in attachment) {
-        if (attachment.kind === "commit") {
-          return { ok: true, kind: "commit", name: attachment.sha.slice(0, 7), sha: attachment.sha };
-        }
-        if (attachment.kind === "link") {
-          return { ok: true, kind: "link", name: previewLinkName(attachment.url), url: attachment.url };
-        }
-        // A task or an artifact is a chip that opens it on the canvas, never a preview.
-        if (attachment.kind === "task" || attachment.kind === "artifact") return { ok: false, reason: "not-named" };
-        const [before, after] = await Promise.all([open(attachment.before), open(attachment.after)]);
-        if (before?.state !== "verified" || after?.state !== "verified") return { ok: false, reason: "missing" };
-        return readComparePreview({
-          beforePath: before.path,
-          afterPath: after.path,
-          name: attachment.name ?? attachment.after.displayName ?? "changes",
-        });
-      }
-      const opened = await open(attachment.ref);
-      if (opened?.state !== "verified") return { ok: false, reason: "missing" };
-      return readAttachmentPreview({
-        objectPath: opened.path,
-        byteLength: opened.byteLength,
-        name: attachment.ref.displayName ?? "file",
-        streamUrl: contentObjectUrl(attachment.ref),
-        ...render,
-      });
+        ),
+      }, { signal, index: target.index, render });
     }
     if (target?.kind !== "path" || typeof target.path !== "string") return { ok: false, reason: "not-named" };
     return readPreview({ text: signal?.detail, path: target.path, ...render });

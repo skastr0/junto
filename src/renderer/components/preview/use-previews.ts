@@ -139,6 +139,8 @@ export const previewTile = (
   readonly state: ThumbnailState;
   readonly src?: string;
   readonly extension?: string;
+  /** A file's size, for a file that is only named: what the operator would open. */
+  readonly detail?: string;
   readonly text: boolean;
   readonly video: boolean;
 } => {
@@ -155,6 +157,7 @@ export const previewTile = (
   return {
     state: "ready",
     extension: result.kind === "file" ? result.extension : previewExtension(`/${ref.name}`),
+    ...(result.kind === "file" ? { detail: formatPreviewBytes(result.byteLength) } : {}),
     text: result.kind === "text",
     video: false,
   };

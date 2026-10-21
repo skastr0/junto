@@ -48,6 +48,7 @@ export function Thumbnail({
   src,
   label,
   extension,
+  detail,
   glyph,
   tag,
   playable = false,
@@ -61,6 +62,8 @@ export function Thumbnail({
   readonly label: string;
   /** Shown under the glyph of a file tile, without the dot. */
   readonly extension?: string;
+  /** A second line under the extension of a file tile, such as its size. */
+  readonly detail?: string;
   /** A 16px lucide glyph for a file tile. Default: a plain file. */
   readonly glyph?: ReactNode;
   readonly tag?: "A" | "B";
@@ -93,6 +96,7 @@ export function Thumbnail({
           {extension ? (
             <span className="max-w-full truncate px-1 text-label uppercase tracking-label">{extension}</span>
           ) : null}
+          {detail ? <span className="max-w-full truncate px-1 text-label tracking-label">{detail}</span> : null}
         </span>
       )}
       {playable && state === "ready" && src !== undefined ? (
