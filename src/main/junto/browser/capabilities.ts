@@ -6,6 +6,7 @@ import {
 import { performance } from "node:perf_hooks";
 import { isValidProfileId } from "@shared/browser";
 import { isValidControlRequestId } from "@shared/browser-control";
+import { isValidBrowserTabId } from "@shared/browser-tab";
 import {
   BROWSER_MAX_REF_BYTES,
   BROWSER_MAX_SESSION_ID_BYTES,
@@ -108,6 +109,8 @@ export interface BrowserCapabilityUseTarget {
   readonly profile: string;
   readonly exactOrigins: ReadonlyArray<string>;
   readonly generation?: string;
+  /** The page's tab the generation is of; a seat binds one per tab it holds. */
+  readonly tab?: string;
 }
 
 export interface BrowserCapabilityUseRequest {
@@ -142,15 +145,16 @@ export interface BrowserCapabilityLease extends BrowserCapabilityHandle {
   readonly remainingUses: number;
   readonly signal: AbortSignal;
   readonly checkTarget: (target: BrowserCapabilityUseTarget) => BrowserCapabilityUseTarget;
-  readonly boundGeneration: (ref: NodeRefKey) => string | undefined;
-  readonly boundGenerationInScope: (ref: NodeRefKey) => string | undefined;
-  readonly bindGeneration: (ref: NodeRefKey, generation: string) => void;
+  readonly boundGeneration: (ref: NodeRefKey, tab?: string) => string | undefined;
+  readonly boundGenerationInScope: (ref: NodeRefKey, tab?: string) => string | undefined;
+  readonly bindGeneration: (ref: NodeRefKey, generation: string, tab?: string) => void;
   readonly rollGeneration: (
     ref: NodeRefKey,
     expectedGeneration: string,
     nextGeneration: string,
+    tab?: string,
   ) => void;
-  readonly unbindGeneration: (ref: NodeRefKey, expectedGeneration: string) => void;
+  readonly unbindGeneration: (ref: NodeRefKey, expectedGeneration: string, tab?: string) => void;
   readonly release: (outcome?: BrowserCapabilityCompletionOutcome) => void;
 }
 
@@ -311,7 +315,8 @@ interface CapabilityRecord {
   /** Mutable so edge-delete can drop targets without minting a new auditId. */
   targets: ReadonlyArray<BrowserCapabilityTarget>;
   targetsByRef: ReadonlyMap<NodeRefKey, BrowserCapabilityTarget>;
-  readonly generations: Map<NodeRefKey, string>;
+  /** Bound generations by page and tab (`generationKey`). */
+  readonly generations: Map<string, string>;
   readonly issuedAt: number;
   readonly expiresAt: number;
   readonly monotonicDeadline: number;
@@ -418,11 +423,18 @@ const normalizeUseTarget = (input: unknown): BrowserCapabilityUseTarget | undefi
   ) {
     return undefined;
   }
+  const tab = (input as { readonly tab?: unknown }).tab;
+  if (tab !== undefined && !isValidBrowserTabId(tab)) return undefined;
   return Object.freeze({
     ...target,
     ...(generation === undefined ? {} : { generation }),
+    ...(tab === undefined ? {} : { tab }),
   });
 };
+
+/** One bound generation per page tab; the NUL cannot occur in a ref or a tab id. */
+const generationKey = (ref: NodeRefKey, tab: string | undefined): string =>
+  tab === undefined ? ref : `${ref}\0${tab}`;
 
 const normalizeTargets = (input: unknown): ReadonlyArray<BrowserCapabilityTarget> | undefined => {
   if (
@@ -809,15 +821,16 @@ export class BrowserCapabilityRegistry {
       signal: leaseRecord.controller.signal,
       checkTarget: (target: BrowserCapabilityUseTarget) =>
         this.#checkLeaseTarget(record, leaseRecord, target),
-      boundGeneration: (ref: NodeRefKey) => this.#boundGeneration(record, leaseRecord, ref),
-      boundGenerationInScope: (ref: NodeRefKey) =>
-        this.#boundGenerationInScope(record, leaseRecord, ref),
-      bindGeneration: (ref: NodeRefKey, generation: string) =>
-        this.#bindGeneration(record, leaseRecord, ref, generation),
-      rollGeneration: (ref: NodeRefKey, expectedGeneration: string, nextGeneration: string) =>
-        this.#rollGeneration(record, leaseRecord, ref, expectedGeneration, nextGeneration),
-      unbindGeneration: (ref: NodeRefKey, expectedGeneration: string) =>
-        this.#unbindGeneration(record, leaseRecord, ref, expectedGeneration),
+      boundGeneration: (ref: NodeRefKey, tab?: string) =>
+        this.#boundGeneration(record, leaseRecord, ref, tab),
+      boundGenerationInScope: (ref: NodeRefKey, tab?: string) =>
+        this.#boundGenerationInScope(record, leaseRecord, ref, tab),
+      bindGeneration: (ref: NodeRefKey, generation: string, tab?: string) =>
+        this.#bindGeneration(record, leaseRecord, ref, generation, tab),
+      rollGeneration: (ref: NodeRefKey, expectedGeneration: string, nextGeneration: string, tab?: string) =>
+        this.#rollGeneration(record, leaseRecord, ref, expectedGeneration, nextGeneration, tab),
+      unbindGeneration: (ref: NodeRefKey, expectedGeneration: string, tab?: string) =>
+        this.#unbindGeneration(record, leaseRecord, ref, expectedGeneration, tab),
       release: (outcome: BrowserCapabilityCompletionOutcome = "success") =>
         this.#releaseLease(record, leaseRecord, outcome),
     });
@@ -865,8 +878,11 @@ export class BrowserCapabilityRegistry {
       this.#settleLease(record, lease, "aborted_revoked");
       lease.controller.abort(new BrowserCapabilityLeaseAbort("revoked"));
     }
-    for (const ref of drop) {
-      record.generations.delete(ref);
+    for (const key of [...record.generations.keys()]) {
+      const separator = key.indexOf("\0");
+      if (drop.has((separator === -1 ? key : key.slice(0, separator)) as NodeRefKey)) {
+        record.generations.delete(key);
+      }
     }
 
     const remaining = record.targets.filter((target) => !drop.has(target.ref));
@@ -1012,7 +1028,7 @@ export class BrowserCapabilityRegistry {
     ) {
       return undefined;
     }
-    const currentGeneration = record.generations.get(target.ref);
+    const currentGeneration = record.generations.get(generationKey(target.ref, target.tab));
     if (action === "stop" && target.generation === undefined) return target;
     if (currentGeneration === undefined) {
       if ((action !== "open" && action !== "stop") || target.generation !== undefined) {
@@ -1044,6 +1060,7 @@ export class BrowserCapabilityRegistry {
         lease.target.ref === target.ref &&
         lease.target.profile === target.profile &&
         lease.target.generation === target.generation &&
+        lease.target.tab === target.tab &&
         lease.target.exactOrigins.length === target.exactOrigins.length &&
         lease.target.exactOrigins.every((origin, index) => origin === target.exactOrigins[index]));
     if (target === undefined || !matchesExisting) {
@@ -1067,21 +1084,23 @@ export class BrowserCapabilityRegistry {
     record: CapabilityRecord,
     lease: LeaseRecord,
     ref: NodeRefKey,
+    tab?: string,
   ): string | undefined {
     this.#assertLeaseTarget(record, lease, ref);
-    return record.generations.get(ref);
+    return record.generations.get(generationKey(ref, tab));
   }
 
   #boundGenerationInScope(
     record: CapabilityRecord,
     lease: LeaseRecord,
     ref: NodeRefKey,
+    tab?: string,
   ): string | undefined {
     if (lease.action !== "open" && !LIST_ACTIONS.has(lease.action)) {
       throw new BrowserCapabilityStateDenied();
     }
     this.#assertLeaseScope(record, lease, ref);
-    return record.generations.get(ref);
+    return record.generations.get(generationKey(ref, tab));
   }
 
   #bindGeneration(
@@ -1089,16 +1108,19 @@ export class BrowserCapabilityRegistry {
     lease: LeaseRecord,
     ref: NodeRefKey,
     generation: string,
+    tab?: string,
   ): void {
     this.#assertLeaseTarget(record, lease, ref);
+    const key = generationKey(ref, tab);
     if (
       lease.action !== "open" ||
-      record.generations.has(ref) ||
+      (tab !== undefined && !isValidBrowserTabId(tab)) ||
+      record.generations.has(key) ||
       !isValidBrowserSessionId(generation)
     ) {
       throw new BrowserCapabilityStateDenied();
     }
-    record.generations.set(ref, generation);
+    record.generations.set(key, generation);
     this.#appendGenerationAudit(record, lease, "generation_bound", ref, generation);
   }
 
@@ -1108,18 +1130,20 @@ export class BrowserCapabilityRegistry {
     ref: NodeRefKey,
     expectedGeneration: string,
     nextGeneration: string,
+    tab?: string,
   ): void {
     this.#assertLeaseTarget(record, lease, ref);
+    const key = generationKey(ref, tab);
     if (
       (lease.action !== "goto" && lease.action !== "open") ||
       !isValidBrowserSessionId(expectedGeneration) ||
       !isValidBrowserSessionId(nextGeneration) ||
       expectedGeneration === nextGeneration ||
-      record.generations.get(ref) !== expectedGeneration
+      record.generations.get(key) !== expectedGeneration
     ) {
       throw new BrowserCapabilityStateDenied();
     }
-    record.generations.set(ref, nextGeneration);
+    record.generations.set(key, nextGeneration);
     this.#appendGenerationAudit(record, lease, "generation_rolled", ref, nextGeneration);
   }
 
@@ -1128,16 +1152,18 @@ export class BrowserCapabilityRegistry {
     lease: LeaseRecord,
     ref: NodeRefKey,
     expectedGeneration: string,
+    tab?: string,
   ): void {
     this.#assertLeaseTarget(record, lease, ref);
+    const key = generationKey(ref, tab);
     if (
       (lease.action !== "close" && lease.action !== "stop") ||
       !isValidBrowserSessionId(expectedGeneration) ||
-      record.generations.get(ref) !== expectedGeneration
+      record.generations.get(key) !== expectedGeneration
     ) {
       throw new BrowserCapabilityStateDenied();
     }
-    record.generations.delete(ref);
+    record.generations.delete(key);
     this.#appendGenerationAudit(record, lease, "generation_unbound", ref, expectedGeneration);
   }
 

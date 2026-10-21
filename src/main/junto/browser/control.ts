@@ -70,6 +70,7 @@ import {
   isValidBrowserSessionId,
   utf8ByteLength,
 } from "@shared/browser-limits";
+import type { BrowserTabId } from "@shared/browser-tab";
 import type { BrowserResult, BrowserSessionAuthorizationSnapshot } from "./sessions";
 import { BROWSER_UI_SESSION_OWNER, BrowserSessionService } from "./sessions";
 import type { PageTargetResolver } from "./page-target";
@@ -616,9 +617,19 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         profile: snapshot.data.profile,
         exactOrigins: origins,
         generation: snapshot.data.generation,
+        tab: snapshot.data.tab,
       } satisfies BrowserCapabilityUseTarget,
     };
   };
+
+  /** The seat's session of the named tab, on the page `sessionId` is of; without one, `sessionId`. */
+  const sessionOfTab = (
+    owner: string,
+    input: { readonly sessionId: string; readonly tab?: BrowserTabId },
+  ): BrowserResult<string> =>
+    input.tab === undefined
+      ? { ok: true, data: input.sessionId }
+      : deps.sessions.tabSessionIdForOwner(owner, input.sessionId, input.tab);
 
   const handlers: Record<string, ControlRouteHandler> = {
     "GET /doctor": route(null, async (body) =>
@@ -644,7 +655,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         const scoped = targetForSession(lease.auditId, session.sessionId);
         return scoped.ok &&
           scopeAllows(lease.scope, scoped.target) &&
-          lease.boundGenerationInScope(scoped.target.ref) === scoped.snapshot.generation;
+          lease.boundGenerationInScope(scoped.target.ref, scoped.snapshot.tab) === scoped.snapshot.generation;
       });
       return signal.aborted
         ? controlErr("cancelled", "browser control request was cancelled")
@@ -674,7 +685,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
             current.snapshot.ref === resolved.data.ref &&
             current.snapshot.profile === resolved.data.profile &&
             scopeAllows(lease.scope, current.target) &&
-            lease.boundGenerationInScope(current.target.ref) === current.snapshot.generation
+            lease.boundGenerationInScope(current.target.ref, current.snapshot.tab) === current.snapshot.generation
           ) {
             sessionId = row.sessionId;
           }
@@ -692,7 +703,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
       return controlOk(filtered);
     }),
 
-    "POST /open": withBody("open", OpenRequest, ["ref"], async (input, lease, signal) => {
+    "POST /open": withBody("open", OpenRequest, ["ref", "tab"], async (input, lease, signal) => {
       if (!lease.scope.some((allowed) => allowed.ref === input.ref)) {
         return capabilityDenied("forbidden");
       }
@@ -701,11 +712,12 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
       if (resolved.data.ref !== input.ref) return capabilityDenied("forbidden");
       const target = useTargetForResolved(resolved.data);
       if (target === undefined) return capabilityDenied("forbidden");
-      const admittedGeneration = lease.boundGenerationInScope(resolved.data.ref);
+      const tab = deps.sessions.openTabFor(lease.auditId, resolved.data.ref, resolved.data.url, input.tab);
+      const admittedGeneration = lease.boundGenerationInScope(resolved.data.ref, tab);
       lease.checkTarget(
         admittedGeneration === undefined
-          ? target
-          : { ...target, generation: admittedGeneration },
+          ? { ...target, tab }
+          : { ...target, tab, generation: admittedGeneration },
       );
 
       // While this seat holds the shared page, it goes nowhere this grant
@@ -725,6 +737,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         signal,
         () => deps.resolvePageTarget(input.ref),
         admitsTopLevel,
+        input.tab,
       );
       if (!opened.ok) {
         deps.sessions.destroyOwnerSessions(lease.auditId, "browser open failed closed");
@@ -757,15 +770,16 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         if (
           !current.ok ||
           current.data.ref !== resolved.data.ref ||
+          current.data.tab !== tab ||
           current.data.profile !== resolved.data.profile ||
           current.data.origin !== target.exactOrigins[0] ||
           current.data.navigationInFlight
         ) {
           return failOpen(capabilityDenied("forbidden"));
         }
-        const currentGeneration = lease.boundGeneration(resolved.data.ref);
+        const currentGeneration = lease.boundGeneration(resolved.data.ref, tab);
         if (currentGeneration === undefined) {
-          lease.bindGeneration(resolved.data.ref, current.data.generation);
+          lease.bindGeneration(resolved.data.ref, current.data.generation, tab);
         } else if (currentGeneration !== current.data.generation) {
           return failOpen(capabilityDenied("forbidden"));
         }
@@ -775,10 +789,11 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         );
         return finalState.ok &&
           finalState.data.ref === resolved.data.ref &&
+          finalState.data.tab === tab &&
           finalState.data.profile === resolved.data.profile &&
           finalState.data.origin === target.exactOrigins[0] &&
           !finalState.data.navigationInFlight &&
-          lease.boundGeneration(resolved.data.ref) === finalState.data.generation
+          lease.boundGeneration(resolved.data.ref, tab) === finalState.data.generation
           ? controlOk(terminal.data)
           : failOpen(capabilityDenied("forbidden"));
       } catch (error) {
@@ -787,23 +802,27 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
       }
     }),
 
-    "POST /goto": withBody("goto", GotoRequest, ["sessionId", "url"], async (input, lease, signal) => {
-      const scoped = targetForSession(lease.auditId, input.sessionId, [input.url]);
+    "POST /goto": withBody("goto", GotoRequest, ["sessionId", "url", "tab"], async (input, lease, signal) => {
+      const named = sessionOfTab(lease.auditId, input);
+      if (!named.ok) return fromResult(named);
+      const sessionId = named.data;
+      const scoped = targetForSession(lease.auditId, sessionId, [input.url]);
       if (!scoped.ok) return scoped.envelope;
       lease.checkTarget(scoped.target);
-      if (lease.boundGeneration(scoped.target.ref) !== scoped.snapshot.generation) {
+      if (lease.boundGeneration(scoped.target.ref, scoped.snapshot.tab) !== scoped.snapshot.generation) {
         return capabilityDenied("forbidden");
       }
       const destinationOrigin = exactHttpOrigin(input.url);
       if (destinationOrigin === undefined) return capabilityDenied("forbidden");
 
-      const navigated = deps.sessions.gotoForOwner(lease.auditId, input.sessionId, input.url, signal);
+      const navigated = deps.sessions.gotoForOwner(lease.auditId, sessionId, input.url, signal);
       if (!navigated.ok) return fromResult(navigated);
       if (navigated.data.sessionId !== scoped.snapshot.generation) {
         lease.rollGeneration(
           scoped.target.ref,
           scoped.snapshot.generation,
           navigated.data.sessionId,
+          scoped.snapshot.tab,
         );
       }
       const terminal = await deps.sessions.awaitNavigationTerminalForOwner(
@@ -818,24 +837,28 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
       );
       return current.ok &&
         current.data.ref === scoped.snapshot.ref &&
+        current.data.tab === scoped.snapshot.tab &&
         current.data.profile === scoped.snapshot.profile &&
         current.data.origin === destinationOrigin &&
         !current.data.navigationInFlight &&
-        lease.boundGeneration(scoped.target.ref) === current.data.generation
+        lease.boundGeneration(scoped.target.ref, scoped.snapshot.tab) === current.data.generation
         ? controlOk(terminal.data)
         : capabilityDenied("forbidden");
     }),
 
-    "POST /eval": withBody("eval", EvalRequest, ["sessionId", "code"], async (input, lease, signal) => {
-      const scoped = targetForSession(lease.auditId, input.sessionId);
+    "POST /eval": withBody("eval", EvalRequest, ["sessionId", "code", "tab"], async (input, lease, signal) => {
+      const named = sessionOfTab(lease.auditId, input);
+      if (!named.ok) return fromResult(named);
+      const sessionId = named.data;
+      const scoped = targetForSession(lease.auditId, sessionId);
       if (!scoped.ok) return scoped.envelope;
       lease.checkTarget(scoped.target);
-      if (lease.boundGeneration(scoped.target.ref) !== scoped.snapshot.generation) {
+      if (lease.boundGeneration(scoped.target.ref, scoped.snapshot.tab) !== scoped.snapshot.generation) {
         return capabilityDenied("forbidden");
       }
-      const result = await deps.sessions.evalForOwner(lease.auditId, input.sessionId, input.code, signal);
+      const result = await deps.sessions.evalForOwner(lease.auditId, sessionId, input.code, signal);
       if (!result.ok) return fromResult(result);
-      const current = targetForSession(lease.auditId, input.sessionId);
+      const current = targetForSession(lease.auditId, sessionId);
       if (
         !current.ok ||
         current.snapshot.navigationInFlight ||
@@ -853,14 +876,17 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         : { ok: false, error: inspected.error };
     }),
 
-    "POST /screenshot": withBody("screenshot", ScreenshotRequest, ["sessionId"], async (input, lease, signal) => {
-      const scoped = targetForSession(lease.auditId, input.sessionId);
+    "POST /screenshot": withBody("screenshot", ScreenshotRequest, ["sessionId", "tab"], async (input, lease, signal) => {
+      const named = sessionOfTab(lease.auditId, input);
+      if (!named.ok) return fromResult(named);
+      const sessionId = named.data;
+      const scoped = targetForSession(lease.auditId, sessionId);
       if (!scoped.ok) return scoped.envelope;
       lease.checkTarget(scoped.target);
-      if (lease.boundGeneration(scoped.target.ref) !== scoped.snapshot.generation) {
+      if (lease.boundGeneration(scoped.target.ref, scoped.snapshot.tab) !== scoped.snapshot.generation) {
         return capabilityDenied("forbidden");
       }
-      const shot = await deps.sessions.screenshotForOwner(lease.auditId, input.sessionId, signal);
+      const shot = await deps.sessions.screenshotForOwner(lease.auditId, sessionId, signal);
       if (!shot.ok) return fromResult(shot);
       if (shot.data.png.byteLength > BROWSER_MAX_SCREENSHOT_BYTES) {
         return controlErr(
@@ -868,7 +894,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
           `screenshot exceeds ${BROWSER_MAX_SCREENSHOT_BYTES} bytes`,
         );
       }
-      const current = targetForSession(lease.auditId, input.sessionId);
+      const current = targetForSession(lease.auditId, sessionId);
       if (!current.ok) return current.envelope;
       if (
         current.snapshot.navigationInFlight ||
@@ -888,7 +914,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
       let wrote = false;
       try {
         await screenshotFiles.ensureDirectory(resolvedShotsDir);
-        const writable = targetForSession(lease.auditId, input.sessionId);
+        const writable = targetForSession(lease.auditId, sessionId);
         if (!writable.ok) return writable.envelope;
         if (writable.snapshot.generation !== scoped.snapshot.generation) {
           return capabilityDenied("forbidden");
@@ -897,7 +923,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         if (signal?.aborted) return controlErr("cancelled", "screenshot request was cancelled");
         await screenshotFiles.writeExclusive(path, shot.data.png);
         wrote = true;
-        const stillCurrent = targetForSession(lease.auditId, input.sessionId);
+        const stillCurrent = targetForSession(lease.auditId, sessionId);
         if (
           signal?.aborted ||
           !stillCurrent.ok ||
@@ -921,7 +947,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
       const scoped = targetForSession(lease.auditId, input.sessionId);
       if (!scoped.ok) return scoped.envelope;
       lease.checkTarget(scoped.target);
-      if (lease.boundGeneration(scoped.target.ref) !== scoped.snapshot.generation) {
+      if (lease.boundGeneration(scoped.target.ref, scoped.snapshot.tab) !== scoped.snapshot.generation) {
         return capabilityDenied("forbidden");
       }
       const closed = deps.sessions.closeForOwner(lease.auditId, input.sessionId);
@@ -931,7 +957,7 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         return capabilityDenied("forbidden");
       }
       lease.checkTarget(current.target);
-      lease.unbindGeneration(scoped.target.ref, scoped.snapshot.generation);
+      lease.unbindGeneration(scoped.target.ref, scoped.snapshot.generation, scoped.snapshot.tab);
       return controlOk(closed.data);
     }),
 
@@ -955,17 +981,18 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         ref: snapshot.ref,
         profile: snapshot.profile,
         exactOrigins: exact,
+        tab: snapshot.tab,
         ...(live.ok ? { generation: snapshot.generation } : {}),
       };
       lease.checkTarget(target);
-      const boundGeneration = lease.boundGeneration(snapshot.ref);
+      const boundGeneration = lease.boundGeneration(snapshot.ref, snapshot.tab);
       if (live.ok && boundGeneration !== snapshot.generation) {
         return capabilityDenied("forbidden");
       }
       const result = await deps.sessions.stopForOwner(lease.auditId, input.sessionId);
       if (!result.ok) return fromResult(result);
       if (boundGeneration === snapshot.generation) {
-        lease.unbindGeneration(snapshot.ref, snapshot.generation);
+        lease.unbindGeneration(snapshot.ref, snapshot.generation, snapshot.tab);
       }
       return controlOk(result.data);
     }),

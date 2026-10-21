@@ -496,6 +496,39 @@ describe("browser capability admission and exact scope", () => {
     ).toMatch(/^g_[A-Za-z0-9_-]{22}$/);
   });
 
+  it("binds one generation per tab of a page", () => {
+    const { registry } = makeRegistry();
+    const grant = issue(registry, undefined, {
+      actions: ["open", "eval"],
+      targets: [TARGET_ONE],
+      maxUses: 10,
+    });
+    const onTab = (tab: string, generation?: string): BrowserCapabilityUseTarget => ({
+      ...useTarget(TARGET_ONE, generation),
+      tab,
+    });
+    for (const [index, tab, generation] of [[1, "t1", "generation-1"], [2, "t2", "generation-2"]] as const) {
+      const open = registry.authorize(grant.secret, { action: "open", target: onTab(tab) }, { requestId: requestId(index) });
+      open.bindGeneration(REF_ONE, generation, tab);
+      expect(open.boundGeneration(REF_ONE, tab)).toBe(generation);
+      open.release();
+    }
+    // Each tab answers only for its own generation.
+    expect(captureDenial(() => registry.authorize(
+      grant.secret,
+      { action: "eval", target: onTab("t2", "generation-1") },
+      { requestId: requestId(3) },
+    )).reason).toBe("scope");
+    for (const [index, tab, generation] of [[4, "t1", "generation-1"], [5, "t2", "generation-2"]] as const) {
+      registry.authorize(grant.secret, { action: "eval", target: onTab(tab, generation) }, { requestId: requestId(index) }).release();
+    }
+    expect(captureDenial(() => registry.authorize(
+      grant.secret,
+      { action: "eval", target: onTab("../t1", "generation-1") },
+      { requestId: requestId(6) },
+    )).reason).toBe("scope");
+  });
+
   it("lets active open and list leases read generations only for their immutable scope", () => {
     const { registry } = makeRegistry();
     const grant = issue(registry, undefined, {

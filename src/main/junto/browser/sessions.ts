@@ -367,6 +367,8 @@ export interface BrowserSessionAuthorizationSnapshot {
   readonly sessionId: string;
   readonly generation: string;
   readonly ref: string;
+  /** The page's tab this session is; a seat's grant binds one generation per tab. */
+  readonly tab: BrowserTabId;
   readonly profile: string;
   readonly origin?: string;
   readonly navigationInFlight: boolean;
@@ -1539,6 +1541,7 @@ export class BrowserSessionService {
       sessionId: entry.sessionId,
       generation: entry.sessionId,
       ref: entry.ref,
+      tab: entry.tab,
       profile: entry.profile,
       ...(entry.currentOrigin !== undefined ? { origin: entry.currentOrigin } : {}),
       navigationInFlight: entry.navigationInFlight === entry.sessionId,
@@ -2034,10 +2037,30 @@ export class BrowserSessionService {
     signal?: AbortSignal,
     revalidateTarget?: BrowserTargetRevalidator,
     admitsTopLevel?: BrowserGuestTopLevelGuard,
+    /** A seat joins this tab of the page; without it, the tab it holds or the shown one. */
+    tab?: BrowserTabId,
   ): Promise<BrowserResult<BrowserSessionInfo>> {
     return this.runUiOperation("open", () =>
-      this.openForOwnerAdmitted(owner, target, signal, revalidateTarget, admitsTopLevel),
+      this.openForOwnerAdmitted(owner, target, signal, revalidateTarget, admitsTopLevel, tab),
     );
+  }
+
+  /** The tab a seat's open of the page lands on, as `openForOwner` picks it. */
+  openTabFor(owner: string, ref: string, url: string, tab?: BrowserTabId): BrowserTabId {
+    return tab ?? this.heldTabFor(owner, ref)?.tab ?? this.pages.get(ref)?.tabs.active ?? initialPageTabs(url).active;
+  }
+
+  /**
+   * The session of `tab` on the page `sessionId` is of, held by this owner.
+   * A tab the page lacks, or one the owner has not joined, is not found.
+   */
+  tabSessionIdForOwner(owner: string, sessionId: string, tab: BrowserTabId): BrowserResult<string> {
+    const entry = this.entryForOwner(owner, sessionId);
+    if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
+    const named = this.tabEntry(entry.ref, tab);
+    return named !== undefined && this.holds(named, owner)
+      ? { ok: true, data: named.sessionId }
+      : err("not_found", `no tab ${tab} held on this page; open it with --tab first`);
   }
 
   private async openForOwnerAdmitted(
@@ -2046,11 +2069,12 @@ export class BrowserSessionService {
     signal?: AbortSignal,
     revalidateTarget?: BrowserTargetRevalidator,
     admitsTopLevel?: BrowserGuestTopLevelGuard,
+    tab?: BrowserTabId,
   ): Promise<BrowserResult<BrowserSessionInfo>> {
     const invalid = validateTarget(target, this.targetAdmission);
     if (invalid !== undefined) return invalid;
     if (owner !== BROWSER_UI_SESSION_OWNER) {
-      return this.joinAsGuest(owner, target, signal, revalidateTarget, admitsTopLevel);
+      return this.joinAsGuest(owner, target, signal, revalidateTarget, admitsTopLevel, tab);
     }
     if (isAborted(signal) || this.refDeleteActive(target.ref)) {
       return err("cancelled", "navigation cancelled");
@@ -2114,15 +2138,44 @@ export class BrowserSessionService {
     signal?: AbortSignal,
     revalidateTarget?: BrowserTargetRevalidator,
     admitsTopLevel?: BrowserGuestTopLevelGuard,
+    tab?: BrowserTabId,
   ): Promise<BrowserResult<BrowserSessionInfo>> {
     if (exactBrowserOrigin(target.url) === undefined) {
       return err("forbidden", "automation target has no exact browser origin");
     }
-    // A seat already on a tab of this page stays on it.
-    const held = this.heldTabFor(guest, target.ref);
-    if (held !== undefined && isWarmBrowserSession(held.machine.state)) {
-      held.lastActiveAt = this.now();
-      return { ok: true, data: this.infoFor(held, guest) };
+    if (tab !== undefined) {
+      // A named tab: joined where it has a view. Only the shown tab may be
+      // reopened by a seat, as a seat never chooses what the operator sees.
+      const page = this.pages.get(target.ref);
+      if (page === undefined || !page.tabs.tabs.some((candidate) => candidate.id === tab)) {
+        return err("not_found", `no tab ${tab} on this page`);
+      }
+      const named = this.tabEntry(target.ref, tab);
+      if (named !== undefined && isWarmBrowserSession(named.machine.state)) {
+        if (
+          named.ref !== target.ref ||
+          named.nodeId !== target.nodeId ||
+          named.profile !== target.profile
+        ) {
+          return err("invalid", "canonical page ref changed while its session is warm");
+        }
+        if (!named.guests.has(guest)) {
+          named.guests.set(guest, { admitsTopLevel });
+          this.guestStops.delete(`${guest}\0${named.sessionId}`);
+        }
+        named.lastActiveAt = this.now();
+        return { ok: true, data: this.infoFor(named, guest) };
+      }
+      if (page.tabs.active !== tab) {
+        return err("not_found", `tab ${tab} has no live view until the operator shows it`);
+      }
+    } else {
+      // A seat already on a tab of this page stays on it.
+      const held = this.heldTabFor(guest, target.ref);
+      if (held !== undefined && isWarmBrowserSession(held.machine.state)) {
+        held.lastActiveAt = this.now();
+        return { ok: true, data: this.infoFor(held, guest) };
+      }
     }
     const guestEpoch = this.ownerEpoch(guest);
     const refEpoch = this.refEpoch(target.ref);

@@ -560,6 +560,42 @@ describe("control route handlers", () => {
     });
   });
 
+  it("acts on a named tab the seat holds, each tab bound on its own", async () => {
+    const { call, sessions } = makeStack();
+    const opened = await call("POST", "/open", { ref: REF });
+    if (!opened.envelope.ok) throw new Error("open failed");
+    const first = (opened.envelope.data as { sessionId: string }).sessionId;
+    // The operator opens a second tab and keeps the first shown.
+    const second = await sessions.openTab(first, "https://example.com/two", false);
+    if (!second.ok) throw new Error("open tab failed");
+
+    // A tab the seat has not joined, or the page lacks, is not found.
+    for (const tab of ["t2", "t9"]) {
+      expect(await call("POST", "/eval", { sessionId: first, code: "1", tab })).toMatchObject({
+        envelope: { ok: false, error: { _tag: "not_found" } },
+      });
+    }
+    const joined = await call("POST", "/open", { ref: REF, tab: "t2" });
+    expect(joined).toMatchObject({ envelope: { ok: true, data: { sessionId: second.data.sessionId } } });
+    expect(await call("POST", "/eval", { sessionId: first, code: "1", tab: "t2" })).toMatchObject({
+      envelope: { ok: true },
+    });
+    const moved = await call("POST", "/goto", { sessionId: first, url: "https://example.com/three", tab: "t2" });
+    expect(moved).toMatchObject({ envelope: { ok: true } });
+    // The first tab's binding is untouched by the second's.
+    expect(await call("POST", "/eval", { sessionId: first, code: "1" })).toMatchObject({ envelope: { ok: true } });
+    expect(await call("POST", "/screenshot", { sessionId: first, tab: "../t2" })).toMatchObject({
+      envelope: { ok: false },
+    });
+    // An open of a tab the page lacks fails closed, as every failed open does.
+    expect(await call("POST", "/open", { ref: REF, tab: "t9" })).toMatchObject({
+      envelope: { ok: false, error: { _tag: "not_found" } },
+    });
+    expect(await call("POST", "/eval", { sessionId: first, code: "1" })).toMatchObject({
+      envelope: { ok: false, error: { _tag: "not_found" } },
+    });
+  });
+
   it("lists only bound owner generations and rebinds after a seat's close", async () => {
     const { call, sessions, capabilities, grant } = makeStack();
     const opened = await call("POST", "/open", { ref: REF });
