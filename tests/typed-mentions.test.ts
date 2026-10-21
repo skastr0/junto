@@ -2,19 +2,23 @@ import { describe, expect, it } from "vitest";
 import { Result } from "effect";
 import { mentionHref, mentionLinksOf, type MentionRef } from "../src/shared/mention";
 import { asNodeId } from "../src/shared/physics/schema";
-import { linkTypedMentions, typedMentionsOf } from "../src/shared/typed-mentions";
+import { linkMentionTokens, linkTypedMentions, matchTypedMention, typedMentionsOf, type TypedMention } from "../src/shared/typed-mentions";
 
-const names = (text: string) => typedMentionsOf(text).map((mention) => mention.name);
+const names = (text: string) => typedMentionsOf(text).flatMap((mention) => (mention.kind === "at" ? [mention.name] : []));
+const typed = (text: string) =>
+  typedMentionsOf(text).map((mention) =>
+    matchTypedMention(mention, { at: (at) => `@${at.name}`, number: (number) => `#${number.number}`, hash: (hash) => `#${hash.name}` }),
+  );
 
 describe("typedMentionsOf: the @name tokens a writer typed", () => {
   it("finds names at the start, after spaces and after opening punctuation, by offset", () => {
     const text = "@cli-lead see (@product-feed), and \"@pty_lead\"";
     expect(typedMentionsOf(text)).toEqual([
-      { name: "cli-lead", start: 0, end: 9 },
-      { name: "product-feed", start: 15, end: 28 },
-      { name: "pty_lead", start: 36, end: 45 },
+      { kind: "at", name: "cli-lead", start: 0, end: 9 },
+      { kind: "at", name: "product-feed", start: 15, end: 28 },
+      { kind: "at", name: "pty_lead", start: 36, end: 45 },
     ]);
-    for (const { name, start, end } of typedMentionsOf(text)) expect(text.slice(start, end)).toBe(`@${name}`);
+    for (const { start, end } of typedMentionsOf(text)) expect(text.slice(start, end).startsWith("@")).toBe(true);
   });
 
   it("ends a name before trailing punctuation, and keeps inner dots and dashes", () => {
@@ -45,6 +49,24 @@ describe("typedMentionsOf: the @name tokens a writer typed", () => {
   it("leaves text that is already a link alone: markdown links, autolinks and URLs", () => {
     expect(names("[@cli-lead](junto://canvas/factory?node=agent-1) and @x")).toEqual(["x"]);
     expect(names("[docs](https://x.dev/@cli-lead) <https://x.dev/@y> https://x.dev/@z junto://canvas/f?node=@w")).toEqual([]);
+  });
+
+  it("finds #42 as a task number and #name as a title, in text order with @names", () => {
+    const text = "@cli-lead: #42 blocks #spec-v2. (#7)";
+    expect(typedMentionsOf(text)).toEqual([
+      { kind: "at", name: "cli-lead", start: 0, end: 9 },
+      { kind: "number", number: 42, start: 11, end: 14 },
+      { kind: "hash", name: "spec-v2", start: 22, end: 30 },
+      { kind: "number", number: 7, start: 33, end: 35 },
+    ]);
+  });
+
+  it("leaves # alone in words, entities, headings, escapes, mixed tokens, code and links", () => {
+    expect(typed("C# and a#b, &#42; and &#x2A;")).toEqual([]);
+    expect(typed("# Heading\n## Sub")).toEqual([]);
+    expect(typed("\\#42 is literal, ##3 too, #42abc and #_x are not tokens")).toEqual([]);
+    expect(typed("`#42` and ```\n#7\n``` and [#9](https://x.dev/#9) https://x.dev/#frag")).toEqual([]);
+    expect(typed("#42, #spec. #a.b!")).toEqual(["#42", "#spec", "#a.b"]);
   });
 });
 
@@ -79,5 +101,35 @@ describe("linkTypedMentions: each @name rewritten to its mention link", () => {
     expect(Result.isSuccess(linkTypedMentions("@cli-lead @cli-lead", "factory", counting))).toBe(true);
     expect(asked).toEqual(["cli-lead"]);
     expect(linkTypedMentions("@cli-lead @ghost @nobody", "factory", resolve)).toEqual(Result.fail("unknown ghost"));
+  });
+});
+
+describe("linkMentionTokens: every token rewritten, by a resolver that handles each kind", () => {
+  const TASK = "01M5ESSJRFWT6RVS5HMWMGJXGD";
+  const resolve = (token: TypedMention) =>
+    matchTypedMention(token, {
+      at: (at) => (at.name === "cli-lead" ? Result.succeed({ ref: seat("agent-01LEAD"), label: "@cli-lead" }) : Result.fail(`unknown @${at.name}`)),
+      number: (number) =>
+        number.number === 42
+          ? Result.succeed({ ref: { kind: "task", nodeId: asNodeId("board"), taskId: TASK } as MentionRef, label: "#42 fix tabs" })
+          : Result.fail(`no task #${number.number}`),
+      hash: (hash) => Result.fail(`no title #${hash.name}`),
+    });
+
+  it("rewrites @names and task numbers to their links", () => {
+    const linked = Result.getOrThrow(linkMentionTokens("@cli-lead take #42, and #42 again", "factory", resolve));
+    expect(mentionLinksOf(linked).map((link) => link.label)).toEqual(["@cli-lead", "#42 fix tabs", "#42 fix tabs"]);
+    expect(linkMentionTokens(linked, "factory", resolve)).toEqual(Result.succeed(linked));
+  });
+
+  it("refuses with the first token that does not resolve", () => {
+    expect(linkMentionTokens("#42 then #9 then #spec", "factory", resolve)).toEqual(Result.fail("no task #9"));
+  });
+
+  it("linkTypedMentions still resolves @names alone and leaves # as typed", () => {
+    const byName = (name: string) =>
+      name === "cli-lead" ? Result.succeed({ ref: seat("agent-01LEAD"), label: "@cli-lead" }) : Result.fail(`unknown ${name}`);
+    const linked = Result.getOrThrow(linkTypedMentions("@cli-lead see #42 and #spec", "factory", byName));
+    expect(linked.endsWith(" see #42 and #spec")).toBe(true);
   });
 });
