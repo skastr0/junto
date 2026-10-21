@@ -53,6 +53,9 @@ const canvas = canvasOf(
 const workService = {
   listTopologies: () => Effect.succeed([canvas]),
   readTopology: () => Effect.succeed({ canvas, actorRefs: [] }),
+  // Onboard reads the seat's mail for "since your last session"; this seat has none.
+  readMailbox: () => Effect.succeed([]),
+  readMailSentBy: () => Effect.succeed([]),
 } as unknown as WorkServiceShape;
 
 const call = (socketPath: string, body: unknown): Promise<unknown> =>
