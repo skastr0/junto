@@ -4,8 +4,9 @@
  * as unknown. Discovery runs with every feature flag on, so a command hidden
  * only by a flag still counts as present.
  *
- * cli-lead confirmed the `deleted` set gone; the `unverified` set is pending on
- * cli-skill, auditing discovery against dispatch, while any of it still shows.
+ * cli-lead confirmed the `confirmed` set gone, so any of it showing fails. The
+ * rest is pending, while it still shows, on the seats deleting it; the log
+ * names which surface still shows each one.
  */
 import type { WorkCliCommandResult } from "../work-cli-acceptance";
 import { casesFor, type AcceptanceArea, type CaseVerdict } from "./area";
@@ -15,12 +16,14 @@ const { check, pass, pending } = casesFor("deleted");
 
 const FLAGS_ON = { JUNTO_BOARD: "1", JUNTO_REQUESTS: "1", JUNTO_TASKS: "1", JUNTO_ARTIFACTS: "1", JUNTO_BROWSER: "1" } as const;
 
-/** A command as typed: a family, or a family and its verb. */
-type Gone = { readonly command: string; readonly confirmed: boolean };
+/** A command as typed: a family, or a family and its verb. Pending names the seats deleting one not yet confirmed gone. */
+type Gone = { readonly command: string } & ({ readonly confirmed: true } | { readonly confirmed: false; readonly on: string });
 
 const GONE: ReadonlyArray<Gone> = [
-  ...["pad", "sheet", "cron", "relay", "watcher", "timer", "task claim"].map((command) => ({ command, confirmed: true })),
-  ...["board", "requests", "verdict post", "chat"].map((command) => ({ command, confirmed: false })),
+  ...["pad", "sheet", "cron", "relay", "watcher", "timer", "task claim"].map((command) => ({ command, confirmed: true as const })),
+  ...["board", "requests", "chat"].map((command) => ({ command, confirmed: false as const, on: "cli-skill" })),
+  // Deleted with the reviews edge (plan 09): canvas removes the edge and verdict.post, cli-performance the command.
+  { command: "verdict post", confirmed: false, on: "cli-performance and canvas" },
 ];
 
 /** The subcommand names a help screen lists, one per line under SUBCOMMANDS. */
@@ -53,7 +56,8 @@ export const deletedArea: AcceptanceArea = {
       check("help lists commands", root.has("schema") && root.has("msg"), rootHelp),
       check("schema list reads", schemas.length > 0, schemaList),
     ];
-    for (const { command, confirmed } of GONE) {
+    for (const gone of GONE) {
+      const { command } = gone;
       const [family, verb] = command.split(" ") as [string, string | undefined];
       let inHelp: boolean;
       if (verb === undefined) {
@@ -67,11 +71,13 @@ export const deletedArea: AcceptanceArea = {
       const refusal = envelopeOf(shown);
       const unknown = shown.code === 1 && refusal?.ok === false && refusal.error?.type === "InputError" &&
         refusal.error?.details?.path === "target" && String(refusal.error?.message).includes(`No schema found for ${command}`);
-      const gone = !inHelp && !inSchemas && unknown;
+      const showing = [inHelp ? "help" : undefined, inSchemas ? "schema list" : undefined, unknown ? undefined : "schema show"]
+        .filter((surface) => surface !== undefined);
       const name = `${command} is gone`;
-      if (gone) verdicts.push(pass(name));
-      else if (!confirmed) verdicts.push(pending(name, "cli-skill"));
-      else verdicts.push(check(name, false, { ...shown, stdout: JSON.stringify({ inHelp, inSchemas, schemaShow: refusal }) }));
+      if (showing.length > 0) log(`${command} still shows`, JSON.stringify({ in: showing, schemaShow: refusal }));
+      if (showing.length === 0) verdicts.push(pass(name));
+      else if (!gone.confirmed) verdicts.push(pending(name, gone.on));
+      else verdicts.push(check(name, false, { ...shown, stdout: JSON.stringify({ in: showing, schemaShow: refusal }) }));
     }
 
     // No command on main is named for connected boards, so they are looked for in what onboard and capabilities print.
