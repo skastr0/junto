@@ -24,7 +24,7 @@ const MAX_TASK_ID_LENGTH = 256;
 
 /**
  * Normalize decoded historical/read-model input: trim, drop empties, de-dupe,
- * and preserve order. Authoring must pass validateAuthoredTaskDependsOn first.
+ * and preserve order.
  */
 const normalizeDependsOn = (
   dependsOn: ReadonlyArray<string> | undefined,

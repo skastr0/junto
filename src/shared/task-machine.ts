@@ -474,7 +474,7 @@ export const ruleTaskBoardCommand = (
   if (command.kind === "depend") {
     const on = state.tasks.get(command.on);
     if (on === undefined) return refuse({ kind: "unknown-task", taskId: command.on });
-    // A seat depends only on tasks its reach sees (01, task-dep-scope), an automation only on its targets; the operator on any.
+    // A seat depends only on tasks its reach sees (01), an automation only on its targets; the operator on any.
     const inReach = actor.kind === "operator" ||
       (actor.kind === "seat" ? env.seatReaches(actor.seat, on.node) : env.automationReaches?.(actor.automation, on.node) === true);
     if (!inReach) return refuse({ kind: "not-in-reach", nodeId: on.node });
