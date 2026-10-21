@@ -908,11 +908,11 @@ test("WG [fake-tui] re-seat keeps the name: a renamed seat and a never renamed o
       await shot(page, "G0", "two-seats");
     });
 
-    await step("G1", "rename the first seat's card to cli-identity, with the pencil key in the bottom bar", async () => {
+    await step("G1", "rename the first seat's card to cli-identity, with the Rename key in the bottom bar", async () => {
       await select(page, ["cid"]);
-      // rts-controls.spec.ts:119-126; the field is nodes/TextNode.tsx:348.
-      await page.locator(".rts-kind-surface .rts-kind-strip").getByRole("button", { name: "Rename" }).click();
-      const field = page.getByRole("textbox", { name: "Rename agent node" });
+      // The selection card's Rename key; the field is rts/NameField.tsx.
+      await page.locator(".rts-panel--cmd").getByRole("button", { name: "Rename" }).click();
+      const field = page.getByRole("textbox", { name: "Agent name" });
       await expect(field).toBeVisible({ timeout: 10_000 });
       await field.fill("cli-identity");
       await field.press("Enter");

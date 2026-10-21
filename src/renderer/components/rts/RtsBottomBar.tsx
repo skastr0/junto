@@ -20,6 +20,7 @@ import {
   Lock,
   LockOpen,
   Pencil,
+  TextCursorInput,
   Trash2,
 } from "lucide-react";
 import type { Region } from "@shared/model";
@@ -35,6 +36,7 @@ import {
   deleteNode,
   deleteNodes,
   renameGroup,
+  renameNode,
   setRegionHold,
 } from "../../lib/mutations";
 import {
@@ -60,7 +62,8 @@ import { ConnectEditor } from "./ConnectEditor";
 import { EdgeCommandCard } from "./RtsControls";
 import { KindSurface } from "./KindSurface";
 import { RollCall } from "./RollCall";
-import { claimFocus } from "../../lib/focus-ownership";
+import { nameable } from "../../lib/model-edits";
+import { NameField } from "./NameField";
 import { AccentColorSwatches } from "./AccentColorPicker";
 import "./RtsBottomBar.css";
 import { modelStore } from "../../lib/use-model";
@@ -74,6 +77,7 @@ function CmdKey({
   danger,
   disabled,
   style,
+  keepFocus,
   onClick,
   children,
 }: {
@@ -83,6 +87,8 @@ function CmdKey({
   readonly danger?: boolean;
   readonly disabled?: boolean;
   readonly style?: React.CSSProperties;
+  /** Pressing the key leaves focus where it is, so an open field is not blurred into a commit. */
+  readonly keepFocus?: boolean;
   readonly onClick?: () => void;
   readonly children: ReactNode;
 }) {
@@ -95,6 +101,7 @@ function CmdKey({
       title={title ?? label}
       disabled={disabled}
       style={style}
+      onMouseDown={keepFocus ? (event) => event.preventDefault() : undefined}
       onClick={onClick}
     >
       <span className="rts-key__icon">{children}</span>
@@ -103,6 +110,20 @@ function CmdKey({
 }
 
 const ICON = 12;
+
+/** Opens the selected node's name for typing in the card; pressed again, keeps the old name. */
+function RenameKey({ renaming, onToggle }: { readonly renaming: boolean; readonly onToggle: () => void }) {
+  return (
+    <CmdKey
+      label={renaming ? "Cancel rename" : "Rename"}
+      active={renaming}
+      keepFocus
+      onClick={onToggle}
+    >
+      <TextCursorInput size={ICON} />
+    </CmdKey>
+  );
+}
 
 function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup }) {
   const canvasName = use$(state$.canvasName);
@@ -193,30 +214,10 @@ function RegionCommandCard({
   const primary = primaryCommandActions("region");
   const title = regionRollup.label || "unnamed region";
   const [renaming, setRenaming] = useState(false);
-  const [nameDraft, setNameDraft] = useState(title);
-  const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setRenaming(false);
-    setNameDraft(title);
-  }, [node.id, title]);
-
-  useEffect(() => {
-    if (!renaming) return;
-    claimFocus(nameRef.current, "open", { select: true });
-  }, [renaming]);
-
-  const commitRename = () => {
-    setRenaming(false);
-    const next = nameDraft.trim();
-    if (next === title || (next === "" && !regionRollup.label)) return;
-    renameGroup(node.id, next);
-  };
-
-  const cancelRename = () => {
-    setRenaming(false);
-    setNameDraft(title);
-  };
+  }, [node.id]);
 
   const primaryKey = (action: PrimaryCommandAction) => {
     switch (action) {
@@ -264,25 +265,12 @@ function RegionCommandCard({
         <div className="rts-cmd-region-main">
           <div className="rts-cmd-head">
             {renaming ? (
-              <input
-                ref={nameRef}
-                data-focus-owner="canvas-draft"
-                className="rts-cmd__title-input"
-                aria-label="Region name"
+              <NameField
+                initial={regionRollup.label}
+                ariaLabel="Region name"
                 maxLength={REGION_NAME_MAX}
-                value={nameDraft}
-                onChange={(event) => setNameDraft(event.target.value)}
-                onBlur={commitRename}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    commitRename();
-                  }
-                  if (event.key === "Escape") {
-                    event.preventDefault();
-                    cancelRename();
-                  }
-                }}
+                onCommit={(name) => renameGroup(node.id, name)}
+                onDone={() => setRenaming(false)}
               />
             ) : (
               <div className="rts-cmd__title" title={title}>{title}</div>
@@ -293,21 +281,7 @@ function RegionCommandCard({
         </div>
         <div className="rts-cmd-keys rts-cmd-keys--col" role="toolbar" aria-label="Region actions">
           {primary.map(primaryKey)}
-          <CmdKey
-            label={renaming ? "Cancel rename" : "Edit region name"}
-            title={renaming ? "Cancel rename" : "Rename region"}
-            active={renaming}
-            onClick={() => {
-              if (renaming) {
-                cancelRename();
-                return;
-              }
-              setNameDraft(title);
-              setRenaming(true);
-            }}
-          >
-            <Pencil size={ICON} />
-          </CmdKey>
+          <RenameKey renaming={renaming} onToggle={() => setRenaming((open) => !open)} />
           <CmdKey label="Delete region" danger onClick={() => deleteNode(node.id)}>
             <Trash2 size={ICON} />
           </CmdKey>
@@ -317,11 +291,19 @@ function RegionCommandCard({
   );
 }
 
+/**
+ * Kinds whose canvas edit opens more than the name: a note's or a label's
+ * whole text, a link's address, a file's image. For the rest Edit only
+ * renamed, which the Rename key now does in the card itself.
+ */
+const EDITS_MORE_THAN_NAME: ReadonlySet<string> = new Set(["note", "label", "link", "file", "page"]);
+
 function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   const canvasName = use$(state$.canvasName);
   const node = useRtsNodes(canvasName, [nodeId])[0];
   const modelKind = use$(() => modelStore.node$(canvasName, nodeId).kind.get());
   const [connectOpen, setConnectOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [copyDetail, setCopyDetail] = useState("");
   const copyRequest = useRef(0);
@@ -332,6 +314,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     setCopyStatus("idle");
     setCopyDetail("");
     setConnectOpen(false);
+    setRenaming(false);
   }, [canvasName, nodeId]);
 
   const blockerCause = useRtsValue(() => {
@@ -436,7 +419,16 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
       <div className="rts-panel__body rts-cmd-shell">
         <div className="rts-cmd-main">
           <div className="rts-cmd-head">
-            <div className="rts-cmd__title" title={titleOf(node)}>{titleOf(node)}</div>
+            {renaming ? (
+              <NameField
+                initial={titleOf(node)}
+                ariaLabel={`${entityKind[0]!.toUpperCase()}${entityKind.slice(1)} name`}
+                onCommit={(name) => renameNode(nodeId, name)}
+                onDone={() => setRenaming(false)}
+              />
+            ) : (
+              <div className="rts-cmd__title" title={titleOf(node)}>{titleOf(node)}</div>
+            )}
             {subtitle ? <div className="rts-cmd__live">{subtitle}</div> : null}
           </div>
           <AccentColorSwatches nodeId={nodeId} color={node.color} />
@@ -474,7 +466,10 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
             <CmdKey label="Focus" onClick={() => state$.focusNodeId.set(nodeId)}>
               <Crosshair size={ICON} />
             </CmdKey>
-            {entityKind !== "agent" && entityKind !== "artifacts" ? (
+            {nameable(entityKind) ? (
+              <RenameKey renaming={renaming} onToggle={() => setRenaming((open) => !open)} />
+            ) : null}
+            {EDITS_MORE_THAN_NAME.has(entityKind) ? (
               <CmdKey label="Edit" onClick={() => state$.editNodeId.set(nodeId)}>
                 <Pencil size={ICON} />
               </CmdKey>

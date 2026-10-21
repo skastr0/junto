@@ -26,6 +26,7 @@ import {
   retexted,
   reverbed,
   taskBoardEdited,
+  titled,
   topZ,
   verbsForDraw,
 } from "../src/renderer/lib/model-edits";
@@ -106,6 +107,24 @@ describe("renaming", () => {
     ]);
     expect(retexted(canvas, "plan", "hello")).toEqual([]);
     expect(retexted(canvas, "lead", "text")).toEqual([]);
+  });
+
+  it("names a note or a label by its first line, keeping heading marks and the lines after", () => {
+    const notes = canvasOf([note("plan", { text: "## Plan\r\nstep one\nstep two" }), node("label", "north", { text: "North" })]);
+    expect(sent(titled(notes, "plan", "Roadmap\nignored"))).toEqual([
+      { _tag: "Edit", canvas: name, id: "plan", change: { kind: "note", text: "## Roadmap\r\nstep one\nstep two" } },
+    ]);
+    expect(sent(titled(notes, "north", " South "))).toEqual([
+      { _tag: "Edit", canvas: name, id: "north", change: { kind: "label", text: "South" } },
+    ]);
+    expect(titled(notes, "plan", "  ")).toEqual([]);
+    expect(titled(notes, "north", "North")).toEqual([]);
+  });
+
+  it("names every other kind as renamed does", () => {
+    expect(titled(canvas, "lead", "captain")).toEqual(renamed(canvas, "lead", "captain"));
+    expect(titled(canvas, "term", "")).toEqual(renamed(canvas, "term", ""));
+    expect(titled(canvas, "gone", "anything")).toEqual([]);
   });
 });
 

@@ -9,7 +9,6 @@ import {
   ListChecks,
   Mic,
   Package,
-  Pencil,
   UserRoundPen,
   Plus,
   ScrollText,
@@ -279,13 +278,6 @@ function TaskKindKeys({ node }: { readonly node: TaskBoard }) {
         <Plus size={ICON} />
       </KindKey>
       <KindKey
-        label="Rename"
-        title="Rename"
-        onClick={() => state$.editNodeId.set(node.id)}
-      >
-        <Pencil size={ICON} />
-      </KindKey>
-      <KindKey
         label="Wait before starting"
         title={`Wait: ${formatWait(waitMs) || "none"}`}
         active={pop === "wait" || waitMs !== undefined}
@@ -342,15 +334,6 @@ export function KindActions({ nodeId }: { readonly nodeId: string }) {
     case "agent": {
       // Managed terminal is the product surface; ACP chat stays hard-hidden.
       const terminalBound = terminalBindingOf(node)?.kind === "native";
-      const rename = (
-        <KindKey
-          label="Rename"
-          title="Rename"
-          onClick={() => state$.editNodeId.set(node.id)}
-        >
-          <Pencil size={ICON} />
-        </KindKey>
-      );
       const customize = (
         <KindKey
           label="Customize character"
@@ -401,7 +384,6 @@ export function KindActions({ nodeId }: { readonly nodeId: string }) {
               onClick={() => openOverseerLive({ canvasName: state$.canvasName.peek(), nodeId: node.id, title: titleOf(node) })}
             ><Mic size={ICON} /></KindKey>}
             {customize}
-            {rename}
             {guidance}
             {saveProfile}
           </>
@@ -411,7 +393,6 @@ export function KindActions({ nodeId }: { readonly nodeId: string }) {
         <>
           <OverseerToggleKey nodeId={node.id} />
           {customize}
-          {rename}
           {guidance}
           {saveProfile}
         </>

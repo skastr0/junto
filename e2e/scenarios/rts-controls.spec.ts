@@ -83,11 +83,13 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await expect(kindSurface.locator(".rts-kind-kind-label")).toContainText("agent");
   await expect(kindStrip.getByRole("button", { name: "Open chat" })).toHaveCount(0);
   await expect(kindStrip.getByRole("button", { name: "Open fields" })).toHaveCount(0);
-  await expect(kindStrip.getByRole("button", { name: "Rename" })).toHaveCount(1);
+  // Rename lives in the selection card, once, and types in place of the title.
+  await expect(kindStrip.getByRole("button", { name: "Rename" })).toHaveCount(0);
+  await expect(page.locator(".rts-panel--cmd").getByRole("button", { name: "Rename" })).toHaveCount(1);
   await expect(page.locator(".rts-panel--cmd").getByRole("button", { name: "Edit" })).toHaveCount(0);
 
-  await kindStrip.getByRole("button", { name: "Rename" }).click();
-  const renameInput = page.getByRole("textbox", { name: "Rename agent node" });
+  await page.locator(".rts-panel--cmd").getByRole("button", { name: "Rename" }).click();
+  const renameInput = page.getByRole("textbox", { name: "Agent name" });
   await expect(renameInput).toBeVisible();
   await renameInput.fill("renamed worker");
   await renameInput.press("Enter");

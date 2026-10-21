@@ -89,6 +89,51 @@ export const renamed = (canvas: Canvas, id: string, name: string): Commands => {
   }
 };
 
+/**
+ * The kinds `titled` can name. A peer and a stub arrive with a read-only copy
+ * and are never authored there; a file, a link and a page have no name field
+ * yet and are called by what they point at.
+ */
+export const nameable = (kind: NodeKind): boolean => {
+  switch (kind) {
+    case "agent":
+    case "task":
+    case "terminal":
+    case "artifacts":
+    case "automations":
+    case "git":
+    case "region":
+    case "note":
+    case "label":
+      return true;
+    case "file":
+    case "link":
+    case "page":
+    case "peer":
+    case "stub":
+      return false;
+  }
+};
+
+/**
+ * Give any node a new name, the way its kind holds one. A note and a bare
+ * label are called by their first line, so only that line is replaced,
+ * keeping a heading's marks and every line after it; an empty name leaves
+ * them as they are. Anything else is `renamed`.
+ */
+export const titled = (canvas: Canvas, id: string, name: string): Commands => {
+  const node = canvas.nodes.get(id as Node["id"]);
+  if (node === undefined) return NONE;
+  if (node.kind !== "note" && node.kind !== "label") return renamed(canvas, id, name);
+  const line = oneLine(name);
+  if (line === "") return NONE;
+  const lineEnd = node.text.search(/\r?\n/);
+  const first = lineEnd < 0 ? node.text : node.text.slice(0, lineEnd);
+  const rest = lineEnd < 0 ? "" : node.text.slice(lineEnd);
+  const marks = /^\s*#+\s*/.exec(first)?.[0] ?? "";
+  return retexted(canvas, id, `${marks}${line}${rest}`);
+};
+
 /** Replace the text of a note or a bare label. */
 export const retexted = (canvas: Canvas, id: string, text: string): Commands => {
   const node = canvas.nodes.get(id as Node["id"]);
