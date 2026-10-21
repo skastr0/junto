@@ -1242,6 +1242,62 @@ describe("BrowserSessionService", () => {
     expect(events.admitsTopLevel("https://elsewhere.example.net/", true)).toBe(true);
   });
 
+  it("gives a page tabs, one view each, and moves the surface's view to the active one", async () => {
+    const { service, views } = makeDefaultService();
+    const shown: string[] = [];
+    service.setSink((info) => shown.push(info.sessionId));
+    const page = target("tabs");
+    const first = await service.open(page);
+    if (!first.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(first.data.sessionId, "Home");
+    expect(service.setBounds(first.data.sessionId, { x: 0, y: 0, width: 400, height: 300 })).toMatchObject({ ok: true });
+
+    const second = await service.openTab(first.data.sessionId, "https://tabs.example.com/two");
+    if (!second.ok) throw new Error("open tab failed");
+    expect(second.data.sessionId).not.toBe(first.data.sessionId);
+    expect(views).toHaveLength(2);
+    expect(views[1]?.calls).toContain("load:https://tabs.example.com/two");
+    // The surface's view moved to the new tab, at the same place.
+    expect(views[0]?.calls.at(-1)).toBe("detach");
+    expect(views[1]?.calls).toContain("attach");
+    expect(service.sessionIdForRef(page.ref)).toBe(second.data.sessionId);
+    expect(shown.at(-1)).toBe(second.data.sessionId);
+
+    const state = service.pageState(first.data.sessionId);
+    expect(state?.tabs.tabs.map((tab) => tab.id)).toEqual(["t1", "t2"]);
+    expect(state?.tabs.active).toBe("t2");
+    expect(state?.tabs.tabs[0]).toMatchObject({ title: "Home", loading: false });
+    expect(state?.tabs.tabs[1]).toMatchObject({ url: "https://tabs.example.com/two", loading: true });
+
+    expect(service.activateTab(second.data.sessionId, "t1" as never)).toMatchObject({ ok: true, data: { sessionId: first.data.sessionId } });
+    expect(service.sessionIdForRef(page.ref)).toBe(first.data.sessionId);
+    expect(service.tabSessionId(first.data.sessionId, "t2" as never)).toEqual({ ok: true, data: second.data.sessionId });
+
+    // Closing a tab ends its view; the last one stays.
+    expect(service.closeTab(first.data.sessionId, "t2" as never)).toMatchObject({ ok: true, data: { sessionId: first.data.sessionId } });
+    expect(views[1]?.destroyed).toBe(true);
+    expect(service.closeTab(first.data.sessionId, "t1" as never)).toMatchObject({ ok: false, code: "invalid" });
+    expect(service.closeTab(first.data.sessionId, "t2" as never)).toMatchObject({ ok: false, code: "not_found" });
+    // A closed tab's id is never minted again.
+    const third = await service.openTab(first.data.sessionId);
+    if (!third.ok) throw new Error("open tab failed");
+    expect(service.pageState(first.data.sessionId)?.tabs.tabs.map((tab) => tab.id)).toEqual(["t1", "t3"]);
+  });
+
+  it("takes over every tab of a page at once", async () => {
+    const { service, views } = makeDefaultService();
+    const page = target("tabs-held");
+    const first = await service.open(page);
+    if (!first.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(first.data.sessionId);
+    expect(await service.openForOwner("job-a", page)).toMatchObject({ ok: true });
+    const second = await service.openTab(first.data.sessionId, undefined, false);
+    if (!second.ok) throw new Error("open tab failed");
+    views[1]?.events.onOperatorInput();
+    expect(service.drivingFor(first.data.sessionId)?.control.kind).toBe("operator-held");
+    expect(await service.evalForOwner("job-a", first.data.sessionId, "1")).toMatchObject({ ok: false, code: "operator_holds" });
+  });
+
   it("aborting navigation destroys its view and invalidates its rotated sessionId", async () => {
     const { service, views } = makeDefaultService();
     const opened = await service.open(target("nav-abort"));

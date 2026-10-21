@@ -16,6 +16,14 @@ import {
 } from "@shared/browser";
 import type { Rect } from "@shared/page-box";
 import { admitSeat, initialPageDriving, reducePageDriving, type PageDriving } from "@shared/page-driver";
+import type { BrowserTabId } from "@shared/browser-tab";
+import {
+  initialPageTabs,
+  reducePageTabs,
+  type BrowserTab,
+  type PageTabs,
+  type PageTabsResult,
+} from "@shared/page-tabs";
 import {
   BROWSER_CAPTURE_TIMEOUT_MS,
   BROWSER_EVAL_TIMEOUT_MS,
@@ -242,6 +250,24 @@ interface GuestHold {
   readonly admitsTopLevel: BrowserGuestTopLevelGuard | undefined;
 }
 
+/**
+ * A page the operator has open: its tabs, each one view, and who drives it.
+ * Kept after the page's last view goes, so a tab id is never minted twice.
+ */
+interface PageRecord {
+  tabs: PageTabs;
+  driving: PageDriving;
+}
+
+/** What the page's chrome paints: its tabs, live, and who drives it. */
+export interface BrowserPageState {
+  readonly tabs: PageTabs;
+  readonly driving: PageDriving;
+}
+
+/** A view's place: one per tab of a page. */
+const tabSlot = (ref: string, tab: BrowserTabId): string => `${ref}\0${tab}`;
+
 interface SessionEntry {
   /** The operator's UI: every page view is one shared live view. */
   readonly owner: string;
@@ -250,8 +276,10 @@ interface SessionEntry {
    * grant, checked per action; ending a guest's hold never ends the view.
    */
   readonly guests: Map<string, GuestHold>;
-  /** Shared with the seats, or held by the operator, who took it over. */
-  driving: PageDriving;
+  /** The page's tab this view is. */
+  readonly tab: BrowserTabId;
+  /** Where the surface last placed the view, so a tab switch can place the next. */
+  bounds: BrowserSurfaceBounds | undefined;
   sessionId: string;
   readonly ref: string;
   readonly nodeId: string;
@@ -605,7 +633,10 @@ export type BrowserTargetRevalidator = () => Promise<PageTargetResult>;
 export class BrowserSessionService {
   private static readonly MAX_STOP_RECEIPTS = 1_024;
   private readonly sessions = new Map<string, SessionEntry>();
+  /** Owner, then tab slot (page ref and tab), to the view's current session. */
   private readonly sessionIdByOwnerRef = new Map<string, Map<string, string>>();
+  private readonly pages = new Map<string, PageRecord>();
+  private readonly pageListeners = new Set<(ref: string) => void>();
   private readonly pendingOpenByOwnerRef = new Map<string, Map<string, PendingOpen>>();
   private readonly ownerEpochs = new Map<string, number>();
   private readonly refEpochs = new Map<string, number>();
@@ -966,7 +997,7 @@ export class BrowserSessionService {
    * or no seat does, the ordinary browser policy alone decides.
    */
   private admitsTopLevel(entry: SessionEntry, url: string, byPage: boolean): boolean {
-    if (entry.driving.control.kind === "operator-held") {
+    if (this.drivingOf(entry).control.kind === "operator-held") {
       // A seat's step asked before the operator took over must not land after:
       // the first start while it is pending is that step, and is refused.
       if (entry.stepPending !== undefined && entry.stepOwner !== entry.owner) {
@@ -991,38 +1022,42 @@ export class BrowserSessionService {
   /** A guest acting while the operator holds the page is refused. */
   private guestRefusal(entry: SessionEntry, owner: string): BrowserResultErr | undefined {
     if (owner === entry.owner) return undefined;
-    const admission = admitSeat(entry.driving);
+    const admission = admitSeat(this.drivingOf(entry));
     return admission.ok
       ? undefined
       : err("operator_holds", "the operator has taken this page over");
   }
 
   /**
-   * The operator takes the page over: from now every seat action is refused
-   * until release, and a seat operation already running is ended. The seats
-   * keep their holds, so release resumes them without a new admission.
+   * The operator takes the page over, every tab of it: from now every seat
+   * action is refused until release, and a seat operation already running is
+   * ended. The seats keep their holds, so release resumes them without a new
+   * admission.
    */
   private takeOverEntry(entry: SessionEntry): void {
-    if (!this.isCurrent(entry) || entry.driving.control.kind === "operator-held") return;
-    entry.driving = reducePageDriving(entry.driving, { kind: "take-over", at: this.now() });
-    // A seat's step not yet started: ask the view to drop it. admitsTopLevel
-    // refuses it should it start anyway.
-    if (entry.stepPending !== undefined && entry.stepOwner !== entry.owner) entry.view.stopLoading?.();
-    const operation = entry.activeOperation;
-    if (operation !== undefined && operation.owner !== entry.owner) {
-      this.failGuestOperation(
-        entry,
-        operation,
-        new BrowserOperationFailure("operator_holds", `${operation.kind} ended: the operator took the page over`),
+    const page = this.pages.get(entry.ref);
+    if (!this.isCurrent(entry) || page === undefined || page.driving.control.kind === "operator-held") return;
+    page.driving = reducePageDriving(page.driving, { kind: "take-over", at: this.now() });
+    for (const tab of this.pageEntries(entry.ref)) {
+      // A seat's step not yet started: ask the view to drop it. admitsTopLevel
+      // refuses it should it start anyway.
+      if (tab.stepPending !== undefined && tab.stepOwner !== tab.owner) tab.view.stopLoading?.();
+      const operation = tab.activeOperation;
+      if (operation !== undefined && operation.owner !== tab.owner) {
+        this.failGuestOperation(
+          tab,
+          operation,
+          new BrowserOperationFailure("operator_holds", `${operation.kind} ended: the operator took the page over`),
+        );
+      }
+      // A seat waiting on a navigation the operator now drives stops waiting.
+      this.settleNavigationWaiters(
+        tab,
+        (waiter) => waiter.owner !== tab.owner,
+        err("operator_holds", "the operator has taken this page over"),
       );
     }
-    // A seat waiting on a navigation the operator now drives stops waiting.
-    this.settleNavigationWaiters(
-      entry,
-      (waiter) => waiter.owner !== entry.owner,
-      err("operator_holds", "the operator has taken this page over"),
-    );
-    this.emit(entry);
+    this.notifyPage(entry.ref);
   }
 
   /** The operator takes the page over (UI owner only). */
@@ -1037,22 +1072,219 @@ export class BrowserSessionService {
   release(sessionId: string): BrowserResult<BrowserSessionInfo> {
     const entry = this.entryForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
-    if (entry.driving.control.kind === "operator-held") {
+    const page = this.pages.get(entry.ref);
+    if (page !== undefined && page.driving.control.kind === "operator-held") {
       // A page no seat may act on cannot be handed back; once shared it would
       // refuse even the operator's own reload.
-      entry.driving = reducePageDriving(entry.driving, { kind: "release", at: this.now() });
-      if (!this.withinHolderGrants(entry, entry.currentUrl ?? entry.url)) {
-        entry.driving = reducePageDriving(entry.driving, { kind: "take-over", at: this.now() });
+      const outside = this.pageEntries(entry.ref).some(
+        (tab) => !this.withinHolderGrants(tab, tab.currentUrl ?? tab.url),
+      );
+      if (outside) {
         return err("invalid", "the page is outside a seat's grant; go back within it to hand it back");
       }
-      this.emit(entry);
+      page.driving = reducePageDriving(page.driving, { kind: "release", at: this.now() });
+      this.notifyPage(entry.ref);
     }
     return { ok: true, data: this.info(entry) };
   }
 
   /** Who drives the page: shared with its seats, or held by the operator. */
   drivingFor(sessionId: string): PageDriving | undefined {
-    return this.entryForOwner(BROWSER_UI_SESSION_OWNER, sessionId)?.driving;
+    const entry = this.entryForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
+    return entry === undefined ? undefined : this.drivingOf(entry);
+  }
+
+  /** Said whenever a page's tabs, views or driving change, with its ref. */
+  subscribePages(listener: (ref: string) => void): () => void {
+    this.pageListeners.add(listener);
+    return () => {
+      this.pageListeners.delete(listener);
+    };
+  }
+
+  /** The page's tabs, live from their views, and who drives it. Any tab's session names it. */
+  pageState(sessionId: string): BrowserPageState | undefined {
+    const entry = this.entryForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
+    const page = entry === undefined ? undefined : this.pages.get(entry.ref);
+    if (entry === undefined || page === undefined) return undefined;
+    const live = (tab: BrowserTab): BrowserTab => {
+      const view = this.tabEntry(entry.ref, tab.id);
+      if (view === undefined) return tab;
+      let history: BrowserHistory = { canGoBack: false, canGoForward: false };
+      try {
+        history = view.view.history?.() ?? history;
+      } catch {
+        // A view that cannot answer steps nowhere.
+      }
+      return {
+        id: tab.id,
+        url: view.url,
+        title: view.machine.title ?? "",
+        loading: view.machine.state === "loading",
+        canGoBack: history.canGoBack,
+        canGoForward: history.canGoForward,
+      };
+    };
+    const [first, ...rest] = page.tabs.tabs;
+    return {
+      tabs: { ...page.tabs, tabs: [live(first), ...rest.map(live)] },
+      driving: page.driving,
+    };
+  }
+
+  /** The session of a named tab of the page, or of its active tab. */
+  tabSessionId(sessionId: string, tab?: BrowserTabId): BrowserResult<string> {
+    const entry = this.entryForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
+    const page = entry === undefined ? undefined : this.pages.get(entry.ref);
+    if (entry === undefined || page === undefined) return err("not_found", `no session for ${sessionId}`);
+    const named = tab ?? page.tabs.active;
+    const view = this.tabEntry(entry.ref, named);
+    return view === undefined ? err("not_found", `no tab ${named} on this page`) : { ok: true, data: view.sessionId };
+  }
+
+  /**
+   * The operator opens a tab on the page, at `url` or the page's own address,
+   * and shows it unless asked not to. Seats hold none of it until they join.
+   */
+  openTab(
+    sessionId: string,
+    url?: string,
+    activate = true,
+  ): Promise<BrowserResult<BrowserSessionInfo>> {
+    return this.runUiOperation("open", async () => {
+      const entry = this.entryForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
+      const page = entry === undefined ? undefined : this.pages.get(entry.ref);
+      if (entry === undefined || page === undefined) return err("not_found", `no session for ${sessionId}`);
+      const start = url ?? entry.targetUrl;
+      if (!isUtf8WithinLimit(start, BROWSER_MAX_URL_BYTES)) {
+        return err("invalid", "navigation URL exceeds the hard limit");
+      }
+      if (!this.targetAdmission(start) || exactBrowserUrl(start) === undefined) {
+        return err("forbidden", `url not allowed (http/https only): ${start}`);
+      }
+      const opened = this.applyTabs(page, { kind: "open", url: start, activate: false });
+      if (!opened.ok) return this.tabRefusal(opened);
+      const target: ResolvedPageTarget = {
+        ref: entry.ref,
+        nodeId: entry.nodeId,
+        url: entry.targetUrl,
+        profile: entry.profile,
+      };
+      const profileSnapshot = this.profileGate.snapshot(target.profile);
+      if (profileSnapshot === undefined) {
+        this.applyTabs(page, { kind: "close", tab: opened.tab });
+        return err("forbidden", "browser profile is unavailable");
+      }
+      const created = await this.openResolved(
+        BROWSER_UI_SESSION_OWNER,
+        this.ownerEpoch(BROWSER_UI_SESSION_OWNER),
+        profileSnapshot,
+        target,
+        this.refEpoch(target.ref),
+        undefined,
+        undefined,
+        { tab: opened.tab, url: start },
+      );
+      if (!created.ok) {
+        this.applyTabs(page, { kind: "close", tab: opened.tab });
+        this.notifyPage(target.ref);
+        return created;
+      }
+      if (activate) this.activateTabOf(target.ref, opened.tab);
+      this.notifyPage(target.ref);
+      return created;
+    });
+  }
+
+  /** The operator closes one tab; its view ends. The page's last tab cannot close. */
+  closeTab(sessionId: string, tab: BrowserTabId): BrowserResult<BrowserSessionInfo> {
+    const entry = this.entryForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
+    const page = entry === undefined ? undefined : this.pages.get(entry.ref);
+    if (entry === undefined || page === undefined) return err("not_found", `no session for ${sessionId}`);
+    const closing = this.tabEntry(entry.ref, tab);
+    const closed = reducePageTabs(page.tabs, { kind: "close", tab });
+    if (!closed.ok) return this.tabRefusal(closed);
+    // Show the next tab first, where the closing one was.
+    if (page.tabs.active === tab) this.activateTabOf(entry.ref, closed.state.active);
+    page.tabs = closed.state;
+    if (closing !== undefined) this.destroySession(closing.sessionId);
+    this.notifyPage(entry.ref);
+    const shown = this.tabEntry(entry.ref, page.tabs.active);
+    return shown === undefined
+      ? err("not_found", `no tab ${page.tabs.active} on this page`)
+      : { ok: true, data: this.info(shown) };
+  }
+
+  /** The operator shows another tab of the page in its surface. */
+  activateTab(sessionId: string, tab: BrowserTabId): BrowserResult<BrowserSessionInfo> {
+    const entry = this.entryForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
+    if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
+    const page = this.pages.get(entry.ref);
+    if (page === undefined) return err("not_found", `no session for ${sessionId}`);
+    if (!page.tabs.tabs.some((candidate) => candidate.id === tab)) {
+      return err("not_found", `no tab ${tab} on this page`);
+    }
+    const shown = this.activateTabOf(entry.ref, tab);
+    return shown === undefined
+      ? err("not_found", `no tab ${tab} on this page`)
+      : { ok: true, data: this.info(shown) };
+  }
+
+  /**
+   * Make `tab` the page's active tab: the surface's view moves to it, at the
+   * same place, and the surface hears the new tab's session.
+   */
+  private activateTabOf(ref: string, tab: BrowserTabId): SessionEntry | undefined {
+    const page = this.pages.get(ref);
+    const next = this.tabEntry(ref, tab);
+    if (page === undefined || next === undefined) return undefined;
+    const previous = page.tabs.active === tab ? undefined : this.tabEntry(ref, page.tabs.active);
+    const activated = reducePageTabs(page.tabs, { kind: "activate", tab });
+    if (!activated.ok) return undefined;
+    page.tabs = activated.state;
+    const bounds = previous?.attached === true ? previous.bounds : undefined;
+    if (previous !== undefined && previous.attached) {
+      try {
+        previous.view.detach();
+        previous.attached = false;
+        this.reduceCurrent(previous, { type: "detach" });
+      } catch {
+        // The adapter keeps reporting it attached; the surface will retry.
+      }
+    }
+    if (bounds !== undefined && !next.attached) {
+      try {
+        next.view.attach(bounds);
+        next.attached = true;
+        next.bounds = bounds;
+        this.reduceCurrent(next, { type: "reattach" });
+      } catch {
+        // The surface's next bounds push attaches it.
+      }
+    }
+    next.lastActiveAt = this.now();
+    this.emit(next);
+    return next;
+  }
+
+  private applyTabs(page: PageRecord, event: Parameters<typeof reducePageTabs>[1]): PageTabsResult {
+    const result = reducePageTabs(page.tabs, event);
+    if (result.ok) page.tabs = result.state;
+    return result;
+  }
+
+  private tabRefusal(result: Extract<PageTabsResult, { ok: false }>): BrowserResultErr {
+    const refusal = result.refusal;
+    switch (refusal.kind) {
+      case "no_such_tab":
+        return err("not_found", `no tab ${refusal.tab} on this page`);
+      case "last_tab":
+        return err("invalid", "a page keeps its last tab; stop the page to close it");
+      case "too_many_tabs":
+        return err("resource_exhausted", `a page holds at most ${refusal.limit} tabs`);
+      case "bad_index":
+        return err("invalid", `no place ${refusal.index} among the tabs`);
+    }
   }
 
   private acquireOperation(
@@ -1254,16 +1486,17 @@ export class BrowserSessionService {
   private isCurrent(entry: SessionEntry): boolean {
     return (
       this.sessions.get(entry.sessionId) === entry &&
-      this.ownerRefSessions(entry.owner)?.get(entry.ref) === entry.sessionId
+      this.ownerRefSessions(entry.owner)?.get(tabSlot(entry.ref, entry.tab)) === entry.sessionId
     );
   }
 
   private emit(entry: SessionEntry): void {
     const info = this.info(entry);
-    // UI surface: only the UI-owned warm session (renderer dock).
-    if (entry.owner === BROWSER_UI_SESSION_OWNER && this.isCurrent(entry)) {
+    // UI surface: only the UI-owned warm session of the page's active tab.
+    if (entry.owner === BROWSER_UI_SESSION_OWNER && this.isCurrent(entry) && this.isActiveTab(entry)) {
       this.sink?.(info);
     }
+    if (entry.owner === BROWSER_UI_SESSION_OWNER) this.notifyPage(entry.ref);
     // Kernel page→relay watch and other internal listeners: every owner.
     if (this.sessionListeners.size > 0) {
       for (const listener of this.sessionListeners) {
@@ -1366,16 +1599,75 @@ export class BrowserSessionService {
 
   private register(entry: SessionEntry): void {
     this.sessions.set(entry.sessionId, entry);
-    this.ownerRefSessions(entry.owner, true).set(entry.ref, entry.sessionId);
+    this.ownerRefSessions(entry.owner, true).set(tabSlot(entry.ref, entry.tab), entry.sessionId);
   }
 
   private unregister(entry: SessionEntry): void {
     if (this.sessions.get(entry.sessionId) === entry) this.sessions.delete(entry.sessionId);
     const refs = this.ownerRefSessions(entry.owner);
-    if (refs?.get(entry.ref) === entry.sessionId) {
-      refs.delete(entry.ref);
-      if (refs.size === 0) this.sessionIdByOwnerRef.delete(entry.owner);
+    const slot = tabSlot(entry.ref, entry.tab);
+    if (refs?.get(slot) !== entry.sessionId) return;
+    refs.delete(slot);
+    if (refs.size === 0) this.sessionIdByOwnerRef.delete(entry.owner);
+    this.tabViewEnded(entry);
+  }
+
+  /**
+   * A tab's view went. Another tab of the page closes with it, and the page
+   * shows its new active tab; the page's last tab stays, to reopen in place,
+   * and the operator's hold ends with the page's last view.
+   */
+  private tabViewEnded(entry: SessionEntry): void {
+    const page = this.pages.get(entry.ref);
+    if (page === undefined) return;
+    const wasActive = page.tabs.active === entry.tab;
+    const closed = reducePageTabs(page.tabs, { kind: "close", tab: entry.tab });
+    if (closed.ok) {
+      page.tabs = closed.state;
+      if (wasActive) {
+        const next = this.tabEntry(entry.ref, page.tabs.active);
+        if (next !== undefined) this.emit(next);
+      }
+    } else if (closed.refusal.kind === "last_tab") {
+      page.driving = initialPageDriving;
     }
+    this.notifyPage(entry.ref);
+  }
+
+  /** The operator's page record, made on its first view. */
+  private pageRecord(ref: string, url: string): PageRecord {
+    const existing = this.pages.get(ref);
+    if (existing !== undefined) return existing;
+    const created: PageRecord = { tabs: initialPageTabs(url), driving: initialPageDriving };
+    this.pages.set(ref, created);
+    return created;
+  }
+
+  private drivingOf(entry: SessionEntry): PageDriving {
+    return this.pages.get(entry.ref)?.driving ?? initialPageDriving;
+  }
+
+  /** The live view of one tab of a page, if it has one. */
+  private tabEntry(ref: string, tab: BrowserTabId): SessionEntry | undefined {
+    const sessionId = this.ownerRefSessions(BROWSER_UI_SESSION_OWNER)?.get(tabSlot(ref, tab));
+    const entry = sessionId === undefined ? undefined : this.sessions.get(sessionId);
+    return entry !== undefined && this.isCurrent(entry) ? entry : undefined;
+  }
+
+  /** Every live tab view of a page. */
+  private pageEntries(ref: string): ReadonlyArray<SessionEntry> {
+    const page = this.pages.get(ref);
+    if (page === undefined) return [];
+    return page.tabs.tabs.flatMap((tab) => this.tabEntry(ref, tab.id) ?? []);
+  }
+
+  private isActiveTab(entry: SessionEntry): boolean {
+    const page = this.pages.get(entry.ref);
+    return page === undefined || page.tabs.active === entry.tab;
+  }
+
+  private notifyPage(ref: string): void {
+    for (const listener of this.pageListeners) listener(ref);
   }
 
   private mintSessionId(): BrowserResult<string> {
@@ -1419,7 +1711,7 @@ export class BrowserSessionService {
     entry.currentOrigin = exactBrowserOrigin(url);
     entry.url = clampUtf8Bytes(url, BROWSER_MAX_METADATA_BYTES);
     this.sessions.set(entry.sessionId, entry);
-    this.ownerRefSessions(entry.owner, true).set(entry.ref, entry.sessionId);
+    this.ownerRefSessions(entry.owner, true).set(tabSlot(entry.ref, entry.tab), entry.sessionId);
     return minted;
   }
 
@@ -1747,14 +2039,19 @@ export class BrowserSessionService {
     refEpoch: number,
     signal?: AbortSignal,
     revalidateTarget?: BrowserTargetRevalidator,
+    /** A new tab of the page and where it starts; otherwise the page's active tab, at the page's url. */
+    newTab?: { readonly tab: BrowserTabId; readonly url: string },
   ): Promise<BrowserResult<BrowserSessionInfo>> {
     if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, target.ref, refEpoch, signal)) {
       return err("cancelled", "navigation cancelled");
     }
+    const tab = newTab?.tab ?? this.pageRecord(target.ref, target.url).tabs.active;
+    const startUrl = newTab?.url ?? target.url;
+    const slot = tabSlot(target.ref, tab);
     const ownerRefs = this.ownerRefSessions(owner);
-    const existingId = ownerRefs?.get(target.ref);
+    const existingId = ownerRefs?.get(slot);
     const existing = existingId === undefined ? undefined : this.sessions.get(existingId);
-    if (existingId !== undefined && existing === undefined) ownerRefs?.delete(target.ref);
+    if (existingId !== undefined && existing === undefined) ownerRefs?.delete(slot);
     if (existing !== undefined && isWarmBrowserSession(existing.machine.state)) {
       const currentTarget: ResolvedPageTarget = {
         ref: existing.ref,
@@ -1831,13 +2128,14 @@ export class BrowserSessionService {
       nodeId: target.nodeId,
       profile: target.profile,
       targetUrl: target.url,
-      currentUrl: exactBrowserUrl(target.url),
-      currentOrigin: exactBrowserOrigin(target.url),
-      url: clampUtf8Bytes(target.url, BROWSER_MAX_METADATA_BYTES),
+      currentUrl: exactBrowserUrl(startUrl),
+      currentOrigin: exactBrowserOrigin(startUrl),
+      url: clampUtf8Bytes(startUrl, BROWSER_MAX_METADATA_BYTES),
       machine: initialBrowserSession(),
       attached: false,
       guests: new Map(),
-      driving: initialPageDriving,
+      tab,
+      bounds: undefined,
       navigationInFlight: undefined,
       stepPending: undefined,
       stepOwner: undefined,
@@ -1887,7 +2185,7 @@ export class BrowserSessionService {
       }
       entry.navigationInFlight = entry.sessionId;
       this.reduceCurrent(entry, { type: "open" });
-      const loading = entry.view.loadUrl(target.url, entry.sessionId);
+      const loading = entry.view.loadUrl(startUrl, entry.sessionId);
       this.trackViewLoad("open", loading);
       if (owner === BROWSER_UI_SESSION_OWNER) {
         this.trackUiNavigation("open", entry.sessionId);
@@ -2121,10 +2419,12 @@ export class BrowserSessionService {
         // so a failed attach cannot leave `attached` claiming a view that
         // never composited.
         entry.attached = true;
+        entry.bounds = bounds;
         this.reduceCurrent(entry, { type: "reattach" });
         this.emit(entry);
       } else {
         entry.view.setBounds(bounds);
+        if (!parking) entry.bounds = bounds;
       }
       return { ok: true, data: this.info(entry) };
     } catch (error) {
@@ -2463,9 +2763,11 @@ export class BrowserSessionService {
   }
 
   sessionIdForRefForOwner(owner: string, ref: string): string | undefined {
+    const page = this.pages.get(ref);
     const sessionId =
-      this.ownerRefSessions(owner)?.get(ref) ??
-      this.ownerRefSessions(BROWSER_UI_SESSION_OWNER)?.get(ref);
+      page === undefined
+        ? undefined
+        : this.ownerRefSessions(BROWSER_UI_SESSION_OWNER)?.get(tabSlot(ref, page.tabs.active));
     return sessionId !== undefined && this.entryForOwner(owner, sessionId) !== undefined
       ? sessionId
       : undefined;
@@ -2497,12 +2799,10 @@ export class BrowserSessionService {
       seen.add(key);
       live.push({ owner, sessionId });
     };
-    for (const [owner, refs] of this.sessionIdByOwnerRef) {
-      const sessionId = refs.get(ref);
-      if (sessionId === undefined) continue;
-      const entry = this.entryForOwner(owner, sessionId);
-      if (entry !== undefined) push(owner, sessionId);
-    }
+    // The page's active tab first: a single answer names what the operator sees.
+    const page = this.pages.get(ref);
+    const active = page === undefined ? undefined : this.tabEntry(ref, page.tabs.active);
+    if (active !== undefined) push(active.owner, active.sessionId);
     for (const entry of this.sessions.values()) {
       if (!this.isCurrent(entry) || entry.ref !== ref) continue;
       push(entry.owner, entry.sessionId);
