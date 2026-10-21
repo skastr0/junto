@@ -309,12 +309,13 @@ export const CrewRepositoryLive = Layer.effect(
         const result = yield* unjournaledWorkMutationEffect(
           "crew.review-verdict",
           sql`
+        -- A crew verdict is always a seat's (migration 33's reviewer_kind).
         INSERT OR IGNORE INTO work_review_verdicts(
-          verdict_id, kind, reviewer_seat_id, reviewer_node_id, author_seat_id,
+          verdict_id, kind, reviewer_kind, reviewer_seat_id, reviewer_node_id, author_seat_id,
           subject_kind, subject_task_installation, subject_task_canvas, subject_task_node,
           subject_task_item, subject_epoch, subject_sha, subject_checkout, subject_hash,
           epoch, findings_json, refs_json, posted_at_ms
-        ) VALUES (${verdict.verdictId}, ${verdict.kind}, ${verdict.reviewerSeatId},
+        ) VALUES (${verdict.verdictId}, ${verdict.kind}, ${"seat"}, ${verdict.reviewerSeatId},
           ${verdict.reviewerNodeId ?? null}, ${verdict.authorSeatId}, ${subject.kind},
           ${subject.kind === "task" ? subject.installationId : null},
           ${subject.kind === "task" ? subject.canvasName : null},
