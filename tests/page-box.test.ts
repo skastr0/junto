@@ -60,7 +60,8 @@ describe("page box geometry", () => {
     expect(decodePageViewport(null)).toBeUndefined();
     expect(decodePageViewport({ ...viewport, width: 0 })).toBeUndefined();
     expect(decodePageViewport({ ...viewport, height: Number.NaN })).toBeUndefined();
-    expect(decodePageViewport({ ...viewport, scroll: { x: -1, y: 0 } })).toBeUndefined();
+    expect(decodePageViewport({ ...viewport, scroll: { x: -240, y: 0 } })).toEqual({ ...viewport, scroll: { x: -240, y: 0 } });
+    expect(decodePageViewport({ ...viewport, scroll: { x: 0, y: -1 } })).toBeUndefined();
     expect(decodePageViewport({ ...viewport, scroll: "0,0" })).toBeUndefined();
     expect(decodePageViewport({ ...viewport, devicePixelRatio: 0 })).toBeUndefined();
     expect(decodePageViewport({ ...viewport, devicePixelRatio: 9 })).toBeUndefined();

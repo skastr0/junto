@@ -33,6 +33,7 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { StateEngine } from "../src/main/junto/state/service";
 import { BrowserProfileGate } from "../src/main/junto/browser/profile-gate";
 import {
+  BROWSER_STEP_START_MS,
   BrowserOwnerSessionTeardownFailure,
   BrowserSessionService,
   type BrowserViewAdapter,
@@ -2958,8 +2959,35 @@ describe("BrowserSessionService", () => {
       view.history = { canGoBack: true, canGoForward: false };
       expect(service.history(sessionId)).toEqual({ ok: true, data: { canGoBack: true, canGoForward: false } });
       expect(service.traverse(sessionId, "back")).toMatchObject({ ok: true, data: { sessionId } });
+      expect(view.calls.filter((call) => call.startsWith("traverse:"))).toEqual(["traverse:back"]);
+    });
+
+    it("counts the page as navigating from a step until its navigation starts", async () => {
+      const { service, view, sessionId } = await settled("history-pending");
       expect(service.traverse(sessionId, "reload")).toMatchObject({ ok: true });
-      expect(view.calls.filter((call) => call.startsWith("traverse:"))).toEqual(["traverse:back", "traverse:reload"]);
+      // Electron starts the reload's navigation later; nothing may overlap it.
+      expect(service.traverse(sessionId, "reload")).toMatchObject({ ok: false, code: "invalid" });
+      expect(service.goto(sessionId, "https://elsewhere.example.com")).toMatchObject({ ok: false, code: "invalid" });
+      expect(await service.eval(sessionId, "1")).toMatchObject({ ok: false, code: "invalid" });
+      expect(await service.screenshot(sessionId)).toMatchObject({ ok: false, code: "invalid" });
+      const next = view.events.onNavigationStart({ url: "https://history-pending.example.com", isSameDocument: false });
+      view.events.onLoadOk(next!);
+      expect(service.traverse(next!, "reload")).toMatchObject({ ok: true });
+      expect(view.calls.filter((call) => call.startsWith("traverse:"))).toEqual(["traverse:reload", "traverse:reload"]);
+    });
+
+    it("frees the page when a step starts no navigation, without ending the session", async () => {
+      const { service, view, sessionId } = await settled("history-lapse");
+      vi.useFakeTimers();
+      try {
+        expect(service.traverse(sessionId, "reload")).toMatchObject({ ok: true });
+        await vi.advanceTimersByTimeAsync(BROWSER_STEP_START_MS);
+        expect(service.state(sessionId)).toMatchObject({ ok: true, data: { sessionId } });
+        expect(view.destroyed).toBe(false);
+        expect(service.traverse(sessionId, "reload")).toMatchObject({ ok: true });
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("a step the page started rotates the generation like any page navigation", async () => {
@@ -3017,6 +3045,16 @@ describe("BrowserSessionService", () => {
       const state = service.state(sessionId);
       if (!state.ok) throw new Error("state failed");
       expect(state.data.title).toBe(clampUtf8Bytes("t".repeat(BROWSER_MAX_TITLE_BYTES + 10), BROWSER_MAX_TITLE_BYTES));
+    });
+
+    it("ignores a rename while a load runs; the load's completion names the page", async () => {
+      const { service, view, sessionId } = await settled("history-title-load");
+      const navigated = service.goto(sessionId, "https://next.example.com");
+      if (!navigated.ok) throw new Error("goto failed");
+      view.events.onTitle(navigated.data.sessionId, "Old page leaving");
+      expect(service.state(navigated.data.sessionId)).not.toMatchObject({ data: { title: "Old page leaving" } });
+      view.events.onLoadOk(navigated.data.sessionId, "Next");
+      expect(service.state(navigated.data.sessionId)).toMatchObject({ ok: true, data: { title: "Next" } });
     });
   });
 });

@@ -465,10 +465,20 @@ const makeElectronViewAdapter = (
 
   view.webContents.on("did-start-navigation", (details) => {
     if (!details.isMainFrame) return;
+    const normalizedUrl = normalizeUrl(details.url);
+    // History steps and reloads never pass will-frame-navigate, so a pinned
+    // view refuses an off-origin start here, before it can commit.
+    if (
+      !details.isSameDocument &&
+      exactTopLevelOrigin !== undefined &&
+      !isAllowedByBrowserExactOrigin(normalizedUrl, exactTopLevelOrigin)
+    ) {
+      view.webContents.stop();
+      return;
+    }
     const previousNavigation = activeNavigation;
     const expected = expectedNavigation;
     expectedNavigation = undefined;
-    const normalizedUrl = normalizeUrl(details.url);
     const expectedSessionId = expected?.url === normalizedUrl ? expected.sessionId : undefined;
     const sessionId = events.onNavigationStart({
       url: normalizedUrl,

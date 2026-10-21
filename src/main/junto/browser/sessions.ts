@@ -37,11 +37,6 @@ import {
   isValidBrowserSessionId,
 } from "@shared/browser-limits";
 import type { BrowserSessionInfo, BrowserSurfaceBounds } from "@shared/ipc";
-import {
-  mergePageLoadStatus,
-  pageLoadMapKey,
-  type PageLoadStatus,
-} from "@shared/scheduler-effects";
 import { parseNodeRef } from "@shared/node-ref";
 import type { PageTargetResult, ResolvedPageTarget } from "./page-target";
 import type { BrowserProfileServiceApi } from "./profiles";
@@ -142,6 +137,8 @@ export interface BrowserResultErr {
 export type BrowserResult<T> = BrowserResultOk<T> | BrowserResultErr;
 
 export const BROWSER_PROFILE_VIEW_DESTROY_TIMEOUT_MS = 5_000;
+/** How long a history step may take to start its navigation before the page is free again. */
+export const BROWSER_STEP_START_MS = 2_000;
 export const BROWSER_UI_SHUTDOWN_DRAIN_TIMEOUT_MS = 50_000;
 
 export type BrowserUiOperationKind =
@@ -244,6 +241,12 @@ interface SessionEntry {
   machine: BrowserSessionMachine;
   attached: boolean;
   navigationInFlight: string | undefined;
+  /**
+   * A history step was asked of the view and its navigation has not started
+   * yet. Electron starts it asynchronously, so until then the page counts as
+   * navigating; the mark lapses on its own if no navigation follows.
+   */
+  stepPending: ReturnType<typeof setTimeout> | undefined;
   activeOperation: ActiveOperation | undefined;
   lastActiveAt: number;
   view: BrowserViewHandle;
@@ -724,25 +727,6 @@ export class BrowserSessionService {
     };
   }
 
-  /**
-   * Thin readiness map for kernel watch: `${canvasName}::${nodeId}` → load
-   * status from every current warm session (all owners). ready/failed from
-   * onLoadOk/onLoadFail satisfy page completes equals.
-   */
-  pageLoadSnapshot(): ReadonlyMap<string, PageLoadStatus> {
-    const out = new Map<string, PageLoadStatus>();
-    for (const entry of this.sessions.values()) {
-      if (!this.isCurrent(entry)) continue;
-      const state = entry.machine.state;
-      if (state === "destroyed") continue;
-      const parsed = parseNodeRef(entry.ref);
-      if (!parsed.ok) continue;
-      const key = pageLoadMapKey(parsed.value.canvasName, parsed.value.nodeId);
-      out.set(key, mergePageLoadStatus(out.get(key), state));
-    }
-    return out;
-  }
-
   /** Install Settings (or test fake) as the pool-limits authority. */
   setPoolLimitsProvider(provider: () => Promise<BrowserPoolLimits>): void {
     this.poolLimits = provider;
@@ -1153,8 +1137,21 @@ export class BrowserSessionService {
     this.emit(entry);
   }
 
+  /** A top-level navigation is running, or a history step is about to start one. */
+  private navigationBusy(entry: SessionEntry): boolean {
+    return entry.navigationInFlight !== undefined || entry.stepPending !== undefined;
+  }
+
+  private clearStepPending(entry: SessionEntry): void {
+    if (entry.stepPending === undefined) return;
+    clearTimeout(entry.stepPending);
+    entry.stepPending = undefined;
+  }
+
   private titleChanged(entry: SessionEntry, sessionId: string, title: string): void {
-    if (entry.sessionId !== sessionId) return;
+    // While a load runs the old document may still rename itself; the load's
+    // own completion carries the new page's title.
+    if (entry.sessionId !== sessionId || entry.navigationInFlight !== undefined) return;
     this.reduceCurrent(entry, { type: "titled", title: clampUtf8Bytes(title, BROWSER_MAX_TITLE_BYTES) });
   }
 
@@ -1229,6 +1226,7 @@ export class BrowserSessionService {
     if (this.uiShutdownClosedAt !== undefined) {
       return undefined;
     }
+    this.clearStepPending(entry);
     if (event.isSameDocument) {
       this.updateGenerationUrl(entry, entry.sessionId, event.url);
       return entry.sessionId;
@@ -1581,6 +1579,7 @@ export class BrowserSessionService {
       machine: initialBrowserSession(),
       attached: false,
       navigationInFlight: undefined,
+      stepPending: undefined,
       activeOperation: undefined,
       lastActiveAt: this.now(),
       view: undefined as unknown as BrowserViewHandle,
@@ -1702,7 +1701,7 @@ export class BrowserSessionService {
     if (nextExactUrl === undefined || nextOrigin === undefined) {
       return err("forbidden", `url has no exact browser origin: ${url}`);
     }
-    if (entry.navigationInFlight !== undefined) {
+    if (this.navigationBusy(entry)) {
       return err("invalid", "a top-level navigation is already in flight");
     }
     entry.lastActiveAt = this.now();
@@ -1786,7 +1785,7 @@ export class BrowserSessionService {
     if (view.traverse === undefined || view.history === undefined) {
       return err("unsupported_capability", "this browser view cannot step its history");
     }
-    if (entry.navigationInFlight !== undefined) {
+    if (this.navigationBusy(entry)) {
       return err("invalid", "a top-level navigation is already in flight");
     }
     if (entry.activeOperation !== undefined) {
@@ -1801,6 +1800,9 @@ export class BrowserSessionService {
       }
       entry.lastActiveAt = this.now();
       view.traverse(step);
+      entry.stepPending = setTimeout(() => {
+        entry.stepPending = undefined;
+      }, BROWSER_STEP_START_MS);
     } catch (error) {
       return err("failed", error instanceof Error ? error.message : String(error));
     }
@@ -2042,7 +2044,7 @@ export class BrowserSessionService {
   ): Promise<BrowserResult<{ result: unknown }>> {
     const entry = this.entryForOwner(owner, sessionId);
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
-    if (entry.navigationInFlight !== undefined) {
+    if (this.navigationBusy(entry)) {
       return err("invalid", "cannot evaluate while top-level navigation is in flight");
     }
     if (!isUtf8WithinLimit(code, BROWSER_MAX_EVAL_CODE_BYTES)) {
@@ -2088,7 +2090,7 @@ export class BrowserSessionService {
   ): Promise<BrowserResult<{ png: Uint8Array }>> {
     const entry = this.entryForOwner(owner, sessionId);
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
-    if (entry.navigationInFlight !== undefined) {
+    if (this.navigationBusy(entry)) {
       return err("invalid", "cannot capture while top-level navigation is in flight");
     }
     if (entry.view.capturePagePng === undefined) {
@@ -2600,6 +2602,7 @@ export class BrowserSessionService {
     const entry = this.sessions.get(sessionId);
     if (entry === undefined) return;
     this.retainViewDestroyWitness(entry);
+    this.clearStepPending(entry);
     const operation = entry.activeOperation;
     if (operation !== undefined) {
       this.releaseOperation(

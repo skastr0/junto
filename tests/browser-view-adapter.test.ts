@@ -743,6 +743,16 @@ describe("electron browser view generation seam", () => {
     expect(titles).toEqual([["page-1", "Inbox (3)"]]);
   });
 
+  it("stops an off-origin start on a pinned view, which a history step would not otherwise meet", async () => {
+    const { webContents, starts } = await setup("https://example.com");
+    webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/"));
+    expect(webContents.stopCalls).toBe(1);
+    expect(starts).toEqual([]);
+    webContents.emit("did-start-navigation", navigation("https://example.com/back"));
+    expect(webContents.stopCalls).toBe(1);
+    expect(starts).toHaveLength(1);
+  });
+
   it("captures a box in CSS pixels and reads the viewport in the automation world", async () => {
     const { handle, webContents } = await setup();
     await handle.capturePagePng?.();

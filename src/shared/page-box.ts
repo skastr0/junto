@@ -68,7 +68,8 @@ export const decodePageViewport = (value: unknown): PageViewport | undefined => 
   if (
     !finiteIn(width, 1, PAGE_VIEWPORT_MAX_CSS_PX) ||
     !finiteIn(height, 1, PAGE_VIEWPORT_MAX_CSS_PX) ||
-    !finiteIn(x, 0, PAGE_VIEWPORT_MAX_SCROLL_CSS_PX) ||
+    // A horizontally scrolled right-to-left page reports a negative x.
+    !finiteIn(x, -PAGE_VIEWPORT_MAX_SCROLL_CSS_PX, PAGE_VIEWPORT_MAX_SCROLL_CSS_PX) ||
     !finiteIn(y, 0, PAGE_VIEWPORT_MAX_SCROLL_CSS_PX) ||
     !finiteIn(devicePixelRatio, Number.MIN_VALUE, PAGE_VIEWPORT_MAX_DEVICE_PIXEL_RATIO)
   ) {
