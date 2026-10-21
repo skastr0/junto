@@ -339,7 +339,7 @@ export const handleArtifactOp = (
             version: entry.version,
             author: entry.author,
             at: entry.at,
-            change: entry.edit === undefined ? "create" : entry.edit.kind,
+            change: entry.edit === undefined ? "create" : entry.edit === "unrecorded" ? entry.edit : entry.edit.kind,
           })),
           more: page.more,
         } satisfies ArtifactHistoryResult;

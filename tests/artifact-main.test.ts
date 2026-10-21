@@ -21,6 +21,7 @@ import {
   type ArtifactCaller,
   type ArtifactPorts,
 } from "../src/main/junto/work/artifact-control";
+import { artifactBodyRef } from "../src/main/junto/work/artifact-repository";
 
 const at = (id: string, kind: string, x: number, y: number, extra: Record<string, unknown> = {}, width = 50, height = 50) =>
   ({ id: asNodeId(id), kind, x, y, width, height, ...extra }) as unknown as Node;
@@ -53,7 +54,7 @@ const memoryPorts = () => {
   let ruled: Ruled<ArtifactState, ArtifactFact> = emptyRuled(emptyArtifactState());
   const bodies = new Map<string, ArtifactBody>();
   const submitted: Array<ResourceCommand<ArtifactOp>> = [];
-  const domain = artifactDomain(() => 1_000);
+  const domain = artifactDomain({ now: () => 1_000, bodyRef: artifactBodyRef });
   const entries = (): ReadonlyArray<ArtifactEntry> => [...ruled.state.values()];
   const ports: ArtifactPorts = {
     nodes: (c) => [...c.nodes.values()].filter((node) => node.kind === "artifacts"),
@@ -63,7 +64,10 @@ const memoryPorts = () => {
         .filter((a) => query.nodeIds.includes(a.nodeId) && a.archived === query.archived && (query.type === undefined || a.type === query.type));
       return Effect.succeed({ artifacts: found.slice(0, query.limit), more: found.length > query.limit });
     },
-    head: (_canvas, id) => Effect.succeed(Option.fromNullishOr(ruled.state.get(id)).pipe(Option.map(({ artifact, body }) => ({ artifact, body })))),
+    head: (_canvas, id) =>
+      Effect.succeed(
+        Option.fromNullishOr(ruled.state.get(id)).pipe(Option.map(({ artifact, body }) => ({ artifact, body: body ?? bodies.get(`${id}@${artifact.version}`)! }))),
+      ),
     body: (_canvas, id, version) => Effect.succeed(Option.fromNullishOr(bodies.get(`${id}@${version}`))),
     history: () => Effect.succeed({ versions: [], more: false }),
     submit: (command, context) => {
@@ -74,7 +78,7 @@ const memoryPorts = () => {
         return Effect.succeed({ kind: "refused", opId: command.opId, error: next.ruling.error, root: next.ruling.root });
       }
       const entry = ruled.state.get(command.target.itemId!)!;
-      bodies.set(`${entry.artifact.artifactId}@${entry.artifact.version}`, entry.body);
+      if (entry.body !== null) bodies.set(`${entry.artifact.artifactId}@${entry.artifact.version}`, entry.body);
       return Effect.succeed({
         kind: "applied",
         opId: command.opId,

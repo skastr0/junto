@@ -177,8 +177,11 @@ export type ArtifactHistoryEntry = {
   readonly version: ArtifactVersion;
   readonly author: ArtifactActor;
   readonly at: number;
-  /** `create` for version 1, else the edit's kind. */
-  readonly change: "create" | "replace" | "patch";
+  /**
+   * `create` for version 1, else the edit's kind; `unrecorded` for a version
+   * that arrived without its edit (too large to travel inline).
+   */
+  readonly change: "create" | "replace" | "patch" | "unrecorded";
 };
 
 export type ArtifactHistoryResult = {

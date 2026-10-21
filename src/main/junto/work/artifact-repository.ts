@@ -9,8 +9,13 @@
  *
  * Reads never see a body they do not ask for: list reads heads, show reads
  * one version row, history reads versions without bodies.
+ *
+ * Facts name each version's body by content ref (`artifactBodyRef`). A
+ * version row keeps the body as exactly the canonical bytes that ref names,
+ * so this machine can serve a body by its ref.
  */
 
+import { createHash } from "node:crypto";
 import { Context, Effect, Layer, Option, Result, Schema } from "effect";
 import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
 import {
@@ -25,6 +30,7 @@ import {
   decodeArtifactBody,
   decodeArtifactEdit,
 } from "@shared/artifact";
+import type { ContentRef } from "@shared/content";
 import {
   ARTIFACT_REBASE_WINDOW,
   type ArtifactEntry,
@@ -44,6 +50,7 @@ import {
   commandKey,
   rule,
 } from "@shared/resource-command";
+import { canonicalJson } from "@shared/work-canonical-json";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { ItemId, OpId } from "@shared/work-ids";
 import { StateTransactionOperation } from "../state/service";
@@ -60,8 +67,12 @@ export type ArtifactVersionRead = {
   readonly version: ArtifactVersion;
   readonly author: ArtifactActor;
   readonly at: number;
-  /** Absent on version 1, the create. */
-  readonly edit?: ArtifactEdit;
+  /**
+   * Absent on version 1, the create. `unrecorded` when the version arrived
+   * without its edit (too large to ride inline): its body is whole, and no
+   * later edit rebases across it.
+   */
+  readonly edit?: ArtifactEdit | "unrecorded";
 };
 
 export type ArtifactListQuery = {
@@ -170,6 +181,7 @@ const versionOfRow = (row: VersionRow): ArtifactVersionRead | undefined => {
   if (Result.isFailure(author)) return undefined;
   const base = { version: row.version as ArtifactVersion, author: author.success, at: row.at };
   if (row.edit_json === null) return base;
+  if (row.edit_json === UNRECORDED_EDIT_JSON) return { ...base, edit: "unrecorded" };
   const edit = decodeArtifactEdit(parse(row.edit_json));
   return Result.isSuccess(edit) ? { ...base, edit: edit.success } : undefined;
 };
@@ -213,22 +225,57 @@ const unreadable = (operation: string, what: string) =>
 const actorJson = (actor: ResourceActor): string => JSON.stringify(actor);
 
 /**
+ * A body's content ref: sha256 over its canonical JSON (05, with the
+ * artifact domain). The same bytes are what a version row stores.
+ */
+export const artifactBodyRef = (body: ArtifactBody): ContentRef => {
+  const bytes = Buffer.from(canonicalJson(body), "utf8");
+  return {
+    sha256: createHash("sha256").update(bytes).digest("hex") as ContentRef["sha256"],
+    byteLength: bytes.byteLength as ContentRef["byteLength"],
+    mediaType: "application/json" as ContentRef["mediaType"],
+  };
+};
+
+/**
+ * Stands in a version row for an edit that did not travel with its fact. It
+ * never decodes as an edit, so the ruler's log stops there: a rebase barrier.
+ */
+const UNRECORDED_EDIT_JSON = '{"unrecorded":true}';
+
+/** A fact's body named by ref and not at hand: the projection cannot write its version. */
+export class ArtifactBodyMissing extends Schema.TaggedError<ArtifactBodyMissing>()("ArtifactBodyMissing", {
+  artifactId: Schema.String,
+  sha256: Schema.String,
+}) {}
+
+/**
  * The artifact domain's projection: fold applied facts into `artifact_heads`
  * and `artifact_versions`. The local ruler runs it inside its ruling's
  * transaction; a replica runs it when a received `ruling.applied` carries
- * artifact facts. The caller owns the transaction.
+ * artifact facts. The caller owns the transaction. `bodyOf` gives the body a
+ * fact names by ref when the fact does not carry it inline: the ruler's own
+ * bodies, or a replica's fetched ones.
  */
 export const projectArtifactFacts = (
   sql: SqlClient.SqlClient,
   canvas: string,
   opId: OpId,
   facts: ReadonlyArray<ArtifactFact>,
-): Effect.Effect<void, SqlError.SqlError> =>
+  bodyOf: (ref: ContentRef) => ArtifactBody | undefined,
+): Effect.Effect<void, SqlError.SqlError | ArtifactBodyMissing> =>
   Effect.gen(function* () {
+    const bodyJson = (artifactId: ItemId, ref: ContentRef, inline: ArtifactBody | undefined) => {
+      const body = inline ?? bodyOf(ref);
+      return body === undefined
+        ? Effect.fail(ArtifactBodyMissing.make({ artifactId, sha256: ref.sha256 }))
+        : Effect.succeed(canonicalJson(body));
+    };
     for (const fact of facts) {
       switch (fact.fact) {
         case "artifact.created": {
           const a = fact.artifact;
+          const body = yield* bodyJson(a.artifactId, fact.bodyRef, fact.body);
           yield* sql`
             INSERT INTO artifact_heads (canvas_name, artifact_id, node_id, type, title, version,
               created_by_json, updated_at, archived, task_ids_json)
@@ -237,18 +284,21 @@ export const projectArtifactFacts = (
           yield* sql`
             INSERT INTO artifact_versions (canvas_name, artifact_id, version, op_id, author_json, at, edit_json, body_json)
             VALUES (${canvas}, ${a.artifactId}, ${a.version}, ${opId}, ${actorJson(a.createdBy)}, ${a.updatedAt},
-              NULL, ${JSON.stringify(fact.body)})`;
+              NULL, ${body})`;
           break;
         }
-        case "artifact.edited":
+        case "artifact.edited": {
+          const body = yield* bodyJson(fact.artifactId, fact.bodyRef, undefined);
+          const edit = fact.edit === undefined ? UNRECORDED_EDIT_JSON : JSON.stringify(fact.edit);
           yield* sql`
             INSERT INTO artifact_versions (canvas_name, artifact_id, version, op_id, author_json, at, edit_json, body_json)
             VALUES (${canvas}, ${fact.artifactId}, ${fact.version}, ${opId}, ${actorJson(fact.author)}, ${fact.at},
-              ${JSON.stringify(fact.edit)}, ${JSON.stringify(fact.body)})`;
+              ${edit}, ${body})`;
           yield* sql`
             UPDATE artifact_heads SET version = ${fact.version}, updated_at = ${fact.at}
             WHERE canvas_name = ${canvas} AND artifact_id = ${fact.artifactId}`;
           break;
+        }
         case "artifact.retitled":
           yield* sql`
             UPDATE artifact_heads SET title = ${fact.title}, updated_at = ${fact.at}
@@ -338,7 +388,7 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
           edits.unshift(edit.success);
           editsFrom = row.version;
         }
-        return Option.some<ArtifactEntry>({ ...head.value, edits, editsFrom });
+        return Option.some<ArtifactEntry>({ ...head.value, bodyRef: artifactBodyRef(head.value.body), edits, editsFrom });
       });
 
     /** Earlier rulings a command's `after` names, so a refused root refuses it too. */
@@ -443,13 +493,31 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
       }
       const rulings = yield* priorRulings(canvas, writer, command);
       const now = Date.now();
-      const domain = artifactDomain(() => now);
+      // Every body the ruler names, so the projection writes the bytes behind each ref.
+      const bodies = new Map<string, ArtifactBody>();
+      const domain = artifactDomain({
+        now: () => now,
+        bodyRef: (body) => {
+          const ref = artifactBodyRef(body);
+          bodies.set(ref.sha256, body);
+          return ref;
+        },
+      });
       const ruled = rule(domain, { state, rulings }, writer, command, context);
       const ruling = ruled.ruling;
       if (ruling.kind === "applied") {
         // The domain refuses a command with no target item, so an applied one always names it.
         if (artifactId === undefined) return yield* Effect.die("an applied artifact ruling names no artifact");
-        yield* projectArtifactFacts(sql, canvas, command.opId, ruling.facts);
+        // This machine ruled the edit, so it keeps it even where the fact left it out.
+        const kept = ruling.facts.map((fact) =>
+          fact.fact === "artifact.edited" && fact.edit === undefined && command.op.op === "edit"
+            ? { ...fact, edit: command.op.edit }
+            : fact,
+        );
+        // The ruler named every body it made, so a missing one is a bug here, not a refusal.
+        yield* projectArtifactFacts(sql, canvas, command.opId, kept, (ref) => bodies.get(ref.sha256)).pipe(
+          Effect.catchTag("ArtifactBodyMissing", (missing) => Effect.die(missing)),
+        );
       }
       const outcome = outcomeOf(ruling, ruled.ruled.state, artifactId as ItemId);
       const stored =
