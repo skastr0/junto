@@ -296,6 +296,12 @@ export type TaskEffect =
   | { readonly kind: "number-minted"; readonly number: TaskNumber }
   | { readonly kind: "assignment-notice"; readonly seat: SeatNodeId }
   | { readonly kind: "stamp-request"; readonly reviewer: Reviewer }
+  /**
+   * Changes asked: the epoch it opened. The record is the changes stamp
+   * itself, kept on the layer at the epoch before (`TaskCore.stamps`, a
+   * durable verdict row), with the same reviewer and text; this effect only
+   * owes the notice.
+   */
   | { readonly kind: "defect"; readonly epoch: number; readonly by: Reviewer; readonly text?: string }
   | {
     readonly kind: "sent-on";

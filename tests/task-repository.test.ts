@@ -246,6 +246,27 @@ describe("task repository", () => {
     expect(database.prepare("SELECT count(*) AS n FROM work_review_verdicts").get()).toEqual({ n: 1 });
   });
 
+  it("keeps each defect as the changes stamp that filed it, listed with its epoch after the task moves on", async () => {
+    const { taskId } = await create("one");
+    const adaCommand = (op: TaskCommand) => command(op, taskId, { actor: adaActor });
+    applied(await submit(command({ kind: "stamp-policy", required: 1 }, taskId)));
+    applied(await submit(command({ kind: "assign", seat: ada }, taskId)));
+    applied(await submit(adaCommand({ kind: "start" })));
+    applied(await submit(adaCommand({ kind: "finish" })));
+    const asked = applied(await submit(command({ kind: "stamp", verdict: "changes", text: "add a test" }, taskId)));
+    expect(asked.effects).toEqual([{ kind: "defect", epoch: 1, by: { kind: "operator" }, text: "add a test" }]);
+    applied(await submit(adaCommand({ kind: "finish" })));
+    applied(await submit(command({ kind: "stamp", verdict: "approve" }, taskId)));
+
+    const view = Option.getOrThrow(await withRepo((repo) => repo.get(canvas, taskId)));
+    expect(view.current).toMatchObject({ state: "done", epoch: 1 });
+    // The defect that opened epoch 1 is the changes stamp at epoch 0: same reviewer, same text.
+    expect(view.current.stamps.map(({ verdict, epoch, text }) => ({ verdict, epoch, text }))).toEqual([
+      { verdict: "changes", epoch: 0, text: "add a test" },
+      { verdict: "approve", epoch: 1, text: undefined },
+    ]);
+  });
+
   it("shows a task back on a node it passed none of that node's old stamps", async () => {
     const { taskId } = await create("one");
     const there = env({ downstream: (node) => (node === build ? [qa] : [build]), stampDefaultOf: () => ({ required: 1 }) });
