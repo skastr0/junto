@@ -13,11 +13,11 @@ import {
   type OpListResult,
   type OpOverlay,
   type OpView,
-  type PendingMark,
+  type PendingMarks,
 } from "@shared/op-control";
 import type { QueuedCommand } from "@shared/command-row";
 import type { Canvas } from "@shared/model";
-import type { ItemId, PendingEntry } from "@shared/resource-command";
+import type { PendingEntry } from "@shared/resource-command";
 import { rulingContextOf } from "@shared/ruling-context";
 import type { NodeId } from "@shared/physics/schema";
 import type { WorkErrorBody } from "@shared/work-control";
@@ -97,16 +97,19 @@ export const queuedOverlays = (
  * The mark of each item of `kind` this machine's queued writes touch, for
  * `task list|show` and `artifact list|show`. None in a build without the
  * record of resource writes, or on the machine that edits the canvas, which
- * queues nothing.
+ * queues nothing. Undefined when the queue cannot be read: list and show
+ * still answer, and say their marks are unknown.
  */
 export const pendingMarksOf = (kind: "task" | "artifact") =>
-  (canvasName: string, canvas: Canvas): Effect.Effect<ReadonlyMap<ItemId, PendingMark>, WorkErrorBody> =>
+  (canvasName: string, canvas: Canvas): Effect.Effect<PendingMarks> =>
     Effect.flatMap(Effect.serviceOption(OpRepository), (repository) =>
       Option.isNone(repository)
-        ? Effect.succeed(new Map())
+        ? Effect.succeed<PendingMarks>(new Map())
         : queuedOverlays(canvasName, canvas).pipe(
           Effect.provideService(OpRepository, repository.value),
-          Effect.map((queued) => (queued === undefined ? new Map() : pendingMarks(queued.commands, queued.overlays, kind))),
+          Effect.map((queued): PendingMarks => (queued === undefined ? new Map() : pendingMarks(queued.commands, queued.overlays, kind))),
+          Effect.tapError((error) => Effect.logWarning("pending marks unread", { canvasName, error })),
+          Effect.orElseSucceed((): PendingMarks => undefined),
         ));
 
 /** Each queued view with its overlay, from `queuedOverlays`. */

@@ -41,7 +41,7 @@ import { titleOf } from "@shared/model/title";
 import type { NodeId } from "@shared/physics/schema";
 import { reaches } from "@shared/region-reach";
 import type { ResourceActor, ResourceCommand, RulingContext } from "@shared/resource-command";
-import { withPendingMark, type PendingMark } from "@shared/op-control";
+import { pendingUnknownOf, withPendingMark, type PendingMarks } from "@shared/op-control";
 import type { ContentRef } from "@shared/content";
 import { type ResourceReached, operatorReachesResource, seatReachesResource } from "@shared/content-pull";
 import type { SubjectCommentInput, SubjectCommented } from "@shared/subject-comment";
@@ -78,7 +78,7 @@ export type ArtifactPorts = {
    * The mark of each item this machine's queued writes touch (`pendingMarksOf`):
    * list and show carry it. Absent, nothing is marked.
    */
-  readonly pending?: (canvasName: string, canvas: Canvas) => Effect.Effect<ReadonlyMap<ItemId, PendingMark>, WorkErrorBody>;
+  readonly pending?: (canvasName: string, canvas: Canvas) => Effect.Effect<PendingMarks>;
   /** One version's body and its ref; the body is null while its bytes are pending. */
   readonly body: (canvasName: string, artifactId: ItemId, version: ArtifactVersion) => Effect.Effect<Option.Option<ArtifactBodyRead>, WorkErrorBody>;
   /**
@@ -112,7 +112,7 @@ export type ArtifactCommenter = Omit<ArtifactCaller, "actor"> & {
 
 const LIST_DEFAULT_LIMIT = 50;
 
-const noMarks: ReadonlyMap<ItemId, PendingMark> = new Map();
+const noMarks: PendingMarks = new Map();
 /** What list and show mark pending (`ArtifactPorts.pending`). */
 const pendingOf = (caller: Pick<ArtifactCaller, "canvas" | "canvasName">, ports: Pick<ArtifactPorts, "pending">) =>
   ports.pending === undefined ? Effect.succeed(noMarks) : ports.pending(caller.canvasName, caller.canvas);
@@ -504,6 +504,7 @@ export const handleArtifactOp = (
             artifactId, nodeId, type, title, version, updatedAt, archived,
           }, artifactId, marks)),
           more: found.more,
+          ...pendingUnknownOf(marks),
         } satisfies ArtifactListResult;
       }
       case "artifact.show": {
@@ -522,8 +523,9 @@ export const handleArtifactOp = (
         }
         const body = read.body;
         if (body === null) return yield* awaitPull(caller, ports, head.artifact.nodeId, input.artifact, version, read.bodyRef);
-        const artifact = withPendingMark(head.artifact, head.artifact.artifactId, yield* pendingOf(caller, ports));
-        return { artifact, version, text: artifactText(body), body } satisfies ArtifactShowResult;
+        const marks = yield* pendingOf(caller, ports);
+        const artifact = withPendingMark(head.artifact, head.artifact.artifactId, marks);
+        return { artifact, version, text: artifactText(body), body, ...pendingUnknownOf(marks) } satisfies ArtifactShowResult;
       }
       case "artifact.history": {
         const input = yield* decode(ArtifactHistoryArgs, args);

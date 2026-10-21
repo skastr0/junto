@@ -79,9 +79,21 @@ export const pendingMarks = (
   return marks;
 };
 
+/**
+ * The marks list and show read, or undefined when this machine's queue could
+ * not be read: they then answer `pendingUnknown: true` rather than fail, or
+ * read a pending item as having no write queued.
+ */
+export type PendingMarks = ReadonlyMap<ItemId, PendingMark> | undefined;
+
+/** What a list or show result says when its marks are unknown (`PendingMarks`). */
+export type PendingUnknown = { readonly pendingUnknown?: true };
+
+export const pendingUnknownOf = (marks: PendingMarks): PendingUnknown => (marks === undefined ? { pendingUnknown: true } : {});
+
 /** `item` with its mark, when one of `marks` names `itemId`. */
-export const withPendingMark = <T extends object>(item: T, itemId: ItemId, marks: ReadonlyMap<ItemId, PendingMark>): T & Partial<PendingMark> => {
-  const mark = marks.get(itemId);
+export const withPendingMark = <T extends object>(item: T, itemId: ItemId, marks: PendingMarks): T & Partial<PendingMark> => {
+  const mark = marks?.get(itemId);
   return mark === undefined ? item : { ...item, ...mark };
 };
 

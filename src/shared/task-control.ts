@@ -18,7 +18,7 @@ import { CHECK_RESULTS_MAX, Handoff, STAMPS_REQUIRED_MAX, TASK_STATES } from "./
 import type { WorkErrorBody } from "./work-control";
 import { CompletionEvidence } from "./work-model";
 import type { RuleInForce } from "./rules";
-import type { PendingMark } from "./op-control";
+import type { PendingMark, PendingUnknown } from "./op-control";
 import { ItemId, OpId, TaskNumber } from "./work-ids";
 
 export { ItemId, OpId };
@@ -300,7 +300,7 @@ export type TaskWaitResult = {
   readonly at: number;
 };
 
-export type TaskListResult = {
+export type TaskListResult = PendingUnknown & {
   /** Each marked `pending` when one of this machine's queued writes touches it (`PendingMark`). */
   readonly tasks: ReadonlyArray<TaskView & Partial<PendingMark>>;
   /** True when more matched than `limit`. */

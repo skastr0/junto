@@ -115,6 +115,12 @@ describe.runIf(TASKS_ENABLED)("task list and show", () => {
   it("marks nothing without the port", async () => {
     expect(await run("task.show", { task: T1 }, ports())).toEqual({ task: view(T1, 1) });
   });
+
+  it("answers list and show when the queue cannot be read, and says the marks are unknown", async () => {
+    const unread = ports(() => Effect.succeed(undefined));
+    expect(await run("task.list", {}, unread)).toEqual({ tasks: [view(T1, 1), view(T2, 2)], more: false, pendingUnknown: true });
+    expect(await run("task.show", { task: T1 }, unread)).toEqual({ task: view(T1, 1), pendingUnknown: true });
+  });
 });
 
 describe.runIf(ARTIFACTS_ENABLED)("artifact list and show", () => {
@@ -171,10 +177,19 @@ describe("the task overlay reader", () => {
     const overlays = await Effect.runPromise(queuedOverlays("factory", canvas).pipe(Effect.provide(services)));
     expect(overlays?.overlays.get(start.opId)).toEqual({ status: "at_risk", refusal: answer.refusal });
     const marks = await Effect.runPromise(pendingMarksOf("task")("factory", canvas).pipe(Effect.provide(services)));
-    expect(marks.get(T1)).toEqual({ pending: true, atRisk: { opId: start.opId, refusal: answer.refusal } });
+    expect(marks?.get(T1)).toEqual({ pending: true, atRisk: { opId: start.opId, refusal: answer.refusal } });
+  });
+
+  it("reads as unknown, not as no marks, when the queue cannot be read", async () => {
+    const broken = Layer.succeed(OpRepository, OpRepository.of({
+      show: () => Effect.die("not read"),
+      list: () => Effect.die("not read"),
+      unruled: () => Effect.fail({ message: "a command row does not decode" } as never),
+    }));
+    expect(await Effect.runPromise(pendingMarksOf("task")("factory", canvas).pipe(Effect.provide(broken)))).toBeUndefined();
   });
 
   it("marks nothing in a build without the record of resource writes", async () => {
-    expect((await Effect.runPromise(pendingMarksOf("task")("factory", canvas))).size).toBe(0);
+    expect((await Effect.runPromise(pendingMarksOf("task")("factory", canvas)))?.size).toBe(0);
   });
 });
