@@ -190,6 +190,19 @@ describe("seat-state triggers: keyed by seat and epoch", () => {
     expect(fired).toEqual([`seat-a/e1 idle@${HOLD}`, `seat-a/e1 gone@${40_000 + GRACE}`, `seat-a/e2 idle@${200_000 + HOLD}`]);
   });
 
+  it("a seat that went for good: its next generation's events after the first are not read as late", () => {
+    const { fired } = run([
+      event("idle", 0),
+      tick(31_000),
+      event("gone", 40_000),
+      tick(101_000),
+      event("unknown", 200_000, { epoch: "e2" }),
+      event("working", 201_000, { epoch: "e2" }),
+      tick(240_000),
+    ]);
+    expect(fired).toEqual([`seat-a/e1 idle@${HOLD}`, `seat-a/e1 gone@${40_000 + GRACE}`, `seat-a/e2 working@${201_000 + HOLD}`]);
+  });
+
   it("an event with no epoch never stands for a new generation", () => {
     const { fired } = run([event("gone", 0), event("unknown", 1_000, { epoch: "" }), tick(GRACE)]);
     expect(fired).toEqual([`seat-a/e1 gone@${GRACE}`]);

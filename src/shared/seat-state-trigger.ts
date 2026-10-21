@@ -166,10 +166,12 @@ const observe = (
   if (event.epoch !== current.epoch) {
     if (event.epoch === "") return { track };
     // A new generation took the seat: a pending gone and hold are dropped, the
-    // episode ends, and what the seat had settled into carries over.
+    // episode ends, and what the seat had settled into carries over. A seat
+    // that went for good carries nothing: its next generation fires on its
+    // first real state.
     current = {
       epoch: event.epoch,
-      ...(current.settled === undefined ? {} : { settled: current.settled }),
+      ...(current.settled === undefined || current.settled === "gone" ? {} : { settled: current.settled }),
       inAttention: false,
       retired: retire(current.retired, current.epoch),
     };
