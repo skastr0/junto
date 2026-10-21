@@ -19,6 +19,7 @@ const rig = () => {
   const shares = new Set<InstallationId>([M2, M3, BOAT]);
   const ids = new Map<string, InstallationId>([["m2", M2], ["m3", M3], ["idle", IDLE], ["boat-one", BOAT]]);
   const deps: LinkKeeperDeps = {
+    self: "mac",
     peers: async () => [...ids].map(([machineName, installationId]) => ({ machineName, installationId })),
     linked: (peer) => open.has(peer),
     wanted: async (peer) => shares.has(peer.installationId),

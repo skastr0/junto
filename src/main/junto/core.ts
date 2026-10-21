@@ -78,6 +78,7 @@ const startBoat = async (runtime: CoreRuntime): Promise<() => void> => {
 const startLinks = async (runtime: CoreRuntime, home: string): Promise<() => void> => {
   const [hosts, link, machines, model, rows] = await runtime.runPromise(Effect.all([HostsService, MachineLink, MachineRepository, ModelService, MachineCoreRows]));
   return startLinkKeeper({
+    self: await runtime.runPromise(machines.machineName),
     peers: () => runtime.runPromise(machines.peers),
     linked: (peer) => rows.exchange.linked(peer),
     wanted: (peer) => runtime.runPromise(Effect.gen(function* () {

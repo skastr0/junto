@@ -5,7 +5,8 @@
  * next read that happens to open it. This end cannot see what the other one
  * holds, so the link is kept, not the rows.
  *
- * - A peer that shares no canvas is never dialed.
+ * - Only pinned peers are dialed, selected by placement; a peer that shares
+ *   no canvas is never dialed.
  * - A Boat machine is left to the Boat keeper, which wakes it for its mail.
  * - A peer that keeps failing is dialed after 10 s, then 20 s, doubling to
  *   5 min; a link that opens resets it. Only a change between linked and
@@ -13,6 +14,7 @@
  */
 import type { InstallationId } from "@shared/installation-id";
 import type { RemoteHost } from "@shared/remote-hosts";
+import { encodeError } from "../failure-encode";
 
 export const LINK_KEEPER_EVERY_MS = 10_000;
 export const LINK_KEEPER_BACKOFF_CAP_MS = 5 * 60_000;
@@ -23,6 +25,8 @@ export interface LinkKeeperPeer {
 }
 
 export interface LinkKeeperDeps {
+  /** This machine's name, for a failure that names no peer. */
+  readonly self: string;
   readonly peers: () => Promise<ReadonlyArray<LinkKeeperPeer>>;
   /** Is a row link open to that machine right now. */
   readonly linked: (peer: InstallationId) => boolean;
@@ -69,7 +73,7 @@ export const makeLinkKeeper = (deps: LinkKeeperDeps): LinkKeeper => {
     } catch (cause) {
       const failures = (held?.failures ?? 0) + 1;
       failing.set(name, { failures, nextAt: now() + Math.min(every * 2 ** (failures - 1), LINK_KEEPER_BACKOFF_CAP_MS) });
-      if (held === undefined) deps.log("Warning", "link keeper cannot reach the machine", { machine: name, detail: String(cause) });
+      if (held === undefined) deps.log("Warning", "link keeper cannot reach the machine", { machine: name, failure: encodeError(cause, { machine: name }) });
     }
     return true;
   };
@@ -93,7 +97,7 @@ export const startLinkKeeper = (deps: LinkKeeperDeps): (() => void) => {
     if (stopped) return;
     timer = setTimeout(() => {
       void keeper.pass()
-        .catch((cause: unknown) => deps.log("Warning", "link keeper pass failed", { detail: String(cause) }))
+        .catch((cause: unknown) => deps.log("Warning", "link keeper pass failed", { machine: deps.self, failure: encodeError(cause, { machine: deps.self }) }))
         .finally(schedule);
     }, deps.every ?? LINK_KEEPER_EVERY_MS);
     timer.unref?.();
