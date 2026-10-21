@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { ActorSeatId } from "./actor-seat";
+import { Author } from "./author";
 import { ActorRef, TaskRef } from "./work-reference";
 import { ContentPart } from "./content";
 import { ReviewVerdict } from "./crew";
@@ -461,22 +462,6 @@ export const Artifact = Schema.Struct({
 });
 export type Artifact = typeof Artifact.Type;
 
-/**
- * Bulletin-board author. Operator is the Command Center human; actor is a
- * process-bound seat. Never Message.role and never client-supplied freeform.
- */
-export const BoardAuthorKind = Schema.Literals(["operator", "actor"]);
-export type BoardAuthorKind = typeof BoardAuthorKind.Type;
-
-export const BoardAuthor = Schema.Struct({
-  kind: BoardAuthorKind,
-  /** Present when kind === "actor". */
-  seatId: Schema.optionalKey(ActorSeatId),
-  nodeId: Schema.optionalKey(Schema.String),
-  label: Schema.optionalKey(Schema.String),
-});
-export type BoardAuthor = typeof BoardAuthor.Type;
-
 export const BoardTopicState = Schema.Literals(["open", "archived"]);
 export type BoardTopicState = typeof BoardTopicState.Type;
 
@@ -484,7 +469,7 @@ export type BoardTopicState = typeof BoardTopicState.Type;
 export const BoardPost = Schema.Struct({
   postId: Schema.String,
   topicId: Schema.String,
-  author: BoardAuthor,
+  author: Author,
   parts: Schema.Array(Part).pipe(Schema.check(Schema.isMinLength(1))),
   /** Monotone per-topic position (0-based). */
   position: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
@@ -504,7 +489,7 @@ export const BoardTopic = Schema.Struct({
   topicId: Schema.String,
   title: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(512))),
   state: BoardTopicState,
-  openedBy: BoardAuthor,
+  openedBy: Author,
   openedAt: Schema.String,
   postCount: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   lastActivityAt: Schema.String,

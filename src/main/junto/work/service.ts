@@ -649,7 +649,7 @@ export interface WorkServiceShape {
       nodeId: string,
       title: string,
       body: string | undefined,
-      author: import("@shared/work-model").BoardAuthor,
+      author: import("@shared/author").Author,
       notify: boolean,
     ) => Effect.Effect<
       WorkOpResult<{
@@ -662,7 +662,7 @@ export interface WorkServiceShape {
       nodeId: string,
       topicId: string,
       text: string,
-      author: import("@shared/work-model").BoardAuthor,
+      author: import("@shared/author").Author,
       tags?: ReadonlyArray<string>,
     ) => Effect.Effect<
       WorkOpResult<{ readonly post: import("@shared/work-model").BoardPost }>
@@ -691,7 +691,7 @@ export interface WorkServiceShape {
       canvas: string,
       nodeId: string,
       patches: ReadonlyArray<PadPatch>,
-      author: import("@shared/work-model").BoardAuthor,
+      author: import("@shared/author").Author,
       admin?: OverseerWorkAdmin,
     ) => Effect.Effect<
       WorkOpResult<{

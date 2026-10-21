@@ -21,7 +21,6 @@ import {
 
 export {
   Artifact,
-  BoardAuthor,
   BoardGlanceTopic,
   BoardPost,
   BoardTopic,

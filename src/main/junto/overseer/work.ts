@@ -28,7 +28,7 @@ import { workControlDir, WORK_HOME_ENV } from "@shared/work-control";
 import type { WorkErrorBody, WorkOpName } from "@shared/work-control";
 import { resolveJuntoHome } from "@shared/junto-home";
 import type { ActorRef } from "@shared/work-protocol";
-import type { BoardAuthor } from "@shared/work-model";
+import type { Author } from "@shared/author";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
 import { ContentService } from "../content/service";
 import {
@@ -187,7 +187,7 @@ const namedCanvas = (raw: unknown): string | undefined => {
   return undefined;
 };
 
-const actorAuthor = (canvas: Canvas, actor: ActorRef): BoardAuthor => {
+const actorAuthor = (canvas: Canvas, actor: ActorRef): Author => {
   const node = findNode(canvas, actor.nodeId);
   return {
     kind: "actor",

@@ -4,7 +4,7 @@
 import { resolvePadInboundActors } from "@shared/board-actors";
 import type { Canvas } from "@shared/model/canvas";
 import type { Pad, PadPatch } from "@shared/pad";
-import type { BoardAuthor } from "@shared/work-model";
+import type { Author } from "@shared/author";
 
 export const inboundActorNodeIds = (
   canvas: Canvas,
@@ -42,7 +42,7 @@ export const addedPadMentions = (
 /** Persist the WorkService author, never the client-supplied pin.reply body. */
 export const stampPadPatchAuthors = (
   patches: ReadonlyArray<PadPatch>,
-  author: BoardAuthor,
+  author: Author,
 ): ReadonlyArray<PadPatch> =>
   patches.map((patch) =>
     patch.op === "pin.reply"
@@ -51,7 +51,7 @@ export const stampPadPatchAuthors = (
   );
 
 export const padAuthorRuleError = (
-  author: BoardAuthor,
+  author: Author,
   patches: ReadonlyArray<PadPatch>,
   inboundActors: ReadonlySet<string>,
   options?: { readonly overseer?: boolean },

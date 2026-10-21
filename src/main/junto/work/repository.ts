@@ -27,6 +27,7 @@ import {
   ActorSeatId as ActorSeatIdSchema,
   type ActorSeatId,
 } from "@shared/actor-seat";
+import type { Author } from "@shared/author";
 import { InstallationId } from "@shared/installation-id";
 import {
   Artifact,
@@ -44,7 +45,6 @@ import {
   type BoardTopic as BoardTopicValue,
   type BoardTopicView as BoardTopicViewValue,
   type BoardPost as BoardPostValue,
-  type BoardAuthor as BoardAuthorValue,
   type PadGlance as PadGlanceValue,
   BoardTopic,
   BoardPost,
@@ -767,7 +767,7 @@ const recordWithHash = (
 /** Force every seed post author to the admitted writer (anti-forgery). */
 const topicWithBoundAuthors = (
   topic: BoardTopicValue,
-  createdBy: BoardAuthorValue,
+  createdBy: Author,
 ): BoardTopicValue => {
   const posts = topic.posts?.map((post) => ({
     ...post,
@@ -1023,18 +1023,18 @@ export type AcceptDeliveryInput = LocalWorkInput & {
 
 export type CreateBoardTopicInput = LocalWorkInput & {
   readonly topic: BoardTopicValue;
-  readonly createdBy: BoardAuthorValue;
+  readonly createdBy: Author;
 };
 
 export type AppendBoardPostInput = LocalWorkInput & {
   readonly post: BoardPostValue;
-  readonly createdBy: BoardAuthorValue;
+  readonly createdBy: Author;
 };
 
 export type ApplyPadPatchInput = LocalWorkInput & {
   readonly patchId: string;
   readonly patches: ReadonlyArray<import("@shared/pad").PadPatch>;
-  readonly author: BoardAuthorValue;
+  readonly author: Author;
   /** Live overseer: ink/image admitted without operator impersonation. */
   readonly overseer?: boolean;
 };
@@ -1541,7 +1541,7 @@ const inboundActorsForPad = Effect.fn("work.inboundActorsForPad")(function* (
 const assertPadPatchRules = Effect.fn("work.assertPadPatchRules")(function* (
   reader: SqlClient.SqlClient,
   sink: SinkRefValue,
-  author: BoardAuthorValue,
+  author: Author,
   patches: ReadonlyArray<import("@shared/pad").PadPatch>,
   overseer?: boolean,
 ): Effect.fn.Return<void, WorkSqlFailure, ModelRecords> {
@@ -2658,10 +2658,10 @@ const boardAuthorFromRow = (row: {
   readonly author_seat_id: string | null;
   readonly author_node_id: string | null;
   readonly author_label: string | null;
-}): BoardAuthorValue => ({
+}): Author => ({
   kind: row.author_kind === "operator" ? "operator" : "actor",
   ...(row.author_seat_id
-    ? { seatId: row.author_seat_id as BoardAuthorValue["seatId"] }
+    ? { seatId: row.author_seat_id as Author["seatId"] }
     : {}),
   ...(row.author_node_id ? { nodeId: row.author_node_id } : {}),
   ...(row.author_label ? { label: row.author_label } : {}),

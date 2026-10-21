@@ -6,7 +6,7 @@ import { useCanvas } from "../../lib/use-model";
 import { state$ } from "../../lib/state";
 import type { BoardConnectedActor } from "@shared/board-actors";
 import type { PadElementId, PadPatch, PadPin } from "@shared/pad";
-import { boardAuthorLabel } from "../../lib/board-author";
+import { authorLabel } from "../../lib/author-label";
 import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
 import { Textarea } from "../ui/Field";
@@ -29,7 +29,7 @@ const actorLabel = (
 ): string => {
   const actor = actors.find((item) => item.nodeId === nodeId);
   if (actor) return actor.label;
-  return boardAuthorLabel({ kind: "actor", nodeId }, canvas);
+  return authorLabel({ kind: "actor", nodeId }, canvas);
 };
 
 export function PadPinThread({
@@ -129,11 +129,11 @@ export function PadPinThread({
           pin.posts.map((post) => (
             <article key={post.postId} className="board-post" data-testid="board-post">
               <div className="board-post__avatar" aria-hidden>
-                {boardAuthorLabel(post.author, canvas).slice(0, 1).toUpperCase()}
+                {authorLabel(post.author, canvas).slice(0, 1).toUpperCase()}
               </div>
               <div className="board-post__body">
                 <header>
-                  <strong>{boardAuthorLabel(post.author, canvas)}</strong>
+                  <strong>{authorLabel(post.author, canvas)}</strong>
                 </header>
                 <p>
                   {post.parts.flatMap((part) =>

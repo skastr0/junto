@@ -1,11 +1,11 @@
 import { Schema } from "effect";
 import { Seq } from "./model/events";
 import { ActorSeatId } from "./actor-seat";
+import { Author } from "./author";
 import { InstallationId } from "./installation-id";
 import { PadPatch } from "./pad";
 import {
   Artifact,
-  BoardAuthor,
   BoardPost,
   BoardTopic,
   Message,
@@ -253,14 +253,14 @@ export type DeliveryAcceptedResult = typeof DeliveryAcceptedResult.Type;
 export const BoardTopicCreateResult = Schema.Struct({
   operation: Schema.Literal("board.topic.create"),
   topic: BoardTopic,
-  createdBy: BoardAuthor,
+  createdBy: Author,
 });
 export type BoardTopicCreateResult = typeof BoardTopicCreateResult.Type;
 
 export const BoardPostAppendResult = Schema.Struct({
   operation: Schema.Literal("board.post.append"),
   post: BoardPost,
-  createdBy: BoardAuthor,
+  createdBy: Author,
 });
 export type BoardPostAppendResult = typeof BoardPostAppendResult.Type;
 
@@ -268,7 +268,7 @@ export const PadPatchResult = Schema.Struct({
   operation: Schema.Literal("pad.patch"),
   patchId: BoundedWorkId,
   patches: Schema.Array(PadPatch).pipe(Schema.check(Schema.isMinLength(1))),
-  author: BoardAuthor,
+  author: Author,
   revision: Schema.Number.pipe(
     Schema.check(Schema.isInt()),
     Schema.check(Schema.isGreaterThanOrEqualTo(0)),

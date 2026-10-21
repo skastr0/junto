@@ -4,7 +4,8 @@
  */
 import { Result, Schema } from "effect";
 import { ContentRef } from "./content";
-import { BoardAuthor, Part } from "./work-model";
+import { Author } from "./author";
+import { Part } from "./work-model";
 
 const STRICT = { onExcessProperty: "error" } as const;
 
@@ -111,7 +112,7 @@ export type PadInk = typeof PadInk.Type;
 
 export const PadPost = Schema.Struct({
   postId: PadPostId,
-  author: BoardAuthor,
+  author: Author,
   parts: Schema.Array(Part).pipe(Schema.check(Schema.isMinLength(1))),
 });
 export type PadPost = typeof PadPost.Type;

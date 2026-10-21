@@ -44,7 +44,8 @@ import { operatorFilesOf } from "@shared/mail-threads";
 import { levelOfSignal, rankOf } from "@shared/wire/urgency";
 import { seatStateRuntime } from "../term/agent-state";
 import { probeManagedHarnessInstalls } from "../term/templates/harness-install";
-import type { BoardAuthor, Task } from "@shared/work-model";
+import type { Author } from "@shared/author";
+import type { Task } from "@shared/work-model";
 import {
   normalizePreambleText,
   seatToolPreamble,
@@ -943,7 +944,7 @@ export const resolveProcessBoundActorRef = (
 };
 
 /** Bind board display metadata to the authored title, not the opaque node id. */
-const boardAuthorForActor = (doc: Canvas, actor: ActorRef): BoardAuthor => {
+const boardAuthorForActor = (doc: Canvas, actor: ActorRef): Author => {
   const node = findNode(doc, actor.nodeId);
   return {
     kind: "actor",
@@ -2794,7 +2795,7 @@ const dispatchOp = (
       if ("type" in gate) return yield* Effect.fail(gate);
       const bound = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(bound)) return yield* Effect.fail(bound.failure);
-      const author: BoardAuthor = {
+      const author: Author = {
         kind: "actor",
         seatId: bound.success.seatId,
         nodeId: bound.success.nodeId,
