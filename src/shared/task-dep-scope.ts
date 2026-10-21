@@ -1,39 +1,39 @@
 import { asNodeId } from "./model/base";
 import type { Placed } from "./model/canvas";
-import { nodesOf, regionMembers, regionStack } from "./model/canvas";
+import { nodesOf } from "./model/canvas";
+import { onOneLine, positionsOf } from "./region-reach";
 import type { Task } from "./work-model";
 import type { WorkRead } from "./work-read";
 import { taskIndexById } from "./task-deps";
 
 /**
- * Same-region dependency scope for work-plane task prereqs.
+ * Dependency scope for work-plane task prereqs: region reach (01).
  *
- * Every task sink co-resident in the author's region is in scope. When the
- * authoring sink is outside every region, all task sinks on the canvas are
- * in scope (there is no region boundary to cross). Cross-region deps resolve
- * as missing at validate time.
+ * A task sink's dependencies may sit on any task sink in reach of it: its own
+ * region, a region inside it, or a region around it, never a sibling's. A sink
+ * outside every region is at the root, on one line with every sink on the
+ * canvas. A dependency outside the scope resolves as missing at validate time.
  */
 
-/** Node ids whose task sinks may satisfy dependsOn for `sinkNodeId`. */
+/** Task sink ids whose tasks may satisfy dependsOn for `sinkNodeId`. */
 export const dependencyScopeNodeIds = (
   canvas: Placed,
   sinkNodeId: string,
 ): ReadonlySet<string> => {
-  // One region is semantically needed here — innermost wins: the tightest
-  // containing region is the sink's dependency neighborhood.
-  const stack = regionStack(canvas, asNodeId(sinkNodeId));
-  const innermost = stack[stack.length - 1];
-  if (innermost !== undefined) {
-    return new Set(regionMembers(canvas, innermost).map((node) => node.id));
+  const at = positionsOf(canvas, asNodeId(sinkNodeId));
+  if (at === undefined) return new Set();
+  const scope = new Set<string>([sinkNodeId]);
+  for (const board of nodesOf(canvas, "task")) {
+    const there = positionsOf(canvas, board.id);
+    if (there !== undefined && onOneLine(canvas, at, there)) scope.add(board.id);
   }
-  // Ungrouped: canvas-wide (no region boundary exists for this sink).
-  return new Set(canvas.nodes.keys());
+  return scope;
 };
 
 /**
  * Tasks visible for dependency validate / claim-ready / depStatus for a sink.
- * Includes every task item on every in-scope task sink (same region), boards
- * in paint order.
+ * Includes every task item on every task sink in reach of it, boards in
+ * paint order.
  */
 export const dependencyScopeTasks = (
   canvas: Placed,
