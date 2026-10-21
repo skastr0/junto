@@ -1,9 +1,13 @@
 /**
  * junto task, the 0.10 lifecycle: create, assign from reach, a reviewer,
  * start, finish into review, a stamp to done, and a comment whose mention
- * reaches the mentioned seat. Reach is the region's: no seat has an edge.
- * Owner: pty-mail.
+ * reaches the mentioned seat; a handoff note through task show, and a
+ * dependency that holds the finish until it is done. Reach is the region's:
+ * no seat has an edge. Owner: pty-mail (pty-contract while pty-mail is out).
  */
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { TASK_HANDOFF_MAX } from "../../src/shared/task-model";
 import { casesFor, type AcceptanceArea, type AcceptanceSeat } from "./area";
 import { envelopeOf } from "./envelope";
 import type { WorkCliCommandResult } from "../work-cli-acceptance";
@@ -32,7 +36,7 @@ const candidateIds = (refusal: any): ReadonlyArray<string> =>
 export const taskArea: AcceptanceArea = {
   name: "task",
   owner: "pty-mail",
-  run: async ({ cli, call, addSeat, canvas, log, nodes }) => {
+  run: async ({ cli, call, addSeat, canvas, log, nodes, outside }) => {
     const worker = await addSeat("worker", { x: 300, y: 20 });
     const reviewer = await addSeat("reviewer", { x: 460, y: 20 });
     const peer = await addSeat("peer", { x: 620, y: 20 });
@@ -79,6 +83,38 @@ export const taskArea: AcceptanceArea = {
     const inThread = (items: ReadonlyArray<InboxItem>, notice: string, words: string) =>
       items.some((item) => item.metadata?.threadId === made?.taskId && item.metadata?.subjectNotice === notice && textOf(item).includes(words));
     const outsiderShow = await step("task show out of reach", ["task", "show", ref], outsider);
+
+    // A handoff note at the cap round-trips through task show; one past it is refused by the CLI.
+    const noted = await step("task create noted", ["task", "create", "noted task", "--stamps", "0"]);
+    const notedRef = `#${String(noted.data?.number)}`;
+    const note = "n".repeat(TASK_HANDOFF_MAX);
+    await step("task assign noted", ["task", "assign", notedRef, "@worker"]);
+    await step("task start noted", ["task", "start", notedRef], worker);
+    const finishedNoted = await step("task finish --note at the cap", ["task", "finish", notedRef, "--note", note], worker);
+    const shownNoted = await step("task show noted", ["task", "show", notedRef]);
+    // No core behind this work home: an InputError came before transport, a RuntimeDown crossed it.
+    const noCore = join(outside, "task-no-core");
+    mkdirSync(noCore, { recursive: true });
+    const overNote = await cli(["task", "finish", notedRef, "--note", `${note}n`], worker, { JUNTO_WORK_HOME: noCore });
+    log("task finish --note past the cap", overNote.stdout || overNote.stderr);
+    const overNoteBody = envelopeOf(overNote);
+
+    // A dependency not done refuses finish, naming it by number and state; done, it lets the finish through.
+    const before = await step("task create dependency", ["task", "create", "dependency", "--stamps", "0"]);
+    const beforeRef = `#${String(before.data?.number)}`;
+    const after = await step("task create dependent", ["task", "create", "dependent", "--stamps", "0"]);
+    const afterRef = `#${String(after.data?.number)}`;
+    const depended = await step("task depend", ["task", "depend", afterRef, "--on", beforeRef]);
+    await step("task assign dependent", ["task", "assign", afterRef, "@worker"]);
+    await step("task start dependent", ["task", "start", afterRef], worker);
+    const blocked = await step("task finish deps-unmet", ["task", "finish", afterRef], worker);
+    const blockedBody = envelopeOf(blocked.result);
+    const unfinished: ReadonlyArray<{ readonly number?: number; readonly state?: string }> =
+      blockedBody?.error?.details?.expected?.kind === "deps-unmet" ? blockedBody.error.details.expected.unfinished ?? [] : [];
+    await step("task assign dependency", ["task", "assign", beforeRef, "@peer"]);
+    await step("task start dependency", ["task", "start", beforeRef], peer);
+    const doneBefore = await step("task finish dependency", ["task", "finish", beforeRef], peer);
+    const unblocked = await step("task finish dependent", ["task", "finish", afterRef], worker);
     const refused = envelopeOf(outOfReach.result);
     const nameRefused = envelopeOf(nameOutOfReach.result);
 
@@ -107,6 +143,30 @@ export const taskArea: AcceptanceArea = {
         nameRefused?.ok === false && nameRefused.error?.type === "UnknownTarget" && nameRefused.error?.details?.path === "text" && nameRefused.error?.details?.target === "@outsider"
           && candidateIds(nameRefused).includes(peer.nodeId) && !candidateIds(nameRefused).includes(outsider.nodeId),
         nameOutOfReach.result,
+      ),
+      check(
+        `finish --note at ${String(TASK_HANDOFF_MAX)} characters round-trips through task show`,
+        finishedNoted.data?.state === "done" && shownNoted.data?.task?.current?.handoff === note,
+        finishedNoted.data?.state === "done" ? shownNoted.result : finishedNoted.result,
+      ),
+      check(
+        `finish --note at ${String(TASK_HANDOFF_MAX + 1)} characters is refused before transport`,
+        overNote.code === 1 && overNoteBody?.ok === false && overNoteBody.error?.type === "InputError" &&
+          overNoteBody.error?.details?.path === "note" &&
+          String(overNoteBody.error?.message).includes(`at most ${String(TASK_HANDOFF_MAX)} characters`),
+        overNote,
+      ),
+      check(
+        "finish refuses deps-unmet, naming the unfinished task by number and state",
+        depended.data?.disposition === "applied" && blockedBody?.ok === false &&
+          unfinished.length === 1 && unfinished[0]?.number === before.data?.number && unfinished[0]?.state === "backlog" &&
+          String(blockedBody.error?.message).includes(`This task depends on work not done yet: ${beforeRef} is in the backlog`),
+        blocked.result,
+      ),
+      check(
+        "finish goes through once the dependency is done",
+        doneBefore.data?.state === "done" && unblocked.data?.state === "done",
+        doneBefore.data?.state === "done" ? unblocked.result : doneBefore.result,
       ),
       // Out of reach, the task is not there to name (task-control.ts findTask).
       check(`task in ${nodes.region} is unknown from ${nodes.elsewhere}`, envelopeOf(outsiderShow.result)?.error?.type === "UnknownTarget", outsiderShow.result),
