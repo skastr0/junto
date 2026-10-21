@@ -102,12 +102,16 @@ with
 > editing machine; that is safe because rows go per writer in seq order.
 > Mail, receipts, signals and command rows still stand alone. The editing
 > machine stays the one writer of resource state, so there is still nothing
-> to merge: first ruled wins. Every buffer here is bounded: a row is at most
-> 64 KiB, and anything larger travels as a content ref; unruled command
+> to merge: first ruled wins. Every buffer here is bounded: a command row is
+> at most 64 KiB, and anything larger travels as a content ref; unruled command
 > rows per machine and canvas are at most 50,000 rows and 256 MiB, and a
 > command past that is refused at once on the writing machine as
 > `queue_full`, the only write refusal that comes from the editing machine
 > being away.
+
+Checked against the contract at cc270e4a8 (`src/shared/resource-command.ts`):
+actor kinds seat, operator and automation (`writtenOn`, 50-59), the ruling
+shape (181-183), `queue_full` (114, 134) and the bounds (290-294).
 
 The family name for seat occupancy facts is pty's (P5); it is filled in
 when pty names it. Mail from the operator or an automation is R6's
@@ -129,8 +133,8 @@ with
 seats." insert
 
 > A command row or seat occupancy fact is valid only from the machine
-> placement says its seat was on when it was written; an `operator` command
-> only from the editing machine itself. Rulings and resource facts come
+> placement says its seat was on when it was written; an operator's or an
+> automation's command only from the editing machine itself. Rulings and resource facts come
 > only from the editing machine.
 
 ## D3 Rule 5, entitlement
@@ -146,8 +150,8 @@ with
 > resource fact for that canvas. A machine gets the mail addressed to its
 > seats. A `command.queued` row goes to the editing machine only and is
 > never passed on, so a pending command is seen only on the machine that
-> wrote it. A ruling carries the writer, the opId, the facts it applied or
-> the typed error, and never the command's op or body, so a refused command
+> wrote it. A ruling carries the writer, the opId, and the facts it applied
+> or the typed error with its root opId, and never the command's op or body, so a refused command
 > reaches no other machine through its refusal. A refused body kept as a
 > content ref is named only in what the writing machine reads, and content
 > transfer serves it only to that machine.
