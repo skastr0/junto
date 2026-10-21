@@ -6,7 +6,7 @@
  * measured as the row's encoded JSON. A mail's row is its text plus an
  * envelope: ids, the sender's stamp and regions, a thread's subject, up to
  * OPERATOR_ATTACHMENTS_MAX file refs. MAIL_ENVELOPE_BYTES is room for all of
- * that at its bounds (23,575 bytes in tests/mail-text-bound-row: ten refs
+ * that at its bounds (27,367 bytes in tests/mail-text-bound-row: ten refs
  * with 255-character names, a subject anchored on a 1,024-character file,
  * MAIL_SENDER_REGIONS_MAX regions named at REGION_NAME_MAX). It is the
  * composer's hint, said before send: the sender's name is still unbounded, so
@@ -19,7 +19,7 @@
 import { COMMAND_ROW_MAX_BYTES } from "./resource-command";
 
 /** Room in a mail's row for everything but its text. */
-export const MAIL_ENVELOPE_BYTES = 26 * 1024;
+export const MAIL_ENVELOPE_BYTES = 28 * 1024;
 
 /** The most text, as its row measures it, a mail carries inline. */
 export const MAIL_TEXT_INLINE_MAX_BYTES = COMMAND_ROW_MAX_BYTES - MAIL_ENVELOPE_BYTES;
