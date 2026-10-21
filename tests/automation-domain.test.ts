@@ -14,7 +14,7 @@ import {
   automationsOnNode,
   emptyAutomationState,
   ruleAutomationCommand,
-  type TargetsOf,
+  type AutomationEnv,
 } from "../src/shared/automation-domain";
 import { asNodeId, type NodeId } from "../src/shared/physics/schema";
 import type { ResourceActor, ResourceCommand } from "../src/shared/resource-command";
@@ -42,8 +42,11 @@ const definition = (to: NodeId = A, over: Partial<AutomationDefinition> = {}): A
   ...over,
 });
 
-/** The operator reaches everything below; a seat only agent-a. */
-const targetsOf: TargetsOf = (_node, author) => new Set(author.kind === "operator" ? [A, SIBLING] : [A]);
+/** The operator reaches everything below; overseer agent-a only itself. agent-plain is no overseer. */
+const env: AutomationEnv = {
+  targetsOf: (_node, author) => new Set(author.kind === "operator" ? [A, SIBLING] : [A]),
+  isOverseer: (seat) => seat === A,
+};
 
 const command = (op: AutomationOp, actor: ResourceActor = seat("agent-a"), itemId: AutomationId | undefined = ID): ResourceCommand<AutomationOp> => ({
   opId: OP,
@@ -56,7 +59,7 @@ const command = (op: AutomationOp, actor: ResourceActor = seat("agent-a"), itemI
 });
 
 const rule = (state: AutomationState, op: AutomationOp, actor?: ResourceActor) =>
-  ruleAutomationCommand(state, command(op, actor), 1_000, targetsOf);
+  ruleAutomationCommand(state, command(op, actor), 1_000, env);
 
 const ruled = (state: AutomationState, op: AutomationOp, actor?: ResourceActor): AutomationState => {
   const verdict = rule(state, op, actor);
@@ -65,6 +68,19 @@ const ruled = (state: AutomationState, op: AutomationOp, actor?: ResourceActor):
 };
 
 const created = () => ruled(emptyAutomationState(), { kind: "create", automationId: ID, enabled: true, definition: definition() });
+
+describe("who writes", () => {
+  it("refuses a seat that is not an overseer, for every verb", () => {
+    const plain = seat("agent-plain");
+    expect(rule(emptyAutomationState(), { kind: "create", automationId: ID, enabled: true, definition: definition() }, plain)).toMatchObject({
+      kind: "refuse",
+      refusal: { reason: "invalid_input" },
+    });
+    for (const op of [{ kind: "set-enabled", enabled: false }, { kind: "archive" }, { kind: "run" }] as const) {
+      expect(rule(created(), op, plain), op.kind).toMatchObject({ kind: "refuse" });
+    }
+  });
+});
 
 describe("create", () => {
   it("stores version 1 with the ruled actor as author", () => {

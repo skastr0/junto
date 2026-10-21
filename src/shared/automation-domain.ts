@@ -4,12 +4,13 @@
  * overlay on the writing machine. Every write invariant lives here; storage,
  * transport and firing are the caller's.
  *
- * - The author is the ruled actor, never written: a seat writes as itself,
- *   the operator as the operator. An automation never writes automations, so
- *   no automation can make or change another (loop safety).
+ * - Only the operator and overseers write automations, as with the canvas
+ *   (operator ruling, plan 07); every other seat reads only. An automation
+ *   never writes automations, so none can make or change another (loop
+ *   safety). The author is the ruled actor, never written.
  * - A definition may name only nodes among `automationTargets` for its node
- *   and author, checked here at write time and again at fire time. A seat's
- *   edit must also fit the editing seat's own targets.
+ *   and author, checked here at write time and again at fire time. An
+ *   overseer's edit must also fit its own targets, so no edit widens anyone.
  * - An edit replaces the whole definition against its base; a moved head
  *   refuses it `stale` with the head. It never touches `enabled`: a toggle
  *   carries no base and is the only way on or off.
@@ -70,6 +71,13 @@ export type AutomationFact = typeof AutomationFact.Type;
  */
 export type TargetsOf = (nodeId: NodeId, author: AutomationAuthor) => ReadonlySet<NodeId>;
 
+/** What the domain reads from the ruling canvas. */
+export type AutomationEnv = {
+  readonly targetsOf: TargetsOf;
+  /** A seat with the overseer toggle on: it writes automations with the operator's authority. */
+  readonly isOverseer: (seat: NodeId) => boolean;
+};
+
 const refuse = (refusal: Refusal): DomainVerdict<AutomationFact> => ({ kind: "refuse", refusal });
 const apply = (fact: AutomationFact): DomainVerdict<AutomationFact> => ({ kind: "apply", facts: [fact] });
 
@@ -124,10 +132,10 @@ const replaced = (automation: Automation, definition: AutomationDefinition, vers
 /** The domain. `now` stamps facts; the ruler passes the editing machine's clock, the overlay its own. */
 export const automationDomain = (
   now: () => number,
-  targetsOf: TargetsOf,
+  env: AutomationEnv,
 ): ResourceDomain<AutomationState, AutomationOp, AutomationFact> => ({
   kind: "automation",
-  rule: (state, command) => ruleAutomationCommand(state, command, now(), targetsOf),
+  rule: (state, command) => ruleAutomationCommand(state, command, now(), env),
   apply: applyAutomationFact,
 });
 
@@ -135,15 +143,24 @@ export const ruleAutomationCommand = (
   state: AutomationState,
   command: ResourceCommand<AutomationOp>,
   at: number,
-  targetsOf: TargetsOf,
+  env: AutomationEnv,
 ): DomainVerdict<AutomationFact> => {
   const { target, op } = command;
+  const { targetsOf } = env;
   if (target.kind !== "automation") {
     return refuse({ reason: "invalid_input", message: `an automation command targets an automation, not a ${target.kind}` });
   }
   const author = authorOf(command.actor);
   if (author === undefined) {
     return refuse({ reason: "invalid_input", message: "an automation cannot write automations" });
+  }
+  if (author.kind === "seat" && !env.isOverseer(author.seat)) {
+    // TODO(remote-lead): `not_permitted` once it joins RefusalReason.
+    return refuse({
+      reason: "invalid_input",
+      message: "only the operator and overseers write automations; seats read them",
+      next_step: "Ask the operator, or read it with junto automation show",
+    });
   }
 
   if (op.kind === "create") {
