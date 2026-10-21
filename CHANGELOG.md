@@ -9,7 +9,9 @@ into memory, with no size cap yet. File artifacts can be made from the CLI
 only. Tasks canceled at upgrade because their boards were gone open by id but
 not by number, and their old history is not shown, though it is kept. A database
 older than version 13 is refused, and the refusal does not say to upgrade
-through an older release first.
+through an older release first. After a seat moves to another machine, the new
+machine shows that seat's earlier mail once more in its terminal. Nothing is
+lost.
 
 - Tasks, Artifacts and the Browser are on in 0.10. Earlier builds kept them
   off. They are the headline of this release.
