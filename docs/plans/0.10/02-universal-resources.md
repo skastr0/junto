@@ -245,10 +245,11 @@ is ruled:
   that commits the ruling (the editing machine, for its own seats) or folds it
   (every other machine). One rule names that machine: `authorWritesOn` for a
   notice author (`src/shared/work-exchange.ts`); the builder is
-  `src/shared/ruling-notices.ts`. A notice's id is derived from the ruling's
-  writer, opId, kind and seat, so it is the same on every machine and written
-  once. A refused command never leaves delivered mail behind. Comment
-  delivery moves to the same rule with item (1). Plain seat-to-seat
+  `src/shared/ruling-notices.ts`. A notice's id is derived from the writing
+  machine, opId, kind and seat, so a ruling folded again writes nothing, and
+  no id is ever written by two machines. A refused command never leaves
+  delivered mail behind. Comment delivery moves to the same rule with item
+  (1). Plain seat-to-seat
   mail on a `messages` edge is not a resource command and works as today.
 - **Derived transitions:** stamps met moves the task to `done`, a task sent
   on arrives at the next node, an unassign returns the task to `backlog`.

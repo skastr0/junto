@@ -6,7 +6,10 @@
  * (`authorWritesOn`), as it commits or folds the ruling. Every machine takes
  * every ruling, so each recipient is told once, by its own machine, and a
  * notice whose task node holds a seat is written by none. The id is derived
- * from (ruling writer, opId, kind, seat), the same on every machine.
+ * from (writing machine, opId, kind, seat): a ruling folded again on one
+ * machine writes nothing, and a seat that moves between two folds gets one
+ * notice from each machine, never one id under two writers, which a peer
+ * would refuse and close the link on.
  *
  * Pure: no I/O, no clock.
  */
@@ -46,7 +49,7 @@ export const rulingNoticesHere = (input: {
   const { actor } = ruling;
   const sentBy = noticeActorRef(canvasName, task.node);
   const notices = taskRulingNotices({
-    installationId: ruling.writer,
+    installationId: input.self,
     opId: ruling.opId,
     task: {
       node: task.node,

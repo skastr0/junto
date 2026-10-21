@@ -114,8 +114,8 @@ describe("who writes the notices a ruling owes", () => {
     expect(toPeer!.message.parts).toEqual([{ kind: "text", text: "Lead assigned you #3 fix tabs" }]);
     expect(toPeer!.message.metadata).toMatchObject({ fromSeat: NOTICE_SEAT_ID, senderNodeId: "board-1", subjectNotice: "assignment", threadId: TASK });
     expect(toFar!.message.parts).toEqual([{ kind: "text", text: "Lead asks for your stamp on #3 fix tabs" }]);
-    // The same id on every machine: derived from the ruling's writer and op, never from who writes it.
-    expect(toPeer!.message.messageId).toBe(subjectNoticeId({ installationId: M1, sourceId: OP, kind: "assignment", recipient: "peer" as never }));
+    // Derived from the machine that writes it: no id is ever written by two machines.
+    expect(toPeer!.message.messageId).toBe(subjectNoticeId({ installationId: M2, sourceId: OP, kind: "assignment", recipient: "peer" as never }));
   });
 
   it("only rows the writer's own admission and every peer's take: written where the author writes, across placements", () => {
@@ -285,5 +285,32 @@ describe("the editing machine's relay stays", () => {
     const taken = await take(m3, M1, [sent], "1", moved);
     expect(taken.taken).toBe(1);
     expect((await mailbox(m3, "far")).map((message) => message.messageId)).toContain("mail-1");
+  });
+});
+
+describe("a recipient that moves between two folds of one ruling", () => {
+  it("takes the old machine's notice, relayed after the move, under its own id, and keeps the link", async () => {
+    // R lived on M2, which folded the ruling and wrote R's notice; R now lives on M3, which folds it too.
+    const moved = placementWith({ peer: M3 });
+    const there = await machine(M3);
+    try {
+      await take(there, E, [rulingRow("1")], "1", moved);
+      const [mine] = await noticesIn(there, "peer");
+      expect(await writersOf(there, mine!.messageId)).toEqual([M3]);
+      // R's notice as M2 wrote it before the move, relayed by E: another id, since M2 wrote it.
+      const [old] = owed(M2);
+      expect(old!.message.messageId).not.toBe(mine!.messageId);
+      const relayed = row(M2, "1", { kind: "message", itemId: old!.message.messageId, sink: { canvasName: "factory", nodeId: "peer" } }, {
+        operation: "message.append",
+        message: old!.message,
+        sentBy: old!.sentBy,
+        destination: { kind: "mailbox" },
+      });
+      const taken = await take(there, M2, [relayed], "1", moved);
+      expect(taken.taken).toBe(1);
+      expect((await noticesIn(there, "peer")).map((notice) => notice.messageId).sort()).toEqual([mine!.messageId, old!.message.messageId].sort());
+    } finally {
+      await there.dispose();
+    }
   });
 });
