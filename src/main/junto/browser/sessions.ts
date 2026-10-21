@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { PAGE_SHOT_REFUSED, pageShotRefusal } from "@shared/page-shot";
 import { Effect, Result } from "effect";
 import { runClosedBrowserEffect } from "./run-closed";
 import {
@@ -14,7 +15,7 @@ import {
   type BrowserStopReceipt,
   type BrowserTraverseStep,
 } from "@shared/browser";
-import type { Rect } from "@shared/page-box";
+import { decodePageViewport, viewportRectOf, type Rect } from "@shared/page-box";
 import { admitSeat, initialPageDriving, reducePageDriving, type PageDriving } from "@shared/page-driver";
 import type { BrowserNavigationBlock } from "@shared/browser-chrome";
 import type { BrowserTopLevelNavigationRejection } from "./web-policy";
@@ -262,6 +263,15 @@ export const pageOriginGuard = (pageUrl: string): BrowserGuestTopLevelGuard => {
   const origin = exactBrowserOrigin(pageUrl);
   return (url) => origin !== undefined && exactBrowserOrigin(url) === origin;
 };
+
+/** A box comment's shot as main took it: a PNG of the box, and where the page was. */
+export interface BrowserPageBoxShot {
+  readonly png: Uint8Array;
+  /** The committed document's url when the shot was taken. */
+  readonly url: string;
+  readonly scroll: { readonly x: number; readonly y: number };
+  readonly rect: Rect;
+}
 
 interface GuestHold {
   readonly admitsTopLevel: BrowserGuestTopLevelGuard | undefined;
@@ -3049,6 +3059,68 @@ export class BrowserSessionService {
       );
     }
     return { ok: true, data: { png: captured.data } };
+  }
+
+  /**
+   * The shot for a page box comment (B7): `rect` is the box in page CSS
+   * pixels. Main reads where the page is scrolled, crops the live view to
+   * the box and encodes it, so the writer sends no bytes; a box not wholly
+   * in view is refused. A seat captures as any guest acts, so it is refused
+   * while the operator holds the page and its mark shows while it captures.
+   */
+  captureBoxForOwner(
+    owner: string,
+    sessionId: string,
+    rect: Rect,
+    signal?: AbortSignal,
+  ): Promise<BrowserResult<BrowserPageBoxShot>> {
+    return this.runUiOperation("screenshot", () => this.captureBoxForOwnerAdmitted(owner, sessionId, rect, signal));
+  }
+
+  private async captureBoxForOwnerAdmitted(
+    owner: string,
+    sessionId: string,
+    rect: Rect,
+    signal?: AbortSignal,
+  ): Promise<BrowserResult<BrowserPageBoxShot>> {
+    const entry = this.entryForOwner(owner, sessionId);
+    if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
+    if (this.navigationBusy(entry)) return err("invalid", "cannot capture while top-level navigation is in flight");
+    const view = entry.view;
+    if (view.capturePagePng === undefined || view.readViewport === undefined) {
+      return err("unsupported_capability", "this browser view cannot capture a box");
+    }
+    const url = entry.currentUrl;
+    if (url === undefined) return err("invalid", "the page has no document to capture");
+    entry.lastActiveAt = this.now();
+    const captured = await this.runPowerfulOperation({
+      owner,
+      entry,
+      sessionId,
+      kind: "screenshot",
+      timeoutMs: BROWSER_CAPTURE_TIMEOUT_MS,
+      ...(signal !== undefined ? { signal } : {}),
+      run: async (): Promise<BrowserResult<{ readonly png: Uint8Array; readonly scroll: { readonly x: number; readonly y: number } }>> => {
+        const viewport = decodePageViewport(await view.readViewport!());
+        if (viewport === undefined) return err("failed", "the page did not say where it is scrolled");
+        const inView = viewportRectOf(rect, viewport);
+        if (
+          inView === undefined ||
+          inView.x < 0 ||
+          inView.y < 0 ||
+          inView.x + inView.w > viewport.width ||
+          inView.y + inView.h > viewport.height
+        ) {
+          return err("invalid", "the box is not wholly in view: scroll it into view and draw it again");
+        }
+        return { ok: true, data: { png: await view.capturePagePng!(inView), scroll: viewport.scroll } };
+      },
+    });
+    if (!captured.ok) return captured;
+    if (!captured.data.ok) return captured.data;
+    const refused = pageShotRefusal(captured.data.data.png);
+    if (refused !== undefined) return err(refused === "empty" ? "failed" : "result_too_large", PAGE_SHOT_REFUSED[refused]);
+    return { ok: true, data: { png: captured.data.data.png, url, scroll: captured.data.data.scroll, rect } };
   }
 
   state(sessionId: string): BrowserResult<BrowserSessionInfo> {
