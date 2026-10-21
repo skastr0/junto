@@ -5,13 +5,13 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { expect, it } from "vitest";
-import { createCanvasTaskDependencyScopeCapability, WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { WorkModelDependentsLive } from "../src/main/junto/work/model-dependents";
 import { ModelDependents } from "../src/main/junto/model/dependents";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { ActorRef, IntentFactBasis } from "../src/shared/work-protocol";
 import { seedCanvasRows } from "./support/seed-canvas";
-import { artifacts, canvasOf, note, seat, taskBoard } from "./support/model-nodes";
+import { artifacts, note, seat, taskBoard } from "./support/model-nodes";
 import { THIS_MACHINE } from "./support/machines";
 
 it("removes mailbox rows in the owning transaction and preserves immutable records", async () => {
@@ -32,16 +32,6 @@ it("removes mailbox rows in the owning transaction and preserves immutable recor
       }));
       const sentBy = Schema.decodeUnknownSync(ActorRef)({ seatId: `seat_${"a".repeat(64)}`, canvasName: "factory", nodeId: "sender" });
       const basis = Schema.decodeUnknownSync(IntentFactBasis)({ kind: "canvas", canvasName: "factory", seq: 1 });
-      const taskSink = { canvasName: "factory", nodeId: "tasks" };
-      const dependencyScope = createCanvasTaskDependencyScopeCapability({ canvas: { ...canvasOf([tasks]), seq: 1 }, authoringSink: taskSink });
-      yield* repo.createTask({ sink: taskSink, basis, dependencyScope,
-        task: { id: "task", state: "submitted", history: [{ messageId: "brief", role: "user", parts: [{ kind: "text", text: "Task" }] }] },
-      });
-      yield* repo.claimLocalTask({ sink: taskSink, basis, dependencyScope, taskId: "task", actor: sentBy });
-      const artifactSink = { canvasName: "factory", nodeId: "artifacts" };
-      yield* repo.publishArtifact({ sink: artifactSink, basis, publishedBy: sentBy,
-        artifact: { artifactId: "artifact", parts: [{ kind: "text", text: "Result" }], task: { kind: "task", sink: taskSink, itemId: "task" } },
-      });
       for (const nodeId of ["inbox", "other"]) yield* repo.appendMessage({
         sink: { canvasName: "factory", nodeId }, basis, sentBy, destination: { kind: "mailbox" },
         message: { messageId: `mail-${nodeId}`, role: "agent", parts: [{ kind: "text", text: nodeId }] },
@@ -68,17 +58,13 @@ it("removes mailbox rows in the owning transaction and preserves immutable recor
         expect(aborted._tag).toBe("Failure");
         expect(notifications).toEqual([]);
         expect((yield* repo.mailbox("factory", "inbox"))).toHaveLength(1);
-        expect((yield* repo.artifactIds("factory", "artifacts"))).toEqual(["artifact"]);
         const purge = (canvas: string) => sql`INSERT INTO content_purges (canvas_name, node_id, record_id, purged_at) VALUES (${canvas}, 'inbox', 'mail-inbox', '2026-10-07')`;
         yield* purge("factory");
         yield* purge("elsewhere");
         yield* sql.withTransaction(dependents.removeNodes("factory", ["inbox", "tasks"]));
         expect(notifications.splice(0)).toEqual([
-          { canvasName: "factory", nodeId: "artifacts", kind: "work" },
           { canvasName: "factory", nodeId: "inbox", kind: "mail" },
-          { canvasName: "factory", nodeId: "tasks", kind: "work" },
         ]);
-        expect((yield* repo.artifactIds("factory", "artifacts"))).toEqual([]);
         expect((yield* repo.mailbox("factory", "inbox"))).toEqual([]);
         expect((yield* repo.mailbox("factory", "other"))).toHaveLength(1);
         expect(yield* sql`SELECT canvas_name FROM content_purges ORDER BY canvas_name`).toEqual([{ canvas_name: "elsewhere" }, { canvas_name: "factory" }]);

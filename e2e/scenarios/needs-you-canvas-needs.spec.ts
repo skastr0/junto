@@ -1,15 +1,14 @@
-import { ModelService } from "../../src/main/junto/model/service";
 /**
  * Needs-you: what only the canvas knows reaches the feed.
  *   bun run test:e2e:fast e2e/scenarios/needs-you-canvas-needs.spec.ts
  *
  * The top bar popover used to be the only place a work stoppage showed. It
  * is gone, so the feed must carry those needs. Real work is seeded through
- * the work repository, the way main writes it: a task Atlas claimed and then
- * left waiting on the operator (the stoppage, which holds Atlas up). It is
+ * the task store: a task assigned to Atlas and left waiting on the
+ * operator (the stoppage, which holds Atlas up). It is
  * written with origin times in the past, before the app has ever started: the
  * app that shows it never saw it begin, as after a quit and relaunch, so the
- * only place the times can come from is the journal.
+ * only place the times can come from is the task store.
  *
  * Asserts:
  *   - the stoppage and the held seat each appear as a feed row, in their region
@@ -18,20 +17,10 @@ import { ModelService } from "../../src/main/junto/model/service";
  *   - each row shows the time its need truly began, on first launch and after a reload
  */
 import { join } from "node:path";
-import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { Effect, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import type { Locator } from "@playwright/test";
-import { ModelLive } from "../../src/main/junto/model/layer";
-import { ModelDependents } from "../../src/main/junto/model/dependents";
 import { makeStateEngineLive } from "../../src/main/junto/state/engine";
-import { SettingsLive } from "../../src/main/junto/settings/service";
-import { deriveActorSeatId } from "../../src/main/junto/actor-seat-id";
-import { MachineRepository, MachineRepositoryLive } from "../../src/main/junto/machines/repository";
-import {
-  createCanvasTaskDependencyScopeCapability,
-  WorkRepository,
-  WorkRepositoryLive,
-} from "../../src/main/junto/work/repository";
-import { IntentFactBasis } from "../../src/shared/work-protocol";
 import type { Sandbox } from "../harness/sandbox";
 import { modelFixture, modelNode, modelRegion, modelSeat } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
@@ -39,7 +28,6 @@ import { expect, launchJunto, test } from "../harness/launch";
 const CANVAS = "needs-you-canvas";
 // When each need began, well before this app process exists.
 const STOPPED_AT = Date.now() - 47 * 60_000;
-const iso = (ms: number): string => new Date(ms).toISOString();
 
 const ops = modelRegion({ id: "ops", label: "Ops", x: 0, y: 0, width: 760, height: 360 });
 const atlas = modelSeat({ id: "atlas", key: "local:e2e-needs-atlas", label: "Atlas", harness: "claude", x: 40, y: 80 });
@@ -48,59 +36,18 @@ const nodes = [ops, atlas, board];
 // Atlas reaches the Tasks node through the Ops region, with no wire (01).
 const fixture = modelFixture(nodes, []);
 
-/** Atlas's claimed task waiting on the operator. */
+/** Atlas's task waiting on the operator, as the task store holds it. */
 const seedWork = async (sandbox: Sandbox): Promise<void> => {
-  const state = makeStateEngineLive(join(sandbox.homeDir, ".junto", "state", "junto.db"));
-  const repositories = Layer.provideMerge(
-    Layer.mergeAll(WorkRepositoryLive, MachineRepositoryLive, SettingsLive),
-    state,
-  );
-  const runtime = ManagedRuntime.make(Layer.provideMerge(Layer.provide(ModelLive, ModelDependents.empty), repositories));
+  const runtime = ManagedRuntime.make(makeStateEngineLive(join(sandbox.homeDir, ".junto", "state", "junto.db")));
   try {
     await runtime.runPromise(
       Effect.gen(function* () {
-        const work = yield* WorkRepository;
-        const installationId = yield* (yield* MachineRepository).installationId;
-        const model = yield* ModelService;
-        const canvas = yield* model.canvas(CANVAS);
-        const basis = Schema.decodeUnknownSync(IntentFactBasis, { onExcessProperty: "error" })({
-          kind: "canvas", canvasName: CANVAS, seq: canvas.seq,
-        });
-        const seatId = deriveActorSeatId(installationId, atlas.bindingId);
-        const actor = { seatId, canvasName: CANVAS, nodeId: atlas.id };
-        const boardSink = { canvasName: CANVAS, nodeId: board.id };
-        const dependencyScope = createCanvasTaskDependencyScopeCapability({ canvas, authoringSink: boardSink });
-        yield* work.createTask({
-          sink: boardSink,
-          basis,
-          dependencyScope,
-          task: {
-            id: "task-migration",
-            state: "submitted",
-            history: [
-              { messageId: "msg-task-migration", role: "user", parts: [{ kind: "text", text: "Run the accounts migration." }] },
-            ],
-          },
-          originAt: iso(STOPPED_AT - 30 * 60_000),
-          receivedAt: iso(STOPPED_AT - 30 * 60_000),
-        });
-        yield* work.claimLocalTask({
-          sink: boardSink,
-          basis,
-          dependencyScope,
-          taskId: "task-migration",
-          actor,
-          originAt: iso(STOPPED_AT - 20 * 60_000),
-          receivedAt: iso(STOPPED_AT - 20 * 60_000),
-        });
-        yield* work.transitionTask({
-          sink: boardSink,
-          basis,
-          taskId: "task-migration",
-          state: "input-required",
-          originAt: iso(STOPPED_AT),
-          receivedAt: iso(STOPPED_AT),
-        });
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql.unsafe(
+          `INSERT INTO task_heads (canvas_name, task_id, number, node_id, title, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, checks_json, created_at, updated_at, state_since)
+           VALUES (?, ?, 1, ?, 'Run the accounts migration.', 'input-required', ?, 0, 0, '[]', '[]', '[]', ?, ?, ?)`,
+          [CANVAS, "01JZ00000000000000000000M1", board.id, atlas.id, STOPPED_AT - 30 * 60_000, STOPPED_AT, STOPPED_AT],
+        );
       }),
     );
   } finally {
@@ -168,7 +115,7 @@ test("a work stoppage and the seat it holds up are feed rows, counted, and show 
     await expectTrueTimes();
     await page.keyboard.press("Escape");
 
-    // A reload reads the same journal: nothing is restamped as now.
+    // A reload reads the same store: nothing is restamped as now.
     await page.reload();
     await expect(page.locator(".react-flow__node", { hasText: "Atlas" })).toBeVisible({ timeout: 30_000 });
     await expect(trigger).toHaveAttribute("aria-label", "Needs you, 2", { timeout: 20_000 });

@@ -29,12 +29,7 @@ import type { ActorRef } from "@shared/work-protocol";
 import type { Author } from "@shared/author";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
 import { ContentService } from "../content/service";
-import {
-  materializeContentObject,
-  taskContentRef,
-} from "../content/agent-access";
 import type { ModelService } from "../model/service";
-import { contentObjectPath } from "../content/paths";
 import { ContentStoreError } from "../content/store";
 import {
   admitLiveOverseer,
@@ -343,18 +338,12 @@ export const executeOverseerWork = (
       const args = yield* decodeArgs(op, raw);
       const targetId = resolveMailboxTarget(args.target, caller);
       if (args.taskId) {
-        yield* requireTarget(read.canvas, targetId, "msg.list");
-        const task = yield* catchWork(
-          work.readTask(canvas, targetId, args.taskId),
-        );
-        if (!task) {
-          return yield* failBody({
-            type: "UnknownTarget",
-            message: `task "${args.taskId}" not found`,
-            details: { target: args.taskId, retryable: false },
-          });
-        }
-        return { target: targetId, taskId: task.id, items: task.history };
+        // A task's mail is its thread (03), read with the task.
+        return yield* failBody({
+          type: "InputError",
+          message: "msg.list reads mailboxes; a task's comments are in its thread",
+          details: { path: "taskId", retryable: false, next_step: "run junto task show <task> to read a task and its thread" },
+        });
       }
       if (targetId === caller.nodeId) {
         const items = yield* catchWork(work.readMailbox(caller.canvasName, caller.nodeId));
@@ -372,15 +361,22 @@ export const executeOverseerWork = (
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
       yield* requireTarget(read.canvas, target, "msg.send");
+      if (args.taskId) {
+        // A comment on a task posts in its thread (03).
+        return yield* failBody({
+          type: "InputError",
+          message: "msg.send mails a seat; a comment on a task goes in its thread",
+          details: { path: "taskId", retryable: false, next_step: "run junto task comment <task> <text> to post in a task's thread" },
+        });
+      }
       const result = yield* work.workMessageAppend(
         canvas,
         target,
-        args.taskId ?? null,
+        null,
         makeUserMessage({
           messageId: ulid(),
           text: `[factory mail from ${actor.nodeId}] ${args.text}`,
           contextId: canvas,
-          ...(args.taskId ? { taskId: args.taskId } : {}),
           metadata: { factoryMail: true, fromSeat: actor.nodeId },
         }),
         actor,
@@ -493,114 +489,22 @@ export const executeOverseerWork = (
       };
     }
     if (op === "content.path" || op === "content.stat") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "content.path");
-      const task = yield* catchWork(
-        work.readTask(canvas, target, args.task),
-      );
-      if (task === undefined) {
-        return yield* failBody({
-          type: "UnknownTarget",
-          message: `task "${args.task}" not found on target "${target}"`,
-          details: { target: args.task, retryable: false },
-        });
-      }
-      const authorizedRef = taskContentRef(task, args.ref);
-      if (authorizedRef === undefined) {
-        return yield* failBody({
-          type: "ScopeError",
-          message: `content ref is not attached to task "${args.task}"`,
-          details: { target, caller: caller.nodeId, retryable: false },
-        });
-      }
-      const content = yield* ContentService;
-      const availability = yield* content.availability(authorizedRef).pipe(
-        Effect.mapError((error): WorkErrorBody => ({
-          type: "InternalError",
-          message: error.message,
-          details: { retryable: true },
-        })),
-      );
-      const base = {
-        target,
-        task: args.task,
-        ref: authorizedRef,
-        availability,
-        state: availability.state,
-      };
-      if (availability.state !== "verified") return base;
-      return {
-        ...base,
-        path: contentObjectPath(content.root, authorizedRef.sha256),
-      };
+      yield* decodeArgs(op, raw);
+      // Task content lived on tasks before 0.10; a 0.10 task holds a title, a body and its thread.
+      return yield* failBody({
+        type: "InputError",
+        message: "content.path by task reads content a 0.10 task does not hold",
+        details: { path: "task", retryable: false, next_step: "run junto task show <task> to read a task" },
+      });
     }
     if (op === "content.materialize") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "content.materialize");
-      const task = yield* catchWork(
-        work.readTask(canvas, target, args.task),
-      );
-      if (task === undefined) {
-        return yield* failBody({
-          type: "UnknownTarget",
-          message: `task "${args.task}" not found on target "${target}"`,
-          details: { target: args.task, retryable: false },
-        });
-      }
-      const authorizedRef = taskContentRef(task, args.ref);
-      if (authorizedRef === undefined) {
-        return yield* failBody({
-          type: "ScopeError",
-          message: `content ref is not attached to task "${args.task}"`,
-          details: { target, caller: caller.nodeId, retryable: false },
-        });
-      }
-      const content = yield* ContentService;
-      const availability = yield* content.availability(authorizedRef).pipe(
-        Effect.mapError((error): WorkErrorBody => ({
-          type: "InternalError",
-          message: error.message,
-          details: { retryable: true },
-        })),
-      );
-      const base = {
-        target,
-        task: args.task,
-        ref: authorizedRef,
-        availability,
-        state: availability.state,
-      };
-      if (availability.state !== "verified") return base;
-      const canonicalPath = contentObjectPath(content.root, authorizedRef.sha256);
-      const materialized = yield* Effect.tryPromise({
-        try: () =>
-          materializeContentObject({
-            contentRoot: content.root,
-            workHome: callerWorkHome(),
-            canvasName: canvas,
-            targetNodeId: target,
-            taskId: args.task,
-            ref: authorizedRef,
-            name: args.name,
-          }),
-        catch: (error): WorkErrorBody => {
-          const invalidInput =
-            error instanceof ContentStoreError && error.code === "invalid";
-          return {
-            type: invalidInput ? "InputError" : "InternalError",
-            message: error instanceof Error ? error.message : String(error),
-            details: { retryable: !invalidInput },
-          };
-        },
+      yield* decodeArgs(op, raw);
+      // Task content lived on tasks before 0.10; a 0.10 task holds a title, a body and its thread.
+      return yield* failBody({
+        type: "InputError",
+        message: "content.materialize by task reads content a 0.10 task does not hold",
+        details: { path: "task", retryable: false, next_step: "run junto task show <task> to read a task" },
       });
-      return {
-        ...base,
-        path: materialized.path,
-        canonicalPath,
-        materialized: materialized.created,
-      };
     }
 
     return yield* failBody({

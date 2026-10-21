@@ -27,10 +27,6 @@
   outline-offset: 0;
 }
 
-/* Every card sits at z 32 (flow-nodes.ts CARD_Z), so the later card would
-   cover the words; the card that carries them rises one step. */
-.react-flow__node[data-reach-summary] { z-index: 33 !important; }
-
 .react-flow__node[data-reach-summary]::after {
   content: attr(data-reach-summary);
   position: absolute;

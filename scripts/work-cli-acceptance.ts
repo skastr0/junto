@@ -46,7 +46,6 @@ import { AgentSignalRepositoryLive } from "../src/main/junto/signals/repository"
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import {
-  createCanvasTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
@@ -58,7 +57,6 @@ import {
   SettingsService,
 } from "../src/main/junto/settings/service";
 import { WORK_MAX_FRAME_BYTES, WORK_TOKEN_ENV } from "../src/shared/work-control";
-import { IntentFactBasis } from "../src/shared/work-protocol";
 import { composeOverseer, type OverseerComposition } from "../src/main/junto/overseer/composition";
 import { ActorSeatOccupyLive } from "../src/main/junto/term/actor-seat-occupy-live";
 import { ARTIFACTS_ENABLED, TASKS_ENABLED } from "../src/shared/features";
@@ -504,22 +502,10 @@ export const runWorkCliAcceptance = async () => {
   await runtime.runPromise(machines.configureName("acceptance"));
   await runtime.runPromise(settings.setMachinePreferences({ supervisedPreferred: true }));
 
-  // Author only topology, then seed fixed acceptance work through explicit
-  // WorkRepository verbs. The canvas never carries a durable work projection.
+  // Author only topology. The canvas never carries a durable work projection.
   const model = await runtime.runPromise(ModelService);
   await runtime.runPromise(model.command(Schema.decodeUnknownSync(Command)({ _tag: "CreateCanvas", canvas: CANVAS }), "operator"));
   await runtime.runPromise(model.command(seed(), "operator"));
-  const canvas = await runtime.runPromise(model.canvas(CANVAS));
-  const basis = Schema.decodeUnknownSync(IntentFactBasis, {
-    onExcessProperty: "error",
-  })({
-    kind: "canvas", canvasName: CANVAS, seq: canvas.seq,
-  });
-  const taskSink = { canvasName: CANVAS, nodeId: TASKS };
-  const dependencyScope = createCanvasTaskDependencyScopeCapability({
-    canvas,
-    authoringSink: taskSink,
-  });
   const repository = await runtime.runPromise(WorkRepository);
   // Admission is the generation credential.
   const credentials = makeSeatCredentialRegistry();
