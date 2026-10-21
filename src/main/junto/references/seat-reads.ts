@@ -51,19 +51,31 @@ export const seatReferences = (
     return referencesInScope({ app, regions, regional });
   });
 
+/** What onboard says in place of an app briefing it could not read. */
+export const BRIEFING_UNREADABLE =
+  "The operator's app briefing exists but could not be read. Run junto onboard again; if it stays unreadable, say so with junto escalate.";
+
 /**
- * The two fields `junto onboard` gains, each left out when empty. A runtime
- * without the store, or a store that cannot answer, leaves them out rather
- * than failing onboard.
+ * The fields `junto onboard` gains, each left out when empty. A runtime
+ * without the store leaves them out; a briefing the store cannot read is
+ * named as unreadable, never dropped as if there were none. References that
+ * cannot be read leave theirs out rather than failing onboard.
  */
 export const onboardReferenceFields = (
   seat: ReferenceSeat,
-): Effect.Effect<{ readonly briefing?: string; readonly references?: ReadonlyArray<ReferenceListing> }> =>
+): Effect.Effect<{
+  readonly briefing?: string;
+  readonly briefing_unreadable?: string;
+  readonly references?: ReadonlyArray<ReferenceListing>;
+}> =>
   Effect.gen(function* () {
     const store = yield* Effect.serviceOption(ReferencesRepository);
     if (Option.isNone(store)) return {};
     const model = yield* Effect.serviceOption(ModelService);
-    const briefing = yield* store.value.briefingRead().pipe(Effect.orElseSucceed(() => null));
+    const briefing = yield* store.value.briefingRead().pipe(
+      Effect.map((read) => (read === null ? null : { body: read.body })),
+      Effect.orElseSucceed(() => "unreadable" as const),
+    );
     const references = Option.isNone(model)
       ? []
       : yield* seatReferences(seat).pipe(
@@ -72,7 +84,11 @@ export const onboardReferenceFields = (
           Effect.orElseSucceed((): ReadonlyArray<ScopedReference> => []),
         );
     return {
-      ...(briefing !== null ? { briefing: briefing.body } : {}),
+      ...(briefing === "unreadable"
+        ? { briefing_unreadable: BRIEFING_UNREADABLE }
+        : briefing !== null
+          ? { briefing: briefing.body }
+          : {}),
       ...(references.length > 0 ? { references: references.map(toReferenceListing) } : {}),
     };
   });
