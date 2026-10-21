@@ -1,4 +1,3 @@
-import type { ChatChromeChanged } from "@shared/chat-chrome";
 import type { WorkSinkChanged } from "@shared/work-sinks";
 import type { WorkMailChanged } from "@shared/work-mail";
 import type { CanvasesChanged, Changed } from "@shared/model";
@@ -8,7 +7,6 @@ import type { ShellEnvironmentChange } from "@shared/shell-environment";
 import {
   IPC_CHANNELS,
   type ChassisApi,
-  type ChatEvent,
   type BrowserOpenInput,
   type BrowserProfileWipeInput,
   type BrowserSessionInfo,
@@ -19,7 +17,6 @@ import {
   type LoginItemOpResult,
   type JuntoApi,
   type JuntoBrowserApi,
-  type JuntoChatApi,
   type JuntoDemoApi,
   type JuntoGitApi,
   type JuntoHostsApi,
@@ -76,12 +73,6 @@ import type {
 // process (e.g. killed during a dev restart) never responds. Rejecting then
 // surfaces the renderer's existing error banner instead of a silent freeze —
 // the exact failure mode that made a stale instance look "non-responsive".
-//
-// chatOpen/chatSetModel budget: main-side AcpClient.request() bounds
-// session/new + session/load + session/set_model at 30s each
-// (chat/acp-client.ts REQUEST_TIMEOUT_MS), strictly under this 45s ceiling —
-// the main process always wins the race and tears the wedged session down
-// before the renderer's own timeout would fire.
 const IPC_TIMEOUT_MS = 45_000;
 /**
  * A machine send copies a whole build over SSH and starts it. Main owns that
@@ -100,14 +91,6 @@ const USAGE_REFRESH_TIMEOUT_MS = 120_000;
 // A seat ask (onboard, offboard, region env report, managed prompt) waits on
 // a real agent turn; give it headroom above the default 45s ceiling.
 const AGENT_MESSAGE_TIMEOUT_MS = 200_000;
-
-// A chat turn can run tools for many minutes; streaming events keep the UI
-// alive meanwhile, so the invoke ceiling only guards a truly dead backend.
-//
-// chatPrompt budget: main-side AcpClient.request() bounds session/prompt at
-// 840s (chat/acp-client.ts REQUEST_TIMEOUT_MS), strictly under this 900s
-// ceiling, for the same reason — main tears the session down first.
-const CHAT_TURN_TIMEOUT_MS = 900_000;
 
 const invoke = <T>(channel: string, timeoutMs: number, ...args: unknown[]): Promise<T> =>
   new Promise((resolve, reject) => {
@@ -797,25 +780,6 @@ const usageApi: JuntoUsageApi = {
     subscribe<UsageState>(IPC_CHANNELS.usageChanged, listener),
 };
 
-const chatApi: JuntoChatApi = {
-  chatOpen: (agentKey, resumeSessionId) =>
-    invoke(IPC_CHANNELS.chatOpen, IPC_TIMEOUT_MS, agentKey, resumeSessionId),
-  chatPrompt: (agentKey, text, contextBlocks) =>
-    invoke(IPC_CHANNELS.chatPrompt, CHAT_TURN_TIMEOUT_MS, agentKey, text, contextBlocks),
-  chatPermission: (agentKey, requestId, optionId) =>
-    invoke(IPC_CHANNELS.chatPermission, IPC_TIMEOUT_MS, agentKey, requestId, optionId),
-  chatSetModel: (agentKey, modelId) =>
-    invoke(IPC_CHANNELS.chatSetModel, IPC_TIMEOUT_MS, agentKey, modelId),
-  chatClose: (agentKey) => invoke(IPC_CHANNELS.chatClose, IPC_TIMEOUT_MS, agentKey),
-  chatBeginNodeDelete: (resources) =>
-    invoke(IPC_CHANNELS.chatBeginNodeDelete, IPC_TIMEOUT_MS, resources),
-  chatFinishNodeDelete: (leaseId, outcome) =>
-    invoke(IPC_CHANNELS.chatFinishNodeDelete, IPC_TIMEOUT_MS, leaseId, outcome),
-  onChatEvent: (listener) => subscribe<ChatEvent>(IPC_CHANNELS.chatEvent, listener),
-  chatChrome: () => invoke(IPC_CHANNELS.chatChrome, IPC_TIMEOUT_MS),
-  onChatChromeChanged: (listener) => subscribe<ChatChromeChanged>(IPC_CHANNELS.chatChromeChanged, listener),
-};
-
 const browserApi: JuntoBrowserApi = {
   browserProfiles: () => invoke(IPC_CHANNELS.browserProfiles, IPC_TIMEOUT_MS),
   browserSurfaceConfig: () => invoke(IPC_CHANNELS.browserSurfaceConfig, IPC_TIMEOUT_MS),
@@ -966,7 +930,6 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
     ...(ARTIFACTS_ENABLED ? artifactsWorkApi : {}),
     ...(BOARD_ENABLED ? boardWorkApi : {}),
     ...(LIVE_OVERSEER_ENABLED ? liveApi : {}),
-    ...chatApi,
     ...(USAGE_ENABLED ? usageApi : {}),
     ...(CRON_ENABLED || RELAY_ENABLED ? schedulerApi : {}),
     ...(FLEET_UI_ENABLED ? hostsApi : {}),

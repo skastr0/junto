@@ -1,7 +1,6 @@
 import type { MachineInventory } from "./harness-domain/inventory";
 import type { NativeSettingWrite } from "./harness-domain/native-config";
 import type { MachineCacheWindows, MachineProviders, MachineRecord } from "./machine-settings";
-import type { ChatChromeSnapshot, ChatChromeChanged } from "./chat-chrome";
 import type { WorkAttentionSnapshot } from "./work-attention";
 import type { WorkItemQuery, WorkActorQuery, WorkActorPage, WorkAttentionQuery, WorkLaneRow, WorkSinkQuery, WorkSinkPage, WorkSinkChanged } from "./work-sinks";
 import type { CanvasesChanged, Changed, Command, Opened } from "./model";
@@ -276,15 +275,6 @@ export const IPC_CHANNELS = {
   /** Is sshd listening: the one probe a paired phone's reach depends on. */
   companionRemoteLogin: "junto:companion-remote-login",
   companionOpenRemoteLoginSettings: "junto:companion-open-remote-login-settings",
-  chatOpen: "junto:chat-open",
-  chatPrompt: "junto:chat-prompt",
-  chatPermission: "junto:chat-permission",
-  chatSetModel: "junto:chat-set-model",
-  chatClose: "junto:chat-close",
-  /** Main-owned agent delete lease: lock + tombstone + close. */
-  chatBeginNodeDelete: "junto:chat-begin-node-delete",
-  /** Release delete lease after document commit or abort. */
-  chatFinishNodeDelete: "junto:chat-finish-node-delete",
   getKernelState: "junto:get-kernel-state",
   /** Factory pause plane — canvas-level switch state (born paused). */
   factoryPauseState: "junto:factory-pause-state",
@@ -380,9 +370,6 @@ export const IPC_CHANNELS = {
   canvasQuiesceAndFlushComplete: "junto:canvas-quiesce-and-flush-complete",
   usageChanged: "junto:usage-changed",
   settingsChanged: "junto:settings-changed",
-  chatEvent: "junto:chat-event",
-  chatChrome: "junto:chat-chrome",
-  chatChromeChanged: "junto:chat-chrome-changed",
   kernelChanged: "junto:kernel-changed",
   terminalList: "junto:terminal-list",
   terminalGet: "junto:terminal-get",
@@ -574,42 +561,6 @@ export type WorkOpResult<T> =
       readonly details?: WorkErrorDetails;
     };
 
-// --- hermes attached chat (ACP) ---------------------------------------------
-// One live ACP session per agent node ("<host>:<profile>"). The main process
-// owns the `hermes acp` child (local or over ssh) and relays the protocol;
-// the renderer renders. Payloads stay loosely typed — the ACP update object
-// is forwarded verbatim and the UI narrows defensively.
-
-export interface ChatModelChoice {
-  readonly modelId: string;
-  readonly description?: string;
-}
-
-export interface ChatOpenResult {
-  readonly ok: boolean;
-  readonly error?: string;
-  readonly sessionId?: string;
-  readonly resumed?: boolean;
-  readonly models?: ReadonlyArray<ChatModelChoice>;
-}
-
-export interface ChatTurnResult {
-  readonly ok: boolean;
-  readonly error?: string;
-  readonly stopReason?: string; // end_turn | cancelled | refusal | ...
-}
-
-// Pushed on "junto:chat-event" for every ACP notification / agent request.
-export interface ChatEvent {
-  readonly agentKey: string;
-  // ACP sessionUpdate kind (agent_message_chunk, agent_thought_chunk,
-  // tool_call, tool_call_update, plan, usage_update,
-  // available_commands_update, ...) or the synthetic kinds
-  // "permission_request" (carries requestId + options), "status", "error".
-  readonly kind: string;
-  readonly payload: unknown;
-}
-
 export interface NodeRefOpenedEvent {
   readonly ref: NodeRefKey;
   readonly canvasName: string;
@@ -621,66 +572,6 @@ export interface NodeRefOpenedEvent {
 export interface NodeRefOpenedDelivery extends NodeRefOpenedEvent {
   readonly deliveryId: string;
 }
-
-export interface ChatApi {
-  // Spawn/attach the agent's ACP session. resumeSessionId reattaches a prior
-  // conversation (hermes advertises loadSession + resume). The session mints no
-  // principal: ACP is a transport and holds no factory identity.
-  readonly chatOpen: (
-    agentKey: string,
-    resumeSessionId?: string,
-  ) => Promise<ChatOpenResult>;
-  // One turn: prompt text plus optional context blocks (node digests) sent as
-  // additional content blocks. Resolves when the turn ends; streaming arrives
-  // via chat events.
-  readonly chatPrompt: (agentKey: string, text: string, contextBlocks?: ReadonlyArray<string>) => Promise<ChatTurnResult>;
-  // Answer a pending permission request (optionId: allow_once | allow_session
-  // | allow_always | deny | deny_always).
-  readonly chatPermission: (agentKey: string, requestId: string, optionId: string) => Promise<{ ok: boolean }>;
-  readonly chatSetModel: (agentKey: string, modelId: string) => Promise<{ ok: boolean; error?: string }>;
-  readonly chatClose: (
-    agentKey: string,
-  ) => Promise<{ ok: boolean; clean?: boolean }>;
-  /**
-   * Main-owned agent delete lease: locks keys, admits chatOpen tombstones,
-   * starts verified close. Finish after document commit or abort.
-   */
-  readonly chatBeginNodeDelete: (
-    resources: ReadonlyArray<NodeDeleteResource>,
-  ) => Promise<ChatBeginNodeDeleteResult>;
-  readonly chatFinishNodeDelete: (
-    leaseId: string,
-    outcome: ChatFinishNodeDeleteOutcome,
-  ) => Promise<ChatFinishNodeDeleteResult>;
-  readonly onChatEvent: (listener: (event: ChatEvent) => void) => () => void;
-  /** Subscribe before the initial snapshot; apply only newer revisions afterward. */
-  readonly chatChrome: () => Promise<ChatChromeSnapshot>;
-  readonly onChatChromeChanged: (listener: (event: ChatChromeChanged) => void) => () => void;
-}
-
-/** Resource targeted by a Main-owned node-delete lease (agents only for Cut 6). */
-export type NodeDeleteResource = {
-  readonly kind: "agent";
-  readonly agentKey: string;
-};
-
-export type ChatBeginNodeDeleteResult =
-  | {
-      readonly ok: true;
-      readonly leaseId: string;
-      readonly closeResults: ReadonlyArray<{
-        readonly agentKey: string;
-        readonly ok: boolean;
-        readonly clean: boolean;
-      }>;
-    }
-  | { readonly ok: false; readonly error: string };
-
-export type ChatFinishNodeDeleteOutcome = "committed" | "aborted";
-
-export type ChatFinishNodeDeleteResult =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly error: string };
 
 export interface JuntoSchedulerApi {
   /** Fire one selected scheduler's outbound does edges only. */
@@ -1275,10 +1166,6 @@ export interface HostsTestResult {
   readonly code?: string;
   readonly message?: string;
 }
-
-// The attached-chat surface is declared separately and merged into the
-// preload bridge alongside JuntoApi.
-export interface JuntoChatApi extends ChatApi {}
 
 /** Fail-soft model option for the harness picker (main enumeration). */
 export interface ManagedTerminalModelOption {

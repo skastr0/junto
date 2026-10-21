@@ -2,7 +2,6 @@ import type {
   ChassisApi,
   JuntoApi,
   JuntoBrowserApi,
-  JuntoChatApi,
   JuntoDemoApi,
   JuntoHostsApi,
   JuntoSchedulerApi,
@@ -18,7 +17,6 @@ declare global {
     /** Published only while JUNTO_PERF has armed the renderer perf harness. */
     readonly juntoPerf?: CanvasPerformanceHarness;
     readonly junto?: JuntoApi &
-      JuntoChatApi &
       JuntoTerminalApi &
       JuntoGitApi &
       JuntoDemoApi &
