@@ -110,6 +110,8 @@ import type { MailSenderStamp, ReviewVerdict, VerdictSubject } from "@shared/cre
 import { flowDestinations } from "@shared/flow-graph";
 import { regionStack } from "@shared/model/canvas";
 import { taskCommentRecipient } from "@shared/task-owner";
+import { taskCommentNotice } from "@shared/task-notices";
+import { readMailExtension } from "@shared/crew";
 import { makeUserMessage, isTerminalTaskState } from "@shared/task";
 import type { Ruling } from "@shared/work-model";
 import { operatorActorRef } from "@shared/work-reference";
@@ -214,6 +216,17 @@ const defaultIds = (): WorkIds => ({
   id: () => ulid(),
   messageId: () => ulid(),
 });
+
+/**
+ * Who a task comment is from, as its notice names them: the comment's own
+ * sender stamp, or the bare actor when the comment carries none.
+ */
+const commentSenderOf = (comment: Message, sentBy: ActorRef): MailSenderStamp => {
+  const stamped = readMailExtension(comment.metadata);
+  if (stamped === undefined) return { fromSeat: sentBy.seatId, senderGeneration: "unknown", senderHarness: "unknown" };
+  const { mailKind: _kind, subject: _subject, refs: _refs, ...stamp } = stamped;
+  return stamp;
+};
 
 const toWorkServiceError = (error: unknown): WorkServiceError => {
   if (error instanceof WorkServiceError) return error;
@@ -2303,19 +2316,25 @@ export const WorkLive = Layer.effect(
                   canvas,
                 );
                 if (ownerRef === undefined) return;
-                const sourceText = message.parts
-                  .flatMap((part) => (part.kind === "text" ? [part.text] : []))
-                  .join("\n");
+                const { localInstallationId } = yield* installationContext;
+                // Derived from (comment, owner): a second write meets
+                // identity-conflict at the sink and is already written.
+                const row = taskCommentNotice({
+                  installationId: localInstallationId,
+                  commentId: message.messageId,
+                  text: message.parts
+                    .flatMap((part) => (part.kind === "text" ? [part.text] : []))
+                    .join("\n"),
+                  node: asNodeId(nodeId),
+                  taskId,
+                  recipient: asNodeId(ownerRef.nodeId),
+                  sender: commentSenderOf(message, sentBy),
+                });
                 const notification = makeUserMessage({
-                  messageId: ulid(),
-                  text: `${sourceText}\n(comment on task ${taskId} at "${nodeId}" — reply: junto msg send '{"target":"${nodeId}","taskId":"${taskId}","text":"..."}')`,
+                  messageId: row.messageId,
+                  text: row.text,
                   contextId: canvas,
-                  metadata: {
-                    factoryMail: true,
-                    taskComment: true,
-                    taskId,
-                    sinkNodeId: nodeId,
-                  },
+                  metadata: row.metadata,
                 });
                 const copy = yield* externalizeMessage(notification, {
                   kind: "message",
@@ -2438,19 +2457,25 @@ export const WorkLive = Layer.effect(
                   canvas,
                 );
                 if (ownerRef === undefined) return;
-                const sourceText = message.parts
-                  .flatMap((part) => (part.kind === "text" ? [part.text] : []))
-                  .join("\n");
+                const { localInstallationId } = yield* installationContext;
+                // Derived from (comment, owner): a second write meets
+                // identity-conflict at the sink and is already written.
+                const row = taskCommentNotice({
+                  installationId: localInstallationId,
+                  commentId: message.messageId,
+                  text: message.parts
+                    .flatMap((part) => (part.kind === "text" ? [part.text] : []))
+                    .join("\n"),
+                  node: asNodeId(nodeId),
+                  taskId,
+                  recipient: asNodeId(ownerRef.nodeId),
+                  sender: commentSenderOf(message, sentBy),
+                });
                 const notification = makeUserMessage({
-                  messageId: ulid(),
-                  text: `${sourceText}\n(comment on task ${taskId} at "${nodeId}" — reply: junto msg send '{"target":"${nodeId}","taskId":"${taskId}","text":"..."}')`,
+                  messageId: row.messageId,
+                  text: row.text,
                   contextId: canvas,
-                  metadata: {
-                    factoryMail: true,
-                    taskComment: true,
-                    taskId,
-                    sinkNodeId: nodeId,
-                  },
+                  metadata: row.metadata,
                 });
                 const copy = yield* externalizeMessage(notification, {
                   kind: "message",

@@ -1,7 +1,7 @@
 import type { MailMessageId, MailSenderStamp } from "./crew";
 import type { NodeId } from "./physics/schema";
 import { REFUSAL, type RefusalReason } from "./resource-command";
-import { refusalText, subjectNoticeRecipients, type SubjectNoticeInput } from "./subject-notice";
+import { refusalText, subjectNoticeId, subjectNoticeRecipients, subjectNoticeRow, type SubjectNoticeInput, type SubjectNoticeRow } from "./subject-notice";
 import {
   formatTaskNumber,
   type Reviewer,
@@ -15,7 +15,7 @@ import {
   type TaskRefusalDetail,
 } from "./task-model";
 import type { ResourceSubject } from "./thread-subject";
-import type { OpId } from "./work-ids";
+import { isItemId, type OpId } from "./work-ids";
 
 /**
  * The mail a ruled task command owes (`TaskEffect`, task-model.ts), as
@@ -202,5 +202,51 @@ export const taskRefusalNotice = (ruling: RefusedTaskRuling): Extract<SubjectNot
       ...(lostTo === undefined ? {} : { lostTo }),
       ...(ruling.dependents === undefined ? {} : { dependents: ruling.dependents }),
     }),
+  };
+};
+
+/** A comment on a task, as the seat it is owed to is told. */
+export type TaskComment = {
+  readonly installationId: string;
+  /** The comment row's id, the notice's cause. */
+  readonly commentId: MailMessageId;
+  readonly text: string;
+  readonly node: NodeId;
+  /** A ULID for a 0.10 task; a task from before item ids has any string. */
+  readonly taskId: string;
+  readonly recipient: NodeId;
+  readonly sender: MailSenderStamp;
+};
+
+/**
+ * The notice row a task comment owes one seat, its id derived from (comment,
+ * seat) so a replay writes nothing. A 0.10 task's comment sits in the task's
+ * thread and its header replies to the task. A task from before item ids has
+ * no thread: its notice keeps the old shape, unstamped with a reply hint in
+ * the body, and stays out of threads.
+ */
+export const taskCommentNotice = (comment: TaskComment): SubjectNoticeRow => {
+  if (isItemId(comment.taskId)) {
+    const task = { node: comment.node as TaskNodeId, taskId: comment.taskId };
+    return subjectNoticeRow({
+      kind: "comment",
+      installationId: comment.installationId,
+      sourceId: comment.commentId,
+      subject: taskSubjectOf(task),
+      threadId: taskThreadOf(task),
+      recipient: comment.recipient,
+      text: comment.text,
+      sender: comment.sender,
+    });
+  }
+  return {
+    messageId: subjectNoticeId({ installationId: comment.installationId, sourceId: comment.commentId, kind: "comment", recipient: comment.recipient }),
+    text: `${comment.text}\n(comment on task ${comment.taskId} at "${comment.node}" — reply: junto msg send '{"target":"${comment.node}","taskId":"${comment.taskId}","text":"..."}')`,
+    metadata: {
+      factoryMail: true,
+      taskComment: true,
+      taskId: comment.taskId,
+      sinkNodeId: comment.node,
+    },
   };
 };

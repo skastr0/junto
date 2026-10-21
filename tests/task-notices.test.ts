@@ -9,6 +9,7 @@ import { asNodeId } from "../src/shared/physics/schema";
 import { subjectNoticeId, subjectNoticeRow } from "../src/shared/subject-notice";
 import { formatTaskNumber, seatNodeId, taskNodeId, taskRefusal, type TaskEffect } from "../src/shared/task-model";
 import {
+  taskCommentNotice,
   taskName,
   taskRefusalLostTo,
   taskRefusalNotice,
@@ -113,5 +114,33 @@ describe("task refusal notice", () => {
   it("says something for every refusal detail", () => {
     expect(taskRefusalLostTo({ kind: "stale-epoch", expected: 4 }, nameOf)).toBe("the task moved on to epoch 4");
     expectTypeOf(taskRefusalLostTo).returns.toEqualTypeOf<string | undefined>();
+  });
+});
+
+describe("task comment notice", () => {
+  const comment = {
+    installationId: "inst-1",
+    commentId: "01M5ESQ6X9VS1GKZHNAS6BKJ49",
+    text: "the cap is off by one",
+    node: NODE,
+    taskId: TASK as string,
+    recipient: WORKER,
+    sender,
+  };
+
+  it("puts a 0.10 task's comment in the task's thread, its id derived from (comment, seat)", () => {
+    const row = taskCommentNotice(comment);
+    expect(row.messageId).toBe(taskCommentNotice({ ...comment }).messageId);
+    expect(row.messageId).not.toBe(taskCommentNotice({ ...comment, recipient: REVIEWER }).messageId);
+    expect(row.text).toBe("the cap is off by one");
+    expect(threadSubjectOf(row)).toEqual({ kind: "task", nodeId: NODE, taskId: TASK });
+    expect(row.metadata).toMatchObject({ subjectNotice: "comment", threadId: TASK, senderNodeId: LEAD });
+  });
+
+  it("keeps a task from before item ids out of threads, with the old reply hint", () => {
+    const row = taskCommentNotice({ ...comment, taskId: "t1" });
+    expect(threadSubjectOf(row)).toBeUndefined();
+    expect(row.metadata).toEqual({ factoryMail: true, taskComment: true, taskId: "t1", sinkNodeId: NODE });
+    expect(row.text).toContain(`reply: junto msg send '{"target":"${NODE}","taskId":"t1","text":"..."}'`);
   });
 });

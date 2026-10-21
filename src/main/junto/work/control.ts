@@ -158,6 +158,11 @@ import { liveSeatObservation } from "./seat-observation-live";
 import { readSeatSince } from "./seat-since-read";
 import { messageDelivery } from "./message-delivery";
 import { readMailExtension } from "@shared/crew";
+import { noticeTakesReply, subjectNoticeKindOf } from "@shared/subject-notice";
+import { taskNodeId } from "@shared/task-model";
+import { taskSubjectOf, taskThreadOf } from "@shared/task-notices";
+import { subjectLabel, threadSubjectMetadata, threadSubjectOf, type ResourceSubject } from "@shared/thread-subject";
+import { isItemId } from "@shared/work-ids";
 import { manualSchedulerFire } from "../kernel/cycle";
 import {
   AgentSignalRepository,
@@ -462,6 +467,21 @@ const resolveMailTarget = (
     });
   }
   return Result.succeed(named.success.nodeId);
+};
+
+/**
+ * The thread a comment on a task joins: the task's one thread, keyed by the
+ * task's id. Undefined when the node is no task node or the id is no ULID (a
+ * task from before item ids), whose comments stay out of threads.
+ */
+const taskThreadAt = (
+  board: Canvas,
+  nodeId: string,
+  taskId: string,
+): { readonly subject: ResourceSubject; readonly threadId: string } | undefined => {
+  if (findNode(board, nodeId)?.kind !== "task" || !isItemId(taskId)) return undefined;
+  const task = { node: taskNodeId(asNodeId(nodeId)), taskId };
+  return { subject: taskSubjectOf(task), threadId: taskThreadOf(task) };
 };
 
 /** The thread metadata a reply to `parent` carries. One rule for all mail. */
@@ -2127,18 +2147,27 @@ const dispatchOp = (
       }
       const sentBy = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(sentBy)) return yield* Effect.fail(sentBy.failure);
-      let threadId: string | undefined;
+      // A task comment is a row in its task's one thread, whose id is the task's.
+      const taskThread = decoded.success.taskId === undefined
+        ? undefined
+        : taskThreadAt(board, decoded.success.target, decoded.success.taskId);
+      let threadId: string | undefined = taskThread?.threadId;
       if (decoded.success.threadId !== undefined) {
         const asked = mailIdArg("threadId", decoded.success.threadId);
         if (Result.isFailure(asked)) return yield* Effect.fail(asked.failure);
         const askedThread = asked.success;
-        if (decoded.success.taskId !== undefined) {
+        if (decoded.success.taskId !== undefined && askedThread !== taskThread?.threadId) {
           return yield* Effect.fail({
             type: "InputError" as const,
-            message: "a task comment is not mail and joins no thread",
-            details: { path: "threadId", retryable: false, next_step: "drop threadId or taskId" },
+            message: taskThread === undefined
+              ? `task "${decoded.success.taskId}" has no thread: it is not a task on a task node, or its id is not a ULID`
+              : `a comment on task "${decoded.success.taskId}" is in its thread "${taskThread.threadId}"`,
+            details: { path: "threadId", retryable: false, next_step: "drop threadId: a task comment joins its task's thread" },
           });
         }
+      }
+      if (decoded.success.threadId !== undefined && decoded.success.taskId === undefined) {
+        const askedThread = decoded.success.threadId.trim();
         // Only a thread this seat can read: its own mailbox, or mail it sent.
         // An id inside a thread stands for that thread.
         const readable = [...(yield* mailboxOf(caller.nodeId)), ...(yield* sentMailOf(sentBy.success))];
@@ -2176,6 +2205,7 @@ const dispatchOp = (
             ...(decoded.success.subject === undefined ? {} : { subject: decoded.success.subject }),
             ...(decoded.success.refs === undefined ? {} : { refs: decoded.success.refs }),
           }),
+          ...(taskThread === undefined ? {} : threadSubjectMetadata(taskThread.subject)),
           ...(threadId === undefined ? {} : { threadId }),
         },
       });
@@ -2188,9 +2218,9 @@ const dispatchOp = (
       );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      // Task-scoped messages are the task's comment channel, not mail.
+      // A task comment is written to the task; the service tells its people.
       if (decoded.success.taskId !== undefined) {
-        return { ...exposeWorkMutation(mapped.success), messageId, recipient };
+        return { ...exposeWorkMutation(mapped.success), messageId, ...(threadId === undefined ? {} : { threadId }), recipient };
       }
       const delivery = yield* Effect.promise(() =>
         messageDelivery.deliver(caller.canvasName, decoded.success.target, messageId),
@@ -2337,6 +2367,35 @@ const dispatchOp = (
           },
         });
       }
+      // A reply in a subject thread posts to the subject, whoever wrote the
+      // parent (03 section 4): on a task, a comment in the task's thread.
+      // Reach to the task node admitted the target above, as for any comment.
+      const subject = threadSubjectOf(parent);
+      if (subject !== undefined) {
+        const kind = subjectNoticeKindOf(parent);
+        const refused = kind !== undefined && !noticeTakesReply(kind)
+          ? "a refusal notice takes no reply"
+          : subject.kind !== "task"
+            ? `a reply on ${subjectLabel(subject)} lands with ${subject.kind} comments`
+            : toOperator || target !== subject.nodeId
+              ? `a reply in this thread posts to ${subjectLabel(subject)}, not to its sender`
+              : undefined;
+        if (refused !== undefined) {
+          return yield* Effect.fail({
+            type: "InputError" as const,
+            message: refused,
+            details: {
+              path: "target",
+              target: subject.nodeId,
+              retryable: false,
+              next_step: kind === "refusal"
+                ? "follow the next step the refusal names"
+                : `retry with target "${subject.nodeId}" and the same inReplyTo`,
+            },
+          });
+        }
+      }
+      const taskSubject = subject?.kind === "task" ? subject : undefined;
       // Mark the parent mail read on own inbox first (idempotent).
       const marked = yield* work.workMessageMarkRead(
         caller.canvasName,
@@ -2368,13 +2427,27 @@ const dispatchOp = (
             }),
             sentBy.success,
           )
-        : yield* work.workMessageAppend(
-            caller.canvasName,
-            decoded.success.target,
-            null,
-            makeUserMessage({ messageId: ulid(), text, contextId: caller.canvasName, metadata }),
-            sentBy.success,
-          );
+        : taskSubject !== undefined
+          ? yield* work.workMessageAppend(
+              caller.canvasName,
+              taskSubject.nodeId,
+              taskSubject.taskId,
+              makeUserMessage({
+                messageId: ulid(),
+                text,
+                contextId: caller.canvasName,
+                taskId: taskSubject.taskId,
+                metadata: { ...metadata, ...threadSubjectMetadata(taskSubject) },
+              }),
+              sentBy.success,
+            )
+          : yield* work.workMessageAppend(
+              caller.canvasName,
+              decoded.success.target,
+              null,
+              makeUserMessage({ messageId: ulid(), text, contextId: caller.canvasName, metadata }),
+              sentBy.success,
+            );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
       return {
