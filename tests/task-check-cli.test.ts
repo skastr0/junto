@@ -1,18 +1,20 @@
 /**
  * `junto task check`: the results a seat reports, from flags or JSON, and
- * the checks-unmet refusal a finish prints, as main words it.
+ * the checks-unmet and deps-unmet refusals a finish prints, as main words
+ * them; and the handoff note `task finish --note` reads.
  */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Exit, Option } from "effect";
 import { describe, expect, it } from "vitest";
-import { checkResultsOf } from "../src/cli/commands/task";
+import { checkResultsOf, handoffOf } from "../src/cli/commands/task";
 import { WireError } from "../src/cli/core/errors";
 import { renderFailureEnvelope } from "../src/cli/core/output";
 import { refusalError } from "../src/shared/resource-command";
 import { taskRefusalMessage } from "../src/shared/task-machine";
-import { CHECK_OUTPUT_TAIL_MAX } from "../src/shared/task-model";
+import { CHECK_OUTPUT_TAIL_MAX, TASK_HANDOFF_MAX } from "../src/shared/task-model";
+import { ItemId, TaskNumber } from "../src/shared/work-ids";
 
 const results = (outgoing: ReadonlyArray<string>, incoming: ReadonlyArray<string>, json?: string) =>
   Effect.runPromiseExit(checkResultsOf({ outgoing, incoming, results: Option.fromNullishOr(json) }));
@@ -67,5 +69,46 @@ describe("a finish refused checks-unmet", () => {
       "Required checks are not green at this epoch (red: lint; not run: e2e, docs). Run them and report each with task check",
     );
     expect(printed.error.details.expected).toEqual(detail);
+  });
+});
+
+describe("a finish refused deps-unmet", () => {
+  it("prints each unfinished task by number and state, in the message and the details", () => {
+    const unfinished = [
+      { taskId: ItemId.make("01M5ESMQ2ZT55QZ073EWPH10SG"), number: TaskNumber.make(7), state: "working" as const },
+      { taskId: ItemId.make("01M5ESMQ2ZT55QZ073EWPH10SH"), number: TaskNumber.make(9), state: "canceled" as const },
+    ];
+    const detail = { kind: "deps-unmet" as const, unfinished };
+    const body = refusalError({ reason: "invalid_transition", message: taskRefusalMessage(detail), expected: detail });
+    const printed = JSON.parse(renderFailureEnvelope("task finish", new WireError({ type: body.type, message: body.message, details: body.details })));
+    expect(printed.ok).toBe(false);
+    expect(printed.error.message).toBe(
+      "This task depends on work not done yet: #7 is in progress, #9 is canceled. Finish it once each is done, or remove the dependency",
+    );
+    expect(printed.error.details.expected).toEqual(detail);
+  });
+});
+
+describe("task finish --note", () => {
+  const note = (raw: string) => Effect.runPromiseExit(handoffOf(raw));
+  const failedOn = (exit: Exit.Exit<unknown, unknown>) =>
+    Exit.isFailure(exit) ? (exit.cause.reasons.find((reason) => reason._tag === "Fail") as { error: { path?: string } }).error.path : "succeeded";
+
+  it("takes the note inline, or from @file without the file's last newline", async () => {
+    expect(await note("e2e flakes on a cold start")).toEqual(Exit.succeed("e2e flakes on a cold start"));
+    const dir = mkdtempSync(join(tmpdir(), "junto-task-note-"));
+    try {
+      const file = join(dir, "handoff.md");
+      writeFileSync(file, "# Handoff\n\nReplay is covered.\n");
+      expect(await note(`@${file}`)).toEqual(Exit.succeed("# Handoff\n\nReplay is covered."));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses an empty note and one past the cap before it is sent, and keeps one at the cap", async () => {
+    expect(failedOn(await note("  "))).toBe("note");
+    expect(failedOn(await note("x".repeat(TASK_HANDOFF_MAX + 1)))).toBe("note");
+    expect(await note("x".repeat(TASK_HANDOFF_MAX))).toEqual(Exit.succeed("x".repeat(TASK_HANDOFF_MAX)));
   });
 });

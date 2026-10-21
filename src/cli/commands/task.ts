@@ -8,7 +8,7 @@ import {
   isTaskWriteOp,
   type TaskControlOp,
 } from "../../shared/task-control";
-import { CHECK_OUTPUT_TAIL_MAX, STAMPS_REQUIRED_MAX, TASK_STATES } from "../../shared/task-model";
+import { CHECK_OUTPUT_TAIL_MAX, STAMPS_REQUIRED_MAX, TASK_HANDOFF_MAX, TASK_STATES } from "../../shared/task-model";
 import type {
   CommandCapability,
   CommandExample,
@@ -19,6 +19,7 @@ import { InputError } from "../core/errors";
 import { loadJsonInput } from "../core/json";
 import { opIdFlag, opIdOf } from "../core/op-id";
 import { executeJsonCommand } from "../core/output";
+import { readSource, sourceOf } from "../core/signal-input";
 import { WorkSocket } from "../core/socket";
 import { taskWaitCommand } from "./seat";
 import { taskRulesCommand } from "./work";
@@ -74,7 +75,7 @@ const DESCRIPTIONS = {
   start: "Start the task assigned to this seat: assigned becomes working.",
   pause: "Ask for input: working becomes input-required.",
   resume: "Go back to work: input-required becomes working.",
-  finish: "Finish a task: in-review while it waits on stamps, then done, or sent on to the node --next names. --claim answers each rule in force on the node (task rules lists them); a rule left unanswered is refused rules-unmet, and a required check that is not green at this epoch is refused checks-unmet, naming the red and the not run. A task it depends on that is not done refuses it deps-unmet.",
+  finish: `Finish a task: in-review while it waits on stamps, then done, or sent on to the node --next names. --claim answers each rule in force on the node (task rules lists them); a rule left unanswered is refused rules-unmet, and a required check that is not green at this epoch is refused checks-unmet, naming the red and the not run. A task it depends on that is not done refuses it deps-unmet, naming each by number and state. --note leaves a handoff note for whoever picks the work up next: inline, @file or -, at most ${TASK_HANDOFF_MAX} characters.`,
   check: "Report the checks you ran for this move, each with its exit code: Junto never runs one. task rules lists them with their side, command and status; --outgoing reports this node's, --incoming the next node's, or --results carries them as JSON with each output's tail.",
   cancel: "Cancel a task that is not done.",
   archive: "Archive a done or canceled task.",
@@ -200,18 +201,40 @@ const finishCommand = Command.make(
     artifact: repeated("artifact", "An artifact this work produced, as <node id>/<artifactId>; repeat for several"),
     commit: repeated("commit", "A commit this work landed; repeat for several"),
     claim: repeated("claim", "Answer a rule in force: <ruleId>=<how this work meets it>; repeat for several"),
+    note: Flag.string("note").pipe(
+      Flag.optional,
+      Flag.withDescription(`A handoff note for whoever picks the work up next: inline, @file or -, at most ${TASK_HANDOFF_MAX} characters`),
+    ),
     opId: opIdFlag,
     timeout: timeoutFlag,
   },
-  ({ task, next, artifact, commit, claim, opId, timeout }) =>
+  ({ task, next, artifact, commit, claim, note, opId, timeout }) =>
     executeJsonCommand(
       "task finish",
       Effect.gen(function* () {
         const evidence = yield* evidenceOf({ artifact, commit, claim });
-        return yield* call("task.finish", { opId: yield* opIdOf(opId), task, ...present({ next }), ...evidence }, timeout);
+        const handoff = Option.isSome(note) ? { handoff: yield* handoffOf(note.value) } : {};
+        return yield* call("task.finish", { opId: yield* opIdOf(opId), task, ...present({ next }), ...evidence, ...handoff }, timeout);
       }),
     ),
 ).pipe(Command.withDescription(DESCRIPTIONS.finish));
+
+/**
+ * The note --note names, inline, from @file or from - (stdin), checked here so
+ * a note main would refuse never crosses the socket. A file's or stdin's last
+ * newline is the file's, not the note's.
+ */
+export const handoffOf = (raw: string) =>
+  Effect.gen(function* () {
+    const source = sourceOf(raw);
+    const read = yield* readSource(source);
+    const note = source.kind === "inline" ? read : read.replace(/\r?\n$/, "");
+    if (note.trim().length === 0) return yield* Effect.fail(new InputError({ message: "--note is empty", path: "note" }));
+    if (note.length > TASK_HANDOFF_MAX) {
+      return yield* Effect.fail(new InputError({ message: `--note holds at most ${TASK_HANDOFF_MAX} characters, got ${note.length}`, path: "note" }));
+    }
+    return note;
+  });
 
 type CheckSide = "outgoing" | "incoming";
 
@@ -403,6 +426,11 @@ export const taskExamples: ReadonlyArray<CommandExample> = [
   example("finish", "finish with evidence", "--claim answers a rule in force; --commit cites the work.", ["#42", "--commit", "2e219a5ca", "--claim", "tests=work-cli passes under all-on"], {
     task: "#42",
     evidence: { artifacts: [], git: { commits: ["2e219a5ca"] }, claims: [{ ruleId: "tests", text: "work-cli passes under all-on" }] },
+  }),
+  example("finish", "finish with a handoff note", "--note leaves a note on the layer for whoever picks the work up next; @file or - reads it.", ["#42", "--next", "Review", "--note", "@handoff.md"], {
+    task: "#42",
+    next: "Review",
+    handoff: "The replay path is covered; the e2e still flakes on a cold start.",
   }),
   example("check", "report checks", "Each check you ran, with its exit code; a red one blocks the finish.", ["#42", "--outgoing", "tests=0", "--outgoing", "lint=1"], {
     task: "#42",

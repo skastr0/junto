@@ -90,7 +90,7 @@ export const COMMAND_FAMILIES: Readonly<Record<CommandFamily, FamilySpec>> = {
       {
         intent: "progress, finish, ask for input",
         command: () => "junto task comment|finish|pause|resume #<n>",
-        detail: "reviewers stamp with junto task stamp #<n> approve|changes",
+        detail: "finish --note leaves a handoff note; reviewers stamp with junto task stamp #<n> approve|changes",
       },
       {
         intent: "task content",
