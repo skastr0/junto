@@ -527,6 +527,19 @@ export const scopeDenialToWorkError = (
           retryable: false,
         },
       };
+    case "out_of_reach":
+      return {
+        type: "ScopeError",
+        message: denial.message,
+        details: {
+          target: denial.target,
+          caller: denial.caller,
+          reason: "out_of_reach",
+          hint: "a seat reaches the resources in its own region, the regions inside it and the regions around it; no edge changes that",
+          next_step: "pick a resource in reach, or ask the operator to move this seat or the resource on the canvas",
+          retryable: false,
+        },
+      };
     case "unknown_node":
       return scopeError(denial.caller, denial.target, "invisible");
   }
@@ -653,8 +666,9 @@ export const connectedCapabilities = (
     if (!other || seen.has(other)) continue;
     seen.add(other);
     const node = findNode(doc, other);
-    if (!node) continue;
-    const kind = nodeKind(node);
+    // Seats only (agent and peer rows): a resource node is reached by region,
+    // never by its wire.
+    if (!node || (node.kind !== "agent" && node.kind !== "peer")) continue;
     const grants = heldGrantsOnEdge(doc, callerId, other);
     const { name, regions } = seatIdentity(doc, node);
     out.push({

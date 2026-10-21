@@ -22,7 +22,7 @@ import {
   scopeError,
   visibilityOf,
 } from "../src/main/junto/work/authz";
-import { canvasOf, region, seat, wire } from "./support/model-nodes";
+import { canvasOf, region, seat, taskBoard, wire } from "./support/model-nodes";
 import { ScopeDenial } from "../src/shared/physics";
 
 describe("work-control wire schemas", () => {
@@ -198,6 +198,33 @@ describe("work authz — edges as capability", () => {
     if (Result.isFailure(invisible)) {
       expect(invisible.failure.type).toBe("ScopeError");
       expect(invisible.failure.message).toMatch(/not visible/);
+    }
+  });
+
+  it("connectedCapabilities lists seats only: a wired task board is reached, not connected", () => {
+    const withBoard = canvasOf(
+      [...board.nodes.values(), taskBoard("backlog", { x: 0, y: 200, width: 100, height: 40 })],
+      [...board.wires.values(), wire("e2", "agent", "backlog", "messages")],
+    );
+    expect(connectedCapabilities(withBoard, "agent").map((cap) => cap.id)).toEqual(["peer"]);
+  });
+
+  it("admitWorkTarget admits a task board in reach with no edge, and names one out of reach", () => {
+    // In the region with the seat: reached. Beside a sibling region: out of reach.
+    const reach = canvasOf([
+      ...board.nodes.values(),
+      taskBoard("inside", { x: 120, y: 60, width: 100, height: 40 }),
+      region("other", { x: 560, y: 160, width: 300, height: 200 }),
+      taskBoard("theirs", { x: 600, y: 300, width: 100, height: 40 }),
+    ]);
+    expect(Result.isSuccess(admitWorkTarget(reach, "agent", "inside", "content.path"))).toBe(true);
+
+    const away = admitWorkTarget(reach, "agent", "theirs", "content.path");
+    expect(Result.isFailure(away)).toBe(true);
+    if (Result.isFailure(away)) {
+      expect(away.failure.type).toBe("ScopeError");
+      expect(away.failure.details?.reason).toBe("out_of_reach");
+      expect(away.failure.details?.next_step).toMatch(/move this seat or the resource/);
     }
   });
 

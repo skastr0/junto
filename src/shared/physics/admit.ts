@@ -1,4 +1,5 @@
 import { Effect, Result, HashMap, HashSet, Option, Schema } from "effect";
+import { RESOURCE_KINDS } from "../region-reach";
 import { offersOf, resolveSpec, roleOf } from "./kinds";
 import { grantLawForRoles, selectGrant } from "./laws";
 import {
@@ -8,10 +9,13 @@ import {
   type NodeId,
 } from "./schema";
 
-// Pure admit: possession of undirected edge + role law + port facet, and the
-// machine each end is on. Region co-membership is visibility-only — never a
-// port grant. Two ends on different machines can mail each other and nothing
-// else: mail waits, so it needs no live route.
+// Pure admit. A seat uses a resource node (a task board, an artifacts node) by
+// reach: the node is in its own region, a region below it or a region above
+// it (region-reach.ts). Reach needs no edge, and the write travels to the
+// machine that edits the canvas, so the machine check does not apply.
+// Everything else is possession of an undirected edge + role law + port
+// facet, and the machine each end is on. Two ends on different machines can
+// mail each other and nothing else: mail waits, so it needs no live route.
 
 export const ScopeDenialReason = Schema.Literals(["invisible", "not_connected",
 "no_port",
@@ -21,7 +25,9 @@ export const ScopeDenialReason = Schema.Literals(["invisible", "not_connected",
  * The two ends are on different machines and the port is not mail. Never
  * relayed as no_port: the seat is told the target can only be mailed.
  */
-"other_machine",]);
+"other_machine",
+/** The target is a resource node outside the caller's reach. */
+"out_of_reach",]);
 export type ScopeDenialReason = typeof ScopeDenialReason.Type;
 
 export class ScopeDenial extends Schema.TaggedError<ScopeDenial>()("ScopeDenial", {
@@ -68,6 +74,11 @@ export type CapabilityView = {
   /** Directional grants do not gain authority from the reverse edge. */
   readonly directedEdgePortMask?: HashMap.HashMap<string, HashSet.HashSet<Port>>;
   readonly machine: HashMap.HashMap<NodeId, string>;
+  /**
+   * The resource nodes each seat reaches. A seat with no entry reaches none;
+   * a resource node is admitted by this alone, never by an edge.
+   */
+  readonly reach: HashMap.HashMap<NodeId, HashSet.HashSet<NodeId>>;
 };
 
 /** Stable undirected edge key for port-mask lookup. */
@@ -157,11 +168,53 @@ const checkMachines = (
   return same ? undefined : otherMachine(caller, target, port, targetMachine);
 };
 
+const isResourceKind = (kind: string | undefined): boolean =>
+  kind !== undefined && (RESOURCE_KINDS as ReadonlyArray<string>).includes(kind);
+
+const reaches = (view: CapabilityView, caller: NodeId, target: NodeId): boolean => {
+  const reached = HashMap.get(view.reach, caller);
+  return Option.isSome(reached) && HashSet.has(reached.value, target);
+};
+
+/**
+ * An actor calling a resource node: in reach, every port the node offers is
+ * admitted; out of reach, nothing is. No edge, mask or machine enters.
+ */
+const admitByReach = (
+  view: CapabilityView,
+  caller: NodeId,
+  target: NodeId,
+  port: Port,
+  offers: HashSet.HashSet<Port>,
+): Result.Result<Granted, ScopeDenial> => {
+  if (!reaches(view, caller, target)) {
+    return Result.fail(
+      denial(
+        "out_of_reach",
+        caller,
+        target,
+        `"${target}" is outside the reach of "${caller}": a seat reaches resources in its own region, the regions inside it and the regions around it`,
+        port,
+      ),
+    );
+  }
+  const grant = PortGrant.full;
+  if (!grant.allows(port, offers)) {
+    return Result.fail(
+      denial("no_port", caller, target, `"${target}" offers no port "${port}"`, port),
+    );
+  }
+  return Result.succeed(
+    new Granted({ caller: asNodeId(caller), target: asNodeId(target), port, grant }),
+  );
+};
+
 /**
  * Admit `caller` to invoke `port` on `target` under pure graph physics.
  * Process-bind is a separate plane (occupant) — not checked here.
  *
- * Order: nodes → peer caller → connectivity → machines → role law → ports.
+ * Order: nodes → peer caller → reach (actor on a resource node) →
+ * connectivity → machines → role law → ports.
  *
  * Effect Result is `Result<A, E>` (success first): Right = Granted, Left = ScopeDenial.
  */
@@ -198,6 +251,15 @@ export const admitPure = (
     );
   }
 
+  const callerSpec = resolveSpec(callerMeta.value);
+  const targetSpec = resolveSpec(targetMeta.value);
+  const fromRole = roleOf(callerSpec);
+  const toRole = roleOf(targetSpec);
+
+  if (fromRole === "actor" && isResourceKind(targetMeta.value.kind)) {
+    return admitByReach(view, caller, target, port, offersOf(targetSpec));
+  }
+
   if (!isConnected(view, caller, target)) {
     if (isRegionPeer(view, caller, target)) {
       return Result.fail(
@@ -225,11 +287,6 @@ export const admitPure = (
   if (machineDenial !== undefined) {
     return Result.fail(machineDenial);
   }
-
-  const callerSpec = resolveSpec(callerMeta.value);
-  const targetSpec = resolveSpec(targetMeta.value);
-  const fromRole = roleOf(callerSpec);
-  const toRole = roleOf(targetSpec);
 
   const law = grantLawForRoles(fromRole, toRole);
   // None is a hard role_law denial — distinct from OptIn without a mask,

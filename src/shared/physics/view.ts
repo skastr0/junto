@@ -4,15 +4,18 @@ import type { Canvas } from "../model/canvas";
 import { nodesOf, regionMembers } from "../model/canvas";
 import type { Node } from "../model/kinds";
 import { wireGrant, type Wire } from "../model/wire";
+import { RESOURCE_KINDS, isResourceKind, onOneLine, positionsOf, type Positions } from "../region-reach";
 import type { CapabilityView, NodeMeta } from "./admit";
 import { directedEdgeKey, undirectedEdgeKey } from "./admit";
 import { asNodeId, type NodeId, type Port } from "./schema";
 
 // Pure canvas → CapabilityView adapter. No Node, no live process-bind.
 //
-// The verb plus endpoint kinds compile ports; an operator mask may only
-// remove them. A wire whose two kinds cannot hold its verb grants nothing,
-// the same fail-closed answer an empty mask has always given.
+// A seat reaches resource nodes by where it sits, worked out from the
+// rectangles each time a view is made. Between other nodes, the verb plus
+// endpoint kinds compile ports; an operator mask may only remove them. A wire
+// whose two kinds cannot hold its verb grants nothing, the same fail-closed
+// answer an empty mask has always given.
 
 export type CapabilityViewOptions = {
   /**
@@ -77,7 +80,30 @@ export const canvasToCapabilityView = (
       regionMembers(canvas, region).map((node) => node.id),
     ),
     machine,
+    reach: reachOf(canvas),
   });
+};
+
+/**
+ * The resource nodes each seat reaches: `resourcesInReach` for every seat at
+ * once, so each node's positions are worked out a single time.
+ */
+const reachOf = (
+  canvas: Pick<Canvas, "nodes">,
+): HashMap.HashMap<NodeId, HashSet.HashSet<NodeId>> => {
+  const resources: Array<readonly [NodeId, Positions]> = [];
+  const seats: Array<readonly [NodeId, Positions]> = [];
+  for (const node of canvas.nodes.values()) {
+    const into = node.kind === "agent" ? seats : isResourceKind(node.kind) ? resources : undefined;
+    const at = into === undefined ? undefined : positionsOf(canvas, node.id);
+    if (into !== undefined && at !== undefined) into.push([node.id, at]);
+  }
+  let reach = HashMap.empty<NodeId, HashSet.HashSet<NodeId>>();
+  for (const [seat, seatAt] of seats) {
+    const reached = resources.filter(([, at]) => onOneLine(canvas, seatAt, at)).map(([id]) => id);
+    reach = HashMap.set(reach, seat, HashSet.fromIterable(reached));
+  }
+  return reach;
 };
 
 type Join = {
@@ -95,14 +121,20 @@ const viewOf = (input: {
   /** The members of each region, regions themselves left out. */
   readonly regions: Iterable<ReadonlyArray<string>>;
   readonly machine: HashMap.HashMap<NodeId, string>;
+  readonly reach: HashMap.HashMap<NodeId, HashSet.HashSet<NodeId>>;
 }): VerbCapabilityView => {
-  const { nodeMeta, kinds, machine } = input;
+  const { nodeMeta, kinds, machine, reach } = input;
 
   // Claimability is a capability: an endpoint kind a product gate turned off
   // takes no factory handoff, even when a historical `works` edge survives.
   const kindEnabledAt = (id: NodeId): boolean => {
     const meta = HashMap.get(nodeMeta, id);
     return Option.isNone(meta) || productNodeKindEnabled(meta.value.kind);
+  };
+
+  const resourceAt = (id: string): boolean => {
+    const kind = kinds.get(id);
+    return kind !== undefined && (RESOURCE_KINDS as ReadonlyArray<string>).includes(kind);
   };
 
   let connected = HashMap.empty<NodeId, HashSet.HashSet<NodeId>>();
@@ -142,8 +174,12 @@ const viewOf = (input: {
         HashSet.add(Option.getOrElse(prior, () => HashSet.empty<Port>()), "verdict.post"),
       );
     }
-    const prev = pairPorts.get(key);
-    pairPorts.set(key, prev === undefined ? ports : HashSet.union(prev, ports));
+    // A resource node is reached, never granted by a wire, so a wire to one
+    // carries no mask.
+    if (!resourceAt(from) && !resourceAt(to)) {
+      const prev = pairPorts.get(key);
+      pairPorts.set(key, prev === undefined ? ports : HashSet.union(prev, ports));
+    }
     if (grant?.claimable === true && kindEnabledAt(a) && kindEnabledAt(b)) {
       claimable = HashSet.add(claimable, key);
     }
@@ -173,7 +209,7 @@ const viewOf = (input: {
     }
   }
 
-  return { nodeMeta, connected, regionPeers, edgePortMask, directedEdgePortMask, claimable, machine };
+  return { nodeMeta, connected, regionPeers, edgePortMask, directedEdgePortMask, claimable, machine, reach };
 };
 
 /** Whether the relationship between two nodes lets the tick claim work. */
