@@ -170,6 +170,7 @@ describe("junto onboard output", () => {
       "connected",
       "commands",
       "reach",
+      "since",
       ...("rulings" in data ? ["rulings"] : []),
       "co_members",
       "paused",

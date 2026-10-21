@@ -155,6 +155,7 @@ import { WorkService, type WorkOpResult } from "./service";
 import { AUTOMATION_WRITE_OPS, isAutomationOp } from "@shared/automation-control";
 import { handleAutomationOp, liveAutomationPorts } from "./automation-control";
 import { liveSeatObservation } from "./seat-observation-live";
+import { readSeatSince } from "./seat-since-read";
 import { messageDelivery } from "./message-delivery";
 import { readMailExtension } from "@shared/crew";
 import { manualSchedulerFire } from "../kernel/cycle";
@@ -1178,6 +1179,7 @@ const pastSessionsOf = (node: Node, pastNotes: number) =>
       sessions,
       ...(handoff ? { handoff } : {}),
       ...(previousWithoutNotes ? { previousWithoutNotes } : {}),
+      ...(previous === undefined ? {} : { previousStartedAt: previous.startedAt }),
     };
   });
 
@@ -1356,6 +1358,12 @@ const dispatchOp = (
         // The resources in this seat's region reach, by kind, with the
         // command that lists each.
         reach: compileReach(reach),
+        // Since your last session: replies owed and awaited, open signals,
+        // silent answers since the previous session started, unread mail.
+        // A failed read says so instead of dropping the section.
+        since: yield* readSeatSince(board, caller.canvasName, caller.nodeId, history?.previousStartedAt).pipe(
+          Effect.orElseSucceed(() => ({ unreadable: "since your last session could not be read" })),
+        ),
         // Operator-pinned precedent from the seat's own region stack. Region
         // rulings ride the Tasks gate: a tasks-off build names none.
         ...(TASKS_ENABLED
