@@ -68,8 +68,25 @@ const makeRuntime = (root: string) => {
     ),
   );
   const canvasesLive = Layer.provideMerge(ModelStoresLive, repositoriesLive);
-  return ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(WorkLive, canvasesLive), PausePlaneAllPlaying));
+  return ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(Layer.provide(OldTaskStoreDies, WorkLive), canvasesLive), PausePlaneAllPlaying));
 };
+
+/**
+ * The work service with the old task store gone: reading a task from it, or
+ * appending mail to a task's old channel, dies. Mail on a task is a comment
+ * in its 0.10 thread and never reaches either.
+ */
+const OldTaskStoreDies = Layer.effect(WorkService, Effect.gen(function* () {
+  const work = yield* WorkService;
+  return {
+    ...work,
+    readTask: () => Effect.die(new Error("read the old task store")),
+    workMessageAppend: (canvas, nodeId, taskId, message, sentBy, admin) =>
+      taskId === null
+        ? work.workMessageAppend(canvas, nodeId, taskId, message, sentBy, admin)
+        : Effect.die(new Error("appended to an old task's channel")),
+  } satisfies typeof WorkService.Service;
+}));
 
 const seat = (id: string, x: number) =>
   seatNode(id, { x, y: 40, width: 120, height: 48, bindingId: `bind-${id}` as never, launch: { kind: "harness", argv: ["claude"] } });
@@ -207,9 +224,39 @@ describe("subject threads", () => {
     for (const taskId of [far, ulid()]) {
       const refused = await call("agent", "msg.send", { target: BOARD, taskId, text: "look" });
       expect(refused.ok, JSON.stringify(refused)).toBe(false);
-      expect(refused.error).toMatchObject({ type: "UnknownTarget", message: `no task "${taskId}" on "${BOARD}"`, details: { path: "taskId", target: taskId } });
+      expect(refused.error).toMatchObject({ type: "UnknownTarget", message: `no task ${taskId} in this seat's reach`, details: { path: "taskId", received: taskId } });
     }
     expect((await mailbox(BOARD)).filter((message) => threadSubjectOf(message) !== undefined)).toEqual([]);
+  });
+
+  it.skipIf(!TASKS_ENABLED)("msg list on a task reads its thread: a comment posted by msg send, or by task comment, is there", async () => {
+    const taskId = await createTask();
+    const sent = await call("agent", "msg.send", { target: BOARD, taskId, text: "starting @peer" });
+    expect(sent.ok, JSON.stringify(sent)).toBe(true);
+    const commented = await call("peer", "task.comment", { opId: mintOpId(), task: taskId, text: "seen" });
+    expect(commented.ok, JSON.stringify(commented)).toBe(true);
+
+    const listed = await call("peer", "msg.list", { target: BOARD, taskId });
+    expect(listed.ok, JSON.stringify(listed)).toBe(true);
+    expect(listed.data).toMatchObject({ target: BOARD, taskId });
+    const texts = listed.data.items.map((item: Message) => item.parts.map((part) => (part.kind === "text" ? part.text : "")).join(""));
+    expect(texts).toEqual([`starting ${mentionLink({ kind: "seat", nodeId: asNodeId("peer") }, "@peer", CANVAS)}`, "seen"]);
+    expect(listed.data.items.map((item: Message) => item.messageId)).toEqual([sent.data.messageId, commented.data.messageId]);
+    expect(sent.data).toMatchObject({ threadId: taskId, taskId, nodeId: BOARD, recipient: { nodeId: BOARD } });
+  });
+
+  it.skipIf(!TASKS_ENABLED)("msg list and msg send on a task out of reach are refused, and write nothing", async () => {
+    const far = await createTask(FAR_BOARD);
+    for (const [op, args] of [
+      ["msg.list", { target: FAR_BOARD, taskId: far }],
+      ["msg.send", { target: FAR_BOARD, taskId: far, text: "look" }],
+      ["msg.list", { target: BOARD, taskId: far }],
+    ] as const) {
+      const refused = await call("agent", op, args);
+      expect(refused.ok, `${op} ${JSON.stringify(refused)}`).toBe(false);
+      expect(refused.error.type).toBe("UnknownTarget");
+    }
+    expect((await mailbox(FAR_BOARD)).filter((message) => threadSubjectOf(message) !== undefined)).toEqual([]);
   });
 
   it.skipIf(!TASKS_ENABLED)("a task comment or a subject reply sent again under its opId is written once, and told once", async () => {

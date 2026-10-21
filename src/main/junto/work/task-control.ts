@@ -758,3 +758,22 @@ export const commentOnTask = (
       notified: sent.notified,
     };
   });
+
+/**
+ * The task `junto msg --task` names, on the task node its target names, each
+ * found in the seat's reach as a comment finds them (`commentOnTask`). A task
+ * out of reach and an id no task holds are refused alike.
+ */
+export const taskOnTarget = (
+  caller: TaskCaller,
+  ports: TaskPorts,
+  input: { readonly target: string; readonly task: string },
+): Effect.Effect<TaskView, WorkErrorBody> =>
+  Effect.gen(function* () {
+    const node = yield* nodeInReach(caller, ports, input.target, "target");
+    const task = yield* findTask(caller, ports, input.task, "taskId", false);
+    if (task.current.node !== node.id) {
+      return yield* Effect.fail(unknown("taskId", input.task, `no task ${input.task} on ${titleOf(node)}`));
+    }
+    return task;
+  });

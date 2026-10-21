@@ -134,16 +134,15 @@ import { handleAutomationRead, liveAutomationPorts } from "./automation-control"
 import { ARTIFACT_WRITE_OPS, isArtifactOp } from "@shared/artifact-control";
 import { handleArtifactOp, liveArtifactPorts } from "./artifact-control";
 import { TASK_WRITE_OPS, isTaskControlOp } from "@shared/task-control";
-import { handleTaskOp, liveTaskPorts } from "./task-control";
+import { commentOnTask, handleTaskOp, liveTaskPorts, taskOnTarget, type TaskCaller } from "./task-control";
 import { liveSeatObservation } from "./seat-observation-live";
 import { onboardSinceSection, readSeatSince } from "./seat-since-read";
 import { messageDelivery } from "./message-delivery";
 import { readMailExtension } from "@shared/crew";
 import { noticeTakesReply, subjectNoticeKindOf } from "@shared/subject-notice";
-import { taskNodeId } from "@shared/task-model";
-import { taskSubjectOf, taskThreadOf } from "@shared/task-notices";
+import type { TaskView } from "@shared/task-model";
 import { subjectLabel, threadSubjectOf, type ResourceSubject } from "@shared/thread-subject";
-import { isItemId, OpId } from "@shared/work-ids";
+import { OpId } from "@shared/work-ids";
 import { postSubjectComment } from "./subject-comment";
 import { subjectPeopleAt } from "./subject-people";
 import { handleOpOp, isOpOp, pendingMarksOf } from "./op-control";
@@ -213,6 +212,7 @@ import {
   findNode,
   nodeKind,
   nodeTitle,
+  productDisabledError,
   regionStackFor,
   regionVisibility,
   resolveWorkTarget,
@@ -467,19 +467,39 @@ const resolveMailTarget = (
 };
 
 /**
- * The thread a comment on a task joins: the task's one thread, keyed by the
- * task's id. Undefined when the node is no task node or the id is no ULID (a
- * task from before item ids), whose comments stay out of threads.
+ * The 0.10 task `msg --task` names, on the task node its target names, found
+ * in the seat's reach as a task comment finds it (`taskOnTarget`). Mail to a
+ * task never reads or writes the old task store.
  */
-const taskThreadAt = (
+const mailTask = (
   board: Canvas,
-  nodeId: string,
+  caller: { readonly canvasName: string; readonly nodeId: string },
+  actor: ActorRef,
+  target: string | undefined,
   taskId: string,
-): { readonly subject: ResourceSubject; readonly threadId: string } | undefined => {
-  if (findNode(board, nodeId)?.kind !== "task" || !isItemId(taskId)) return undefined;
-  const task = { node: taskNodeId(asNodeId(nodeId)), taskId };
-  return { subject: taskSubjectOf(task), threadId: taskThreadOf(task) };
+  op: WorkOpName,
+): Effect.Effect<TaskView, WorkErrorBody> => {
+  if (!TASKS_ENABLED) return Effect.fail(productDisabledError(caller.nodeId, "task", op));
+  if (target === undefined) {
+    return Effect.fail({
+      type: "InputError",
+      message: "mail on a task names the task's node as its target",
+      details: { path: "target", retryable: false, next_step: "send again with target set to the task node: junto task list shows it" },
+    });
+  }
+  return taskOnTarget(seatTaskCaller(board, caller, actor), liveTaskPorts, { target, task: taskId });
 };
+
+/** A seat as the task verbs take it. */
+const seatTaskCaller = (
+  board: Canvas,
+  caller: { readonly canvasName: string; readonly nodeId: string },
+  actor: ActorRef,
+): TaskCaller => ({
+  canvas: board,
+  canvasName: caller.canvasName,
+  actor: { kind: "seat", seatId: actor.seatId, nodeId: asNodeId(caller.nodeId) },
+});
 
 /** The thread metadata a reply to `parent` carries. One rule for all mail. */
 const replyThreadMetadata = (parent: Message): { readonly inReplyTo: string; readonly threadId: string } => ({
@@ -1598,18 +1618,17 @@ const dispatchOp = (
       const threadId = filter.success.threadId;
       const threadField = threadId === undefined ? {} : { threadId };
 
+      // A task's mail is its one thread, read from its node's mailbox (03).
       if (decoded.success.taskId) {
-        const gate = requireTarget(board, caller.nodeId, targetId, op);
-        if ("type" in gate) return yield* Effect.fail(gate);
-        const task = yield* work.readTask(caller.canvasName, targetId, decoded.success.taskId).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
-        if (!task) {
-          return yield* Effect.fail({
-            type: "UnknownTarget" as const,
-            message: `task "${decoded.success.taskId}" not found`,
-            details: { target: decoded.success.taskId, retryable: false },
-          });
-        }
-        return { target: targetId, taskId: task.id, items: filtered(task.history) };
+        const reader = resolveProcessBoundActorRef(read.actorRefs, caller);
+        if (Result.isFailure(reader)) return yield* Effect.fail(reader.failure);
+        const task = yield* mailTask(board, caller, reader.success, decoded.success.target, decoded.success.taskId, op);
+        const onTask = (row: Message): boolean => {
+          const on = threadSubjectOf(row);
+          return on?.kind === "task" && on.nodeId === task.current.node && on.taskId === task.taskId;
+        };
+        const rows = (yield* mailboxOf(task.current.node)).filter(onTask);
+        return { target: task.current.node, taskId: task.taskId, items: filtered(rows) };
       }
 
       if (own) {
@@ -1745,6 +1764,36 @@ const dispatchOp = (
     if (op === "msg.send") {
       const asked = decodeArgs(MsgSendArgs, args);
       if (Result.isFailure(asked)) return yield* Effect.fail(asked.failure);
+      // Mail on a task is a comment in its one thread, on the task comment path (03).
+      if (asked.success.taskId !== undefined) {
+        const typed = asked.success.text.trim();
+        if (!typed) {
+          return yield* Effect.fail({
+            type: "InputError" as const,
+            message: "text must be non-empty",
+            details: { path: "text", retryable: false },
+          });
+        }
+        const sentBy = resolveProcessBoundActorRef(read.actorRefs, caller);
+        if (Result.isFailure(sentBy)) return yield* Effect.fail(sentBy.failure);
+        const task = yield* mailTask(board, caller, sentBy.success, asked.success.target, asked.success.taskId, op);
+        // A task's thread is the task: its id.
+        if (asked.success.threadId !== undefined && asked.success.threadId.trim() !== task.taskId) {
+          return yield* Effect.fail({
+            type: "InputError" as const,
+            message: `a comment on task "${asked.success.taskId}" is in its thread "${task.taskId}"`,
+            details: { path: "threadId", retryable: false, next_step: "drop threadId: a task comment joins its task's thread" },
+          });
+        }
+        const posted = yield* commentOnTask(seatTaskCaller(board, caller, sentBy.success), liveTaskPorts, {
+          // The caller's write id keeps a retry one comment; a raw frame with none gets its own.
+          opId: asked.success.opId ?? OpId.make(ulid()),
+          task: task.taskId,
+          text: typed,
+          node: task.current.node,
+        });
+        return { ...posted, recipient: recipientOf(board, task.current.node) };
+      }
       // A target is a node id or the name of a seat this one is wired to.
       const named = resolveMailTarget(board, caller.nodeId, asked.success.target, op);
       if (Result.isFailure(named)) return yield* Effect.fail(named.failure);
@@ -1762,44 +1811,14 @@ const dispatchOp = (
       }
       const sentBy = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(sentBy)) return yield* Effect.fail(sentBy.failure);
-      // A task comment is a row in its task's one thread, whose id is the task's.
-      const taskThread = decoded.success.taskId === undefined
-        ? undefined
-        : taskThreadAt(board, decoded.success.target, decoded.success.taskId);
-      let threadId: string | undefined = taskThread?.threadId;
+      let threadId: string | undefined;
       if (decoded.success.threadId !== undefined) {
         const asked = mailIdArg("threadId", decoded.success.threadId);
         if (Result.isFailure(asked)) return yield* Effect.fail(asked.failure);
-        const askedThread = asked.success;
-        if (decoded.success.taskId !== undefined && askedThread !== taskThread?.threadId) {
-          return yield* Effect.fail({
-            type: "InputError" as const,
-            message: taskThread === undefined
-              ? `task "${decoded.success.taskId}" has no thread: it is not a task on a task node, or its id is not a ULID`
-              : `a comment on task "${decoded.success.taskId}" is in its thread "${taskThread.threadId}"`,
-            details: { path: "threadId", retryable: false, next_step: "drop threadId: a task comment joins its task's thread" },
-          });
-        }
       }
-      // Each mention becomes its link: in reach of the task, or this seat's mail (03).
-      const text = yield* linkMentionsAt(board, caller.canvasName, caller.nodeId, typed, taskThread === undefined
-        ? { kind: "mail" }
-        : { kind: "comments", nodeId: taskThread.subject.nodeId });
-      // A comment on a 0.10 task posts on the one comment path (03).
-      if (taskThread !== undefined && taskThread.subject.kind === "task") {
-        const posted = yield* postSubjectComment(
-          {
-            subject: { kind: "task", nodeId: taskThread.subject.nodeId, taskId: taskThread.subject.taskId },
-            text,
-            actor: { kind: "seat", seatId: sentBy.success.seatId, nodeId: asNodeId(caller.nodeId) },
-            // The caller's write id keeps a retry one comment; a raw frame with none gets its own.
-            opId: decoded.success.opId ?? OpId.make(ulid()),
-          },
-          { canvas: board, canvasName: caller.canvasName, people: yield* subjectPeopleAt(board, caller.canvasName, taskThread.subject) },
-        );
-        return { ...posted, recipient };
-      }
-      if (decoded.success.threadId !== undefined && decoded.success.taskId === undefined) {
+      // Each mention becomes its link in this seat's mail (03).
+      const text = yield* linkMentionsAt(board, caller.canvasName, caller.nodeId, typed, { kind: "mail" });
+      if (decoded.success.threadId !== undefined) {
         const askedThread = decoded.success.threadId.trim();
         // Only a thread this seat can read: its own mailbox, or mail it sent.
         // An id inside a thread stands for that thread.
@@ -1829,7 +1848,6 @@ const dispatchOp = (
         messageId,
         text,
         contextId,
-        ...(decoded.success.taskId ? { taskId: decoded.success.taskId } : {}),
         metadata: {
           factoryMail: true,
           ...mailExtensionMetadata({
@@ -1844,16 +1862,12 @@ const dispatchOp = (
       const result = yield* work.workMessageAppend(
         caller.canvasName,
         decoded.success.target,
-        decoded.success.taskId ?? null,
+        null,
         message,
         sentBy.success,
       );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      // A comment on a task from before item ids: the task's own channel, no thread.
-      if (decoded.success.taskId !== undefined) {
-        return { ...exposeWorkMutation(mapped.success), messageId, recipient };
-      }
       const delivery = yield* Effect.promise(() =>
         messageDelivery.deliver(caller.canvasName, decoded.success.target, messageId),
       );
