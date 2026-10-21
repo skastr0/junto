@@ -93,31 +93,31 @@ const ARTIFACTS_SECTION = ARTIFACTS_ENABLED
 Publishing artifacts is non-blocking product delivery. Ship intermediate and final outputs freely; they do not stop other seats.`
   : "";
 
-/** The loop step that says where work comes from: a claim queue, or people. */
+/** The loop step that says where work comes from: the board, or people. */
 const WORK_STEP = TASKS_ENABLED
   ? `2. **work** — do the work the board makes available. If a task is assigned to your seat, start it and see it through (\`task start\`, \`task finish\`). Never invent backlog.`
   : `2. **work** — do the work the operator and your region ask for. Instructions arrive in your region briefing and in mail over your edges; open the surfaces you need and work by hand. Never invent backlog.`;
 
 const UPDATE_STEP = TASKS_ENABLED
-  ? `3. **update** — report state honestly: \`working\` while active, then \`completed\` / \`failed\` / \`canceled\` / \`input-required\` as appropriate.`
+  ? `3. **update** — report state honestly: progress in the task's thread with \`task comment\`, \`task pause\` when you need input, \`task finish\` when the work is done.`
   : `3. **update** — report state honestly to the seats that asked: what you finished, what failed, and what is still open.`;
 
 const IDLE_LINE = TASKS_ENABLED
-  ? `Repeat. When idle with no open tasks to pull, wait — do not invent new tasks.`
+  ? `Repeat. When idle with no task assigned to you, wait — do not invent new tasks.`
   : `Repeat. When idle with nothing addressed to you, wait — do not invent work.`;
 
-/** Where work comes from: the task pull queue, or the people on the canvas. */
+/** Where work comes from: tasks assigned on the board, or the people on the canvas. */
 const WORK_SOURCE_SECTION = TASKS_ENABLED
-  ? `### Pull from the board
+  ? `### Work comes from the board
 
-Tasks are a **pull queue**. The canvas (your reach + live state) decides what is available. Do not:
+A task reaches you when it is assigned to your seat; the notice arrives as mail in the task's thread. Do not:
 
 - invent work the board never listed
-- claim from boards outside your reach (ScopeError is correct — the fix is where the operator places you or the board, not the code)
-- treat an open queue as stoppage — \`submitted\`/\`working\` means work is in progress`
+- act on task nodes outside your reach (ScopeError is correct — the fix is where the operator places you or the node, not the code)
+- treat an open task as stoppage — \`working\` and \`in-review\` mean work is in progress`
   : `### Work comes from people
 
-There is no claim queue in this build. Work reaches you from the operator, your region briefing, and mail addressed to your seat. Do not:
+There is no task queue in this build. Work reaches you from the operator, your region briefing, and mail addressed to your seat. Do not:
 
 - invent work nobody asked for
 - act on resources outside your reach, or mail seats you have no edge to (ScopeError is correct — the fix is on the canvas, not in the code)
@@ -127,12 +127,12 @@ There is no claim queue in this build. Work reaches you from the operator, your 
 const COMPLETION_SECTION = TASKS_ENABLED
   ? `### Completion is earned
 
-You do not **self-declare** completion — you **submit** it. \`completed\` is a verified review verdict: the server rejects the transition unless finish criteria are met and evidence is attached.
+You do not **self-declare** completion — you **submit** it. \`task finish\` is ruled: the server refuses it while a rule in force has no claim, and a task that needs stamps waits in \`in-review\` until its reviewers approve.
 
-- Before \`completed\`: verify every finish criterion (description, git commits${ARTIFACTS_ENABLED ? ", artifacts on the required node" : ""}), then attach \`completionEvidence\` — ${ARTIFACTS_ENABLED ? "artifacts published with task linkage + " : ""}real git SHAs.
-- A rejection names the missing pieces (\`InvalidTransition\` with \`missing\` + \`next_step\`) — read it, fix the evidence, retry. Do not mark \`completed\` without evidence.
-- If criteria are unreachable, say so with \`junto blocked\` and set the task to \`input-required\`, with what you tried and what you need. Do not mark \`failed\` unless the task is truly dead.
-- \`working\` notes are progress telemetry: state what you did at milestones (first commit, tests passing, blocked), not just "working".`
+- Before you finish: read the rules with \`task rules\`, answer each with \`--claim\`, and cite the work with \`--commit <sha>\`${ARTIFACTS_ENABLED ? " and \`--artifact <node id>/<artifactId>\`" : ""}.
+- A refusal names what is missing: read it, fix, and finish again.
+- If the work cannot be finished, say so with \`junto blocked\` and \`task pause\` the task, with what you tried and what you need.
+- Progress goes in the task's thread with \`task comment\`: what you did at milestones (first commit, tests passing, blocked), not just "working".`
   : `### Report honestly
 
 There is no review verdict to submit in this build. Say what you did, what you verified, and what you could not finish. Do not dress up unfinished work as done; if you cannot finish, say so and stop.`;
@@ -174,8 +174,8 @@ const ORIENT_DETAIL = TASKS_ENABLED
 /** Task-shaped error meanings leave with the tasks surface. */
 const TASK_ERROR_BULLETS = TASKS_ENABLED
   ? `
-- \`ClaimConflict\` — task already claimed by someone else, or a state race; pick another task or wait for the holder
-- \`InvalidTransition\` — illegal state change (e.g. \`completed\` without finish-criteria evidence); the message names the missing pieces`
+- \`ClaimConflict\` — the task is already assigned to another seat, or that seat already holds an open task; pick another or wait for the holder
+- \`InvalidTransition\` — the task is not in a state that command takes (e.g. \`task start\` on a task not assigned to you); the message names its state`
   : "";
 
 /** Always-present contract: orientation + self-description + laws. */
@@ -254,24 +254,21 @@ const TASKS_REFERENCE = `A task moves backlog, assigned, working, in-review, don
 
 ### Rules in force
 
-A board carries **rules**: operator-authored statements the work must satisfy, inherited from the regions it sits in, from the board itself, and from rules the raiser addressed to it. They are prompts for you to check, never something the server evaluates. Rules have no severity — every rule in force must be answered.
+A board carries **rules**: operator-authored statements the work must satisfy, inherited from the regions it sits in, from the board itself, and from rules the raiser addressed to it. The server does not judge them; it only checks that each is answered.
 
-- Read them with \`task rules\` — each one names where it came from.
-- Answer every rule when you finish: \`task finish <task> --claim <ruleId>="how you satisfied it"\`, once per rule.
+- Read them with \`task rules\`: each one names where it came from, and naming a task shows which are still unanswered.
+- Answer each when you finish: \`task finish <task> --claim "<ruleId>=<how this work meets it>"\`, one --claim per rule. A finish that leaves a rule in force unanswered is refused \`rules-unmet\`.
 - Only a claim answers a rule. A rule that no longer fits is the operator's to change; ask, do not skip it.
-- \`task finish\` is refused \`rules-unmet\` while a rule is unanswered; the refusal names the innermost one.
 
-### Path — one board at a time
+### Path, one node at a time
 
-Where the operator drew a task path, completing does not close the task: it hands it to the next board.
+Where the operator drew a task path, finishing does not close the task: it hands it to the next node.
 
-- With one Next, completing sends the task on automatically; with more than one, pick one with \`"next":"<board>"\` on the update.
-- **Checks** are the operator's deterministic gates for that move. Run them with \`task check\` — the commands execute in your own shell and the results are stamped from what they returned. Every applicable check must pass before the task is sent on.
-- Write what the outgoing contract asks in the update \`"handoffNote"\`: the next board sees that and your cited refs, never your interior work.
-- Sending work back is \`state: "rejected"\` with \`"defect":{"summary":"what is wrong","refs":["..."]}\` — it returns the task to the board before yours.
-- \`"waitFor":"12h"\` (or \`"7d"\`, or milliseconds) delays the first claim at the next board.
-
-A task that arrives back with an epoch bump was sent back to you: prior claims and check results are stale, so answer the rules again and re-run the checks.`;
+- With one next node, \`task finish\` sends the task on; with more than one, name it with \`--next <node>\`.
+- Cite the work on the finish: \`--commit <sha>\` and \`--artifact <node id>/<artifactId>\`, repeated for several.
+- **Checks** are the operator's deterministic gates for that move. Run them with \`task check\`: the commands run in your own shell and the results are stamped from what they returned.
+- The next node sees your layer as stamps, comments and cited refs, never your interior work.
+- \`task stamp <task> changes --text "<what to change>"\` sends the task back to \`working\` on a new epoch: earlier stamps stop counting and check results are stale, so answer the rules again and re-run the checks.`;
 
 const MSG_REFERENCE = `A mail target is a seat's name or its node id; a name two of your seats share is refused, listing each one's id and regions. Own inbox: \`junto msg list\` marks listed mail read; \`junto msg react '{"messageId":"<msgId>"}'\` acknowledges without a reply. Mail is never refused and never needs a retry: it is typed into the recipient's input within seconds, whatever the recipient is doing, and a recipient whose seat is not up gets it when the seat starts. The one wait is the input box: mail is never typed over a message the operator is composing in that seat, into a dialog, or onto a screen Junto cannot read, and goes in once the box is free. Kinds are \`notice\`, \`prompt\`, and \`receipt\`. A notice is typed whole, up to 2,500 characters, under one header: \`mail from <seat> (<regions>)\`, its id, its thread when it is a reply, and the \`junto msg reply\` that answers it; longer mail is cut there with a pointer to \`junto msg read <id>\` for the rest. Mail for one seat that arrives together is typed as one turn: a count line, then each mail under its own header, oldest first. It waits 2 seconds for more, never past 10 seconds after the first; past 6,000 characters in one turn, each further mail is one line with its id and stays unread; past 20 of those, one last line counts the rest with the \`junto msg list\` that lists them. A prompt is typed whole, as its own turn. Mail typed whole is marked read as it is typed; cut mail stays unread until you read it. The header adds a pointer to \`junto onboard\` when the recipient has not onboarded yet. Threads: every mail names its \`threadId\`, the id of the mail that started it; \`junto msg reply\` joins the parent's thread, \`junto msg send\` joins one with \`threadId\`, \`junto msg list '{"threadId":"<id>"}'\` reads one, and a reply with target \`operator\` answers mail the operator sent you. Filter a list with \`from\`, \`unread\`, \`since\` (ISO time or message id) and \`text\`, alone or with \`threadId\`; \`"peek":true\` lists without marking anything read. Avoid acknowledgement loops.
 
@@ -310,6 +307,8 @@ const referenceFor = (group: CommandGroup): string => {
       return REVIEWS_REFERENCE;
     case "artifacts":
       return ARTIFACTS_REFERENCE;
+    case "board":
+      return COMMAND_FAMILIES.board.note;
     case "browser":
       return BROWSER_REFERENCE;
   }
