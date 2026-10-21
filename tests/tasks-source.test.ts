@@ -11,7 +11,7 @@ import {
   numberLabel,
   numberOfTask,
   openCount,
-  tasksGlance,
+  tasksCardBody,
   taskContextFor,
   visibleTasks,
 } from "../src/renderer/components/tasks/tasks-pane-model";
@@ -119,9 +119,10 @@ describe("local tasks source", () => {
     expect(listedTasks(backlog, null)).toBe(backlog);
   });
 
-  it("counts what the canvas card shows: held, paused for input, done, and the rows that matter now", async () => {
+  it("builds the card body: the count includes the backlog, the meta says all three, flagged rows come first, at most four then more", async () => {
     const s = sourceWith();
-    const ids = [await create(s, "a"), await create(s, "b"), await create(s, "c"), await create(s, "d"), await create(s, "e")];
+    const ids = [];
+    for (const title of ["a", "b", "c", "d", "e", "f"]) ids.push(await create(s, title));
     const seatAs = (seat: typeof ada) => s.as({ kind: "seat", seat });
     await s.apply(CANVAS, build, ids[0]!, { kind: "assign", seat: ada });
     await seatAs(ada).apply(CANVAS, build, ids[0]!, { kind: "start" });
@@ -129,16 +130,31 @@ describe("local tasks source", () => {
     await seatAs(bo).apply(CANVAS, build, ids[1]!, { kind: "start" });
     await seatAs(bo).apply(CANVAS, build, ids[1]!, { kind: "pause" });
     await s.apply(CANVAS, build, ids[2]!, { kind: "cancel" });
-    const views = await s.list(CANVAS, build);
-    const glance = tasksGlance(views);
-    expect(glance).toMatchObject({ open: 1, needsInput: 1, done: 0, backlog: 2 });
-    expect(glance.rows.map((view) => view.title)).toEqual(["a", "b"]);
-    const quiet = tasksGlance(views.filter((view) => view.current.state === "backlog"));
-    expect(quiet.rows.map((view) => view.title)).toEqual(["d", "e"]);
-    expect(tasksGlance([])).toEqual({ open: 0, needsInput: 0, done: 0, backlog: 0, rows: [] });
-    const idle = tasksGlance(views.filter((view) => view.current.state === "backlog"));
-    expect(idle).toMatchObject({ open: 0, backlog: 2 });
-    expect(idle.rows.length).toBeGreaterThan(0);
+    const body = tasksCardBody(await s.list(CANVAS, build));
+    expect(body.count).toBe(6);
+    expect(body.meta).toBe("3 backlog, 2 open, 0 done");
+    expect(body.rows.map((row) => [row.title, row.flag])).toEqual([
+      ["b", "blocked"],
+      ["a", undefined],
+      ["d", undefined],
+      ["e", undefined],
+    ]);
+    expect(body.more).toBe(1);
+    expect(body.status).toBe("blocked");
+    expect(tasksCardBody([])).toEqual({ count: 0, meta: "0 backlog, 0 open, 0 done", rows: [], more: 0, status: undefined });
+  });
+
+  it("flags a task in review that the operator owes a stamp on, until it stamps", async () => {
+    const s = sourceWith([qa]);
+    const id = await create(s, "ship");
+    await s.apply(CANVAS, build, id, { kind: "reviewer-add", reviewer: { kind: "operator" } });
+    await s.apply(CANVAS, build, id, { kind: "stamp-policy", required: 1 });
+    await s.apply(CANVAS, build, id, { kind: "assign", seat: ada });
+    await s.as({ kind: "seat", seat: ada }).apply(CANVAS, build, id, { kind: "start" });
+    await s.as({ kind: "seat", seat: ada }).apply(CANVAS, build, id, { kind: "finish" });
+    const waiting = tasksCardBody(await s.list(CANVAS, build));
+    expect(waiting.rows[0]).toMatchObject({ title: "ship", flag: "needs-you" });
+    expect(waiting.status).toBe("needs-you");
   });
 
   it("builds the ruler's context from the canvas's tasks", async () => {

@@ -3,6 +3,7 @@
  * order, the context the ruler is asked in, and how a number, an owner and a
  * layer read.
  */
+import { stampOf } from "../../lib/task-ui";
 import { ageLabel } from "../artifacts/artifacts-pane-model";
 import type { TaskPendingWrite } from "@shared/resource-ipc";
 import type { TaskContext } from "@shared/task-machine";
@@ -221,28 +222,78 @@ export const queuedCreates = (
       : [],
   );
 
-export type TasksGlance = {
-  /** Assigned, working or in review: held by a seat and moving. */
-  readonly open: number;
-  /** Paused for input: held by a seat that waits on someone. */
-  readonly needsInput: number;
-  readonly done: number;
-  /** Waiting with no assignee: the card never reads zero over a task it lists. */
-  readonly backlog: number;
-  /** The rows the card lists: what is held first, else what waits in the backlog. At most `limit`. */
-  readonly rows: ReadonlyArray<TaskView>;
+// ---- The Tasks node on the canvas (docs/node-card-language.md, Spines) ----
+
+/** What a task row on the canvas flags: a seat waits on someone, or the operator owes a stamp. */
+export type RowFlag = "blocked" | "needs-you";
+
+export type CardRow = {
+  readonly taskId: TaskId;
+  /** `#42`, or `queued` while the create waits. */
+  readonly number: string;
+  readonly title: string;
+  readonly state: TaskState;
+  readonly flag?: RowFlag;
 };
 
-/** What the Tasks node's card on the canvas shows: counts and the few tasks that matter now. */
-export const tasksGlance = (views: ReadonlyArray<TaskView>, limit = 4): TasksGlance => {
-  const count = (states: ReadonlyArray<TaskState>): number =>
-    views.filter((view) => states.includes(view.current.state)).length;
-  const held = visibleTasks(views, { state: "open", query: "" });
+/** The status tag of the node: its worst notable state, or none when idle. */
+export type CardStatus = "blocked" | "needs-you" | undefined;
+
+export type TasksCardBody = {
+  /** Every task on the board but archived ones, backlog included: the number on the chip. */
+  readonly count: number;
+  /** The first line of the spine: `1 backlog, 0 open, 0 done`. */
+  readonly meta: string;
+  /** At most `limit` rows, flagged ones first, then held work, then the backlog. */
+  readonly rows: ReadonlyArray<CardRow>;
+  /** Rows beyond `limit`, for the `+N more` row. */
+  readonly more: number;
+  readonly status: CardStatus;
+};
+
+const OPERATOR = { kind: "operator" } as const;
+
+const flagOf = (view: TaskView): RowFlag | undefined => {
+  const { state, reviewers } = view.current;
+  if (state === "input-required") return "blocked";
+  if (state === "in-review" && reviewers.some((reviewer) => reviewer.kind === "operator") && stampOf(view.current, OPERATOR) === undefined) {
+    return "needs-you";
+  }
+  return undefined;
+};
+
+const FLAG_FIRST: Readonly<Record<RowFlag, number>> = { blocked: 0, "needs-you": 1 };
+
+/** The card's body: counts, rows with their flags, and the status word, from the board's tasks alone. Pure. */
+export const tasksCardBody = (views: ReadonlyArray<TaskView>, limit = 4): TasksCardBody => {
+  const live = views.filter((view) => view.current.state !== "archived");
+  const backlog = live.filter((view) => view.current.state === "backlog").length;
+  const done = live.filter((view) => view.current.state === "done").length;
+  const open = live.filter((view) => isOpenTaskState(view.current.state)).length;
+  const listed = visibleTasks(
+    live.filter((view) => view.current.state !== "done" && view.current.state !== "canceled"),
+    { state: "all", query: "" },
+  ).map((view): CardRow => {
+    const flag = flagOf(view);
+    return {
+      taskId: view.taskId,
+      number: numberLabel(view),
+      title: view.title,
+      state: view.current.state,
+      ...(flag === undefined ? {} : { flag }),
+    };
+  });
+  // Flagged rows first (a seat that waits, then a stamp owed), the rest in the list's own order.
+  const ordered = [
+    ...listed.filter((row) => row.flag !== undefined).sort((a, b) => FLAG_FIRST[a.flag!] - FLAG_FIRST[b.flag!]),
+    ...listed.filter((row) => row.flag === undefined),
+  ];
+  const flags = ordered.map((row) => row.flag);
   return {
-    open: count(["assigned", "working", "in-review"]),
-    needsInput: count(["input-required"]),
-    done: count(["done"]),
-    backlog: count(["backlog"]),
-    rows: (held.length > 0 ? held : visibleTasks(views, { state: "backlog", query: "" })).slice(0, limit),
+    count: live.length,
+    meta: `${backlog} backlog, ${open} open, ${done} done`,
+    rows: ordered.slice(0, limit),
+    more: Math.max(0, ordered.length - limit),
+    status: flags.includes("blocked") ? "blocked" : flags.includes("needs-you") ? "needs-you" : undefined,
   };
 };

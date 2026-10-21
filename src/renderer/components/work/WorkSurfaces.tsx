@@ -17,8 +17,11 @@ import { state$ } from "../../lib/state";
 import { useCanvas, useNodeFieldOf, useNodeValue } from "../../lib/use-model";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { TasksNode } from "../tasks/TasksNode";
-import { numberLabel, tasksGlance } from "../tasks/tasks-pane-model";
+import { tasksCardBody } from "../tasks/tasks-pane-model";
+import { useNodeUrgency } from "../../lib/use-node-urgency";
+import { RegionUrgency } from "@shared/wire/urgency";
 import { TaskStateMark } from "../ui";
+import { SpineCard, type SpineStatus } from "../nodes/SpineCard";
 import { seatChoicesInReach } from "../tasks/tasks-canvas";
 import { installIpcTasksSource, useNodeTasks } from "../../lib/tasks-source";
 import { getJuntoApi } from "../../lib/junto-api";
@@ -96,7 +99,7 @@ function SinkGlanceHead({
 
 // --- Cards -----------------------------------------------------------------
 
-/** The Tasks node on the canvas: how many are held, who waits on input, how many are done, and the tasks that matter now. */
+/** The Tasks node on the canvas, in the Spines language: a chip with its count, a status tag when a seat waits or the operator owes a stamp, and the tasks that matter on a spine. */
 export function TasksCard({
   nodeId,
   renaming = false,
@@ -109,17 +112,33 @@ export function TasksCard({
   installIpcTasksSource(getJuntoApi()?.resource?.task);
   const views = useNodeTasks(canvas, taskNodeId(asNodeId(nodeId)));
   const name = useNodeValue(canvas, nodeId, (node) => taskBoardTitle(node?.kind === "task" ? node : undefined, nodeId).name);
-  const glance = tasksGlance(views);
+  const body = tasksCardBody(views);
+  // The region frame leans to a blocked or needs-you card at overview.
+  useNodeUrgency(
+    nodeId,
+    body.status === "blocked" ? RegionUrgency.group.blocked : body.status === "needs-you" ? RegionUrgency.group["needs-you"] : undefined,
+  );
+  const status: SpineStatus | undefined = body.status;
   return (
-    <div className="factory-glance factory-glance--tasks flex h-full w-full flex-col overflow-hidden" data-testid="tasks-card">
-      <SinkGlanceHead
-        nodeId={nodeId}
-        fallback="tasks"
-        displayLabel={name}
-        decal={<ListChecks size={15} />}
-        renaming={renaming}
-        onRequestRename={onRequestRename}
-        onRenameDone={onRenameDone}
+    <div data-testid="tasks-card">
+      <SpineCard
+        glyph={<ListChecks />}
+        hue="green"
+        name={name}
+        count={body.count}
+        status={status}
+        {...(renaming && onRenameDone
+          ? {
+              nameEditor: (
+                <FirstLineRenameInput
+                  initial={name}
+                  ariaLabel="Rename Tasks board"
+                  onCommit={(next) => commitCommands((canvas) => renamed(canvas, nodeId, next))}
+                  onDone={onRenameDone}
+                />
+              ),
+            }
+          : {})}
         trailing={
           // A tasks-off build must not open the enqueue surface: the create API
           // is absent, so a historical tasks card keeps only its read glance.
@@ -143,49 +162,23 @@ export function TasksCard({
             >
               <Plus size={11} strokeWidth={2.25} aria-hidden />
             </button>
-          ) : null
+          ) : undefined
         }
+        body={{
+          kind: "spine",
+          meta: body.meta,
+          rows: body.rows.map((row) => ({
+            key: row.taskId,
+            mark: <TaskStateMark state={row.state} />,
+            text: (
+              <>
+                <span className="tabular-nums">{row.number}</span> {row.title}
+              </>
+            ),
+          })),
+          more: body.more,
+        }}
       />
-      <div
-        className="mt-0.5 flex shrink-0 flex-col items-end gap-0.5 pr-1 text-right text-caption tabular-nums leading-tight"
-      >
-        <span
-          className="max-w-full truncate"
-          style={{ color: glance.needsInput > 0 ? HUE.amber : DIM }}
-          data-testid="tasks-glance"
-        >
-          {`${glance.open} open${glance.needsInput > 0 ? ` - ${glance.needsInput} need input` : ""}`}
-        </span>
-        <span
-          className="max-w-full truncate"
-          style={{ color: glance.done > 0 ? GREEN : DIM }}
-          data-testid="tasks-glance-completed"
-          aria-label={`${glance.backlog} in backlog, ${glance.done} done`}
-        >
-          {glance.backlog > 0 ? `${glance.backlog} backlog, ${glance.done} done` : `${glance.done} done`}
-        </span>
-      </div>
-      <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
-        {glance.rows.map((view) => (
-          <div
-            key={view.taskId}
-            className="factory-glance__row factory-glance__row--task flex items-center gap-1 truncate text-label leading-snug"
-            style={{ color: INK }}
-            data-state={view.current.state}
-            data-kind="task"
-            data-attention={view.current.state === "input-required" ? "fire" : "idle"}
-          >
-            <TaskStateMark state={view.current.state} />
-            <span className="tabular-nums">{numberLabel(view)}</span>
-            <span className="truncate">{view.title}</span>
-          </div>
-        ))}
-        {views.length === 0 ? (
-          <div className="factory-glance__empty text-caption" style={{ color: DIM }}>
-            empty
-          </div>
-        ) : null}
-      </div>
     </div>
   );
 }
