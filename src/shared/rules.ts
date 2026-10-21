@@ -6,18 +6,13 @@ import type {
   Rule,
   Task,
   TaskAdmission,
-  TaskDefect,
   TasksContract,
-  Visit,
 } from "./work-model";
 import { resolveTaskAdmission } from "./work-model";
-import { reachableBoards } from "./flow-graph";
-import type { Canvas, Placed } from "./model/canvas";
+import type { Placed } from "./model/canvas";
 import { asNodeId } from "./model/base";
 import { nodeOf, regionName, regionStack, UNNAMED_REGION } from "./model/canvas";
 import type { Region, RegionContract } from "./model/region";
-import { WAIT_FOR_MAX_MS } from "./work-control";
-import type { WorkRead } from "./work-read";
 
 // Pure structural enforcement for task rules, claims, checks, and admission.
 // The work service validates presence and shape. It never judges whether an
@@ -34,7 +29,7 @@ export type RuleInForce = {
 };
 
 /** FinishCriteriaFailure-shaped so callers format one error family. */
-export type RuleFailure = {
+type RuleFailure = {
   readonly missing: string;
   readonly message: string;
   readonly next_step: string;
@@ -163,157 +158,6 @@ export const normalizeRuleEvidence = (
   };
 };
 
-export const taskDefects = (task: Task): ReadonlyArray<TaskDefect> =>
-  task.defects ?? [];
-
-const boardOrder = (visits: ReadonlyArray<Visit>, board: string): number =>
-  visits.findIndex((visit) => visit.board === board);
-
-/** A claim remains live unless a later defect targeted its board or earlier. */
-export const claimIsLive = (
-  task: Task,
-  visits: ReadonlyArray<Visit>,
-  visit: Visit,
-): boolean => {
-  const defects = taskDefects(task);
-  const recorded = new Set(defects.map((defect) => defect.epoch));
-  for (let epoch = visit.epoch + 1; epoch <= taskEpoch(task); epoch += 1) {
-    if (!recorded.has(epoch)) return false;
-  }
-  const order = boardOrder(visits, visit.board);
-  return !defects.some(
-    (defect) =>
-      defect.epoch > visit.epoch && boardOrder(visits, defect.target) <= order,
-  );
-};
-
-/** A waiver never survives a later defect. */
-export const waiverIsLive = (task: Task, visit: Visit): boolean =>
-  taskEpoch(task) === visit.epoch;
-
-/** Latest completed visit represented by each board's material task row. */
-export const latestCompletedVisits = (
-  visits: ReadonlyArray<Visit>,
-): ReadonlyMap<string, Visit> => {
-  const latest = new Map<string, Visit>();
-  for (const visit of visits) {
-    if (visit.exit !== "sent-on" && visit.exit !== "completed") continue;
-    latest.set(visit.board, visit);
-  }
-  return latest;
-};
-
-export type RecordedClaims = {
-  readonly claimed: ReadonlyMap<string, ReadonlySet<string>>;
-  readonly waived: ReadonlySet<string>;
-};
-
-/** Claims and waivers recorded by completed board visits. */
-export const claimsRecorded = (
-  work: WorkRead,
-  task: Task,
-): RecordedClaims => {
-  const visits = task.visits ?? [];
-  const claimed = new Map<string, Set<string>>();
-  const waived = new Set<string>();
-  for (const [board, visit] of latestCompletedVisits(visits)) {
-    const row = work.taskAt(board, task.id);
-    if (row?.completionEvidence === undefined) continue;
-    if (claimIsLive(task, visits, visit)) {
-      for (const entry of row.completionEvidence.claims ?? []) {
-        const boards = claimed.get(entry.ruleId) ?? new Set<string>();
-        boards.add(board);
-        claimed.set(entry.ruleId, boards);
-      }
-    }
-    if (waiverIsLive(task, visit)) {
-      for (const entry of row.completionEvidence.waivers ?? []) {
-        waived.add(entry.ruleId);
-      }
-    }
-  }
-  return { claimed, waived };
-};
-
-export const claimedAtBoard = (
-  claimed: ReadonlyMap<string, ReadonlySet<string>>,
-  board: string,
-  ruleId: string,
-): boolean => claimed.get(ruleId)?.has(board) ?? false;
-
-/**
- * A task rule may be waived only when the selected path no longer reaches its
- * board. Review rules belong to the independent verdict gate, never a waiver.
- */
-export const evaluateForkWaivers = (params: {
-  readonly canvas: Pick<Canvas, "wires">;
-  readonly work: WorkRead;
-  readonly boardId: string;
-  readonly task: Task;
-  readonly next: string;
-  readonly evidence: CompletionEvidence | undefined;
-}): RuleFailure | undefined => {
-  const rules = params.task.rules ?? [];
-  if (rules.length === 0) return undefined;
-  const reachable = reachableBoards(params.canvas, params.next);
-  const recorded = claimsRecorded(params.work, params.task);
-  const localClaims = new Set(
-    (params.evidence?.claims ?? []).map((entry) => entry.ruleId),
-  );
-  const waived = new Set([
-    ...recorded.waived,
-    ...(params.evidence?.waivers ?? []).map((entry) => entry.ruleId),
-  ]);
-  for (const rule of rules) {
-    if (rule.kind === "requires-review") continue;
-    if (reachable.has(rule.board)) continue;
-    const answered =
-      claimedAtBoard(recorded.claimed, rule.board, rule.id) ||
-      (rule.board === params.boardId && localClaims.has(rule.id));
-    if (answered || waived.has(rule.id)) continue;
-    return {
-      missing: "waivers",
-      ruleId: rule.id,
-      message: `sending this task to "${params.next}" leaves board "${rule.board}" without a claim for rule "${rule.text}"`,
-      next_step: `waive rule ${rule.id} with completionEvidence.waivers, or choose a path that reaches "${rule.board}"`,
-    };
-  }
-  return undefined;
-};
-
-/** Every statement task rule needs a claim at its board or a live fork waiver. */
-export const evaluateTerminalClose = (params: {
-  readonly work: WorkRead;
-  readonly boardId: string;
-  readonly task: Task;
-  readonly evidence: CompletionEvidence | undefined;
-}): RuleFailure | undefined => {
-  const rules = params.task.rules ?? [];
-  if (rules.length === 0) return undefined;
-  const recorded = claimsRecorded(params.work, params.task);
-  const localClaims = new Set(
-    (params.evidence?.claims ?? []).map((entry) => entry.ruleId),
-  );
-  const waived = new Set([
-    ...recorded.waived,
-    ...(params.evidence?.waivers ?? []).map((entry) => entry.ruleId),
-  ]);
-  for (const rule of rules) {
-    if (rule.kind === "requires-review") continue;
-    const answered =
-      claimedAtBoard(recorded.claimed, rule.board, rule.id) ||
-      (rule.board === params.boardId && localClaims.has(rule.id));
-    if (answered || waived.has(rule.id)) continue;
-    return {
-      missing: "claims",
-      ruleId: rule.id,
-      message: `cannot complete: rule "${rule.text}" at board "${rule.board}" has no claim in epoch ${taskEpoch(params.task)}`,
-      next_step: `make a claim for rule ${rule.id} at board "${rule.board}"`,
-    };
-  }
-  return undefined;
-};
-
 export type RequiredCheck = {
   readonly check: Check;
   readonly side: CheckSide;
@@ -333,45 +177,7 @@ export const requiredChecks = (
   ];
 };
 
-/** Every required check needs a passing current-epoch result for its command. */
-export const evaluateChecks = (params: {
-  readonly task: Task;
-  readonly checks: ReadonlyArray<RequiredCheck>;
-}): RuleFailure | undefined => {
-  const epoch = taskEpoch(params.task);
-  const results = (params.task.checkResults ?? []).filter(
-    (result) => result.epoch === epoch,
-  );
-  for (const { check, side } of params.checks) {
-    const result = results.find(
-      (candidate) => candidate.checkId === check.id && candidate.side === side,
-    );
-    if (result === undefined) {
-      return {
-        missing: "checks",
-        message: `${side} check "${check.label}" has no result for epoch ${epoch}`,
-        next_step: `run tasks check for check ${check.id}`,
-      };
-    }
-    if (result.command !== check.command) {
-      return {
-        missing: "checks.stale",
-        message: `${side} check "${check.label}" is stale because its command changed`,
-        next_step: `run tasks check again for check ${check.id}`,
-      };
-    }
-    if (result.exitCode !== 0) {
-      return {
-        missing: "checks.failed",
-        message: `${side} check "${check.label}" failed with exit ${result.exitCode}`,
-        next_step: `fix the failure and run tasks check again for check ${check.id}`,
-      };
-    }
-  }
-  return undefined;
-};
-
-export type TaskAdmissionState =
+type TaskAdmissionState =
   | "claimable"
   | "waiting"
   | "approval"
@@ -380,7 +186,7 @@ export type TaskAdmissionState =
 /** Epoch-scoped operator approval marker. */
 export const TASK_APPROVED_METADATA_KEY = "junto.tasks.approvedEpoch";
 
-export const taskApproved = (task: Task): boolean =>
+const taskApproved = (task: Task): boolean =>
   task.metadata?.[TASK_APPROVED_METADATA_KEY] === taskEpoch(task);
 
 const ADMISSION_RANK: Readonly<Record<TaskAdmission, 0 | 1 | 2>> = {
@@ -389,32 +195,7 @@ const ADMISSION_RANK: Readonly<Record<TaskAdmission, 0 | 1 | 2>> = {
   operator: 2,
 };
 
-/** A requester may only tighten the board's admission floor. */
-export const clampRequestedAdmission = (input: {
-  readonly floor: TaskAdmission;
-  readonly requested: TaskAdmission | undefined;
-  readonly omitted: "approval" | "inherit";
-}):
-  | { readonly ok: true; readonly stamp: TaskAdmission | undefined }
-  | { readonly ok: false; readonly message: string } => {
-  const floor = input.floor;
-  if (input.requested !== undefined) {
-    if (ADMISSION_RANK[input.requested] < ADMISSION_RANK[floor]) {
-      return {
-        ok: false,
-        message: `admission "${input.requested}" loosens board floor "${floor}"; requester may only tighten`,
-      };
-    }
-    return { ok: true, stamp: input.requested };
-  }
-  if (input.omitted === "inherit") return { ok: true, stamp: undefined };
-  return {
-    ok: true,
-    stamp: ADMISSION_RANK.approval < ADMISSION_RANK[floor] ? floor : "approval",
-  };
-};
-
-export const effectiveTaskAdmission = (
+const effectiveTaskAdmission = (
   task: Pick<Task, "admission">,
   contract: TasksContract | undefined,
 ): TaskAdmission => {
@@ -437,13 +218,3 @@ export const taskAdmissionState = (
   return "claimable";
 };
 
-/** Explicit task wait wins over the destination board's default wait. */
-export const computeWaitUntil = (
-  nowMs: number,
-  waitMs: number | undefined,
-  waitForMs: number | undefined,
-): string | undefined => {
-  const delay = waitForMs ?? waitMs;
-  if (delay === undefined || delay <= 0) return undefined;
-  return new Date(nowMs + Math.min(delay, WAIT_FOR_MAX_MS)).toISOString();
-};
