@@ -4,6 +4,7 @@ import { state$ } from "../../lib/state";
 import { useNodeOf } from "../../lib/use-model";
 import type { Check, Rule, TasksContract } from "@shared/work-model";
 import { setBoardSettings } from "../../lib/mutations";
+import { StampDefaultControl } from "../tasks/StampDefaultControl";
 import { ChecksEditor } from "./ChecksEditor";
 import { RuleList } from "./RuleList";
 import { formatWait, normalizeBoardSettings, parseWait } from "./board-settings";
@@ -68,6 +69,10 @@ export function BoardSettings({
         label="This board's rules"
         hint="Answered by whoever completes work here."
         onChange={(rules: ReadonlyArray<Rule>) => write({ ...contract, rules })}
+      />
+      <StampDefaultControl
+        required={contract?.stampDefault?.required ?? 0}
+        onChange={(required) => write({ ...contract, stampDefault: { required } })}
       />
       {focusSide !== "outgoing" ? (
         <div className="inspector-section">

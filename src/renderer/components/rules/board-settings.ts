@@ -34,6 +34,9 @@ export const normalizeBoardSettings = (value: TasksContract | undefined): TasksC
   const next = {
     ...(trimmed(value.instructions) ? { instructions: trimmed(value.instructions) } : {}),
     ...(rules(value.rules) ? { rules: rules(value.rules) } : {}),
+    ...(value.stampDefault && value.stampDefault.required > 0
+      ? { stampDefault: { required: Math.trunc(value.stampDefault.required) } }
+      : {}),
     ...(incoming(value.incoming) ? { incoming: incoming(value.incoming) } : {}),
     ...(outgoing(value.outgoing) ? { outgoing: outgoing(value.outgoing) } : {}),
   };

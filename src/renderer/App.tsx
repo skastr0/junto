@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect } from "react";
+import { startSeatTaskStore } from "./lib/seat-tasks";
 import { ReactFlowProvider } from "@xyflow/react";
 import { batch } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
@@ -477,6 +478,10 @@ export function App() {
 
   // A view never outlives its node, however the node left the canvas.
   useEffect(() => installRemovedNodeViews(), []);
+
+  // The task each seat holds: one store for every seat card, terminal and
+  // reader of who is blocked, fed by one subscription to the tasks.
+  useEffect(() => startSeatTaskStore(), []);
 
   // What is selected follows the node store; the actor references follow
   // what main announces.
