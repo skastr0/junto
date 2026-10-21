@@ -1,0 +1,117 @@
+/**
+ * The Tasks node's selected-task pane on the 0.10 model: what it draws is the
+ * task's view and the ruler's answer, nothing from the factory era.
+ */
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import { asNodeId } from "../src/shared/model";
+import { mintItemId } from "../src/shared/resource-command";
+import { seatNodeId, taskNodeId, type ClosedTaskLayer, type TaskId, type TaskView } from "../src/shared/task-model";
+import { GALLERY_BUILD, GALLERY_CANVAS, GALLERY_QA, seed } from "../src/renderer/components/gallery/TasksNodeGallery";
+import { tasksSource } from "../src/renderer/lib/tasks-source";
+import { SelectedTask } from "../src/renderer/components/tasks/TasksNode";
+import type { TaskCanvasFacts } from "../src/renderer/components/tasks/tasks-pane-model";
+
+const ada = seatNodeId(asNodeId("seat-ada"));
+const bo = seatNodeId(asNodeId("seat-bo"));
+const build = taskNodeId(asNodeId("tasks-build"));
+const qa = taskNodeId(asNodeId("tasks-qa"));
+const seats = [
+  { node: ada, name: "Ada" },
+  { node: bo, name: "Bo" },
+];
+const facts: TaskCanvasFacts = {
+  downstream: () => [],
+  stampDefaultOf: () => ({ required: 0 }),
+  seatReaches: () => true,
+};
+const view = (over: Partial<TaskView> = {}): TaskView => ({
+  taskId: mintItemId() as TaskId,
+  number: 42 as TaskView["number"],
+  title: "Ship the board",
+  current: { state: "backlog", node: build, epoch: 0, stampPolicy: { required: 0 }, reviewers: [], stamps: [] },
+  layers: [],
+  dependsOn: [],
+  createdAt: 1,
+  updatedAt: 1,
+  ...over,
+});
+const draw = (v: TaskView, all: ReadonlyArray<TaskView> = [v]) =>
+  renderToStaticMarkup(
+    <SelectedTask
+      view={v}
+      all={all}
+      seats={seats}
+      facts={facts}
+      nodeName={(node) => (node === qa ? "QA board" : "Build board")}
+      seatName={(id) => (id === ada ? "Ada" : "Bo")}
+      now={10_000}
+      error={null}
+      apply={async () => undefined}
+    />,
+  );
+
+describe("SelectedTask", () => {
+  it("draws the number, the title, the state and no assignee on a backlog task", () => {
+    const html = draw(view());
+    expect(html).toContain("#42");
+    expect(html).toContain('value="Ship the board"');
+    expect(html).toContain("Backlog");
+    expect(html).toContain("No assignee");
+    expect(html).toContain("task-verb-assign");
+  });
+
+  it("names the assignee and offers the operator unassign and cancel on a working task", () => {
+    const working = view({
+      current: { state: "working", node: build, assignee: ada, epoch: 0, stampPolicy: { required: 0 }, reviewers: [], stamps: [] },
+    });
+    const html = draw(working);
+    expect(html).toContain("@Ada");
+    expect(html).toContain("task-verb-unassign");
+    expect(html).not.toContain("task-verb-start");
+  });
+
+  it("says queued while a create waits for its number", () => {
+    const html = draw(view({ number: undefined, pending: { opId: "op" } }));
+    expect(html).toContain("queued");
+    expect(html).not.toContain("#42");
+  });
+
+  it("lists earlier layers with the node, the holder and the stamps", () => {
+    const layer: ClosedTaskLayer = {
+      state: "done",
+      node: qa,
+      assignee: bo,
+      epoch: 0,
+      stampPolicy: { required: 1 },
+      reviewers: [{ kind: "seat", seat: ada }],
+      stamps: [{ reviewer: { kind: "seat", seat: ada }, verdict: "approve", epoch: 0, at: 1 }],
+      closedAt: 5_000,
+    };
+    const html = draw(view({ layers: [layer] }));
+    expect(html).toContain("Earlier layers, 1");
+    expect(html).toContain("QA board");
+    expect(html).toContain("1 of 1 approved");
+  });
+
+  it("draws a dependency as a task chip, and a missing one as unavailable", () => {
+    const dep = view({ taskId: mintItemId() as TaskId, number: 7 as TaskView["number"], title: "Land the contract" });
+    const html = draw(view({ dependsOn: [dep.taskId, mintItemId() as TaskId] }), [dep]);
+    expect(html).toContain("Land the contract");
+    expect(html).toContain("Unavailable");
+  });
+});
+
+describe("Tasks node gallery seed", () => {
+  it("rules every seeded write: a task sent on, one working, one in review, two in backlog", async () => {
+    await seed();
+    const build = await tasksSource().list(GALLERY_CANVAS, GALLERY_BUILD);
+    expect(build.map((v) => v.current.state).toSorted()).toEqual(["backlog", "backlog", "in-review", "working"]);
+    const review = build.find((v) => v.current.state === "in-review");
+    expect(review?.current.stamps).toHaveLength(1);
+    const qa = await tasksSource().list(GALLERY_CANVAS, GALLERY_QA);
+    expect(qa).toHaveLength(1);
+    expect(qa[0]?.layers).toHaveLength(1);
+    expect(qa[0]?.current.stampPolicy.required).toBe(1);
+  });
+});

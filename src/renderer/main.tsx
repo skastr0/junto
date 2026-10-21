@@ -50,6 +50,12 @@ const TaskControlsGallery = lazy(() =>
   import("./components/gallery/TaskControlsGallery").then((m) => ({ default: m.TaskControlsGallery })),
 );
 
+// Dev gallery for the Tasks node (`#/gallery/tasks-node`).
+const TASKS_NODE_GALLERY = "#/gallery/tasks-node";
+const TasksNodeGallery = lazy(() =>
+  import("./components/gallery/TasksNodeGallery").then((m) => ({ default: m.TasksNodeGallery })),
+);
+
 function AppRoot() {
   const api = window.junto;
 
@@ -71,6 +77,14 @@ function AppRoot() {
     return (
       <Suspense fallback={null}>
         <CodeViewGallery />
+      </Suspense>
+    );
+  }
+
+  if (window.location.hash.startsWith(TASKS_NODE_GALLERY)) {
+    return (
+      <Suspense fallback={null}>
+        <TasksNodeGallery />
       </Suspense>
     );
   }
