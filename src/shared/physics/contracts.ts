@@ -164,6 +164,12 @@ export const NodeContracts: {
     events: [],
     inputs: [],
   },
+  automations: {
+    kind: "automations",
+    ports: portsOf("automations"),
+    events: [],
+    inputs: [],
+  },
   cron: {
     kind: "cron",
     ports: portsOf("cron"),

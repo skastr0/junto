@@ -301,6 +301,7 @@ export const COMPANION_CANVAS_NODE_KINDS = [
   "task",
   "requests",
   "artifacts",
+  "automations",
   "board",
   "note",
   "label",

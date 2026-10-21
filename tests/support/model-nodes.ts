@@ -53,6 +53,8 @@ export const requests = (id: string, more: Partial<NodeOf<"requests">> = {}): No
   ({ kind: "requests", ...placed(id), ...more });
 export const artifacts = (id: string, more: Partial<NodeOf<"artifacts">> = {}): NodeOf<"artifacts"> =>
   ({ kind: "artifacts", ...placed(id), ...more });
+export const automations = (id: string, more: Partial<NodeOf<"automations">> = {}): NodeOf<"automations"> =>
+  ({ kind: "automations", ...placed(id), ...more });
 export const board = (id: string, more: Partial<NodeOf<"board">> = {}): NodeOf<"board"> =>
   ({ kind: "board", ...placed(id), ...more });
 export const cron = (id: string, more: Partial<NodeOf<"cron">> = {}): NodeOf<"cron"> =>

@@ -10,6 +10,7 @@ import {
 import { FACTORY_PAUSE_STATE_SCHEMA_SQL } from "../pause/state-schema";
 import { SETTINGS_STATE_SCHEMA_SQL } from "../settings/state-schema";
 import { SCHEDULER_STATE_SCHEMA_SQL } from "../scheduler/state-schema";
+import { AUTOMATION_STATE_SCHEMA_SQL } from "../automation/state-schema";
 import { STATION_STATUS_STATE_SCHEMA_SQL } from "../station-status-state-schema";
 import { USAGE_STATE_SCHEMA_SQL } from "../usage/state-schema";
 import {
@@ -96,6 +97,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   WORK_STATE_SCHEMA_SQL,
   RESOURCE_RULINGS_STATE_SCHEMA_SQL,
   ARTIFACTS_STATE_SCHEMA_SQL,
+  AUTOMATION_STATE_SCHEMA_SQL,
   LICENSE_STATE_V1_SCHEMA_SQL,
   LICENSE_STATE_V2_SCHEMA_SQL,
   CONTENT_STATE_SCHEMA_SQL,

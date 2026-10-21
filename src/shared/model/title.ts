@@ -107,6 +107,7 @@ export const titleOf = (node: Node): string => {
       return compact(node.label) ?? (node.cwd.split("/").pop() || node.cwd);
     case "terminal":
     case "artifacts":
+    case "automations":
     case "board":
     case "cron":
     case "relay":

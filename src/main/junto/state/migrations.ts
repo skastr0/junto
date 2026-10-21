@@ -4,7 +4,12 @@ import {
   type SQLOutputValue,
 } from "node:sqlite";
 import { STATE_SCHEMA_SQL } from "./schema";
-import { CANVAS_EDITOR_COLUMN_SQL, PEERS_STATE_SCHEMA_SQL } from "../model/state-schema";
+import {
+  AUTOMATION_BOARDS_STATE_SCHEMA_SQL,
+  CANVAS_EDITOR_COLUMN_SQL,
+  PEERS_STATE_SCHEMA_SQL,
+} from "../model/state-schema";
+import { AUTOMATION_STATE_SCHEMA_SQL } from "../automation/state-schema";
 import {
   CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL,
   WORK_EXCHANGE_CURSORS_V16_STATE_SCHEMA_SQL,
@@ -282,7 +287,17 @@ export const STATE_SCHEMA_V27_IDENTITY = {
     "46b6f38f44f029f1ce2ddc386e1c02231153cc25ef84f38b270a0fe73d371add",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 27;
+/**
+ * Version 28 adds the Automations node and its store: the automation heads,
+ * the runner's cursors, and its firings, the claim slots keyed by automation
+ * with their history (0.10, plan 07). Expand only.
+ */
+export const STATE_SCHEMA_V28_IDENTITY = {
+  actualSchemaSha256:
+    "1ad62cabba205a19c62d885a4a2a86be4f7c6f5bddd354ad7a76dba60a8b5c76",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 28;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -290,7 +305,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 27;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V27_IDENTITY;
+  STATE_SCHEMA_V28_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -452,6 +467,17 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V26_IDENTITY,
     replacesTables: ["resource_rulings"],
     migrate: (database) => migrateRulingActor(database),
+  },
+  {
+    fromVersion: 27,
+    toVersion: 28,
+    name: "add the automations node and its store",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V27_IDENTITY,
+    migrate: (database) => {
+      database.exec(AUTOMATION_BOARDS_STATE_SCHEMA_SQL);
+      database.exec(AUTOMATION_STATE_SCHEMA_SQL);
+    },
   },
 ];
 

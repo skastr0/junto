@@ -85,6 +85,7 @@ export const nodeToRow = (canvas: string, node: Node): SqlValues => {
     case "requests":
       return { ...base, name: node.name ?? null };
     case "artifacts":
+    case "automations":
     case "board":
       return { ...base, label: node.label ?? null };
     case "relay":
@@ -189,6 +190,7 @@ export const nodeFromRow = (kind: NodeKind, row: SqlRow): Node => {
       fields = optional(row, "name");
       break;
     case "artifacts":
+    case "automations":
     case "board":
       fields = label;
       break;

@@ -189,6 +189,8 @@ export const VERB_TABLE = {
   page: { relay: ["announces"] },
   // Terminal publishes nothing and offers no port: no verb speaks to it yet.
   terminal: {},
+  // Automations take no edge: they act by reach (07).
+  automations: {},
   relay: {
     agent: ["wakes"],
     task: ["enqueues"],

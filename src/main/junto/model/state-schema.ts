@@ -44,6 +44,7 @@ export const KIND_TABLES = {
   task: "task_boards",
   requests: "request_boards",
   artifacts: "artifact_boards",
+  automations: "automation_boards",
   board: "boards",
   cron: "crons",
   relay: "relays",
@@ -71,6 +72,9 @@ export const PEERS_STATE_SCHEMA_SQL = table(
         AND substr(seat_id, 6) NOT GLOB '*[^a-f0-9]*'
       )`,
 );
+
+/** Automations nodes (0.10/07). Added by state migration 27 -> 28. */
+export const AUTOMATION_BOARDS_STATE_SCHEMA_SQL = table("automation_boards", "label TEXT");
 
 export const MODEL_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS canvases (
@@ -139,6 +143,7 @@ export const MODEL_STATE_SCHEMA_SQL = `
   )}
   ${table("request_boards", "name TEXT")}
   ${table("artifact_boards", "label TEXT")}
+  ${AUTOMATION_BOARDS_STATE_SCHEMA_SQL}
   ${table("boards", "label TEXT")}
   ${table("pads", "label TEXT")}
   ${table("sheets", "label TEXT")}

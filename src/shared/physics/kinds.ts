@@ -111,6 +111,9 @@ export const KindSpecs = {
   task: { kind: "task", role: "sink", offers: taskOffers },
   requests: { kind: "requests", role: "sink", offers: requestsOffers },
   artifacts: { kind: "artifacts", role: "sink", offers: artifactsOffers },
+  // Automations offer no port: only the operator and overseers write them,
+  // and seats read them by reach, never by an edge.
+  automations: { kind: "automations", role: "sink", offers: emptyOffers },
   board: { kind: "board", role: "sink", offers: boardOffers },
   // Terminal sink: tmux-like resource. Ports TBD in v1 — access family only.
   terminal: { kind: "terminal", role: "sink", offers: emptyOffers },

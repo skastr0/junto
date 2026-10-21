@@ -135,6 +135,7 @@ export const OPS_BY_SINK = {
     "msg.react",
   ],
   artifacts: ["artifact.publish"],
+  automations: [],
   board: [
     "board.list",
     "board.create_topic",

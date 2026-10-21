@@ -37,7 +37,7 @@ const canvas: ReachCanvas = {
     [
       node("A", "region", 0, 0, 400, 400),
       node("B", "region", 500, 0, 400, 400),
-      node("automations-1", "artifacts", 10, 10),
+      node("automations-1", "automations", 10, 10),
       node("seat-a", "agent", 100, 100),
       node("seat-a2", "agent", 200, 100),
       node("seat-b", "agent", 600, 100),

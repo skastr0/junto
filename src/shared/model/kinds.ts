@@ -139,6 +139,18 @@ export const Artifacts = Schema.Struct({
 });
 export type Artifacts = typeof Artifacts.Type;
 
+/**
+ * An Automations node. Its automations are rows keyed by this id
+ * (automation.ts): only the operator and overseers write them; seats in reach
+ * read them. No edges.
+ */
+export const Automations = Schema.Struct({
+  kind: Schema.Literal("automations"),
+  ...placement,
+  label: Schema.optionalKey(OneLine),
+});
+export type Automations = typeof Automations.Type;
+
 /** A bulletin board. Topics and posts are work rows keyed by this id. */
 export const Board = Schema.Struct({
   kind: Schema.Literal("board"),
@@ -242,6 +254,7 @@ export const Node = Schema.Union([
   TaskBoard,
   Requests,
   Artifacts,
+  Automations,
   Board,
   Cron,
   Relay,
@@ -265,6 +278,7 @@ export const NODE_KINDS = [
   "task",
   "requests",
   "artifacts",
+  "automations",
   "board",
   "cron",
   "relay",

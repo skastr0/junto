@@ -156,3 +156,9 @@ export const STATE_SCHEMA_V27_SQL = stepped(
   STATE_SCHEMA_V26_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 27)!.migrate,
 );
+
+// Version 28 added the automations node and its store (27 -> 28).
+export const STATE_SCHEMA_V28_SQL = stepped(
+  STATE_SCHEMA_V27_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 28)!.migrate,
+);

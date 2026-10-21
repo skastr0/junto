@@ -2,6 +2,7 @@ import { Schema, Struct } from "effect";
 import { NodeId } from "./base";
 import {
   Artifacts,
+  Automations,
   Board,
   Cron,
   FileCard,
@@ -96,6 +97,7 @@ export const NodeDraft = Schema.Union([
   draft(TaskBoard),
   draft(Requests),
   draft(Artifacts),
+  draft(Automations),
   draft(Board),
   draft(Cron),
   draft(Relay),

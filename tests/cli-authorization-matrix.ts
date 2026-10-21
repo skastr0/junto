@@ -17,6 +17,7 @@ import { canvasToCapabilityView } from "../src/shared/physics/view";
 import { THIS_MACHINE } from "./support/machines";
 import {
   artifacts,
+  automations,
   board,
   canvasOf,
   cron,
@@ -156,6 +157,7 @@ const BUILDERS: { readonly [K in WellKnownKind]: (id: string, x: number) => Node
   task: (id, x) => taskBoard(id, at(x)),
   requests: (id, x) => requests(id, at(x)),
   artifacts: (id, x) => artifacts(id, at(x)),
+  automations: (id, x) => automations(id, at(x)),
   board: (id, x) => board(id, at(x)),
   terminal: (id, x) => terminal(id, at(x)),
   watcher: (id, x) => watcher(id, at(x)),
