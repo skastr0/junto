@@ -5,7 +5,6 @@ import { ChatServiceFromHermesLive, HermesPlaneLive } from "./junto/hermes/plane
 import { HermesTransportLive } from "./junto/hermes/transport";
 import { ActorSeatOccupyLive } from "./junto/term/actor-seat-occupy-live";
 import { KernelLive } from "./junto/kernel/service";
-import { KernelStateRepositoryLive } from "./junto/kernel/repository";
 import { PausePlaneLaunchPlayingLive } from "./junto/pause-plane";
 import { FactoryPauseRepositoryLive } from "./junto/pause/repository";
 import { AgentSignalRepositoryLive } from "./junto/signals/repository";
@@ -43,7 +42,6 @@ export const makeCoreProductLayer = (home: string) => {
   const settings = makeSettingsLive();
   const repositories = Layer.provideMerge(
     Layer.mergeAll(
-      KernelStateRepositoryLive,
       FactoryPauseRepositoryLive,
       AgentSignalRepositoryLive,
       PortraitOverrideRepositoryLive,

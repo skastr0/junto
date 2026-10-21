@@ -532,22 +532,6 @@ export interface WatcherRuntimeState {
   readonly lastFiredAt?: number;
 }
 
-/**
- * Retired Region Pulse product shape. Kept for KernelStateRepository debug
- * pulse-ring schema identity / tests only — not on the live kernel wire.
- */
-export interface PulseRecord {
-  readonly id: string;
-  readonly at: number;
-  readonly canvasName: string;
-  readonly sourceNodeId: string;
-  readonly regionId?: string;
-  readonly kind: "watcher" | "timer" | "manual";
-  readonly summary: string;
-  readonly delivered: ReadonlyArray<string>;
-  readonly dry: boolean;
-}
-
 /** Live edge phase + blocked closure projected from the kernel cycle. */
 export interface ExecutionSnapshot {
   readonly phaseByEdgeId: Readonly<Record<string, "blocks" | "relates">>;

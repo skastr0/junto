@@ -3,13 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { afterEach, describe, expect, test, vi } from "vitest";
-import {
-  KERNEL_DEBUG_RING_LIMIT,
-  KernelStateCorruptError,
-  KernelStateRepository,
-  KernelStateRepositoryLive,
-} from "../src/main/junto/kernel/repository";
+import { afterEach, describe, expect, test } from "vitest";
 import {
   FactoryPauseRepository,
   FactoryPauseRepositoryLive,
@@ -17,7 +11,6 @@ import {
 import {
   makeStateEngineLive,
 } from "../src/main/junto/state/engine";
-import type { PulseRecord } from "../src/shared/ipc";
 
 const roots: string[] = [];
 const runtimes: Array<{ readonly dispose: () => Promise<void> }> = [];
@@ -31,7 +24,7 @@ const makeRoot = async (): Promise<string> => {
 const makeRuntime = (root: string) => {
   const state = makeStateEngineLive(join(root, "junto.db"));
   const repositories = Layer.provideMerge(
-    Layer.mergeAll(KernelStateRepositoryLive, FactoryPauseRepositoryLive),
+    FactoryPauseRepositoryLive,
     state,
   );
   const runtime = ManagedRuntime.make(repositories);
@@ -47,18 +40,6 @@ const disposeRuntime = async (runtime: {
   await runtime.dispose();
 };
 
-const pulse = (index: number): PulseRecord => ({
-  id: `pulse-${index}`,
-  at: 1_700_000_000_000 + index,
-  canvasName: "factory",
-  sourceNodeId: `timer-${index}`,
-  regionId: "region-1",
-  kind: index % 2 === 0 ? "timer" : "manual",
-  summary: `pulse ${index}`,
-  delivered: [`agent-${index}`],
-  dry: index % 3 === 0,
-});
-
 afterEach(async () => {
   while (runtimes.length > 0) {
     await runtimes.pop()!.dispose();
@@ -69,16 +50,12 @@ afterEach(async () => {
 });
 
 describe("typed runtime-state repositories", () => {
-  test("arming and canvas play survive a restart; retired pause scope rows stay inert", async () => {
+  test("canvas play survives a restart; retired pause scope rows stay inert", async () => {
     const root = await makeRoot();
     const first = makeRuntime(root);
     await first.runPromise(
       Effect.gen(function* () {
-        const kernel = yield* KernelStateRepository;
         const pause = yield* FactoryPauseRepository;
-        yield* kernel.setRegionArmed("factory", "region-1", true);
-        yield* kernel.setRegionArmed("factory", "region-2", true);
-        yield* kernel.setRegionArmed("factory", "region-2", false);
         yield* pause.setPlaying("factory", true);
         // Rows written by the retired node and region pause are never read.
         const sql = yield* SqlClient.SqlClient;
@@ -97,70 +74,12 @@ describe("typed runtime-state repositories", () => {
     const second = makeRuntime(root);
     const result = await second.runPromise(
       Effect.gen(function* () {
-        const kernel = yield* KernelStateRepository;
         const pause = yield* FactoryPauseRepository;
-        return {
-          armed: yield* kernel.listArmedRegions,
-          paused: (yield* pause.loadAll).get("factory"),
-        };
+        return { paused: (yield* pause.loadAll).get("factory") };
       }),
     );
 
-    expect(result.armed).toEqual([
-      { canvasName: "factory", regionId: "region-1" },
-    ]);
     expect(result.paused).toEqual({ playing: true, everPlayed: true });
-  });
-
-  test("the debug pulse ring is typed, bounded, and durable", async () => {
-    const root = await makeRoot();
-    const first = makeRuntime(root);
-    const records = Array.from(
-      { length: KERNEL_DEBUG_RING_LIMIT + 5 },
-      (_, index) => pulse(index),
-    );
-    await first.runPromise(
-      Effect.flatMap(KernelStateRepository, (repository) =>
-        repository.replaceDebugPulseRing(records)
-      ),
-    );
-    await disposeRuntime(first);
-
-    const second = makeRuntime(root);
-    const persisted = await second.runPromise(
-      Effect.flatMap(
-        KernelStateRepository,
-        (repository) => repository.readDebugPulseRing,
-      ),
-    );
-
-    expect(persisted).toHaveLength(KERNEL_DEBUG_RING_LIMIT);
-    expect(persisted.map((record) => record.id)).toEqual(
-      records.slice(-KERNEL_DEBUG_RING_LIMIT).map((record) => record.id),
-    );
-    expect(persisted.at(-1)).toEqual(records.at(-1));
-  });
-
-  test("the debug ring captures its retained array and timestamp before execution", async () => {
-    const runtime = makeRuntime(await makeRoot());
-    const kernel = await runtime.runPromise(KernelStateRepository);
-    const records = Array.from({ length: KERNEL_DEBUG_RING_LIMIT + 2 }, (_, index) => pulse(index));
-    const timestamp = vi.spyOn(Date.prototype, "toISOString").mockReturnValue("2026-01-03T00:00:00.000Z");
-    try {
-      const write = kernel.replaceDebugPulseRing(records);
-      records.splice(0, records.length, pulse(99));
-      timestamp.mockReturnValue("2026-02-07T00:00:00.000Z");
-      await runtime.runPromise(write);
-      expect(await runtime.runPromise(kernel.readDebugPulseRing)).toEqual(
-        Array.from({ length: KERNEL_DEBUG_RING_LIMIT }, (_, index) => pulse(index + 2)),
-      );
-      expect(await runtime.runPromise(Effect.gen(function* () {
-        const sql = yield* SqlClient.SqlClient;
-        return yield* sql`SELECT DISTINCT recorded_at FROM kernel_debug_pulses`.values;
-      }))).toEqual([["2026-01-03T00:00:00.000Z"]]);
-    } finally {
-      timestamp.mockRestore();
-    }
   });
 
   test("independent normalized writes serialize without losing rows", async () => {
@@ -168,14 +87,7 @@ describe("typed runtime-state repositories", () => {
     const runtime = makeRuntime(root);
     const result = await runtime.runPromise(
       Effect.gen(function* () {
-        const kernel = yield* KernelStateRepository;
         const pause = yield* FactoryPauseRepository;
-        yield* Effect.all(
-          Array.from({ length: 64 }, (_, index) =>
-            kernel.setRegionArmed("factory", `region-${index}`, true)
-          ),
-          { concurrency: "unbounded", discard: true },
-        );
         yield* Effect.all(
           Array.from({ length: 32 }, (_, index) =>
             pause.setPlaying(`canvas-${index}`, true)
@@ -183,36 +95,11 @@ describe("typed runtime-state repositories", () => {
           { concurrency: "unbounded", discard: true },
         );
         return {
-          armed: yield* kernel.listArmedRegions,
           playing: [...(yield* pause.loadAll).values()].filter((state) => state.playing),
         };
       }),
     );
 
-    expect(result.armed).toHaveLength(64);
     expect(result.playing).toHaveLength(32);
-  });
-
-  test("invalid persisted debug payloads fail with a typed corruption error", async () => {
-    const root = await makeRoot();
-    const runtime = makeRuntime(root);
-    const result = await runtime.runPromise(
-      Effect.gen(function* () {
-        const kernel = yield* KernelStateRepository;
-        const sql = yield* SqlClient.SqlClient;
-        yield* kernel.replaceDebugPulseRing([pulse(1)]);
-        yield* sql.withTransaction(Effect.gen(function* () {
-          yield* sql`PRAGMA ignore_check_constraints = ON`;
-          yield* sql`UPDATE kernel_debug_pulses SET delivered_json = 'not-json'`;
-          yield* sql`PRAGMA ignore_check_constraints = OFF`;
-        }));
-        return yield* Effect.result(kernel.readDebugPulseRing);
-      }),
-    );
-
-    expect(result._tag).toBe("Failure");
-    if (result._tag === "Failure") {
-      expect(result.failure).toBeInstanceOf(KernelStateCorruptError);
-    }
   });
 });
