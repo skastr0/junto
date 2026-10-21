@@ -458,6 +458,20 @@ describe("operator threads", () => {
     expect(await threadsOf("peer")).toEqual([]);
   });
 
+  it("in a subject thread, the operator mentions a seat in reach of the resource, wired to the seat or not", async () => {
+    await runtime.runPromise(
+      seedCanvas(CANVAS, [pageNode("web", { x: 600, y: 40, width: 200, height: 120 })], []),
+    );
+    const root = await runtime.runPromise(postSubjectComment(
+      { subject: { kind: "page", nodeId: asNodeId("web") }, text: "look at the header", actor: { kind: "operator" }, opId: OpId.make(ulid()) },
+      { canvas: await runtime.runPromise(Effect.flatMap(ModelService, (model) => model.canvas(CANVAS))), canvasName: CANVAS, people: [asNodeId("agent")] },
+    ) as Effect.Effect<{ threadId: MailMessageId }, unknown, never>);
+    // loner has no edge to agent, and the page, in no region, is in its reach.
+    const sent = await send({ nodeId: "agent", threadId: root.threadId, text: `${mentionLink({ kind: "seat", nodeId: asNodeId("loner") }, "loner", CANVAS)} see this` });
+    expect(sent, JSON.stringify(sent)).toMatchObject({ threadId: root.threadId, comment: true });
+    expect((await mailbox("loner")).filter((message) => message.metadata?.subjectNotice === "mention")).toHaveLength(1);
+  });
+
   it("refuses a mention of a seat not wired to the seat, writing nothing", async () => {
     const refused = await send({ nodeId: "agent", text: `hi ${mentionLink({ kind: "seat", nodeId: asNodeId("loner") }, "loner", CANVAS)}` });
     expect(refused).toEqual({ ok: false, reason: "invalid", message: "loner is not connected to agent, so it cannot be mentioned here." });

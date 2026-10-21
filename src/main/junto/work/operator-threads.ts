@@ -161,15 +161,7 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
       return peer === undefined ? id : titleOf(peer);
     };
     const { review } = send;
-    if (review === undefined) {
-      // A seat the text links must be wired to this seat, as the composer offers.
-      const wired = mentionableIn(canvas, nodeId);
-      for (const id of mentions) {
-        if (!wired.some((peer) => peer.nodeId === id)) {
-          return refused("invalid", `${nameOf(id)} is not connected to ${titleOf(seat)}, so it cannot be mentioned here.`);
-        }
-      }
-    } else {
+    if (review !== undefined) {
       // A review goes to, and copies, only the seats it can go to from where it was opened.
       const reachable = new Set(reviewCandidates(canvas, review.anchorNodeId).map((candidate) => candidate.nodeId));
       for (const id of [nodeId, ...mentions]) {
@@ -226,6 +218,18 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
         return refused(posted.failure.type === "ScopeError" ? "invalid" : "failed", posted.failure.type === "ScopeError" ? "A seat mentioned here cannot reach this resource." : "The comment could not be written.");
       }
       return { messageId: posted.success.messageId, threadId: posted.success.threadId, comment: true as const };
+    }
+
+    // Mail, not a comment: a seat the text links must be wired to this seat,
+    // as the composer offers. A comment's mentions are the seats in reach of
+    // its resource, checked on the comment path (03 section 3).
+    if (review === undefined) {
+      const wired = mentionableIn(canvas, nodeId);
+      for (const id of mentions) {
+        if (!wired.some((peer) => peer.nodeId === id)) {
+          return refused("invalid", `${nameOf(id)} is not connected to ${titleOf(seat)}, so it cannot be mentioned here.`);
+        }
+      }
     }
 
     const sender = operatorActorRef(canvasName);
