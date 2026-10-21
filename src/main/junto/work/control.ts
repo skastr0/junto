@@ -1339,7 +1339,7 @@ const dispatchOp = (
         })),
         // What each connection allows, compiled from the ports held on it:
         // a seat is never taught a command its edges do not grant.
-        instructions: compileConnectionInstructions(
+        commands: compileConnectionInstructions(
           connected.map((c) => ({ id: c.id, kind: c.kind, ports: c.grants })),
         ),
         // Operator-pinned precedent from the seat's own region stack. Region

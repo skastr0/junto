@@ -346,7 +346,7 @@ export const buildEdgeContract = (
 
 export const EDGE_CONTRACTS_INTRO = `### Edge contracts
 
-A seat is only taught the commands its edges authorize. \`junto onboard\` compiles them from the ports the seat holds on each connection and returns them under \`instructions\`; the tables below are the same commands with their reference notes. When edges change mid-session, a compact map-change notice names the added and removed targets; the live command set is always \`junto onboard\` / \`junto capabilities\`.`;
+A seat is only taught the commands its edges authorize. \`junto onboard\` compiles them from the ports the seat holds on each connection and returns them under \`commands\`; the tables below are the same commands with their reference notes. When edges change mid-session, a compact map-change notice names the added and removed targets; the live command set is always \`junto onboard\` / \`junto capabilities\`.`;
 
 // ── Worked examples ────────────────────────────────────────────────────────
 

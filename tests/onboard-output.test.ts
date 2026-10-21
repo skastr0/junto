@@ -146,7 +146,7 @@ const onboard = async () => {
 };
 
 describe("junto onboard output", () => {
-  it("leads with the guidance, then the seat's facts and its compiled instructions", async () => {
+  it("leads with the guidance, then the seat's facts and its compiled commands", async () => {
     await write(PEERS);
     const data = await onboard();
     expect(Object.keys(data)).toEqual([
@@ -160,7 +160,7 @@ describe("junto onboard output", () => {
       "protocol_version",
       "region",
       "connected",
-      "instructions",
+      "commands",
       ...("rulings" in data ? ["rulings"] : []),
       "co_members",
       "paused",
@@ -187,8 +187,8 @@ describe("junto onboard output", () => {
         expect.arrayContaining(["msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read"]),
       );
     }
-    expect(data.instructions).toHaveLength(1);
-    const [messages] = data.instructions;
+    expect(data.commands).toHaveLength(1);
+    const [messages] = data.commands;
     expect(messages).toMatchObject({
       family: "messages",
       targets: [...PEERS],
@@ -208,7 +208,7 @@ describe("junto onboard output", () => {
     await write([]);
     const data = await onboard();
     expect(data.connected).toEqual([]);
-    expect(data.instructions).toEqual([]);
+    expect(data.commands).toEqual([]);
     expect(data.guidance).toEqual([...ONBOARD_GUIDANCE]);
     expect(data.co_members.map((member: { id: string }) => member.id)).toEqual(
       expect.arrayContaining([...PEERS]),

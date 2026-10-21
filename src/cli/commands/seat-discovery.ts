@@ -149,7 +149,7 @@ export const onboardCommand = Command.make(
         const socket = yield* WorkSocket;
         const args = Option.isSome(pastNotes) ? { past_notes: pastNotes.value } : {};
         // Onboard already carries the commands each connection allows,
-        // compiled by the daemon from held ports (`instructions`).
+        // compiled by the daemon from held ports (`commands`).
         return yield* socket.call("onboard", args, toUndefined(timeout));
       }),
     ),
