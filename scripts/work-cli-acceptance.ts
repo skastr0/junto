@@ -348,8 +348,10 @@ const runCli = (
     cwd,
   });
 
-const readWrongTokenReceipt = async (
+/** One raw request frame on the work socket, and the first response line. */
+const socketFrame = async (
   socketPath: string,
+  request: Readonly<Record<string, unknown>>,
 ): Promise<string> => {
   const socket = createConnection({ path: socketPath });
   const closed = new Promise<void>((resolveClosed) => {
@@ -360,20 +362,15 @@ const readWrongTokenReceipt = async (
   try {
     return await new Promise<string>((resolveReceipt, rejectReceipt) => {
       timer = setTimeout(() => {
-        rejectReceipt(new Error("wrong-token work control probe timed out"));
+        rejectReceipt(new Error(`work control ${String(request.op)} frame timed out`));
       }, SOCKET_TIMEOUT_MS);
       socket.on("connect", () => {
-        socket.write(
-          `${JSON.stringify({
-            token: "0".repeat(64),
-            op: "ping",
-          })}\n`,
-        );
+        socket.write(`${JSON.stringify(request)}\n`);
       });
       socket.on("data", (chunk: Buffer | string) => {
         const part = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
         if (frame.byteLength + part.byteLength > WORK_MAX_FRAME_BYTES) {
-          rejectReceipt(new Error("wrong-token work control response exceeded its frame bound"));
+          rejectReceipt(new Error("work control response exceeded its frame bound"));
           return;
         }
         frame = Buffer.concat([frame, part]);
@@ -532,7 +529,8 @@ export const runWorkCliAcceptance = async () => {
       [WORK_TOKEN_ENV]: mint.credential,
     };
 
-    const sockMode = (await stat(server.socketPath)).mode & 0o777;
+    const socketPath = server.socketPath;
+    const sockMode = (await stat(socketPath)).mode & 0o777;
     log(
       "A3 perms",
       JSON.stringify({
@@ -581,6 +579,12 @@ export const runWorkCliAcceptance = async () => {
       canvas: CANVAS,
       nodes: { agent: AGENT, tasks: TASKS, requests: REQS, artifacts: ARTS, region: "region", elsewhere: "elsewhere" },
       cli: cliAs,
+      call: async (op, args, as) =>
+        JSON.parse(await socketFrame(socketPath, {
+          token: as === undefined ? mint.credential : seatTokens.get(as.agentKey),
+          op,
+          args,
+        })),
       addSeat,
       runtime: runtime as never,
       log,
@@ -595,7 +599,7 @@ export const runWorkCliAcceptance = async () => {
       }
     }
 
-    const wrongTok = await readWrongTokenReceipt(server.socketPath);
+    const wrongTok = await socketFrame(server.socketPath, { token: "0".repeat(64), op: "ping" });
     log("A3 wrong token", wrongTok);
     verdicts.push(
       wrongTok.includes("AuthError")

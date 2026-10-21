@@ -39,6 +39,11 @@ export type AcceptanceContext = {
    */
   readonly cli: (args: ReadonlyArray<string>, as?: AcceptanceSeat, env?: NodeJS.ProcessEnv) => Promise<WorkCliCommandResult>;
   /**
+   * One raw work-socket request, as the seeded agent or `as`, past the CLI:
+   * for an argument shape the CLI can no longer send. The parsed response.
+   */
+  readonly call: (op: string, args: unknown, as?: AcceptanceSeat) => Promise<any>;
+  /**
    * A new agent seat on the canvas at (x, y), with a credential the CLI can
    * run as. Region (0,0 900x200) reaches the seeded nodes; elsewhere
    * (1200,0 600x200) reaches none of them. With `overseer`, the operator

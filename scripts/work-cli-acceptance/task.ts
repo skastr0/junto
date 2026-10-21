@@ -28,7 +28,7 @@ const textOf = (item: InboxItem): string => (item.parts ?? []).map((part) => par
 export const taskArea: AcceptanceArea = {
   name: "task",
   owner: "pty-mail",
-  run: async ({ cli, addSeat, canvas, log, nodes }) => {
+  run: async ({ cli, call, addSeat, canvas, log, nodes }) => {
     const worker = await addSeat("worker", { x: 300, y: 20 });
     const reviewer = await addSeat("reviewer", { x: 460, y: 20 });
     const peer = await addSeat("peer", { x: 620, y: 20 });
@@ -58,6 +58,14 @@ export const taskArea: AcceptanceArea = {
     // By name, a seat out of reach is no seat this comment can mention (cli-protocol, a50a1a912).
     const nameOutOfReach = await step("task comment @name out of reach", ["task", "comment", ref, "@outsider look"]);
 
+    // Waiting: the state it is in answers at once; one it never reaches times out (b6814af4e).
+    const waited = await step("task wait done", ["task", "wait", ref, "--until", "done"]);
+    const timedOut = await step("task wait timeout", ["task", "wait", ref, "--until", "in-review", "--timeout", "500ms"]);
+    const oldWait = await call("task.wait", { target: nodes.tasks, taskId: made?.taskId });
+    log("task.wait old shape", JSON.stringify(oldWait));
+    const rulesOfTask = await step("task rules task", ["task", "rules", ref]);
+    const rulesOfNode = await step("task rules node", ["task", "rules", "--node", nodes.tasks]);
+
     const workerMail = await inboxOf(cli, worker);
     log("worker inbox", workerMail.listed.stdout || workerMail.listed.stderr);
     const reviewerMail = await inboxOf(cli, reviewer);
@@ -79,6 +87,11 @@ export const taskArea: AcceptanceArea = {
       check("start", started.data?.state === "working", started.result),
       check("finish into review", finished.data?.state === "in-review", finished.result),
       check("stamp to done", stamped.data?.state === "done", stamped.result),
+      check("wait answers a reached state", waited.data?.state === "done" && waited.data?.taskId === made?.taskId, waited.result),
+      check("wait times out typed", envelopeOf(timedOut.result)?.error?.type === "Timeout" && envelopeOf(timedOut.result)?.error?.details?.from === "done", timedOut.result),
+      check("old wait shape refused", oldWait?.ok === false && oldWait.error?.type === "InputError"),
+      check("rules of a task", rulesOfTask.data?.node === nodes.tasks && Array.isArray(rulesOfTask.data?.rules) && rulesOfTask.data?.task !== undefined, rulesOfTask.result),
+      check("rules of a node", rulesOfNode.data?.node === nodes.tasks && Array.isArray(rulesOfNode.data?.rules), rulesOfNode.result),
       check("comment", linked.data?.disposition === "applied" && linked.data?.threadId !== undefined, linked.result),
       check("mention link reaches the seat", inThread(peerMail.items, "mention", "please look at the link"), peerMail.listed),
       // Main will rewrite @name to its mention link against the seats in reach; cli-protocol builds it.
