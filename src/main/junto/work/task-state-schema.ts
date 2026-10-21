@@ -68,3 +68,21 @@ export const TASKS_STATE_SCHEMA_SQL = `
     next_number INTEGER NOT NULL CHECK (next_number >= 1)
   ) STRICT, WITHOUT ROWID;
 `;
+
+/**
+ * The open tasks a seat delete sent back to the backlog, so undoing the
+ * delete (an Add of the same seat id) gives each back to its seat while no
+ * command has ruled on it since: `released_head` is the task's head row as
+ * the release left it, and any later write changes it. This machine's own
+ * state, like
+ * `automation_node_archives`. Added by state step 41.
+ */
+export const TASK_SEAT_RELEASES_SQL = `
+  CREATE TABLE IF NOT EXISTS task_seat_releases (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    seat_node_id TEXT NOT NULL CHECK (length(seat_node_id) BETWEEN 1 AND 256),
+    task_id TEXT NOT NULL CHECK (length(task_id) = 26),
+    released_head TEXT NOT NULL CHECK (json_valid(released_head)),
+    PRIMARY KEY (canvas_name, seat_node_id, task_id)
+  ) STRICT, WITHOUT ROWID;
+`;

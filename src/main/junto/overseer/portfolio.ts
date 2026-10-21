@@ -9,6 +9,8 @@ import { ModelService } from "../model/service";
 import { StateTransactionOperation } from "../state/service";
 import type { WorkRepository } from "../work/repository";
 import type { TaskRepository } from "../work/task-repository";
+import type { MachineRepository } from "../machines/repository";
+import { commandReleasingSeats } from "../work/seat-release";
 
 // How the overseer reads and changes canvases: as the model holds them, by
 // model commands sent with source "overseer". The model is the authority that
@@ -20,7 +22,8 @@ export type OverseerStores =
   | ModelActorRefs
   | SqlClient.SqlClient
   | WorkRepository
-  | TaskRepository;
+  | TaskRepository
+  | MachineRepository;
 
 export const fromModelError = (error: ModelError): WorkErrorBody => {
   if (error instanceof ModelNotFound) {
@@ -102,7 +105,8 @@ export const editCanvases = <A>(
           const edit = rule(yield* modelCanvases);
           if (!edit.ok) return yield* Effect.fail(edit.error);
           for (const command of edit.commands) {
-            yield* model.command(command, "overseer").pipe(Effect.mapError(fromModelError));
+            // A seat the edit removes lets go of its task (seat-release.ts).
+            yield* commandReleasingSeats(command, "overseer").pipe(Effect.mapError(fromModelError));
           }
           return edit.result;
         }),

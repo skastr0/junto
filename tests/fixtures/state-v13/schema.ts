@@ -234,3 +234,9 @@ export const STATE_SCHEMA_V40_SQL = stepped(
   STATE_SCHEMA_V39_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 40)!.migrate,
 );
+
+// Version 41 remembered the tasks a seat delete sent back to the backlog (40 -> 41).
+export const STATE_SCHEMA_V41_SQL = stepped(
+  STATE_SCHEMA_V40_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 41)!.migrate,
+);

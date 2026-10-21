@@ -105,6 +105,12 @@ const readAgain = (name: string): void => {
   void modelStore.reread(name);
 };
 
+// An undo that puts a seat back gives it its tasks, except those ruled on since the delete.
+modelStore.onTasksKept((name, count) => {
+  if (state$.canvasName.peek() !== name) return;
+  state$.error.set(`${count === 1 ? "1 task stays" : `${count} tasks stay`} in the backlog: ${count === 1 ? "it was" : "they were"} changed after the seat was removed.`);
+});
+
 const settled = (name: string): void => {
   if (authoring.busy() || state$.canvasName.peek() !== name) return;
   if (state$.saveState.peek() === "saving") state$.saveState.set("saved");

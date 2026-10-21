@@ -63,10 +63,9 @@ const record = (database: DatabaseSync, origin: string): void => {
 };
 
 describe("state step 39 to 40: the touched-origin limit", () => {
-  it("starts from the version-39 witness and ends at the version-40 one, which is the head", () => {
+  it("starts from the version-39 witness and ends at the version-40 one", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V39_SQL)).toEqual(STATE_SCHEMA_V39_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V40_SQL)).toEqual(STATE_SCHEMA_V40_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V40_IDENTITY);
   });
 
   it("at 4096 rows refuses a new origin and admits one it holds", async () => {

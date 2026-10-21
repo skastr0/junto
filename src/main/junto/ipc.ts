@@ -33,6 +33,7 @@ import { MachineCoreMail } from "../core-runtime";
 import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
 import { ModelService } from "./model/service";
+import { commandReleasingSeats } from "./work/seat-release";
 import { ModelActorRefs } from "./model/actor-refs";
 import { Command, CanvasName, asNodeId } from "@shared/model";
 
@@ -291,7 +292,8 @@ export const registerJuntoIpc = (): void => {
   privilegedIpc.handle(IPC_CHANNELS.modelCommand, (_event, input: unknown) =>
     runMainAuthoring("ipc.model.command", () => AppRuntime.runPromise(Effect.gen(function* () {
       const command = yield* Schema.decodeUnknownEffect(Command)(input, { onExcessProperty: "error" });
-      return yield* (yield* ModelService).command(command, "operator");
+      // A seat the command removes lets go of its task, and one it restores takes it back (seat-release.ts).
+      return yield* commandReleasingSeats(command, "operator");
     }))),
   );
   privilegedIpc.handle(IPC_CHANNELS.modelActorRefs, (_event, input: unknown) =>

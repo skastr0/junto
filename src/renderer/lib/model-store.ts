@@ -10,7 +10,7 @@ import { canvasAfter } from "./model-undo";
 
 export type ModelApi = {
   modelOpen(input: { readonly canvas: string }): Promise<Opened>;
-  modelCommand(command: Command): Promise<{ readonly seq: number }>;
+  modelCommand(command: Command): Promise<{ readonly seq: number; readonly tasksKept?: number }>;
   onModelChanged(listener: (event: Changed) => void): () => void;
 };
 
@@ -244,7 +244,16 @@ export const createModelStore = (getApi: () => ModelApi | undefined) => {
     canvases$[canvas].delete();
   };
 
+  const keptListeners = new Set<(canvas: string, count: number) => void>();
   const store = {
+    /** Hear when a command put a seat back but some of its tasks stayed in the backlog. Returns the stop function. */
+    onTasksKept: (listener: (canvas: string, count: number) => void): (() => void) => {
+      keptListeners.add(listener);
+      return () => {
+        keptListeners.delete(listener);
+      };
+    },
+
     /** The observable for one canvas. Read a field of it to hear only that field. */
     canvas$,
     node$: (canvas: string, id: string): Observable<Node | undefined> =>
@@ -307,7 +316,10 @@ export const createModelStore = (getApi: () => ModelApi | undefined) => {
       const api = getApi();
       if (api === undefined) throw new Error("Junto is not available.");
       try {
-        await api.modelCommand(command);
+        const result = await api.modelCommand(command);
+        if (result.tasksKept !== undefined && result.tasksKept > 0) {
+          for (const listener of keptListeners) listener(command.canvas, result.tasksKept);
+        }
       } catch (error) {
         if (shown && (users.get(command.canvas) ?? 0) > 0) void read(command.canvas);
         throw error;

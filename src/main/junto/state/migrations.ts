@@ -11,6 +11,7 @@ import {
   STUBS_STATE_SCHEMA_SQL,
 } from "../model/state-schema";
 import { AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_STATE_SCHEMA_SQL } from "../automation/state-schema";
+import { TASK_SEAT_RELEASES_SQL } from "../work/task-state-schema";
 import {
   CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL,
   WORK_EXCHANGE_CURSORS_V16_STATE_SCHEMA_SQL,
@@ -521,7 +522,18 @@ export const STATE_SCHEMA_V40_IDENTITY = {
     "34426648fe48c97b2ccae370493fa405c7bb82e156942b64a6315c26cb93fe43",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 40;
+/**
+ * Version 41 remembers the open tasks a seat delete sent back to the backlog
+ * (`task_seat_releases`), so undoing the delete gives each back to its seat
+ * while no command has ruled on it since. This machine's own state.
+ * Expand-only.
+ */
+export const STATE_SCHEMA_V41_IDENTITY = {
+  actualSchemaSha256:
+    "1bb64b2cd2d95ffecead64ec52f3604d0623afcb06ac28c722a7ccf0d96889f8",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 41;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -529,7 +541,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 40;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V40_IDENTITY;
+  STATE_SCHEMA_V41_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -821,6 +833,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     migrate: (database) => {
       database.exec("DROP TRIGGER browser_touched_origins_limit");
       database.exec(BROWSER_TOUCHED_ORIGINS_LIMIT_V40_SQL);
+    },
+  },
+  {
+    fromVersion: 40,
+    toVersion: 41,
+    name: "remember the tasks a seat delete sent back to the backlog",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V40_IDENTITY,
+    migrate: (database) => {
+      database.exec(TASK_SEAT_RELEASES_SQL);
     },
   },
 ];

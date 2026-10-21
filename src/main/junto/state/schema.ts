@@ -17,7 +17,7 @@ import {
 } from "../content/state-schema";
 import { WORK_STATE_SCHEMA_SQL } from "../work/state-schema";
 import { ARTIFACTS_STATE_SCHEMA_SQL } from "../work/artifact-state-schema";
-import { TASKS_STATE_SCHEMA_SQL } from "../work/task-state-schema";
+import { TASK_SEAT_RELEASES_SQL, TASKS_STATE_SCHEMA_SQL } from "../work/task-state-schema";
 import { RESOURCE_RULINGS_STATE_SCHEMA_SQL } from "../work/resource-rulings-schema";
 import {
   CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL,
@@ -99,6 +99,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   TASKS_STATE_SCHEMA_SQL,
   AUTOMATION_STATE_SCHEMA_SQL,
   AUTOMATION_NODE_ARCHIVES_SQL,
+  TASK_SEAT_RELEASES_SQL,
   LICENSE_STATE_V1_SCHEMA_SQL,
   LICENSE_STATE_V2_SCHEMA_SQL,
   CONTENT_STATE_SCHEMA_SQL,

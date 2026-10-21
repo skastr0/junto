@@ -646,7 +646,8 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   /** Canvas headers only, ordered by name for the switcher. */
   readonly modelCanvases: () => Promise<ReadonlyArray<CanvasSummary>>;
   /** Change something on a canvas. Resolves once committed; a refusal rejects. */
-  readonly modelCommand: (command: Command) => Promise<{ readonly seq: number }>;
+  /** `tasksKept`: tasks a restored seat could not take back, since a command ruled on them after its delete. */
+  readonly modelCommand: (command: Command) => Promise<{ readonly seq: number; readonly tasksKept?: number }>;
   /** The rows that changed on a canvas, after every commit, to every window. */
   readonly onModelChanged: (listener: (event: Changed) => void) => () => void;
   readonly onModelCanvasesChanged: (listener: (event: CanvasesChanged) => void) => () => void;
