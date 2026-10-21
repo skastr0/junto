@@ -249,7 +249,7 @@ describe("adding and removing", () => {
 
 describe("wires", () => {
   const canvas = canvasOf(
-    [seat("lead"), seat("nodes"), board("tasks"), board("done"), node("page", "page", { host: "local", url: "https://example.com", profile: "default", onRemove: "kill-session" }), node("label", "north", { text: "N" }), region("room"), note("plan")],
+    [seat("lead"), seat("nodes"), board("tasks"), board("done"), node("page", "page", { url: "https://example.com", profile: "default", onRemove: "kill-session" }), node("label", "north", { text: "N" }), region("room"), note("plan")],
     [wire("w1", "lead", "nodes")],
   );
   const at = (id: string): Node => canvas.nodes.get(id as Node["id"])!;

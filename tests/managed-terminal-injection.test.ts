@@ -10,7 +10,7 @@ import { THIS_MACHINE } from "./support/machines";
 const node = (id: string, kind = "note", x = 0): Node => Schema.decodeUnknownSync(Node)({
   id, kind, x, y: 0, width: 1, height: 1, z: 0,
   ...(kind === "agent" ? { label: id, agentKey: "local:codex", host: THIS_MACHINE, bindingId: id, harness: "codex", overseer: false }
-    : kind === "page" ? { url: "about:blank", profile: id, host: THIS_MACHINE, onRemove: "detach" } : { text: id }),
+    : kind === "page" ? { url: "about:blank", profile: id, onRemove: "detach" } : { text: id }),
 });
 const canvas = (nodes: readonly Node[], edges: Array<[string, string]>): Canvas => ({
   name: asCanvasName("factory"), seq: 0,

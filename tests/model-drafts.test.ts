@@ -22,7 +22,7 @@ describe("a node draft", () => {
     const drafts: ReadonlyArray<Record<string, unknown>> = [
       seat,
       { kind: "terminal", ...at, host: THIS_MACHINE, bindingId: "term-1" },
-      { kind: "page", ...at, host: THIS_MACHINE, url: "https://example.com", profile: "default", onRemove: "kill-session" },
+      { kind: "page", ...at, url: "https://example.com", profile: "default", onRemove: "kill-session" },
       { kind: "task", ...at },
       { kind: "requests", ...at },
       { kind: "artifacts", ...at },
