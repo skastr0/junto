@@ -254,7 +254,9 @@ export class ArtifactBodyMissing extends Schema.TaggedError<ArtifactBodyMissing>
  * The artifact domain's projection: fold applied facts into `artifact_heads`
  * and `artifact_versions`. The local ruler runs it inside its ruling's
  * transaction; a replica runs it when a received `ruling.applied` carries
- * artifact facts. The caller owns the transaction. `bodyOf` gives the body a
+ * artifact facts. The caller owns the transaction and folds each ruling
+ * once: the ruling's `resource_rulings` row, written in the same transaction,
+ * is the dedupe, so a ruling folded twice fails on its key. `bodyOf` gives the body a
  * fact names by ref when the fact does not carry it inline: the ruler's own
  * bodies, or a replica's fetched ones.
  */
@@ -427,7 +429,12 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
           ORDER BY updated_at DESC, artifact_id DESC
           LIMIT ${query.limit + 1}`,
       })(undefined);
-      const artifacts = rows.slice(0, query.limit).flatMap((row) => artifactOfRow(row) ?? []);
+      const artifacts: Artifact[] = [];
+      for (const row of rows.slice(0, query.limit)) {
+        const artifact = artifactOfRow(row);
+        if (artifact === undefined) return yield* unreadable("list", `artifact ${row.artifact_id}`);
+        artifacts.push(artifact);
+      }
       return { artifacts, more: rows.length > query.limit };
     }, Effect.mapError(persistence("list")));
 
@@ -437,7 +444,10 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
 
     const body = Effect.fn("artifacts.body")(function* (canvasName: string, artifactId: ItemId, version: ArtifactVersion) {
       const row = yield* bodyRow({ canvas: canvasName, id: artifactId, version });
-      return Option.flatMap(row, (found) => Option.fromNullishOr(bodyOf(found.body_json)));
+      if (Option.isNone(row)) return Option.none<ArtifactBody>();
+      const found = bodyOf(row.value.body_json);
+      if (found === undefined) return yield* unreadable("body", `the body of artifact ${artifactId} at version ${version}`);
+      return Option.some(found);
     }, Effect.mapError(persistence("body")));
 
     const history = Effect.fn("artifacts.history")(function* (
@@ -455,7 +465,12 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
           ORDER BY version DESC
           LIMIT ${page.limit + 1}`,
       })(undefined);
-      const versions = rows.slice(0, page.limit).flatMap((row) => versionOfRow(row) ?? []);
+      const versions: ArtifactVersionRead[] = [];
+      for (const row of rows.slice(0, page.limit)) {
+        const read = versionOfRow(row);
+        if (read === undefined) return yield* unreadable("history", `version ${row.version} of artifact ${artifactId}`);
+        versions.push(read);
+      }
       return { versions, more: rows.length > page.limit };
     }, Effect.mapError(persistence("history")));
 

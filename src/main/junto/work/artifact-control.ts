@@ -47,6 +47,7 @@ import type {
   ArtifactVersionRead,
 } from "./artifact-repository";
 import { ArtifactRepository } from "./artifact-repository";
+import { TaskRepository } from "./task-repository";
 
 /** What the verbs need from the artifact store and the ruler. */
 export type ArtifactPorts = {
@@ -61,6 +62,8 @@ export type ArtifactPorts = {
     page: { readonly limit: number; readonly before?: ArtifactVersion },
   ) => Effect.Effect<{ readonly versions: ReadonlyArray<ArtifactVersionRead>; readonly more: boolean }, WorkErrorBody>;
   readonly submit: (command: ResourceCommand<ArtifactOp>, context: RulingContext) => Effect.Effect<ArtifactSubmitOutcome, WorkErrorBody>;
+  /** The task node a task sits on, when the task exists. */
+  readonly taskNode: (canvasName: string, taskId: ItemId) => Effect.Effect<Option.Option<NodeId>, WorkErrorBody>;
 };
 
 export type ArtifactCaller = {
@@ -106,6 +109,17 @@ export const liveArtifactPorts: ArtifactPorts = (() => {
           if (Option.isNone(writer)) return yield* Effect.fail({ message: "this machine has no installation id yet" });
           return yield* repo.submit(writer.value, command, context);
         }),
+      ),
+    taskNode: (canvasName, taskId) =>
+      Effect.serviceOption(TaskRepository).pipe(
+        Effect.flatMap((tasks) =>
+          Option.isNone(tasks)
+            ? Effect.succeed(Option.none<NodeId>())
+            : tasks.value.get(canvasName, taskId).pipe(
+                Effect.map(Option.map((task) => task.current.node as unknown as NodeId)),
+                Effect.mapError(storeError),
+              ),
+        ),
       ),
   };
 })();
@@ -271,8 +285,39 @@ const command = (
 
 /** The ruler checks reach again at ruling time, against the canvas it rules on. */
 const rulingContext = (caller: ArtifactCaller): RulingContext => ({
-  inReach: (actor, target) => actor.kind !== "seat" || reaches(caller.canvas, actor.nodeId, target.nodeId),
+  inReach: (actor, target) => {
+    switch (actor.kind) {
+      case "seat":
+        return reaches(caller.canvas, actor.nodeId, target.nodeId);
+      case "operator":
+        return true;
+      // An automation reaches nothing until plan 07 gives it a reach.
+      case "automation":
+        return false;
+    }
+  },
 });
+
+/**
+ * Every task a create links must sit on a task node in the seat's reach; one
+ * out of reach reads as unknown, like a missing one, so the link names
+ * nothing the seat cannot see.
+ */
+const checkTasks = (
+  caller: ArtifactCaller,
+  ports: ArtifactPorts,
+  taskIds: ReadonlyArray<ItemId>,
+): Effect.Effect<void, WorkErrorBody> =>
+  Effect.forEach(taskIds, (taskId, index) =>
+    Effect.flatMap(ports.taskNode(caller.canvasName, taskId), (node) =>
+      Option.isSome(node) && inReach(caller, node.value)
+        ? Effect.void
+        : Effect.fail<WorkErrorBody>({
+            type: "UnknownTarget",
+            message: `no task ${taskId} in this seat's reach`,
+            details: { path: `taskIds[${index}]`, received: taskId, retryable: false },
+          }),
+    ), { discard: true });
 
 /** An applied ruling as the CLI's result; a refusal as its error, carrying the opId. */
 export const writeResult = (outcome: ArtifactSubmitOutcome): Effect.Effect<ArtifactWriteResult, WorkErrorBody> =>
@@ -349,6 +394,7 @@ export const handleArtifactOp = (
         const node = yield* findNode(caller, ports, input.node);
         const body = createBody(input.type, input.body);
         if (Result.isFailure(body)) return yield* Effect.fail(body.failure);
+        if (input.taskIds !== undefined) yield* checkTasks(caller, ports, input.taskIds);
         return yield* submit(caller, ports, command(caller, input.opId, node.id, input.artifactId, {
           op: "create",
           title: input.title,

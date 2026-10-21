@@ -32,9 +32,11 @@ const nodes = [
   at("CLI", "region", 10, 10, { label: "CLI" }, 800, 800),
   at("S1", "agent", 20, 20, { label: "cli-identity", agentKey: "a" }),
   at("AR", "artifacts", 200, 20, { label: "Shelf" }),
+  at("TN", "task", 300, 20, { name: "CLI tasks" }),
   at("P", "region", 1000, 10, { label: "Product" }, 400, 400),
   at("SP", "agent", 1010, 20, { label: "product-shell", agentKey: "c" }),
   at("AP", "artifacts", 1100, 20, { label: "Shelf" }),
+  at("TP", "task", 1200, 20, { name: "Product tasks" }),
 ];
 const canvas = { nodes: new Map(nodes.map((node) => [node.id, node])), wires: new Map() } as unknown as Canvas;
 
@@ -42,6 +44,8 @@ const OP = "01M5ESM1XHCJ7JYJDBC37MREBZ";
 const OP2 = "01M5ESM1XHCJ7JYJDBC37MREC0";
 const NEW = "01M5ESMQ2ZT55QZ073EWPH10SG";
 const v = (n: number) => n as ArtifactVersion;
+const TASK_HERE = ItemId.make("01M5ETAKR8YSPP5Y22H4KH2YMW");
+const TASK_AWAY = ItemId.make("01M5ETAKR8YSPP5Y22H4KH2YMX");
 
 const caller = (nodeId: string): ArtifactCaller => ({
   canvas,
@@ -70,6 +74,8 @@ const memoryPorts = () => {
       ),
     body: (_canvas, id, version) => Effect.succeed(Option.fromNullishOr(bodies.get(`${id}@${version}`))),
     history: () => Effect.succeed({ versions: [], more: false }),
+    taskNode: (_canvas, taskId) =>
+      Effect.succeed(taskId === TASK_HERE ? Option.some(asNodeId("TN")) : taskId === TASK_AWAY ? Option.some(asNodeId("TP")) : Option.none()),
     submit: (command, context) => {
       submitted.push(command);
       const next = rule(domain, ruled, "mini" as InstallationId, command, context);
@@ -177,6 +183,16 @@ describe("junto artifact in main", () => {
       type: "InputError",
       details: { path: "patches" },
     });
+  });
+
+  it("links only tasks in reach, and reads one out of reach as unknown", () => {
+    const { ports, submitted } = memoryPorts();
+    expect(createDoc(ports, { taskIds: [TASK_HERE] })).toMatchObject({ disposition: "applied" });
+    expect(submitted[0]?.op).toMatchObject({ taskIds: [TASK_HERE] });
+    const away = memoryPorts();
+    expect(failure(run(away.ports, "artifact.create", { opId: OP, artifactId: NEW, type: "document", title: "N", taskIds: [TASK_HERE, TASK_AWAY] })))
+      .toMatchObject({ type: "UnknownTarget", details: { path: "taskIds[1]" } });
+    expect(away.submitted).toEqual([]);
   });
 
   it("wants exactly one of body and patches", () => {
