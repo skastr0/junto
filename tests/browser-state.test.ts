@@ -125,7 +125,7 @@ describe("subscribeBrowserSessionEvents", () => {
   });
 });
 
-// Surface open/close moved to the work-surface dock — see tests/surface-dock.test.ts.
+// Surface open/close lives in dock-state.ts — see tests/workbench-surfaces.test.ts.
 
 describe("refreshBrowserSession", () => {
   afterEach(clearWindow);

@@ -43,7 +43,7 @@ describe("grid focus terminal slots", () => {
     expect(terminalSlotElement("a")).toBe(pane);
     expect(terminal$.openByNodeId.a.peek()).toBeDefined();
     expect(dock$.registry.peek().surfaces).toEqual([
-      { id: terminalSurfaceId("a"), kind: "terminal", zone: "focus" },
+      { id: terminalSurfaceId("a"), kind: "terminal" },
     ]);
   });
 

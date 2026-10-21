@@ -1,6 +1,5 @@
 import { observable } from "@legendapp/state";
 import type { NodeOf, Seat, Terminal } from "@shared/model";
-import { PINNING_ENABLED } from "@shared/features";
 import { terminalBindingOf } from "@shared/terminal";
 import type {
   BrowserOpResult,
@@ -19,21 +18,17 @@ import {
 
 import {
   closeSurface,
-  focusDockChromeVisible,
+  focusChromeVisible,
   focusSurface,
   initialWorkbenchState,
   openSurface,
-  pinSurface,
   setFocusSize,
   setLayout,
-  setPinnedWidthFrac,
   surfaceById,
-  unpinSurface,
   type LayoutMode,
   type WorkbenchState,
   type WorkbenchTransition,
   type WorkSurface,
-  type WorkZone,
 } from "./surface-registry";
 import { getJuntoApi } from "./junto-api";
 import { nodeAt } from "./use-model";
@@ -41,11 +36,10 @@ import { state$ } from "./state";
 import { taskBoardTitle } from "@shared/model/title";
 import { dropTerminalView, terminal$ } from "./terminal-state";
 
-// The workbench: which surfaces are open, and whether each is in the focus
-// view or pinned to the dock. Pure transitions live in surface-registry.ts;
-// this module owns the one observable (dock$.registry) and is its only
-// writer: every open, close, pin and unpin of every kind of surface comes
-// through here, terminals included. Side effects of a close (browser detach,
+// The workbench: which surfaces are open in the focus view, their payloads,
+// and what a close does. Pure transitions live in surface-registry.ts; this
+// module owns the one observable (dock$.registry) and is its only writer:
+// every open and close of every kind of surface comes through here, terminals included. Side effects of a close (browser detach,
 // dropping a terminal's view state) run from applyTransition and nowhere else.
 // Every close DETACHES only — warm browser sessions survive unless Stop Page
 // is explicit, and a terminal's process keeps running.
@@ -121,13 +115,6 @@ export const nodeIdForSurface = (surface: WorkSurface): string | null => {
   if (surface.kind === "browser") return dock$.browserByRef[surface.id].peek()?.nodeId ?? null;
   return null;
 };
-
-/**
- * The zone a request may land in. Pinning is behind a build flag that is off
- * in every profile: with it off the pinned zone cannot be entered, so every
- * open lands in the focus view and Pin does nothing.
- */
-const admittedZone = (zone: WorkZone): WorkZone => (PINNING_ENABLED ? zone : "focus");
 
 type BrowserApi = ReturnType<typeof getJuntoApi> & Partial<JuntoBrowserApi>;
 
@@ -221,27 +208,21 @@ const applyTransition = (transition: WorkbenchTransition): void => {
 
 /**
  * Open (or re-focus) the quick task-enqueue surface for a tasks sink node.
- * Lands in the shared focus/pinned workbench so it can sit beside a terminal
- * (and be pinned itself). Create does not dismiss — the form clears for the next.
+ * Lands in the shared workbench so it can sit beside a terminal. Create does
+ * not dismiss — the form clears for the next.
  */
-export const openTaskCreateSurface = (
-  nodeId: string,
-  options?: {
-    readonly zone?: WorkZone;
-  },
-): void => {
+export const openTaskCreateSurface = (nodeId: string): void => {
   const node = nodeAt(state$.canvasName.peek(), nodeId);
   if (node?.kind !== "task") return;
   const id = taskCreateSurfaceId(node.id);
   const title = taskBoardTitle(node).name;
-  const zone = options?.zone ?? "focus";
   dock$.taskCreateById[id].set({
     nodeId: node.id,
     title,
     mode: "task",
   });
   applyTransition(
-    openSurface(dock$.registry.peek(), { id, kind: "task-create" }, admittedZone(zone)),
+    openSurface(dock$.registry.peek(), { id, kind: "task-create" }),
   );
 };
 
@@ -251,10 +232,7 @@ export const openTaskCreateSurface = (
  * omit a card while canvas projections update, but operator-owned focus and
  * unsaved text must survive that churn.
  */
-export const openNoteSurface = (
-  node: NodeOf<"note">,
-  zone: WorkZone = "focus",
-): void => {
+export const openNoteSurface = (node: NodeOf<"note">): void => {
   const id = noteSurfaceId(node.id);
   const title = node.text.split("\n")[0]?.trim() || "Note";
   const existing = dock$.noteById[id].peek();
@@ -268,7 +246,7 @@ export const openNoteSurface = (
           savedText: node.text,
         },
   );
-  applyTransition(openSurface(dock$.registry.peek(), { id, kind: "note" }, admittedZone(zone)));
+  applyTransition(openSurface(dock$.registry.peek(), { id, kind: "note" }));
 };
 
 export const updateNoteSurfaceDraft = (id: string, draft: string): void => {
@@ -285,7 +263,7 @@ export const markNoteSurfaceSaved = (id: string, savedText: string): void => {
 
 /**
  * Reconcile the workbench with main-process live sessions after renderer reload.
- * Attached sessions land in the focus zone (v1 — no zone persistence yet).
+ * Attached sessions land in the focus view.
  */
 let reconciledLiveSessions = false;
 
@@ -313,7 +291,7 @@ export const reconcileDockFromLiveSessions = async (): Promise<void> => {
         title: session.title ?? session.url,
       });
       applyTransition(
-        openSurface(dock$.registry.peek(), { id: session.ref, kind: "browser" }, "focus"),
+        openSurface(dock$.registry.peek(), { id: session.ref, kind: "browser" }),
       );
     }
   } catch {
@@ -322,7 +300,7 @@ export const reconcileDockFromLiveSessions = async (): Promise<void> => {
 };
 
 /**
- * Open (or re-focus) a page browser surface in the **focus** zone by default.
+ * Open (or re-focus) a page browser surface in the focus view.
  * Slot appears immediately; warm session opens/reuses over IPC. A failed open
  * surfaces its refusal on the slot header and page card instead of waiting
  * silently for a session that will never arrive.
@@ -330,7 +308,6 @@ export const reconcileDockFromLiveSessions = async (): Promise<void> => {
 export const openDockBrowser = async (
   ref: string,
   payload: DockBrowserPayload,
-  zone: WorkZone = "focus",
 ): Promise<void> => {
   if (!isCanonicalBrowserRef(ref)) return;
   // Attempt ownership: only the newest open for this ref may report or clear
@@ -339,7 +316,7 @@ export const openDockBrowser = async (
   openAttemptByRef.set(ref, attempt);
   dock$.opErrorByRef[ref].delete();
   dock$.browserByRef[ref].set(payload);
-  applyTransition(openSurface(dock$.registry.peek(), { id: ref, kind: "browser" }, admittedZone(zone)));
+  applyTransition(openSurface(dock$.registry.peek(), { id: ref, kind: "browser" }));
   // Fast, authoritative-mirror refusal for disallowed targets: main enforces
   // the same policy, but the operator should not wait on an IPC round trip to
   // learn a URL can never open.
@@ -398,7 +375,6 @@ export const closeDockBrowser = (ref: string): void => {
  */
 export const openTerminalSurface = (
   node: Seat | Terminal,
-  zone: WorkZone = "focus",
   canvasName?: string,
 ): void => {
   if (terminalBindingOf(node)?.kind !== "native") return;
@@ -406,7 +382,7 @@ export const openTerminalSurface = (
   terminal$.gridOwnedByNodeId[node.id].delete();
   terminal$.openByNodeId[node.id].set(node);
   applyTransition(
-    openSurface(dock$.registry.peek(), { id: terminalSurfaceId(node.id), kind: "terminal" }, admittedZone(zone)),
+    openSurface(dock$.registry.peek(), { id: terminalSurfaceId(node.id), kind: "terminal" }),
   );
 };
 
@@ -420,32 +396,19 @@ export const closeTerminalView = (nodeId: string): void => {
   else dropTerminalView(nodeId);
 };
 
-export const pinWorkbenchSurface = (id: string): void => {
-  if (!PINNING_ENABLED) return;
-  applyTransition(pinSurface(dock$.registry.peek(), id));
-};
-
-export const unpinWorkbenchSurface = (id: string): void => {
-  applyTransition(unpinSurface(dock$.registry.peek(), id));
-};
-
 export const focusWorkbenchSurface = (id: string): void => {
   applyTransition(focusSurface(dock$.registry.peek(), id));
 };
 
 /**
- * Promote surface to zone MRU front and route keyboard.
+ * Promote surface to MRU front and route keyboard.
  */
 export const activateWorkbenchSurface = (id: string): void => {
   applyTransition(focusSurface(dock$.registry.peek(), id));
 };
 
-export const setWorkbenchLayout = (zone: WorkZone, layout: LayoutMode): void => {
-  applyTransition(setLayout(dock$.registry.peek(), zone, layout));
-};
-
-export const setWorkbenchPinnedWidthFrac = (frac: number): void => {
-  applyTransition(setPinnedWidthFrac(dock$.registry.peek(), frac));
+export const setWorkbenchLayout = (layout: LayoutMode): void => {
+  applyTransition(setLayout(dock$.registry.peek(), layout));
 };
 
 export const setWorkbenchFocusSize = (
@@ -477,8 +440,8 @@ export const closeWorkbenchSurface = (id: string): void => {
 };
 
 /**
- * Close a focus surface with MODAL semantics. Without the dock chrome the
- * focus zone presents as ONE modal — mirror cycling parks siblings invisibly
+ * Close a focus surface with MODAL semantics. Without the focus chrome the
+ * view presents as ONE modal — mirror cycling parks siblings invisibly
  * behind the front pane, and the shell's backdrop click already dismisses
  * them all — so a single Close must dismiss the whole stack, never pop the
  * hidden MRU one press per cycled actor. With tab chrome visible, tabs are
@@ -488,13 +451,11 @@ export const closeWorkbenchSurface = (id: string): void => {
 export const closeFocusModalSurface = (id: string): void => {
   const registry = dock$.registry.peek();
   const surface = surfaceById(registry, id);
-  if (!surface || surface.zone !== "focus" || focusDockChromeVisible(registry)) {
+  if (!surface || focusChromeVisible(registry)) {
     closeWorkbenchSurface(id);
     return;
   }
-  for (const s of registry.surfaces) {
-    if (s.zone === "focus") closeWorkbenchSurface(s.id);
-  }
+  for (const s of registry.surfaces) closeWorkbenchSurface(s.id);
 };
 
 /**

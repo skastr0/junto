@@ -8,7 +8,6 @@ import {
   dock$,
   stopDockBrowser,
 } from "../../lib/dock-state";
-import type { WorkZone } from "../../lib/surface-registry";
 import { getJuntoApi } from "../../lib/junto-api";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { useTwoClickArm } from "../../lib/two-click-arm";
@@ -28,12 +27,10 @@ type BrowserApi = ReturnType<typeof getJuntoApi> & Partial<JuntoBrowserApi>;
  */
 export function BrowserSurfaceSlot({
   pageRef,
-  zone,
   visible = true,
   onActivate,
 }: {
   readonly pageRef: string;
-  readonly zone: WorkZone;
   readonly visible?: boolean;
   readonly onActivate?: () => void;
 }) {

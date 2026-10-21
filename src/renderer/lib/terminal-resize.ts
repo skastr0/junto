@@ -33,7 +33,7 @@ export const shouldPaintView = (
 ): boolean => painted.cols !== desired.cols || painted.rows !== desired.rows;
 
 /**
- * First SIGWINCH after attach is immediate; later pin/focus hops coalesce;
+ * First SIGWINCH after attach is immediate; later focus/grid hops coalesce;
  * hop-down retries back off from failCount, never 0ms once a notify has failed.
  */
 export const ptyNotifyDelayMs = (
@@ -52,7 +52,7 @@ export const ptyNotifyShouldRetry = (failCount: number): boolean =>
 
 /**
  * Pane box is authority. Never measure the live .xterm node — that island
- * is sized to the current grid, so pin/focus/dock growth would freeze.
+ * is sized to the current grid, so focus/grid growth would freeze.
  */
 export const cellsForPane = (input: {
   readonly hostWidth: number;

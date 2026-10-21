@@ -119,7 +119,7 @@ export const reseatSeat = async (
   commitCommands(() => [command]);
 
   if (surfaceWasOpen) {
-    await openTerminal(canvas, id, "focus");
+    await openTerminal(canvas, id);
   }
   return { ok: true };
 };

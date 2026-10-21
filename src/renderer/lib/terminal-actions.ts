@@ -11,7 +11,6 @@ import { flushPendingCanvasSave } from "./mutations";
 import { getJuntoApi } from "./junto-api";
 import { state$ } from "./state";
 import { nodeAt } from "./use-model";
-import type { WorkZone } from "./surface-registry";
 import { openTerminalSurface } from "./dock-state";
 import { openGridTerminalSurface, terminal$ } from "./terminal-state";
 
@@ -138,7 +137,6 @@ export const ensureTerminalRunning = async (
 
 /**
  * Open the workbench surface for a terminal / actor seat.
- * Pass `zone: "pinned"` to land in the side dock (open auto-pinned).
  *
  * Agent seats open the surface first so the session-load spinner can paint
  * while ensure + attach run inside TerminalSurface. Geography shells still
@@ -148,32 +146,21 @@ export const ensureTerminalRunning = async (
  * Open the terminal of a seat or a terminal, named by canvas and id: the node
  * is read from the store as it stands at the gesture.
  */
-export function openTerminal(
-  canvas: string,
-  id: string,
-  zone?: WorkZone,
-): Promise<void>;
+export function openTerminal(canvas: string, id: string): Promise<void>;
 /** Open a model seat or terminal already held by the caller. */
-export function openTerminal(
-  node: Seat | Terminal,
-  zone?: WorkZone,
-): Promise<void>;
+export function openTerminal(node: Seat | Terminal): Promise<void>;
 export function openTerminal(
   first: string | Seat | Terminal,
-  second?: string | WorkZone,
-  third?: WorkZone,
+  second?: string,
 ): Promise<void> {
-  if (typeof first !== "string") {
-    return openTerminalNode(first, (second as WorkZone | undefined) ?? "focus");
-  }
+  if (typeof first !== "string") return openTerminalNode(first);
   const row = nodeAt(first, second ?? "");
   if (row?.kind !== "agent" && row?.kind !== "terminal") return Promise.resolve();
-  return openTerminalNode(row, third ?? "focus", first);
+  return openTerminalNode(row, first);
 }
 
 const openTerminalNode = async (
   node: Seat | Terminal,
-  zone: WorkZone = "focus",
   canvas = state$.canvasName.peek(),
 ): Promise<void> => {
   const entityKind = node.kind;
@@ -187,7 +174,7 @@ const openTerminalNode = async (
 
   if (entityKind === "agent") {
     // Surface owns ensure + attach (spinner covers the full path).
-    openTerminalSurface(node, zone, canvas);
+    openTerminalSurface(node, canvas);
     return;
   }
 
@@ -201,7 +188,7 @@ const openTerminalNode = async (
     const session = terminal$.sessionByBindingId[binding.bindingId].peek();
     if (!session) return;
   }
-  openTerminalSurface(node, zone, canvas);
+  openTerminalSurface(node, canvas);
 };
 
 /**

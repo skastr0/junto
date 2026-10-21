@@ -103,7 +103,7 @@ it("budgets the focused terminal's rail from native wires and follows collapse a
   publish("peer", agent("Reviewer", "binding-peer"));
   terminal$.openByNodeId["seat"].set(seat);
   const id = terminalSurfaceId("seat");
-  dock$.registry.set({ ...initialWorkbenchState(), surfaces: [{ id, kind: "terminal", zone: "focus" }], focusMru: [id] });
+  dock$.registry.set({ ...initialWorkbenchState(), surfaces: [{ id, kind: "terminal" }], focusMru: [id] });
   await mount(<WorkFocusShell />);
   const rails = () => (document.querySelector(".focus-surface") as HTMLElement)?.style.getPropertyValue("--focus-terminal-rails");
   expect(rails()).toBe("0px");

@@ -512,7 +512,7 @@ export function App() {
       const registry = dock$.registry.peek();
       const frontId = registry.focusMru[0];
       const front = registry.surfaces.find((s) => s.id === frontId);
-      return front?.kind === "browser" && front.zone === "focus" ? { id: front.id } : undefined;
+      return front?.kind === "browser" ? { id: front.id } : undefined;
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || isOperatorTyping(event.target)) return;

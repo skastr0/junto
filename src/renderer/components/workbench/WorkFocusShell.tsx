@@ -6,7 +6,7 @@ import {
   setWorkbenchFocusSize,
 } from "../../lib/dock-state";
 import {
-  focusDockChromeVisible,
+  focusChromeVisible,
   panesForLayout,
   surfaceById,
   workFocusSizeKeyForSurfaces,
@@ -65,20 +65,17 @@ const measureForSizeKey = (key: WorkFocusSizeKey): FocusMeasure => {
 };
 
 /**
- * Centered focus-zone shell. Mounts when focus zone is non-empty.
+ * Centered focus-view shell. Mounts when any surface is open.
  * Measure / remembered width is keyed by surface family so a resized
  * terminal cannot leave task-create (or other) modals stuck narrow.
  * Slots are registered synchronously via dock-state observe.
  */
 export function WorkFocusShell() {
   // A primitive fingerprint lets Legend recompute on registry surface writes
-  // without rerendering this shell for pinned-only churn.
+  // without rerendering this shell for focus-size churn.
   const focusSurfaceFingerprint = use$(() =>
     JSON.stringify(
-      dock$.registry.surfaces
-        .get()
-        .filter((surface) => surface.zone === "focus")
-        .map((surface) => [surface.id, surface.kind]),
+      dock$.registry.surfaces.get().map((surface) => [surface.id, surface.kind]),
     ),
   );
   const focusMru = use$(dock$.registry.focusMru);
@@ -86,15 +83,14 @@ export function WorkFocusShell() {
 
   const registry = dock$.registry.peek();
   const hasFocus = focusSurfaceFingerprint !== "[]";
-  const focusSurfaces = registry.surfaces.filter((s) => s.zone === "focus");
-  const sizeKey = workFocusSizeKeyForSurfaces(focusSurfaces);
+  const sizeKey = workFocusSizeKeyForSurfaces(registry.surfaces);
   const onlyTaskCreate = sizeKey === "task-create";
   const onlyNotes = sizeKey === "document";
   const measure = measureForSizeKey(sizeKey);
-  // Dock chrome (tabs / split / pin-all) is for multi-surface browser work.
-  // Pure terminal focus uses surface-local Pin + Close — reusing the
-  // side-dock strip here was noise (fake single tab + split toggle).
-  const showDockChrome = focusDockChromeVisible(registry);
+  // Focus chrome (tabs / split) is for multi-surface browser work. Pure
+  // terminal focus uses surface-local Close — the strip there was noise
+  // (fake single tab + split toggle).
+  const showChrome = focusChromeVisible(registry);
 
   const paneCount = panesForLayout(focusLayout);
   const pane0 = focusMru[0];
@@ -109,10 +105,7 @@ export function WorkFocusShell() {
   const onlyBrowser = active?.kind === "browser";
 
   const closeAllFocus = useCallback(() => {
-    const surfaces = dock$.registry
-      .peek()
-      .surfaces.filter((surface) => surface.zone === "focus");
-    for (const surface of surfaces) {
+    for (const surface of dock$.registry.peek().surfaces) {
       if (surface.kind === "note") saveAndCloseNoteSurface(surface.id);
       else closeWorkbenchSurface(surface.id);
     }
@@ -141,7 +134,7 @@ export function WorkFocusShell() {
       if (!panel) return;
       // Width only, and only when memory matches this surface family.
       // Mismatched keys clear inline width so CSS measure (terminal / workspace
-      // / task-create) owns the box after pin/unpin or kind switches.
+      // / task-create) owns the box after kind switches.
       // Remembered width is the CONTENT width — the panel minus whatever the
       // right instrument pane occupies. Storing the whole panel box instead
       // freezes that pane into the user's terminal-width dial.
@@ -191,9 +184,7 @@ export function WorkFocusShell() {
 
   if (!hasFocus) return null;
 
-  // contain=parent: fill .junto-stage-main only. Body portal would cover the
-  // pinned dock sibling and break wheel/pointer on pinned PTYs whenever any
-  // focus surface is still open (multi-stream pin + focus).
+  // contain=parent: fill .junto-stage-main only.
   return (
     <FocusSurface
       measure={measure}
@@ -207,15 +198,14 @@ export function WorkFocusShell() {
       panelClassName={`work-focus-shell__panel${onlyTaskCreate ? " work-focus-shell__panel--task-create" : ""}${onlyNotes ? " work-focus-shell__panel--note" : ""}${onlyBrowser ? " work-focus-shell__panel--browser" : ""}`}
     >
       <div className="work-focus-shell">
-        {showDockChrome ? (
+        {showChrome ? (
           <WorkbenchChrome
-            zone="focus"
             paneIds={[pane0, pane1]}
             tabs={tabs}
             activeId={activeId}
           />
         ) : null}
-        <WorkbenchPanes zone="focus" />
+        <WorkbenchPanes />
       </div>
     </FocusSurface>
   );

@@ -1,9 +1,9 @@
 /**
- * Viewport position bookmarks for terminal pin/unpin remounts.
+ * Viewport position bookmarks for terminal remounts.
  *
- * Pinning destroys the renderer xterm and creates another one. Serialized
+ * A remount destroys the renderer xterm and creates another one. Serialized
  * replay restores contents/modes, but not the public buffer viewport — without
- * this, reviewing older output jumps back to the bottom after pin/unpin.
+ * this, reviewing older output jumps back to the bottom after a remount.
  *
  * Never restore across a changed session epoch.
  */

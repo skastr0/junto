@@ -134,7 +134,7 @@ it("enqueues under the native admission floor and artifact sink with no document
   publish("queue", { kind: "task", name: "Build", contract: { incoming: { admission: "approval" } } });
   publish("outputs", { kind: "artifacts", label: "Results" });
   dock$.taskCreateById["enqueue"].set({ nodeId: "queue", title: "Build", mode: "task" });
-  await mount(<TaskEnqueueSurface surface={{ id: "enqueue", kind: "task-create", zone: "focus" }} zone="focus" visible onActivate={() => {}} />);
+  await mount(<TaskEnqueueSurface surface={{ id: "enqueue", kind: "task-create" }} visible onActivate={() => {}} />);
   expect(document.body.textContent).toContain("This board's default: Approval");
   await type('input[placeholder="What needs doing?"]', "Ship it");
   await type('textarea[placeholder="Context, constraints, expected result…"]', "Implement and verify");
@@ -155,7 +155,7 @@ it("enqueues under the native admission floor and artifact sink with no document
 it("unbinds enqueue when its native task node disappears", async () => {
   publish("queue", { kind: "task", name: "Build" });
   dock$.taskCreateById.enqueue.set({ nodeId: "queue", title: "Build", mode: "task" });
-  await mount(<TaskEnqueueSurface surface={{ id: "enqueue", kind: "task-create", zone: "focus" }} zone="focus" visible onActivate={() => {}} />);
+  await mount(<TaskEnqueueSurface surface={{ id: "enqueue", kind: "task-create" }} visible onActivate={() => {}} />);
   expect(document.querySelector('[data-testid="task-enqueue-surface"]')).toBeTruthy();
   await act(async () => { modelStore.node$(canvas, "queue").delete(); await flush(); });
   expect(document.body.textContent).toContain("task enqueue - unbound");

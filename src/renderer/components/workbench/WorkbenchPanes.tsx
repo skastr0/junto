@@ -5,18 +5,11 @@ import { surfaceMotionLive$ } from "../../lib/surface-motion";
 import {
   activateWorkbenchSurface,
   dock$,
-  pinWorkbenchSurface,
-  unpinWorkbenchSurface,
 } from "../../lib/dock-state";
-import {
-  panesForLayout,
-  type WorkSurface,
-  type WorkZone,
-} from "../../lib/surface-registry";
+import { panesForLayout, type WorkSurface } from "../../lib/surface-registry";
 import { BrowserSurfaceSlot } from "./BrowserSurfaceSlot";
 import { parseTerminalSurfaceId } from "../../lib/dock-state";
 import { registerTerminalSlot } from "../../lib/terminal-state";
-import { Button } from "../ui";
 import { TaskEnqueueSurface } from "../work/TaskEnqueueSurface";
 import { NoteSurface } from "./NoteSurface";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
@@ -24,7 +17,6 @@ import { BROWSER_ENABLED, TASKS_ENABLED } from "@shared/features";
 
 function resolveSurfaceBody(
   surface: WorkSurface,
-  zone: WorkZone,
   visible: boolean,
   onActivate: () => void,
 ): ReactNode {
@@ -33,7 +25,6 @@ function resolveSurfaceBody(
     return (
       <BrowserSurfaceSlot
         pageRef={surface.id}
-        zone={zone}
         visible={visible}
         onActivate={onActivate}
       />
@@ -56,7 +47,6 @@ function resolveSurfaceBody(
     return (
       <TaskEnqueueSurface
         surface={surface}
-        zone={zone}
         visible={visible}
         onActivate={onActivate}
       />
@@ -66,7 +56,6 @@ function resolveSurfaceBody(
     return (
       <NoteSurface
         surface={surface}
-        zone={zone}
         visible={visible}
         onActivate={onActivate}
       />
@@ -84,7 +73,6 @@ function resolveSurfaceBody(
 
 interface WorkbenchPaneProps {
   readonly surface: WorkSurface;
-  readonly zone: WorkZone;
   readonly visible: boolean;
   readonly paneSlot: "0" | "1" | undefined;
   readonly registerPane: (id: string, element: HTMLDivElement | null) => void;
@@ -97,7 +85,6 @@ interface WorkbenchPaneProps {
  */
 const WorkbenchPane = memo(function WorkbenchPane({
   surface,
-  zone,
   visible,
   paneSlot,
   registerPane,
@@ -121,27 +108,22 @@ const WorkbenchPane = memo(function WorkbenchPane({
       aria-hidden={!visible}
       inert={!visible}
     >
-      {resolveSurfaceBody(surface, zone, visible, onActivate)}
+      {resolveSurfaceBody(surface, visible, onActivate)}
     </div>
   );
 });
 
 /**
- * Renders every surface in the zone (keep-alive). Visible panes fill the
+ * Renders every open surface (keep-alive). Visible panes fill the
  * layout; surplus surfaces park offscreen so browser bounds zero and
  * streams stay open.
  */
-export function WorkbenchPanes({ zone }: { readonly zone: WorkZone }) {
-  // Subscribe only to fields that can change this zone's pane composition.
-  // Focus-size and pinned-width updates never reach this component, and
-  // another zone's MRU/layout changes stay outside this subscription boundary.
+export function WorkbenchPanes() {
+  // Subscribe only to fields that can change the pane composition.
+  // Focus-size updates never reach this component.
   const surfaces = use$(dock$.registry.surfaces);
-  const layout = use$(
-    zone === "focus" ? dock$.registry.focusLayout : dock$.registry.pinnedLayout,
-  );
-  const mru = use$(
-    zone === "focus" ? dock$.registry.focusMru : dock$.registry.pinnedMru,
-  );
+  const layout = use$(dock$.registry.focusLayout);
+  const mru = use$(dock$.registry.focusMru);
   const paneCount = panesForLayout(layout);
   const pane0 = mru[0];
   const pane1 = paneCount === 2 ? mru[1] : undefined;
@@ -150,7 +132,7 @@ export function WorkbenchPanes({ zone }: { readonly zone: WorkZone }) {
     [pane0, pane1].filter((id): id is string => Boolean(id)),
   );
 
-  // Front-swap entry animation (focus zone). Panes never unmount — keep-alive
+  // Front-swap entry animation. Panes never unmount — keep-alive
   // holds xterm instances and PTY leases in parked panes — so the swap is a
   // brief settle on the pane that just became front, not a mount transition.
   // Styles are cleared on finish: a lingering transform blurs the xterm canvas.
@@ -163,14 +145,13 @@ export function WorkbenchPanes({ zone }: { readonly zone: WorkZone }) {
     [],
   );
   const prevFrontRef = useRef<string | null>(null);
-  const front = zone === "focus" ? (pane0 ?? null) : null;
+  const front = pane0 ?? null;
   // Layout effect: the entry animation must start before the browser paints
   // the new front pane, or it flashes one frame at full opacity first.
   useLayoutEffect(() => {
-    if (zone !== "focus") return;
     const prev = prevFrontRef.current;
     prevFrontRef.current = front;
-    // First paint of the zone is not a swap; hidden page / reduced motion skip.
+    // First paint of the view is not a swap; hidden page / reduced motion skip.
     if (!front || prev === null || prev === front) return;
     if (!surfaceMotionLive$.peek()) return;
     // A browser pane must not move after layout: the native view is placed
@@ -194,14 +175,13 @@ export function WorkbenchPanes({ zone }: { readonly zone: WorkZone }) {
       controls.stop();
       clear();
     };
-  }, [zone, front]);
+  }, [front]);
 
   if (mru.length === 0) return null;
 
   return (
     <div
       className={["workbench-panes", `workbench-panes--${layout}`].join(" ")}
-      data-zone={zone}
     >
       {mru.map((id) => {
         const surface = surfaces.find((candidate) => candidate.id === id);
@@ -213,7 +193,6 @@ export function WorkbenchPanes({ zone }: { readonly zone: WorkZone }) {
           <WorkbenchPane
             key={id}
             surface={surface}
-            zone={zone}
             visible={visible}
             paneSlot={paneSlot}
             registerPane={registerPane}

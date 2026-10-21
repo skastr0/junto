@@ -1519,11 +1519,9 @@ function CanvasPerformanceBoundary({ children }: { readonly children: ReactNode 
 
 function CanvasGraph() {
   const { nodes, edges, onNodesChange, onEdgesChange, interactions, rf } = useCanvasGraph();
-  // Focus-zone presence (any kind) — the canvas delete/Escape keys must not
+  // Focus-view presence (any kind) — the canvas delete/Escape keys must not
   // act through an open focus surface.
-  const hasFocusSurfaces = use$(() =>
-    dock$.registry.surfaces.get().some((s) => s.zone === "focus"),
-  );
+  const hasFocusSurfaces = use$(() => dock$.registry.surfaces.get().length > 0);
   const fieldTheme = themeFor(use$(themeMode$));
   // While a connection drag is live, every card shows its dots so targets are
   // discoverable mid-gesture.
@@ -1815,9 +1813,8 @@ function CanvasGraph() {
       deleteKeyCode={
         // xyflow binds Delete/Backspace at the document level, so the chord
         // reaches the canvas even while the operator works inside a focus
-        // surface (browser page chrome, note draft chrome). While a focus-zone
-        // surface exists the canvas has no delete key; pinned docks stay out
-        // of this gate.
+        // surface (browser page chrome, note draft chrome). While a focus
+        // surface exists the canvas has no delete key.
         hasFocusSurfaces ? null : ["Backspace", "Delete"]
       }
       elevateNodesOnSelect={false}

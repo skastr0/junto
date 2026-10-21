@@ -101,10 +101,10 @@ const canvasNow = (): Canvas => modelStore.canvasOf(state$.canvasName.peek());
 /** Sticky ring anchor. Presentation state only — never persisted. */
 export const mirrorAnchor$ = observable<string | null>(null);
 
-/** Node id of the frontmost focus-zone terminal surface, if any. */
+/** Node id of the frontmost terminal surface, if any. */
 export const frontTerminalNodeId = (): string | null => {
   const registry = dock$.registry.peek();
-  const front = visiblePanes(registry, "focus").pane0;
+  const front = visiblePanes(registry).pane0;
   if (!front) return null;
   const surface = registry.surfaces.find((s) => s.id === front);
   if (!surface || surface.kind !== "terminal") return null;
@@ -123,7 +123,7 @@ export const openActorMirror = (peer: Seat, fromNodeId: string): void => {
   if (!standing || !standing.memberIds.includes(peer.id)) {
     mirrorAnchor$.set(fromNodeId);
   }
-  void openTerminal(state$.canvasName.peek(), peer.id, "focus");
+  void openTerminal(state$.canvasName.peek(), peer.id);
 };
 
 /**
@@ -140,6 +140,6 @@ export const cycleActorMirror = (direction: 1 | -1): boolean => {
   if (!nextId) return false;
   if (!canvas.nodes.has(asNodeId(nextId))) return false;
   mirrorAnchor$.set(ring.anchorId);
-  void openTerminal(state$.canvasName.peek(), nextId, "focus");
+  void openTerminal(state$.canvasName.peek(), nextId);
   return true;
 };

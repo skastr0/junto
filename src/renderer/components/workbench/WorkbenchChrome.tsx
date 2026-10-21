@@ -4,11 +4,7 @@ import {
   dock$,
   setWorkbenchLayout,
 } from "../../lib/dock-state";
-import {
-  surfaceById,
-  type LayoutMode,
-  type WorkZone,
-} from "../../lib/surface-registry";
+import { surfaceById, type LayoutMode } from "../../lib/surface-registry";
 import { surfaceLabel } from "./surface-label";
 
 const LAYOUTS: ReadonlyArray<{ mode: LayoutMode; glyph: string; title: string }> = [
@@ -18,44 +14,32 @@ const LAYOUTS: ReadonlyArray<{ mode: LayoutMode; glyph: string; title: string }>
 ];
 
 /**
- * Zone chrome: layout toggle + tab strip for surplus MRU surfaces.
+ * Focus chrome: layout toggle + tab strip for surplus MRU surfaces.
  * Tabs are non-pane surfaces (visiblePanes.tabs); clicking promotes to front.
  */
 export function WorkbenchChrome({
-  zone,
   paneIds,
   tabs,
   activeId,
 }: {
-  readonly zone: WorkZone;
   readonly paneIds: ReadonlyArray<string | undefined>;
   readonly tabs: ReadonlyArray<string>;
   readonly activeId: string | undefined;
 }) {
-  const layout = use$(() =>
-    zone === "focus"
-      ? dock$.registry.focusLayout.get()
-      : dock$.registry.pinnedLayout.get(),
-  );
-  // Re-render when this zone's surfaces change: tab labels read the registry.
+  const layout = use$(dock$.registry.focusLayout);
+  // Re-render when the open surfaces change: tab labels read the registry.
   use$(() =>
     JSON.stringify(
-      dock$.registry.surfaces
-        .get()
-        .filter((surface) => surface.zone === zone)
-        .map((surface) => [surface.id, surface.kind]),
+      dock$.registry.surfaces.get().map((surface) => [surface.id, surface.kind]),
     ),
   );
   const registry = dock$.registry.peek();
 
   const cycleLayout = () => {
-    const current =
-      zone === "focus"
-        ? dock$.registry.focusLayout.peek()
-        : dock$.registry.pinnedLayout.peek();
+    const current = dock$.registry.focusLayout.peek();
     const i = LAYOUTS.findIndex((l) => l.mode === current);
     const next = LAYOUTS[(i + 1) % LAYOUTS.length]!.mode;
-    setWorkbenchLayout(zone, next);
+    setWorkbenchLayout(next);
   };
 
   // Pane + surplus tabs in one strip (click promotes / routes keyboard).
@@ -66,12 +50,10 @@ export function WorkbenchChrome({
   const uniqueTabIds = [...new Set(allTabIds)];
 
   return (
-    <div className="workbench-chrome" data-zone={zone}>
-      <div className="workbench-chrome__tabs" role="tablist" aria-label={`${zone} surfaces`}>
+    <div className="workbench-chrome">
+      <div className="workbench-chrome__tabs" role="tablist" aria-label="focus surfaces">
         {uniqueTabIds.length === 0 ? (
-          <span className="workbench-chrome__empty">
-            {zone === "focus" ? "focus" : "pinned"}
-          </span>
+          <span className="workbench-chrome__empty">focus</span>
         ) : (
           uniqueTabIds.map((id) => {
             const surface = surfaceById(registry, id);

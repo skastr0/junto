@@ -108,7 +108,7 @@ export function FocusSurface({
   const modal = useModalLayer({
     layer: "working",
     containerRef: rootRef,
-    // A parent-contained surface shares the screen with the pinned dock.
+    // A parent-contained surface shares the screen with live chrome.
     trap: contain === "viewport",
     isolate: false,
     onClose,

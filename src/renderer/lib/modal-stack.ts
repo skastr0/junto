@@ -229,7 +229,7 @@ const onPageKey = (event: KeyboardEvent): void => {
 
 /**
  * Escape pressed while focus sits somewhere under the topmost modal (a
- * canvas node, the pinned dock). Bubble phase: a field that uses Escape
+ * canvas node). Bubble phase: a field that uses Escape
  * itself stops the event first, as it always could.
  */
 const onOutsideEscape = (event: KeyboardEvent): void => {
@@ -360,8 +360,8 @@ export const useModalLayer = ({
   readonly layer: ModalLayer;
   readonly containerRef: RefObject<HTMLElement | null>;
   /**
-   * False for a surface that shares the screen with live chrome (a docked
-   * work surface beside the pinned dock): it joins the Escape order only.
+   * False for a surface that shares the screen with live chrome (a
+   * parent-contained work surface): it joins the Escape order only.
    */
   readonly trap?: boolean;
   /**

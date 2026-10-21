@@ -17,7 +17,7 @@ import { editText } from "../../lib/mutations";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { state$ } from "../../lib/state";
 import { nodeAt } from "../../lib/use-model";
-import type { WorkSurface, WorkZone } from "../../lib/surface-registry";
+import type { WorkSurface } from "../../lib/surface-registry";
 import { Button, IconButton, Kbd, OverlayHeader } from "../ui";
 import { isMac } from "../../lib/platform";
 import { claimFocus } from "../../lib/focus-ownership";
@@ -46,12 +46,10 @@ export const discardAndCloseNoteSurface = (surfaceId: string): void => {
 
 export function NoteSurface({
   surface,
-  zone,
   visible,
   onActivate,
 }: {
   readonly surface: WorkSurface;
-  readonly zone: WorkZone;
   readonly visible: boolean;
   readonly onActivate: () => void;
 }) {
@@ -64,7 +62,7 @@ export function NoteSurface({
   );
 
   useEffect(() => {
-    if (!visible || zone !== "focus") return;
+    if (!visible) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -77,7 +75,7 @@ export function NoteSurface({
     // focus-law: Escape and Cmd+Enter are this note's own commands.
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [surface.id, visible, zone]);
+  }, [surface.id, visible]);
 
   if (!payload) {
     return (

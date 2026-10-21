@@ -107,7 +107,7 @@ const restartRunningSeat = async (
 
   if (surfaceWasOpen) {
     // The surface owns ensure + attach, and resumes the seat's session.
-    await openTerminal(next, "focus");
+    await openTerminal(next);
     return { ok: true, restarted: true };
   }
   const started = await ensureTerminalRunning(next);

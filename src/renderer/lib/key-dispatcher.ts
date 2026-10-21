@@ -65,7 +65,7 @@ export const keyContextOf = (place: KeyPlace): KeyContext => {
 
 const workingModalOpen = (): boolean =>
   state$.settingsOpen.peek() ||
-  dock$.registry.surfaces.peek().some((surface) => surface.zone === "focus");
+  dock$.registry.surfaces.peek().length > 0;
 
 type Closest = { readonly closest?: (selector: string) => unknown };
 

@@ -25,7 +25,6 @@ import {
   openDockBrowser,
   openNoteSurface,
   openTerminalSurface,
-  pinWorkbenchSurface,
   reconcileDockFromLiveSessions,
   stopDockBrowser,
   terminalSurfaceId,
@@ -56,7 +55,7 @@ describe("surface-registry (pure workbench)", () => {
     expect(t.state.focusMru[0]).toBe("c");
   });
 
-  it("re-requesting an open surface brings it to front of its zone MRU", () => {
+  it("re-requesting an open surface brings it to the front of the MRU", () => {
     let t = openSurface(initialWorkbenchState(), browserSlot("a"));
     t = openSurface(t.state, browserSlot("b"));
     const again = openSurface(t.state, browserSlot("a"));
@@ -71,7 +70,7 @@ describe("surface-registry (pure workbench)", () => {
     const t0 = openSurface(initialWorkbenchState(), browserSlot("x"));
     const t = openSurface(t0.state, { id: "x", kind: "terminal" as const });
     expect(t.evicted.map((s) => s.id)).toEqual(["x"]);
-    expect(t.state.surfaces).toEqual([{ id: "x", kind: "terminal", zone: "focus" }]);
+    expect(t.state.surfaces).toEqual([{ id: "x", kind: "terminal" }]);
   });
 
   it("closeSurface removes the slot; unknown ids are a no-op", () => {
@@ -89,19 +88,19 @@ describe("surface-registry (pure workbench)", () => {
       state = openSurface(state, browserSlot(id)).state;
     }
     // MRU front is c
-    expect(visiblePanes(state, "focus")).toEqual({
+    expect(visiblePanes(state)).toEqual({
       pane0: "c",
       pane1: undefined,
       tabs: ["b", "a"],
     });
-    state = setLayout(state, "focus", "split-v").state;
-    expect(visiblePanes(state, "focus")).toEqual({
+    state = setLayout(state, "split-v").state;
+    expect(visiblePanes(state)).toEqual({
       pane0: "c",
       pane1: "b",
       tabs: ["a"],
     });
     state = focusSurface(state, "a").state;
-    expect(visiblePanes(state, "focus").pane0).toBe("a");
+    expect(visiblePanes(state).pane0).toBe("a");
   });
 
   it("focusing the frontmost surface preserves the identical state", () => {
@@ -120,22 +119,22 @@ describe("surface-registry (pure workbench)", () => {
     expect(isInteractiveSurface("note")).toBe(true);
   });
 
-  it("keys remembered focus width by surface family so pin/resize cannot poison enqueue", () => {
+  it("keys remembered focus width by surface family so a resize cannot poison enqueue", () => {
     expect(
-      workFocusSizeKeyForSurfaces([{ id: "t1", kind: "terminal", zone: "focus" }]),
+      workFocusSizeKeyForSurfaces([{ id: "t1", kind: "terminal" }]),
     ).toBe("terminal");
     expect(
       workFocusSizeKeyForSurfaces([
-        { id: "task-create:x", kind: "task-create", zone: "focus" },
+        { id: "task-create:x", kind: "task-create" },
       ]),
     ).toBe("task-create");
     expect(
-      workFocusSizeKeyForSurfaces([{ id: "note:n1", kind: "note", zone: "focus" }]),
+      workFocusSizeKeyForSurfaces([{ id: "note:n1", kind: "note" }]),
     ).toBe("document");
     expect(
       workFocusSizeKeyForSurfaces([
-        { id: "t1", kind: "terminal", zone: "focus" },
-        { id: "task-create:x", kind: "task-create", zone: "focus" },
+        { id: "t1", kind: "terminal" },
+        { id: "task-create:x", kind: "task-create" },
       ]),
     ).toBe("workspace");
 
@@ -256,7 +255,7 @@ describe("dock-state", () => {
     const ref = refOf("n1");
     await openDockBrowser(ref, payloadOf("n1", "https://example.com", "Example"));
     expect(dock$.registry.peek().surfaces).toEqual([
-      { id: ref, kind: "browser", zone: "focus" },
+      { id: ref, kind: "browser" },
     ]);
     expect(dock$.browserByRef.peek()[ref]).toMatchObject({ url: "https://example.com" });
     expect(mock.browserOpen).toHaveBeenCalledWith({ ref });
@@ -276,7 +275,7 @@ describe("dock-state", () => {
     openNoteSurface({ ...node, text: "Field notes\n\nProjection update" });
 
     expect(dock$.registry.peek().surfaces).toEqual([
-      { id, kind: "note", zone: "focus" },
+      { id, kind: "note" },
     ]);
     expect(dock$.noteById[id].peek()).toMatchObject({
       nodeId: "note-1",
@@ -300,7 +299,7 @@ describe("dock-state", () => {
     saveNoteSurfaceDraft(id);
 
     expect(dock$.registry.peek().surfaces).toEqual([
-      { id, kind: "note", zone: "focus" },
+      { id, kind: "note" },
     ]);
     expect(modelStore.node$(state$.canvasName.peek(), node.id).peek()).toMatchObject({
       text: "Focus-safe note\n\nStill open after canvas flush",
@@ -395,7 +394,7 @@ describe("dock-state", () => {
     expect(mock.browserStop).toHaveBeenCalledTimes(1);
     expect(browser$.sessionByRef[ref].peek()?.sessionId).toBe("replacement-handle");
     expect(dock$.registry.peek().surfaces).toEqual([
-      { id: ref, kind: "browser", zone: "focus" },
+      { id: ref, kind: "browser" },
     ]);
     expect(dock$.opErrorByRef[ref].peek()).toEqual({
       op: "stop",
@@ -418,7 +417,7 @@ describe("dock-state", () => {
 
     expect(mock.browserStop).toHaveBeenCalledWith("session-1");
     expect(dock$.registry.peek().surfaces).toEqual([
-      { id: ref, kind: "browser", zone: "focus" },
+      { id: ref, kind: "browser" },
     ]);
     expect(browser$.sessionByRef[ref].peek()?.sessionId).toBe("session-1");
     expect(dock$.opErrorByRef[ref].peek()).toEqual({
@@ -504,7 +503,7 @@ describe("dock-state", () => {
     expect(mock.browserStop).toHaveBeenCalledWith("stale-handle");
     expect(browser$.sessionByRef[ref].peek()?.sessionId).toBe("replacement-handle");
     expect(dock$.registry.peek().surfaces).toEqual([
-      { id: ref, kind: "browser", zone: "focus" },
+      { id: ref, kind: "browser" },
     ]);
     expect(dock$.opErrorByRef[ref].peek()).toEqual({
       op: "stop",
@@ -550,7 +549,7 @@ describe("dock-state", () => {
     // The slot still exists (the operator can see and close it), and the
     // refusal is visible instead of an endless "waiting for session…".
     expect(dock$.registry.peek().surfaces).toEqual([
-      { id: ref, kind: "browser", zone: "focus" },
+      { id: ref, kind: "browser" },
     ]);
     expect(dock$.opErrorByRef[ref].peek()).toEqual({
       op: "open",
@@ -735,7 +734,7 @@ describe("dock-state", () => {
     });
     await reconcileDockFromLiveSessions();
     expect(dock$.registry.peek().surfaces).toEqual([
-      { id: attachedRef, kind: "browser", zone: "focus" },
+      { id: attachedRef, kind: "browser" },
     ]);
     expect(dock$.browserByRef[attachedRef].peek()?.nodeId).toBe("attached");
     expect(browser$.sessionByRef[attachedRef].peek()?.sessionId).toBe("attached-handle");
@@ -743,39 +742,28 @@ describe("dock-state", () => {
   });
 
 
-  describe("native terminal open zone", () => {
-    it("opens into focus by default", () => {
+  describe("native terminal open", () => {
+    it("opens into the focus view", () => {
       const node = nativeTerminalNode("t1");
       openTerminalSurface(node);
       expect(dock$.registry.peek().surfaces).toEqual([
-        { id: terminalSurfaceId("t1"), kind: "terminal", zone: "focus" },
+        { id: terminalSurfaceId("t1"), kind: "terminal" },
       ]);
     });
 
     it("a manual tab activation survives later terminal opens", () => {
-      openTerminalSurface(nativeTerminalNode("t1"), "focus");
-      openTerminalSurface(nativeTerminalNode("t2"), "focus");
+      openTerminalSurface(nativeTerminalNode("t1"));
+      openTerminalSurface(nativeTerminalNode("t2"));
       // Operator clicks tab t1.
       focusWorkbenchSurface(terminalSurfaceId("t1"));
       // A later open brings only the newly opened terminal forward; the
       // operator's choice stays ahead of t2.
-      openTerminalSurface(nativeTerminalNode("t3"), "focus");
+      openTerminalSurface(nativeTerminalNode("t3"));
       expect(dock$.registry.peek().focusMru).toEqual([
         terminalSurfaceId("t3"),
         terminalSurfaceId("t1"),
         terminalSurfaceId("t2"),
       ]);
-    });
-  });
-
-  describe("pinning is off: nothing enters the pinned zone", () => {
-    it("an open asked for as pinned lands in the focus view, and Pin does nothing", () => {
-      openTerminalSurface(nativeTerminalNode("t1"), "pinned");
-      const id = terminalSurfaceId("t1");
-      expect(dock$.registry.peek().surfaces).toEqual([{ id, kind: "terminal", zone: "focus" }]);
-      pinWorkbenchSurface(id);
-      expect(dock$.registry.peek().surfaces).toEqual([{ id, kind: "terminal", zone: "focus" }]);
-      expect(dock$.registry.peek().pinnedMru).toEqual([]);
     });
   });
 
@@ -797,7 +785,7 @@ describe("dock-state", () => {
     it("one press closes a stack of cycled mirror terminals, views included", () => {
       // Mirror cycling: three actors opened in sequence, all parked in focus.
       for (const id of ["t1", "t2", "t3"]) {
-        openTerminalSurface(nativeTerminalNode(id), "focus");
+        openTerminalSurface(nativeTerminalNode(id));
       }
       expect(dock$.registry.peek().surfaces).toHaveLength(3);
       closeFocusModalSurface(terminalSurfaceId("t3"));
@@ -806,11 +794,11 @@ describe("dock-state", () => {
     });
 
     it("with tab chrome visible (mixed kinds) close stays per-surface", () => {
-      openTerminalSurface(nativeTerminalNode("t1"), "focus");
+      openTerminalSurface(nativeTerminalNode("t1"));
       openNoteSurface(modelNote("note-1", "Field notes", { width: 240, height: 160 }));
       closeFocusModalSurface(terminalSurfaceId("t1"));
       expect(dock$.registry.peek().surfaces).toEqual([
-        { id: noteSurfaceId("note-1"), kind: "note", zone: "focus" },
+        { id: noteSurfaceId("note-1"), kind: "note" },
       ]);
     });
   });

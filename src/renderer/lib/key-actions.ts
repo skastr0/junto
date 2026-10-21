@@ -33,7 +33,7 @@ const frontNode = (): { readonly id: string } | undefined => {
 const railInFront = (): boolean => {
   const registry = dock$.registry.peek();
   const front = registry.surfaces.find((surface) => surface.id === registry.focusMru[0]);
-  const nodeId = front?.kind === "terminal" && front.zone === "focus" ? parseTerminalSurfaceId(front.id) : null;
+  const nodeId = front?.kind === "terminal" ? parseTerminalSurfaceId(front.id) : null;
   return nodeId !== null && actorRailMode(modelStore.canvasOf(state$.canvasName.peek()), nodeId, actorRailExpanded()) !== "none";
 };
 

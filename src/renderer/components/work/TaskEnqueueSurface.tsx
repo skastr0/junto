@@ -4,7 +4,7 @@ import { X } from "lucide-react";
 import type { Part, WorkMetadata } from "@shared/work-model";
 import type { TaskCreateOptions, WorkOpResult } from "@shared/ipc";
 import { resolveTaskAdmission } from "@shared/work-model";
-import type { WorkSurface, WorkZone } from "../../lib/surface-registry";
+import type { WorkSurface } from "../../lib/surface-registry";
 import {
   closeWorkbenchSurface,
   dock$,
@@ -28,17 +28,15 @@ const runWorkMutation = <T,>(
 
 /**
  * Workbench pane: quick enqueue for a tasks sink.
- * Pin-able, coexists with a pinned terminal (and vice versa).
+ * Coexists with a terminal in a split (and vice versa).
  * Successful create clears the form and keeps the surface open.
  */
 export function TaskEnqueueSurface({
   surface,
-  zone,
   visible,
   onActivate,
 }: {
   readonly surface: WorkSurface;
-  readonly zone: WorkZone;
   readonly visible: boolean;
   readonly onActivate: () => void;
 }) {
