@@ -14,8 +14,12 @@ import {
   contentPullPieceLength,
   contentPullRefusal,
   contentPullRefused,
+  seatReachesResource,
   type ContentPullFacts,
 } from "../src/shared/content-pull";
+import { asNodeId } from "../src/shared/model";
+import type { NodeKind } from "../src/shared/model/kinds";
+import type { ReachCanvas } from "../src/shared/region-reach";
 import { LINK_FRAME_MAX_BYTES } from "../src/shared/exchange-bounds";
 
 const request = (over: Record<string, unknown> = {}): ContentPullRequest =>
@@ -90,5 +94,32 @@ describe("a piece", () => {
     const decode = Schema.decodeUnknownResult(ContentPullPiece);
     expect(decode({ offset: 0, bytes: "not base64!" })._tag).toBe("Failure");
     expect(decode({ offset: 0, bytes: Buffer.alloc(CONTENT_PULL_PIECE_BYTES + 3).toString("base64") })._tag).toBe("Failure");
+  });
+});
+
+describe("a seat's reach, the one mint", () => {
+  const node = (id: string, kind: NodeKind, x: number, y: number, width = 50, height = 50) =>
+    ({ id: asNodeId(id), kind, x, y, width, height });
+  // Region A holds seat S, its page P, its artifacts R and a note N; region B, beside it, holds page PB.
+  const canvas: ReachCanvas = {
+    nodes: new Map([
+      node("A", "region", 0, 0, 1000, 1000), node("B", "region", 2000, 0, 500, 500),
+      node("S", "agent", 20, 20), node("P", "page", 100, 20), node("R", "artifacts", 200, 20), node("N", "note", 300, 20),
+      node("PB", "page", 2010, 10),
+    ].map((n) => [n.id, n])),
+  };
+  const mint = (seat: string, target: string) => seatReachesResource("factory", canvas, asNodeId(seat), asNodeId(target));
+
+  it("mints for a page or a resource node in the seat's reach", () => {
+    expect(mint("S", "P")).toEqual({ canvasName: "factory", resourceId: "P" });
+    expect(mint("S", "R")).toEqual({ canvasName: "factory", resourceId: "R" });
+  });
+
+  it("mints nothing for a page out of reach, a non-agent asker, or a node of no pullable kind", () => {
+    expect(mint("S", "PB")).toBeUndefined();
+    expect(mint("P", "R")).toBeUndefined();
+    expect(mint("R", "P")).toBeUndefined();
+    expect(mint("S", "N")).toBeUndefined();
+    expect(mint("S", "missing")).toBeUndefined();
   });
 });

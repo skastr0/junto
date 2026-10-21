@@ -11,7 +11,7 @@
  * workspace. Removed by the operator, it reads removed and is never pulled.
  */
 import { Effect, Option } from "effect";
-import { seatReachesPage } from "@shared/content-pull";
+import { seatReachesResource } from "@shared/content-pull";
 import { mailThreadOf } from "@shared/crew";
 import type { Canvas } from "@shared/model";
 import { asNodeId } from "@shared/physics/schema";
@@ -60,7 +60,7 @@ export const seatPageShot = (
     const owner = seatShotOwner(at.canvasName, message);
     if (ref === undefined || owner === undefined) return undefined;
     // Reach is the page's: the pull keeps the body under the resource reached.
-    const reached = seatReachesPage(at.canvasName, at.canvas, asNodeId(at.seatNodeId), asNodeId(owner.nodeId));
+    const reached = seatReachesResource(at.canvasName, at.canvas, asNodeId(at.seatNodeId), asNodeId(owner.nodeId));
     if (reached === undefined) return undefined;
     // Unknown counts as purged: a shot that might be removed is never shown.
     const work = yield* Effect.serviceOption(WorkRepository);

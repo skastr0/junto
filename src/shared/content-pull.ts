@@ -15,7 +15,7 @@
  * a store path.
  */
 import { Schema } from "effect";
-import { reaches, resourcesInReach, type ReachCanvas } from "./region-reach";
+import { RESOURCE_KINDS, reaches, type ReachCanvas } from "./region-reach";
 import type { NodeId } from "./model/base";
 import { WorkCanvasName } from "./work-reference";
 import { ContentByteLength, ContentSha256 } from "./wire/content-ref";
@@ -148,32 +148,29 @@ declare const reachBrand: unique symbol;
  */
 export type ResourceReached = { readonly canvasName: string; readonly resourceId: NodeId; readonly [reachBrand]: true };
 
-/** A seat asks: the resource must be in its reach (src/shared/region-reach.ts). */
+/**
+ * The nodes whose bytes a seat may pull: the resource nodes, and a page for
+ * its box comments' shots (a page is commentable, not a resource). Closed: a
+ * kind joins here, in the one mint below, or a seat never reaches it.
+ */
+export const REACHABLE_PULL_KINDS = [...RESOURCE_KINDS, "page"] as const;
+const isReachablePullKind = (kind: string): boolean => (REACHABLE_PULL_KINDS as ReadonlyArray<string>).includes(kind);
+
+/**
+ * A seat asks: the node must be one of those kinds and in its reach
+ * (`reaches`, region-reach.ts). The one mint of a seat's ResourceReached.
+ */
 export const seatReachesResource = (
   canvasName: string,
   canvas: ReachCanvas,
   seatId: NodeId,
   resourceId: NodeId,
-): ResourceReached | undefined =>
-  resourcesInReach(canvas, seatId).some((node) => node.id === resourceId)
+): ResourceReached | undefined => {
+  const node = canvas.nodes.get(resourceId);
+  return canvas.nodes.get(seatId)?.kind === "agent" && node !== undefined && isReachablePullKind(node.kind) && reaches(canvas, seatId, resourceId)
     ? ({ canvasName, resourceId } as ResourceReached)
     : undefined;
-
-/**
- * A seat asks for a page box comment's shot: the page must be in its reach
- * as the page's comment thread is (`reaches`, the comment path's own rule).
- * A page is commentable, not a resource, so `seatReachesResource` never
- * admits it.
- */
-export const seatReachesPage = (
-  canvasName: string,
-  canvas: ReachCanvas,
-  seatId: NodeId,
-  pageId: NodeId,
-): ResourceReached | undefined =>
-  canvas.nodes.get(seatId)?.kind === "agent" && canvas.nodes.get(pageId)?.kind === "page" && reaches(canvas, seatId, pageId)
-    ? ({ canvasName, resourceId: pageId } as ResourceReached)
-    : undefined;
+};
 
 /** The operator asks: every resource of a canvas is in the operator's reach. */
 export const operatorReachesResource = (canvasName: string, resourceId: NodeId): ResourceReached =>
