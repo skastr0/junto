@@ -128,9 +128,10 @@ const api = (): BrowserApi | undefined => getJuntoApi() as BrowserApi | undefine
  */
 const detachCurrentSession = (ref: string): void => {
   const sessionId = browserSessionIdForRef(ref);
-  if (!sessionId) return;
   const a = api();
   if (!a?.browserClose) return;
+  void detachShownViews(ref, sessionId);
+  if (!sessionId) return;
   a.browserClose(sessionId)
     .then((result: BrowserOpResult<BrowserSessionInfo>) => {
       if (browserSessionIdForRef(ref) !== sessionId) return;
@@ -156,6 +157,39 @@ const detachCurrentSession = (ref: string): void => {
         message: "The page could not be detached.",
       });
     });
+};
+
+/**
+ * Close takes the page's view down with its surface, whatever handle the
+ * surface held. Each tab is its own session, and the attached one may not be
+ * the cached one (no handle yet, or a tab shown while a push was in flight),
+ * so main's list names each attached view of this exact ref and each is
+ * detached by its own handle, unless the page opened again meanwhile. The
+ * cached handle is closed by the caller, with its failure reported.
+ */
+const detachShownViews = async (ref: string, closing: string | undefined): Promise<void> => {
+  const a = api();
+  if (!a?.browserSessionList || !a.browserClose) return;
+  let listed: BrowserOpResult<ReadonlyArray<BrowserSessionInfo>>;
+  try {
+    listed = await a.browserSessionList();
+  } catch {
+    return;
+  }
+  if (!listed.ok || !listed.data) return;
+  for (const session of listed.data) {
+    if (!isUsableBrowserSession(session) || session.ref !== ref || !session.attached) continue;
+    if (session.sessionId === closing) continue;
+    if (surfaceById(dock$.registry.peek(), ref)) return;
+    const shown = session.sessionId;
+    void a
+      .browserClose(shown)
+      .then((result: BrowserOpResult<BrowserSessionInfo>) => {
+        if (result.ok || result.code === "not_found") return;
+        void a.browserSetBounds?.(shown, { ...BROWSER_ZERO_BOUNDS }).catch(() => undefined);
+      })
+      .catch(() => undefined);
+  }
 };
 
 /**

@@ -712,6 +712,70 @@ describe("dock-state", () => {
     expect(mock.browserClose).toHaveBeenCalledWith("warm-handle");
   });
 
+  // The operator's Close always takes the page view down with the modal, even
+  // when the surface was "waiting for session" with no handle of its own.
+  it("Close with no handle detaches the page's attached view by its exact handle", async () => {
+    const ref = refOf("close-unbound");
+    const mock = installMockJunto({
+      browserSessionList: vi.fn(async () => ({
+        ok: true,
+        data: [
+          baseSession(ref, "close-unbound", "shown-tab", { attached: true, state: "ready" }),
+          baseSession(ref, "close-unbound", "hidden-tab", { attached: false, state: "ready" }),
+          baseSession(refOf("other-page"), "other-page", "other-shown", { attached: true, state: "ready" }),
+        ],
+      })),
+    });
+    dock$.browserByRef[ref].set(payloadOf("close-unbound", "https://a.example.com", "A"));
+    dock$.registry.set(openSurface(dock$.registry.peek(), browserSlot(ref)).state);
+
+    closeDockBrowser(ref);
+    await vi.waitFor(() => expect(mock.browserClose).toHaveBeenCalledWith("shown-tab"));
+
+    expect(dock$.registry.peek().surfaces).toEqual([]);
+    expect(mock.browserClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("Close detaches the shown tab when the cached handle is another tab of the page", async () => {
+    const ref = refOf("close-tabbed");
+    const mock = installMockJunto({
+      browserSessionList: vi.fn(async () => ({
+        ok: true,
+        data: [
+          baseSession(ref, "close-tabbed", "closed-tab", { attached: false, state: "ready" }),
+          baseSession(ref, "close-tabbed", "shown-tab", { attached: true, state: "ready" }),
+        ],
+      })),
+    });
+    dock$.browserByRef[ref].set(payloadOf("close-tabbed", "https://a.example.com", "A"));
+    dock$.registry.set(openSurface(dock$.registry.peek(), browserSlot(ref)).state);
+    cacheBrowserSession(baseSession(ref, "close-tabbed", "closed-tab", { state: "ready" }));
+
+    closeDockBrowser(ref);
+    await vi.waitFor(() => expect(mock.browserClose).toHaveBeenCalledWith("shown-tab"));
+    expect(mock.browserClose).toHaveBeenCalledWith("closed-tab");
+    expect(mock.browserClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("Close leaves the view alone when the page opened again before main listed it", async () => {
+    const ref = refOf("close-reopened");
+    let answer: ((result: BrowserOpResult<ReadonlyArray<BrowserSessionInfo>>) => void) | undefined;
+    const mock = installMockJunto({
+      browserSessionList: vi.fn(
+        () => new Promise<BrowserOpResult<ReadonlyArray<BrowserSessionInfo>>>((resolve) => (answer = resolve)),
+      ),
+    });
+    dock$.browserByRef[ref].set(payloadOf("close-reopened", "https://a.example.com", "A"));
+    dock$.registry.set(openSurface(dock$.registry.peek(), browserSlot(ref)).state);
+
+    closeDockBrowser(ref);
+    dock$.registry.set(openSurface(dock$.registry.peek(), browserSlot(ref)).state);
+    answer?.({ ok: true, data: [baseSession(ref, "close-reopened", "shown-tab", { attached: true, state: "ready" })] });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mock.browserClose).not.toHaveBeenCalled();
+  });
+
   it("degrades quietly when window.junto is absent", async () => {
     const ref = refOf("n1");
     await expect(openDockBrowser(ref, payloadOf("n1", "https://a.example.com", "A", "p"))).resolves.toBeUndefined();
