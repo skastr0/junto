@@ -89,7 +89,8 @@ export const wiresAt = (canvas: Canvas, id: NodeId): ReadonlyArray<Wire> => {
 // Membership is one rule everywhere: a thing is inside a region only when its
 // whole rectangle lies inside the region's. It is worked out, never stored.
 
-const contains = (region: Frame, rect: Frame): boolean =>
+/** The one membership test: `rect` lies wholly inside `region`. */
+export const frameContains = (region: Frame, rect: Frame): boolean =>
   rect.x >= region.x &&
   rect.y >= region.y &&
   rect.x + rect.width <= region.x + region.width &&
@@ -110,7 +111,7 @@ export const regionStack = (canvas: Placed, target: NodeId | Frame): ReadonlyArr
   const rect = typeof target === "string" ? canvas.nodes.get(target) : target;
   if (rect === undefined) return [];
   return nodesOf(canvas, "region")
-    .filter((region) => region.id !== self && contains(region, rect))
+    .filter((region) => region.id !== self && frameContains(region, rect))
     .sort((a, b) => b.width * b.height - a.width * a.height || a.id.localeCompare(b.id));
 };
 
@@ -118,7 +119,7 @@ export const regionStack = (canvas: Placed, target: NodeId | Frame): ReadonlyArr
 export const regionMembers = (canvas: Placed, region: Region): ReadonlyArray<Node> => {
   const found: Array<Node> = [];
   for (const node of canvas.nodes.values()) {
-    if (node.kind !== "region" && contains(region, node)) found.push(node);
+    if (node.kind !== "region" && frameContains(region, node)) found.push(node);
   }
   return found;
 };
@@ -126,5 +127,5 @@ export const regionMembers = (canvas: Placed, region: Region): ReadonlyArray<Nod
 /** Regions wholly inside this one, at any depth. */
 export const regionsInside = (canvas: Placed, region: Region): ReadonlyArray<Region> =>
   nodesOf(canvas, "region").filter(
-    (candidate) => candidate.id !== region.id && contains(region, candidate),
+    (candidate) => candidate.id !== region.id && frameContains(region, candidate),
   );
