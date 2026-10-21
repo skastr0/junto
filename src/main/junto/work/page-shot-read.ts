@@ -2,9 +2,11 @@
  * The read of a page box comment's shot on the machine that holds it (plan
  * 06, B7, remote-security's ruling, condition 5). The row names the shot
  * (`pageShotOf`, never raw metadata); naming is not holding, so the bytes
- * are served only while a comment in that thread on that page holds its
- * claim. The bytes are judged again from the store's own file before
- * anything shows them: digest, size, a PNG header, 2 MiB and 4096 pixels.
+ * are served only while the thread's root comment on that page holds its
+ * claim. A reply copies its root's subject, and the root's id is the
+ * thread's, so one row read by id is all a read costs. The bytes are
+ * judged again from the store's own file before anything shows them:
+ * digest, size, a PNG header, 2 MiB and 4096 pixels.
  *
  * Reach is the caller's: the operator reaches every node. A seat's read
  * goes through its own reach check before it asks.
@@ -31,7 +33,7 @@ export type PageShotRead =
   | { readonly ok: true; readonly ref: ContentRef; readonly bytes: Buffer }
   /** No such comment, or it names no shot. */
   | { readonly ok: false; readonly reason: "not-named" }
-  /** The comment names a shot nobody in its thread holds, or the store has no good copy. */
+  /** The comment names a shot its thread's root no longer holds, or the store has no good copy. */
   | { readonly ok: false; readonly reason: "missing" };
 
 const notNamed = { ok: false, reason: "not-named" } as const;
@@ -39,15 +41,13 @@ const missing = { ok: false, reason: "missing" } as const;
 
 export const readPageShot = (at: PageShotAt): Effect.Effect<PageShotRead, never, WorkService | ContentService> =>
   Effect.gen(function* () {
-    const rows = yield* Effect.flatMap(WorkService, (work) => work.readMailbox(at.canvasName, at.nodeId)).pipe(
-      Effect.orElseSucceed(() => []),
+    const row = yield* Effect.flatMap(WorkService, (work) => work.readMailMessage(at.canvasName, at.nodeId, at.messageId)).pipe(
+      Effect.orElseSucceed(() => undefined),
     );
-    const row = rows.find((message) => message.messageId === at.messageId);
     const ref = row === undefined ? undefined : pageShotOf(row);
     if (row === undefined || ref === undefined) return notNamed;
-    // A reply copies its root's subject: the claim is held by a comment in the same thread.
-    const thread = mailThreadOf(row);
-    const inThread = new Set(rows.filter((message) => mailThreadOf(message) === thread).map((message) => message.messageId));
+    // The root took the shot and holds the claim; its id is the thread's.
+    const root = mailThreadOf(row);
     const content = yield* ContentService;
     const owners = yield* content.listRefs(ref.sha256).pipe(Effect.orElseSucceed(() => []));
     const held = owners.some(
@@ -56,7 +56,7 @@ export const readPageShot = (at: PageShotAt): Effect.Effect<PageShotRead, never,
         owned.owner.kind === "message" &&
         owned.owner.canvasName === at.canvasName &&
         owned.owner.nodeId === at.nodeId &&
-        inThread.has(owned.owner.recordId),
+        owned.owner.recordId === root,
     );
     if (!held || ref.byteLength > PAGE_SHOT_MAX_BYTES) return missing;
     const opened = yield* content.openForRead(ref).pipe(Effect.orElseSucceed(() => undefined));
