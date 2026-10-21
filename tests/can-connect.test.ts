@@ -8,8 +8,11 @@ import { note, region, seat, taskBoard } from "./support/model-nodes";
 describe("canConnect", () => {
   it("admits a pair the verb grammar gives a verb", () => {
     expect(canConnect(seat("a"), seat("b"))).toBe(true);
-    expect(canConnect(seat("a"), taskBoard("t"))).toBe(true);
     expect(canConnect(taskBoard("t"), taskBoard("u"))).toBe(true);
+  });
+
+  it("refuses a seat to a task board: the seat reaches it by region, not a wire", () => {
+    expect(canConnect(seat("a"), taskBoard("t"))).toBe(false);
   });
 
   it("refuses a missing end, a region, and a card that only sits there", () => {
