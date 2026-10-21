@@ -6,21 +6,17 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V43_IDENTITY,
   STATE_SCHEMA_V44_IDENTITY,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import { STATE_SCHEMA_V43_SQL, STATE_SCHEMA_V44_SQL } from "./fixtures/state-v13/schema";
 
 describe("state step 43 to 44: the automation ruling cursors", () => {
-  it("starts from the version-43 witness and ends at the version-44 one, which is the head", () => {
+  it("starts from the version-43 witness and ends at the version-44 one", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V43_SQL)).toEqual(STATE_SCHEMA_V43_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V44_SQL)).toEqual(STATE_SCHEMA_V44_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V44_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V44_IDENTITY);
   });
 
   it("adds the cursor table, one decimal seq per canvas, and nothing else", () => {

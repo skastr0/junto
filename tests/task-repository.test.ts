@@ -306,6 +306,19 @@ describe("task repository", () => {
     expect(archived.tasks[0]!.current.archivedFrom).toBe("canceled");
   });
 
+  it("keeps a finish's evidence and handoff note on the head, and on the layer it closes", async () => {
+    const { taskId } = await create("noted");
+    applied(await submit(command({ kind: "assign", seat: ada }, taskId)));
+    applied(await submit(command({ kind: "start" }, taskId, { actor: adaActor })));
+    const evidence = { artifacts: [], git: { commits: ["2e219a5ca"] } };
+    const flowing = env({ downstream: () => [qa] });
+    applied(await submit(command({ kind: "finish", evidence, handoff: "over to qa" }, taskId, { actor: adaActor }), flowing));
+    const read = Option.getOrThrow(await withRepo((repo) => repo.get(canvas, taskId)));
+    expect(read.current.evidence).toBeUndefined();
+    expect(read.layers).toHaveLength(1);
+    expect(read.layers[0]).toMatchObject({ state: "done", evidence, handoff: "over to qa" });
+  });
+
   it("refuses a finish while a dependency is unfinished, and admits it once that is done", async () => {
     const bo = seatNodeId(asNodeId("seat-bo"));
     const boActor: ResourceActor = { kind: "seat", seatId: `seat_${"b".repeat(64)}` as never, nodeId: bo };
@@ -324,6 +337,8 @@ describe("task repository", () => {
     applied(await submit(command({ kind: "finish" }, dep, { actor: boActor })));
     applied(await submit(command({ kind: "archive" }, dep)));
     expect(Option.getOrThrow(await withRepo((repo) => repo.get(canvas, dep))).current.archivedFrom).toBe("done");
-    expect(applied(await submit(command({ kind: "finish" }, taskId, { actor: adaActor }))).task.state).toBe("done");
+    const done = applied(await submit(command({ kind: "finish", handoff: "both landed" }, taskId, { actor: adaActor })));
+    expect(done.task.state).toBe("done");
+    expect(Option.getOrThrow(await withRepo((repo) => repo.get(canvas, taskId))).current.handoff).toBe("both landed");
   });
 });

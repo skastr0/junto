@@ -12,6 +12,9 @@
  * - `archived_from` is the closed state an archived task was archived from,
  *   so a dependency on it is met only when it was done; null on a task
  *   archived before state step 43 kept it.
+ * - `evidence_json` and `handoff` are what the finish that ruled cited and
+ *   the note it left; null until a finish, and again once changes are asked.
+ *   A closed layer keeps its own in `layer_json`.
  * - `task_numbers` is the next number the ruler mints on a canvas.
  *
  * Rulings go in the shared `resource_rulings` table (02), with every domain's.
@@ -37,6 +40,8 @@ export const TASKS_STATE_SCHEMA_SQL = `
     depends_on_json TEXT NOT NULL CHECK (json_valid(depends_on_json)),
     next_node_id TEXT CHECK (next_node_id IS NULL OR length(next_node_id) BETWEEN 1 AND 256),
     archived_from TEXT CHECK (archived_from IS NULL OR (state = 'archived' AND archived_from IN ('done', 'canceled'))),
+    evidence_json TEXT CHECK (evidence_json IS NULL OR json_valid(evidence_json)),
+    handoff TEXT CHECK (handoff IS NULL OR length(handoff) BETWEEN 1 AND 4096),
     created_at INTEGER NOT NULL CHECK (created_at >= 0),
     updated_at INTEGER NOT NULL CHECK (updated_at >= created_at),
     state_since INTEGER NOT NULL CHECK (state_since BETWEEN created_at AND updated_at),

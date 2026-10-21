@@ -122,6 +122,12 @@ describe("task command wire", () => {
   const kinds = new Map<string, "agent" | "task" | "region">([["agent-1", "agent"], ["task-2", "task"], ["region-3", "region"]]);
   const kindOf = (id: string) => kinds.get(id);
 
+  it("decodes a finish's handoff note up to 4096 characters, and refuses an empty or longer one", () => {
+    expect(Result.isSuccess(decode({ kind: "finish", handoff: "x".repeat(4096) }))).toBe(true);
+    expect(Result.isFailure(decode({ kind: "finish", handoff: "x".repeat(4097) }))).toBe(true);
+    expect(Result.isFailure(decode({ kind: "finish", handoff: "" }))).toBe(true);
+  });
+
   it("decodes a create with a caller-minted id and refuses an empty title or an extra key", () => {
     expect(Result.isSuccess(decode({ kind: "create", taskId: "01M5ETKKW2KX682NBXQZYA69MY", title: "Fix tabs" }))).toBe(true);
     expect(Result.isFailure(decode({ kind: "create", taskId: "01M5ETKKW2KX682NBXQZYA69MY", title: "" }))).toBe(true);

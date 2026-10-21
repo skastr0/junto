@@ -14,7 +14,7 @@
  */
 import { Schema } from "effect";
 import type { TaskCommandKind, TaskState, TaskView } from "./task-model";
-import { CHECK_RESULTS_MAX, STAMPS_REQUIRED_MAX, TASK_STATES } from "./task-model";
+import { CHECK_RESULTS_MAX, Handoff, STAMPS_REQUIRED_MAX, TASK_STATES } from "./task-model";
 import type { WorkErrorBody } from "./work-control";
 import { CompletionEvidence } from "./work-model";
 import type { RuleInForce } from "./rules";
@@ -127,6 +127,8 @@ export const TaskFinishArgs = Schema.Struct({
   next: Schema.optionalKey(TaskNodeText),
   /** What answers the rules in force on the task's node: cited artifacts and commits, and a claim per rule. */
   evidence: Schema.optionalKey(CompletionEvidence),
+  /** A note for whoever picks the work up next; the task keeps it with the layer. */
+  handoff: Schema.optionalKey(Handoff),
 }).annotate(strict);
 export type TaskFinishArgs = typeof TaskFinishArgs.Type;
 

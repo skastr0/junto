@@ -210,7 +210,7 @@ const resolveNext = (
 };
 
 /** The task without the keys named, still typed as the task: those keys are optional on it. */
-const without = <T extends TaskCore>(task: T, ...keys: ReadonlyArray<"assignee" | "next" | "checks">): T => {
+const without = <T extends TaskCore>(task: T, ...keys: ReadonlyArray<"assignee" | "next" | "checks" | "evidence" | "handoff">): T => {
   const rest: Partial<T> = { ...task };
   for (const key of keys) delete rest[key];
   return rest as T;
@@ -226,6 +226,8 @@ const layerOf = (task: TaskCore): TaskCore => ({
   reviewers: task.reviewers,
   stamps: task.stamps,
   ...(task.checks !== undefined ? { checks: task.checks } : {}),
+  ...(task.evidence !== undefined ? { evidence: task.evidence } : {}),
+  ...(task.handoff !== undefined ? { handoff: task.handoff } : {}),
 });
 
 /**
@@ -246,7 +248,7 @@ const layerRules = <T extends TaskCore>(ctx: TaskContext) => {
     if (task.next === undefined) return rule(closed);
     return rule(
       {
-        ...without(closed, "assignee", "checks"),
+        ...without(closed, "assignee", "checks", "evidence", "handoff"),
         state: "backlog",
         node: task.next,
         epoch: task.epoch + 1,
@@ -317,7 +319,9 @@ export const ruleTaskCommand = <T extends TaskCore>(
       return rule({ ...task, state: "assigned", assignee: command.seat }, [{ kind: "assignment-notice", seat: command.seat }]);
     }
     case "unassign":
-      return isOpenTaskState(task.state) ? rule({ ...without(task, "assignee", "next"), state: "backlog" }) : illegal(task, command);
+      return isOpenTaskState(task.state)
+        ? rule({ ...without(task, "assignee", "next", "evidence", "handoff"), state: "backlog" })
+        : illegal(task, command);
     case "start":
       return task.state === "assigned" ? rule({ ...task, state: "working" }) : illegal(task, command);
     case "pause":
@@ -337,7 +341,14 @@ export const ruleTaskCommand = <T extends TaskCore>(
       // Rules first, then checks: each a refusal of its own.
       const checks = ctx.checksUnmet?.(next.next, (task.checks ?? []).filter((run) => run.epoch === task.epoch));
       if (checks !== undefined) return refuse({ kind: "checks-unmet", ...checks });
-      const finished: T = { ...without(task, "next"), ...(next.next ? { next: next.next } : {}), state: "in-review" };
+      // The finish that rules sets what it cited and its note, and the layer keeps both from here.
+      const finished: T = {
+        ...without(task, "next", "evidence", "handoff"),
+        ...(next.next ? { next: next.next } : {}),
+        ...(command.evidence !== undefined ? { evidence: command.evidence } : {}),
+        ...(command.handoff !== undefined ? { handoff: command.handoff } : {}),
+        state: "in-review",
+      };
       if (stampsMet(finished)) return complete(finished);
       const stamped = new Set(currentStamps(finished).map((stamp) => reviewerKey(stamp.reviewer)));
       return rule(
@@ -413,9 +424,9 @@ export const ruleTaskCommand = <T extends TaskCore>(
       };
       const stamped: T = { ...task, stamps: [...task.stamps, stamp] };
       if (command.verdict === "approve") return settle(stamped);
-      // Changes asked: back to work on a new epoch, with no checks run; every earlier stamp stops counting.
+      // Changes asked: back to work on a new epoch, with no checks run and nothing cited; every earlier stamp stops counting.
       const epoch = task.epoch + 1;
-      return rule({ ...without(stamped, "next", "checks"), state: "working", epoch }, [
+      return rule({ ...without(stamped, "next", "checks", "evidence", "handoff"), state: "working", epoch }, [
         { kind: "defect", epoch, by: reviewer, ...(command.text !== undefined ? { text: command.text } : {}) },
       ]);
     }

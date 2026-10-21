@@ -39,6 +39,7 @@ import { migrateReviewStamps } from "./migrate-review-stamps";
 import { migrateTaskStateSince } from "./migrate-task-state-since";
 import { migrateTaskChecks } from "./migrate-task-checks";
 import { migrateTaskArchivedFrom } from "./migrate-task-archived-from";
+import { migrateTaskFinishNotes } from "./migrate-task-finish-notes";
 import {
   CANVAS_DELETIONS_CORRECTED_TABLES,
   CANVAS_DELETIONS_REMOVED_TABLES,
@@ -566,7 +567,17 @@ export const STATE_SCHEMA_V44_IDENTITY = {
     "74a76dd3699512f0967acb9ad3e0c9cb4c2d2305688c0dbb971bae103f78f656",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 44;
+/**
+ * Version 45 keeps what the finish that ruled cited and the note it left
+ * (plan 04): `task_heads` rebuilt with `evidence_json` and `handoff`, each
+ * task starting with none (`migrate-task-finish-notes.ts`). Consolidate.
+ */
+export const STATE_SCHEMA_V45_IDENTITY = {
+  actualSchemaSha256:
+    "e7838f1d5ab8bb96734fb94a4008f2b6c564788d5c116ac9514c662606291e76",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 45;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -574,7 +585,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 44;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V44_IDENTITY;
+  STATE_SCHEMA_V45_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -906,6 +917,15 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     migrate: (database) => {
       database.exec(AUTOMATION_RULING_CURSORS_SQL);
     },
+  },
+  {
+    fromVersion: 44,
+    toVersion: 45,
+    name: "keep what each finish cited and the note it left",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V44_IDENTITY,
+    replacesTables: ["task_heads"],
+    migrate: (database) => migrateTaskFinishNotes(database),
   },
 ];
 

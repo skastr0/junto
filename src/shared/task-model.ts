@@ -162,6 +162,14 @@ export type TaskCore = {
   /** The node named at finish, held while the task is in review. */
   readonly next?: TaskNodeId;
   /**
+   * What the finish that ruled cited (artifacts, commits, claims, waivers),
+   * and the note it left for whoever picks the work up next. Both stay
+   * through review and close with the layer; asking for changes, or
+   * unassigning, clears them, since the next finish answers again.
+   */
+  readonly evidence?: CompletionEvidence;
+  readonly handoff?: string;
+  /**
    * The closed state an archive closed, kept on the archived task: a task
    * that depends on it is met only when it was done. Absent on a task
    * archived before this was kept, which therefore meets no dependency.
@@ -238,7 +246,7 @@ export type TaskCommand =
    * `evidence` answers the rules in force on the task's node (claims, waivers,
    * cited artifacts and commits); rules and checks are unchanged in 0.10 (04).
    */
-  | { readonly kind: "finish"; readonly next?: TaskNodeId; readonly evidence?: CompletionEvidence }
+  | { readonly kind: "finish"; readonly next?: TaskNodeId; readonly evidence?: CompletionEvidence; readonly handoff?: string }
   /** Check runs the assignee reports; `next` names the node whose incoming checks they answer. */
   | { readonly kind: "check"; readonly results: ReadonlyArray<CheckRun>; readonly next?: TaskNodeId }
   | { readonly kind: "cancel" }
@@ -389,11 +397,14 @@ export type TaskRuling =
 
 const TASK_TITLE_MAX = 200;
 const TASK_BODY_MAX = 20_000;
+/** At most this many characters a finish's handoff note holds. */
+export const TASK_HANDOFF_MAX = 4096;
 /** At most this many approvals a task can ask for. */
 export const STAMPS_REQUIRED_MAX = 16;
 
 const Title = Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(TASK_TITLE_MAX)));
 const Body = Schema.String.pipe(Schema.check(Schema.isMaxLength(TASK_BODY_MAX)));
+export const Handoff = Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(TASK_HANDOFF_MAX)));
 const Required = Schema.Int.pipe(Schema.check(Schema.isBetween({ minimum: 0, maximum: STAMPS_REQUIRED_MAX })));
 const ReviewerWire = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("seat"), seat: NodeIdSchema }),
@@ -424,6 +435,7 @@ export const TaskCommandWire = Schema.Union([
     kind: Schema.Literal("finish"),
     next: Schema.optionalKey(NodeIdSchema),
     evidence: Schema.optionalKey(CompletionEvidence),
+    handoff: Schema.optionalKey(Handoff),
   }),
   Schema.Struct({
     kind: Schema.Literal("check"),
@@ -486,7 +498,10 @@ export const checkTaskCommand = (
         : fail(bad);
     }
     case "finish": {
-      const evidence = wire.evidence === undefined ? {} : { evidence: wire.evidence };
+      const evidence = {
+        ...(wire.evidence === undefined ? {} : { evidence: wire.evidence }),
+        ...(wire.handoff === undefined ? {} : { handoff: wire.handoff }),
+      };
       if (wire.next === undefined) return { ok: true, command: { kind: "finish", ...evidence } };
       return kindOf(wire.next) === "task"
         ? { ok: true, command: { kind: "finish", next: taskNodeId(wire.next), ...evidence } }

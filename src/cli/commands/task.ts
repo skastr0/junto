@@ -66,7 +66,7 @@ const present = (fields: Record<string, Option.Option<unknown>>): Record<string,
 
 const DESCRIPTIONS = {
   list: "Tasks on every task node in this seat's reach, or on the one named by --node, newest change first. --reviewer lists the reviews a seat owes, longest waiting first.",
-  show: "One task with its layers: earlier nodes show their assignee, reviewers and stamps.",
+  show: "One task with its layers: each shows its assignee, reviewers and stamps, and the evidence and handoff note its finish left.",
   create: "Create a task in backlog on the task node in reach, or the one --node names.",
   edit: "Change a task's title or body.",
   assign: "Assign a task to a seat in its node's reach, or to this seat. The seat is mailed a notice in the task's thread.",
@@ -74,7 +74,7 @@ const DESCRIPTIONS = {
   start: "Start the task assigned to this seat: assigned becomes working.",
   pause: "Ask for input: working becomes input-required.",
   resume: "Go back to work: input-required becomes working.",
-  finish: "Finish a task: in-review while it waits on stamps, then done, or sent on to the node --next names. --claim answers each rule in force on the node (task rules lists them); a rule left unanswered is refused rules-unmet, and a required check that is not green at this epoch is refused checks-unmet, naming the red and the not run.",
+  finish: "Finish a task: in-review while it waits on stamps, then done, or sent on to the node --next names. --claim answers each rule in force on the node (task rules lists them); a rule left unanswered is refused rules-unmet, and a required check that is not green at this epoch is refused checks-unmet, naming the red and the not run. A task it depends on that is not done refuses it deps-unmet. --handoff leaves a note for whoever picks the work up next; the task keeps it, and the evidence, until changes are asked.",
   check: "Report the checks you ran for this move, each with its exit code: Junto never runs one. task rules lists them with their side, command and status; --outgoing reports this node's, --incoming the next node's, or --results carries them as JSON with each output's tail.",
   cancel: "Cancel a task that is not done.",
   archive: "Archive a done or canceled task.",
@@ -200,15 +200,16 @@ const finishCommand = Command.make(
     artifact: repeated("artifact", "An artifact this work produced, as <node id>/<artifactId>; repeat for several"),
     commit: repeated("commit", "A commit this work landed; repeat for several"),
     claim: repeated("claim", "Answer a rule in force: <ruleId>=<how this work meets it>; repeat for several"),
+    handoff: Flag.string("handoff").pipe(Flag.optional, Flag.withDescription("A note for whoever picks the work up next, up to 4096 characters")),
     opId: opIdFlag,
     timeout: timeoutFlag,
   },
-  ({ task, next, artifact, commit, claim, opId, timeout }) =>
+  ({ task, next, artifact, commit, claim, handoff, opId, timeout }) =>
     executeJsonCommand(
       "task finish",
       Effect.gen(function* () {
         const evidence = yield* evidenceOf({ artifact, commit, claim });
-        return yield* call("task.finish", { opId: yield* opIdOf(opId), task, ...present({ next }), ...evidence }, timeout);
+        return yield* call("task.finish", { opId: yield* opIdOf(opId), task, ...present({ next, handoff }), ...evidence }, timeout);
       }),
     ),
 ).pipe(Command.withDescription(DESCRIPTIONS.finish));

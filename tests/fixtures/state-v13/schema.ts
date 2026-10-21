@@ -258,3 +258,9 @@ export const STATE_SCHEMA_V44_SQL = stepped(
   STATE_SCHEMA_V43_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 44)!.migrate,
 );
+
+// Version 45 kept what each finish cited and the note it left (44 -> 45).
+export const STATE_SCHEMA_V45_SQL = stepped(
+  STATE_SCHEMA_V44_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 45)!.migrate,
+);

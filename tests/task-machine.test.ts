@@ -320,6 +320,55 @@ describe("finish waits on dependencies", () => {
   });
 });
 
+describe("finish keeps its evidence and handoff note", () => {
+  const evidence: CompletionEvidence = { artifacts: [], git: { commits: ["2e219a5ca"] } };
+  const handoff = "the parser is done; the CLI flag is next";
+  const reviewing = record({ state: "working", assignee: ada, reviewers: [asSeat(bo)], stampPolicy: { required: 1 } });
+  const finished = run(reviewing, [[seat(ada), { kind: "finish", evidence, handoff }]]);
+
+  it("sets both on the finish that rules, and keeps them through review to done", () => {
+    expect(finished).toMatchObject({ state: "in-review", evidence, handoff });
+    expect(run(finished, [[seat(bo), { kind: "stamp", verdict: "approve" }]])).toMatchObject({ state: "done", evidence, handoff });
+  });
+
+  it("leaves neither when the finish carries neither, and a refused finish sets nothing", () => {
+    const bare = run(reviewing, [[seat(ada), { kind: "finish" }]]);
+    expect(bare.evidence).toBeUndefined();
+    expect(bare.handoff).toBeUndefined();
+    const ruled = one({ ...reviewing, dependsOn: [T2] }, seat(ada), { kind: "finish", evidence, handoff }, env(), [
+      record({ id: T2, number: taskNumber(2)! }),
+    ]);
+    expect(refused(ruled).kind).toBe("deps-unmet");
+  });
+
+  it("clears both when changes are asked, so the next finish answers again", () => {
+    const changed = run(finished, [[seat(bo), { kind: "stamp", verdict: "changes", text: "add a test" }]]);
+    expect(changed.state).toBe("working");
+    expect(changed.evidence).toBeUndefined();
+    expect(changed.handoff).toBeUndefined();
+    const again = run(changed, [[seat(ada), { kind: "finish", handoff: "tested" }]]);
+    expect(again).toMatchObject({ state: "in-review", handoff: "tested" });
+    expect(again.evidence).toBeUndefined();
+  });
+
+  it("clears both when the task is unassigned", () => {
+    const back = run(finished, [[operator, { kind: "unassign" }]]);
+    expect(back.state).toBe("backlog");
+    expect(back.evidence).toBeUndefined();
+    expect(back.handoff).toBeUndefined();
+  });
+
+  it("rides onto the layer that closes when the task is sent on, and the next layer starts without", () => {
+    const flowing = env({ downstream: (node) => (node === build ? [qa] : []) });
+    const ruled = ok(one(record({ state: "working", assignee: ada }), seat(ada), { kind: "finish", evidence, handoff }, flowing));
+    expect(ruled.task).toMatchObject({ state: "backlog", node: qa });
+    expect(ruled.task.evidence).toBeUndefined();
+    expect(ruled.task.handoff).toBeUndefined();
+    const sent = ruled.effects.find((effect) => effect.kind === "sent-on");
+    expect(sent?.kind === "sent-on" ? sent.layer : undefined).toMatchObject({ state: "done", node: build, evidence, handoff });
+  });
+});
+
 describe("dependency reach", () => {
   const far = record({ id: T2, number: taskNumber(2)!, node: ship });
   const reach = env({ seatReaches: (_, node) => node !== ship });

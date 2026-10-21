@@ -49,6 +49,7 @@ import {
   type TaskView,
 } from "@shared/task-model";
 import type { WorkErrorBody } from "@shared/work-control";
+import { CompletionEvidence } from "@shared/work-model";
 import { ItemId, type OpId } from "@shared/work-ids";
 import { StateTransactionOperation } from "../state/service";
 import type { RulingRecord } from "./resource-rulings";
@@ -126,6 +127,8 @@ const HeadRow = Schema.Struct({
   state_since: Schema.Number,
   checks_json: Schema.String,
   archived_from: Schema.NullOr(Schema.Literals(["done", "canceled"])),
+  evidence_json: Schema.NullOr(Schema.String),
+  handoff: Schema.NullOr(Schema.String),
 });
 type HeadRow = typeof HeadRow.Type;
 
@@ -149,6 +152,7 @@ const CheckResultJson = Schema.Struct({
 });
 const decodeChecks = Schema.decodeUnknownResult(Schema.Array(CheckResultJson));
 const decodeTaskIds = Schema.decodeUnknownResult(Schema.Array(ItemId));
+const decodeEvidence = Schema.decodeUnknownResult(CompletionEvidence);
 const isTaskState = (value: string): value is TaskState => (TASK_STATES as ReadonlyArray<string>).includes(value);
 
 const parse = (json: string): unknown => {
@@ -190,9 +194,11 @@ export const taskOfRow = (row: HeadRow, stamps: ReadonlyArray<Stamp> | undefined
   const dependsOn = decodeTaskIds(parse(row.depends_on_json));
   const checks = decodeChecks(parse(row.checks_json));
   const id = Schema.decodeUnknownOption(ItemId)(row.task_id);
+  const evidence = row.evidence_json === null ? undefined : decodeEvidence(parse(row.evidence_json));
   if (
     number === undefined || Option.isNone(id) || !isTaskState(row.state) || Result.isFailure(reviewers) ||
-    stamps === undefined || Result.isFailure(dependsOn) || Result.isFailure(checks)
+    stamps === undefined || Result.isFailure(dependsOn) || Result.isFailure(checks) ||
+    (evidence !== undefined && Result.isFailure(evidence))
   ) {
     return undefined;
   }
@@ -219,6 +225,8 @@ export const taskOfRow = (row: HeadRow, stamps: ReadonlyArray<Stamp> | undefined
       }),
     ...(row.next_node_id === null ? {} : { next: taskNodeId(row.next_node_id as NodeId) }),
     ...(row.archived_from === null ? {} : { archivedFrom: row.archived_from }),
+    ...(evidence === undefined || Result.isFailure(evidence) ? {} : { evidence: evidence.success }),
+    ...(row.handoff === null ? {} : { handoff: row.handoff }),
   };
 };
 
@@ -283,11 +291,11 @@ export const projectTaskFact = (sql: SqlClient.SqlClient, canvas: string, fact: 
       }
     }
     yield* sql`
-      INSERT INTO task_heads (canvas_name, task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json, archived_from)
+      INSERT INTO task_heads (canvas_name, task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json, archived_from, evidence_json, handoff)
       VALUES (${canvas}, ${task.id}, ${task.number}, ${task.node}, ${task.title}, ${task.body ?? null}, ${task.state},
         ${task.assignee ?? null}, ${task.epoch}, ${task.stampPolicy.required}, ${JSON.stringify(task.reviewers)},
         ${JSON.stringify(task.dependsOn)}, ${task.next ?? null}, ${at}, ${at}, ${at}, ${JSON.stringify(task.checks ?? [])},
-        ${task.archivedFrom ?? null})
+        ${task.archivedFrom ?? null}, ${task.evidence === undefined ? null : JSON.stringify(task.evidence)}, ${task.handoff ?? null})
       ON CONFLICT (canvas_name, task_id) DO UPDATE SET
         -- A write that leaves the state as it is keeps when that state began.
         state_since = CASE WHEN task_heads.state = excluded.state THEN task_heads.state_since ELSE excluded.state_since END,
@@ -295,7 +303,8 @@ export const projectTaskFact = (sql: SqlClient.SqlClient, canvas: string, fact: 
         assignee_node_id = excluded.assignee_node_id, epoch = excluded.epoch,
         stamps_required = excluded.stamps_required, reviewers_json = excluded.reviewers_json,
         depends_on_json = excluded.depends_on_json, checks_json = excluded.checks_json,
-        next_node_id = excluded.next_node_id, archived_from = excluded.archived_from, updated_at = excluded.updated_at`;
+        next_node_id = excluded.next_node_id, archived_from = excluded.archived_from,
+        evidence_json = excluded.evidence_json, handoff = excluded.handoff, updated_at = excluded.updated_at`;
     yield* writeTaskStamps(sql, canvas, task);
   });
 
@@ -309,14 +318,14 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
       Request: Schema.Struct({ canvas: Schema.String, id: Schema.String }),
       Result: HeadRow,
       execute: ({ canvas, id }) => sql`
-        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json, archived_from FROM task_heads WHERE canvas_name = ${canvas} AND task_id = ${id}`,
+        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json, archived_from, evidence_json, handoff FROM task_heads WHERE canvas_name = ${canvas} AND task_id = ${id}`,
     });
 
     const canvasRows = SqlSchema.findAll({
       Request: Schema.Struct({ canvas: Schema.String }),
       Result: HeadRow,
       execute: ({ canvas }) => sql`
-        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json, archived_from FROM task_heads WHERE canvas_name = ${canvas} ORDER BY number`,
+        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json, archived_from, evidence_json, handoff FROM task_heads WHERE canvas_name = ${canvas} ORDER BY number`,
     });
 
     const nextNumberRow = SqlSchema.findOneOption({
@@ -442,7 +451,7 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
         Request: Schema.Void,
         Result: HeadRow,
         execute: () => sql`
-          SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json, archived_from FROM task_heads
+          SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at, state_since, checks_json, archived_from, evidence_json, handoff FROM task_heads
           WHERE canvas_name = ${canvasName}
             AND ${sql.in("node_id", query.nodeIds)}
             AND ${sql.in("state", states)}

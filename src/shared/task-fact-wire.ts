@@ -10,7 +10,8 @@
 import { Result, Schema } from "effect";
 import { NodeId } from "./physics/schema";
 import type { TaskFact } from "./task-machine";
-import { TASK_STATES } from "./task-model";
+import { Handoff, TASK_STATES } from "./task-model";
+import { CompletionEvidence } from "./work-model";
 import { ItemId, TaskNumber } from "./work-ids";
 
 const Count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
@@ -51,6 +52,8 @@ const coreFields = {
   checks: Schema.optionalKey(Schema.Array(CheckResult)),
   next: Schema.optionalKey(NodeId),
   archivedFrom: Schema.optionalKey(Schema.Literals(["done", "canceled"])),
+  evidence: Schema.optionalKey(CompletionEvidence),
+  handoff: Schema.optionalKey(Handoff),
 };
 
 const TaskEffect = Schema.Union([
