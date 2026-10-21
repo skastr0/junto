@@ -4,7 +4,7 @@ import { Reactivity } from "effect/unstable/reactivity";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, it } from "vitest";
 import { AUTOMATION_STATE_SCHEMA_SQL } from "../src/main/junto/automation/state-schema";
-import { AutomationRepository, makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
+import { AutomationRepository, FIRINGS_KEPT, makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
 import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
 import { type Automation, AutomationId, type Firing, FiringId, AutomationVersion } from "../src/shared/automation";
 import { asNodeId } from "../src/shared/physics/schema";
@@ -101,5 +101,34 @@ describe("AutomationRepository", () => {
     expect(page.map((f) => f.firingId)).toEqual([ids[2], ids[1]]);
     const next = yield* repository.firings("factory", { automationId: AUTO, before: page[1]!.firingId, limit: 2 });
     expect(next.map((f) => f.firingId)).toEqual([ids[0]]);
+  })));
+
+  it("fails a firing id collision instead of calling it a Duplicate", () => run(Effect.gen(function* () {
+    const repository = yield* AutomationRepository;
+    yield* repository.claimFiring("factory", firing("01M5ESKJFC1A88R1MH1NEZWJ50", 1, { kind: "change", key: "a" }));
+    const collided = yield* Effect.result(
+      repository.claimFiring("factory", firing("01M5ESKJFC1A88R1MH1NEZWJ50", 2, { kind: "change", key: "b" })),
+    );
+    expect(collided).toMatchObject({ _tag: "Failure", failure: { _tag: "AutomationPersistenceError", operation: "claim-firing" } });
+  })));
+
+  it("keeps the newest firings and never prunes the cursor's slot", () => run(Effect.gen(function* () {
+    const repository = yield* AutomationRepository;
+    const ulid = (n: number) => `01M5ESKJFC1A88R1MH1N${String(n).padStart(6, "0")}`;
+    yield* repository.claimFiring("factory", firing(ulid(0), 0, { kind: "schedule", slot: 60_000, missed: 0 }));
+    yield* repository.setCursor("factory", AUTO, 60_000);
+    for (let n = 1; n <= FIRINGS_KEPT + 1; n += 1) {
+      yield* repository.claimFiring("factory", firing(ulid(n), n, { kind: "change", key: `k${n}` }));
+    }
+    const sql = yield* SqlClient.SqlClient;
+    const [[count]] = (yield* sql`SELECT count(*) FROM automation_firings`.values) as unknown as [[number]];
+    expect(count).toBe(FIRINGS_KEPT + 1);
+    // The cursor's slot survives; the oldest change firing went.
+    expect(yield* repository.claimFiring("factory", firing(ulid(9_999_99), 5, { kind: "schedule", slot: 60_000, missed: 0 }))).toEqual({
+      _tag: "Duplicate",
+    });
+    expect(yield* repository.claimFiring("factory", firing(ulid(9_999_98), 5, { kind: "change", key: "k1" }))).toEqual({
+      _tag: "Claimed",
+    });
   })));
 });

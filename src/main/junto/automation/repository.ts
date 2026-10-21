@@ -27,6 +27,9 @@ export class AutomationPersistenceError extends Schema.TaggedError<AutomationPer
   },
 ) {}
 
+/** Firings kept per automation (07): older ones are pruned as new ones are claimed. */
+export const FIRINGS_KEPT = 1_000;
+
 export type ClaimResult = { readonly _tag: "Claimed" } | { readonly _tag: "Duplicate" };
 
 /**
@@ -189,14 +192,37 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
       });
 
       const claimFiring = Effect.fn("AutomationRepository.claimFiring")(function* (canvasName: string, firing: FiringType) {
-        const rows = yield* sql<{ readonly firing_id: string }>`
-          INSERT OR IGNORE INTO automation_firings(
-            canvas_name, automation_id, cause_kind, claim_key, firing_id, at_epoch_ms, fired, firing_json
-          ) VALUES (${canvasName}, ${firing.automationId}, ${firing.cause.kind}, ${claimKeyOf(firing)}, ${firing.firingId},
-            ${firing.at}, ${firing.outcome.kind === "fired" ? 1 : 0}, ${JSON.stringify(encodeFiring(firing))})
-          RETURNING firing_id
-        `.pipe(Effect.mapError(failure("claim-firing")));
-        return rows.length === 1 ? ({ _tag: "Claimed" } as const) : ({ _tag: "Duplicate" } as const);
+        return yield* transaction("claim-firing", Effect.gen(function* () {
+          // Only the claim key may conflict: a CHECK failure or a firing id
+          // collision is an error, never a silent Duplicate.
+          const rows = yield* sql<{ readonly firing_id: string }>`
+            INSERT INTO automation_firings(
+              canvas_name, automation_id, cause_kind, claim_key, firing_id, at_epoch_ms, fired, firing_json
+            ) VALUES (${canvasName}, ${firing.automationId}, ${firing.cause.kind}, ${claimKeyOf(firing)}, ${firing.firingId},
+              ${firing.at}, ${firing.outcome.kind === "fired" ? 1 : 0}, ${JSON.stringify(encodeFiring(firing))})
+            ON CONFLICT (canvas_name, automation_id, cause_kind, claim_key) DO NOTHING
+            RETURNING firing_id
+          `;
+          if (rows.length !== 1) return { _tag: "Duplicate" } as const;
+          // Keep the newest FIRINGS_KEPT; the cursor's own slot is never pruned.
+          yield* sql`
+            DELETE FROM automation_firings
+            WHERE canvas_name = ${canvasName} AND automation_id = ${firing.automationId}
+              AND firing_id NOT IN (
+                SELECT firing_id FROM automation_firings
+                WHERE canvas_name = ${canvasName} AND automation_id = ${firing.automationId}
+                ORDER BY firing_id DESC LIMIT ${FIRINGS_KEPT}
+              )
+              AND NOT (
+                cause_kind IN ('schedule', 'poll')
+                AND claim_key = (
+                  SELECT CAST(cursor_epoch_ms AS TEXT) FROM automation_cursors
+                  WHERE canvas_name = ${canvasName} AND automation_id = ${firing.automationId}
+                )
+              )
+          `;
+          return { _tag: "Claimed" } as const;
+        }));
       });
 
       const settleFiring = Effect.fn("AutomationRepository.settleFiring")(function* (
