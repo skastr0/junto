@@ -527,13 +527,29 @@ describe("the thread composer", () => {
     expect(all("seat-threads-message")[0]?.querySelector(".seat-threads__bubble")?.textContent).toBe("Ask @cli-lead first.");
   });
 
-  it("will not send past main's text bound, and says so", async () => {
+  it("past main's text bound sends the text as a file, and says so first", async () => {
+    const stored = (name: string, mediaType: string) => ({ sha256: "c".repeat(64), byteLength: 6, mediaType, displayName: name });
+    const uploads: Array<{ name: string; type: string }> = [];
+    setOperatorContentPutter(async (input) => {
+      const done = input.stage.done;
+      uploads.push({ name: String(done?.displayName), type: String(done?.mediaType) });
+      return { ok: true, result: { ref: stored(String(done?.displayName), String(done?.mediaType)) } } as never;
+    });
     await open();
     await type("x".repeat(THREAD_TEXT_MAX + 1));
+    expect(q("thread-composer-long-text")?.textContent).toBe(
+      `Over ${THREAD_TEXT_MAX.toLocaleString("en-US")} characters, so this goes as message.md, attached`,
+    );
     await key("Enter");
-    expect(sends).toEqual([]);
-    expect(q("thread-composer-failure")?.textContent).toBe(`${THREAD_TEXT_MAX + 1} characters; a mail holds at most ${THREAD_TEXT_MAX}.`);
-    expect((q("thread-composer-send") as HTMLButtonElement).disabled).toBe(true);
+    // The text is read into its file on a later task.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    await flush();
+    expect(uploads).toEqual([{ name: "message.md", type: "text/markdown" }]);
+    expect(sends).toEqual([
+      { canvasName: "factory", nodeId: "seat-1", text: "", inReplyTo: "m2", attachments: [stored("message.md", "text/markdown")] },
+    ]);
   });
 });
 

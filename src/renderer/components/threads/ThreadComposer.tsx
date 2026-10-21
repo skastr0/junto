@@ -1,6 +1,8 @@
 import { useCallback, useState, type KeyboardEvent } from "react";
+import { MAIL_TEXT_INLINE_MAX_BYTES, type TextBound } from "@shared/mail-text-bound";
 import type { MentionRef } from "@shared/mention";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
+import { carryText, useLongText } from "../../lib/long-text";
 import { useConnectedSeats } from "../../lib/mention-sources";
 import { useAttachments } from "../../lib/operator-attachments";
 import { sendSeatThread, THREAD_MENTIONS_MAX, THREAD_TEXT_MAX, type SeatAddress } from "../../lib/seat-threads";
@@ -9,12 +11,16 @@ import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
 import { MentionCombobox } from "../ui/MentionCombobox";
 
+/** Main's bound on a thread mail's text: past it the text goes as a file. */
+const THREAD_BOUND: TextBound = { bytes: MAIL_TEXT_INLINE_MAX_BYTES, characters: THREAD_TEXT_MAX };
+
 /**
  * The operator writes in a seat's threads: a reply in a thread they are in,
  * or a new thread to the seat. Enter sends, Shift+Enter is a new line, and @
  * opens the seats wired to this one. The mail goes to this seat alone: an @
- * is a reference, its seat gets no copy and does not join the thread. A
- * refused send says main's message as is and keeps the draft.
+ * is a reference, its seat gets no copy and does not join the thread. Past
+ * main's bound the text goes as a file, attached. A refused send says
+ * main's message as is and keeps the draft.
  */
 export function ThreadComposer({
   seat,
@@ -51,12 +57,12 @@ export function ThreadComposer({
 
   const mentions = mentioned.flatMap((ref) => (ref.kind === "seat" ? [ref.nodeId] : []));
   const mentionsFull = mentions.length >= THREAD_MENTIONS_MAX;
-  const tooLong = draft.trim().length > THREAD_TEXT_MAX;
 
   // Files ride along: a mail may be only files, and waits for every one to be in.
   const hasFiles = attachments.items.length > 0;
   const uploading = attachments.items.some((item) => item.state === "uploading");
-  const unsendable = tooLong || (draft.trim() === "" && !hasFiles) || attachments.ready === undefined;
+  const long = useLongText(draft.trim(), attachments.items.length, THREAD_BOUND);
+  const unsendable = long.blocked || (draft.trim() === "" && !hasFiles) || attachments.ready === undefined;
 
   const send = async (): Promise<void> => {
     const text = draft.trim();
@@ -64,13 +70,23 @@ export function ThreadComposer({
     if (unsendable || files === undefined || sending) return;
     setSending(true);
     setFailure(undefined);
+    let carried: Awaited<ReturnType<typeof carryText>>;
+    try {
+      carried = await carryText(seat.canvasName, text, files, THREAD_BOUND);
+    } catch (error) {
+      setSending(false);
+      setFailure(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    // Past the bound the text is a file, and its mentions are words in it.
+    const named = carried.text === "" ? [] : mentions;
     const result = await sendSeatThread({
       ...seat,
-      text,
+      text: carried.text,
       ...(mode === "reply" && inReplyTo !== undefined ? { inReplyTo } : {}),
       ...(mode === "reply" && inReplyTo === undefined && threadId !== undefined ? { threadId } : {}),
-      ...(mentions.length > 0 ? { mentions } : {}),
-      ...(files.length > 0 ? { attachments: files } : {}),
+      ...(named.length > 0 ? { mentions: named } : {}),
+      ...(carried.files.length > 0 ? { attachments: carried.files } : {}),
     });
     setSending(false);
     if (!result.ok) {
@@ -124,9 +140,17 @@ export function ThreadComposer({
       </div>
       <AttachmentTray attachments={attachments} />
       <div className="thread-composer__foot">
-        {failure || tooLong ? (
+        {failure ? (
           <span className="thread-composer__failure" role="alert" data-testid="thread-composer-failure">
-            {failure ?? `${draft.trim().length} characters; a mail holds at most ${THREAD_TEXT_MAX}.`}
+            {failure}
+          </span>
+        ) : long.notice ? (
+          <span
+            className={long.blocked ? "thread-composer__failure" : "thread-composer__hint"}
+            role="status"
+            data-testid="thread-composer-long-text"
+          >
+            {long.notice}
           </span>
         ) : mentionsFull ? (
           <span className="thread-composer__hint" data-testid="thread-composer-mentions-full">
