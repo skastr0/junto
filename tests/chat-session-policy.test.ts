@@ -168,12 +168,11 @@ describe("ChatService remote session policy", () => {
     setHostsSnapshot([
       ...defaultRemoteHostsDocument().hosts,
       {
-        id: "studio-product",
-        hermesId: "studio",
+        id: "studio",
         label: "Studio",
         isThisMachine: false,
         sshEndpoint: "studio-old",
-        capabilities: ["hermes"],
+        capabilities: ["terminal"],
       },
     ]);
     const service = new ChatService(spawnFn, (host) => host === "local");
@@ -200,12 +199,11 @@ describe("ChatService remote session policy", () => {
     setHostsSnapshot([
       ...defaultRemoteHostsDocument().hosts,
       {
-        id: "studio-product",
-        hermesId: "studio",
+        id: "studio",
         label: "Renamed Studio",
         isThisMachine: false,
         sshEndpoint: "studio-old",
-        capabilities: ["hermes"],
+        capabilities: ["terminal"],
       },
     ]);
     expect(close).not.toHaveBeenCalled();
@@ -213,12 +211,11 @@ describe("ChatService remote session policy", () => {
     setHostsSnapshot([
       ...defaultRemoteHostsDocument().hosts,
       {
-        id: "studio-product",
-        hermesId: "studio",
+        id: "studio",
         label: "Renamed Studio",
         isThisMachine: false,
         sshEndpoint: "studio-new",
-        capabilities: ["hermes"],
+        capabilities: ["terminal"],
       },
     ]);
 

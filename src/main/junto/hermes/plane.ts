@@ -1,4 +1,3 @@
-import { hermesKeyFor } from "@shared/remote-hosts";
 import { hostsSnapshot, subscribeHostsSnapshot } from "../hosts/snapshot";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
@@ -420,9 +419,8 @@ export const HermesPlaneLive = Layer.effect(
     const identity = (): HermesMachineIdentity => {
       const own = hostsSnapshot().filter((host) => host.isThisMachine);
       if (own.length !== 1) throw new Error("this machine is not hydrated in the host registry");
-      return { hostId: own[0]!.id, agentHostId: hermesKeyFor(own[0]!) };
+      return { hostId: own[0]!.id, agentHostId: own[0]!.id };
     };
-    identity();
 
     const operations: HermesFleetOperations = {
       profiles: (host, signal) =>
@@ -477,7 +475,7 @@ export const HermesPlaneLive = Layer.effect(
     );
     const unsubscribeHosts = subscribeHostsSnapshot((_next, previous) => {
       const own = previous.find((host) => host.isThisMachine);
-      chat.reconcileHostLocality((host) => own !== undefined && host === hermesKeyFor(own));
+      chat.reconcileHostLocality((host) => own !== undefined && host === own.id);
     });
     yield* Effect.addFinalizer(() => Effect.sync(unsubscribeHosts));
     const shutdown = makeHermesShutdownPort(chat);

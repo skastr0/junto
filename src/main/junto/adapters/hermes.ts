@@ -1,6 +1,6 @@
 import type { Entity, SnapshotBundle } from "@shared/entities";
 import { throwIfAborted } from "../access-signal";
-import { hermesKeyFor, hostHasCapability } from "@shared/remote-hosts";
+import { hostHasCapability } from "@shared/remote-hosts";
 import {
   canonicalLocalAgentKey,
   parseHermesProfileName,
@@ -36,12 +36,12 @@ const listHermesHosts = (
   machine: HermesMachineIdentity,
 ): ReadonlyArray<HermesHost> =>
   hostsSnapshot()
-    .filter((host) => hostHasCapability(host, "hermes"))
+    .filter((host) => hostHasCapability(host, "terminal"))
     .map((host) => ({
-      transportId: (hermesKeyFor(host)) as HermesHostId,
+      transportId: host.id as HermesHostId,
       agentHostId: (host.isThisMachine
         ? machine.agentHostId
-        : hermesKeyFor(host)) as HermesHostId,
+        : host.id) as HermesHostId,
       hostId: host.isThisMachine ? machine.hostId : host.id,
       label: host.label,
     }));

@@ -85,7 +85,7 @@ const withPlane = <A>(use: (plane: typeof HermesPlane.Service) => Promise<A>) =>
   );
 
 beforeEach(() => {
-  setHostsSnapshot([makeThisMachine(THIS_MACHINE, { hermesId: "fleet" })]);
+  setHostsSnapshot([makeThisMachine(THIS_MACHINE)]);
   spawned.length = 0;
 });
 
@@ -96,7 +96,7 @@ afterEach(() => {
 describe("a local Hermes session and the shell environment", () => {
   it("waits for the first read, then reads again after a startup file changed", async () => {
     await withPlane(async (plane) => {
-      const first = plane.fetchAgentMessage("fleet:default", "hello");
+      const first = plane.fetchAgentMessage(`${THIS_MACHINE}:default`, "hello");
       await flush();
       // The shell is still being read: nothing has spawned.
       expect(shell.reads).toBe(1);
@@ -108,13 +108,13 @@ describe("a local Hermes session and the shell environment", () => {
       expect(spawned[0]?.PATH?.split(":")[0]).toBe("/shell/bin");
 
       // Unchanged startup files: the next session reads nothing.
-      await plane.fetchAgentMessage("fleet:default", "again");
+      await plane.fetchAgentMessage(`${THIS_MACHINE}:default`, "again");
       expect(shell.reads).toBe(1);
       expect(spawned).toHaveLength(2);
 
       // The operator edits .zshrc: the next session reads again first.
       shell.mtimes.set("/home/t/.zshrc", shell.clock + 1);
-      const third = plane.fetchAgentMessage("fleet:default", "after the edit");
+      const third = plane.fetchAgentMessage(`${THIS_MACHINE}:default`, "after the edit");
       await flush();
       expect(shell.reads).toBe(2);
       expect(spawned).toHaveLength(2);

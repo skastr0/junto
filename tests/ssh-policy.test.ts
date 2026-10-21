@@ -284,7 +284,7 @@ describe("SSH policy surface", () => {
         label: "studio",
         isThisMachine: false,
         sshEndpoint: "studio",
-        capabilities: ["hermes"],
+        capabilities: ["terminal"],
       },
     ]);
     const calls: Command.StandardCommand[] = [];
@@ -316,21 +316,20 @@ describe("SSH policy surface", () => {
     expect(acp).toContain("ControlPath=none");
   });
 
-  it("admits only the canonical hermesId when it differs from the product host id", () => {
+  it("resolves a Hermes agent key's machine by host id only", () => {
     setHostsSnapshot([
       ...defaultRemoteHostsDocument("macbook").hosts,
       {
         id: "studio",
-        hermesId: "fleet-a",
         label: "studio",
         isThisMachine: false,
         sshEndpoint: "studio",
-        capabilities: ["hermes"],
+        capabilities: ["terminal"],
       },
     ]);
 
-    expect(resolveHermesRemoteHost("fleet-a")?.id).toBe("studio");
-    expect(resolveHermesRemoteHost("studio")).toBeUndefined();
+    expect(resolveHermesRemoteHost("studio")?.id).toBe("studio");
+    expect(resolveHermesRemoteHost("fleet-a")).toBeUndefined();
   });
 
   it("creates Unix forwarding through a dedicated owned mux generation", async () => {

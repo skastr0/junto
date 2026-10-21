@@ -3,7 +3,7 @@ import type { RemoteHost } from "@shared/remote-hosts";
 import type { CliResult } from "../adapters/exec";
 import { runCli } from "../adapters/exec";
 import {
-  findHostByHermesId,
+  findHostById,
 } from "../hosts/snapshot";
 import {
   parseHostSshRoute,
@@ -46,9 +46,9 @@ const describeSshFailure = (error: SshError | SshInputError): string => {
   }
 };
 
-/** Resolve only the canonical Hermes agent-key id for a configured remote. */
+/** A Hermes agent key names its machine by host id. */
 export const resolveHermesRemoteHost = (host: HermesHostId): RemoteHost | undefined =>
-  findHostByHermesId(host);
+  findHostById(host);
 
 const resolveHermesEndpoint = (
   hermesId: HermesHostId,

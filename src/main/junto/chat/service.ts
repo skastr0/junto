@@ -7,7 +7,7 @@ import type {
   ChatTurnResult,
 } from "@shared/ipc";
 import { Context } from "effect";
-import { hermesKeyFor, hostHasCapability, type RemoteHost } from "@shared/remote-hosts";
+import { hostHasCapability, type RemoteHost } from "@shared/remote-hosts";
 import { subscribeHostsSnapshot } from "../hosts/snapshot";
 import {
   AcpClient,
@@ -70,9 +70,9 @@ const remoteHermesRoutes = (
         (host) =>
           !host.isThisMachine &&
           host.sshEndpoint !== undefined &&
-          hostHasCapability(host, "hermes"),
+          hostHasCapability(host, "terminal"),
       )
-      .map((host) => [hermesKeyFor(host), host.sshEndpoint!] as const),
+      .map((host) => [host.id, host.sshEndpoint!] as const),
   );
 
 interface OpenInFlight {

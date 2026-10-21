@@ -46,15 +46,14 @@ describe("hermes profile parsing", () => {
 });
 
 describe("hermes fleet host identity", () => {
-  // This machine has a name like any other and its own Hermes prefix.
-  const own = makeThisMachine("studio", { hermesId: "fleet-studio" });
+  // A Hermes agent key names its machine by host id.
+  const own = makeThisMachine("studio");
   const remote: RemoteHost = {
     id: "render",
-    hermesId: "fleet-render",
     label: "Render Display",
     isThisMachine: false,
     sshEndpoint: "render-ssh",
-    capabilities: ["hermes"],
+    capabilities: ["terminal"],
   };
 
   const operations = (
@@ -75,12 +74,12 @@ describe("hermes fleet host identity", () => {
         seen.push(host);
         return { ok: true, stdout: TABLE };
       }),
-      { hostId: "studio", agentHostId: "fleet-studio" },
+      { hostId: "studio", agentHostId: "studio" },
     );
 
     expect(bundle.ok).toBe(true);
-    expect(seen).toEqual(["fleet-studio", "fleet-render"]);
-    expect(bundle.entities.find((entity) => entity.key === "fleet-studio:default"))
+    expect(seen).toEqual(["studio", "render"]);
+    expect(bundle.entities.find((entity) => entity.key === "studio:default"))
       .toMatchObject({
         stats: {
           host: "studio",
@@ -89,7 +88,7 @@ describe("hermes fleet host identity", () => {
           running: 1,
         },
       });
-    expect(bundle.entities.find((entity) => entity.key === "fleet-render:profile-14"))
+    expect(bundle.entities.find((entity) => entity.key === "render:profile-14"))
       .toMatchObject({
         stats: {
           host: "Render Display",
@@ -104,26 +103,26 @@ describe("hermes fleet host identity", () => {
     setHostsSnapshot([own, remote]);
     const bundle = await fetchHermesBundle(
       operations((host) =>
-        host === "fleet-studio"
+        host === "studio"
           ? { ok: true, stdout: TABLE }
           : { ok: false, stdout: "", error: "private endpoint detail" },
       ),
-      { hostId: "studio", agentHostId: "fleet-studio" },
+      { hostId: "studio", agentHostId: "studio" },
     );
 
     expect(bundle.ok).toBe(false);
-    expect(bundle.entities.some((entity) => entity.key === "fleet-studio:default"))
+    expect(bundle.entities.some((entity) => entity.key === "studio:default"))
       .toBe(true);
-    expect(bundle.entities.some((entity) => entity.key.startsWith("fleet-render:")))
+    expect(bundle.entities.some((entity) => entity.key.startsWith("render:")))
       .toBe(false);
-    expect(bundle.error).toBe("hermes host refresh failed (fleet-render)");
+    expect(bundle.error).toBe("hermes host refresh failed (render)");
     expect(bundle.error).not.toContain("private endpoint detail");
   });
 
   it("treats an answering host with zero profiles as healthy", async () => {
     const bundle = await fetchHermesBundle(
       operations(() => ({ ok: true, stdout: "Profile  Model  Gateway\n" })),
-      { hostId: "studio", agentHostId: "fleet-studio" },
+      { hostId: "studio", agentHostId: "studio" },
     );
     expect(bundle).toMatchObject({ ok: true, entities: [] });
   });
@@ -152,7 +151,7 @@ describe("hermes fleet host identity", () => {
           return { ok: true, stdout: "Hermes Agent v0.18.2" };
         },
       },
-      { hostId: "studio", agentHostId: "fleet-studio" },
+      { hostId: "studio", agentHostId: "studio" },
       abort.signal,
     );
 
