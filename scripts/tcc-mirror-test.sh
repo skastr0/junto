@@ -123,7 +123,6 @@ run() {
   chmod 600 "$PREVIEW_HOME/.fresh-preview"
   /usr/bin/log stream --debug --info --style compact --predicate 'subsystem == "com.apple.TCC"' \
     > "$OUT/tcc-stream.log" 2> "$OUT/tcc-stream.err" &
-  echo $! > "$OUT/tcc-stream.pid"
   # Let the stream attach before the launch.
   for _ in $(seq 1 50); do [[ -s "$OUT/tcc-stream.log" ]] && break; sleep 0.1; done
   date '+%Y-%m-%d %H:%M:%S' > "$OUT/launch.local"
@@ -132,10 +131,15 @@ run() {
     "$(cat "$OUT/launch.local")" "$0"
 }
 
+# The stream is found by what it is, never by a saved pid: between start and
+# report that pid may have exited and been reused by another process.
+stop_tcc_stream() {
+  pkill -TERM -U "$(id -u)" -f '^/usr/bin/log stream .*subsystem == "com.apple.TCC"' 2>/dev/null || true
+}
+
 report() {
-  [[ -f "$OUT/tcc-stream.pid" ]] || die "no run in $OUT"
-  kill "$(cat "$OUT/tcc-stream.pid")" 2>/dev/null || true
-  rm -f "$OUT/tcc-stream.pid"
+  [[ -f "$OUT/launch.local" ]] || die "no run in $OUT"
+  stop_tcc_stream
   printf 'launch: %s local\n' "$(cat "$OUT/launch.local")"
   printf '\nshell environment log line:\n'
   find "$PREVIEW_HOME" -name app.jsonl -exec grep -h '\[env\]' {} + 2>/dev/null || echo "(none)"
@@ -155,7 +159,7 @@ clean() {
     for _ in $(seq 1 50); do pgrep -f "$app/Contents/MacOS/" >/dev/null || break; sleep 0.1; done
     "$LSREGISTER" -u "$app" 2>/dev/null || true
   fi
-  [[ -f "$OUT/tcc-stream.pid" ]] && kill "$(cat "$OUT/tcc-stream.pid")" 2>/dev/null || true
+  stop_tcc_stream
   tccutil reset All "$ID" || true
   digest="$(keys_digest)"
   if [[ -f "$OUT/authorized_keys.before" && "$(cat "$OUT/authorized_keys.before")" != "$digest" ]]; then
