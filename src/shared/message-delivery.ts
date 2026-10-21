@@ -8,6 +8,8 @@ import type { Node } from "./model";
 import type { Message } from "./work-model";
 import type { SurfaceDeliveryTarget } from "./actor-surface";
 import { readMailExtension } from "./crew";
+import { noticeTakesReply, subjectNoticeKindOf } from "./subject-notice";
+import { subjectLabel, subjectNodeOf, threadSubjectOf } from "./thread-subject";
 
 const ULID_PATTERN = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
@@ -174,18 +176,36 @@ const replyThreadOf = (message: Message): string | undefined => {
 };
 
 /**
+ * Where a reply goes. Mailbox mail answers its sender; mail in a subject
+ * thread answers the subject, whoever wrote it; a refusal is not answered.
+ */
+const replyTargetOf = (message: Message, sender: MailSender): string | undefined => {
+  const subject = threadSubjectOf(message);
+  if (subject === undefined) return sender.replyTarget;
+  const kind = subjectNoticeKindOf(message);
+  return kind !== undefined && !noticeTakesReply(kind) ? undefined : subjectNodeOf(subject);
+};
+
+/**
  * The header a factory notice and a prompt share: who sent it and the regions
- * around them, its id, its thread when it is a reply, and the exact
- * `junto msg reply` that answers it.
+ * around them, its id, its thread when it is a reply, the subject it is on,
+ * and the exact `junto msg reply` that answers it.
  */
 const mailHeader = (message: Message, options: MailLineOptions | undefined): string => {
   const sender = options?.sender ?? stampedSender(message);
   const id = sanitizeDeliveryLine(message.messageId);
   const thread = replyThreadOf(message);
-  const named = [`mail from ${sanitizeDeliveryLine(sender.label)}`, `id ${id}`, ...(thread === undefined ? [] : [`thread ${thread}`])].join(", ");
-  const reply = sender.replyTarget === undefined
+  const subject = threadSubjectOf(message);
+  const named = [
+    `mail from ${sanitizeDeliveryLine(sender.label)}`,
+    `id ${id}`,
+    ...(thread === undefined ? [] : [`thread ${thread}`]),
+    ...(subject === undefined ? [] : [`on ${sanitizeDeliveryLine(subjectLabel(subject))}`]),
+  ].join(", ");
+  const replyTarget = replyTargetOf(message, sender);
+  const reply = replyTarget === undefined
     ? ""
-    : ` — reply: junto msg reply '${JSON.stringify({ target: sanitizeDeliveryLine(sender.replyTarget), inReplyTo: id, text: "..." })}'`;
+    : ` — reply: junto msg reply '${JSON.stringify({ target: sanitizeDeliveryLine(replyTarget), inReplyTo: id, text: "..." })}'`;
   return withOnboardPointer(`${named}${reply}`, options);
 };
 

@@ -102,6 +102,31 @@ describe("message-delivery pure helpers", () => {
     expect(composeMessageDeliveryPayload(root)).not.toContain("thread");
   });
 
+  it("names a subject thread's subject and replies to the subject, not the sender", () => {
+    const comment = userMsg({
+      messageId: "01KZSM4A84ASFRTZ77YAQ09CVJ",
+      metadata: {
+        factoryMail: true,
+        senderNodeId: "agent-a",
+        senderName: "Reviewer",
+        threadId: "01KZSM4A84ASFRTZ77YAQ09CVH",
+        subjectNotice: "mention",
+        threadSubject: { kind: "task", nodeId: "task-board", taskId: "01KZSM4A84ASFRTZ77YAQ09CVK" },
+      },
+      parts: [{ kind: "text", text: "Can you take this?" }],
+    });
+    expect(composeMessageDeliveryPayload(comment, { sender: { label: "pty-a (Junto)", replyTarget: "agent-a" } })).toBe(
+      "mail from pty-a (Junto), id 01KZSM4A84ASFRTZ77YAQ09CVJ, thread 01KZSM4A84ASFRTZ77YAQ09CVH, " +
+        "on task 01KZSM4A84ASFRTZ77YAQ09CVK at task-board — reply: junto msg reply " +
+        `'{"target":"task-board","inReplyTo":"01KZSM4A84ASFRTZ77YAQ09CVJ","text":"..."}'` +
+        "\nCan you take this?",
+    );
+    const refusal = { ...comment, metadata: { ...comment.metadata, senderName: "Tasks", senderNodeId: "task-board", subjectNotice: "refusal" } };
+    expect(composeMessageDeliveryPayload(refusal, { sender: { label: "Tasks", replyTarget: "task-board" } }).split("\n")[0]).toBe(
+      "mail from Tasks, id 01KZSM4A84ASFRTZ77YAQ09CVJ, thread 01KZSM4A84ASFRTZ77YAQ09CVH, on task 01KZSM4A84ASFRTZ77YAQ09CVK at task-board",
+    );
+  });
+
   it("cuts a notice past the cap, points at the rest, and leaves it unread", () => {
     const head = "y".repeat(MAIL_TYPED_BODY_MAX);
     const long = userMsg({
