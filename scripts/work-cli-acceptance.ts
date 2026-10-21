@@ -573,21 +573,19 @@ export const runWorkCliAcceptance = async () => {
       processPlane,
       [
         "artifact",
-        "publish",
-        JSON.stringify({
-          target: ARTS,
-          name: "report",
-          parts: [{
-            kind: "raw",
-            bytesBase64: readFileSync(artifactPath).toString("base64"),
-            mediaType: "text/plain",
-          }],
-        }),
+        "create",
+        "report",
+        "--type",
+        "document",
+        "--node",
+        ARTS,
+        "--markdown",
+        readFileSync(artifactPath, "utf8"),
       ],
       env,
       outside,
     );
-    log("artifact publish", art.stdout || art.stderr);
+    log("artifact create", art.stdout || art.stderr);
 
     const scope = await runCli(
       processPlane,

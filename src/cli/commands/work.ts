@@ -1,7 +1,6 @@
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { Effect, Option, Schema } from "effect";
 import {
-  ArtifactPublishCliArgs,
   BoardCreateTopicArgs,
   BoardListArgs,
   BoardMarkReadArgs,
@@ -29,7 +28,6 @@ import { taskCheckCommand } from "./board";
 import { taskWaitCommand } from "./seat";
 import { toTasksCreateArgs, toTasksUpdateArgs } from "../core/duration";
 import { InputError } from "../core/errors";
-import { materializeArtifactParts } from "../core/artifact-parts";
 import { DEFAULT_BATCH_CONCURRENCY, runMutationBatch } from "../core/batch";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
 import { loadJsonInput } from "../core/json";
@@ -403,37 +401,6 @@ export const msgCommand = Command.make("msg").pipe(
     msgReplyCommand,
     msgReactCommand,
   ]),
-);
-
-// --- artifact ---
-
-const artifactPublishCommand = Command.make(
-  "publish",
-  { input: jsonInputArg, concurrency: concurrencyOption, timeout: timeoutOption },
-  ({ input, concurrency, timeout }) =>
-    executeJsonCommand(
-      "artifact publish",
-      runMutationBatch({
-        input,
-        concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
-        itemSchema: ArtifactPublishCliArgs,
-        run: (item) =>
-          Effect.gen(function* () {
-            const wire = yield* materializeArtifactParts(item);
-            const socket = yield* WorkSocket;
-            return yield* socket.call(
-              "artifact.publish",
-              wire,
-              toUndefined(timeout),
-            );
-          }),
-      }),
-    ),
-).pipe(Command.withDescription("Publish an artifact with text/data or ContentRef parts"));
-
-export const artifactCommand = Command.make("artifact").pipe(
-  Command.withDescription("Artifact ops"),
-  Command.withSubcommands([artifactPublishCommand]),
 );
 
 // --- board (bulletin) ---

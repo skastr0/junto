@@ -901,32 +901,6 @@ export const ArtifactPublishArgs = Schema.Struct({
 });
 export type ArtifactPublishArgs = typeof ArtifactPublishArgs.Type;
 
-/** CLI-only input: legacy raw path/bytes forms decode for a fail-closed migration error. */
-export const ArtifactPartCli = Schema.Union([Schema.Struct({ kind: Schema.Literal("text"), text: Schema.String }),
-Schema.Struct({
-  kind: Schema.Literal("url"),
-  url: Schema.String,
-  mediaType: Schema.optionalKey(Schema.String),
-}),
-Schema.Struct({ kind: Schema.Literal("data"), data: Schema.Unknown }),
-Schema.Struct({
-  kind: Schema.Literal("raw"),
-  bytesBase64: Schema.optionalKey(Schema.String),
-  path: Schema.optionalKey(Schema.String),
-  mediaType: Schema.optionalKey(Schema.String),
-}),
-ContentPart,]);
-
-export const ArtifactPublishCliArgs = Schema.Struct({
-  target: Schema.String,
-  name: Schema.optionalKey(Schema.String),
-  artifactId: Schema.optionalKey(Schema.String),
-  parts: Schema.Array(ArtifactPartCli),
-  task: Schema.optionalKey(ArtifactTaskArgs),
-  metadata: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
-});
-export type ArtifactPublishCliArgs = typeof ArtifactPublishCliArgs.Type;
-
 export const EmptyArgs = Schema.Struct({});
 export type EmptyArgs = typeof EmptyArgs.Type;
 

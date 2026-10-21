@@ -9,7 +9,6 @@ import {
 import { SeatReadArgs, SeatWaitArgs, TaskWaitArgs } from "../../shared/seat-control";
 import { browserCapabilities, browserExamples, browserSchemas } from "../commands/browser-contract";
 import {
-  ArtifactPublishCliArgs,
   BoardListArgs,
   BoardPostArgs,
   BoardTagsListArgs,
@@ -48,6 +47,7 @@ import { logsReadCapability, logsReadExamples, logsReadSchema } from "../command
 import { referencesCapabilities, referencesExamples, referencesSchemas } from "../commands/references";
 import { overseerCapabilities, overseerExamples, overseerSchemas } from "../commands/overseer";
 import { automationCapabilities, automationExamples, automationSchemas } from "../commands/automation";
+import { artifactCapabilities, artifactExamples, artifactSchemas } from "../commands/artifact";
 import { opCapabilities, opExamples, opSchemas } from "../commands/op";
 import { DEFAULT_BATCH_CONCURRENCY } from "./constants";
 import {
@@ -385,17 +385,6 @@ export const signalClearSchema: CommandSchemaContract = {
   schema: SignalClearArgs,
 };
 
-export const artifactPublishSchema: CommandSchemaContract = {
-  command_id: "artifact.publish",
-  command: "artifact publish",
-  schema_id: "artifact.publish.input/v2",
-  description:
-    "Publish an artifact; parts pass ContentRefs or legacy raw bytesBase64 (local file paths are rejected — ingest content first) and optional task provenance names the exact task sink and id.",
-  schema: ArtifactPublishCliArgs,
-  accepts_batch: true,
-  input_modes: inputModes,
-};
-
 /**
  * Not a command: the work op the CLI uses to send a file. Documented so an
  * agent that looks it up learns what it is and how it is normally reached.
@@ -500,7 +489,6 @@ const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   signalFeedbackSchema,
   signalListSchema,
   signalClearSchema,
-  artifactPublishSchema,
   contentPathSchema,
   contentStatSchema,
   contentMaterializeSchema,
@@ -513,6 +501,7 @@ const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   contentStageSchema,
   ...overseerSchemas,
   ...automationSchemas,
+  ...artifactSchemas,
   ...opSchemas,
   // Inline on purpose: a module const would keep the browser rows in the machine bundle.
   ...((typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__) ? [] : BROWSER_ENABLED ? browserSchemas : []),
@@ -1083,22 +1072,6 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     args: ["signal", "clear", "01J0000000000000000000000"],
   },
   {
-    command_id: "artifact.publish",
-    command: "artifact publish",
-    name: "publish file",
-    input: {
-      target: "art1",
-      name: "report",
-      parts: [{ kind: "raw", path: "/abs/x.png" }],
-      task: { target: "tasks", id: "t1" },
-    },
-    args: [
-      "artifact",
-      "publish",
-      '{"target":"art1","name":"report","parts":[{"kind":"raw","path":"/abs/x.png"}],"task":{"target":"tasks","id":"t1"}}',
-    ],
-  },
-  {
     command_id: "task.list",
     command: "task list",
     name: "list",
@@ -1174,6 +1147,7 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
   ...referencesExamples,
   ...overseerExamples,
   ...automationExamples,
+  ...artifactExamples,
   ...opExamples,
 ];
 
@@ -1498,19 +1472,6 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     examples: allExamples.filter((e) => e.command_id === "signal.clear"),
   },
   {
-    command_id: "artifact.publish",
-    command: "artifact publish",
-    category: "workflow",
-    description: "Publish an artifact (batch-capable).",
-    schemas: [artifactPublishSchema],
-    examples: allExamples.filter((e) => e.command_id === "artifact.publish"),
-    batch: {
-      accepts_batch: true,
-      default_concurrency: DEFAULT_BATCH_CONCURRENCY,
-      supports_concurrency_option: true,
-    },
-  },
-  {
     command_id: "content.path",
     command: "content path",
     category: "workflow",
@@ -1542,6 +1503,7 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
   ...referencesCapabilities,
   ...overseerCapabilities,
   ...automationCapabilities,
+  ...artifactCapabilities,
   ...opCapabilities,
 ];
 

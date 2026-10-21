@@ -123,8 +123,8 @@ export const classifyCliCommand = (commandId: string): CliCoverageLane | undefin
   if (commandId.startsWith("browser.")) return "browser-plane";
   // Region reach, not an edge, admits a seat to automations (plan 01).
   if (commandId.startsWith("automation.")) return "reach";
-  // Pad CLI projections: the surface is switched off, its source kept.
-  if (commandId.startsWith("pad.")) return "retired";
+  // And to artifacts (plan 05).
+  if (commandId.startsWith("artifact.")) return "reach";
   return undefined;
 };
 
