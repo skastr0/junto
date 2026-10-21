@@ -19,6 +19,7 @@ import {
   CommandQueueFull,
   CommandTargetUnknown,
   TARGET_NODE_KINDS,
+  CommandQueuedResult,
   RulingAppliedResult,
   RulingRefusedResult,
   commandRowWrittenBy,
@@ -952,6 +953,9 @@ export type QueueCommandInput = {
   readonly originAt?: string;
   readonly receivedAt?: string;
 };
+
+/** A held command no ruling answers yet, and the machine that wrote it. */
+export type UnruledCommand = { readonly writer: InstallationId; readonly command: QueuedCommand };
 
 /** A ruling the editing machine made, to record beside the facts it applied. */
 export type RecordRulingInput = {
@@ -4792,6 +4796,14 @@ export interface WorkRepositoryShape {
   readonly recordRuling: (
     input: RecordRulingInput,
   ) => Effect.Effect<LocalFactResult<RulingResult>, RepositoryFailure>;
+  /**
+   * Every command this machine holds for a canvas, from any writer, that no
+   * ruling row answers yet: each writer's in its seq order. The editing
+   * machine's ruler sweeps these.
+   */
+  readonly unruledCommands: (
+    canvasName: string,
+  ) => Effect.Effect<ReadonlyArray<UnruledCommand>, WorkRepositoryError>;
   /** This machine's unruled commands for a canvas: rows and bytes. */
   readonly commandQueueLoad: (canvasName: string) => Effect.Effect<QueueLoad, WorkRepositoryError>;
   /** What became of one command of one writer, from the rows this machine holds. */
@@ -7924,7 +7936,47 @@ export const WorkRepositoryLive = Layer.effect(
       );
     };
 
+    const decodeQueued = Schema.decodeUnknownResult(CommandQueuedResult, strictDecode);
+
+    const unruledCommands = (canvasName: string): Effect.Effect<ReadonlyArray<UnruledCommand>, WorkRepositoryError> =>
+      withSqlRead(
+        sql,
+        Effect.gen(function* () {
+          const rows = yield* sql.unsafe<{ writer: string; result_json: string }>(
+            `
+              SELECT command.event_home AS writer, fact.result_json
+              FROM work_events AS command
+              JOIN work_facts AS fact USING (event_home, entity_home, seq)
+              WHERE command.item_canvas_name = ?
+                AND command.operation = 'command.queued'
+                AND command.event_home = command.entity_home
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM work_events AS ruling
+                  JOIN work_facts AS ruled USING (event_home, entity_home, seq)
+                  WHERE ruling.item_canvas_name = command.item_canvas_name
+                    AND ruling.item_node_id = command.item_node_id
+                    AND ruling.item_kind = 'ruling'
+                    AND ruling.item_id = command.item_id
+                    AND json_extract(ruled.result_json, '$.writer') = command.event_home
+                )
+              ORDER BY command.event_home, length(command.seq), command.seq
+            `,
+            [canvasName],
+          );
+          const found: Array<UnruledCommand> = [];
+          for (const row of rows) {
+            // Every held row decoded when it was taken; one that no longer does is a defect, never a command.
+            const body = decodeQueued(JSON.parse(row.result_json));
+            if (Result.isFailure(body)) return yield* Effect.die(new Error(`a held command row of ${row.writer} does not decode`));
+            found.push({ writer: row.writer as InstallationId, command: body.success.command });
+          }
+          return found;
+        }),
+      ).pipe(Effect.mapError((error) => toRepositoryError("work.command.unruled", error)));
+
     return WorkRepository.of({
+      unruledCommands,
       recordRuling,
       queueCommand,
       commandQueueLoad,
