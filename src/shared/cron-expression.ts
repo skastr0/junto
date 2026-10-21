@@ -126,12 +126,32 @@ const matchesField = (field: CronField, value: number): boolean => {
   }
 };
 
-const matchesDate = (expr: CronExpression, date: Date): boolean => {
-  const minute = date.getMinutes();
-  const hour = date.getHours();
-  const dayOfMonth = date.getDate();
-  const month = date.getMonth() + 1;
-  const dayOfWeek = date.getDay(); // 0=Sun
+type WallTime = {
+  readonly minute: number;
+  readonly hour: number;
+  readonly dayOfMonth: number;
+  readonly month: number;
+  readonly dayOfWeek: number;
+};
+
+const localWall = (date: Date): WallTime => ({
+  minute: date.getMinutes(),
+  hour: date.getHours(),
+  dayOfMonth: date.getDate(),
+  month: date.getMonth() + 1,
+  dayOfWeek: date.getDay(), // 0=Sun
+});
+
+const utcWall = (date: Date): WallTime => ({
+  minute: date.getUTCMinutes(),
+  hour: date.getUTCHours(),
+  dayOfMonth: date.getUTCDate(),
+  month: date.getUTCMonth() + 1,
+  dayOfWeek: date.getUTCDay(),
+});
+
+const matchesWall = (expr: CronExpression, wall: WallTime): boolean => {
+  const { minute, hour, dayOfMonth, month, dayOfWeek } = wall;
 
   if (!matchesField(expr.minute, minute)) return false;
   if (!matchesField(expr.hour, hour)) return false;
@@ -171,7 +191,56 @@ export const nextCronOccurrence = (
     t <= limit;
     t += 60_000
   ) {
-    if (matchesDate(parsed, new Date(t))) return t;
+    if (matchesWall(parsed, localWall(new Date(t)))) return t;
+  }
+  return undefined;
+};
+
+const wallFormats = new Map<string, Intl.DateTimeFormat>();
+
+/** How far `timezone`'s wall clock is ahead of UTC at `epochMs`. */
+const wallOffsetMs = (timezone: string, epochMs: number): number => {
+  let format = wallFormats.get(timezone);
+  if (format === undefined) {
+    format = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+      second: "numeric",
+    });
+    wallFormats.set(timezone, format);
+  }
+  const part: Record<string, number> = {};
+  for (const { type, value } of format.formatToParts(new Date(epochMs))) part[type] = Number(value);
+  const wall = Date.UTC(part.year!, part.month! - 1, part.day!, part.hour!, part.minute!, part.second!);
+  return wall - Math.floor(epochMs / 1000) * 1000;
+};
+
+/**
+ * Next fire strictly after `afterEpochMs` on `timezone`'s wall clock (an IANA
+ * name). Walks wall minutes, so a spring-forward gap fires at the shifted
+ * instant and a fall-back hour fires once. Undefined for an invalid
+ * expression or no match within two years.
+ */
+export const nextCronOccurrenceIn = (
+  raw: string,
+  afterEpochMs: number,
+  timezone: string,
+): number | undefined => {
+  const parsed = parseCronExpression(raw);
+  if ("error" in parsed) return undefined;
+  const offset = wallOffsetMs(timezone, afterEpochMs);
+  const start = Math.floor((afterEpochMs + offset) / 60_000) * 60_000 + 60_000;
+  const limit = start + 366 * 2 * 24 * 60 * 60_000;
+  for (let wall = start; wall <= limit; wall += 60_000) {
+    if (!matchesWall(parsed, utcWall(new Date(wall)))) continue;
+    const guess = wall - wallOffsetMs(timezone, wall - offset);
+    const instant = wall - wallOffsetMs(timezone, guess);
+    if (instant > afterEpochMs) return instant;
   }
   return undefined;
 };
