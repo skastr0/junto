@@ -175,8 +175,9 @@ everyone else reports by mail and on the needs-you feed.
 | Mention swaps | product-keyboard f918f4aa0, 31ef5e60f; PadPinThread dies with the pad | done |
 | Typecheck toolchain | tsrs swap landed (tech-lead fdc1bd867, 1693ef5b4, 9adfc92de): cold 7 s, 1.0 GiB vs tsc 5.9 160 s, 3.0 GiB; typecheck needs no slot | landed |
 | Sweep repair | fdc1bd867 carried six stale staged paths; restored at ca81a0033, stale copies unstaged | done |
-| Main typecheck red | 31 errors at b3543a409, routed: canvas (magnifier phase, pad and sheet tests), remote (browser hostId tests), cli (work-ports, pad.read), product-modals (toSorted) | fixing |
+| Main typecheck red | 31 at b3543a409, 5 at a139bde94; fixed: canvas 67e725ecd, remote c12fe5cf7, product-modals, pty-mail 955ad58d4; left: cli (artifact-control lines, work-ports since, gate duplicate keys), canvas-services kernel cut | fixing |
 | remote R5 Hermes host identity | b3543a409; stand-in removal rides the deletions step | done |
+| remote R2 ruler | RulingRecorder 75db329b0; task submit and replica fold 7fb8d1e9b; seat queue QueueFull 87d3406c8; reach for rulings 73779cf34; resource notice author 8a7e93ce4. Live once task tables are in the state engine and TaskRepositoryLive is wired (canvas order) | landed, not live |
 | remote R4 browser out | 255613ef8, 2614f3578, 658827b65; commit 3 page host readers next, deletions step waits on it | started |
 | Pinning deletion | product-shell b7aaeeb54, 34dd02699, 3b5841794 (flag out) | done |
 | Anchor lock, target resolution tests | product-verify f30bdc9cd, bcd7a9e40 | landed |
