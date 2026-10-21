@@ -63,7 +63,23 @@ export const publishSeatUrgency = (nodeId: string, urgency: Urgency | undefined)
 };
 
 /**
- * Region urgencies from urgent seats. `regionOf` names a seat's innermost
+ * Each non-seat node's urgency, by node id: a task board that is blocked or
+ * needs you, a failed automation, a failed page (docs/node-card-language.md,
+ * far zoom). Its own feed, so the minimap and the clusters stay seats only;
+ * only the regions read both.
+ */
+export const nodeUrgency$ = observable<Record<string, Urgency>>({});
+
+/** Set or clear one non-seat node's urgency, writing only on change. */
+export const publishNodeUrgency = (nodeId: string, urgency: Urgency | undefined): void => {
+  const was = nodeUrgency$[nodeId].peek();
+  if (was === urgency) return;
+  if (urgency === undefined) nodeUrgency$[nodeId].delete();
+  else nodeUrgency$[nodeId].set(urgency);
+};
+
+/**
+ * Region urgencies from urgent seats and nodes. `regionOf` names a seat's innermost
  * region, `parentOf` a region's enclosing one.
  */
 export const regionUrgencies = (

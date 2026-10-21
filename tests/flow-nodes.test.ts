@@ -61,6 +61,11 @@ describe("React Flow nodes from the model", () => {
     expect(flow.get("lead")?.data.ringCap).toBeGreaterThan(0);
     expect(flow.get("nodes")?.data.blocked).toBe(true);
     expect(flow.get("alone")?.data.seatRegion).toBe("");
+    // Another card knows the region holding it, for the region's urgency; a seat
+    // keeps seatRegion alone, and a card in no region has none.
+    expect(flow.get("term")?.data.homeRegion).toBe("outer");
+    expect(flow.get("lead")?.data.homeRegion).toBeUndefined();
+    expect(flow.get("file")?.data.homeRegion).toBeUndefined();
     // An instrument: the instrument size. A note: the size it stores.
     expect(flow.get("term")?.style).toMatchObject({ width: 176, height: 44 });
     expect(flow.get("note")?.style).toEqual({ width: 220, height: 84 });

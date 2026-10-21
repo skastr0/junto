@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { regionUrgencies, seatUrgencyOfRing, worseUrgency, type Urgency } from "../src/renderer/lib/region-urgency";
+import {
+  nodeUrgency$,
+  publishNodeUrgency,
+  regionUrgencies,
+  seatUrgency$,
+  seatUrgencyOfRing,
+  worseUrgency,
+  type Urgency,
+} from "../src/renderer/lib/region-urgency";
 import { RegionUrgency } from "../src/shared/wire/urgency";
 
 const { blocked, review } = RegionUrgency.group;
@@ -63,5 +71,40 @@ describe("regionUrgencies", () => {
 
   it("ignores seats in no region", () => {
     expect(run([{ id: "c", urgency: needsYou }]).size).toBe(0);
+  });
+});
+
+describe("publishNodeUrgency", () => {
+  it("keeps a card's state in its own feed, apart from the seats'", () => {
+    publishNodeUrgency("tasks", needsYou);
+    expect(nodeUrgency$.tasks.peek()).toBe("needs-you");
+    expect(seatUrgency$.tasks.peek()).toBeUndefined();
+    publishNodeUrgency("tasks", undefined);
+    expect("tasks" in nodeUrgency$.peek()).toBe(false);
+  });
+
+  it("writes only on change", () => {
+    let writes = 0;
+    const off = nodeUrgency$.onChange(() => {
+      writes += 1;
+    });
+    publishNodeUrgency("auto", blocked);
+    publishNodeUrgency("auto", blocked);
+    publishNodeUrgency("auto", undefined);
+    publishNodeUrgency("auto", undefined);
+    off();
+    expect(writes).toBe(2);
+  });
+
+  it("lets a card lean its region with a seat, the worst one showing", () => {
+    const out = regionUrgencies(
+      [
+        { id: "seat", urgency: needsYou },
+        { id: "card", urgency: blocked },
+      ],
+      (id) => ({ seat: "inner", card: "inner" })[id],
+      () => undefined,
+    );
+    expect(out.get("inner")).toEqual({ urgency: "blocked", reach: "direct" });
   });
 });
