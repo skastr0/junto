@@ -391,8 +391,8 @@ const isCellRange = (range: string): boolean => {
 
 /**
  * Whether a comment may anchor here: the kind fits the type, a box has area
- * and no page url (on a file, only an image), cells are an A1 range. Text
- * quotes are not checked against the body. The subject writer runs this.
+ * and no page url (on a file, only an image), cells are an A1 range, a text
+ * quote is in the document as it stands. The subject writer runs this.
  */
 export const admitsAnchor = <T extends ArtifactType>(
   body: BodyOf<T>,
@@ -406,6 +406,9 @@ export const admitsAnchor = <T extends ArtifactType>(
       return body.type !== "file" || (body as FileBody).content.mediaType.startsWith("image/");
     case "cells":
       return isCellRange(anchor.range);
+    // A quote hangs on text the document holds, as its source spells it.
+    case "text":
+      return (body as DocumentBody).markdown.includes(anchor.quote);
     default:
       return true;
   }

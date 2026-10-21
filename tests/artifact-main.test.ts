@@ -243,6 +243,19 @@ describe.runIf(ARTIFACTS_ENABLED)("junto artifact in main", () => {
     });
   });
 
+  it("refuses a text anchor whose quote the document does not hold, and names the kinds a wrong anchor could be", () => {
+    const { ports, comments } = memoryPorts();
+    createDoc(ports, { body: { markdown: "Ship the **tabs** today" } });
+    const absent = failure(run(ports, "artifact.comment", { opId: OP2, artifact: NEW, text: "hi", anchor: { kind: "text", quote: "not here" } }));
+    expect(absent).toMatchObject({ type: "InputError", message: "the quote is not in this document at version 1", details: { path: "anchor" } });
+    expect(absent.details?.next_step).toContain("junto artifact show");
+    const cells = failure(run(ports, "artifact.comment", { opId: OP2, artifact: NEW, text: "hi", anchor: { kind: "cells", range: "B2" } }));
+    expect(cells.details?.next_step).toBe("anchor it with whole or text, or leave --anchor out to comment on the whole document");
+    expect(comments).toEqual([]);
+    ok(run(ports, "artifact.comment", { opId: OP2, artifact: NEW, text: "hi", anchor: { kind: "text", quote: "**tabs**" } }));
+    expect(comments).toHaveLength(1);
+  });
+
   it("posts a whole-anchored comment with no anchor, and a refusal keeps its opId", () => {
     const { ports, comments } = memoryPorts();
     createDoc(ports);

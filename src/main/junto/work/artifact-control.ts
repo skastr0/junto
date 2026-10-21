@@ -12,6 +12,7 @@ import {
   type ArtifactOp,
   type ArtifactType,
   type ArtifactVersion,
+  ANCHOR_KINDS,
   admitsAnchor,
   artifactText,
   decodeArtifactBody,
@@ -606,14 +607,30 @@ export const commentOnArtifact = (
     if (input.anchor !== undefined && head.body === null) {
       return yield* awaitPull(caller, ports, head.artifact.nodeId, input.artifact, head.artifact.version, head.bodyRef);
     }
+    // Read before admitsAnchor narrows the refused anchor away.
+    const askedKind = input.anchor?.kind;
     if (input.anchor !== undefined && head.body !== null && !admitsAnchor(head.body, input.anchor)) {
-      return yield* Effect.fail(
-        inputError(
-          `a ${head.artifact.type} does not take a ${input.anchor.kind} anchor here`,
-          "anchor",
-          head.artifact.type === "sheet" ? "a cells anchor is an A1 range, like B2 or A1:C4" : undefined,
-        ),
+      const type = head.artifact.type;
+      const kinds: ReadonlyArray<string> = ANCHOR_KINDS[type];
+      const quoteMissing = askedKind === "text" && type === "document";
+      const refused = inputError(
+        quoteMissing
+          ? `the quote is not in this document at version ${head.artifact.version}`
+          : kinds.includes(askedKind ?? "")
+            ? `a ${type} does not take this ${askedKind} anchor`
+            : `a ${type} does not take a ${askedKind} anchor`,
+        "anchor",
+        type === "sheet" ? "a cells anchor is an A1 range, like B2 or A1:C4" : undefined,
       );
+      return yield* Effect.fail<WorkErrorBody>({
+        ...refused,
+        details: {
+          ...refused.details,
+          next_step: quoteMissing
+            ? "quote the text exactly as junto artifact show prints it, or leave --anchor out to comment on the whole document"
+            : `anchor it with ${kinds.join(" or ")}, or leave --anchor out to comment on the whole ${type}`,
+        },
+      });
     }
     // `whole` is no anchor. The wire Anchor still spells lines, which no
     // artifact takes, so the check narrows it to an artifact's place.
