@@ -5,6 +5,7 @@ import { modelStore } from "../src/renderer/lib/use-model";
 import { state$ } from "../src/renderer/lib/state";
 import { dock$ } from "../src/renderer/lib/dock-state";
 import { workDetailOpen$ } from "../src/renderer/lib/work-detail-open";
+import { TASKS_ENABLED } from "../src/shared/features";
 import { seat, note, region, taskBoard, terminal } from "./support/model-nodes";
 
 const opens = vi.hoisted(() => vi.fn());
@@ -42,8 +43,13 @@ describe("native node surface activation", () => {
     expect(Object.values(dock$.noteById.peek()).find((entry) => entry.nodeId === "memo")).toMatchObject({ title: "Native title", draft: "Native title\nNative content" });
   });
 
-  it("a native task board opens its paged work detail by id", () => {
+  it("a native task board opens its paged work detail by id, and none in a build without tasks", () => {
     publish(taskBoard("queue"));
+    if (!TASKS_ENABLED) {
+      expect(activateNodeSurface("queue")).toEqual({ opened: false, reason: "no-surface" });
+      expect(workDetailOpen$.peek()).toEqual({ nodeId: "", itemId: "" });
+      return;
+    }
     expect(activateNodeSurface("queue")).toEqual({ opened: true, kind: "work" });
     expect(workDetailOpen$.peek()).toEqual({ nodeId: "queue", itemId: "" });
   });
