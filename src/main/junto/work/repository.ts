@@ -157,9 +157,9 @@ import {
   receiptSourceId,
   reviewAuthorSeat,
   reviewSubjectProjection,
-  reviewsEdgeExists,
-  reviewersOfAuthor,
+  reviewerSeatsOf,
 } from "./reviews";
+import { readTaskReviewers } from "./task-repository";
 import {
   readMailExtension,
   type MailSenderStamp,
@@ -182,7 +182,7 @@ export type PostReviewVerdictResult =
   | { readonly verdict: ReviewVerdict; readonly created: boolean }
   | {
       readonly rejected:
-        "reviewer-is-author" | "stale-subject" | "reviews-edge-missing";
+        "reviewer-is-author" | "stale-subject" | "not-a-reviewer";
     };
 import { canonicalJson } from "./canonical-json";
 import { taskReviewSubjectHash } from "./review-subject-hash";
@@ -4709,8 +4709,8 @@ export interface WorkRepositoryShape {
   ) => Effect.Effect<PostReviewVerdictResult, RepositoryFailure>;
   /**
    * Atomic checkout-watch receipt writer: fresh-reads the task and its live
-   * claimant (refusing a changed author), the current masked reviews edges,
-   * and the intent basis, then composes commit-subject receipt mail for the
+   * claimant (refusing a changed author), the task's reviewer list, and the
+   * intent basis, then composes commit-subject receipt mail for the
    * newly observed shas and their dedupe rows in one transaction. Returns the
    * created records for the caller to notify after commit.
    */
@@ -6063,11 +6063,11 @@ export const WorkRepositoryLive = Layer.effect(
       if (doc === undefined) return [];
       const authorNode = agentNodeForSeat(refsHere, authorSeat);
       if (authorNode === undefined) return [];
-      const reviewers = reviewersOfAuthor({
-        doc,
-        authorNodeId: authorNode.nodeId,
+      // The task's reviewer list names who is mailed; the author never is.
+      const reviewers = reviewerSeatsOf({
+        reviewers: yield* readTaskReviewers(writer, canvasName, committedTask.id),
         actorRefs: refsHere,
-      });
+      }).filter((reviewer) => reviewer.seatId !== authorSeat);
       if (reviewers.length === 0) return [];
       const projection = reviewSubjectProjection({
         installationId,
@@ -6251,11 +6251,10 @@ export const WorkRepositoryLive = Layer.effect(
             const { doc, actorRefs: refsHere } = yield* readReviewCanvas(writer, input.canvasName);
             const authorNode = agentNodeForSeat(refsHere, authorSeat);
             if (doc === undefined || authorNode === undefined) return [];
-            const reviewers = reviewersOfAuthor({
-              doc,
-              authorNodeId: authorNode.nodeId,
+            const reviewers = reviewerSeatsOf({
+              reviewers: yield* readTaskReviewers(writer, input.canvasName, input.taskId),
               actorRefs: refsHere,
-            });
+            }).filter((reviewer) => reviewer.seatId !== authorSeat);
             if (reviewers.length === 0) return [];
             const source = {
               kind: "checkout" as const,
@@ -6366,8 +6365,8 @@ export const WorkRepositoryLive = Layer.effect(
       if (subject.kind === "commit") {
         // A commit subject carries no live task to CAS, but still requires live
         // authority: the author is the durable first-seen-sha provenance, the
-        // reviewer may not be that author, and a current directed reviews edge
-        // reviewer->author must hold verdict.post. Only the task epoch/hash CAS
+        // reviewer may not be that author, and a receipt for the sha must have
+        // reached the reviewer. Only the task epoch/hash CAS
         // and the work-side effect are omitted (a sha may belong to many tasks).
         return transaction(
           "work.review.post-verdict",
@@ -6396,25 +6395,25 @@ export const WorkRepositoryLive = Layer.effect(
                 Effect.map(Option.getOrUndefined),
               );
               if (provenance === undefined) {
-                return { rejected: "reviews-edge-missing" };
+                return { rejected: "not-a-reviewer" };
               }
               const authorSeat = provenance.author_seat_id as ActorSeatId;
               if (verdict.reviewerSeatId === authorSeat) {
                 return { rejected: "reviewer-is-author" };
               }
-              const { doc, actorRefs: refsHere } = yield* readReviewCanvas(writer, opts.canvasName);
-              const reviewerNode = agentNodeForSeat(
-                refsHere,
-                verdict.reviewerSeatId,
-              );
-              const authorNode = agentNodeForSeat(refsHere, authorSeat);
-              if (
-                doc === undefined ||
-                reviewerNode === undefined ||
-                authorNode === undefined ||
-                !reviewsEdgeExists(doc, reviewerNode.nodeId, authorNode.nodeId)
-              ) {
-                return { rejected: "reviews-edge-missing" };
+              // A commit's reviewers are the seats its receipts reached.
+              const receipted = yield* SqlSchema.findOneOption({
+                Request: WorkSqlBindings,
+                Result: ReviewReceiptKeyRow,
+                execute: (bindings) =>
+                  writer.unsafe(
+                    `SELECT ref_sha, reviewer_seat_id FROM work_review_receipts
+               WHERE ref_sha = ? AND reviewer_seat_id = ? LIMIT 1`,
+                    bindings,
+                  ),
+              })([subject.sha.trim().toLowerCase(), verdict.reviewerSeatId]);
+              if (Option.isNone(receipted)) {
+                return { rejected: "not-a-reviewer" };
               }
               const before = yield* SqlSchema.findOneOption({
                 Request: WorkSqlBindings,
@@ -6463,8 +6462,8 @@ export const WorkRepositoryLive = Layer.effect(
             });
             const authorSeat = reviewAuthorSeat(current.task);
             if (authorSeat === undefined) {
-              // No live author to target: no reviews edge can hold.
-              return { rejected: "reviews-edge-missing" };
+              // No live author: there is nothing to review yet.
+              return { rejected: "not-a-reviewer" };
             }
             // Self-review: the reviewer is (or has become) the current author.
             if (verdict.reviewerSeatId === authorSeat) {
@@ -6479,21 +6478,14 @@ export const WorkRepositoryLive = Layer.effect(
             ) {
               return { rejected: "stale-subject" };
             }
-            // A current directed reviews edge reviewer→author holding verdict.post
-            // in this canvas, re-read in the same writer (mask respected).
-            const { doc, actorRefs: refsHere } = yield* readReviewCanvas(writer, opts.canvasName);
-            const reviewerNode = agentNodeForSeat(
-              refsHere,
-              verdict.reviewerSeatId,
-            );
-            const authorNode = agentNodeForSeat(refsHere, authorSeat);
-            if (
-              doc === undefined ||
-              reviewerNode === undefined ||
-              authorNode === undefined ||
-              !reviewsEdgeExists(doc, reviewerNode.nodeId, authorNode.nodeId)
-            ) {
-              return { rejected: "reviews-edge-missing" };
+            // The reviewer is on the task's reviewer list, re-read in the same writer.
+            const { actorRefs: refsHere } = yield* readReviewCanvas(writer, opts.canvasName);
+            const listed = reviewerSeatsOf({
+              reviewers: yield* readTaskReviewers(writer, opts.canvasName, subject.taskId),
+              actorRefs: refsHere,
+            });
+            if (!listed.some((reviewer) => reviewer.seatId === verdict.reviewerSeatId)) {
+              return { rejected: "not-a-reviewer" };
             }
             const before = yield* SqlSchema.findOneOption({
               Request: WorkSqlBindings,

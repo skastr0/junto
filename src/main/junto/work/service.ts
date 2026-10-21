@@ -130,12 +130,12 @@ import {
   resolveTaskSubject,
   reviewAuthorSeat,
   reviewSubjectProjection,
-  reviewersOfAuthor,
-  reviewsEdgeExists,
+  reviewerSeatsOf,
   type ReviewGateResult,
   type ReviewSubjectProjection,
   type ResolvedReviewSubject,
 } from "./reviews";
+import { readTaskReviewers } from "./task-repository";
 
 import {
   WorkAuthorityError,
@@ -846,10 +846,8 @@ export const WorkLive = Layer.effect(
         nodeId,
         taskId: task.id,
       }).pipe(Effect.mapError(toWorkServiceError));
-      const author = read.actorRefs.find((actor) => actor.seatId === projection.authorSeatId);
-      const reviewers = author === undefined ? [] : reviewersOfAuthor({
-        doc: read.topology,
-        authorNodeId: author.nodeId,
+      const reviewers = reviewerSeatsOf({
+        reviewers: yield* readTaskReviewers(sql, canvas, task.id).pipe(Effect.mapError(toWorkServiceError)),
         actorRefs: read.actorRefs,
       });
       const gate = evaluateReviewGate({
@@ -857,7 +855,7 @@ export const WorkLive = Layer.effect(
         projection,
         verdicts,
         authorSeatId: projection.authorSeatId,
-        reviewerHasCurrentEdge: (seatId) => reviewers.some((reviewer) => reviewer.seatId === seatId),
+        reviewerListed: (seatId) => reviewers.some((reviewer) => reviewer.seatId === seatId),
       });
       return { projection, verdicts, gate, rules };
     });
@@ -1107,7 +1105,7 @@ export const WorkLive = Layer.effect(
         });
       }
       let subject: ResolvedReviewSubject;
-      let authorNodeId: string | undefined;
+      let reviewerListed: boolean;
       if (input.subject.kind === "task") {
         const expected = input.subject;
         const node = yield* requireNode(read.topology, target);
@@ -1134,7 +1132,10 @@ export const WorkLive = Layer.effect(
         const resolved = resolveTaskSubject({ projection, expected: input.subject });
         if (!resolved.ok) return yield* reviewServiceError(resolved.error);
         subject = resolved.subject;
-        authorNodeId = read.actorRefs.find((actor) => actor.seatId === projection.authorSeatId)?.nodeId;
+        reviewerListed = reviewerSeatsOf({
+          reviewers: yield* readTaskReviewers(sql, canvas, task.id).pipe(Effect.mapError(toWorkServiceError)),
+          actorRefs: read.actorRefs,
+        }).some((listed) => listed.seatId === reviewer.seatId);
       } else {
         const sha = input.subject.sha.trim().toLowerCase();
         const authorSeatId = yield* crew.firstAuthorForSha(sha).pipe(Effect.mapError(toWorkServiceError));
@@ -1151,7 +1152,9 @@ export const WorkLive = Layer.effect(
           sha,
           ...(authorSeatId !== undefined && author !== undefined ? { authorSeatId: author.seatId } : {}),
         };
-        authorNodeId = author?.nodeId;
+        // A commit's reviewers are the seats its receipts reached; the writer
+        // checks that in its own transaction.
+        reviewerListed = true;
       }
       const plan = planVerdictPost({
         caller: { seatId: reviewer.seatId, nodeId: reviewer.nodeId },
@@ -1159,7 +1162,7 @@ export const WorkLive = Layer.effect(
         kind: input.kind,
         findings: input.findings ?? [],
         refs: input.refs ?? [],
-        reviewsEdgeCurrent: authorNodeId !== undefined && reviewsEdgeExists(read.topology, reviewer.nodeId, authorNodeId),
+        reviewerListed,
         verdictId: ids.id(),
         postedAtMs: Date.now(),
       });
@@ -1252,7 +1255,7 @@ export const WorkLive = Layer.effect(
               return yield* new WorkServiceError({
                 code: posted.rejected === "reviewer-is-author"
                   ? "reviewer_is_author"
-                  : posted.rejected === "reviews-edge-missing"
+                  : posted.rejected === "not-a-reviewer"
                     ? "scope_error"
                     : "invalid",
                 message: `review verdict refused at write: ${posted.rejected}`,

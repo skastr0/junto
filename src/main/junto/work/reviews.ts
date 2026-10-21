@@ -21,9 +21,10 @@
 //  - Author provenance comes from durable claim/receipt facts: the seat that
 //    claimed the task in the current epoch, or the seat whose receipt first
 //    introduced a commit sha. A client assertion never establishes either.
-//  - Posting a verdict requires a current directed reviews edge from
-//    reviewer to author and distinct stable seats — checked at post and
-//    re-checked at completion, so a removed edge stops mattering.
+//  - Posting a verdict requires a reviewer on the task's reviewer list (for
+//    a commit, a seat its receipt reached) and distinct stable seats —
+//    checked at post and re-checked at completion, so a reviewer taken off
+//    the list stops mattering. No edge grants review.
 //  - A green verdict clears nothing by itself; the completion gate asks for
 //    a qualifying latest green on the exact binding. A blocking verdict is
 //    stored and applied (rejected + defect + epoch bump) in one owner
@@ -32,7 +33,6 @@
 //    the same task fact or the same checkout observation can never mail the
 //    same reviewer twice for the same ref.
 
-import type { Canvas, Wire } from "@shared/model";
 import {
   mailExtensionMetadata,
   type MailEvidenceRef,
@@ -40,12 +40,12 @@ import {
   type VerdictKind,
   type VerdictSubject,
 } from "@shared/crew";
-import { REVIEWS_ENABLED } from "@shared/features";
 import { taskEpoch, type RuleInForce } from "@shared/rules";
 import { canTransitionTaskState, makeUserMessage } from "@shared/task";
 import type { CompletionEvidence, Message, Task } from "@shared/work-model";
 import type { ActorSeatId } from "@shared/actor-seat";
 import type { ActorRef } from "@shared/work-reference";
+import type { Reviewer } from "@shared/task-model";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { WorkRecordId } from "@shared/work-protocol";
 import { subjectHashOf, taskReviewSubjectHash } from "./review-subject-hash";
@@ -54,7 +54,7 @@ import { subjectHashOf, taskReviewSubjectHash } from "./review-subject-hash";
 // Errors — WorkErrorType plus a machine `details.reason`, never a new type.
 
 export const REVIEW_REASON_REVIEWER_IS_AUTHOR = "reviewer-is-author";
-export const REVIEW_REASON_EDGE_MISSING = "reviews-edge-missing";
+export const REVIEW_REASON_NOT_REVIEWER = "not-a-reviewer";
 export const REVIEW_REASON_SUBJECT_NOT_FOUND = "subject-not-found";
 export const REVIEW_REASON_STALE_SUBJECT = "stale-subject";
 export const REVIEW_REASON_AUTHOR_UNRESOLVED = "author-unresolved";
@@ -80,7 +80,7 @@ export const reviewerIsAuthorError = (seatId: ActorSeatId): WorkErrorBody =>
     {
       retryable: false,
       next_step:
-        "a different seat with a current reviews edge must post the verdict",
+        "a different seat on the task's reviewers must post the verdict",
       holder: seatId,
     },
   );
@@ -177,7 +177,7 @@ export const reviewSubjectProjection = (input: {
   };
 };
 
-/** The live agent node one seat currently occupies, for edge checks. */
+/** The live agent node one seat currently occupies. */
 export const agentNodeForSeat = (
   actorRefs: ReadonlyArray<ActorRef>,
   seatId: ActorSeatId,
@@ -276,8 +276,9 @@ export type VerdictPostPlan =
 
 /**
  * Plan one verdict posting. Pure: the caller supplies the admitted reviewer
- * (process-bound), the resolved current subject, whether a current directed
- * reviews edge reviewer→author exists right now, and the minted id/clock.
+ * (process-bound), the resolved current subject, whether the reviewer may
+ * review it right now (on the task's reviewer list, or reached by the
+ * commit's receipt), and the minted id/clock.
  * The returned `effect` tells the service whether the same owner transaction
  * must also run the send-back writers (blocking) or store the verdict alone
  * (green).
@@ -288,7 +289,7 @@ export const planVerdictPost = (input: {
   readonly kind: VerdictKind;
   readonly findings: ReadonlyArray<string>;
   readonly refs: ReadonlyArray<MailEvidenceRef>;
-  readonly reviewsEdgeCurrent: boolean;
+  readonly reviewerListed: boolean;
   readonly verdictId: string;
   readonly postedAtMs: number;
 }): VerdictPostPlan => {
@@ -298,9 +299,9 @@ export const planVerdictPost = (input: {
     .filter((finding) => finding.length > 0);
 
   // Author identity first (root ruling): self-review refuses as
-  // ReviewerIsAuthor even when the reviewer also lacks an edge — the self-
+  // ReviewerIsAuthor even when the reviewer is also not listed — the self-
   // review is the more specific defect, and an author must never be told to
-  // ask for an edge to themselves. An unresolved author precedes both: the
+  // ask to review themselves. An unresolved author precedes both: the
   // self-review question is unanswerable without one. The p15 writer re-check
   // mirrors this exact precedence after a live claim flip.
   const authorSeatId =
@@ -325,20 +326,17 @@ export const planVerdictPost = (input: {
   if (authorSeatId === caller.seatId) {
     return { ok: false, error: reviewerIsAuthorError(caller.seatId) };
   }
-  if (!input.reviewsEdgeCurrent) {
+  if (!input.reviewerListed) {
     return {
       ok: false,
       error: reviewError(
         "ScopeError",
-        REVIEW_REASON_EDGE_MISSING,
-        "no current reviews edge from your seat to the author seat",
-        REVIEWS_ENABLED
-          ? {
-            retryable: false,
-            next_step:
-              "ask the operator to draw a reviews edge from your seat to the author",
-          }
-          : { retryable: false },
+        REVIEW_REASON_NOT_REVIEWER,
+        "your seat is not a reviewer of this subject",
+        {
+          retryable: false,
+          next_step: "ask the operator to add your seat to the task's reviewers",
+        },
       ),
     };
   }
@@ -468,7 +466,7 @@ export type ReviewGateUnsatisfied = {
     | "no-green-current-epoch"
     | "stale-refs"
     | "no-qualifying-green"
-    | "edge-removed";
+    | "reviewer-removed";
 };
 
 export type ReviewGateResult = {
@@ -483,15 +481,15 @@ export type ReviewGateResult = {
  * The gate: a requires-review rule arms completion on a distinct reviewer's
  * green verdict. A green qualifies only when it is that reviewer's LATEST
  * verdict on the exact binding (current epoch + current subjectHash), the
- * reviewer is not the author, and a current directed reviews edge still
- * runs from that reviewer to the author.
+ * reviewer is not the author, and that reviewer is still on the task's
+ * reviewer list.
  */
 export const evaluateReviewGate = (input: {
   readonly rulesInForce: ReadonlyArray<RuleInForce>;
   readonly projection: ReviewSubjectProjection;
   readonly verdicts: ReadonlyArray<ReviewVerdict>;
   readonly authorSeatId: ActorSeatId | undefined;
-  readonly reviewerHasCurrentEdge: (reviewerSeatId: ActorSeatId) => boolean;
+  readonly reviewerListed: (reviewerSeatId: ActorSeatId) => boolean;
 }): ReviewGateResult => {
   const armed: ReadonlyArray<ReviewGateRule> = input.rulesInForce
     .filter(
@@ -544,12 +542,12 @@ export const evaluateReviewGate = (input: {
     );
     if (
       qualifying.some((verdict) =>
-        input.reviewerHasCurrentEdge(verdict.reviewerSeatId),
+        input.reviewerListed(verdict.reviewerSeatId),
       )
     ) {
       return { armed, satisfied: true, unsatisfied: [] };
     }
-    reason = qualifying.length === 0 ? "no-qualifying-green" : "edge-removed";
+    reason = qualifying.length === 0 ? "no-qualifying-green" : "reviewer-removed";
   }
   return {
     armed,
@@ -559,67 +557,33 @@ export const evaluateReviewGate = (input: {
 };
 
 // ---------------------------------------------------------------------------
-// Reviews edges and receipt feed.
+// Reviewers and receipt feed.
 
 /**
- * A reviews edge counts only while it holds a live `verdict.post` grant:
- * the verb is authored `reviews`, and the operator mask (when present)
- * still names the port. Missing mask is the full compiled grant; an empty
- * mask is no grant at all.
+ * The seats on a task's reviewer list, resolved through the live actor refs.
+ * The operator is mailed no receipt, and a listed node with no live seat
+ * contributes nothing. A seat listed twice (two live nodes of one stable
+ * seat) keeps its FIRST entry in list order — downstream mail plans per seat
+ * and a duplicate entry would double-send receipts.
  */
-const edgeHoldsVerdictPost = (
-  edge: Wire,
-): boolean =>
-  edge.verb === "reviews" &&
-  (edge.mask === undefined || edge.mask.includes("verdict.post"));
-
-/**
- * Reviewers currently holding a `verdict.post` grant toward `authorNodeId`:
- * edge source is the reviewer, target the author (the edge is directed).
- * Seats resolve through the live actor refs; an edge whose reviewer node
- * has no live seat contributes nothing. Parallel eligible edges that share
- * one stable seat (a reviewer with two live nodes) collapse to the FIRST
- * edge in document order — downstream mail plans per seat and a duplicate
- * entry would double-send receipts.
- */
-export const reviewersOfAuthor = (input: {
-  readonly doc: Canvas;
-  readonly authorNodeId: string;
+export const reviewerSeatsOf = (input: {
+  readonly reviewers: ReadonlyArray<Reviewer>;
   readonly actorRefs: ReadonlyArray<ActorRef>;
 }): ReadonlyArray<{
   readonly nodeId: string;
   readonly seatId: ActorSeatId;
 }> => {
-  const { doc, authorNodeId, actorRefs } = input;
   const out: Array<{ nodeId: string; seatId: ActorSeatId }> = [];
   const seenSeats = new Set<ActorSeatId>();
-  for (const edge of doc.wires.values()) {
-    if (!edgeHoldsVerdictPost(edge) || edge.to !== authorNodeId) continue;
-    const seat = actorRefs.find((actor) => actor.nodeId === edge.from);
+  for (const reviewer of input.reviewers) {
+    if (reviewer.kind !== "seat") continue;
+    const seat = input.actorRefs.find((actor) => actor.nodeId === reviewer.seat);
     if (seat === undefined || seenSeats.has(seat.seatId)) continue;
     seenSeats.add(seat.seatId);
-    out.push({ nodeId: edge.from, seatId: seat.seatId });
+    out.push({ nodeId: seat.nodeId, seatId: seat.seatId });
   }
   return out;
 };
-
-/**
- * True when a current directed reviews edge runs reviewer → author and still
- * holds `verdict.post` (mask respected). This mirrors the physics admission
- * for the same grant; the kernel is authoritative, this recheck keeps
- * service-level calls honest when they did not pass through it.
- */
-export const reviewsEdgeExists = (
-  doc: Canvas,
-  reviewerNodeId: string,
-  authorNodeId: string,
-): boolean =>
-  [...doc.wires.values()].some(
-    (edge) =>
-      edgeHoldsVerdictPost(edge) &&
-      edge.from === reviewerNodeId &&
-      edge.to === authorNodeId,
-  );
 
 /**
  * Durable source identity a receipt mail is deduped against. A task-fact
@@ -674,8 +638,8 @@ export const receiptDedupeKey = (input: {
 
 /**
  * The exact verdict subject a receipt hands the reviewer, server-derived
- * from the committed fact's projection. A reviewer holding only a reviews
- * edge (no task-read grant on the sink) can post against this verbatim —
+ * from the committed fact's projection. A listed reviewer with no task-read
+ * grant on the sink can post against this verbatim —
  * resolveTaskSubject CAS-checks it, and the target sink in the mail body
  * tells them where it lives.
  */
@@ -740,7 +704,7 @@ export const planReceiptMail = (input: {
    * Server-derived projection of the committed fact's task — the ONLY
    * source of the subject CAS handed to the reviewer (root: no task-read
    * grant widening; the receipt itself carries epoch + subjectHash + the
-   * target sink so a reviews-edge-only reviewer can post verbatim).
+   * target sink so a reviewer with no task read can post verbatim).
    */
   readonly projection: ReviewSubjectProjection;
   readonly alreadySent: (dedupeKey: string) => boolean;

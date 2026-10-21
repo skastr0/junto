@@ -149,6 +149,24 @@ const asReviewer = (reviewer: typeof ReviewerJson.Type): Reviewer =>
   reviewer.kind === "operator" ? reviewer : { kind: "seat", seat: seatNodeId(reviewer.seat as NodeId) };
 
 /**
+ * A task's reviewer list as its head stores it, read through the caller's
+ * client so the caller's own transaction sees it. Empty when the canvas holds
+ * no such task or the list does not decode.
+ */
+export const readTaskReviewers = (
+  client: SqlClient.SqlClient,
+  canvasName: string,
+  taskId: string,
+): Effect.Effect<ReadonlyArray<Reviewer>, SqlError.SqlError> =>
+  client<{ readonly reviewers_json: string }>`
+    SELECT reviewers_json FROM task_heads WHERE canvas_name = ${canvasName} AND task_id = ${taskId}`.pipe(
+    Effect.map((rows) => {
+      const decoded = rows[0] === undefined ? undefined : decodeReviewers(parse(rows[0].reviewers_json));
+      return decoded === undefined || Result.isFailure(decoded) ? [] : decoded.success.map(asReviewer);
+    }),
+  );
+
+/**
  * A head row and its stamps (`task-stamps.ts`) as a task record, or nothing
  * when the row, or a stamp of it (`stamps` undefined), does not decode.
  */
