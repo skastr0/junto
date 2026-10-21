@@ -162,7 +162,6 @@ describe("tasks over the resource IPC", () => {
         seatReach: { [ada]: [build] },
       }),
       apply,
-      pending: async () => [],
       onChanged: (listener) => {
         listeners.add(listener);
         return () => listeners.delete(listener);
