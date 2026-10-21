@@ -150,9 +150,11 @@ const capabilitiesFromMask = (
   mask: number | null,
 ): ReadonlyArray<HostCapability> => {
   if (mask === null) return [];
-  return CAPABILITIES_IN_STORAGE_ORDER.filter(
+  const capabilities = CAPABILITIES_IN_STORAGE_ORDER.filter(
     (capability) => (mask & CAPABILITY_BITS[capability]) !== 0,
   );
+  // A remote that claimed only a retired capability reads as terminal, as v26 copies it.
+  return capabilities.length > 0 ? capabilities : ["terminal"];
 };
 
 const rowToHost = (row: HostRow): RemoteHost => {

@@ -308,12 +308,15 @@ describe("remote hosts registry", () => {
       database.exec("UPDATE host_registry SET hermes_id = 'fleet-own', effective_hermes_id = 'fleet-own' WHERE is_this_machine = 1");
       database.exec(`INSERT INTO host_registry(id, label, is_this_machine, ssh_endpoint, capability_mask, hermes_id, effective_hermes_id, sort_order)
         VALUES ('fleet-1', 'Fleet One', 0, 'fleet-1', 9, 'f1', 'f1', 1)`);
+      database.exec(`INSERT INTO host_registry(id, label, is_this_machine, ssh_endpoint, capability_mask, effective_hermes_id, sort_order)
+        VALUES ('hermes-only', 'Hermes only', 0, 'hermes-only', 8, 'hermes-only', 2)`);
     } finally {
       database.close();
     }
     const fleet = await registry.get("fleet-1");
     expect(fleet).toEqual({ id: "fleet-1", label: "Fleet One", isThisMachine: false, sshEndpoint: "fleet-1", capabilities: ["terminal"] });
     expect(await registry.get("macbook")).not.toHaveProperty("hermesId");
+    expect((await registry.get("hermes-only"))?.capabilities).toEqual(["terminal"]);
 
     await registry.upsert({ ...fleet!, label: "Fleet" });
     await registry.upsert({ id: "macbook", label: "This Mac", isThisMachine: true, capabilities: ["terminal"] });
@@ -322,6 +325,7 @@ describe("remote hosts registry", () => {
       expect(after.prepare("SELECT id, capability_mask, hermes_id, effective_hermes_id FROM host_registry ORDER BY sort_order").all()).toEqual([
         { id: "macbook", capability_mask: null, hermes_id: null, effective_hermes_id: "macbook" },
         { id: "fleet-1", capability_mask: 1, hermes_id: null, effective_hermes_id: null },
+        { id: "hermes-only", capability_mask: 8, hermes_id: null, effective_hermes_id: "hermes-only" },
       ]);
     } finally {
       after.close();
