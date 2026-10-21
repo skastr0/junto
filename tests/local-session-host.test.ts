@@ -6,7 +6,7 @@ import type {
   AppTerminalLease,
 } from "../src/main/junto/app-process-plane";
 import { homedir, tmpdir } from "node:os";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   expandTerminalCwd,
@@ -458,6 +458,22 @@ describe("LocalSessionHost", () => {
           code: "agent_launch_unresolvable",
           operatorReason: "Junto will not start a seat in your home folder ~; pick a project folder",
         });
+      }
+    });
+
+    // realpath leaves the firmlink spelling as it is, so this one is caught by
+    // device and inode; APFS folds the case-flipped one.
+    it.runIf(process.platform === "darwin")("is refused through the Data volume firmlink, and case-flipped", () => {
+      const real = realpathSync.native(home);
+      const firmlink = `/System/Volumes/Data${real}`;
+      expect(realpathSync.native(firmlink)).not.toBe(real);
+      const caseFlipped = real.replace(/\/home$/u, "/HOME");
+      for (const cwd of [firmlink, caseFlipped]) {
+        const resolved = agentIn(cwd);
+        if (!Result.isFailure(resolved)) throw new Error(`a seat in ${cwd} must not resolve`);
+        expect(resolved.failure.operatorReason, cwd).toBe(
+          "Junto will not start a seat in your home folder ~; pick a project folder",
+        );
       }
     });
 

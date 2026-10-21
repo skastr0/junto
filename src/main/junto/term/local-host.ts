@@ -658,14 +658,19 @@ const isUsableCwd = (cwd: string): boolean => {
 /**
  * True when the path is this machine's home folder, in any spelling: realpath
  * collapses a trailing slash, `.`/`..` and symlinks, and the native call also
- * folds a case-flipped spelling on APFS. A path that does not resolve is not
+ * folds a case-flipped spelling on APFS. realpath does not cross a macOS
+ * firmlink (/System/Volumes/Data/Users/<you> is home too), so the same
+ * device and inode is home as well. A path that does not resolve is not
  * home; isUsableCwd refuses it on its own.
  */
 const isHomeFolder = (cwd: string): boolean => {
   const home = os.homedir();
   if (!home) return false;
   try {
-    return realpathSync.native(cwd) === realpathSync.native(home);
+    if (realpathSync.native(cwd) === realpathSync.native(home)) return true;
+    const at = statSync(cwd);
+    const own = statSync(home);
+    return at.dev === own.dev && at.ino === own.ino;
   } catch {
     return false;
   }
