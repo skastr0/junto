@@ -15,6 +15,7 @@
 import { Schema } from "effect";
 import type { TaskCommandKind, TaskState, TaskView } from "./task-model";
 import { STAMPS_REQUIRED_MAX, TASK_STATES } from "./task-model";
+import type { WorkErrorBody } from "./work-control";
 import { ItemId, OpId, TaskNumber } from "./work-ids";
 
 export { ItemId, OpId };
@@ -223,7 +224,9 @@ export type TaskListResult = {
  * How a write ended. `applied`: ruled here and readable now, with the state
  * it left the task in. `queued`: the editing machine is away; `junto op show
  * <opId>` reads its ruling later. A refusal is never a result: it is the typed
- * error, with the opId in its details.
+ * error, with the opId in its details. `deliveryError`: the write was ruled and
+ * stands, but the mail it owes (an assignment notice, a stamp request) did not
+ * go; a resend replays the ruling and sends nothing.
  */
 export type TaskWriteResult =
   | {
@@ -232,6 +235,7 @@ export type TaskWriteResult =
       readonly taskId: ItemId;
       readonly number?: TaskNumber;
       readonly state: TaskState;
+      readonly deliveryError?: WorkErrorBody;
     }
   | { readonly disposition: "queued"; readonly opId: OpId; readonly taskId: ItemId };
 

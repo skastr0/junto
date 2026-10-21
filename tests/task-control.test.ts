@@ -271,10 +271,11 @@ describe("task verbs", () => {
     }
   });
 
-  it("answers applied when the ruling's mail cannot go out", async () => {
-    const ports = { ...portsWith(applied()), deliver: () => Effect.fail<WorkErrorBody>({ type: "RuntimeDown", message: "no work service" }) };
+  it("answers applied, with the delivery error, when the ruling's mail cannot go out", async () => {
+    const down: WorkErrorBody = { type: "RuntimeDown", message: "no work service" };
+    const ports = { ...portsWith(applied()), deliver: () => Effect.fail(down) };
     const exit = await run("task.start", { opId: OP, task: "#42" }, ports);
-    expect(exit).toEqual(Exit.succeed({ disposition: "applied", opId: OP, taskId: ID, number: 42, state: "assigned" }));
+    expect(exit).toEqual(Exit.succeed({ disposition: "applied", opId: OP, taskId: ID, number: 42, state: "assigned", deliveryError: down }));
   });
 
   it("puts the opId on a refused comment", async () => {
