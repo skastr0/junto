@@ -9,7 +9,7 @@
 import { Effect, Option } from "effect";
 import type { MailSenderStamp } from "@shared/crew";
 import type { Canvas } from "@shared/model";
-import { asNodeId, seatRegions } from "@shared/model";
+import { asNodeId, mailSenderRegions } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import type { ResourceActor } from "@shared/resource-command";
 import { subjectNoticeRow } from "@shared/subject-notice";
@@ -44,7 +44,7 @@ const senderOf = (canvas: Canvas, actor: Extract<ResourceActor, { readonly kind:
     fromSeat: actor.seatId,
     senderNodeId: actor.nodeId,
     senderName: node === undefined ? actor.nodeId : titleOf(node),
-    senderRegions: seatRegions(canvas, actor.nodeId),
+    senderRegions: mailSenderRegions(canvas, actor.nodeId),
     senderGeneration: "ruling",
     senderHarness: node?.kind === "agent" ? (node.harness ?? "unknown") : "unknown",
   };

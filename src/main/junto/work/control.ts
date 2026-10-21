@@ -258,7 +258,7 @@ import {
 } from "@shared/rules";
 import { regionStack } from "@shared/model/canvas";
 import { flowDestinations, reachableBoards } from "@shared/flow-graph";
-import { asNodeId, seatIdentity, seatRegions, taskBoardTitle, type Canvas, type Node, type SeatIdentity } from "@shared/model";
+import { asNodeId, mailSenderRegions, seatIdentity, taskBoardTitle, type Canvas, type Node, type SeatIdentity } from "@shared/model";
 import { resolveCallerAcrossCanvases } from "./caller-resolve";
 
 import { closingFence } from "../term/closing-fence";
@@ -963,7 +963,7 @@ const mailSenderStamp = (
     senderHarness: terminal?.harness ?? "unknown",
     senderNodeId: caller.nodeId,
     senderName: node === undefined ? caller.nodeId : nodeTitle(node),
-    ...(node === undefined ? {} : { senderRegions: seatRegions(board, caller.nodeId) }),
+    ...(node === undefined ? {} : { senderRegions: mailSenderRegions(board, caller.nodeId) }),
   };
 };
 

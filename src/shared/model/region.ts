@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { Rule, Ruling } from "../work-model";
 import { HostId, placement } from "./base";
+import { REGION_NAME_MAX } from "../region-bounds";
 
 // A region is geography: a named rectangle. What is inside it is always worked
 // out from the rectangles, never stored, so membership cannot go stale.
@@ -132,10 +133,14 @@ export type RegionContract = typeof RegionContract.Type;
 export const RegionBackgroundStyle = Schema.Literals(["cover", "ratio", "repeat"]);
 export type RegionBackgroundStyle = typeof RegionBackgroundStyle.Type;
 
+export { REGION_NAME_MAX };
+
 export const Region = Schema.Struct({
   kind: Schema.Literal("region"),
   ...placement,
-  label: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isPattern(/^[^\r\n]*$/)))),
+  label: Schema.optionalKey(
+    Schema.String.pipe(Schema.check(Schema.isPattern(/^[^\r\n]*$/)), Schema.check(Schema.isMaxLength(REGION_NAME_MAX))),
+  ),
   /** Things inside travel with the region when it moves. */
   hold: Schema.Boolean,
   /** Briefing for agents inside, served on onboard. */

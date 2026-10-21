@@ -2,6 +2,7 @@ import { asNodeId } from "./base";
 import { regionName, regionStack, type Placed } from "./canvas";
 import type { Node } from "./kinds";
 import { titleOf } from "./title";
+import { MAIL_SENDER_REGIONS_MAX } from "../region-bounds";
 
 /**
  * Who a seat is, as another seat or an overseer reads it: its id, its name,
@@ -23,6 +24,10 @@ export type SeatIdentity = {
 /** Every region around a node, outermost first, from the one membership rule. */
 export const seatRegions = (canvas: Placed, nodeId: string): ReadonlyArray<SeatRegion> =>
   regionStack(canvas, asNodeId(nodeId)).map((region) => ({ id: region.id, name: regionName(region) }));
+
+/** The regions a mail's stamp names: the innermost MAIL_SENDER_REGIONS_MAX, still outermost first. */
+export const mailSenderRegions = (canvas: Placed, nodeId: string): ReadonlyArray<SeatRegion> =>
+  seatRegions(canvas, nodeId).slice(-MAIL_SENDER_REGIONS_MAX);
 
 export const seatIdentity = (canvas: Placed, node: Node): SeatIdentity => ({
   nodeId: node.id,

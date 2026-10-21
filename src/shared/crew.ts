@@ -15,6 +15,7 @@
 
 import { Schema } from "effect";
 import { ActorSeatId } from "./actor-seat";
+import { MAIL_SENDER_REGIONS_MAX, REGION_NAME_MAX } from "./region-bounds";
 
 // ---- Mail evidence refs ----
 
@@ -49,22 +50,32 @@ export type MailEvidenceRef = typeof MailEvidenceRef.Type;
 export const MailKind = Schema.Literals(["notice", "prompt", "receipt"]);
 export type MailKind = typeof MailKind.Type;
 
+export { MAIL_SENDER_REGIONS_MAX };
+
 /** One region around a mail's sender: its id and the name it is called by. */
-const MailSenderRegion = Schema.Struct({ id: Schema.String, name: Schema.String });
+const MailSenderRegion = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String.pipe(Schema.check(Schema.isMaxLength(REGION_NAME_MAX))),
+});
+
+const MailSenderRegions = Schema.Array(MailSenderRegion).pipe(
+  Schema.check(Schema.isMaxLength(MAIL_SENDER_REGIONS_MAX)),
+);
 
 /**
  * Server-stamped sender identity, taken from the admitted process and the
  * current live canvas — never a client-supplied stamp. `fromSeat` is the
  * stable seat id; `senderNodeId` and `senderName` are the readable canvas
  * handle and display name so a notice or ledger link never truncates to a
- * `seat_` hash. `senderRegions` is every region around the sender when it
- * sent, outermost first. Control stamps them all; a client cannot supply any.
+ * `seat_` hash. `senderRegions` is the regions around the sender when it
+ * sent, outermost first, at most MAIL_SENDER_REGIONS_MAX of the innermost.
+ * Control stamps them all; a client cannot supply any.
  */
 export const MailSenderStamp = Schema.Struct({
   fromSeat: ActorSeatId,
   senderNodeId: Schema.optionalKey(Schema.String),
   senderName: Schema.optionalKey(Schema.String),
-  senderRegions: Schema.optionalKey(Schema.Array(MailSenderRegion)),
+  senderRegions: Schema.optionalKey(MailSenderRegions),
   senderGeneration: Schema.String,
   senderHarness: Schema.String,
 });
@@ -83,7 +94,7 @@ export const MailExtension = Schema.Struct({
   fromSeat: ActorSeatId,
   senderNodeId: Schema.optionalKey(Schema.String),
   senderName: Schema.optionalKey(Schema.String),
-  senderRegions: Schema.optionalKey(Schema.Array(MailSenderRegion)),
+  senderRegions: Schema.optionalKey(MailSenderRegions),
   senderGeneration: Schema.String,
   senderHarness: Schema.String,
 });

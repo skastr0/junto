@@ -16,7 +16,7 @@ import { Effect, Option } from "effect";
 import type { MailMessageId, MailSenderStamp } from "@shared/crew";
 import { mentionsOf } from "@shared/mention";
 import type { Canvas } from "@shared/model";
-import { asNodeId, seatRegions } from "@shared/model";
+import { asNodeId, mailSenderRegions } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import type { NodeId } from "@shared/physics/schema";
 import { isCommentableKind, reaches, seatsInReach } from "@shared/region-reach";
@@ -65,7 +65,7 @@ export const actorMailOf = (
           fromSeat: actor.seatId,
           senderNodeId: actor.nodeId,
           senderName: node === undefined ? actor.nodeId : titleOf(node),
-          senderRegions: seatRegions(canvas, actor.nodeId),
+          senderRegions: mailSenderRegions(canvas, actor.nodeId),
           senderGeneration: "ruling",
           senderHarness: node?.kind === "agent" ? (node.harness ?? "unknown") : "unknown",
         },
