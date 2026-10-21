@@ -48,6 +48,7 @@ import { logsReadCapability, logsReadExamples, logsReadSchema } from "../command
 import { referencesCapabilities, referencesExamples, referencesSchemas } from "../commands/references";
 import { overseerCapabilities, overseerExamples, overseerSchemas } from "../commands/overseer";
 import { automationCapabilities, automationExamples, automationSchemas } from "../commands/automation";
+import { opCapabilities, opExamples, opSchemas } from "../commands/op";
 import { DEFAULT_BATCH_CONCURRENCY } from "./constants";
 import {
   FEW_SHOT_CLAIM,
@@ -512,6 +513,7 @@ const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   contentStageSchema,
   ...overseerSchemas,
   ...automationSchemas,
+  ...opSchemas,
   // Inline on purpose: a module const would keep the browser rows in the machine bundle.
   ...((typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__) ? [] : BROWSER_ENABLED ? browserSchemas : []),
 ];
@@ -1172,6 +1174,7 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
   ...referencesExamples,
   ...overseerExamples,
   ...automationExamples,
+  ...opExamples,
 ];
 
 /** Examples follow their command: a disabled surface has no runnable recipe. */
@@ -1539,6 +1542,7 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
   ...referencesCapabilities,
   ...overseerCapabilities,
   ...automationCapabilities,
+  ...opCapabilities,
 ];
 
 /** Capability rows follow their command: a disabled surface is not discoverable. */

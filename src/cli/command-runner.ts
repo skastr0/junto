@@ -34,6 +34,7 @@ const commands: readonly Entry[] = [
   { name: "artifact", enabled: ARTIFACTS_ENABLED, load: async () => (await import("./commands/work")).artifactCommand },
   { name: "overseer", load: async () => (await import("./commands/overseer")).overseerCommand },
   { name: "automation", load: async () => (await import("./commands/automation")).automationCommand },
+  { name: "op", load: async () => (await import("./commands/op")).opCommand },
   // Inline on purpose: bun drops the browser CLI from the machine bundle only
   // when the define is tested at this site. Through a module const it stays.
   ...((typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__)

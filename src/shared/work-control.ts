@@ -117,6 +117,9 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "signal.raise",
 "signal.clear",
 "signal.list",
+/** Universal seat-local: what became of this seat's resource writes, by opId (no edge, no port). */
+"op.show",
+"op.list",
 /** Universal seat-local: what this seat's regions resolve to (names and status, never values). */
 "env.report",
 /** Universal seat-local: this machine's log, scoped to the caller (its rows, seats it may read, rows naming no seat). */

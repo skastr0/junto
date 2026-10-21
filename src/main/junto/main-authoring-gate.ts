@@ -117,6 +117,8 @@ const WORK_OPERATION_CLASSIFICATION = {
   "signal.raise": "authorial",
   "signal.clear": "authorial",
   "signal.list": "read",
+  "op.show": "read",
+  "op.list": "read",
   "env.report": "read",
   "logs.read": "read",
   "references.list": "read",

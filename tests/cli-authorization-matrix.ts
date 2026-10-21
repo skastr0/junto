@@ -91,6 +91,9 @@ const SEAT_LOCAL_COMMANDS = new Set([
   "signal.blocked",
   "signal.feedback",
   "signal.list",
+  // A seat reads its own writes by opId: no target, no edge.
+  "op.show",
+  "op.list",
   // A seat reads its own environment report: no target, no edge.
   "env.report",
   // A seat reads this machine's log within its own scope: no target, no edge.

@@ -12,7 +12,7 @@ import type { Port, SinkKind } from "./schema";
 export type TargetWorkOpName = Exclude<
   WorkOpName,
   "ping" | "doctor" | "capabilities" | "onboard" | "offboard" | "preamble" | "overseer" | "overseer.live" | "msg.sent"
-  | "signal.raise" | "signal.clear" | "signal.list" | "env.report" | "logs.read" | "references.list" | "references.read" | "content.stage"
+  | "signal.raise" | "signal.clear" | "signal.list" | "op.show" | "op.list" | "env.report" | "logs.read" | "references.list" | "references.read" | "content.stage"
   // Automations are not reached through an edge port (plan 07).
   | AutomationOp
   // Nor are artifacts (plan 05): an Artifacts node in reach admits.

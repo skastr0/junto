@@ -28,6 +28,7 @@ import { HostRegistryRows } from "./junto/hosts/registry";
 import { SshTransportLive } from "./junto/ssh";
 import { makeStateEngineLive } from "./junto/state/engine";
 import { MachineRepositoryLive } from "./junto/machines/repository";
+import { OpRepositoryLive } from "./junto/work/op-repository";
 import { HarnessInventoryLive } from "./junto/term/templates/harness-inventory";
 import { NativeConfigLive } from "./junto/native-config/service";
 import { WorkModelDependentsLive } from "./junto/work/model-dependents";
@@ -57,6 +58,7 @@ export const makeCoreProductLayer = (home: string) => {
       settings,
       SchedulerRepositoryLive,
       MachineRepositoryLive,
+      OpRepositoryLive,
       makeContentServiceLive({ home }),
     ),
     Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), Layer.mergeAll(state, installOps)),

@@ -167,6 +167,7 @@ import { isItemId, OpId, type ItemId } from "@shared/work-ids";
 import type { NodeId as PhysicsNodeId } from "@shared/physics/schema";
 import { postSubjectComment } from "./subject-comment";
 import { liveTaskPorts } from "./task-control";
+import { handleOpOp, isOpOp } from "./op-control";
 import {
   AgentSignalRepository,
   type AgentSignalRepositoryError,
@@ -2521,6 +2522,10 @@ const dispatchOp = (
         recipient: toOperator ? OPERATOR_RECIPIENT : recipientOf(board, target),
         read: exposeWorkMutation(markedMapped.success),
       };
+    }
+
+    if (isOpOp(op)) {
+      return yield* handleOpOp(op, args, { canvasName: caller.canvasName, nodeId: asNodeId(caller.nodeId) });
     }
 
     if (op === "content.stage") {

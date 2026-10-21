@@ -5,6 +5,7 @@
  * opId reads the first ruling.
  */
 import { Result, Schema } from "effect";
+import { refusalErrorOf, type RulingResult } from "./command-row";
 import { WorkErrorBody } from "./work-control";
 import { OpId } from "./work-ids";
 
@@ -80,6 +81,20 @@ export const opViewOf = (
     return Result.fail(`the ruling of ${opId} does not read as applied or refused`);
   }
   return Result.succeed({ state: "refused", opId, error: refused.success.error, root: refused.success.root });
+};
+
+/**
+ * The view of one write from a ruling row on the exchange: the editing
+ * machine's ruling, received here. It names the resource kind an applied
+ * write changed, and rebuilds a refusal's error from its closed fields.
+ */
+export const opViewOfRuling = (ruling: RulingResult): OpView => {
+  switch (ruling.operation) {
+    case "ruling.applied":
+      return { state: "applied", opId: ruling.opId, made: { resource: ruling.kind } };
+    case "ruling.refused":
+      return { state: "refused", opId: ruling.opId, error: refusalErrorOf(ruling), root: ruling.root };
+  }
 };
 
 /** No write with this opId was made here: unknown, never queued. */
