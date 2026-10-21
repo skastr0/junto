@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { companionCanvasDrawn } from "../src/shared/companion-canvas";
-import { CompanionCanvasScene } from "../src/shared/companion-protocol";
+import { COMPANION_CANVAS_NODE_KINDS, CompanionCanvasScene } from "../src/shared/companion-protocol";
 import { asCanvasName, asNodeId, asWireId, canvasFromOpened, type Node } from "../src/shared/model";
 import { Result, Schema } from "effect";
 
@@ -80,6 +80,18 @@ describe("companion canvas projection", () => {
     expect(wire.path[0]).toEqual({ x: 256, y: 128 });
     expect(wire.path.at(-1)).toEqual({ x: 400, y: 128 });
     expect(Result.isSuccess(Schema.decodeUnknownResult(CompanionCanvasScene)({ seq: 1, ...drawn }))).toBe(true);
+  });
+
+  it("never sends a cron, relay or watcher node", () => {
+    for (const kind of ["cron", "relay", "watcher"]) expect(COMPANION_CANVAS_NODE_KINDS).not.toContain(kind);
+    const schedulers = canvasFromOpened({
+      canvas: asCanvasName("main"),
+      seq: 0,
+      nodes: ["cron", "relay", "watcher"].map((kind, z) =>
+        ({ id: asNodeId(`s-${kind}`), kind, x: 0, y: 0, width: 200, height: 100, z }) as unknown as Node),
+      wires: [],
+    });
+    expect(companionCanvasDrawn(schedulers).nodes).toEqual([]);
   });
 
   it("leaves out a wire whose end is not drawn", () => {
