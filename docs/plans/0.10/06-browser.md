@@ -55,6 +55,16 @@ without a window.
 - **Less hostile.** Address bar, back and forward, reload, tab strip, a clear
   "which seat is driving" mark, and a takeover control for the operator.
   Needs design iteration with product-typography and product-keyboard.
+- **Takeover (B6).** The operator's key, click or tap in the page, or the
+  takeover control, pauses every seat on it; a seat's step is refused until
+  release. While seats hold it, the page goes only where their grants reach.
+  Main names the operator's own navigations (address bar, back, forward,
+  reload, by their exact target), never Electron's initiator; every other
+  start is the page's. A refused start is stopped one turn later, and a
+  commit nobody admitted is rolled back to the last admitted page
+  (`view-adapter.ts`, remote-security approved 3c4eff075). Known cost, safe:
+  that deferred stop also stops an operator navigation in flight in the
+  same view, and the operator retries.
 
 ## Kept, reshaped, deleted
 
