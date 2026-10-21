@@ -11,6 +11,11 @@ import {
   resolveBrowserCaller,
 } from "../src/main/junto/browser/authz";
 import { resolveBrowserCallerFromProcess } from "../src/main/junto/browser/process-bind";
+import { BROWSER_ENABLED } from "../src/shared/features";
+
+// Where the build gates the browser off (ship), a page offers no
+// browser.automate: an edge to it connects nothing and admission refuses it.
+const P1_REF = "junto://canvas/work?node=p1";
 
 const at = { x: 0, y: 0, width: 100, height: 40 };
 
@@ -74,17 +79,16 @@ describe("browser edge authz", () => {
   });
 
   it("lists only edge-connected page nodes admitted for browser.automate", () => {
+    // The wire is there under every profile; only admission depends on the build.
     expect(areConnected(board, "agent", "p1")).toBe(true);
-    expect(connectedPageNodeIds(board, "agent")).toEqual(["p1"]);
-    expect(connectedPageRefs(board, "work", "agent")).toEqual([
-      "junto://canvas/work?node=p1",
-    ]);
+    expect(connectedPageNodeIds(board, "agent")).toEqual(BROWSER_ENABLED ? ["p1"] : []);
+    expect(connectedPageRefs(board, "work", "agent")).toEqual(BROWSER_ENABLED ? [P1_REF] : []);
     expect(callerMayAccessPage(board, "agent", "p2")).toBe(false);
   });
 
   it("admits the agent seat as browser caller when edged to a page", () => {
-    expect(callerMayAccessPage(board, "term", "p1")).toBe(true);
-    expect(connectedPageNodeIds(board, "term")).toEqual(["p1"]);
+    expect(callerMayAccessPage(board, "term", "p1")).toBe(BROWSER_ENABLED);
+    expect(connectedPageNodeIds(board, "term")).toEqual(BROWSER_ENABLED ? ["p1"] : []);
     expect(callerMayAccessPage(board, "term", "p2")).toBe(false);
   });
 
@@ -113,10 +117,12 @@ describe("process-bind (browser canvas resolution)", () => {
     const resolved = resolveBrowserCallerFromProcess(board, "work", {
       agentKey: "local:default",
     });
-    expect(resolved.ok).toBe(true);
+    expect(resolved.ok).toBe(BROWSER_ENABLED);
     if (resolved.ok) {
       expect(resolved.principal.nodeId).toBe("agent");
-      expect(resolved.pageRefs).toEqual(["junto://canvas/work?node=p1"]);
+      expect(resolved.pageRefs).toEqual([P1_REF]);
+    } else {
+      expect(resolved.denial).toBe("not_connected");
     }
   });
 
@@ -126,7 +132,7 @@ describe("process-bind (browser canvas resolution)", () => {
       agentKey: "local:default",
       bindingId: "term-bind-1",
     });
-    expect(exact.ok).toBe(true);
+    expect(exact.ok).toBe(BROWSER_ENABLED);
 
     const staleAgent = resolveBrowserCallerFromProcess(board, "work", {
       nodeId: "agent",
@@ -162,11 +168,13 @@ describe("process-bind (browser canvas resolution)", () => {
       canvasName: "work",
       nodeId: "term",
     });
-    expect(resolved.ok).toBe(true);
+    expect(resolved.ok).toBe(BROWSER_ENABLED);
     if (resolved.ok) {
       expect(resolved.principal.nodeId).toBe("term");
       expect(resolved.principal.kind).toBe("agent");
-      expect(resolved.pageRefs).toEqual(["junto://canvas/work?node=p1"]);
+      expect(resolved.pageRefs).toEqual([P1_REF]);
+    } else {
+      expect(resolved.denial).toBe("not_connected");
     }
   });
 
@@ -178,8 +186,9 @@ describe("process-bind (browser canvas resolution)", () => {
     const resolved = resolveBrowserCallerFromProcess(terminalBoard, "work", {
       bindingId: "bind-xyz",
     });
-    expect(resolved.ok).toBe(true);
+    expect(resolved.ok).toBe(BROWSER_ENABLED);
     if (resolved.ok) expect(resolved.principal.nodeId).toBe("term");
+    else expect(resolved.denial).toBe("not_connected");
   });
 
   it("refuses a terminal principal whose binding matches no terminal node", () => {
