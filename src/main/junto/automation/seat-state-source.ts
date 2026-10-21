@@ -18,8 +18,9 @@
  * runs on: this machine's own term/agent-state, merged with the seats on
  * other machines as they cross the seats link. While the link to a machine is
  * down its seats are not heard, and silence is not gone: each one's hold or
- * gone grace ends unfired, and its next event reseeds it. So the gone grace
- * counts only time the link is up, and a network blip fires nothing.
+ * gone grace ends unfired, and its next event reseeds it; a seat that went
+ * meanwhile starts its gone grace then. So the gone grace counts only time
+ * the link is up, and a network blip fires nothing.
  */
 import { Clock, Context, Effect, Fiber, Layer, PubSub, Queue, Stream } from "effect";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
@@ -28,6 +29,7 @@ import {
   emptySeatTriggers,
   loseSeatTriggers,
   nextSeatTriggerDue,
+  regainSeatTriggers,
   seedSeatTriggers,
   stepSeatTriggers,
   type SeatStateFiring,
@@ -109,9 +111,14 @@ export const makeSeatStateSource = (feeds: Stream.Stream<SeatStateFeed>) =>
         }
         const { bindingId } = feed.event;
         machineOf.set(bindingId, feed.machine);
-        if (feed.kind === "live" && !unheard.has(bindingId)) return yield* fold({ _tag: "Event", event: feed.event });
-        unheard.delete(bindingId);
-        state = seedSeatTriggers([feed.event], feed.event.at, state);
+        if (feed.kind === "seed") {
+          unheard.delete(bindingId);
+          state = seedSeatTriggers([feed.event], feed.event.at, state);
+        } else if (unheard.delete(bindingId)) {
+          state = regainSeatTriggers(state, feed.event, yield* Clock.currentTimeMillis);
+        } else {
+          yield* fold({ _tag: "Event", event: feed.event });
+        }
       });
 
     const apply = (step: Step) =>

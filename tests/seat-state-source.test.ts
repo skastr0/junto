@@ -262,6 +262,49 @@ describe("seat-state source: a lost link is not gone", () => {
     expect(await runFeeds(timed, 210_000 + GRACE * 2)).toEqual([`seat-r working@${HOLD}`, `seat-r gone@${210_000 + GRACE}`]);
   });
 
+  it("a seat that went while its link was down fires gone a grace after the link is back", async () => {
+    const back = HOLD * 2 + 200_000;
+    // The machine's gone is stamped in the outage; it arrives at reconnect.
+    const timed = [
+      live(ev("seat-r", "e1", "working", 0)),
+      lost(HOLD * 2),
+      [back, { machine: REMOTE, kind: "live", event: ev("seat-r", "e1", "gone", HOLD * 2 + 5_000) }] as const,
+    ];
+    expect(await runFeeds(timed, back + GRACE * 2)).toEqual([`seat-r working@${HOLD}`, `seat-r gone@${back + GRACE}`]);
+  });
+
+  it("a seat that went in a new generation during the outage still fires gone", async () => {
+    const back = 300_000;
+    const timed = [live(ev("seat-r", "e1", "idle", 0)), lost(HOLD * 2), [back, { machine: REMOTE, kind: "live", event: ev("seat-r", "e2", "gone", 100_000) }] as const];
+    expect(await runFeeds(timed, back + GRACE * 2)).toEqual([`seat-r idle@${HOLD}`, `seat-r gone@${back + GRACE}`]);
+  });
+
+  it("a seat already gone before the outage fires nothing new when it comes back gone", async () => {
+    const back = 1_000 + GRACE + 100_000;
+    const timed = [live(ev("seat-r", "e1", "gone", 1_000)), lost(1_000 + GRACE + 10_000), [back, { machine: REMOTE, kind: "live", event: ev("seat-r", "e1", "gone", 1_000) }] as const];
+    expect(await runFeeds(timed, back + GRACE * 3)).toEqual([`seat-r gone@${1_000 + GRACE}`]);
+  });
+
+  it("a gone grace started at reconnect ends unfired when the link drops again", async () => {
+    const timed = [
+      live(ev("seat-r", "e1", "working", 0)),
+      lost(HOLD * 2),
+      [200_000, { machine: REMOTE, kind: "live", event: ev("seat-r", "e1", "gone", 100_000) }] as const,
+      lost(230_000),
+    ];
+    expect(await runFeeds(timed, 200_000 + GRACE * 3)).toEqual([`seat-r working@${HOLD}`]);
+  });
+
+  it("a gone grace started at reconnect ends when a new generation takes the seat", async () => {
+    const timed = [
+      live(ev("seat-r", "e1", "working", 0)),
+      lost(HOLD * 2),
+      [200_000, { machine: REMOTE, kind: "live", event: ev("seat-r", "e1", "gone", 100_000) }] as const,
+      live(ev("seat-r", "e2", "working", 220_000)),
+    ];
+    expect(await runFeeds(timed, 200_000 + GRACE * 3)).toEqual([`seat-r working@${HOLD}`]);
+  });
+
   it("a lost link touches only the seats of that machine", async () => {
     const timed = [
       live(ev("seat-l", "e1", "gone", 1_000), MACHINE),

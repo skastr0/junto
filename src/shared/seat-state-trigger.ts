@@ -161,6 +161,29 @@ export const loseSeatTriggers = (state: SeatTriggers, bindingIds: Iterable<strin
   return { seats, clock: state.clock };
 };
 
+/**
+ * A lost seat heard again, at `now`: its event is its seed. A seat that went
+ * while it was not heard still goes: when it comes back gone and had not
+ * already settled gone, its gone grace starts now, so only time the link is
+ * up counts, and it fires unless a new generation takes the seat first.
+ */
+export const regainSeatTriggers = (state: SeatTriggers, event: AgentSeatStateEvent, now: number): SeatTriggers => {
+  const seat = seatKeyOf(event.bindingId);
+  const track = Option.isSome(seat) ? state.seats.get(seat.value) : undefined;
+  if (Option.isNone(seat) || track === undefined || event.state !== "gone" || track.settled === "gone")
+    return seedSeatTriggers([event], now, state);
+  const seats = new Map(state.seats);
+  const replaced = event.epoch !== track.epoch;
+  seats.set(seat.value, {
+    epoch: event.epoch,
+    ...(track.settled === undefined ? {} : { settled: track.settled }),
+    pending: { becomes: "gone", since: now, reason: event.reason },
+    inAttention: false,
+    retired: replaced ? retire(track.retired, track.epoch) : track.retired,
+  });
+  return { seats, clock: Math.max(state.clock, now) };
+};
+
 /** Settle every hold and grace due by `now`, oldest first. */
 const settle = (seats: Map<SeatKey, SeatTrack>, now: number): SeatStateFiring[] => {
   const firings: SeatStateFiring[] = [];
