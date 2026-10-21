@@ -96,6 +96,10 @@ and do not join the seat ring-room solve; clusters stay seats only.
   also takes its tone as the border, 2 screen px. This replaces
   `border-color: transparent !important` in `canvas-lod.css`.
 - Notes keep a 10 by 26 screen-px amber tick; labels floor at 13 screen px.
+- A disc never paints past its node's box: the 26 screen-px floor applies only down
+  to the box size, so it never touches a seat ring the ring-room solve placed
+  beside it. Where a box is too small to show a disc (overview), the region's
+  urgency frame carries blocked and needs-you.
 
 ## Names, focus and keys
 
