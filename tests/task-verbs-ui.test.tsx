@@ -121,6 +121,11 @@ describe("TaskReviewers", () => {
     expect(html).toContain('data-verdict="approve"');
   });
 
+  it("reads one approval in the singular", () => {
+    expect(panel(core({ state: "working", assignee: ada, stampPolicy: { required: 1 } }))).toContain("approval needed");
+    expect(panel(core({ state: "working", assignee: ada, stampPolicy: { required: 2 } }))).toContain("approvals needed");
+  });
+
   it("stops the approval count at the wire maximum", () => {
     const full = panel(core({ state: "working", assignee: ada, stampPolicy: { required: STAMPS_REQUIRED_MAX } }));
     const plus = /<button[^>]*aria-label="Require one more approval"[^>]*>/.exec(full)?.[0] ?? "";

@@ -63,6 +63,7 @@ export function TasksNode({
   initialTaskId,
   seats,
   nodeName,
+  seatLabel = (id) => id,
   onClose,
 }: {
   readonly canvasName: string;
@@ -71,6 +72,8 @@ export function TasksNode({
   /** Seats in reach of this node (region reach, 01), named. */
   readonly seats: ReadonlyArray<SeatChoice>;
   readonly nodeName: (node: string) => string;
+  /** What a seat that is not among `seats` is called: one out of reach, or removed from the canvas. */
+  readonly seatLabel?: (id: string) => string;
   readonly onClose: () => void;
 }) {
   const tasks = useNodeTasks(canvasName, node);
@@ -91,7 +94,7 @@ export function TasksNode({
   const visible = useMemo(() => visibleTasks(tasks, { state: filter, query }), [tasks, filter, query]);
   const selected = tasks.find((view) => view.taskId === selectedId) ?? visible[0] ?? null;
   const listed = useMemo(() => listedTasks(visible, selected), [visible, selected]);
-  const seatName = (id: string): string => seats.find((seat) => seat.node === id)?.name ?? id;
+  const seatName = (id: string): string => seats.find((seat) => seat.node === id)?.name ?? seatLabel(id);
 
   const apply = async (taskId: TaskId, command: TaskCommand): Promise<string | undefined> => {
     const ruling = await tasksSource().apply(canvasName, node, taskId, command);
@@ -337,8 +340,8 @@ export function SelectedTask({
       />
       {view.body ? <p className="task-body">{view.body}</p> : null}
       <TaskDependencies view={view} all={all} closed={isClosed} onCommand={apply} />
-      <TaskReviewers task={current} actor={OPERATOR} ctx={ctx} seats={seats} onCommand={apply} />
-      <TaskLayers layers={view.layers} nodeName={nodeName} seats={seats} now={now} />
+      <TaskReviewers task={current} actor={OPERATOR} ctx={ctx} seats={seats} nameOf={seatName} onCommand={apply} />
+      <TaskLayers layers={view.layers} nodeName={nodeName} seats={seats} nameOf={seatName} now={now} />
     </div>
   );
 }

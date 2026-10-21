@@ -96,6 +96,27 @@ describe("SelectedTask", () => {
     expect(html).toContain("Do not do it again");
   });
 
+  it("says a seat that is gone or out of reach by the name it is given, not its raw id", () => {
+    const gone = view({
+      current: { state: "working", node: build, assignee: seatNodeId(asNodeId("agent-01M5F4GBYY55Z25NNYZQ91P3J0")), epoch: 0, stampPolicy: { required: 0 }, reviewers: [], stamps: [] },
+    });
+    const html = renderToStaticMarkup(
+      <SelectedTask
+        view={gone}
+        all={[gone]}
+        seats={seats}
+        facts={facts}
+        nodeName={() => "Build board"}
+        seatName={() => "A removed seat"}
+        now={10_000}
+        error={null}
+        apply={async () => undefined}
+      />,
+    );
+    expect(html).toContain("@A removed seat");
+    expect(html).not.toContain("agent-01M5F4GBYY55Z25NNYZQ91P3J0");
+  });
+
   it("says queued while a create waits for its number", () => {
     const html = draw(view({ number: undefined, pending: { opId: "op" } }));
     expect(html).toContain("queued");

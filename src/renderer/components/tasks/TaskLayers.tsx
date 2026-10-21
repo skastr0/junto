@@ -14,16 +14,18 @@ export function TaskLayers({
   layers,
   nodeName,
   seats,
+  nameOf,
   now,
 }: {
   readonly layers: ReadonlyArray<ClosedTaskLayer>;
   readonly nodeName: (node: string) => string;
   readonly seats: ReadonlyArray<SeatChoice>;
+  readonly nameOf?: (seat: string) => string;
   readonly now: number;
 }) {
   if (layers.length === 0) return null;
   const seatName = (id: string | undefined): string =>
-    id === undefined ? "nobody" : (seats.find((seat) => seat.node === id)?.name ?? id);
+    id === undefined ? "nobody" : (seats.find((seat) => seat.node === id)?.name ?? nameOf?.(id) ?? id);
   return (
     <section className="task-layers" aria-label="Earlier layers" data-testid="task-layers">
       <header className="task-layers__head">

@@ -49,6 +49,7 @@ export function TaskReviewers({
   actor,
   ctx,
   seats,
+  nameOf: nameOfSeat,
   pending = false,
   onCommand,
 }: {
@@ -57,6 +58,8 @@ export function TaskReviewers({
   readonly ctx: TaskContext;
   /** Seats in reach, named. Reviewer names resolve through this. */
   readonly seats: ReadonlyArray<SeatChoice>;
+  /** What a seat is called, for one not among `seats` (out of reach or removed). */
+  readonly nameOf?: (seat: string) => string;
   readonly pending?: boolean;
   /** Rules the command; answers why it was refused, or nothing when it was ruled. */
   readonly onCommand: (command: TaskCommand) => CommandOutcome;
@@ -69,7 +72,7 @@ export function TaskReviewers({
   const nameOf = (reviewer: Reviewer): string =>
     reviewer.kind === "operator"
       ? "You"
-      : (seats.find((choice) => choice.node === reviewer.seat)?.name ?? reviewer.seat);
+      : (seats.find((choice) => choice.node === reviewer.seat)?.name ?? nameOfSeat?.(reviewer.seat) ?? reviewer.seat);
   const candidates = closed ? [] : reviewerChoices(task, actor, ctx, seats);
   const addOptions = [
     ...(!closed && operatorMayReview(task, ctx)
@@ -130,7 +133,7 @@ export function TaskReviewers({
               </IconButton>
             </>
           )}
-          <span>{required === 0 ? "no stamps needed" : "approvals needed"}</span>
+          <span>{required === 0 ? "no stamps needed" : required === 1 ? "approval needed" : "approvals needed"}</span>
         </div>
       </header>
 
