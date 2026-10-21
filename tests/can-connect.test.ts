@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { productNodeKindEnabled } from "../src/shared/features";
 import { canConnect } from "../src/renderer/lib/edge-mutations";
 import { note, region, seat, taskBoard } from "./support/model-nodes";
 
@@ -8,7 +9,8 @@ import { note, region, seat, taskBoard } from "./support/model-nodes";
 describe("canConnect", () => {
   it("admits a pair the verb grammar gives a verb", () => {
     expect(canConnect(seat("a"), seat("b"))).toBe(true);
-    expect(canConnect(taskBoard("t"), taskBoard("u"))).toBe(true);
+    // Task boards take a wire only where the build enables them (not under ship).
+    expect(canConnect(taskBoard("t"), taskBoard("u"))).toBe(productNodeKindEnabled("task"));
   });
 
   it("refuses a seat to a task board: the seat reaches it by region, not a wire", () => {
