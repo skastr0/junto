@@ -9,7 +9,7 @@ import { useRegionRollups } from "../src/renderer/lib/region-rollups";
 import { modelStore } from "../src/renderer/lib/use-model";
 import { state$ } from "../src/renderer/lib/state";
 
-it("derives rollups locally and reads no rollup after model commands", async () => {
+it("derives rollups locally, and reads no rollup and no old work store after model commands", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
@@ -37,7 +37,8 @@ it("derives rollups locally and reads no rollup after model commands", async () 
     state$.canvasName.set(canvas);
     await act(async () => { root.render(<View />); await flush(); });
     expect(host.textContent).toBe("idle:Seat");
-    expect(workAttention).toHaveBeenCalledOnce();
+    // Rollups read the model and the seat-task index, never the old work store.
+    expect(workAttention).not.toHaveBeenCalled();
     await act(async () => {
       change({ canvas, seq: 2, nodes: [{ ...seat, label: "Renamed" } as Node], wires: [], removedNodes: [], removedWires: [] });
       state$.docEpoch.set(state$.docEpoch.peek() + 1);
@@ -50,11 +51,11 @@ it("derives rollups locally and reads no rollup after model commands", async () 
     expect(Object.keys(bridge.junto ?? {}).sort()).toEqual([
       "modelOpen", "onModelChanged", "onWorkSinkChanged", "regionRollups", "workAttention",
     ].sort());
-    expect(workAttention).toHaveBeenCalledOnce();
+    expect(workAttention).not.toHaveBeenCalled();
   } finally {
     await act(async () => root.unmount());
     releaseModel(); host.remove(); bridge.junto = oldApi; state$.canvasName.set(oldName);
     vi.unstubAllGlobals();
   }
-  expect(offWork).toHaveBeenCalledOnce();
+  expect(offWork).not.toHaveBeenCalled();
 });
