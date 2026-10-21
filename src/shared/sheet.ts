@@ -161,22 +161,57 @@ export const isNumericColumn = (sheet: SheetGrid, columnId: string): boolean => 
   return seen;
 };
 
-const escapeCell = (value: string): string =>
-  value.replace(/\|/gu, "\\|").replace(/\r?\n/gu, " ");
+/** Column letter for a zero-based index: 0 → A, 25 → Z, 26 → AA. */
+export const sheetColumnLetter = (index: number): string => {
+  let n = Math.floor(index);
+  if (n < 0) return "";
+  let letters = "";
+  do {
+    letters = String.fromCharCode(65 + (n % 26)) + letters;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return letters;
+};
 
 /**
- * Markdown table — the sheet's read shape for agents and for copy-out.
- * A sheet with no columns renders as an empty string, not a broken table.
+ * One cell as markdown table text. Backslash first so the pipe escape it
+ * adds is not escaped again; a line break stays a break as `<br>`, since a
+ * raw newline would end the row, and a typed `<br>` is written `&lt;br>` so
+ * the two never read the same. The row and column caps keep every label
+ * inside the `cells` anchor's pattern.
+ */
+export const escapeSheetCell = (value: string): string =>
+  value
+    .replace(/\\/gu, "\\\\")
+    .replace(/\|/gu, "\\|")
+    .replace(/<br>/giu, "&lt;br>")
+    .replace(/\r\n|\r|\n/gu, "<br>");
+
+const tableRow = (cells: ReadonlyArray<string>): string => `| ${cells.join(" | ")} |`;
+
+/**
+ * Markdown table: the sheet's read shape for agents and for copy-out. A `#`
+ * column numbers the rows from 1 and every header leads with its column
+ * letter, so a reader can name a cell (`B3`) or a range (`A1:C4`) for a
+ * `cells` anchor without the grid's ids. A sheet with no columns renders as
+ * an empty string, not a broken table.
  */
 export const sheetToMarkdown = (sheet: SheetGrid): string => {
   if (sheet.columns.length === 0) return "";
-  const header = `| ${sheet.columns.map((column) => escapeCell(column.name)).join(" | ")} |`;
-  const divider = `| ${sheet.columns.map(() => "---").join(" | ")} |`;
-  const body = sheet.rows.map(
-    (row) =>
-      `| ${sheet.columns
-        .map((column) => escapeCell(row.cells[column.id] ?? ""))
-        .join(" | ")} |`,
+  const header = tableRow([
+    "#",
+    ...sheet.columns.map((column, index) => {
+      const name = escapeSheetCell(column.name.trim());
+      const letter = sheetColumnLetter(index);
+      return name.length > 0 ? `${letter} ${name}` : letter;
+    }),
+  ]);
+  const divider = tableRow(["--:", ...sheet.columns.map(() => "---")]);
+  const body = sheet.rows.map((row, index) =>
+    tableRow([
+      String(index + 1),
+      ...sheet.columns.map((column) => escapeSheetCell(row.cells[column.id] ?? "")),
+    ]),
   );
   return [header, divider, ...body].join("\n");
 };

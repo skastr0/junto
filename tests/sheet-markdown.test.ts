@@ -3,8 +3,8 @@ import type { SheetGrid } from "../src/shared/model/sheet";
 import {
   escapeSheetCell,
   sheetColumnLetter,
-  sheetToMarkdownTable,
-} from "../src/shared/sheet-project";
+  sheetToMarkdown,
+} from "../src/shared/sheet";
 
 const grid: SheetGrid = {
   columns: [
@@ -39,12 +39,13 @@ describe("escapeSheetCell", () => {
     expect(escapeSheetCell("a|b")).toBe("a\\|b");
     expect(escapeSheetCell("a\\|b")).toBe("a\\\\\\|b");
     expect(escapeSheetCell("one\ntwo\r\nthree\rfour")).toBe("one<br>two<br>three<br>four");
+    expect(escapeSheetCell("a<br>b\nc")).toBe("a&lt;br>b<br>c");
   });
 });
 
-describe("sheetToMarkdownTable", () => {
+describe("sheetToMarkdown", () => {
   it("labels rows by number and columns by letter", () => {
-    expect(sheetToMarkdownTable(grid)).toBe(
+    expect(sheetToMarkdown(grid)).toBe(
       [
         "| # | A Name | B Count |",
         "| --: | --- | --- |",
@@ -56,12 +57,12 @@ describe("sheetToMarkdownTable", () => {
 
   it("follows column order, not the order cells were written", () => {
     const reordered: SheetGrid = { ...grid, columns: [grid.columns[1]!, grid.columns[0]!] };
-    expect(sheetToMarkdownTable(reordered).split("\n")[2]).toBe("| 1 | 3 | apples |");
+    expect(sheetToMarkdown(reordered).split("\n")[2]).toBe("| 1 | 3 | apples |");
   });
 
   it("falls back to the letter for a blank column name", () => {
     const blank: SheetGrid = { columns: [{ id: "c1", name: "  " }], rows: [] };
-    expect(sheetToMarkdownTable(blank)).toBe("| # | A |\n| --: | --- |");
+    expect(sheetToMarkdown(blank)).toBe("| # | A |\n| --: | --- |");
   });
 
   it("keeps every row one table row whatever the cell holds", () => {
@@ -69,7 +70,7 @@ describe("sheetToMarkdownTable", () => {
       columns: [{ id: "c1", name: "a|b" }],
       rows: [{ id: "r1", cells: { c1: "x\ny|z" } }],
     };
-    const lines = sheetToMarkdownTable(awkward).split("\n");
+    const lines = sheetToMarkdown(awkward).split("\n");
     expect(lines).toEqual(["| # | A a\\|b |", "| --: | --- |", "| 1 | x<br>y\\|z |"]);
   });
 
@@ -78,10 +79,10 @@ describe("sheetToMarkdownTable", () => {
       columns: [{ id: "c1", name: "Only" }],
       rows: [{ id: "r1", cells: { c1: "kept", gone: "dropped" } }],
     };
-    expect(sheetToMarkdownTable(orphan)).not.toContain("dropped");
+    expect(sheetToMarkdown(orphan)).not.toContain("dropped");
   });
 
   it("projects a grid with no columns to an empty string", () => {
-    expect(sheetToMarkdownTable({ columns: [], rows: [{ id: "r1", cells: {} }] })).toBe("");
+    expect(sheetToMarkdown({ columns: [], rows: [{ id: "r1", cells: {} }] })).toBe("");
   });
 });
