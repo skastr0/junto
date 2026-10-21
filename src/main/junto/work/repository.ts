@@ -4395,8 +4395,32 @@ export const WorkRepositoryLive = Layer.effect(
                 "SELECT content_sha256 FROM work_events WHERE event_home = ? AND entity_home = ? AND seq = ?",
                 [frame.writer, frame.writer, fact.id.seq],
               );
-              if (held[0] === undefined) fresh.push(fact);
-              else if (held[0].content_sha256 !== fact.contentSha256) {
+              if (held[0] === undefined) {
+                // A receipt says "this mail was typed into this seat", and its id
+                // is the same on every machine. A seat that moved has it written
+                // by each machine it typed on: one already held for the same mail
+                // is a repeat and is skipped; for other mail it is refused.
+                if (fact.body.operation === "delivery.accepted") {
+                  const { receipt } = fact.body;
+                  const receiptHeld = yield* writer.unsafe<{ delivered_item_kind: string; delivered_item_id: string }>(
+                    `SELECT delivered_item_kind, delivered_item_id FROM work_delivery_receipts
+                     WHERE delivered_canvas_name = ? AND delivered_node_id = ? AND delivery_id = ?`,
+                    [receipt.deliveredItem.sink.canvasName, receipt.deliveredItem.sink.nodeId, receipt.deliveryId],
+                  );
+                  if (receiptHeld[0] !== undefined) {
+                    if (
+                      receiptHeld[0].delivered_item_kind !== receipt.deliveredItem.kind ||
+                      receiptHeld[0].delivered_item_id !== receipt.deliveredItem.itemId
+                    ) {
+                      return yield* Effect.fail(
+                        authorityError("identity-conflict", "a receipt this machine holds arrived for other mail"),
+                      );
+                    }
+                    continue;
+                  }
+                }
+                fresh.push(fact);
+              } else if (held[0].content_sha256 !== fact.contentSha256) {
                 return yield* Effect.fail(
                   authorityError("identity-conflict", "a row this machine holds arrived with other content"),
                 );
