@@ -7,7 +7,10 @@
 Opening the database with 0.10.1 moves it to version 49, and 0.10.0 then
 refuses it as newer than supported. To go back to 0.10.0, open the backup
 taken at the upgrade. A CLI from 0.10.0 reads the new needs-update answer as
-a protocol error; use the CLI that ships with the app.
+a protocol error; use the CLI that ships with the app. Still open from 0.10.0:
+after a dropped link to another machine, held mail can wait minutes, and
+`junto machine status` reconnects it at once. Reading one seat or terminal on
+a machine with an older build fails without naming the update.
 
 - Rename any node from the selection card in the bottom bar, pages, links and
   files included. File and link names show on other machines' copies; page
@@ -25,8 +28,6 @@ a protocol error; use the CLI that ships with the app.
   the reply lands in that thread.
 - Commenting on text you have not saved saves the document first. If someone
   else changed it, the comment waits and says how to choose.
-- A link to another machine reconnects on its own within seconds after it
-  drops, so held mail and signals no longer wait minutes.
 - A machine on an older build is listed as needing an update instead of
   failing the whole seat or terminal list.
 - The CLI: a mention that names nothing is sent as plain text and listed in
