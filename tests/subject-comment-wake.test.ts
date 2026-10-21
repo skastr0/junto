@@ -17,7 +17,11 @@ const ARTIFACTS = asNodeId("artifacts-1");
 const SEAT = asNodeId("agent-a");
 const canvas = {
   name: "factory",
-  nodes: new Map([[ARTIFACTS, { id: ARTIFACTS, kind: "artifacts", x: 0, y: 0, width: 240, height: 160 } as unknown as Node]]),
+  nodes: new Map([
+    [ARTIFACTS, { id: ARTIFACTS, kind: "artifacts", x: 0, y: 0, width: 240, height: 160 } as unknown as Node],
+    // On the canvas, so its notice is attempted: a seat whose node is gone is skipped before any notice.
+    [SEAT, seat(SEAT, { x: 300, y: 0 })],
+  ]),
   wires: new Map(),
 } as unknown as Canvas;
 
@@ -38,14 +42,17 @@ const comment = (work: Partial<WorkServiceShape>) =>
 describe("a comment's wake", () => {
   it("is told once the row commits, even when a notice after it fails", async () => {
     const woken: Array<[string, string]> = [];
+    let tried = 0;
     const stop = onResourceChanged((domain, canvasName) => woken.push([domain, canvasName]));
     try {
       const exit = await Effect.runPromiseExit(comment({
         readMailbox: () => Effect.succeed([]),
         workSubjectRow: () => Effect.succeed({ ok: true }) as never,
-        workSubjectNotice: () => Effect.succeed({ ok: false, message: "the seat's mailbox is down" }) as never,
+        workSubjectNotice: () => Effect.sync(() => (tried += 1)).pipe(Effect.as({ ok: false, message: "the seat's mailbox is down" })) as never,
       }));
-      expect(Exit.isFailure(exit)).toBe(true);
+      // The comment stands and its wake is told; the seat whose notice failed is not counted as told.
+      expect(tried).toBe(1);
+      expect(Exit.isSuccess(exit) && exit.value.notified).toEqual([]);
       expect(woken).toEqual([["artifact", "factory"]]);
     } finally {
       stop();
