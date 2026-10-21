@@ -143,10 +143,10 @@ remain strictly read-only for authorial intent. Current headless CLIs:
 
 | command | who | what it does |
 |---|---|---|
-| `bun run digest [name]` | agents + operators | print a deterministic text digest of the board + live hermes snapshot data. Writes no file. |
+| `bun run digest [name]` | agents + operators | print a deterministic text digest of the canvas. Writes no file. |
 | `bun run canvas:ls [--json]` | agents + operators | list canvases with node/edge counts. |
 
-To **read the board as an agent**: `bun run digest` (text).
+To **read the canvas as an agent**: `bun run digest` (text).
 
 ### Work plane (agent mutations)
 
@@ -155,10 +155,10 @@ to an exported document or the database:
 
 | surface | detail |
 |---|---|
-| CLI | `dist/junto` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `request`, `artifact`, board ops; overseer seats also `overseer` |
+| CLI | `dist/junto` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `artifact`, `automation`; overseer seats also `overseer` |
 | Socket | `~/.junto/work/control.sock` (mode 0600). The seat presents `JUNTO_WORK_TOKEN`. |
 | Identity | **generation credential** — main mints one value per occupant generation, injects it at spawn, and admits by registry lookup of the frame token. No token file, no token on argv, no client-supplied nodeRef / `JUNTO_NODE_REF`. `overseer.live` is admitted by the same credential. No process ancestry, no peer PID, and no fallback when the credential is missing. Browser-protected routes are refused in this build. |
-| Authz | **reach and edges** — ordinary agents use the resource nodes (tasks, artifacts) in their own region, the regions inside it and the regions around it, with no edge (`out_of_reach` ScopeError otherwise), and act on seats and pages only through connected edges (ScopeError otherwise); board ports are distinct (`board.create_topic` vs `board.post`). An overseer bypasses edge scope for closed `overseer` ops after live grant admission; pause/blocked do not deny those ops. |
+| Authz | **reach and edges** — ordinary agents use the resource nodes (tasks, artifacts) in their own region, the regions inside it and the regions around it, with no edge (`out_of_reach` ScopeError otherwise), and act on seats and pages only through connected edges (ScopeError otherwise). An overseer bypasses edge scope for closed `overseer` ops after live grant admission; pause/blocked do not deny those ops. |
 
 **How to use:** open the agent chat in Junto so the seat is spawned with `JUNTO_WORK_TOKEN`, then run `dist/junto` from that agent tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
 
@@ -191,11 +191,9 @@ credential. There is **no enable-grant ceremony** and no client capability
 secret, and human-drawn edges to page nodes stay the only grant. Content transfer is `junto content-transfer …`. Packaged installs ship
 **one** CLI binary (`bin/junto`) only.
 
-Ops go through WorkService (tasks/messages/requests/artifacts/board). That is
+Ops go through WorkService (tasks/messages/artifacts). That is
 the ordinary agent write path. Freeform canvas authoring remains human,
 except closed overseer commands from a live granted seat.
-
-**Board:** `board.mark_read` is install-local. Operator megaphone / edge `wake` is UI only; agent posts never wake.
 
 **Pad:** an artifact body type, not a node. Contract: [`docs/pad.md`](docs/pad.md).
 
@@ -225,8 +223,8 @@ except closed overseer commands from a live granted seat.
 `src/shared/model/` is the contract. Import from `@shared/model`.
 
 - **Node** — a closed union on `kind`: `agent` (a seat), `terminal`, `page`,
-  `task`, `requests`, `artifacts`, `board`, `cron`, `relay`, `watcher`,
-  `note`, `label`, `file`, `link`, `git`, `region`. Each kind has
+  `task`, `artifacts`, `automations`, `note`, `label`, `file`, `link`,
+  `git`, `region`. Each kind has
   exactly its own fields. A new kind is a new member with its own table, never
   a string and a bag, and decoding refuses a field a kind does not have.
 - **Wire** — `from`, `to`, `verb`, an optional `mask`, and the sides it
@@ -238,38 +236,31 @@ except closed overseer commands from a live granted seat.
   and exactly the rows that changed. A listener applies it and does not read
   again. `Opened` is the one read, when a canvas is opened.
 
-Live work is never on a node. Mail, tasks, requests, artifacts, board posts
-and pad shapes are rows of their own, read in pages by the id of the node they
+Live work is never on a node. Mail, tasks, artifacts, comment threads and
+pad shapes are rows of their own, read in pages by the id of the node they
 belong to, each with its own change event.
 
 The measure of this design is the window: thousands of mails between hundreds
 of seats must not cost it a frame, and one command must change one row.
 
-**`verb` is the one authored fact on a wire** — what the relationship *is*. Everything else (ports, claimability, board wake, watch predicates, scheduler fire actions, task-path flow, scheduler chaining) is **compiled** from the verb plus the two endpoint kinds (`src/shared/physics/verbs.ts`, `compileVerb`) — never stored on the edge, never mirrored back. `fromNode` is always the verb's semantic source end, whichever way the operator drew it (`task --works--> agent`, never the reverse).
+**`verb` is the one authored fact on a wire**: what the relationship *is*. Its ports and the task-path hop are **compiled** from the verb plus the two endpoint kinds (`src/shared/physics/verbs.ts`, `compileVerb`), never stored on the edge, never mirrored back. `fromNode` is always the verb's semantic source end, whichever way the operator drew it (`agent --navigates--> page`, never the reverse).
 
-**The verb table** — at most two verbs per ordered kind pair; a pair absent from the table refuses connect:
+**Edges join seats.** A wire remains only for seat to seat mail, seat to page automation and task to task flow. Resource nodes (tasks, artifacts) take no access edge: a seat reaches them by region ([plan 01](docs/plans/0.10/01-region-binding.md)). The Automations node takes no edge at all ([Automations](#automations) below).
+
+**The verb table**: at most two verbs per ordered kind pair; a pair absent from the table refuses connect:
 
 | source → target | verbs | compiled |
 |---|---|---|
 | agent → agent | `messages` \| `reviews` | msg ports; or directed `verdict.post` |
-| agent → task | `manages` \| `contributes` | task ports (`contributes` adds `tasks.claim`) |
-| agent → artifacts | `publishes` | `artifact.publish` |
-| agent → board | `messages` \| `participates` | board ports; `wake` false / true |
 | agent → page | `navigates` | `browser.automate` |
-| agent → relay | `fires` \| `announces` | `relay.trigger`; or a watch on the seat's raised hand (an open `junto blocked` / `junto escalate` signal) |
-| task → agent | `works` | task ports; `claimable: true` — the claim selector reads this |
 | task → task | `feeds` | no ports; `flow: true`, DAG-guarded task-path hop |
-| {task,requests,artifacts,board,page} → relay | `announces` | watch on that sink's own headline event |
-| {relay,clock} → agent | `wakes` | `inject_prompt` |
-| {relay,clock} → task | `enqueues` | `enqueue_task` |
-| {relay,clock} → {relay,clock} | `chains` | `chain: true`, cycle-guarded |
 | terminal (either side) | — | no verb reaches it yet |
 
-`clock` is the shared row for the non-relay schedulers (`cron`, `timer`, `watcher`) — they push identically; only `relay` also takes `announces` inbound (the only scheduler that evaluates a watch predicate). Plain connect (no picker) defaults to the fuller relationship on a two-verb pair: `contributes`, `participates`, `edits`, `fires`, `enqueues`, `wakes`.
+Plain connect (no picker) stamps the pair's first verb, `messages` between two seats.
 
-**Stoppage is still derived, not authored** — an actor holding a claimed item in `input-required` / `auth-required` on a connected task/requests sink generates **blocks** on that actor seat only. Open queue (`submitted`/`working`) never blocks. No automatic multi-hop fan-out — multi-hop stoppage is an explicit **relay** node (`announces` in, an effect verb out). (Blockability is `role === "actor"` only — see [`architecture-canvas-physics.md`](docs/architecture-canvas-physics.md) §2a.) Lexicon word **stops** may appear in wire sentences when derived stoppage applies — speech, never a document field.
+**Stoppage is still derived, not authored**: a seat is blocked when it is the assignee of a task in `input-required`, on any task node of the canvas (`src/shared/execution-graph.ts`). Open work never blocks, nor does a task in review, and nothing cascades along a wire. To carry stoppage further, an automation watches the task or the seat's raised hand and mails whoever must know. (Blockability is `role === "actor"` only; see [`architecture-canvas-physics.md`](docs/architecture-canvas-physics.md) §2a.) Lexicon word **stops** may appear in wire sentences when derived stoppage applies: speech, never a document field.
 
-There is **no edge dialog**. Edges are authored and read from the RTS bottom bar (`EdgeCommandCard`, `src/renderer/components/rts/RtsControls.tsx`) as a plain sentence ("Planner manages Backlog"), painted in a fixed per-verb hue (`--wire-verb-*` custom properties, [`factory-grammar.css`](src/renderer/styles/factory-grammar.css)) — solid strokes only; no dash, width, or arrowhead carries meaning.
+There is **no edge dialog**. Edges are authored and read from the RTS bottom bar (`EdgeCommandCard`, `src/renderer/components/rts/RtsControls.tsx`) as a plain sentence ("Planner messages Builder"), painted in a fixed per-verb hue (`--wire-verb-*` custom properties, [`factory-grammar.css`](src/renderer/styles/factory-grammar.css)) — solid strokes only; no dash, width, or arrowhead carries meaning.
 
 Live **phase** is only `blocks` | `relates`, and it is derived, never stored.
 Derived state (blocked seats, region membership, live phase) is recomputed from
@@ -278,7 +269,7 @@ the model and live work.
 ## Copy law: no middle dots, ever
 
 The middle dot (U+00B7) is banned from every surface: product copy, UI strings,
-generated sheets, docs, artifacts, commit-facing summaries. Separate with
+generated documents, artifacts, commit-facing summaries. Separate with
 commas, em dashes, or plain spaces. Derived wire sentences are spoken compounds
 ("access stops", "watch completes") — never dotted. This is an operator hard
 invariant; reintroducing a middot is a defect.
@@ -287,7 +278,7 @@ invariant; reintroducing a middot is a defect.
 physics, or capability jargon: ports, grants, masks, compiles, wire families,
 stoppage, or wires explained as a mechanism. Say what the operator can do, in
 plain words, or say nothing. A connection card names its peer; the edge card
-reads as a sentence ("Planner manages Backlog"). Explainers that restate the
+reads as a sentence ("Planner messages Builder"). Explainers that restate the
 physics on every surface are removed, not reworded. Agent-facing docs and CLI
 output (`junto-docs.ts`, `capabilities`, `onboard`) are exempt: agents need
 the contract.
@@ -307,31 +298,20 @@ changes motion, and says so in the commit. `tests/motion-law.test.ts` is
 the lock: weakening, skipping or deleting it is a defect. Pausing in a
 hidden window and honouring reduced motion are the only exceptions.
 
-## Kernel: cron, relay (+ dormant gauge) — verbs
+## Automations
 
-An edge into or out of a scheduler authors only a **verb**; the watch predicate and fire action it produces are compiled,
-never stored. Only schedulers push; actors pull. Connect refused for any pair
-absent from the verb table (sink–sink, geography).
+One **Automations** node replaces cron and relay
+([plan 07](docs/plans/0.10/07-automations.md)). It takes no edge: an
+automation acts on seats and resources in its own region and the regions
+below it. A trigger is a schedule, a bounded poll, or a change on a seat, task,
+artifact or signal; conditions are rechecked when it fires; actions mail,
+create or assign a task, or comment. Every automation carries rate limits.
 
-**Product scheduler plane:**
-
-| Kind | How it binds | Fire |
-|---|---|---|
-| **cron** | its `expression` | Durable due → the outbound verb's compiled effect (`enqueues` / `wakes`) |
-| **relay** | inbound `announces` edges (watch, OR-combined across parallel edges); outbound `enqueues` / `wakes` edges (effects) | Rising edge on watch → apply the outbound edges' effects |
-
-**Not a product peer:** hermes **gauge** (`watcher`) is palette-hidden / dormant; it shares the `clock` scheduler row with `cron`/`timer` but has no palette entry.
-
-**Effects (v1):** `enqueue_task` - `inject_prompt` — the compiled facets of
-`enqueues` / `wakes`. Task claiming stays in the workspace
-tick (`works`'s compiled `claimable` grant, not an effect). No `relayState`
-cascade — multi-hop stoppage is a **relay** node, `announces` in and an
-effect verb out, only.
-
-**Scheduler laws**: (1) Sensor truth is derived. (2) Single-home evaluation.
-(3) Interval catch-up ≤1 due tick. (4) **Automate only while the canvas is
-playing** — otherwise show status/`nextFire` but do not consume rising-edge
-memory or durable cron firing slots.
+Only the operator and overseers create, edit, enable, run or archive an
+automation; a seat reads the ones in its reach (`junto automation list`,
+`show`, `history`) and writes none. Copying a canvas never carries its
+Automations nodes. After a gap, a schedule fires once for its latest missed
+slot and records the earlier ones as skipped; it never fires in a burst.
 
 **No operator flags.** A seat raises its own hand (`junto blocked`,
 `junto escalate`); stoppage is derived. Pause is canvas-wide only: there is
