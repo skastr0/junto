@@ -192,3 +192,17 @@ export type QueueLoad = { readonly rows: number; readonly bytes: number };
  */
 export const queueAdmits = (load: QueueLoad, rowBytes: number): boolean =>
   load.rows + 1 <= QUEUE_MAX_ROWS && load.bytes + rowBytes <= QUEUE_MAX_BYTES;
+
+/** The queue is at its bound: a typed, retryable refusal given at once on the writing machine. */
+export class CommandQueueFull extends Schema.TaggedError<CommandQueueFull>()("CommandQueueFull", {
+  opId: OpId,
+  rows: Schema.Int,
+  bytes: Schema.Int,
+}) {}
+
+/** What became of one command, as this machine knows it (`junto op show`). */
+export type OpState =
+  | { readonly kind: "unknown" }
+  | { readonly kind: "queued" }
+  | { readonly kind: "applied"; readonly ruling: RulingAppliedResult }
+  | { readonly kind: "refused"; readonly ruling: RulingRefusedResult; readonly error: WorkErrorBody };

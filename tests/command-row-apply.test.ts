@@ -168,3 +168,60 @@ describe("who may write a ruling", () => {
     expect(await facts(mini)).toBe(before + 1);
   });
 });
+
+describe("the seat's machine queues a command and reads what became of it", () => {
+  const queuedOp = Schema.decodeUnknownSync(OpId)("01M5EWQ00000000000000000Q1");
+  const command = {
+    opId: queuedOp,
+    canvasName: "factory",
+    actor: { kind: "seat", seatId, nodeId: "peer" },
+    target: { kind: "task", nodeId: "board-1" },
+    basis: null,
+    after: [],
+    op: { kind: "start" },
+  } as const;
+  const queue = () =>
+    mini.runtime.runPromiseExit(
+      mini.repository.queueCommand({
+        command: command as never,
+        basis: { kind: "canvas", canvasName: "factory", seq: 1 } as never,
+        originAt: at,
+        receivedAt: at,
+      }),
+    );
+  const state = () => mini.runtime.runPromise(mini.repository.commandState("factory", MINI, queuedOp));
+  const load = () => mini.runtime.runPromise(mini.repository.commandQueueLoad("factory"));
+
+  it("knows nothing of a command it never wrote", async () => {
+    expect(await state()).toEqual({ kind: "unknown" });
+  });
+
+  it("writes the command as its own row, counted in the queue until it is ruled", async () => {
+    const before = await load();
+    const written = await queue();
+    expect(Exit.isSuccess(written) && written.value.record.body.operation).toBe("command.queued");
+    expect(await state()).toEqual({ kind: "queued" });
+    const after = await load();
+    expect(after.rows).toBe(before.rows + 1);
+    expect(after.bytes).toBeGreaterThan(before.bytes);
+  });
+
+  it("reads the editing machine's refusal, in fixed words, and leaves the queue", async () => {
+    const before = await load();
+    const refusal = row(
+      EDITOR,
+      "2",
+      { kind: "ruling", itemId: queuedOp, sink: { canvasName: "factory", nodeId: "board-1" } },
+      { operation: "ruling.refused", writer: MINI, opId: queuedOp, actor: command.actor, reason: "invalid_transition", root: queuedOp },
+    );
+    const taken = await apply(mini, EDITOR, frame(EDITOR, [refusal], "2"));
+    expect(Exit.isSuccess(taken)).toBe(true);
+    const now = await state();
+    expect(now.kind).toBe("refused");
+    expect(now.kind === "refused" && now.error).toMatchObject({
+      type: "InvalidTransition",
+      details: { reason: "invalid_transition", opId: queuedOp },
+    });
+    expect((await load()).rows).toBe(before.rows - 1);
+  });
+});

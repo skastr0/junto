@@ -15,7 +15,19 @@ import {
   type CanvasPlacement,
   type RowsFrame,
 } from "@shared/work-exchange";
-import { commandRowWrittenBy, isCommandRowBody } from "@shared/command-row";
+import {
+  CommandQueueFull,
+  RulingAppliedResult,
+  RulingRefusedResult,
+  commandRowWrittenBy,
+  isCommandRowBody,
+  queueAdmits,
+  refusalErrorOf,
+  type OpState,
+  type QueueLoad,
+  type QueuedCommand,
+} from "@shared/command-row";
+import type { OpId } from "@shared/work-ids";
 import { assertWorkRowBound, pageExchangeRows } from "@shared/exchange-bounds";
 import { createHash } from "node:crypto";
 import { Cause, Context, Effect, Option, Result, Layer, Schema } from "effect";
@@ -1039,6 +1051,15 @@ export type ApplyPadPatchInput = LocalWorkInput & {
   readonly author: Author;
   /** Live overseer: ink/image admitted without operator impersonation. */
   readonly overseer?: boolean;
+};
+
+/** A resource command this machine queues for the editing machine to rule. */
+export type QueueCommandInput = {
+  readonly command: QueuedCommand;
+  /** The canvas count this machine had applied; the author is judged at it, as mail is. */
+  readonly basis: IntentFactBasisValue;
+  readonly originAt?: string;
+  readonly receivedAt?: string;
 };
 
 export type LocalFactResult<A> = {
@@ -5360,6 +5381,22 @@ export interface WorkRepositoryShape {
   readonly recordCanvasCopySent: (
     input: CanvasCopySent,
   ) => Effect.Effect<void, WorkRepositoryError>;
+  /**
+   * Write a resource command as this machine's own `command.queued` row, for
+   * the editing machine to rule. Refused at once, writing nothing, when this
+   * machine already holds the bound of unruled commands for the canvas.
+   */
+  readonly queueCommand: (
+    input: QueueCommandInput,
+  ) => Effect.Effect<LocalFactResult<OpId>, RepositoryFailure | CommandQueueFull>;
+  /** This machine's unruled commands for a canvas: rows and bytes. */
+  readonly commandQueueLoad: (canvasName: string) => Effect.Effect<QueueLoad, WorkRepositoryError>;
+  /** What became of one command of one writer, from the rows this machine holds. */
+  readonly commandState: (
+    canvasName: string,
+    writer: InstallationId,
+    opId: OpId,
+  ) => Effect.Effect<OpState, WorkRepositoryError>;
   /** How far this machine is caught up on each other writer's rows for a canvas. */
   readonly exchangeHave: (
     canvasName: string,
@@ -8391,7 +8428,124 @@ export const WorkRepositoryLive = Layer.effect(
       );
     };
 
+    /**
+     * Unruled commands of this machine for a canvas. A command is ruled when
+     * a ruling for this writer and its opId is held, which is the editing
+     * machine's row or, on the editing machine, its own.
+     */
+    const queueLoadOf = (reader: SqlClient.SqlClient, self: string, canvasName: string) =>
+      reader
+        .unsafe<{ rows: number; bytes: number | null }>(
+          `
+            SELECT count(*) AS rows, sum(length(CAST(fact.result_json AS BLOB))) AS bytes
+            FROM work_events AS command
+            JOIN work_facts AS fact USING (event_home, entity_home, seq)
+            WHERE command.event_home = ?
+              AND command.entity_home = ?
+              AND command.item_canvas_name = ?
+              AND command.operation = 'command.queued'
+              AND NOT EXISTS (
+                SELECT 1
+                FROM work_events AS ruling
+                JOIN work_facts AS ruled USING (event_home, entity_home, seq)
+                WHERE ruling.item_canvas_name = command.item_canvas_name
+                  AND ruling.item_node_id = command.item_node_id
+                  AND ruling.item_kind = 'ruling'
+                  AND ruling.item_id = command.item_id
+                  AND json_extract(ruled.result_json, '$.writer') = command.event_home
+              )
+          `,
+          [self, self, canvasName],
+        )
+        .pipe(Effect.map((rows): QueueLoad => ({ rows: rows[0]?.rows ?? 0, bytes: rows[0]?.bytes ?? 0 })));
+
+    const queueCommand = (
+      input: QueueCommandInput,
+    ): Effect.Effect<LocalFactResult<OpId>, RepositoryFailure | CommandQueueFull> => {
+      const { command } = input;
+      const sink = { canvasName: command.canvasName, nodeId: command.target.nodeId };
+      const body = { operation: "command.queued" as const, command };
+      return transaction("work.command.queue", sink, (writer: SqlClient.SqlClient) =>
+        Effect.gen(function* () {
+          const self = (yield* canonicalLocalWorkAuthority(writer)).installationId;
+          const load = yield* queueLoadOf(writer, self, command.canvasName);
+          const rowBytes = new TextEncoder().encode(JSON.stringify(body)).byteLength;
+          if (!queueAdmits(load, rowBytes)) {
+            return yield* Effect.fail(new CommandQueueFull({ opId: command.opId, rows: load.rows, bytes: load.bytes }));
+          }
+          return yield* commitLocalFact(writer, {
+            localInstallationId: self,
+            sink,
+            basis: input.basis,
+            item: item("command", command.opId, sink),
+            operation: "command.queued",
+            predecessor: null,
+            body,
+            value: command.opId,
+            originAt: timestamp(input.originAt),
+            receivedAt: timestamp(input.receivedAt),
+          });
+        }),
+      ) as Effect.Effect<LocalFactResult<OpId>, RepositoryFailure | CommandQueueFull>;
+    };
+
+    const commandQueueLoad = (canvasName: string): Effect.Effect<QueueLoad, WorkRepositoryError> =>
+      withSqlRead(
+        sql,
+        Effect.gen(function* () {
+          const self = (yield* canonicalLocalWorkAuthority(sql)).installationId;
+          return yield* queueLoadOf(sql, self, canvasName);
+        }),
+      ).pipe(Effect.mapError((error) => toRepositoryError("work.command.queue-load", error)));
+
+    const decodeRuling = Schema.decodeUnknownResult(Schema.Union([RulingAppliedResult, RulingRefusedResult]), strictDecode);
+
+    const commandState = (
+      canvasName: string,
+      writer: InstallationId,
+      opId: OpId,
+    ): Effect.Effect<OpState, WorkRepositoryError> =>
+      withSqlRead(
+        sql,
+        Effect.gen(function* () {
+          const rulings = yield* sql.unsafe<{ result_json: string }>(
+            `
+              SELECT fact.result_json
+              FROM work_events AS event
+              JOIN work_facts AS fact USING (event_home, entity_home, seq)
+              WHERE event.item_canvas_name = ?
+                AND event.item_kind = 'ruling'
+                AND event.item_id = ?
+                AND json_extract(fact.result_json, '$.writer') = ?
+              LIMIT 1
+            `,
+            [canvasName, opId, writer],
+          );
+          if (rulings[0] !== undefined) {
+            const ruling = decodeRuling(JSON.parse(rulings[0].result_json));
+            if (Result.isSuccess(ruling)) {
+              return ruling.success.operation === "ruling.applied"
+                ? ({ kind: "applied", ruling: ruling.success } as const)
+                : ({ kind: "refused", ruling: ruling.success, error: refusalErrorOf(ruling.success) } as const);
+            }
+          }
+          const queued = yield* sql.unsafe<{ found: number }>(
+            `
+              SELECT 1 AS found FROM work_events
+              WHERE event_home = ? AND entity_home = ? AND item_canvas_name = ?
+                AND item_kind = 'command' AND item_id = ?
+              LIMIT 1
+            `,
+            [writer, writer, canvasName, opId],
+          );
+          return queued.length > 0 ? ({ kind: "queued" } as const) : ({ kind: "unknown" } as const);
+        }),
+      ).pipe(Effect.mapError((error) => toRepositoryError("work.command.state", error)));
+
     return WorkRepository.of({
+      queueCommand,
+      commandQueueLoad,
+      commandState,
       kernelWork: Effect.fn("WorkRepository.kernelWork")((canvasName: string) =>
         withSqlRead(sql, Effect.gen(function* () {
           const tasks = new Map<string, ReadonlyArray<TaskValue>>();
