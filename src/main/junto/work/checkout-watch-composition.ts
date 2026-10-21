@@ -120,11 +120,17 @@ export const makeCheckoutWatchComposition = (
     }
     const claims: ProvenClaim[] = [];
     const nodeIds = [...canvas.nodes.values()].filter((node) => node.kind === "task").map((node) => taskNodeId(node.id));
-    const open: ReadonlyArray<TaskView> = nodeIds.length === 0 ? [] : (yield* options.tasks.list(canvasName, {
+    const listed = nodeIds.length === 0 ? { tasks: [], more: false } : yield* options.tasks.list(canvasName, {
       nodeIds,
       states: OPEN_TASK_STATES,
       limit: OPEN_TASK_LIMIT,
-    })).tasks;
+    });
+    // A seat holds at most one open task, so the cap is only met past
+    // 10,000 seats; the tasks it cuts off bind no checkout, and that is said.
+    if (listed.more) {
+      yield* Effect.logWarning(`checkout watch read the first ${OPEN_TASK_LIMIT} open tasks of ${canvasName}; the rest bind no checkout`);
+    }
+    const open: ReadonlyArray<TaskView> = listed.tasks;
     const context = claimContextFrom({
       canvasName,
       thisMachine,
