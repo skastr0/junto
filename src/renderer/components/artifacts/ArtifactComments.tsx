@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import type { MentionRef } from "@shared/mention";
 import type { NodeKind } from "@shared/model/kinds";
 import type { NodeId } from "@shared/physics/schema";
@@ -6,9 +6,8 @@ import { MessageSquare } from "lucide-react";
 import type { Anchor } from "@shared/thread-subject";
 import type { SubjectThread } from "../../lib/subject-threads-source";
 import type { MentionCandidate } from "../../lib/mention-draft";
-import { Button, Eyebrow, PaneHeader, ResourceChip } from "../ui";
-import { mentionLabelKind } from "../tasks/mention-chip";
-import { textPieces } from "../tasks/mention-text";
+import { Button, Eyebrow, PaneHeader } from "../ui";
+import { PostText } from "../tasks/TaskThread";
 import { MentionCombobox } from "../ui/MentionCombobox";
 import { actorLabel, ageLabel, anchorLabel } from "./artifacts-pane-model";
 
@@ -173,7 +172,7 @@ function ThreadView({
           <li key={post.messageId} className="artifact-thread__post">
             <span className="artifact-thread__author">{actorLabel(post.author, seatName)}</span>
             <span className="artifact-thread__age">{ageLabel(post.at, now)}</span>
-            <PostText text={post.text} nodeKindOf={nodeKindOf} onOpen={onOpenMention} />
+            <PostText className="artifact-thread__text" text={post.text} nodeKindOf={nodeKindOf} onOpen={onOpenMention} />
           </li>
         ))}
       </ol>
@@ -212,38 +211,3 @@ function ThreadView({
   );
 }
 
-/** A post's text, its mentions drawn as chips that open what they name. */
-function PostText({
-  text,
-  nodeKindOf,
-  onOpen,
-}: {
-  readonly text: string;
-  readonly nodeKindOf: (nodeId: NodeId) => NodeKind | undefined;
-  readonly onOpen: (ref: MentionRef) => void;
-}) {
-  return (
-    <p className="artifact-thread__text">
-      {textPieces(text, nodeKindOf).map((piece, index): ReactNode => {
-        switch (piece.kind) {
-          case "text":
-            return <span key={index}>{piece.text}</span>;
-          case "gone":
-            return <ResourceChip key={index} kind="seat" label={piece.label.replace(/^[@#]/u, "")} missing />;
-          case "mention": {
-            const chip = mentionLabelKind(piece.ref, piece.label);
-            return (
-              <ResourceChip
-                key={index}
-                kind={chip.kind}
-                label={chip.label}
-                {...(chip.number === undefined ? {} : { number: chip.number })}
-                onOpen={() => onOpen(piece.ref)}
-              />
-            );
-          }
-        }
-      })}
-    </p>
-  );
-}

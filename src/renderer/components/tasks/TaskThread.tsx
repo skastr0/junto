@@ -42,18 +42,20 @@ export const openMention = (ref: MentionRef): void => {
 };
 
 /** A post's text with its mentions drawn as chips that open. */
-function PostText({
+export function PostText({
   text,
   nodeKindOf,
   onOpen,
+  className = "task-thread__text",
 }: {
+  readonly className?: string;
   readonly text: string;
   readonly nodeKindOf: (nodeId: NodeId) => NodeKind | undefined;
   readonly onOpen: (ref: MentionRef) => void;
 }) {
   const pieces = textPieces(text, nodeKindOf);
   return (
-    <p className="task-thread__text">
+    <p className={className}>
       {pieces.map((piece, index): ReactNode => {
         switch (piece.kind) {
           case "text":

@@ -3,7 +3,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mintItemId } from "../src/shared/resource-command";
-import type { SubjectThread } from "../src/renderer/lib/subject-threads-source";
+import { makeLocalSubjectThreads, newPostOpId, type SubjectThread } from "../src/renderer/lib/subject-threads-source";
+import { asNodeId } from "../src/shared/physics/schema";
 import { ArtifactComments } from "../src/renderer/components/artifacts/ArtifactComments";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -80,5 +81,16 @@ describe("artifact comments rail", () => {
     await act(async () => [...host.querySelectorAll("button")].find((b) => b.textContent === "Comment")?.click());
     expect(host.querySelector('[role="alert"]')?.textContent).toBe("Ghost cannot be mentioned here");
     expect(field.value).toBe("hi @ghost");
+  });
+
+  it("starts a thread per new comment on an artifact, and a reply joins by threadId, as main does", async () => {
+    const source = makeLocalSubjectThreads();
+    const subject = { kind: "artifact" as const, nodeId: asNodeId("artifacts"), artifactId: mintItemId() };
+    const first = await source.post("c", subject, { text: "one", opId: newPostOpId() });
+    await source.post("c", subject, { text: "two", opId: newPostOpId() });
+    if (!first.ok) throw new Error(first.message);
+    await source.post("c", subject, { text: "reply", opId: newPostOpId(), threadId: first.threadId });
+    const threads = await source.threads("c", subject);
+    expect(threads.map((thread) => thread.posts.map((post) => post.text))).toEqual([["one", "reply"], ["two"]]);
   });
 });
