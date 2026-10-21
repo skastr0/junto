@@ -35,7 +35,7 @@ import {
 import { makeBrowserTestOnlyElectronHarness } from "../../../src/main/junto/browser/view-adapter";
 import { partitionNameForProfile } from "../../../src/shared/browser";
 import { formatNodeRef } from "../../../src/shared/node-ref";
-import { LOCAL_BROWSER_TEST_AUTHORITY } from "../../browser-host-test-authority";
+import { localBrowserTestMachineName } from "../../browser-test-machine";
 
 // Chromium re-applies proxy command-line switches over Session proxy
 // preferences on every NetworkContext creation, so an inherited
@@ -229,7 +229,6 @@ const target = (
   url: `${exactOrigin}/profile-wipe/fixture.html?mode=${mode}&profile=${profile}${
     pulse === undefined ? "" : `&pulse=${encodeURIComponent(pulse)}`
   }`,
-  hostId: "studio",
   profile,
 });
 
@@ -352,7 +351,6 @@ const makeTarget = (
   page: ResolvedPageTarget,
 ): BrowserCapabilityTarget => ({
   ref: page.ref,
-  hostId: page.hostId,
   profile: page.profile,
   exactOrigins: [exactOrigin],
 });
@@ -389,7 +387,7 @@ const runPhaseA = async (state: StateService, sql: SqlClient.SqlClient): Promise
   const harness = makeBrowserTestOnlyElectronHarness(exactOrigin, downloadPath);
   sessions = new BrowserSessionService(
     harness.adapter,
-    LOCAL_BROWSER_TEST_AUTHORITY,
+    localBrowserTestMachineName,
     profiles,
     Date.now,
     randomUUID,
@@ -671,7 +669,7 @@ const runPhaseC = async (state: StateService, sql: SqlClient.SqlClient): Promise
   const harness = makeBrowserTestOnlyElectronHarness(exactOrigin, downloadPath);
   sessions = new BrowserSessionService(
     harness.adapter,
-    LOCAL_BROWSER_TEST_AUTHORITY,
+    localBrowserTestMachineName,
     profiles,
     Date.now,
     randomUUID,

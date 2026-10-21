@@ -1,7 +1,7 @@
 /**
  * Run already-closed (R=never) browser-domain Effects without AppRuntime.
  *
- * BrowserSessionService / page-target / station-authority unit paths inject
+ * BrowserSessionService / page-target unit paths inject
  * service method Effects that carry no product Context requirement. Routing
  * those through AppRuntime forces ManagedRuntime to build product state and services
  * and crashes Node vitest where Electron `app` is undefined.

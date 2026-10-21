@@ -15,7 +15,6 @@ import {
 } from "@shared/browser-limits";
 import type { NodeRefKey } from "@shared/node-ref";
 import { parseNodeRef } from "@shared/node-ref";
-import { isValidMachineName } from "@shared/machine-identity";
 import { makeBrowserProfileGate, type BrowserProfileGate } from "./profile-gate";
 
 export const BROWSER_CAPABILITY_ACTIONS = [
@@ -66,7 +65,6 @@ const REVOCATION_REASONS = new Set<BrowserCapabilityRevocationReason>([
 
 export interface BrowserCapabilityTarget {
   readonly ref: NodeRefKey;
-  readonly hostId: string;
   readonly profile: string;
   readonly exactOrigins: ReadonlyArray<string>;
 }
@@ -107,7 +105,6 @@ export interface BrowserCapabilityGrant extends BrowserCapabilityHandle {
 
 export interface BrowserCapabilityUseTarget {
   readonly ref: NodeRefKey;
-  readonly hostId: string;
   readonly profile: string;
   readonly exactOrigins: ReadonlyArray<string>;
   readonly generation?: string;
@@ -394,8 +391,6 @@ const normalizeTarget = (input: unknown): BrowserCapabilityTarget | undefined =>
   const candidate = input as Partial<BrowserCapabilityTarget>;
   if (
     !isCanonicalRef(candidate.ref) ||
-    typeof candidate.hostId !== "string" ||
-    !isValidMachineName(candidate.hostId) ||
     typeof candidate.profile !== "string"
   ) {
     return undefined;
@@ -406,7 +401,6 @@ const normalizeTarget = (input: unknown): BrowserCapabilityTarget | undefined =>
     ? undefined
     : Object.freeze({
         ref: candidate.ref,
-        hostId: candidate.hostId,
         profile: candidate.profile,
         exactOrigins,
       });
@@ -1013,7 +1007,6 @@ export class BrowserCapabilityRegistry {
     const allowed = record.targetsByRef.get(target.ref);
     if (
       allowed === undefined ||
-      allowed.hostId !== target.hostId ||
       allowed.profile !== target.profile ||
       target.exactOrigins.some((origin) => !allowed.exactOrigins.includes(origin))
     ) {
@@ -1049,7 +1042,6 @@ export class BrowserCapabilityRegistry {
       lease.target === undefined ||
       (target !== undefined &&
         lease.target.ref === target.ref &&
-        lease.target.hostId === target.hostId &&
         lease.target.profile === target.profile &&
         lease.target.generation === target.generation &&
         lease.target.exactOrigins.length === target.exactOrigins.length &&
@@ -1353,7 +1345,6 @@ export class BrowserCapabilityRegistry {
   #targetTag(target: BrowserCapabilityTarget): string {
     return this.#fingerprint("target", [
       target.ref,
-      target.hostId,
       target.profile,
       ...target.exactOrigins,
     ]);

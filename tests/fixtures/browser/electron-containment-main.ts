@@ -34,7 +34,6 @@ import { startBrowserControlServer, type BrowserControlServer } from "../../../s
 import { makePageTargetResolver } from "../../../src/main/junto/browser/page-target";
 import { makeBrowserProfileService } from "../../../src/main/junto/browser/profiles";
 import { BrowserSessionService } from "../../../src/main/junto/browser/sessions";
-import { admitBrowserHostCapability } from "../../../src/main/junto/browser/host-capability";
 import { makeBrowserTestOnlyElectronHarness } from "../../../src/main/junto/browser/view-adapter";
 import { installBrowserEgressProxyAuth, ensureManagedBrowserPartitionNetwork } from "../../../src/main/junto/browser/partition-network";
 import {
@@ -47,7 +46,7 @@ import {
 } from "../../../src/main/junto/process-identity";
 import { formatNodeRef } from "../../../src/shared/node-ref";
 import { partitionNameForProfile } from "../../../src/shared/browser";
-import { LOCAL_BROWSER_TEST_AUTHORITY, LOCAL_BROWSER_TEST_HOST } from "../../browser-host-test-authority";
+import { LOCAL_BROWSER_TEST_MACHINE, localBrowserTestMachineName } from "../../browser-test-machine";
 
 // Chromium re-applies proxy command-line switches over Session proxy
 // preferences on every NetworkContext creation, so an inherited
@@ -128,7 +127,6 @@ const capabilityTargets = [
   { nodeId: "personal-restored", profile: "personal" },
 ].map(({ nodeId, profile }) => ({
   ref: formatNodeRef({ canvasName, nodeId }),
-  hostId: LOCAL_BROWSER_TEST_HOST.id,
   profile,
   exactOrigins: [exactOrigin],
 }));
@@ -612,13 +610,13 @@ void app.whenReady().then(async () => {
   // sandbox names its machine as the browser fixture names it.
   await activeCanvasRuntime.runPromise(
     Effect.flatMap(MachineRepository, (machine) =>
-      machine.configureName(LOCAL_BROWSER_TEST_HOST.id)),
+      machine.configureName(LOCAL_BROWSER_TEST_MACHINE)),
   );
   const harness = makeBrowserTestOnlyElectronHarness(exactOrigin, downloadPath);
   const profiles = makeBrowserProfileService(await activeCanvasRuntime.runPromise(SqlClient.SqlClient), browserRoot);
   sessions = new BrowserSessionService(
     harness.adapter,
-    LOCAL_BROWSER_TEST_AUTHORITY,
+    localBrowserTestMachineName,
     profiles,
     Date.now,
     randomUUID,
@@ -719,9 +717,7 @@ void app.whenReady().then(async () => {
     resolvePageTarget,
     listCanvasModels,
     processMap,
-    machineName: LOCAL_BROWSER_TEST_AUTHORITY.machineName,
-    admitBrowserHost: (hostId) =>
-      admitBrowserHostCapability(hostId, LOCAL_BROWSER_TEST_AUTHORITY),
+    machineName: localBrowserTestMachineName,
   });
   // Warm only to make the secret-free expected-principal witness available to
   // the outer probe. The protected request still goes through admitSocket and

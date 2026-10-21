@@ -25,14 +25,14 @@ import {
   type BrowserViewAdapter,
   type BrowserViewHandle,
 } from "../src/main/junto/browser/sessions";
-import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
+import { localBrowserTestMachineName } from "./browser-test-machine";
 import type {
   PageTargetResolver,
   ResolvedPageTarget,
 } from "../src/main/junto/browser/page-target";
 import {
   lostPageTargetsForCaller,
-  receiptForHostTeardown,
+  receiptForTeardown,
 } from "../src/main/junto/browser/edge-revocation";
 import type { ProcessPrincipal } from "../src/main/junto/process-identity";
 import { isValidControlRequestId } from "../src/shared/browser-control";
@@ -43,22 +43,13 @@ const REF_P2 = "junto://canvas/work?node=p2";
 const TARGET_P1: ResolvedPageTarget = {
   ref: REF_P1,
   nodeId: "p1",
-  hostId: "studio",
   url: "https://example.com/one",
   profile: "personal",
 };
 const TARGET_P2: ResolvedPageTarget = {
   ref: REF_P2,
   nodeId: "p2",
-  hostId: "studio",
   url: "https://example.com/two",
-  profile: "personal",
-};
-const TARGET_REMOTE: ResolvedPageTarget = {
-  ref: REF_P1,
-  nodeId: "p1",
-  hostId: "atlas",
-  url: "https://example.com/remote",
   profile: "personal",
 };
 
@@ -145,8 +136,8 @@ describe("edge-revocation pure helpers", () => {
       "work",
       "agent",
       [
-        { ref: REF_P1, hostId: "studio" },
-        { ref: REF_P2, hostId: "studio" },
+        { ref: REF_P1 },
+        { ref: REF_P2 },
       ],
     );
     expect(lost).toEqual([
@@ -154,33 +145,26 @@ describe("edge-revocation pure helpers", () => {
         pageRef: REF_P1,
         pageNodeId: "p1",
         callerNodeId: "agent",
-        hostId: "studio",
       },
     ]);
   });
 
-  it("I20: unreachable host never gets a confirmed receipt", () => {
-    const receipt = receiptForHostTeardown({
+  it("I20: a teardown the session plane did not run is never confirmed", () => {
+    const receipt = receiptForTeardown({
       canvasName: "work",
       pageRef: REF_P1 as never,
-      hostId: "atlas",
       callerNodeId: "agent",
-      localHostId: "studio",
-      hostReachable: false,
-      sessionsDestroyed: 0,
+      sessionsDestroyed: undefined,
     });
     expect(receipt.status).toBe("not_confirmed");
-    expect(receipt.detail).toBe("not confirmed on host atlas");
+    expect(receipt.detail).toBe("session teardown not confirmed");
   });
 
-  it("I20: local reachable host confirms", () => {
-    const receipt = receiptForHostTeardown({
+  it("I20: the local session plane confirms", () => {
+    const receipt = receiptForTeardown({
       canvasName: "work",
       pageRef: REF_P1 as never,
-      hostId: "studio",
       callerNodeId: "agent",
-      localHostId: "studio",
-      hostReachable: true,
       sessionsDestroyed: 1,
     });
     expect(receipt.status).toBe("confirmed");
@@ -213,7 +197,7 @@ describe("browser edge-delete session teardown", () => {
     let sessionCounter = 0;
     const sessions = new BrowserSessionService(
       makeSpyAdapter(),
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeBrowserProfileService(sql, join(root, "browser")),
       Date.now,
       () => `session-${++sessionCounter}`,
@@ -236,7 +220,6 @@ describe("browser edge-delete session teardown", () => {
       resolvePageTarget,
       listCanvasModels: async () => [{ name: "work", doc: liveDoc }],
       machineName: () => sessions.machineName(),
-      admitBrowserHost: (hostId) => sessions.admitAutomationHost(hostId),
       sessions: {
         destroyOwnerTargetSessions: (owner, ref, reason) =>
           sessions.destroyOwnerTargetSessions(owner, ref, reason),
@@ -272,7 +255,6 @@ describe("browser edge-delete session teardown", () => {
         action: "open",
         target: {
           ref: REF_P1,
-          hostId: "studio",
           profile: "personal",
           exactOrigins: ["https://example.com"],
         },
@@ -285,7 +267,6 @@ describe("browser edge-delete session teardown", () => {
         action: "open",
         target: {
           ref: REF_P2,
-          hostId: "studio",
           profile: "personal",
           exactOrigins: ["https://example.com"],
         },
@@ -317,7 +298,6 @@ describe("browser edge-delete session teardown", () => {
     expect(receipts).toHaveLength(1);
     expect(receipts[0]).toMatchObject({
       pageRef: REF_P1,
-      hostId: "studio",
       status: "confirmed",
       callerNodeId: "agent",
     });
@@ -356,7 +336,6 @@ describe("browser edge-delete session teardown", () => {
         action: "open",
         target: {
           ref: REF_P1,
-          hostId: "studio",
           profile: "personal",
           exactOrigins: ["https://example.com"],
         },
@@ -398,7 +377,6 @@ describe("browser edge-delete session teardown", () => {
         action: "open",
         target: {
           ref: REF_P1,
-          hostId: "studio",
           profile: "personal",
           exactOrigins: ["https://example.com"],
         },
@@ -420,76 +398,10 @@ describe("browser edge-delete session teardown", () => {
     lease.release();
   });
 
-  it("I20 fixture: remote/unreachable host reports not confirmed, never success", async () => {
-    // Grant minted with another machine's hostId on the capability target; this
-    // machine cannot prove session teardown on atlas.
-    const previous = twoPageDoc([{ id: "e1", from: "agent", to: "p1" }]);
-    let sessionCounter = 0;
-    const sessions = new BrowserSessionService(
-      makeSpyAdapter(),
-      LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(sql, join(root, "browser-remote")),
-      Date.now,
-      () => `remote-session-${++sessionCounter}`,
-    );
-    const capabilities = makeBrowserCapabilityRegistry({
-      onTerminate: (notice) => {
-        sessions.destroyOwnerSessions(notice.auditId, "browser authority ended");
-      },
-    });
-    registries.push(capabilities);
-
-    // Issue a grant directly with remote host target so dropTargets has it.
-    const principal = capabilities.createPrincipal();
-    const grant = capabilities.issue(principal, {
-      actions: ["open", "pages", "sessions", "close", "stop", "goto", "eval", "screenshot", "profiles"],
-      targets: [
-        {
-          ref: REF_P1,
-          hostId: "atlas",
-          profile: "personal",
-          exactOrigins: ["https://example.com"],
-        },
-      ],
-      ttlMs: 60_000,
-      maxUses: 100,
-      maxInFlight: 4,
-    });
-
-    // Seed edge-grant cache by using a custom path: build service and inject
-    // via admit after list docs + resolve returns remote target. The machine
-    // check will deny mint for a foreign host — so call drop path via
-    // invalidate by planting cache through a local mint then replace… instead
-    // exercise receipt helper + destroyOwnerTargetSessions isolation:
-
-    const destroyed = sessions.destroyOwnerTargetSessions(
-      grant.auditId,
-      REF_P1,
-      "browser edge revoked",
-    );
-    expect(destroyed).toBe(0);
-
-    const receipt = receiptForHostTeardown({
-      canvasName: "work",
-      pageRef: REF_P1 as never,
-      hostId: "atlas",
-      callerNodeId: "agent",
-      localHostId: sessions.machineName(),
-      hostReachable: false,
-      sessionsDestroyed: destroyed,
-    });
-    expect(receipt.status).toBe("not_confirmed");
-    expect(receipt.detail).toBe("not confirmed on host atlas");
-    // Never a confirmed success for an unproven host.
-    expect(receipt.status).not.toBe("confirmed");
-    void TARGET_REMOTE;
-    void previous;
-  });
-
   it("destroyOwnerTargetSessions only kills the named (owner, ref) pair", async () => {
     const sessions = new BrowserSessionService(
       makeSpyAdapter(),
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeBrowserProfileService(sql, join(root, "browser-pair")),
       Date.now,
       (() => {

@@ -314,7 +314,6 @@ export const SessionData = Schema.Struct({
   sessionId: Schema.String,
   ref: Schema.String,
   nodeId: Schema.String,
-  hostId: Schema.String,
   url: Schema.String,
   profile: Schema.String,
   state: Schema.String,
@@ -342,7 +341,6 @@ export const PageNodeRow = Schema.Struct({
   sessionId: Schema.NullOr(Schema.String),
   canvas: Schema.String,
   nodeId: Schema.String,
-  hostId: Schema.String,
   url: Schema.String,
   profile: Schema.optionalKey(Schema.String),
 });

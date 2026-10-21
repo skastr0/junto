@@ -948,16 +948,6 @@ const handlePage = async (
     if ("error" in targeted) return targeted;
     const admitted = admitOverseerPage(targeted.canvas, targeted.node.id);
     if (!admitted.ok) return fail("NotFound", overseerPageMessage(admitted.denial));
-    const hostAdmission = pages.admitAutomationHost(admitted.node.host);
-    if (!hostAdmission.ok) {
-      return fail(
-        hostAdmission.reason === "browser-not-declared" ||
-          hostAdmission.reason === "machine-name-unavailable"
-          ? "RuntimeDown"
-          : "Forbidden",
-        hostAdmission.message,
-      );
-    }
     const resolver = makePageTargetResolver(modelReader(ctx.listCanvases));
     let ref: string;
     try {

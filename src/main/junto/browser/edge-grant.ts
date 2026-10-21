@@ -17,11 +17,10 @@ import {
 } from "../process-identity";
 import { isThisMachine } from "@shared/machine-identity";
 import { parseNodeRef } from "@shared/node-ref";
-import type { BrowserHostCapabilityAdmission } from "./host-capability";
 import {
   allTargetsLost,
   lostPageTargetsForCaller,
-  receiptForHostTeardown,
+  receiptForTeardown,
   type EdgeRevocationReceipt,
 } from "./edge-revocation";
 
@@ -128,12 +127,10 @@ export interface EdgeGrantDependencies {
   readonly wallNow?: () => number;
   readonly ttlMs?: number;
   /**
-   * Browser composition supplies these from its local session service. They
-   * make this machine's name and advertised browser capability a pre-mint
-   * condition, rather than allowing a short-lived secret for a foreign page.
+   * Browser composition supplies this from its local session service. A
+   * caller assigned to another machine never gets a secret: pages are local.
    */
   readonly machineName: () => string | undefined;
-  readonly admitBrowserHost: (hostId: string) => BrowserHostCapabilityAdmission;
   /**
    * Optional session teardown for edge-delete (I10). When omitted, grants
    * still attenuate / revoke but live views are not destroyed here.
@@ -170,7 +167,6 @@ const makeTargetSignature = (targets: ReadonlyArray<BrowserCapabilityTarget>): s
     .map((target) =>
       JSON.stringify({
         ref: target.ref,
-        hostId: target.hostId,
         profile: target.profile,
         exactOrigins: [...target.exactOrigins].sort(),
       }),
@@ -226,13 +222,11 @@ export const makeEdgeGrantService = (
     entry: CacheEntry,
     lost: ReadonlyArray<{
       readonly pageRef: string;
-      readonly hostId: string;
       readonly callerNodeId: string;
     }>,
     canvasName: string,
   ): EdgeRevocationReceipt[] => {
     if (lost.length === 0) return [];
-    const localHostId = dependencies.machineName();
     const lostRefs = lost.map((item) => item.pageRef);
     try {
       dependencies.capabilities.dropTargets(entry.handle, lostRefs);
@@ -241,11 +235,8 @@ export const makeEdgeGrantService = (
     }
     const receipts: EdgeRevocationReceipt[] = [];
     for (const item of lost) {
-      let sessionsDestroyed = 0;
-      const hostReachable = dependencies.admitBrowserHost(item.hostId).ok;
-      const onLocal =
-        localHostId !== undefined && localHostId === item.hostId && hostReachable;
-      if (onLocal && dependencies.sessions !== undefined) {
+      let sessionsDestroyed: number | undefined;
+      if (dependencies.sessions !== undefined) {
         try {
           sessionsDestroyed = dependencies.sessions.destroyOwnerTargetSessions(
             entry.handle.auditId,
@@ -253,17 +244,14 @@ export const makeEdgeGrantService = (
             "browser edge revoked",
           );
         } catch {
-          sessionsDestroyed = 0;
+          sessionsDestroyed = undefined;
         }
       }
       receipts.push(
-        receiptForHostTeardown({
+        receiptForTeardown({
           canvasName,
           pageRef: item.pageRef as EdgeRevocationReceipt["pageRef"],
-          hostId: item.hostId,
           callerNodeId: item.callerNodeId,
-          localHostId,
-          hostReachable,
           sessionsDestroyed,
         }),
       );
@@ -293,7 +281,7 @@ export const makeEdgeGrantService = (
       return lastReceipts;
     }
 
-    // No change detail → full revoke (process unbind / station clear paths).
+    // No change detail → full revoke (process unbind / clear paths).
     if (detail === undefined) {
       for (const cacheKey of [...affected]) {
         revokeCacheEntry(cacheKey);
@@ -311,7 +299,7 @@ export const makeEdgeGrantService = (
         : resolveBrowserCallerFromProcess(detail.next, canvasName, entry.processPrincipal);
       const callerAdmitted = nextCaller?.ok === true
         && nextCaller.principal.nodeId === entry.callerNodeId
-        && admitsPhysicalStation(detail.next!, entry.callerNodeId, nextCaller.pageRefs) === undefined;
+        && admitsCallerOnThisMachine(detail.next!, entry.callerNodeId) === undefined;
       const lost =
         !callerAdmitted
           ? allTargetsLost(entry.targets, canvasName, entry.callerNodeId)
@@ -353,7 +341,6 @@ export const makeEdgeGrantService = (
       targets.push(
         Object.freeze({
           ref,
-          hostId: resolved.data.hostId,
           profile: resolved.data.profile,
           exactOrigins: Object.freeze([origin]),
         }),
@@ -364,10 +351,9 @@ export const makeEdgeGrantService = (
     );
   };
 
-  const admitsPhysicalStation = (
+  const admitsCallerOnThisMachine = (
     doc: Canvas,
     callerNodeId: string,
-    pageRefs: ReadonlyArray<string>,
   ): EdgeGrantResult | undefined => {
     const machineName = dependencies.machineName();
     const caller = doc.nodes.get(asNodeId(callerNodeId));
@@ -379,45 +365,6 @@ export const makeEdgeGrantService = (
       return fail(
         "physical_host_mismatch",
         "caller node is not assigned to this machine",
-      );
-    }
-    const browserHost = dependencies.admitBrowserHost(machineName);
-    if (!browserHost.ok) {
-      return fail(
-        "physical_host_mismatch",
-        "this machine cannot host browser automation",
-      );
-    }
-    for (const ref of pageRefs) {
-      const parsed = parseNodeRef(ref);
-      const page = parsed.ok
-        ? doc.nodes.get(asNodeId(parsed.value.nodeId))
-        : undefined;
-      if (
-        page === undefined ||
-        !isThisMachine("host" in page ? page.host : undefined, machineName)
-      ) {
-        return fail(
-          "physical_host_mismatch",
-          "connected page is not assigned to this machine",
-        );
-      }
-    }
-    return undefined;
-  };
-
-  const targetsAdmitPhysicalStation = (
-    targets: ReadonlyArray<BrowserCapabilityTarget>,
-  ): EdgeGrantResult | undefined => {
-    const machineName = dependencies.machineName();
-    if (
-      machineName === undefined ||
-      targets.some((target) => !isThisMachine(target.hostId, machineName)) ||
-      targets.some((target) => !dependencies.admitBrowserHost(target.hostId).ok)
-    ) {
-      return fail(
-        "physical_host_mismatch",
-        "resolved page target is not hosted by this machine",
       );
     }
     return undefined;
@@ -475,12 +422,8 @@ export const makeEdgeGrantService = (
     }
 
     const match = matches[0]!;
-    const stationDenial = admitsPhysicalStation(
-      match.doc,
-      match.callerNodeId,
-      match.pageRefs,
-    );
-    if (stationDenial !== undefined) return stationDenial;
+    const callerDenial = admitsCallerOnThisMachine(match.doc, match.callerNodeId);
+    if (callerDenial !== undefined) return callerDenial;
     const targets = await buildTargets(match.pageRefs);
     if (targets.length === 0) {
       return fail(
@@ -488,8 +431,6 @@ export const makeEdgeGrantService = (
         "missing edge between caller and a page node — draw an edge in Junto",
       );
     }
-    const targetStationDenial = targetsAdmitPhysicalStation(targets);
-    if (targetStationDenial !== undefined) return targetStationDenial;
     if (
       lastClearSequence > admissionStartedAt ||
       (canvasInvalidatedAt.get(match.canvasName) ?? 0) > admissionStartedAt
@@ -519,7 +460,7 @@ export const makeEdgeGrantService = (
       // Target set changed since mint: drop lost pages in place so remaining
       // (caller, target) sessions keep their auditId; then remint only when
       // the grant is empty or fully superseded by a different signature that
-      // we cannot expand in place (origin/host change on a kept ref).
+      // we cannot expand in place (origin change on a kept ref).
       const existingRefs = new Set(existing.targets.map((t) => t.ref));
       const nextRefs = new Set(targets.map((t) => t.ref));
       const lostOnly = existing.targets.filter((t) => !nextRefs.has(t.ref));
@@ -533,7 +474,6 @@ export const makeEdgeGrantService = (
           existing,
           lostOnly.map((t) => ({
             pageRef: t.ref,
-            hostId: t.hostId,
             callerNodeId: existing.callerNodeId,
           })),
           match.canvasName,
@@ -548,7 +488,7 @@ export const makeEdgeGrantService = (
           };
         }
       } else if (sameRefs) {
-        // Origins/host metadata drift — remint quietly without owner wipe of
+        // Origin metadata drift — remint quietly without owner wipe of
         // remaining pages: full revoke then reissue below.
         revokeCacheEntry(cacheKey);
       } else {

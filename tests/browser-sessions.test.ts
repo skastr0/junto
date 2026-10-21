@@ -24,8 +24,6 @@ import {
   utf8ByteLength,
 } from "../src/shared/browser-limits";
 import type { ResolvedPageTarget } from "../src/main/junto/browser/page-target";
-import type { RemoteHost } from "../src/shared/remote-hosts";
-import type { BrowserHostCapabilityAuthority } from "../src/main/junto/browser/host-capability";
 import {
   BrowserProfileError,
   makeBrowserProfileService,
@@ -42,7 +40,7 @@ import {
   type BrowserViewHandle,
   type BrowserViewOptions,
 } from "../src/main/junto/browser/sessions";
-import { LOCAL_BROWSER_TEST_AUTHORITY, LOCAL_BROWSER_TEST_HOST } from "./browser-host-test-authority";
+import { localBrowserTestMachineName } from "./browser-test-machine";
 
 describe("warmPoolEvictions (pure)", () => {
   const entry = (key: string, attached: boolean, lastActiveAt: number) => ({
@@ -144,7 +142,6 @@ const target = (
   ref: `junto://canvas/work?node=${nodeId}`,
   nodeId,
   url: `https://${nodeId}.example.com`,
-  hostId: LOCAL_BROWSER_TEST_HOST.id,
   profile: "personal",
   ...overrides,
 });
@@ -246,7 +243,7 @@ describe("BrowserSessionService", () => {
   const makeService = (adapter: BrowserViewAdapter) => {
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -258,7 +255,7 @@ describe("BrowserSessionService", () => {
     const { adapter, views } = makeSpyAdapter();
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -289,7 +286,7 @@ describe("BrowserSessionService", () => {
     const candidates = ["line\nbreak", "üni", "path/id", "valid-session"];
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => candidates.shift() ?? "valid-fallback",
@@ -311,109 +308,22 @@ describe("BrowserSessionService", () => {
     expect(views).toHaveLength(0);
   });
 
-  it("fails before adapter creation when a page targets another machine", async () => {
+  it("rechecks the canvas target immediately before adapter creation", async () => {
     const { adapter, views } = makeSpyAdapter();
-    const remote: RemoteHost = {
-      id: "atlas",
-      label: "atlas",
-      isThisMachine: false,
-      sshEndpoint: "atlas",
-      capabilities: ["browser"],
-    };
-    const hostAuthority: BrowserHostCapabilityAuthority = {
-      findHost: (hostId) => hostId === remote.id ? remote : undefined,
-      machineName: () => LOCAL_BROWSER_TEST_HOST.id,
-    };
     const service = new BrowserSessionService(
       adapter,
-      hostAuthority,
-      makeProfileService(),
-      () => ++clock,
-      () => `session-${++idCounter}`,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-    );
-
-    expect(await service.open(target("remote", { hostId: "atlas" }))).toMatchObject({
-      ok: false,
-      code: "unsupported_capability",
-    });
-    expect(views).toHaveLength(0);
-  });
-
-  it("does not open a page on another machine's row even when this machine's name matches it", async () => {
-    const { adapter, views } = makeSpyAdapter();
-    const remote: RemoteHost = {
-      id: "atlas",
-      label: "atlas",
-      isThisMachine: false,
-      sshEndpoint: "atlas",
-      capabilities: ["browser"],
-    };
-    const service = new BrowserSessionService(
-      adapter,
-      {
-        findHost: (hostId) => hostId === remote.id ? remote : undefined,
-        machineName: () => remote.id,
-      },
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
     );
 
-    expect(await service.open(target("remote", { hostId: remote.id }))).toMatchObject({
-      ok: false,
-      code: "unsupported_capability",
-    });
-    expect(views).toHaveLength(0);
-  });
-
-  it("rechecks host capability and the canvas target immediately before adapter creation", async () => {
-    const { adapter, views } = makeSpyAdapter();
-    // This machine's capabilities are a fact of the process; what can change
-    // under an open is whether its row is still in the machine list.
-    let registered = true;
-    const thisMachine: RemoteHost = {
-      id: "studio",
-      label: "studio",
-      isThisMachine: true,
-      capabilities: ["browser"],
-    };
-    const hostAuthority: BrowserHostCapabilityAuthority = {
-      findHost: (hostId) => registered && hostId === "studio" ? thisMachine : undefined,
-      machineName: () => "studio",
-    };
-    const service = new BrowserSessionService(
-      adapter,
-      hostAuthority,
-      makeProfileService(),
-      () => ++clock,
-      () => `session-${++idCounter}`,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-    );
-    const original = target("removed-capability", { hostId: "studio" });
-
-    expect(await service.open(original, undefined, async () => {
-      registered = false;
-      return { ok: true, data: original };
-    })).toMatchObject({
-      ok: false,
-      code: "unsupported_capability",
-    });
-    expect(views).toHaveLength(0);
-
-    registered = true;
     expect(await service.open(
-      target("host-changed", { hostId: "studio" }),
+      target("url-changed"),
       undefined,
       async () => ({
         ok: true,
-        data: target("host-changed", { hostId: "other" }),
+        data: target("url-changed", { url: "https://elsewhere.example.com" }),
       }),
     )).toMatchObject({
       ok: false,
@@ -436,7 +346,7 @@ describe("BrowserSessionService", () => {
     const { adapter, views } = makeSpyAdapter();
     const qualified = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -690,7 +600,7 @@ describe("BrowserSessionService", () => {
     const { adapter, views } = makeSpyAdapter(false);
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -718,7 +628,7 @@ describe("BrowserSessionService", () => {
     const { adapter, views } = makeSpyAdapter(true, true);
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -739,7 +649,7 @@ describe("BrowserSessionService", () => {
     const candidates = ["failed-stop-id", "failed-stop-id", "replacement-id"];
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => candidates.shift() ?? `fallback-${++idCounter}`,
@@ -770,7 +680,7 @@ describe("BrowserSessionService", () => {
     const { adapter, views } = makeSpyAdapter(false);
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -886,7 +796,7 @@ describe("BrowserSessionService", () => {
     const generator = () => `restart-${++idCounter}`;
     const firstService = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       generator,
@@ -894,7 +804,7 @@ describe("BrowserSessionService", () => {
     const first = await firstService.open(target("n1"));
     const restarted = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       generator,
@@ -937,7 +847,7 @@ describe("BrowserSessionService", () => {
         const view = neverAdapter(partition, events);
         return { ...view, destroy: () => { destroys += 1; } };
       },
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => `timeout-session-${++idCounter}`,
@@ -1251,7 +1161,7 @@ describe("BrowserSessionService", () => {
     };
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       profileService,
       () => ++clock,
       () => `global-session-${++idCounter}`,
@@ -1764,7 +1674,7 @@ describe("BrowserSessionService", () => {
     const { adapter, views } = makeSpyAdapter();
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       profiles,
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -1827,7 +1737,7 @@ describe("BrowserSessionService", () => {
     const { adapter, views } = makeSpyAdapter();
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       profiles,
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -1859,7 +1769,7 @@ describe("BrowserSessionService", () => {
     const { adapter, views } = makeSpyAdapter();
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       base,
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -1888,7 +1798,7 @@ describe("BrowserSessionService", () => {
     const { adapter, views } = makeSpyAdapter();
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -1951,7 +1861,7 @@ describe("BrowserSessionService", () => {
     };
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -1991,7 +1901,7 @@ describe("BrowserSessionService", () => {
     const { adapter, views } = makeSpyAdapter(false);
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -2018,7 +1928,7 @@ describe("BrowserSessionService", () => {
     const secondAdapter = makeSpyAdapter(false);
     const timed = new BrowserSessionService(
       secondAdapter.adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -2213,7 +2123,7 @@ describe("BrowserSessionService", () => {
     });
     service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -2239,7 +2149,7 @@ describe("BrowserSessionService", () => {
     const { adapter, views } = makeSpyAdapter(false);
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -2303,7 +2213,7 @@ describe("BrowserSessionService", () => {
     const { adapter, views } = makeSpyAdapter();
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       profiles,
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -2366,7 +2276,7 @@ describe("BrowserSessionService", () => {
     const { adapter, views } = makeSpyAdapter();
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       profiles,
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -2525,7 +2435,7 @@ describe("BrowserSessionService", () => {
     });
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -2572,7 +2482,7 @@ describe("BrowserSessionService", () => {
     const { adapter, views } = makeSpyAdapter();
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       profiles,
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -2608,7 +2518,7 @@ describe("BrowserSessionService", () => {
     const { adapter } = makeSpyAdapter();
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       profiles,
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -2656,7 +2566,7 @@ describe("BrowserSessionService", () => {
     });
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -2707,7 +2617,7 @@ describe("BrowserSessionService", () => {
     });
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -2777,7 +2687,7 @@ describe("BrowserSessionService", () => {
     const { adapter } = makeSpyAdapter();
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       profiles,
     );
 
@@ -2804,7 +2714,7 @@ describe("BrowserSessionService", () => {
     };
     expect(await new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       denied,
     ).wipeProfile("personal"))
       .toMatchObject({ ok: false, code: "forbidden" });
@@ -2860,7 +2770,7 @@ describe("BrowserSessionService", () => {
     const { adapter, views } = makeSpyAdapter();
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       profiles,
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -2893,7 +2803,7 @@ describe("BrowserSessionService", () => {
     const { adapter, views } = makeSpyAdapter(false);
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -2932,7 +2842,7 @@ describe("BrowserSessionService", () => {
     const { adapter, views } = makeSpyAdapter(false);
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,
@@ -2970,7 +2880,7 @@ describe("BrowserSessionService", () => {
     const { adapter, views } = makeSpyAdapter(false);
     const service = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeProfileService(),
       () => ++clock,
       () => `session-${++idCounter}`,

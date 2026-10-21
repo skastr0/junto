@@ -180,7 +180,6 @@ const appendPageRowsFromDoc = (
       sessionId,
       canvas: canvasName,
       nodeId: node.id,
-      hostId: node.host,
       url: node.url,
       ...(profile !== undefined ? { profile } : {}),
     };
@@ -441,7 +440,6 @@ const useTargetForResolved = (
     ? undefined
     : {
         ref: target.ref,
-        hostId: target.hostId,
         profile: target.profile,
         exactOrigins: origins,
       };
@@ -454,7 +452,6 @@ const scopeAllows = (
   scope.some(
     (allowed) =>
       allowed.ref === target.ref &&
-      allowed.hostId === target.hostId &&
       allowed.profile === target.profile &&
       target.exactOrigins.every((origin) => allowed.exactOrigins.includes(origin)),
   );
@@ -465,7 +462,6 @@ const sameResolvedTarget = (
 ): boolean =>
   left.ref === right.ref &&
   left.nodeId === right.nodeId &&
-  left.hostId === right.hostId &&
   left.url === right.url &&
   left.profile === right.profile;
 
@@ -619,7 +615,6 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
       snapshot: snapshot.data,
       target: {
         ref: snapshot.data.ref,
-        hostId: snapshot.data.hostId,
         profile: snapshot.data.profile,
         exactOrigins: origins,
         generation: snapshot.data.generation,
@@ -691,7 +686,6 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
           sessionId,
           canvas: row.canvas,
           nodeId: resolved.data.nodeId,
-          hostId: resolved.data.hostId,
           url: resolved.data.url,
           profile: resolved.data.profile,
         });
@@ -753,7 +747,6 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         if (
           !current.ok ||
           current.data.ref !== resolved.data.ref ||
-          current.data.hostId !== resolved.data.hostId ||
           current.data.profile !== resolved.data.profile ||
           current.data.origin !== target.exactOrigins[0] ||
           current.data.navigationInFlight
@@ -950,7 +943,6 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
       if (exact === undefined) return capabilityDenied("forbidden");
       const target: BrowserCapabilityUseTarget = {
         ref: snapshot.ref,
-        hostId: snapshot.hostId,
         profile: snapshot.profile,
         exactOrigins: exact,
         ...(live.ok ? { generation: snapshot.generation } : {}),
@@ -1337,7 +1329,6 @@ export const startBrowserControlServer = async (
       capabilities: options.capabilities,
       resolvePageTarget: options.resolvePageTarget,
       machineName: () => options.sessions.machineName(),
-      admitBrowserHost: (hostId) => options.sessions.admitAutomationHost(hostId),
       listCanvasModels: options.listCanvasModels,
     });
   const maxActiveHandlers = boundedRuntimeValue(

@@ -12,7 +12,7 @@ import {
   type BrowserViewAdapter,
 } from "../src/main/junto/browser/sessions";
 import type { BrowserProfileServiceApi } from "../src/main/junto/browser/profiles";
-import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
+import { localBrowserTestMachineName } from "./browser-test-machine";
 
 type InvokeHandler = (event: unknown, ...args: ReadonlyArray<unknown>) => unknown;
 const PAGE_REF = "junto://canvas/work?node=page-1";
@@ -23,7 +23,6 @@ const session = (): BrowserSessionInfo => ({
   ref: PAGE_REF,
   nodeId: "page-1",
   url: "https://example.com/",
-  hostId: "studio",
   profile: "default",
   state: "ready",
   attached: true,
@@ -46,7 +45,6 @@ describe("browser IPC bounds ingress", () => {
     message: "test resolver",
   }));
   const confirmProfileWipe = vi.fn(async () => false);
-  const activateHost = vi.fn(async (_hostId: string) => undefined);
 
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -54,13 +52,12 @@ describe("browser IPC bounds ingress", () => {
     resolvePageTarget.mockClear();
     confirmProfileWipe.mockReset();
     confirmProfileWipe.mockResolvedValue(false);
-    activateHost.mockClear();
     const viewAdapter: BrowserViewAdapter = () => {
       throw new Error("invalid IPC input constructed a browser view");
     };
     browserSessions = new BrowserSessionService(
       viewAdapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       UNUSED_PROFILE_SERVICE,
     );
     const ipcMain = {
@@ -74,7 +71,6 @@ describe("browser IPC bounds ingress", () => {
       () => [],
       resolvePageTarget,
       confirmProfileWipe,
-      activateHost,
     );
   });
 
@@ -157,32 +153,6 @@ describe("browser IPC bounds ingress", () => {
     expect(resolvePageTarget).toHaveBeenCalledWith(PAGE_REF);
   });
 
-  it("activates a remote page host before opening its browser session", async () => {
-    resolvePageTarget.mockResolvedValueOnce({
-      ok: true,
-      data: {
-        ref: PAGE_REF,
-        nodeId: "page-1",
-        url: "https://example.com",
-        hostId: "atlas",
-        profile: "default",
-      },
-    });
-    const open = vi.spyOn(browserSessions, "open").mockResolvedValue({
-      ok: false,
-      code: "failed",
-      message: "stub open",
-    });
-
-    await invoke(IPC_CHANNELS.browserOpen, { ref: PAGE_REF });
-
-    expect(activateHost).toHaveBeenCalledWith("atlas");
-    expect(open).toHaveBeenCalledOnce();
-    expect(activateHost.mock.invocationCallOrder[0]).toBeLessThan(
-      open.mock.invocationCallOrder[0]!,
-    );
-  });
-
   it("invalidates a delayed page resolver before it can create a UI view", async () => {
     const resolution = deferred<{
       readonly ok: true;
@@ -190,7 +160,6 @@ describe("browser IPC bounds ingress", () => {
         readonly ref: string;
         readonly nodeId: string;
         readonly url: string;
-        readonly hostId: string;
         readonly profile: string;
       };
     }>();
@@ -207,7 +176,6 @@ describe("browser IPC bounds ingress", () => {
         ref: PAGE_REF,
         nodeId: "page-1",
         url: "https://example.com",
-        hostId: "studio",
         profile: "default",
       },
     });

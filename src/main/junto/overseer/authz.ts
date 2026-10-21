@@ -5,8 +5,8 @@ import { formatNodeRef, type NodeRefKey } from "@shared/node-ref";
 
 /**
  * Overseer page admission is edge-free: a live overseer may operate every
- * local page on this installation. Same-installation / profile / host
- * constraints stay with BrowserSessionService + admitBrowserHostCapability.
+ * local page on this installation. Same-installation and profile
+ * constraints stay with BrowserSessionService.
  * Normal agent callers still go through admitBrowserPage / edge-grant.
  */
 

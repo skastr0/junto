@@ -32,10 +32,7 @@ import {
   type BrowserViewAdapter,
   type BrowserUiShutdownDrainReceipt,
 } from "./sessions";
-import {
-  prepareDefaultBrowserHostCapabilityAuthority,
-  type BrowserHostCapabilityAuthorityLease,
-} from "./station-authority";
+import { hostsSnapshot } from "../hosts/snapshot";
 
 // Browser composition without ceremony: sessions + profiles + internal
 // capability registry (edge-grant leases only). Product access is
@@ -193,7 +190,6 @@ export const makeBrowserShutdownCoordinator = (input: {
   readonly storage: Pick<BrowserProfileStorageLifecycle, "beginShutdown" | "drainOnQuit">;
   readonly registry: Pick<BrowserCapabilityRegistry, "close">;
   readonly registryTerminationFailures: () => number;
-  readonly releaseHostAuthority?: () => void;
   /** Tests may lower, never raise, the aggregate deadline. */
   readonly drainTimeoutMs?: number;
 }): BrowserShutdownCoordinator => {
@@ -283,11 +279,6 @@ export const makeBrowserShutdownCoordinator = (input: {
       // leases before any asynchronous wait.
       const uiPrecommit = input.sessions.beginUiShutdown(reason);
       const storagePrecommit = input.storage.beginShutdown();
-      try {
-        input.releaseHostAuthority?.();
-      } catch {
-        // Browser admission is already closed; authority cleanup is best effort.
-      }
       let controlFlight: Promise<BrowserControlShutdownReceipt> | undefined;
       let controlStartFailed = false;
       if (control !== undefined) {
@@ -450,11 +441,16 @@ export interface BrowserCompositionRuntime {
   readonly profileGate?: BrowserProfileGate;
   readonly storagePlatform?: BrowserProfileStoragePlatform;
   readonly viewAdapter?: BrowserViewAdapter;
-  readonly prepareHostAuthority?: () => Promise<BrowserHostCapabilityAuthorityLease>;
+  /** This machine's name; `undefined` until the machine list hydrates. */
+  readonly machineName?: () => string | undefined;
   readonly makeStorageLifecycle?: (
     dependencies: BrowserProfileStorageDependencies,
   ) => BrowserProfileStorageLifecycle;
 }
+
+/** The one row the machine list marks as its own, read on every admission. */
+const thisMachineName = (): string | undefined =>
+  hostsSnapshot().find((host) => host.isThisMachine)?.id;
 
 class BindOnce<T extends object> {
   #bound = false;
@@ -483,15 +479,7 @@ export const startBrowserComposition = async (
   runtime: BrowserCompositionRuntime,
 ): Promise<BrowserComposition> => {
   let registry: BrowserCapabilityRegistry | undefined;
-  let hostAuthorityLease: BrowserHostCapabilityAuthorityLease | undefined;
   try {
-    // This is an authority barrier, not a background warm-up: no Electron
-    // adapter, control socket, or renderer IPC exists before the browser can
-    // ask which machine this is.
-    hostAuthorityLease = await (
-      runtime.prepareHostAuthority ??
-      prepareDefaultBrowserHostCapabilityAuthority
-    )();
     const profileGate = runtime.profileGate ?? makeBrowserProfileGate();
     const sessionsRef = new BindOnce<BrowserProfileStorageSessionControl>();
     const capabilitiesRef = new BindOnce<BrowserProfileStorageCapabilityControl>();
@@ -523,7 +511,7 @@ export const startBrowserComposition = async (
     });
     const sessions = new BrowserSessionService(
       viewAdapter,
-      hostAuthorityLease.authority,
+      runtime.machineName ?? thisMachineName,
       profiles,
       Date.now,
       randomUUID,
@@ -553,7 +541,6 @@ export const startBrowserComposition = async (
       storage,
       registry,
       registryTerminationFailures: () => registryTerminationFailures,
-      releaseHostAuthority: hostAuthorityLease.close,
     });
     const composition = Object.freeze<BrowserComposition>({
       profileGate,
@@ -569,11 +556,6 @@ export const startBrowserComposition = async (
     await activate(composition);
     return composition;
   } catch (error) {
-    try {
-      hostAuthorityLease?.close();
-    } catch {
-      // Startup is already blocked.
-    }
     try {
       registry?.close();
     } catch {

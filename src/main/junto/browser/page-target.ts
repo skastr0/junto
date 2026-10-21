@@ -12,7 +12,6 @@ import { runClosedBrowserEffect } from "./run-closed";
 export interface ResolvedPageTarget {
   readonly ref: NodeRefKey;
   readonly nodeId: string;
-  readonly hostId: string;
   readonly url: string;
   readonly profile: string;
 }
@@ -74,7 +73,6 @@ export const makePageTargetResolver = (canvases: ModelNodeReader): PageTargetRes
         data: {
           ref: resolved.success.key,
           nodeId: node.id,
-          hostId: node.host,
           url: node.url,
           profile,
         },

@@ -28,7 +28,7 @@ import {
   type BrowserViewAdapter,
   type BrowserViewHandle,
 } from "../src/main/junto/browser/sessions";
-import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
+import { localBrowserTestMachineName } from "./browser-test-machine";
 import {
   makeProcessIdentityMap,
   type ProcessIdentityMap,
@@ -39,14 +39,12 @@ import type {
   PageTargetResolver,
   ResolvedPageTarget,
 } from "../src/main/junto/browser/page-target";
-import type { BrowserHostCapabilityAuthority } from "../src/main/junto/browser/host-capability";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 
 const REF_PAGE = "junto://canvas/work?node=p1";
 const TARGET: ResolvedPageTarget = {
   ref: REF_PAGE,
   nodeId: "p1",
-  hostId: "studio",
   url: "https://example.com/",
   profile: "personal",
 };
@@ -107,19 +105,6 @@ const browserCanvas = (withEdge: boolean, hosts: { agent?: string; page?: string
     "work",
   );
 
-const machineAuthority = (name: string): BrowserHostCapabilityAuthority => ({
-  findHost: (id) =>
-    id === name
-      ? {
-          id,
-          label: id,
-          isThisMachine: true,
-          capabilities: ["browser"],
-        }
-      : undefined,
-  machineName: () => name,
-});
-
 const terminalCanvas = (): Canvas =>
   canvasOf(
     [
@@ -161,7 +146,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     let sessionCounter = 0;
     const sessions = new BrowserSessionService(
       makeSpyAdapter(),
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeBrowserProfileService(sql, join(root, "browser")),
       Date.now,
       () => `session-${++sessionCounter}`,
@@ -184,7 +169,6 @@ describe("browser edge-grant process-bind dual admit", () => {
       resolvePageTarget,
       listCanvasModels,
       machineName: () => sessions.machineName(),
-      admitBrowserHost: (hostId) => sessions.admitAutomationHost(hostId),
       ...(identity ?? {}),
     });
     const handlers = makeControlHandlers({
@@ -261,7 +245,6 @@ describe("browser edge-grant process-bind dual admit", () => {
       targets: [
         {
           ref: REF_PAGE,
-          hostId: "studio",
           profile: "personal",
           exactOrigins: ["https://example.com"],
         },
@@ -338,25 +321,13 @@ describe("browser edge-grant process-bind dual admit", () => {
   it("fails closed when canonical document authority is unavailable", async () => {
     const capabilities = makeBrowserCapabilityRegistry();
     registries.push(capabilities);
-    const authority = machineAuthority("studio");
     const edgeGrant = makeEdgeGrantService({
       capabilities,
       listCanvasModels: async () => {
         throw new Error("database unavailable");
       },
       resolvePageTarget: async () => ({ ok: true, data: TARGET }),
-      machineName: authority.machineName,
-      admitBrowserHost: (hostId) => {
-        const host = authority.findHost(hostId);
-        return host === undefined
-          ? {
-              ok: false as const,
-              code: "unsupported_capability" as const,
-              reason: "host-not-registered" as const,
-              message: "missing",
-            }
-          : { ok: true as const, host };
-      },
+      machineName: () => "studio",
     });
 
     await expect(
@@ -372,26 +343,14 @@ describe("browser edge-grant process-bind dual admit", () => {
     const doc = browserCanvas(true, { agent: "studio", page: "render" });
     const capabilities = makeBrowserCapabilityRegistry();
     registries.push(capabilities);
-    const authority = machineAuthority("studio");
     const edgeGrant = makeEdgeGrantService({
       capabilities,
       listCanvasModels: async () => [{ name: "work", doc: doc }],
       resolvePageTarget: async (candidate) =>
         candidate === REF_PAGE
-          ? { ok: true, data: { ...TARGET, hostId: "render" } }
+          ? { ok: true, data: TARGET }
           : { ok: false, code: "not_found", message: "missing" },
-      machineName: authority.machineName,
-      admitBrowserHost: (hostId) => {
-        const host = authority.findHost(hostId);
-        return host === undefined
-          ? {
-              ok: false as const,
-              code: "unsupported_capability" as const,
-              reason: "host-not-registered" as const,
-              message: "missing",
-            }
-          : { ok: true as const, host };
-      },
+      machineName: () => "studio",
     });
 
     // Placement: an edge between two machines is a route denial before host-mint checks.
@@ -406,27 +365,15 @@ describe("browser edge-grant process-bind dual admit", () => {
     expect(capabilities.stats().activeCapabilities).toBe(0);
   });
 
-  it("refuses a resolver result that disagrees with its same-host page node", async () => {
-    const doc = browserCanvas(true, { agent: "studio", page: "studio" });
+  it("refuses a caller assigned to another machine before minting browser authority", async () => {
+    const doc = browserCanvas(true, { agent: "render", page: "render" });
     const capabilities = makeBrowserCapabilityRegistry();
     registries.push(capabilities);
-    const authority = machineAuthority("studio");
     const edgeGrant = makeEdgeGrantService({
       capabilities,
       listCanvasModels: async () => [{ name: "work", doc: doc }],
-      resolvePageTarget: async () => ({ ok: true, data: { ...TARGET, hostId: "render" } }),
-      machineName: authority.machineName,
-      admitBrowserHost: (hostId) => {
-        const host = authority.findHost(hostId);
-        return host === undefined
-          ? {
-              ok: false as const,
-              code: "unsupported_capability" as const,
-              reason: "host-not-registered" as const,
-              message: "missing",
-            }
-          : { ok: true as const, host };
-      },
+      resolvePageTarget: async () => ({ ok: true, data: TARGET }),
+      machineName: () => "studio",
     });
 
     await expect(

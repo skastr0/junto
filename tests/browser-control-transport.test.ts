@@ -41,7 +41,7 @@ import {
   type BrowserCapabilityRegistry,
 } from "../src/main/junto/browser/capabilities";
 import { makeProcessIdentityMap } from "../src/main/junto/process-identity";
-import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
+import { localBrowserTestMachineName } from "./browser-test-machine";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 
 const repoRoot = resolve(import.meta.dirname, "..");
@@ -70,7 +70,6 @@ const resolvePageTarget: PageTargetResolver = async (ref) =>
         data: {
           ref: PAGE_REF,
           nodeId: "cli-node",
-          hostId: "studio",
           url: "https://example.com/",
           profile: "personal",
         },
@@ -147,7 +146,7 @@ const makeSessions = (root: string): BrowserSessionService => {
   };
   return new BrowserSessionService(
     adapter,
-    LOCAL_BROWSER_TEST_AUTHORITY,
+    localBrowserTestMachineName,
     makeBrowserProfileService(
       (() => {
         const state = states.get(root);
@@ -193,7 +192,6 @@ const startStack = async (
     actions: edgeGrantMode === "profiles-only" ? ["profiles"] : BROWSER_CAPABILITY_ACTIONS,
     targets: [{
       ref: PAGE_REF,
-      hostId: "studio",
       profile: "personal",
       exactOrigins: ["https://example.com"],
     }],

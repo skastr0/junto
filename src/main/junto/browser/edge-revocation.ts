@@ -5,7 +5,7 @@
  * invalidateCanvas on the same model-change event.
  *
  * Law: teardown is keyed by (caller, target) pair — never by caller alone.
- * Honesty: an unreachable host never gets a success receipt Junto cannot prove.
+ * Honesty: a teardown the session plane did not perform never gets a success receipt.
  */
 
 import type { Canvas } from "@shared/model";
@@ -20,14 +20,12 @@ import {
 
 export type EdgeRevocationStatus = "confirmed" | "not_confirmed";
 
-/** Per-runtime revocation receipt — never invent success for an unreachable host. */
+/** Per-runtime revocation receipt — never invent success the session plane did not report. */
 export type EdgeRevocationReceipt = {
   readonly canvasName: string;
   readonly pageRef: NodeRefKey;
-  readonly hostId: string;
   readonly callerNodeId: string;
   readonly status: EdgeRevocationStatus;
-  /** Human-readable; not_confirmed always names the host. */
   readonly detail: string;
 };
 
@@ -35,7 +33,6 @@ export type LostPageTarget = {
   readonly pageRef: NodeRefKey;
   readonly pageNodeId: string;
   readonly callerNodeId: string;
-  readonly hostId: string;
 };
 
 /**
@@ -47,10 +44,7 @@ export const lostPageTargetsForCaller = (
   next: Canvas | undefined,
   canvasName: string,
   callerNodeId: string,
-  previousTargets: ReadonlyArray<{
-    readonly ref: string;
-    readonly hostId: string;
-  }>,
+  previousTargets: ReadonlyArray<{ readonly ref: string }>,
 ): ReadonlyArray<LostPageTarget> => {
   const remaining = new Set<string>(
     next === undefined ? [] : connectedPageRefs(next, canvasName, callerNodeId),
@@ -65,7 +59,6 @@ export const lostPageTargetsForCaller = (
       pageRef: target.ref as NodeRefKey,
       pageNodeId: parsed.value.nodeId,
       callerNodeId,
-      hostId: target.hostId,
     });
   }
   return lost;
@@ -75,10 +68,7 @@ export const lostPageTargetsForCaller = (
  * When next is gone (canvas remove), every previous target is lost.
  */
 export const allTargetsLost = (
-  previousTargets: ReadonlyArray<{
-    readonly ref: string;
-    readonly hostId: string;
-  }>,
+  previousTargets: ReadonlyArray<{ readonly ref: string }>,
   _canvasName: string,
   callerNodeId: string,
 ): ReadonlyArray<LostPageTarget> =>
@@ -90,46 +80,41 @@ export const allTargetsLost = (
         pageRef: target.ref as NodeRefKey,
         pageNodeId: parsed.value.nodeId,
         callerNodeId,
-        hostId: target.hostId,
       },
     ];
   });
 
 /**
- * I20 honesty: only confirm teardown we can prove on a reachable host that
- * matches this station (local session plane). Anything else is not_confirmed.
+ * I20 honesty: every page is on this machine, so teardown is confirmed only
+ * when the local session plane ran it. A missing or failed plane is
+ * not_confirmed.
  */
-export const receiptForHostTeardown = (input: {
+export const receiptForTeardown = (input: {
   readonly canvasName: string;
   readonly pageRef: NodeRefKey;
-  readonly hostId: string;
   readonly callerNodeId: string;
-  readonly localHostId: string | undefined;
-  readonly hostReachable: boolean;
-  readonly sessionsDestroyed: number;
+  /** Sessions destroyed, or `undefined` when the session plane did not run. */
+  readonly sessionsDestroyed: number | undefined;
 }): EdgeRevocationReceipt => {
-  const onLocalHost =
-    input.localHostId !== undefined && input.localHostId === input.hostId;
-  if (onLocalHost && input.hostReachable) {
+  const { canvasName, pageRef, callerNodeId, sessionsDestroyed } = input;
+  if (sessionsDestroyed === undefined) {
     return {
-      canvasName: input.canvasName,
-      pageRef: input.pageRef,
-      hostId: input.hostId,
-      callerNodeId: input.callerNodeId,
-      status: "confirmed",
-      detail:
-        input.sessionsDestroyed > 0
-          ? `revoked ${input.sessionsDestroyed} session(s) on host ${input.hostId}`
-          : `capability revoked on host ${input.hostId}`,
+      canvasName,
+      pageRef,
+      callerNodeId,
+      status: "not_confirmed",
+      detail: "session teardown not confirmed",
     };
   }
   return {
-    canvasName: input.canvasName,
-    pageRef: input.pageRef,
-    hostId: input.hostId,
-    callerNodeId: input.callerNodeId,
-    status: "not_confirmed",
-    detail: `not confirmed on host ${input.hostId}`,
+    canvasName,
+    pageRef,
+    callerNodeId,
+    status: "confirmed",
+    detail:
+      sessionsDestroyed > 0
+        ? `revoked ${sessionsDestroyed} session(s)`
+        : "capability revoked",
   };
 };
 

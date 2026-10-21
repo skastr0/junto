@@ -1671,7 +1671,6 @@ export interface BrowserSessionInfo {
   readonly sessionId: string;
   readonly ref: NodeRefKey;
   readonly nodeId: string;
-  readonly hostId: string;
   readonly url: string;
   readonly profile: string;
   readonly state: BrowserSessionState;

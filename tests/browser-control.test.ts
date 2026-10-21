@@ -49,7 +49,7 @@ import {
   type BrowserViewAdapter,
   type BrowserViewHandle,
 } from "../src/main/junto/browser/sessions";
-import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
+import { localBrowserTestMachineName } from "./browser-test-machine";
 import {
   BROWSER_CAPABILITY_ACTIONS,
   makeBrowserCapabilityRegistry,
@@ -61,7 +61,6 @@ const REF = "junto://canvas/work?node=n1";
 const DEFAULT_TARGET: ResolvedPageTarget = {
   ref: REF,
   nodeId: "n1",
-  hostId: "studio",
   url: "https://example.com/",
   profile: "personal",
 };
@@ -305,7 +304,7 @@ describe("control route handlers", () => {
   ) => {
     const sessions = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       makeBrowserProfileService(sql, join(root, "browser")),
       Date.now,
       () => `session-${++sessionCounter}`,
@@ -324,7 +323,6 @@ describe("control route handlers", () => {
       actions: BROWSER_CAPABILITY_ACTIONS,
       targets: [{
         ref: REF,
-        hostId: DEFAULT_TARGET.hostId,
         profile: DEFAULT_TARGET.profile,
         exactOrigins: [new URL(DEFAULT_TARGET.url).origin],
       }],
@@ -340,7 +338,7 @@ describe("control route handlers", () => {
       listDocuments: async () => [{
         name: "work",
         doc: canvasOf(
-          [pageNode("n1", { url: DEFAULT_TARGET.url, width: 400, height: 300, profile: DEFAULT_TARGET.profile, host: DEFAULT_TARGET.hostId })],
+          [pageNode("n1", { url: DEFAULT_TARGET.url, width: 400, height: 300, profile: DEFAULT_TARGET.profile, host: "studio" })],
           [],
           "work",
         ),
@@ -442,7 +440,6 @@ describe("control route handlers", () => {
       actions: ["profiles"],
       targets: [{
         ref: REF,
-        hostId: DEFAULT_TARGET.hostId,
         profile: DEFAULT_TARGET.profile,
         exactOrigins: [new URL(DEFAULT_TARGET.url).origin],
       }],
@@ -507,7 +504,6 @@ describe("control route handlers", () => {
       actions: BROWSER_CAPABILITY_ACTIONS,
       targets: [{
         ref: REF,
-        hostId: DEFAULT_TARGET.hostId,
         profile: DEFAULT_TARGET.profile,
         exactOrigins: [new URL(DEFAULT_TARGET.url).origin],
       }],
@@ -575,7 +571,6 @@ describe("control route handlers", () => {
       actions: ["sessions", "pages"],
       targets: [{
         ref: REF,
-        hostId: DEFAULT_TARGET.hostId,
         profile: DEFAULT_TARGET.profile,
         exactOrigins: [new URL(DEFAULT_TARGET.url).origin],
       }],
@@ -921,7 +916,6 @@ describe("control route handlers", () => {
         [badRef]: {
           ref: badRef,
           nodeId: "bad",
-          hostId: "studio",
           url: "file:///etc/passwd",
           profile: "personal",
         },
@@ -1120,7 +1114,6 @@ describe("listPageNodes", () => {
         canvas: "work",
         nodeId: "p1",
         url: "https://mail.example.com",
-        hostId: "studio",
         profile: "personal",
       },
     ]);
@@ -1163,7 +1156,6 @@ describe("listPageNodes", () => {
       canvas: "bounded",
       nodeId: "good",
       url: "https://good.example.com",
-      hostId: "studio",
       profile: "personal",
     }]);
 
@@ -1208,7 +1200,6 @@ describe("listPageNodes", () => {
         canvas: "work",
         nodeId: "p1",
         url: "https://mail.example.com",
-        hostId: "studio",
         profile: "personal",
       },
     ]);

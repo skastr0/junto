@@ -11,7 +11,6 @@ import {
   type BrowserProfileWipeInput,
 } from "@shared/ipc";
 import { isValidProfileId } from "@shared/browser";
-import { isThisMachine } from "@shared/machine-identity";
 import {
   BROWSER_MAX_REF_BYTES,
   isUtf8WithinLimit,
@@ -69,8 +68,6 @@ export type BrowserProfileWipeConfirmation = (
   profileId: string,
 ) => Promise<boolean>;
 
-export type BrowserHostActivation = (hostId: string) => Promise<void>;
-
 export const browserProfileWipeDialogOptions = (
   profileId: string,
 ): MessageBoxOptions => ({
@@ -108,7 +105,6 @@ export const registerBrowserIpc = (
   webContentsGetter: () => Iterable<WebContents>,
   pageTargetResolver: PageTargetResolver = resolveBrowserPageTarget,
   profileWipeConfirmation: BrowserProfileWipeConfirmation = confirmBrowserProfileWipe,
-  ensureHostAvailable?: BrowserHostActivation,
 ): void => {
   // Settings.browser is the sole durable SoT for pool limits. Installation is
   // intentionally delayed until cold profile recovery admits browser IPC.
@@ -152,28 +148,6 @@ export const registerBrowserIpc = (
     );
     if (!browserSessions.isUiAdmissionCurrent(admission)) {
       return browserUiShuttingDown();
-    }
-    const machineName = browserSessions.machineName();
-    if (
-      target.ok &&
-      machineName !== undefined &&
-      !isThisMachine(target.data.hostId, machineName)
-    ) {
-      try {
-        await browserSessions.retainUiIngress(
-          "host-activation",
-          ensureHostAvailable?.(target.data.hostId) ?? Promise.resolve(),
-        );
-      } catch (error) {
-        return {
-          ok: false as const,
-          code: "failed" as const,
-          message:
-            error instanceof Error
-              ? error.message
-              : "page host could not be activated",
-        };
-      }
     }
     if (!browserSessions.isUiAdmissionCurrent(admission)) {
       return browserUiShuttingDown();

@@ -73,7 +73,7 @@ import {
 } from "./junto/browser/composition";
 import { makeBrowserCompositionHost } from "./junto/browser/composition-host";
 import { makeElectronBrowserViewAttachmentTarget } from "./junto/browser/view-adapter";
-import { hostsSnapshot, subscribeHostsSnapshot } from "./junto/hosts/snapshot";
+import { hostsSnapshot } from "./junto/hosts/snapshot";
 import { applyInterfaceScale, followInterfaceScale, refitInterfaceScale } from "./junto/interface-scale";
 import {
   BROWSER_ENABLED,
@@ -1739,7 +1739,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             resolvePageTarget: resolveBrowserPageTarget,
             listCanvasModels,
             machineName: () => composition.sessions.machineName(),
-            admitBrowserHost: (hostId) => composition.sessions.admitAutomationHost(hostId),
             // Edge-delete (I10): same destroy path as capability terminate, but
             // keyed by (owner, page-ref) so sibling edges stay live.
             sessions: {
@@ -1749,14 +1748,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           });
           let canvasUnsubscribe: (() => void) | undefined;
           let admissionCleanupRan = false;
-          // A change to a host's declared capabilities revokes every grant.
-          const hostsUnsubscribe = subscribeHostsSnapshot((hosts, previous) => {
-            if (JSON.stringify(hosts) !== JSON.stringify(previous)) edgeGrant.clear();
-          });
           unsubscribeCanvasEdgeGrants = () => {
             if (admissionCleanupRan) return;
             admissionCleanupRan = true;
-            hostsUnsubscribe();
             canvasUnsubscribe?.();
             edgeGrant.clear();
           };

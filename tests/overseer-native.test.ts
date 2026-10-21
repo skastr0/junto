@@ -31,7 +31,7 @@ import {
 import { makeBrowserProfileService } from "../src/main/junto/browser/profiles";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { StateEngine } from "../src/main/junto/state/service";
-import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
+import { localBrowserTestMachineName } from "./browser-test-machine";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 import type { ResolvedPageTarget } from "../src/main/junto/browser/page-target";
 
@@ -353,7 +353,6 @@ describe("overseer native adapters", () => {
         data: { sessionId, owner, url: "https://example.com/" },
       }),
       gotoForOwner,
-      admitAutomationHost: () => ({ ok: true, host: { id: THIS_MACHINE } }),
     } as unknown as BrowserSessionService;
     const native = live([{ name: "factory", doc: board }], { pages });
     const got = await run(native, "page.get", { nodeId: "p1" });
@@ -382,7 +381,6 @@ describe("overseer native adapters", () => {
       return { ok: true as const, data: { sessionId: "sess-1", url: target.url } };
     });
     const pages = {
-      admitAutomationHost: () => ({ ok: true, host: { id: THIS_MACHINE } }),
       openForOwner,
       sessionIdForRefForOwner: () => undefined,
       sessionIdForRef: () => undefined,
@@ -967,7 +965,7 @@ describe("overseer deletion fences share TermPlane identity", () => {
     };
     const pages = new BrowserSessionService(
       adapter,
-      LOCAL_BROWSER_TEST_AUTHORITY,
+      localBrowserTestMachineName,
       gatedProfiles,
       () => Date.now(),
       (() => {
@@ -981,7 +979,6 @@ describe("overseer deletion fences share TermPlane identity", () => {
       ref: "junto://canvas/factory?node=p1",
       nodeId: "p1",
       url: "https://p1.example.com",
-      hostId: THIS_MACHINE,
       profile: "personal",
     };
     const pending = pages.openForOwner("job-a", deleted);
@@ -1001,7 +998,6 @@ describe("overseer deletion fences share TermPlane identity", () => {
       ref: "junto://canvas/factory?node=p-sibling",
       nodeId: "p-sibling",
       url: "https://sibling.example.com",
-      hostId: THIS_MACHINE,
       profile: "work",
     });
     expect(sibling.ok).toBe(true);
@@ -1050,7 +1046,7 @@ describe("overseer deletion fences share TermPlane identity", () => {
       });
       const pages = new BrowserSessionService(
         adapter,
-        LOCAL_BROWSER_TEST_AUTHORITY,
+        localBrowserTestMachineName,
         profiles,
         () => Date.now(),
         (() => {
@@ -1066,7 +1062,6 @@ describe("overseer deletion fences share TermPlane identity", () => {
         ref: "junto://canvas/factory?node=p1",
         nodeId: "p1",
         url: "https://p1.example.com",
-        hostId: THIS_MACHINE,
         profile: "personal",
       });
       expect(opened.ok).toBe(true);

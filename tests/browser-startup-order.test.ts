@@ -29,7 +29,7 @@ describe("browser startup recovery gate", () => {
     expect(ready.slice(composition, window)).not.toContain("session.fromPartition");
   });
 
-  it("passes the composition's physical browser authority into the production edge grant", () => {
+  it("passes this machine's name into the production edge grant", () => {
     const activation = indexSrc.slice(indexSrc.indexOf("async (composition) =>"));
     const grantStart = activation.indexOf("const edgeGrant = makeEdgeGrantService({");
     const controlStart = activation.indexOf("browserControl = await startBrowserControlServer(");
@@ -38,12 +38,8 @@ describe("browser startup recovery gate", () => {
     expect(grantStart).toBeGreaterThanOrEqual(0);
     expect(controlStart).toBeGreaterThan(grantStart);
     expect(grant).toContain("machineName: () => composition.sessions.machineName()");
-    expect(grant).toContain(
-      "admitBrowserHost: (hostId) => composition.sessions.admitAutomationHost(hostId)",
-    );
-    expect(activation).toContain(
-      "const hostsUnsubscribe = subscribeHostsSnapshot((hosts, previous) =>",
-    );
+    expect(grant).not.toContain("admitBrowserHost");
+    expect(activation).not.toContain("subscribeHostsSnapshot");
     expect(activation).toContain("edgeGrant.clear()");
   });
 

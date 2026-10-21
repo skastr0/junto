@@ -15,7 +15,7 @@ import { makeBrowserTestOnlyElectronHarness } from "../../../src/main/junto/brow
 import { isManagedBrowserWebContents } from "../../../src/main/junto/browser/web-policy";
 import type { ResolvedPageTarget } from "../../../src/main/junto/browser/page-target";
 import { formatNodeRef } from "../../../src/shared/node-ref";
-import { LOCAL_BROWSER_TEST_AUTHORITY } from "../../browser-host-test-authority";
+import { localBrowserTestMachineName } from "../../browser-test-machine";
 
 // Chromium re-applies proxy command-line switches over Session proxy
 // preferences on every NetworkContext creation, so an inherited
@@ -100,7 +100,6 @@ const target = (origin: string, nodeId: string): ResolvedPageTarget => ({
   ref: formatNodeRef({ canvasName: "renderer-crash-recovery", nodeId }),
   nodeId,
   url: `${origin}/${nodeId}`,
-  hostId: "studio",
   profile: "personal",
 });
 
@@ -151,7 +150,7 @@ void app.whenReady().then(async () => {
   const sql = await stateRuntime.runPromise(SqlClient.SqlClient);
   sessions = new BrowserSessionService(
     harness.adapter,
-    LOCAL_BROWSER_TEST_AUTHORITY,
+    localBrowserTestMachineName,
     makeBrowserProfileService(sql, browserRoot),
     Date.now,
     randomUUID,

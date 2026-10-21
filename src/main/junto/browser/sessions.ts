@@ -41,11 +41,6 @@ import {
 } from "@shared/scheduler-effects";
 import { parseNodeRef } from "@shared/node-ref";
 import type { PageTargetResult, ResolvedPageTarget } from "./page-target";
-import {
-  admitBrowserHostCapability,
-  type BrowserHostCapabilityAdmission,
-  type BrowserHostCapabilityAuthority,
-} from "./host-capability";
 import type { BrowserProfileServiceApi } from "./profiles";
 import {
   makeBrowserProfileGate,
@@ -144,7 +139,6 @@ export type BrowserUiOperationKind =
   | "profile-wipe"
   | "view-destroy"
   | "page-resolve"
-  | "host-activation"
   | "profile-wipe-confirmation"
   | "profiles-read"
   | "surface-config";
@@ -228,7 +222,6 @@ interface SessionEntry {
   sessionId: string;
   readonly ref: string;
   readonly nodeId: string;
-  readonly hostId: string;
   readonly profile: string;
   readonly targetUrl: string;
   currentUrl: string | undefined;
@@ -290,7 +283,6 @@ export interface BrowserSessionAuthorizationSnapshot {
   readonly sessionId: string;
   readonly generation: string;
   readonly ref: string;
-  readonly hostId: string;
   readonly profile: string;
   readonly origin?: string;
   readonly navigationInFlight: boolean;
@@ -498,7 +490,6 @@ const decodeEvalEnvelope = (value: unknown): BrowserResult<{ result: unknown }> 
 const sameTarget = (left: ResolvedPageTarget, right: ResolvedPageTarget): boolean =>
   left.ref === right.ref &&
   left.nodeId === right.nodeId &&
-  left.hostId === right.hostId &&
   left.url === right.url &&
   left.profile === right.profile;
 
@@ -600,7 +591,7 @@ export class BrowserSessionService {
 
   constructor(
     private readonly adapter: BrowserViewAdapter,
-    private readonly hostAuthority: BrowserHostCapabilityAuthority,
+    private readonly thisMachineName: () => string | undefined,
     private readonly profiles: BrowserProfileServiceApi,
     private readonly now: () => number = Date.now,
     private readonly generateSessionId: () => string = randomUUID,
@@ -640,18 +631,12 @@ export class BrowserSessionService {
   }
 
   /**
-   * This machine's name, for local control admission. The control socket is
-   * hosted by this same BrowserSessionService, so edge grants can reject a
-   * foreign page before minting a capability instead of discovering the
-   * mismatch only while opening its view.
+   * This machine's name, for local control admission: a seat assigned to
+   * another machine never drives a page here. `undefined` until the machine
+   * list hydrates, and admission fails closed.
    */
   machineName(): string | undefined {
-    return this.hostAuthority.machineName();
-  }
-
-  /** Validate a document-derived page host against this machine. */
-  admitAutomationHost(hostId: string): BrowserHostCapabilityAdmission {
-    return admitBrowserHostCapability(hostId, this.hostAuthority);
+    return this.thisMachineName();
   }
 
   private retainUiOperation<A>(
@@ -695,7 +680,7 @@ export class BrowserSessionService {
   retainUiIngress<A>(
     kind: Extract<
       BrowserUiOperationKind,
-      "page-resolve" | "host-activation" | "profile-wipe-confirmation"
+      "page-resolve" | "profile-wipe-confirmation"
     >,
     operation: Promise<A>,
   ): Promise<A> {
@@ -1028,7 +1013,6 @@ export class BrowserSessionService {
       sessionId: entry.sessionId,
       ref: entry.ref,
       nodeId: entry.nodeId,
-      hostId: entry.hostId,
       url: clampUtf8Bytes(entry.url, BROWSER_MAX_METADATA_BYTES),
       profile: entry.profile,
       state: entry.machine.state,
@@ -1048,7 +1032,6 @@ export class BrowserSessionService {
       sessionId: entry.sessionId,
       generation: entry.sessionId,
       ref: entry.ref,
-      hostId: entry.hostId,
       profile: entry.profile,
       ...(entry.currentOrigin !== undefined ? { origin: entry.currentOrigin } : {}),
       navigationInFlight: entry.navigationInFlight === entry.sessionId,
@@ -1426,13 +1409,6 @@ export class BrowserSessionService {
   ): Promise<BrowserResult<BrowserSessionInfo>> {
     const invalid = validateTarget(target, this.targetAdmission);
     if (invalid !== undefined) return invalid;
-    const hostAdmission = admitBrowserHostCapability(
-      target.hostId,
-      this.hostAuthority,
-    );
-    if (!hostAdmission.ok) {
-      return err(hostAdmission.code, hostAdmission.message);
-    }
     if (
       owner !== BROWSER_UI_SESSION_OWNER &&
       exactBrowserOrigin(target.url) === undefined
@@ -1508,7 +1484,6 @@ export class BrowserSessionService {
       const currentTarget: ResolvedPageTarget = {
         ref: existing.ref,
         nodeId: existing.nodeId,
-        hostId: existing.hostId,
         url: existing.targetUrl,
         profile: existing.profile,
       };
@@ -1554,17 +1529,6 @@ export class BrowserSessionService {
         return err("invalid", "canonical page target changed before browser session creation");
       }
     }
-    const currentHostAdmission = admitBrowserHostCapability(
-      target.hostId,
-      this.hostAuthority,
-    );
-    if (!currentHostAdmission.ok) {
-      return err(currentHostAdmission.code, currentHostAdmission.message);
-    }
-    if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, target.ref, refEpoch, signal)) {
-      return err("cancelled", "navigation cancelled");
-    }
-
     const minted = this.mintSessionId();
     if (!minted.ok) return minted;
     for (const sessionId of warmPoolEvictions(
@@ -1590,7 +1554,6 @@ export class BrowserSessionService {
       sessionId: minted.data,
       ref: target.ref,
       nodeId: target.nodeId,
-      hostId: target.hostId,
       profile: target.profile,
       targetUrl: target.url,
       currentUrl: exactBrowserUrl(target.url),

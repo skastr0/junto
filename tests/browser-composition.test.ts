@@ -1,21 +1,14 @@
 import { readFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ManagedRuntime } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import {
   BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE,
   BrowserCompositionStartupError,
   makeBrowserShutdownCoordinator,
-  startBrowserComposition,
 } from "../src/main/junto/browser/composition";
 import { makeBrowserCapabilityRegistry } from "../src/main/junto/browser/capabilities";
 import { makeBrowserProfileGate } from "../src/main/junto/browser/profile-gate";
 import type { BrowserSessionService } from "../src/main/junto/browser/sessions";
-import type { BrowserHostCapabilityAuthorityLease } from "../src/main/junto/browser/station-authority";
-import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { SqlClient } from "effect/unstable/sql";
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
@@ -114,99 +107,6 @@ describe("browser composition (no ceremony)", () => {
     const err = new BrowserCompositionStartupError();
     expect(err.message).toBe(BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE);
     expect(err.name).toBe("BrowserCompositionStartupError");
-  });
-
-  it("awaits the machine authority before composition and adapter activation", async () => {
-    const root = await mkdtemp(join(tmpdir(), "junto-browser-composition-"));
-    const stateRuntime = ManagedRuntime.make(
-      makeStateEngineLive(join(root, "junto.db")),
-    );
-    const sql = await stateRuntime.runPromise(SqlClient.SqlClient);
-    const authority = deferred<BrowserHostCapabilityAuthorityLease>();
-    let activated = false;
-    let adapterCalls = 0;
-    const starting = startBrowserComposition(
-      async (composition) => {
-        activated = true;
-        expect(
-          await composition.sessions.open({
-            ref: "junto://canvas/work?node=on-atlas",
-            nodeId: "on-atlas",
-            hostId: "atlas",
-            url: "https://example.com/",
-            profile: "personal",
-          }),
-        ).toMatchObject({
-          ok: false,
-          code: "unsupported_capability",
-        });
-      },
-      {
-        sql,
-        profileRoot: root,
-        prepareHostAuthority: () => authority.promise,
-        viewAdapter: () => {
-          adapterCalls += 1;
-          throw new Error("Remote boot must not construct a local view");
-        },
-        storagePlatform: {
-          currentRoots: () => ({
-            userDataPath: root,
-            sessionDataPath: root,
-          }),
-          sessionForPartition: () => {
-            throw new Error("storage session is not used by startup");
-          },
-        },
-        makeStorageLifecycle: () => ({
-          prepare: async () => {
-            throw new Error("wipe prepare is not used by startup");
-          },
-          executeLive: async () => ({ status: "complete" as const }),
-          recoverCold: async () => {},
-          beginShutdown: () => ({
-            epoch: 1,
-            activeOperations: [],
-            activeRawClearOperations: [],
-          }),
-          drainOnQuit: async () => storageShutdownReceipt(),
-        }),
-      },
-    );
-    await Promise.resolve();
-    expect(activated).toBe(false);
-    expect(adapterCalls).toBe(0);
-
-    authority.resolve({
-      authority: {
-        findHost: (hostId) =>
-          hostId === "studio"
-            ? {
-                id: "studio",
-                label: "studio",
-                isThisMachine: true,
-                capabilities: ["browser"],
-              }
-            : hostId === "atlas"
-              ? {
-                  id: "atlas",
-                  label: "atlas",
-                  isThisMachine: false,
-                  sshEndpoint: "atlas",
-                  capabilities: ["browser"],
-                }
-              : undefined,
-        machineName: () => "studio",
-      },
-      close: () => {},
-    });
-    const composition = await starting;
-    expect(activated).toBe(true);
-    expect(adapterCalls).toBe(0);
-    expect(composition).not.toHaveProperty("close");
-    await composition.drainOnQuit("test complete");
-    await stateRuntime.dispose();
-    await rm(root, { recursive: true, force: true });
   });
 
   it("closes every browser ingress synchronously and coalesces one aggregate drain", async () => {
