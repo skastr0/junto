@@ -74,7 +74,8 @@ everyone else reports by mail and on the needs-you feed.
   tables, task numbers, `flows`, state remap. Tests for state machine, rules
   and flow graph.
 - C5 Automation model and runner on the editing machine, claim slots renamed,
-  loop limits, firing history. Seat-state rules from pty.
+  loop limits, firing history. Seat-state rules from pty. Writes admitted
+  only from the operator or an overseer (operator ruling, 07); seats read.
 - C6 With remote: 02 queued writes section.
 
 ### remote (remote-lead)

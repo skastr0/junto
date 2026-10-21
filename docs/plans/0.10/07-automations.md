@@ -12,6 +12,15 @@ regions below it. Triggers: a schedule, polling with a bounded rate, and
 conditions on seats, tasks and artifacts. Webhooks are designed for and not
 built.
 
+**Who writes them** (operator ruling, 2026-10-21). Automations are not
+resource nodes. Only the operator and overseers create, edit, enable, disable,
+archive and run them, as with the canvas. A seat reads (list, show, history)
+the Automations nodes in its reach and writes none. The seat writes become
+closed overseer ops, replacing scheduler fire, status and configure. A write's
+`ResourceCommand` actor is the operator or an overseer seat; the automation
+domain refuses every other seat. The stored author is the operator or that
+overseer seat.
+
 ## Today
 
 - No scheduler service; the kernel runs it (`src/main/junto/kernel/cycle.ts`,
@@ -66,8 +75,8 @@ type Action =
 Targets are `MentionRef`s (03), picked with `MentionCombobox`, limited by
 `automationTargets` (01): below the node and within the author's reach,
 rechecked at fire time; an automation the operator wrote gets everything
-below. Without the intersection a seat could create an automation in an
-ancestor node that targets its siblings (canvas-lead).
+below. An overseer author keeps the intersection with its own reach, so an
+edit by one overseer still fits the targets of both.
 
 ## Runner
 

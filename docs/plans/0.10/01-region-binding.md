@@ -9,7 +9,9 @@ region below it, and every region above it. Never a sibling or a cousin.
 Reach needs no edge. Edges survive for three things only: seat to seat mail
 (`messages`), seat to page automation (`navigates`), and task to task flow.
 
-Resource nodes: tasks, artifacts, automations. Notes are untouched by 0.10
+Resource nodes: tasks and artifacts. Automations are not resources (operator
+ruling, 2026-10-21): only the operator and overseers write them, as with the
+canvas, and a seat only reads the Automations nodes in its reach. Notes are untouched by 0.10
 (operator decision 10). The browser page is a resource for
 comments and stays edge-bound for automation (06). Seats and terminals are
 not resources.
@@ -63,10 +65,10 @@ reaches(canvas, from: NodeId, to: NodeId): boolean;
 resourcesInReach(canvas, seatId: NodeId): ReadonlyArray<ReachNode>;
 /** Agent and peer rows: reviewers, mention candidates, recipients. */
 seatsInReach(canvas, nodeId: NodeId): ReadonlyArray<ReachNode>;
-/** At or below the automation, and inside a seat author's reach; call at fire time (07). */
+/** At or below the automation, and inside an overseer author's reach; call at fire time (07). */
 automationTargets(canvas, automationId: NodeId, author: AutomationAuthor): ReadonlyArray<ReachNode>;
 
-RESOURCE_KINDS = ["task", "artifacts"]   // "automations" joins with its kind (C5)
+RESOURCE_KINDS = ["task", "artifacts"]   // never "automations": they are not resources
 COMMENTABLE_KINDS = [...RESOURCE_KINDS, "page"]
 SEAT_KINDS = ["agent", "peer"]
 ```
