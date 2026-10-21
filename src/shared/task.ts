@@ -390,21 +390,5 @@ export const makeTaskReleaseMessage = (params: {
       }),
   });
 
-export const taskReleaseBoundary = (
-  task: Task,
-): { readonly messageId: string; readonly actorSeatId: ActorSeatId } | undefined => {
-  const message = task.history.at(-1);
-  const actorSeatId = message?.metadata?.[TASK_RELEASE_ACTOR_SEAT_KEY];
-  return message !== undefined &&
-      message.role === "user" &&
-      typeof actorSeatId === "string" &&
-      /^seat_[a-f0-9]{64}$/u.test(actorSeatId)
-    ? {
-      messageId: message.messageId,
-      actorSeatId: actorSeatId as ActorSeatId,
-    }
-    : undefined;
-};
-
 export const claimedByOf = (task: Task): ActorSeatId | undefined =>
   task.claimedBy;
