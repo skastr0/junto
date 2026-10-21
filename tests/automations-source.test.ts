@@ -9,7 +9,6 @@ const node = asNodeId("automations-1");
 const automationId = ItemId.make("01JAAAAAAAAAAAAAAAAAAAAAA1");
 const definition: AutomationDefinition = {
   name: "Morning",
-  enabled: false,
   trigger: { kind: "schedule", cron: "0 9 * * 1-5", timezone: "UTC" },
   then: [{ kind: "mail", to: { kind: "seat", nodeId: asNodeId("agent-a") }, text: "Plan." }],
   limits: DEFAULT_AUTOMATION_LIMITS,
@@ -17,7 +16,7 @@ const definition: AutomationDefinition = {
 
 const created = async () => {
   const source = makeLocalAutomationsSource();
-  const result = await source.apply(canvas, node, automationId, { kind: "create", automationId, definition });
+  const result = await source.apply(canvas, node, automationId, { kind: "create", automationId, enabled: true, definition });
   if (result.kind !== "applied" || !result.automation) throw new Error("create refused");
   return { source, head: result.automation };
 };
@@ -40,6 +39,16 @@ describe("local automations source", () => {
     expect(second).toEqual({ kind: "refused", refusal: { reason: "stale", message: "edited since", expected: 2 } });
   });
 
+  it("an edit replaces the whole definition: a dropped condition is gone", async () => {
+    const source = makeLocalAutomationsSource();
+    const when = [{ kind: "seat", seat: { kind: "seat", nodeId: asNodeId("agent-b") }, becomes: "idle", holds: true }] as const;
+    const made = await source.apply(canvas, node, automationId, { kind: "create", automationId, enabled: true, definition: { ...definition, when } });
+    if (made.kind !== "applied" || !made.automation) throw new Error("create refused");
+    expect(made.automation.when).toEqual(when);
+    const edited = await source.apply(canvas, node, automationId, { kind: "edit", baseVersion: made.automation.version, definition });
+    expect(edited.kind === "applied" && edited.automation && "when" in edited.automation).toBe(false);
+  });
+
   it("turns on and off without a base, so a toggle never goes stale", async () => {
     const { source } = await created();
     const on = await source.apply(canvas, node, automationId, { kind: "set-enabled", enabled: true });
@@ -48,7 +57,7 @@ describe("local automations source", () => {
 
   it("refuses a definition the contract refuses", async () => {
     const source = makeLocalAutomationsSource();
-    const result = await source.apply(canvas, node, automationId, { kind: "create", automationId, definition: { ...definition, then: [] } });
+    const result = await source.apply(canvas, node, automationId, { kind: "create", automationId, enabled: false, definition: { ...definition, then: [] } });
     expect(result.kind).toBe("refused");
   });
 

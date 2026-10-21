@@ -92,10 +92,25 @@ export const makeLocalAutomationsSource = (
       switch (op.kind) {
         case "create":
           if (current !== undefined) return refused("invalid_transition", "that automation exists");
-          return put(canvasName, { automationId: op.automationId, nodeId, author, version: AutomationVersion.make(1), ...op.definition });
+          return put(canvasName, {
+            automationId: op.automationId,
+            nodeId,
+            author,
+            version: AutomationVersion.make(1),
+            enabled: op.enabled,
+            ...op.definition,
+          });
         case "edit":
           if (current!.version !== op.baseVersion) return refused("stale", "edited since", current!.version);
-          return put(canvasName, { ...current!, ...op.definition, version: AutomationVersion.make(current!.version + 1) });
+          // A whole replace: what the new definition leaves out (its conditions, say) is gone.
+          return put(canvasName, {
+            automationId: current!.automationId,
+            nodeId: current!.nodeId,
+            author: current!.author,
+            version: AutomationVersion.make(current!.version + 1),
+            enabled: current!.enabled,
+            ...op.definition,
+          });
         case "set-enabled":
           return put(canvasName, { ...current!, enabled: op.enabled });
         case "archive":
@@ -133,6 +148,8 @@ const useRead = <A>(read: () => Promise<A>, empty: A, deps: ReadonlyArray<unknow
   const [value, setValue] = useState<A>(empty);
   useEffect(() => {
     let live = true;
+    // New inputs show nothing until their own answer, never the last inputs' answer.
+    setValue(empty);
     const load = (): void => {
       void read().then((next) => {
         if (live) setValue(next);

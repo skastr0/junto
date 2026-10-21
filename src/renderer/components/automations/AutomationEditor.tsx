@@ -133,9 +133,10 @@ function Section({ title, children, actions }: { readonly title: string; readonl
   );
 }
 
+/** A field's problem, shown once a save was tried. Quiet: the footer's status says how many there are. */
 function Problem({ message }: { readonly message: string | undefined }) {
   return message ? (
-    <p className="automation-editor__problem" role="alert">
+    <p className="automation-editor__problem">
       {message}
     </p>
   ) : null;
@@ -309,7 +310,7 @@ function TriggerFields({ trigger, onChange, pickers }: { readonly trigger: Trigg
     case "change":
       return <WatchFields watch={trigger.on} pickers={pickers} onChange={(on) => onChange({ ...trigger, on })} />;
     case "webhook":
-      return <p className="automation-editor__note">A webhook trigger. Webhooks are not available yet; pick another trigger to save.</p>;
+      return <p className="automation-editor__note">A webhook trigger. Webhooks are not available yet; pick another trigger above to save.</p>;
     default:
       return trigger satisfies never;
   }
@@ -432,8 +433,15 @@ export function AutomationEditor({
     [canvas, draft.nodeId, draft.author],
   );
   const pickers: Pickers = { candidates, canvasName, nameOf, boards };
-  const problems = draftProblems(draft);
+  // Problems show once a save was tried on this automation, not while it is being written.
+  const [triedOn, setTriedOn] = useState<string>();
+  const tried = triedOn === draft.automationId;
+  const problems = tried ? draftProblems(draft) : [];
   const edit = (change: DraftEdit): void => onDraft(editDraft(draft, change));
+  const trySave = (): void => {
+    if (draftProblems(draft).length > 0) setTriedOn(draft.automationId);
+    else onSave();
+  };
 
   return (
     <div className="automation-editor" data-testid="automation-editor">
@@ -455,14 +463,14 @@ export function AutomationEditor({
       <Problem message={problemAt(problems, (problem) => problem.at === "name")} />
 
       <Section title="Trigger">
-        {draft.trigger.kind === "webhook" ? null : (
-          <Select
-            aria-label="Trigger"
-            value={draft.trigger.kind}
-            options={TRIGGER_KINDS.map((kind) => ({ value: kind, label: TRIGGER_LABEL[kind] }))}
-            onChange={(kind) => edit({ type: "trigger-kind", kind: kind as EditableTriggerKind })}
-          />
-        )}
+        <Select
+          aria-label="Trigger"
+          // A loaded webhook matches no option, so the field reads as unpicked until another is chosen.
+          value={draft.trigger.kind === "webhook" ? "" : draft.trigger.kind}
+          placeholder="Webhook, not available yet"
+          options={TRIGGER_KINDS.map((kind) => ({ value: kind, label: TRIGGER_LABEL[kind] }))}
+          onChange={(kind) => edit({ type: "trigger-kind", kind: kind as EditableTriggerKind })}
+        />
         <TriggerFields trigger={draft.trigger} pickers={pickers} onChange={(trigger) => edit({ type: "trigger", trigger })} />
         <Problem message={problemAt(problems, (problem) => problem.at === "trigger")} />
       </Section>
@@ -479,7 +487,7 @@ export function AutomationEditor({
         {draft.when.length === 0 ? <p className="automation-editor__note">No conditions: it fires whenever the trigger does.</p> : null}
         <ol className="automation-editor__list">
           {draft.when.map((condition, index) => (
-            <li key={index} className="automation-editor__item">
+            <li key={draft.whenKeys[index] ?? index} className="automation-editor__item">
               <WatchFields
                 conditionOnly
                 watch={condition}
@@ -507,7 +515,7 @@ export function AutomationEditor({
         <Problem message={problemAt(problems, (problem) => problem.at === "actions")} />
         <ol className="automation-editor__list">
           {draft.then.map((action, index) => (
-            <li key={index} className="automation-editor__item">
+            <li key={draft.thenKeys[index] ?? index} className="automation-editor__item">
               <div className="automation-editor__row">
                 <Select
                   aria-label={`Action ${index + 1}`}
@@ -579,7 +587,12 @@ export function AutomationEditor({
         <Button variant="subtle" size="sm" disabled={!dirty || saving} onClick={onRevert}>
           Revert
         </Button>
-        <Button variant="primary" size="sm" disabled={!dirty || saving || problems.length > 0} onClick={onSave}>
+        {problems.length > 0 ? (
+          <p className="automation-editor__problem" role="status">
+            {problems.length === 1 ? "One thing to fix before it saves." : `${problems.length} things to fix before it saves.`}
+          </p>
+        ) : null}
+        <Button variant="primary" size="sm" disabled={!dirty || saving} onClick={trySave}>
           {saving ? "Saving" : "Save"}
         </Button>
       </footer>

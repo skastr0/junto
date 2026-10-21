@@ -7,10 +7,14 @@
  * The pane holds one draft at a time. Picking another automation while the
  * draft has unsaved edits asks first. Save sends the whole definition: a new
  * one as `create`, a loaded one as `edit` with the version it was loaded
- * from, refused `stale` with the head when someone saved in between, which
- * the pane offers to load. On and off is `set-enabled` and lands at once.
+ * from, refused `stale` with the head when someone saved in between: the
+ * draft stays, and the pane offers to send it again over the head or to take
+ * the head. A draft with no unsent change follows a new head on its own. On
+ * and off is `set-enabled` and lands at once; an edit never carries it, so a
+ * save never undoes a toggle made elsewhere. A queued write marks its
+ * row dashed until the editing machine rules.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Archive, Play, Plus, Zap } from "lucide-react";
 import { ulid } from "ulid";
 import type { Automation, AutomationAuthor, AutomationId, AutomationOp, AutomationVersion, Firing } from "@shared/automation";
@@ -27,7 +31,7 @@ import {
   triggerWords,
   type AutomationDraft,
 } from "../../lib/automation-editor";
-import { automationsSource, useAutomations, useFirings } from "../../lib/automations-source";
+import { automationsSource, useAutomations, useFirings, type ApplyResult } from "../../lib/automations-source";
 import { useAutomationTargets } from "../../lib/mention-sources";
 import { Button, ConfirmDialog, ListRow, PaneEmpty, PaneHeader, StatusDot, TwoPane } from "../ui";
 import { AutomationEditor, useTargetNames } from "./AutomationEditor";
@@ -98,12 +102,15 @@ function SidebarRow({
   automation,
   selected,
   dirty,
+  pending,
   canvasName,
   onSelect,
 }: {
   readonly automation: Automation;
   readonly selected: boolean;
   readonly dirty: boolean;
+  /** A write to it is queued, not yet ruled. */
+  readonly pending: boolean;
   readonly canvasName: string;
   readonly onSelect: () => void;
 }) {
@@ -113,6 +120,7 @@ function SidebarRow({
   return (
     <ListRow
       selected={selected}
+      pending={pending}
       leading={<StatusDot tone={automation.enabled ? "green" : "dim"} />}
       title={`${automation.name}${dirty ? ", edited" : ""}`}
       meta={triggerWords(trigger, nameOf)}
@@ -136,7 +144,8 @@ export function AutomationsPane({
   const [asking, setAsking] = useState<() => void>();
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<Refusal>();
-  const [queued, setQueued] = useState(false);
+  const [queued, setQueued] = useState<ReadonlySet<AutomationId>>(new Set());
+  const [archiving, setArchiving] = useState(false);
   const firings = useFirings(canvasName, editing?.base === undefined ? undefined : editing.draft.automationId);
 
   const dirty = editing !== undefined && (editing.base === undefined || !sameDraft(editing.draft, editing.loaded));
@@ -150,26 +159,27 @@ export function AutomationsPane({
     setEditing(next);
   };
 
-  /** Applied: the automation as it now stands, when the op returns one. Queued or refused: undefined. */
-  const send = async (automationId: AutomationId, op: AutomationOp): Promise<Automation | undefined> => {
+  const markQueued = (automationId: AutomationId, on: boolean): void =>
+    setQueued((now) => {
+      const next = new Set(now);
+      if (on) next.add(automationId);
+      else next.delete(automationId);
+      return next;
+    });
+
+  /** One op; a refusal is kept for the pane to say, a queued op marks its row. */
+  const send = async (automationId: AutomationId, op: AutomationOp): Promise<ApplyResult> => {
     setBusy(true);
     setRefusal(undefined);
-    setQueued(false);
     const result = await automationsSource().apply(canvasName, nodeId, automationId, op);
     setBusy(false);
-    switch (result.kind) {
-      case "applied":
-        return result.automation;
-      case "queued":
-        setQueued(true);
-        return undefined;
-      case "refused":
-        setRefusal(result.refusal);
-        return undefined;
-      default:
-        return result satisfies never;
-    }
+    markQueued(automationId, result.kind === "queued");
+    if (result.kind === "refused") setRefusal(result.refusal);
+    return result;
   };
+
+  const headOf = (automationId: AutomationId | undefined): Automation | undefined =>
+    automations.find((automation) => automation.automationId === automationId);
 
   const create = (): void =>
     leave(() => {
@@ -177,19 +187,21 @@ export function AutomationsPane({
       open({ draft, base: undefined, loaded: draft });
     });
 
-  const save = async (): Promise<void> => {
+  /** Sends the draft, over `base` when given (a rebase onto the head), else the version it was loaded from. */
+  const save = async (base: AutomationVersion | undefined = editing?.base): Promise<void> => {
     if (!editing) return;
     const finished = finishDraft(editing.draft);
     if (!finished.ok) return;
-    const { definition } = finished;
     const automationId = editing.draft.automationId;
-    const saved = await send(
+    const { definition } = finished;
+    const result = await send(
       automationId,
-      editing.base === undefined
-        ? { kind: "create", automationId, definition }
-        : { kind: "edit", baseVersion: editing.base, definition },
+      base === undefined
+        ? { kind: "create", automationId, enabled: editing.draft.enabled, definition }
+        : { kind: "edit", baseVersion: base, definition },
     );
-    if (saved) open(editingOf(saved));
+    if (result.kind === "applied" && result.automation) open(editingOf(result.automation));
+    else if (result.kind === "queued" && base !== editing.base) setEditing({ ...editing, base });
   };
 
   // A loaded automation turns on and off at once, keeping any edits in the draft.
@@ -199,7 +211,8 @@ export function AutomationsPane({
       setEditing({ ...editing, draft: editDraft(editing.draft, { type: "enabled", enabled }) });
       return;
     }
-    const saved = await send(editing.draft.automationId, { kind: "set-enabled", enabled });
+    const result = await send(editing.draft.automationId, { kind: "set-enabled", enabled });
+    const saved = result.kind === "applied" ? result.automation : undefined;
     if (saved) {
       const flip = (draft: AutomationDraft): AutomationDraft => editDraft(draft, { type: "enabled", enabled: saved.enabled });
       // The head moved by the toggle alone, so the draft's edits stay on top of it.
@@ -207,11 +220,23 @@ export function AutomationsPane({
     }
   };
 
-  // A stale save lost to the head: offer the head as the list now holds it.
-  const loadHead = (): void => {
-    const head = automations.find((automation) => automation.automationId === editing?.draft.automationId);
-    open(head ? editingOf(head) : undefined);
+  // A stale save lost to the head: keep the draft and send it over the head, or take the head.
+  const staleHead = refusal?.reason === "stale" || refusal?.reason === "rebase_conflict" ? headOf(editing?.draft.automationId) : undefined;
+
+  const archive = async (): Promise<void> => {
+    if (!editing) return;
+    setArchiving(false);
+    const result = await send(editing.draft.automationId, { kind: "archive" });
+    if (result.kind === "applied") open(undefined);
   };
+
+  // A draft with no unsent change follows its head: an edit, a toggle or an archive made elsewhere.
+  useEffect(() => {
+    if (editing === undefined || editing.base === undefined || dirty || refusal !== undefined) return;
+    const head = headOf(editing.draft.automationId);
+    if (head === undefined) open(undefined);
+    else if (head.version !== editing.base || head.enabled !== editing.loaded.enabled) open(editingOf(head));
+  }, [automations]);
 
   const selectedId = editing?.draft.automationId;
   const listed = automations.some((automation) => automation.automationId === selectedId);
@@ -234,7 +259,7 @@ export function AutomationsPane({
             />
             <div className="automations-node__list">
               {editing && !listed ? (
-                <ListRow pending selected title={`${editing.draft.name}, not saved`} leading={<StatusDot tone="dim" />} />
+                <ListRow selected title={`${editing.draft.name}, not saved`} leading={<StatusDot tone="dim" />} />
               ) : null}
               {automations.map((automation) => (
                 <SidebarRow
@@ -243,6 +268,7 @@ export function AutomationsPane({
                   canvasName={canvasName}
                   selected={automation.automationId === selectedId}
                   dirty={automation.automationId === selectedId && dirty}
+                  pending={queued.has(automation.automationId)}
                   onSelect={() => {
                     if (automation.automationId !== selectedId) leave(() => open(editingOf(automation)));
                   }}
@@ -265,14 +291,7 @@ export function AutomationsPane({
                   <Play size={12} aria-hidden />
                   Run now
                 </Button>
-                <Button
-                  size="sm"
-                  variant="subtle"
-                  disabled={busy}
-                  onClick={() =>
-                    void send(editing.draft.automationId, { kind: "archive" }).then(() => open(undefined))
-                  }
-                >
+                <Button size="sm" variant="danger" disabled={busy} onClick={() => setArchiving(true)}>
                   <Archive size={12} aria-hidden />
                   Archive
                 </Button>
@@ -288,17 +307,22 @@ export function AutomationsPane({
               refusal={
                 refusal
                   ? refusalWords(refusal)
-                  : queued
+                  : queued.has(editing.draft.automationId)
                     ? "Queued: the editing machine has not ruled on it yet."
                     : undefined
               }
               onSave={() => void save()}
               onRevert={() => setEditing({ ...editing, draft: editing.loaded })}
             />
-            {refusal?.reason === "stale" || refusal?.reason === "rebase_conflict" ? (
-              <Button size="sm" variant="chrome" onClick={loadHead}>
-                Load their version
-              </Button>
+            {staleHead ? (
+              <div className="automations-node__actions" role="group" aria-label="Saved elsewhere">
+                <Button size="sm" variant="chrome" disabled={busy} onClick={() => open(editingOf(staleHead))}>
+                  Take theirs
+                </Button>
+                <Button size="sm" variant="primary" disabled={busy} onClick={() => void save(staleHead.version)}>
+                  Send mine over theirs
+                </Button>
+              </div>
             ) : null}
             {editing.base !== undefined ? <FiringHistory firings={firings} /> : null}
           </div>
@@ -317,6 +341,18 @@ export function AutomationsPane({
           />
         )}
       </TwoPane>
+      {archiving && editing ? (
+        <ConfirmDialog
+          title={`Archive ${editing.draft.name}?`}
+          confirmLabel="Archive"
+          tone="danger"
+          busy={busy}
+          onCancel={() => setArchiving(false)}
+          onConfirm={() => void archive()}
+        >
+          <p>It stops firing and leaves this list.</p>
+        </ConfirmDialog>
+      ) : null}
       {asking ? (
         <ConfirmDialog
           title="Discard your edits?"

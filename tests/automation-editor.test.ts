@@ -53,6 +53,7 @@ const storedAs = (definition: AutomationDefinition): Automation => ({
   nodeId: node,
   author: { kind: "operator" },
   version: AutomationVersion.make(3),
+  enabled: false,
   ...definition,
 });
 
@@ -132,6 +133,23 @@ describe("automation editor draft", () => {
     const draft = apply(ready(), { type: "action-kind", index: 0, kind: "create-task" });
     expect(draft.then[0]).toEqual({ kind: "create-task", title: "  Post your plan.  " });
     expect(apply(draft, { type: "action-kind", index: 0, kind: "assign-task" }).then[0]).toEqual({ kind: "assign-task" });
+  });
+
+  it("loads and saves an interval that is not whole minutes", () => {
+    const stored = storedAs({ ...finished(ready()), limits: { minIntervalMs: 90_000, maxPerHour: 4 } });
+    const draft = draftOf(stored);
+    expect(draft.minIntervalMinutes).toBe("1.5");
+    expect(finished(draft).limits).toEqual({ minIntervalMs: 90_000, maxPerHour: 4 });
+  });
+
+  it("each action keeps its key through moves and removals", () => {
+    const three = apply(ready(), { type: "add-action", kind: "comment" }, { type: "add-action", kind: "assign-task" });
+    const [first, second, third] = three.thenKeys;
+    expect(new Set(three.thenKeys).size).toBe(3);
+    expect(apply(three, { type: "move-action", index: 2, step: -1 }).thenKeys).toEqual([first, third, second]);
+    expect(apply(three, { type: "remove-action", index: 0 }).thenKeys).toEqual([second, third]);
+    const conditions = apply(three, { type: "add-condition", kind: "seat" }, { type: "add-condition", kind: "task" });
+    expect(apply(conditions, { type: "remove-condition", index: 0 }).whenKeys).toEqual([conditions.whenKeys[1]]);
   });
 
   it("moves, removes and caps actions; out-of-range edits change nothing", () => {

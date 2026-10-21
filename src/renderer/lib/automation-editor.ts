@@ -100,6 +100,9 @@ export type AutomationDraft = {
   readonly trigger: TriggerDraft;
   readonly when: ReadonlyArray<ConditionDraft>;
   readonly then: ReadonlyArray<ActionDraft>;
+  /** One stable key per condition and per action, so a row keeps its own field state through moves and removals. */
+  readonly whenKeys: ReadonlyArray<string>;
+  readonly thenKeys: ReadonlyArray<string>;
   readonly minIntervalMinutes: string;
   readonly maxPerHour: string;
 };
@@ -107,6 +110,10 @@ export type AutomationDraft = {
 const MINUTE_MS = 60_000;
 
 const minutesText = (ms: number): string => String(ms / MINUTE_MS);
+
+let keysMinted = 0;
+const mintKey = (): string => `row-${(keysMinted += 1)}`;
+const keysFor = (count: number): ReadonlyArray<string> => Array.from({ length: count }, mintKey);
 
 /** The timezone the runtime reports, the default for a new schedule. */
 export const localTimezone = (): string => {
@@ -175,6 +182,8 @@ export const newDraft = (
   trigger: blankTrigger("schedule", timezone),
   when: [],
   then: [blankAction("mail")],
+  whenKeys: [],
+  thenKeys: keysFor(1),
   minIntervalMinutes: minutesText(DEFAULT_AUTOMATION_LIMITS.minIntervalMs),
   maxPerHour: String(DEFAULT_AUTOMATION_LIMITS.maxPerHour),
 });
@@ -211,6 +220,8 @@ export const draftOf = (automation: Automation): AutomationDraft => ({
   trigger: triggerDraftOf(automation.trigger),
   when: (automation.when ?? []).map(conditionDraftOf),
   then: automation.then,
+  whenKeys: keysFor(automation.when?.length ?? 0),
+  thenKeys: keysFor(automation.then.length),
   minIntervalMinutes: minutesText(automation.limits.minIntervalMs),
   maxPerHour: String(automation.limits.maxPerHour),
 });
@@ -263,14 +274,18 @@ export const editDraft = (draft: AutomationDraft, edit: DraftEdit): AutomationDr
       return { ...draft, trigger: edit.trigger };
     case "add-condition":
       if (draft.when.length >= AUTOMATION_STEPS_MAX) return draft;
-      return { ...draft, when: [...draft.when, blankWatch(edit.kind) as ConditionDraft] };
+      return {
+        ...draft,
+        when: [...draft.when, blankWatch(edit.kind) as ConditionDraft],
+        whenKeys: [...draft.whenKeys, mintKey()],
+      };
     case "condition":
       return { ...draft, when: replaceAt(draft.when, edit.index, edit.condition) };
     case "remove-condition":
-      return { ...draft, when: removeAt(draft.when, edit.index) };
+      return { ...draft, when: removeAt(draft.when, edit.index), whenKeys: removeAt(draft.whenKeys, edit.index) };
     case "add-action":
       if (draft.then.length >= AUTOMATION_STEPS_MAX) return draft;
-      return { ...draft, then: [...draft.then, blankAction(edit.kind)] };
+      return { ...draft, then: [...draft.then, blankAction(edit.kind)], thenKeys: [...draft.thenKeys, mintKey()] };
     case "action":
       return { ...draft, then: replaceAt(draft.then, edit.index, edit.action) };
     case "action-kind": {
@@ -279,9 +294,13 @@ export const editDraft = (draft: AutomationDraft, edit: DraftEdit): AutomationDr
       return { ...draft, then: replaceAt(draft.then, edit.index, carriedAction(old, edit.kind)) };
     }
     case "move-action":
-      return { ...draft, then: moveAt(draft.then, edit.index, edit.step) };
+      return {
+        ...draft,
+        then: moveAt(draft.then, edit.index, edit.step),
+        thenKeys: moveAt(draft.thenKeys, edit.index, edit.step),
+      };
     case "remove-action":
-      return { ...draft, then: removeAt(draft.then, edit.index) };
+      return { ...draft, then: removeAt(draft.then, edit.index), thenKeys: removeAt(draft.thenKeys, edit.index) };
     case "min-interval":
       return { ...draft, minIntervalMinutes: edit.minutes };
     case "max-per-hour":
@@ -328,6 +347,14 @@ const wholeNumber = (text: string): number | undefined => {
   return Number.isSafeInteger(value) ? value : undefined;
 };
 
+/** Minutes as typed, in whole milliseconds: `1.5` is 90000. A stored interval always reads back. */
+const minutesMs = (text: string): number | undefined => {
+  const trimmed = text.trim();
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) return undefined;
+  const ms = Math.round(Number(trimmed) * MINUTE_MS);
+  return Number.isSafeInteger(ms) ? ms : undefined;
+};
+
 const isKnownTimezone = (timezone: string): boolean => {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: timezone });
@@ -366,10 +393,10 @@ const triggerProblem = (trigger: TriggerDraft): string | undefined => {
       if (!isKnownTimezone(trigger.timezone.trim())) return `${trigger.timezone.trim() || "That"} is not a timezone this machine knows.`;
       return undefined;
     case "poll": {
-      const minutes = wholeNumber(trigger.everyMinutes);
-      if (minutes === undefined) return "Polling takes a whole number of minutes.";
-      if (minutes * MINUTE_MS < POLL_MIN_EVERY_MS) return `Polling runs at most once every ${POLL_MIN_EVERY_MS / MINUTE_MS} minute.`;
-      if (minutes > 7 * 24 * 60) return "Polling runs at least once a week.";
+      const ms = minutesMs(trigger.everyMinutes);
+      if (ms === undefined) return "Polling takes a number of minutes, such as 5.";
+      if (ms < POLL_MIN_EVERY_MS) return `Polling runs at most once every ${POLL_MIN_EVERY_MS / MINUTE_MS} minute.`;
+      if (ms > 7 * 24 * 60 * MINUTE_MS) return "Polling runs at least once a week.";
       return undefined;
     }
     case "change":
@@ -417,9 +444,9 @@ export const draftProblems = (draft: AutomationDraft): ReadonlyArray<DraftProble
     const message = actionProblem(action);
     if (message) problems.push({ at: "action", index, message });
   });
-  const minInterval = wholeNumber(draft.minIntervalMinutes);
+  const minInterval = minutesMs(draft.minIntervalMinutes);
   const maxPerHour = wholeNumber(draft.maxPerHour);
-  if (minInterval === undefined || minInterval > 24 * 60) {
+  if (minInterval === undefined || minInterval > 24 * 60 * MINUTE_MS) {
     problems.push({ at: "limits", message: "The quiet time between firings is 0 to 1440 minutes." });
   }
   if (maxPerHour === undefined || maxPerHour < 1 || maxPerHour > MAX_PER_HOUR_CEILING) {
@@ -433,7 +460,7 @@ const triggerOf = (trigger: TriggerDraft): unknown => {
     case "schedule":
       return { kind: "schedule", cron: trigger.cron.trim().replace(/\s+/g, " "), timezone: trigger.timezone.trim() };
     case "poll":
-      return { kind: "poll", everyMs: Number(trigger.everyMinutes.trim()) * MINUTE_MS };
+      return { kind: "poll", everyMs: minutesMs(trigger.everyMinutes) };
     case "change":
       return { kind: "change", on: trigger.on };
     case "webhook":
@@ -465,7 +492,7 @@ export type FinishedDraft =
 
 /**
  * The draft as the definition a writer sends, or what stops it. Identity,
- * author and version stay with main. Ends at the contract's own decode, so a
+ * author and version stay with main; on and off travels on its own. Ends at the contract's own decode, so a
  * draft that passes every field check and still breaks the contract is
  * refused too, never sent.
  */
@@ -474,12 +501,11 @@ export const finishDraft = (draft: AutomationDraft): FinishedDraft => {
   if (problems.length > 0) return { ok: false, problems };
   const decoded = decodeDefinition({
     name: draft.name.trim(),
-    enabled: draft.enabled,
     trigger: triggerOf(draft.trigger),
     ...(draft.when.length > 0 ? { when: draft.when.map((condition) => ({ ...condition, holds: true })) } : {}),
     then: draft.then.map(actionOf),
     limits: {
-      minIntervalMs: Number(draft.minIntervalMinutes.trim()) * MINUTE_MS,
+      minIntervalMs: minutesMs(draft.minIntervalMinutes),
       maxPerHour: Number(draft.maxPerHour.trim()),
     },
   });
@@ -530,8 +556,8 @@ export const triggerWords = (trigger: TriggerDraft, nameOf: NameOf): string => {
     case "schedule":
       return `${describeCronExpression(trigger.cron)}, ${trigger.timezone}`;
     case "poll": {
-      const minutes = wholeNumber(trigger.everyMinutes);
-      return minutes === undefined ? "polls" : minutes === 1 ? "every minute" : `every ${minutes} minutes`;
+      const ms = minutesMs(trigger.everyMinutes);
+      return ms === undefined ? "polls" : ms === MINUTE_MS ? "every minute" : `every ${ms / MINUTE_MS} minutes`;
     }
     case "change":
       return `when ${watchWords(trigger.on, nameOf)}`;
