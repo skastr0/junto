@@ -24,6 +24,10 @@ import {
 } from "../src/renderer/lib/seat-threads";
 import { setOperatorContentPutter } from "../src/renderer/lib/operator-attachments";
 import { SeatThreadsButton } from "../src/renderer/components/threads/SeatThreads";
+import { asCanvasName } from "../src/shared/model";
+import { modelStore } from "../src/renderer/lib/use-model";
+import { workDetailOpen$ } from "../src/renderer/lib/work-detail-open";
+import { seat as seatNode, taskBoard } from "./support/model-nodes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -84,9 +88,17 @@ const fake = () => {
 
 let host: HTMLDivElement;
 let root: Root;
+let release: () => void;
 
 beforeEach(() => {
   resetSeatThreads();
+  // The seats and boards a mention link names: its chip reads the canvas for what it is now.
+  release = modelStore.adopt({
+    canvas: asCanvasName("factory"),
+    seq: 0,
+    wires: [],
+    nodes: [seatNode("seat-cli", { label: "cli-lead", z: 0 }), taskBoard("board", { x: 400, z: 1 })],
+  });
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
@@ -96,7 +108,11 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   resetSeatThreads();
+  release();
+  workDetailOpen$.set({ nodeId: "", itemId: "" });
 });
+
+const chipLabels = () => all("seat-threads-mention").map((mention) => mention.querySelector(".resource-chip__label")?.textContent);
 
 const flush = async () => {
   await act(async () => {
@@ -178,7 +194,7 @@ describe("main's threads IPC as the source", () => {
     expect(seatThreadsList).toHaveBeenCalledWith({ canvasName: "factory", nodeId: "seat-1", limit: 50 });
     expect(q("seat-threads-with-you")?.textContent).toContain("you, pty-lead");
     expect(all("seat-threads-message")[0]?.textContent).toContain("you 01:02");
-    expect(all("seat-threads-mention").map((mention) => mention.textContent)).toEqual(["@cli-lead"]);
+    expect(chipLabels()).toEqual(["@cli-lead"]);
     // A change in another seat's mailbox can change this seat's threads.
     const calls = seatThreadsList.mock.calls.length;
     mail.forEach((listener) => listener({ canvasName: "factory", nodeId: "seat-9" }));
@@ -518,8 +534,33 @@ describe("the thread composer", () => {
     ];
     change();
     await flush();
-    expect(all("seat-threads-mention").map((mention) => mention.textContent)).toEqual(["@cli-lead"]);
-    expect(all("seat-threads-message")[0]?.querySelector(".seat-threads__bubble")?.textContent).toBe("Ask @cli-lead first.");
+    expect(chipLabels()).toEqual(["@cli-lead"]);
+    expect(all("seat-threads-mention")[0]?.tagName).toBe("BUTTON");
+    expect(all("seat-threads-message")[0]?.querySelector(".seat-threads__bubble")?.textContent).toBe("Ask @cli-lead, Seat first.");
+  });
+
+  it("a task mention is a chip that leaves the threads and opens the task on its board; a gone node is unavailable", async () => {
+    const { state, change } = await open();
+    const task = "01M5ESSJRFWT6RVS5HMWMGJXGD";
+    state.messages.notes = [
+      {
+        messageId: "m1",
+        author: "you",
+        mine: true,
+        text: `See [#42 fix tabs](junto://canvas/factory?node=board&item=${task}) and [@gone](junto://canvas/factory?node=seat-gone).`,
+        at: at(1, 2),
+      },
+    ];
+    change();
+    await flush();
+    const [taskChip, gone] = all("seat-threads-mention");
+    expect(taskChip?.querySelector(".resource-chip__number")?.textContent).toBe("#42");
+    expect(chipLabels()).toEqual(["fix tabs", "@gone"]);
+    expect(gone?.tagName).toBe("SPAN");
+    expect(gone?.getAttribute("data-missing")).toBe("true");
+    await click(taskChip!);
+    expect(workDetailOpen$.get()).toEqual({ nodeId: "board", itemId: task });
+    expect(q("seat-threads")).toBeNull();
   });
 
   it("past main's text bound sends the text as a file, and says so first", async () => {

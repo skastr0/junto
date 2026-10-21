@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
+import type { NodeId } from "@shared/physics/schema";
 import {
   betweenLine,
   groupSeatThreads,
   loadMoreSeatThreads,
   loadOlderMessages,
-  mentionParts,
   participantsLine,
   threadTime,
   useSeatThreadMessages,
@@ -13,11 +13,14 @@ import {
   type SeatAddress,
   type SeatThreadSummary,
 } from "../../lib/seat-threads";
+import { mentionChipParts, openMention } from "../../lib/mention-open";
+import { useCanvas } from "../../lib/use-model";
 import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
 import { Dialog } from "../ui/Dialog";
 import { Eyebrow } from "../ui/Eyebrow";
 import { IconButton } from "../ui/IconButton";
+import { ResourceChip } from "../ui/ResourceChip";
 import { MessageAttachments } from "./MessageAttachments";
 import { ThreadComposer } from "./ThreadComposer";
 import "./seat-threads.css";
@@ -191,7 +194,7 @@ export function SeatThreadsPopup({
               onSent={(threadId) => setSelection({ kind: "thread", threadId, sent: true })}
             />
           ) : thread ? (
-            <ThreadChat seat={seat} name={name} thread={thread} />
+            <ThreadChat seat={seat} name={name} thread={thread} onLeave={onClose} />
           ) : shown?.kind === "thread" ? (
             <p className="seat-threads__empty">Reading threads…</p>
           ) : (
@@ -207,11 +210,16 @@ function ThreadChat({
   seat,
   name,
   thread,
+  onLeave,
 }: {
   readonly seat: SeatAddress;
   readonly name: string;
   readonly thread: SeatThreadSummary;
+  /** Opening a mention leaves the threads for what it names. */
+  readonly onLeave: () => void;
 }) {
+  const nodes = useCanvas(seat.canvasName).nodes;
+  const kindOf = (id: NodeId) => nodes.get(id)?.kind;
   const { messages, loaded, error, older, loadingMore } = useSeatThreadMessages(seat, thread.threadId);
   const streamRef = useRef<HTMLDivElement>(null);
   const held = useRef<{ threadId: string; first?: string; last?: string; height: number } | undefined>(undefined);
@@ -274,15 +282,26 @@ function ThreadChat({
             </div>
             {message.text !== "" || message.attachments === undefined ? (
               <div className="seat-threads__bubble">
-                {mentionParts(message.text).map((part, index) =>
-                  part.mention ? (
-                    <span key={index} className="seat-threads__mention" data-testid="seat-threads-mention">
-                      {part.text}
-                    </span>
-                  ) : (
-                    part.text
-                  ),
-                )}
+                {mentionChipParts(message.text, kindOf).map((part, index) => {
+                  if ("text" in part) return part.text;
+                  const { ref, ...chip } = part.chip;
+                  return (
+                    <ResourceChip
+                      key={index}
+                      {...chip}
+                      missing={ref === undefined}
+                      {...(ref === undefined
+                        ? {}
+                        : {
+                            onOpen: () => {
+                              onLeave();
+                              openMention(ref);
+                            },
+                          })}
+                      data-testid="seat-threads-mention"
+                    />
+                  );
+                })}
               </div>
             ) : null}
             {message.attachments ? <MessageAttachments files={message.attachments} /> : null}

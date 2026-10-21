@@ -208,10 +208,6 @@
   background: color-mix(in oklab, var(--color-cyan) 10%, transparent);
 }
 
-.seat-threads__mention {
-  color: var(--color-cyan-fg);
-}
-
 .seat-threads__empty {
   margin: auto;
   font-size: var(--text-body-lg);

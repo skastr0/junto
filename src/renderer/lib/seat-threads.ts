@@ -17,7 +17,6 @@ import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import { useEffect, useState } from "react";
 import type { MentionableSeat, OperatorThreadSend, OperatorThreadSent } from "@shared/mail-threads";
-import { mentionLinksOf } from "@shared/mention";
 import type { ContentRef } from "@shared/wire/content-ref";
 import type { MailParty } from "@shared/wire/mail-threads";
 import { getJuntoApi } from "./junto-api";
@@ -530,19 +529,6 @@ export const sendSeatThread = async (
   } catch (error) {
     return { ok: false, reason: "failed", message: errorText(error) };
   }
-};
-
-/** A message's text cut at its mention links: each reads as its label; the rest is plain text. */
-export const mentionParts = (text: string): ReadonlyArray<{ readonly text: string; readonly mention?: true }> => {
-  const parts: Array<{ text: string; mention?: true }> = [];
-  let at = 0;
-  for (const link of mentionLinksOf(text)) {
-    if (link.start > at) parts.push({ text: text.slice(at, link.start) });
-    parts.push({ text: link.label, mention: true });
-    at = link.end;
-  }
-  if (at < text.length) parts.push({ text: text.slice(at) });
-  return parts;
 };
 
 /** Test helper: forget every seat, thread and source. */
