@@ -4,6 +4,7 @@ import { mintItemId } from "@shared/resource-command";
 import type { TaskCommand, TaskId, TaskNodeId, TaskView } from "@shared/task-model";
 import { tasksSource, useCanvasTasks, useNodeTasks, useTaskFacts } from "../../lib/tasks-source";
 import { type SeatChoice } from "../../lib/task-ui";
+import { claimFocusOnMount, releaseFocus } from "../../lib/focus-ownership";
 import { FocusSurface } from "../FocusSurface";
 import {
   Button,
@@ -242,7 +243,7 @@ export function SelectedTask({
           onChange={(event) => setTitle(event.target.value)}
           onBlur={retitle}
           onKeyDown={(event) => {
-            if (event.key === "Enter") event.currentTarget.blur();
+            if (event.key === "Enter") releaseFocus(event.currentTarget, "gesture");
             if (event.key === "Escape") setTitle(view.title);
           }}
         />
@@ -296,7 +297,7 @@ function NewTaskForm({
         if (ready) onCreate(title.trim());
       }}
     >
-      <Input dense autoFocus aria-label="Task title" placeholder="What needs doing" value={title} onChange={(event) => setTitle(event.target.value)} />
+      <Input dense ref={claimFocusOnMount} aria-label="Task title" placeholder="What needs doing" value={title} onChange={(event) => setTitle(event.target.value)} />
       <div className="tasks-new__actions">
         <Button size="xs" variant="subtle" type="button" onClick={onCancel}>
           Cancel
