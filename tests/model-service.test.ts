@@ -12,6 +12,10 @@ import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
 import { installSqlCommitCallbacks } from "../src/main/junto/state/sql-commit";
 import { SEED_CANVAS_NAME } from "../src/shared/seed";
 import { THIS_MACHINE } from "./support/machines";
+import { canvasFromOpened } from "../src/shared/model/canvas";
+import { titleOf } from "../src/shared/model/title";
+import { nameable, titled } from "../src/renderer/lib/model-edits";
+import { AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_STATE_SCHEMA_SQL } from "../src/main/junto/automation/state-schema";
 
 const at = "2026-10-07T00:00:00Z";
 const node = (id: string, kind = "note", fields: object = {}) => ({
@@ -711,3 +715,41 @@ it("streams canvas creation after commit for operator and overseer callers", () 
   expect(seen).toEqual(["Created:from-overseer", "Created:from-window"]);
   yield* Fiber.interrupt(subscription);
 })));
+
+// Every kind the bottom bar can name, renamed the way the card sends it:
+// through the command contract and main's own apply, then cleared. A kind
+// whose edit cannot carry its name fails here, not on a ship build.
+it("applies a rename and a cleared name for every kind the card can name", () =>
+  run((model, _sql, db) => Effect.gen(function* () {
+    db.exec(AUTOMATION_STATE_SCHEMA_SQL);
+    db.exec(AUTOMATION_NODE_ARCHIVES_SQL);
+    const named = [
+      seat,
+      node("term", "terminal", { host: THIS_MACHINE, bindingId: "term-binding" }),
+      node("queue", "task", { name: "Queue" }),
+      node("shelf", "artifacts"),
+      node("routines", "automations"),
+      node("repo", "git", { cwd: "/tmp/repo" }),
+      node("room", "region", { hold: false, label: "Room" }),
+      node("plan", "note", { text: "# Plan\nbody" }),
+      node("north", "label", { text: "North" }),
+      node("site", "page", { url: "https://docs.example", profile: "work", onRemove: "detach" }),
+      node("spec", "file", { path: "/tmp/spec.md" }),
+      node("docs", "link", { url: "https://example.test" }),
+    ];
+    yield* model.command(decode({ _tag: "Add", canvas: "factory", nodes: named, wires: [] }), "operator");
+    const current = () => model.open("factory").pipe(Effect.map(canvasFromOpened));
+    const rename = (id: string, name: string) => Effect.gen(function* () {
+      for (const step of titled(yield* current(), id, name)) yield* model.command(decode(step), "operator");
+      return (yield* current()).nodes.get(id as never)!;
+    });
+    for (const { id, kind } of named) {
+      expect(nameable(kind as never), kind).toBe(true);
+      expect(titleOf(yield* rename(id, "Captain")), kind).toBe("Captain");
+      const cleared = yield* rename(id, "");
+      if (kind === "agent" || kind === "note" || kind === "label") expect(titleOf(cleared), kind).toBe("Captain");
+      else expect(cleared, kind).not.toHaveProperty(kind === "task" ? "name" : "label");
+    }
+    expect((yield* current()).nodes.get("plan" as never)).toMatchObject({ text: "# Captain\nbody" });
+  })),
+);
