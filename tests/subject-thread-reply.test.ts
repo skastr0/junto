@@ -327,6 +327,21 @@ describe("subject threads", () => {
     expect((await mailbox("outsider")).find((message) => message.metadata?.subjectNotice === "comment")?.metadata).toMatchObject({ threadId: taskId, senderNodeId: "agent" });
   });
 
+  it("one notice that fails, or a person whose node is gone, strands no other: the comment stands and the rest are told", async () => {
+    const taskId = ItemId.make("01M5ESKX20QX0HA3Y6SHEPXBD4");
+    // auto is no seat, so its notice is refused; gone is on no canvas.
+    const context = { canvas: canvasOf(NODES, WIRES, CANVAS), canvasName: CANVAS, people: [asNodeId("auto"), asNodeId("gone"), asNodeId("peer")] };
+    const posted = await runtime.runPromise(postSubjectComment({
+      subject: { kind: "task", nodeId: asNodeId(BOARD), taskId },
+      text: "the rest are told",
+      actor: { kind: "operator" },
+      opId: OpId.make("01M5ESMJV6GNZ0891YFFWS0S3Z"),
+    }, context));
+    expect(posted.notified).toEqual(["peer"]);
+    expect((await mailbox(BOARD)).some((message) => message.messageId === posted.messageId)).toBe(true);
+    expect((await mailbox("peer")).filter((message) => message.metadata?.subjectNotice === "comment")).toHaveLength(1);
+  });
+
   it("an automation comments as its own node, and never from the operator's", async () => {
     const taskId = ItemId.make("01M5ESKX20QX0HA3Y6SHEPXBD1");
     const context = { canvas: canvasOf(NODES, WIRES, CANVAS), canvasName: CANVAS, people: [asNodeId("peer")] };

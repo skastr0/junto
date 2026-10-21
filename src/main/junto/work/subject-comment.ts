@@ -305,8 +305,14 @@ export const postSubjectComment = (
     // The comment stands: on a task or an artifact it is a change of it, so panes read again and change triggers wake.
     if (input.subject.kind !== "page") noteResourceChanged(input.subject.kind, canvasName);
 
+    // The comment stands, so each notice stands alone: a seat whose node is
+    // gone is not told, and one notice that fails is logged while the rest
+    // are still told. A retry under the same opId meets the told ones as
+    // written (workSubjectNotice).
     const mentionedSet = new Set<string>(mentioned);
-    const recipients = subjectNoticeRecipients([...mentioned, ...context.people, ...earlier], poster);
+    const recipients = subjectNoticeRecipients([...mentioned, ...context.people, ...earlier], poster)
+      .filter((recipient) => canvas.nodes.has(recipient));
+    const notified: NodeId[] = [];
     for (const recipient of recipients) {
       const notice = subjectNoticeRow({
         kind: mentionedSet.has(recipient) ? "mention" : "comment",
@@ -329,7 +335,8 @@ export const postSubjectComment = (
         }),
         mail.sentBy,
       );
-      if (!told.ok) return yield* Effect.fail(runtimeDown(told.message));
+      if (told.ok) notified.push(recipient);
+      else yield* Effect.logWarning("subject notice not written", { canvasName, recipient, comment: messageId, reason: told.message });
     }
-    return { threadId, messageId, notified: recipients };
+    return { threadId, messageId, notified };
   });
