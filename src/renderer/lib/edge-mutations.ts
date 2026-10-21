@@ -2,7 +2,7 @@ import { ulid } from "ulid";
 import { defaultVerbForPair, verbsForPair, type Verb } from "@shared/physics";
 import { productNodeKindEnabled, productVerbEnabled } from "@shared/features";
 import { validateFlowDag, type FlowCycleError } from "@shared/flow-graph";
-import { removalTasks, wireRemovalWarnings } from "./deletion-impact";
+import { removalTasks, removalWarnings } from "./deletion-impact";
 import { removeEdgesFromSelection, selectEdge, state$ } from "./state";
 import { canvasAsItStands, commitCommands, parseSide } from "./mutations";
 import { connected, removed, type Connected } from "./model-edits";
@@ -87,16 +87,21 @@ export const deleteEdges = async (ids: ReadonlyArray<string>): Promise<void> => 
   const wires = [...canvas.wires.values()].filter((wire) => going.has(wire.id));
   if (wires.length === 0) return;
   const label = wires.length === 1 ? "this relation" : `${wires.length} relations`;
-  const pendingTasks = removalTasks(state$.canvasName.peek(), canvas, new Set(), wires);
+  const canvasName = state$.canvasName.peek();
+  const docEpoch = state$.docEpoch.peek();
+  const pendingTasks = removalTasks(canvasName, canvas, new Set(), wires);
   const tasksOf = pendingTasks instanceof Promise ? await pendingTasks : pendingTasks;
-  // The canvas moved while the tasks were being read: what was asked about is
-  // no longer what would be removed.
-  if (canvasAsItStands().seq !== canvas.seq) return;
-  const impactWarnings = wireRemovalWarnings(canvas, wires, tasksOf);
+  // Another canvas opened while the tasks were read: the question would be
+  // about a canvas the operator is no longer looking at. An edit elsewhere on
+  // this one leaves the wires to remove as they were named.
+  if (state$.canvasName.peek() !== canvasName || state$.docEpoch.peek() !== docEpoch) return;
+  const impactWarnings = removalWarnings(canvas, new Set(), wires, tasksOf);
   const impactCopy = impactWarnings.length === 0 ? "" : ` ${impactWarnings.join(" ")}`;
   if (typeof window !== "undefined" && typeof window.confirm === "function" && !window.confirm(`Delete ${label}?${impactCopy}`)) return;
+  // Only the named wires still on the canvas go: one removed meanwhile is gone already.
+  const still = [...canvasAsItStands().wires.values()].filter((wire) => going.has(wire.id)).map((wire) => wire.id);
   removeEdgesFromSelection(going);
-  commitCommands((now) => removed(now, [], [...going]));
+  if (still.length > 0) commitCommands((now) => removed(now, [], still));
 };
 
 /** What the operator reads when two cards cannot be joined, for each way that can be. */

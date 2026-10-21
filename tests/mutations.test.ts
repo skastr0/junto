@@ -12,6 +12,8 @@ import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state
 import { dock$ } from "../src/renderer/lib/dock-state";
 import { initialWorkbenchState } from "../src/renderer/lib/surface-registry";
 import { formatNodeRef } from "../src/shared/node-ref";
+import { setTasksSource, tasksSource } from "../src/renderer/lib/tasks-source";
+import type { TaskView } from "../src/shared/task-model";
 
 /** Bun's vitest shim lacks `vi.waitFor` — poll until assertion holds. */
 const waitFor = async (
@@ -418,6 +420,23 @@ describe("renderer graph mutations", () => {
     runtimeWindow.confirm = () => true;
     deleteEdges(["edge-1"]);
     expect(docNow().edges).toHaveLength(0);
+  });
+
+  it("removes a task path after its tasks are read though another edit landed meanwhile", async () => {
+    state$.canvasName.set("mutation-test");
+    load([...base(), fixtures.taskBoard("build"), fixtures.taskBoard("review")], [fixtures.wire("path", "build", "review", "flows")]);
+    const old = tasksSource();
+    let answer: (views: ReadonlyArray<TaskView>) => void = () => {};
+    setTasksSource({ ...old, all: () => new Promise((resolve) => { answer = resolve; }) });
+    try {
+      runtimeWindow.confirm = () => true;
+      const deleting = deleteEdges(["path"]);
+      // Another writer's edit lands while the tasks are read: main's change moves the seq.
+      modelStore.canvas$("mutation-test").seq.set(held().seq + 1);
+      answer([]);
+      await deleting;
+      expect(docNow().edges).toHaveLength(0);
+    } finally { setTasksSource(old); }
   });
 
   it("keeps dragged positions integer-aligned in renderer state", () => {

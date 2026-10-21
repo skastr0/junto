@@ -1,5 +1,5 @@
 import { askConfirm } from "./confirm";
-import { wireRemovalWarnings, removalTasks, boardRemovalWarnings } from "./deletion-impact";
+import { removalTasks, removalWarnings } from "./deletion-impact";
 import { state$ } from "./state";
 import { modelStore } from "./use-model";
 
@@ -25,8 +25,7 @@ export const confirmNodeDelete = async (ids: ReadonlyArray<string>): Promise<boo
     source: "node-delete",
     title: one ? "Delete this node?" : `Delete ${nodes.length} nodes?`,
     body: [
-      ...boardRemovalWarnings(canvas, removed, tasksOf),
-      ...wireRemovalWarnings(canvas, removedEdges, tasksOf, removed),
+      ...removalWarnings(canvas, removed, removedEdges, tasksOf),
       ...(removedEdges.length === 0
         ? []
         : [`Connected edges (${removedEdges.length}) will also be removed.`]),
@@ -47,7 +46,7 @@ export const confirmEdgeDelete = async (ids: ReadonlyArray<string>): Promise<boo
   return askConfirm({
     source: "edge-delete",
     title: one ? "Delete this relation?" : `Delete ${edges.length} relations?`,
-    body: wireRemovalWarnings(canvas, edges, tasksOf),
+    body: removalWarnings(canvas, new Set(), edges, tasksOf),
     confirmLabel: one ? "Delete relation" : `Delete ${edges.length} relations`,
     tone: "danger",
   });

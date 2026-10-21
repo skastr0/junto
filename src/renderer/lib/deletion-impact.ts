@@ -24,18 +24,39 @@ export const openTasksOf = (views: ReadonlyArray<TaskView>): OpenTasksOf => {
 
 /**
  * Only removing a task board or a task path needs the canvas's tasks, read
- * at the operator's gesture.
+ * at the operator's gesture. A read that fails resolves undefined, so the
+ * question is still asked and says the tasks are unknown.
  */
 export const removalTasks = (
   canvasName: string,
   canvas: Pick<Canvas, "nodes">,
   removedNodeIds: ReadonlySet<string>,
   removedWires: ReadonlyArray<Wire>,
-): OpenTasksOf | Promise<OpenTasksOf> =>
+): OpenTasksOf | Promise<OpenTasksOf | undefined> =>
   [...removedNodeIds].some((id) => canvas.nodes.get(asNodeId(id))?.kind === "task") ||
   removedWires.some((wire) => wire.verb === "flows")
-    ? tasksSource().all(canvasName).then(openTasksOf)
+    ? tasksSource().all(canvasName).then(openTasksOf, () => undefined)
     : openTasksOf([]);
+
+/** Said in place of the task warnings when the tasks could not be read. */
+export const TASKS_UNREAD_WARNING = "The open tasks here could not be read, so what this removal does to them is unknown.";
+
+/**
+ * Every warning a removal of these nodes and wires carries. The wires named
+ * are all that go, the nodes' own among them.
+ */
+export const removalWarnings = (
+  canvas: Canvas,
+  removedNodeIds: ReadonlySet<string>,
+  removedWires: ReadonlyArray<Wire>,
+  tasksOf: OpenTasksOf | undefined,
+): ReadonlyArray<string> =>
+  tasksOf === undefined
+    ? [TASKS_UNREAD_WARNING]
+    : [
+      ...boardRemovalWarnings(canvas, removedNodeIds, tasksOf),
+      ...wireRemovalWarnings(canvas, removedWires, tasksOf, removedNodeIds),
+    ];
 
 const boardNamed = (canvas: Pick<Canvas, "nodes">, nodeId: string): string => {
   const node = canvas.nodes.get(asNodeId(nodeId));
