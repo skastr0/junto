@@ -16,7 +16,9 @@ in a comment, a list and on the canvas.
 
 **Head chip.** One line, 28px tall, pill radius, padding `0 11px 0 9px`, gap
 7px. Fill `--color-overlay-3`, border 1px `--color-stroke`.
-- Glyph 15px, in the kind's hue (the hue is a mark, never a word).
+- Glyph 15px, in the kind's hue (the hue is a mark, never a word). In bright,
+  the amber and cyan glyphs (Automations, Link) use `--color-amber-fg` and
+  `--color-cyan-fg`; the mark forms are under 3:1 there.
 - Name, mono 13px, weight 600, `--color-ink`.
 - Count, mono 11px, weight 600, `--color-dim`, tabular. Tasks: every task on
   the board, backlog included. Artifacts: live artifacts. Automations: all.
@@ -54,9 +56,10 @@ at 1.55 in `--color-ink-2`. A label is bare display type, 22px weight 700,
 `--font-display`.
 
 **Peer** is a chip with a 20px portrait disc (the portrait fallback, drawn from
-its name) in place of the glyph, a dashed border and no fill, then
-"seat on <machine>". **Stub** is its kind's chip with a dashed border at 72
-percent opacity, then "<kind> on <machine>".
+its name) in place of the glyph, a dashed border (`--color-dim`, so the dash shows in dark) and no fill, then
+"seat on <machine>". **Stub** is its kind's chip with the same dashed border
+and no opacity change (full contrast for its text), then "<kind> on <machine>".
+Every dashed border (peer, stub, retired) uses `--color-dim`, not `--color-stroke`.
 
 Text sits on the bare ground, with wires behind it, so names and rows take a
 ground-coloured halo (`text-shadow` of `--color-ground`, two 5px layers)
@@ -77,7 +80,7 @@ instead of a wash. Measure it; if it costs raster at hundreds of nodes, use
 | Note, label | none | typeset text | none |
 
 The task enqueue "+" stays the one allowed on-card instrument (card law): a
-20px ghost button at the right end of the task chip.
+20px ghost button at the right end of the task chip, with a 24px hit area.
 
 ## Far zoom
 
@@ -104,8 +107,9 @@ The focusable element is the React Flow wrapper (`.react-flow__node`, tabindex
   too (1 at 100 percent), so the ring is the same in screen pixels at every zoom.
 - Note and label have no chip: the ring goes around the text block, radius
   `--radius-sm`, same width and offset.
-- At far the ring follows the disc (round) and sits outside the 2 screen-px
-  blocked or needs-you border, so focus never hides the status tone.
+- At far the ring follows the disc (round, not the chip radius), is 2 screen px,
+  and sits outside the 2 screen-px blocked or needs-you border, so focus never
+  hides the status tone.
 - The task enqueue plus is a real tab stop inside the node (Tab goes node,
   plus, next node): `aria-label` "Add a task to <name>", its own cyan
   focus-visible ring, and full opacity on focus-visible, not only on hover.
@@ -119,6 +123,13 @@ The focusable element is the React Flow wrapper (`.react-flow__node`, tabindex
 
 Screen reader name is `<name>, <kind>, <status>` (a string change in
 `flow-nodes.ts`, no render cost). The visible chip and tag say the same words.
+- Kind is the visible kind word: Tasks, Artifacts, Automations, page, terminal,
+  git, file, link, note, label.
+- Status is the tag word and is omitted when idle: no trailing comma, never the
+  word "idle". Failed and Off (Automations) and Retired (file, link) are
+  statuses too.
+- Peer reads `<name>, seat on <machine>`; stub reads `<name>, <kind> copy on
+  <machine>`; a note or label is named by its first line.
 Focus ring as above, drawn in screen pixels and following the chip radius.
 Words use the `-fg` colour tokens; marks use the mark forms.
 
