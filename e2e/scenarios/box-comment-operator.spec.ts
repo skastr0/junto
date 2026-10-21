@@ -66,6 +66,10 @@ const drag = (app: ElectronApplication, from: { x: number; y: number }, to: { x:
     const overlay = webContents.getAllWebContents().find((contents) => contents.getURL().startsWith("data:text/html"));
     if (overlay === undefined) throw new Error("no drawing overlay");
     const pause = () => new Promise((resolve) => setTimeout(resolve, 30));
+    if (input.release) {
+      overlay.sendInputEvent({ type: "mouseUp", x: input.to.x, y: input.to.y, button: "left", clickCount: 1 });
+      return;
+    }
     overlay.sendInputEvent({ type: "mouseDown", x: input.from.x, y: input.from.y, button: "left", clickCount: 1 });
     for (let step = 1; step <= 8; step += 1) {
       await pause();
@@ -77,7 +81,6 @@ const drag = (app: ElectronApplication, from: { x: number; y: number }, to: { x:
         modifiers: ["leftbuttondown"],
       });
     }
-    if (input.release) overlay.sendInputEvent({ type: "mouseUp", x: input.to.x, y: input.to.y, button: "left", clickCount: 1 });
   }, { from, to, release });
 
 test("the operator draws a box on a page, sees the shot, and posts exactly it", async () => {
@@ -88,13 +91,14 @@ test("the operator draws a box on a page, sees the shot, and posts exactly it", 
     const { app, page, sandbox } = junto;
     const card = page.locator('.react-flow__node[data-id="p1"]');
     await expect(card).toBeVisible({ timeout: 30_000 });
-    await card.click();
+    await card.dblclick();
     const area = page.locator('[data-testid="browser-comment-area"]');
     await expect(area).toBeVisible({ timeout: 30_000 });
-    // The page itself has loaded in its view.
+    // The page itself has loaded in its view: its own title, not an error page.
     await expect.poll(
       () => app.evaluate(({ webContents }) =>
-        webContents.getAllWebContents().some((contents) => contents.getURL().startsWith("https://example.com/") && !contents.isLoading())),
+        webContents.getAllWebContents().some((contents) =>
+          contents.getURL().startsWith("https://example.com/") && !contents.isLoading() && contents.getTitle() === "Example Domain")),
       { timeout: 60_000 },
     ).toBe(true);
     await shot(app, page, "1-page-open");
@@ -105,9 +109,9 @@ test("the operator draws a box on a page, sees the shot, and posts exactly it", 
       { timeout: 10_000 },
     ).toBe(true);
     await page.waitForTimeout(300);
-    await drag(app, { x: 40, y: 60 }, { x: 420, y: 200 }, false);
+    await drag(app, { x: 380, y: 190 }, { x: 840, y: 290 }, false);
     await shot(app, page, "2-drawing");
-    await drag(app, { x: 420, y: 200 }, { x: 420, y: 200 }, true);
+    await drag(app, { x: 840, y: 290 }, { x: 840, y: 290 }, true);
 
     const composer = page.locator('[data-testid="box-comment-composer"]');
     await expect(composer).toBeVisible({ timeout: 20_000 });
