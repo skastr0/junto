@@ -769,7 +769,10 @@ export const SignalClearArgs = Schema.Struct({
 });
 export type SignalClearArgs = typeof SignalClearArgs.Type;
 
-export const SignalListArgs = Schema.Struct({}).annotate({
+export const SignalListArgs = Schema.Struct({
+  /** Closed history from here on, uncapped: after this signal id, or at or after this ISO 8601 time. */
+  since: Schema.optionalKey(Schema.String),
+}).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
 export type SignalListArgs = typeof SignalListArgs.Type;
@@ -791,6 +794,10 @@ export type ListedAgentSignal = typeof ListedAgentSignal.Type;
 export const SignalListResult = Schema.Struct({
   signals: Schema.Array(ListedAgentSignal),
   open: Schema.Number,
+  /** Closed signals the capped listing left out; absent when none were. */
+  closed_not_listed: Schema.optionalKey(Schema.Number),
+  /** How to list the ones left out. Present with `closed_not_listed`. */
+  next_step: Schema.optionalKey(Schema.String),
 });
 export type SignalListResult = typeof SignalListResult.Type;
 

@@ -77,6 +77,9 @@ export type TakenAgentSignal = AgentSignalSeat & {
 /** Closed signals kept per seat in listings; open ones are always listed. */
 export const AGENT_SIGNAL_CLOSED_HISTORY = 20;
 
+/** Where a signal listing's closed history starts: after a signal id, or at a time. */
+export type SignalSinceCursor = { readonly afterId: string } | { readonly fromMs: number };
+
 /**
  * Durable agent signals (`agent_signals`). Seat-side writes take the caller's
  * own seat and never a foreign one; operator-side writes take a signal id.
@@ -94,9 +97,19 @@ export class AgentSignalRepository extends Context.Service<AgentSignalRepository
       seat: AgentSignalSeat,
       signalId?: string,
     ) => Effect.Effect<ReadonlyArray<AgentSignal>, AgentSignalRepositoryError>;
+    /**
+     * A seat's open signals and its newest closed history. With a since
+     * cursor the closed history is uncapped and starts after that signal id,
+     * or at that time; open signals are always listed.
+     */
     readonly listSeat: (
       seat: AgentSignalSeat,
+      since?: SignalSinceCursor,
     ) => Effect.Effect<ReadonlyArray<AgentSignal>, AgentSignalRepositoryError>;
+    /** How many closed signals a seat has in all. */
+    readonly countClosedSeat: (
+      seat: AgentSignalSeat,
+    ) => Effect.Effect<number, AgentSignalRepositoryError>;
     /** Every open blocked or escalate signal, on every canvas: raised hands. */
     readonly listRaisedHands: Effect.Effect<
       ReadonlyArray<AgentSignal>,
@@ -324,6 +337,21 @@ export const AgentSignalRepositoryLive: Layer.Layer<
         ORDER BY state <> 'open', created_at DESC, signal_id DESC
       `, bindings),
     });
+    // Open signals, and every closed one from the cursor on, uncapped.
+    const sinceRows = SqlSchema.findAll({
+      Request: Schema.Tuple([Schema.String, Schema.String, Schema.Union([Schema.String, Schema.Number])]),
+      Result: SignalRow,
+      execute: ([canvasName, nodeId, from]) => sql.unsafe(`SELECT ${COLUMNS} FROM agent_signals
+        WHERE canvas_name = ? AND node_id = ?
+          AND (state = 'open' OR ${typeof from === "string" ? "signal_id > ?" : "created_at >= ?"})
+        ORDER BY state <> 'open', created_at DESC, signal_id DESC`, [canvasName, nodeId, from]),
+    });
+    const closedCountRows = SqlSchema.findAll({
+      Request: Schema.Struct({ canvasName: Schema.String, nodeId: Schema.String }),
+      Result: Schema.Struct({ closed: Schema.Union([Schema.Number, Schema.BigInt]) }),
+      execute: (seat) => sql.unsafe(`SELECT COUNT(*) AS closed FROM agent_signals
+        WHERE canvas_name = ? AND node_id = ? AND state <> 'open'`, [seat.canvasName, seat.nodeId]),
+    });
     const raisedHandsRows = SqlSchema.findAll({
       Request: Schema.Void,
       Result: SignalRow,
@@ -374,9 +402,16 @@ export const AgentSignalRepositoryLive: Layer.Layer<
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "agent-signals.withdraw"),
     Effect.mapError(persistence("withdraw")));
 
-    const listSeat = Effect.fn("agent-signals.list-seat")(function* (seat: AgentSignalSeat) {
-      return (yield* listRows(["canvas_name = ? AND node_id = ?", [seat.canvasName, seat.nodeId]])).map(fromRow);
+    const listSeat = Effect.fn("agent-signals.list-seat")(function* (seat: AgentSignalSeat, since?: SignalSinceCursor) {
+      const rows = since === undefined
+        ? yield* listRows(["canvas_name = ? AND node_id = ?", [seat.canvasName, seat.nodeId]])
+        : yield* sinceRows([seat.canvasName, seat.nodeId, "afterId" in since ? since.afterId : since.fromMs]);
+      return rows.map(fromRow);
     }, Effect.mapError(persistence("list seat")));
+
+    const countClosedSeat = Effect.fn("agent-signals.count-closed-seat")(function* (seat: AgentSignalSeat) {
+      return Number((yield* closedCountRows(seat))[0]?.closed ?? 0);
+    }, Effect.mapError(persistence("count closed seat")));
 
     const listCanvas = Effect.fn("agent-signals.list-canvas")(function* (canvasName: string) {
       return (yield* listRows(["canvas_name = ?", [canvasName]])).map(fromRow);
@@ -500,6 +535,7 @@ export const AgentSignalRepositoryLive: Layer.Layer<
           Effect.tap((signals) => Effect.sync(() => signals.forEach(emitAgentSignalChanged))),
         ),
       listSeat,
+      countClosedSeat,
       listRaisedHands,
       listCanvas,
       get,

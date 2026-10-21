@@ -18,12 +18,15 @@ export type MailListFilterArgs = {
   readonly text?: string;
 };
 
+/** After this id (strictly), or at or after this time. */
+export type SinceCursor = { readonly afterId: string } | { readonly fromMs: number };
+
 export type MailListFilter = {
   readonly threadId?: string;
   readonly from?: string;
   readonly unread?: true;
   /** After this message (strictly), or born at or after this time. */
-  readonly since?: { readonly afterId: string } | { readonly fromMs: number };
+  readonly since?: SinceCursor;
   /** Lower case: a match ignores case. */
   readonly text?: string;
 };
@@ -40,6 +43,17 @@ const ISO_TIME = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{
 
 const refuse = (path: string, expected: string, message: string): Result.Result<never, MailListFilterRefusal> =>
   Result.fail({ path, expected, message });
+
+/**
+ * A since cursor as a seat types it: an id (a ULID, as mail and signal ids
+ * are) or an ISO 8601 time. `junto signal list` reads it the same way.
+ */
+export const sinceCursorOf = (raw: string): Result.Result<SinceCursor, MailListFilterRefusal> => {
+  const since = raw.trim();
+  if (isMailMessageId(since)) return Result.succeed({ afterId: since });
+  const ms = ISO_TIME.test(since) ? Date.parse(since) : Number.NaN;
+  return Number.isFinite(ms) ? Result.succeed({ fromMs: ms }) : refuse("since", "ISO 8601 time or ULID", `since must be ${SINCE_SHAPE}`);
+};
 
 /** Check and normalize the filters; an empty filter lists everything. */
 export const mailListFilterOf = (
@@ -66,14 +80,9 @@ export const mailListFilterOf = (
   }
   if (args.unread === true) filter.unread = true;
   if (args.since !== undefined) {
-    const since = args.since.trim();
-    if (isMailMessageId(since)) {
-      filter.since = { afterId: since };
-    } else {
-      const ms = ISO_TIME.test(since) ? Date.parse(since) : Number.NaN;
-      if (!Number.isFinite(ms)) return refuse("since", "ISO 8601 time or ULID", `since must be ${SINCE_SHAPE}`);
-      filter.since = { fromMs: ms };
-    }
+    const since = sinceCursorOf(args.since);
+    if (Result.isFailure(since)) return Result.fail(since.failure);
+    filter.since = since.success;
   }
   if (args.text !== undefined) {
     const text = args.text.trim();

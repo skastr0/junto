@@ -109,16 +109,25 @@ export const feedbackCommand = raiseCommand(
   "Not blocked: the work is ready for the operator to review.",
 );
 
+const sinceOption = Flag.string("since").pipe(
+  Flag.optional,
+  Flag.withDescription(
+    "List every closed signal from here on, uncapped: an ISO 8601 time (2026-10-19 or 2026-10-19T12:00:00Z) or a signal id",
+  ),
+);
+
 const signalListCommand = Command.make(
   "list",
-  { timeout: timeoutOption },
-  ({ timeout }) =>
+  { since: sinceOption, timeout: timeoutOption },
+  ({ since, timeout }) =>
     executeJsonCommand(
       "signal list",
-      call("signal.list", {}, toUndefined(timeout)),
+      call("signal.list", Option.isSome(since) ? { since: since.value } : {}, toUndefined(timeout)),
     ),
 ).pipe(
-  Command.withDescription("This seat's signals with the operator's answers: open first, most urgent first, each with its urgency level and rank"),
+  Command.withDescription(
+    "This seat's signals with the operator's answers: open first, most urgent first, each with its urgency level and rank. Every open signal and the newest closed ones; --since pages further back",
+  ),
 );
 
 const signalClearCommand = Command.make(

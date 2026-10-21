@@ -39,7 +39,7 @@ import {
   type MailSenderStamp,
 } from "@shared/crew";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
-import { mailListFilterOf, mailListMatches } from "@shared/mail-list-filter";
+import { mailListFilterOf, mailListMatches, sinceCursorOf } from "@shared/mail-list-filter";
 import { operatorFilesOf } from "@shared/mail-threads";
 import { levelOfSignal, rankOf } from "@shared/wire/urgency";
 import { seatStateRuntime } from "../term/agent-state";
@@ -2475,7 +2475,20 @@ const dispatchOp = (
       if (op === "signal.list") {
         const decoded = decodeArgs(SignalListArgs, args ?? {});
         if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-        const listed = yield* signals.listSeat(seat).pipe(Effect.mapError(signalError));
+        const since = decoded.success.since === undefined ? undefined : sinceCursorOf(decoded.success.since);
+        if (since !== undefined && Result.isFailure(since)) {
+          return yield* Effect.fail<WorkErrorBody>({
+            type: "InputError",
+            message: since.failure.message,
+            details: { path: "args.since", expected: since.failure.expected, retryable: false },
+          });
+        }
+        const listed = yield* signals.listSeat(seat, since?.success).pipe(Effect.mapError(signalError));
+        // The capped listing says what it left out and how to page to it.
+        const closedListed = listed.filter((signal) => signal.state !== "open").length;
+        const closedTotal = since === undefined
+          ? yield* signals.countClosedSeat(seat).pipe(Effect.mapError(signalError))
+          : closedListed;
         // The operator's answer files, each placed where this seat opens it.
         const store = yield* Effect.serviceOption(ContentService);
         const filesOf = (signal: (typeof listed)[number]) => {
@@ -2499,6 +2512,12 @@ const dispatchOp = (
             return { ...signal, level, rank: rankOf(level), ...files[index] };
           }),
           open: listed.filter((signal) => signal.state === "open").length,
+          ...(closedTotal > closedListed
+            ? {
+                closed_not_listed: closedTotal - closedListed,
+                next_step: "junto signal list --since <ISO time or signal id> lists every closed signal from then on",
+              }
+            : {}),
         };
         return result;
       }

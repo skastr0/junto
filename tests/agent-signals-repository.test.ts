@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
+import { monotonicFactory } from "ulid";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import {
@@ -119,6 +120,34 @@ describe("AgentSignalRepository", () => {
     expect(listed.filter((s) => s.state !== "open")).toHaveLength(
       AGENT_SIGNAL_CLOSED_HISTORY,
     );
+  });
+
+  it("pages closed history with a since cursor, uncapped, and counts every closed signal", async () => {
+    const { closed, afterThird, fromStart, total } = await run(
+      Effect.gen(function* () {
+        const r = yield* repo;
+        const ids: string[] = [];
+        // Ids in raise order, even within one millisecond.
+        const nextId = monotonicFactory();
+        for (let i = 0; i < AGENT_SIGNAL_CLOSED_HISTORY + 3; i += 1) {
+          const s = yield* r.raise({ ...seatA, kind: "feedback", text: `old ${i}`, signalId: nextId() });
+          yield* r.dismiss(s.signalId);
+          ids.push(s.signalId);
+        }
+        yield* r.raise({ ...seatA, kind: "blocked", text: "still open" });
+        return {
+          closed: ids,
+          afterThird: yield* r.listSeat(seatA, { afterId: ids[2]! }),
+          fromStart: yield* r.listSeat(seatA, { fromMs: 0 }),
+          total: yield* r.countClosedSeat(seatA),
+        };
+      }),
+    );
+    expect(total).toBe(closed.length);
+    // Open signals are always listed; the cursor bounds the closed ones only.
+    expect(afterThird[0]?.text).toBe("still open");
+    expect(afterThird.filter((s) => s.state !== "open").map((s) => s.signalId).sort()).toEqual(closed.slice(3).sort());
+    expect(fromStart.filter((s) => s.state !== "open")).toHaveLength(closed.length);
   });
 
   it("keeps a signal's attachments in order, with captions, across every read", async () => {
