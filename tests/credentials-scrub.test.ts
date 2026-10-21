@@ -128,8 +128,9 @@ it("reads a path in GNU curly quotes as a path, judged per segment", () => {
   // remote-verify's Linux wrong-root line, with the path the mini kept whole.
   const build = "a1".repeat(32);
   const line = `exit code 127: /usr/bin/env: ‘/home/user/.junto/machine/builds/${build}-linux-x64/bin/node’: No such file or directory`;
-  expect(scrubMessage(line)).toBe(line);
-  expect(scrubText(`cannot open “/home/user/.cache/${"Ab9".repeat(12)}”`)).toBe("cannot open “/home/user/.cache/[redacted]”");
+  // No known values: this process's environment is the runner's (a run through env carries _=/usr/bin/env).
+  expect(scrubMessage(line, [])).toBe(line);
+  expect(scrubText(`cannot open “/home/user/.cache/${"Ab9".repeat(12)}”`, [])).toBe("cannot open “/home/user/.cache/[redacted]”");
 });
 
 it("judges one 64 KiB path token in linear time", () => {
