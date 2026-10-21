@@ -45,6 +45,7 @@ import {
 } from "@shared/work-exchange";
 import { EXCHANGE_ROWS_PAGE_BYTES } from "@shared/exchange-bounds";
 import type { WorkRepositoryShape } from "../repository";
+import { noteResourceChanged } from "../resource-changes";
 
 /**
  * One open link, as the exchange sees it: who is there and how to send. A
@@ -455,6 +456,8 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       state.rows.set(frame.canvasName, counts);
       for (const mail of applied.mail) deps.mailArrived(mail.canvasName, mail.nodeId, mail.message);
       if (applied.commands > 0) deps.commandArrived?.(frame.canvasName);
+      // A ruling folded here changed what the panes show: committed, so they read it again.
+      for (const kind of applied.changed) if (kind === "task" || kind === "artifact") noteResourceChanged(kind, frame.canvasName);
       // Rows taken from one machine go on to the others entitled to them.
       if (applied.taken > 0) committed(frame.canvasName, "rows", peer);
     });

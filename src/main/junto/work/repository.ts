@@ -4466,6 +4466,8 @@ export type AppliedExchangeRows = {
   readonly taken: number;
   /** Commands that arrived, for the editing machine's ruler to sweep. */
   readonly commands: number;
+  /** The resource kinds a ruling folded here changed, for the panes to read again. */
+  readonly changed: ReadonlyArray<RulingAppliedResult["kind"]>;
   /** Mail that arrived, for the seat's machine to deliver. */
   readonly mail: ReadonlyArray<{
     readonly canvasName: string;
@@ -7683,6 +7685,7 @@ export const WorkRepositoryLive = Layer.effect(
               [frame.writer, receivedAt],
             );
             const mail: Array<AppliedExchangeRows["mail"][number]> = [];
+            const changed = new Set<RulingAppliedResult["kind"]>();
             if (fresh.length > 0) {
               const newest = fresh.at(-1)!.id.seq;
               const known = yield* writer.unsafe<{ last_seq: string }>(
@@ -7722,6 +7725,7 @@ export const WorkRepositoryLive = Layer.effect(
                       Effect.fail(refuseExchange(refused.message)),
                     ),
                   );
+                  changed.add(fact.body.kind);
                 } else if (fact.body.operation === "ruling.refused") {
                   // One of this machine's own commands was refused: its seat is told, once, from the refused node.
                   const notice = yield* refusalNoticeWrite(writer, self, frame.canvasName, fact.body, placement);
@@ -7756,7 +7760,7 @@ export const WorkRepositoryLive = Layer.effect(
                  updated_at = excluded.updated_at`,
               [frame.canvasName, frame.writer, through, lastBasisSeq, receivedAt],
             );
-            return { taken: fresh.length, commands: fresh.filter((fact) => fact.body.operation === "command.queued").length, mail };
+            return { taken: fresh.length, commands: fresh.filter((fact) => fact.body.operation === "command.queued").length, changed: [...changed], mail };
           }),
         "mail",
       ).pipe(

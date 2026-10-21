@@ -31,6 +31,7 @@ import { ArtifactRepository } from "./artifact-repository";
 import { WorkRepository, type RecordRulingInput, type UnruledCommand } from "./repository";
 import { RulingRecorder } from "./ruling-recorder";
 import { taskCanvasEnv } from "./task-control";
+import { noteResourceChanged } from "./resource-changes";
 import { deliverTaskEffects } from "./task-delivery";
 import { TaskRepository } from "./task-repository";
 
@@ -182,6 +183,8 @@ export const taskRuler = (repo: TaskRepository["Service"]): DomainRuler => (writ
       .submit(writer, { ...command, op: checked.command }, rulingContextOf(canvas, noAutomationAuthor), taskCanvasEnv(canvas))
       .pipe(Effect.mapError(failed("the task ruler could not rule")));
     if (outcome.kind === "applied" && !outcome.replay) {
+      // Committed: the panes on this machine read the task again.
+      noteResourceChanged("task", command.canvasName);
       yield* deliverTaskEffects({
         canvas,
         canvasName: command.canvasName,
@@ -201,9 +204,11 @@ export const artifactRuler = (repo: ArtifactRepository["Service"]): DomainRuler 
   Effect.gen(function* () {
     const op = decodeArtifactOp(command.op);
     if (Result.isFailure(op)) return undecodable("artifact");
-    yield* repo
+    const outcome = yield* repo
       .submit(writer, { ...command, op: op.success }, rulingContextOf(canvas, noAutomationAuthor))
       .pipe(Effect.mapError(failed("the artifact ruler could not rule")));
+    // Committed: the panes on this machine read the artifacts again.
+    if (outcome.kind === "applied" && outcome.facts.length > 0) noteResourceChanged("artifact", command.canvasName);
     return { kind: "ruled" } as const;
   });
 
