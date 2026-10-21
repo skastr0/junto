@@ -68,7 +68,8 @@ its tests and its CLI surface are gone and `bun run verify` passes.
   `inferVerb`.
 - `src/shared/model/from-legacy-row.ts` is needed only by migration 12 to 13
   (`src/main/junto/state/migrations.ts:513-530`). Deleting it raises the
-  oldest database Junto can open to v13. (Operator decision 5.)
+  oldest database Junto can open to v13. Decided: delete it (operator
+  decision 5).
 
 ### Pad and sheet node kinds (05)
 - Kinds, tables, `reads` and `edits` verbs. Domains and editors are kept and
@@ -105,8 +106,8 @@ changes with it.
 | `requests`, `board`, `reviews`, `hermesIntegration`, `pinning`, `cron`, `relay`, `pad`, `sheet` | Deleted with their features |
 | `tasks`, `artifacts`, `browser` | Deleted; the features ship on |
 | `automations` | None; ships on |
-| `usage`, `helpMap`, `liveOverseer`, `seatAwareness` | Not in this plan; operator to decide |
-| Harness gates that exist only as a way back off, `fleetUi`, `audio`, `harnessSettings` | Deleted, features stay (Operator decision 6) |
+| `usage`, `helpMap`, `liveOverseer`, `seatAwareness` | Kept as they are (operator decision 6) |
+| Harness gates that exist only as a way back off, `fleetUi`, `audio`, `harnessSettings` | Kept as they are (operator decision 6) |
 | `devTools` | Kept, never on in production |
 
 ## Questions

@@ -59,7 +59,7 @@ share the cross-machine half.
 | Edges are capabilities for every sink | `src/shared/physics/verbs.ts`, `laws.ts:69-78` | Edges remain only for seat to seat mail, seat to page automation, and task to task flow (01) |
 | Mail needs a granting edge; across machines only `msg.send`; closed exchange operations; region briefing only where a local seat is | `docs/security-doctrine.md:84-89,119-127,236-241`; `docs/machines.md:85-87` (rule 6); `AGENTS.md:463` | Reach mints mail (01); exchange opens (02); briefing rule kept |
 | The PR test and impact cone | `docs/architecture-canvas-physics.md:242,264-266` | Rewritten for reach (01); locks in `tests/physics/physics.test.ts:107`, `tests/work-control-protocol.test.ts:149-225` change with it |
-| Notes, labels, files and links stay on the editing machine | `docs/machines.md:51-52` | Carried everywhere (02) |
+| Notes, labels, files and links stay on the editing machine | `docs/machines.md:51-52` | Labels, files and links carried everywhere; notes unchanged (02) |
 | The exchange is a closed list; a row stands alone | `docs/machines.md:71-72`; `src/shared/work-exchange.ts:54,72` | Opens to resource fact families that chain on predecessors (02) |
 | Rule 5 entitlement | `docs/machines.md:76-81` | Every machine linked for a canvas is entitled to every resource fact (02) |
 | Signal attachments stay where they were raised | `docs/machines.md:376-377` | Attachments as refs may cross (03) |
@@ -120,34 +120,31 @@ Recorded here so no lead reopens them.
   (seat connection, region reach), and side effect hooks chosen per
   composer, never one universal meaning. Continuity as drafted in 08.
 
-## Open decisions for the operator
+## Operator decisions, 2026-10-21
 
-Collected from the documents; each has a recommendation. These go to the
-operator as one signal after the leads have weighed in.
+Answered on the needs-you feed; the documents follow them.
 
-1. Regions that partially overlap: refuse them (recommended). `factory` has
-   45 sliver overlaps to fix once, by hand or with a one-time `separate`
-   command. (01)
-2. Nodes outside every region: in reach of every seat on the canvas
-   (recommended). The flip side: a seat dropped outside every region reaches
-   every resource. (01)
-3. (Settled 2026-10-21, see below.)
-4. (Settled: 0 pads and 0 sheets exist; dropped.)
-5. Oldest supported database: raise the migration floor to v13 so the
-   legacy row reader can go (recommended). (09)
-6. Harness gates that exist only as a way back off: delete them
-   (recommended). (09)
-7. Writes to universal resources while the link to the editing machine is
-   down: refuse with a retryable error (recommended) or queue. Cost of
-   refusing: while the desktop sleeps, remote seats cannot write resources
-   and no automation fires. (02)
-8. Region is a scope, not a wall: mentions, stamp requests, assignments and
-   automations mail seats without a `messages` edge, so siblings can always
-   reach each other through a shared ancestor resource. Accept (recommended).
+1. **Overlap.** Partial overlap means nothing for reach and is not refused.
+   Only full containment makes a parent or a child. A node inside two
+   regions that are not nested belongs to both. (01)
+2. **Loose nodes and seats** at the canvas root reach and are reached by
+   everything. Intentional, a feature. (01)
+3. **Mentions** are combobox, availability and per-composer side effects. (03)
+4. **Pad and sheet** content: none exists; dropped. (05)
+5. **Migration floor** raised to v13; the legacy row reader goes. No users,
+   so keep the tree clean. (09)
+6. **Feature switches** all stay as they are for now, including the ones
+   that only turn shipped features back off and `usage`, `helpMap`,
+   `liveOverseer`, `seatAwareness`. (09)
+7. **Writes never fail because the editing machine is away.** Remote seats
+   keep writing; their writes queue and the editing machine rules the queue
+   when it is back. Running an always-on machine as the editor, or not
+   mixing machines in one region, is operating practice, not a product
+   rule. (02, being redesigned by remote and canvas)
+8. **Region is a scope, not a wall.** The edge rule only ever meant direct
+   mail; reach-minted mail between siblings is intended, for collaboration.
    (01)
-9. An overseer moving or resizing its own seat (which would change its
-   reach): refuse, as deleting it is (recommended). (01)
-10. Notes in 0.10: seats in reach read them, only the operator writes them
-   (recommended). (01)
-11. Flags this plan does not cover: `usage`, `helpMap`, `liveOverseer`,
-   `seatAwareness`. Keep, ship or delete? (09)
+9. **Overseers** carry the operator's authority and are not blocked from
+   moving their own seat. (01)
+10. **Notes** are untouched by 0.10: not resources, no seat access, no sync
+   change. (01, 02)

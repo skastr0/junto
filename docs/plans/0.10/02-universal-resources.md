@@ -5,7 +5,8 @@ Proposed owner: remote. Reviewers: canvas, cli.
 ## Target
 
 Every node that does not need a host's runtime exists on every machine:
-tasks, artifacts, automations, notes, labels, files, links, regions. Seats,
+tasks, artifacts, automations, labels, files, links, regions (notes are
+untouched by 0.10, operator decision 10). Seats,
 terminals and browser pages stay on their host. A seat on any machine reads
 and writes resources in its reach (01) with the same commands and the same
 result. Mentions and threads work across machines with the same rules.
@@ -114,7 +115,6 @@ the set grows by one (cli-lead):
 |---|---|---|
 | Resource not in reach | `ScopeError` | |
 | Transition not allowed | `InvalidTransition` | |
-| Editing machine unreachable | `RuntimeDown`, retryable | `reason: "editor_unreachable"` |
 | Written against an old version | `Stale` (new), retryable | `expected`: the head version |
 | Feature reserved, not built (webhook) | `InputError` | `reason` |
 
@@ -137,7 +137,7 @@ the set grows by one (cli-lead):
 - Entitlement: every machine linked for a canvas receives every resource
   fact for it. The mail entitlement rule (sink seat lives on the machine,
   `work-exchange.ts:273-284`) is unchanged.
-- Canvas copy carries every non-host node to every machine as geometry and
+- Canvas copy carries every non-host node except notes to every machine as geometry and
   label only; bodies (note text, briefings) travel as facts or content refs,
   because the whole copy is one `CopyFrame` on `rows`
   (`src/shared/work-exchange.ts:113`) under the 1 MiB frame bound (canvas-lead).
@@ -151,16 +151,28 @@ the set grows by one (cli-lead):
   (`src/main/junto/content/machine-files.ts`). Signal attachments become refs
   and may cross.
 
-## Link down
+## Editing machine away: writes queue (redesign in progress)
 
-The editing machine unreachable means no ruling. Proposal: commands fail
-with a retryable `editor_unreachable` error and the seat retries; reads keep
-working from the last replicated state, marked with its age. No offline
-queue in 0.10. (Operator decision 7.)
+Operator decision 7: writes never fail because the editing machine is
+unreachable. Remote seats keep writing; the editing machine receives every
+queued change when it returns and rules them. Remote and canvas are
+redesigning this section; the questions it must answer:
 
-The cost, plainly: the editing machine is the operator's desktop. While it
-sleeps, every remote seat's resource writes are refused and no automation
-fires (07).
+- **Local apply.** A queued write must show in the writing machine's reads
+  at once (the seat keeps working on its own result), as a pending state
+  over the last ruled state.
+- **Ruling the queue.** On return the editing machine rules queued commands
+  in a defined order (per machine in seq order, machines interleaved by
+  what?). Idempotence by opId as above.
+- **Refusal after the fact.** A queued write the editing machine refuses
+  (the task was assigned elsewhere meanwhile, an artifact base moved) must
+  reach the seat that wrote it, by mail with the reason, and its pending
+  state must roll back on every machine.
+- **Invariants under partition.** One open task per seat, stamps, task
+  numbers: which are checked locally as pending, which only at ruling.
+- **Rule 4.** Pending rows are the writing machine's own immutable rows;
+  only the editing machine's rulings change resource state.
+- Automations still run only on the editing machine and resume on return.
 
 ## Kept, reshaped, deleted
 
@@ -181,6 +193,6 @@ fires (07).
   editor directly route commands through it, or is a direct link required?
 - **remote**: Windowless machines (`scripts/build-machine.ts:137`): any
   resource store that would pull Electron into the core?
-- **canvas**: Carrying every non-host node in the copy: size concerns for
-  canvases with many notes and files?
+- ~~**canvas**: copy size~~ Answered: geometry and labels in the copy,
+  bodies as facts or refs (Contracts).
 - ~~**cli**: error contract~~ Answered: mapped onto `WorkErrorType` above.
