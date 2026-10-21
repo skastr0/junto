@@ -141,8 +141,16 @@ test("# and @ offer what is in reach, a sent mention is a chip that opens, a tas
       }
     };
     const openAtlasThread = async (): Promise<void> => {
-      if (!(await page.getByTestId("seat-threads-button").isVisible())) await card("atlas").dblclick();
-      await page.getByTestId("seat-threads-button").click();
+      // A chip that opened Bravo leaves its surface up beside Atlas's: close what is open, then open Atlas.
+      const buttons = page.getByTestId("seat-threads-button");
+      for (let attempt = 0; attempt < 4 && (await buttons.count()) > 0; attempt += 1) {
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(400);
+      }
+      await card("atlas").dblclick();
+      await expect(buttons).toHaveCount(1, { timeout: 30_000 });
+      await buttons.click();
+      await expect(page.getByTestId("seat-threads")).toContainText("Atlas");
       await page.getByTestId("seat-threads-row").first().click();
     };
     const chipOpens = async (index: number, name: string): Promise<void> => {
