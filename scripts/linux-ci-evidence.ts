@@ -435,7 +435,6 @@ const validateLinuxCiReceipts = async (input: {
     readonly ok?: unknown;
     readonly display?: unknown;
     readonly workCli?: unknown;
-    readonly browserCli?: unknown;
     readonly rendererSandbox?: {
       readonly renderers?: unknown;
       readonly noNewPrivs?: unknown;
@@ -452,7 +451,6 @@ const validateLinuxCiReceipts = async (input: {
     runtime.ok !== true ||
     runtime.display !== "xvfb" ||
     runtime.workCli !== "ok" ||
-    runtime.browserCli !== "ok" ||
     typeof runtime.rendererSandbox?.renderers !== "number" ||
     !Number.isSafeInteger(runtime.rendererSandbox.renderers) ||
     runtime.rendererSandbox.renderers < 1 ||

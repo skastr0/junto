@@ -225,7 +225,6 @@ describe("Linux release artifact identity", () => {
         ok: true,
         display: "xvfb",
         workCli: "ok",
-        browserCli: "ok",
         rendererSandbox: {
           renderers: 1,
           noNewPrivs: true,
