@@ -101,7 +101,12 @@ export const runMutationBatch = <S extends Schema.Top, R>(options: {
           : new WireError({
               type: "BatchFailed",
               message: `all ${summary.total} items failed`,
-              details: summary,
+              // Retry the batch only when every item may be retried.
+              details: {
+                ...summary,
+                retryable: ordered.every((result) =>
+                  !result.ok && (result.error.details as { readonly retryable?: unknown } | undefined)?.retryable === true),
+              },
             }),
       );
     }

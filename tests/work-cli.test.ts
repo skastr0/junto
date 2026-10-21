@@ -234,7 +234,16 @@ describe("work CLI batch outcomes", () => {
       );
     expect(toErrorDetails(await fail([{ target: "n7", text: "t1" }]))).toEqual({ type: "ScopeError", message: "refused", details: { retryable: false } });
     const all = toErrorDetails(await fail([{ target: "n7", text: "t1" }, { target: "n8", text: "t2" }]));
-    expect(all).toMatchObject({ type: "BatchFailed", message: "all 2 items failed", details: { outcome: "failed", error_count: 2 } });
+    expect(all).toMatchObject({ type: "BatchFailed", message: "all 2 items failed", details: { outcome: "failed", error_count: 2, retryable: false } });
+    const down = await Effect.runPromise(
+      runMutationBatch({
+        input: JSON.stringify([{ target: "n7", text: "t1" }, { target: "n8", text: "t2" }]),
+        concurrency: 2,
+        itemSchema: MsgPromptArgs,
+        run: () => Effect.fail(new WireError({ type: "RuntimeDown", message: "down", details: { retryable: true } })),
+      }).pipe(Effect.flip),
+    );
+    expect(toErrorDetails(down).details).toMatchObject({ retryable: true });
   });
 
   it("rejects concurrency <= 0", async () => {
