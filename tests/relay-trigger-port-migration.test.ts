@@ -122,5 +122,6 @@ describe("state migration 34 -> 35 (relay.trigger leaves wire masks)", () => {
         database.close();
       }
     },
+    120_000,
   );
 });

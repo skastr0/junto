@@ -13,15 +13,12 @@ import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrateMachineNames } from "../src/main/junto/state/migrate-machine-names";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
-  CURRENT_STATE_SCHEMA_VERSION,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V33_IDENTITY,
   STATE_SCHEMA_V34_IDENTITY,
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
 import { STATE_SCHEMA_V33_SQL, STATE_SCHEMA_V34_SQL } from "./fixtures/state-v13/schema";
 
@@ -67,12 +64,9 @@ const planTo = (version: number, currentSchemaSql: string) => ({
 const ID = "01M5ESKJFC1A88R1MH1NEZWJ2Q";
 
 describe("state migration 33 -> 34 (automation node archives)", () => {
-  it("freezes the witnesses the step starts from and ends at, and names the head", () => {
+  it("freezes the witnesses the step starts from and ends at", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V33_SQL)).toEqual(STATE_SCHEMA_V33_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V34_SQL)).toEqual(STATE_SCHEMA_V34_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(34);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V34_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V34_IDENTITY);
   });
 
   it.each(["command-center-v13.db", "remote-v13.db"])("adds an empty archives table to %s and leaves every row as it was", async (fixture) => {
