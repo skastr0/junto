@@ -871,8 +871,9 @@ export class BrowserSessionService {
       ) {
         return;
       }
-      this.destroySession(
-        entry.sessionId,
+      this.expireOperation(
+        entry,
+        operation,
         new BrowserOperationFailure(
           "timeout",
           `${operation.kind} timed out after ${operation.timeoutMs}ms`,
@@ -880,6 +881,35 @@ export class BrowserSessionService {
       );
     }, operation.timeoutMs);
     operation.timer = timer;
+  }
+
+  /**
+   * An operation past its deadline. The owner's ends the view, as an Electron
+   * call cannot be recalled. A guest's never does: its eval or capture fails
+   * and its late result is dropped, and a navigation it started stops and
+   * becomes the page's own failed load, with the guest told it timed out.
+   */
+  private expireOperation(
+    entry: SessionEntry,
+    operation: ActiveOperation,
+    failure: BrowserOperationFailure,
+  ): void {
+    if (operation.owner === entry.owner) {
+      this.destroySession(entry.sessionId, failure);
+      return;
+    }
+    if (operation.kind !== "navigation" || entry.navigationInFlight !== operation.sessionId) {
+      this.releaseOperation(entry, operation, failure);
+      return;
+    }
+    const sessionId = operation.sessionId;
+    this.settleNavigationWaiters(
+      entry,
+      (waiter) => waiter.sessionId === sessionId,
+      err("timeout", failure.message),
+    );
+    entry.view.stopLoading?.();
+    this.finishGeneration(entry, sessionId, { type: "load_fail", message: failure.message });
   }
 
   private acquireOperation(
@@ -1515,6 +1545,13 @@ export class BrowserSessionService {
     }
   }
 
+  /**
+   * A seat or overseer joins the operator's view of the page, opening it as
+   * the operator's when the page has none. The view so opened is the
+   * operator's: it counts against the operator's warm pool, and may evict
+   * the operator's least recent warm view to make room, as one view per page
+   * means there is no separate seat pool.
+   */
   private async joinAsGuest(
     guest: string,
     target: ResolvedPageTarget,
@@ -1541,7 +1578,9 @@ export class BrowserSessionService {
     const entry = this.entryForOwner(BROWSER_UI_SESSION_OWNER, opened.data.sessionId);
     if (entry === undefined) return err("not_found", `no session for ${opened.data.sessionId}`);
     entry.guests.add(guest);
-    // A new hold: an earlier stop's receipt no longer speaks for it.
+    // A new hold: this generation's stop receipt no longer speaks for it.
+    // Receipts for older generations stay until MAX_STOP_RECEIPTS trims them;
+    // they answer only for a generation that is already gone.
     this.guestStops.delete(`${guest}\0${entry.sessionId}`);
     entry.lastActiveAt = this.now();
     return { ok: true, data: this.info(entry) };

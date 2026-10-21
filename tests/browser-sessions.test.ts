@@ -1060,6 +1060,61 @@ describe("BrowserSessionService", () => {
     }
   });
 
+  it("lets a guest's eval, capture or navigation time out without ending the operator's view", async () => {
+    const evaluation = deferred<unknown>();
+    const capture = deferred<Uint8Array>();
+    let destroys = 0;
+    let stops = 0;
+    let loads = 0;
+    const adapter: BrowserViewAdapter = (_partition, events) => ({
+      loadUrl: async (url, expectedSessionId) => {
+        loads += 1;
+        events.onNavigationStart({ url, isSameDocument: false, expectedSessionId });
+        if (loads === 1) events.onLoadOk(expectedSessionId);
+      },
+      attach: () => {},
+      setBounds: () => {},
+      detach: () => {},
+      destroy: () => { destroys += 1; },
+      stopLoading: () => { stops += 1; },
+      executeJavaScript: () => evaluation.promise,
+      capturePagePng: () => capture.promise,
+    });
+    const { service } = makeService(adapter);
+    const page = target("guest-deadline");
+    const ui = await service.open(page);
+    const guest = await service.openForOwner("job-a", page);
+    if (!ui.ok || !guest.ok) throw new Error("open failed");
+
+    vi.useFakeTimers();
+    try {
+      const evaluated = service.evalForOwner("job-a", guest.data.sessionId, "while (true) {}");
+      await vi.advanceTimersByTimeAsync(BROWSER_EVAL_TIMEOUT_MS);
+      expect(await evaluated).toMatchObject({ ok: false, code: "timeout" });
+      expect(service.state(ui.data.sessionId)).toMatchObject({ ok: true });
+      evaluation.resolve("late");
+
+      const shot = service.screenshotForOwner("job-a", guest.data.sessionId);
+      await vi.advanceTimersByTimeAsync(BROWSER_CAPTURE_TIMEOUT_MS);
+      expect(await shot).toMatchObject({ ok: false, code: "timeout" });
+      expect(service.state(ui.data.sessionId)).toMatchObject({ ok: true });
+      capture.resolve(new Uint8Array([1]));
+
+      const navigated = service.gotoForOwner("job-a", guest.data.sessionId, "https://slow.example.com");
+      if (!navigated.ok) throw new Error("goto failed");
+      const terminal = service.awaitNavigationTerminalForOwner("job-a", navigated.data.sessionId);
+      await vi.advanceTimersByTimeAsync(BROWSER_NAVIGATION_TIMEOUT_MS);
+      expect(await terminal).toMatchObject({ ok: false, code: "timeout" });
+      // The page's own load failed; the operator's view stays, on its new generation.
+      expect(stops).toBe(1);
+      expect(service.state(navigated.data.sessionId)).toMatchObject({ ok: true, data: { state: "failed" } });
+      expect(service.stateForOwner("job-a", navigated.data.sessionId)).toMatchObject({ ok: true });
+      expect(destroys).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("aborting navigation destroys its view and invalidates its rotated sessionId", async () => {
     const { service, views } = makeDefaultService();
     const opened = await service.open(target("nav-abort"));
