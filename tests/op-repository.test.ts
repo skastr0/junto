@@ -23,7 +23,7 @@ import type { CanvasPlacement, RowsFrame } from "../src/shared/work-exchange";
 import { OpId } from "../src/shared/work-ids";
 import { WORK_PROTOCOL } from "../src/shared/work-protocol";
 import { seedCanvasRows } from "./support/seed-canvas";
-import { seat } from "./support/model-nodes";
+import { seat, taskBoard } from "./support/model-nodes";
 
 const id = Schema.decodeUnknownSync(InstallationId);
 const EDITOR = id("macbook");
@@ -92,7 +92,8 @@ beforeAll(async () => {
             yield* sql`INSERT INTO known_installations(installation_id, registered_at) VALUES (${machine}, ${at})`;
           }
           yield* sql`INSERT INTO installation(singleton, installation_id, created_at) VALUES (1, ${MINI}, ${at})`;
-          yield* seedCanvasRows({ seq: 1, canvases: new Map([["factory", { nodes: [seat("peer", { y: 0 })] }]]) });
+          // The queue takes a command only for a node the canvas holds with its kind.
+          yield* seedCanvasRows({ seq: 1, canvases: new Map([["factory", { nodes: [seat("peer", { y: 0 }), taskBoard("board-1", { y: 200 })] }]]) });
         }),
       );
       for (const opId of [QUEUED, REFUSED]) {
