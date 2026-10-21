@@ -91,7 +91,7 @@ const CASES: ReadonlyArray<Case> = [
   },
   { label: "Paused", actor: OPERATOR, downstream: [], task: core({ state: "input-required", assignee: ada }) },
   {
-    label: "In review, waiting on two reviewers",
+    label: "In review, waiting on two reviewers (the operator may stamp too)",
     actor: OPERATOR,
     downstream: [],
     task: core({
@@ -115,6 +115,12 @@ const CASES: ReadonlyArray<Case> = [
         { reviewer: asSeat(bo), verdict: "changes", epoch: 0, at: 1, text: "The empty state still says Queue." },
       ],
     }),
+  },
+  {
+    label: "Canceled",
+    actor: OPERATOR,
+    downstream: [],
+    task: core({ state: "canceled", assignee: ada }),
   },
   {
     label: "Done",

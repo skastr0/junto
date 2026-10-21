@@ -103,9 +103,9 @@ export function TaskReviewers({
       <header className="task-reviewers__head">
         <span>Review</span>
         <div className="task-reviewers__policy">
-          <ShieldCheck size={13} aria-hidden />
+          {closed && required === 0 ? null : <ShieldCheck size={13} aria-hidden />}
           {closed ? (
-            <output aria-label="Approvals required">{required}</output>
+            required === 0 ? null : <output aria-label="Approvals required">{required}</output>
           ) : (
             <>
               <IconButton
@@ -158,7 +158,6 @@ export function TaskReviewers({
               >
                 <strong>{nameOf(reviewer)}</strong>
                 <Chip tone={stampTone(stamp)}>{stampWord(stamp, inReview)}</Chip>
-                {stamp?.text ? <p>{stamp.text}</p> : null}
                 {closed ? null : (
                   <IconButton
                     aria-label={`Remove ${nameOf(reviewer)} as reviewer`}
@@ -169,6 +168,7 @@ export function TaskReviewers({
                     <X size={12} />
                   </IconButton>
                 )}
+                {stamp?.text ? <p>{stamp.text}</p> : null}
               </li>
             );
           })}

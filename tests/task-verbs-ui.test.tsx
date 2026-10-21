@@ -134,5 +134,6 @@ describe("TaskControlsGallery", () => {
     const html = renderToStaticMarkup(<TaskControlsGallery />);
     expect(html).toContain("Tasks controls");
     expect(html).toContain("you are a reviewer");
+    expect(html).toContain("Canceled");
   });
 });
