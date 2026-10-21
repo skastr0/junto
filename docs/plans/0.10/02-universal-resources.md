@@ -48,9 +48,12 @@ Rule 4 stays. Universal resources are built on it, not around it.
 3. **Facts replicate to every machine** on the existing `rows` channel.
    Every machine holds the full resource state for the canvas and reads it
    locally, so reads never wait on the link.
-4. **Idempotence.** Every command carries an `opId` minted by the caller
-   (installation id plus ULID). The editing machine keeps a ruling per opId;
-   a repeated command returns the first ruling and writes nothing.
+4. **Idempotence.** Every command carries an `opId` minted by the CLI
+   process, not by main: a seat that retries after a timeout must resend the
+   same opId or the command applies twice. A `Timeout` error returns the
+   opId, and commands accept `--op-id` so a retry reuses it (cli-lead). The
+   editing machine keeps a ruling per opId; a repeated command returns the
+   first ruling and writes nothing.
 5. **Ordering.** The editing machine's fact sequence is the order. Concurrent
    commands are ruled one at a time; a command written against a stale view
    (artifact `baseVersion`, task transition from a state that has moved) is
@@ -73,8 +76,20 @@ type ResourceCommand = {
 
 type ResourceRuling =
   | { readonly kind: "applied"; readonly facts: ReadonlyArray<FactId>; readonly version: string }
-  | { readonly kind: "refused"; readonly error: TypedRefusal };  // not_in_reach, stale, invalid_transition, ...
+  | { readonly kind: "refused"; readonly error: WorkErrorBody };
 ```
+
+Errors use the existing closed `WorkErrorType` set
+(`src/shared/work-control.ts:141-153`) with `details.reason` for sub-codes, so
+the set grows by one (cli-lead):
+
+| Case | Type | Details |
+|---|---|---|
+| Resource not in reach | `ScopeError` | |
+| Transition not allowed | `InvalidTransition` | |
+| Editing machine unreachable | `RuntimeDown`, retryable | `reason: "editor_unreachable"` |
+| Written against an old version | `Stale` (new), retryable | `expected`: the head version |
+| Feature reserved, not built (webhook) | `InputError` | `reason` |
 
 - New link channel `commands`: request and ruling, one in flight per opId,
   bounded payload. Rulings for already-ruled opIds are answered from the
@@ -119,5 +134,4 @@ queue in 0.10. (Operator decision 7.)
   resource store that would pull Electron into the core?
 - **canvas**: Carrying every non-host node in the copy: size concerns for
   canvases with many notes and files?
-- **cli**: Errors `editor_unreachable` and `stale` as retryable with a
-  `next_step`: fits the existing error contract?
+- ~~**cli**: error contract~~ Answered: mapped onto `WorkErrorType` above.

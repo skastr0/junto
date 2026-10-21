@@ -106,5 +106,9 @@ operator fixes them; reach treats an ambiguous node as root-level until then.
   parent at authoring time?
 - **canvas**: The execution graph's blocked state per wire: agree it moves to
   "assignee of a task in input-required"?
-- **cli**: Name resolution (`authz.ts:703-756`) searches wired nodes only.
-  Extend it to resources in reach, with ambiguity reported as today?
+- ~~**cli**: name resolution~~ Answered (cli-lead): `resolveWorkTarget`
+  (`src/main/junto/work/authz.ts:703-746`) adds `resourcesInReach` for resource
+  ops and keeps both refusals. The candidate list, typed as seats only
+  (`details.seats`, `src/shared/work-control.ts:182`), becomes a general list of
+  refs. Resolution also accepts `junto://` refs, not only ids and names
+  (`authz.ts:709-710`).

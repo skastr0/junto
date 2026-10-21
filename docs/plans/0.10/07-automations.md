@@ -63,7 +63,7 @@ type Action =
   | { readonly kind: "comment"; readonly on: ThreadSubject; readonly text: string };
 ```
 
-Targets are `MentionRef`s (03), picked with `MentionInput`, limited to the
+Targets are `MentionRef`s (03), picked with `MentionCombobox`, limited to the
 automation's region and below (`targetsBelow`, 01).
 
 ## Runner
@@ -76,6 +76,19 @@ automation's region and below (`targetsBelow`, 01).
   `automation_firings`) so a restart never fires a slot twice.
 - Change triggers read the fact stream (02) and seat state from the existing
   runtime.
+- **Seat states are not stable raw** (pty-lead): working to idle holds only
+  700 ms for the rings (`src/main/junto/term/agent-state/seat-state-machine.ts:47-55`),
+  attention republishes every 800 ms, a fifth state `unknown` exists
+  (`src/shared/agent-seat-state.ts:70-76`), and `gone` is published on every
+  generation exit, including cache cuts. Runner rules, owned by pty: fire on
+  transitions only, keyed by seat and epoch; `unknown` neither fires nor
+  resets a hold; `idle` and `working` must hold 30 s; `attention` fires at
+  once, once per episode; `gone` fires only when no new generation takes the
+  seat within 60 s.
+- **Sender.** Mail rows need a seat actor (`src/main/junto/work/state-schema.ts:318-323`).
+  Automation mail is sent from the automation's node with no reply command
+  (an absent reply target is allowed, `message-delivery.ts:120`); never as
+  the operator.
 - **Loop safety.** Facts written by an automation's action do not trigger
   automations. `limits` cap every automation; a cap reached disables nothing,
   it skips and records the skip.
@@ -107,10 +120,10 @@ connection it opens. Shape reserved now so nothing in 0.10 blocks it:
 
 - **canvas**: Runner on the editing machine only: any case where an
   automation must run where a seat lives?
-- **pty**: `seat becomes idle|working|attention|gone` as triggers: are these
-  states stable enough to fire on without debouncing, or does the runner need
-  a hold time?
+- ~~**pty**: seat state triggers~~ Answered: runner rules above.
 - **remote**: Cloud relay for webhooks: anything in the link or machine
   identity model that should be reserved now?
-- **cli**: Automation definitions from the CLI as JSON input, same as other
-  commands?
+- ~~**cli**: input~~ Answered: one JSON object per create and edit (inline,
+  @file or stdin), decoded by the shared `Automation` schema in main, printed
+  by `schema show`. Targets accept `@name` and `#42`, resolved in main. Edits
+  carry a base version, like artifacts.

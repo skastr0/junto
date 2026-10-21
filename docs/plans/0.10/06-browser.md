@@ -69,7 +69,10 @@ without a window.
 
 - **remote**: Anything in the Linux desktop alpha or the machine bundle that
   still references the browser and must go with it?
-- **cli**: Browser commands today live in `scripts/browser-cli.ts` and the
-  control socket. Move them under `junto browser` with the seat's grant?
+- ~~**cli**: CLI home~~ Answered, cli-lead owns it: `src/cli/main.ts:47`
+  hands `junto browser` to `scripts/browser-cli.ts`, which bypasses the JSON
+  envelope, discovery, schema show and `WorkErrorBody`. Port it to
+  `src/cli/commands/browser.ts` on the standard envelope, keep the control
+  socket and grants as transport, add `--tab`.
 - **canvas**: A page node on a canvas edited from another machine: shown as a
   stub on that machine, or not drawn at all?

@@ -119,6 +119,10 @@ type Stamp = {
 Deleted: `claim`, `promote`, operator-only respond paths that the needs-you
 feed replaced, `verdict post` (now `stamp`).
 
+Every task gets a short number per canvas, minted by the editing machine
+(`#42`), used by the CLI, mentions (03) and the UI; the opaque id stays the
+key.
+
 Assigning a task to a seat mails that seat a short assignment notice in the
 task's thread. That replaces the factory claim prompt.
 
@@ -138,7 +142,12 @@ task's thread. That replaces the factory claim prompt.
 - **canvas**: Pipelines across regions: a `flows` edge between task nodes in
   different regions. Allow only when the downstream node is in reach of the
   upstream one?
-- **pty**: Assignment and stamp request mails: delivered like any mail, or
-  does an assignment need to wake a sleeping seat the way the factory did?
-- **cli**: `junto task` (singular) replacing `junto tasks`: rename now, or
-  keep the group name?
+- ~~**pty**: assignment mail~~ Answered: like any mail, kind `notice`.
+  Delivery already starts a seat that is not running when mail waits for it
+  (`src/main/junto/work/message-delivery.ts:560-563,784`) and holds mail while
+  paused. Nothing from the factory claim prompt carries over.
+- ~~**cli**: rename~~ Answered: `junto task` now, no alias. The same commit
+  renames op ids, schema ids (`tasks.*.input/v1`), `tasks.*` ports
+  (`productPortEnabled`), overseer `tasks.list` and discovery examples. Each
+  transition verb gets its own schema id; today `tasks update` does all of
+  them (`src/cli/commands/work.ts:156`).

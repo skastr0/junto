@@ -45,17 +45,50 @@ type MentionRef =
 **Encoding.** The text is the source of truth. A mention is written inline as
 a markdown link to its node ref:
 `[@product-feed](junto://canvas/factory?node=agent-01M...)`,
-`[#T-42 fix tabs](junto://canvas/factory?node=task-...&task=...)`. Agents read
-it as text and can pass the ref straight to the CLI. `mentionsOf(text)`
+`[#42 fix tabs](junto://canvas/factory?node=task-...&item=...)`. Agents read
+it as text and can pass the ref straight to the CLI. Two changes make that
+true (cli-lead): `parseNodeRef` refuses any `&` today
+(`src/shared/node-ref.ts:127`), so node refs gain an `item` parameter; and
+target resolution accepts `junto://` refs (01). `#42` is the task's
+per-canvas number (04); tasks have only opaque ids today
+(`src/shared/work-model.ts:363-364`). `mentionsOf(text)`
 parses the refs; nothing is stored beside the text that could disagree with
 it (today `metadata.mentions` sits beside plain `@Name`, matched by name,
 `src/renderer/lib/seat-threads.ts:561-573`).
 
-**Writing from the CLI.** A seat writes `@product-feed` or `#T-42`; the CLI
-resolves each against availability at send time and rewrites it to the link
-form, or refuses with the candidates it could have meant.
+**Writing from the CLI.** A seat writes `@product-feed` or `#42`; main (not
+the CLI, which is a thin socket client) resolves each on send with the same
+resolver as 01 and rewrites it to the link form, or refuses with the
+candidates it could have meant, in the same refusal shape.
 
-## 2. Availability: `mentionables(context)`
+## 2. Three parts, composed per composer
+
+Operator direction (2026-10-21): a combobox component, availability
+components, and side effect hooks that each composer chooses. Nothing about
+what a mention does is universal.
+
+1. **`MentionCombobox`** (`src/renderer/components/ui/`), built on
+   `Combobox`: the `@` and `#` query, the list, keyboard, inline chips, and
+   writing the link form into the text. It knows nothing about who may be
+   mentioned or what happens after.
+2. **Availability sources**, one per rule, each a hook returning candidates
+   for a context:
+   - `useConnectedSeats(seat)`: seats wired to a seat by an edge.
+   - `useSeatsInReach(resource)` and `useResourcesInReach(seatOrResource)`:
+     region reach (01).
+   - `useTargetsBelow(automation)`: downward only (07).
+   A composer passes the sources it needs to the combobox. Main checks the
+   same rule again when the text is sent; the shared rule lives in
+   `src/shared/` so both sides read one function.
+3. **Side effect hooks**, per composer: what sending with these mentions
+   does. Each composer declares its own, for example:
+   - Seat mail thread: today's behaviour, a reference with no copy.
+   - Resource comment: mentioned seats receive the comment in the thread.
+   - Needs-you reply: mentioned seats are copied on the answer.
+   - Automation definition: no side effect; the mention is a target.
+   The hook runs in main on send, so the effect holds for CLI writers too.
+
+## 3. Availability by composer
 
 | Context | Seats | Tasks, artifacts, pages |
 |---|---|---|
@@ -67,15 +100,8 @@ form, or refuses with the candidates it could have meant.
 Machine does not matter (02). Whether the seat's process runs does not
 matter; delivery holds mail until it can type it.
 
-## 3. Meaning
-
-- **A seat mention means that seat is told.** It receives one mail in the
-  thread with the mention, unless it is already a recipient. One rule
-  everywhere. This changes operator mail threads, where a mention is a
-  reference today. (Operator decision 3.)
-- **A task, artifact or page mention is a reference.** Nobody is mailed. It
-  renders as a chip that opens the resource, and the resource lists where it
-  was mentioned (backlinks).
+Rendering is the same everywhere: a chip that opens the seat or resource.
+Resources list where they were mentioned (backlinks).
 
 ## 4. Threads with subjects
 
@@ -96,6 +122,15 @@ type Anchor =
   | { readonly kind: "lines"; readonly file: string; readonly from: number; readonly to: number };
 ```
 
+- Delivery (pty-lead): one row in the mentioned or subscribed seat's
+  mailbox, `threadId` and subject in metadata, message id derived from
+  (comment id, seat) so a replay never mails twice, written once by the
+  editing machine. Then delivery types it, hands it to the link, or starts
+  the seat, as today. Two changes: the notice header's reply command targets
+  the sender's node (`src/shared/message-delivery.ts:188`), so in a subject
+  thread it must name the subject and reply to the subject; and
+  `mail-threads.ts:93` drops every row with a `taskId`, which goes with the
+  `control.ts:2091` refusal.
 - Who receives a resource comment: the resource's people (task assignee and
   reviewers, artifact owner), everyone mentioned, and everyone who already
   posted in the thread. Delivery is the existing mail delivery.
@@ -105,14 +140,12 @@ type Anchor =
 - Resource threads are universal facts (02); mailbox threads keep today's
   mail rows.
 
-## 5. Component
+## 5. Where it is used
 
-`MentionInput` in `src/renderer/components/ui/`, built on `Combobox`:
-providers per kind (seat, task, artifact, page), each given the context and
-returning candidates; inline chips; keyboard identical to the house
-combobox. Used by: seat thread composer, `SignalReply` (needs-you and seat
-signals), task comments, artifact comments, page comments, automation
-conditions. Each composer passes its context; none filters on its own.
+Seat thread composer, `SignalReply` (needs-you and seat signals), task
+comments, artifact comments, page comments, automation definitions. Each
+composes `MentionCombobox`, its availability sources and its side effect
+hook (section 2).
 
 ## 6. Associations on signals, mail and tasks
 
@@ -131,14 +164,11 @@ conditions. Each composer passes its context; none filters on its own.
 | Kept | Thread keying, mail delivery and holds, `Combobox`, the feed attachment renderer |
 | Reshaped | Mail rows carry a subject; operator threads read subjects; `SignalReply` gains mentions |
 | Deleted | The three mention copies and their CSS; `metadata.mentions`; `BoardPost.tags`; the pad pin and post store (moved into threads); the taskId with threadId refusal |
-| New | `mention.ts`, `ThreadSubject`, `Anchor`, `MentionInput`, task and artifact signal attachments |
+| New | `mention.ts`, `ThreadSubject`, `Anchor`, `MentionCombobox`, availability sources, per composer side effect hooks, task and artifact signal attachments |
 
 ## Questions
 
-- **pty**: A seat mention delivers one mail into the thread. Does delivery
-  need anything new for subject threads, or is it a plain `message.append`
-  with metadata?
-- **cli**: Name resolution for `@seat` and `#task` at send time, with a
-  refusal listing candidates: where does it live, CLI or main?
+- ~~**pty**: delivery~~ Answered above (section 4).
+- ~~**cli**: where resolution lives~~ Answered: main, same resolver as 01.
 - **canvas**: Backlinks (where a task was mentioned): computed on read, or a
   table?

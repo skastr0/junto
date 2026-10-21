@@ -81,7 +81,7 @@ Node card: count and the latest changes. Detail: sidebar list (filter by
 type, search), main pane editor: markdown editor for documents, the pad
 editor for pads, the sheet grid for sheets, a preview for links and files.
 Comments in a side rail; selecting a place in the editor starts an anchored
-thread with `MentionInput`.
+thread with `MentionCombobox`.
 
 ## Kept, reshaped, deleted
 
@@ -99,4 +99,6 @@ thread with `MentionInput`.
   artifacts node holding one artifact? (Operator decision 4.)
 - **remote**: Pad bodies with images can be large. Version rows with full
   bodies, or patches with periodic snapshots?
-- **cli**: Text projection for pads and sheets: reuse the pad digest as is?
+- ~~**cli**: projections~~ Answered: pads reuse `padToDigest`
+  (`src/shared/pad-project.ts:300`) as is; sheets need a new markdown table
+  projection.

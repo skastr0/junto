@@ -37,8 +37,8 @@ still carries the factory. 0.10 finishes the move:
   with them.
 - **One meaning per concept.** One mention, one thread, one way to grant
   access to a resource, one assignment model.
-- **Records over notes.** Continuity, review and status come from rows Junto
-  wrote, not from text an agent wrote about them.
+- **Continuity comes from rows Junto already writes; notes stay what they
+  are.**
 - **Contracts first.** Every workstream starts from a shared type in
   `src/shared/` that the other layers build against.
 - **The editing machine decides.** Every universal write is ordered and
@@ -105,6 +105,11 @@ Recorded here so no lead reopens them.
   built.
 - Deleted end to end: requests, bulletin board, the reviews edge, the
   Hermes integration (not the Hermes terminal harness), pinning.
+- 2026-10-21, on the draft: the doctrine rewrite is intended. Universal
+  resources extend the single canvas owner's authority to resources.
+  Mentions are three parts: a combobox component, availability components
+  (seat connection, region reach), and side effect hooks chosen per
+  composer, never one universal meaning. Continuity as drafted in 08.
 
 ## Open decisions for the operator
 
@@ -115,9 +120,7 @@ operator as one signal after the leads have weighed in.
    or define reach for overlaps. (01)
 2. Nodes outside every region: in reach of every seat on the canvas
    (recommended). (01)
-3. A seat mention means "this seat is told" everywhere, including operator
-   mail where today it is a reference only (recommended), or keep the
-   difference. (03)
+3. (Settled 2026-10-21, see below.)
 4. Existing pad and sheet content: drop it (recommended, the kinds never
    shipped) or migrate it into artifacts. (05)
 5. Oldest supported database: raise the migration floor to v13 so the

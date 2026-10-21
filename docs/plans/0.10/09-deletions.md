@@ -105,6 +105,9 @@ changes with it.
 ## Questions
 
 - **canvas**: Owning the v26 migration: one migration or one per phase?
-- **pty**: Seat deletion through the chat service lease: who owns cutting it?
+- ~~**pty**: chat delete lease~~ pty-lead owns it. Every seat deletion takes
+  it today, from `src/main/junto/overseer/native.ts:1353-1365` and
+  `src/renderer/lib/chat-state.ts:614-660`. After the cut, seat deletion goes
+  through `term/node-delete.ts` only. Lands before the Hermes chat removal.
 - **remote**: Hermes host identity removal touches the host registry:
   anything on remote machines that reads `hermesId`?
