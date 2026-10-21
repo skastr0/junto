@@ -11,6 +11,7 @@ import {
   seedCanvas,
 } from "./support/seed-canvas";
 import { note, region, seat } from "./support/model-nodes";
+import { NoTasksLive } from "./support/no-tasks";
 import {
   executeOverseerCanvas,
   setOverseerNativeDeleteHooks,
@@ -73,6 +74,7 @@ describe("executeOverseerCanvas", () => {
         WorkRepositoryLive,
         CrewRepositoryLive,
         MachineRepositoryLive,
+        NoTasksLive,
         SettingsLive,
         makeContentServiceLive({
           root: contentRoot,
