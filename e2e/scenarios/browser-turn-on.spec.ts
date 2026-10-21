@@ -95,9 +95,9 @@ test("[fake-tui] a seat acts on its page, the operator takes over and is told, a
     const chrome = page.locator('[data-testid="browser-chrome"]');
     await expect(chrome).toBeVisible({ timeout: 30_000 });
     await expect.poll(
-      () => app.evaluate(({ webContents }) =>
+      () => app.evaluate(({ webContents }, url) =>
         webContents.getAllWebContents().some((contents) =>
-          contents.getURL().startsWith(PAGE_URL) && !contents.isLoading() && contents.getTitle() === "Example Domain")),
+          contents.getURL().startsWith(url) && !contents.isLoading() && contents.getTitle() === "Example Domain"), PAGE_URL),
       { timeout: 60_000 },
     ).toBe(true);
     const opened = await browser(["open", REF]);
