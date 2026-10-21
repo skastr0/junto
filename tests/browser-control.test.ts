@@ -1,3 +1,4 @@
+import { memoryTouchedOriginStore } from "./support/touched-origin-store";
 import { asNodeId, type Canvas, type Node } from "../src/shared/model";
 import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -312,6 +313,7 @@ describe("control route handlers", () => {
       undefined,
       viewDestroyTimeoutMs,
     );
+    sessions.setTouchedOriginStore(memoryTouchedOriginStore());
     const capabilities = makeBrowserCapabilityRegistry({
       onTerminate: (notice) => {
         sessions.destroyOwnerSessions(notice.auditId, "browser authority ended");

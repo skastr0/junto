@@ -1,3 +1,4 @@
+import { memoryTouchedOriginStore } from "../../support/touched-origin-store";
 import { randomUUID } from "node:crypto";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
@@ -156,6 +157,7 @@ void app.whenReady().then(async () => {
     randomUUID,
     harness.targetAdmission,
   );
+  sessions.setTouchedOriginStore(memoryTouchedOriginStore());
 
   const crashedTarget = target(origin, "crashed");
   const siblingTarget = target(origin, "sibling");

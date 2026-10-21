@@ -1,3 +1,4 @@
+import { memoryTouchedOriginStore } from "../../support/touched-origin-store";
 import { randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -394,6 +395,7 @@ const runPhaseA = async (state: StateService, sql: SqlClient.SqlClient): Promise
     harness.targetAdmission,
     gate,
   );
+  sessions.setTouchedOriginStore(memoryTouchedOriginStore());
 
   const personalSeed = target("personal-automation-seed", "personal", "seed");
   const stopPulse = "stop-page-runtime";
@@ -676,6 +678,7 @@ const runPhaseC = async (state: StateService, sql: SqlClient.SqlClient): Promise
     harness.targetAdmission,
     gate,
   );
+  sessions.setTouchedOriginStore(memoryTouchedOriginStore());
   const personalBlank = target("personal-automation-blank", "personal", "blank");
   const workRead = target("work-automation-read", "work", "read");
   const personalPrincipal = capabilities.createPrincipal();

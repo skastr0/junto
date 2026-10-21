@@ -1,3 +1,4 @@
+import { memoryTouchedOriginStore } from "./support/touched-origin-store";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -969,6 +970,7 @@ describe("overseer deletion fences share TermPlane identity", () => {
         return () => `session-${++n}`;
       })(),
     );
+    pages.setTouchedOriginStore(memoryTouchedOriginStore());
     pages.setPoolLimitsProvider(async () => ({ maxVisibleSurfaces: 4, maxWarmSessions: 8 }));
 
     const deleted: ResolvedPageTarget = {
@@ -1053,6 +1055,7 @@ describe("overseer deletion fences share TermPlane identity", () => {
         undefined,
         timeoutMs,
       );
+      pages.setTouchedOriginStore(memoryTouchedOriginStore());
       pages.setPoolLimitsProvider(async () => ({ maxVisibleSurfaces: 4, maxWarmSessions: 8 }));
       const opened = await pages.openForOwner("job-a", {
         ref: "junto://canvas/factory?node=p1",

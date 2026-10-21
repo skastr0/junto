@@ -1,3 +1,4 @@
+import { memoryTouchedOriginStore } from "./support/touched-origin-store";
 import type { NodeId } from "../src/shared/model/base";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -252,6 +253,7 @@ describe("BrowserSessionService", () => {
       () => ++clock,
       () => `session-${++idCounter}`,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     return { service };
   };
 
@@ -264,6 +266,7 @@ describe("BrowserSessionService", () => {
       () => ++clock,
       () => `session-${++idCounter}`,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     return { service, views };
   };
 
@@ -295,6 +298,7 @@ describe("BrowserSessionService", () => {
       () => ++clock,
       () => candidates.shift() ?? "valid-fallback",
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     const opened = await service.open(target("bounded-id"));
     expect(opened).toMatchObject({ ok: true, data: { sessionId: "valid-session" } });
     expect(views).toHaveLength(1);
@@ -321,6 +325,7 @@ describe("BrowserSessionService", () => {
       () => ++clock,
       () => `session-${++idCounter}`,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
 
     expect(await service.open(
       target("url-changed"),
@@ -356,6 +361,7 @@ describe("BrowserSessionService", () => {
       () => `session-${++idCounter}`,
       (url) => new URL(url).origin === "http://127.0.0.1:49152",
     );
+    qualified.setTouchedOriginStore(memoryTouchedOriginStore());
     expect(await qualified.open(loopbackTarget)).toMatchObject({ ok: true });
     expect(views[0]?.calls).toContain("load:http://127.0.0.1:49152/fixture");
   });
@@ -609,6 +615,7 @@ describe("BrowserSessionService", () => {
       () => ++clock,
       () => `session-${++idCounter}`,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     const opened = await service.open(target("concurrent-stop"));
     if (!opened.ok) throw new Error("open failed");
 
@@ -637,6 +644,7 @@ describe("BrowserSessionService", () => {
       () => ++clock,
       () => `session-${++idCounter}`,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     const opened = await service.open(target("acknowledged-stop"));
     if (!opened.ok) throw new Error("open failed");
 
@@ -661,6 +669,7 @@ describe("BrowserSessionService", () => {
       undefined,
       5,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     const opened = await service.open(target("failed-stop"));
     if (!opened.ok) throw new Error("open failed");
 
@@ -692,6 +701,7 @@ describe("BrowserSessionService", () => {
       undefined,
       5,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     const opened = await service.open(target("stop-then-wipe"));
     if (!opened.ok) throw new Error("open failed");
     expect(await service.stop(opened.data.sessionId)).toMatchObject({
@@ -878,6 +888,7 @@ describe("BrowserSessionService", () => {
       () => ++clock,
       generator,
     );
+    firstService.setTouchedOriginStore(memoryTouchedOriginStore());
     const first = await firstService.open(target("n1"));
     const restarted = new BrowserSessionService(
       adapter,
@@ -886,6 +897,7 @@ describe("BrowserSessionService", () => {
       () => ++clock,
       generator,
     );
+    restarted.setTouchedOriginStore(memoryTouchedOriginStore());
     const second = await restarted.open(target("n1"));
     expect(first.ok && second.ok && first.data.sessionId).not.toBe(second.ok ? second.data.sessionId : "");
   });
@@ -929,6 +941,7 @@ describe("BrowserSessionService", () => {
       () => ++clock,
       () => `timeout-session-${++idCounter}`,
     );
+    serviceWithNeverEval.setTouchedOriginStore(memoryTouchedOriginStore());
     const timed = await serviceWithNeverEval.open(target("timeout"));
     if (!timed.ok) throw new Error("open failed");
 
@@ -1288,6 +1301,7 @@ describe("BrowserSessionService", () => {
       () => ++clock,
       () => `session-${++idCounter}`,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     const page = target("wiped");
     const ui = await service.open(page);
     if (!ui.ok) throw new Error("open failed");
@@ -1653,6 +1667,7 @@ describe("BrowserSessionService", () => {
       () => ++clock,
       () => `global-session-${++idCounter}`,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     const opened: string[] = [];
     for (let index = 0; index <= BROWSER_MAX_ACTIVE_OPERATIONS; index += 1) {
       const result = await service.open(target(`global-${index}`));
@@ -2156,6 +2171,7 @@ describe("BrowserSessionService", () => {
       undefined,
       gate,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     service.setPoolLimitsProvider(async () => ({ maxVisibleSurfaces: 2, maxWarmSessions: 8 }));
 
     const pendingPersonal = service.openForOwner("job-shared", target("personal-page"));
@@ -2219,6 +2235,7 @@ describe("BrowserSessionService", () => {
       undefined,
       gate,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
 
     const opening = service.open(target("paused-touch"));
     await vi.waitFor(() => expect(touchCalls).toBe(1));
@@ -2251,6 +2268,7 @@ describe("BrowserSessionService", () => {
       undefined,
       gate,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     service.setPoolLimitsProvider(() => {
       limitsReads += 1;
       return pausedLimits.promise;
@@ -2280,6 +2298,7 @@ describe("BrowserSessionService", () => {
       undefined,
       gate,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     service.setPoolLimitsProvider(async () => ({ maxVisibleSurfaces: 2, maxWarmSessions: 8 }));
     const ui = await service.open(target("ui-personal"));
     const jobA = await service.openForOwner("job-a", target("a-personal"));
@@ -2343,6 +2362,7 @@ describe("BrowserSessionService", () => {
       undefined,
       gate,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     service.setPoolLimitsProvider(async () => ({ maxVisibleSurfaces: 2, maxWarmSessions: 8 }));
     const ui = await service.open(target("throwing-personal"));
     const job = await service.openForOwner("job-a", target("later-personal"));
@@ -2384,6 +2404,7 @@ describe("BrowserSessionService", () => {
       gate,
       20,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     const opened = await service.open(target("physical-barrier"));
     if (!opened.ok) throw new Error("open failed");
 
@@ -2411,6 +2432,7 @@ describe("BrowserSessionService", () => {
       secondGate,
       5,
     );
+    timed.setTouchedOriginStore(memoryTouchedOriginStore());
     const timedOpen = await timed.open(target("physical-timeout"));
     if (!timedOpen.ok) throw new Error("open failed");
     const timedStart = timed.beginProfileQuiescence("personal");
@@ -2633,6 +2655,7 @@ describe("BrowserSessionService", () => {
       5,
       5,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     const opened = await service.openForOwner("job-a", target("pre-shutdown-revoke"));
     if (!opened.ok) throw new Error("open failed");
     views[0]?.events.onLoadOk(opened.data.sessionId);
@@ -2697,6 +2720,7 @@ describe("BrowserSessionService", () => {
       5,
       50,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
 
     const opening = service.openForOwner(
       "orphan-owner",
@@ -2760,6 +2784,7 @@ describe("BrowserSessionService", () => {
       5,
       5,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
 
     const opening = service.openForOwner(
       "orphan-owner",
@@ -2918,6 +2943,7 @@ describe("BrowserSessionService", () => {
       5,
       5,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     const opened = await service.open(target("retry-destroy-tombstone"));
     if (!opened.ok) throw new Error("open failed");
 
@@ -2961,6 +2987,7 @@ describe("BrowserSessionService", () => {
       () => ++clock,
       () => `session-${++idCounter}`,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
 
     const opening = service.open(target("delayed-shutdown-open"));
     await vi.waitFor(() => expect(partitionReads).toBe(1));
@@ -3001,6 +3028,7 @@ describe("BrowserSessionService", () => {
       5,
       5,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
 
     const wiping = service.wipeProfile("personal");
     await vi.waitFor(() => expect(wipeStarts).toBe(1));
@@ -3049,6 +3077,7 @@ describe("BrowserSessionService", () => {
       5,
       5,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     const opened = await service.open(target("shutdown-eval"));
     if (!opened.ok) throw new Error("open failed");
     const evaluating = service.eval(opened.data.sessionId, "pending()");
@@ -3100,6 +3129,7 @@ describe("BrowserSessionService", () => {
       5,
       5,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     const opened = await service.open(target("same-document-shutdown"));
     if (!opened.ok) throw new Error("open failed");
     await Promise.resolve();
@@ -3164,6 +3194,7 @@ describe("BrowserSessionService", () => {
       localBrowserTestMachineName,
       profiles,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
 
     expect(await service.wipeProfile("personal")).toEqual({
       ok: true,
@@ -3246,6 +3277,7 @@ describe("BrowserSessionService", () => {
       () => ++clock,
       () => `session-${++idCounter}`,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     service.setPoolLimitsProvider(async () => ({ maxVisibleSurfaces: 4, maxWarmSessions: 8 }));
 
     const deleted = target("deleted");
@@ -3279,6 +3311,7 @@ describe("BrowserSessionService", () => {
       () => ++clock,
       () => `session-${++idCounter}`,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     const page = target("unacked");
     const opened = await service.open(page);
     if (!opened.ok) throw new Error("open failed");
@@ -3321,6 +3354,7 @@ describe("BrowserSessionService", () => {
       undefined,
       5,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     const page = target("timeout-delete");
     const opened = await service.open(page);
     if (!opened.ok) throw new Error("open failed");
@@ -3359,6 +3393,7 @@ describe("BrowserSessionService", () => {
       undefined,
       5,
     );
+    service.setTouchedOriginStore(memoryTouchedOriginStore());
     service.setPoolLimitsProvider(async () => ({ maxVisibleSurfaces: 8, maxWarmSessions: 8 }));
 
     const timedPage = target("timeout-survivor");

@@ -285,6 +285,11 @@ export interface BrowserPageState {
   readonly blocked?: BrowserNavigationBlock;
 }
 
+/** The schema's limit trigger names this when the touched-origin record is full. */
+const TOUCHED_ORIGINS_FULL = "browser touched-origin limit reached";
+const TOUCHED_ORIGINS_FULL_NOTICE =
+  "Seat code is refused: the record of sites seats touched is full until Junto restarts";
+
 /** A refusal as the operator reads it in the page's chrome. */
 const BLOCKED_NAVIGATION: Readonly<Record<BrowserTopLevelNavigationRejection, string>> = {
   invalid_url: "Blocked: not a valid web address",
@@ -680,7 +685,7 @@ export class BrowserSessionService {
    * seat evaluated in times the holds that did, each one small guard.
    */
   private readonly touchedOrigins = new Map<string, Set<BrowserGuestTopLevelGuard>>();
-  /** Where a seat's eval origin is committed before the eval runs; absent, nothing is written. */
+  /** Where a seat's eval origin is committed before the eval runs; absent, a seat's eval is refused. */
   private touchedOriginStore: BrowserTouchedOriginStore | undefined;
   private readonly pageListeners = new Set<(ref: string) => void>();
   private readonly pendingOpenByOwnerRef = new Map<string, Map<string, PendingOpen>>();
@@ -1108,11 +1113,20 @@ export class BrowserSessionService {
    */
   private async writeAheadTouched(entry: SessionEntry, owner: string, sessionId: string): Promise<void> {
     const store = this.touchedOriginStore;
+    // Fail closed by construction: no record bound, no seat code runs.
+    if (store === undefined) throw new Error("eval refused: no record of touched origins is bound");
     const origin = entry.documentOrigin ?? entry.currentOrigin;
-    if (store === undefined || origin === undefined) return;
+    if (origin === undefined) return;
     try {
       await store.record({ profile: entry.profile, origin });
-    } catch {
+    } catch (error) {
+      if (String(error instanceof Error ? error.message : error).includes(TOUCHED_ORIGINS_FULL)) {
+        // Fails closed until the next start clears the record: say so, or a
+        // full record reads as a broken browser.
+        console.error("[browser] the record of origins seats ran code in is full; seat evals are refused until Junto restarts");
+        this.noticeOnPage(entry, TOUCHED_ORIGINS_FULL_NOTICE);
+        throw new Error(`eval refused: ${TOUCHED_ORIGINS_FULL_NOTICE}`);
+      }
       throw new Error("eval refused: its origin could not be recorded");
     }
     // The page may have moved or the operation ended while the write ran.
@@ -1846,10 +1860,14 @@ export class BrowserSessionService {
 
   /** The browser refused a navigation on this tab: the chrome says so until the tab moves on. */
   private navigationBlocked(entry: SessionEntry, reason: BrowserTopLevelNavigationRejection): void {
-    if (!this.isCurrent(entry)) return;
+    if (this.isCurrent(entry)) this.noticeOnPage(entry, BLOCKED_NAVIGATION[reason]);
+  }
+
+  /** A refusal the operator should see on the page, in the chrome's one line. */
+  private noticeOnPage(entry: SessionEntry, message: string): void {
     const page = this.pages.get(entry.ref);
     if (page === undefined) return;
-    page.blocked = { tab: entry.tab, message: BLOCKED_NAVIGATION[reason], at: this.now() };
+    page.blocked = { tab: entry.tab, message, at: this.now() };
     this.notifyPage(entry.ref);
   }
 

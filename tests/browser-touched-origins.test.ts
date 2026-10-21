@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { clearTouchedServiceWorkersAtStart } from "../src/main/junto/browser/composition";
@@ -144,6 +144,48 @@ describe("write-ahead touched origins", () => {
       // The step that creates it, on this machine's database.
       "main/junto/state/migrations.ts",
     ]);
+  });
+
+  it("refuses a seat's eval when no record is bound", async () => {
+    const evals: string[] = [];
+    const service = new BrowserSessionService(
+      makeAdapter(evals),
+      localBrowserTestMachineName,
+      makeBrowserProfileService(sql, join(root, "browser")),
+    );
+    const opened = await service.open(PAGE);
+    if (!opened.ok) throw new Error("open failed");
+    await service.openForOwner("job-a", PAGE);
+    expect(await service.evalForOwner("job-a", opened.data.sessionId, "1")).toMatchObject({
+      ok: false,
+      message: "eval refused: no record of touched origins is bound",
+    });
+    expect(evals).toEqual([]);
+  });
+
+  it("says on the page and in the log when the record is full, and refuses the seat's eval", async () => {
+    await runtime.runPromise(
+      SqlClient.SqlClient.use((client) => client`
+        WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 4096)
+        INSERT INTO browser_touched_origins (profile, origin)
+        SELECT 'personal', 'https://filler-' || i || '.example.com' FROM n
+      `),
+    );
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const evals: string[] = [];
+    const service = serviceWith(makeBrowserTouchedOriginStore(sql), evals);
+    const opened = await service.open(PAGE);
+    if (!opened.ok) throw new Error("open failed");
+    await service.openForOwner("job-a", PAGE);
+    expect(await service.evalForOwner("job-a", opened.data.sessionId, "1")).toMatchObject({
+      ok: false,
+      code: "failed",
+      message: "eval refused: Seat code is refused: the record of sites seats touched is full until Junto restarts",
+    });
+    expect(evals).toEqual([]);
+    expect(service.pageState(opened.data.sessionId)?.blocked?.message).toMatch(/record of sites seats touched is full/);
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining("is full"));
+    errors.mockRestore();
   });
 
   it("keeps rows within the schema: http(s) origins, a bounded count", async () => {
