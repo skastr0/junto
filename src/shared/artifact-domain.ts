@@ -26,12 +26,21 @@ import {
 } from "./resource-command";
 import { ItemId } from "./work-ids";
 
-/** One artifact as the ruler holds it: the head, its body, and every applied edit. */
+/**
+ * How many applied edits an entry keeps for rebasing. A patch written against
+ * a base older than the log reaches is refused `stale` with the head, so main
+ * loads at most this many edits per ruling (every buffer is bounded).
+ */
+export const ARTIFACT_REBASE_WINDOW = 64;
+
+/** One artifact as the ruler holds it: the head, its body, and its recent edits. */
 export interface ArtifactEntry {
   readonly artifact: Artifact;
   readonly body: ArtifactBody;
-  /** `edits[i]` made version `i + 2`; version 1 is the create. */
+  /** The last applied edits, oldest first; `edits[i]` made version `editsFrom + i`. */
   readonly edits: ReadonlyArray<ArtifactEdit>;
+  /** The version the first kept edit made. With no edits kept, the head plus one. */
+  readonly editsFrom: number;
 }
 
 export type ArtifactState = ReadonlyMap<ItemId, ArtifactEntry>;
@@ -143,9 +152,19 @@ export const ruleArtifactCommand = (
     return refuse({ reason: "unknown_target", message: `no artifact ${artifactId} on ${target.nodeId}` });
   }
 
+  if (entry.artifact.archived && op.op !== "restore" && op.op !== "archive") {
+    return refuse({
+      reason: "invalid_transition",
+      message: `artifact ${artifactId} is archived`,
+      next_step: "Restore it first with junto artifact restore",
+    });
+  }
+
   switch (op.op) {
     case "edit": {
-      const since = entry.edits.slice(Math.max(0, op.edit.baseVersion - FIRST_ARTIFACT_VERSION));
+      // Edits after the base made versions base+1..head. A base the log no
+      // longer reaches gets a short list, which the edit ruler refuses stale.
+      const since = entry.edits.slice(Math.max(0, op.edit.baseVersion + 1 - entry.editsFrom));
       const ruled = ruleArtifactEdit({ version: entry.artifact.version, body: entry.body }, op.edit, since);
       if (Result.isFailure(ruled)) return refuse(artifactRefusal(ruled.failure));
       return apply({
@@ -190,13 +209,23 @@ const withEntry = (
 export const applyArtifactFact = (state: ArtifactState, fact: ArtifactFact): ArtifactState => {
   switch (fact.fact) {
     case "artifact.created":
-      return new Map(state).set(fact.artifact.artifactId, { artifact: fact.artifact, body: fact.body, edits: [] });
-    case "artifact.edited":
-      return withEntry(state, fact.artifactId, (entry) => ({
-        artifact: { ...entry.artifact, version: fact.version, updatedAt: fact.at },
+      return new Map(state).set(fact.artifact.artifactId, {
+        artifact: fact.artifact,
         body: fact.body,
-        edits: [...entry.edits, fact.edit],
-      }));
+        edits: [],
+        editsFrom: fact.artifact.version + 1,
+      });
+    case "artifact.edited":
+      return withEntry(state, fact.artifactId, (entry) => {
+        const edits = [...entry.edits, fact.edit];
+        const drop = Math.max(0, edits.length - ARTIFACT_REBASE_WINDOW);
+        return {
+          artifact: { ...entry.artifact, version: fact.version, updatedAt: fact.at },
+          body: fact.body,
+          edits: drop === 0 ? edits : edits.slice(drop),
+          editsFrom: fact.version + 1 - (edits.length - drop),
+        };
+      });
     case "artifact.retitled":
       return withEntry(state, fact.artifactId, (entry) => ({
         ...entry,

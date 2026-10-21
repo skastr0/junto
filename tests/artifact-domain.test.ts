@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import type { ActorSeatId } from "../src/shared/actor-seat";
 import { type ArtifactEdit, type ArtifactOp, type ArtifactVersion, emptyBody } from "../src/shared/artifact";
 import {
+  ARTIFACT_REBASE_WINDOW,
   artifactDomain,
   type ArtifactState,
   artifactsOnNode,
@@ -95,6 +96,7 @@ describe("artifact domain", () => {
     const entry = two.ruled.state.get(id)!;
     expect(entry.artifact.version).toBe(3);
     expect(entry.edits).toHaveLength(2);
+    expect(entry.editsFrom).toBe(2);
     expect(entry.body.type === "sheet" && entry.body.grid.rows[0]?.cells).toEqual({ c1: "a", c2: "b" });
   });
 
@@ -133,6 +135,38 @@ describe("artifact domain", () => {
     const restored = run(archived.ruled, { op: "restore" }, id);
     expect(restored.ruled.state.get(id)?.artifact.archived).toBe(false);
     expect(reasonOf(run(restored.ruled, { op: "restore" }, id).ruling)).toBe("invalid_transition");
+  });
+
+  it("refuses edit, retitle and tasks on an archived artifact until it is restored", () => {
+    const { id, ruled } = created();
+    const archived = run(ruled, { op: "archive" }, id).ruled;
+    for (const op of [
+      { op: "edit", edit: sheetCell(1, "r1", "c1", "x") },
+      { op: "retitle", title: "x" },
+      { op: "tasks", taskIds: [] },
+    ] satisfies ArtifactOp[]) {
+      const refused = run(archived, op, id).ruling;
+      expect(refused.kind === "refused" && refused.error.details).toMatchObject({
+        reason: "invalid_transition",
+        next_step: "Restore it first with junto artifact restore",
+      });
+    }
+    const restored = run(archived, { op: "restore" }, id).ruled;
+    expect(reasonOf(run(restored, { op: "retitle", title: "x" }, id).ruling)).toBe("applied");
+  });
+
+  it("keeps a bounded edit log; a base older than it is stale, a recent one rebases", () => {
+    let { id, ruled } = created();
+    const total = ARTIFACT_REBASE_WINDOW + 6;
+    for (let n = 1; n <= total; n += 1) {
+      ruled = run(ruled, { op: "edit", edit: sheetCell(n, "r1", "c1", String(n)) }, id).ruled;
+    }
+    const entry = ruled.state.get(id)!;
+    expect(entry.artifact.version).toBe(total + 1);
+    expect(entry.edits).toHaveLength(ARTIFACT_REBASE_WINDOW);
+    expect(entry.editsFrom).toBe(total + 2 - ARTIFACT_REBASE_WINDOW);
+    expect(reasonOf(run(ruled, { op: "edit", edit: sheetCell(2, "r1", "c2", "old") }, id).ruling)).toBe("stale");
+    expect(reasonOf(run(ruled, { op: "edit", edit: sheetCell(total, "r1", "c2", "recent") }, id).ruling)).toBe("applied");
   });
 
   it("retitles and names tasks without moving the version", () => {
