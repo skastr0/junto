@@ -134,7 +134,8 @@ everyone else reports by mail and on the needs-you feed.
 | cli L3 `junto artifact` | cli-identity, review cli-performance | started |
 | Artifacts main side: read ops, repository, version table, ruler's artifact ops | cli-identity (L3), on product-shell's `artifact.ts`, migration slot from canvas C3 | started |
 | Tasks main side | canvas C4 (canvas-writers): model, state machine, ruler (state, assignee, reviewers, stamps, numbers, flows send-on, ResourceCommand handler). cli L2 (cli-performance): control.ts op handlers and `junto task`. Seam: canvas's task contract | started |
-| Region reach contract | canvas, 945dc0d1c | landed |
+| Region reach contract | canvas, 945dc0d1c; property tests by product-automation (200 seeded canvases); open: `atOrBelow` not transitive through a node in two overlapping regions, canvas's call | landed |
+| Resource command contract | remote; type tests by product-automation, 1f2bd19f3, no defects | landed |
 | Ids: `work-ids.ts` owns `ItemId` and `OpId`; others import | cli-protocol | decided, landing |
 | Listbox ARIA model | product-accessibility, a07e90e17 | landed |
 | Task state machine (pure) | canvas-writers, eeb17e7d3, 34 tests | in review |
