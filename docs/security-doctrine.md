@@ -251,9 +251,9 @@ channel's authority by wrapping a request in a response or naming its handle.
 One machine writes each immutable row. `(writer, seq)` identifies it; the
 receiver checks its actual content, not only a peer-supplied hash. An identical
 row is harmless; different content under the same identity closes the link.
-Only the closed exchange operations for mail, receipts, signals and seat
-sessions are admitted. A generic repository decoder must not expose disabled
-work kinds through the link.
+Only the closed exchange operations for mail, receipts, signals, seat
+sessions, resource commands and rulings are admitted. A generic repository
+decoder must not expose disabled work kinds through the link.
 
 Before registering a writer, materializing a row or advancing a cursor, the
 receiver verifies the peer's authority for that exact canvas, the row's writer,
@@ -266,6 +266,8 @@ identity on a node that is not its own is no author. A receipt cannot claim
 delivery to another machine's seat. Rejection leaves rows and cursor unchanged.
 
 A machine may relay other writers' rows only for canvases it keeps in full.
+It never relays a command row: those go from their writer to the editing
+machine and nowhere else. A ruling never carries a command's op or body.
 Coverage and cursor advancement are scoped to the canvas and writer; progress
 on one canvas cannot suppress missing rows on another. Filtering may leave
 sequence gaps. Content bytes require an entitled row, bounded transfer and

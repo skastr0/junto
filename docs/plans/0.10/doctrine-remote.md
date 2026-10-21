@@ -11,9 +11,9 @@ commit that triggers it. This file is deleted when the last one lands.
 
 | Change | Lands with | Files |
 |---|---|---|
-| D1 Copy carries every non-host node except notes | R3 copy cut (`src/shared/canvas-copy.ts`) | machines rule 2; security "What crosses machines" |
-| D2 Exchange admits commands, rulings and resource facts | R2 exchange filter opening (`src/shared/work-exchange.ts:54,72`) | machines rule 4; security "Immutable work" |
-| D3 Entitlement for resource facts, commands to the editor only | R2 `entitledTo` (`work-exchange.ts:273-284`) | machines rule 5; security relay paragraph |
+| D1 Copy carries every non-host node except notes (landed `77f7a7134`, remote-cut) | R3 copy cut (`src/shared/canvas-copy.ts`) | machines rule 2; security "What crosses machines" |
+| D2 Exchange admits commands, rulings and resource facts (commands and rulings landed with `95ed7b998`) | R2 exchange filter opening (`src/shared/work-exchange.ts:54,72`) | machines rule 4; security "Immutable work" |
+| D3 Entitlement for resource facts, commands to the editor only (commands and rulings landed with `95ed7b998`) | R2 `entitledTo` (`work-exchange.ts:273-284`) | machines rule 5; security relay paragraph |
 | D4 Replication is not access | First resource fact replicated with each core's reach check on reads (R2 with C1) | security "What crosses machines" |
 | D5 "Not carried" rewritten | D1 landed, and the deletions it names (C2, product-shell) | machines "Not carried" |
 | D6 Signal attachments as refs | The exchange admitting attachment refs (`work-exchange.ts:133-137`) | machines "Later" |
@@ -24,60 +24,17 @@ security-doctrine 84-89 change with region reach (01, canvas C1).
 
 ## D1 Rule 2, the copy
 
-`docs/machines.md:51-52`. Replace
-
-> Notes, labels, files, links and every kind that is off stay on the
-> editing machine.
-
-with
-
-> Every node that needs no host's runtime goes to every machine. The copy
-> names the fields each kind carries, and nothing else crosses:
->
-> - A task, artifact or automation: its geometry and label. Its state
->   travels as the editing machine's facts and its bytes as content refs.
-> - A label: its geometry and text.
-> - A link: its geometry and URL.
-> - A file: its geometry, its file name and a content ref. Its path is on
->   the editing machine's disk (rule 9) and never crosses.
-> - A region outline: its geometry and label only. Its briefing,
->   references, folders and environment go only where a local seat is in
->   it, as above.
-> - A browser page: a stub shaped like a peer, its id, geometry, label and
->   machine, with no host fields.
->
-> Notes, git cards and every kind that is off stay on the editing machine.
-
-`docs/security-doctrine.md:124-127`. Replace the bullet
-
-> The editing machine keeps the complete canvas and its work. Other machines
-> receive only work they are entitled to, including mail for their seats and
-> the receipts or answers relevant to their seats' work.
-> Notes, labels, files and links stay on the editing machine.
-
-with
-
-> The editing machine keeps the complete canvas and its work. Every other
-> machine on the canvas receives every resource: tasks, artifacts,
-> automations, labels, files and links, with the fields `machines.md` rule 2
-> names per kind, and the editing machine's facts and rulings. A file's path
-> and a region's private content never cross with them. Mail goes only to
-> machines with its seats, with the receipts and answers relevant to their
-> work. Notes stay on the editing machine. A browser page goes elsewhere
-> only as a stub.
-
-`docs/security-doctrine.md:129-131`. Replace
-
-> Content that no local seat needs is not copied just because it has a
-> canvas row.
-
-with
-
-> Private content that no local seat needs is not copied just because it
-> has a canvas row. Resources are the exception: every machine holds them,
-> with only the fields rule 2 names, and reach governs who reads them.
+Landed by remote-cut in `77f7a7134` with its own wording (R3). Differences
+from this draft go to remote-lead by mail, not as edits here.
 
 ## D2 Rule 4, the exchange
+
+Landed with `95ed7b998`: the closed list gains `command.queued`,
+`ruling.applied` and `ruling.refused`; a command row is for its canvas and at
+most 64 KiB; rulings keyed by writer and opId. Still held: the writer rules
+for command rows and rulings (remote-work's writer check), resource fact
+families and predecessors, seat occupancy, the every-row cap
+(`exchange-bounds.ts`) and the queue bound with `queue_full`.
 
 `docs/machines.md:71-72`. Replace
 
@@ -144,6 +101,11 @@ seats." insert
 > only from the editing machine.
 
 ## D3 Rule 5, entitlement
+
+Landed with `95ed7b998`: rulings to every machine, a command to the editing
+machine only and never relayed, and a ruling's shape (writer, opId, actor,
+facts or error and root, never the op or body). Still held: resource facts
+for every machine, and the refused body ref served only to the writer.
 
 `docs/machines.md:76-77`. Replace
 

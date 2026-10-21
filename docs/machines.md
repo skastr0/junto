@@ -77,14 +77,24 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    on; mail from the operator or an automation, and an answer to a signal,
    only from the machine that edits the canvas. A
    row that breaks this, or that arrives twice with different content, closes
-   the link. Only mail, receipts, signals and session facts are exchanged;
-   the exchange has its own closed list and admits nothing else. The editing
+   the link. The exchange has its own closed list and admits nothing else:
+   mail, receipts, signals, session facts, `command.queued` rows and the
+   rulings `ruling.applied` and `ruling.refused`. A seat changes a resource
+   by proposing: its machine writes a `command.queued` row for the canvas it
+   is for, at most 64 KiB, and the machine that edits the canvas rules it,
+   keyed by the writing installation and the opId. The editing
    machine remembers which machine each seat was on and when, so mail written
    before a seat moved or was removed is still judged against where the seat
    was.
-5. **Entitlement.** Every machine on a canvas gets the canvas rows. A machine
-   gets the mail addressed to its seats. A machine that keeps the whole canvas
-   gets everything. In the first version that is the editing machine. Passing
+5. **Entitlement.** Every machine on a canvas gets the canvas rows and every
+   ruling for that canvas. A machine gets the mail addressed to its seats. A
+   `command.queued` row goes to the editing machine only and is never passed
+   on, so a pending command is seen only on the machine that wrote it. A
+   ruling carries the writer, the opId, the actor, and the facts it applied
+   or the typed error with its root opId, never the command's op or body, so
+   a refused command reaches no other machine through its refusal. A machine
+   that keeps the whole canvas gets everything. In the first version that is
+   the editing machine. Passing
    on another machine's rows, and saying how far a peer is caught up, is
    scoped to one canvas: only the machine that keeps that canvas may do it,
    and never for another canvas.
