@@ -60,10 +60,12 @@ matrix snapshot), `tests/main-authoring-gate.test.ts`. A test that only uses
 a deleted verb as a fixture moves to a surviving verb (`messages`,
 `navigates`, the task to task verb).
 
-The deletions step keeps `reviews` in the `wires.verb` CHECK until the
-reviewer list replaces the `reviews` edge (canvas-edges with canvas-writers).
-It does not enter the chain while `reviews` is kept;
-`tests/canvas-deletions-migration.test.ts` then asserts reviews wires go.
+The deletions step kept `reviews` in the `wires.verb` CHECK until the
+reviewer list replaced the `reviews` edge. e9bb0b14b did that: review
+eligibility reads `task_heads.reviewers_json`, and no edge grants review. The
+step that drops `reviews` from the CHECK and deletes its wires is now
+unblocked; it lands with a migration test asserting reviews wires go and no
+other verb's wire is touched.
 
 The step also stores `feeds` as `flows`, and its CHECK has no `feeds`. It
 enters the chain in the same commit that makes physics write `flows` (today
