@@ -178,6 +178,8 @@ export const OverseerErrorType = Schema.Literals([
   "Conflict",
   "Unsupported",
   "RuntimeDown",
+  /** The seat's machine runs another Junto build; details name only that machine. */
+  "NeedsUpdate",
   "InternalError",
 ]);
 export type OverseerErrorType = typeof OverseerErrorType.Type;

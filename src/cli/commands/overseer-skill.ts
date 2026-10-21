@@ -182,5 +182,5 @@ This CLI does **not** claim that a running daemon has a handler for every verb. 
 - \`InputError\` — JSON or catalog args (offline; no socket)
 - \`RuntimeDown\` — no app / no socket / empty token
 - \`AuthError\` — process-bind or token
-- Inner \`Forbidden\` \`InvalidArguments\` \`NotFound\` \`Conflict\` \`Unsupported\` \`RuntimeDown\` \`InternalError\`
+- Inner \`Forbidden\` \`InvalidArguments\` \`NotFound\` \`Conflict\` \`Unsupported\` \`RuntimeDown\` \`NeedsUpdate\` (the seat's machine runs another build) \`InternalError\`
 `;

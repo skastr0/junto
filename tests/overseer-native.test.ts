@@ -229,6 +229,57 @@ describe("overseer native adapters", () => {
     expect(rows[1]?.session).toBeUndefined();
   });
 
+  /** a1 on this machine, a2 on another machine that runs another build. */
+  const staleMachine = () => live([{ name: "factory", doc: doc([agent("a1"), { ...agent("a2"), host: OTHER_MACHINE }]) }], {
+    termPlane: makeTermPlane({
+      get: async (bindingId, hostId) => {
+        if (hostId === OTHER_MACHINE) {
+          throw LinkBuildMismatch.of({ build: "old", installationId: "inst-other" as never, machineName: OTHER_MACHINE }, "new");
+        }
+        return { bindingId, hostId, status: "running", epoch: "e1", detached: false, createdAt: 1 };
+      },
+    }),
+  });
+
+  it("lists terminals over a machine with another build, marking its seat, never failing the list", async () => {
+    const listed = await run(staleMachine(), "terminal.list", {});
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    const rows = (listed.data as { terminals: ReadonlyArray<Record<string, unknown>> }).terminals;
+    expect(rows.map((row) => [row.nodeId, row.machine])).toEqual([
+      ["a1", undefined],
+      ["a2", { name: OTHER_MACHINE, needsUpdate: true }],
+    ]);
+    expect(rows[0]?.session).toMatchObject({ status: "running" });
+    expect(rows[1]?.session).toBeUndefined();
+  });
+
+  it("lists one terminal on a machine with another build as needing an update", async () => {
+    const listed = await run(staleMachine(), "terminal.list", { nodeId: "a2" });
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    expect((listed.data as { terminals: unknown }).terminals).toEqual([{
+      nodeId: "a2", kind: "agent", bindingId: "bind-a2", hostId: OTHER_MACHINE, session: undefined,
+      machine: { name: OTHER_MACHINE, needsUpdate: true },
+    }]);
+    const local = await run(staleMachine(), "terminal.list", { nodeId: "a1" });
+    expect(local.ok && (local.data as { terminals: ReadonlyArray<unknown> }).terminals).toEqual([
+      expect.objectContaining({ bindingId: "bind-a1", status: "running" }),
+    ]);
+  });
+
+  it.each(["agent.get", "terminal.get"])("%s on a machine with another build answers NeedsUpdate naming only the machine", async (operation) => {
+    const native = staleMachine();
+    const stale = await run(native, operation, { nodeId: "a2" });
+    expect(stale).toMatchObject({
+      ok: false,
+      error: { type: "NeedsUpdate", message: `Update ${OTHER_MACHINE} before connecting Junto`, details: { machine: OTHER_MACHINE } },
+    });
+    if (stale.ok) return;
+    expect(Object.keys(stale.error.details as object)).toEqual(["machine"]);
+    expect((await run(native, operation, { nodeId: "a1" })).ok).toBe(true);
+  });
+
   it("lists a seat whose machine fails otherwise with its session unknown, scrubbed", async () => {
     const remote = { ...agent("a2"), host: OTHER_MACHINE };
     const native = live([{ name: "factory", doc: doc([agent("a1"), remote]) }], {

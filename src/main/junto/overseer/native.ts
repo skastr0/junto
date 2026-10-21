@@ -197,7 +197,7 @@ const asWorkError = (error: OverseerErrorBody): WorkErrorBody => {
             ? "InvalidTransition"
             : error.type === "Unsupported"
               ? "InputError"
-              : error.type === "RuntimeDown"
+              : error.type === "RuntimeDown" || error.type === "NeedsUpdate"
                 ? "RuntimeDown"
                 : "InternalError";
   return {
@@ -320,13 +320,31 @@ const sessionSummary = async (
  */
 const listedSession = async (ctx: NativeContext, bindingId: string, hostId: string) => {
   try {
-    const session = await sessionSummary(ctx, bindingId, hostId);
-    return { live: session?.status === "running" || session?.status === "starting", session };
+    return { session: await sessionSummary(ctx, bindingId, hostId) };
   } catch (error) {
     if (error instanceof LinkBuildMismatch) {
-      return { live: false, session: undefined, machine: { name: hostId, needsUpdate: true } };
+      return { session: undefined, machine: { name: hostId, needsUpdate: true } };
     }
-    return { live: false, session: undefined, sessionUnknown: true, sessionFailure: encodeError(error, { machine: hostId }) };
+    return { session: undefined, sessionUnknown: true, sessionFailure: encodeError(error, { machine: hostId }) };
+  }
+};
+
+const isLive = (session: Awaited<ReturnType<typeof sessionSummary>>): boolean =>
+  session?.status === "running" || session?.status === "starting";
+
+/** One seat's session for a get: a seat whose machine runs another build answers NeedsUpdate, naming only the machine. */
+const seatSession = async (
+  ctx: NativeContext,
+  bindingId: string,
+  hostId: string,
+): Promise<{ readonly session: Awaited<ReturnType<typeof sessionSummary>> } | NativeErr> => {
+  try {
+    return { session: await sessionSummary(ctx, bindingId, hostId) };
+  } catch (error) {
+    if (error instanceof LinkBuildMismatch) {
+      return fail("NeedsUpdate", `Update ${hostId} before connecting Junto`, { machine: hostId });
+    }
+    throw error;
   }
 };
 
@@ -503,13 +521,15 @@ const handleAgent = async (
     const agents = [];
     for (const node of inPaintOrder(canvas)) {
       if (!isAgentNode(node)) continue;
+      const listed = await listedSession(ctx, node.bindingId, node.host);
       agents.push({
         ...seatIdentity(canvas, node),
         agentKey: node.agentKey,
         bindingId: node.bindingId,
         hostId: node.host,
         harness: node.harness,
-        ...(await listedSession(ctx, node.bindingId, node.host)),
+        live: isLive(listed.session),
+        ...listed,
       });
     }
     return ok({ canvas: canvasName, agents });
@@ -528,9 +548,9 @@ const handleAgent = async (
 
   switch (operation) {
     case "agent.get": {
-      const session = binding === undefined
-        ? undefined
-        : await sessionSummary(ctx, binding.bindingId, binding.hostId);
+      const read = await seatSession(ctx, binding.bindingId, binding.hostId);
+      if ("error" in read) return read;
+      const { session } = read;
       const { name, regions } = seatIdentity(canvas, node);
       return ok({
         nodeId: node.id,
@@ -700,8 +720,15 @@ const handleTerminal = async (
       if ("error" in targeted) return targeted;
       const binding = bindingOf(targeted.node);
       if (binding === undefined) return fail("InvalidArguments", "node has no terminal binding");
-      const session = await sessionSummary(ctx, binding.bindingId, binding.hostId);
-      return ok({ canvas: canvasName, terminals: session === undefined ? [] : [session] });
+      const listed = await listedSession(ctx, binding.bindingId, binding.hostId);
+      if (!("machine" in listed) && !("sessionUnknown" in listed)) {
+        return ok({ canvas: canvasName, terminals: listed.session === undefined ? [] : [listed.session] });
+      }
+      // A machine that could not answer still lists the seat, with its marks.
+      return ok({
+        canvas: canvasName,
+        terminals: [{ nodeId: targeted.node.id, kind: targeted.node.kind, ...binding, ...listed }],
+      });
     }
     const canvas = (await ctx.listCanvases()).get(canvasName);
     if (canvas === undefined) return fail("NotFound", `canvas not found: ${canvasName}`);
@@ -709,13 +736,12 @@ const handleTerminal = async (
     for (const node of inPaintOrder(canvas)) {
       const binding = bindingOf(node);
       if (binding === undefined) continue;
-      const session = await sessionSummary(ctx, binding.bindingId, binding.hostId);
       terminals.push({
         nodeId: node.id,
         kind: node.kind,
         bindingId: binding.bindingId,
         hostId: binding.hostId,
-        session,
+        ...(await listedSession(ctx, binding.bindingId, binding.hostId)),
       });
     }
     return ok({ canvas: canvasName, terminals });
@@ -733,7 +759,9 @@ const handleTerminal = async (
 
   switch (operation) {
     case "terminal.get": {
-      const session = await sessionSummary(ctx, binding.bindingId, binding.hostId);
+      const read = await seatSession(ctx, binding.bindingId, binding.hostId);
+      if ("error" in read) return read;
+      const { session } = read;
       if (session === undefined) return fail("NotFound", `no live terminal for ${binding.bindingId}`);
       return ok(session);
     }
