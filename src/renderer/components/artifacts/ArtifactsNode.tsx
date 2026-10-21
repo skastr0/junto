@@ -42,7 +42,15 @@ import { openMention } from "../tasks/TaskThread";
 import { ArtifactPadEditor } from "./ArtifactPadEditor";
 import { FilePreview, LinkPreview } from "./ArtifactPreview";
 import { ArtifactSheetEditor } from "./ArtifactSheetEditor";
-import { ageLabel, isLinkUrl, pendingWriteLine, TYPE_NOUN, type TypeFilter, visibleArtifacts } from "./artifacts-pane-model";
+import {
+  ageLabel,
+  isLinkUrl,
+  pendingWriteLine,
+  postAfterSave,
+  TYPE_NOUN,
+  type TypeFilter,
+  visibleArtifacts,
+} from "./artifacts-pane-model";
 import { DocumentEditor } from "./DocumentEditor";
 import "./artifacts.css";
 import { claimFocusOnMount, releaseFocus } from "../../lib/focus-ownership";
@@ -293,25 +301,18 @@ function SelectedArtifact({
   /** The document's save, run before a text-anchored comment posts. */
   const saveDocument = useRef<(() => Promise<string | null>) | null>(null);
   /** Post through the one comment path (03); the refusal in words, or null. */
-  const comment = async (text: string, anchor: Anchor | undefined, threadId?: string): Promise<string | null> => {
-    // Main checks a quote against the saved document, so typing still
-    // resting in the editor is saved first; a refused save stops the post.
-    if (anchor?.kind === "text" && saveDocument.current !== null) {
-      const unsaved = await saveDocument.current();
-      if (unsaved !== null) {
-        return `Not posted: the document did not save (${unsaved}). Choose Overwrite theirs or Take theirs above, then post again.`;
-      }
-    }
-    const outcome = await subjectThreadsSource().post(canvasName, subject, {
-      text,
-      opId: newPostOpId(),
-      ...(anchor === undefined ? {} : { anchor }),
-      ...(threadId === undefined ? {} : { threadId }),
+  const comment = (text: string, anchor: Anchor | undefined, threadId?: string): Promise<string | null> =>
+    postAfterSave(threadId === undefined ? anchor : undefined, saveDocument.current, async () => {
+      const outcome = await subjectThreadsSource().post(canvasName, subject, {
+        text,
+        opId: newPostOpId(),
+        ...(anchor === undefined ? {} : { anchor }),
+        ...(threadId === undefined ? {} : { threadId }),
+      });
+      if (!outcome.ok) return outcome.message;
+      if (threadId === undefined) setDraftAnchor(undefined);
+      return null;
     });
-    if (!outcome.ok) return outcome.message;
-    if (threadId === undefined) setDraftAnchor(undefined);
-    return null;
-  };
 
   const retitle = (): void => {
     const next = title.trim();

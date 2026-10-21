@@ -76,7 +76,11 @@ export function DocumentEditor({
       if (refused === null) synced.current = { markdown: text, version: (base + 1) as ArtifactVersion };
       return refused;
     });
-    chain.current = sent.then(() => undefined);
+    // A failed send must not stop the ones after it.
+    chain.current = sent.then(
+      () => undefined,
+      () => undefined,
+    );
     return sent;
   };
 
@@ -87,13 +91,22 @@ export function DocumentEditor({
     timer.current = setTimeout(() => void send(), SAVE_REST_MS);
   };
 
+  const mounted = useRef(true);
   // Closing with typing still resting sends it rather than dropping it.
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
       if (timer.current !== null) void send();
-    },
-    [],
-  );
+    };
+  }, []);
+
+  /**
+   * The save a comment runs before posting. Once this editor is gone its
+   * close already sent the draft, so the save is spent and main judges the
+   * quote; it never resends an old draft whose buttons are gone.
+   */
+  const saveForComment = (): Promise<string | null> => (mounted.current ? send() : Promise.resolve(null));
 
   /** Write the draft over the newest head, replacing what the other writer changed. */
   const overwrite = (): void => {
@@ -133,7 +146,7 @@ export function DocumentEditor({
             size="sm"
             variant="subtle"
             onClick={() => {
-              onCommentText(selection.quote, selection.offset, send);
+              onCommentText(selection.quote, selection.offset, saveForComment);
               setSelection(null);
             }}
           >

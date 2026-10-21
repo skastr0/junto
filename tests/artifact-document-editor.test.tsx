@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ArtifactVersion, TextPatch } from "../src/shared/artifact";
 import { DocumentEditor } from "../src/renderer/components/artifacts/DocumentEditor";
+import { postAfterSave } from "../src/renderer/components/artifacts/artifacts-pane-model";
 
 let root: Root;
 let host: HTMLDivElement;
@@ -85,4 +86,63 @@ it("resolves the save to the refusal when the document is not saved", async () =
   });
   expect(refused).toBe("written against version 1, the head is 2");
   expect(host.textContent).toContain("Overwrite theirs");
+});
+
+it("keeps saving after a send that failed to reach Junto", async () => {
+  const onPatch = vi
+    .fn<(base: ArtifactVersion, patches: ReadonlyArray<TextPatch>) => Promise<string | null>>()
+    .mockRejectedValueOnce(new Error("ipc down"))
+    .mockResolvedValue(null);
+  const { save } = await mount(onPatch);
+  await type("Ship the tabs today");
+  await selectText("tabs");
+  await act(async () => commentButton().click());
+  await expect(save()).rejects.toThrow("ipc down");
+  expect(await save()).toBeNull();
+  expect(onPatch).toHaveBeenCalledTimes(2);
+});
+
+it("spends the save once the editor is gone, so an old draft is never resent", async () => {
+  const onPatch = vi.fn(async (_base: ArtifactVersion, _patches: ReadonlyArray<TextPatch>): Promise<string | null> => "written against version 1, the head is 2");
+  const { save } = await mount(onPatch);
+  await type("Ship the tabs today");
+  await selectText("tabs");
+  await act(async () => commentButton().click());
+  // Closing sends the resting draft once.
+  await act(async () => root.render(null));
+  expect(onPatch).toHaveBeenCalledTimes(1);
+  expect(await save()).toBeNull();
+  expect(onPatch).toHaveBeenCalledTimes(1);
+});
+
+const anchorText = { kind: "text", quote: "tabs" } as const;
+
+it("posts a text-anchored comment only after the document saves", async () => {
+  const order: string[] = [];
+  const save = vi.fn(async () => (order.push("save"), null));
+  const post = vi.fn(async () => (order.push("post"), null));
+  expect(await postAfterSave(anchorText, save, post)).toBeNull();
+  expect(order).toEqual(["save", "post"]);
+});
+
+it("stops the post when the save is refused or fails, and says why", async () => {
+  const post = vi.fn(async () => null);
+  expect(await postAfterSave(anchorText, async () => "written against version 1, the head is 2", post)).toBe(
+    "Not posted: the document did not save (written against version 1, the head is 2). Choose Overwrite theirs or Take theirs above, then post again.",
+  );
+  expect(await postAfterSave(anchorText, () => Promise.reject(new Error("ipc down")), post)).toBe(
+    "Not posted: the document could not be saved. Try again.",
+  );
+  expect(post).not.toHaveBeenCalled();
+});
+
+it("posts a whole, cells or unanchored comment without saving", async () => {
+  const save = vi.fn(async () => "refused");
+  const post = vi.fn(async () => null);
+  await postAfterSave(undefined, save, post);
+  await postAfterSave({ kind: "whole" }, save, post);
+  await postAfterSave({ kind: "cells", range: "B2" }, save, post);
+  await postAfterSave(anchorText, null, post);
+  expect(save).not.toHaveBeenCalled();
+  expect(post).toHaveBeenCalledTimes(4);
 });

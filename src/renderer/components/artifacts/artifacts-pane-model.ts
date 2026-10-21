@@ -55,6 +55,29 @@ export const textSplice = (before: string, after: string): TextPatch | null => {
   };
 };
 
+/**
+ * Post a comment, saving the document first when it hangs on a text quote:
+ * main checks the quote against the saved document. A refused or failed save
+ * stops the post and says why; a reply or any other anchor posts as is.
+ */
+export const postAfterSave = async (
+  anchor: Anchor | undefined,
+  save: (() => Promise<string | null>) | null,
+  post: () => Promise<string | null>,
+): Promise<string | null> => {
+  if (anchor?.kind === "text" && save !== null) {
+    const unsaved = await save().then(
+      (refused) =>
+        refused === null
+          ? null
+          : `Not posted: the document did not save (${refused}). Choose Overwrite theirs or Take theirs above, then post again.`,
+      () => "Not posted: the document could not be saved. Try again.",
+    );
+    if (unsaved !== null) return unsaved;
+  }
+  return post();
+};
+
 const QUOTE_MAX = 48;
 
 /** Where a thread hangs, said briefly. */
