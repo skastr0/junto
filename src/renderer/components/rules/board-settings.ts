@@ -14,7 +14,6 @@ const incoming = (value: TasksIncoming | undefined): TasksIncoming | undefined =
   const next = {
     ...(trimmed(value.handling) ? { handling: trimmed(value.handling) } : {}),
     ...(trimmed(value.description) ? { description: trimmed(value.description) } : {}),
-    ...(value.admission && value.admission !== "auto" ? { admission: value.admission } : {}),
     ...(value.waitMs && value.waitMs > 0 ? { waitMs: Math.round(value.waitMs) } : {}),
     ...(checks(value.checks) ? { checks: checks(value.checks) } : {}),
   };

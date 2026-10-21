@@ -11,3 +11,11 @@ describe("normalizeBoardSettings keeps the stamp default", () => {
     });
   });
 });
+
+describe("normalizeBoardSettings and the admission setting", () => {
+  it("no longer writes admission: a node saved with one comes back without it", () => {
+    const stored = { incoming: { handling: "Triage first", admission: "approval" } } as never;
+    expect(normalizeBoardSettings(stored)).toEqual({ incoming: { handling: "Triage first" } });
+    expect(normalizeBoardSettings({ incoming: { admission: "operator" } } as never)).toBeUndefined();
+  });
+});
