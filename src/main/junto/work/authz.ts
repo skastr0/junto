@@ -30,7 +30,8 @@ import {
 import { canvasToCapabilityView } from "@shared/physics/view";
 import type { TargetCandidate, WorkErrorBody, WorkOpName } from "@shared/work-control";
 import { resolveTarget, type ResolvedTarget } from "@shared/target-resolution";
-import { isResourceKind, reaches, resourcesInReach, resourcesSeatReaches, seatReachesTaskNode, seatsInReach } from "@shared/region-reach";
+import { resourcesInReach, seatReachesTaskNode, seatsInReach } from "@shared/region-reach";
+import { mentionableNodesFrom } from "@shared/mention-reach";
 import { linkMentionTokens, matchTypedMention, type ResolvedName } from "@shared/typed-mentions";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
 import type { ActorRef } from "@shared/work-protocol";
@@ -888,28 +889,13 @@ export type MentionPlace = { readonly kind: "mail" } | { readonly kind: "comment
 
 /**
  * The task boards, Artifacts nodes and pages a mention may name (03 section
- * 3). In mail, those in the writer's reach, and for a live overseer every
- * task node too (`resourcesSeatReaches`). In comments, those in reach of the
- * resource commented on, itself included, whoever writes. Sorted by id.
+ * 3): from the writer in mail, from the resource commented on in comments,
+ * by the composer's own rule (`mentionableNodesFrom`).
  */
-export const mentionNodesAt = (doc: Canvas, writerId: string, place: MentionPlace): ReadonlyArray<Node> => {
-  const isPage = (node: Node): boolean => node.kind === "page";
-  if (place.kind === "mail") {
-    const seat = asNodeId(writerId);
-    const reached: ReadonlyArray<{ readonly id: string }> = [
-      ...resourcesSeatReaches(doc, seat),
-      ...[...doc.nodes.values()].filter((node) => isPage(node) && reaches(doc, seat, node.id)),
-    ];
-    return reached
-      .map((node) => findNode(doc, node.id))
-      .filter((node): node is Node => node !== undefined)
-      .sort((a, b) => a.id.localeCompare(b.id));
-  }
-  const from = asNodeId(place.nodeId);
-  return [...doc.nodes.values()]
-    .filter((node) => (isResourceKind(node.kind) || isPage(node)) && (node.id === from || reaches(doc, from, node.id)))
-    .sort((a, b) => a.id.localeCompare(b.id));
-};
+export const mentionNodesAt = (doc: Canvas, writerId: string, place: MentionPlace): ReadonlyArray<Node> =>
+  mentionableNodesFrom(doc, asNodeId(place.kind === "mail" ? writerId : place.nodeId))
+    .map((node) => findNode(doc, node.id))
+    .filter((node): node is Node => node !== undefined);
 
 /** What a mention in a text may name: seats and pages by name, tasks and artifacts as items on their nodes. */
 export type MentionCandidates = {
