@@ -143,7 +143,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--text-title);
   font-weight: 600;
   color: var(--color-ink);
@@ -178,14 +178,17 @@
   padding: 16px 20px;
 }
 
-/* A message uses the width, to a measure the body face reads at. */
+/* A message hugs its text on the sender's side, to 80 characters of the
+   body face at the bubble's size: the face and size are set here so the ch
+   is measured in them (product-typography). */
 .seat-threads__message {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
-  max-width: min(92%, 96ch);
+  max-width: min(92%, 80ch);
   font-family: var(--font-body);
+  font-size: var(--text-body-lg);
 }
 
 .seat-threads__message[data-mine="true"] {
