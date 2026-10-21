@@ -18,12 +18,13 @@ const { check, fail, pending } = casesFor("automation");
 
 const NODE = "automations";
 const NAME = "standup reminder";
+const OVERSEEN = "wrap up";
 const CREATE = overseerAutomationExamples.find((entry) => entry.command === "overseer automation create")!.input;
 
 export const automationArea: AcceptanceArea = {
   name: "automation",
   owner: "pty-contract",
-  run: async ({ canvas, cli, log, nodes, runtime }) => {
+  run: async ({ addSeat, canvas, cli, log, nodes, runtime }) => {
     const inApp = runtime as unknown as { readonly runPromise: <A>(effect: unknown) => Promise<A> };
     const model = await inApp.runPromise<ModelService["Service"]>(ModelService);
     await inApp.runPromise(model.command(Schema.decodeUnknownSync(Command)({
@@ -71,6 +72,21 @@ export const automationArea: AcceptanceArea = {
     log("overseer automation create as a seat", written.stdout || written.stderr);
     const write = envelopeOf(written);
 
+    // An overseer seat on this machine, which edits the canvas, writes and is ruled here.
+    const overseer = await addSeat("overseer", { x: 240, y: 130 }, { overseer: true });
+    const ruledInput = {
+      target: NODE,
+      name: OVERSEEN,
+      trigger: { kind: "schedule", cron: "0 17 * * 1-5", timezone: "UTC" },
+      then: [{ kind: "mail", to: `@${nodes.agent}`, text: "Wrap up for the day" }],
+    };
+    const ruled = await cli(["overseer", "automation", "create", JSON.stringify(ruledInput)], overseer);
+    log("overseer automation create as an overseer", ruled.stdout || ruled.stderr);
+    const rule = envelopeOf(ruled);
+    const seen = await cli(["automation", "show", JSON.stringify({ target: NODE, automation: OVERSEEN })]);
+    log("automation show of the overseer's", seen.stdout || seen.stderr);
+    const seenBody = envelopeOf(seen);
+
     return [
       check(
         "list reads as a seat",
@@ -104,7 +120,12 @@ export const automationArea: AcceptanceArea = {
         written,
       ),
       // Automations nodes and their store live only on the editing machine, so the write splits by machine.
-      pending("an overseer on the editing machine writes an automation, ruled and applied", "remote"),
+      check(
+        "an overseer on the editing machine writes an automation, ruled and applied",
+        ruled.code === 0 && rule?.ok === true && rule.data?.disposition === "applied" && typeof rule.data?.version === "number" &&
+          seen.code === 0 && seenBody?.data?.automation?.automationId === rule.data?.automationId,
+        ruled.code === 0 ? seen : ruled,
+      ),
       // Automation writes are not queued; canvas-automation adds the refusal that names the editing machine.
       pending("an overseer's write from another machine is refused not_available, naming the editing machine", "canvas-automation"),
     ];
