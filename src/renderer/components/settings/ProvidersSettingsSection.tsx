@@ -27,11 +27,7 @@ import {
   liveSettings,
   type ProviderSectionKey,
 } from "@shared/settings";
-import {
-  HERMES_INTEGRATION_ENABLED,
-  LIVE_OVERSEER_ENABLED,
-  USAGE_ENABLED,
-} from "@shared/features";
+import { LIVE_OVERSEER_ENABLED, USAGE_ENABLED } from "@shared/features";
 import { type NativeUsageProvider } from "@shared/usage";
 import { Result } from "effect";
 import {
@@ -486,7 +482,6 @@ export function ProvidersSettingsSection() {
 
   const providers = read.state === "answered" ? read.providers : undefined;
   const enabledSources = new Set(providers?.enabledSources ?? []);
-  const hermesHostSnapshots = providers?.hermesHostSnapshots === true;
   const disabled = providers === undefined;
   // Rule 9: a secret's value never crosses machines, so another machine's credentials are set there.
   const credentialsDisabled = disabled || !machine.isThisMachine;
@@ -561,34 +556,6 @@ export function ProvidersSettingsSection() {
             );
           })}
         </>
-      ) : null}
-      {HERMES_INTEGRATION_ENABLED ? (
-        <div className="settings-provider-card">
-          <div className="settings-provider-head">
-            <span className="settings-provider-field__text">
-              <Eyebrow>Hermes host snapshots</Eyebrow>
-              <span className="settings-field__hint">
-                Local and enrolled-host Hermes profile listing, every minute.
-              </span>
-            </span>
-            <label className="settings-provider-enable">
-              <span>{hermesHostSnapshots ? "access on" : "access off"}</span>
-              <input
-                type="checkbox"
-                checked={hermesHostSnapshots}
-                disabled={disabled}
-                aria-label="Allow Hermes host snapshot access"
-                onChange={(event) => write({ hermesHostSnapshots: event.target.checked })}
-              />
-            </label>
-          </div>
-          <p className="settings-provider-access">
-            May run local and enrolled-host SSH `hermes profile list` and
-            `hermes version`, and collect remote profile metadata.
-            {USAGE_ENABLED ? " Distinct from Hermes usage above." : ""} Polls
-            every one minute while enabled.
-          </p>
-        </div>
       ) : null}
     </div>
   );

@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Result } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { HERMES_INTEGRATION_ENABLED, LIVE_OVERSEER_ENABLED, USAGE_ENABLED } from "@shared/features";
+import { LIVE_OVERSEER_ENABLED, USAGE_ENABLED } from "@shared/features";
 import { MachineSettingsUnavailableError, machineProvidersOf } from "@shared/machine-settings";
 import { defaultSettings, type ProvidersPatch, type Settings } from "@shared/settings";
 import { NATIVE_USAGE_PROVIDERS } from "@shared/usage";
@@ -67,12 +67,9 @@ describe("provider access settings", () => {
     expect(html).toContain("process command lines and ports");
     expect(html).toContain("This does not run hermes CLI commands");
     expect(html.match(/aria-label="Allow [^"]+ usage access"/gu)).toHaveLength(NATIVE_USAGE_PROVIDERS.length);
-    expect(checkboxes()).toHaveLength(NATIVE_USAGE_PROVIDERS.length + (HERMES_INTEGRATION_ENABLED ? 1 : 0));
+    expect(checkboxes()).toHaveLength(NATIVE_USAGE_PROVIDERS.length);
     expect(checkboxes().every((input) => !input.checked)).toBe(true);
-    if (HERMES_INTEGRATION_ENABLED) {
-      expect(html).toContain("Allow Hermes host snapshot access");
-      expect(html).toContain("enrolled-host SSH");
-    }
+    expect(html).not.toContain("Hermes host snapshot");
   });
 
   it.runIf(USAGE_ENABLED)("renders only the sources the operator enabled as checked", async () => {

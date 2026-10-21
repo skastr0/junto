@@ -9,7 +9,6 @@ import {
   DEV_TOOLS_ENABLED,
   FLEET_UI_ENABLED,
   HARNESS_SETTINGS_ENABLED,
-  HERMES_INTEGRATION_ENABLED,
   LIVE_OVERSEER_ENABLED,
   USAGE_ENABLED,
   experimentalFeatureKeys,
@@ -62,8 +61,7 @@ import "./settings-panel.css";
  */
 type PanelSection = SettingsSectionKey | "updates" | "experimental" | "companion" | "briefing" | "references";
 
-const PROVIDERS_SECTION_ENABLED =
-  USAGE_ENABLED || LIVE_OVERSEER_ENABLED || HERMES_INTEGRATION_ENABLED;
+const PROVIDERS_SECTION_ENABLED = USAGE_ENABLED || LIVE_OVERSEER_ENABLED;
 
 /** The section list's groups, in the order they are listed. */
 const SECTION_GROUPS = ["You", "Machine", "Agents", "App"] as const;
@@ -104,8 +102,8 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
     : []),
   // Kept by each machine: a seat's session is cut on the machine it runs on.
   { key: "offboard", group: "Machine", label: "Cache window", blurb: "" },
-  // Usage credentials, the voice provider, and Hermes host access. Each is
-  // flag-gated inside the section; with all three off there is nothing to show.
+  // Usage credentials and the voice provider. Each is flag-gated inside the
+  // section; with both off there is nothing to show.
   ...(PROVIDERS_SECTION_ENABLED
     ? [
         {

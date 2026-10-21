@@ -145,8 +145,6 @@ describe("macOS privacy policy", () => {
     expect(docs).toContain("every five minutes");
     expect(docs).toContain("default-on value is treated as off");
     expect(ui).toContain("sourceAccess");
-    expect(ui).toContain("hermesHostSnapshots");
-    expect(ui).toContain("Allow Hermes host snapshot access");
   });
 
   it("shows desktop notifications from one plane, never at launch", () => {
@@ -165,13 +163,10 @@ describe("macOS privacy policy", () => {
 
   it("revokes admitted provider work without the global adapter shutdown switch", () => {
     const usage = read("src/main/junto/usage/usage-service.ts");
-    const snapshots = read("src/main/junto/snapshots.ts");
     const exec = read("src/main/junto/adapters/exec.ts");
 
     expect(usage).toContain("abortAdmittedAccess");
-    expect(snapshots).toContain("abortAdmittedAccess");
     expect(usage).not.toContain("terminateAdapterChildrenOnQuit");
-    expect(snapshots).not.toContain("terminateAdapterChildrenOnQuit");
     expect(exec).toContain("ACCESS_CANCELLED_ERROR");
   });
 });
