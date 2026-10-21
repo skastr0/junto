@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import type { Node, NodeKind, Region } from "@shared/model";
 import { regionStack, type Canvas } from "@shared/model/canvas";
 import { titleOf } from "@shared/model/title";
-import { NODE_STATUS_WORD, type NodeStatus } from "./node-status";
+import { nodeStatusWord, type NodeStatus } from "./node-status";
 import { INSTRUMENT_KINDS, INSTRUMENT_RING_PX, renderedNodeSize, SEAT_RING_PX } from "./node-geometry";
 import { regionNameSlot, sameNameSlot, type RegionNameSlot } from "./region-name-slot";
 import { evenRingCaps, seatRingCaps, type RoomNode } from "./seat-ring-room";
@@ -76,7 +76,7 @@ export const spokenNodeName = (
 ): string => {
   const noun = SPOKEN_KIND[kind] === undefined ? undefined : (spokenKind ?? SPOKEN_KIND[kind]);
   if (noun === undefined) return name;
-  const said = status !== undefined ? NODE_STATUS_WORD[status].toLowerCase() : blocked ? "blocked" : undefined;
+  const said = status !== undefined ? nodeStatusWord(status).toLowerCase() : blocked ? "blocked" : undefined;
   return said === undefined ? `${name}, ${noun}` : `${name}, ${noun}, ${said}`;
 };
 

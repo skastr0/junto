@@ -7,10 +7,10 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SPINE_STATUS, SpineCard, type SpineStatus } from "../src/renderer/components/nodes/SpineCard";
+import { SpineCard, spineStatusLook } from "../src/renderer/components/nodes/SpineCard";
 import { nodeScale } from "../src/renderer/lib/canvas-tier";
 import { spokenNodeName } from "../src/renderer/lib/flow-nodes";
-import { NodeBlockedContext, NodeIdContext, nodeSpokenKind$, nodeStatus$, shownStatus } from "../src/renderer/lib/node-status";
+import { NODE_STATUSES, NodeBlockedContext, NodeIdContext, nodeSpokenKind$, nodeStatus$, shownStatus } from "../src/renderer/lib/node-status";
 import { PeerCard, StubCard } from "../src/renderer/components/nodes/RemoteNodeCards";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -43,9 +43,9 @@ describe("SpineCard", () => {
   });
 
   it("says every status as a word and a shape, and carries its tone for the spine and the far pip", () => {
-    for (const status of Object.keys(SPINE_STATUS) as SpineStatus[]) {
+    for (const status of NODE_STATUSES) {
       render(<SpineCard glyph={glyph} hue="green" name="Board" status={status} />);
-      const look = SPINE_STATUS[status];
+      const look = spineStatusLook(status);
       expect(host.querySelector(".spine-tag")?.textContent).toBe(look.word);
       expect(host.querySelector(".spine-tag .spine-shape")?.getAttribute("data-shape")).toBe(look.shape);
       expect(host.querySelector(".spine-pip")?.getAttribute("data-shape")).toBe(look.shape);

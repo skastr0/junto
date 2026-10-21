@@ -10,14 +10,15 @@
  */
 import { useContext, useEffect, type ReactNode } from "react";
 import {
-  NODE_STATUS_WORD,
   NodeBlockedContext,
+  nodeStatusWord,
   NodeIdContext,
   publishNodeSpokenKind,
   publishNodeStatus,
   shownStatus,
   type NodeStatus,
 } from "../../lib/node-status";
+import { RegionUrgency, SeatUrgency } from "@shared/wire/urgency";
 import "./spine-card.css";
 
 /** A glyph hue: a theme token, worn by the mark only, never by a word. */
@@ -33,13 +34,20 @@ type StatusLook = {
 };
 
 /** Every status is a shape and a word, at every tier; never colour alone. */
-export const SPINE_STATUS: { readonly [S in SpineStatus]: StatusLook } = {
-  blocked: { word: NODE_STATUS_WORD.blocked, shape: "triangle", tone: "crimson" },
-  "needs-you": { word: NODE_STATUS_WORD["needs-you"], shape: "dot", tone: "amber" },
-  working: { word: NODE_STATUS_WORD.working, shape: "arc", tone: "cyan" },
-  failed: { word: NODE_STATUS_WORD.failed, shape: "triangle", tone: "crimson" },
-  off: { word: NODE_STATUS_WORD.off, shape: "ring", tone: "faint" },
-  retired: { word: NODE_STATUS_WORD.retired, shape: "ring", tone: "faint" },
+export const spineStatusLook = (status: SpineStatus): StatusLook => {
+  const word = nodeStatusWord(status);
+  switch (status) {
+    case RegionUrgency.group.blocked:
+    case "failed":
+      return { word, shape: "triangle", tone: "crimson" };
+    case RegionUrgency.group["needs-you"]:
+      return { word, shape: "dot", tone: "amber" };
+    case SeatUrgency.group.working:
+      return { word, shape: "arc", tone: "cyan" };
+    default:
+      // off, retired
+      return { word, shape: "ring", tone: "faint" };
+  }
 };
 
 /** One row on the spine. `key` is stable across renders (an item id). */
@@ -94,7 +102,7 @@ export type SpineCardProps = {
 };
 
 export function SpineStatusTag({ status }: { readonly status: SpineStatus }) {
-  const look = SPINE_STATUS[status];
+  const look = spineStatusLook(status);
   return (
     <span className="spine-tag" data-tone={look.tone}>
       <span className="spine-shape" data-shape={look.shape} aria-hidden />
@@ -107,7 +115,7 @@ export function SpineCard({ glyph, hue, name, count, status: reported, trailing,
   const rows = body?.kind === "spine" ? body.rows.slice(0, SPINE_ROWS_MAX) : [];
   const more = body?.kind === "spine" ? (body.more ?? 0) + Math.max(0, body.rows.length - SPINE_ROWS_MAX) : 0;
   const status = shownStatus(reported, useContext(NodeBlockedContext));
-  const look = status === undefined ? undefined : SPINE_STATUS[status];
+  const look = status === undefined ? undefined : spineStatusLook(status);
   // The node's spoken name says the tag too (Canvas flowNodeLabel).
   const nodeId = useContext(NodeIdContext);
   useEffect(() => {

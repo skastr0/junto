@@ -4,6 +4,7 @@
  * layer read.
  */
 import { stampOf } from "../../lib/task-ui";
+import { compareView, RegionUrgency } from "@shared/wire/urgency";
 import { ageLabel } from "../artifacts/artifacts-pane-model";
 import type { TaskPendingWrite } from "@shared/resource-ipc";
 import type { TaskContext } from "@shared/task-machine";
@@ -262,7 +263,9 @@ const flagOf = (view: TaskView): RowFlag | undefined => {
   return undefined;
 };
 
-const FLAG_FIRST: Readonly<Record<RowFlag, number>> = { blocked: 0, "needs-you": 1 };
+/** Flagged rows most urgent first, in the region view's order from the one ladder. */
+const flagOrder = (a: RowFlag, b: RowFlag): number =>
+  compareView(RegionUrgency)(RegionUrgency.group[a], RegionUrgency.group[b]);
 
 /** The card's body: counts, rows with their flags, and the status word, from the board's tasks alone. Pure. */
 export const tasksCardBody = (views: ReadonlyArray<TaskView>, limit = 4): TasksCardBody => {
@@ -285,7 +288,7 @@ export const tasksCardBody = (views: ReadonlyArray<TaskView>, limit = 4): TasksC
   });
   // Flagged rows first (a seat that waits, then a stamp owed), the rest in the list's own order.
   const ordered = [
-    ...listed.filter((row) => row.flag !== undefined).sort((a, b) => FLAG_FIRST[a.flag!] - FLAG_FIRST[b.flag!]),
+    ...listed.filter((row) => row.flag !== undefined).sort((a, b) => flagOrder(a.flag!, b.flag!)),
     ...listed.filter((row) => row.flag === undefined),
   ];
   const flags = ordered.map((row) => row.flag);
