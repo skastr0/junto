@@ -11,7 +11,6 @@ import {
   VerdictPostArgs,
   PreambleArgs,
   RulingsArgs,
-  TasksRulesArgs,
   type WorkOpName,
 } from "../../shared/work-control";
 import { InputError } from "../core/errors";
@@ -58,18 +57,26 @@ const callDomain = <A>(
 /** `task rules`, registered by the task command (./task.ts). */
 export const taskRulesCommand = Command.make(
   "rules",
-  { input: jsonInputArg, timeout: timeoutOption },
-  ({ input, timeout }) =>
+  {
+    task: Argument.string("task").pipe(Argument.optional, Argument.withDescription("A task: #42, its id, or a junto:// ref")),
+    node: Flag.string("node").pipe(Flag.optional, Flag.withDescription("A task node instead: its id, its name or a junto:// ref")),
+    timeout: timeoutOption,
+  },
+  ({ task, node, timeout }) =>
     executeJsonCommand(
       "task rules",
       Effect.gen(function* () {
-        const item = yield* loadJsonInput(TasksRulesArgs, input);
+        // One of the two: the rules where a task sits, or a task node's own.
+        if (Option.isSome(task) === Option.isSome(node)) {
+          return yield* Effect.fail(new InputError({ message: "name a task, or --node, not both", path: Option.isSome(task) ? "node" : "task" }));
+        }
+        const item = Option.isSome(task) ? { task: task.value } : { node: Option.getOrThrow(node) };
         return yield* callDomain("task.rules", item, toUndefined(timeout));
       }),
     ),
 ).pipe(
   Command.withDescription(
-    "Rules in force at a board with provenance; name a task for readiness",
+    "The rules in force on a task node, with provenance: name a task for the rules where it sits and which its finish leaves unanswered, or --node for a node's own",
   ),
 );
 

@@ -168,19 +168,17 @@ describe("seat read lowering", () => {
 });
 
 describe("task wait lowering", () => {
-  it("lowers a task wait with its sink and bounded timeout", () => {
+  it("lowers a task wait onto the task verb with a bounded timeout", () => {
     const lowered = lowerTaskWait({
-      task: "t1",
-      target: "sink",
-      until: "rejected",
+      task: "#42",
+      until: "in-review",
       timeout: "90s",
     });
     expect(lowered.ok).toBe(true);
     if (!lowered.ok) return;
     expect(lowered.args).toEqual({
-      target: "sink",
-      taskId: "t1",
-      until: "rejected",
+      task: "#42",
+      until: "in-review",
       timeoutMs: 90_000,
     });
     expect(lowered.socketTimeoutMs).toBe(95_000);
@@ -188,9 +186,8 @@ describe("task wait lowering", () => {
 
   it("refuses an unknown task state", () => {
     const lowered = lowerTaskWait({
-      task: "t1",
-      target: "sink",
-      until: "canceled",
+      task: "#42",
+      until: "rejected",
       timeout: undefined,
     });
     expect(lowered.ok).toBe(false);

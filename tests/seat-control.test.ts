@@ -14,8 +14,6 @@ import {
   SeatReadResult,
   SeatWaitArgs,
   SeatWaitResult,
-  TaskWaitArgs,
-  TaskWaitResult,
   clampFollowSeconds,
   clampReadLines,
   clipReadText,
@@ -51,12 +49,6 @@ describe("seat-control args", () => {
     expect(decodes(SeatReadArgs, { target: "p", lines: SEAT_READ_MAX_LINES + 1 })).toBe(false);
     expect(decodes(SeatReadArgs, { target: "p", follow: true, maxSeconds: SEAT_READ_MAX_SECONDS })).toBe(true);
     expect(decodes(SeatReadArgs, { target: "p", follow: true, maxSeconds: SEAT_READ_MAX_SECONDS + 1 })).toBe(false);
-  });
-
-  it("addresses a task by id, never by a loose task field", () => {
-    expect(decodes(TaskWaitArgs, { target: "sink", taskId: "t1", until: "rejected" })).toBe(true);
-    expect(decodes(TaskWaitArgs, { target: "sink", task: "t1", until: "rejected" })).toBe(false);
-    expect(decodes(TaskWaitArgs, { target: "sink", taskId: "t1", until: "canceled" })).toBe(false);
   });
 
   it("covers every product seat state on the wire", () => {
@@ -114,9 +106,6 @@ describe("seat-control args", () => {
       peer: { nodeId: "peer", name: "peer", regions: [] },
       mail: [],
     })).toBe(false);
-    expect(
-      decodes(TaskWaitResult, { taskId: "t1", state: "completed", epoch: 2, at: 1 }),
-    ).toBe(true);
   });
 });
 

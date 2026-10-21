@@ -4,7 +4,8 @@ import {
   BROWSER_ENABLED,
   TASKS_ENABLED,
 } from "../../shared/features";
-import { SeatReadArgs, SeatWaitArgs, TaskWaitArgs } from "../../shared/seat-control";
+import { SeatReadArgs, SeatWaitArgs } from "../../shared/seat-control";
+import { TASK_WAIT_DEFAULT_MS, TASK_WAIT_MAX_MS, TaskRulesArgs, TaskWaitArgs } from "../../shared/task-control";
 import { browserCapabilities, browserExamples, browserSchemas } from "../commands/browser-contract";
 import {
   ContentMaterializeArgs,
@@ -27,7 +28,6 @@ import {
   SignalListArgs,
   RulingsArgs,
   TasksCheckCliArgs,
-  TasksRulesArgs,
 } from "../../shared/work-control";
 import { SignalRaiseCliInput } from "./signal-input";
 import { Level, rankOf } from "../../shared/wire/urgency";
@@ -101,9 +101,9 @@ export const taskWaitSchema: CommandSchemaContract = {
   command: "task wait",
   schema_id: "task.wait.input/v1",
   description:
-    "Wait for one authorized task to become completed, input-required, or rejected. timeoutMs bounds the wait to at most 600000 ms.",
+    `Wait for a task on a task node in reach to become done, input-required, in-review or canceled. timeoutMs bounds the wait: ${TASK_WAIT_DEFAULT_MS} ms by default, at most ${TASK_WAIT_MAX_MS} ms.`,
   schema: TaskWaitArgs,
-  input_modes: inputModes,
+  input_modes: ["argv"],
 };
 
 export const taskRulesSchema: CommandSchemaContract = {
@@ -111,9 +111,9 @@ export const taskRulesSchema: CommandSchemaContract = {
   command: "task rules",
   schema_id: "task.rules.input/v1",
   description:
-    "Rules in force at a board, with provenance. Name a task to also get readiness: unanswered rules and required checks for each next board.",
-  schema: TasksRulesArgs,
-  input_modes: inputModes,
+    "The rules in force on a task node, with provenance: name a task for the rules where it sits and which its finish leaves unanswered, or --node for a node's.",
+  schema: TaskRulesArgs,
+  input_modes: ["argv"],
 };
 
 export const taskCheckSchema: CommandSchemaContract = {
@@ -439,24 +439,24 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     command_id: "task.wait",
     command: "task wait",
     name: "wait for task completion",
-    input: { target: "n7", taskId: "t1", until: "completed", timeoutMs: 30000 },
-    args: ["task", "wait", '{"target":"n7","taskId":"t1","until":"completed","timeoutMs":30000}'],
+    input: { task: "#42", until: "done", timeoutMs: 30000 },
+    args: ["task", "wait", "#42", "--until", "done", "--timeout", "30s"],
   },
   {
     command_id: "task.rules",
     command: "task rules",
     name: "rules in force",
-    description: "The rules in force at this board, with provenance.",
-    input: { target: "n7" },
-    args: ["task", "rules", '{"target":"n7"}'],
+    description: "The rules in force on a task node, with provenance.",
+    input: { node: "Review" },
+    args: ["task", "rules", "--node", "Review"],
   },
   {
     command_id: "task.rules",
     command: "task rules",
     name: "readiness for a task",
-    description: "Which rules are unanswered and which checks are complete.",
-    input: { target: "n7", task: "t1" },
-    args: ["task", "rules", '{"target":"n7","task":"t1"}'],
+    description: "The rules where the task sits, and which its finish leaves unanswered.",
+    input: { task: "#42" },
+    args: ["task", "rules", "#42"],
   },
   {
     command_id: "task.check",
@@ -993,7 +993,7 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     command_id: "task.wait",
     command: "task wait",
     category: "workflow",
-    description: "Wait for an authorized task state with a bounded deadline.",
+    description: "Wait for a task in reach to reach a state, with a bounded deadline.",
     schemas: [taskWaitSchema],
     examples: allExamples.filter((e) => e.command_id === "task.wait"),
   },
@@ -1001,7 +1001,7 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     command_id: "task.rules",
     command: "task rules",
     category: "workflow",
-    description: "Rules in force at a board, plus readiness for a named task.",
+    description: "Rules in force on a task node, and what a task's finish leaves unanswered.",
     schemas: [taskRulesSchema],
     examples: allExamples.filter((e) => e.command_id === "task.rules"),
   },

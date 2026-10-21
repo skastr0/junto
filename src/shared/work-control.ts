@@ -25,8 +25,8 @@ import {
 } from "./agent-signals";
 import { UrgencyLevel, UrgencyRank } from "./wire/urgency";
 export {
-  SeatWaitArgs, SeatReadArgs, TaskWaitArgs,
-  SeatWaitResult, SeatReadResult, TaskWaitResult,
+  SeatWaitArgs, SeatReadArgs,
+  SeatWaitResult, SeatReadResult,
 } from "./seat-control";
 
 // Work control-plane wire contract: NDJSON frames over a local Unix domain

@@ -75,12 +75,12 @@ export const COMMAND_FAMILIES: Readonly<Record<CommandFamily, FamilySpec>> = {
       { intent: "read a task and its layers", command: () => "junto task show #<n>" },
       {
         intent: "wait for task state",
-        command: (t) => `junto task wait <taskId> --target ${t} --until completed --timeout 30s`,
-        detail: "configured Command Center only; also supports input-required or rejected",
+        command: () => "junto task wait #<n> --until done --timeout 30s",
+        detail: "also input-required, in-review or canceled",
       },
       { intent: "author a task", command: () => `junto task create "<title>" --body "..."` },
       { intent: "start or hand off", command: () => "junto task start #<n>, junto task assign #<n> @<seat>" },
-      { intent: "rules + readiness", command: (t) => `junto task rules '{"target":"${t}","task":"<taskId>"}'` },
+      { intent: "rules + readiness", command: () => "junto task rules #<n>" },
       {
         intent: "run this move's checks",
         command: (t) => `junto task check '{"target":"${t}","task":"<taskId>"}'`,

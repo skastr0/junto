@@ -8,15 +8,18 @@ import {
   SEAT_READ_MAX_SECONDS,
   SEAT_WAIT_DEFAULT_MS,
   SEAT_WAIT_MAX_MS,
-  TASK_WAIT_DEFAULT_MS,
-  TASK_WAIT_MAX_MS,
   socketTimeoutFor,
   type SeatReadArgs,
   type SeatWaitArgs,
   type SeatWaitUntil,
+} from "../../shared/seat-control";
+import {
+  TASK_WAIT_DEFAULT_MS,
+  TASK_WAIT_MAX_MS,
+  TASK_WAIT_UNTIL,
   type TaskWaitArgs,
   type TaskWaitUntil,
-} from "../../shared/seat-control";
+} from "../../shared/task-control";
 import type { WorkOpName } from "../../shared/work-control";
 import { parseWaitFor } from "../core/duration";
 import { InputError } from "../core/errors";
@@ -39,12 +42,6 @@ const SEAT_WAIT_UNTIL: ReadonlyArray<SeatWaitUntil> = [
   "working",
   "gone",
   "replied",
-];
-
-const TASK_WAIT_UNTIL: ReadonlyArray<TaskWaitUntil> = [
-  "completed",
-  "input-required",
-  "rejected",
 ];
 
 const seatUntilFlag = Flag.string("until").pipe(
@@ -315,10 +312,9 @@ export const lowerSeatRead = (input: {
   };
 };
 
-/** Lower `task wait <task> --target <sink> --until <state> [--timeout]`. */
+/** Lower `task wait <task> --until <state> [--timeout]` onto the task verb (plan 04). */
 export const lowerTaskWait = (input: {
   readonly task: string;
-  readonly target: string;
   readonly until: string;
   readonly timeout: string | undefined;
 }): Lowered<TaskWaitArgs> => {
@@ -337,8 +333,7 @@ export const lowerTaskWait = (input: {
   return {
     ok: true,
     args: {
-      target: input.target,
-      taskId: input.task,
+      task: input.task,
       until: input.until as TaskWaitUntil,
       timeoutMs: parsedTimeout.ms,
     },
@@ -469,21 +464,17 @@ export const taskWaitCommand = Command.make(
   "wait",
   {
     task: Argument.string("task").pipe(
-      Argument.withDescription("Task id to wait on"),
-    ),
-    target: Flag.string("target").pipe(
-      Flag.withDescription("Task sink node id that holds the task"),
+      Argument.withDescription("A task: #42, its id, or a junto:// ref"),
     ),
     until: taskUntilFlag,
     timeout: timeoutFlag,
   },
-  ({ task, target, until, timeout }) =>
+  ({ task, until, timeout }) =>
     executeJsonCommand(
       "task wait",
       Effect.gen(function* () {
         const lowered = lowerTaskWait({
           task,
-          target,
           until,
           timeout: toUndefined(timeout),
         });
@@ -493,6 +484,6 @@ export const taskWaitCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Wait for a task on a connected sink to reach a state. Uses work change events and current task-edge authority; bounded, with a typed timeout.",
+    `Wait for a task on a task node in this seat's reach to reach a state (${TASK_WAIT_UNTIL.join(" | ")}). Bounded: ${TASK_WAIT_DEFAULT_MS / 1000}s by default, at most ${TASK_WAIT_MAX_MS / 1000}s, with a typed timeout.`,
   ),
 );

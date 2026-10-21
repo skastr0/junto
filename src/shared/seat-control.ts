@@ -23,9 +23,6 @@ import { MailMessageId } from "./crew";
 /** Longest single wait. A caller that needs longer re-issues the wait. */
 export const SEAT_WAIT_MAX_MS = 600_000;
 export const SEAT_WAIT_DEFAULT_MS = 60_000;
-/** Longest task wait. Same ceiling and same reason as the seat wait. */
-export const TASK_WAIT_MAX_MS = SEAT_WAIT_MAX_MS;
-export const TASK_WAIT_DEFAULT_MS = SEAT_WAIT_DEFAULT_MS;
 /** Lines a single read may return, and the default when none is named. */
 export const SEAT_READ_MAX_LINES = 2_000;
 export const SEAT_READ_DEFAULT_LINES = 40;
@@ -84,13 +81,6 @@ export const SeatWaitUntil = Schema.Literals([
   "replied",
 ]);
 export type SeatWaitUntil = typeof SeatWaitUntil.Type;
-
-export const TaskWaitUntil = Schema.Literals([
-  "completed",
-  "input-required",
-  "rejected",
-]);
-export type TaskWaitUntil = typeof TaskWaitUntil.Type;
 
 /** Why a bounded follow returned. */
 export const SeatReadStopped = Schema.Literals([
@@ -214,16 +204,6 @@ export const SeatReadArgs = Schema.Struct({
   )
   .annotate({ parseOptions: { onExcessProperty: "error" } });
 export type SeatReadArgs = typeof SeatReadArgs.Type;
-
-/** `task wait <task> --until <state> [--timeout <duration>]`. */
-export const TaskWaitArgs = Schema.Struct({
-  /** Canvas node id of the task sink holding the task. */
-  target: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-  taskId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-  until: TaskWaitUntil,
-  timeoutMs: Schema.optionalKey(boundedMs(TASK_WAIT_MAX_MS)),
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
-export type TaskWaitArgs = typeof TaskWaitArgs.Type;
 
 // ---------------------------------------------------------------------------
 // Results
@@ -358,15 +338,6 @@ export const SeatReadBriefResult = Schema.Struct({
   withheld: Schema.Number,
 });
 export type SeatReadBriefResult = typeof SeatReadBriefResult.Type;
-
-/** One observed task state. `epoch` is the task's defect generation. */
-export const TaskWaitResult = Schema.Struct({
-  taskId: Schema.String,
-  state: TaskState,
-  epoch: Schema.Number,
-  at: Schema.Number,
-});
-export type TaskWaitResult = typeof TaskWaitResult.Type;
 
 // ---------------------------------------------------------------------------
 // Lowering helpers (CLI input → wire args)
