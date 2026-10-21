@@ -131,6 +131,7 @@ describe("seat-state source: the service is the pure fold with its timer", () =>
     }
   }, 60_000);
 
+
   it("fires a hold on its timer, with no later event to settle it", async () => {
     const emitted = await runService({ seeds: [], live: [ev("seat-a", "e1", "idle", 1_000)], end: 1_000 + HOLD });
     expect(emitted.map((f) => `${f.becomes}@${f.at}`)).toEqual([`idle@${1_000 + HOLD}`]);
@@ -337,6 +338,69 @@ describe("seat-state source: the seats link's feed", () => {
     }).pipe(Effect.runPromise);
     expect(feeds.map(show)).toEqual(["inst-remote seed seat-r idle", "inst-remote live seat-r working", "inst-remote lost"]);
     expect(unsubscribed).toBe(true);
+  });
+
+  it("a peer whose clock runs 5 min ahead moves no local hold", async () => {
+    let listener: ((feed: RemoteSeatFeed) => void) | undefined;
+    let wall = 0;
+    const remote = {
+      current: () => [],
+      subscribe: (next: (feed: RemoteSeatFeed) => void) => {
+        listener = next;
+        return () => {};
+      },
+    };
+    const AHEAD = 5 * 60_000;
+    const emitted = await Effect.gen(function* () {
+      const local = yield* Queue.unbounded<SeatStateFeed>();
+      const source = yield* makeSeatStateSource(Stream.merge(Stream.fromQueue(local), remoteSeatStateFeedsOf(remote, () => wall)));
+      const out: string[] = [];
+      yield* source.firings.pipe(Stream.runForEach((f) => Effect.sync(() => out.push(`${f.seat} ${f.becomes}@${f.at}`))), Effect.forkScoped);
+      const at = (time: number) =>
+        Effect.gen(function* () {
+          wall = time;
+          yield* advanceTo(time);
+        });
+      yield* settle;
+      yield* at(1_000);
+      yield* Queue.offer(local, { machine: MACHINE, kind: "live", event: ev("seat-l", "e1", "idle", 1_000) });
+      yield* settle;
+      yield* at(2_000);
+      listener!({ _tag: "State", machine: REMOTE, event: ev("seat-r", "e1", "working", 2_000 + AHEAD) });
+      yield* settle;
+      yield* at(HOLD);
+      const beforeDue = [...out];
+      yield* at(40_000);
+      yield* Queue.offer(local, { machine: MACHINE, kind: "live", event: ev("seat-l", "e1", "working", 40_000) });
+      yield* settle;
+      yield* at(40_000 + HOLD * 2);
+      return { beforeDue, out };
+    }).pipe(Effect.scoped, Effect.provide(TestClock.layer()), Effect.runPromise);
+    expect(emitted.beforeDue).toEqual([]);
+    expect(emitted.out).toEqual([`seat-l idle@${1_000 + HOLD}`, `seat-r working@${2_000 + HOLD}`, `seat-l working@${40_000 + HOLD}`]);
+  });
+
+  it("stamps a remote seed and state with this machine's clock when heard", async () => {
+    let listener: ((feed: RemoteSeatFeed) => void) | undefined;
+    const remote = {
+      current: () => [{ machine: REMOTE, event: ev("seat-r", "e1", "idle", 900_000) }],
+      subscribe: (next: (feed: RemoteSeatFeed) => void) => {
+        listener = next;
+        return () => {};
+      },
+    };
+    let wall = 7;
+    const feeds = await Effect.gen(function* () {
+      const fiber = yield* remoteSeatStateFeedsOf(remote, () => wall).pipe(Stream.take(2), Stream.runCollect, Effect.forkChild);
+      yield* settle;
+      wall = 11;
+      listener!({ _tag: "State", machine: REMOTE, event: ev("seat-r", "e1", "working", 900_500) });
+      return yield* Fiber.join(fiber);
+    }).pipe(Effect.runPromise);
+    expect(feeds.map((feed) => (feed.kind === "lost" ? "lost" : `${feed.kind} ${feed.event.state}@${feed.event.at}`))).toEqual([
+      "seed idle@7",
+      "live working@11",
+    ]);
   });
 
   it("a remote state names its machine only when the link says which", () => {

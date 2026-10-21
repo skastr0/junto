@@ -159,21 +159,30 @@ export const localSeatStateFeeds = (
 /**
  * The seats on other machines, as the seats link brings them to this one:
  * each one's last state as a seed, then every state and every lost link.
+ * An event is stamped with this machine's clock when it is heard: the
+ * sender's `at` is its own clock, and the fold's time is shared by every
+ * seat, so a peer running ahead would fire local holds early and hold back
+ * every later one.
  */
 export const remoteSeatStateFeedsOf = (
   remote: { readonly current: typeof remoteSeatStateFeeds; readonly subscribe: typeof onRemoteSeatFeed } = {
     current: remoteSeatStateFeeds,
     subscribe: onRemoteSeatFeed,
   },
+  now: () => number = Date.now,
 ): Stream.Stream<SeatStateFeed> =>
   Stream.callback<SeatStateFeed>((queue) =>
     Effect.acquireRelease(
       Effect.sync(() => {
-        for (const { machine, event } of remote.current()) Queue.offerUnsafe(queue, { machine, kind: "seed", event });
+        for (const { machine, event } of remote.current()) {
+          Queue.offerUnsafe(queue, { machine, kind: "seed", event: { ...event, at: now() } });
+        }
         return remote.subscribe((feed) => {
           Queue.offerUnsafe(
             queue,
-            feed._tag === "Lost" ? { machine: feed.machine, kind: "lost" } : { machine: feed.machine, kind: "live", event: feed.event },
+            feed._tag === "Lost"
+              ? { machine: feed.machine, kind: "lost" }
+              : { machine: feed.machine, kind: "live", event: { ...feed.event, at: now() } },
           );
         });
       }),
