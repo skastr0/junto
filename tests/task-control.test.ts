@@ -264,6 +264,48 @@ describe("task verbs", () => {
     expect([checked.type, checked.message]).toEqual(["UnknownTarget", "no task #44 in this seat's reach"]);
   });
 
+  it("lets a live overseer seat reach any Tasks node on its own canvas, with no edge", async () => {
+    // alpha with the overseer flag on or off; tasks-2 sits in sibling region S, unwired.
+    const flagged = (overseer: boolean): TaskCaller => {
+      const nodes = new Map(canvas.nodes);
+      nodes.set(asNodeId("seat-a"), { ...canvas.nodes.get(asNodeId("seat-a"))!, overseer } as never);
+      return { ...caller, canvas: { ...canvas, nodes } as unknown as Canvas };
+    };
+    // A task whose node is on no node of this canvas: another canvas's.
+    const elsewhere = view(HIDDEN, 45, taskNodeId(asNodeId("tasks-9")));
+    const ports: TaskPorts = {
+      ...portsWith(applied()),
+      find: (_c, _n, lookup) => Effect.succeed([...tasks, elsewhere].find((task) => lookup.kind === "number" && task.number === lookup.number)),
+    };
+    const as = (who: TaskCaller, op: TaskControlOp, args: unknown) => Effect.runPromiseExit(handleTaskOp(op, args, who, ports));
+
+    const on = flagged(true);
+    expect(Exit.isSuccess(await as(on, "task.show", { task: "#44" }))).toBe(true);
+    expect(Exit.isSuccess(await as(on, "task.rules", { node: "tasks-2" }))).toBe(true);
+    const listed = await as(on, "task.list", {});
+    expect(Exit.isSuccess(listed) && (listed.value as { tasks: ReadonlyArray<TaskView> }).tasks.map((task) => task.number)).toEqual([42, 43, 44]);
+    expect(taskCanvasEnv(on.canvas).seatReaches(seatNodeId(asNodeId("seat-a")), taskNodeId(asNodeId("tasks-2")))).toBe(true);
+    // Reach is not a seat: a non-task node is still no task node.
+    expect(Exit.isFailure(await as(on, "task.rules", { node: "seat-c" }))).toBe(true);
+
+    const off = flagged(false);
+    expect(failure(await as(off, "task.show", { task: "#44" })).message).toBe("no task #44 in this seat's reach");
+    expect(failure(await as(off, "task.rules", { node: "tasks-2" })).type).toBe("UnknownTarget");
+    expect(taskCanvasEnv(off.canvas).seatReaches(seatNodeId(asNodeId("seat-a")), taskNodeId(asNodeId("tasks-2")))).toBe(false);
+
+    expect(failure(await as(on, "task.show", { task: "#45" })).message).toBe("no task #45 in this seat's reach");
+    // Reach is all it gains: the assignee's moves stay the assignee's.
+    const far = taskNodeId(asNodeId("tasks-2"));
+    const started = ruleTaskBoardCommand(
+      { tasks: new Map([[ID, record({ node: far, state: "assigned", assignee: seatNodeId(asNodeId("seat-c")) })]]), nextNumber: TaskNumber.make(43) },
+      { node: far, taskId: ID },
+      { kind: "seat", seat: seatNodeId(asNodeId("seat-a")) },
+      { kind: "start" },
+      { ...taskCanvasEnv(on.canvas), at: 1 },
+    );
+    expect(started.ok).toBe(false);
+  });
+
   it("depends on another task by number, only within reach", async () => {
     const submitted: Array<ResourceCommand<TaskCommand>> = [];
     await run("task.depend", { opId: OP, task: "#42", on: "#43" }, portsWith(applied(), submitted));

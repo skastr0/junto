@@ -259,6 +259,18 @@ export const checkStatusOf = (required: RequiredCheck, runs: ReadonlyArray<Check
   return run.exitCode === 0 ? "green" : "red";
 };
 
+/**
+ * Whether a seat reaches a task node: by region reach, or, for a live
+ * overseer seat, any Tasks node on its own canvas with no edge, as
+ * admitOverseerWorkTarget admits (authz.ts). The flag is read off the canvas
+ * this call read, never cached. What the seat may do there stays the ruler's.
+ */
+export const seatReachesTaskNode = (canvas: Canvas, seat: NodeId, node: NodeId): boolean => {
+  if (reaches(canvas, seat, node)) return true;
+  const self = canvas.nodes.get(seat);
+  return self?.kind === "agent" && self.overseer === true && canvas.nodes.get(node)?.kind === "task";
+};
+
 /** The ruler's view of the canvas: flows downstream, stamp defaults, and seat and automation reach. */
 export const taskCanvasEnv = (canvas: Canvas, automationAuthor: AutomationAuthorOf = noAutomationAuthor): TaskCanvasEnv => ({
   downstream: (node) =>
@@ -266,7 +278,7 @@ export const taskCanvasEnv = (canvas: Canvas, automationAuthor: AutomationAuthor
       .filter((wire) => wire.verb === TASK_FLOW_VERB && wire.from === node)
       .map((wire) => taskNodeId(wire.to)),
   stampDefaultOf: (node) => stampDefaultOfContract(boardContractOf(canvas, node)),
-  seatReaches: (seat, node) => reaches(canvas, seat, node),
+  seatReaches: (seat, node) => seatReachesTaskNode(canvas, seat, node),
   automationReaches: (automation, node) => {
     const author = automationAuthor(automation);
     return author !== undefined && automationTargets(canvas, automation, author).some((target) => target.id === node);
@@ -339,7 +351,7 @@ const findTask = (
     }
     const task = yield* ports.find(caller.canvas, caller.canvasName, lookup);
     const visible = task !== undefined &&
-      (reaches(caller.canvas, caller.actor.nodeId, task.current.node) || (assigneeExempt && task.current.assignee === caller.actor.nodeId));
+      (seatReachesTaskNode(caller.canvas, caller.actor.nodeId, task.current.node) || (assigneeExempt && task.current.assignee === caller.actor.nodeId));
     if (!visible) {
       return yield* Effect.fail(unknown(path, text, `no task ${lookup.kind === "number" ? formatTaskNumber(lookup.number) : lookup.taskId} in this seat's reach`));
     }
@@ -415,7 +427,7 @@ const findNode = (nodes: ReadonlyArray<Node>, text: string, path: string, what: 
 };
 
 const nodesInReach = (caller: TaskCaller, ports: TaskPorts): ReadonlyArray<Node> =>
-  ports.nodes(caller.canvas).filter((node) => reaches(caller.canvas, caller.actor.nodeId, node.id));
+  ports.nodes(caller.canvas).filter((node) => seatReachesTaskNode(caller.canvas, caller.actor.nodeId, node.id));
 
 const nodeInReach = (caller: TaskCaller, ports: TaskPorts, text: string, path: string) =>
   findNode(nodesInReach(caller, ports), text, path, "task node in reach");
@@ -598,7 +610,7 @@ export const handleTaskOp = (
       case "task.list": {
         const input = yield* decode(TASK_ARGS[op], args);
         const nodes = input.node === undefined
-          ? ports.nodes(caller.canvas).filter((node) => reaches(caller.canvas, caller.actor.nodeId, node.id))
+          ? ports.nodes(caller.canvas).filter((node) => seatReachesTaskNode(caller.canvas, caller.actor.nodeId, node.id))
           : [yield* nodeInReach(caller, ports, input.node, "node")];
         const limit = input.limit ?? LIST_DEFAULT_LIMIT;
         const assignee = input.assignee === undefined
