@@ -22,7 +22,6 @@ import type { ThreadHealthReading } from "@shared/thread-health";
 import type { SeatSnapshot } from "@shared/harness-domain";
 import { agentSeat$, seatEventForBinding, seatStatusForBinding } from "./agent-seat-state";
 import { agentSignals$ } from "./agent-signals-state";
-import { chatCoarse$ } from "./chat-state";
 import { executionGraphForImpact } from "./impact-mode";
 import { kernel$ } from "./kernel-view";
 import { mailWaiting$, mailWaitsOn } from "./mail-waiting";
@@ -80,22 +79,16 @@ export const operatorFeedFor = (
 /**
  * Nodes that want input for a reason the canvas does not carry, and when
  * it began: a terminal that is not an agent seat whose screen wants input
- * (its seat event's time, which main stamps), and a seat with a permission
- * request pending in a live chat. A chat request has no time anyone
- * recorded: this window only knows when it heard of it, and would hear of
- * it again after a reload, so it carries none.
+ * (its seat event's time, which main stamps).
  */
 const liveWantsInput = (nodes: Iterable<Node>): ReadonlyMap<string, number | undefined> => {
   const out = new Map<string, number | undefined>();
   for (const node of nodes) {
-    if (node.kind !== "agent") {
-      // Agent seats in attention are the feed's own items already.
-      const bindingId = node.kind === "terminal" ? node.bindingId : agentSeat$.bindingIdByNodeId[node.id].peek();
-      const event = seatEventForBinding(bindingId);
-      if (event?.state === "attention") out.set(node.id, event.at);
-      continue;
-    }
-    if (chatCoarse$[node.agentKey].peek()?.pendingPermissionId) out.set(node.id, undefined);
+    // Agent seats in attention are the feed's own items already.
+    if (node.kind === "agent") continue;
+    const bindingId = node.kind === "terminal" ? node.bindingId : agentSeat$.bindingIdByNodeId[node.id].peek();
+    const event = seatEventForBinding(bindingId);
+    if (event?.state === "attention") out.set(node.id, event.at);
   }
   return out;
 };
@@ -109,12 +102,6 @@ const useCanvasNeeds = (): ReadonlyArray<FeedCanvasNeed> => {
   const execution = use$(kernel$.execution);
   const executionRev = use$(kernel$.executionRev);
   const seatRev = use$(agentSeat$.rev);
-  // One key per pending permission: the map changes only when one opens or closes.
-  const permissionKey = use$(() =>
-    Object.entries(chatCoarse$.get())
-      .map(([agentKey, slot]) => `${agentKey}:${slot?.pendingPermissionId ?? ""}`)
-      .join("|"),
-  );
   return useMemo(() => {
     const context = executionGraphContextFromActorRefs(
       canvasName,
@@ -130,7 +117,7 @@ const useCanvasNeeds = (): ReadonlyArray<FeedCanvasNeed> => {
     });
     // Kernel execution and seat state mutate in place; their revs carry the change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvas, canvasName, actorRefs, execution, executionRev, seatRev, permissionKey, itemsOf]);
+  }, [canvas, canvasName, actorRefs, execution, executionRev, seatRev, itemsOf]);
 };
 
 /** The live feed for the open canvas. */
