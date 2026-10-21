@@ -42,6 +42,7 @@ import {
   inspectEvalResult,
   isValidControlRequestId,
   CloseRequest,
+  CommentRequest,
   EvalRequest,
   GotoRequest,
   OpenRequest,
@@ -288,8 +289,21 @@ const decodeBody =
       : Result.succeed(decoded.success as never);
   };
 
+/** A seat's box comment as the route hands it on: the lease's own owner, seat and page. */
+export type PostPageBoxComment = (input: {
+  readonly owner: string;
+  readonly sessionId: string;
+  readonly seatNodeId: string;
+  readonly pageRef: string;
+  readonly rect: { readonly x: number; readonly y: number; readonly w: number; readonly h: number };
+  readonly text: string;
+  readonly signal: AbortSignal;
+}) => Promise<BrowserResult<{ readonly messageId: string; readonly threadId: string }>>;
+
 export interface ControlDeps {
   readonly sessions: BrowserSessionService;
+  /** Posts a seat's page box comment; without it the route is refused. */
+  readonly postPageBoxComment?: PostPageBoxComment;
   readonly capabilities: BrowserCapabilityRegistry;
   readonly resolvePageTarget: PageTargetResolver;
   readonly version: string;
@@ -880,6 +894,36 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         : { ok: false, error: inspected.error };
     }),
 
+    // A box comment rides the screenshot grant: main takes the shot as the
+    // lease's owner, so the operation gate refuses it while the operator
+    // holds the page, and posts as the seat the grant was issued for.
+    "POST /comment": withBody("screenshot", CommentRequest, ["sessionId", "tab", "rect", "text"], async (input, lease, signal) => {
+      const named = sessionOfTab(lease.auditId, input);
+      if (!named.ok) return fromResult(named);
+      const sessionId = named.data;
+      const scoped = targetForSession(lease.auditId, sessionId);
+      if (!scoped.ok) return scoped.envelope;
+      lease.checkTarget(scoped.target);
+      if (lease.boundGeneration(scoped.target.ref, scoped.snapshot.tab) !== scoped.snapshot.generation) {
+        return capabilityDenied("forbidden");
+      }
+      if (lease.actorNodeId === undefined) return capabilityDenied("forbidden");
+      if (deps.postPageBoxComment === undefined) {
+        return controlErr("unsupported_capability", "box comments are not available in this build");
+      }
+      return fromResult(
+        await deps.postPageBoxComment({
+          owner: lease.auditId,
+          sessionId,
+          seatNodeId: lease.actorNodeId,
+          pageRef: scoped.snapshot.ref,
+          rect: input.rect,
+          text: input.text,
+          signal,
+        }),
+      );
+    }),
+
     "POST /screenshot": withBody("screenshot", ScreenshotRequest, ["sessionId", "tab"], async (input, lease, signal) => {
       const named = sessionOfTab(lease.auditId, input);
       if (!named.ok) return fromResult(named);
@@ -1355,6 +1399,7 @@ export const startBrowserControlServer = async (
     /** Canonical SQLite-backed documents for page listing and edge admission. */
     readonly listCanvasModels: ListCanvasModels;
     readonly edgeGrant: EdgeGrantService;
+    readonly postPageBoxComment?: PostPageBoxComment;
   },
   runtime: BrowserControlRuntime = defaultControlRuntime,
 ): Promise<BrowserControlServer> => {
@@ -1433,6 +1478,7 @@ export const startBrowserControlServer = async (
     listDocuments: options.listCanvasModels,
     shotsDir: controlShotsDir(home),
     edgeGrant,
+    ...(options.postPageBoxComment === undefined ? {} : { postPageBoxComment: options.postPageBoxComment }),
     retainRouteOperation: (action, operation) =>
       retainFlight("route-operation", `route:${action}`, operation),
   });

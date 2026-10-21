@@ -286,6 +286,26 @@ export const ScreenshotRequest = Schema.Struct({
 });
 export type ScreenshotRequest = typeof ScreenshotRequest.Type;
 
+const BoxEdge = Schema.Number.pipe(Schema.check(Schema.makeFilter((value) => Number.isFinite(value), { message: "a box is finite numbers" })));
+
+/** The most of a box comment's text a seat may send; the comment writer bounds it again. */
+export const BROWSER_MAX_COMMENT_TEXT_BYTES = 64 * 1024;
+
+/**
+ * A seat's comment on a box of the page (B7): the box in page CSS pixels
+ * and the text. Main takes the shot itself; a seat never sends bytes.
+ */
+export const CommentRequest = Schema.Struct({
+  sessionId: SessionId,
+  tab: TabField,
+  // Exactly the four edges: a box carries no bytes or anything else.
+  rect: Schema.Struct({ x: BoxEdge, y: BoxEdge, w: BoxEdge, h: BoxEdge }).annotate({ parseOptions: { onExcessProperty: "error" } }),
+  text: boundedString("text", BROWSER_MAX_COMMENT_TEXT_BYTES).pipe(
+    Schema.check(Schema.makeFilter((value) => value.trim() !== "", { message: "a comment's text must be non-empty" })),
+  ),
+});
+export type CommentRequest = typeof CommentRequest.Type;
+
 export const CloseRequest = Schema.Struct({
   sessionId: SessionId,
 });
@@ -359,6 +379,7 @@ export const CONTROL_ROUTES = {
   goto: { method: "POST", path: "/goto" },
   eval: { method: "POST", path: "/eval" },
   screenshot: { method: "POST", path: "/screenshot" },
+  comment: { method: "POST", path: "/comment" },
   close: { method: "POST", path: "/close" },
   stop: { method: "POST", path: "/stop" },
 } as const;
