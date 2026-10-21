@@ -327,6 +327,33 @@ export const useNodeArtifacts = (canvasName: string, nodeId: NodeId): ReadonlyAr
   useSourced(() => artifactsSource().list(canvasName, nodeId), NONE, canvasName, nodeId);
 
 /**
+ * How many live (unarchived) artifacts a node holds, for its card's glance.
+ * Any artifact change on the canvas re-reads, but only a change of this
+ * count repaints the card.
+ */
+export const useNodeArtifactCount = (canvasName: string, nodeId: NodeId, enabled: boolean): number => {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!enabled || !canvasName) return;
+    let live = true;
+    const refresh = (): void => {
+      void artifactsSource().list(canvasName, nodeId).then((heads) => {
+        if (live) setCount(heads.filter((head) => !head.artifact.archived).length);
+      });
+    };
+    refresh();
+    const unsubscribe = artifactsSource().onChanged((changed) => {
+      if (changed.canvasName === canvasName) refresh();
+    });
+    return () => {
+      live = false;
+      unsubscribe();
+    };
+  }, [canvasName, nodeId, enabled]);
+  return enabled && canvasName ? count : 0;
+};
+
+/**
  * The head's body: the listed one, or, when main lists it as not loaded,
  * read by version. Null until it arrives.
  */

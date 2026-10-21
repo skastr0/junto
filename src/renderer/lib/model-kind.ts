@@ -30,7 +30,7 @@ export const kindWord = (kind: NodeKind): string => (kind === "note" ? "text" : 
 
 /** Kinds whose card glance is read from the work they hold. */
 export const holdsWork = (kind: NodeKind | undefined): boolean =>
-  kind === "task" || kind === "requests" || kind === "artifacts";
+  kind === "task" || kind === "artifacts";
 
 /** What a card needs to know of the work a node holds: how much, and how it stands. */
 export type SinkCounts = {

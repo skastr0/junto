@@ -59,7 +59,7 @@ describe("kind words", () => {
   });
 
   it("reads work for the three kinds that hold it", () => {
-    expect(NODE_KINDS.filter(holdsWork)).toEqual(["task", "requests", "artifacts"]);
+    expect(NODE_KINDS.filter(holdsWork)).toEqual(["task", "artifacts"]);
     expect(holdsWork(undefined)).toBe(false);
   });
 });

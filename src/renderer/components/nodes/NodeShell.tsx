@@ -54,6 +54,8 @@ import { holdsWork, kindMayBeBlocked, kindWord, nodeAttention, physicsKind, role
 import { canvasOfState } from "../../lib/model-store";
 import { modelStore, useNodeValue } from "../../lib/use-model";
 import { canvasTasks$, seatTasks$ } from "../../lib/seat-tasks";
+import { useNodeArtifactCount } from "../../lib/artifacts-source";
+import type { NodeId } from "@shared/physics/schema";
 
 const HANDLE_SIDES = [["top", Position.Top], ["right", Position.Right], ["bottom", Position.Bottom], ["left", Position.Left]] as const;
 
@@ -400,14 +402,15 @@ export function NodeShell({
     needsLook: needsLook === true,
   });
   const preamble = use$(() => preambleByNodeId$[id].get());
-  // Fire/ice glance. A card that holds work reads its counts from the tasks
-  // on it; every other card asks for nothing. Each count is read alone, so a
-  // task change elsewhere on the canvas does not repaint this card.
-  const works = holdsWork(kind);
-  const count = use$(() => (works ? taskCounts(canvasTasks$.byNode[id].get()).count : 0));
-  const needsHuman = use$(() => works && taskCounts(canvasTasks$.byNode[id].get()).needsHuman);
-  const allTerminal = use$(() => works && taskCounts(canvasTasks$.byNode[id].get()).allTerminal);
-  const glance = { count, needsHuman, allTerminal };
+  // Fire/ice glance. A task card counts the tasks on it, an Artifacts card
+  // its live artifacts; every other card asks for nothing. Each count is
+  // read alone, so a change elsewhere on the canvas does not repaint this card.
+  const holdsTasks = holdsWork(kind) && kind === "task";
+  const taskCount = use$(() => (holdsTasks ? taskCounts(canvasTasks$.byNode[id].get()).count : 0));
+  const needsHuman = use$(() => holdsTasks && taskCounts(canvasTasks$.byNode[id].get()).needsHuman);
+  const allTerminal = use$(() => holdsTasks && taskCounts(canvasTasks$.byNode[id].get()).allTerminal);
+  const artifactCount = useNodeArtifactCount(canvas, id as NodeId, kind === "artifacts");
+  const glance = { count: kind === "artifacts" ? artifactCount : taskCount, needsHuman, allTerminal };
   const attention = kind === undefined ? "idle" : nodeAttention(kind, glance, blocked);
   // Actor / managed seats: SeatFacts owns attention wash. Occupancy is vacancy.
   const liveSeatAttention = isActorSeat
