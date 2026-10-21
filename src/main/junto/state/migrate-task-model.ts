@@ -115,8 +115,8 @@ export const migrateTaskModel = (database: StateSchemaMigrationDatabase): void =
 
   const insertHead = database.prepare(`
     INSERT INTO task_heads (canvas_name, task_id, number, node_id, title, body, state, assignee_node_id, epoch,
-      stamps_required, reviewers_json, stamps_json, depends_on_json, next_node_id, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, '[]', '[]', ?, NULL, ?, ?)
+      stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, '[]', ?, NULL, ?, ?)
   `);
   const insertLayer = database.prepare(`
     INSERT INTO task_layers (canvas_name, task_id, ordinal, node_id, layer_json, closed_at) VALUES (?, ?, ?, ?, ?, ?)

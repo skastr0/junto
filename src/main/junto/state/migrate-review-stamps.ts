@@ -2,9 +2,12 @@ import type { StateSchemaMigrationDatabase } from "./migrations";
 
 /**
  * Review verdicts that are also task stamps (plan 04, stamps on the verdict
- * tables). A verdict now names its reviewer's kind: a seat, as before, or the
- * operator, whose approval counts too. A seat verdict keeps its seat ids; an
- * operator verdict has none, and only judges a task. approve and changes are
+ * tables, ruling 1b). A verdict now names its reviewer's kind: a seat, as
+ * before, or the operator, whose approval counts too. The operator has no
+ * seat ids or node and only judges a task. A seat's verdict on a commit
+ * carries its seat ids; a seat's stamp on a task is keyed by its node and
+ * carries none (`task-stamps.ts`), while a crew verdict on a task from before
+ * this step keeps the seat ids it was posted with. approve and changes are
  * written as green and blocking, so the one gate and its subject-hash binding
  * stay.
  *
@@ -77,13 +80,19 @@ const VERDICTS_TABLE_SQL = `
         AND subject_epoch IS NULL
       )
     ),
+    CHECK ((reviewer_seat_id IS NULL) = (author_seat_id IS NULL)),
     CHECK (
-      (reviewer_kind = 'seat' AND reviewer_seat_id IS NOT NULL AND author_seat_id IS NOT NULL)
-      OR (
+      (
         reviewer_kind = 'operator'
-        AND reviewer_seat_id IS NULL
-        AND author_seat_id IS NULL
         AND subject_kind = 'task'
+        AND reviewer_seat_id IS NULL
+        AND reviewer_node_id IS NULL
+      )
+      OR (reviewer_kind = 'seat' AND subject_kind = 'commit' AND reviewer_seat_id IS NOT NULL)
+      OR (
+        reviewer_kind = 'seat'
+        AND subject_kind = 'task'
+        AND (reviewer_node_id IS NOT NULL OR reviewer_seat_id IS NOT NULL)
       )
     ),
     PRIMARY KEY (verdict_id)

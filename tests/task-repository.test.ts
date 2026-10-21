@@ -16,12 +16,14 @@ import {
 import { seatNodeId, taskNodeId, type TaskCommand, type TaskId } from "../src/shared/task-model";
 import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
 import { TASKS_STATE_SCHEMA_SQL } from "../src/main/junto/work/task-state-schema";
+import { REVIEW_VERDICTS_SCHEMA_SQL } from "../src/main/junto/state/migrate-review-stamps";
 import { RESOURCE_RULINGS_STATE_SCHEMA_SQL } from "../src/main/junto/work/resource-rulings-schema";
 import { writeRuling } from "../src/main/junto/work/resource-rulings";
 import { RulingRecorder } from "../src/main/junto/work/ruling-recorder";
 import {
   TaskRepository,
   TaskRepositoryLive,
+  projectTaskFact,
   type TaskCanvasEnv,
   type TaskSubmitOutcome,
 } from "../src/main/junto/work/task-repository";
@@ -34,6 +36,10 @@ beforeEach(() => {
   database.exec("PRAGMA foreign_keys = ON");
   database.exec(TASKS_STATE_SCHEMA_SQL);
   database.exec(RESOURCE_RULINGS_STATE_SCHEMA_SQL);
+  database.exec("CREATE TABLE installation (singleton INTEGER PRIMARY KEY, installation_id TEXT NOT NULL)");
+  database.exec("INSERT INTO installation VALUES (1, 'mini')");
+  database.exec("CREATE TABLE work_canvas_revisions (canvas_name TEXT PRIMARY KEY, revision INTEGER NOT NULL) STRICT");
+  database.exec(REVIEW_VERDICTS_SCHEMA_SQL);
   const client = Layer.effect(SqlClient.SqlClient, makeSqliteClient(database)).pipe(Layer.provide(Reactivity.layer));
   // The ruling's row as the recorder writes it; its fact row needs the whole work store (tests/ruling-recorder.test.ts).
   const recorder = Layer.effect(
@@ -182,8 +188,43 @@ describe("task repository", () => {
     const { taskId } = await create("one");
     const opId = mintOpId();
     applied(await submit(command({ kind: "cancel" }, taskId, { opId })));
-    database.prepare("UPDATE task_heads SET stamps_json = '1' WHERE task_id = ?").run(taskId);
+    database.prepare("UPDATE task_heads SET depends_on_json = '1' WHERE task_id = ?").run(taskId);
     await expect(submit(command({ kind: "cancel" }, taskId, { opId }))).rejects.toThrow(/does not decode/);
+  });
+
+  it("keeps stamps as verdict rows keyed by the reviewer's node, and folds them once", async () => {
+    const { taskId } = await create("one");
+    const adaCommand = (op: TaskCommand) => command(op, taskId, { actor: adaActor });
+    applied(await submit(command({ kind: "stamp-policy", required: 1 }, taskId)));
+    applied(await submit(command({ kind: "assign", seat: ada }, taskId)));
+    applied(await submit(adaCommand({ kind: "start" })));
+    applied(await submit(adaCommand({ kind: "finish" })));
+    const stamped = applied(await submit(command({ kind: "stamp", verdict: "approve", text: "ship it" }, taskId)));
+    expect(stamped.task.state).toBe("done");
+
+    const rows = database.prepare(
+      "SELECT kind, reviewer_kind, reviewer_seat_id, reviewer_node_id, author_seat_id, subject_task_item, findings_json FROM work_review_verdicts",
+    ).all();
+    expect(rows).toEqual([{
+      kind: "green",
+      reviewer_kind: "operator",
+      reviewer_seat_id: null,
+      reviewer_node_id: null,
+      author_seat_id: null,
+      subject_task_item: taskId,
+      findings_json: JSON.stringify(["ship it"]),
+    }]);
+    const view = await withRepo((repo) => repo.get(canvas, taskId));
+    expect(Option.getOrThrow(view).current.stamps).toEqual([stamped.task.stamps[0]]);
+    expect(stamped.task.stamps[0]).toMatchObject({ reviewer: { kind: "operator" }, verdict: "approve", text: "ship it" });
+    expect(stamped.task.stamps[0]).not.toHaveProperty("subjectHash");
+
+    // A replica folding the same ruling again writes nothing new.
+    await runtime.runPromise(Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* projectTaskFact(sql, canvas, { kind: "task", task: stamped.task, effects: [] }, Date.now());
+    }).pipe(Effect.provide(Layer.effect(SqlClient.SqlClient, makeSqliteClient(database)).pipe(Layer.provide(Reactivity.layer)))));
+    expect(database.prepare("SELECT count(*) AS n FROM work_review_verdicts").get()).toEqual({ n: 1 });
   });
 
   it("lists by state, archived left out by default", async () => {

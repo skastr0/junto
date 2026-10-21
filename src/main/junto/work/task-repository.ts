@@ -52,6 +52,7 @@ import { ItemId, type OpId } from "@shared/work-ids";
 import { StateTransactionOperation } from "../state/service";
 import type { RulingRecord } from "./resource-rulings";
 import { RulingRecorder, type RulingRecordFailed } from "./ruling-recorder";
+import { readTaskStamps, writeTaskStamps } from "./task-stamps";
 
 export class TaskPersistenceError extends Schema.TaggedError<TaskPersistenceError>()(
   "TaskPersistenceError",
@@ -113,7 +114,6 @@ const HeadRow = Schema.Struct({
   epoch: Schema.Number,
   stamps_required: Schema.Number,
   reviewers_json: Schema.String,
-  stamps_json: Schema.String,
   depends_on_json: Schema.String,
   next_node_id: Schema.NullOr(Schema.String),
   created_at: Schema.Number,
@@ -128,16 +128,7 @@ const ReviewerJson = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("seat"), seat: Schema.String.pipe(Schema.check(Schema.isMinLength(1))) }),
   Schema.Struct({ kind: Schema.Literal("operator") }),
 ]);
-const StampJson = Schema.Struct({
-  reviewer: ReviewerJson,
-  verdict: Schema.Literals(["approve", "changes"]),
-  epoch: Schema.Number,
-  subjectHash: Schema.optionalKey(Schema.String),
-  text: Schema.optionalKey(Schema.String),
-  at: Schema.Number,
-});
 const decodeReviewers = Schema.decodeUnknownResult(Schema.Array(ReviewerJson));
-const decodeStamps = Schema.decodeUnknownResult(Schema.Array(StampJson));
 const decodeTaskIds = Schema.decodeUnknownResult(Schema.Array(ItemId));
 const isTaskState = (value: string): value is TaskState => (TASK_STATES as ReadonlyArray<string>).includes(value);
 
@@ -152,16 +143,18 @@ const parse = (json: string): unknown => {
 const asReviewer = (reviewer: typeof ReviewerJson.Type): Reviewer =>
   reviewer.kind === "operator" ? reviewer : { kind: "seat", seat: seatNodeId(reviewer.seat as NodeId) };
 
-/** A head row as a task record, or nothing when the row does not decode. */
-export const taskOfRow = (row: HeadRow): TaskRecord | undefined => {
+/**
+ * A head row and its stamps (`task-stamps.ts`) as a task record, or nothing
+ * when the row, or a stamp of it (`stamps` undefined), does not decode.
+ */
+export const taskOfRow = (row: HeadRow, stamps: ReadonlyArray<Stamp> | undefined): TaskRecord | undefined => {
   const number = taskNumber(row.number);
   const reviewers = decodeReviewers(parse(row.reviewers_json));
-  const stamps = decodeStamps(parse(row.stamps_json));
   const dependsOn = decodeTaskIds(parse(row.depends_on_json));
   const id = Schema.decodeUnknownOption(ItemId)(row.task_id);
   if (
     number === undefined || Option.isNone(id) || !isTaskState(row.state) || Result.isFailure(reviewers) ||
-    Result.isFailure(stamps) || Result.isFailure(dependsOn)
+    stamps === undefined || Result.isFailure(dependsOn)
   ) {
     return undefined;
   }
@@ -177,7 +170,7 @@ export const taskOfRow = (row: HeadRow): TaskRecord | undefined => {
     epoch: row.epoch,
     stampPolicy: { required: row.stamps_required },
     reviewers: reviewers.success.map(asReviewer),
-    stamps: stamps.success.map((stamp): Stamp => ({ ...stamp, reviewer: asReviewer(stamp.reviewer) })),
+    stamps,
     ...(row.next_node_id === null ? {} : { next: taskNodeId(row.next_node_id as NodeId) }),
   };
 };
@@ -219,7 +212,7 @@ const unreadable = (what: string, taskId: string) =>
 
 /**
  * The task domain's projection: fold one ruled fact into `task_heads`,
- * `task_layers` and `task_numbers`. The ruler writes its facts with it, and a
+ * `task_layers`, `task_numbers` and its stamps' verdict rows. The ruler writes its facts with it, and a
  * machine that does not edit the canvas folds the editing machine's facts
  * with it (`ruling-projection.ts`), at the ruling's time. The caller owns the
  * transaction.
@@ -242,16 +235,17 @@ export const projectTaskFact = (sql: SqlClient.SqlClient, canvas: string, fact: 
       }
     }
     yield* sql`
-      INSERT INTO task_heads (canvas_name, task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, stamps_json, depends_on_json, next_node_id, created_at, updated_at)
+      INSERT INTO task_heads (canvas_name, task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at)
       VALUES (${canvas}, ${task.id}, ${task.number}, ${task.node}, ${task.title}, ${task.body ?? null}, ${task.state},
         ${task.assignee ?? null}, ${task.epoch}, ${task.stampPolicy.required}, ${JSON.stringify(task.reviewers)},
-        ${JSON.stringify(task.stamps)}, ${JSON.stringify(task.dependsOn)}, ${task.next ?? null}, ${at}, ${at})
+        ${JSON.stringify(task.dependsOn)}, ${task.next ?? null}, ${at}, ${at})
       ON CONFLICT (canvas_name, task_id) DO UPDATE SET
         node_id = excluded.node_id, title = excluded.title, body = excluded.body, state = excluded.state,
         assignee_node_id = excluded.assignee_node_id, epoch = excluded.epoch,
         stamps_required = excluded.stamps_required, reviewers_json = excluded.reviewers_json,
-        stamps_json = excluded.stamps_json, depends_on_json = excluded.depends_on_json,
+        depends_on_json = excluded.depends_on_json,
         next_node_id = excluded.next_node_id, updated_at = excluded.updated_at`;
+    yield* writeTaskStamps(sql, canvas, task);
   });
 
 export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.SqlClient | RulingRecorder> = Layer.effect(
@@ -264,14 +258,14 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
       Request: Schema.Struct({ canvas: Schema.String, id: Schema.String }),
       Result: HeadRow,
       execute: ({ canvas, id }) => sql`
-        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, stamps_json, depends_on_json, next_node_id, created_at, updated_at FROM task_heads WHERE canvas_name = ${canvas} AND task_id = ${id}`,
+        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at FROM task_heads WHERE canvas_name = ${canvas} AND task_id = ${id}`,
     });
 
     const canvasRows = SqlSchema.findAll({
       Request: Schema.Struct({ canvas: Schema.String }),
       Result: HeadRow,
       execute: ({ canvas }) => sql`
-        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, stamps_json, depends_on_json, next_node_id, created_at, updated_at FROM task_heads WHERE canvas_name = ${canvas} ORDER BY number`,
+        SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at FROM task_heads WHERE canvas_name = ${canvas} ORDER BY number`,
     });
 
     const nextNumberRow = SqlSchema.findOneOption({
@@ -300,23 +294,36 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
             ORDER BY task_id, ordinal`,
         })(undefined);
 
+    /** Head rows with their stamps as task records; undefined where a row does not decode. */
+    const recordsOf = (canvas: string, rows: ReadonlyArray<HeadRow>) =>
+      Effect.map(
+        readTaskStamps(sql, canvas, rows.map((row) => ({ taskId: row.task_id, node: row.node_id }))),
+        ({ stamps, unreadable }) =>
+          rows.map((row) => taskOfRow(row, unreadable.has(row.task_id) ? undefined : (stamps.get(row.task_id) ?? []))),
+      );
+
     /** Views of decodable head rows, each with its closed layers. */
     const viewsOf = (canvas: string, rows: ReadonlyArray<HeadRow>) =>
       Effect.gen(function* () {
+        const records = yield* recordsOf(canvas, rows);
         const layers = new Map<string, ClosedTaskLayer[]>();
         for (const row of yield* layerRows(canvas, rows.map((head) => head.task_id))) {
           const held = layers.get(row.task_id);
           if (held === undefined) layers.set(row.task_id, [layerOfRow(row)]);
           else held.push(layerOfRow(row));
         }
-        return rows.flatMap((row) => {
-          const task = taskOfRow(row);
+        return rows.flatMap((row, i) => {
+          const task = records[i];
           return task === undefined ? [] : [viewOf(row, task, layers.get(row.task_id) ?? [])];
         });
       });
 
     const readTask = (canvas: string, id: TaskId) =>
-      Effect.map(headRow({ canvas, id }), Option.flatMap((row) => Option.fromNullishOr(taskOfRow(row))));
+      Effect.gen(function* () {
+        const row = yield* headRow({ canvas, id });
+        if (Option.isNone(row)) return Option.none<TaskRecord>();
+        return Option.fromNullishOr((yield* recordsOf(canvas, [row.value]))[0]);
+      });
 
     /**
      * Every task of the canvas, for the invariants that span it (one open
@@ -325,9 +332,11 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
     const readBoard = (canvas: string) =>
       Effect.gen(function* () {
         const tasks = new Map<TaskId, TaskRecord>();
-        for (const row of yield* canvasRows({ canvas })) {
+        const rows = yield* canvasRows({ canvas });
+        const records = yield* recordsOf(canvas, rows);
+        for (const [i, row] of rows.entries()) {
           // Fail closed: a row left out would escape the one-open-task check and be overwritten by a create.
-          const task = taskOfRow(row);
+          const task = records[i];
           if (task === undefined) return yield* Effect.fail(unreadable("task", row.task_id));
           tasks.set(task.id, task);
         }
@@ -366,7 +375,7 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
         Request: Schema.Void,
         Result: HeadRow,
         execute: () => sql`
-          SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, stamps_json, depends_on_json, next_node_id, created_at, updated_at FROM task_heads
+          SELECT task_id, number, node_id, title, body, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at FROM task_heads
           WHERE canvas_name = ${canvasName}
             AND ${sql.in("node_id", query.nodeIds)}
             AND ${sql.in("state", states)}

@@ -12,8 +12,8 @@
  *
  * Rulings go in the shared `resource_rulings` table (02), with every domain's.
  *
- * Reviewers, stamps and dependencies are JSON on the head while their home is
- * decided (stamps on the verdict tables, 04).
+ * Reviewers and dependencies are JSON on the head. Stamps are verdict rows
+ * (`work_review_verdicts`, `task-stamps.ts`).
  */
 export const TASKS_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS task_heads (
@@ -29,7 +29,6 @@ export const TASKS_STATE_SCHEMA_SQL = `
     epoch INTEGER NOT NULL CHECK (epoch >= 0),
     stamps_required INTEGER NOT NULL CHECK (stamps_required >= 0),
     reviewers_json TEXT NOT NULL CHECK (json_valid(reviewers_json)),
-    stamps_json TEXT NOT NULL CHECK (json_valid(stamps_json)),
     depends_on_json TEXT NOT NULL CHECK (json_valid(depends_on_json)),
     next_node_id TEXT CHECK (next_node_id IS NULL OR length(next_node_id) BETWEEN 1 AND 256),
     created_at INTEGER NOT NULL CHECK (created_at >= 0),
