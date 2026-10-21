@@ -13,7 +13,7 @@ import type { NodeKind } from "@shared/model/kinds";
 import type { NodeId } from "@shared/physics/schema";
 import { KIND_TABLES } from "../model/state-schema";
 import { afterSqlCommit } from "../state/sql-commit";
-import type { DatabaseSync } from "node:sqlite";
+import type { StateSchemaMigrationDatabase } from "../state/migrations";
 
 /** Each node kind a mention can name, with the table that holds it. */
 export type MentionableTables = ReadonlyArray<readonly [kind: MentionableNodeKind, table: string]>;
@@ -125,7 +125,7 @@ const sourceOf = (row: StoredRow): BacklinkSource => {
  * later rename cannot break the step.
  */
 export const rebuildMentions = (
-  database: Pick<DatabaseSync, "exec" | "prepare">,
+  database: StateSchemaMigrationDatabase,
   tables: MentionableTables = MENTIONABLE,
 ): void => {
   database.exec("DELETE FROM work_mentions");
