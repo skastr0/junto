@@ -27,7 +27,6 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.work.artifact-delete",
   "ipc.resource.task-apply",
   "ipc.resource.artifact-apply",
-  "control.work.tasks-claim",
   "control.work.tasks-create",
   "control.work.tasks-update",
   "control.work.msg-send",
@@ -95,10 +94,24 @@ const WORK_OPERATION_CLASSIFICATION = {
   "overseer.live": "read",
   "task.list": "read",
   "task.wait": "read",
-  "task.create": "authorial",
-  "task.claim": "authorial",
-  "task.update": "authorial",
   "task.show": "read",
+  "task.create": "authorial",
+  "task.edit": "authorial",
+  "task.assign": "authorial",
+  "task.unassign": "authorial",
+  "task.start": "authorial",
+  "task.pause": "authorial",
+  "task.resume": "authorial",
+  "task.finish": "authorial",
+  "task.cancel": "authorial",
+  "task.archive": "authorial",
+  "task.depend": "authorial",
+  "task.undepend": "authorial",
+  "task.reviewer-add": "authorial",
+  "task.reviewer-remove": "authorial",
+  "task.stamp-policy": "authorial",
+  "task.stamp": "authorial",
+  "task.comment": "authorial",
   "task.rules": "read",
   "task.check": "authorial",
   rulings: "read",
@@ -153,8 +166,23 @@ export const classifyMainAuthoringWorkOperation = (
 const WORK_AUTHORING_LABELS = {
   overseer: "control.overseer",
   "task.create": "control.work.tasks-create",
-  "task.claim": "control.work.tasks-claim",
-  "task.update": "control.work.tasks-update",
+  // Every other task write moves or edits a task: one family, one label.
+  "task.edit": "control.work.tasks-update",
+  "task.assign": "control.work.tasks-update",
+  "task.unassign": "control.work.tasks-update",
+  "task.start": "control.work.tasks-update",
+  "task.pause": "control.work.tasks-update",
+  "task.resume": "control.work.tasks-update",
+  "task.finish": "control.work.tasks-update",
+  "task.cancel": "control.work.tasks-update",
+  "task.archive": "control.work.tasks-update",
+  "task.depend": "control.work.tasks-update",
+  "task.undepend": "control.work.tasks-update",
+  "task.reviewer-add": "control.work.tasks-update",
+  "task.reviewer-remove": "control.work.tasks-update",
+  "task.stamp-policy": "control.work.tasks-update",
+  "task.stamp": "control.work.tasks-update",
+  "task.comment": "control.work.tasks-update",
   // Check results stamp on the task row — same authorial family as an
   // update, so it carries the same label rather than minting a new one.
   "task.check": "control.work.tasks-update",
@@ -178,8 +206,22 @@ const WORK_AUTHORING_LABELS = {
     WorkOpName,
     | "overseer"
     | "task.create"
-    | "task.claim"
-    | "task.update"
+    | "task.edit"
+    | "task.assign"
+    | "task.unassign"
+    | "task.start"
+    | "task.pause"
+    | "task.resume"
+    | "task.finish"
+    | "task.cancel"
+    | "task.archive"
+    | "task.depend"
+    | "task.undepend"
+    | "task.reviewer-add"
+    | "task.reviewer-remove"
+    | "task.stamp-policy"
+    | "task.stamp"
+    | "task.comment"
     | "task.check"
     | "msg.list"
     | "msg.send"

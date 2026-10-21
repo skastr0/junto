@@ -64,18 +64,18 @@ export const COMMAND_FAMILIES: Readonly<Record<CommandFamily, FamilySpec>> = {
     label: "tasks",
     docsKind: "task",
     note:
-      "Claim only unclaimed tasks. `completed` is refused without evidence and an answer to every rule; the rejection names what is missing.",
+      "Work the tasks assigned to you. A task is #42; finish is ruled, and a refusal names what is missing.",
     rows: [
-      { port: "tasks.list", intent: "list queue", command: (t) => `junto task list '{"target":"${t}"}'` },
-      { port: "tasks.list", intent: "read task + review subject", command: (t) => `junto task show '{"target":"${t}","task":"<taskId>"}'` },
+      { port: "tasks.list", intent: "my tasks", command: () => "junto task list --assignee me" },
+      { port: "tasks.list", intent: "read a task and its layers", command: () => "junto task show #<n>" },
       {
         port: "tasks.list",
         intent: "wait for task state",
         command: (t) => `junto task wait <taskId> --target ${t} --until completed --timeout 30s`,
         detail: "configured Command Center only; also supports input-required or rejected",
       },
-      { port: "tasks.create", intent: "author a task", command: (t) => `junto task create '{"target":"${t}","brief":"...","metadata":{"title":"...","details":"..."}}'` },
-      { port: "tasks.claim", intent: "claim", command: (t) => `junto task claim '{"target":"${t}","task":"<taskId>"}'` },
+      { port: "tasks.create", intent: "author a task", command: () => `junto task create "<title>" --body "..."` },
+      { port: "tasks.claim", intent: "start or hand off", command: () => "junto task start #<n>, junto task assign #<n> @<seat>" },
       { port: "tasks.list", intent: "rules + readiness", command: (t) => `junto task rules '{"target":"${t}","task":"<taskId>"}'` },
       {
         port: "tasks.update",
@@ -85,9 +85,9 @@ export const COMMAND_FAMILIES: Readonly<Record<CommandFamily, FamilySpec>> = {
       },
       {
         port: "tasks.update",
-        intent: "progress / settle / block task",
-        command: (t) => `junto task update '{"target":"${t}","task":"<taskId>","state":"<state>"}'`,
-        detail: "states: working, completed, failed, canceled, input-required",
+        intent: "progress, finish, ask for input",
+        command: () => "junto task comment|finish|pause|resume #<n>",
+        detail: "reviewers stamp with junto task stamp #<n> approve|changes",
       },
       {
         port: "tasks.list",

@@ -23,6 +23,7 @@ import {
   type NodeSpecValue,
   type Port,
   type ScopeDenial,
+  type OldTaskStoreOp,
   type TargetWorkOpName,
 } from "@shared/physics";
 import { canvasToCapabilityView } from "@shared/physics/view";
@@ -255,7 +256,7 @@ const featureDisabledError = (
   callerId: string,
   targetId: string,
   kind: string,
-  op: WorkOpName,
+  op: WorkOpName | OldTaskStoreOp,
 ): WorkErrorBody => ({
   type: "ScopeError",
   message: `node "${targetId}" kind ${kind} is disabled in this Junto build`,
@@ -294,7 +295,7 @@ export const targetFeatureDisabled = (
 export const admitOverseerWorkTarget = (
   doc: Canvas,
   targetId: string,
-  op: WorkOpName,
+  op: WorkOpName | OldTaskStoreOp,
 ): Result.Result<{ readonly node: Node }, WorkErrorBody> => {
   const target = findNode(doc, targetId);
   if (!target) {
@@ -325,7 +326,7 @@ export const admitOverseerWorkTarget = (
 };
 
 /** Ops that require a connected edge to the target (mutations + full reads). */
-export const requiresConnection = (op: WorkOpName | "overseer"): boolean => {
+export const requiresConnection = (op: WorkOpName | OldTaskStoreOp | "overseer"): boolean => {
   switch (op) {
     case "overseer.live":
     case "overseer":
@@ -373,13 +374,30 @@ export const requiresConnection = (op: WorkOpName | "overseer"): boolean => {
     case "artifact.comment":
     case "artifact.archive":
     case "artifact.restore":
-      return false;
+    // Tasks too: a task node in reach admits, and the ruler checks reach again (plan 04).
     case "task.list":
-    case "task.wait":
+    case "task.show":
     case "task.create":
+    case "task.edit":
+    case "task.assign":
+    case "task.unassign":
+    case "task.start":
+    case "task.pause":
+    case "task.resume":
+    case "task.finish":
+    case "task.cancel":
+    case "task.archive":
+    case "task.depend":
+    case "task.undepend":
+    case "task.reviewer-add":
+    case "task.reviewer-remove":
+    case "task.stamp-policy":
+    case "task.stamp":
+    case "task.comment":
+      return false;
     case "task.claim":
     case "task.update":
-    case "task.show":
+    case "task.wait":
     case "task.rules":
     case "task.check":
     case "rulings":
@@ -440,14 +458,15 @@ export const opsForKind = (kind: string | undefined): ReadonlyArray<WorkOpName> 
   return opsForSpec(resolveSpec({ isGroup: false, kind }));
 };
 
-export const kindAllowsOp = (kind: string | undefined, op: WorkOpName): boolean =>
-  opsForKind(kind).includes(op);
+export const kindAllowsOp = (kind: string | undefined, op: WorkOpName | OldTaskStoreOp): boolean =>
+  // The old store's writes go wherever its tasks are.
+  op === "task.claim" || op === "task.update" ? kind === "task" : opsForKind(kind).includes(op);
 
 export const scopeError = (
   callerId: string,
   targetId: string,
   reason: "not_connected" | "invisible" | "wrong_kind",
-  extra?: { readonly kind?: string; readonly op?: WorkOpName },
+  extra?: { readonly kind?: string; readonly op?: WorkOpName | OldTaskStoreOp },
 ): WorkErrorBody => {
   if (reason === "wrong_kind") {
     return {
@@ -500,7 +519,7 @@ export const scopeError = (
  */
 export const scopeDenialToWorkError = (
   denial: ScopeDenial,
-  extra?: { readonly kind?: string; readonly op?: WorkOpName },
+  extra?: { readonly kind?: string; readonly op?: WorkOpName | OldTaskStoreOp },
 ): WorkErrorBody => {
   switch (denial.reason) {
     case "invisible":
@@ -562,7 +581,7 @@ export const admitWorkTarget = (
   doc: Canvas,
   callerId: string,
   targetId: string,
-  op: WorkOpName,
+  op: WorkOpName | OldTaskStoreOp,
 ): Result.Result<{ readonly node: Node }, WorkErrorBody> => {
   const target = findNode(doc, targetId);
   if (!target) {
@@ -596,7 +615,7 @@ export const admitWorkTarget = (
     view,
     asNodeId(callerId),
     asNodeId(targetId),
-    portForWorkOp(op as TargetWorkOpName),
+    portForWorkOp(op as TargetWorkOpName | OldTaskStoreOp),
   );
   if (Result.isFailure(result)) {
     return Result.fail(

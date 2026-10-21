@@ -6,6 +6,7 @@
  * compiled ActorRef at every use, never impersonates OPERATOR_SEAT_ID, and
  * never treats WorkOpResult `{ ok: false }` as success.
  */
+import type { OldTaskStoreOp } from "@shared/physics/work-ports";
 import { Buffer } from "node:buffer";
 import { Effect, Result } from "effect";
 import { ulid } from "ulid";
@@ -192,7 +193,7 @@ const actorAuthor = (canvas: Canvas, actor: ActorRef): Author => {
 const requireTarget = (
   canvas: Canvas,
   targetId: string,
-  op: WorkOpName,
+  op: WorkOpName | OldTaskStoreOp,
 ): Effect.Effect<void, WorkErrorBody> => {
   const admitted = admitOverseerWorkTarget(canvas, targetId, op);
   if (Result.isFailure(admitted)) return failBody(admitted.failure);

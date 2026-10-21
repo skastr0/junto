@@ -92,7 +92,7 @@ export {
   opsForSink,
   portForWorkOp,
 } from "./work-ports";
-export type { TargetWorkOpName } from "./work-ports";
+export type { OldTaskStoreOp, TargetWorkOpName } from "./work-ports";
 
 export { canvasToCapabilityView } from "./view";
 export type { CapabilityViewOptions, VerbCapabilityView } from "./view";

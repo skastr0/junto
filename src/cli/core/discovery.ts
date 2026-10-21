@@ -32,12 +32,7 @@ import {
   SignalListArgs,
   RulingsArgs,
   TasksCheckCliArgs,
-  TasksClaimArgs,
   TasksRulesArgs,
-  TasksCreateCliArgs,
-  TasksListArgs,
-  TasksShowArgs,
-  TasksUpdateCliArgs,
 } from "../../shared/work-control";
 import { SignalRaiseCliInput } from "./signal-input";
 import { Level, rankOf } from "../../shared/wire/urgency";
@@ -47,12 +42,11 @@ import { logsReadCapability, logsReadExamples, logsReadSchema } from "../command
 import { referencesCapabilities, referencesExamples, referencesSchemas } from "../commands/references";
 import { overseerCapabilities, overseerExamples, overseerSchemas } from "../commands/overseer";
 import { automationCapabilities, automationExamples, automationSchemas } from "../commands/automation";
+import { taskCapabilities, taskExamples, taskSchemas } from "../commands/task";
 import { artifactCapabilities, artifactExamples, artifactSchemas } from "../commands/artifact";
 import { opCapabilities, opExamples, opSchemas } from "../commands/op";
 import { DEFAULT_BATCH_CONCURRENCY } from "./constants";
 import {
-  FEW_SHOT_CLAIM,
-  FEW_SHOT_COMPLETE_EVIDENCE,
   FEW_SHOT_BLOCKED,
 } from "../../shared/doctrine-few-shots";
 
@@ -106,57 +100,6 @@ export const renderSchemaContract = (contract: CommandSchemaContract) => ({
 });
 
 const inputModes = ["inline-json", "@file", "stdin"] as const;
-
-export const taskListSchema: CommandSchemaContract = {
-  command_id: "task.list",
-  command: "task list",
-  schema_id: "task.list.input/v1",
-  description: "List tasks on a connected task node.",
-  schema: TasksListArgs,
-  input_modes: inputModes,
-};
-
-export const taskClaimSchema: CommandSchemaContract = {
-  command_id: "task.claim",
-  command: "task claim",
-  schema_id: "task.claim.input/v1",
-  description: "Claim a task for this seat (submitted → working).",
-  schema: TasksClaimArgs,
-  accepts_batch: true,
-  input_modes: inputModes,
-};
-
-export const taskCreateSchema: CommandSchemaContract = {
-  command_id: "task.create",
-  command: "task create",
-  schema_id: "task.create.input/v3",
-  description:
-    "Create one Task with a stable TaskId on a connected Tasks node. dependsOn accepts existing TaskIds on this board. rules addresses task-specific rules to boards on the task path. Omitted admission requires Approval; waitFor (\"12h\", \"7d\", or ms) delays the first claim.",
-  schema: TasksCreateCliArgs,
-  accepts_batch: true,
-  input_modes: inputModes,
-};
-
-export const taskUpdateSchema: CommandSchemaContract = {
-  command_id: "task.update",
-  command: "task update",
-  schema_id: "task.update.input/v4",
-  description:
-    "Transition a task to a new state. On completed, completionEvidence supplies artifacts, git commits, claims for rules in force, and path waivers; next names the next board, handoffNote carries the handoff, and waitFor delays claiming there. On rejected, defect sends the task back to an earlier visited board; defect.target defaults to the previous board.",
-  schema: TasksUpdateCliArgs,
-  accepts_batch: true,
-  input_modes: inputModes,
-};
-
-export const taskShowSchema: CommandSchemaContract = {
-  command_id: "task.show",
-  command: "task show",
-  schema_id: "task.show.input/v1",
-  description:
-    "Show one task with its visits. Prior boards expose handoff notes and cited refs, never their interiors.",
-  schema: TasksShowArgs,
-  input_modes: inputModes,
-};
 
 export const taskWaitSchema: CommandSchemaContract = {
   command_id: "task.wait",
@@ -464,11 +407,6 @@ const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   onboardSchema,
   sinceSchema,
   offboardSchema,
-  taskListSchema,
-  taskCreateSchema,
-  taskClaimSchema,
-  taskUpdateSchema,
-  taskShowSchema,
   taskWaitSchema,
   taskRulesSchema,
   taskCheckSchema,
@@ -501,6 +439,7 @@ const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   contentStageSchema,
   ...overseerSchemas,
   ...automationSchemas,
+  ...taskSchemas,
   ...artifactSchemas,
   ...opSchemas,
   // Inline on purpose: a module const would keep the browser rows in the machine bundle.
@@ -526,150 +465,15 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
       kind: "green", findings: [],
     })],
   },
-  {
-    command_id: "task.create",
-    command: "task create",
-    name: "create a Task for Approval",
-    description:
-      "Create one stable-ID Task that requires operator approval. Agent-created tasks default to Approval.",
-    input: {
-      target: "n7",
-      brief: "Add keyboard navigation",
-      metadata: {
-        title: "Keyboard navigation",
-        details: "Cover the task board first.",
-      },
-      admission: "approval",
-    },
-    args: [
-      "task",
-      "create",
-      '{"target":"n7","brief":"Add keyboard navigation","metadata":{"title":"Keyboard navigation","details":"Cover the task board first."},"admission":"approval"}',
-    ],
-  },
-  {
-    command_id: "task.create",
-    command: "task create",
-    name: "create with TaskId dependencies and finish criteria",
-    description:
-      "dependsOn names existing TaskIds on this board. Dependencies, finish criteria, and this TaskId persist at creation.",
-    input: {
-      target: "n7",
-      brief: "Ship media migration graph",
-      reason: "needs prior content-ref work complete",
-      dependsOn: ["t_prereq"],
-      finishCriteria: {
-        description: "graph claimable and media uses ContentRef",
-        git: { minCommits: 1 },
-      },
-      metadata: {
-        title: "Media migration graph",
-        details: "Wire ContentRef media and make the graph claimable.",
-      },
-    },
-    args: [
-      "task",
-      "create",
-      '{"target":"n7","brief":"Ship media migration graph","reason":"needs prior content-ref work complete","dependsOn":["t_prereq"],"finishCriteria":{"description":"graph claimable and media uses ContentRef","git":{"minCommits":1}},"metadata":{"title":"Media migration graph","details":"Wire ContentRef media and make the graph claimable."}}',
-    ],
-  },
-  {
-    command_id: "task.claim",
-    command: "task claim",
-    name: "claim one",
-    description: "Claim task t1 on target node n7.",
-    args: FEW_SHOT_CLAIM.args,
-    input: { target: "n7", task: "t1" },
-  },
-  {
-    command_id: "task.claim",
-    command: "task claim",
-    name: "batch claim",
-    description: "Claim several tasks with bounded concurrency.",
-    args: ["task", "claim", "@claims.json", "--concurrency", "5"],
-    input: [
-      { target: "n7", task: "t1" },
-      { target: "n7", task: "t2" },
-    ],
-  },
-  {
-    command_id: "task.update",
-    command: "task update",
-    name: "complete",
-    input: { target: "n7", task: "t1", state: "completed", note: "done" },
-    args: [
-      "task",
-      "update",
-      '{"target":"n7","task":"t1","state":"completed","note":"done"}',
-    ],
-  },
-  {
-    command_id: "task.update",
-    command: "task update",
-    name: "complete with evidence",
-    input: {
-      target: "n7",
-      task: "t1",
-      state: "completed",
-      note: "done",
-      completionEvidence: {
-        artifacts: [{ artifactId: "a1", nodeId: "art1" }],
-        git: { commits: ["abc123"] },
-      },
-    },
-    args: FEW_SHOT_COMPLETE_EVIDENCE.args,
-  },
-  {
-    command_id: "task.update",
-    command: "task update",
-    name: "answer rules and send on",
-    description:
-      "Complete at this board with a claim for each rule, then send the task to the named next board.",
-    input: {
-      target: "n7",
-      task: "t1",
-      state: "completed",
-      note: "review passed",
-      completionEvidence: {
-        artifacts: [],
-        claims: [
-          { ruleId: "r1", text: "ran the suite; all green", refs: ["abc123"] },
-        ],
-      },
-      next: "n8",
-      handoffNote: "tests pass and the keyboard path is documented",
-      waitFor: "12h",
-    },
-    args: [
-      "task",
-      "update",
-      '{"target":"n7","task":"t1","state":"completed","note":"review passed","completionEvidence":{"artifacts":[],"claims":[{"ruleId":"r1","text":"ran the suite; all green","refs":["abc123"]}]},"next":"n8","handoffNote":"tests pass and the keyboard path is documented","waitFor":"12h"}',
-    ],
-  },
-  {
-    command_id: "task.update",
-    command: "task update",
-    name: "send back with a defect",
-    description: "Send the task back to the previous board with the reason on record.",
-    input: {
-      target: "n7",
-      task: "t1",
-      state: "rejected",
-      defect: { summary: "the brief names an endpoint that does not exist", refs: ["abc123"] },
-    },
-    args: [
-      "task",
-      "update",
-      '{"target":"n7","task":"t1","state":"rejected","defect":{"summary":"the brief names an endpoint that does not exist","refs":["abc123"]}}',
-    ],
-  },
-  {
-    command_id: "task.show",
-    command: "task show",
-    name: "show",
-    input: { target: "n7", task: "t1" },
-    args: ["task", "show", '{"target":"n7","task":"t1"}'],
-  },
+
+
+
+
+
+
+
+
+
   {
     command_id: "task.wait",
     command: "task wait",
@@ -1071,13 +875,7 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     input: { signalId: "01J0000000000000000000000" },
     args: ["signal", "clear", "01J0000000000000000000000"],
   },
-  {
-    command_id: "task.list",
-    command: "task list",
-    name: "list",
-    input: { target: "n7" },
-    args: ["task", "list", '{"target":"n7"}'],
-  },
+
   {
     command_id: "content.path",
     command: "content path",
@@ -1147,6 +945,7 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
   ...referencesExamples,
   ...overseerExamples,
   ...automationExamples,
+  ...taskExamples,
   ...artifactExamples,
   ...opExamples,
 ];
@@ -1224,61 +1023,11 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     category: "discovery",
     description: "Show examples for one command.",
   },
-  {
-    command_id: "task.list",
-    command: "task list",
-    category: "workflow",
-    description: "List tasks on a connected target.",
-    schemas: [taskListSchema],
-    examples: allExamples.filter((e) => e.command_id === "task.list"),
-  },
-  {
-    command_id: "task.create",
-    command: "task create",
-    category: "workflow",
-    description: "Create one or more tasks on a connected sink (batch-capable).",
-    schemas: [taskCreateSchema],
-    examples: allExamples.filter((e) => e.command_id === "task.create"),
-    batch: {
-      accepts_batch: true,
-      default_concurrency: DEFAULT_BATCH_CONCURRENCY,
-      supports_concurrency_option: true,
-    },
-  },
-  {
-    command_id: "task.claim",
-    command: "task claim",
-    category: "workflow",
-    description: "Claim one or more tasks (batch-capable).",
-    schemas: [taskClaimSchema],
-    examples: allExamples.filter((e) => e.command_id === "task.claim"),
-    batch: {
-      accepts_batch: true,
-      default_concurrency: DEFAULT_BATCH_CONCURRENCY,
-      supports_concurrency_option: true,
-    },
-  },
-  {
-    command_id: "task.update",
-    command: "task update",
-    category: "workflow",
-    description: "Update task state (batch-capable).",
-    schemas: [taskUpdateSchema],
-    examples: allExamples.filter((e) => e.command_id === "task.update"),
-    batch: {
-      accepts_batch: true,
-      default_concurrency: DEFAULT_BATCH_CONCURRENCY,
-      supports_concurrency_option: true,
-    },
-  },
-  {
-    command_id: "task.show",
-    command: "task show",
-    category: "workflow",
-    description: "Show one task with its visits (onion-scoped for seats).",
-    schemas: [taskShowSchema],
-    examples: allExamples.filter((e) => e.command_id === "task.show"),
-  },
+
+
+
+
+
   {
     command_id: "task.wait",
     command: "task wait",
@@ -1503,6 +1252,7 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
   ...referencesCapabilities,
   ...overseerCapabilities,
   ...automationCapabilities,
+  ...taskCapabilities,
   ...artifactCapabilities,
   ...opCapabilities,
 ];

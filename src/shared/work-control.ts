@@ -90,11 +90,26 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "preamble",
 "overseer",
 "overseer.live",
+/** Tasks in reach (plan 04): no edge, no port; region reach admits. */
 "task.list",
-"task.create",
-"task.claim",
-"task.update",
 "task.show",
+"task.create",
+"task.edit",
+"task.assign",
+"task.unassign",
+"task.start",
+"task.pause",
+"task.resume",
+"task.finish",
+"task.cancel",
+"task.archive",
+"task.depend",
+"task.undepend",
+"task.reviewer-add",
+"task.reviewer-remove",
+"task.stamp-policy",
+"task.stamp",
+"task.comment",
 "task.rules",
 "task.check",
 "task.wait",
@@ -319,187 +334,8 @@ export const workErr = (
 // ---------------------------------------------------------------------------
 // Domain arg schemas (shared by CLI input + daemon decode)
 
-export const TasksListArgs = Schema.Struct({
-  target: Schema.String,
-});
-export type TasksListArgs = typeof TasksListArgs.Type;
-
 /** Outer bound on a wait before starting. */
 export const WAIT_FOR_MAX_MS = 90 * 24 * 60 * 60 * 1000;
-
-const waitForField = Schema.optionalKey(
-  Schema.Number.pipe(
-    Schema.check(Schema.isGreaterThanOrEqualTo(0)),
-    Schema.check(Schema.isLessThanOrEqualTo(WAIT_FOR_MAX_MS)),
-  ),
-);
-
-const tasksCreateFields = {
-  target: Schema.String,
-  brief: Schema.String,
-  reason: Schema.optionalKey(Schema.String),
-  metadata: Schema.optionalKey(WorkMetadata),
-  /** First-class media on the brief. RawPart decodes for legacy clients but is rejected at durable write. */
-  media: Schema.optionalKey(Schema.Array(Schema.Union([RawPart, ContentPart]))),
-  /** Same-sink hard prerequisites (task ids). */
-  dependsOn: Schema.optionalKey(Schema.Array(Schema.String)),
-  /** Operator done-definition. */
-  finishCriteria: Schema.optionalKey(FinishCriteria),
-  /** Board-addressed rules; set at creation. */
-  rules: Schema.optionalKey(Schema.Array(TaskRule)),
-  /**
-   * Requested start policy. An agent omission becomes approval; an operator
-   * omission inherits the board setting. A task may only tighten that setting.
-   */
-  admission: Schema.optionalKey(TaskAdmission),
-} as const;
-
-/**
- * Author a task on a connected Tasks node. Agents that omit admission create
- * work requiring approval. Optional waitFor delays the first claim.
- */
-export const TasksCreateArgs = Schema.Struct({
-  ...tasksCreateFields,
-  waitFor: waitForField,
-}).pipe(
-  Schema.check(Schema.makeFilter((args) => {
-    const details = args.metadata?.details;
-    return (
-      (typeof details === "string" && details.trim().length > 0) ||
-      "description (metadata.details) must be non-empty"
-    );
-  })),
-).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type TasksCreateArgs = typeof TasksCreateArgs.Type;
-
-/**
- * CLI-side create input. `waitFor` accepts a spoken duration or milliseconds;
- * the CLI parses it to milliseconds before sending the same field.
- */
-export const TasksCreateCliArgs = Schema.Struct({
-  ...tasksCreateFields,
-  waitFor: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number])),
-}).pipe(
-  Schema.check(Schema.makeFilter((args) => {
-    const details = args.metadata?.details;
-    return (
-      (typeof details === "string" && details.trim().length > 0) ||
-      "description (metadata.details) must be non-empty"
-    );
-  })),
-).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type TasksCreateCliArgs = typeof TasksCreateCliArgs.Type;
-
-export const TasksClaimArgs = Schema.Struct({
-  target: Schema.String,
-  task: Schema.String,
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type TasksClaimArgs = typeof TasksClaimArgs.Type;
-
-/** Defect filed with a send-back: what the earlier board must fix. */
-export const TaskDefectArgs = Schema.Struct({
-  summary: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-  refs: Schema.optionalKey(Schema.Array(Schema.String)),
-  /**
-   * Visited board to send the task back to. Omitted means the previous board.
-   */
-  target: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)))),
-});
-export type TaskDefectArgs = typeof TaskDefectArgs.Type;
-
-const tasksUpdateFields = {
-  target: Schema.String,
-  task: Schema.String,
-  state: TaskState,
-  note: Schema.optionalKey(Schema.String),
-  completionEvidence: Schema.optionalKey(CompletionEvidence),
-  /** Next board id, required when the path forks. */
-  next: Schema.optionalKey(Schema.String),
-  /** Send the task back to an earlier board with a defect on record. */
-  defect: Schema.optionalKey(TaskDefectArgs),
-  /** Required prose when the board's outgoing contract asks for it. */
-  handoffNote: Schema.optionalKey(Schema.String),
-} as const;
-
-export const TasksUpdateArgs = Schema.Struct({
-  ...tasksUpdateFields,
-  /** Delay stamped when the task enters `next`, in milliseconds. */
-  waitFor: waitForField,
-}).pipe(
-  Schema.check(Schema.makeFilter(({ state, completionEvidence }) =>
-    completionEvidence === undefined ||
-    state === "working" ||
-    state === "completed" ||
-    "completionEvidence is only allowed when state is working or completed",)),
-  Schema.check(Schema.makeFilter(({ state, next }) =>
-    next === undefined ||
-    state === "completed" ||
-    "next is only allowed when state is completed",)),
-  Schema.check(Schema.makeFilter(({ state, waitFor }) =>
-    waitFor === undefined ||
-    state === "completed" ||
-    "waitFor is only allowed when state is completed",)),
-  Schema.check(Schema.makeFilter(({ state, handoffNote }) =>
-    handoffNote === undefined ||
-    state === "completed" ||
-    "handoffNote is only allowed when state is completed",)),
-  Schema.check(Schema.makeFilter(({ state, defect }) =>
-    defect === undefined ||
-    state === "rejected" ||
-    "defect is only allowed when state is rejected",)),
-).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type TasksUpdateArgs = typeof TasksUpdateArgs.Type;
-
-/**
- * CLI-side update input. Identical to the wire shape except `waitFor`, which
- * accepts a duration the operator would speak ("7d", "12h", "90m") or plain
- * milliseconds; the CLI parses it before the call.
- */
-export const TasksUpdateCliArgs = Schema.Struct({
-  ...tasksUpdateFields,
-  waitFor: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number])),
-}).pipe(
-  Schema.check(Schema.makeFilter(({ state, completionEvidence }) =>
-    completionEvidence === undefined ||
-    state === "working" ||
-    state === "completed" ||
-    "completionEvidence is only allowed when state is working or completed",)),
-  Schema.check(Schema.makeFilter(({ state, next }) =>
-    next === undefined ||
-    state === "completed" ||
-    "next is only allowed when state is completed",)),
-  Schema.check(Schema.makeFilter(({ state, waitFor }) =>
-    waitFor === undefined ||
-    state === "completed" ||
-    "waitFor is only allowed when state is completed",)),
-  Schema.check(Schema.makeFilter(({ state, handoffNote }) =>
-    handoffNote === undefined ||
-    state === "completed" ||
-    "handoffNote is only allowed when state is completed",)),
-  Schema.check(Schema.makeFilter(({ state, defect }) =>
-    defect === undefined ||
-    state === "rejected" ||
-    "defect is only allowed when state is rejected",)),
-).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type TasksUpdateCliArgs = typeof TasksUpdateCliArgs.Type;
-
-export const TasksShowArgs = Schema.Struct({
-  target: Schema.String,
-  task: Schema.String,
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type TasksShowArgs = typeof TasksShowArgs.Type;
 
 export const TasksRulesArgs = Schema.Struct({
   target: Schema.String,

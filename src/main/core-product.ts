@@ -11,6 +11,7 @@ import { CompanionDeviceRepositoryLive } from "./junto/companion/repository";
 import { SquadRepositoryLive } from "./junto/squads/repository";
 import { SeatGuidanceRepositoryLive } from "./junto/seat-guidance/repository";
 import { ArtifactRepositoryLive } from "./junto/work/artifact-repository";
+import { TaskRepositoryLive } from "./junto/work/task-repository";
 import { RulingRecorderLive } from "./junto/work/ruling-recorder";
 import { ResourceRulerLive } from "./junto/work/resource-ruler";
 import { makeAutomationRepositoryLive } from "./junto/automation/repository";
@@ -68,6 +69,8 @@ export const makeCoreProductLayer = (home: string) => {
         Layer.provide(ArtifactRepositoryLive, Layer.provide(RulingRecorderLive, WorkRepositoryLive)),
         makeContentServiceLive({ home }),
       ),
+      // The task ruler records its rulings the same way.
+      Layer.provide(TaskRepositoryLive, Layer.provide(RulingRecorderLive, WorkRepositoryLive)),
     ),
     Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), Layer.mergeAll(state, installOps)),
   );

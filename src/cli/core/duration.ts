@@ -1,10 +1,3 @@
-import type {
-  TasksCreateArgs,
-  TasksCreateCliArgs,
-  TasksUpdateArgs,
-  TasksUpdateCliArgs,
-} from "@shared/work-control";
-
 // Wait durations as an operator speaks them. The wire carries milliseconds
 // only; this is the CLI-side surface so a seat never has to compute
 // 7 * 24 * 60 * 60 * 1000 by hand.
@@ -45,34 +38,4 @@ export const parseWaitFor = (value: string | number): WaitForParse => {
   if (!Number.isFinite(amount)) return rejection(value);
   const unit = match[2] ?? "ms";
   return { ok: true, ms: Math.round(amount * UNIT_MS[unit]!) };
-};
-
-export type TasksUpdateWireResult =
-  | { readonly ok: true; readonly args: TasksUpdateArgs }
-  | { readonly ok: false; readonly message: string };
-
-/** Lower one CLI update item onto the wire shape. */
-export const toTasksUpdateArgs = (
-  item: TasksUpdateCliArgs,
-): TasksUpdateWireResult => {
-  const { waitFor, ...rest } = item;
-  if (waitFor === undefined) return { ok: true, args: rest };
-  const parsed = parseWaitFor(waitFor);
-  if (!parsed.ok) return { ok: false, message: parsed.message };
-  return { ok: true, args: { ...rest, waitFor: parsed.ms } };
-};
-
-export type TasksCreateWireResult =
-  | { readonly ok: true; readonly args: TasksCreateArgs }
-  | { readonly ok: false; readonly message: string };
-
-/** Lower one CLI create item onto the wire shape. */
-export const toTasksCreateArgs = (
-  item: TasksCreateCliArgs,
-): TasksCreateWireResult => {
-  const { waitFor, ...rest } = item;
-  if (waitFor === undefined) return { ok: true, args: rest };
-  const parsed = parseWaitFor(waitFor);
-  if (!parsed.ok) return { ok: false, message: parsed.message };
-  return { ok: true, args: { ...rest, waitFor: parsed.ms } };
 };

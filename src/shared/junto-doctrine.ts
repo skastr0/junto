@@ -20,8 +20,8 @@ import {
 } from "./features";
 import { PAST_SESSIONS_FRAMING } from "./seat-sessions";
 import {
-  FEW_SHOT_CLAIM,
-  FEW_SHOT_COMPLETE_EVIDENCE,
+  FEW_SHOT_FINISH,
+  FEW_SHOT_START,
   FEW_SHOT_BLOCKED,
   FEW_SHOT_PROGRESS,
   type DoctrineFewShotPayload,
@@ -95,7 +95,7 @@ Publishing artifacts is non-blocking product delivery. Ship intermediate and fin
 
 /** The loop step that says where work comes from: a claim queue, or people. */
 const WORK_STEP = TASKS_ENABLED
-  ? `2. **work** — do the work the board makes available. If a task is already claimed by your seat, continue it; claim only tasks that are unclaimed (\`task claim\`). Never invent backlog.`
+  ? `2. **work** — do the work the board makes available. If a task is assigned to your seat, start it and see it through (\`task start\`, \`task finish\`). Never invent backlog.`
   : `2. **work** — do the work the operator and your region ask for. Instructions arrive in your region briefing and in mail over your edges; open the surfaces you need and work by hand. Never invent backlog.`;
 
 const UPDATE_STEP = TASKS_ENABLED
@@ -250,11 +250,7 @@ Never leak board tokens, node refs, or seat ids into public copy.`;
 
 // ── Edge contracts (reference tables per command family) ───────────────────
 
-const TASKS_REFERENCE = `Finish criteria are **hard gates**: \`completed\` is rejected unless evidence is attached (${ARTIFACTS_ENABLED ? "artifacts linked to the task, " : ""}real git SHAs). A rejection names the missing pieces — read it, fix, retry.
-
-### Stage evidence before review
-
-On a configured Command Center, a requires-review task stays \`working\` while you submit real refs: \`junto task update '{"target":"<target>","task":"<taskId>","state":"working","completionEvidence":{"artifacts":[],"git":{"commits":["<real-sha>"]}}}'\`. This stages evidence without completing the task. Reviewers receive the exact subject through receipt mail. Use the current epoch and subjectHash; a changed ref or epoch invalidates prior approval. After a qualifying reviewer posts green on that exact subject, complete with the same evidence. A blocking review sends work back with a defect and a new epoch. Requires-review completion is Command Center only.
+const TASKS_REFERENCE = `A task moves backlog, assigned, working, in-review, done. \`task finish\` is ruled, not declared: a task that needs stamps waits in \`in-review\` until its reviewers approve with \`task stamp <task> approve\`, and \`changes\` sends it back to \`working\` with what to change. A refusal names what is missing: read it, fix, retry with the same \`--op-id\`.
 
 ### Rules in force
 
@@ -367,9 +363,9 @@ const fewShotsForTargets = (
   targets: readonly ConnectedTarget[] | undefined,
 ): readonly DoctrineFewShotPayload[] => {
   const out: DoctrineFewShotPayload[] = [];
-  if (TASKS_ENABLED && targets?.some((target) => target.ports?.includes("tasks.claim"))) out.push(FEW_SHOT_CLAIM);
+  if (TASKS_ENABLED && targets?.some((target) => target.ports?.includes("tasks.claim"))) out.push(FEW_SHOT_START);
   if (TASKS_ENABLED && targets?.some((target) => target.ports?.includes("tasks.update"))) {
-    out.push(FEW_SHOT_PROGRESS, FEW_SHOT_COMPLETE_EVIDENCE);
+    out.push(FEW_SHOT_PROGRESS, FEW_SHOT_FINISH);
   }
   // Raising a hand is universal, so every seat gets its worked example.
   out.push(FEW_SHOT_BLOCKED);

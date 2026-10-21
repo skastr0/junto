@@ -206,6 +206,10 @@ export const TASK_ARGS = {
 export const isTaskWriteOp = (op: string): op is TaskWriteOp =>
   op === "task.comment" || Object.hasOwn(TASK_COMMAND_OPS, op);
 
+/** The ops `handleTaskOp` answers; rules, check and wait keep their own handlers. */
+export const isTaskControlOp = (op: string): op is TaskControlOp =>
+  Object.hasOwn(TASK_ARGS, op);
+
 // ---------------------------------------------------------------------------
 // Results
 

@@ -111,12 +111,7 @@ import {
   SinceArgs,
   RulingsArgs,
   TasksCheckArgs,
-  TasksClaimArgs,
-  TasksCreateArgs,
-  TasksListArgs,
   TasksRulesArgs,
-  TasksShowArgs,
-  TasksUpdateArgs,
   VerdictPostArgs,
   WORK_MAX_FRAME_BYTES,
   WORK_PROTOCOL_VERSION,
@@ -155,6 +150,8 @@ import { isAutomationReadOp } from "@shared/automation-control";
 import { handleAutomationRead, liveAutomationPorts } from "./automation-control";
 import { ARTIFACT_WRITE_OPS, isArtifactOp } from "@shared/artifact-control";
 import { handleArtifactOp, liveArtifactPorts } from "./artifact-control";
+import { TASK_WRITE_OPS, isTaskControlOp } from "@shared/task-control";
+import { handleTaskOp, liveTaskPorts } from "./task-control";
 import { liveSeatObservation } from "./seat-observation-live";
 import { readSeatSince } from "./seat-since-read";
 import { messageDelivery } from "./message-delivery";
@@ -209,10 +206,8 @@ import { isResourceKind, resourcesInReach } from "@shared/region-reach";
 
 /** Ops that act on the factory — refused for paused seats. Reads stay open. */
 const MUTATING_OPS: ReadonlySet<string> = new Set([
-  "task.claim",
-  "task.create",
-  "task.update",
   "task.check",
+  ...TASK_WRITE_OPS,
   "content.materialize",
   "preamble",
   "msg.list",
@@ -1596,282 +1591,6 @@ const dispatchOp = (
       return { ...event, disposition: "applied" as const };
     }
 
-    if (op === "task.list") {
-      const decoded = decodeArgs(TasksListArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
-      if ("type" in gate) return yield* Effect.fail(gate);
-      const items = yield* work.readTasks(caller.canvasName, decoded.success.target).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
-      // Onion visibility holds by construction: rows at this board carry only
-      // the current visit's thread; prior interiors live on prior boards'
-      // rows. Ambient guidance (board purpose + region stack briefings) is
-      // additive so seats can compose against the standing contract.
-      const contract = boardContractOf(read.canvas, decoded.success.target);
-      const ambient = regionStackFor(board, decoded.success.target);
-      return {
-        target: decoded.success.target,
-        items,
-        ...(contract !== undefined
-          ? {
-              contract: {
-                ...boardGuidance(board, decoded.success.target),
-                rules: contract.rules ?? [],
-                admission: resolveTaskAdmission(contract),
-              },
-            }
-          : {}),
-        ...(ambient.length > 0 ? { ambient } : {}),
-      };
-    }
-
-    if (
-      op === "content.path" ||
-      op === "content.stat" ||
-      op === "content.materialize"
-    ) {
-      const decoded =
-        op === "content.path"
-          ? decodeArgs(ContentPathArgs, args)
-          : op === "content.stat"
-            ? decodeArgs(ContentStatArgs, args)
-            : decodeArgs(ContentMaterializeArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const target = decoded.success.target;
-      const taskId = decoded.success.task;
-      const gate = requireTarget(board, caller.nodeId, target, op);
-      if ("type" in gate) return yield* Effect.fail(gate);
-      const task = yield* work.readTask(caller.canvasName, target, taskId, nodeKind(gate.node) === "requests" ? "requests" : "task").pipe(
-        Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)),
-      );
-      if (task === undefined) {
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "UnknownTarget",
-          message: `task "${taskId}" not found on target "${target}"`,
-          details: { target: taskId, retryable: false },
-        });
-      }
-      const authorizedRef = taskContentRef(task, decoded.success.ref);
-      if (authorizedRef === undefined) {
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "ScopeError",
-          message: `content ref is not attached to task "${taskId}"`,
-          details: {
-            target,
-            caller: caller.nodeId,
-            hint: "use a ContentRef carried by the authorized task",
-            retryable: false,
-          },
-        });
-      }
-
-      const contentOption = yield* Effect.serviceOption(ContentService);
-      if (Option.isNone(contentOption)) {
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "InternalError",
-          message: "content service is unavailable on this Station",
-          details: { retryable: true },
-        });
-      }
-      const content = contentOption.value;
-      const availability = yield* content.availability(authorizedRef).pipe(
-        Effect.mapError((error): WorkErrorBody => ({
-          type: "InternalError",
-          message: error.message,
-          details: { retryable: true },
-        })),
-      );
-      const base = {
-        target,
-        task: taskId,
-        ref: authorizedRef,
-        availability,
-        state: availability.state,
-      } as const;
-      if (availability.state !== "verified") {
-        return base;
-      }
-
-      const canonicalPath = contentObjectPath(content.root, authorizedRef.sha256);
-      if (op !== "content.materialize") {
-        return { ...base, path: canonicalPath };
-      }
-
-      const name =
-        op === "content.materialize"
-          ? (decoded.success as ContentMaterializeArgs).name
-          : undefined;
-      const materialized = yield* Effect.tryPromise({
-        try: () =>
-          materializeContentObject({
-            contentRoot: content.root,
-            workHome: caller.workHome,
-            canvasName: caller.canvasName,
-            targetNodeId: target,
-            taskId,
-            ref: authorizedRef,
-            name,
-          }),
-        catch: (error): WorkErrorBody => {
-          const invalidInput =
-            error instanceof ContentStoreError && error.code === "invalid";
-          return {
-            type: invalidInput ? "InputError" : "InternalError",
-            message: error instanceof Error ? error.message : String(error),
-            details: { retryable: !invalidInput },
-          };
-        },
-      });
-      return {
-        ...base,
-        path: materialized.path,
-        canonicalPath,
-        materialized: materialized.created,
-      };
-    }
-
-    if (op === "task.create") {
-      const decoded = decodeArgs(TasksCreateArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
-      if ("type" in gate) return yield* Effect.fail(gate);
-      const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Result.isFailure(actor)) return yield* Effect.fail(actor.failure);
-      const result = yield* work.workTaskCreate(
-        caller.canvasName,
-        decoded.success.target,
-        decoded.success.brief,
-        decoded.success.metadata,
-        decoded.success.reason,
-        decoded.success.media,
-        decoded.success.dependsOn,
-        decoded.success.finishCriteria,
-        decoded.success.rules,
-        {
-          admission: decoded.success.admission,
-          admissionOmitted: "approval",
-          ...(decoded.success.waitFor !== undefined
-            ? { waitForMs: decoded.success.waitFor }
-            : {}),
-          raisedBy: actor.success,
-        },
-      );
-      const mapped = fromWorkResult(result);
-      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      const path = boardRulesMap(board, decoded.success.target);
-      return {
-        ...exposeWorkMutation(mapped.success),
-        ...(path.length > 0 ? { path } : {}),
-      };
-    }
-
-    if (op === "task.claim") {
-      const decoded = decodeArgs(TasksClaimArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
-      if ("type" in gate) return yield* Effect.fail(gate);
-      const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Result.isFailure(actor)) return yield* Effect.fail(actor.failure);
-      const result = yield* work.workTaskClaim(
-        caller.canvasName,
-        decoded.success.target,
-        decoded.success.task,
-        actor.success,
-      );
-      const mapped = fromWorkResult(result);
-      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      return exposeWorkMutation(mapped.success);
-    }
-
-    if (op === "task.update") {
-      const decoded = decodeArgs(TasksUpdateArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
-      if ("type" in gate) return yield* Effect.fail(gate);
-      const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Result.isFailure(actor)) return yield* Effect.fail(actor.failure);
-      const task = yield* work.readTask(caller.canvasName, decoded.success.target, decoded.success.task).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
-      // Unadmitted submitted rows refuse every seat mutation first — a
-      // submitted task waiting on approval, wait, or a Me board is not the
-      // caller's to complete, send on, or release.
-      const unadmitted = refuseUnadmittedSubmitted(task, gate.node, boardContractOf(read.canvas, gate.node?.id ?? ""));
-      if (unadmitted !== undefined) {
-        return yield* Effect.fail(unadmitted);
-      }
-      // Seat/agent wire ownership (tasks-consolidation plan B2): completing
-      // or sending work on (including defect send-back) requires the calling
-      // seat to be the claimant; failing, canceling, and input requests may
-      // come from any connected agent; returning to Queue and archiving are
-      // operator-only and refused on the seat wire.
-      const sendOn =
-        decoded.success.state === "completed" ||
-        (decoded.success.state === "rejected" &&
-          decoded.success.defect !== undefined);
-      if (sendOn) {
-        if (
-          task?.claimedBy === undefined ||
-          task.claimedBy !== actor.success.seatId
-        ) {
-          return yield* Effect.fail<WorkErrorBody>({
-            type: "ClaimConflict",
-            message:
-              `task "${decoded.success.task}" must be claimed by you before completing or sending it on`,
-            details: {
-              ...(task?.claimedBy === undefined
-                ? {}
-                : { holder: task.claimedBy }),
-              caller: actor.success.seatId,
-              retryable: false,
-              next_step:
-                "claim the task first; only the claiming seat completes or sends on work",
-            },
-          });
-        }
-      } else if (
-        decoded.success.state === "submitted" ||
-        decoded.success.state === "archived"
-      ) {
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "ScopeError",
-          message:
-            decoded.success.state === "submitted"
-              ? "only the operator may return a task to Queue"
-              : "only the operator may archive a task",
-          details: {
-            caller: actor.success.seatId,
-            retryable: false,
-            next_step:
-              "ask the operator to perform this action from the Command Center",
-          },
-        });
-      }
-      const result = yield* work.workTaskTransition(
-        caller.canvasName,
-        decoded.success.target,
-        decoded.success.task,
-        decoded.success.state,
-        decoded.success.note,
-        decoded.success.completionEvidence,
-        {
-          ...(decoded.success.next !== undefined
-            ? { next: decoded.success.next }
-            : {}),
-          ...(decoded.success.defect !== undefined
-            ? { defect: decoded.success.defect }
-            : {}),
-          ...(decoded.success.waitFor !== undefined
-            ? { waitForMs: decoded.success.waitFor }
-            : {}),
-          ...(decoded.success.handoffNote !== undefined
-            ? { handoffNote: decoded.success.handoffNote }
-            : {}),
-        },
-        mailSenderStamp(board, caller, actor.success),
-      );
-      const mapped = fromWorkResult(result);
-      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      return exposeWorkMutation(mapped.success);
-    }
-
     if (op === "verdict.post") {
       const decoded = decodeArgs(VerdictPostArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
@@ -1886,28 +1605,6 @@ const dispatchOp = (
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
       return exposeWorkMutation(mapped.success);
-    }
-
-    if (op === "task.show") {
-      const decoded = decodeArgs(TasksShowArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
-      if ("type" in gate) return yield* Effect.fail(gate);
-      // Seats always read the onion view; operator surfaces go through IPC.
-      return yield* work
-        .workTaskShow(
-          caller.canvasName,
-          decoded.success.target,
-          decoded.success.task,
-          "seat",
-        )
-        .pipe(
-          Effect.catch((error) =>
-            Effect.fail(
-              mapWorkCode(error.code, error.message, error.details),
-            ),
-          ),
-        );
     }
 
     if (op === "task.rules") {
@@ -2550,6 +2247,16 @@ const dispatchOp = (
         canvasName: caller.canvasName,
         actor: { kind: "seat", seatId: actor.success.seatId, nodeId: asNodeId(caller.nodeId) },
       }, liveAutomationPorts);
+    }
+
+    if (isTaskControlOp(op)) {
+      const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
+      if (Result.isFailure(actor)) return yield* Effect.fail(actor.failure);
+      return yield* handleTaskOp(op, args, {
+        canvas: board,
+        canvasName: caller.canvasName,
+        actor: { kind: "seat", seatId: actor.success.seatId, nodeId: asNodeId(caller.nodeId) },
+      }, liveTaskPorts);
     }
 
     if (isArtifactOp(op)) {
