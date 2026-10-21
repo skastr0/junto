@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+## 0.10.1 — 2026-10-21
+
+Opening the database with 0.10.1 moves it to version 49, and 0.10.0 then
+refuses it as newer than supported. To go back to 0.10.0, open the backup
+taken at the upgrade. A CLI from 0.10.0 reads the new needs-update answer as
+a protocol error; use the CLI that ships with the app.
+
+- Rename any node from the selection card in the bottom bar, pages, links and
+  files included. File and link names show on other machines' copies; page
+  names stay on this machine.
+- Buttons in the top bar of a full-screen panel click again. Before, the
+  window's drag strip took the click.
+- Collapse the side panel in Tasks, Artifacts and Automations, and widen any
+  full-screen panel to full width and back.
+- A terminal panel keeps the width you drag it to. Before, a squeezed width
+  could stick for the rest of the session. Double-click the grip to forget it.
+- The browser: closing a tab updates the tab strip, Close takes the page down
+  with the panel, and Stop page stops every tab. The tab strip, address and
+  driving mark are redesigned.
+- A seat replies to a comment on an artifact or a page from its notice, and
+  the reply lands in that thread.
+- Commenting on text you have not saved saves the document first. If someone
+  else changed it, the comment waits and says how to choose.
+- A link to another machine reconnects on its own within seconds after it
+  drops, so held mail and signals no longer wait minutes.
+- A machine on an older build is listed as needing an update instead of
+  failing the whole seat or terminal list.
+- The CLI: a mention that names nothing is sent as plain text and listed in
+  the answer instead of refusing the mail. Task errors say what to do next,
+  a task comment names who it reached, and task show counts its thread. A
+  batch where every item failed answers ok false.
+
 ## 0.10.0 — 2026-10-21
 
 Known limits in 0.10: opening a very large file preview reads the whole file
