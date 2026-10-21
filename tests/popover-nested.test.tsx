@@ -77,6 +77,18 @@ describe("a popover opened inside a popover", () => {
     expect(byTestId("outer")).not.toBeNull();
   });
 
+  it("closes only the inner one on Escape, then the outer one on the next", () => {
+    const escape = () =>
+      act(() => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      });
+    escape();
+    expect(byTestId("inner")).toBeNull();
+    expect(byTestId("outer")).not.toBeNull();
+    escape();
+    expect(byTestId("outer")).toBeNull();
+  });
+
   it("closes both on a press outside them", () => {
     press(document.body);
     expect(byTestId("inner")).toBeNull();

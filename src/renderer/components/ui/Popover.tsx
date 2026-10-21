@@ -8,6 +8,9 @@ import { FOCUSABLE_SELECTOR, openerBorrowedKeyboard, returnKeyboardFrom, topModa
 // would re-run the placement layout effect every render and never settle.
 const DEFAULT_SIDES: ReadonlyArray<Side> = ["left", "right", "below", "above"];
 
+/** Every open popover's anchor, so one can tell a popover is open inside it. */
+const openAnchors = new Set<HTMLElement>();
+
 const tabStopsIn = (panel: HTMLElement): HTMLElement[] =>
   Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter((stop) => stop.getClientRects().length > 0);
 
@@ -109,6 +112,9 @@ export function Popover({
       // topmost thing: the key is that modal's.
       const above = topModal()?.container();
       if (above && !above.contains(anchor)) return;
+      // A popover opened inside this one is above it: the key is that one's.
+      const panel = panelRef.current;
+      for (const other of openAnchors) if (other !== anchor && panel?.contains(other)) return;
       // Esc belongs to the popover while it is open; the surface under it
       // (a focus modal, a PTY) must not also act on it.
       event.preventDefault();
@@ -127,7 +133,9 @@ export function Popover({
     // focus-law: Escape closes an open popover and Tab walks into and out of it, never a typing shortcut.
     window.addEventListener("keydown", onKeyDown, { capture: true });
     document.addEventListener("pointerdown", onPointerDown, { capture: true });
+    openAnchors.add(anchor);
     return () => {
+      openAnchors.delete(anchor);
       window.removeEventListener("keydown", onKeyDown, { capture: true });
       document.removeEventListener("pointerdown", onPointerDown, { capture: true });
     };
