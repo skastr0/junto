@@ -55,6 +55,7 @@ import {
   emptyRuled,
   overlay,
   type PendingEntry,
+  type RefusedRuling,
   precheck,
   rule,
 } from "@shared/resource-command";
@@ -160,14 +161,15 @@ export class ArtifactRepository extends Context.Service<ArtifactRepository,
     ) => Effect.Effect<ArtifactSubmitOutcome, ArtifactPersistenceError>;
     /**
      * The writer's check of a command it is about to queue for the editing
-     * machine, over the ruled artifacts held here and its own unruled
-     * `queued` commands (`precheck`): the refusal when it is definite, else
-     * none. Reads only: no ruling, no row, no notice.
+     * machine, over the ruled artifacts held here, its own unruled `queued`
+     * commands and its `refused` rulings held here (`precheck`): the refusal
+     * when it is definite, else none. Reads only: no ruling, no row, no notice.
      */
     readonly precheck: (
       writer: InstallationId,
       queued: ReadonlyArray<ResourceCommand<ArtifactOp>>,
       command: ResourceCommand<ArtifactOp>,
+      refused: ReadonlyMap<CommandKey, RefusedRuling>,
       context: RulingContext,
     ) => Effect.Effect<Option.Option<Extract<ArtifactSubmitOutcome, { readonly kind: "refused" }>>, ArtifactPersistenceError>;
   }>()("@junto/ArtifactRepository") {}
@@ -672,6 +674,7 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
       writer: InstallationId,
       queued: ReadonlyArray<ResourceCommand<ArtifactOp>>,
       command: ResourceCommand<ArtifactOp>,
+      refused: ReadonlyMap<CommandKey, RefusedRuling>,
       context: RulingContext,
     ) {
       const canvas = command.canvasName;
@@ -681,12 +684,8 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
         const entry = yield* readEntry(canvas, id);
         if (Option.isSome(entry)) entries.set(id, entry.value);
       }
-      const rulings = new Map<CommandKey, ResourceRuling<ArtifactFact>>();
-      for (const each of commands) {
-        for (const [key, ruling] of yield* priorRulings(canvas, writer, each)) rulings.set(key, ruling);
-      }
       const domain = artifactDomain({ now: Date.now, bodyRef: artifactBodyRef });
-      return Option.fromNullishOr(precheck(domain, { state: entries, rulings }, writer, queued, command, context));
+      return Option.fromNullishOr(precheck(domain, { state: entries, rulings: refused }, writer, queued, command, context));
     }, Effect.mapError(persistence("precheck")));
 
     return ArtifactRepository.of({ list, head, body, history, localWriter, submit, overlay: overlayOf, precheck: precheckOf });

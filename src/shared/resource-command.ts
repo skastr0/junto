@@ -250,10 +250,11 @@ const ruleWithReachOn = <State, Op, Fact>(
   return record({ kind: "applied", opId: command.opId, facts: verdict.facts }, verdict.facts.reduce(domain.apply, ruled.state));
 };
 
-type Refused = Extract<ResourceRuling<never>, { readonly kind: "refused" }>;
+/** A refused ruling: it names no facts, so it is one type for every domain. */
+export type RefusedRuling = Extract<ResourceRuling<never>, { readonly kind: "refused" }>;
 
 /** The refusal of a command whose `after` reaches `earlier`, refused with `root`. */
-const dependsOnRefused = (opId: OpId, earlier: OpId, root: OpId): Refused => {
+const dependsOnRefused = (opId: OpId, earlier: OpId, root: OpId): RefusedRuling => {
   const refusal: Refusal = {
     reason: "depends_on_refused",
     message: `This builds on ${earlier}, which was refused`,
@@ -270,10 +271,12 @@ const dependsOnRefused = (opId: OpId, earlier: OpId, root: OpId): Refused => {
  * The command is ruled on the last ruled state, never the overlay's preview:
  * a refusal met only on top of an unruled command could be ruled otherwise
  * once that command is, so it is not definite. The writer's unruled `queued`
- * commands count through `after`: one that builds on a refused ruling, or on
- * a queued command this check finds definitely refused, is refused
- * `depends_on_refused` with that root. Reach is judged as the ruler judges
- * it; a command out of reach here is queued, since reach can grow.
+ * commands count through `after`: one that builds on a refused ruling in
+ * `ruled`, or on a queued command this check finds definitely refused, is
+ * refused `depends_on_refused` with that root. So the caller gives `command`
+ * the `after` the queue will give it, and `ruled` the writer's rulings this
+ * machine holds. Reach is judged as the ruler judges it; a command out of
+ * reach here is queued, since reach can grow.
  */
 export const precheck = <State, Op, Fact>(
   domain: ResourceDomain<State, Op, Fact>,
@@ -282,9 +285,9 @@ export const precheck = <State, Op, Fact>(
   queued: ReadonlyArray<ResourceCommand<Op>>,
   command: ResourceCommand<Op>,
   context: RulingContext,
-): Refused | undefined => {
-  const refused = new Map<OpId, Refused>();
-  const check = (next: ResourceCommand<Op>): Refused | undefined => {
+): RefusedRuling | undefined => {
+  const refused = new Map<OpId, RefusedRuling>();
+  const check = (next: ResourceCommand<Op>): RefusedRuling | undefined => {
     for (const earlier of next.after) {
       const dependency = ruled.rulings.get(commandKey(writer, earlier));
       if (dependency?.kind === "refused") return dependsOnRefused(next.opId, earlier, dependency.root);

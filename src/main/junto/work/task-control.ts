@@ -57,7 +57,7 @@ import { operatorActorRef } from "@shared/work-reference";
 import type { QueuedCommand } from "@shared/command-row";
 import { decodeTaskFacts } from "@shared/task-fact-wire";
 import { ResourceSubmit } from "./resource-submit";
-import { localQueue, queuedTaskCommands } from "./queued-commands";
+import { precheckInput, queuedTaskCommands } from "./queued-commands";
 import { MachineRepository } from "../machines/repository";
 import { productDisabledError } from "./authz";
 import { linkMentionsAt } from "./mention-links";
@@ -165,9 +165,9 @@ const queuedOutcome = (
 const precheckTask = (command: ResourceCommand<TaskCommand>, context: RulingContext, env: TaskCanvasEnv) =>
   Effect.gen(function* () {
     const repo = yield* Effect.serviceOption(TaskRepository);
-    const queue = yield* localQueue(command.canvasName);
-    if (Option.isNone(repo) || queue === undefined) return Option.none();
-    return yield* repo.value.precheck(queue.writer, queuedTaskCommands(queue.commands), command, context, env).pipe(Effect.mapError(storeError));
+    const input = yield* precheckInput(command, (commands) => queuedTaskCommands(commands));
+    if (Option.isNone(repo) || input === undefined) return Option.none();
+    return yield* repo.value.precheck(input.writer, input.queued, input.command, input.refused, context, env).pipe(Effect.mapError(storeError));
   });
 
 /** Every port through the TaskRepository in the running core. */

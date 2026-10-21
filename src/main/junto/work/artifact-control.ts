@@ -51,7 +51,7 @@ import { operatorActorRef } from "@shared/work-reference";
 import { ArtifactFact } from "@shared/artifact-domain";
 import type { QueuedCommand } from "@shared/command-row";
 import { ResourceSubmit } from "./resource-submit";
-import { localQueue, queuedArtifactCommands } from "./queued-commands";
+import { precheckInput, queuedArtifactCommands } from "./queued-commands";
 import type {
   ArtifactHeadRead,
   ArtifactListQuery,
@@ -185,10 +185,10 @@ export const liveArtifactPorts: ArtifactPorts = (() => {
             const route = yield* remote.value.route(command.canvasName).pipe(Effect.mapError((error) => ({ message: error.message })));
             if (route.kind === "editor") {
               // Refused at once when the ruled artifacts held here and this writer's queue already refuse it for good: answered to the caller only.
-              const queue = yield* localQueue(command.canvasName);
-              const refused = queue === undefined
+              const input = yield* precheckInput(command, queuedArtifactCommands);
+              const refused = input === undefined
                 ? Option.none()
-                : yield* repo.precheck(queue.writer, queuedArtifactCommands(queue.commands), command, context);
+                : yield* repo.precheck(input.writer, input.queued, input.command, input.refused, context);
               if (Option.isSome(refused)) return refused.value;
               return yield* queuedOutcome(repo, remote.value, command, route.editor).pipe(Effect.mapError((error) => ({ message: error.message })));
             }

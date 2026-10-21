@@ -11,7 +11,7 @@ import { SqlClient } from "effect/unstable/sql";
 import { Reactivity } from "effect/unstable/reactivity";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ArtifactOp } from "../src/shared/artifact";
-import type { QueuedCommand } from "../src/shared/command-row";
+import type { OpState, QueuedCommand } from "../src/shared/command-row";
 import type { InstallationId } from "../src/shared/installation-id";
 import { asNodeId } from "../src/shared/physics/schema";
 import { mintItemId, mintOpId, type OpId, type ResourceActor, type ResourceCommand, type RulingContext } from "../src/shared/resource-command";
@@ -25,6 +25,7 @@ import { RulingRecorder } from "../src/main/junto/work/ruling-recorder";
 import { ArtifactRepository } from "../src/main/junto/work/artifact-repository";
 import { liveArtifactPorts, writeResult } from "../src/main/junto/work/artifact-control";
 import { OpRepository } from "../src/main/junto/work/op-repository";
+import { WorkRepository } from "../src/main/junto/work/repository";
 import { ResourceSubmit } from "../src/main/junto/work/resource-submit";
 import { liveTaskPorts, writeResultOf } from "../src/main/junto/work/task-control";
 import { TaskRepository, TaskRepositoryLive, type TaskCanvasEnv } from "../src/main/junto/work/task-repository";
@@ -94,8 +95,20 @@ const ruleHere = (op: TaskCommand, itemId: TaskId) =>
 
 const rows = (table: string) => (database.prepare(`SELECT count(*) AS n FROM ${table}`).get() as { n: number }).n;
 
+/**
+ * What became of each of this writer's commands, as the work store's ruling
+ * rows say on a machine that does not edit the canvas; `resource_rulings`
+ * holds none of them there. Unlisted: unknown.
+ */
+const workOf = (states: ReadonlyMap<OpId, OpState>) =>
+  ({ commandState: (_canvas: string, writer: InstallationId, opId: OpId) => Effect.succeed(writer === laptop ? states.get(opId) ?? { kind: "unknown" } : { kind: "unknown" }) }) as never;
+
 /** Write through the live port on a machine that does not edit the canvas, with `queue` as this machine's unruled queue. */
-const write = async (written: ResourceCommand<TaskCommand>, queue: ReadonlyArray<ResourceCommand<TaskCommand>> = []) => {
+const write = async (
+  written: ResourceCommand<TaskCommand>,
+  queue: ReadonlyArray<ResourceCommand<TaskCommand>> = [],
+  states: ReadonlyMap<OpId, OpState> = new Map(),
+) => {
   const sent: Array<OpId> = [];
   const repo = await runtime.runPromise(TaskRepository);
   const exit = await Effect.runPromiseExit(
@@ -111,6 +124,7 @@ const write = async (written: ResourceCommand<TaskCommand>, queue: ReadonlyArray
         unruled: () => Effect.succeed({ writer: laptop, commands: queue as ReadonlyArray<QueuedCommand> }),
       })),
       Effect.provideService(TaskRepository, repo),
+      Effect.provideService(WorkRepository, workOf(states)),
     ),
   );
   return { exit, sent };
@@ -134,15 +148,42 @@ describe("a task write on a machine that does not edit the canvas", () => {
     expect({ rulings: rows("resource_rulings"), heads: rows("task_heads"), recorded: recordedRulings }).toEqual(before);
   });
 
-  it("refuses at once a write built on a queued write it refuses for good", async () => {
+  it("refuses at once a write on the item of a queued write it refuses for good, with the after the queue gives it", async () => {
     const taskId = mintItemId();
     await ruleHere({ kind: "create", taskId, title: "one" }, taskId);
     await ruleHere({ kind: "cancel" }, taskId);
     const bad = command({ kind: "cancel" }, taskId);
-    const next = command({ kind: "edit", title: "renamed" }, taskId, { after: [bad.opId] });
+    // No after from the caller: the queue builds it on the unruled write on the same item.
+    const next = command({ kind: "edit", title: "renamed" }, taskId);
     const { exit, sent } = await write(next, [bad]);
     expect(sent).toEqual([]);
     expect(JSON.stringify(exit)).toContain("depends_on_refused");
+    expect(JSON.stringify(exit)).toContain(bad.opId);
+  });
+
+  it("refuses at once a write built on a refusal held as a ruling row of the work store", async () => {
+    const taskId = mintItemId();
+    await ruleHere({ kind: "create", taskId, title: "one" }, taskId);
+    const root = mintOpId();
+    const refusedRow: OpState = {
+      kind: "refused",
+      ruling: { operation: "ruling.refused", writer: laptop, opId: root, actor: adaActor, reason: "invalid_transition", root } as never,
+      error: { type: "InvalidTransition", message: "no", details: { reason: "invalid_transition" } },
+    };
+    const next = command({ kind: "edit", title: "renamed" }, taskId, { after: [root] });
+    const { exit, sent } = await write(next, [], new Map([[root, refusedRow]]));
+    expect(sent).toEqual([]);
+    expect(JSON.stringify(exit)).toContain("depends_on_refused");
+  });
+
+  it("leaves a resend to the queue once a peer's ruling of it is folded here, though today's state would refuse it", async () => {
+    const taskId = mintItemId();
+    // The editing machine applied this create; its ruling row came back, and the task is held here.
+    const create = command({ kind: "create", taskId, title: "one" }, taskId);
+    await ruleHere({ kind: "create", taskId, title: "one" }, taskId);
+    const appliedRow: OpState = { kind: "applied", ruling: { operation: "ruling.applied", writer: laptop, opId: create.opId } as never };
+    const { sent } = await write(create, [], new Map([[create.opId, appliedRow]]));
+    expect(sent).toEqual([create.opId]);
   });
 
   it("is queued when the editing machine might rule it otherwise", async () => {
@@ -164,10 +205,13 @@ describe("a task write on a machine that does not edit the canvas", () => {
 
 describe("an artifact write on a machine that does not edit the canvas", () => {
   const item = mintItemId();
-  const created = { ...command({ kind: "start" }, item), target: { kind: "artifact" as const, nodeId: asNodeId("docs"), itemId: item }, op: { op: "retitle", title: "x" } } as never as ResourceCommand<ArtifactOp>;
+  const retitle = () => ({ ...command({ kind: "start" }, item), target: { kind: "artifact" as const, nodeId: asNodeId("docs"), itemId: item }, op: { op: "retitle", title: "x" } }) as never as ResourceCommand<ArtifactOp>;
+  const created = retitle();
+  const earlier = retitle();
   const run = (precheck: ArtifactRepository["Service"]["precheck"]) => {
     const sent: Array<OpId> = [];
     const seen: Array<ReadonlyArray<OpId>> = [];
+    const after: Array<ReadonlyArray<OpId>> = [];
     return Effect.runPromiseExit(
       liveArtifactPorts.submit(created, everywhere).pipe(
         Effect.flatMap((outcome) => writeResult(outcome, created)),
@@ -178,20 +222,24 @@ describe("an artifact write on a machine that does not edit the canvas", () => {
         Effect.provideService(OpRepository, OpRepository.of({
           show: () => Effect.die("not read"),
           list: () => Effect.die("not read"),
-          unruled: () => Effect.succeed({ writer: laptop, commands: [created as never, command({ kind: "start" }, item) as never] }),
+          unruled: () => Effect.succeed({ writer: laptop, commands: [earlier as never, command({ kind: "start" }, item) as never] }),
         })),
+        Effect.provideService(WorkRepository, workOf(new Map())),
         Effect.provideService(ArtifactRepository, {
-          precheck: (writer, queued, ...rest) => (seen.push([writer as never, ...queued.map(({ opId }) => opId)]), precheck(writer, queued, ...rest)),
+          precheck: (writer, queued, command, ...rest) => (
+            seen.push([writer as never, ...queued.map(({ opId }) => opId)]), after.push(command.after), precheck(writer, queued, command, ...rest)
+          ),
         } as ArtifactRepository["Service"]),
       ),
-    ).then((exit) => ({ exit, sent, seen }));
+    ).then((exit) => ({ exit, sent, seen, after }));
   };
 
-  it("is refused at once by the store's precheck over this writer's artifact commands, and not queued", async () => {
+  it("is refused at once by the store's precheck over this writer's artifact commands, after the queue's after, and not queued", async () => {
     const error = { type: "InputError", message: "exists", details: { reason: "invalid_input" } } as const;
-    const { exit, sent, seen } = await run(() => Effect.succeed(Option.some({ kind: "refused", opId: created.opId, error, root: created.opId })));
+    const { exit, sent, seen, after } = await run(() => Effect.succeed(Option.some({ kind: "refused", opId: created.opId, error, root: created.opId })));
     expect(sent).toEqual([]);
-    expect(seen).toEqual([[laptop, created.opId]]);
+    expect(seen).toEqual([[laptop, earlier.opId]]);
+    expect(after).toEqual([[earlier.opId]]);
     expect(JSON.stringify(exit)).toContain("invalid_input");
   });
 

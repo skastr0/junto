@@ -20,6 +20,7 @@ import type { NodeId } from "@shared/physics/schema";
 import {
   type CommandKey,
   type PendingEntry,
+  type RefusedRuling,
   type ResourceCommand,
   type ResourceRuling,
   type RulingContext,
@@ -111,14 +112,15 @@ export class TaskRepository extends Context.Service<TaskRepository,
     ) => Effect.Effect<TaskSubmitOutcome, TaskPersistenceError>;
     /**
      * The writer's check of a command it is about to queue for the editing
-     * machine, over the ruled tasks held here and its own unruled `queued`
-     * commands (`precheck`): the refusal when it is definite, else none.
-     * Reads only: no ruling, no row, no notice.
+     * machine, over the ruled tasks held here, its own unruled `queued`
+     * commands and its `refused` rulings held here (`precheck`): the refusal
+     * when it is definite, else none. Reads only: no ruling, no row, no notice.
      */
     readonly precheck: (
       writer: InstallationId,
       queued: ReadonlyArray<ResourceCommand<TaskCommand>>,
       command: ResourceCommand<TaskCommand>,
+      refused: ReadonlyMap<CommandKey, RefusedRuling>,
       context: RulingContext,
       env: TaskCanvasEnv,
     ) => Effect.Effect<Option.Option<Extract<TaskSubmitOutcome, { readonly kind: "refused" }>>, TaskPersistenceError>;
@@ -566,16 +568,12 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
       writer: InstallationId,
       queued: ReadonlyArray<ResourceCommand<TaskCommand>>,
       command: ResourceCommand<TaskCommand>,
+      refused: ReadonlyMap<CommandKey, RefusedRuling>,
       context: RulingContext,
       env: TaskCanvasEnv,
     ) {
-      const canvas = command.canvasName;
-      const state = yield* readBoard(canvas);
-      const rulings = new Map<CommandKey, ResourceRuling<TaskFact>>();
-      for (const each of [...queued, command]) {
-        for (const [key, ruling] of yield* priorRulings(canvas, writer, each)) rulings.set(key, ruling);
-      }
-      return Option.fromNullishOr(precheck(taskDomain({ ...env, at: Date.now() }), { state, rulings }, writer, queued, command, context));
+      const state = yield* readBoard(command.canvasName);
+      return Option.fromNullishOr(precheck(taskDomain({ ...env, at: Date.now() }), { state, rulings: refused }, writer, queued, command, context));
     }, Effect.mapError(persistence("precheck")));
 
     const overlayOf = Effect.fn("tasks.overlay")(function* (
