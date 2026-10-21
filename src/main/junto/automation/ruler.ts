@@ -92,6 +92,7 @@ export const submitAutomationCommand = Effect.fn("automations.submit")(function*
   command: ResourceCommand<AutomationOp>,
   context: RulingContext,
   env: AutomationEnv,
+  now: () => number = Date.now,
 ) {
   const sql = yield* SqlClient.SqlClient;
   const repository = yield* AutomationRepository;
@@ -145,7 +146,7 @@ export const submitAutomationCommand = Effect.fn("automations.submit")(function*
         });
       }
     }
-    const at = Date.now();
+    const at = now();
     const ruled = rule(automationDomain(() => at, env), { state, rulings }, writer, command, context);
     const ruling = ruled.ruling;
     let outcome: AutomationSubmitOutcome;
