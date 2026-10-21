@@ -124,17 +124,24 @@ the set grows by one (cli-lead):
   bounds there close the whole link: more than 32 requests in flight
   (`src/main/junto/link/session.ts:32,281`) and a reply slower than 30 s
   (`session.ts:284`). `rows` is windowed with credit and has neither. A
-  ruling never waits on content bytes. Expected round trip on LAN 20 to
-  150 ms (ping to the mini 10 to 123 ms, average 62), unmeasured until it is
-  built.
+  ruling never waits on content bytes. Round trip measured on the mini
+  (remote-send): one row out and its answer row back over a real link and
+  SQLite at both ends, 100 runs, p50 35 ms and p90 126 ms for a small row,
+  p50 47 ms and p90 128 ms for 4 KiB, with this Mac at load 124 to 170.
 - Routing: a direct link to the editing machine, no relaying. In v1 the
   editor opens every link, so every machine with a seat is already linked
   (inferred, not checked on a three machine canvas).
 - **Size.** Row paging counts rows (64 per frame, `work-exchange.ts:29`)
   against a 1 MiB frame bound. Inline bodies or large notes would overflow a
   frame and close the link. Bodies travel as content refs; facts stay small.
-- New fact kinds on `rows`, one family per domain: `task.*`, `artifact.*`,
-  `thread.*`, `automation.*`. Each carries the editing machine as writer.
+- Resource facts ride inside the ruling (remote-work): `ruling.applied`
+  carries its domain's facts, decoded per domain like the op, as one row
+  the editing machine writes in the same transaction as its own tables. So
+  every fact carries its opId by construction, and rows still stand alone,
+  with no predecessor chains. Every other machine folds a received ruling
+  through the same domain projection into its own tables. A refused ruling
+  writes `resource_rulings` only. A ruling row stays under the 64 KiB row
+  cap, so a body larger than that is a content ref in the fact.
 - Entitlement: every machine linked for a canvas receives every resource
   fact for it. The mail entitlement rule (sink seat lives on the machine,
   `work-exchange.ts:273-284`) is unchanged.
