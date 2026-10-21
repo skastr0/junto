@@ -1380,6 +1380,27 @@ describe("BrowserSessionService", () => {
     expect(service.pageState(first.data.sessionId)?.tabs.tabs.map((tab) => tab.id)).toEqual(["t1", "t3"]);
   });
 
+  it("pushes the next tab to the surface when the shown tab closes, each time", async () => {
+    const { service, views } = makeDefaultService();
+    const shown: string[] = [];
+    service.setSink((info) => shown.push(`${info.sessionId}:${info.attached ? "attached" : "detached"}`));
+    const page = target("tab-close-push");
+    const first = await service.open(page);
+    if (!first.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(first.data.sessionId, "Home");
+    service.setBounds(first.data.sessionId, { x: 0, y: 0, width: 400, height: 300 });
+    for (const url of ["https://tab-close-push.example.com/two", "https://tab-close-push.example.com/three"]) {
+      const opened = await service.openTab(first.data.sessionId, url);
+      if (!opened.ok) throw new Error("open tab failed");
+      const active = service.pageState(first.data.sessionId)!.tabs.active;
+      // The operator closes the tab in front: the surface hears tab 1 again, attached where it was.
+      expect(service.closeTab(opened.data.sessionId, active)).toMatchObject({ ok: true, data: { sessionId: first.data.sessionId } });
+      expect(shown.at(-1)).toBe(`${first.data.sessionId}:attached`);
+      expect(service.sessionIdForRef(page.ref)).toBe(first.data.sessionId);
+      expect(service.pageState(first.data.sessionId)?.tabs.tabs.map((tab) => tab.id)).toEqual(["t1"]);
+    }
+  });
+
   it("keeps a tab whose view went listed, and reopens it where it was when shown", async () => {
     const { service, views } = makeDefaultService();
     const page = target("tab-ended");

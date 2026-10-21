@@ -19,9 +19,11 @@ type BrowserApi = ReturnType<typeof getJuntoApi> & Partial<JuntoBrowserApi>;
 
 export const isCanonicalBrowserRef = (ref: string): boolean => parseNodeRef(ref).ok;
 
-// Session ids are document-generation handles. Recent replaced handles stay in
-// a bounded FIFO so late pushes cannot roll a ref backward; async responses are
-// separately guarded by the handle observed when their request began.
+// Session ids are document-generation handles, one per tab of a page. Recent
+// replaced handles stay in a bounded FIFO so stale async responses cannot roll
+// a ref backward; async responses are also guarded by the handle observed when
+// their request began. A push is never stale: main pushes only the page's
+// shown tab, in order, so a pushed handle the ref retired is a tab shown again.
 const MAX_RETIRED_SESSION_IDS_PER_REF = 32;
 const retiredSessionIdsByRef = new Map<string, ReadonlyArray<string>>();
 
@@ -73,6 +75,22 @@ export const cacheBrowserSession = (session: BrowserSessionInfo | null | undefin
   if (currentSessionId) retireBrowserSessionId(session.ref, currentSessionId);
   browser$.sessionByRef[session.ref].set(session);
   return true;
+};
+
+/**
+ * Cache a session main pushed: the page's shown tab. A tab shown again (the
+ * operator went back to it, or closed the tab in front of it) brings back a
+ * handle the ref retired when another tab showed. A destroyed push stays
+ * bound by `cacheBrowserSession`: it never establishes or replaces a handle.
+ */
+export const cachePushedBrowserSession = (session: BrowserSessionInfo | null | undefined): boolean => {
+  if (isUsableBrowserSession(session) && session.state !== "destroyed") {
+    const retired = retiredSessionIdsByRef.get(session.ref);
+    if (retired?.includes(session.sessionId)) {
+      retiredSessionIdsByRef.set(session.ref, retired.filter((candidate) => candidate !== session.sessionId));
+    }
+  }
+  return cacheBrowserSession(session);
 };
 
 /**
@@ -141,7 +159,7 @@ export const subscribeBrowserSessionEvents = (): (() => void) => {
   const api = getJuntoApi() as BrowserApi | undefined;
   if (!api?.onBrowserSessionChanged) return () => undefined;
   const unsubscribe = api.onBrowserSessionChanged((session) => {
-    cacheBrowserSession(session);
+    cachePushedBrowserSession(session);
   });
   activeUnsubscribe = () => {
     unsubscribe();

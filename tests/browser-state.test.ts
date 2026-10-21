@@ -118,8 +118,35 @@ describe("subscribeBrowserSessionEvents", () => {
     const unsubscribe = subscribeBrowserSessionEvents();
     handler?.(baseSession(ref, nodeId, { sessionId: "old-handle" }));
     handler?.(baseSession(ref, nodeId, { sessionId: "new-handle" }));
-    handler?.(baseSession(ref, nodeId, { sessionId: "old-handle", state: "failed" }));
+    handler?.(baseSession(ref, nodeId, { sessionId: "old-handle", state: "destroyed" }));
     expect(sessionOf(ref)?.sessionId).toBe("new-handle");
+    unsubscribe();
+  });
+
+  // Main pushes only the page's shown tab (sessions.ts emit), each tab its own
+  // handle: closing the tab in front, or going back to a tab, shows an older one.
+  it("follows the shown tab back to a handle the ref retired, and past its closed tab", () => {
+    const nodeId = freshNodeId();
+    const ref = refOf(nodeId);
+    let handler: ((session: BrowserSessionInfo) => void) | undefined;
+    installMockJunto({
+      onBrowserSessionChanged: vi.fn((listener: (session: BrowserSessionInfo) => void) => {
+        handler = listener;
+        return () => undefined;
+      }),
+    });
+    const unsubscribe = subscribeBrowserSessionEvents();
+    handler?.(baseSession(ref, nodeId, { sessionId: "tab-1", attached: true }));
+    handler?.(baseSession(ref, nodeId, { sessionId: "tab-2", attached: true }));
+    // The operator closes tab 2: tab 1 shows again, then tab 2's view ends.
+    handler?.(baseSession(ref, nodeId, { sessionId: "tab-1", attached: true }));
+    handler?.(baseSession(ref, nodeId, { sessionId: "tab-2", state: "destroyed" }));
+    expect(sessionOf(ref)).toMatchObject({ sessionId: "tab-1", state: "ready" });
+    // And again, with a third tab: the strip keeps following.
+    handler?.(baseSession(ref, nodeId, { sessionId: "tab-3", attached: true }));
+    handler?.(baseSession(ref, nodeId, { sessionId: "tab-1", attached: true }));
+    handler?.(baseSession(ref, nodeId, { sessionId: "tab-3", state: "destroyed" }));
+    expect(sessionOf(ref)?.sessionId).toBe("tab-1");
     unsubscribe();
   });
 });
@@ -181,7 +208,7 @@ describe("refreshBrowserSession", () => {
     handler?.(oldSession);
     const hydration = refreshBrowserSession(ref);
     handler?.(newSession);
-    handler?.({ ...oldSession, state: "failed", lastError: "late old push" });
+    handler?.({ ...oldSession, state: "destroyed", lastError: "late old push" });
     resolveList?.({ ok: true, data: [oldSession] });
     await hydration;
     expect(sessionOf(ref)).toMatchObject({ sessionId: "new-push", state: "ready" });

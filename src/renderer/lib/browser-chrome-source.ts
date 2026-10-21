@@ -120,7 +120,13 @@ export const setBrowserChromeApi = (next: BrowserChromeApi | undefined): void =>
   api = next;
 };
 
-/** A page's chrome state, kept fresh. Undefined while it loads or when the page has no session. */
+/**
+ * A page's chrome state, kept fresh. Undefined while it first loads or when
+ * the page has no session. Each tab is its own session, so a tab shown or
+ * closed swaps the session under the same page: the strip stays up with the
+ * page's last state until the new session's state lands, never flashing back
+ * to the old header.
+ */
 export const useBrowserChromeState = (
   chrome: BrowserChromeApi | undefined,
   sessionId: string | undefined,
@@ -129,8 +135,10 @@ export const useBrowserChromeState = (
   const key = `${sessionId ?? ""}`;
   const latest = useRef(0);
   useEffect(() => {
-    setState(undefined);
-    if (chrome === undefined || sessionId === undefined) return;
+    if (chrome === undefined || sessionId === undefined) {
+      setState(undefined);
+      return;
+    }
     let live = true;
     const read = (): void => {
       const mine = ++latest.current;
