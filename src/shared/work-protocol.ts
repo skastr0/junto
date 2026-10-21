@@ -3,6 +3,7 @@ import { Seq } from "./model/events";
 import { ActorSeatId } from "./actor-seat";
 import { Author } from "./author";
 import { InstallationId } from "./installation-id";
+import { CommandQueuedResult, RulingAppliedResult, RulingRefusedResult } from "./command-row";
 import { PadPatch } from "./pad";
 import {
   Artifact,
@@ -132,7 +133,10 @@ export const WorkOperation = Schema.Literals(["task.create",
 "delivery.accepted",
 "board.topic.create",
 "board.post.append",
-"pad.patch",]);
+"pad.patch",
+"command.queued",
+"ruling.applied",
+"ruling.refused",]);
 export type WorkOperation = typeof WorkOperation.Type;
 
 export const DeliveryReceipt = Schema.Struct({
@@ -285,7 +289,10 @@ ArtifactPublishResult,
 DeliveryAcceptedResult,
 BoardTopicCreateResult,
 BoardPostAppendResult,
-PadPatchResult,]);
+PadPatchResult,
+CommandQueuedResult,
+RulingAppliedResult,
+RulingRefusedResult,]);
 export type WorkResult = typeof WorkResult.Type;
 
 /** Why a work write was refused. */
@@ -355,6 +362,16 @@ const itemMatchesResult = (
       return item.kind === "post" && item.itemId === result.post.postId;
     case "pad.patch":
       return item.kind === "pad" && item.itemId === result.patchId;
+    case "command.queued":
+      return (
+        item.kind === "command" &&
+        item.itemId === result.command.opId &&
+        item.sink.canvasName === result.command.canvasName &&
+        item.sink.nodeId === result.command.target.nodeId
+      );
+    case "ruling.applied":
+    case "ruling.refused":
+      return item.kind === "ruling" && item.itemId === result.opId;
   }
 };
 
@@ -367,7 +384,10 @@ const noPriorMaterialFact = (operation: WorkOperation): boolean =>
   operation === "delivery.accepted" ||
   operation === "board.topic.create" ||
   operation === "board.post.append" ||
-  operation === "pad.patch";
+  operation === "pad.patch" ||
+  operation === "command.queued" ||
+  operation === "ruling.applied" ||
+  operation === "ruling.refused";
 
 const recordByteLength = (record: unknown): number | undefined => {
   try {

@@ -65,6 +65,8 @@ export const WorkItemKind = Schema.Literals([
   "topic",
   "post",
   "pad",
+  "command",
+  "ruling",
 ]);
 export type WorkItemKind = typeof WorkItemKind.Type;
 

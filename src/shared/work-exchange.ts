@@ -21,6 +21,7 @@ import {
   AgentSignalText,
 } from "./agent-signals";
 import { CanvasCopy } from "./canvas-copy";
+import { commandRowEntitled } from "./command-row";
 import { InstallationId } from "./installation-id";
 import { Seq } from "./model";
 import { WorkCanvasName, OPERATOR_SEAT_ID, operatorActorRef } from "./work-reference";
@@ -41,10 +42,11 @@ export const compareSequence = (left: string, right: string): number =>
   left.length !== right.length ? left.length - right.length : left < right ? -1 : left > right ? 1 : 0;
 
 /**
- * The rows that may cross machines: mail to a seat and its receipts. A fact of
- * any other kind, or one that leans on another fact, never crosses. Every
- * reference inside a row names the row's own canvas: its author, and for a
- * receipt the mailbox and the mail it answers.
+ * The rows that may cross machines: mail to a seat and its receipts, resource
+ * commands and the editing machine's rulings on them. A fact of any other
+ * kind, or one that leans on another fact, never crosses. Every reference
+ * inside a row names the row's own canvas: its author, for a receipt the
+ * mailbox and the mail it answers, for a command the canvas it is for.
  */
 export const ExchangeFact = WorkFact.pipe(
   Schema.check(
@@ -68,6 +70,11 @@ export const ExchangeFact = WorkFact.pipe(
             "a receipt is the receiving seat's own, for mail in its own mailbox"
           );
         }
+        case "command.queued":
+          return fact.body.command.canvasName === sink.canvasName || "a command is written on the canvas it is for";
+        case "ruling.applied":
+        case "ruling.refused":
+          return true;
         default:
           return "this kind of row does not cross machines";
       }
@@ -266,8 +273,9 @@ export const writtenByItsAuthor = (
 
 /**
  * Is this machine entitled to the row? The editing machine gets every row of
- * its canvas. Any other machine gets the mail addressed to its seats, and the
- * receipts for mail its seats wrote. `mailAuthorNodeId` is the author of the
+ * its canvas. Any other machine gets the mail addressed to its seats, the
+ * receipts for mail its seats wrote, and every ruling; never another
+ * machine's command, which stays pending only where it was written. `mailAuthorNodeId` is the author of the
  * mail a receipt answers, when the caller holds that mail.
  */
 export const entitledTo = (
@@ -277,6 +285,12 @@ export const entitledTo = (
   mailAuthorNodeId?: string,
 ): boolean => {
   if (machine === placement.editor) return true;
+  switch (fact.body.operation) {
+    case "command.queued":
+    case "ruling.applied":
+    case "ruling.refused":
+      return commandRowEntitled(machine, placement.editor, fact.body);
+  }
   if (fact.body.operation === "message.append") {
     return placement.seatOf(fact.item.sink.nodeId)?.machine === machine;
   }
