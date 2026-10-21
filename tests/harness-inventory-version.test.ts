@@ -28,8 +28,11 @@ describe("versionProbeOutcome", () => {
   it("names why a run gave none: timeout, could not start, exited, or printed none", () => {
     expect(versionProbeOutcome({ ok: false, stdout: "", error: "adapter command timed out after 5000ms" }))
       .toMatchObject({ reason: "timeout" });
-    expect(versionProbeOutcome({ ok: false, stdout: "", error: "spawn /usr/bin/env ENOENT" }))
-      .toMatchObject({ reason: "spawn", detail: "spawn /usr/bin/env ENOENT" });
+    // The detail is scrubbed of this process's environment values, and a
+    // launch through env(1) leaves `_=/usr/bin/env`, so the path names no
+    // real file.
+    expect(versionProbeOutcome({ ok: false, stdout: "", error: "spawn /missing/bin/claude ENOENT" }))
+      .toMatchObject({ reason: "spawn", detail: "spawn /missing/bin/claude ENOENT" });
     expect(versionProbeOutcome({ ok: false, stdout: "", error: "/usr/bin/env: 'node': No such file or directory" }))
       .toMatchObject({ reason: "exited" });
     expect(versionProbeOutcome({ ok: true, stdout: "Welcome to Claude Code\n" }))
