@@ -8,16 +8,17 @@
  *    always does. A seat it mentions must be in reach of the node too.
  * 2. The comment's own row is held at the subject's node, its id derived
  *    from (installation, opId), so a retried write is the same row.
+ *    A seat posts as itself, the operator as operator mail, an automation
+ *    as its own node (actor-mail.ts).
  * 3. One notice per seat owed one: the resource's people, everyone it
  *    mentions, and everyone who posted in the thread before, never the
  *    poster. A mentioned seat's notice is a mention; the rest are comments.
  */
 import { Effect, Option } from "effect";
-import type { MailMessageId, MailSenderStamp } from "@shared/crew";
+import type { MailMessageId } from "@shared/crew";
 import { mentionsOf } from "@shared/mention";
 import type { Canvas } from "@shared/model";
-import { asNodeId, mailSenderRegions } from "@shared/model";
-import { titleOf } from "@shared/model/title";
+import { asNodeId } from "@shared/model";
 import type { NodeId } from "@shared/physics/schema";
 import { isCommentableKind, reaches, seatsInReach } from "@shared/region-reach";
 import type { ResourceActor } from "@shared/resource-command";
@@ -33,8 +34,8 @@ import { makeUserMessage } from "@shared/task";
 import { sameSubject, subjectLabel, threadSubjectMetadata, threadSubjectOf, type ResourceSubject } from "@shared/thread-subject";
 import type { WorkErrorBody } from "@shared/work-control";
 import { mailExtensionMetadata, mailThreadOf } from "@shared/crew";
-import { OPERATOR_SEAT_ID, operatorActorRef, type ActorRef } from "@shared/work-reference";
 import { MachineRepository } from "../machines/repository";
+import { actorMailOf } from "./actor-mail";
 import { WorkService } from "./service";
 
 /** What the caller knows of the resource beside the comment. */
@@ -46,47 +47,6 @@ export type SubjectCommentContext = {
 };
 
 const runtimeDown = (message: string): WorkErrorBody => ({ type: "RuntimeDown", message, details: { retryable: true } });
-
-/**
- * Who an actor's mail is from: the stamp its rows carry and the author the
- * repository records. The operator's is operator mail. An automation has no
- * author for mail yet (it needs a node author); undefined.
- */
-export const actorMailOf = (
-  canvas: Canvas,
-  canvasName: string,
-  actor: ResourceActor,
-): { readonly stamp: MailSenderStamp; readonly sentBy: ActorRef } | undefined => {
-  switch (actor.kind) {
-    case "seat": {
-      const node = canvas.nodes.get(asNodeId(actor.nodeId));
-      return {
-        stamp: {
-          fromSeat: actor.seatId,
-          senderNodeId: actor.nodeId,
-          senderName: node === undefined ? actor.nodeId : titleOf(node),
-          senderRegions: mailSenderRegions(canvas, actor.nodeId),
-          senderGeneration: "ruling",
-          senderHarness: node?.kind === "agent" ? (node.harness ?? "unknown") : "unknown",
-        },
-        sentBy: { seatId: actor.seatId, canvasName, nodeId: actor.nodeId },
-      };
-    }
-    case "operator":
-      return {
-        stamp: {
-          fromSeat: OPERATOR_SEAT_ID,
-          senderNodeId: "operator",
-          senderName: "operator",
-          senderGeneration: "operator",
-          senderHarness: "unknown",
-        },
-        sentBy: operatorActorRef(canvasName),
-      };
-    case "automation":
-      return undefined;
-  }
-};
 
 /** The resource a subject names, whatever place on it. */
 const withoutAnchor = (subject: ResourceSubject): ResourceSubject => {
@@ -142,8 +102,8 @@ export const postSubjectComment = (
     if (mail === undefined) {
       return yield* Effect.fail<WorkErrorBody>({
         type: "InputError",
-        message: "an automation's comments are not built in this Junto build yet",
-        details: { reason: "not_available", retryable: false },
+        message: "an automation comments from its own node, never the operator's",
+        details: { path: "actor", reason: "invalid_input", retryable: false },
       });
     }
     const machines = yield* Effect.serviceOption(MachineRepository);

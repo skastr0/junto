@@ -7,9 +7,7 @@
  * writes each row once.
  */
 import { Effect, Option } from "effect";
-import type { MailSenderStamp } from "@shared/crew";
 import type { Canvas } from "@shared/model";
-import { asNodeId, mailSenderRegions } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import type { ResourceActor } from "@shared/resource-command";
 import { subjectNoticeRow } from "@shared/subject-notice";
@@ -20,6 +18,7 @@ import { taskRulingNotices } from "@shared/task-notices";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { OpId } from "@shared/work-ids";
 import { MachineRepository } from "../machines/repository";
+import { actorMailOf } from "./actor-mail";
 import { WorkService } from "./service";
 
 export type TaskDelivery = {
@@ -37,28 +36,22 @@ const notBuilt = (what: string): WorkErrorBody => ({
   details: { retryable: true },
 });
 
-/** The actor as its notices name it: the seat's canvas name and regions. */
-const senderOf = (canvas: Canvas, actor: Extract<ResourceActor, { readonly kind: "seat" }>): MailSenderStamp => {
-  const node = canvas.nodes.get(asNodeId(actor.nodeId));
-  return {
-    fromSeat: actor.seatId,
-    senderNodeId: actor.nodeId,
-    senderName: node === undefined ? actor.nodeId : titleOf(node),
-    senderRegions: mailSenderRegions(canvas, actor.nodeId),
-    senderGeneration: "ruling",
-    senderHarness: node?.kind === "agent" ? (node.harness ?? "unknown") : "unknown",
-  };
-};
-
 /**
- * Append every notice the ruling owes. Only a seat's command is told this
- * way: the operator and automations have no seat to stamp the mail as, and
- * their notices wait on a Junto sender (pty-inject review, 94792dcf6).
+ * Append every notice the ruling owes, as the actor's mail (actor-mail.ts):
+ * a seat's as the seat, the operator's as operator mail, an automation's as
+ * its own node, never as the operator.
  */
 export const deliverTaskEffects = (delivery: TaskDelivery): Effect.Effect<void, WorkErrorBody> =>
   Effect.gen(function* () {
     const { actor } = delivery;
-    if (actor.kind !== "seat") return;
+    const mail = actorMailOf(delivery.canvas, delivery.canvasName, actor);
+    if (mail === undefined) {
+      return yield* Effect.fail({
+        type: "InputError",
+        message: "an automation is told from its own node, never the operator's",
+        details: { path: "actor", retryable: false },
+      } satisfies WorkErrorBody);
+    }
     const machines = yield* Effect.serviceOption(MachineRepository);
     const work = yield* Effect.serviceOption(WorkService);
     if (Option.isNone(machines)) return yield* Effect.fail(notBuilt("this machine's installation id"));
@@ -80,19 +73,18 @@ export const deliverTaskEffects = (delivery: TaskDelivery): Effect.Effect<void, 
         title: delivery.task.title,
         ...(delivery.task.assignee === undefined ? {} : { assignee: delivery.task.assignee }),
       },
-      sender: senderOf(delivery.canvas, actor),
-      actor: actor.nodeId as SeatNodeId,
+      sender: mail.stamp,
+      ...(actor.kind === "seat" ? { actor: actor.nodeId as SeatNodeId } : {}),
       effects: delivery.effects,
       nameOf,
     });
-    const sentBy = { seatId: actor.seatId, canvasName: delivery.canvasName, nodeId: actor.nodeId };
     for (const notice of notices) {
       const row = subjectNoticeRow(notice);
       const appended = yield* work.value.workSubjectNotice(
         delivery.canvasName,
         notice.recipient,
         makeUserMessage({ messageId: row.messageId, text: row.text, contextId: delivery.canvasName, metadata: row.metadata }),
-        sentBy,
+        mail.sentBy,
       );
       if (!appended.ok) {
         return yield* Effect.fail({ type: "RuntimeDown", message: appended.message, details: { retryable: true } } satisfies WorkErrorBody);

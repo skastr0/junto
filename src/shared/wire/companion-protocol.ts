@@ -958,6 +958,10 @@ export const decodeCompanionRequestLine = (
   if (op !== "content.stage" && size > COMPANION_MAX_REQUEST_BYTES) {
     return Result.fail({ id: "", error: companionError("too-large", COMPANION_ERROR_COPY["too-large"]), close: true });
   }
+  // Args are closed: an unknown key is refused. So mail.send keeps its
+  // optional `mentions` list, read and dropped (companion-core.ts), so an
+  // older phone build that still sends it is not refused; drop the field
+  // once no phone build sends it. A mention is the link in the text.
   const closed = !COMPANION_CLOSED_ARGS_OPS.has(op) ||
     Result.isSuccess(Schema.decodeUnknownResult(CompanionArgs[op], { onExcessProperty: "error" })(args));
   const frame = decodeRequestFrame({ ...(raw as object), args });

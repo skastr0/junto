@@ -3,6 +3,7 @@
  * joins the task's one thread and carries its subject; a reply to a notice
  * in that thread posts to the task, never to the notice's sender; a refusal
  * takes no reply. Every store, home and socket lives under a temp root.
+ * Mail to a task node over the socket needs the task kind (TASKS_ENABLED).
  */
 import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -10,8 +11,10 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
+import { ulid } from "ulid";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { encodeWorkFrame } from "../src/shared/work-control";
+import { TASKS_ENABLED } from "../src/shared/features";
 import { asNodeId } from "../src/shared/physics/schema";
 import { subjectNoticeRow, type SubjectNoticeInput } from "../src/shared/subject-notice";
 import { makeUserMessage } from "../src/shared/task";
@@ -21,7 +24,9 @@ import type { MailMessageId, MailSenderStamp } from "../src/shared/crew";
 import type { Message } from "../src/shared/work-model";
 import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
-import { canvasOf, region, seat as seatNode, taskBoard, wire } from "./support/model-nodes";
+import { automations, canvasOf, region, seat as seatNode, taskBoard, wire } from "./support/model-nodes";
+import { AUTOMATION_SEAT_ID } from "../src/shared/mail-author";
+import { OPERATOR_SEAT_ID } from "../src/shared/work-reference";
 import { deliverTaskEffects } from "../src/main/junto/work/task-delivery";
 import { postSubjectComment } from "../src/main/junto/work/subject-comment";
 import { mentionLink } from "../src/shared/mention";
@@ -69,6 +74,7 @@ const NODES = [
   seat("agent", 0),
   seat("peer", 160),
   taskBoard(BOARD, { x: 400, y: 40, width: 200, height: 100 }),
+  automations("auto", { x: 640, y: 40, width: 160, height: 100 }),
   region("other", { x: -40, y: 600, width: 400, height: 300 }),
   seatNode("outsider", { x: 0, y: 640, width: 120, height: 48, bindingId: "bind-outsider" as never, launch: { kind: "harness", argv: ["claude"] } }),
 ];
@@ -126,13 +132,11 @@ const run = <A>(f: (work: typeof WorkService.Service) => Effect.Effect<A, unknow
 
 const mailbox = (nodeId: string): Promise<ReadonlyArray<Message>> => run((work) => work.readMailbox(CANVAS, nodeId));
 
-const createTask = async (): Promise<string> => {
-  const created = await call("agent", "task.create", { target: BOARD, brief: "fix tabs", metadata: { details: "the tab strip wraps" } });
-  expect(created.ok, JSON.stringify(created)).toBe(true);
-  const id = created.data.task?.id ?? created.data.taskId ?? created.data.id;
-  expect(typeof id).toBe("string");
-  return id as string;
-};
+/**
+ * A 0.10 task id on the board. A comment names its task by id and node; the
+ * comment path neither reads nor needs the task store, so none runs here.
+ */
+const createTask = async (): Promise<string> => ulid();
 
 const sender: MailSenderStamp = {
   fromSeat: "seat_agent" as MailSenderStamp["fromSeat"],
@@ -164,7 +168,7 @@ const notice = async (taskId: string, kind: "assignment" | "refusal"): Promise<s
 };
 
 describe("subject threads", () => {
-  it("a task comment joins its task's thread, and no other", async () => {
+  it.skipIf(!TASKS_ENABLED)("a task comment joins its task's thread, and no other", async () => {
     const taskId = await createTask();
     const sent = await call("agent", "msg.send", { target: BOARD, taskId, text: "starting" });
     expect(sent.ok, JSON.stringify(sent)).toBe(true);
@@ -178,7 +182,7 @@ describe("subject threads", () => {
     expect(elsewhere.error.type).toBe("InputError");
   });
 
-  it("a reply to a notice posts to the task, not to the notice's sender", async () => {
+  it.skipIf(!TASKS_ENABLED)("a reply to a notice posts to the task, not to the notice's sender", async () => {
     const taskId = await createTask();
     const noticeId = await notice(taskId, "assignment");
 
@@ -193,7 +197,7 @@ describe("subject threads", () => {
     expect((await mailbox("agent")).some((message) => message.parts.some((part) => part.kind === "text" && part.text === "on it"))).toBe(false);
   });
 
-  it("a refusal takes no reply", async () => {
+  it.skipIf(!TASKS_ENABLED)("a refusal takes no reply", async () => {
     const taskId = await createTask();
     const noticeId = await notice(taskId, "refusal");
     const refused = await call("peer", "msg.reply", { target: BOARD, inReplyTo: noticeId, text: "why?" });
@@ -210,7 +214,7 @@ describe("subject threads", () => {
 
   it("a ruling's notices are delivered as the actor's mail, once however often it is delivered", async () => {
     const taskId = ItemId.make("01M5ESKX20QX0HA3Y6SHEPXBCX");
-    const agentSeat = `seat_${"a".repeat(64)}` as ActorSeatId;
+    const agentSeat = `seat_${"f".repeat(64)}` as ActorSeatId;
     const delivery = {
       canvas: canvasOf(NODES, WIRES, CANVAS),
       canvasName: CANVAS,
@@ -239,7 +243,7 @@ describe("subject threads", () => {
     expect((await mailbox("agent")).filter((message) => threadSubjectOf(message) !== undefined)).toEqual([]);
   });
 
-  it("a comment's own row is held at the task node, and earlier posters are told of the next", async () => {
+  it.skipIf(!TASKS_ENABLED)("a comment's own row is held at the task node, and earlier posters are told of the next", async () => {
     const taskId = await createTask();
     const first = await call("agent", "msg.send", { target: BOARD, taskId, text: "starting" });
     expect(first.ok, JSON.stringify(first)).toBe(true);
@@ -252,7 +256,7 @@ describe("subject threads", () => {
     expect(told?.metadata).toMatchObject({ threadId: taskId, senderNodeId: "peer" });
   });
 
-  it("a mentioned seat gets a mention; a seat out of reach cannot be mentioned or comment", async () => {
+  it.skipIf(!TASKS_ENABLED)("a mentioned seat gets a mention; a seat out of reach cannot be mentioned or comment", async () => {
     const taskId = await createTask();
     const peerLink = mentionLink({ kind: "seat", nodeId: asNodeId("peer") }, "peer", CANVAS);
     const sent = await call("agent", "msg.send", { target: BOARD, taskId, text: `${peerLink} can you look?` });
@@ -278,5 +282,59 @@ describe("subject threads", () => {
     expect(b.messageId).toBe(a.messageId);
     expect((await mailbox(BOARD)).filter((message) => message.messageId === a.messageId)).toHaveLength(1);
     expect((await mailbox("agent")).filter((message) => message.metadata?.subjectNotice === "comment")).toHaveLength(1);
+  });
+
+  it("an automation's and the operator's ruling notices go out as the automation's node and as operator mail", async () => {
+    const taskId = ItemId.make("01M5ESKX20QX0HA3Y6SHEPXBCZ");
+    const task = {
+      id: taskId,
+      number: 4 as never,
+      title: "rotate keys",
+      dependsOn: [],
+      state: "assigned",
+      node: taskNodeId(asNodeId(BOARD)),
+      assignee: seatNodeId(asNodeId("peer")),
+      epoch: 1,
+      stampPolicy: { required: 0 },
+      reviewers: [],
+      stamps: [],
+    } as const;
+    const base = { canvas: canvasOf(NODES, WIRES, CANVAS), canvasName: CANVAS, task, effects: [{ kind: "assignment-notice", seat: seatNodeId(asNodeId("peer")) }] } as const;
+    await runtime.runPromise(deliverTaskEffects({
+      ...base,
+      actor: { kind: "automation", nodeId: asNodeId("auto"), automationId: ItemId.make("01M5ESKX20QX0HA3Y6SHEPXBD0") },
+      opId: OpId.make("01M5ESMJV6GNZ0891YFFWS0S3R"),
+    }) as Effect.Effect<void>);
+    await runtime.runPromise(deliverTaskEffects({ ...base, actor: { kind: "operator" }, opId: OpId.make("01M5ESMJV6GNZ0891YFFWS0S3S") }) as Effect.Effect<void>);
+    const told = (await mailbox("peer")).filter((message) => message.metadata?.threadId === taskId);
+    expect(told.map((message) => message.metadata)).toEqual([
+      expect.objectContaining({ fromSeat: AUTOMATION_SEAT_ID, senderNodeId: "auto", subjectNotice: "assignment" }),
+      expect.objectContaining({ fromSeat: OPERATOR_SEAT_ID, senderName: "operator", subjectNotice: "assignment" }),
+    ]);
+  });
+
+  it("an automation comments as its own node, and never from the operator's", async () => {
+    const taskId = ItemId.make("01M5ESKX20QX0HA3Y6SHEPXBD1");
+    const context = { canvas: canvasOf(NODES, WIRES, CANVAS), canvasName: CANVAS, people: [asNodeId("peer")] };
+    const automationId = ItemId.make("01M5ESKX20QX0HA3Y6SHEPXBD2");
+    const posted = await runtime.runPromise(postSubjectComment({
+      subject: { kind: "task", nodeId: asNodeId(BOARD), taskId },
+      text: "nightly run failed",
+      actor: { kind: "automation", nodeId: asNodeId("auto"), automationId },
+      opId: OpId.make("01M5ESMJV6GNZ0891YFFWS0S3T"),
+    }, context));
+    expect(posted.notified).toEqual(["peer"]);
+    const held = (await mailbox(BOARD)).find((message) => message.messageId === posted.messageId);
+    expect(held?.metadata).toMatchObject({ fromSeat: AUTOMATION_SEAT_ID, senderNodeId: "auto" });
+    const told = (await mailbox("peer")).find((message) => message.metadata?.subjectNotice === "comment");
+    expect(told?.metadata).toMatchObject({ fromSeat: AUTOMATION_SEAT_ID, senderNodeId: "auto" });
+
+    const forged = await runtime.runPromise(Effect.flip(postSubjectComment({
+      subject: { kind: "task", nodeId: asNodeId(BOARD), taskId },
+      text: "as the operator",
+      actor: { kind: "automation", nodeId: asNodeId("operator"), automationId },
+      opId: OpId.make("01M5ESMJV6GNZ0891YFFWS0S3V"),
+    }, context)));
+    expect(forged.type).not.toBe(undefined);
   });
 });
