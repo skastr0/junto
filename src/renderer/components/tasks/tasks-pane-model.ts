@@ -23,17 +23,22 @@ export interface TaskFilter {
   readonly query: string;
 }
 
-/** Open work first, as a seat meets it, then the backlog, then what is over. */
-const STATE_RANK: Readonly<Record<TaskState, number>> = {
-  working: 0,
-  "input-required": 1,
-  "in-review": 2,
-  assigned: 3,
-  backlog: 4,
-  done: 5,
-  canceled: 6,
-  archived: 7,
-};
+/**
+ * The order the sidebar lists states in: open work first, as a seat meets it,
+ * then the backlog, then what is over. A list order, not an urgency.
+ */
+const LIST_ORDER = [
+  "working",
+  "input-required",
+  "in-review",
+  "assigned",
+  "backlog",
+  "done",
+  "canceled",
+  "archived",
+] as const satisfies ReadonlyArray<TaskState>;
+
+const listPosition = (state: TaskState): number => LIST_ORDER.indexOf(state);
 
 const matchesState = (state: TaskState, filter: StateFilter): boolean => {
   switch (filter) {
@@ -64,7 +69,7 @@ export const visibleTasks = (
     )
     .sort(
       (a, b) =>
-        STATE_RANK[a.current.state] - STATE_RANK[b.current.state] ||
+        listPosition(a.current.state) - listPosition(b.current.state) ||
         (a.number ?? Number.MAX_SAFE_INTEGER) - (b.number ?? Number.MAX_SAFE_INTEGER),
     );
 };
