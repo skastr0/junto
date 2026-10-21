@@ -449,6 +449,8 @@ export const MsgSendArgs = Schema.Struct({
   refs: Schema.optionalKey(Schema.Array(MailEvidenceRef)),
   /** Post into an existing thread; it must name mail this seat can read. */
   threadId: Schema.optionalKey(Schema.String),
+  /** A task comment's write id, minted by the CLI: sent again with it, the comment is written once. */
+  opId: Schema.optionalKey(OpId),
 });
 export type MsgSendArgs = typeof MsgSendArgs.Type;
 
@@ -492,6 +494,8 @@ export const MsgReplyArgs = Schema.Struct({
   text: Schema.String,
   inReplyTo: Schema.String,
   refs: Schema.optionalKey(Schema.Array(MailEvidenceRef)),
+  /** A reply in a subject thread is a comment: its write id, minted by the CLI, so a retry writes it once. */
+  opId: Schema.optionalKey(OpId),
 });
 export type MsgReplyArgs = typeof MsgReplyArgs.Type;
 

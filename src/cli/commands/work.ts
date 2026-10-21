@@ -12,6 +12,8 @@ import {
   RulingsArgs,
   type WorkOpName,
 } from "../../shared/work-control";
+import { mintOpId } from "../../shared/resource-command";
+import type { OpId } from "../../shared/work-ids";
 import { InputError } from "../core/errors";
 import { DEFAULT_BATCH_CONCURRENCY, runMutationBatch } from "../core/batch";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
@@ -143,6 +145,9 @@ const msgListCommand = Command.make(
   ),
 );
 
+/** The item with the write id it names, or a new one (core/op-id.ts). */
+const withOpId = <A extends { readonly opId?: OpId }>(item: A): A => ({ ...item, opId: item.opId ?? mintOpId() });
+
 const msgSendCommand = Command.make(
   "send",
   {
@@ -163,7 +168,8 @@ const msgSendCommand = Command.make(
         }),
         concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
         itemSchema: prompt ? MsgPromptArgs : MsgSendArgs,
-        run: (item) => callDomain(prompt ? "msg.prompt" : "msg.send", item, toUndefined(timeout)),
+        // Each item carries its write id, so a timed-out comment sent again is written once.
+        run: (item) => prompt ? callDomain("msg.prompt", item, toUndefined(timeout)) : callDomain("msg.send", withOpId(item as MsgSendArgs), toUndefined(timeout)),
       }),
     ),
 ).pipe(Command.withDescription(
@@ -211,7 +217,7 @@ const msgReplyCommand = Command.make(
         input,
         concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
         itemSchema: MsgReplyArgs,
-        run: (item) => callDomain("msg.reply", item, toUndefined(timeout)),
+        run: (item) => callDomain("msg.reply", withOpId(item), toUndefined(timeout)),
       }),
     ),
 ).pipe(

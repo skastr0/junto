@@ -212,6 +212,31 @@ describe("subject threads", () => {
     expect((await mailbox(BOARD)).filter((message) => threadSubjectOf(message) !== undefined)).toEqual([]);
   });
 
+  it.skipIf(!TASKS_ENABLED)("a task comment or a subject reply sent again under its opId is written once, and told once", async () => {
+    const taskId = await createTask();
+    const said = async (text: string) =>
+      (await mailbox(BOARD)).filter((message) => message.parts.some((part) => part.kind === "text" && part.text === text));
+
+    const comment = { target: BOARD, taskId, text: "starting once", opId: mintOpId() };
+    const first = await call("agent", "msg.send", comment);
+    const again = await call("agent", "msg.send", comment);
+    expect(first.ok, JSON.stringify(first)).toBe(true);
+    expect(again.ok, JSON.stringify(again)).toBe(true);
+    expect(again.data.messageId).toBe(first.data.messageId);
+    expect(await said("starting once")).toHaveLength(1);
+
+    const noticeId = await notice(taskId, "assignment");
+    const reply = { target: BOARD, inReplyTo: noticeId, text: "on it once", opId: mintOpId() };
+    const replied = await call("peer", "msg.reply", reply);
+    const repliedAgain = await call("peer", "msg.reply", reply);
+    expect(replied.ok, JSON.stringify(replied)).toBe(true);
+    expect(repliedAgain.ok, JSON.stringify(repliedAgain)).toBe(true);
+    expect(repliedAgain.data.messageId).toBe(replied.data.messageId);
+    expect(await said("on it once")).toHaveLength(1);
+    // agent posted before, so it is told of the reply: once.
+    expect((await mailbox("agent")).filter((message) => message.metadata?.subjectNotice === "comment")).toHaveLength(1);
+  });
+
   it.skipIf(!TASKS_ENABLED)("a reply to a notice posts to the task, not to the notice's sender", async () => {
     const taskId = await createTask();
     const noticeId = await notice(taskId, "assignment");

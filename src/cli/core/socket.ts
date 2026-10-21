@@ -66,6 +66,8 @@ const readSeatCredential = (): Effect.Effect<string, AuthError> =>
     ),
   );
 
+const isMail = (op: string): boolean => op === "msg.send" || op === "msg.prompt" || op === "msg.reply";
+
 const mutatingOverseerOperation = (
   op: string,
   args: unknown,
@@ -91,8 +93,7 @@ const ndjsonCall = (
     let buffer = Buffer.alloc(0);
     let socket: Socket | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const mutatingOperation = mutatingOverseerOperation(op, args) ??
-      (["msg.send", "msg.prompt", "msg.reply"].includes(op) ? op : undefined);
+    const mutatingOperation = mutatingOverseerOperation(op, args) ?? (isMail(op) ? op : undefined);
     // An overseer write carries its opId inside the overseer envelope.
     const writeOpId = opIdInArgs(args) ??
       (op === "overseer" ? Result.match(decodeOverseerRequest(args), { onFailure: () => undefined, onSuccess: (request) => opIdInArgs(request.args) }) : undefined);
@@ -102,7 +103,7 @@ const ndjsonCall = (
       message: string,
       details?: unknown,
     ): WireError => {
-      if (writeOpId !== undefined && requestDispatched) return writeTimeout(writeOpId, message);
+      if (writeOpId !== undefined && requestDispatched && !isMail(op)) return writeTimeout(writeOpId, message);
       if (mutatingOperation === undefined || !requestDispatched) {
         return new WireError({
           type,
@@ -117,8 +118,12 @@ const ndjsonCall = (
         details: {
           retryable: false,
           operation: mutatingOperation,
-          ...(["msg.send", "msg.prompt", "msg.reply"].includes(mutatingOperation)
-            ? { next_step: "inspect msg sent before sending again; the mail may already be in the recipient's mailbox" }
+          // Plain mail is never deduplicated, so it is never offered for replay;
+          // only a comment is written once per opId.
+          ...(isMail(mutatingOperation)
+            ? writeOpId === undefined
+              ? { next_step: "inspect msg sent before sending again; the mail may already be in the recipient's mailbox" }
+              : { opId: writeOpId, next_step: `inspect msg sent before sending again; the mail may already be in the recipient's mailbox. A comment on a task or a subject thread sent again with "opId": "${writeOpId}" is written once` }
             : {}),
         },
       });

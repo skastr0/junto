@@ -1792,7 +1792,8 @@ const dispatchOp = (
             subject: { kind: "task", nodeId: taskThread.subject.nodeId, taskId: taskThread.subject.taskId },
             text,
             actor: { kind: "seat", seatId: sentBy.success.seatId, nodeId: asNodeId(caller.nodeId) },
-            opId: OpId.make(ulid()),
+            // The caller's write id keeps a retry one comment; a raw frame with none gets its own.
+            opId: decoded.success.opId ?? OpId.make(ulid()),
           },
           { canvas: board, canvasName: caller.canvasName, people: yield* subjectPeopleAt(board, caller.canvasName, taskThread.subject) },
         );
@@ -2041,7 +2042,7 @@ const dispatchOp = (
         const base = {
           text,
           actor: { kind: "seat" as const, seatId: sentBy.success.seatId, nodeId: asNodeId(caller.nodeId) },
-          opId: OpId.make(ulid()),
+          opId: decoded.success.opId ?? OpId.make(ulid()),
           threadId: mailThreadOf(parent) as MailMessageId,
           inReplyTo: inReplyTo as MailMessageId,
         };
