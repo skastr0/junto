@@ -19,7 +19,10 @@ import { asNodeId } from "@shared/physics/schema";
 import type { WorkErrorBody } from "@shared/work-control";
 import { OpId } from "@shared/work-ids";
 import { operatorActorRef } from "@shared/work-reference";
-import type { BrowserSessionService } from "../browser/sessions";
+import { deriveActorSeatId } from "../actor-seat-id";
+import type { BrowserResult, BrowserSessionService } from "../browser/sessions";
+import { MachineRepository } from "../machines/repository";
+import { PausePlane } from "../pause-plane";
 import type { ContentOwner } from "../content/manifest";
 import { ContentService } from "../content/service";
 import { contentStageOwner } from "../content/stage";
@@ -212,4 +215,79 @@ export const discardOperatorPageBox = (sessionId: string, shotId: string): Effec
   Effect.suspend(() => {
     const shot = take(sessionId, shotId);
     return shot === undefined ? Effect.void : release(shot.owner);
+  });
+
+/** A seat's box comment as POST /comment hands it on: the lease's own owner, seat and page. */
+export type SeatPageBoxRequest = {
+  readonly owner: string;
+  readonly sessionId: string;
+  readonly seatNodeId: string;
+  readonly pageRef: string;
+  readonly rect: Rect;
+  readonly text: string;
+  readonly signal?: AbortSignal;
+};
+
+/**
+ * A seat comments on a box of the page its grant opened. Main takes the shot
+ * as the lease's owner (the operation gate refuses it while the operator
+ * holds the page), stages it under the seat's own stage owner, and posts it
+ * on the one comment path as the seat, which judges the seat's reach to the
+ * page. A seat on a paused canvas does not act. The stage is let go after,
+ * whatever happened: a posted shot moved to the comment.
+ */
+export const postSeatPageBox = (
+  sessions: Pick<BrowserSessionService, "captureBoxForOwner">,
+  request: SeatPageBoxRequest,
+): Effect.Effect<BrowserResult<{ readonly messageId: string; readonly threadId: string }>, never, ModelService | MachineRepository | PausePlane> =>
+  Effect.gen(function* () {
+    const ref = parseNodeRef(request.pageRef);
+    if (!ref.ok) return { ok: false, code: "invalid", message: "That page cannot be named." } as const;
+    const { canvasName, nodeId } = ref.value;
+    if (!(yield* PausePlane).stateFor(canvasName).playing) {
+      return { ok: false, code: "forbidden", message: "This canvas is paused: a seat comments when the operator plays it." } as const;
+    }
+    const canvas = yield* Effect.flatMap(ModelService, (model) => model.canvas(canvasName)).pipe(Effect.result);
+    if (canvas._tag === "Failure") return { ok: false, code: "failed", message: "The canvas could not be read." } as const;
+    const seat = canvas.success.nodes.get(asNodeId(request.seatNodeId));
+    if (seat?.kind !== "agent") return { ok: false, code: "forbidden", message: "This grant's seat is not on the canvas." } as const;
+    const installation = yield* Effect.flatMap(MachineRepository, (machines) => machines.installationId).pipe(Effect.result);
+    if (installation._tag === "Failure") return { ok: false, code: "failed", message: "This machine has no installation id yet." } as const;
+    const shot = yield* Effect.promise(() => sessions.captureBoxForOwner(request.owner, request.sessionId, request.rect, request.signal));
+    if (!shot.ok) return shot;
+    if (pageBoxUrlOf(shot.data.url) === undefined) return { ok: false, code: "invalid", message: "This page's address cannot be named on a comment." } as const;
+    const content = yield* Effect.serviceOption(ContentService);
+    if (Option.isNone(content)) return { ok: false, code: "failed", message: "The content store is unavailable." } as const;
+    const stager = { canvasName, nodeId: request.seatNodeId };
+    const owner = contentStageOwner(stager, ulid());
+    const put = yield* Effect.result(content.value.put({ source: shot.data.png, mediaType: "image/png", owner }));
+    if (put._tag === "Failure") return { ok: false, code: "failed", message: "The shot could not be stored." } as const;
+    const staged: StagedPageShot = {
+      ref: { sha256: put.success.ref.sha256, byteLength: put.success.ref.byteLength },
+      stager,
+      url: shot.data.url,
+      scroll: shot.data.scroll,
+      rect: shot.data.rect,
+    };
+    const posted = yield* Effect.result(
+      postSubjectComment(
+        {
+          text: request.text,
+          actor: { kind: "seat", seatId: deriveActorSeatId(installation.success, seat.bindingId), nodeId: asNodeId(request.seatNodeId) },
+          opId: OpId.make(ulid()),
+          subject: { kind: "page", nodeId: asNodeId(nodeId) },
+          anchor: { kind: "box", ...shot.data.rect },
+        },
+        { canvas: canvas.success, canvasName, people: [], pageShot: () => Effect.succeed(staged) },
+      ),
+    );
+    yield* release(owner);
+    if (posted._tag === "Success") return { ok: true, data: { messageId: posted.success.messageId, threadId: posted.success.threadId } } as const;
+    // The seat is told the writer's own words: its reach, its text, its mentions.
+    const failure = posted.failure;
+    return failure.type === "ScopeError"
+      ? { ok: false, code: "forbidden", message: failure.message }
+      : failure.type === "InputError" || failure.type === "UnknownTarget"
+        ? { ok: false, code: "invalid", message: failure.message }
+        : { ok: false, code: "failed", message: "The comment could not be written." };
   });

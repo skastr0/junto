@@ -27,6 +27,7 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.work.thread-send",
   "ipc.browser.box-comment",
   "ipc.page-shot.purge",
+  "control.browser.box-comment",
   "companion.signal-answer",
   "companion.signal-dismiss",
   "companion.mail-send",

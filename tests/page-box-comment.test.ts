@@ -19,14 +19,14 @@ import { OpId } from "../src/shared/work-ids";
 import { ContentService, makeContentServiceLive } from "../src/main/junto/content/service";
 import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
+import { PausePlane, PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import { SettingsLive } from "../src/main/junto/settings/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import { postSubjectComment, type StagedPageShot, type SubjectCommentContext } from "../src/main/junto/work/subject-comment";
-import { discardOperatorPageBox, postOperatorPageBox, releaseStagedShots, startOperatorPageBox } from "../src/main/junto/work/page-box-comment";
+import { discardOperatorPageBox, postOperatorPageBox, postSeatPageBox, releaseStagedShots, startOperatorPageBox } from "../src/main/junto/work/page-box-comment";
 import { contentStageOwner } from "../src/main/junto/content/stage";
 import { ulid } from "ulid";
 import { readPageShot } from "../src/main/junto/work/page-shot-read";
@@ -272,6 +272,54 @@ describe("the operator's box comment", () => {
     const started = await start("about:blank");
     if (!started.ok || started.data.kind !== "drawn") throw new Error("not drawn");
     expect(await postDraft(started.data.draft.shotId)).toMatchObject({ ok: false, code: "invalid", message: expect.stringMatching(/http or https/) });
+    expect(await rows()).toEqual([]);
+  });
+});
+
+describe("a seat's page box comment", () => {
+  const RECT = { x: 1, y: 2, w: 30, h: 40 };
+  const taken: string[] = [];
+  const browser = (shot: "ok" | "refused" = "ok") => ({
+    captureBoxForOwner: async (owner: string) => {
+      taken.push(owner);
+      return shot === "ok"
+        ? ({ ok: true, data: { png: PNG, url: "https://example.com/a?token=1", scroll: { x: 0, y: 0 }, rect: RECT } } as const)
+        : ({ ok: false, code: "operator_holds", message: "the operator holds this page" } as const);
+    },
+  });
+  const request = (more: Partial<Parameters<typeof postSeatPageBox>[1]> = {}) => ({
+    owner: "audit-1",
+    sessionId: "s1",
+    seatNodeId: "agent",
+    pageRef: formatNodeRef({ canvasName: CANVAS, nodeId: PAGE }),
+    rect: RECT,
+    text: "cut off",
+    ...more,
+  });
+  const sha = () => import("node:crypto").then(({ createHash }) => createHash("sha256").update(PNG).digest("hex"));
+
+  it("takes the shot as the lease's owner and posts it as the seat, held by the comment alone", async () => {
+    taken.length = 0;
+    const posted = await runtime.runPromise(postSeatPageBox(browser(), request()));
+    if (!posted.ok) throw new Error(posted.message);
+    expect(taken).toEqual(["audit-1"]);
+    const row = (await rows()).find((message) => message.messageId === posted.data.messageId)!;
+    expect(row.metadata?.senderNodeId).toBe("agent");
+    expect(threadSubjectOf(row)).toMatchObject({ kind: "page", nodeId: PAGE, anchor: { kind: "box", ...RECT, url: "https://example.com/a" } });
+    expect(await owners(await sha())).toEqual([{ kind: "message", canvasName: CANVAS, nodeId: PAGE, recordId: posted.data.messageId }]);
+  });
+
+  it("refuses a paused canvas, a grant whose seat is not one, and a shot main could not take, holding nothing", async () => {
+    const paused = await runtime.runPromise(
+      postSeatPageBox(browser(), request()).pipe(
+        Effect.provideService(PausePlane, { stateFor: () => ({ playing: false }) } as never),
+      ),
+    );
+    expect(paused).toMatchObject({ ok: false, code: "forbidden", message: expect.stringMatching(/paused/) });
+    expect(await runtime.runPromise(postSeatPageBox(browser(), request({ seatNodeId: PAGE })))).toMatchObject({ ok: false, code: "forbidden" });
+    expect(await runtime.runPromise(postSeatPageBox(browser("refused"), request()))).toMatchObject({ ok: false, code: "operator_holds" });
+    expect(await runtime.runPromise(postSeatPageBox(browser(), request({ text: "  " })))).toMatchObject({ ok: false, code: "invalid" });
+    expect(await owners(await sha())).toEqual([]);
     expect(await rows()).toEqual([]);
   });
 });
