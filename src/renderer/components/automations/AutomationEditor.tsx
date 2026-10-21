@@ -6,7 +6,7 @@
  * until `finishDraft` passes it, and a save carries the version it was
  * edited from.
  */
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode, type Ref } from "react";
 import { ArrowDown, ArrowUp, Plus, X } from "lucide-react";
 import { mentionKey, mentionLink, type MentionRef } from "@shared/mention";
 import { titleOf } from "@shared/model/title";
@@ -420,6 +420,7 @@ export function AutomationEditor({
   onEnabled,
   canvasName,
   saving,
+  saveRef,
   dirty,
   onSave,
   onRevert,
@@ -431,6 +432,8 @@ export function AutomationEditor({
   readonly onEnabled?: (enabled: boolean) => void;
   readonly canvasName: string;
   readonly saving: boolean;
+  /** The Save button, for the pane to return focus to when the control that held it goes away. */
+  readonly saveRef?: Ref<HTMLButtonElement>;
   readonly dirty: boolean;
   readonly onSave: () => void;
   readonly onRevert: () => void;
@@ -594,7 +597,6 @@ export function AutomationEditor({
               dense
               inputMode="numeric"
               value={draft.minIntervalMinutes}
-              aria-label="Quiet time between firings, in minutes"
               onChange={(event) => edit({ type: "min-interval", minutes: event.target.value })}
             />
           </FieldLabel>
@@ -604,7 +606,6 @@ export function AutomationEditor({
               dense
               inputMode="numeric"
               value={draft.maxPerHour}
-              aria-label="At most this many firings an hour"
               onChange={(event) => edit({ type: "max-per-hour", count: event.target.value })}
             />
           </FieldLabel>
@@ -626,15 +627,19 @@ export function AutomationEditor({
             {refusal}
           </p>
         ) : null}
-        <Button variant="subtle" size="sm" disabled={!dirty || saving} onClick={onRevert}>
+        {/* aria-disabled, not disabled: the press that saves or reverts would otherwise drop focus to the body. */}
+        <Button variant="subtle" size="sm" aria-disabled={!dirty || saving} onClick={onRevert}>
           Revert
         </Button>
-        {problems.length > 0 ? (
-          <p className="automation-editor__problem" role="status">
-            {problems.length === 1 ? "One thing to fix before it saves." : `${problems.length} things to fix before it saves.`}
-          </p>
-        ) : null}
-        <Button variant="primary" size="sm" disabled={!dirty || saving} onClick={trySave}>
+        {/* Mounted always, so a reader hears the count when it appears. */}
+        <p className="automation-editor__problem" role="status">
+          {problems.length === 0
+            ? ""
+            : problems.length === 1
+              ? "One thing to fix before it saves."
+              : `${problems.length} things to fix before it saves.`}
+        </p>
+        <Button ref={saveRef} variant="primary" size="sm" aria-disabled={!dirty || saving} onClick={trySave}>
           {saving ? "Saving" : "Save"}
         </Button>
       </footer>

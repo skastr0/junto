@@ -158,30 +158,33 @@ const oneCommand = (verb: "unassign" | "start" | "pause" | "resume" | "cancel" |
 
 const repeated = (name: string, description: string) => Flag.string(name).pipe(Flag.atLeast(0), Flag.withDescription(description));
 
-/** `<left><sep><right>`, both sides non-empty, split at `at` (the first or last separator). */
-const pairOf = (flag: string, shape: string, value: string, at: number): Effect.Effect<readonly [string, string], InputError> =>
-  at > 0 && at < value.length - 1
-    ? Effect.succeed([value.slice(0, at).trim(), value.slice(at + 1).trim()] as const)
-    : Effect.fail(new InputError({ message: `--${flag} takes ${shape}, got ${JSON.stringify(value)}`, path: flag }));
+/** `<left><sep><right>`, both sides non-empty, split at the first separator. */
+const pairOf = (flag: string, sep: string, value: string): Effect.Effect<readonly [string, string], InputError> => {
+  const at = value.indexOf(sep);
+  return at > 0 && at < value.length - sep.length
+    ? Effect.succeed([value.slice(0, at).trim(), value.slice(at + sep.length).trim()] as const)
+    : Effect.fail(new InputError({ message: `--${flag} takes <${flag === "artifact" ? "node" : "ruleId"}>${sep}<${flag === "artifact" ? "artifactId" : flag === "claim" ? "text" : "reason"}>, got ${JSON.stringify(value)}`, path: flag }));
+};
 
 /** The evidence flags as CompletionEvidence, or nothing when none was given. */
 const evidenceOf = (flags: {
   readonly artifact: ReadonlyArray<string>;
   readonly commit: ReadonlyArray<string>;
   readonly claim: ReadonlyArray<string>;
+  readonly waive: ReadonlyArray<string>;
 }) =>
   Effect.gen(function* () {
-    // An artifact id holds no slash, so the last one ends the node.
     const artifacts = yield* Effect.forEach(flags.artifact, (value) =>
-      Effect.map(pairOf("artifact", "<node id>/<artifactId>", value, value.lastIndexOf("/")), ([nodeId, artifactId]) => ({ nodeId, artifactId })));
-    const claims = yield* Effect.forEach(flags.claim, (value) =>
-      Effect.map(pairOf("claim", "<ruleId>=<text>", value, value.indexOf("=")), ([ruleId, text]) => ({ ruleId, text })));
-    if (artifacts.length + flags.commit.length + claims.length === 0) return {};
+      Effect.map(pairOf("artifact", "/", value), ([nodeId, artifactId]) => ({ nodeId, artifactId })));
+    const claims = yield* Effect.forEach(flags.claim, (value) => Effect.map(pairOf("claim", "=", value), ([ruleId, text]) => ({ ruleId, text })));
+    const waivers = yield* Effect.forEach(flags.waive, (value) => Effect.map(pairOf("waive", "=", value), ([ruleId, reason]) => ({ ruleId, reason })));
+    if (artifacts.length + flags.commit.length + claims.length + waivers.length === 0) return {};
     return {
       evidence: {
         artifacts,
         ...(flags.commit.length === 0 ? {} : { git: { commits: [...flags.commit] } }),
         ...(claims.length === 0 ? {} : { claims }),
+        ...(waivers.length === 0 ? {} : { waivers }),
       },
     };
   });
@@ -191,17 +194,18 @@ const finishCommand = Command.make(
   {
     task: taskArg,
     next: Flag.string("next").pipe(Flag.optional, Flag.withDescription("The downstream task node to send it on to, when there are several")),
-    artifact: repeated("artifact", "An artifact this work produced, as <node id>/<artifactId>; repeat for several"),
+    artifact: repeated("artifact", "An artifact this work produced, as <node>/<artifactId>; repeat for several"),
     commit: repeated("commit", "A commit this work landed; repeat for several"),
     claim: repeated("claim", "Answer a rule in force: <ruleId>=<how this work meets it>; repeat for several"),
+    waive: repeated("waive", "Waive a task rule whose node is out of reach: <ruleId>=<reason>; repeat for several"),
     opId: opIdFlag,
     timeout: timeoutFlag,
   },
-  ({ task, next, artifact, commit, claim, opId, timeout }) =>
+  ({ task, next, artifact, commit, claim, waive, opId, timeout }) =>
     executeJsonCommand(
       "task finish",
       Effect.gen(function* () {
-        const evidence = yield* evidenceOf({ artifact, commit, claim });
+        const evidence = yield* evidenceOf({ artifact, commit, claim, waive });
         return yield* call("task.finish", { opId: yield* opIdOf(opId), task, ...present({ next }), ...evidence }, timeout);
       }),
     ),

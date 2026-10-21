@@ -14,7 +14,7 @@
  * save never undoes a toggle made elsewhere. A queued write marks its
  * row dashed until the editing machine rules.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Archive, Play, Plus, Zap } from "lucide-react";
 import { ulid } from "ulid";
 import type {
@@ -55,6 +55,7 @@ import {
   TwoPane,
 } from "../ui";
 import { FocusSurface } from "../FocusSurface";
+import { claimFocus } from "../../lib/focus-ownership";
 import { AutomationEditor, useTargetNames } from "./AutomationEditor";
 import "./automations.css";
 
@@ -323,8 +324,27 @@ export function AutomationsPane({
     if (!editing) return;
     setArchiving(false);
     const result = await send(editing.draft.automationId, { kind: "archive" });
-    if (result.kind === "applied") open(undefined);
+    if (result.kind === "applied") {
+      open(undefined);
+      settleFocus();
+    }
   };
+
+  // A press whose control then leaves the pane (Archive, the stale choices)
+  // would drop focus to the body: once it renders, focus goes to Save, or to
+  // New with no automation open. Only after such a press, never on a live update.
+  const newButton = useRef<HTMLButtonElement>(null);
+  const saveButton = useRef<HTMLButtonElement>(null);
+  const [refocus, setRefocus] = useState(false);
+  const settleFocus = (): void => setRefocus(true);
+  useEffect(() => {
+    if (!refocus) return;
+    setRefocus(false);
+    const lost =
+      document.activeElement === null ||
+      document.activeElement === document.body;
+    if (lost) claimFocus((editing ? saveButton : newButton).current, "gesture");
+  }, [refocus]);
 
   // The editing machine ruled a queued write once its head moved: created, edited, toggled or archived.
   useEffect(() => {
@@ -388,6 +408,7 @@ export function AutomationsPane({
                 eyebrow="Automations"
                 actions={
                   <Button
+                    ref={newButton}
                     size="xs"
                     variant="subtle"
                     onClick={create}
@@ -428,10 +449,11 @@ export function AutomationsPane({
             <div className="automations-node__main">
               {editing.base !== undefined ? (
                 <div className="automations-node__actions">
+                  {/* aria-disabled while busy: a press that disables its own button would drop focus to the body. */}
                   <Button
                     size="sm"
                     variant="chrome"
-                    disabled={busy}
+                    aria-disabled={busy}
                     onClick={() =>
                       void send(editing.draft.automationId, { kind: "run" })
                     }
@@ -442,7 +464,7 @@ export function AutomationsPane({
                   <Button
                     size="sm"
                     variant="danger"
-                    disabled={busy}
+                    aria-disabled={busy}
                     onClick={() => setArchiving(true)}
                   >
                     <Archive size={12} aria-hidden />
@@ -456,6 +478,7 @@ export function AutomationsPane({
                 onEnabled={(enabled) => void setEnabled(enabled)}
                 canvasName={canvasName}
                 saving={busy}
+                saveRef={saveButton}
                 dirty={dirty}
                 refusal={
                   refusal
@@ -478,16 +501,19 @@ export function AutomationsPane({
                   <Button
                     size="sm"
                     variant="chrome"
-                    disabled={busy}
-                    onClick={() => open(editingOf(staleHead))}
+                    aria-disabled={busy}
+                    onClick={() => {
+                      open(editingOf(staleHead));
+                      settleFocus();
+                    }}
                   >
                     Take theirs
                   </Button>
                   <Button
                     size="sm"
                     variant="primary"
-                    disabled={busy}
-                    onClick={() => void save(staleHead.version)}
+                    aria-disabled={busy}
+                    onClick={() => void save(staleHead.version).then(settleFocus)}
                   >
                     Send mine over theirs
                   </Button>

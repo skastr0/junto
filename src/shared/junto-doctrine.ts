@@ -257,9 +257,9 @@ const TASKS_REFERENCE = `A task moves backlog, assigned, working, in-review, don
 A board carries **rules**: operator-authored statements the work must satisfy, inherited from the regions it sits in, from the board itself, and from rules the raiser addressed to it. They are prompts for you to check, never something the server evaluates. Rules have no severity — every rule in force must be answered.
 
 - Read them with \`task rules\` — each one names where it came from.
-- Answer every rule when you finish: \`task finish <task> --claim <ruleId>="how you satisfied it"\`, once per rule.
-- Only a claim answers a rule. A rule that no longer fits is the operator's to change; ask, do not skip it.
-- \`task finish\` is refused \`rules-unmet\` while a rule is unanswered; the refusal names the innermost one.
+- Answer every rule on completion: \`completionEvidence.claims: [{"ruleId":"<id>","text":"how you satisfied it","refs":["<sha>"]}]\`.
+- A task rule whose board your chosen path no longer reaches takes a waiver instead: \`completionEvidence.waivers: [{"ruleId":"<id>","reason":"why it no longer applies"}]\`.
+- \`completed\` is refused while a rule is unanswered; the rejection names the innermost one.
 
 ### Path — one board at a time
 

@@ -134,6 +134,12 @@
   flex: 1;
 }
 
+/* The problems status stays mounted for screen readers; empty, it takes no room. */
+.automation-editor__foot > .automation-editor__problem:empty {
+  flex: 0;
+  margin-inline-start: -8px;
+}
+
 .automation-history {
   display: flex;
   flex-direction: column;

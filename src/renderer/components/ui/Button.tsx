@@ -48,6 +48,7 @@ export function Button({
   className,
   children,
   type = "button",
+  onClick,
   ...rest
 }: {
   readonly variant?: ButtonVariant;
@@ -55,13 +56,19 @@ export function Button({
   readonly className?: string;
   readonly children: ReactNode;
 } & ComponentPropsWithRef<"button">) {
+  // aria-disabled looks disabled and ignores the press but keeps focus: a
+  // focused button that turns `disabled` drops focus to the body. Use it for
+  // a button that goes inert under the operator's own press (Save, Run now).
+  const inert = rest["aria-disabled"] === true || rest["aria-disabled"] === "true";
   return (
     <button
       type={type}
+      onClick={inert ? undefined : onClick}
       className={[
         "inline-flex items-center justify-center transition-colors select-none",
         HIT_24,
         "disabled:opacity-40 disabled:pointer-events-none",
+        "aria-disabled:opacity-40 aria-disabled:pointer-events-none",
         VARIANT[variant],
         SIZE[size],
         className ?? "",

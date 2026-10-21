@@ -98,7 +98,8 @@ describe("automations pane", () => {
     expect(document.body.textContent).toContain("weekdays 09:00, UTC");
     await act(async () => button("Morning standupweekdays 09:00, UTC").click());
     expect(document.body.textContent).toContain("Run by hand, skipped: a condition did not hold");
-    expect(button("Save").disabled).toBe(true);
+    // aria-disabled, not disabled, so a Save that lands keeps keyboard focus.
+    expect(button("Save").getAttribute("aria-disabled")).toBe("true");
   });
 
   it("saves an edit over the version it was loaded from", async () => {
@@ -107,6 +108,28 @@ describe("automations pane", () => {
     await act(async () => button("Save").click());
     expect((await stored()).name).toBe("Evening standup");
     expect((await stored()).version).toBe(2);
+  });
+
+  it("keeps keyboard focus where the press was: Save and Run now stay focused, Archive hands it to New", async () => {
+    await opened();
+    await typeName("Evening standup");
+    button("Save").focus();
+    await act(async () => button("Save").click());
+    expect((await stored()).name).toBe("Evening standup");
+    expect(document.activeElement).toBe(button("Save"));
+    // Inert, not disabled: a second press does nothing.
+    await act(async () => button("Save").click());
+    expect((await stored()).version).toBe(2);
+
+    button("Run now").focus();
+    await act(async () => button("Run now").click());
+    expect(document.activeElement).toBe(button("Run now"));
+
+    button("Archive").focus();
+    await act(async () => button("Archive").click());
+    await act(async () => [...document.body.querySelectorAll("button")].filter((element) => element.textContent?.trim() === "Archive").at(-1)!.click());
+    expect(document.body.textContent).toContain("No automations yet");
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("New automation");
   });
 
   it("a stale save keeps the draft and can send it over the head, or take the head", async () => {
