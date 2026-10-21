@@ -950,7 +950,7 @@ const handlePage = async (
         return { ok: false, code: "not_found", message: overseerPageMessage(still.denial) };
       }
       return resolver(ref);
-    }, pageOriginGuard(resolved.data.url));
+    }, pageOriginGuard(resolved.data.url), undefined, asNodeId(caller.nodeId));
     if (!opened.ok) return fail("RuntimeDown", opened.message);
     return ok(opened.data);
   }

@@ -389,6 +389,8 @@ describe("overseer native adapters", () => {
     expect(opened.ok).toBe(true);
     expect(openForOwner).toHaveBeenCalled();
     expect(openForOwner.mock.calls[0]?.[0]).toBe("overseer");
+    // The page's driver mark names the overseer's own seat while it acts.
+    expect((openForOwner.mock.calls[0] as unknown[] | undefined)?.[6]).toBe("overseer-1");
   });
 
   it("starts an agent through occupySeat", async () => {
