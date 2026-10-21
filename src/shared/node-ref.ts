@@ -3,7 +3,11 @@
 // never encodes an action, URL, browser profile, token, path, or capability.
 
 import { isCanonicalCanvasName } from "./canvas-name";
-import { isItemId, type ItemId } from "./work-ids";
+import { isUlid } from "./ulid";
+import type { ItemId } from "./work-ids";
+
+/** An item id is a ULID; checked here without Schema, so the preload stays effect-free. */
+const isItemId = (text: string): text is ItemId => isUlid(text);
 
 /**
  * A node, or an item inside it with `itemId` (`&item=<itemId>`). The canvas

@@ -5,8 +5,7 @@
  * anything else. Effect only, so the CLI, main and the phone share it.
  */
 import { Schema } from "effect";
-
-const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/u;
+import { ULID_PATTERN as ULID } from "./ulid";
 
 /** What a ULID is, said in a refusal instead of the string that failed. */
 export const ULID_SHAPE = "26 characters of Crockford base32 (a ULID)";
