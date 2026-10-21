@@ -92,50 +92,6 @@ export function browserActivity(input: {
   return { mode: "static", tone: SEVERITY_TONE.idle, label: "idle" };
 }
 
-// --- watcher / timer ---------------------------------------------------------
-
-export type WatcherStatus = "satisfied" | "pending" | "unknown" | string;
-
-/**
- * Relay / gauge card motion.
- * These sensors **fire** on a rising edge — they do not sustain work. A
- * continuous wave/spin implied "busy forever" (wrong). Static for all levels;
- * sparks on edges show the actual fire moment.
- */
-export function watcherActivity(
-  status: WatcherStatus | null | undefined,
-): ActivitySpec {
-  if (status === "pending") {
-    // Armed, condition not met — quiet wait, not a spinner.
-    return { mode: "static", tone: SEVERITY_TONE.idle, label: "armed" };
-  }
-  if (status === "satisfied") {
-    // Condition currently true (edge already consumed or not).
-    return { mode: "static", tone: "green", label: "met" };
-  }
-  return {
-    mode: "static",
-    tone: SEVERITY_TONE.idle,
-    label: status ?? "unknown",
-  };
-}
-
-/**
- * Cron: wave when due (now >= nextFire). Missing nextFire is settled pending.
- */
-export function timerActivity(input: {
-  readonly nextFire?: number | null;
-  readonly now: number;
-}): ActivitySpec {
-  if (input.nextFire === undefined || input.nextFire === null) {
-    return { mode: "static", tone: SEVERITY_TONE.idle, label: "pending" };
-  }
-  if (input.now >= input.nextFire) {
-    return { mode: "wave", tone: SEVERITY_TONE.attention, label: "due" };
-  }
-  return { mode: "static", tone: SEVERITY_TONE.idle, label: "scheduled" };
-}
-
 export function loadingActivity(
   loading: boolean,
   label = "loading",

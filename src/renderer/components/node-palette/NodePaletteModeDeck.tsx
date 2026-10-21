@@ -48,8 +48,6 @@ export type ModeDeckActions = {
     position: { readonly x: number; readonly y: number },
   ) => void;
 
-  readonly addCron: () => void;
-  readonly addRelay: () => void;
   readonly addTasks: () => void;
   readonly addRequests: () => void;
   readonly addArtifacts: () => void;
@@ -62,8 +60,8 @@ export type ModeDeckActions = {
 
 type DeckTab = NodeCatalogCategory | "all" | "profiles";
 
-// A tab only appears when this build ships something under it: a ship build
-// without cron or relay has no Schedule tab to open onto an empty grid. All
+// A tab only appears when this build ships something under it, so no tab
+// opens onto an empty grid. All
 // shows profiles, squads, and the catalog; Profiles only profiles; a catalog
 // tab only its nodes.
 const CATEGORIES: ReadonlyArray<{ readonly id: DeckTab; readonly label: string }> = [
@@ -71,7 +69,6 @@ const CATEGORIES: ReadonlyArray<{ readonly id: DeckTab; readonly label: string }
   { id: "profiles" as const, label: "Profiles" },
   { id: "shell" as const, label: "Shell" },
   { id: "sinks" as const, label: "Work" },
-  { id: "schedule" as const, label: "Schedule" },
   { id: "canvas" as const, label: "Canvas" },
 ].filter((tab) =>
   tab.id === "all" || tab.id === "profiles" || DEFAULT_NODE_CATALOG_ENTRIES.some((entry) => entry.category === tab.id));
@@ -85,8 +82,6 @@ const catalogAction = (actions: ModeDeckActions, entry: NodeCatalogEntry): void 
     case "board": actions.addBoard(); break;
     case "git": actions.addGit(); break;
     case "page": actions.addPage(); break;
-    case "cron": actions.addCron(); break;
-    case "relay": actions.addRelay(); break;
     case "note": actions.create("text"); break;
     case "label": actions.addLabel(); break;
     case "region": actions.create("group"); break;

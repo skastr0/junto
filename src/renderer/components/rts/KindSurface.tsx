@@ -28,9 +28,7 @@ import {
 import type { Node, Seat, Region } from "@shared/model";
 import {
   BROWSER_ENABLED,
-  CRON_ENABLED,
   productNodeKindEnabled,
-  RELAY_ENABLED,
 } from "@shared/features";
 import { state$ } from "../../lib/state";
 import { titleOf } from "@shared/model/title";
@@ -522,14 +520,12 @@ export function KindSurface() {
       "requests",
       "artifacts",
       "board",
-      ...(RELAY_ENABLED ? (["watcher", "relay"] as const) : []),
-      ...(CRON_ENABLED ? (["cron"] as const) : []),
       ...(BROWSER_ENABLED ? (["page"] as const) : []),
     ].includes(kind);
   // Agent seats keep a live glance. Everything else is strip-only (kind once +
   // keys) so command title is not echoed three more times in the mid third.
   const showSeatGlance = kind === "agent";
-  // Free notes / agents / work sinks / schedulers / page / shell: no fields
+  // Free notes / agents / work sinks / page / shell: no fields
   // sheet. Config is kind-strip pops; rename is pencil. Placement chips are
   // noise.
   const showFieldsKey =

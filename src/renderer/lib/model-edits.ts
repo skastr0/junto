@@ -107,14 +107,6 @@ export const pageEdited = (canvas: Canvas, id: string, fields: FieldsOf<"page">)
 export const gitEdited = (canvas: Canvas, id: string, fields: FieldsOf<"git">): Commands =>
   edited(canvas, id, "git", fields);
 
-/** Change a cron's schedule, host or label. */
-export const cronEdited = (canvas: Canvas, id: string, fields: FieldsOf<"cron">): Commands =>
-  edited(canvas, id, "cron", fields);
-
-/** Change a gauge's threshold, host or label. */
-export const watcherEdited = (canvas: Canvas, id: string, fields: FieldsOf<"watcher">): Commands =>
-  edited(canvas, id, "watcher", fields);
-
 // ── Place, size, colour, order ──────────────────────────────────────────────
 
 /**

@@ -70,8 +70,8 @@ import "../styles/factory-grammar.css";
 import "../styles/canvas-lod.css";
 import "../styles/canvas-lod-regions.css";
 import {
-  newArtifacts, newBoard, newCron, newRegion, newImage,
-  newLabel, newSeat, newPage, newRelay, newRequests, newTaskBoard, newNote,
+  newArtifacts, newBoard, newRegion, newImage,
+  newLabel, newSeat, newPage, newRequests, newTaskBoard, newNote,
 } from "../lib/model-factories";
 import { topZ } from "../lib/model-edits";
 import { putImagesFromDataTransfer } from "../lib/image-content";
@@ -732,20 +732,6 @@ const makeAddActions = (
   },
   addConfiguredAgent: (choices, position) => {
     const node = newSeat(onTop(position), choices);
-    addNode(node, { edit: false });
-    state$.focusNodeId.set(node.id);
-    dismiss();
-  },
-  addCron: () => {
-    const position = positionFor({ width: 240, height: 96 });
-    const node = newCron(onTop(position), thisMachineName());
-    addNode(node, { edit: false });
-    state$.focusNodeId.set(node.id);
-    dismiss();
-  },
-  addRelay: () => {
-    const position = positionFor({ width: 220, height: 96 });
-    const node = newRelay(onTop(position), thisMachineName());
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();

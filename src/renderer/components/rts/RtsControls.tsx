@@ -4,7 +4,6 @@ import { useEffect, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import {
   BookmarkPlus,
-  Flame,
   Gauge,
   Globe,
   Link2,
@@ -14,10 +13,8 @@ import {
   Pencil,
   UserRoundPen,
   Plus,
-  Radio,
   ScrollText,
   Server,
-  SlidersHorizontal,
   Terminal,
   Timer,
   Trash2,
@@ -26,8 +23,6 @@ import type { TaskAdmission, TasksIncoming } from "@shared/work-model";
 import { resolveTaskAdmission } from "@shared/work-model";
 import {
   BROWSER_ENABLED,
-  CRON_ENABLED,
-  RELAY_ENABLED,
   productNodeKindEnabled,
   productVerbEnabled,
 } from "@shared/features";
@@ -55,15 +50,11 @@ import { formatNodeRef } from "@shared/node-ref";
 import {
   PageBindingControl,
   PageUrlControl,
-  RelayEditor,
-  TimerEditor,
-  WatcherEditor,
 } from "../InspectorFields";
 import { formatWait, normalizeBoardSettings } from "../rules";
 import { reverbed } from "../../lib/model-edits";
 import { commitCommands, setBoardSettings } from "../../lib/mutations";
 import { Button } from "../ui";
-import { CronScheduleSurface } from "../nodes/CronScheduleSurface";
 import { AgentReseatControl } from "./AgentReseatControl";
 import { OverseerToggleKey } from "./OverseerToggle";
 import { canStartOverseerLive, openOverseerLive } from "../../lib/overseer-live-state";
@@ -489,134 +480,10 @@ export function KindActions({ nodeId }: { readonly nodeId: string }) {
           <Package size={ICON} />
         </KindKey>
       );
-    case "watcher":
-    case "cron":
-    case "relay":
-      return productNodeKindEnabled(kind) ? <SchedulerKindKeys node={node} /> : null;
     default:
       // Unknown / geography kinds: silence is semantic.
       return null;
   }
-}
-
-/** Cron / gauge / relay: rename + sensor body pop (no fields sheet). */
-function SchedulerKindKeys({ node }: { readonly node: Node }) {
-  const canvasName = use$(state$.canvasName);
-  const kind = node.kind;
-  const [configOpen, setConfigOpen] = useState(false);
-  const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [fireBusy, setFireBusy] = useState(false);
-  const isCron = kind === "cron";
-
-  useEffect(() => {
-    setConfigOpen(false);
-    setScheduleOpen(false);
-    setFireBusy(false);
-  }, [node.id]);
-
-  if ((isCron && !CRON_ENABLED) || (!isCron && !RELAY_ENABLED)) return null;
-  const canFire =
-    isCron || kind === "relay" || kind === "watcher";
-  const fireTitle = isCron
-    ? "Run this cron's linked actions now"
-    : kind === "relay"
-      ? "Run this relay's linked actions now"
-      : "Run this scheduler's linked actions now";
-
-  const fireNow = async () => {
-    const api = window.junto;
-    const canvas = state$.canvasName.peek();
-    if (!api?.schedulerFire || !canvas || fireBusy) return;
-    setFireBusy(true);
-    try {
-      await api.schedulerFire(canvas, node.id);
-    } finally {
-      setFireBusy(false);
-    }
-  };
-
-  const config =
-    isCron
-      ? {
-          label: configOpen ? "Close expression" : "Expression",
-          title: "Cron expression",
-          Icon: Timer,
-          body: <TimerEditor nodeId={node.id} />,
-        }
-      : kind === "watcher"
-        ? {
-            label: configOpen ? "Close threshold" : "Threshold",
-            title: "Hermes stat threshold",
-            Icon: Gauge,
-            body: <WatcherEditor nodeId={node.id} />,
-          }
-        : kind === "relay"
-          ? {
-              label: configOpen ? "Close links" : "Links",
-              title: "Watch inputs and effect outputs",
-              Icon: Radio,
-              body: <RelayEditor nodeId={node.id} />,
-            }
-          : null;
-
-  if (!config) return null;
-
-  return (
-    <>
-      <KindKey
-        label="Rename"
-        title="Rename"
-        onClick={() => state$.editNodeId.set(node.id)}
-      >
-        <Pencil size={ICON} />
-      </KindKey>
-      {isCron ? (
-        <KindKey
-          label="Settings"
-          title="Schedule settings"
-          active={scheduleOpen}
-          onClick={() => {
-            setConfigOpen(false);
-            setScheduleOpen(true);
-          }}
-        >
-          <SlidersHorizontal size={ICON} />
-        </KindKey>
-      ) : null}
-      {canFire ? (
-        <KindKey
-          label={fireBusy ? "Firing…" : "Fire now"}
-          title={fireTitle}
-          disabled={fireBusy}
-          testId="scheduler-fire-now"
-          onClick={() => void fireNow()}
-        >
-          <Flame size={ICON} />
-        </KindKey>
-      ) : null}
-      <KindKey
-        label={config.label}
-        title={config.title}
-        active={configOpen}
-        onClick={() => {
-          setScheduleOpen(false);
-          setConfigOpen((open) => !open);
-        }}
-      >
-        <config.Icon size={ICON} />
-      </KindKey>
-      {configOpen ? (
-        <div className="rts-kind-pop rts-kind-pop--editor">{config.body}</div>
-      ) : null}
-      {scheduleOpen && isCron ? (
-        <CronScheduleSurface
-          canvas={canvasName}
-          id={node.id}
-          onClose={() => setScheduleOpen(false)}
-        />
-      ) : null}
-    </>
-  );
 }
 
 /**

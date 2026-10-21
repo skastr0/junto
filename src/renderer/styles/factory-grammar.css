@@ -108,7 +108,6 @@
   background: linear-gradient(135deg, color-mix(in oklab, var(--color-raise) 88%, transparent), color-mix(in oklab, var(--color-ground) 96%, transparent)) !important;
 }
 .junto-node[data-node-kind="board"] { border-radius: 5px; }
-.junto-node[data-node-kind="cron"], .junto-node[data-node-kind="timer"] { border-radius: 7px 11px 11px 7px; }
 
 .factory-glance__header { min-height: 12px; }
 .factory-glance__enqueue {

@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 import { Schema } from "effect";
-import { Node, Wire } from "../src/shared/model";
+import { Node } from "../src/shared/model";
 import { modelStore } from "../src/renderer/lib/use-model";
 import { state$ } from "../src/renderer/lib/state";
 import { emptyHotbarSlots } from "../src/renderer/lib/hotbar-slots";
@@ -12,7 +12,6 @@ import { SaveToGroupPicker } from "../src/renderer/components/rts/SaveToGroupPic
 import { CommandBar } from "../src/renderer/components/command-bar/CommandBar";
 import { dock$ } from "../src/renderer/lib/dock-state";
 import { agentSeat$ } from "../src/renderer/lib/agent-seat-state";
-import { CronScheduleSurface } from "../src/renderer/components/nodes/CronScheduleSurface";
 import { PadEditor } from "../src/renderer/components/pad/PadEditor";
 import { PadPin, emptyPad } from "../src/shared/pad";
 import { RegionPathsModal } from "../src/renderer/components/RegionPathsModal";
@@ -71,28 +70,6 @@ it("mounted region paths follow native defaults without a document copy", async 
   expect(document.querySelector('[data-testid="path"]')?.textContent).toBe("/after");
   await act(async () => modelStore.node$(canvas, "subject").delete());
   expect(document.querySelector('[data-testid="path"]')).toBeNull();
-});
-
-const publishWire = (input: unknown) => {
-  const wire = Schema.decodeUnknownSync(Wire)(input);
-  modelStore.wire$(canvas, wire.id).set(wire);
-};
-
-it("a mounted cron follows its native schedule and connected actions", async () => {
-  const cron = { ...rect, kind: "cron", label: "Morning", host: THIS_MACHINE };
-  publish({ ...cron, expression: "0 9 * * *" });
-  await act(async () => root.render(<CronScheduleSurface canvas={canvas} id="subject" onClose={() => {}} />));
-  expect(document.querySelector<HTMLInputElement>('[aria-label="Time of day"]')?.value).toBe("09:00");
-  expect(document.body.textContent).toContain("Nothing connected yet");
-  await act(async () => {
-    publish({ ...cron, expression: "30 14 * * *" });
-    publish({ ...rect, id: "tasks", kind: "task", name: "Queue" });
-    publishWire({ id: "fire", from: "subject", to: "tasks", verb: "enqueues" });
-  });
-  expect(document.querySelector<HTMLInputElement>('[aria-label="Time of day"]')?.value).toBe("14:30");
-  expect(document.body.textContent).toContain("1 linked action");
-  await act(async () => modelStore.node$(canvas, "subject").delete());
-  expect(document.querySelector('[aria-label="Time of day"]')).toBeNull();
 });
 
 it("the mounted pad mention picker offers the actors its host passes", async () => {

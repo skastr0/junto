@@ -9,23 +9,12 @@ import {
 import type { NodeKind, NodeOf } from "@shared/model";
 import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
-import { Gauge, Radio, Settings2, Timer } from "lucide-react";
-
-import {
-  describeCronExpression,
-  expressionFromEveryMinutes,
-  isValidCronExpression,
-} from "@shared/cron-expression";
 import type { FlowNode } from "../../lib/convert";
-import { CronScheduleSurface } from "./CronScheduleSurface";
 import { useSeatAwarenessOn } from "../../lib/experimental-features";
 import { editText } from "../../lib/mutations";
 import { NoteMarkdown } from "../../lib/note-markdown";
 import { state$ } from "../../lib/state";
-import { timerActivity, watcherActivity } from "../../lib/activity";
 import { accentColor, INK } from "../../lib/theme";
-import { kernel$ } from "../../lib/kernel-view";
-import type { WatcherRuntimeState } from "../../lib/kernel-view";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
 import { productNodeKindEnabled, TASKS_ENABLED } from "@shared/features";
 import { consumeWorkDetailOpen, workDetailOpen$ } from "../../lib/work-detail-open";
@@ -49,10 +38,8 @@ import { SeatOffboardToolbarAction } from "./SeatOffboard";
 import { CustomizeAgentToolbarAction } from "../agent-editor/AgentEditor";
 import { StartParamsToolbarAction } from "../customize/ParamsSection";
 import { claimFocus } from "../../lib/focus-ownership";
-import { IconButton } from "../ui";
-import { nodeAt, useNodeFieldOf, useNodeValue, useNodeOf } from "../../lib/use-model";
+import { nodeAt, useNodeValue, useNodeOf } from "../../lib/use-model";
 import { SeatCard } from "./SeatCard";
-import { ExecutionCardHeader } from "./ExecutionCardHeader";
 import {
   ArtifactsCard,
   ArtifactsDetail,
@@ -66,172 +53,6 @@ import { TaskToolbarActions } from "../work/TaskToolbarActions";
 
 import { NodeShell } from "./NodeShell";
 import { keyIs } from "../../lib/key-match";
-
-function CronScheduleToolbarAction({ onOpen }: { readonly onOpen: () => void }) {
-  return (
-    <IconButton
-      className="nodrag nopan"
-      aria-label="Schedule settings"
-      title="Schedule settings"
-      data-testid="node-toolbar-cron-settings"
-      onPointerDown={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        onOpen();
-      }}
-    >
-      <Settings2 size={14} />
-    </IconButton>
-  );
-}
-
-// Re-renders every intervalMs so relative-time copy ("fired 2m ago", "next
-// pulse in 12m") stays fresh without a per-second timer — a 30s cadence is
-// plenty for minute-grained wording.
-function useRelativeNow(intervalMs: number): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), intervalMs);
-    return () => window.clearInterval(id);
-  }, [intervalMs]);
-  return now;
-}
-
-/** Last effect run — product wording, not kernel debug. */
-function formatLastRun(firedAt: number, now: number): string {
-  const minutes = Math.max(0, Math.round((now - firedAt) / 60000));
-  if (minutes < 1) return "Last ran just now";
-  if (minutes < 60) return `Last ran ${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `Last ran ${hours}h ago`;
-  return `Last ran ${Math.round(hours / 24)}d ago`;
-}
-
-function formatCountdown(nextFire: number, now: number): string {
-  const minutes = Math.round((nextFire - now) / 60000);
-  if (minutes <= 0) return "due now";
-  if (minutes < 60) return `in ${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const remainder = minutes % 60;
-  return `in ${hours}h${remainder ? ` ${remainder}m` : ""}`;
-}
-
-const cronExpressionOf = (
-  timer: { readonly expression?: string; readonly everyMinutes?: number } | undefined,
-): string => {
-  const expr = timer?.expression?.trim();
-  if (expr && isValidCronExpression(expr)) return expr.replace(/\s+/g, " ");
-  if (typeof timer?.everyMinutes === "number" && timer.everyMinutes > 0) {
-    return expressionFromEveryMinutes(timer.everyMinutes);
-  }
-  return "*/30 * * * *";
-};
-
-/** Kind decal — same 28px amber tile as terminal / seats. */
-function SchedulerDecal({
-  kind,
-}: {
-  readonly kind: "cron" | "gauge" | "relay";
-}) {
-  const Icon = kind === "cron" ? Timer : kind === "gauge" ? Gauge : Radio;
-  return (
-    <div className="grid size-7 shrink-0 place-items-center rounded-md border border-amber/25 bg-amber/[0.07] text-amber">
-      <Icon size={15} />
-    </div>
-  );
-}
-
-// Gauge / relay: kernel status only. Idle mark is silent.
-function WatcherCard({
-  canvas,
-  id,
-  label,
-}: {
-  readonly canvas: string;
-  readonly id: string;
-  readonly label: "gauge" | "relay";
-}) {
-  const runtime = use$(kernel$.watchers[id]) as
-    WatcherRuntimeState | undefined;
-  const now = useRelativeNow(30_000);
-  const name = useNodeValue(canvas, id, (node) =>
-    node?.kind === "watcher" || node?.kind === "relay" ? node.label : undefined,
-  );
-  const title = name || label;
-  const status = runtime?.status ?? "unknown";
-  const detail = runtime?.detail ?? "no watch yet";
-  const activity = watcherActivity(status);
-  // Product: one line = what we're waiting on. Optional second line = last run.
-  // Never mid-dots, never wire jargon jammed onto fire history.
-  const subtitle = runtime?.lastFiredAt ? (
-    <span className="flex flex-col gap-0.5">
-      <span className="truncate">{detail}</span>
-      <span className="truncate opacity-80">
-        {formatLastRun(runtime.lastFiredAt, now)}
-      </span>
-    </span>
-  ) : (
-    detail
-  );
-  return (
-    <div className="flex h-full w-full flex-col justify-between overflow-hidden">
-      <ExecutionCardHeader
-        decal={<SchedulerDecal kind={label} />}
-        title={
-          <div
-            className="truncate font-mono text-[14px] font-semibold leading-snug"
-            style={{ color: INK }}
-            title={title}
-          >
-            {title}
-          </div>
-        }
-        subtitle={subtitle}
-        activity={activity}
-      />
-    </div>
-  );
-}
-
-// Cron: countdown + expression glance; schedule via double-click modal.
-function TimerCard({ canvas, id }: { readonly canvas: string; readonly id: string }) {
-  const nextFire = use$(kernel$.nextFire[id]) as number | undefined;
-  const now = useRelativeNow(30_000);
-  const name = useNodeFieldOf(canvas, id, "cron", (cron) => cron.label);
-  const title = name || "cron";
-  const expression = cronExpressionOf({
-    expression: useNodeFieldOf(canvas, id, "cron", (cron) => cron.expression),
-  });
-  const activity = timerActivity({ nextFire, now });
-  const countdown = nextFire ? formatCountdown(nextFire, now) : "—";
-  const scheduleLine = describeCronExpression(expression);
-  const subtitle = (
-    <span className="flex flex-col gap-0.5">
-      <span className="tabular-nums">{countdown}</span>
-      <span className="truncate font-mono" style={{ opacity: 0.85 }} title={expression}>
-        {scheduleLine}
-      </span>
-    </span>
-  );
-  return (
-    <div className="flex h-full w-full flex-col justify-between overflow-hidden">
-      <ExecutionCardHeader
-        decal={<SchedulerDecal kind="cron" />}
-        title={
-          <div
-            className="truncate font-mono text-[14px] font-semibold leading-snug"
-            style={{ color: INK }}
-            title={title}
-          >
-            {title}
-          </div>
-        }
-        subtitle={subtitle}
-        activity={activity}
-      />
-    </div>
-  );
-}
 
 // Freeform note body: instrument mono for body; condensed display for heads
 // (CSS). Markdown is structure only — no wiki/chips/shorthand leak.
@@ -277,7 +98,6 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
   const [renaming, setRenaming] = useState(false);
   const [workDetail, setWorkDetail] = useState(false);
   const [workDetailItemId, setWorkDetailItemId] = useState<string | undefined>();
-  const [cronScheduleOpen, setCronScheduleOpen] = useState(false);
   const [draft, setDraft] = useState(text);
   const ref = useRef<HTMLTextAreaElement>(null);
   const entityKind = kind;
@@ -289,7 +109,6 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
   // cannot open a work detail surface in a build whose gate is off.
   const workDetailAllowed =
     isWorkSurface && productNodeKindEnabled(entityKind);
-  const isCron = entityKind === "cron";
 
   useEffect(() => {
     if (editing) {
@@ -444,8 +263,6 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
           <CustomizeAgentToolbarAction seatId={id} />
         ) : entityKind === "task" && TASKS_ENABLED ? (
           <TaskToolbarActions nodeId={id} />
-        ) : isCron ? (
-          <CronScheduleToolbarAction onOpen={() => setCronScheduleOpen(true)} />
         ) : undefined
       }
 
@@ -563,7 +380,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
             event.preventDefault();
             event.stopPropagation();
             // Actors / terminals / sinks: open the live surface (same as
-            // command-group re-tap activate). Cron keeps its schedule modal.
+            // command-group re-tap activate).
             if (managedTerminal || isAgent || isWorkSurface) {
               const node = nodeAt(canvasName, id);
               if (!node) return;
@@ -577,28 +394,10 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
               }
               return;
             }
-            if (isCron) {
-              setCronScheduleOpen(true);
-              return;
-            }
-            // Relay/gauge: RTS config pops; no card dbl-click surface yet.
-            if (entityKind === "watcher" || entityKind === "relay") {
-
-              return;
-            }
             openInline();
           }}
         >
-          {cronScheduleOpen && isCron ? (
-            <CronScheduleSurface canvas={canvasName} id={id} onClose={() => setCronScheduleOpen(false)} />
-          ) : null}
-          {entityKind === "watcher" ? (
-            <WatcherCard canvas={canvasName} id={id} label="gauge" />
-          ) : entityKind === "relay" ? (
-            <WatcherCard canvas={canvasName} id={id} label="relay" />
-          ) : entityKind === "cron" ? (
-            <TimerCard canvas={canvasName} id={id} />
-          ) : entityKind === "terminal" ? (
+          {entityKind === "terminal" ? (
             <TerminalCard
               canvas={canvasName}
               id={id}

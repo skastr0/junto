@@ -3,7 +3,6 @@ import {
   Archive,
   Blocks,
   Braces,
-  Clock3,
   FileText,
   GitBranch,
   Globe2,
@@ -12,22 +11,19 @@ import {
   SquareDashed,
   SquareTerminal,
   Type,
-  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import {
   ARTIFACTS_ENABLED,
   BOARD_ENABLED,
   BROWSER_ENABLED,
-  CRON_ENABLED,
-  RELAY_ENABLED,
   REQUESTS_ENABLED,
   TASKS_ENABLED,
 } from "@shared/features";
 import { fuzzyMatch } from "../../lib/fuzzy-match";
 import { PickerCard, PickerCardGrid } from "../ui";
 
-export type NodeCatalogCategory = "shell" | "sinks" | "schedule" | "canvas";
+export type NodeCatalogCategory = "shell" | "sinks" | "canvas";
 
 /**
  * Catalog color is semantic: every node inherits the hue of its category.
@@ -36,7 +32,6 @@ export type NodeCatalogCategory = "shell" | "sinks" | "schedule" | "canvas";
 export const NODE_CATALOG_CATEGORY_ACCENT: Readonly<Record<NodeCatalogCategory, string>> = {
   shell: "text-cyan",
   sinks: "text-amber",
-  schedule: "text-violet",
   canvas: "text-indigo",
 };
 
@@ -88,19 +83,6 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     id: "page", category: "canvas", label: "Page",
     icon: Globe2,
     purpose: "A browser page that lives on the canvas.",
-  } satisfies NodeCatalogEntry] : []),
-  ...(CRON_ENABLED ? [{
-    id: "cron", category: "schedule", label: "Cron",
-    icon: Clock3,
-    purpose: "Fires on a schedule to add tasks or wake agents automatically.",
-  } satisfies NodeCatalogEntry] : []),
-  // Gauge (hermes stat_threshold) is product-hidden and not a product peer of
-  // cron/relay. Hermes = fleet join, not automation. Future external-input
-  // actuator (webhook / poll) is a new surface — not “fix this hermes stub.”
-  ...(RELAY_ENABLED ? [{
-    id: "relay", category: "schedule", label: "Relay",
-    icon: Workflow,
-    purpose: "Watches a connected node and acts when something happens.",
   } satisfies NodeCatalogEntry] : []),
   {
     id: "note", category: "canvas", label: "Note",

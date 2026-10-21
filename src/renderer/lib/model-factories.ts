@@ -38,7 +38,6 @@ const requireFeature = (enabled: boolean, label: string): void => {
 };
 
 const SINK_SIZE = { width: 240, height: 120 } as const;
-const SCHEDULER_SIZE = { width: 220, height: 96 } as const;
 
 // ── Things that only sit there ──────────────────────────────────────────────
 
@@ -139,20 +138,3 @@ export const newBoard = (spot: Spot): NodeOf<"board"> => {
   requireFeature(BOARD_ENABLED, "board sink");
   return { kind: "board", ...placed("board", spot, SINK_SIZE) };
 };
-
-// ── Things that fire on their own ───────────────────────────────────────────
-
-/** A schedule on `host`, every half hour until the operator sets another. */
-export const newCron = (spot: Spot, host: string, expression = "*/30 * * * *"): NodeOf<"cron"> => ({
-  kind: "cron",
-  ...placed("cron", spot, SCHEDULER_SIZE),
-  host: requireHostId(host),
-  expression,
-});
-
-/** A relay: what is wired into it says when it fires, what it is wired to says what it does. */
-export const newRelay = (spot: Spot, host: string): NodeOf<"relay"> => ({
-  kind: "relay",
-  ...placed("relay", spot, SCHEDULER_SIZE),
-  host: requireHostId(host),
-});

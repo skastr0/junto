@@ -11,7 +11,7 @@ import type { Color, Command, Node, NodeOf, RegionContract, RegionDefaults, Regi
 import type { Ruling, TasksContract } from "@shared/work-model";
 import { authoring } from "./authoring";
 import type { Canvas } from "@shared/model/canvas";
-import { added, cronEdited, gitEdited, pageEdited, recolored, regionEdited, removed as nodesRemoved, renamed, retexted, taskBoardEdited, watcherEdited } from "./model-edits";
+import { added, gitEdited, pageEdited, recolored, regionEdited, removed as nodesRemoved, renamed, retexted, taskBoardEdited } from "./model-edits";
 import { modelStore } from "./use-model";
 import {
   removeEdgesFromSelection,
@@ -683,25 +683,6 @@ export const setRegionEnvironment = (id: string, environment: RegionEnvironment 
 // The claim tick runs in the kernel only (kernel/service.ts runClaimTicks,
 // pause-gated). The old renderer-side tick wrapper is gone — a canvas-door
 // tick would bypass the pause plane.
-
-/** Change a gauge's threshold fields, keeping its host and label. */
-export const setNodeWatch = (
-  id: string,
-  watch: Pick<NodeOf<"watcher">, "key" | "stat" | "op" | "value"> | undefined,
-): void => {
-  commitCommands((canvas) => watcherEdited(canvas, id, {
-    key: watch?.key?.trim() || null,
-    stat: watch?.stat?.trim() || null,
-    op: watch?.op ?? null,
-    value: watch?.value ?? null,
-  }));
-};
-
-/** Change a cron's schedule, or clear it, keeping its host and label. */
-export const setNodeTimer = (id: string, timer: Pick<NodeOf<"cron">, "expression"> | undefined): void => {
-  const expression = timer?.expression?.trim().replace(/\s+/g, " ");
-  commitCommands((canvas) => cronEdited(canvas, id, { expression: expression || null }));
-};
 
 // Checklist mutator deleted — work ops live in main (WorkService).
 

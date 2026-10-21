@@ -2,13 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { useRtsNodes } from "../lib/rts-selection";
 import { HashMap, HashSet, Option } from "effect";
-import type { NodeOf } from "@shared/model";
 import type { RegionDefaults } from "@shared/model/region";
 import {
   BROWSER_ENABLED,
-  CRON_ENABLED,
   FLEET_UI_ENABLED,
-  RELAY_ENABLED,
   TASKS_ENABLED,
 } from "@shared/features";
 import {
@@ -16,23 +13,17 @@ import {
   type FactoryRoleName,
 } from "@shared/physics";
 import { canvasToCapabilityView } from "@shared/physics/view";
-import { addEdge } from "../lib/edge-mutations";
 import { releaseFocus } from "../lib/focus-ownership";
 import { regionEdited } from "../lib/model-edits";
-import { commitCommands, editLink, editText, setGitCwd, setNodeTimer, setNodeWatch, setPageBinding, setRegionDefaults } from "../lib/mutations";
-import {
-  describeCronExpression,
-  isValidCronExpression,
-} from "@shared/cron-expression";
+import { commitCommands, editLink, editText, setGitCwd, setPageBinding, setRegionDefaults } from "../lib/mutations";
 import { AgentMessagesPane } from "./work/WorkSurfaces";
 import { state$ } from "../lib/state";
 import { isOnMachine, machineLabelIn, useMachines, useThisMachineName } from "../lib/machines";
 import { physicsKind, roleOfKind } from "../lib/model-kind";
 import { useCanvas, useNode, useNodeOf, useNodeValue } from "../lib/use-model";
-import { asNodeId as asModelNodeId, wireGrant, wireKinds } from "@shared/model";
+import { asNodeId as asModelNodeId } from "@shared/model";
 import { titleOf } from "@shared/model/title";
-import { DIM, HUE, INK, withAlpha } from "../lib/theme";
-import { Chip, Select } from "./ui";
+import { Chip } from "./ui";
 import { RegionRules } from "./rules";
 import { BrowserProfileSelect, MachineSelect } from "./HostPickers";
 
@@ -288,21 +279,19 @@ export function PageUrlControl({ nodeId }: { readonly nodeId: string }) {
   );
 }
 
-// Watcher/timer editors, grouped behind one call so the switchboard above
-// reads as one branch per concern instead of more node-type ternaries
-// stacked onto an already-dense dispatcher. Regions never reach this form:
-// their fields open from the region kind strip.
+// Per-kind panes below the fields. Regions never reach this form: their
+// fields open from the region kind strip.
 function KernelFieldEditors({ nodeId }: { readonly nodeId: string }) {
   const kind = useNodeValue(use$(state$.canvasName), nodeId, (node) => node?.kind);
-  if (kind === undefined) return null;
-  return <>
-    {RELAY_ENABLED && kind === "watcher" ? <WatcherEditor nodeId={nodeId} /> : null}
-    {CRON_ENABLED && kind === "cron" ? <TimerEditor nodeId={nodeId} /> : null}
-    {RELAY_ENABLED && kind === "relay" ? <RelayEditor nodeId={nodeId} /> : null}
-
-    {kind === "agent" ? <AgentMessagesPane nodeId={nodeId} /> : null}
-  </>;
+  return kind === "agent" ? <AgentMessagesPane nodeId={nodeId} /> : null;
 }
+
+const commitOnEnter = (onCommit: () => void) => (event: React.KeyboardEvent<HTMLInputElement>) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  onCommit();
+  releaseFocus(event.currentTarget, "gesture");
+};
 
 /** Defaults for new page nodes created inside this region. */
 export function RegionPageDefaultsControl({ nodeId: regionId }: { readonly nodeId: string }) {
@@ -452,263 +441,6 @@ export function RegionBriefingEditor({ nodeId: regionId }: { readonly nodeId: st
       />
       {/* Region rules ride the Tasks gate: a tasks-off build has none. */}
       {TASKS_ENABLED ? <RegionRules regionId={regionId} /> : null}
-    </div>
-  );
-}
-
-/** A gauge reads one source today; the threshold fields are the watcher's own. */
-type WatchSource = "hermes";
-type WatchOp = NonNullable<NodeOf<"watcher">["op"]>;
-type WatchFields = Pick<NodeOf<"watcher">, "key" | "stat" | "op" | "value">;
-
-const STAT_SOURCE_OPTIONS: ReadonlyArray<WatchSource> = ["hermes"];
-
-const STAT_OP_OPTIONS: ReadonlyArray<{ readonly value: WatchOp; readonly label: string }> = [
-  { value: "gt", label: "greater than" },
-  { value: "lt", label: "less than" },
-  { value: "eq", label: "equal to" },
-];
-
-// Enter commits and blurs; every text field below shares this handler.
-const commitOnEnter = (onCommit: () => void) => (event: React.KeyboardEvent<HTMLInputElement>) => {
-  if (event.key !== "Enter") return;
-  event.preventDefault();
-  onCommit();
-  releaseFocus(event.currentTarget, "gesture");
-};
-
-// stat_threshold: numeric comparison on a bound hermes entity's stat.
-// Selects commit immediately (onSourceChange/onOpChange carry the override
-// into the same commit call — React state from setSource/setOp wouldn't be
-// flushed yet if commit() read it directly); text fields commit on blur.
-function StatThresholdFields({ source, entityKey, stat, op, valueText, onSourceChange, onKey, onStat, onOpChange, onValue, onCommit }: {
-  readonly source: WatchSource;
-  readonly entityKey: string;
-  readonly stat: string;
-  readonly op: WatchOp;
-  readonly valueText: string;
-  readonly onSourceChange: (value: WatchSource) => void;
-  readonly onKey: (value: string) => void;
-  readonly onStat: (value: string) => void;
-  readonly onOpChange: (value: WatchOp) => void;
-  readonly onValue: (value: string) => void;
-  readonly onCommit: () => void;
-}) {
-  const onEnter = commitOnEnter(onCommit);
-  return <>
-    <label className="inspector-editor">
-      <span>source</span>
-      <Select
-        dense
-        aria-label="Watcher stat source"
-        value={source}
-        options={STAT_SOURCE_OPTIONS.map((s) => ({ value: s, label: s }))}
-        onChange={(value) => onSourceChange(value as WatchSource)}
-      />
-    </label>
-    <label className="inspector-editor">
-      <span>key</span>
-      <input data-focus-owner="canvas-draft" aria-label="Watcher entity key" value={entityKey} placeholder="bound entity key" onChange={(event) => onKey(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
-    </label>
-    <label className="inspector-editor">
-      <span>stat</span>
-      <input data-focus-owner="canvas-draft" aria-label="Watcher stat name" value={stat} placeholder="e.g. signals" onChange={(event) => onStat(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
-    </label>
-    <label className="inspector-editor">
-      <span>op</span>
-      <Select
-        dense
-        aria-label="Watcher comparison"
-        value={op}
-        options={STAT_OP_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-        onChange={(value) => onOpChange(value as WatchOp)}
-      />
-    </label>
-    <label className="inspector-editor">
-      <span>value</span>
-      <input data-focus-owner="canvas-draft" aria-label="Watcher threshold value" type="number" value={valueText} onChange={(event) => onValue(event.target.value)} onBlur={onCommit} onKeyDown={onEnter} />
-    </label>
-  </>;
-}
-
-// Every watch field's draft state, reset together whenever the inspected
-// node changes — split out of WatcherEditor so the component body reads as
-// "fields + commit", not a wall of useState declarations.
-function useWatchDraft(nodeId: string, watch: WatchFields | undefined) {
-  const [source, setSource] = useState<WatchSource>("hermes");
-  const [key, setKey] = useState(watch?.key ?? "");
-  const [stat, setStat] = useState(watch?.stat ?? "");
-  const [op, setOp] = useState<WatchOp>(watch?.op ?? "gt");
-  const [valueText, setValueText] = useState(watch?.value !== undefined ? String(watch.value) : "");
-
-  useEffect(() => {
-    setSource("hermes");
-    setKey(watch?.key ?? "");
-    setStat(watch?.stat ?? "");
-    setOp(watch?.op ?? "gt");
-    setValueText(watch?.value !== undefined ? String(watch.value) : "");
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset drafts only on node identity change, not on every keystroke into watch/*
-  }, [nodeId]);
-
-  return {
-    source, setSource, key, setKey, stat, setStat, op, setOp,
-    valueText, setValueText,
-  };
-}
-
-// Gauge editor: hermes stat_threshold.
-export function WatcherEditor({ nodeId }: { readonly nodeId: string }) {
-  const watcher = useNodeOf(use$(state$.canvasName), nodeId, "watcher");
-  const {
-    source, setSource, key, setKey, stat, setStat, op, setOp,
-    valueText, setValueText,
-  } = useWatchDraft(nodeId, watcher);
-
-  type Overrides = Partial<{
-    readonly source: WatchSource;
-    readonly op: WatchOp;
-  }>;
-
-  const commit = (overrides: Overrides = {}) => {
-    const nextOp = overrides.op ?? op;
-    const parsedValue = valueText.trim() === "" ? undefined : Number(valueText);
-    const nextWatch: WatchFields = {
-      ...(key.trim() ? { key: key.trim() } : {}),
-      ...(stat.trim() ? { stat: stat.trim() } : {}),
-      op: nextOp,
-      ...(parsedValue !== undefined && Number.isFinite(parsedValue) ? { value: parsedValue } : {}),
-    };
-    setNodeWatch(nodeId, nextWatch);
-  };
-
-  return <div className="inspector-section">
-    <div className="inspector-section__label">gauge - hermes threshold</div>
-    <StatThresholdFields
-      source={source}
-      entityKey={key}
-      stat={stat}
-      op={op}
-      valueText={valueText}
-      onSourceChange={(next) => { setSource(next); commit({ source: next }); }}
-      onKey={setKey}
-      onStat={setStat}
-      onOpChange={(next) => { setOp(next); commit({ op: next }); }}
-      onValue={setValueText}
-      onCommit={() => commit()}
-    />
-  </div>;
-}
-
-/**
- * Relay binding is the drawn links only. Both lines read the compiled verb —
- * an edge says which relationship it is, and the watch predicate and fire
- * action fall out of that plus the two kinds.
- */
-export function RelayEditor({ nodeId }: { readonly nodeId: string }) {
-  // What a relay watches and what it does are its wires, so the canvas is
-  // followed; this is mounted only while a relay is inspected.
-  const canvas = useCanvas(use$(state$.canvasName));
-  const { inbound, outbound } = useMemo(() => {
-    const kinds = wireKinds(canvas.nodes.values());
-    const wires = [...canvas.wires.values()];
-    return {
-      inbound: wires.flatMap((wire) => {
-        const when = wire.to === nodeId ? wireGrant(wire, kinds)?.when : undefined;
-        return when === undefined ? [] : [{ wire, when }];
-      }),
-      outbound: wires.filter((wire) => wire.from === nodeId && wireGrant(wire, kinds)?.does !== undefined),
-    };
-  }, [canvas, nodeId]);
-  const watchLine =
-    inbound.length === 0
-      ? "Not watching anything yet"
-      : inbound
-          .map(({ wire, when }) => {
-            const src = canvas.nodes.get(wire.from);
-            const name = src ? titleOf(src) : "a connected node";
-            const word = when.word === "signals" ? "raises a hand" : "completes";
-            return `${name} ${word}`;
-          })
-          .join("; ");
-  const effectLine =
-    outbound.length === 0
-      ? "Does nothing yet"
-      : `${outbound.length} action${outbound.length === 1 ? "" : "s"} when it fires`;
-
-  return (
-    <div className="inspector-section">
-      <div className="inspector-section__label">Relay</div>
-      <div className="text-[11px] leading-snug" style={{ color: INK }}>
-        Watches: {watchLine}
-      </div>
-      <div className="mt-1 text-[11px] leading-snug" style={{ color: DIM }}>
-        Then: {effectLine}
-      </div>
-    </div>
-  );
-}
-
-// Compact expression strip — full human schedule is CronScheduleSurface.
-export function TimerEditor({ nodeId }: { readonly nodeId: string }) {
-  const expression = useNodeOf(use$(state$.canvasName), nodeId, "cron")?.expression;
-  const defaultExpr = expression?.trim() || "*/30 * * * *";
-  const [draft, setDraft] = useState(defaultExpr);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    setDraft(expression?.trim() || "*/30 * * * *");
-    setError("");
-  }, [nodeId, expression]);
-
-  const commit = () => {
-    const cleaned = draft.trim().replace(/\s+/g, " ");
-    if (!isValidCronExpression(cleaned)) {
-      setError("invalid expression");
-      return;
-    }
-    setError("");
-    setNodeTimer(nodeId, { expression: cleaned });
-  };
-
-  return (
-    <div className="inspector-section" style={{ marginTop: 0 }}>
-      <div className="inspector-section__label">schedule</div>
-      <div className="mb-1.5 text-[11px]" style={{ color: INK }}>
-        {describeCronExpression(draft)}
-      </div>
-      <label className="inspector-editor">
-        <span>expression</span>
-        <input
-          data-focus-owner="canvas-draft"
-          aria-label="Cron expression"
-          className="font-mono"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onBlur={commit}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              commit();
-              releaseFocus(event.currentTarget, "gesture");
-            }
-            if (event.key === "Escape") {
-              setDraft(defaultExpr);
-              setError("");
-              releaseFocus(event.currentTarget, "gesture");
-            }
-          }}
-          spellCheck={false}
-        />
-      </label>
-      {error ? (
-        <div className="mt-1 text-[9px]" style={{ color: withAlpha(HUE.crimson, 0.8) }}>
-          {error}
-        </div>
-      ) : (
-        <div className="mt-1 text-[9px]" style={{ color: DIM }}>
-          double-click card for presets
-        </div>
-      )}
     </div>
   );
 }

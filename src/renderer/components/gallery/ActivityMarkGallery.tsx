@@ -6,8 +6,6 @@ import type { ThreadHealthTone, ThreadHealthValue } from "@shared/thread-health"
 import {
   browserActivity,
   terminalActivity,
-  timerActivity,
-  watcherActivity,
   type ActivitySpec,
 } from "../../lib/activity";
 import { ensureMarkAtlas } from "../../lib/activity-atlas";
@@ -45,7 +43,6 @@ const STATES: ReadonlyArray<Row> = [
     note: "turn stalled",
     spec: terminalActivity({ seatState: "attention", seatReason: "turn-stalled" }),
   },
-  { name: "Due", note: "timer fired", spec: timerActivity({ nextFire: 0, now: 1 }) },
   { name: "Blocked", note: "graph stoppage", spec: terminalActivity({ seatState: "idle", graphBlocked: true }) },
   {
     name: "Failed to start",
@@ -57,7 +54,6 @@ const STATES: ReadonlyArray<Row> = [
   { name: "Idle", note: "seated, nothing running", spec: terminalActivity({ seatState: "idle" }) },
   { name: "Unknown", note: "no event yet", spec: terminalActivity({ managedSeat: true, seatState: "unknown" }) },
   { name: "Gone", note: "process exited", spec: terminalActivity({ seatState: "gone" }) },
-  { name: "Met", note: "watcher true", spec: watcherActivity("satisfied") },
 ];
 
 const pick = (name: string): ActivitySpec =>
@@ -223,7 +219,6 @@ function CardRow() {
   const cards: ReadonlyArray<readonly [string, string, ActivitySpec]> = [
     ["dev-server", "npm run dev, pid 4312", pick("Process")],
     ["docs page", "attaching", pick("Loading")],
-    ["nightly", "due", pick("Due")],
     ["shell", "seated", pick("Idle")],
   ];
   return (

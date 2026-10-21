@@ -16,14 +16,12 @@ import { added, topZ } from "../src/renderer/lib/model-edits";
 import {
   newArtifacts,
   newBoard,
-  newCron,
   newGit,
   newImage,
   newLabel,
   newNote,
   newPage,
   newRegion,
-  newRelay,
   newRequests,
   newSeat,
   newTaskBoard,
@@ -53,8 +51,6 @@ describe("new nodes", () => {
     ...on(REQUESTS_ENABLED, "requests", () => newRequests(spot)),
     ...on(ARTIFACTS_ENABLED, "artifacts", () => newArtifacts(spot)),
     ...on(BOARD_ENABLED, "board", () => newBoard(spot)),
-    ["cron", () => newCron(spot, "studio")],
-    ["relay", () => newRelay(spot, "studio")],
   ];
 
   it.each(made)("a new %s is one the contract accepts, at whole numbers and the z it was given", (_label, make) => {
@@ -79,7 +75,6 @@ describe("new nodes", () => {
   });
 
   it("refuses a host that is not one", () => {
-    expect(() => newCron(spot, "not a host")).toThrow();
     expect(() => newSeat(spot, { harness: "claude", host: "" })).toThrow();
     expect(() => newTerminal(spot, { host: "" })).toThrow();
     expect(() => newPage(spot, "https://example.com", { host: " " })).toThrow();
