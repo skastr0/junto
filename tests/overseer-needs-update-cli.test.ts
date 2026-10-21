@@ -23,6 +23,7 @@ import { setOverseerNativeDeleteHooks } from "../src/main/junto/overseer/canvas"
 import { makeOverseerNativeLive, workDetails } from "../src/main/junto/overseer/native";
 import { LinkBuildMismatch } from "../src/main/junto/link/types";
 import type { TermPlane } from "../src/main/junto/term/plane";
+import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
 import type { OverseerRequest } from "../src/shared/overseer-control";
 import { unwrapOverseerSocketData } from "../src/cli/commands/overseer";
 import { canvasOf, seat } from "./support/model-nodes";
@@ -95,6 +96,64 @@ const boot = async (remote: () => never = stale) => {
     return Effect.runPromise(unwrapOverseerSocketData(JSON.parse(JSON.stringify(result))).pipe(Effect.result));
   };
 };
+
+const SECRET = "ghp_seatsecret123";
+const leaked = (failure: unknown): boolean => JSON.stringify(failure).includes(SECRET);
+
+describe("a node delete's failure, as the seat reads it", () => {
+  const deleteWith = async (hooks: Parameters<typeof setOverseerNativeDeleteHooks>[0]) => {
+    const cli = await boot();
+    setOverseerNativeDeleteHooks(hooks);
+    return cli({ operation: "node.delete", args: { canvas: "origin", nodeIds: ["doomed"] } });
+  };
+  const finishOk = () => ({ ok: true as const });
+
+  it("a prepare that answers a secret is scrubbed", async () => {
+    const read = await deleteWith({
+      prepareOverseerNodeDelete: async () => ({ ok: false, error: `fence failed, Authorization: Bearer ${SECRET}` }),
+      finishOverseerNodeDelete: finishOk,
+    });
+    expect(read._tag === "Failure" && read.failure.message).toMatch(/^fence failed/);
+    expect(leaked(read)).toBe(false);
+  });
+
+  it("a prepare that throws a secret is scrubbed", async () => {
+    const read = await deleteWith({
+      prepareOverseerNodeDelete: async () => { throw new Error(`prepare threw, Authorization: Bearer ${SECRET}`); },
+      finishOverseerNodeDelete: finishOk,
+    });
+    expect(read._tag === "Failure" && read.failure.message).toMatch(/^prepare threw/);
+    expect(leaked(read)).toBe(false);
+  });
+
+  it("a finish that answers a secret is scrubbed", async () => {
+    const read = await deleteWith({
+      prepareOverseerNodeDelete: async () => ({ ok: true, leaseId: "lease-1", pageStops: [] }),
+      finishOverseerNodeDelete: () => ({ ok: false, error: `finish failed, Authorization: Bearer ${SECRET}` }),
+    });
+    expect(read._tag === "Failure" && read.failure.message).toMatch(/finish failed/);
+    expect(leaked(read)).toBe(false);
+  });
+
+  it("the terminal fence scrubs a thrown secret before native passes it on", async () => {
+    // The real fence; a terminal with no host asks the router for this machine's name, and that throws.
+    const router = {
+      isLocalHostId: () => true,
+      deleteBinding: async () => true,
+      thisMachineName: () => { throw new Error(`fence failed, Authorization: Bearer ${SECRET}`); },
+    };
+    const native = makeOverseerNativeLive({
+      termPlane: { router, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane,
+      captureApplicationPage: async () => ({ ok: false, unavailable: true, reason: "no window in test" }),
+      liveOverseerGrant: async () => true,
+      listCanvases: async () => new Map(),
+      occupySeat: async () => false,
+    });
+    const prepared = await native.prepareOverseerNodeDelete([{ kind: "terminal", bindingId: "bind-doomed", hostId: " " }]);
+    expect(prepared).toMatchObject({ ok: false, error: expect.stringMatching(/^fence failed/) });
+    expect(leaked(prepared)).toBe(false);
+  });
+});
 
 describe("a seat whose machine runs another build, as the CLI reads it", () => {
   it.each(["agent.get", "terminal.get"] as const)("%s fails NeedsUpdate with the machine as data", async (operation) => {

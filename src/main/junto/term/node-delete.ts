@@ -6,6 +6,7 @@ import type {
   TerminalNodeDeleteResource,
 } from "@shared/ipc";
 import type { TerminalRouter } from "./router";
+import { scrubMessage } from "../credentials/scrub";
 
 const LEASE_TTL_MS = 60_000;
 const MAX_BINDING_BYTES = 512;
@@ -218,7 +219,8 @@ export class TerminalNodeDeleteService {
     }
   }
 
+  /** A thrown error as the deleting seat reads it: scrubbed, one line, at most 1 KiB. */
   private message(error: unknown): string {
-    return (error instanceof Error ? error.message : String(error)).slice(0, 1_000);
+    return scrubMessage(error instanceof Error ? error.message : String(error)) || "terminal delete failed";
   }
 }

@@ -52,6 +52,7 @@ import type { ActorRef } from "@shared/work-protocol";
 import { ModelActorRefs } from "../model/actor-refs";
 import { readModelDigest } from "../model/digest";
 import { ModelService } from "../model/service";
+import { scrubMessage } from "../credentials/scrub";
 import { TaskRepository } from "../work/task-repository";
 import { readSeatTaskIndex } from "../work/seat-task-read";
 import {
@@ -229,6 +230,9 @@ const finishDelete = (
   return native.finishOverseerNodeDelete(leaseId, outcome);
 };
 
+/** A native delete failure as the seat reads it: scrubbed, never empty. */
+const deleteMessage = (error: string): string => scrubMessage(error) || "native delete failed";
+
 const finishError = (
   outcome: "committed" | "aborted",
   error: string,
@@ -236,8 +240,8 @@ const finishError = (
   fail(
     "InternalError",
     outcome === "committed"
-      ? `native delete finish failed after commit: ${error}`
-      : `native delete finish failed: ${error}`,
+      ? `native delete finish failed after commit: ${deleteMessage(error)}`
+      : `native delete finish failed: ${deleteMessage(error)}`,
   );
 
 const withPreparedDelete = <A>(
@@ -251,15 +255,12 @@ const withPreparedDelete = <A>(
       Effect.tryPromise({
         try: (signal) => prepareDelete(resources, hooks, signal),
         catch: (error): WorkErrorBody =>
-          fail(
-            "InternalError",
-            error instanceof Error ? error.message : String(error),
-          ),
+          fail("InternalError", deleteMessage(error instanceof Error ? error.message : String(error))),
       }).pipe(
         Effect.flatMap((prepared) =>
           prepared.ok
             ? Effect.succeed(prepared)
-            : Effect.fail(fail("InternalError", prepared.error)),
+            : Effect.fail(fail("InternalError", deleteMessage(prepared.error))),
         ),
       ),
       (prepared) => {
