@@ -597,6 +597,9 @@ export const runWorkCliAcceptance = async () => {
           args,
         })),
       addSeat,
+      operator: async (command) => {
+        await runtime.runPromise(model.command(Schema.decodeUnknownSync(Command)(command), "operator"));
+      },
       runtime: runtime as never,
       log,
       outside,

@@ -54,6 +54,8 @@ export type AcceptanceContext = {
     at: { readonly x: number; readonly y: number },
     options?: { readonly overseer?: boolean },
   ) => Promise<AcceptanceSeat>;
+  /** One canvas command from the operator (model commands.ts), decoded as the app sends it. */
+  readonly operator: (command: Readonly<Record<string, unknown>>) => Promise<void>;
   /** The core's runtime, for reads an area checks the CLI against. */
   readonly runtime: ManagedRuntime.ManagedRuntime<never, never>;
   readonly log: (label: string, body: string) => void;
