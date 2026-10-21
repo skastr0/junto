@@ -135,7 +135,11 @@ everyone else reports by mail and on the needs-you feed.
 | Artifacts main side: read ops, repository, version table, ruler's artifact ops | cli-identity (L3), on product-shell's `artifact.ts`, migration slot from canvas C3 | started |
 | Tasks main side | canvas C4 (canvas-writers): model, state machine, ruler (state, assignee, reviewers, stamps, numbers, flows send-on, ResourceCommand handler). cli L2 (cli-performance): control.ts op handlers and `junto task`. Seam: canvas's task contract | started |
 | Region reach contract | canvas, 945dc0d1c; property tests by product-automation (200 seeded canvases); open: `atOrBelow` not transitive through a node in two overlapping regions, canvas's call | landed |
-| Resource command contract | remote; type tests by product-automation, 1f2bd19f3, no defects | landed |
+| Resource command contract | remote, cc270e4a8; type tests by product-automation, 1f2bd19f3, no defects | landed |
+| 02 queued writes, final pass | remote, c56245482 | done |
+| remote R2 to R6 | remote-work, remote-send, remote-seats (R2); remote-cut (R3); remote-core (R4); remote-window (R5); remote-security (R6); doctrine remote-design 659e44833, 52717c3a1 | started |
+| Machine build define `__JUNTO_MACHINE_BUILD__` | cli owns, remote-core asserts the bundle | requested |
+| Visual language v1 | product-typography: ResourceChip, TaskStateMark, StampTally, TwoPane, pending rows; 8888746da to e167586b4; on the feed | landed |
 | Ids: `work-ids.ts` owns `ItemId` and `OpId`; others import | cli-protocol | decided, landing |
 | Listbox ARIA model | product-accessibility, a07e90e17 | landed |
 | Task state machine (pure) | canvas-writers, eeb17e7d3, 34 tests | in review |
