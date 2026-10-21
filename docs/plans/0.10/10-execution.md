@@ -180,7 +180,7 @@ everyone else reports by mail and on the needs-you feed.
 | remote R6 automation author kind | a530ccc85, e9c311c54 | done |
 | Migration 32: 0.10 deletions, feeds to flows, host registry rebuild | canvas be53079c9; v25 to v32 green on a copy of the live db (integrity, FK; 444 wires, 127 seats, 80 regions unchanged); 13 open tasks on gone boards canceled, readable | landed, verified |
 | Migration 33 reviewer kind on verdicts; 34 Automations archives | canvas | 33 landed, 34 next |
-| 0.10 CLI acceptance net | pty-mail, pty-contract: scripts/work-cli-acceptance.ts 47e035df4, 55 pass, 0 fail, 3 pending (cli-external next_step, remote overseer automation ruling, cli-skill verdict post) | running |
+| 0.10 CLI acceptance net | pty-mail, pty-contract: scripts/work-cli-acceptance.ts; 64 pass, 0 fail, 0 pending at 54fe72710 (clean export, real core); found and fixed f4971dd3e, 2b927b7f8; verdict post gone eb11a3e12 | green |
 | Main health | tech-lead (tech-checks): full verify on a clean archive of HEAD hourly, reds to owning leads | running |
 | remote R2 ruler | RulingRecorder 75db329b0; task submit and replica fold 7fb8d1e9b; seat queue QueueFull 87d3406c8; reach for rulings 73779cf34; resource notice author 8a7e93ce4. Live once task tables are in the state engine and TaskRepositoryLive is wired (canvas order) | landed, not live |
 | remote R4 browser out | 255613ef8, 2614f3578, 658827b65, c12fe5cf7, 29bb0747a, 8a1d5e3ce, 4947ce9f3, 8f20c2f0c | done |
