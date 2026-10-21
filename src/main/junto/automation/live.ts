@@ -486,7 +486,7 @@ export const AutomationRunnerLive = Layer.effect(
         if (cursor === undefined) {
           // Past every ruling now, not only the first page.
           let through = read.through;
-          for (let page = read; page.rulings.length === TASK_STATES_READ_MAX; through = page.through) {
+          for (let page = read; page.more; through = page.through) {
             page = yield* repository.taskRulingsSince(canvasName, page.through, TASK_STATES_READ_MAX);
           }
           return { changes: [] as ReadonlyArray<ChangeEvent>, through: Option.some(through) };

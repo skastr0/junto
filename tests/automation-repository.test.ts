@@ -3,7 +3,8 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { Reactivity } from "effect/unstable/reactivity";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, it } from "vitest";
-import { AUTOMATION_STATE_SCHEMA_SQL } from "../src/main/junto/automation/state-schema";
+import { AUTOMATION_RULING_CURSORS_SQL, AUTOMATION_STATE_SCHEMA_SQL } from "../src/main/junto/automation/state-schema";
+import { RESOURCE_RULINGS_STATE_SCHEMA_SQL } from "../src/main/junto/work/resource-rulings-schema";
 import { AutomationRepository, FIRINGS_KEPT, makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
 import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
 import { type Automation, AutomationId, type Firing, FiringId, AutomationVersion } from "../src/shared/automation";
@@ -29,6 +30,14 @@ const automation: Automation = {
 const run = async <A, E>(program: Effect.Effect<A, E, AutomationRepository | SqlClient.SqlClient>): Promise<A> => {
   const database = new DatabaseSync(":memory:");
   database.exec(AUTOMATION_STATE_SCHEMA_SQL);
+  database.exec(AUTOMATION_RULING_CURSORS_SQL);
+  database.exec(RESOURCE_RULINGS_STATE_SCHEMA_SQL);
+  // Only the columns the ruling read joins on; the real tables carry more.
+  database.exec(`
+    CREATE TABLE installation (singleton INTEGER PRIMARY KEY, installation_id TEXT NOT NULL);
+    INSERT INTO installation VALUES (1, 'mini');
+    CREATE TABLE work_events (event_home TEXT, entity_home TEXT, seq TEXT, item_kind TEXT, item_id TEXT, item_canvas_name TEXT);
+  `);
   const sql = Layer.effect(SqlClient.SqlClient, makeSqliteClient(database)).pipe(Layer.provide(Reactivity.layer));
   const runtime = ManagedRuntime.make(makeAutomationRepositoryLive().pipe(Layer.provideMerge(sql)));
   try {
@@ -133,5 +142,29 @@ describe("AutomationRepository", () => {
     expect(yield* repository.claimFiring("factory", firing(ulid(9_999_98), 5, { kind: "change", key: "k1" }))).toEqual({
       _tag: "Claimed",
     });
+  })));
+
+  it("reads task rulings in landing order, and says a page was full even when a row in it does not decode", () => run(Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const T = "01M5ESKJFC1A88R1MH1NEZWJ50";
+    // Seq 9 lands before seq 10, whatever their op ids say; seq 10's record is missing its node.
+    const rulings: ReadonlyArray<readonly [string, string, string, string]> = [
+      ["9", "01M5ESKJFC1A88R1MH1NEZWJ62", JSON.stringify({ kind: "applied", taskId: T, node: "tasks-1", became: "working" }), "seat"],
+      ["10", "01M5ESKJFC1A88R1MH1NEZWJ61", JSON.stringify({ kind: "applied", taskId: T, became: "done" }), "operator"],
+      ["11", "01M5ESKJFC1A88R1MH1NEZWJ63", JSON.stringify({ kind: "applied", taskId: T, node: "tasks-1", became: "backlog" }), "automation"],
+    ];
+    for (const [seq, opId, json, actor] of rulings) {
+      yield* sql`INSERT INTO work_events VALUES ('mini', 'mini', ${seq}, 'ruling', ${opId}, 'factory')`;
+      yield* sql.unsafe(
+        `INSERT INTO resource_rulings (canvas_name, writer, op_id, kind, ruling_json, actor_kind, actor_node_id) VALUES ('factory', 'mini', ?, 'applied', ?, ?, ${actor === "seat" ? "'agent-a'" : "NULL"})`,
+        [opId, json, actor],
+      );
+    }
+    const repository = yield* AutomationRepository;
+    const first = yield* repository.taskRulingsSince("factory", "0", 2);
+    expect(first.rulings.map((r) => r.became)).toEqual(["working"]);
+    expect(first).toMatchObject({ through: "10", more: true });
+    const rest = yield* repository.taskRulingsSince("factory", first.through, 2);
+    expect(rest).toMatchObject({ through: "11", more: false, rulings: [{ became: "backlog", byAutomation: true }] });
   })));
 });

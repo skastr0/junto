@@ -65,14 +65,18 @@ export class AutomationRepository extends Context.Service<AutomationRepository,
     readonly setRulingCursor: (canvasName: string, seq: string) => Effect.Effect<void, AutomationPersistenceError>;
     /**
      * The applied task rulings that brought a task into a state, after `after`
-     * in the order they landed here, at most `limit`; `through` is the seq the
-     * next read starts after.
+     * in the order they landed here, from at most `limit` rows; `through` is
+     * the seq the next read starts after, and `more` says the page was full,
+     * counted before any row that does not decode is dropped.
      */
     readonly taskRulingsSince: (
       canvasName: string,
       after: string,
       limit: number,
-    ) => Effect.Effect<{ readonly rulings: ReadonlyArray<TaskRuling>; readonly through: string }, AutomationPersistenceError>;
+    ) => Effect.Effect<
+      { readonly rulings: ReadonlyArray<TaskRuling>; readonly through: string; readonly more: boolean },
+      AutomationPersistenceError
+    >;
     /** Record a considered firing once per claim key; a second claim is `Duplicate` and writes nothing. */
     readonly claimFiring: (canvasName: string, firing: FiringType) => Effect.Effect<ClaimResult, AutomationPersistenceError>;
     /** Replace a claimed firing's outcome once its actions are ruled. */
@@ -316,7 +320,8 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
             return [{ opId: row.op_id, taskId: record.taskId, node: record.node, became: record.became, byAutomation: row.actor_kind === "automation" }];
           });
           // A full page stops at its last row; a short one has read through the mark.
-          return { rulings, through: rows.length === limit ? rows[rows.length - 1]!.seq : mark };
+          const more = rows.length === limit;
+          return { rulings, through: more ? rows[rows.length - 1]!.seq : mark, more };
         }));
       });
 
