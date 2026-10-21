@@ -2,11 +2,6 @@
  * Every node kind is renamed from the RTS selection card (1b2c3318f, eb7ea0f37,
  * 170c9a988): Rename key, type, Enter; Escape keeps the old name; focus returns
  * to the Rename key; a peer and a stub show no key.
- *
- * Known defect, so the test is marked to fail: a page, a file and a link send
- * Edit { label }, and NodeEdit for those kinds (src/shared/model/commands.ts)
- * has no label field, so main refuses it and the card keeps the old name. When
- * that is fixed this test passes and test.fail() turns it red: remove it then.
  *   JUNTO_SHOTS_DIR=<dir> bun run test:e2e:fast e2e/scenarios/rts-rename-kinds.spec.ts
  */
 import { mkdirSync } from "node:fs";
@@ -52,7 +47,6 @@ const cases: Case[] = [
 ];
 
 test("every kind renames from the selection card; peer and stub show no key", async () => {
-  test.fail(true, "page, file and link refuse Edit { label }: NodeEdit has no label for them");
   test.setTimeout(300_000);
   const junto = await launchJunto({ windowContentSize: { width: 1320, height: 900 }, seedModels: { [CANVAS]: modelFixture(nodes, []) } });
   try {
