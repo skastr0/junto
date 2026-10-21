@@ -1,11 +1,11 @@
 import { Effect, Option } from "effect";
-import { ulid } from "ulid";
 import type { AgentSignal } from "@shared/agent-signals";
-import { mailExtensionMetadata } from "@shared/crew";
+import { mailExtensionMetadata, type MailMessageId } from "@shared/crew";
 import { mentionLinksOf, mentionedOnce, mentionsOf } from "@shared/mention";
 import type { NodeKind } from "@shared/model/kinds";
 import { titleOf } from "@shared/model/title";
 import type { NodeId } from "@shared/physics/schema";
+import { subjectNoticeId } from "@shared/subject-notice";
 import { makeUserMessage } from "@shared/task";
 import { operatorActorRef } from "@shared/work-reference";
 import { ModelService } from "../model/service";
@@ -37,6 +37,15 @@ export const answerCopies = (
   const outside = seats.filter((seat) => !connected.has(seat));
   return outside.length > 0 ? { ok: false, outside } : { ok: true, seats };
 };
+
+/**
+ * A copy's id, derived from (answer, seat): the same answer copies a seat
+ * under one id, so a replayed or retried copy is the same row. The answer's
+ * own id is minted once on the machine that wrote it, so it alone keys the
+ * cause; its time is the copy's.
+ */
+export const answerCopyId = (answerMessageId: string, seat: NodeId): MailMessageId =>
+  subjectNoticeId({ installationId: "", sourceId: answerMessageId as MailMessageId, kind: "mention", recipient: seat });
 
 /** The copy's words: whose signal, what it said, and the answer. */
 export const composeAnswerCopy = (
@@ -100,7 +109,7 @@ export const sendAnswerCopies = (
         signal.canvasName,
         seat,
         makeUserMessage({
-          messageId: ulid(),
+          messageId: answerCopyId(answerMessageId, seat),
           text: composeAnswerCopy(signal, seatName, response),
           contextId: signal.canvasName,
           metadata: {
