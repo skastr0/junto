@@ -73,9 +73,9 @@ export const SINCE_COMMANDS: Readonly<Record<SinceSectionKey, string>> = {
   owedReplies: "junto since --all",
   awaitingReplies: "junto since --all",
   openSignals: "junto signal list",
-  // Until `signal list` pages (08, small fixes) it shows the last 20 closed
-  // signals, so answers past those are not listed yet.
-  answersSince: "junto signal list",
+  // Not `signal list --since`: that bounds by when a signal was raised, so
+  // it would miss one raised before the bound and answered after it.
+  answersSince: "junto since --all",
 };
 
 const KIND_WORDS: Readonly<Record<AgentSignalKind, string>> = {
