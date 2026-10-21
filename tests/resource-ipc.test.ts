@@ -7,24 +7,33 @@ import {
   TaskApplyInput,
   TaskCommandWire,
   taskCanvasFactsOf,
-  taskCommandOf,
   taskEnvOf,
   taskRefusalOf,
 } from "../src/shared/resource-ipc";
 import { emptyTaskBoard, taskDomain } from "../src/shared/task-machine";
-import { seatNodeId, taskNodeId, type TaskCommand, type TaskCommandKind } from "../src/shared/task-model";
+import { seatNodeId, taskNodeId, TaskCommandWire as ModelWire, type TaskCommand, type TaskCommandKind } from "../src/shared/task-model";
 import { ItemId, OpId } from "../src/shared/work-ids";
 
 const TASK = ItemId.make("01M5ESZPWMZZM3TZ88P6FVVK33");
 const OTHER = ItemId.make("01M5ESZPWMZZM3TZ88P6FVVK34");
 const OP = OpId.make("01M5ESZPWMZZM3TZ88P6FVVK35");
-const decode = Schema.decodeUnknownResult(TaskCommandWire);
+const decode = (input: unknown) => Schema.decodeUnknownResult(TaskCommandWire)(input, { onExcessProperty: "error" });
 
 describe("the task command on the wire", () => {
-  it("carries every command the domain takes, and only those", () => {
+  it("is the task model's own wire: every command the domain takes, and only those", () => {
     expectTypeOf<TaskCommand>().toExtend<TaskCommandWire>();
     expectTypeOf<TaskCommandWire["kind"]>().toEqualTypeOf<TaskCommandKind>();
-    expectTypeOf(taskCommandOf).returns.toEqualTypeOf<TaskCommand>();
+    expect(TaskCommandWire).toBe(ModelWire);
+  });
+
+  it("keeps the model's bounds: a title, a stamp count", () => {
+    for (const bad of [
+      { kind: "create", taskId: TASK, title: "" },
+      { kind: "create", taskId: TASK, title: "x".repeat(201) },
+      { kind: "stamp-policy", required: -1 },
+      { kind: "stamp-policy", required: 2.5 },
+      { kind: "create", taskId: TASK, title: "Import", stampPolicy: { required: 17 } },
+    ]) expect(Result.isFailure(decode(bad)), JSON.stringify(bad).slice(0, 60)).toBe(true);
   });
 
   it("decodes each kind, and refuses an unknown kind or an excess key", () => {
@@ -39,6 +48,13 @@ describe("the task command on the wire", () => {
     for (const command of commands) expect(decode(command), command.kind).toEqual(Result.succeed(command));
     expect(Result.isFailure(decode({ kind: "explode" }))).toBe(true);
     expect(Result.isFailure(decode({ kind: "start", extra: 1 }))).toBe(true);
+    expect(Result.isFailure(Schema.decodeUnknownResult(TaskApplyInput)({
+      canvasName: "factory",
+      nodeId: "T",
+      taskId: TASK,
+      opId: OP,
+      command: { kind: "start", extra: 1 },
+    }, { onExcessProperty: "error" }))).toBe(true);
     expect(Result.isFailure(Schema.decodeUnknownResult(TaskApplyInput)({
       canvasName: "factory",
       nodeId: "T",

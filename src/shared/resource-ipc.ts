@@ -10,7 +10,9 @@
  * `ResourceCommand` (actor operator, no basis, no after) and submits it.
  *
  * Channels are named here; payloads are decoded in main against the schemas
- * below, with excess keys refused.
+ * below, with excess keys refused. A task command travels as the model's own
+ * `TaskCommandWire` and main narrows it with `checkTaskCommand` against the
+ * canvas, as the ruler does for every writer.
  */
 import { Schema } from "effect";
 import { ArtifactOp, ArtifactVersion, type ArtifactBody, type ArtifactVersionRecord } from "./artifact";
@@ -20,6 +22,7 @@ import { RefusalReason } from "./resource-command";
 import type { TaskDomainEnv } from "./task-machine";
 import {
   TASK_REFUSAL_REASON,
+  TaskCommandWire,
   type SeatNodeId,
   type StampPolicy,
   type TaskCommand,
@@ -66,7 +69,8 @@ export type ResourceApplyOutcome<Applied extends object = {}> =
   | { readonly kind: "queued"; readonly opId: OpId };
 
 export type TaskApplyOutcome = ResourceApplyOutcome;
-export type ArtifactApplyOutcome = ResourceApplyOutcome<{ readonly facts: readonly [ArtifactFact, ...ArtifactFact[]] }>;
+/** `facts` is empty when a resend is answered from the stored ruling: nothing changed again. */
+export type ArtifactApplyOutcome = ResourceApplyOutcome<{ readonly facts: ReadonlyArray<ArtifactFact> }>;
 
 /** Said to every window after a write to a canvas's tasks or artifacts, by anyone. */
 export type ResourceChanged = { readonly canvasName: string };
@@ -93,46 +97,6 @@ export const taskRefusalOf = (error: WorkErrorBody): TaskRefusal | undefined => 
 const CanvasNameInput = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(128)));
 const strict = { parseOptions: { onExcessProperty: "error" as const } };
 
-const ReviewerWire = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("seat"), seat: NodeId }).annotate(strict),
-  Schema.Struct({ kind: Schema.Literal("operator") }).annotate(strict),
-]);
-
-/**
- * `TaskCommand` on the wire. Node ids arrive unbranded; the brands are
- * phantom, so the decoded value is the command (`taskCommandOf`).
- */
-export const TaskCommandWire = Schema.Union([
-  Schema.Struct({
-    kind: Schema.Literal("create"),
-    taskId: ItemId,
-    title: Schema.String,
-    body: Schema.optionalKey(Schema.String),
-    stampPolicy: Schema.optionalKey(Schema.Struct({ required: Schema.Number }).annotate(strict)),
-  }).annotate(strict),
-  Schema.Struct({ kind: Schema.Literal("edit"), title: Schema.optionalKey(Schema.String), body: Schema.optionalKey(Schema.String) }).annotate(strict),
-  Schema.Struct({ kind: Schema.Literal("assign"), seat: NodeId }).annotate(strict),
-  ...(["unassign", "start", "pause", "resume", "cancel", "archive"] as const).map((kind) =>
-    Schema.Struct({ kind: Schema.Literal(kind) }).annotate(strict),
-  ),
-  Schema.Struct({ kind: Schema.Literal("finish"), next: Schema.optionalKey(NodeId) }).annotate(strict),
-  Schema.Struct({ kind: Schema.Literal("depend"), on: ItemId }).annotate(strict),
-  Schema.Struct({ kind: Schema.Literal("undepend"), on: ItemId }).annotate(strict),
-  Schema.Struct({ kind: Schema.Literal("reviewer-add"), reviewer: ReviewerWire }).annotate(strict),
-  Schema.Struct({ kind: Schema.Literal("reviewer-remove"), reviewer: ReviewerWire }).annotate(strict),
-  Schema.Struct({ kind: Schema.Literal("stamp-policy"), required: Schema.Number }).annotate(strict),
-  Schema.Struct({
-    kind: Schema.Literal("stamp"),
-    verdict: Schema.Literals(["approve", "changes"]),
-    subjectHash: Schema.optionalKey(Schema.String),
-    text: Schema.optionalKey(Schema.String),
-  }).annotate(strict),
-]);
-export type TaskCommandWire = typeof TaskCommandWire.Type;
-
-/** The decoded wire command as the domain's: its node ids take their brands. */
-export const taskCommandOf = (wire: TaskCommandWire): TaskCommand => wire as unknown as TaskCommand;
-
 export const TaskListInput = Schema.Struct({ canvasName: CanvasNameInput, nodeId: NodeId }).annotate(strict);
 export const TaskAllInput = Schema.Struct({ canvasName: CanvasNameInput }).annotate(strict);
 export const TaskContextInput = TaskAllInput;
@@ -143,6 +107,7 @@ export const TaskApplyInput = Schema.Struct({
   opId: OpId,
   command: TaskCommandWire,
 }).annotate(strict);
+export { TaskCommandWire };
 
 // ── task ruling context ────────────────────────────────────────────────────
 
