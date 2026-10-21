@@ -175,13 +175,12 @@ everyone else reports by mail and on the needs-you feed.
 | Mention swaps | product-keyboard f918f4aa0, 31ef5e60f; PadPinThread dies with the pad | done |
 | Typecheck toolchain | tsrs swap landed (tech-lead fdc1bd867, 1693ef5b4, 9adfc92de): cold 7 s, 1.0 GiB vs tsc 5.9 160 s, 3.0 GiB; typecheck needs no slot | landed |
 | Sweep repair | fdc1bd867 carried six stale staged paths; restored at ca81a0033, stale copies unstaged | done |
-| Main typecheck | clean at 5489312a0 (tsrs, clean archive, 0 errors); shared index cleared of 40 stale paths; physics ship-profile cases with canvas-edges, remote-core, product-attention | green |
 | remote R5 Hermes host identity | 2f4c8d022, 24b4f58ab, f2c54bae8, 5020db286, ffd7d6ef1, b3543a409; last piece in migration 32 be53079c9 | done |
 | remote R6 automation author kind | a530ccc85, e9c311c54 | done |
 | Migration 32: 0.10 deletions, feeds to flows, host registry rebuild | canvas be53079c9; v25 to v32 green on a copy of the live db (integrity, FK; 444 wires, 127 seats, 80 regions unchanged); 13 open tasks on gone boards canceled, readable | landed, verified |
 | Migration 33 reviewer kind on verdicts; 34 Automations archives | canvas | 33 landed, 34 next |
 | 0.10 CLI acceptance net | pty-mail, pty-contract: scripts/work-cli-acceptance.ts; 64 pass, 0 fail, 0 pending at 54fe72710 (clean export, real core); found and fixed f4971dd3e, 2b927b7f8; verdict post gone eb11a3e12 | green |
-| Main health | tech-lead (tech-checks): full verify on a clean archive of HEAD hourly, reds to owning leads | running |
+| Main health | tech-lead (tech-checks): full verify on a clean archive hourly; run 4 at 38e2d3879 ALL GREEN, 16 of 16 lanes (unit 7,219 shared and 4,138 isolated, ship 44, tsrs and TS 7, build, overlay, lints) | green |
 | remote R2 ruler | RulingRecorder 75db329b0; task submit and replica fold 7fb8d1e9b; seat queue QueueFull 87d3406c8; reach for rulings 73779cf34; resource notice author 8a7e93ce4. Live once task tables are in the state engine and TaskRepositoryLive is wired (canvas order) | landed, not live |
 | remote R4 browser out | 255613ef8, 2614f3578, 658827b65, c12fe5cf7, 29bb0747a, 8a1d5e3ce, 4947ce9f3, 8f20c2f0c | done |
 | remote R3 canvas copy | 77f7a7134, f65727f16, fe9d7f375, a139bde94, 101f36c40, 1e632c2ec, e997e0706; stubs for file, link, git, page | done |
