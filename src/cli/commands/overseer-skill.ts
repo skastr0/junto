@@ -60,7 +60,7 @@ Reads: \`canvas read\` answers \`{name, seq, nodes, wires}\`, nodes in paint ord
 
 Every node those reads answer also carries \`regions\`: each region around it as \`{id, name}\`, outermost first, empty when it is in none (a region never lists itself). A seat also carries \`name\`, what it is called on the canvas. \`agent list\` and \`agent get\` answer \`name\` and \`regions\` the same way, so where a seat sits is read, never worked out from geometry.
 
-Reads answer structure, not work. No tasks, artifacts or mail ride on a node. Read work with its own command: \`task list\`, \`artifact list\` and \`artifact get\`, \`msg list\` (each where this build has that family). \`canvas digest\` is the digest text main also writes for the window and the CLI, with the work on each node and without live adapter snapshot data.
+Reads answer structure, not work. No tasks, artifacts or mail ride on a node. Read work with its own command: \`junto task list\`, \`artifact list\` and \`artifact get\`, \`msg list\` (each where this build has that family). \`canvas digest\` is the digest text main also writes for the window and the CLI, with the work on each node and without live adapter snapshot data.
 
 Writes:
 
@@ -166,7 +166,7 @@ This CLI does **not** claim that a running daemon has a handler for every verb. 
 3. Copy an example: \`junto overseer examples show node.create\`
 4. Run under the live granted agent process (not a random shell).
 5. Prefer \`overseer status\` first. If the socket is down: launch Junto, then \`junto doctor\`.
-6. Mutate with expected canvas/node ids from list/read. Use \`overseer canvas batch\` for a coherent structural edit; task creation and worker actions use their own operations.
+6. Mutate with expected canvas/node ids from list/read. Use \`overseer canvas batch\` for a coherent structural edit; worker actions use their own operations. Tasks are not overseer operations: use \`junto task\` as any seat does. As an overseer it reaches every Tasks node on this canvas with no edge, and the task rules still hold (assignee-only moves, rules, checks, stamps).
 7. On \`Forbidden\` / \`Unsupported\`, stop. Do not retry as the operator.
 
 ## Authority (exact)

@@ -226,7 +226,6 @@ const FAMILY_HELP: Readonly<Record<string, string>> = {
   canvas: "List, read, create, delete, digest, render, or screenshot canvases",
   node: "List, get, create, configure, move, resize, recolor, or delete nodes, each told by its kind",
   wire: "List, get, verb-table, connect, configure, or disconnect wires",
-  task: "Task work-plane ops without requiring a connecting edge",
   artifact: "Artifact list, get, publish, archive, delete",
   msg: "Mailbox list, send, read, reply, react",
   content: "Content ingest, path, stat, materialize",

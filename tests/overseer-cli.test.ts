@@ -666,6 +666,9 @@ describe("overseer region environment and secrets CLI", { timeout: SPAWNING_TEST
     expect(JSON.stringify(overseerExamples)).not.toMatch(/fromNode|toNode|edgeId|"ether"|expectedRevision|"type":"text"/u);
     expect(OVERSEER_SKILL_MARKDOWN).toContain("The connection family is `wire`");
     expect(OVERSEER_SKILL_MARKDOWN).toContain("A seat is created by naming what it runs, never by a command line");
+    // Tasks are no overseer family: the skill teaches junto task, as any seat uses it.
+    expect(OVERSEER_SKILL_MARKDOWN).not.toMatch(/overseer task|task creation and worker actions/u);
+    expect(OVERSEER_SKILL_MARKDOWN).toContain("Tasks are not overseer operations: use `junto task` as any seat does.");
     // No example sends a seat a command line, an identity or the grant.
     const seatInputs = overseerExamples
       .filter((example) => /agent\.reseat|node\.create/u.test(example.command_id))
