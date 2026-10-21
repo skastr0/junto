@@ -1,4 +1,3 @@
-import type { SheetGrid } from "@shared/model/sheet";
 import type { Side } from "@shared/model/base";
 import { stripEmptyRegionDefaults } from "@shared/region-defaults";
 import { batch, observe } from "@legendapp/state";
@@ -12,7 +11,7 @@ import type { Color, Command, Node, NodeOf, RegionContract, RegionDefaults, Regi
 import type { Ruling, TasksContract } from "@shared/work-model";
 import { authoring } from "./authoring";
 import type { Canvas } from "@shared/model/canvas";
-import { added, cronEdited, gitEdited, pageEdited, recolored, regionEdited, removed as nodesRemoved, renamed, retexted, sheetWritten, taskBoardEdited, watcherEdited } from "./model-edits";
+import { added, cronEdited, gitEdited, pageEdited, recolored, regionEdited, removed as nodesRemoved, renamed, retexted, taskBoardEdited, watcherEdited } from "./model-edits";
 import { modelStore } from "./use-model";
 import {
   removeEdgesFromSelection,
@@ -21,7 +20,6 @@ import {
   selectNode,
   state$,
 } from "./state";
-import { sheetStore } from "./sheet-store";
 
 /** True when the node store holds this canvas. Nothing is edited on one it does not. */
 const storeHolds = (name: string): boolean =>
@@ -721,49 +719,6 @@ const stripEmptyRegionContract = (
   const rulings = contract.rulings && contract.rulings.length > 0 ? contract.rulings : undefined;
   if (!rules && !rulings) return undefined;
   return { ...(rules ? { rules } : {}), ...(rulings ? { rulings } : {}) };
-};
-
-/** The grid last written, including after an editor releases its store hold. */
-const lastSheetWritten = new Map<string, SheetGrid>();
-
-const applyNodeSheet = (id: string, sheet: SheetGrid, remember: boolean): void => {
-  commitCommands((canvas) => {
-    const key = `${canvas.name}/${id}`;
-    const now = sheetStore.gridOf(canvas.name, id);
-    if (now === sheet || (now === undefined && lastSheetWritten.get(key) === sheet)) return [];
-    const commands = sheetWritten(canvas, id, sheet, now);
-    if (commands.length > 0) lastSheetWritten.set(key, sheet);
-    return commands;
-  }, { remember });
-};
-
-/** Write the separately held grid; typing bursts share the first write's undo. */
-export const setNodeSheet = (id: string, sheet: SheetGrid): void => {
-  applyNodeSheet(id, sheet, true);
-};
-
-const sheetTypingBurst = new Map<string, ReturnType<typeof setTimeout>>();
-const SHEET_TYPING_BURST_MS = 400;
-
-export const setNodeSheetTyping = (id: string, sheet: SheetGrid): void => {
-  const recordHistory = !sheetTypingBurst.has(id);
-  const previous = sheetTypingBurst.get(id);
-  if (previous !== undefined) clearTimeout(previous);
-  sheetTypingBurst.set(
-    id,
-    setTimeout(() => {
-      sheetTypingBurst.delete(id);
-    }, SHEET_TYPING_BURST_MS),
-  );
-  applyNodeSheet(id, sheet, recordHistory);
-};
-
-/** Drop a coalesced typing burst so the next write starts a new undo frame. */
-export const flushNodeSheetTyping = (id: string): void => {
-  const previous = sheetTypingBurst.get(id);
-  if (previous === undefined) return;
-  clearTimeout(previous);
-  sheetTypingBurst.delete(id);
 };
 
 /** Change the rules and rulings of a region. */

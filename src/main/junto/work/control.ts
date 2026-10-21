@@ -83,9 +83,6 @@ import {
   BoardMarkReadArgs,
   BoardPostArgs,
   BoardTagsListArgs,
-  PadPatchArgs,
-  PadReadArgs,
-  SheetReadArgs,
   ContentMaterializeArgs,
   ContentPathArgs,
   ContentStatArgs,
@@ -223,7 +220,6 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
   "board.create_topic",
   "board.post",
   "board.mark_read",
-  "pad.patch",
   "relay.trigger",
   ...AUTOMATION_WRITE_OPS,
   // Agent signals stay open while paused: raising a hand to the operator is
@@ -252,7 +248,6 @@ import {
   taskAdmissionState,
 } from "@shared/rules";
 import { regionStack } from "@shared/model/canvas";
-import { sheetToMarkdown } from "@shared/sheet";
 import { flowDestinations, reachableBoards } from "@shared/flow-graph";
 import { asNodeId, seatIdentity, seatRegions, taskBoardTitle, type Canvas, type Node, type SeatIdentity } from "@shared/model";
 import { resolveCallerAcrossCanvases } from "./caller-resolve";
@@ -2927,60 +2922,6 @@ const dispatchOp = (
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
       return exposeWorkMutation(mapped.success);
-    }
-
-    if (op === "pad.read") {
-      const decoded = decodeArgs(PadReadArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
-      if ("type" in gate) return yield* Effect.fail(gate);
-      const result = yield* work.workPadRead(
-        caller.canvasName,
-        decoded.success.target,
-        decoded.success.pinId,
-      );
-      const mapped = fromWorkResult(result);
-      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      return mapped.success.value;
-    }
-
-    if (op === "pad.patch") {
-      const decoded = decodeArgs(PadPatchArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
-      if ("type" in gate) return yield* Effect.fail(gate);
-      const bound = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Result.isFailure(bound)) return yield* Effect.fail(bound.failure);
-      const author: Author = {
-        kind: "actor",
-        seatId: bound.success.seatId,
-        nodeId: bound.success.nodeId,
-      };
-      const result = yield* work.workPadPatch(
-        caller.canvasName,
-        decoded.success.target,
-        decoded.success.patches,
-        author,
-      );
-      const mapped = fromWorkResult(result);
-      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      return exposeWorkMutation(mapped.success);
-    }
-
-    if (op === "sheet.read") {
-      const decoded = decodeArgs(SheetReadArgs, args);
-      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
-      if ("type" in gate) return yield* Effect.fail(gate);
-      const sheet = yield* work.readSheet(caller.canvasName, decoded.success.target).pipe(Effect.mapError((error): WorkErrorBody => ({ type: "InternalError", message: error.message, details: { retryable: true } })));
-      const grid = sheet ?? { columns: [], rows: [] };
-      return {
-        target: decoded.success.target,
-        title: gate.node ? nodeTitle(gate.node) : decoded.success.target,
-        columns: grid.columns,
-        rows: grid.rows,
-        markdown: sheetToMarkdown(grid),
-      };
     }
 
     if (op === "relay.trigger") {

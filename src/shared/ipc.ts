@@ -4,7 +4,7 @@ import type { MachineCacheWindows, MachineProviders, MachineRecord } from "./mac
 import type { ChatChromeSnapshot, ChatChromeChanged } from "./chat-chrome";
 import type { WorkAttentionSnapshot } from "./work-attention";
 import type { WorkItemQuery, WorkActorQuery, WorkActorPage, WorkAttentionQuery, WorkLaneRow, WorkSinkQuery, WorkSinkPage, WorkSinkChanged } from "./work-sinks";
-import type { CanvasesChanged, Changed, Command, Opened, SheetChanged, SheetGrid } from "./model";
+import type { CanvasesChanged, Changed, Command, Opened } from "./model";
 import type { WorkMailQuery, WorkMailPage, WorkMailChanged } from "./work-mail";
 import type { MailThreadMessagesPage, MailThreadsPage } from "./wire/mail-threads";
 import type { OperatorContentPut, OperatorContentPutResult } from "./operator-attachments";
@@ -183,8 +183,6 @@ export const IPC_CHANNELS = {
   modelCanvasesChanged: "junto:model-canvases-changed",
   modelActorRefs: "junto:model-actor-refs",
   modelActorRefsChanged: "junto:model-actor-refs-changed",
-  modelSheetRead: "junto:model-sheet-read",
-  modelSheetChanged: "junto:model-sheet-changed",
   modelStart: "junto:model-start",
   modelSeatLaunchState: "junto:model-seat-launch-state",
   modelStop: "junto:model-stop",
@@ -323,8 +321,6 @@ export const IPC_CHANNELS = {
   workBoardPost: "junto:work-board-post",
   workBoardMarkRead: "junto:work-board-mark-read",
   workBoardNotify: "junto:work-board-notify",
-  workPadRead: "junto:work-pad-read",
-  workPadPatch: "junto:work-pad-patch",
   // browser work surface (partitioned WebContentsView sessions)
   browserProfiles: "junto:browser-profiles",
   browserOpen: "junto:browser-open",
@@ -779,10 +775,6 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly modelActorRefs: (input: { readonly canvas: string }) => Promise<ReadonlyArray<ActorRef>>;
   /** The whole list again, whenever it changes. */
   readonly onModelActorRefsChanged: (listener: (event: ModelActorRefsChanged) => void) => () => void;
-  /** One sheet's grid. The sheet node itself carries only its label. */
-  readonly modelSheetRead: (input: { readonly canvas: string; readonly id: string }) => Promise<SheetGrid>;
-  /** A sheet's grid was written; whoever shows it reads it again. */
-  readonly onModelSheetChanged: (listener: (event: SheetChanged) => void) => () => void;
   /**
    * Start a seat or terminal, named by canvas and id. Main reads the node
    * itself, so the window sends no launch, and the seat's own start decides
@@ -1086,30 +1078,6 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
     nodeId: string,
     topicId?: string,
   ) => Promise<WorkOpResult<{ readonly wakeCount: number }>>;
-  readonly workPadRead: (
-    canvas: string,
-    nodeId: string,
-    pinId?: string,
-  ) => Promise<
-    WorkOpResult<{
-      readonly revision: number;
-      readonly pad: import("./pad").Pad;
-      readonly digest: string;
-      readonly svg: string;
-      readonly lookHere?: import("./pad-project").PadLookHere;
-    }>
-  >;
-  readonly workPadPatch: (
-    canvas: string,
-    nodeId: string,
-    patches: ReadonlyArray<import("./pad").PadPatch>,
-  ) => Promise<
-    WorkOpResult<{
-      readonly revision: number;
-      readonly pad: import("./pad").Pad;
-      readonly digest: string;
-    }>
-  >;
   readonly onNodeRefOpened: (
     listener: (event: NodeRefOpenedEvent) => void | Promise<void>,
   ) => () => void;

@@ -393,9 +393,6 @@ export const requiresConnection = (op: WorkOpName | "overseer"): boolean => {
     case "board.create_topic":
     case "board.post":
     case "board.mark_read":
-    case "pad.read":
-    case "pad.patch":
-    case "sheet.read":
     case "relay.trigger":
       return true;
   }

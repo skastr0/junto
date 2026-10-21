@@ -15,14 +15,6 @@ export const FEATURE_CATALOG = {
     env: "JUNTO_BOARD",
     define: "__JUNTO_BOARD_ENABLED__",
   },
-  pad: {
-    env: "JUNTO_PAD",
-    define: "__JUNTO_PAD_ENABLED__",
-  },
-  sheet: {
-    env: "JUNTO_SHEET",
-    define: "__JUNTO_SHEET_ENABLED__",
-  },
   requests: {
     env: "JUNTO_REQUESTS",
     define: "__JUNTO_REQUESTS_ENABLED__",
@@ -224,8 +216,6 @@ export const SHIP_FEATURES: FeatureSet = {
   relay: false,
   browser: false,
   board: false,
-  pad: false,
-  sheet: false,
   requests: false,
   artifacts: false,
   tasks: false,
@@ -256,8 +246,6 @@ export const ALL_FEATURES: FeatureSet = {
   relay: true,
   browser: true,
   board: true,
-  pad: true,
-  sheet: true,
   requests: true,
   artifacts: true,
   tasks: true,

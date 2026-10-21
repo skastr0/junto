@@ -3,9 +3,7 @@ import {
   ARTIFACTS_ENABLED,
   BOARD_ENABLED,
   BROWSER_ENABLED,
-  PAD_ENABLED,
   REQUESTS_ENABLED,
-  SHEET_ENABLED,
   TASKS_ENABLED,
 } from "../../shared/features";
 import { SeatReadArgs, SeatWaitArgs, TaskWaitArgs } from "../../shared/seat-control";
@@ -15,12 +13,6 @@ import {
   BoardListArgs,
   BoardPostArgs,
   BoardTagsListArgs,
-  PadGetArgs,
-  PadLookHereArgs,
-  PadPatchArgs,
-  PadReadArgs,
-  SheetReadArgs,
-  PadTargetArgs,
   ContentMaterializeArgs,
   ContentPathArgs,
   ContentStatArgs,
@@ -468,87 +460,6 @@ export const boardTagsSchema: CommandSchemaContract = {
   input_modes: inputModes,
 };
 
-export const padReadSchema: CommandSchemaContract = {
-  command_id: "pad.read",
-  command: "pad read",
-  schema_id: "pad.read.input/v1",
-  description:
-    "Read a connected pad (grant pad.read): revision, IR, digest, SVG. Optional pinId adds look-here. Agents never write the canvas.",
-  schema: PadReadArgs,
-  input_modes: inputModes,
-};
-
-export const sheetReadSchema: CommandSchemaContract = {
-  command_id: "sheet.read",
-  command: "sheet read",
-  schema_id: "sheet.read.input/v1",
-  description:
-    "Read a connected sheet (grant sheet.read): columns, rows, and a markdown table. Sheets are operator-authored; there is no write port.",
-  schema: SheetReadArgs,
-  input_modes: inputModes,
-};
-
-export const padPatchSchema: CommandSchemaContract = {
-  command_id: "pad.patch",
-  command: "pad patch",
-  schema_id: "pad.patch.input/v1",
-  description:
-    "Apply PadPatch on a connected pad (grant pad.patch). Agents may upsert shapes, edges, and pin posts. Agent ink or image upserts are refused. Mentions must be inbound actor node ids.",
-  schema: PadPatchArgs,
-  accepts_batch: true,
-  input_modes: inputModes,
-};
-
-export const padDigestSchema: CommandSchemaContract = {
-  command_id: "pad.digest",
-  command: "pad digest",
-  schema_id: "pad.digest.input/v1",
-  description:
-    "Text IR of a connected pad (grant pad.read). Working copy for a wired seat — not the canvas.",
-  schema: PadTargetArgs,
-  input_modes: inputModes,
-};
-
-export const padSvgSchema: CommandSchemaContract = {
-  command_id: "pad.svg",
-  command: "pad svg",
-  schema_id: "pad.svg.input/v1",
-  description:
-    "SVG picture of a connected pad (grant pad.read). Agents read the page; they never write the canvas.",
-  schema: PadTargetArgs,
-  input_modes: inputModes,
-};
-
-export const padLookHereSchema: CommandSchemaContract = {
-  command_id: "pad.look-here",
-  command: "pad look-here",
-  schema_id: "pad.look-here.input/v1",
-  description:
-    "Crop around a pin on a connected pad (grant pad.read). pinId required. Mentions are inbound wired actors — @ cannot name an unwired agent.",
-  schema: PadLookHereArgs,
-  input_modes: inputModes,
-};
-
-export const padGetSchema: CommandSchemaContract = {
-  command_id: "pad.get",
-  command: "pad get",
-  schema_id: "pad.get.input/v1",
-  description:
-    "Compact focused items from a connected pad (grant pad.read). Optional id returns that item. Agents never write the canvas.",
-  schema: PadGetArgs,
-  input_modes: inputModes,
-};
-
-export const padTaggedSchema: CommandSchemaContract = {
-  command_id: "pad.tagged",
-  command: "pad tagged",
-  schema_id: "pad.tagged.input/v1",
-  description:
-    "Pins that mention this process-bound seat (grant pad.read). Mention universe is inbound actor edges; unwired names are refused on pad.patch.",
-  schema: PadTargetArgs,
-  input_modes: inputModes,
-};
-
 const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   onboardSchema,
   offboardSchema,
@@ -584,14 +495,6 @@ const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   boardListSchema,
   boardPostSchema,
   boardTagsSchema,
-  padReadSchema,
-  padPatchSchema,
-  sheetReadSchema,
-  padDigestSchema,
-  padSvgSchema,
-  padLookHereSchema,
-  padGetSchema,
-  padTaggedSchema,
   envReportSchema,
   logsReadSchema,
   ...referencesSchemas,
@@ -1239,126 +1142,6 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
       '{"target":"n7","task":"t1","name":"record.bin","ref":{"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","byteLength":12,"mediaType":"application/octet-stream"}}',
     ],
   },
-  {
-    command_id: "sheet.read",
-    command: "sheet read",
-    name: "read sheet",
-    description: "Read the columns, rows, and markdown table of a wired sheet.",
-    input: { target: "sheet-1" },
-    args: ["sheet", "read", '{"target":"sheet-1"}'],
-  },
-  {
-    command_id: "pad.read",
-    command: "pad read",
-    name: "read pad",
-    description: "Read revision, IR, digest, and SVG on a wired pad.",
-    input: { target: "pad-1" },
-    args: ["pad", "read", '{"target":"pad-1"}'],
-  },
-  {
-    command_id: "pad.read",
-    command: "pad read",
-    name: "read with look-here",
-    description: "Read the pad and crop around pin-1.",
-    input: { target: "pad-1", pinId: "pin-1" },
-    args: ["pad", "read", '{"target":"pad-1","pinId":"pin-1"}'],
-  },
-  {
-    command_id: "pad.patch",
-    command: "pad patch",
-    name: "upsert box",
-    description:
-      "Upsert a named box. Agent ink/image upserts are refused; mentions must be inbound actors.",
-    input: {
-      target: "pad-1",
-      patches: [
-        {
-          op: "upsert",
-          layer: "shape",
-          shape: {
-            id: "box-1",
-            type: "box",
-            x: 0,
-            y: 0,
-            w: 80,
-            h: 40,
-            z: 0,
-            text: "inbox",
-          },
-        },
-      ],
-    },
-    args: [
-      "pad",
-      "patch",
-      '{"target":"pad-1","patches":[{"op":"upsert","layer":"shape","shape":{"id":"box-1","type":"box","x":0,"y":0,"w":80,"h":40,"z":0,"text":"inbox"}}]}',
-    ],
-  },
-  {
-    command_id: "pad.patch",
-    command: "pad patch",
-    name: "pin mention",
-    description:
-      "Place a pin that mentions a wired inbound actor. Unwired names are refused.",
-    input: {
-      target: "pad-1",
-      patches: [
-        {
-          op: "pin.upsert",
-          pin: { id: "pin-1", x: 16, y: 16, mentions: ["agent-1"] },
-        },
-      ],
-    },
-    args: [
-      "pad",
-      "patch",
-      '{"target":"pad-1","patches":[{"op":"pin.upsert","pin":{"id":"pin-1","x":16,"y":16,"mentions":["agent-1"]}}]}',
-    ],
-  },
-  {
-    command_id: "pad.digest",
-    command: "pad digest",
-    name: "text IR",
-    input: { target: "pad-1" },
-    args: ["pad", "digest", '{"target":"pad-1"}'],
-  },
-  {
-    command_id: "pad.svg",
-    command: "pad svg",
-    name: "picture",
-    input: { target: "pad-1" },
-    args: ["pad", "svg", '{"target":"pad-1"}'],
-  },
-  {
-    command_id: "pad.look-here",
-    command: "pad look-here",
-    name: "crop pin",
-    description: "Crop the page around pin-1.",
-    input: { target: "pad-1", pinId: "pin-1" },
-    args: ["pad", "look-here", '{"target":"pad-1","pinId":"pin-1"}'],
-  },
-  {
-    command_id: "pad.get",
-    command: "pad get",
-    name: "focused items",
-    input: { target: "pad-1" },
-    args: ["pad", "get", '{"target":"pad-1"}'],
-  },
-  {
-    command_id: "pad.get",
-    command: "pad get",
-    name: "one item",
-    input: { target: "pad-1", id: "box-1" },
-    args: ["pad", "get", '{"target":"pad-1","id":"box-1"}'],
-  },
-  {
-    command_id: "pad.tagged",
-    command: "pad tagged",
-    name: "pins mentioning this seat",
-    description: "List pins that mention the process-bound seat.",
-    input: { target: "pad-1" },
-    args: ["pad", "tagged", '{"target":"pad-1"}'],
-  },
   // Inline on purpose: a module const would keep the browser rows in the machine bundle.
   ...((typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__) ? [] : BROWSER_ENABLED ? browserExamples : []),
   ...envReportExamples,
@@ -1717,80 +1500,6 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
       "Materialize an authorized task ContentRef into the task workspace.",
     schemas: [contentMaterializeSchema],
     examples: allExamples.filter((e) => e.command_id === "content.materialize"),
-  },
-  {
-    command_id: "pad.read",
-    command: "pad read",
-    category: "workflow",
-    description:
-      "Read a connected pad (grant pad.read): revision, IR, digest, SVG.",
-    schemas: [padReadSchema],
-    examples: allExamples.filter((e) => e.command_id === "pad.read"),
-  },
-  {
-    command_id: "sheet.read",
-    command: "sheet read",
-    category: "workflow",
-    description:
-      "Read a connected sheet (grant sheet.read): columns, rows, markdown table.",
-    schemas: [sheetReadSchema],
-    examples: allExamples.filter((e) => e.command_id === "sheet.read"),
-  },
-  {
-    command_id: "pad.patch",
-    command: "pad patch",
-    category: "workflow",
-    description:
-      "Apply PadPatch (grant pad.patch). Agent ink/image refused; mentions must be inbound actors.",
-    schemas: [padPatchSchema],
-    examples: allExamples.filter((e) => e.command_id === "pad.patch"),
-    batch: {
-      accepts_batch: true,
-      default_concurrency: DEFAULT_BATCH_CONCURRENCY,
-      supports_concurrency_option: true,
-    },
-  },
-  {
-    command_id: "pad.digest",
-    command: "pad digest",
-    category: "workflow",
-    description: "Text IR of a connected pad (grant pad.read).",
-    schemas: [padDigestSchema],
-    examples: allExamples.filter((e) => e.command_id === "pad.digest"),
-  },
-  {
-    command_id: "pad.svg",
-    command: "pad svg",
-    category: "workflow",
-    description: "SVG picture of a connected pad (grant pad.read).",
-    schemas: [padSvgSchema],
-    examples: allExamples.filter((e) => e.command_id === "pad.svg"),
-  },
-  {
-    command_id: "pad.look-here",
-    command: "pad look-here",
-    category: "workflow",
-    description:
-      "Crop around a pin (grant pad.read). Mentions are inbound wired actors.",
-    schemas: [padLookHereSchema],
-    examples: allExamples.filter((e) => e.command_id === "pad.look-here"),
-  },
-  {
-    command_id: "pad.get",
-    command: "pad get",
-    category: "workflow",
-    description: "Focused items from a connected pad (grant pad.read).",
-    schemas: [padGetSchema],
-    examples: allExamples.filter((e) => e.command_id === "pad.get"),
-  },
-  {
-    command_id: "pad.tagged",
-    command: "pad tagged",
-    category: "workflow",
-    description:
-      "Pins mentioning this process-bound seat (grant pad.read).",
-    schemas: [padTaggedSchema],
-    examples: allExamples.filter((e) => e.command_id === "pad.tagged"),
   },
   // Inline on purpose: a module const would keep the browser rows in the machine bundle.
   ...((typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__) ? [] : BROWSER_ENABLED ? browserCapabilities : []),

@@ -35,13 +35,11 @@ export const MAIN_AUTHORING_LABELS = [
   "control.work.board-create-topic",
   "control.work.board-post",
   "control.work.board-mark-read",
-  "control.work.pad-patch",
   "control.work.relay-trigger",
   "ipc.work.board-topic-create",
   "ipc.work.board-post",
   "ipc.work.board-mark-read",
   "ipc.work.board-notify",
-  "ipc.work.pad-patch",
   "ipc.work.collaboration-ask",
   "ipc.work.thread-send",
   "companion.signal-answer",
@@ -131,9 +129,6 @@ const WORK_OPERATION_CLASSIFICATION = {
   "board.create_topic": "authorial",
   "board.post": "authorial",
   "board.mark_read": "authorial",
-  "pad.read": "read",
-  "pad.patch": "authorial",
-  "sheet.read": "read",
   "relay.trigger": "authorial",
   "automation.list": "read",
   "automation.show": "read",
@@ -172,7 +167,6 @@ const WORK_AUTHORING_LABELS = {
   "board.create_topic": "control.work.board-create-topic",
   "board.post": "control.work.board-post",
   "board.mark_read": "control.work.board-mark-read",
-  "pad.patch": "control.work.pad-patch",
   "relay.trigger": "control.work.relay-trigger",
 } as const satisfies Record<
   Extract<
@@ -195,7 +189,6 @@ const WORK_AUTHORING_LABELS = {
     | "board.create_topic"
     | "board.post"
     | "board.mark_read"
-    | "pad.patch"
     | "relay.trigger"
   >,
   MainAuthoringLabel

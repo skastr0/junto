@@ -1,4 +1,4 @@
-import { ARTIFACTS_ENABLED, BOARD_ENABLED, BROWSER_ENABLED, PAD_ENABLED, REQUESTS_ENABLED, SHEET_ENABLED, TASKS_ENABLED } from "../../shared/features";
+import { ARTIFACTS_ENABLED, BOARD_ENABLED, BROWSER_ENABLED, REQUESTS_ENABLED, TASKS_ENABLED } from "../../shared/features";
 
 export interface CapabilityInvocation {
   readonly port: string;
@@ -20,8 +20,6 @@ export const commandSurfaceEnabled = (commandId: string): boolean => {
   // Region rulings are part of the region contract, which rides the Tasks gate.
   if (commandId === "rulings") return TASKS_ENABLED;
   if (commandId.startsWith("board.")) return BOARD_ENABLED;
-  if (commandId.startsWith("pad.")) return PAD_ENABLED;
-  if (commandId === "sheet.read") return SHEET_ENABLED;
   if (commandId.startsWith("request.")) return REQUESTS_ENABLED;
   if (commandId.startsWith("artifact.")) return ARTIFACTS_ENABLED;
   if (commandId.startsWith("browser.")) return BROWSER_ENABLED;
@@ -32,51 +30,6 @@ const BROWSER_INVOCATION: CapabilityInvocation = {
   port: "browser.automate",
   command: "junto browser",
   discover: "junto browser pages",
-};
-
-const PAD_READ_INVOCATIONS: ReadonlyArray<CapabilityInvocation> = [
-  {
-    port: "pad.read",
-    command: "junto pad read",
-    discover: "junto schema show pad.read",
-  },
-  {
-    port: "pad.read",
-    command: "junto pad digest",
-    discover: "junto schema show pad.digest",
-  },
-  {
-    port: "pad.read",
-    command: "junto pad svg",
-    discover: "junto schema show pad.svg",
-  },
-  {
-    port: "pad.read",
-    command: "junto pad look-here",
-    discover: "junto schema show pad.look-here",
-  },
-  {
-    port: "pad.read",
-    command: "junto pad get",
-    discover: "junto schema show pad.get",
-  },
-  {
-    port: "pad.read",
-    command: "junto pad tagged",
-    discover: "junto schema show pad.tagged",
-  },
-];
-
-const SHEET_READ_INVOCATION: CapabilityInvocation = {
-  port: "sheet.read",
-  command: "junto sheet read",
-  discover: "junto schema show sheet.read",
-};
-
-const PAD_PATCH_INVOCATION: CapabilityInvocation = {
-  port: "pad.patch",
-  command: "junto pad patch",
-  discover: "junto schema show pad.patch",
 };
 
 const CREW_INVOCATIONS: ReadonlyArray<CapabilityInvocation> = [
@@ -115,15 +68,6 @@ const invocationsForConnected = (value: unknown): unknown => {
     const machineBuild = typeof __JUNTO_MACHINE_BUILD__ === "boolean" && __JUNTO_MACHINE_BUILD__;
     if (!machineBuild && BROWSER_ENABLED && entry.grants.includes("browser.automate")) {
       invocations.push(BROWSER_INVOCATION);
-    }
-    if (PAD_ENABLED && entry.grants.includes("pad.read")) {
-      invocations.push(...PAD_READ_INVOCATIONS);
-    }
-    if (PAD_ENABLED && entry.grants.includes("pad.patch")) {
-      invocations.push(PAD_PATCH_INVOCATION);
-    }
-    if (SHEET_ENABLED && entry.grants.includes("sheet.read")) {
-      invocations.push(SHEET_READ_INVOCATION);
     }
     invocations.push(
       ...CREW_INVOCATIONS.filter((invocation) => grants.includes(invocation.port)),

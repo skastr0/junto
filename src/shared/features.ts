@@ -21,8 +21,6 @@ declare const __JUNTO_CRON_ENABLED__: boolean | undefined;
 declare const __JUNTO_RELAY_ENABLED__: boolean | undefined;
 declare const __JUNTO_BROWSER_ENABLED__: boolean | undefined;
 declare const __JUNTO_BOARD_ENABLED__: boolean | undefined;
-declare const __JUNTO_PAD_ENABLED__: boolean | undefined;
-declare const __JUNTO_SHEET_ENABLED__: boolean | undefined;
 declare const __JUNTO_REQUESTS_ENABLED__: boolean | undefined;
 declare const __JUNTO_ARTIFACTS_ENABLED__: boolean | undefined;
 declare const __JUNTO_TASKS_ENABLED__: boolean | undefined;
@@ -84,18 +82,6 @@ export const BOARD_ENABLED: boolean =
   typeof __JUNTO_BOARD_ENABLED__ === "boolean"
     ? __JUNTO_BOARD_ENABLED__
     : envEnabled("JUNTO_BOARD");
-
-/** Pad sink — node authoring, wires, and the pad CLI. */
-export const PAD_ENABLED: boolean =
-  typeof __JUNTO_PAD_ENABLED__ === "boolean"
-    ? __JUNTO_PAD_ENABLED__
-    : envEnabled("JUNTO_PAD");
-
-/** Sheet sink — node authoring, wire, and the sheet CLI. */
-export const SHEET_ENABLED: boolean =
-  typeof __JUNTO_SHEET_ENABLED__ === "boolean"
-    ? __JUNTO_SHEET_ENABLED__
-    : envEnabled("JUNTO_SHEET");
 
 /**
  * Requests sink — node authoring, wires, and the escalate CLI. Input-required
@@ -279,8 +265,6 @@ export const BUILD_FEATURES = {
   relay: RELAY_ENABLED,
   browser: BROWSER_ENABLED,
   board: BOARD_ENABLED,
-  pad: PAD_ENABLED,
-  sheet: SHEET_ENABLED,
   requests: REQUESTS_ENABLED,
   artifacts: ARTIFACTS_ENABLED,
   tasks: TASKS_ENABLED,
@@ -342,8 +326,6 @@ export const productNodeKindEnabled = (kind: string | undefined): boolean => {
   if (kind === "relay" || kind === "watcher" || kind === "gauge") return RELAY_ENABLED;
   if (kind === "page") return BROWSER_ENABLED;
   if (kind === "board") return BOARD_ENABLED;
-  if (kind === "pad") return PAD_ENABLED;
-  if (kind === "sheet") return SHEET_ENABLED;
   if (kind === "requests") return REQUESTS_ENABLED;
   if (kind === "artifacts") return ARTIFACTS_ENABLED;
   return true;
@@ -369,8 +351,6 @@ export const productPortEnabled = (port: string): boolean => {
   if (port.startsWith("tasks.")) return TASKS_ENABLED;
   if (port.startsWith("content.")) return TASKS_ENABLED;
   if (port.startsWith("board.")) return BOARD_ENABLED;
-  if (port.startsWith("pad.")) return PAD_ENABLED;
-  if (port === "sheet.read") return SHEET_ENABLED;
   if (port.startsWith("request.")) return REQUESTS_ENABLED;
   if (port.startsWith("artifact.")) return ARTIFACTS_ENABLED;
   if (port.startsWith("browser.")) return BROWSER_ENABLED;
@@ -389,8 +369,6 @@ export const overseerOperationEnabled = (operation: string): boolean => {
   if (family === "request") return REQUESTS_ENABLED;
   if (family === "artifact") return ARTIFACTS_ENABLED;
   if (family === "board") return BOARD_ENABLED;
-  if (family === "pad") return PAD_ENABLED;
-  if (family === "sheet") return SHEET_ENABLED;
   if (family === "page") return BROWSER_ENABLED;
   return true;
 };

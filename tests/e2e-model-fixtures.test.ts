@@ -10,7 +10,7 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../src/main/junto/seat-sessions/repository";
 import { Command, Wire } from "../src/shared/model";
 
-it("seeds native kinds and sink names into the durable model, keeping grids separate", async () => {
+it("seeds native kinds and sink names into the durable model", async () => {
   const sandbox = await createSandbox();
   try {
     const rows = [modelRegion({ id: "region", label: "Lab", instruction: "Keep receipts" }),
@@ -19,12 +19,10 @@ it("seeds native kinds and sink names into the durable model, keeping grids sepa
       modelTerminal({ id: "shell", bindingId: "shell", label: "Shell" })];
     await writeFixtureModel(sandbox, "native", modelFixture(rows, [modelMessagesWire("mail", "seat-a", "seat-b", rows, ["msg.list"])], [modelSeatSession(rows[1] as never, "named-session")]));
     const frame = { x: 0, y: 0, width: 240, height: 100, z: 0 };
-    const grid = { columns: [{ id: "c", name: "Value" }], rows: [{ id: "r", cells: { c: "123" } }] };
-    await writeFixtureModel(sandbox, "sinks", { ...modelFixture([
+    await writeFixtureModel(sandbox, "sinks", modelFixture([
       modelNode({ ...frame, id: "task", kind: "task", name: "Board", contract: { rules: [] } }),
       modelNode({ ...frame, id: "requests", kind: "requests", name: "Inbox" }),
-      modelNode({ ...frame, id: "sheet", kind: "sheet", label: "Grid" }),
-    ]), sheets: { sheet: grid } });
+    ]));
     const runtime = ManagedRuntime.make(Layer.provideMerge(Layer.provide(ModelService.layer, ModelDependents.empty), Layer.provideMerge(makeSeatSessionRepositoryLive(), makeStateEngineLive(join(sandbox.homeDir, ".junto", "state", "junto.db")))));
     try {
       await runtime.runPromise(Effect.gen(function* () {
@@ -39,8 +37,6 @@ it("seeds native kinds and sink names into the durable model, keeping grids sepa
         const sinks = yield* model.open("sinks");
         expect(sinks.nodes.find((node) => node.id === "task")).toMatchObject({ kind: "task", name: "Board", contract: { rules: [] } });
         expect(sinks.nodes.find((node) => node.id === "requests")).toMatchObject({ kind: "requests", name: "Inbox" });
-        expect(sinks.nodes.find((node) => node.id === "sheet")).not.toHaveProperty("rows");
-        expect(yield* model.readSheet("sinks", "sheet")).toEqual(grid);
       }));
     } finally { await runtime.dispose(); }
   } finally { await destroySandbox(sandbox); }

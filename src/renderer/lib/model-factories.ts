@@ -2,9 +2,7 @@ import { ulid } from "ulid";
 import {
   ARTIFACTS_ENABLED,
   BOARD_ENABLED,
-  PAD_ENABLED,
   REQUESTS_ENABLED,
-  SHEET_ENABLED,
   TASKS_ENABLED,
 } from "@shared/features";
 import { asNodeId, type NodeOf } from "@shared/model";
@@ -140,17 +138,6 @@ export const newArtifacts = (spot: Spot): NodeOf<"artifacts"> => {
 export const newBoard = (spot: Spot): NodeOf<"board"> => {
   requireFeature(BOARD_ENABLED, "board sink");
   return { kind: "board", ...placed("board", spot, SINK_SIZE) };
-};
-
-export const newPad = (spot: Spot): NodeOf<"pad"> => {
-  requireFeature(PAD_ENABLED, "pad sink");
-  return { kind: "pad", ...placed("pad", spot, SINK_SIZE) };
-};
-
-/** A sheet. Its grid is content of its own and starts empty when first read. */
-export const newSheet = (spot: Spot): NodeOf<"sheet"> => {
-  requireFeature(SHEET_ENABLED, "sheet sink");
-  return { kind: "sheet", ...placed("sheet", spot, { width: 260, height: 120 }) };
 };
 
 // ── Things that fire on their own ───────────────────────────────────────────

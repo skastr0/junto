@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  resolveBoardConnectedActors,
-  resolvePadInboundActors,
-} from "../src/shared/board-actors";
+import { resolveBoardConnectedActors } from "../src/shared/board-actors";
 import { edgeNotifyOn, resolveBoardWakeSet } from "../src/shared/board-wake";
 import { flowDestinations, flowSources, reachableBoards, validateFlowDag } from "../src/shared/flow-graph";
 import { asCanvasName, asNodeId, asWireId, type Node, type Wire } from "../src/shared/model";
@@ -16,7 +13,7 @@ const seat = (id: string): Node =>
     overseer: false, bindingId: `bind-${id}`, harness: "claude",
   }) as Node;
 
-const thing = (kind: "board" | "pad" | "task", id: string): Node =>
+const thing = (kind: "board" | "task", id: string): Node =>
   ({ kind, id: asNodeId(id), ...at }) as Node;
 
 const wire = (verb: Wire["verb"], from: string, to: string, mask?: Wire["mask"]): Wire => ({
@@ -36,11 +33,10 @@ const canvas = (nodes: ReadonlyArray<Node>, wires: ReadonlyArray<Wire>): Canvas 
 
 describe("board wake set", () => {
   const room = canvas(
-    [seat("ana"), seat("bo"), seat("cy"), thing("board", "hall"), thing("pad", "sketch")],
+    [seat("ana"), seat("bo"), thing("board", "hall")],
     [
       wire("participates", "ana", "hall"),
       wire("messages", "bo", "hall"),
-      wire("edits", "cy", "sketch"),
     ],
   );
 
@@ -62,12 +58,6 @@ describe("board wake set", () => {
       { nodeId: "ana", agentKey: "local:ana", label: "ana", wake: true },
       { nodeId: "bo", agentKey: "local:bo", label: "bo", wake: false },
     ]);
-  });
-
-  it("names only seats with a wire into the pad", () => {
-    expect(resolvePadInboundActors(room, "sketch").map((actor) => actor.nodeId)).toEqual(["cy"]);
-    expect(resolvePadInboundActors(room, "hall").map((actor) => actor.nodeId)).toEqual(["ana", "bo"]);
-    expect(resolvePadInboundActors(room, "gone")).toEqual([]);
   });
 });
 

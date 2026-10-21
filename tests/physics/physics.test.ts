@@ -190,7 +190,7 @@ describe("physics admitPure", () => {
   });
 
   it("a verb the pair cannot hold grants nothing", () => {
-    const doc = canvasOf([agent("agent"), pageAt("p1")], [wire("e1", "agent", "p1", "edits")]);
+    const doc = canvasOf([agent("agent"), pageAt("p1")], [wire("e1", "agent", "p1", "reviews")]);
     const view = canvasToCapabilityView(doc, VIEW);
     const denied = admitPure(
       view,

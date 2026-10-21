@@ -9,10 +9,8 @@ import {
   Globe2,
   Inbox,
   PanelTop,
-  PenLine,
   SquareDashed,
   SquareTerminal,
-  Table,
   Type,
   Workflow,
   type LucideIcon,
@@ -22,10 +20,8 @@ import {
   BOARD_ENABLED,
   BROWSER_ENABLED,
   CRON_ENABLED,
-  PAD_ENABLED,
   RELAY_ENABLED,
   REQUESTS_ENABLED,
-  SHEET_ENABLED,
   TASKS_ENABLED,
 } from "@shared/features";
 import { fuzzyMatch } from "../../lib/fuzzy-match";
@@ -82,16 +78,6 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     id: "board", category: "sinks", label: "Board",
     icon: Braces,
     purpose: "A shared board for topics, updates, and decisions.",
-  } satisfies NodeCatalogEntry] : []),
-  ...(PAD_ENABLED ? [{
-    id: "pad", category: "sinks", label: "Pad",
-    icon: PenLine,
-    purpose: "A shared page. You mark; connected agents read the same page and patch boxes and pins.",
-  } satisfies NodeCatalogEntry] : []),
-  ...(SHEET_ENABLED ? [{
-    id: "sheet", category: "sinks", label: "Sheet",
-    icon: Table,
-    purpose: "Jot numbers and names in rows and columns beside the work. Connected agents can read it.",
   } satisfies NodeCatalogEntry] : []),
   {
     id: "git", category: "sinks", label: "Git",

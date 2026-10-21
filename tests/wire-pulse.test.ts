@@ -94,7 +94,7 @@ describe("event to edge", () => {
   });
 
   it("prefers the messages wire over other verbs joining the same seats", () => {
-    const edges = [edge("e0", "a", "b", "reads"), edge("e1", "b", "a", "reviews"), edge("e2", "a", "b", "messages")];
+    const edges = [edge("e0", "a", "b", "reviews"), edge("e1", "b", "a", "reviews"), edge("e2", "a", "b", "messages")];
     expect(pickPulseEdge(edges, { fromNodeId: "a", toNodeId: "b" })?.edgeId).toBe("e2");
   });
 

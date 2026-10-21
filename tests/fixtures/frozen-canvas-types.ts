@@ -14,10 +14,16 @@ import {
 } from "../../src/shared/physics/verbs";
 import {
   Artifact, BoardGlanceTopic, Task, TasksContract,
-  PadGlance,
   Rule,
   Ruling,
 } from "../../src/shared/work-model";
+
+/** The pad glance as these fixtures froze it; the pad node kind is gone. */
+const PadGlance = Schema.Struct({
+  revision: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  shapeCount: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  unreadPinCount: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+});
 
 export {
   Artifact,
@@ -48,7 +54,6 @@ export {
   decodeContentPart,
   CompletionEvidence,
   DataPart,
-  PadGlance,
   FinishCriteria,
   Message,
   MessageRole,

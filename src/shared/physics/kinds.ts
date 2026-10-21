@@ -3,8 +3,6 @@ import {
   ARTIFACTS_ENABLED,
   BOARD_ENABLED,
   BROWSER_ENABLED,
-  PAD_ENABLED,
-  SHEET_ENABLED,
   TASKS_ENABLED,
 } from "../features";
 import {
@@ -81,11 +79,6 @@ const boardOffers = BOARD_ENABLED
     "board.mark_read",
   )
   : emptyOffers;
-const padOffers = PAD_ENABLED
-  ? portSet("pad.read", "pad.patch")
-  : emptyOffers;
-/** Read-only by construction: the operator authors a sheet, agents consult it. */
-const sheetOffers = SHEET_ENABLED ? portSet("sheet.read") : emptyOffers;
 
 /**
  * The role a kind carries, decided by which literal group it was written into
@@ -119,8 +112,6 @@ export const KindSpecs = {
   requests: { kind: "requests", role: "sink", offers: requestsOffers },
   artifacts: { kind: "artifacts", role: "sink", offers: artifactsOffers },
   board: { kind: "board", role: "sink", offers: boardOffers },
-  pad: { kind: "pad", role: "sink", offers: padOffers },
-  sheet: { kind: "sheet", role: "sink", offers: sheetOffers },
   // Terminal sink: tmux-like resource. Ports TBD in v1 — access family only.
   terminal: { kind: "terminal", role: "sink", offers: emptyOffers },
   watcher: { kind: "watcher", role: "scheduler", offers: emptyOffers },

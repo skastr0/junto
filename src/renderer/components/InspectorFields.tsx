@@ -139,11 +139,11 @@ export function NodeFieldEditors({ nodeId }: { readonly nodeId: string }) {
     setGitCwdDraft(gitCwdValue);
   }, [gitCwdValue, nodeId, textValue]);
 
-  const commitText = () => { if (node && ["note", "label", "agent", "terminal", "pad", "sheet"].includes(node.kind) && textDraft !== textValue) editText(nodeId, textDraft); };
+  const commitText = () => { if (node && ["note", "label", "agent", "terminal"].includes(node.kind) && textDraft !== textValue) editText(nodeId, textDraft); };
 
   return <>
     {/* Work sinks / schedulers rename via kind-strip pencil — no fat label field. */}
-    {node && ["note", "label", "agent", "terminal", "pad", "sheet"].includes(node.kind) ? (
+    {node && ["note", "label", "agent", "terminal"].includes(node.kind) ? (
       <label className="inspector-editor">
         <span>{node?.kind !== "note" ? "label" : "note text"}</span>
         <textarea

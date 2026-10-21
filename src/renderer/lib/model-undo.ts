@@ -1,4 +1,4 @@
-import type { CanvasCommand, Command, Node, NodeEdit, SheetGrid, Wire } from "@shared/model";
+import type { CanvasCommand, Command, Node, NodeEdit, Wire } from "@shared/model";
 import { wiresAt, type Canvas } from "@shared/model/canvas";
 
 // Undo, as commands. Nothing here holds a copy of a canvas: a step back is the
@@ -12,8 +12,6 @@ import { wiresAt, type Canvas } from "@shared/model/canvas";
 
 /** What undo needs that a canvas does not hold. */
 export type UndoContext = {
-  /** A sheet's grid as it stands now, for reversing a write to it. */
-  readonly sheetOf?: (id: string) => SheetGrid | undefined;
   /**
    * Mint a session binding. A reseat ends the seat's session for good, so the
    * way back is the old agent in a new session, and that needs a new binding.
@@ -121,12 +119,6 @@ export const inverseOf = (canvas: Canvas, command: Command, context: UndoContext
         id: command.id,
         change: oldValues(wire, command.change, "") as Extract<Command, { readonly _tag: "Rewire" }>["change"],
       });
-    }
-    case "WriteSheet": {
-      const grid = context.sheetOf?.(command.id);
-      return grid === undefined
-        ? irreversible("missing")
-        : reversed({ _tag: "WriteSheet", canvas: command.canvas, id: command.id, grid });
     }
     // A restack only says front or back; the way back is each node moved to
     // the place in the stack it had, where it sits.

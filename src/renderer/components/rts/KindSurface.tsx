@@ -522,8 +522,6 @@ export function KindSurface() {
       "requests",
       "artifacts",
       "board",
-      "pad",
-      "sheet",
       ...(RELAY_ENABLED ? (["watcher", "relay"] as const) : []),
       ...(CRON_ENABLED ? (["cron"] as const) : []),
       ...(BROWSER_ENABLED ? (["page"] as const) : []),

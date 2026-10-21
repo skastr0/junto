@@ -90,8 +90,6 @@ const CANVAS_OPS = new Set<OverseerOperation>([
   "wire.connect",
   "wire.configure",
   "wire.disconnect",
-  "sheet.read",
-  "sheet.configure",
   "env.show",
   "env.source-add",
   "env.source-edit",
@@ -744,56 +742,6 @@ const handleEnvEdit = (
   });
 };
 
-// ── Sheets ──────────────────────────────────────────────────────────────────
-
-const sheetIn = (
-  canvas: Canvas,
-  target: string,
-): Effect.Effect<Node, WorkErrorBody> =>
-  Effect.flatMap(nodeIn(canvas, target), (node) =>
-    node.kind === "sheet"
-      ? Effect.succeed(node)
-      : Effect.fail(fail("InputError", `node "${target}" is not a sheet`)),
-  );
-
-const handleSheetRead = (
-  caller: OverseerCaller,
-  args: OverseerArgsFor<"sheet.read">,
-): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  Effect.gen(function* () {
-    const canvas = yield* modelCanvas(targetCanvas(caller, args.canvas));
-    yield* sheetIn(canvas, args.target);
-    // A sheet's grid is content of its own; the canvas only says it is there.
-    const model = yield* ModelService;
-    const sheet = yield* model
-      .readSheet(canvas.name, args.target)
-      .pipe(Effect.mapError(fromModelError));
-    return { sheet: sheet ?? { columns: [], rows: [] } };
-  });
-
-const handleSheetConfigure = (
-  caller: OverseerCaller,
-  args: OverseerArgsFor<"sheet.configure">,
-): Effect.Effect<unknown, WorkErrorBody, OverseerStores> => {
-  const name = targetCanvas(caller, args.canvas);
-  return editCanvases((canvases) => {
-    const revoked = requireGrant(canvases, caller);
-    if (revoked) return { ok: false, error: revoked };
-    const node = canvases.get(name)?.nodes.get(asNodeId(args.target));
-    if (node === undefined) {
-      return { ok: false, error: fail("UnknownTarget", `node "${args.target}" was not found`) };
-    }
-    if (node.kind !== "sheet") {
-      return { ok: false, error: fail("InputError", `node "${args.target}" is not a sheet`) };
-    }
-    return {
-      ok: true,
-      commands: [{ _tag: "WriteSheet", canvas: asCanvasName(name), id: node.id, grid: args.sheet }],
-      result: { node, sheet: args.sheet },
-    };
-  });
-};
-
 // ── Dispatch ────────────────────────────────────────────────────────────────
 
 const dispatch = (
@@ -870,10 +818,6 @@ const dispatch = (
     case "env.seal":
     case "env.folders":
       return handleEnvEdit(caller, { operation, args: input } as OverseerEnvEdit);
-    case "sheet.read":
-      return handleSheetRead(caller, input as OverseerArgsFor<"sheet.read">);
-    case "sheet.configure":
-      return handleSheetConfigure(caller, input as OverseerArgsFor<"sheet.configure">);
     default:
       return Effect.fail(
         fail("ProtocolError", `canvas dispatcher does not own ${operation}`),

@@ -95,16 +95,12 @@ it("a mounted cron follows its native schedule and connected actions", async () 
   expect(document.querySelector('[aria-label="Time of day"]')).toBeNull();
 });
 
-it("the mounted pad mention picker follows inbound native seats and wires", async () => {
-  publish({ ...rect, kind: "pad", label: "Sketch" });
-  const seat = { ...rect, id: "worker", kind: "agent", label: "Scout", agentKey: `${THIS_MACHINE}:scout`,
-    harness: "codex", host: THIS_MACHINE, bindingId: "binding", overseer: false };
-  publish(seat);
-  publishWire({ id: "edits", from: "worker", to: "subject", verb: "edits" });
+it("the mounted pad mention picker offers the actors its host passes", async () => {
   const pin = Schema.decodeUnknownSync(PadPin)({ id: "pin", x: 0, y: 0, z: 0, mentions: [], posts: [], unread: false });
   const pad = { ...emptyPad(), pins: [pin] };
-  await act(async () => root.render(<PadEditor pad={pad} padNodeId="subject" onCommit={async () => ({ ok: true, pad })}
-    onReadPad={async () => pad} onClose={() => {}} />));
+  const render = (label: string) => root.render(<PadEditor pad={pad} mentionActors={[{ nodeId: "worker", label, wake: false }]}
+    onCommit={async () => ({ ok: true, pad })} onReadPad={async () => pad} onClose={() => {}} />);
+  await act(async () => render("Scout"));
   const svg = host.querySelector<SVGSVGElement>('[data-testid="pad-svg"]')!;
   svg.setPointerCapture = () => {};
   await act(async () => svg.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 0, clientY: 0 })));
@@ -116,10 +112,8 @@ it("the mounted pad mention picker follows inbound native seats and wires", asyn
     reply.dispatchEvent(new Event("input", { bubbles: true }));
   });
   expect(host.textContent).toContain("Scout");
-  await act(async () => publish({ ...seat, label: "Renamed Scout" }));
+  await act(async () => render("Renamed Scout"));
   expect(host.textContent).toContain("Renamed Scout");
-  await act(async () => modelStore.wire$(canvas, "edits").delete());
-  expect(host.textContent).not.toContain("Renamed Scout");
 });
 
 

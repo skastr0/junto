@@ -33,8 +33,6 @@ export const KIND_TO_SLOT: Readonly<Record<string, CommandFamily | undefined>> =
   tasks: "tasks",
   artifacts: "artifacts",
   board: "board",
-  pad: "pad",
-  sheet: "sheet",
   agent: "msg",
   page: "browser",
 };

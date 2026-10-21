@@ -59,10 +59,6 @@ import {
   TasksCard,
   TasksDetail,
 } from "../work/WorkSurfaces";
-import { PadCard } from "../pad/PadCard";
-import { SheetCard } from "../sheet/SheetCard";
-import { SheetDetail } from "../sheet/SheetDetail";
-import { PadDetail } from "../pad/PadDetail";
 import { GitCard } from "../git/GitCard";
 import { INSTRUMENT_KINDS } from "../../lib/node-geometry";
 import { GitDetail } from "../git/GitDetail";
@@ -288,8 +284,6 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
   const isWorkSurface =
     entityKind === "task" ||
     entityKind === "artifacts" ||
-    entityKind === "pad" ||
-    entityKind === "sheet" ||
     entityKind === "git";
   // A feature-gated sink keeps its historical card and rename behavior but
   // cannot open a work detail surface in a build whose gate is off.
@@ -466,16 +460,6 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
           }}
         />
       ) : null}
-      {workDetail && workDetailAllowed && entityKind === "pad" ? (
-        <WithNode canvas={canvasName} id={id} kind="pad">
-          {(node) => (
-            <PadDetail node={node} onClose={() => setWorkDetail(false)} />
-          )}
-        </WithNode>
-      ) : null}
-      {workDetail && workDetailAllowed && entityKind === "sheet" ? (
-        <SheetDetail nodeId={id} onClose={() => setWorkDetail(false)} />
-      ) : null}
       {workDetail && entityKind === "git" ? (
         <WithNode canvas={canvasName} id={id} kind="git">
           {(node) => (
@@ -634,10 +618,6 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
             <TasksCard nodeId={id} renaming={renaming} onRenameDone={() => setRenaming(false)} />
           ) : entityKind === "artifacts" ? (
             <ArtifactsCard nodeId={id} />
-          ) : entityKind === "pad" ? (
-            <PadCard nodeId={id} renaming={renaming} onRenameDone={() => setRenaming(false)} />
-          ) : entityKind === "sheet" ? (
-            <SheetCard nodeId={id} renaming={renaming} onRenameDone={() => setRenaming(false)} />
           ) : entityKind === "git" ? (
             <WithNode canvas={canvasName} id={id} kind="git">
               {(node) => <GitCard node={node} renaming={renaming} onRenameDone={() => setRenaming(false)} />}

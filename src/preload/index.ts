@@ -1,7 +1,7 @@
 import type { ChatChromeChanged } from "@shared/chat-chrome";
 import type { WorkSinkChanged } from "@shared/work-sinks";
 import type { WorkMailChanged } from "@shared/work-mail";
-import type { CanvasesChanged, Changed, SheetChanged } from "@shared/model";
+import type { CanvasesChanged, Changed } from "@shared/model";
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import type { CompanionDeviceRecord } from "@shared/companion-devices";
 import type { ShellEnvironmentChange } from "@shared/shell-environment";
@@ -43,7 +43,6 @@ import {
   CRON_ENABLED,
   FLEET_UI_ENABLED,
   LIVE_OVERSEER_ENABLED,
-  PAD_ENABLED,
   RELAY_ENABLED,
   REQUESTS_ENABLED,
   TASKS_ENABLED,
@@ -428,9 +427,7 @@ type WorkFeatureApiKey =
   | "workBoardCreateTopic"
   | "workBoardPost"
   | "workBoardMarkRead"
-  | "workBoardNotify"
-  | "workPadRead"
-  | "workPadPatch";
+  | "workBoardNotify";
 
 const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   platform: process.platform,
@@ -458,8 +455,6 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   modelActorRefs: (input) => invoke(IPC_CHANNELS.modelActorRefs, IPC_TIMEOUT_MS, input),
   onModelActorRefsChanged: (listener) =>
     subscribe<ModelActorRefsChanged>(IPC_CHANNELS.modelActorRefsChanged, listener),
-  modelSheetRead: (input) => invoke(IPC_CHANNELS.modelSheetRead, IPC_TIMEOUT_MS, input),
-  onModelSheetChanged: (listener) => subscribe<SheetChanged>(IPC_CHANNELS.modelSheetChanged, listener),
   modelStart: (input) => invoke(IPC_CHANNELS.modelStart, IPC_TIMEOUT_MS, input),
   modelSeatLaunchState: (input) => invoke(IPC_CHANNELS.modelSeatLaunchState, IPC_TIMEOUT_MS, input),
   modelStop: (input) => invoke(IPC_CHANNELS.modelStop, IPC_TIMEOUT_MS, input),
@@ -790,25 +785,6 @@ const boardWorkApi: Pick<
     ),
 };
 
-const padWorkApi: Pick<JuntoApi, "workPadRead" | "workPadPatch"> = {
-  workPadRead: (canvas, nodeId, pinId) =>
-    invoke(
-      IPC_CHANNELS.workPadRead,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      pinId,
-    ),
-  workPadPatch: (canvas, nodeId, patches) =>
-    invoke(
-      IPC_CHANNELS.workPadPatch,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      patches,
-    ),
-};
-
 const schedulerApi: JuntoSchedulerApi = {
   schedulerFire: (canvas, sourceNodeId) =>
     invoke(IPC_CHANNELS.schedulerFire, IPC_TIMEOUT_MS, canvas, sourceNodeId),
@@ -989,7 +965,6 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
     ...(REQUESTS_ENABLED ? requestsWorkApi : {}),
     ...(ARTIFACTS_ENABLED ? artifactsWorkApi : {}),
     ...(BOARD_ENABLED ? boardWorkApi : {}),
-    ...(PAD_ENABLED ? padWorkApi : {}),
     ...(LIVE_OVERSEER_ENABLED ? liveApi : {}),
     ...chatApi,
     ...(USAGE_ENABLED ? usageApi : {}),

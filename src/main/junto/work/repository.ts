@@ -59,22 +59,9 @@ import {
   type BoardTopic as BoardTopicValue,
   type BoardTopicView as BoardTopicViewValue,
   type BoardPost as BoardPostValue,
-  type PadGlance as PadGlanceValue,
   BoardTopic,
   BoardPost,
 } from "@shared/work-model";
-import {
-  applyPatches,
-  decodePad,
-  emptyPad,
-  type Pad,
-  type PadEdge,
-  type PadImage,
-  type PadInk,
-  type PadPin,
-  type PadPost,
-  type PadShape,
-} from "@shared/pad";
 import {
   WORK_SEAT_RECENT_OPS_COVERAGE,
   WORK_SEAT_RECENT_OP_DEFAULT_LIMIT,
@@ -138,11 +125,6 @@ import {
   taskAdmissionState,
 } from "@shared/rules";
 import { StateTransactionOperation } from "../state/service";
-import {
-  inboundActorNodeIds,
-  padAuthorRuleError,
-  stampPadPatchAuthors,
-} from "./pad-rules";
 import { ContentManifest, ContentManifestError } from "../content/manifest";
 import {
   mailboxMessageDeliveryId,
@@ -361,96 +343,7 @@ const ArtifactProjectionRow = Schema.Struct({
   metadata_json: Schema.Union([Schema.Null, Schema.String]),
   actor_seat_id: Schema.Union([Schema.Null, Schema.String]),
 });
-const PadRevisionRow = Schema.Struct({ revision: Schema.Number });
-const PadImageRow = Schema.Struct({
-  element_id: Schema.String,
-  x: Schema.Number,
-  y: Schema.Number,
-  w: Schema.Number,
-  h: Schema.Number,
-  z: Schema.Number,
-  ref_json: Schema.String,
-});
-const PadShapeRow = Schema.Struct({
-  element_id: Schema.String,
-  type: Schema.Union([
-    Schema.Literal("box"),
-    Schema.Literal("ellipse"),
-    Schema.Literal("triangle"),
-    Schema.Literal("label"),
-  ]),
-  x: Schema.Number,
-  y: Schema.Number,
-  w: Schema.Number,
-  h: Schema.Number,
-  z: Schema.Number,
-  fill: Schema.Union([Schema.Null, Schema.String]),
-  stroke: Schema.Union([Schema.Null, Schema.String]),
-  text: Schema.Union([Schema.Null, Schema.String]),
-  status: Schema.Union([
-    Schema.Undefined,
-    Schema.Null,
-    Schema.Literal("none"),
-    Schema.Literal("active"),
-    Schema.Literal("done"),
-    Schema.Literal("blocked"),
-  ]),
-});
-const PadEdgeRow = Schema.Struct({
-  element_id: Schema.String,
-  from_id: Schema.String,
-  to_id: Schema.String,
-  from_side: Schema.Union([
-    Schema.Undefined,
-    Schema.Null,
-    Schema.Literal("top"),
-    Schema.Literal("right"),
-    Schema.Literal("bottom"),
-    Schema.Literal("left"),
-  ]),
-  to_side: Schema.Union([
-    Schema.Undefined,
-    Schema.Null,
-    Schema.Literal("top"),
-    Schema.Literal("right"),
-    Schema.Literal("bottom"),
-    Schema.Literal("left"),
-  ]),
-  label: Schema.Union([Schema.Null, Schema.String]),
-});
-const PadInkRow = Schema.Struct({
-  element_id: Schema.String,
-  z: Schema.Number,
-  color: Schema.String,
-  width: Schema.Number,
-  points_json: Schema.String,
-});
-const PadPinRow = Schema.Struct({
-  element_id: Schema.String,
-  x: Schema.Number,
-  y: Schema.Number,
-  bounds_json: Schema.Union([Schema.Null, Schema.String]),
-  mentions_json: Schema.String,
-});
-const PadPostRow = Schema.Struct({
-  pin_id: Schema.String,
-  post_id: Schema.String,
-  position: Schema.Number,
-  author_kind: Schema.Union([
-    Schema.Literal("operator"),
-    Schema.Literal("actor"),
-  ]),
-  author_seat_id: Schema.Union([Schema.Null, Schema.String]),
-  author_node_id: Schema.Union([Schema.Null, Schema.String]),
-  author_label: Schema.Union([Schema.Null, Schema.String]),
-  parts_json: Schema.String,
-});
 const CountRow = Schema.Struct({ n: Schema.Number });
-const PadElementIdRow = Schema.Struct({ element_id: Schema.String });
-const PadPostIdRow = Schema.Struct({
-  pin_id: Schema.String,
-  post_id: Schema.String,
-});
 const RecentSeatOpRowSchema = Schema.Struct({
   operation: Schema.Union([
     Schema.Literal("task.claim"),
@@ -472,7 +365,6 @@ const RecentSeatOpRowSchema = Schema.Struct({
     Schema.Literal("delivery"),
     Schema.Literal("topic"),
     Schema.Literal("post"),
-    Schema.Literal("pad"),
   ]),
   item_id: Schema.String,
   summary_label: Schema.Union([Schema.Null, Schema.String]),
@@ -485,7 +377,6 @@ const RecentSeatOpRowSchema = Schema.Struct({
     Schema.Literal("delivery"),
     Schema.Literal("topic"),
     Schema.Literal("post"),
-    Schema.Literal("pad"),
   ]),
   related_id: Schema.Union([Schema.Null, Schema.String]),
   related_node_id: Schema.Union([Schema.Null, Schema.String]),
@@ -535,7 +426,6 @@ const TaskClaimFactRowSchema = Schema.Struct({
     Schema.Literal("task.describe"),
     Schema.Literal("task.transition"),
     Schema.Literal("request.resolve"),
-    Schema.Literal("pad.patch"),
   ]),
   predecessor_event_home: Schema.Union([Schema.Null, Schema.String]),
   predecessor_entity_home: Schema.Union([Schema.Null, Schema.String]),
@@ -1045,14 +935,6 @@ export type AppendBoardPostInput = LocalWorkInput & {
   readonly createdBy: Author;
 };
 
-export type ApplyPadPatchInput = LocalWorkInput & {
-  readonly patchId: string;
-  readonly patches: ReadonlyArray<import("@shared/pad").PadPatch>;
-  readonly author: Author;
-  /** Live overseer: ink/image admitted without operator impersonation. */
-  readonly overseer?: boolean;
-};
-
 /** A resource command this machine queues for the editing machine to rule. */
 export type QueueCommandInput = {
   readonly command: QueuedCommand;
@@ -1517,16 +1399,6 @@ const assertTaskAdmissionReady = (
   }
 };
 
-/** Factory-card glance is the operator's unread pins. */
-const PAD_GLANCE_PRINCIPAL_KEY = "operator";
-
-/**
- * Inbound-actor roster for the sinks of ONE version of ONE canvas document.
- *
- * `byNode` is filled lazily — a sink nobody patches never costs a lookup —
- * and `doc` is retained so the second sink in the same document version is a
- * Map hit rather than a second decode.
- */
 const readModelCanvas = Effect.fn("work.readModelCanvas")(function* (canvasName: string): Effect.fn.Return<Canvas | undefined, WorkSqlFailure, ModelRecords> {
   const records = yield* ModelRecords;
   const header = yield* records.getCanvas(canvasName);
@@ -1552,31 +1424,6 @@ const readReviewCanvas = Effect.fn("work.readReviewCanvas")(function* (reader: S
     actorRefs.push({ canvasName, nodeId: node.id, seatId: deriveActorSeatId(home, node.bindingId) });
   }
   return { doc, actorRefs };
-});
-
-const inboundActorsForPad = Effect.fn("work.inboundActorsForPad")(function* (
-  _reader: SqlClient.SqlClient, sink: SinkRefValue,
-): Effect.fn.Return<ReadonlySet<string>, WorkSqlFailure, ModelRecords> {
-  const canvas = yield* readModelCanvas(sink.canvasName);
-  return canvas === undefined ? new Set<string>() : inboundActorNodeIds(canvas, sink.nodeId);
-});
-
-const assertPadPatchRules = Effect.fn("work.assertPadPatchRules")(function* (
-  reader: SqlClient.SqlClient,
-  sink: SinkRefValue,
-  author: Author,
-  patches: ReadonlyArray<import("@shared/pad").PadPatch>,
-  overseer?: boolean,
-): Effect.fn.Return<void, WorkSqlFailure, ModelRecords> {
-  const rule = padAuthorRuleError(
-    author,
-    patches,
-    yield* inboundActorsForPad(reader, sink),
-    overseer === true ? { overseer: true } : undefined,
-  );
-  if (rule !== undefined) {
-    return yield* Effect.fail(authorityError("invalid-transition", rule));
-  }
 });
 
 const parseJson = (value: string): unknown => JSON.parse(value);
@@ -2911,499 +2758,6 @@ const loadArtifacts = Effect.fn("work.loadArtifacts")(function* (
   );
 });
 
-const optionalString = (value: string | null): string | undefined =>
-  value === null || value.length === 0 ? undefined : value;
-
-const loadPad = Effect.fn("work.loadPad")(function* (
-  reader: SqlClient.SqlClient,
-  sink: SinkRefValue,
-): Effect.fn.Return<Pad, WorkSqlFailure> {
-  const meta = yield* SqlSchema.findOneOption({
-    Request: WorkSqlBindings,
-    Result: PadRevisionRow,
-    execute: (bindings) =>
-      reader.unsafe(
-        `
-      SELECT revision
-      FROM work_pad_meta
-      WHERE canvas_name = ? AND node_id = ?
-    `,
-        bindings,
-      ),
-  })([sink.canvasName, sink.nodeId]).pipe(Effect.map(Option.getOrUndefined));
-  if (meta === undefined) return emptyPad();
-
-  const imageRows = yield* SqlSchema.findAll({
-    Request: WorkSqlBindings,
-    Result: PadImageRow,
-    execute: (bindings) =>
-      reader.unsafe(
-        `
-        SELECT element_id, x, y, w, h, z, ref_json
-        FROM work_pad_images
-        WHERE canvas_name = ? AND node_id = ?
-        ORDER BY z, element_id
-      `,
-        bindings,
-      ),
-  })([sink.canvasName, sink.nodeId]);
-  const images = yield* Effect.try(() =>
-    imageRows.map((row): PadImage => ({
-      id: row.element_id as PadImage["id"],
-      x: row.x,
-      y: row.y,
-      w: row.w,
-      h: row.h,
-      z: row.z,
-      ref: parseJson(row.ref_json) as PadImage["ref"],
-    })),
-  );
-
-  const shapes = (yield* SqlSchema.findAll({
-    Request: WorkSqlBindings,
-    Result: PadShapeRow,
-    execute: (bindings) =>
-      reader.unsafe(
-        `
-        SELECT element_id, type, x, y, w, h, z, fill, stroke, text, status
-        FROM work_pad_shapes
-        WHERE canvas_name = ? AND node_id = ?
-        ORDER BY z, element_id
-      `,
-        bindings,
-      ),
-  })([sink.canvasName, sink.nodeId])).map((row): PadShape => ({
-    id: row.element_id as PadShape["id"],
-    type: row.type,
-    x: row.x,
-    y: row.y,
-    w: row.w,
-    h: row.h,
-    z: row.z,
-    ...(optionalString(row.fill) === undefined
-      ? {}
-      : { fill: optionalString(row.fill) }),
-    ...(optionalString(row.stroke) === undefined
-      ? {}
-      : { stroke: optionalString(row.stroke) }),
-    ...(optionalString(row.text) === undefined
-      ? {}
-      : { text: optionalString(row.text) }),
-    ...(row.status === null ? {} : { status: row.status }),
-  }));
-
-  const edges = (yield* SqlSchema.findAll({
-    Request: WorkSqlBindings,
-    Result: PadEdgeRow,
-    execute: (bindings) =>
-      reader.unsafe(
-        `
-        SELECT element_id, from_id, to_id, from_side, to_side, label
-        FROM work_pad_edges
-        WHERE canvas_name = ? AND node_id = ?
-        ORDER BY element_id
-      `,
-        bindings,
-      ),
-  })([sink.canvasName, sink.nodeId])).map((row): PadEdge => ({
-    id: row.element_id as PadEdge["id"],
-    from: row.from_id as PadEdge["from"],
-    to: row.to_id as PadEdge["to"],
-    ...(row.from_side === null ? {} : { fromSide: row.from_side }),
-    ...(row.to_side === null ? {} : { toSide: row.to_side }),
-    ...(optionalString(row.label) === undefined
-      ? {}
-      : { label: optionalString(row.label) }),
-  }));
-
-  const inkRows = yield* SqlSchema.findAll({
-    Request: WorkSqlBindings,
-    Result: PadInkRow,
-    execute: (bindings) =>
-      reader.unsafe(
-        `
-        SELECT element_id, z, color, width, points_json
-        FROM work_pad_inks
-        WHERE canvas_name = ? AND node_id = ?
-        ORDER BY z, element_id
-      `,
-        bindings,
-      ),
-  })([sink.canvasName, sink.nodeId]);
-  const inks = yield* Effect.try(() =>
-    inkRows.map((row): PadInk => ({
-      id: row.element_id as PadInk["id"],
-      z: row.z,
-      color: row.color,
-      width: row.width,
-      points: parseJson(row.points_json) as PadInk["points"],
-    })),
-  );
-
-  const pinRows = yield* SqlSchema.findAll({
-    Request: WorkSqlBindings,
-    Result: PadPinRow,
-    execute: (bindings) =>
-      reader.unsafe(
-        `
-      SELECT element_id, x, y, bounds_json, mentions_json
-      FROM work_pad_pins
-      WHERE canvas_name = ? AND node_id = ?
-      ORDER BY element_id
-    `,
-        bindings,
-      ),
-  })([sink.canvasName, sink.nodeId]);
-  const postRows = yield* SqlSchema.findAll({
-    Request: WorkSqlBindings,
-    Result: PadPostRow,
-    execute: (bindings) =>
-      reader.unsafe(
-        `
-      SELECT
-        pin_id, post_id, position, author_kind,
-        author_seat_id, author_node_id, author_label, parts_json
-      FROM work_pad_posts
-      WHERE canvas_name = ? AND node_id = ?
-      ORDER BY pin_id, position
-    `,
-        bindings,
-      ),
-  })([sink.canvasName, sink.nodeId]);
-  const postsByPin = new Map<string, PadPost[]>();
-  for (const row of postRows) {
-    const post: PadPost = {
-      postId: row.post_id as PadPost["postId"],
-      author: boardAuthorFromRow(row),
-      parts: (yield* Effect.try(
-        parseJson.bind(undefined, row.parts_json),
-      )) as PadPost["parts"],
-    };
-    const list = postsByPin.get(row.pin_id) ?? [];
-    list.push(post);
-    postsByPin.set(row.pin_id, list);
-  }
-  const pins = yield* Effect.try(() =>
-    pinRows.map((row): PadPin => ({
-      id: row.element_id as PadPin["id"],
-      x: row.x,
-      y: row.y,
-      ...(row.bounds_json === null
-        ? {}
-        : { bounds: parseJson(row.bounds_json) as PadPin["bounds"] }),
-      mentions: parseJson(row.mentions_json) as PadPin["mentions"],
-      posts: postsByPin.get(row.element_id) ?? [],
-    })),
-  );
-
-  const decoded = decodePad({
-    revision: meta.revision,
-    images,
-    shapes,
-    edges,
-    inks,
-    pins,
-  });
-  if (Result.isFailure(decoded)) {
-    return yield* Effect.fail(
-      new Error(`stored pad is invalid: ${decoded.failure.message}`),
-    );
-  }
-  return decoded.success;
-});
-
-const loadPadGlance = Effect.fn("work.loadPadGlance")(function* (
-  reader: SqlClient.SqlClient,
-  sink: SinkRefValue,
-): Effect.fn.Return<PadGlanceValue | undefined, WorkSqlFailure> {
-  const meta = yield* SqlSchema.findOneOption({
-    Request: WorkSqlBindings,
-    Result: PadRevisionRow,
-    execute: (bindings) =>
-      reader.unsafe(
-        `
-      SELECT revision
-      FROM work_pad_meta
-      WHERE canvas_name = ? AND node_id = ?
-    `,
-        bindings,
-      ),
-  })([sink.canvasName, sink.nodeId]).pipe(Effect.map(Option.getOrUndefined));
-  if (meta === undefined) return undefined;
-  const shapeCount =
-    (yield* SqlSchema.findOneOption({
-      Request: WorkSqlBindings,
-      Result: CountRow,
-      execute: (bindings) =>
-        reader.unsafe(
-          `
-        SELECT count(*) AS n
-        FROM work_pad_shapes
-        WHERE canvas_name = ? AND node_id = ?
-      `,
-          bindings,
-        ),
-    })([sink.canvasName, sink.nodeId]).pipe(Effect.map(Option.getOrUndefined)))
-      ?.n ?? 0;
-  const unreadPinCount =
-    (yield* SqlSchema.findOneOption({
-      Request: WorkSqlBindings,
-      Result: CountRow,
-      execute: (bindings) =>
-        reader.unsafe(
-          `
-        SELECT count(DISTINCT posts.pin_id) AS n
-        FROM work_pad_posts AS posts
-        LEFT JOIN work_pad_read_cursors AS cursors
-          ON cursors.canvas_name = posts.canvas_name
-          AND cursors.node_id = posts.node_id
-          AND cursors.pin_id = posts.pin_id
-          AND cursors.principal_key = ?
-        WHERE posts.canvas_name = ? AND posts.node_id = ?
-          AND posts.position > COALESCE(cursors.last_read_position, -1)
-      `,
-          bindings,
-        ),
-    })([PAD_GLANCE_PRINCIPAL_KEY, sink.canvasName, sink.nodeId]).pipe(
-      Effect.map(Option.getOrUndefined),
-    ))?.n ?? 0;
-  return {
-    revision: meta.revision,
-    shapeCount,
-    unreadPinCount,
-  };
-});
-
-const idsOf = (items: ReadonlyArray<{ readonly id: string }>): Set<string> =>
-  new Set(items.map((item) => item.id));
-
-const persistPad = Effect.fn("work.persistPad")(function* (
-  writer: SqlClient.SqlClient,
-  sink: SinkRefValue,
-  next: Pad,
-  updatedAt: string,
-): Effect.fn.Return<void, WorkSqlFailure> {
-  yield* writer.unsafe(
-    `
-      INSERT INTO work_pad_meta(canvas_name, node_id, revision, updated_at)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(canvas_name, node_id) DO UPDATE SET
-        revision = excluded.revision,
-        updated_at = excluded.updated_at
-    `,
-    [sink.canvasName, sink.nodeId, next.revision, updatedAt],
-  );
-
-  const removeMissing = Effect.fn("work.removeMissing")(function* (
-    table: string,
-    keep: ReadonlySet<string>,
-  ): Effect.fn.Return<void, WorkSqlFailure> {
-    const existing = yield* SqlSchema.findAll({
-      Request: WorkSqlBindings,
-      Result: PadElementIdRow,
-      execute: (bindings) =>
-        writer.unsafe(
-          `SELECT element_id FROM ${table} WHERE canvas_name = ? AND node_id = ?`,
-          bindings,
-        ),
-    })([sink.canvasName, sink.nodeId]);
-    for (const row of existing) {
-      if (keep.has(row.element_id)) continue;
-      yield* writer.unsafe(
-        `DELETE FROM ${table} WHERE canvas_name = ? AND node_id = ? AND element_id = ?`,
-        [sink.canvasName, sink.nodeId, row.element_id],
-      );
-    }
-  });
-
-  const existingPosts = yield* SqlSchema.findAll({
-    Request: WorkSqlBindings,
-    Result: PadPostIdRow,
-    execute: (bindings) =>
-      writer.unsafe(
-        `
-      SELECT pin_id, post_id
-      FROM work_pad_posts
-      WHERE canvas_name = ? AND node_id = ?
-    `,
-        bindings,
-      ),
-  })([sink.canvasName, sink.nodeId]);
-  const nextPosts = new Set(
-    next.pins.flatMap((pin) =>
-      pin.posts.map((post) => `${pin.id}\0${post.postId}`),
-    ),
-  );
-  for (const row of existingPosts) {
-    if (nextPosts.has(`${row.pin_id}\0${row.post_id}`)) continue;
-    yield* writer.unsafe(
-      `
-        DELETE FROM work_pad_posts
-        WHERE canvas_name = ? AND node_id = ? AND pin_id = ? AND post_id = ?
-      `,
-      [sink.canvasName, sink.nodeId, row.pin_id, row.post_id],
-    );
-  }
-
-  yield* removeMissing("work_pad_images", idsOf(next.images));
-  yield* removeMissing("work_pad_shapes", idsOf(next.shapes));
-  yield* removeMissing("work_pad_edges", idsOf(next.edges));
-  yield* removeMissing("work_pad_inks", idsOf(next.inks));
-  yield* removeMissing("work_pad_pins", idsOf(next.pins));
-
-  for (const image of next.images) {
-    yield* writer.unsafe(
-      `
-        INSERT INTO work_pad_images(
-          canvas_name, node_id, element_id, x, y, w, h, z, ref_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(canvas_name, node_id, element_id) DO UPDATE SET
-          x = excluded.x, y = excluded.y, w = excluded.w, h = excluded.h,
-          z = excluded.z, ref_json = excluded.ref_json
-      `,
-      [
-        sink.canvasName,
-        sink.nodeId,
-        image.id,
-        image.x,
-        image.y,
-        image.w,
-        image.h,
-        image.z,
-        JSON.stringify(image.ref),
-      ],
-    );
-  }
-  for (const shape of next.shapes) {
-    yield* writer.unsafe(
-      `
-        INSERT INTO work_pad_shapes(
-          canvas_name, node_id, element_id, type, x, y, w, h, z,
-          fill, stroke, text, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(canvas_name, node_id, element_id) DO UPDATE SET
-          type = excluded.type, x = excluded.x, y = excluded.y,
-          w = excluded.w, h = excluded.h, z = excluded.z,
-          fill = excluded.fill, stroke = excluded.stroke,
-          text = excluded.text, status = excluded.status
-      `,
-      [
-        sink.canvasName,
-        sink.nodeId,
-        shape.id,
-        shape.type,
-        shape.x,
-        shape.y,
-        shape.w,
-        shape.h,
-        shape.z,
-        shape.fill ?? null,
-        shape.stroke ?? null,
-        shape.text ?? null,
-        shape.status ?? null,
-      ],
-    );
-  }
-  for (const edge of next.edges) {
-    yield* writer.unsafe(
-      `
-        INSERT INTO work_pad_edges(
-          canvas_name, node_id, element_id, from_id, to_id,
-          from_side, to_side, label
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(canvas_name, node_id, element_id) DO UPDATE SET
-          from_id = excluded.from_id, to_id = excluded.to_id,
-          from_side = excluded.from_side, to_side = excluded.to_side,
-          label = excluded.label
-      `,
-      [
-        sink.canvasName,
-        sink.nodeId,
-        edge.id,
-        edge.from,
-        edge.to,
-        edge.fromSide ?? null,
-        edge.toSide ?? null,
-        edge.label ?? null,
-      ],
-    );
-  }
-  for (const ink of next.inks) {
-    yield* writer.unsafe(
-      `
-        INSERT INTO work_pad_inks(
-          canvas_name, node_id, element_id, z, color, width, points_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(canvas_name, node_id, element_id) DO UPDATE SET
-          z = excluded.z, color = excluded.color, width = excluded.width,
-          points_json = excluded.points_json
-      `,
-      [
-        sink.canvasName,
-        sink.nodeId,
-        ink.id,
-        ink.z,
-        ink.color,
-        ink.width,
-        JSON.stringify(ink.points),
-      ],
-    );
-  }
-  for (const pin of next.pins) {
-    yield* writer.unsafe(
-      `
-        INSERT INTO work_pad_pins(
-          canvas_name, node_id, element_id, x, y, bounds_json, mentions_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(canvas_name, node_id, element_id) DO UPDATE SET
-          x = excluded.x, y = excluded.y,
-          bounds_json = excluded.bounds_json,
-          mentions_json = excluded.mentions_json
-      `,
-      [
-        sink.canvasName,
-        sink.nodeId,
-        pin.id,
-        pin.x,
-        pin.y,
-        pin.bounds === undefined ? null : JSON.stringify(pin.bounds),
-        JSON.stringify(pin.mentions),
-      ],
-    );
-    yield* Effect.forEach(pin.posts, (post, position) =>
-      Effect.gen(function* () {
-        yield* writer.unsafe(
-          `
-          INSERT INTO work_pad_posts(
-            canvas_name, node_id, pin_id, post_id, position,
-            author_kind, author_seat_id, author_node_id, author_label,
-            parts_json
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(canvas_name, node_id, pin_id, post_id) DO UPDATE SET
-            position = excluded.position,
-            author_kind = excluded.author_kind,
-            author_seat_id = excluded.author_seat_id,
-            author_node_id = excluded.author_node_id,
-            author_label = excluded.author_label,
-            parts_json = excluded.parts_json
-        `,
-          [
-            sink.canvasName,
-            sink.nodeId,
-            pin.id,
-            post.postId,
-            position,
-            post.author.kind,
-            post.author.seatId ?? null,
-            post.author.nodeId ?? null,
-            post.author.label ?? null,
-            JSON.stringify(post.parts),
-          ],
-        );
-      }),
-    );
-  }
-});
 
 /** Attention policy sees every claimant without loading threads or work contents. */
 export const readWorkAttention = Effect.fn("work.attention")(function* (
@@ -3524,10 +2878,6 @@ export const readWorkSinkPage = Effect.fn("work.sink.page")(function* (
 ): Effect.fn.Return<WorkSinkPage, WorkSqlFailure> {
   const query = yield* Schema.decodeUnknownEffect(WorkSinkQuery, strictDecode)(input);
   const sink = { canvasName: query.canvasName, nodeId: query.nodeId };
-  if (query.kind === "pad") {
-    const glance = yield* loadPadGlance(reader, sink);
-    return { kind: "pad", ...(glance === undefined ? {} : { glance }) };
-  }
   const [table, id] = query.kind === "task" ? ["work_tasks", "task_id"]
     : query.kind === "requests" ? ["work_requests", "request_id"]
     : query.kind === "artifacts" ? ["work_artifacts", "artifact_id"]
@@ -4781,17 +4131,6 @@ const materializeFact = Effect.fn("work.materializeFact")(function* (
       }
       return;
     }
-    case "pad.patch": {
-      const current = yield* loadPad(writer, fact.item.sink);
-      const applied = applyPatches(current, fact.body.patches);
-      if (Result.isFailure(applied)) {
-        return yield* Effect.fail(
-          authorityError("invalid-transition", applied.failure.message),
-        );
-      }
-      yield* persistPad(writer, fact.item.sink, applied.success, receivedAt);
-      return;
-    }
     case "board.post.append": {
       // Position authority is the fact body (assigned at apply/mint time).
       const post = fact.body.post;
@@ -5341,20 +4680,6 @@ export interface WorkRepositoryShape {
   readonly appendBoardPost: (
     input: AppendBoardPostInput,
   ) => Effect.Effect<LocalFactResult<BoardPostValue>, RepositoryFailure>;
-  readonly readPad: (
-    canvasName: string,
-    nodeId: string,
-  ) => Effect.Effect<Pad, WorkRepositoryError>;
-  readonly applyPadPatch: (
-    input: ApplyPadPatchInput,
-  ) => Effect.Effect<LocalFactResult<Pad>, RepositoryFailure>;
-  readonly markPadRead: (input: {
-    readonly sink: SinkRefValue;
-    readonly pinId: string;
-    readonly principalKey: string;
-    readonly lastReadPosition: number;
-    readonly updatedAt?: string;
-  }) => Effect.Effect<void, RepositoryFailure>;
   readonly markBoardRead: (input: {
     readonly sink: SinkRefValue;
     readonly topicId: string;
@@ -7780,110 +7105,6 @@ export const WorkRepositoryLive = Layer.effect(
       );
     };
 
-    const readPad = (
-      canvasName: string,
-      nodeId: string,
-    ): Effect.Effect<Pad, WorkRepositoryError> =>
-      withSqlRead(
-        sql,
-        ((reader: SqlClient.SqlClient) =>
-          Effect.gen(function* () {
-            return yield* loadPad(reader, { canvasName, nodeId });
-          }))(sql),
-      )
-        .pipe(Effect.provideService(StateTransactionOperation, "work.pad.read"))
-        .pipe(
-          Effect.mapError((error) => toRepositoryError("work.pad.read", error)),
-        );
-
-    const applyPadPatch = (
-      input: ApplyPadPatchInput,
-    ): Effect.Effect<LocalFactResult<Pad>, RepositoryFailure> => {
-      const originAt = timestamp(input.originAt);
-      const receivedAt = timestamp(input.receivedAt);
-      return transaction(
-        "work.pad.patch",
-        input.sink,
-        (writer: SqlClient.SqlClient) =>
-          Effect.gen(function* () {
-            const authority = yield* canonicalLocalWorkAuthority(writer);
-            const patches = stampPadPatchAuthors(input.patches, input.author);
-            yield* assertPadPatchRules(
-              writer,
-              input.sink,
-              input.author,
-              patches,
-              input.overseer,
-            );
-            const current = yield* loadPad(writer, input.sink);
-            const applied = applyPatches(current, patches);
-            if (Result.isFailure(applied)) {
-              return yield* Effect.fail(
-                authorityError("invalid-transition", applied.failure.message),
-              );
-            }
-            return yield* commitLocalFact(writer, {
-              localInstallationId: authority.installationId,
-              sink: input.sink,
-              basis: input.basis,
-              item: item("pad", input.patchId, input.sink),
-              operation: "pad.patch",
-              predecessor: null,
-              body: {
-                operation: "pad.patch",
-                patchId: input.patchId,
-                patches: [...patches],
-                author: input.author,
-                revision: applied.success.revision,
-              },
-              value: applied.success,
-              originAt,
-              receivedAt,
-            });
-          }),
-      );
-    };
-
-    const markPadRead = (input: {
-      readonly sink: SinkRefValue;
-      readonly pinId: string;
-      readonly principalKey: string;
-      readonly lastReadPosition: number;
-      readonly updatedAt?: string;
-    }): Effect.Effect<void, RepositoryFailure> => {
-      const updatedAt = timestamp(input.updatedAt);
-      return transaction(
-        "work.pad.mark_read",
-        input.sink,
-        (writer: SqlClient.SqlClient) =>
-          Effect.gen(function* () {
-            yield* writer.unsafe(
-              `
-            INSERT INTO work_pad_read_cursors(
-              canvas_name, node_id, pin_id, principal_key,
-              last_read_position, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(canvas_name, node_id, pin_id, principal_key)
-            DO UPDATE SET
-              last_read_position = MAX(
-                work_pad_read_cursors.last_read_position,
-                excluded.last_read_position
-              ),
-              updated_at = excluded.updated_at
-          `,
-              [
-                input.sink.canvasName,
-                input.sink.nodeId,
-                input.pinId,
-                input.principalKey,
-                input.lastReadPosition,
-                updatedAt,
-              ],
-            );
-          }),
-      );
-    };
-
     const markBoardRead = (input: {
       readonly sink: SinkRefValue;
       readonly topicId: string;
@@ -8722,9 +7943,6 @@ export const WorkRepositoryLive = Layer.effect(
       acceptDelivery,
       createBoardTopic,
       appendBoardPost,
-      readPad,
-      applyPadPatch,
-      markPadRead,
       markBoardRead,
       setArtifactArchived,
       deleteArtifact,

@@ -112,8 +112,6 @@ export const Verb = Schema.Literals([
   "works",
   "publishes",
   "participates",
-  "reads",
-  "edits",
   "navigates",
   "feeds",
   "fires",
@@ -167,7 +165,7 @@ type VerbTable = {
  * verb's subject, whatever way the operator happened to drag.
  *
  * Two verbs per ordered pair is the ceiling (tested). Row order is narrow-first
- * where the two nest (`manages` inside `contributes`, `reads` inside `edits`)
+ * where the two nest (`manages` inside `contributes`)
  * and plain reading order where they do not (`fires` beside `announces`), so it
  * never decides the default — `DEFAULT_CONNECT_VERBS` does.
  */
@@ -177,9 +175,6 @@ export const VERB_TABLE = {
     task: ["manages", "contributes"],
     artifacts: ["publishes"],
     board: ["messages", "participates"],
-    pad: ["reads", "edits"],
-    // Read, never edit: the operator authors a sheet; an agent consults it.
-    sheet: ["reads"],
     page: ["navigates"],
     relay: ["fires", "announces"],
   },
@@ -191,9 +186,6 @@ export const VERB_TABLE = {
   requests: { relay: ["announces"] },
   artifacts: { relay: ["announces"] },
   board: { relay: ["announces"] },
-  // Pad and sheet have no news for a relay; access verbs reach them.
-  pad: {},
-  sheet: {},
   page: { relay: ["announces"] },
   // Terminal publishes nothing and offers no port: no verb speaks to it yet.
   terminal: {},
@@ -234,7 +226,6 @@ export const verbsForPair = (
 const DEFAULT_CONNECT_VERBS: ReadonlyArray<Verb> = [
   "contributes",
   "participates",
-  "edits",
   "fires",
   "enqueues",
   "wakes",
@@ -316,7 +307,7 @@ const NO_PORTS: ReadonlyArray<Port> = [];
 /**
  * The event a kind announces by default. This is the kind's own headline
  * event: task/requests complete, artifacts publish, board posts, page becomes
- * ready, and an agent raises a hand. Pad and sheet have no news to announce.
+ * ready, and an agent raises a hand.
  */
 const ANNOUNCE_WHEN = {
   // An agent's news is a raised hand: an open blocked or escalate signal.
@@ -372,12 +363,6 @@ export const compileVerb = (
       return { ports: ["artifact.publish"] };
     case "participates":
       return { ports: BOARD_PARTICIPATE_PORTS, wake: true };
-    case "reads":
-      // One verb, two read surfaces: the port follows the kind at the far end
-      // of the wire, so `reads` never grants a port that end does not offer.
-      return { ports: target === "sheet" ? ["sheet.read"] : ["pad.read"] };
-    case "edits":
-      return { ports: ["pad.read", "pad.patch"] };
     case "navigates":
       return { ports: ["browser.automate"] };
     case "feeds":
@@ -433,8 +418,6 @@ const verbForEffectMode = (mode: string): Verb | undefined => {
 
 const ACCESS_VERB_FOR_SINK = {
   task: "contributes",
-  pad: "edits",
-  sheet: "reads",
   page: "navigates",
   artifacts: "publishes",
 } as const satisfies { readonly [K in SinkKind]?: Verb };
@@ -541,8 +524,6 @@ export const VERB_COLOR_TOKEN: Record<Verb, string> = {
   works: "--wire-verb-works",
   publishes: "--wire-verb-publishes",
   participates: "--wire-verb-participates",
-  reads: "--wire-verb-reads",
-  edits: "--wire-verb-edits",
   navigates: "--wire-verb-navigates",
   feeds: "--wire-verb-feeds",
   fires: "--wire-verb-fires",

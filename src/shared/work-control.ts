@@ -14,7 +14,6 @@ import {
   WorkMetadata,
 } from "./work-model";
 import { ContentRef } from "./content";
-import { PadPatch } from "./pad";
 import { MailEvidenceRef } from "./crew";
 import { NODE_KINDS } from "./model/kinds";
 import { NodeId } from "./physics/schema";
@@ -131,10 +130,6 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "board.post",
 "board.mark_read",
 "board.tags",
-"pad.read",
-"pad.patch",
-/** Agent → sheet: read the operator's grid (port sheet.read). */
-"sheet.read",
 /** Agent → relay: fire the scheduler pipeline now (port relay.trigger). */
 "relay.trigger",
 /** Automations in reach (plan 07): no edge, no port; region reach admits. */
@@ -970,53 +965,6 @@ export const BoardMarkReadArgs = Schema.Struct({
   ),
 });
 export type BoardMarkReadArgs = typeof BoardMarkReadArgs.Type;
-
-export const PadReadArgs = Schema.Struct({
-  target: Schema.String,
-  pinId: Schema.optionalKey(Schema.String),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type PadReadArgs = typeof PadReadArgs.Type;
-
-export const SheetReadArgs = Schema.Struct({
-  target: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type SheetReadArgs = typeof SheetReadArgs.Type;
-
-export const PadPatchArgs = Schema.Struct({
-  target: Schema.String,
-  patches: Schema.Array(PadPatch).pipe(Schema.check(Schema.isMinLength(1))),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type PadPatchArgs = typeof PadPatchArgs.Type;
-
-/** CLI projection verbs that only need the connected pad target. */
-export const PadTargetArgs = Schema.Struct({
-  target: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type PadTargetArgs = typeof PadTargetArgs.Type;
-
-export const PadLookHereArgs = Schema.Struct({
-  target: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-  pinId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type PadLookHereArgs = typeof PadLookHereArgs.Type;
-
-export const PadGetArgs = Schema.Struct({
-  target: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-  id: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)))),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type PadGetArgs = typeof PadGetArgs.Type;
 
 /** Agent fires a connected scheduler via the relay.trigger port. */
 export const RelayTriggerArgs = Schema.Struct({

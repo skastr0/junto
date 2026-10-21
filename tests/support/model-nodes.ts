@@ -55,10 +55,6 @@ export const artifacts = (id: string, more: Partial<NodeOf<"artifacts">> = {}): 
   ({ kind: "artifacts", ...placed(id), ...more });
 export const board = (id: string, more: Partial<NodeOf<"board">> = {}): NodeOf<"board"> =>
   ({ kind: "board", ...placed(id), ...more });
-export const pad = (id: string, more: Partial<NodeOf<"pad">> = {}): NodeOf<"pad"> =>
-  ({ kind: "pad", ...placed(id), ...more });
-export const sheet = (id: string, more: Partial<NodeOf<"sheet">> = {}): NodeOf<"sheet"> =>
-  ({ kind: "sheet", ...placed(id), ...more });
 export const cron = (id: string, more: Partial<NodeOf<"cron">> = {}): NodeOf<"cron"> =>
   ({ kind: "cron", ...placed(id), host: THIS_MACHINE, ...more });
 export const relay = (id: string, more: Partial<NodeOf<"relay">> = {}): NodeOf<"relay"> =>

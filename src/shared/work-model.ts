@@ -533,20 +533,3 @@ export const BoardGlanceTopic = Schema.Struct({
   unreadPostCount: Schema.optionalKey(Schema.Number),
 });
 export type BoardGlanceTopic = typeof BoardGlanceTopic.Type;
-
-/** Pad glance counts queried from SQLite; the title lives on its native node. */
-export const PadGlance = Schema.Struct({
-  revision: Schema.Number.pipe(
-    Schema.check(Schema.isInt()),
-    Schema.check(Schema.isGreaterThanOrEqualTo(0)),
-  ),
-  shapeCount: Schema.Number.pipe(
-    Schema.check(Schema.isInt()),
-    Schema.check(Schema.isGreaterThanOrEqualTo(0)),
-  ),
-  unreadPinCount: Schema.Number.pipe(
-    Schema.check(Schema.isInt()),
-    Schema.check(Schema.isGreaterThanOrEqualTo(0)),
-  ),
-});
-export type PadGlance = typeof PadGlance.Type;

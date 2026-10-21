@@ -5,7 +5,7 @@
  */
 import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
-import { PAD_ENABLED, TASKS_ENABLED } from "../src/shared/features";
+import { BROWSER_ENABLED, TASKS_ENABLED } from "../src/shared/features";
 import { asCanvasName, decodeCommand, type Command, type Node, type Wire } from "../src/shared/model";
 import { canvasFromOpened, type Canvas } from "../src/shared/model/canvas";
 import {
@@ -25,7 +25,6 @@ import {
   restacked,
   retexted,
   reverbed,
-  sheetWritten,
   taskBoardEdited,
   topZ,
   verbsForDraw,
@@ -250,7 +249,7 @@ describe("adding and removing", () => {
 
 describe("wires", () => {
   const canvas = canvasOf(
-    [seat("lead"), seat("nodes"), board("tasks"), board("done"), node("pad", "pad"), node("label", "north", { text: "N" }), region("room"), note("plan")],
+    [seat("lead"), seat("nodes"), board("tasks"), board("done"), node("page", "page", { host: "local", url: "https://example.com", profile: "default", onRemove: "kill-session" }), node("label", "north", { text: "N" }), region("room"), note("plan")],
     [wire("w1", "lead", "nodes")],
   );
   const at = (id: string): Node => canvas.nodes.get(id as Node["id"])!;
@@ -263,16 +262,16 @@ describe("wires", () => {
     expect(result.commands).toEqual([{ _tag: "Add", canvas: name, nodes: [], wires: [result.wire] }]);
   });
 
-  it.skipIf(!PAD_ENABLED)("stores the wire the way the verb reads, and keeps the anchors with their ends", () => {
-    // A seat reads a pad; nothing runs from a pad to a seat.
-    const forward = verbsForDraw(at("lead"), at("pad"));
+  it.skipIf(!BROWSER_ENABLED)("stores the wire the way the verb reads, and keeps the anchors with their ends", () => {
+    // A seat navigates a page; nothing runs from a page to a seat.
+    const forward = verbsForDraw(at("lead"), at("page"));
     expect(forward.verbs.length).toBeGreaterThan(0);
     expect(forward.reversed).toBe(false);
-    expect(verbsForDraw(at("pad"), at("lead"))).toEqual({ verbs: forward.verbs, reversed: true });
-    const result = connected(canvas, { id: "w9", from: "pad", to: "lead", fromSide: "left", toSide: "right" });
+    expect(verbsForDraw(at("page"), at("lead"))).toEqual({ verbs: forward.verbs, reversed: true });
+    const result = connected(canvas, { id: "w9", from: "page", to: "lead", fromSide: "left", toSide: "right" });
     if (!result.ok) throw new Error(result.why);
     sent(result.commands);
-    expect(result.wire).toMatchObject({ from: "lead", to: "pad", fromSide: "right", toSide: "left" });
+    expect(result.wire).toMatchObject({ from: "lead", to: "page", fromSide: "right", toSide: "left" });
   });
 
   it("takes the verb the operator dropped on only when the pair admits it", () => {
@@ -331,16 +330,5 @@ describe("wires", () => {
     expect(sent(reanchored(held, "w1", { fromSide: null, toSide: "left" }))).toEqual([
       { _tag: "Rewire", canvas: name, id: "w1", change: { fromSide: null, toSide: "left" } },
     ]);
-  });
-});
-
-describe("sheets", () => {
-  const canvas = canvasOf([node("sheet", "grid"), note("plan")]);
-  const grid = { columns: [], rows: [] };
-
-  it("writes a sheet's grid, and not when it is the grid it has", () => {
-    expect(sent(sheetWritten(canvas, "grid", grid))).toEqual([{ _tag: "WriteSheet", canvas: name, id: "grid", grid }]);
-    expect(sheetWritten(canvas, "grid", grid, { columns: [], rows: [] })).toEqual([]);
-    expect(sheetWritten(canvas, "plan", grid)).toEqual([]);
   });
 });

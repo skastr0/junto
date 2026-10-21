@@ -135,13 +135,6 @@ describe("the way back from a command", () => {
     roundTrips(command);
   });
 
-  it("a sheet write goes back to the grid it replaced, when that grid is known", () => {
-    const grid = { columns: [], rows: [] };
-    const command: Command = { _tag: "WriteSheet", canvas: name, id: "plan" as Node["id"], grid };
-    expect(inverseOf(before, command)).toEqual({ _tag: "Irreversible", why: "missing" });
-    expect(back(before, command, { sheetOf: () => grid })).toEqual([command]);
-  });
-
   it("a command on something that is not there reverses to nothing", () => {
     expect(back(before, { _tag: "Move", canvas: name, moves: [{ id: "gone" as Node["id"], x: 1, y: 1 }] })).toEqual([]);
     expect(back(before, { _tag: "Edit", canvas: name, id: "lead" as Node["id"], change: { kind: "note", text: "x" } })).toEqual([]);

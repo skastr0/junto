@@ -34,7 +34,7 @@ describe("a card's glance", () => {
   });
 
   it("only actors can be blocked; other kinds stay idle regardless of a blocked flag", () => {
-    for (const kind of ["agent", "terminal", "cron", "relay", "board", "pad", "note", "label", "region"] as const) {
+    for (const kind of ["agent", "terminal", "cron", "relay", "board", "note", "label", "region"] as const) {
       expect(kindMayBeBlocked(kind)).toBe(kind === "agent");
       expect(nodeAttention(kind, NOTHING, true)).toBe(kind === "agent" ? "fire" : "idle");
       expect(nodeAttention(kind, NOTHING, false)).toBe(kind === "agent" ? "ice" : "idle");

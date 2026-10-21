@@ -3,7 +3,7 @@ import { Schema } from "effect";
 import { tmpdir } from "node:os";
 import {
   Command, Node, Wire, Opened, asCanvasName,
-  Region, Seat, Note, Terminal, type SheetGrid,
+  Region, Seat, Note, Terminal,
 } from "../../src/shared/model";
 import { resolveManagedLaunch } from "../../src/shared/managed-terminal-launch";
 import { verbsForPair, type Verb } from "../../src/shared/physics/verbs";
@@ -15,7 +15,6 @@ import type { SeatSessionObservation } from "../../src/main/junto/seat-sessions/
 export type ModelFixture = {
   readonly nodes: ReadonlyArray<Node>;
   readonly wires: ReadonlyArray<Wire>;
-  readonly sheets?: Readonly<Record<string, SheetGrid>>;
   readonly seatSessions?: ReadonlyArray<SeatSessionObservation>;
 };
 
@@ -110,7 +109,6 @@ export const modelSeedCommands = (name: string, fixture: ModelFixture): Readonly
   return [decodeCommand({ _tag: "CreateCanvas", canvas }), decodeCommand({
     _tag: "Batch", canvas, steps: [
       { _tag: "Add", canvas, nodes: fixture.nodes, wires: fixture.wires },
-      ...Object.entries(fixture.sheets ?? {}).map(([id, grid]) => ({ _tag: "WriteSheet", canvas, id, grid })),
     ],
   })];
 };
@@ -136,7 +134,6 @@ export const installModelFixture = async (page: Page, fixture: ModelFixture, fal
   await commandModel(page, { _tag: "Batch", canvas: name, steps: [
     ...(current.nodes.length ? [{ _tag: "Remove", canvas: name, nodes: current.nodes.map((node) => node.id), wires: [] }] : []),
     { _tag: "Add", canvas: name, nodes: fixture.nodes, wires: fixture.wires },
-    ...Object.entries(fixture.sheets ?? {}).map(([id, grid]) => ({ _tag: "WriteSheet", canvas: name, id, grid })),
   ] });
   return name;
 };

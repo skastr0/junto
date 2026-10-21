@@ -27,8 +27,6 @@ describe("a node draft", () => {
       { kind: "requests", ...at },
       { kind: "artifacts", ...at },
       { kind: "board", ...at },
-      { kind: "pad", ...at },
-      { kind: "sheet", ...at },
       { kind: "cron", ...at, host: THIS_MACHINE, expression: "0 9 * * 1" },
       { kind: "relay", ...at, host: THIS_MACHINE },
       { kind: "watcher", ...at, host: THIS_MACHINE },

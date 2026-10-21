@@ -1,6 +1,6 @@
 import { asNodeId, inPaintOrder, regionMembers, regionName, type Canvas, type Node } from "./model";
 import { titleOf as modelTitleOf } from "./model/title";
-import type { BoardGlanceTopic, PadGlance } from "./work-model";
+import type { BoardGlanceTopic } from "./work-model";
 import type { ActorRefResolver } from "./attention";
 import {
   deriveExecutionGraph,
@@ -45,9 +45,7 @@ export type DigestLiveViews = LiveTrustViews & {
   /** Exact current Work rows supplied separately from the spatial model. */
   readonly itemsOf: WorkItemsOf;
   readonly artifactCounts?: ReadonlyMap<string, number>;
-  readonly padGlances?: ReadonlyMap<string, PadGlance>;
   readonly boardGlances?: ReadonlyMap<string, { readonly topics: ReadonlyArray<BoardGlanceTopic>; readonly unread: number }>;
-  readonly sheetSizes?: ReadonlyMap<string, { readonly rows: number; readonly columns: number }>;
   /** Exact resolver compiled from execution references. */
   readonly resolveActorRef: ActorRefResolver;
   /** nodeId → occupancy spectrum. Absent/empty seats surface under design only (I13). */
@@ -225,12 +223,6 @@ export const digestCanvas = (
         const count = live.artifactCounts?.get(node.id);
         if (count !== undefined) entityLines.push(`  artifacts: ${count}`);
       }
-      if (node.kind === "pad") {
-        const pad = live.padGlances?.get(node.id);
-        if (pad) entityLines.push(
-          `  pad: revision=${pad?.revision ?? 0} shapes=${pad?.shapeCount ?? 0} unread=${pad?.unreadPinCount ?? 0}`,
-        );
-      }
       if (node.kind === "board") {
         const board = live.boardGlances?.get(node.id);
         const topics = board?.topics ?? [];
@@ -249,12 +241,6 @@ export const digestCanvas = (
         for (const topic of recent) {
           entityLines.push(`  topic: ${topic.title.replace(/\s+/g, " ").trim()}`);
         }
-      }
-      if (node.kind === "sheet") {
-        const sheet = live.sheetSizes?.get(node.id);
-        if (sheet) entityLines.push(
-          `  sheet: ${sheet.rows} rows x ${sheet.columns} columns`,
-        );
       }
       if (node.kind === "git") {
         const cwd = node.cwd.trim();

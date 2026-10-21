@@ -13,14 +13,14 @@ describe("work sink store", () => {
     let ids = ["06", "05", "04", "03", "02", "01"];
     const off = vi.fn();
     const read = vi.fn(async (query: WorkSinkQuery): Promise<WorkSinkPage> => {
-      if (query.kind === "pad") return { kind: "pad", glance: { revision: 1, shapeCount: 3, unreadPinCount: 0 } };
+      if (query.nodeId === "other") return tasks([]);
       const remaining = ids.filter((id) => query.beforeId === undefined || id < query.beforeId);
       return tasks(remaining.slice(0, 2), remaining.length > 2 ? remaining[1] : undefined);
     });
     const store = createWorkSinkStore(() => ({ workSinkPage: read, onWorkSinkChanged: (listener) => { notify = listener; return off; } }));
     const query = { canvasName: "factory", nodeId: "tasks", kind: "task" } as const;
     const releaseTask = store.retain(query);
-    const releasePad = store.retain({ ...query, nodeId: "pad", kind: "pad" });
+    const releaseOther = store.retain({ ...query, nodeId: "other" });
     await flush();
     await store.loadMore(query);
     ids = ["08", "07", ...ids];
@@ -29,11 +29,11 @@ describe("work sink store", () => {
     await flush();
     expect(read.mock.calls.map(([query]) => [query.nodeId, query.beforeId])).toEqual([["tasks", undefined], ["tasks", "07"]]);
     expect(store.state(query).page.peek()).toEqual(tasks(["08", "07", "06", "05"], "05"));
-    releaseTask(); releasePad();
+    releaseTask(); releaseOther();
     expect(off).toHaveBeenCalledOnce();
   });
   it("refuses a different kind returned for the requested sink", async () => {
-    const store = createWorkSinkStore(() => ({ workSinkPage: async () => ({ kind: "pad" }), onWorkSinkChanged: () => () => {} }));
+    const store = createWorkSinkStore(() => ({ workSinkPage: async () => ({ kind: "board", items: [] }), onWorkSinkChanged: () => () => {} }));
     const query = { canvasName: "factory", nodeId: "tasks", kind: "task" } as const;
     const release = store.retain(query);
     await flush();

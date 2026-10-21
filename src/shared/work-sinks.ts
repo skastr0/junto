@@ -1,9 +1,9 @@
 import { Schema } from "effect";
 import { ActorSeatId } from "./actor-seat";
-import { Task, Artifact, BoardGlanceTopic, PadGlance } from "./work-model";
+import { Task, Artifact, BoardGlanceTopic } from "./work-model";
 
 export const WORK_SINK_PAGE_SIZE = 50;
-export const WorkSinkKind = Schema.Literals(["task", "requests", "artifacts", "board", "pad"]);
+export const WorkSinkKind = Schema.Literals(["task", "requests", "artifacts", "board"]);
 export type WorkSinkKind = typeof WorkSinkKind.Type;
 export const WorkSinkQuery = Schema.Struct({
   canvasName: Schema.NonEmptyString,
@@ -19,7 +19,6 @@ export const WorkSinkPage = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("requests"), items: Schema.Array(Task), ...cursor }),
   Schema.Struct({ kind: Schema.Literal("artifacts"), items: Schema.Array(Artifact), ...cursor }),
   Schema.Struct({ kind: Schema.Literal("board"), items: Schema.Array(BoardGlanceTopic), ...cursor }),
-  Schema.Struct({ kind: Schema.Literal("pad"), glance: Schema.optionalKey(PadGlance) }),
 ]);
 export type WorkSinkPage = typeof WorkSinkPage.Type;
 export const WorkSinkChanged = Schema.Struct({ canvasName: Schema.String, nodeId: Schema.String });

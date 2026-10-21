@@ -54,9 +54,6 @@ export const PortForWorkOp = {
   "board.mark_read": "board.mark_read",
   // Own tags is a board read — reuses list grant (no new capability surface).
   "board.tags": "board.list",
-  "pad.read": "pad.read",
-  "pad.patch": "pad.patch",
-  "sheet.read": "sheet.read",
   "relay.trigger": "relay.trigger",
 } as const satisfies Record<TargetWorkOpName, Port>;
 
@@ -95,9 +92,6 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
   "board.post",
   "board.mark_read",
   "board.tags",
-  "pad.read",
-  "pad.patch",
-  "sheet.read",
   "relay.trigger",
 ];
 
@@ -147,8 +141,6 @@ export const OPS_BY_SINK = {
     "board.mark_read",
     "board.tags",
   ],
-  pad: ["pad.read", "pad.patch"],
-  sheet: ["sheet.read"],
   page: [],
   terminal: [],
 } as const satisfies Record<SinkKind, ReadonlyArray<TargetWorkOpName>>;

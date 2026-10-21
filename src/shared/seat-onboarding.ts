@@ -35,8 +35,6 @@ export type CommandFamily =
   | "reviews"
   | "artifacts"
   | "board"
-  | "pad"
-  | "sheet"
   | "browser";
 
 /** One command a held port allows, written against a target id. */
@@ -167,33 +165,6 @@ export const COMMAND_FAMILIES: Readonly<Record<CommandFamily, FamilySpec>> = {
       { port: "board.create_topic", intent: "create topic", command: (t) => `junto board topic '{"target":"${t}","title":"...","body":"..."}'` },
       { port: "board.post", intent: "post", command: (t) => `junto board post '{"target":"${t}","topicId":"<topicId>","text":"..."}'` },
       { port: "board.mark_read", intent: "mark read", command: (t) => `junto board read '{"target":"${t}","topicId":"<topicId>"}'` },
-    ],
-  },
-  pad: {
-    label: "pad",
-    docsKind: "pad",
-    note: "A patch may upsert shapes, edges and pin posts. Ink and images are refused, and agents never write the canvas.",
-    rows: [
-      { port: "pad.read", intent: "read page", command: (t) => `junto pad read '{"target":"${t}"}'` },
-      { port: "pad.read", intent: "text IR", command: (t) => `junto pad digest '{"target":"${t}"}'` },
-      { port: "pad.read", intent: "picture", command: (t) => `junto pad svg '{"target":"${t}"}'` },
-      { port: "pad.read", intent: "focused item", command: (t) => `junto pad get '{"target":"${t}","id":"<id>"}'` },
-      { port: "pad.read", intent: "look-here crop", command: (t) => `junto pad look-here '{"target":"${t}","pinId":"<pinId>"}'` },
-      { port: "pad.read", intent: "pins tagging you", command: (t) => `junto pad tagged '{"target":"${t}"}'` },
-      {
-        port: "pad.patch",
-        intent: "patch shapes",
-        command: (t) =>
-          `junto pad patch '{"target":"${t}","patches":[{"op":"upsert","layer":"shape","shape":{"id":"box-1","type":"box","x":0,"y":0,"w":80,"h":40,"z":0}}]}'`,
-      },
-    ],
-  },
-  sheet: {
-    label: "sheet",
-    docsKind: "sheet",
-    note: "Read only. If a number in it is wrong, say so; do not fix it.",
-    rows: [
-      { port: "sheet.read", intent: "read the grid", command: (t) => `junto sheet read '{"target":"${t}"}'` },
     ],
   },
   browser: {

@@ -4,7 +4,6 @@ import { ActorSeatId } from "./actor-seat";
 import { Author } from "./author";
 import { InstallationId } from "./installation-id";
 import { CommandQueuedResult, RulingAppliedResult, RulingRefusedResult } from "./command-row";
-import { PadPatch } from "./pad";
 import {
   Artifact,
   BoardPost,
@@ -133,7 +132,6 @@ export const WorkOperation = Schema.Literals(["task.create",
 "delivery.accepted",
 "board.topic.create",
 "board.post.append",
-"pad.patch",
 "command.queued",
 "ruling.applied",
 "ruling.refused",]);
@@ -268,18 +266,6 @@ export const BoardPostAppendResult = Schema.Struct({
 });
 export type BoardPostAppendResult = typeof BoardPostAppendResult.Type;
 
-export const PadPatchResult = Schema.Struct({
-  operation: Schema.Literal("pad.patch"),
-  patchId: BoundedWorkId,
-  patches: Schema.Array(PadPatch).pipe(Schema.check(Schema.isMinLength(1))),
-  author: Author,
-  revision: Schema.Number.pipe(
-    Schema.check(Schema.isInt()),
-    Schema.check(Schema.isGreaterThanOrEqualTo(0)),
-  ),
-});
-export type PadPatchResult = typeof PadPatchResult.Type;
-
 export const WorkResult = Schema.Union([TaskCreateResult,
 TaskMutationResult,
 TaskClaimResult,
@@ -289,7 +275,6 @@ ArtifactPublishResult,
 DeliveryAcceptedResult,
 BoardTopicCreateResult,
 BoardPostAppendResult,
-PadPatchResult,
 CommandQueuedResult,
 RulingAppliedResult,
 RulingRefusedResult,]);
@@ -360,8 +345,6 @@ const itemMatchesResult = (
       return item.kind === "topic" && item.itemId === result.topic.topicId;
     case "board.post.append":
       return item.kind === "post" && item.itemId === result.post.postId;
-    case "pad.patch":
-      return item.kind === "pad" && item.itemId === result.patchId;
     case "command.queued":
       return (
         item.kind === "command" &&
@@ -384,7 +367,6 @@ const noPriorMaterialFact = (operation: WorkOperation): boolean =>
   operation === "delivery.accepted" ||
   operation === "board.topic.create" ||
   operation === "board.post.append" ||
-  operation === "pad.patch" ||
   operation === "command.queued" ||
   operation === "ruling.applied" ||
   operation === "ruling.refused";

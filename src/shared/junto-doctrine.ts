@@ -277,13 +277,6 @@ Use \`"kind":"blocking"\` with concrete nonempty findings when changes are neede
 
 const ARTIFACTS_REFERENCE = `Artifacts never block: ship intermediate and final outputs freely — they do not stop other seats.${TASKS_ENABLED ? ` When completing a task with an artifacts requirement, publish first with task linkage, then complete with \`completionEvidence.artifacts: [{"artifactId":"<id>","nodeId":"<target>"}]\`.` : ""}`;
 
-const PAD_REFERENCE =
-  "With `pad.patch`, agents may upsert shapes, edges, and pin posts. Agent ink or image upserts are refused. Pin mentions must be inbound actor node ids — @ cannot name an unwired agent. Agents never write the canvas.";
-
-const SHEET_REFERENCE = `Grant is \`sheet.read\` via the edge. A sheet is a small operator-authored grid:
-columns, rows, and plain text cells, returned as JSON plus a markdown table.
-There is no write port — if a number in it is wrong, say so, do not fix it.`;
-
 const BROWSER_REFERENCE = `\`browser.automate\` is a live edge grant realized by \`junto browser\` from
 the managed agent's existing shell. Existing sessions may use it immediately
 after an edge appears — re-run \`junto capabilities\` for the current command.`;
@@ -304,10 +297,6 @@ const referenceFor = (group: CommandGroup): string => {
       return ARTIFACTS_REFERENCE;
     case "board":
       return COMMAND_FAMILIES.board.note;
-    case "pad":
-      return PAD_REFERENCE;
-    case "sheet":
-      return SHEET_REFERENCE;
     case "browser":
       return BROWSER_REFERENCE;
   }

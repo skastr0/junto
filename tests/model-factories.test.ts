@@ -7,9 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   ARTIFACTS_ENABLED,
   BOARD_ENABLED,
-  PAD_ENABLED,
   REQUESTS_ENABLED,
-  SHEET_ENABLED,
   TASKS_ENABLED,
 } from "../src/shared/features";
 import { asCanvasName, decodeCommand, type Node } from "../src/shared/model";
@@ -23,13 +21,11 @@ import {
   newImage,
   newLabel,
   newNote,
-  newPad,
   newPage,
   newRegion,
   newRelay,
   newRequests,
   newSeat,
-  newSheet,
   newTaskBoard,
   newTerminal,
 } from "../src/renderer/lib/model-factories";
@@ -57,8 +53,6 @@ describe("new nodes", () => {
     ...on(REQUESTS_ENABLED, "requests", () => newRequests(spot)),
     ...on(ARTIFACTS_ENABLED, "artifacts", () => newArtifacts(spot)),
     ...on(BOARD_ENABLED, "board", () => newBoard(spot)),
-    ...on(PAD_ENABLED, "pad", () => newPad(spot)),
-    ...on(SHEET_ENABLED, "sheet", () => newSheet(spot)),
     ["cron", () => newCron(spot, "studio")],
     ["relay", () => newRelay(spot, "studio")],
   ];

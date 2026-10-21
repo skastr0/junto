@@ -45,8 +45,6 @@ export const KIND_TABLES = {
   requests: "request_boards",
   artifacts: "artifact_boards",
   board: "boards",
-  pad: "pads",
-  sheet: "sheets",
   cron: "crons",
   relay: "relays",
   watcher: "watchers",

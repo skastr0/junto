@@ -21,7 +21,7 @@ import {
   type KindSpec,
 } from "./physics/kinds";
 import { ALL_PORTS, type Port } from "./physics/schema";
-import { Seat, TaskBoard, Requests, Artifacts, Board, Pad, Sheet, Page, Terminal, Cron, Relay, Watcher } from "./model/kinds";
+import { Seat, TaskBoard, Requests, Artifacts, Board, Page, Terminal, Cron, Relay, Watcher } from "./model/kinds";
 import {
   SEAT_DOCTRINE,
   buildDoctrineBody,
@@ -47,9 +47,6 @@ export const PORT_DESCRIPTIONS: Readonly<Record<Port, string>> = {
   "board.create_topic": "Create a board topic (does not notify agents).",
   "board.post": "Post a note under a topic.",
   "board.mark_read": "Mark a topic read without replying.",
-  "pad.read": "Read the connected pad (grant pad.read): revision, IR, digest, SVG; optional pinId adds look-here. Agents never write the canvas.",
-  "pad.patch": "Apply PadPatch (grant pad.patch). Agents may upsert shapes, edges, and pin posts. Agent ink or image upserts are refused. Mentions must be inbound actor node ids.",
-  "sheet.read": "Read the connected sheet (grant sheet.read): columns, rows, and a markdown table. Sheets are operator-authored — agents never write one.",
   "relay.trigger": "Fire a connected scheduler run now.",
 };
 
@@ -102,11 +99,6 @@ const NODE_EVENTS: Readonly<Record<string, readonly string[]>> = {
     "board.topic_created / board.posted / board.mark_read — attention changes",
     "board.wake — topic attention nudges seats (operator IPC only)",
   ],
-  pad: [
-    "pad.read — revision + IR + digest + SVG for a wired seat; optional pinId adds look-here",
-    "pad.patch — applyPatch on the work-plane pad (agents cannot upsert ink or images; mentions must be inbound actors)",
-    "pad.digest / pad.svg / pad.get / pad.look-here / pad.tagged — CLI projections of pad.read",
-  ],
   agent: [
     "msg.append — operator or peer messages land in the seat mailbox",
     "msg.list — own inbox marks listed mail read; sent shows peer readAt",
@@ -126,7 +118,7 @@ const NODE_EVENTS: Readonly<Record<string, readonly string[]>> = {
 
 const SCHEMA_BY_KIND: Readonly<Record<string, Schema.Schema<unknown>>> = {
   task: TaskBoard, requests: Requests, artifacts: Artifacts, board: Board,
-  pad: Pad, sheet: Sheet, agent: Seat, page: Page, terminal: Terminal,
+  agent: Seat, page: Page, terminal: Terminal,
   cron: Cron, timer: Cron, relay: Relay, watcher: Watcher,
 };
 
@@ -135,8 +127,6 @@ const MODEL_NOTE: Readonly<Record<string, string>> = {
   requests: "Requests sink: separately queried items share the Task state machine; resolving a request unblocks the seat.",
   artifacts: "Artifacts sink: separately queried items (Artifact[]) published through the admitted, process-bound path.",
   board: "Board sink: the node holds its authored label; paged Work queries hold topics and posts.",
-  sheet: "Sheet sink: an operator-authored grid (columns + rows of plain text). The grid is stored separately from its node and is read by node id; only operator commands write it.",
-  pad: "Pad sink: work-plane IR. Empty pad is legal. Glance is title + shape count + unread pin count. Working copy is pad.read, not the canvas digest.",
   agent: "Actor seat: the node holds identity, harness and launch settings. Mail is separately stored and paged per seat; terminal sessions are runtime facts. Identity is the seat credential.",
   page: "Browser surface: admitted page sessions controlled via the browser CLI.",
   terminal: "Terminal resource: PTY session surface.",
@@ -152,8 +142,6 @@ const KIND_NOTE: Readonly<Record<string, string>> = {
   requests: "The operator's request queue. Seats no longer file requests; they raise agent signals (junto escalate, blocked, feedback) instead.",
   artifacts: "The delivery surface: publish outputs; artifacts never block.",
   board: "The bulletin surface: optional shared context, never a decision inbox.",
-  sheet: "A small grid to jot numbers and names beside the work. Read-only to agents; the operator types it.",
-  pad: "The shared page: wired agents read a picture + IR and patch named boxes and pins. They never write the canvas. Agent ink or image upserts are refused. Mentions must be inbound actor node ids.",
   page: "The browser surface (feature-gated): page automation grants.",
   terminal: "A terminal resource sink (v1 access family only).",
   cron: "Time scheduler (feature-gated).",

@@ -679,7 +679,7 @@ describe("overseer region environment and secrets CLI", { timeout: SPAWNING_TEST
   it("prints for node create exactly the kinds main decodes", async () => {
     const shown = await runCli(["overseer", "schema", "show", "node.create"]);
     expect(shown.code).toBe(0);
-    for (const kind of ["agent", "terminal", "page", "task", "requests", "artifacts", "board", "pad", "sheet", "cron", "relay", "watcher", "note", "label", "file", "link", "git", "region"]) {
+    for (const kind of ["agent", "terminal", "page", "task", "requests", "artifacts", "board", "cron", "relay", "watcher", "note", "label", "file", "link", "git", "region"]) {
       expect(shown.stdout).toContain(`"${kind}"`);
     }
     expect(shown.stdout).not.toContain("ether");

@@ -4,7 +4,6 @@ import {
   CanvasName,
   Node,
   NODE_KINDS,
-  SheetGrid,
   type NodeKind,
   type Wire,
 } from "@shared/model";
@@ -53,10 +52,6 @@ const CanvasHeaderRow = Schema.Struct({
 });
 const CanvasNameRow = Schema.Struct({ canvas_name: CanvasName });
 const KindRow = Schema.Struct({ kind: Schema.Literals(NODE_KINDS) });
-const SheetStorageRow = Schema.Struct({
-  columns_json: Schema.String,
-  rows_json: Schema.String,
-});
 
 export class ModelRecords extends Context.Service<ModelRecords>()(
   "@junto/ModelRecords",
@@ -289,32 +284,6 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
           yield* sql`SELECT * FROM wires WHERE canvas_name=${canvas} AND (from_id=${id} OR to_id=${id}) ORDER BY id`;
         return yield* parse("incidentWires", () => rows.map(wireFromRow));
       }, failure("incidentWires"));
-      const readSheet = Effect.fn("ModelRecords.readSheet")(function* (
-        canvas: string,
-        id: string,
-      ) {
-        const result =
-          yield* sql`SELECT columns_json,rows_json FROM sheet_grids WHERE canvas_name=${canvas} AND id=${id}`;
-        const rows = yield* Schema.decodeUnknownEffect(
-          Schema.Array(SheetStorageRow),
-        )(result);
-        if (!rows[0]) return undefined;
-        return yield* parse("readSheet", () =>
-          Schema.decodeUnknownSync(SheetGrid)({
-            columns: JSON.parse(rows[0]!.columns_json),
-            rows: JSON.parse(rows[0]!.rows_json),
-          }),
-        );
-      }, failure("readSheet"));
-      const writeSheet = Effect.fn("ModelRecords.writeSheet")(
-        (canvas: string, id: string, grid: SheetGrid) =>
-          sql`INSERT INTO sheet_grids(canvas_name,id,columns_json,rows_json,updated_at)
-        VALUES (${canvas},${id},${JSON.stringify(grid.columns)},${JSON.stringify(grid.rows)},${new Date().toISOString()})
-        ON CONFLICT(canvas_name,id) DO UPDATE SET columns_json=excluded.columns_json,rows_json=excluded.rows_json,updated_at=excluded.updated_at`.pipe(
-            Effect.asVoid,
-            failure("writeSheet"),
-          ),
-      );
       const createCanvas = Effect.fn("ModelRecords.createCanvas")((
         canvas: string,
         id: string,
@@ -393,8 +362,6 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
         getWire,
         listWires,
         incidentWires,
-        readSheet,
-        writeSheet,
         insertNode,
         updateNode,
         insertWire,

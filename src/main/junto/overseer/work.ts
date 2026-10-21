@@ -13,7 +13,6 @@ import type { Artifact, Part } from "@shared/work-model";
 import type { Canvas } from "@shared/model";
 import { resolveMailboxTarget } from "@shared/mailbox-target";
 import { sortMessagesNewestFirst } from "@shared/message-delivery";
-import { padLookHere, padToFocused } from "@shared/pad-project";
 import { makeUserMessage } from "@shared/task";
 import { mailThreadOf } from "@shared/crew";
 import {
@@ -94,13 +93,6 @@ const WORK_OPERATIONS = new Set<string>([
   "board.mark-read",
   "board.tags",
   "board.notify",
-  "pad.read",
-  "pad.patch",
-  "pad.digest",
-  "pad.render",
-  "pad.look-here",
-  "pad.get",
-  "pad.tagged",
   "content.ingest",
   "content.path",
   "content.stat",
@@ -824,86 +816,6 @@ export const executeOverseerWork = (
         excerptSource: args.topicId ? `notify topic ${args.topicId}` : "notify all",
       });
       return { wakeCount, disposition: "applied" as const };
-    }
-    if (op === "pad.read") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "pad.read");
-      const result = yield* work.workPadRead(canvas, target, args.pinId);
-      return (yield* fromWorkResult(result)).value;
-    }
-    if (op === "pad.digest") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "pad.read");
-      const result = yield* work.workPadRead(canvas, target);
-      const value = (yield* fromWorkResult(result)).value;
-      return { revision: value.revision, digest: value.digest };
-    }
-    if (op === "pad.render") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "pad.read");
-      const result = yield* work.workPadRead(canvas, target);
-      const value = (yield* fromWorkResult(result)).value;
-      return { revision: value.revision, svg: value.svg };
-    }
-    if (op === "pad.look-here") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "pad.read");
-      const result = yield* work.workPadRead(canvas, target, args.pinId);
-      const value = (yield* fromWorkResult(result)).value;
-      const focused =
-        value.lookHere ??
-        (() => {
-          const crop = padLookHere(value.pad, args.pinId);
-          return Result.isSuccess(crop) ? crop.success : undefined;
-        })();
-      if (focused === undefined) {
-        return yield* failBody({
-          type: "InputError",
-          message: `pin "${args.pinId}" is not on this pad`,
-          details: { path: "pinId", retryable: false },
-        });
-      }
-      return { revision: value.revision, pinId: args.pinId, ...focused };
-    }
-    if (op === "pad.get") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "pad.read");
-      const result = yield* work.workPadRead(canvas, target);
-      const value = (yield* fromWorkResult(result)).value;
-      const items = padToFocused(value.pad);
-      if (args.id === undefined) return { revision: value.revision, items };
-      const found = items.filter((item) => item.id === args.id);
-      if (found.length === 0) {
-        return yield* failBody({
-          type: "InputError",
-          message: `element "${args.id}" is not on this pad`,
-          details: { path: "id", retryable: false },
-        });
-      }
-      return { revision: value.revision, items: found };
-    }
-    if (op === "pad.tagged") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "pad.read");
-      const result = yield* work.workPadRead(canvas, target);
-      const value = (yield* fromWorkResult(result)).value;
-      return {
-        revision: value.revision,
-        pins: value.pad.pins.filter((pin) => pin.mentions.includes(actor.nodeId)),
-      };
-    }
-    if (op === "pad.patch") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "pad.patch");
-      const result = yield* work.workPadPatch(canvas, target, args.patches, author, admin);
-      return exposeMutation(yield* fromWorkResult(result));
     }
     if (op === "content.ingest") {
       const args = yield* decodeArgs(op, raw);

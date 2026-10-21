@@ -186,8 +186,7 @@ export const boardTitleFromText = (title: string): string =>
 /**
  * Board node text mirror: the authored title plus recent topic titles for
  * offline glance. The first line is operator-authored identity — the
- * projection and the persistence strip must both preserve it (the Pad
- * pattern). Empty title falls back to the kind name, never a mood word like
+ * projection and the persistence strip must both preserve it. Empty title falls back to the kind name, never a mood word like
  * "quiet" (that leaked into card titles and edge labels).
  */
 export const mirrorBoardText = (
@@ -201,20 +200,6 @@ export const mirrorBoardText = (
     ...topics.slice(0, 4).map((t) => `- ${t.title}`),
   ].join("\n");
 };
-
-/** First line of pad node text is the authorial title. */
-export const padTitleFromText = (title: string): string =>
-  title.trim().split("\n")[0]?.trim() || "pad";
-
-/** Pad node text mirror: title + shape count + unread pin count. */
-export const mirrorPadText = (
-  title: string,
-  glance: {
-    readonly shapeCount: number;
-    readonly unreadPinCount: number;
-  },
-): string =>
-  `${padTitleFromText(title)}\n${glance.shapeCount} shapes, ${glance.unreadPinCount} unread`;
 
 export const countByTaskState = (
   items: ReadonlyArray<Task>,

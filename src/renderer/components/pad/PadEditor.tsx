@@ -21,8 +21,7 @@ import {
 } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { Result } from "effect";
-import { resolvePadInboundActors } from "@shared/board-actors";
-import { useCanvas } from "../../lib/use-model";
+import type { BoardConnectedActor } from "@shared/board-actors";
 import type { ContentRef } from "@shared/content";
 import { contentObjectUrl } from "@shared/content-url";
 import {
@@ -35,7 +34,6 @@ import {
   type PadShape,
   type PadSide,
 } from "@shared/pad";
-import { state$ } from "../../lib/state";
 import { PadPinThread } from "./PadPinThread";
 import {
   anchorPoint,
@@ -60,6 +58,7 @@ import { fileToClipboardImage } from "../../lib/clipboard-image";
 import { putClipboardImage, putImagesFromDataTransfer } from "../../lib/image-content";
 import { IconButton, Kbd } from "../ui";
 import { PadGlyph } from "./PadGlyph";
+import "./pad-editor.css";
 import {
   CAMERA_ZOOM_MAX,
   CAMERA_ZOOM_MIN,
@@ -270,13 +269,14 @@ const PadImageEl = ({
 
 export function PadEditor({
   pad: remotePad,
-  padNodeId,
+  mentionActors,
   onCommit,
   onReadPad,
   onClose,
 }: {
   readonly pad: Pad;
-  readonly padNodeId: string;
+  /** Who a pin may mention; the host decides. */
+  readonly mentionActors: ReadonlyArray<BoardConnectedActor>;
   /** Queued pad write; resolves with the authoritative outcome. */
   readonly onCommit: (patches: ReadonlyArray<PadPatch>) => Promise<PadCommitOutcome>;
   /** Read (and mark pin threads read) through the host's acceptance path. */
@@ -355,9 +355,6 @@ export function PadEditor({
   const theme = use$(themeMode$);
   const pal = useMemo(() => padSvgPalette(theme), [theme]);
   const inkColor = defaultInkColor(theme);
-  const canvasName = use$(state$.canvasName) || "";
-  const canvas = useCanvas(canvasName);
-  const mentionActors = resolvePadInboundActors(canvas, padNodeId);
   const selectedPin = selectedId ? pinById(pad, selectedId) : undefined;
 
   const selected = selectedId
@@ -1300,8 +1297,7 @@ export function PadEditor({
             <PadGlyph className="pad-empty__mark" />
             <strong>Mark the page</strong>
             <span>
-              Draw boxes, drop images, ink, and pin look-here crops. Wired agents
-              read this page and patch structure. They never write the canvas.
+              Draw boxes, drop images, ink, and pin look-here crops.
             </span>
             <div className="pad-empty__keys">
               <span><Kbd>R</Kbd> box</span>

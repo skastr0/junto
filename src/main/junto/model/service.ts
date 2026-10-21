@@ -12,8 +12,6 @@ import {
   inPaintOrder,
   type Canvas,
   type Changed,
-  type SheetChanged,
-  type SheetGrid,
   type CanvasesChanged,
   type Opened,
 } from "@shared/model";
@@ -57,14 +55,10 @@ export class ModelService extends Context.Service<ModelService>()(
       const draftKey = Symbol("ModelService.canvases");
       // Slow subscribers reopen on a seq gap; they cannot stall a commit.
       const changes = yield* PubSub.sliding<Changed>(1024);
-      const sheetChanges = yield* PubSub.sliding<SheetChanged>(256);
       const canvasChanges = yield* PubSub.sliding<CanvasesChanged>(64);
       const listeners = new Set<(event: Changed, current: Canvas) => void>();
       const canvasListeners = new Set<
         (event: CanvasesChanged, current?: Canvas) => void
-      >();
-      const sheetListeners = new Set<
-        (event: SheetChanged, grid: SheetGrid) => void
       >();
       const notify = <A extends ReadonlyArray<unknown>>(
         targets: ReadonlySet<(...args: A) => void>,
@@ -341,8 +335,6 @@ export class ModelService extends Context.Service<ModelService>()(
                 return { seq: replySeq };
               }
               const reseatedBindings = new Set<string>();
-              const sheetUpdates = new Map<Node["id"], SheetGrid>();
-              const writtenSheets = new Set<Node["id"]>();
               const saveNode = Effect.fn("ModelService.saveNode")(function* (
                 node: Node,
                 presentation = false,
@@ -435,7 +427,6 @@ export class ModelService extends Context.Service<ModelService>()(
                         "A seat or terminal already uses this session binding on this canvas.",
                       );
                     }
-                    if (node.kind === "sheet") sheetUpdates.set(node.id, { columns: [], rows: [] });
                     nodesById.set(node.id, node);
                   }
                   for (const wire of step.wires) {
@@ -458,8 +449,6 @@ export class ModelService extends Context.Service<ModelService>()(
                       wiresById.delete(wire.id);
                     }
                     nodesById.delete(id);
-                    sheetUpdates.delete(id);
-                    writtenSheets.delete(id);
                   }
                   break;
                 case "Move":
@@ -524,13 +513,6 @@ export class ModelService extends Context.Service<ModelService>()(
                   yield* saveNode(yield* decodeNode(patch(node, { agentKey: step.agentKey, bindingId: step.bindingId, harness: step.harness, host: step.host, launch: step.launch ?? null, overseer: false })));
                   break;
                 }
-                case "WriteSheet": {
-                  const node = yield* requireNode(step.id);
-                  if (node.kind !== "sheet") return yield* refused("Write a grid only to a sheet.");
-                  sheetUpdates.set(step.id, step.grid);
-                  writtenSheets.add(step.id);
-                  break;
-                }
                 case "Rewire": {
                   const previous = yield* requireWire(step.id);
                   const next = yield* Schema.decodeUnknownEffect(Wire)(
@@ -573,12 +555,6 @@ export class ModelService extends Context.Service<ModelService>()(
               const wires = [...wiresById.values()].filter((wire) => !isDeepStrictEqual(current.wires.get(wire.id), wire));
               const removedNodes = [...current.nodes.keys()].filter((id) => !nodesById.has(id));
               const removedWires = [...current.wires.keys()].filter((id) => !wiresById.has(id));
-              const grids = new Map<Node["id"], SheetGrid>();
-              for (const [id, grid] of sheetUpdates) {
-                if (nodesById.get(id)?.kind !== "sheet") continue;
-                const previous = yield* records.readSheet(command.canvas, id);
-                if (!isDeepStrictEqual(previous, grid)) grids.set(id, grid);
-              }
               const retiredIds = [...removedNodes, ...nodes.filter((node) => {
                 const previous = current.nodes.get(node.id);
                 return previous !== undefined && previous.kind !== node.kind;
@@ -599,14 +575,7 @@ export class ModelService extends Context.Service<ModelService>()(
                 if (current.wires.has(wire.id)) yield* records.updateWire(command.canvas, wire);
                 else yield* records.insertWire(command.canvas, wire);
               }
-              for (const [id, grid] of grids) yield* records.writeSheet(command.canvas, id, grid);
-              const publishSheets = Effect.forEach([...grids].filter(([id]) => writtenSheets.has(id)), ([id, grid]) => afterSqlCommit(sql, () => {
-                const event: SheetChanged = { canvas: command.canvas, id };
-                notify(sheetListeners, event, grid);
-                PubSub.publishUnsafe(sheetChanges, event);
-              }), { discard: true });
-              if (!nodes.length && !wires.length && !removedNodes.length && !removedWires.length && (command._tag !== "Batch" || !grids.size)) {
-                yield* publishSheets;
+              if (!nodes.length && !wires.length && !removedNodes.length && !removedWires.length) {
                 return { seq: current.seq };
               }
               const seq = yield* records.advanceSeq(command.canvas);
@@ -625,7 +594,6 @@ export class ModelService extends Context.Service<ModelService>()(
                 );
               yield* stage(command.canvas, followed.canvas);
               yield* publishChange(event, current);
-              yield* publishSheets;
               return { seq };
             }),
           )
@@ -658,14 +626,6 @@ export class ModelService extends Context.Service<ModelService>()(
             canvasListeners.delete(listener);
           };
         },
-        subscribeSheetChanges: (
-          listener: (event: SheetChanged, grid: SheetGrid) => void,
-        ) => {
-          sheetListeners.add(listener);
-          return () => {
-            sheetListeners.delete(listener);
-          };
-        },
         canvas,
         open,
         command,
@@ -673,8 +633,6 @@ export class ModelService extends Context.Service<ModelService>()(
         listCanvases: records.listCanvases,
         listCanvasSummaries: records.listCanvasSummaries,
         ensureSeed,
-        readSheet: records.readSheet,
-        sheetChanges: Stream.fromPubSub(sheetChanges),
         changes: Stream.fromPubSub(changes),
         canvasesChanges: Stream.fromPubSub(canvasChanges),
       };

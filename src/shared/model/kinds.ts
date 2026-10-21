@@ -8,8 +8,8 @@ import { Region } from "./region";
 // Every kind of thing that can sit on a canvas, each with exactly the fields
 // it has. The `kind` word is the one the rest of the app already uses for it.
 //
-// Nothing here is live work. Mail, tasks, requests, artifacts, board posts and
-// pad shapes are rows of their own, read by the id of the thing they belong
+// Nothing here is live work. Mail, tasks, requests, artifacts, and board
+// posts are rows of their own, read by the id of the thing they belong
 // to, and never ride along on it.
 
 const NonEmpty = Schema.String.pipe(Schema.check(Schema.isMinLength(1)));
@@ -147,26 +147,6 @@ export const Board = Schema.Struct({
 });
 export type Board = typeof Board.Type;
 
-/** A drawing pad. Its shapes are work rows keyed by this id. */
-export const Pad = Schema.Struct({
-  kind: Schema.Literal("pad"),
-  ...placement,
-  label: Schema.optionalKey(OneLine),
-});
-export type Pad = typeof Pad.Type;
-
-/**
- * A small grid the operator types and agents read. The grid itself is content
- * of its own, read by this id (see sheet.ts), so moving or renaming the sheet
- * never carries its rows.
- */
-export const Sheet = Schema.Struct({
-  kind: Schema.Literal("sheet"),
-  ...placement,
-  label: Schema.optionalKey(OneLine),
-});
-export type Sheet = typeof Sheet.Type;
-
 // ── Things that fire on their own ───────────────────────────────────────────
 //
 // Each fires on one machine, its `host`, the same as a seat runs on one.
@@ -263,8 +243,6 @@ export const Node = Schema.Union([
   Requests,
   Artifacts,
   Board,
-  Pad,
-  Sheet,
   Cron,
   Relay,
   Watcher,
@@ -288,8 +266,6 @@ export const NODE_KINDS = [
   "requests",
   "artifacts",
   "board",
-  "pad",
-  "sheet",
   "cron",
   "relay",
   "watcher",

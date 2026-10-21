@@ -138,18 +138,6 @@ export const NodeContracts: {
     // action.
     inputs: [],
   },
-  pad: {
-    kind: "pad",
-    ports: portsOf("pad"),
-    events: [],
-    inputs: [],
-  },
-  sheet: {
-    kind: "sheet",
-    ports: portsOf("sheet"),
-    events: [],
-    inputs: [],
-  },
   page: {
     kind: "page",
     ports: portsOf("page"),

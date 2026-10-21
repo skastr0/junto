@@ -3,7 +3,7 @@ import { Effect, Fiber, Schema, Stream } from "effect";
 import { Reactivity } from "effect/unstable/reactivity";
 import { SqlClient } from "effect/unstable/sql";
 import { expect, it } from "vitest";
-import { Changed, Command, type SheetChanged } from "../src/shared/model";
+import { Changed, Command } from "../src/shared/model";
 import { nodeFromRow } from "../src/main/junto/model/rows";
 import { ModelDependents } from "../src/main/junto/model/dependents";
 import { ModelService } from "../src/main/junto/model/service";
@@ -250,55 +250,13 @@ it("validates wire grammar, forbids cycles, and removes incident wires atomicall
     }),
   ));
 
-it("keeps a sheet grid off Opened and placement events and admits seat authority by source", () =>
+it("admits seat authority by source", () =>
   run((model) =>
     Effect.gen(function* () {
-      const sheets: SheetChanged[] = [];
-      const subscriber = yield* model.sheetChanges.pipe(
-        Stream.runForEach((event) =>
-          Effect.sync(() => {
-            sheets.push(event);
-          }),
-        ),
-        Effect.forkChild,
-      );
-      yield* Effect.yieldNow;
       yield* model.command(
-        decode({
-          _tag: "Add",
-          canvas: "factory",
-          nodes: [seat, node("sheet", "sheet")],
-          wires: [],
-        }),
+        decode({ _tag: "Add", canvas: "factory", nodes: [seat], wires: [] }),
         "operator",
       );
-      const grid = {
-        columns: [{ id: "c", name: "Value" }],
-        rows: [{ id: "r", cells: { c: "123" } }],
-      };
-      yield* model.command(
-        decode({ _tag: "WriteSheet", canvas: "factory", id: "sheet", grid }),
-        "operator",
-      );
-      yield* Effect.yieldNow;
-      expect(sheets).toEqual([{ canvas: "factory", id: "sheet" }]);
-      expect(yield* model.readSheet("factory", "sheet")).toEqual(grid);
-      expect(
-        (yield* model.open("factory")).nodes.find(
-          (node) => node.kind === "sheet",
-        ),
-      ).not.toHaveProperty("rows");
-      yield* model.command(
-        decode({
-          _tag: "Move",
-          canvas: "factory",
-          moves: [
-            { id: "sheet", x: 10, y: 20, size: { width: 300, height: 100 } },
-          ],
-        }),
-        "operator",
-      );
-      expect(yield* model.readSheet("factory", "sheet")).toEqual(grid);
       expect(
         (yield* model
           .command(
@@ -323,7 +281,6 @@ it("keeps a sheet grid off Opened and placement events and admits seat authority
       );
       expect(() => decode({ _tag: "RecordSession", canvas: "factory", id: "seat", sessionId: "known" })).toThrow();
       expect((yield* model.open("factory")).nodes.find(node => node.kind === "agent")).toMatchObject({ overseer: true });
-      yield* Fiber.interrupt(subscriber);
     }),
   ));
 
@@ -636,21 +593,15 @@ it("reseats a node without changing its wires and clears its launch", () => run(
 
 it("applies a batch once, emits only its final rows and rolls back every failed step", () => run((model, sql, db) => Effect.gen(function* () {
   const events: Changed[] = [];
-  const sheets: SheetChanged[] = [];
   const stop = model.subscribeChanges((event) => events.push(event));
-  const stopSheets = model.subscribeSheetChanges((event) => sheets.push(event));
-  const add = { _tag: "Add", canvas: "factory", nodes: [node("a"), node("grid", "sheet")], wires: [] };
+  const add = { _tag: "Add", canvas: "factory", nodes: [node("a"), node("b")], wires: [] };
   const move = { _tag: "Move", canvas: "factory", moves: [{ id: "a", x: 100, y: 20, z: 99 }] };
   const edit = { _tag: "Edit", canvas: "factory", id: "a", change: { kind: "note", text: "after" } };
-  const grid = { columns: [{ id: "c", name: "V" }], rows: [{ id: "r", cells: { c: "value" } }] };
-  const write = { _tag: "WriteSheet", canvas: "factory", id: "grid", grid };
-  const batch = decode({ _tag: "Batch", canvas: "factory", steps: [add, move, edit, write] });
+  const batch = decode({ _tag: "Batch", canvas: "factory", steps: [add, move, edit] });
   expect(yield* model.command(batch, "operator")).toEqual({ seq: 1 });
   expect(events).toHaveLength(1);
   expect(events[0].nodes).toHaveLength(2);
   expect(events[0].nodes.find(({ id }) => id === "a")).toMatchObject({ x: 100, text: "after", z: 99 });
-  expect(sheets).toEqual([{ canvas: "factory", id: "grid" }]);
-  expect(yield* model.readSheet("factory", "grid")).toEqual(grid);
   const before = db.prepare("SELECT * FROM notes").all();
   const bad = decode({ _tag: "Batch", canvas: "factory", steps: [{ ...edit, change: { kind: "note", text: "must roll back" } }, { ...edit, id: "missing" }] });
   expect((yield* model.command(bad, "operator").pipe(Effect.result))._tag).toBe("Failure");
@@ -664,7 +615,7 @@ it("applies a batch once, emits only its final rows and rolls back every failed 
   })).pipe(Effect.result))._tag).toBe("Failure");
   expect(db.prepare("SELECT * FROM notes").all()).toEqual(before);
   expect(events).toHaveLength(1);
-  stop(); stopSheets();
+  stop();
 })));
 
 it("refuses authority and canvas operations inside batches and keeps cancelling steps inert", () => run((model, _sql, db) => Effect.gen(function* () {

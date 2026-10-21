@@ -21,7 +21,6 @@ import {
   RegionDefaults,
   RegionEnvironment,
 } from "./region";
-import { SheetGrid } from "./sheet";
 import { Wire, WireId } from "./wire";
 
 // How anything on a canvas is changed: by saying what should change. A command
@@ -72,8 +71,6 @@ export const NodeEdit = Schema.Union([
   edit("requests", { name: setOrClear(OneLine) }),
   edit("artifacts", { label }),
   edit("board", { label }),
-  edit("pad", { label }),
-  edit("sheet", { label }),
   edit("cron", { label, host: set(HostId), expression: setOrClear(NonEmptyLine) }),
   edit("relay", { label, host: set(HostId) }),
   edit("watcher", {
@@ -162,8 +159,6 @@ const canvasCommandFields = {
   },
   /** Change fields of one node. `change.kind` must be the node's kind. */
   Edit: { canvas: CanvasName, id: NodeId, change: NodeEdit },
-  /** Replace what a sheet holds. */
-  WriteSheet: { canvas: CanvasName, id: NodeId, grid: SheetGrid },
   /** Change what a wire grants or where it attaches. Its ends are fixed. */
   Rewire: { canvas: CanvasName, id: WireId, change: WireEdit },
   /** Change the agent occupying the same node, keeping its wires and mailbox. */

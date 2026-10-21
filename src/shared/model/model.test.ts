@@ -115,10 +115,11 @@ describe("commands", () => {
     expect(Exit.isFailure(add({ ...seat, canvas: "other" }))).toBe(true);
   });
 
-  it("writes a sheet's grid apart from the sheet", () => {
-    const grid = { columns: [{ id: "c1", name: "A" }], rows: [{ id: "r1", cells: { c1: "x" } }] };
-    expect(Exit.isSuccess(decode({ _tag: "WriteSheet", canvas: "factory", id: "n1", grid }))).toBe(true);
-    expect(Exit.isFailure(run(decodeNode({ ...placed, kind: "sheet", ...grid })))).toBe(true);
+  it("has no pad or sheet node: they are artifact bodies now", () => {
+    expect(NODE_KINDS).not.toContain("pad");
+    expect(NODE_KINDS).not.toContain("sheet");
+    expect(Exit.isFailure(run(decodeNode({ ...placed, kind: "sheet" })))).toBe(true);
+    expect(Exit.isFailure(run(decodeNode({ ...placed, kind: "pad" })))).toBe(true);
   });
 
   it("has an edit for each authored kind and none for a read-only peer", () => {
@@ -140,7 +141,6 @@ describe("commands", () => {
       "Reseat",
       "Restack",
       "Rewire",
-      "WriteSheet",
     ]);
   });
 });

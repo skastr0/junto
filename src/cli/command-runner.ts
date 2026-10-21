@@ -2,7 +2,7 @@ import { Command } from "effect/unstable/cli";
 import { Effect, Layer } from "effect";
 import { CLI_NAME, CLI_VERSION } from "./core/constants";
 import { setExitCode, writeCauseEnvelope, writeFailureEnvelope } from "./core/output";
-import { ARTIFACTS_ENABLED, BOARD_ENABLED, BROWSER_ENABLED, PAD_ENABLED, SHEET_ENABLED, TASKS_ENABLED } from "@shared/features";
+import { ARTIFACTS_ENABLED, BOARD_ENABLED, BROWSER_ENABLED, TASKS_ENABLED } from "@shared/features";
 
 type Entry = { readonly name: string; readonly enabled?: boolean; readonly load: () => Promise<Command.Command.Any> };
 const commands: readonly Entry[] = [
@@ -30,8 +30,6 @@ const commands: readonly Entry[] = [
   { name: "content", enabled: TASKS_ENABLED, load: async () => (await import("./commands/content")).contentCommand },
   { name: "docs", load: async () => (await import("./commands/docs")).docsCommand },
   { name: "board", enabled: BOARD_ENABLED, load: async () => (await import("./commands/work")).boardCommand },
-  { name: "pad", enabled: PAD_ENABLED, load: async () => (await import("./commands/pad")).padCommand },
-  { name: "sheet", enabled: SHEET_ENABLED, load: async () => (await import("./commands/sheet")).sheetCommand },
   { name: "artifact", enabled: ARTIFACTS_ENABLED, load: async () => (await import("./commands/work")).artifactCommand },
   { name: "overseer", load: async () => (await import("./commands/overseer")).overseerCommand },
   { name: "automation", load: async () => (await import("./commands/automation")).automationCommand },

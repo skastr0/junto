@@ -8,8 +8,6 @@ import { workProjectionChanges } from "./projection-changes";
 /** Child tables first; historical records and review provenance are retained. */
 const currentTables = [
   "work_board_read_cursors", "work_board_posts", "work_board_topics",
-  "work_pad_read_cursors", "work_pad_posts", "work_pad_pins",
-  "work_pad_images", "work_pad_shapes", "work_pad_edges", "work_pad_inks", "work_pad_meta",
   "work_artifacts", "work_task_dependencies", "work_task_finish",
   "work_task_messages", "work_task_transitions", "work_tasks", "work_requests", "work_messages",
 ] as const;

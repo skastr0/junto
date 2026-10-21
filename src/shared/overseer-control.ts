@@ -6,7 +6,6 @@ import { Color } from "./model/base";
 import { NodeEdit, WireEdit } from "./model/commands";
 import { NodeDraft, SeatDraft, WireDraft } from "./model/drafts";
 import { Seq } from "./model/events";
-import { PadPatch } from "./pad";
 import { OverseerLiveCorrelation } from "./overseer-host-control";
 import { SECRET_ID_PATTERN, secretValueProblem } from "./region-secrets";
 import {
@@ -15,7 +14,6 @@ import {
   SEAT_OFFBOARD_MAX_SEATS,
 } from "./seat-offboard";
 import { OFFBOARD_MODES } from "./seat-sessions";
-import { SheetGrid } from "./model/sheet";
 import {
   CompletionEvidence,
   FinishCriteria,
@@ -101,15 +99,6 @@ export const OVERSEER_OPERATION_NAMES = [
   "board.mark-read",
   "board.tags",
   "board.notify",
-  "pad.read",
-  "pad.patch",
-  "pad.digest",
-  "pad.render",
-  "pad.look-here",
-  "pad.get",
-  "pad.tagged",
-  "sheet.read",
-  "sheet.configure",
   "content.ingest",
   "content.path",
   "content.stat",
@@ -512,26 +501,6 @@ const BoardNotify = Schema.Struct({
   ...SinkTarget,
   topicId: Schema.optionalKey(Id),
 });
-const PadRead = Schema.Struct({
-  ...SinkTarget,
-  pinId: Schema.optionalKey(Id),
-});
-const PadPatchArgs = Schema.Struct({
-  ...SinkTarget,
-  patches: Schema.Array(PadPatch).pipe(Schema.check(Schema.isMinLength(1))),
-});
-const PadPin = Schema.Struct({
-  ...SinkTarget,
-  pinId: Id,
-});
-const PadGet = Schema.Struct({
-  ...SinkTarget,
-  id: Schema.optionalKey(Id),
-});
-const SheetConfigure = Schema.Struct({
-  ...SinkTarget,
-  sheet: SheetGrid,
-});
 const ContentAccess = Schema.Struct({
   ...SinkTarget,
   task: Id,
@@ -797,15 +766,6 @@ export const OverseerArgsSchemas = {
   "board.mark-read": BoardTopic,
   "board.tags": BoardTags,
   "board.notify": BoardNotify,
-  "pad.read": PadRead,
-  "pad.patch": PadPatchArgs,
-  "pad.digest": Schema.Struct(SinkTarget),
-  "pad.render": Schema.Struct(SinkTarget),
-  "pad.look-here": PadPin,
-  "pad.get": PadGet,
-  "pad.tagged": Schema.Struct(SinkTarget),
-  "sheet.read": Schema.Struct(SinkTarget),
-  "sheet.configure": SheetConfigure,
   "content.ingest": ContentIngest,
   "content.path": ContentAccess,
   "content.stat": ContentAccess,
@@ -933,11 +893,6 @@ export const OVERSEER_READ_ONLY_OPERATIONS = [
   "artifact.get",
   "board.list",
   "board.tags",
-  "pad.digest",
-  "pad.render",
-  "pad.get",
-  "pad.tagged",
-  "sheet.read",
   "content.path",
   "content.stat",
   "agent.list",

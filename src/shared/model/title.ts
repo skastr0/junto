@@ -108,8 +108,6 @@ export const titleOf = (node: Node): string => {
     case "terminal":
     case "artifacts":
     case "board":
-    case "pad":
-    case "sheet":
     case "cron":
     case "relay":
     case "watcher":

@@ -34,8 +34,7 @@ import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
 import { ModelService } from "./model/service";
 import { ModelActorRefs } from "./model/actor-refs";
-import { ModelNotFound } from "./model/records";
-import { Command, CanvasName, NodeId, asNodeId } from "@shared/model";
+import { Command, CanvasName, asNodeId } from "@shared/model";
 
 import {
   ARTIFACTS_ENABLED,
@@ -43,7 +42,6 @@ import {
   BROWSER_ENABLED,
   CRON_ENABLED,
   FLEET_UI_ENABLED,
-  PAD_ENABLED,
   RELAY_ENABLED,
   REQUESTS_ENABLED,
   SEAT_AWARENESS_COMPILED,
@@ -176,7 +174,6 @@ import {
   type SeatCollaborationAskResult,
 } from "@shared/seat-collaboration";
 import { ulid } from "ulid";
-import type { PadPatch } from "@shared/pad";
 import type { BoardPost } from "@shared/work-model";
 import type { ActorRef } from "@shared/work-protocol";
 import {
@@ -310,7 +307,6 @@ const resolveRendererActor = (
 export const registerJuntoIpc = (): void => {
   const privilegedIpc = trustedRendererIpc(ipcMain);
   const ModelOpenInput = Schema.Struct({ canvas: CanvasName });
-  const ModelSheetInput = Schema.Struct({ canvas: CanvasName, id: NodeId });
   privilegedIpc.handle(IPC_CHANNELS.modelCanvases, () =>
     AppRuntime.runPromise(Effect.flatMap(ModelService, (model) => model.listCanvasSummaries())),
   );
@@ -330,17 +326,6 @@ export const registerJuntoIpc = (): void => {
     AppRuntime.runPromise(Effect.gen(function* () {
       const query = yield* Schema.decodeUnknownEffect(ModelOpenInput)(input, { onExcessProperty: "error" });
       return yield* (yield* ModelActorRefs).read(query.canvas);
-    })),
-  );
-  privilegedIpc.handle(IPC_CHANNELS.modelSheetRead, (_event, input: unknown) =>
-    AppRuntime.runPromise(Effect.gen(function* () {
-      const query = yield* Schema.decodeUnknownEffect(ModelSheetInput)(input, { onExcessProperty: "error" });
-      const model = yield* ModelService;
-      const node = (yield* model.canvas(query.canvas)).nodes.get(query.id);
-      if (node?.kind !== "sheet") return yield* new ModelNotFound({ what: "sheet", id: query.id });
-      const grid = yield* model.readSheet(query.canvas, query.id);
-      if (!grid) return yield* new ModelNotFound({ what: "sheet grid", id: query.id });
-      return grid;
     })),
   );
 
@@ -1459,62 +1444,11 @@ export const registerJuntoIpc = (): void => {
       ),
   );
 
-  if (PAD_ENABLED) privilegedIpc.handle(
-    IPC_CHANNELS.workPadRead,
-    (_event, canvas: string, nodeId: string, pinId?: string) =>
-      AppRuntime.runPromise(
-        Effect.gen(function* () {
-          const work = yield* WorkService;
-          const result = yield* work.workPadRead(canvas, nodeId, pinId);
-          // Mark read only when the requested pin actually resolved — a
-          // stale pinId degrades to a plain read without acknowledging
-          // anything.
-          if (result.ok && pinId !== undefined && result.data.lookHere !== undefined) {
-            yield* work.workPadMarkRead(
-              canvas,
-              nodeId,
-              pinId,
-              "operator",
-            );
-          }
-          return result;
-        }),
-      ),
-  );
-
-  if (PAD_ENABLED) privilegedIpc.handle(
-    IPC_CHANNELS.workPadPatch,
-    (
-      _event,
-      canvas: string,
-      nodeId: string,
-      patches: ReadonlyArray<PadPatch>,
-    ) =>
-      runRendererWorkAuthoring(
-        "ipc.work.pad-patch",
-        () =>
-          AppRuntime.runPromise(
-            Effect.gen(function* () {
-              const work = yield* WorkService;
-              return yield* work.workPadPatch(
-                canvas,
-                nodeId,
-                patches,
-                { kind: "operator", label: "operator" },
-              );
-            }),
-          ),
-      ),
-  );
-
   AppRuntime.runFork(Effect.flatMap(ModelService, (model) => model.changes.pipe(
     Stream.runForEach((event) => Effect.sync(() => broadcast(IPC_CHANNELS.modelChanged, event))),
   )));
   AppRuntime.runFork(Effect.flatMap(ModelService, (model) => model.canvasesChanges.pipe(
     Stream.runForEach((event) => Effect.sync(() => broadcast(IPC_CHANNELS.modelCanvasesChanged, event))),
-  )));
-  AppRuntime.runFork(Effect.flatMap(ModelService, (model) => model.sheetChanges.pipe(
-    Stream.runForEach((event) => Effect.sync(() => broadcast(IPC_CHANNELS.modelSheetChanged, event))),
   )));
   AppRuntime.runFork(Effect.flatMap(ModelActorRefs, (refs) => refs.changes.pipe(
     Stream.runForEach((event) => Effect.sync(() => broadcast(IPC_CHANNELS.modelActorRefsChanged, event))),

@@ -53,26 +53,6 @@ export const resolveBoardConnectedActors = (
   return [...out.values()].sort((a, b) => a.nodeId.localeCompare(b.nodeId));
 };
 
-/**
- * Pad mention universe: seats with a wire into the pad only. `@` cannot name
- * an unwired or outbound-only seat. Same BoardConnectedActor shape as board
- * tags so tag-notify reuse stays one roster.
- */
-export const resolvePadInboundActors = (
-  canvas: Canvas,
-  padNodeId: string,
-): ReadonlyArray<BoardConnectedActor> => {
-  const pad = padNodeId as NodeId;
-  if (!canvas.nodes.has(pad)) return [];
-  const out = new Map<string, BoardConnectedActor>();
-  for (const wire of wiresAt(canvas, pad)) {
-    if (wire.to !== pad || out.has(wire.from)) continue;
-    const actor = actorAt(canvas, padNodeId, wire.from);
-    if (actor) out.set(wire.from, actor);
-  }
-  return [...out.values()].sort((a, b) => a.nodeId.localeCompare(b.nodeId));
-};
-
 const MAX_TAGS = 16;
 
 /**

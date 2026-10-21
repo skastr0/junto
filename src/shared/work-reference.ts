@@ -64,7 +64,6 @@ export const WorkItemKind = Schema.Literals([
   "delivery",
   "topic",
   "post",
-  "pad",
   "command",
   "ruling",
 ]);

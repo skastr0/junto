@@ -5,14 +5,13 @@ type SinkApi = {
   workSinkPage(query: WorkSinkQuery): Promise<WorkSinkPage>;
   onWorkSinkChanged(listener: (event: WorkSinkChanged) => void): () => void;
 };
-const emptyPage = (kind: WorkSinkKind): WorkSinkPage => kind === "pad" ? { kind } : { kind, items: [] };
-const itemId = (item: Exclude<WorkSinkPage, { kind: "pad" }>["items"][number]) =>
+const emptyPage = (kind: WorkSinkKind): WorkSinkPage => ({ kind, items: [] }) as WorkSinkPage;
+const itemId = (item: WorkSinkPage["items"][number]) =>
   "id" in item ? item.id : "artifactId" in item ? item.artifactId : item.topicId;
 
 const mergePages = (kind: WorkSinkKind, pages: ReadonlyArray<WorkSinkPage>): WorkSinkPage => {
-  if (kind === "pad") return pages.at(-1) ?? emptyPage(kind);
-  const rows = new Map<string, Exclude<WorkSinkPage, { kind: "pad" }>["items"][number]>();
-  for (const page of pages) if (page.kind !== "pad") for (const item of page.items) rows.set(itemId(item), item);
+  const rows = new Map<string, WorkSinkPage["items"][number]>();
+  for (const page of pages) for (const item of page.items) rows.set(itemId(item), item);
   const tail = pages.at(-1);
   const next = tail && "nextBeforeId" in tail ? tail.nextBeforeId : undefined;
   const items = [...rows.values()].sort((a, b) => itemId(a) < itemId(b) ? 1 : itemId(a) > itemId(b) ? -1 : 0);
@@ -84,7 +83,7 @@ export const createWorkSinkStore = (getApi: () => SinkApi | undefined) => {
       const entry = entryFor(query);
       if (entry.flight) await entry.flight;
       const current = entry.state.page.peek();
-      if (current.kind === "pad" || current.nextBeforeId === undefined || entry.users === 0) return;
+      if (current.nextBeforeId === undefined || entry.users === 0) return;
       entry.pages.set(current.nextBeforeId, emptyPage(query.kind));
       await refresh(entry);
     },

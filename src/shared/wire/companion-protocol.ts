@@ -302,8 +302,6 @@ export const COMPANION_CANVAS_NODE_KINDS = [
   "requests",
   "artifacts",
   "board",
-  "pad",
-  "sheet",
   "cron",
   "relay",
   "watcher",

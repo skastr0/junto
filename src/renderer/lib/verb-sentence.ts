@@ -13,8 +13,6 @@ const VERB_SENTENCE = {
   works: "{from} works {to}",
   publishes: "{from} publishes to {to}",
   participates: "{from} takes part in {to}",
-  reads: "{from} reads {to}",
-  edits: "{from} edits {to}",
   navigates: "{from} drives {to}",
   feeds: "{from} feeds {to}",
   fires: "{from} fires {to}",

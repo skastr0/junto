@@ -186,10 +186,10 @@ const edges = Array.from({ length: wires }, (_, i) => {
   return from.id === to.id ? [] : [modelWire(`verify-wire-${String(i + 1).padStart(3, "0")}-${tag}`, from.id, to.id, "messages", nodes)];
 }).flat().concat(layoutEdges);
 
-// --sinks adds one task board, one bulletin board and one pad beside the seats,
+// --sinks adds one task board and one bulletin board beside the seats,
 // for measuring work changes other than mail.
 if (process.argv.includes("--sinks")) {
-  for (const [index, kind] of ["task", "board", "pad"].entries()) {
+  for (const [index, kind] of ["task", "board"].entries()) {
     nodes.push(Schema.decodeUnknownSync(Node)({
       id: `verify-${kind}-${tag}`,
       kind,

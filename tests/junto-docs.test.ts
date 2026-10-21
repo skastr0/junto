@@ -21,7 +21,6 @@ describe("junto docs catalog", () => {
     ["task", ["name", "contract"]],
     ["requests", ["name"]],
     ["board", ["label"]],
-    ["sheet", ["label"]],
     ["page", ["url", "profile", "onRemove"]],
   ] as const)("%s documents its native authored fields", (kind, fields) => {
     // A kind this build's profile gates off has no docs page at all.

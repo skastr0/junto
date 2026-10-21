@@ -9,7 +9,6 @@ import {
   type NodeEditOf,
   type NodeKind,
   type NodeMove,
-  type SheetGrid,
   type Wire,
 } from "@shared/model";
 import { nodeOf, wiresAt, type Canvas } from "@shared/model/canvas";
@@ -77,8 +76,6 @@ export const renamed = (canvas: Canvas, id: string, name: string): Commands => {
     case "terminal":
     case "artifacts":
     case "board":
-    case "pad":
-    case "sheet":
     case "cron":
     case "relay":
     case "watcher":
@@ -384,7 +381,7 @@ export const reanchored = (
   sides: { readonly fromSide?: Side | null; readonly toSide?: Side | null },
 ): Commands => rewired(canvas, id, sides);
 
-// ── Regions, task boards, sheets ────────────────────────────────────────────
+// ── Regions, task boards ──────────────────────────────────────────────────
 
 /**
  * Change what a region says and gives to what is inside it: its hold, the
@@ -397,10 +394,3 @@ export const regionEdited = (canvas: Canvas, id: string, fields: FieldsOf<"regio
 /** Change a task board's name or the contract agents work under. */
 export const taskBoardEdited = (canvas: Canvas, id: string, fields: FieldsOf<"task">): Commands =>
   edited(canvas, id, "task", fields);
-
-/** Replace what a sheet holds. `now` is its grid today, when the caller has it, to skip a write that changes nothing. */
-export const sheetWritten = (canvas: Canvas, id: string, grid: SheetGrid, now?: SheetGrid): Commands => {
-  const sheet = nodeOf(canvas, id as Node["id"], "sheet");
-  if (sheet === undefined || (now !== undefined && same(now, grid))) return NONE;
-  return [{ _tag: "WriteSheet", canvas: canvas.name, id: sheet.id, grid }];
-};

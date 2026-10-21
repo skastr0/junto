@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { digestCanvas, type DigestLiveViews } from "@shared/digest";
-import type { BoardGlanceTopic, PadGlance, Task } from "@shared/work-model";
+import type { BoardGlanceTopic, Task } from "@shared/work-model";
 import { actorRefResolverFromProjection } from "@shared/graph";
 import { withSqlRead } from "../state/sql-read";
 import { WorkRepository } from "../work/repository";
@@ -21,9 +21,7 @@ export const readModelDigest = Effect.fn("ModelDigest.read")(function* (
     const refs = yield* actors.read(name);
     const items = new Map<string, readonly Task[]>();
     const artifactCounts = new Map<string, number>();
-    const padGlances = new Map<string, PadGlance>();
     const boardGlances = new Map<string, { topics: BoardGlanceTopic[]; unread: number }>();
-    const sheetSizes = new Map<string, { rows: number; columns: number }>();
     for (const node of canvas.nodes.values()) {
       switch (node.kind) {
         case "task":
@@ -33,11 +31,6 @@ export const readModelDigest = Effect.fn("ModelDigest.read")(function* (
         case "artifacts":
           artifactCounts.set(node.id, (yield* work.artifactLane(name, node.id)).length);
           break;
-        case "pad": {
-          const page = yield* work.sinkPage({ canvasName: name, nodeId: node.id, kind: "pad" });
-          if (page.kind === "pad" && page.glance) padGlances.set(node.id, page.glance);
-          break;
-        }
         case "board": {
           const topics: BoardGlanceTopic[] = [];
           let beforeId: string | undefined;
@@ -50,14 +43,9 @@ export const readModelDigest = Effect.fn("ModelDigest.read")(function* (
           boardGlances.set(node.id, { topics, unread: topics.reduce((sum, topic) => sum + (topic.unreadPostCount ?? 0), 0) });
           break;
         }
-        case "sheet": {
-          const grid = yield* model.readSheet(name, node.id);
-          if (grid) sheetSizes.set(node.id, { rows: grid.rows.length, columns: grid.columns.length });
-          break;
-        }
       }
     }
-    const live: DigestLiveViews = { resolveActorRef: actorRefResolverFromProjection(refs), itemsOf: (id) => items.get(id) ?? [], artifactCounts, padGlances, boardGlances, sheetSizes };
+    const live: DigestLiveViews = { resolveActorRef: actorRefResolverFromProjection(refs), itemsOf: (id) => items.get(id) ?? [], artifactCounts, boardGlances };
     return digestCanvas(canvas, live);
   }));
 });
