@@ -105,7 +105,7 @@ describe("local per-region rollups", () => {
       h.derive.mockClear();
       h.items.tasks.set([wait]);
       expect(h.byId("left")).toMatchObject({ severity: "blocked", counts: { blocked: 1 } });
-      expect(h.byId("left").members[0]?.reasons).toEqual(["edge:1 need input - approve delivery"]);
+      expect(h.byId("left").members[0]?.reasons).toEqual(["task:needs input - approve delivery"]);
       expect(h.computed()).toEqual(["left"]);
       h.derive.mockClear();
       h.items.unrelated.set([wait]);
