@@ -94,7 +94,7 @@ export const BROWSER_COMMANDS = {
   comment: {
     usage: "comment <sessionId> --box <x,y,w,h> --text <text> [--tab <tab>]",
     category: "workflow",
-    description: `Comment on a box of the page as this seat, with a shot of the box, and return the message and thread ids.${TAB}`,
+    description: `Comment on a box of the page as this seat, with a shot of the box, and return the message and thread ids. Only on the machine that edits the canvas; elsewhere control refuses it as forbidden.${TAB}`,
     schema: CommentRequest,
   },
   close: {
