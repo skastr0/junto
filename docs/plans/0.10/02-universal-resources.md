@@ -190,8 +190,9 @@ unreachable. Written by canvas-lead and remote-lead; points marked
    one LAN round trip is 20 to 150 ms, so 2 s covers a slow ruling without
    making a seat wait on a dead link). With no link open it does not wait.
    It then returns `applied`, `refused` (the typed error) or `queued` with
-   the opId. `queued` is a success. A later `junto task show` or
-   `junto queue list` shows the outcome.
+   the opId. `queued` is a success. `junto op show <opId>` reads the op's
+   state later: queued, applied, or refused with its `WorkErrorBody`
+   (cli-lead).
 
 ### Pending state
 
@@ -210,9 +211,10 @@ unreachable. Written by canvas-lead and remote-lead; points marked
   the editing machine only. Without that rule the editing machine, which
   offers every writer's rows to every peer (`session.ts:273-275`), would
   relay one machine's pending commands to the others.
-- Ids are minted by the writer and never change at ruling: task ids are
-  already ULIDs (`src/main/junto/work/service.ts:213`), and artifact ids and
-  thread ids follow the same pattern. A mention written against a pending
+- Ids are minted by the caller, the CLI process, as the opId is, carried on
+  the create, and kept by the ruling (cli-lead). Task ids are already ULIDs
+  (`src/main/junto/work/service.ts:213`), and artifact ids and thread ids
+  follow the same pattern. A mention written against a pending
   task uses the id link form (03) and stays valid after the task is ruled.
 
 ### What happens only at ruling
@@ -312,13 +314,23 @@ are not trusted and a priority rule would only move the surprise elsewhere.
    patch as a content ref, named in the refusal, so the seat can rebase and
    send it again (remote-lead).
 4. **The seat is told.** For each refused command, and for the root of each
-   chain of refused dependents, the seat's own machine writes one notice to
-   the actor seat in the resource's thread (03), from the ruling fact. That
-   means no new mail author crosses machines. The notice carries the typed
-   error, what changed since the basis (who assigned what, the new epoch or
-   head), the opIds of the refused dependents and a `next_step`.
-   `junto queue list` shows the pending and refused commands of the seat's
-   own machine.
+   chain of refused dependents, the actor seat gets one notice in the
+   resource's thread (03).
+   - **From the refused resource node**, never from the operator, and with
+     no reply command (pty-lead).
+   - **Message id derived from (writer installation, opId)**, so writing it
+     twice is harmless (pty-lead).
+   - **Text:** the command, its `WorkErrorBody`, the state it lost to (who
+     assigned what, the new epoch or head), the opIds of the refused
+     dependents and a `next_step` (pty-lead).
+   - **Written by the seat's own machine** into its own mailbox when its
+     cursor covers the ruling fact, as an ordinary local `message.append`.
+     pty-lead proposed that the editing machine write it and relay it. We
+     keep the local write, because a machine writes mail only for its own
+     seats (`docs/security-doctrine.md:245`), and the ruling fact already
+     reaches every machine. The deterministic id makes the two designs
+     produce the same row, so delivery is unchanged.
+   `junto op show <opId>` reads any refused op.
 5. **Bounded** (remote-lead), as every buffer must be
    (`docs/security-doctrine.md:194-196`):
    - **One row** is at most 64 KiB. Text over that, and every artifact body,
