@@ -74,7 +74,7 @@ const DESCRIPTIONS = {
   start: "Start the task assigned to this seat: assigned becomes working.",
   pause: "Ask for input: working becomes input-required.",
   resume: "Go back to work: input-required becomes working.",
-  finish: "Finish a task: in-review while it waits on stamps, then done, or sent on to the node --next names. --claim answers each rule in force on the node (task rules lists them); a rule left unanswered is refused rules-unmet, and a required check that is not green at this epoch is refused checks-unmet, naming the red and the not run. A task it depends on that is not done refuses it deps-unmet. --handoff leaves a note for whoever picks the work up next; the task keeps it, and the evidence, until changes are asked.",
+  finish: "Finish a task: in-review while it waits on stamps, then done, or sent on to the node --next names. --claim answers each rule in force on the node (task rules lists them); a rule left unanswered is refused rules-unmet, and a required check that is not green at this epoch is refused checks-unmet, naming the red and the not run. A task it depends on that is not done refuses it deps-unmet.",
   check: "Report the checks you ran for this move, each with its exit code: Junto never runs one. task rules lists them with their side, command and status; --outgoing reports this node's, --incoming the next node's, or --results carries them as JSON with each output's tail.",
   cancel: "Cancel a task that is not done.",
   archive: "Archive a done or canceled task.",
@@ -200,16 +200,15 @@ const finishCommand = Command.make(
     artifact: repeated("artifact", "An artifact this work produced, as <node id>/<artifactId>; repeat for several"),
     commit: repeated("commit", "A commit this work landed; repeat for several"),
     claim: repeated("claim", "Answer a rule in force: <ruleId>=<how this work meets it>; repeat for several"),
-    handoff: Flag.string("handoff").pipe(Flag.optional, Flag.withDescription("A note for whoever picks the work up next, up to 4096 characters")),
     opId: opIdFlag,
     timeout: timeoutFlag,
   },
-  ({ task, next, artifact, commit, claim, handoff, opId, timeout }) =>
+  ({ task, next, artifact, commit, claim, opId, timeout }) =>
     executeJsonCommand(
       "task finish",
       Effect.gen(function* () {
         const evidence = yield* evidenceOf({ artifact, commit, claim });
-        return yield* call("task.finish", { opId: yield* opIdOf(opId), task, ...present({ next, handoff }), ...evidence }, timeout);
+        return yield* call("task.finish", { opId: yield* opIdOf(opId), task, ...present({ next }), ...evidence }, timeout);
       }),
     ),
 ).pipe(Command.withDescription(DESCRIPTIONS.finish));
