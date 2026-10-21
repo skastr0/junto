@@ -58,8 +58,14 @@ it (today `metadata.mentions` sits beside plain `@Name`, matched by name,
 
 **Writing from the CLI.** A seat writes `@product-feed` or `#42`; main (not
 the CLI, which is a thin socket client) resolves each on send with the same
-resolver as 01 and rewrites it to the link form, or refuses with the
-candidates it could have meant, in the same refusal shape.
+resolver as 01 and rewrites it to the link form. A token that resolves to
+nothing is sent as plain text, never refused: the receipt carries `unlinked`,
+each such token with the nearest names it could have meant, so a typo shows
+to the sender at once and prose or a quoted command never fails a send. A
+self-mention is plain text too, and not listed. A name several things share
+is still refused with those candidates. Code spans stay text, as before.
+(product-lead ruling, 2026-10-21, after four seats hit the refusal in an hour of
+real use.)
 
 ## 2. Three parts, composed per composer
 

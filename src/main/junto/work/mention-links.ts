@@ -9,6 +9,7 @@ import {
   mentionNodesAt,
   pageMentionCandidates,
   resourceMentionCandidates,
+  type LinkedText,
   type MentionPlace,
 } from "./authz";
 
@@ -19,6 +20,8 @@ import {
  * page. Seats are the place's (wired in mail, in reach of the resource in
  * comments); tasks, artifacts and pages are `mentionNodesAt`. Items are read
  * only when the text has a `#` token, and archived artifacts are not offered.
+ * A token that names nothing here, items this runtime cannot read among
+ * them, stays plain text and is listed in `unlinked`.
  */
 export const linkMentionsAt = (
   doc: Canvas,
@@ -26,7 +29,7 @@ export const linkMentionsAt = (
   writerId: string,
   text: string,
   place: MentionPlace,
-): Effect.Effect<string, WorkErrorBody> =>
+): Effect.Effect<LinkedText, WorkErrorBody> =>
   Effect.gen(function* () {
     const nodes = mentionNodesAt(doc, writerId, place);
     const seats = place.kind === "mail" ? mailMentionCandidates(doc, writerId) : resourceMentionCandidates(doc, place.nodeId);
@@ -34,16 +37,13 @@ export const linkMentionsAt = (
       typedMentionsOf(text).flatMap((token): ReadonlyArray<ResourceKind> =>
         token.kind === "number" ? ["task"] : token.kind === "hash" ? ["task", "artifact"] : []),
     );
-    const read = kinds.size === 0 ? { items: [], missing: new Set<ResourceKind>() } : yield* readItemsOn(canvasName, nodes, kinds);
-    if (read.missing.size > 0) {
-      return yield* Effect.fail<WorkErrorBody>({
-        type: "InputError",
-        message: `${[...read.missing].join(" and ")}s cannot be mentioned in this Junto runtime`,
-        details: { path: "text", reason: "not_available", retryable: false },
-      });
-    }
+    const read = kinds.size === 0 ? { items: [] } : yield* readItemsOn(canvasName, nodes, kinds);
     const items = read.items.filter((item) => item.archived !== true).map(candidateOf);
     return yield* Effect.fromResult(
       linkMentions(doc, canvasName, writerId, text, { seats, pages: pageMentionCandidates(nodes), items }),
     );
   });
+
+/** The receipt's `unlinked` list, present only when a token linked to nothing. */
+export const unlinkedField = (linked: LinkedText): { readonly unlinked?: LinkedText["unlinked"] } =>
+  linked.unlinked.length === 0 ? {} : { unlinked: linked.unlinked };

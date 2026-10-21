@@ -65,7 +65,7 @@ import type { PulledOwner } from "../content/pull";
 import { ArtifactRepository, type ArtifactBodyRead } from "./artifact-repository";
 import { TaskRepository } from "./task-repository";
 import { productDisabledError } from "./authz";
-import { linkMentionsAt } from "./mention-links";
+import { linkMentionsAt, unlinkedField } from "./mention-links";
 import { ARTIFACTS_ENABLED } from "@shared/features";
 import { postSubjectComment, type SubjectCommentContext } from "./subject-comment";
 
@@ -640,9 +640,10 @@ export const commentOnArtifact = (
     }
     // Each mention becomes its link: in reach of the artifact, whoever writes (03).
     const callerId = caller.actor.kind === "seat" ? caller.actor.nodeId : operatorActorRef(caller.canvasName).nodeId;
-    const text = yield* linkMentionsAt(caller.canvas, caller.canvasName, callerId, input.text, { kind: "comments", nodeId: head.artifact.nodeId }).pipe(
+    const linked = yield* linkMentionsAt(caller.canvas, caller.canvasName, callerId, input.text, { kind: "comments", nodeId: head.artifact.nodeId }).pipe(
       Effect.mapError((error): WorkErrorBody => ({ ...error, details: { ...error.details, opId: input.opId } })),
     );
+    const text = linked.text;
     const author = head.artifact.createdBy;
     const posted = yield* ports
       .comment(
@@ -663,5 +664,6 @@ export const commentOnArtifact = (
       threadId: posted.threadId,
       messageId: posted.messageId,
       notified: posted.notified,
+      ...unlinkedField(linked),
     } satisfies ArtifactCommentResult;
   });

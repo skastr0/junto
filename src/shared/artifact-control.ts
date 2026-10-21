@@ -220,4 +220,6 @@ export type ArtifactCommentResult = {
   readonly threadId: string;
   readonly messageId: string;
   readonly notified: ReadonlyArray<string>;
+  /** Each token that linked to nothing and stayed plain text, with the names nearest it. */
+  readonly unlinked?: ReadonlyArray<{ readonly token: string; readonly nearest: ReadonlyArray<string> }>;
 };

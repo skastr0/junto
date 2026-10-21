@@ -365,14 +365,15 @@ describe.runIf(TASKS_ENABLED)("task verbs", () => {
     expect(people).toEqual([[]]);
   });
 
-  it("writes each @name in a comment as its mention link, and refuses a seat out of the task's reach", async () => {
+  it("writes each @name in a comment as its mention link, and keeps a seat out of the task's reach as plain text", async () => {
     commented.length = 0;
     const exit = await run("task.comment", { opId: OP, task: "#42", text: "@beta see `@gamma`" }, portsWith(applied()));
     expect(Exit.isSuccess(exit)).toBe(true);
     const beta = mentionLink({ kind: "seat", nodeId: asNodeId("seat-b") }, "@beta", "factory");
     expect(commented.map((comment) => comment.text)).toEqual([`${beta} see \`@gamma\``]);
-    const refused = failure(await run("task.comment", { opId: OP, task: "#42", text: "@gamma look" }, portsWith(applied())));
-    expect(refused).toMatchObject({ type: "UnknownTarget", details: { path: "text", target: "@gamma", opId: OP } });
+    const kept = await run("task.comment", { opId: OP, task: "#42", text: "@gamma look" }, portsWith(applied()));
+    expect(kept).toMatchObject(Exit.succeed({ unlinked: [{ token: "@gamma" }] }));
+    expect(commented.at(-1)?.text).toBe("@gamma look");
   });
 
   it("lists the task nodes in reach and says when there are more", async () => {

@@ -61,7 +61,7 @@ import { ResourceSubmit } from "./resource-submit";
 import { precheckInput, queuedTaskCommands } from "./queued-commands";
 import { MachineRepository } from "../machines/repository";
 import { productDisabledError } from "./authz";
-import { linkMentionsAt } from "./mention-links";
+import { linkMentionsAt, unlinkedField } from "./mention-links";
 import { TASKS_ENABLED } from "@shared/features";
 import { postSubjectComment, type SubjectCommentContext } from "./subject-comment";
 import { noteResourceChanged, onResourceChanged } from "./resource-changes";
@@ -708,8 +708,8 @@ export const handleTaskOp = (
         return yield* waitTask(caller, ports, input);
       }
       case "task.comment": {
-        const { disposition, opId, taskId, threadId, messageId, notified } = yield* commentOnTask(caller, ports, yield* decode(TASK_ARGS[op], args));
-        return { disposition, opId, taskId, threadId, messageId, notified };
+        const { disposition, opId, taskId, threadId, messageId, notified, unlinked } = yield* commentOnTask(caller, ports, yield* decode(TASK_ARGS[op], args));
+        return { disposition, opId, taskId, threadId, messageId, notified, ...(unlinked === undefined ? {} : { unlinked }) };
       }
       case "task.create": {
         const input = yield* decode(TASK_ARGS[op], args);
@@ -752,9 +752,10 @@ export const commentOnTask = (
     }
     // Each mention becomes its link: in reach of the task, whoever writes (03).
     const callerId = caller.actor.kind === "seat" ? caller.actor.nodeId : operatorActorRef(caller.canvasName).nodeId;
-    const text = yield* linkMentionsAt(caller.canvas, caller.canvasName, callerId, input.text, { kind: "comments", nodeId: task.current.node }).pipe(
+    const linked = yield* linkMentionsAt(caller.canvas, caller.canvasName, callerId, input.text, { kind: "comments", nodeId: task.current.node }).pipe(
       Effect.mapError((error): WorkErrorBody => ({ ...error, details: { ...error.details, opId: input.opId } })),
     );
+    const text = linked.text;
     const sent = yield* ports.comment({
       subject: { kind: "task", nodeId: task.current.node, taskId: task.taskId },
       text,
@@ -771,6 +772,7 @@ export const commentOnTask = (
       threadId: sent.threadId,
       messageId: sent.messageId,
       notified: sent.notified,
+      ...unlinkedField(linked),
     };
   });
 

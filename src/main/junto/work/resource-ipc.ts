@@ -367,7 +367,7 @@ export const listThreads = (
 
 /**
  * The operator's post on a task or an artifact, through the CLI's own comment
- * path for its kind: mentions become links or are refused in words, and the
+ * path for its kind: mentions become links or stay plain text, and the
  * resource's people are told. A comment is written here at once, never
  * queued; a replayed opId is the same row, answered as it first was.
  */

@@ -208,7 +208,7 @@ import {
   resolveWorkTarget,
   summarizeNode,
 } from "./authz";
-import { linkMentionsAt } from "./mention-links";
+import { linkMentionsAt, unlinkedField } from "./mention-links";
 import {
   boardContractOf,
   regionContractOf,
@@ -1810,7 +1810,8 @@ const dispatchOp = (
         if (Result.isFailure(asked)) return yield* Effect.fail(asked.failure);
       }
       // Each mention becomes its link in this seat's mail (03).
-      const text = yield* linkMentionsAt(board, caller.canvasName, caller.nodeId, typed, { kind: "mail" });
+      const linked = yield* linkMentionsAt(board, caller.canvasName, caller.nodeId, typed, { kind: "mail" });
+      const text = linked.text;
       if (decoded.success.threadId !== undefined) {
         const askedThread = decoded.success.threadId.trim();
         // Only a thread this seat can read: its own mailbox, or mail it sent.
@@ -1864,7 +1865,7 @@ const dispatchOp = (
       const delivery = yield* Effect.promise(() =>
         messageDelivery.deliver(caller.canvasName, decoded.success.target, messageId),
       );
-      return { ...exposeWorkMutation(mapped.success), messageId, threadId: threadId ?? messageId, recipient, delivery };
+      return { ...exposeWorkMutation(mapped.success), messageId, threadId: threadId ?? messageId, recipient, delivery, ...unlinkedField(linked) };
     }
 
     if (op === "msg.read") {
@@ -2044,9 +2045,10 @@ const dispatchOp = (
         }
       }
       // Each mention becomes its link: in reach of the subject, or this seat's mail (03).
-      const text = yield* linkMentionsAt(board, caller.canvasName, caller.nodeId, typed, subject === undefined
+      const linked = yield* linkMentionsAt(board, caller.canvasName, caller.nodeId, typed, subject === undefined
         ? { kind: "mail" }
         : { kind: "comments", nodeId: subject.nodeId });
+      const text = linked.text;
       // Mark the parent mail read on own inbox first (idempotent).
       const marked = yield* work.workMessageMarkRead(
         caller.canvasName,
@@ -2078,6 +2080,7 @@ const dispatchOp = (
           inReplyTo,
           recipient: recipientOf(board, subject.nodeId),
           read: exposeWorkMutation(markedMapped.success),
+          ...unlinkedField(linked),
         };
       }
       const thread = replyThreadMetadata(parent);
@@ -2116,6 +2119,7 @@ const dispatchOp = (
         ...thread,
         recipient: toOperator ? OPERATOR_RECIPIENT : recipientOf(board, target),
         read: exposeWorkMutation(markedMapped.success),
+        ...unlinkedField(linked),
       };
     }
 

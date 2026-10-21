@@ -908,12 +908,47 @@ export const pageMentionCandidates = (nodes: ReadonlyArray<Node>): ReadonlyArray
 
 const fold = (text: string): string => text.trim().toLowerCase();
 
+/** Edit distance between two names, by Levenshtein's rule. */
+const distance = (a: string, b: string): number => {
+  let row = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i += 1) {
+    const next = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      next.push(Math.min(row[j]! + 1, next[j - 1]! + 1, row[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1)));
+    }
+    row = next;
+  }
+  return row[b.length]!;
+};
+
+/** A token a text kept as typed, and the names nearest it that it could have meant. */
+export type UnlinkedMention = { readonly token: string; readonly nearest: ReadonlyArray<string> };
+
+/** A text with its mentions linked, and each token that linked to nothing. */
+export type LinkedText = { readonly text: string; readonly unlinked: ReadonlyArray<UnlinkedMention> };
+
+const NEAREST = 3;
+
+/** Up to three of `names` within a typo of `typed`, nearest first. */
+const nearestOf = (typed: string, names: ReadonlyArray<string>): ReadonlyArray<string> => {
+  const wanted = fold(typed);
+  const within = Math.max(2, Math.floor(wanted.length / 2));
+  return [...new Set(names)]
+    .map((name) => ({ name, far: distance(wanted, fold(name)) }))
+    .filter(({ far }) => far <= within)
+    .sort((a, b) => a.far - b.far || a.name.localeCompare(b.name))
+    .slice(0, NEAREST)
+    .map(({ name }) => name);
+};
+
 /**
  * The text with every token rewritten to its mention link (03, "Writing from
  * the CLI"): `@name` a seat or a page, `#42` a task by its number, `#name` a
  * task or an artifact by its title, each among `candidates`. A token nothing
- * matches is refused UnknownTarget, one several match InputError with those
- * candidates, each naming the token.
+ * matches stays plain text and is listed in `unlinked` with the names nearest
+ * it, so prose and quoted commands never fail a send; a self-mention stays
+ * plain text unlisted. A name several match is refused InputError with those
+ * candidates, naming the token.
  */
 export const linkMentions = (
   doc: Canvas,
@@ -921,8 +956,12 @@ export const linkMentions = (
   callerId: string,
   text: string,
   candidates: MentionCandidates,
-): Result.Result<string, WorkErrorBody> =>
-  linkMentionTokens(text, canvasName, (token) => {
+): Result.Result<LinkedText, WorkErrorBody> => {
+  const unlinked: UnlinkedMention[] = [];
+  const writer = findNode(doc, callerId);
+  const isSelf = (name: string): boolean =>
+    fold(name) === "me" || name === callerId || (writer !== undefined && fold(titleOf(writer)) === fold(name));
+  const linked = linkMentionTokens(text, canvasName, (token) => {
     const typed = matchTypedMention(token, {
       at: (at) => `@${at.name}`,
       number: (number) => `#${number.number}`,
@@ -933,30 +972,34 @@ export const linkMentions = (
       message: `${typed}: ${error.message}`,
       details: { ...error.details, path: "text", target: typed, retryable: false },
     });
+    const kept = (nearest: ReadonlyArray<string>): Result.Result<undefined, never> => {
+      unlinked.push({ token: typed, nearest });
+      return Result.succeed(undefined);
+    };
     const tasks = candidates.items.filter((candidate) => candidate.kind === "task");
-    const item = (found: TargetCandidate | undefined): Result.Result<ResolvedName, WorkErrorBody> => {
+    const item = (found: TargetCandidate | undefined): Result.Result<ResolvedName | undefined, WorkErrorBody> => {
       if (found?.itemId === undefined) {
-        return Result.fail(refused(targetRefusal(doc, typed, "none", token.kind === "number", token.kind === "number" ? tasks : candidates.items)));
+        return kept(token.kind === "number"
+          ? nearestOf(String(token.number), tasks.flatMap((task) => (task.number === undefined ? [] : [String(task.number)]))).map((number) => `#${number}`)
+          : nearestOf(token.kind === "hash" ? token.name : typed, candidates.items.map((candidate) => candidate.name)).map((name) => `#${name}`));
       }
       const number = found.number === undefined ? "" : `${found.number} `;
       return Result.succeed(found.kind === "task"
         ? { ref: { kind: "task", nodeId: found.nodeId, taskId: found.itemId }, label: `#${number}${found.name}` }
         : { ref: { kind: "artifact", nodeId: found.nodeId, artifactId: found.itemId }, label: `#${found.name}` });
     };
-    return matchTypedMention<Result.Result<ResolvedName, WorkErrorBody>>(token, {
+    return matchTypedMention<Result.Result<ResolvedName | undefined, WorkErrorBody>>(token, {
       at: ({ name }) => {
+        if (isSelf(name)) return Result.succeed(undefined);
         const named = [...candidates.seats, ...candidates.pages];
+        const nearest = () => nearestOf(name, named.map((candidate) => candidate.name)).map((near) => `@${near}`);
         const resolved = resolveWorkTarget(doc, callerId, name, "msg.send", () => named);
-        if (Result.isFailure(resolved)) return Result.fail(refused(resolved.failure));
+        if (Result.isFailure(resolved)) {
+          return resolved.failure.type === "UnknownTarget" ? kept(nearest()) : Result.fail(refused(resolved.failure));
+        }
         // An id resolves to any node it names; a mention names only a seat or a page it may.
         const found = named.find((candidate) => candidate.nodeId === resolved.success.nodeId);
-        if (found === undefined) {
-          return Result.fail(refused({
-            type: "UnknownTarget",
-            message: `no seat or page you can mention here is ${name}`,
-            details: { candidates: named, next_step: "mention one of these by its name" },
-          }));
-        }
+        if (found === undefined) return kept(nearest());
         return Result.succeed({
           ref: found.kind === "agent" ? { kind: "seat", nodeId: found.nodeId } : { kind: "page", nodeId: found.nodeId },
           label: `@${found.name}`,
@@ -971,6 +1014,8 @@ export const linkMentions = (
       },
     });
   });
+  return Result.map(linked, (linkedText) => ({ text: linkedText, unlinked }));
+};
 
 /** Every node a wire joins to the caller, either way, once each. */
 const wiredNodes = (doc: Canvas, callerId: string): ReadonlyArray<Node> => {

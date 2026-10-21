@@ -124,13 +124,13 @@ export type ResolvedName = { readonly ref: MentionRef; readonly label: string };
 
 /**
  * The text with every token rewritten to its mention link on `canvasName`.
- * Each token is resolved once; the first that does not resolve, in text
- * order, refuses the whole text with its refusal.
+ * Each token is resolved once. A token the resolver leaves (`undefined`)
+ * stays as typed; the first refused, in text order, refuses the whole text.
  */
 export const linkMentionTokens = <E>(
   text: string,
   canvasName: string,
-  resolve: (token: TypedMention) => Result.Result<ResolvedName, E>,
+  resolve: (token: TypedMention) => Result.Result<ResolvedName | undefined, E>,
 ): Result.Result<string, E> => {
   const links = new Map<string, string>();
   let out = "";
@@ -141,7 +141,9 @@ export const linkMentionTokens = <E>(
     if (link === undefined) {
       const resolved = resolve(token);
       if (Result.isFailure(resolved)) return Result.fail(resolved.failure);
-      link = mentionLink(resolved.success.ref, resolved.success.label, canvasName);
+      link = resolved.success === undefined
+        ? text.slice(token.start, token.end)
+        : mentionLink(resolved.success.ref, resolved.success.label, canvasName);
       links.set(key, link);
     }
     out += text.slice(at, token.start) + link;

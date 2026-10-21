@@ -5,6 +5,7 @@ import {
   mentionNodesAt,
   resolveWorkTarget,
   resourceMentionCandidates,
+  type LinkedText,
   type MentionPlace,
 } from "../src/main/junto/work/authz";
 import { ArtifactRepository } from "../src/main/junto/work/artifact-repository";
@@ -107,19 +108,26 @@ describe("linkMentionsAt: @seat", () => {
 
   it("rewrites each @name to its seat's link with the seat's own name, by name or by id", () => {
     expect(linked(canvas, "caller", "@REVIEWER and @peer, not ops@x.dev", MAIL))
-      .toEqual(Result.succeed(`${link("peer", "reviewer")} and ${link("peer", "reviewer")}, not ops@x.dev`));
+      .toEqual(Result.succeed({ text: `${link("peer", "reviewer")} and ${link("peer", "reviewer")}, not ops@x.dev`, unlinked: [] }));
   });
 
-  it("refuses an unknown name UnknownTarget, naming the token and every seat it could mention", () => {
-    expect(Result.getFailure(linked(canvas, "caller", "hi @nobody", MAIL))).toMatchObject({
-      _tag: "Some",
-      value: { type: "UnknownTarget", details: { path: "text", target: "@nobody", candidates: [{ nodeId: "peer", name: "reviewer" }] } },
-    });
+  it("keeps a name that names nothing as plain text, listed with the names nearest it", () => {
+    expect(linked(canvas, "caller", "hi @nobody, and @reviewr", MAIL)).toEqual(Result.succeed({
+      text: "hi @nobody, and @reviewr",
+      unlinked: [{ token: "@nobody", nearest: [] }, { token: "@reviewr", nearest: ["@reviewer"] }],
+    }));
   });
 
-  it("refuses the id of a node that is no seat or page it can mention", () => {
-    const refused = linked(canvas, "caller", "@board-a", { kind: "comments", nodeId: "docs" });
-    expect(Result.isFailure(refused) && refused.failure).toMatchObject({ type: "UnknownTarget", details: { target: "@board-a" } });
+  it("keeps the id of a node that is no seat or page it can mention as plain text", () => {
+    expect(linked(canvas, "caller", "@board-a", { kind: "comments", nodeId: "docs" }))
+      .toMatchObject(Result.succeed({ text: "@board-a", unlinked: [{ token: "@board-a" }] }));
+  });
+
+  it("keeps a self-mention as plain text, unlisted, in mail and in comments", () => {
+    for (const place of [MAIL, { kind: "comments", nodeId: "docs" } as const]) {
+      expect(linked(canvas, "caller", "ask @caller, or run task assign #1 @me", place))
+        .toMatchObject(Result.succeed({ text: "ask @caller, or run task assign #1 @me", unlinked: [{ token: "#1" }] }));
+    }
   });
 
   it("refuses a name two seats share, listing both", () => {
@@ -187,22 +195,21 @@ const linkOf = (ref: MentionRef, label: string) => mentionLink(ref, label, "fact
 const task42 = linkOf({ kind: "task", nodeId: asNodeId("board-1"), taskId: T42 as ItemId }, "#42 fix tabs");
 const notes = linkOf({ kind: "artifact", nodeId: asNodeId("docs-1"), artifactId: NOTES as ItemId }, "#notes");
 const handbook = linkOf({ kind: "page", nodeId: asNodeId("page-1") }, "@handbook.dev");
-const refusal = (result: Result.Result<string, unknown>) => (Result.isFailure(result) ? result.failure : undefined);
+const refusal = (result: Result.Result<LinkedText, unknown>) => (Result.isFailure(result) ? result.failure : undefined);
+/** The tokens a text kept as typed, or undefined when it was refused. */
+const unlinked = (result: Result.Result<LinkedText, unknown>) => (Result.isSuccess(result) ? result.success.unlinked.map((at) => at.token) : undefined);
+const succeeded = (text: string) => Result.succeed({ text, unlinked: [] });
 
 describe("linkMentionsAt: tasks, artifacts and pages in mail, in the writer's reach", () => {
   it("resolves #42, #title and @page in reach to their links, beside @seat", () => {
     const peer = linkOf({ kind: "seat", nodeId: asNodeId("peer") }, "@reviewer");
     expect(linked(nested, "caller", "@reviewer take #42, see #Notes and @handbook.dev", MAIL, stores))
-      .toEqual(Result.succeed(`${peer} take ${task42}, see ${notes} and ${handbook}`));
+      .toEqual(succeeded(`${peer} take ${task42}, see ${notes} and ${handbook}`));
   });
 
-  it("refuses a task, an artifact or a page out of reach, with what it could name", () => {
-    expect(refusal(linked(nested, "caller", "#9", MAIL, stores))).toMatchObject({
-      type: "UnknownTarget",
-      details: { path: "text", target: "#9", candidates: [{ itemId: T42 }, { itemId: T43 }, { itemId: T7 }] },
-    });
-    expect(refusal(linked(nested, "caller", "#far", MAIL, stores))).toMatchObject({ type: "UnknownTarget", details: { target: "#far" } });
-    expect(refusal(linked(nested, "caller", "@far.dev", MAIL, stores))).toMatchObject({ type: "UnknownTarget", details: { target: "@far.dev" } });
+  it("keeps a task, an artifact or a page out of reach as plain text, with the numbers or names nearest it", () => {
+    expect(linked(nested, "caller", "#9", MAIL, stores)).toEqual(Result.succeed({ text: "#9", unlinked: [{ token: "#9", nearest: ["#7", "#42", "#43"] }] }));
+    expect(unlinked(linked(nested, "caller", "#far and @far.dev", MAIL, stores))).toEqual(["#far", "@far.dev"]);
   });
 
   it("refuses a #title a task and an artifact share, listing both", () => {
@@ -213,13 +220,12 @@ describe("linkMentionsAt: tasks, artifacts and pages in mail, in the writer's re
   });
 
   it("does not offer an archived artifact", () => {
-    expect(refusal(linked(nested, "caller", "#old", MAIL, stores))).toMatchObject({ type: "UnknownTarget", details: { target: "#old" } });
+    expect(unlinked(linked(nested, "caller", "#old", MAIL, stores))).toEqual(["#old"]);
   });
 
   it("lets a live overseer name a task on any board, and artifacts and pages only in its reach", () => {
-    expect(linked(nested, "boss", "#42", MAIL, stores)).toEqual(Result.succeed(task42));
-    expect(refusal(linked(nested, "boss", "#notes", MAIL, stores))).toMatchObject({ type: "UnknownTarget" });
-    expect(refusal(linked(nested, "boss", "@handbook.dev", MAIL, stores))).toMatchObject({ type: "UnknownTarget" });
+    expect(linked(nested, "boss", "#42", MAIL, stores)).toEqual(succeeded(task42));
+    expect(unlinked(linked(nested, "boss", "#notes @handbook.dev", MAIL, stores))).toEqual(["#notes", "@handbook.dev"]);
   });
 });
 
@@ -227,18 +233,17 @@ describe("linkMentionsAt: tasks, artifacts and pages in comments, in the resourc
   const onBoard: MentionPlace = { kind: "comments", nodeId: "board-1" };
 
   it("resolves what the resource reaches, itself included, whoever writes", () => {
-    expect(linked(nested, "caller", "#42 and #notes", onBoard, stores)).toEqual(Result.succeed(`${task42} and ${notes}`));
-    expect(linked(nested, "operator", "#42", { kind: "comments", nodeId: "docs-1" }, stores)).toEqual(Result.succeed(task42));
+    expect(linked(nested, "caller", "#42 and #notes", onBoard, stores)).toEqual(succeeded(`${task42} and ${notes}`));
+    expect(linked(nested, "operator", "#42", { kind: "comments", nodeId: "docs-1" }, stores)).toEqual(succeeded(task42));
   });
 
-  it("refuses what the writer reaches and the resource does not", () => {
-    expect(refusal(linked(nested, "caller", "#7", onBoard, stores))).toMatchObject({ type: "UnknownTarget", details: { target: "#7" } });
-    expect(refusal(linked(nested, "caller", "@elsewhere.dev", onBoard, stores))).toMatchObject({ type: "UnknownTarget" });
-    expect(linked(nested, "caller", "#7 and @elsewhere.dev", MAIL, stores)).toSatisfy(Result.isSuccess);
+  it("links only what the resource reaches, not what the writer reaches", () => {
+    expect(unlinked(linked(nested, "caller", "#7 and @elsewhere.dev", onBoard, stores))).toEqual(["#7", "@elsewhere.dev"]);
+    expect(unlinked(linked(nested, "caller", "#7 and @elsewhere.dev", MAIL, stores))).toEqual([]);
   });
 
   it("gives a live overseer no more than the resource reaches", () => {
-    expect(refusal(linked(nested, "boss", "#9", onBoard, stores))).toMatchObject({ type: "UnknownTarget", details: { target: "#9" } });
+    expect(unlinked(linked(nested, "boss", "#9", onBoard, stores))).toEqual(["#9"]);
   });
 });
 

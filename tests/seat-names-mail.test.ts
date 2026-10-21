@@ -290,12 +290,12 @@ describe("an @name in mail text is written as its mention link", () => {
     expect(reply === undefined ? "" : textOf(reply)).toContain(`green, thanks ${leadLink}`);
   });
 
-  it("refuses a seat it is not wired to, naming the token, and sends nothing", async () => {
-    const refused = await call("agent", "msg.send", { target: "cli-lead", text: "ask @solo" });
-    expect(refused.ok).toBe(false);
-    expect(refused.error.type).toBe("UnknownTarget");
-    expect(refused.error.details).toMatchObject({ path: "text", target: "@solo" });
-    expect(await mailbox("lead")).toEqual([]);
+  it("sends a seat it is not wired to as plain text, and the receipt lists the token", async () => {
+    const sent = await call("agent", "msg.send", { target: "cli-lead", text: "ask @solo" });
+    expect(sent.ok, JSON.stringify(sent)).toBe(true);
+    expect(sent.data.unlinked).toEqual([{ token: "@solo", nearest: [] }]);
+    const held = await mailbox("lead");
+    expect(held.map((message) => message.parts.map((part) => (part.kind === "text" ? part.text : "")).join(""))).toEqual(["ask @solo"]);
   });
 
   it("refuses a name two wired seats share, with both candidates", async () => {

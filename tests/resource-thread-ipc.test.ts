@@ -167,14 +167,14 @@ describe("threads on an artifact", () => {
     expect(boxes.get("A")).toHaveLength(1);
   });
 
-  it("links a mention in reach, and refuses one out of reach in words before any row", async () => {
+  it("links a mention in reach, and posts one out of reach as plain text", async () => {
     const { post, list, boxes } = harness();
     const linked = applied(await post(artifactSubject, { opId: EARLY, text: "ask @S" }));
     expect((await list(artifactSubject))[0]!.posts[0]!.text).toContain("](junto://");
     expect(linked.notified).toEqual(["S"]);
-    const refused = await post(artifactSubject, { opId: LATE, text: "ask @FAR" });
-    expect(refused).toMatchObject({ kind: "refused", opId: LATE, error: { message: expect.stringContaining("@FAR") } });
-    expect(boxes.get("A")).toHaveLength(1);
+    applied(await post(artifactSubject, { opId: LATE, text: "ask @FAR" }));
+    expect((await list(artifactSubject)).flatMap((thread) => thread.posts.map((posted) => posted.text))).toContain("ask @FAR");
+    expect(boxes.get("A")).toHaveLength(2);
   });
 
   it("refuses an unknown artifact, one on another node, and an anchor its type does not take", async () => {
@@ -226,12 +226,8 @@ describe("threads on a task", () => {
     });
   });
 
-  it("refuses a mention out of reach in words, an anchor, another thread, and an unknown task, before any row", async () => {
+  it("refuses an anchor, another thread, and an unknown task, before any row", async () => {
     const { post, boxes } = harness();
-    expect(await post(taskSubject, { opId: EARLY, text: "ask @FAR" })).toMatchObject({
-      kind: "refused",
-      error: { message: expect.stringContaining("@FAR") },
-    });
     expect(await post(taskSubject, { opId: EARLY, text: "x", anchor: { kind: "whole" } })).toMatchObject({
       kind: "refused",
       error: { details: { path: "anchor" } },
