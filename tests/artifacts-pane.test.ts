@@ -105,3 +105,13 @@ describe("local artifacts source", () => {
   });
 
 });
+
+describe("file preview", () => {
+  it("reads only Markdown as Markdown, so plain text keeps its lines", async () => {
+    const { isMarkdownFile } = await import("../src/renderer/components/artifacts/ArtifactPreview");
+    expect(isMarkdownFile({ mediaType: "text/plain" })).toBe(false);
+    expect(isMarkdownFile({ mediaType: "text/plain; charset=utf-8", displayName: "notes.txt" })).toBe(false);
+    expect(isMarkdownFile({ mediaType: "text/markdown" })).toBe(true);
+    expect(isMarkdownFile({ mediaType: "text/plain", displayName: "README.md" })).toBe(true);
+  });
+});

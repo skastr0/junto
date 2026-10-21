@@ -39,11 +39,18 @@ export function FilePreview({ body }: { readonly body: FileBody }) {
         </span>
       </div>
       <div className="artifact-preview__media">
-        <ContentMedia contentRef={content} alt={content.displayName ?? "File"} renderMarkdown />
+        <ContentMedia contentRef={content} alt={content.displayName ?? "File"} renderMarkdown={isMarkdownFile(content)} />
       </div>
     </div>
   );
 }
+
+/**
+ * Only Markdown reads as Markdown: plain text keeps its line breaks, which
+ * Markdown would run together.
+ */
+export const isMarkdownFile = (content: { readonly mediaType: string; readonly displayName?: string }): boolean =>
+  /^text\/(?:markdown|x-markdown)\b/iu.test(content.mediaType) || /\.(?:md|markdown)$/iu.test(content.displayName ?? "");
 
 const formatBytes = (bytes: number): string => {
   if (bytes < 1024) return `${bytes} B`;
