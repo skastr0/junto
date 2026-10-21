@@ -406,9 +406,12 @@ machine that runs it.
 
 ## Not carried
 
-Tasks, board, pad, sheet, requests, artifacts, cron and relay are off. They get
-no cross-machine design and no support work here; if one returns it is
-redesigned. The browser is local: a page names no machine, it is on the
+Board, pad, sheet, requests, cron and relay are deleted in 0.10
+([plan 09](plans/0.10/09-deletions.md)): pad and sheet are artifact body
+types, and the Automations node replaces cron and relay. Tasks and artifacts
+reach every machine as universal resources
+([plan 02](plans/0.10/02-universal-resources.md)), not through this section.
+The browser is local: a page names no machine, it is on the
 machine that edits its canvas, and only a seat on that machine automates it.
 No machine offers a browser to another, and the machine's `junto` carries no
 browser commands.

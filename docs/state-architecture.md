@@ -180,15 +180,14 @@ canvas as one value, and no history of whole canvases is kept.
 
 ## Independent ticks
 
-Ticks do not synchronize across machines. Each tick operates only on rows and
-schedulers on its own machine.
+Ticks do not synchronize across machines. Each tick operates only on rows on
+its own machine, and automations run on the machine that edits the canvas.
 
-`everyMinutes` timers use an explicit coalescing catch-up rule: after a delayed
-or sleeping interval, evaluate at most one firing and advance to the latest due
-slot. A newly discovered or restarted timer begins one interval in the future,
-so restart does not create a latent pulse. Junto currently has no
-absolute-time timer kind. Any future timer kind must define its stale and
-catch-up policy in schema and tests before runtime integration.
+An automation schedule uses an explicit coalescing catch-up rule: after a
+delayed or sleeping interval it fires once for its latest missed slot, with
+its conditions rechecked and its limits applied, and records the earlier slots
+as skipped. It never fires in a burst
+([plan 07](plans/0.10/07-automations.md)).
 
 ## Backup and recovery
 
