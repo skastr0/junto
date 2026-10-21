@@ -43,6 +43,17 @@ describe("admitting a pull", () => {
     ]) expect(admitContentPull(request(), facts)).toBe("not-held");
   });
 
+  it("serves a comment's shot only where a row naming it reached the asker; an artifact needs only the link", () => {
+    const shot = { kind: "message", canvasName: "factory" };
+    expect(admitContentPull(request(), { ...held, owners: [{ ...shot, rowEntitled: true }] })).toBeUndefined();
+    expect(admitContentPull(request(), { ...held, owners: [{ ...shot, rowEntitled: false }] })).toBe("not-held");
+    expect(admitContentPull(request(), { ...held, owners: [shot] })).toBe("not-held");
+    expect(admitContentPull(request(), { ...held, owners: [{ kind: "message", canvasName: "other-canvas", rowEntitled: true }] })).toBe("not-held");
+    expect(admitContentPull(request(), { ...held, peerLinked: false, owners: [{ ...shot, rowEntitled: true }] })).toBe("not-held");
+    // An artifact's entitlement is the link, whatever a row says.
+    expect(admitContentPull(request(), { ...held, owners: [{ kind: "artifact", canvasName: "factory", rowEntitled: false }] })).toBeUndefined();
+  });
+
   it("refuses a piece outside the object, and takes the one piece of an empty object", () => {
     expect(admitContentPull(request({ offset: 1000 }), held)).toBe("range");
     expect(admitContentPull(request({ offset: 1001 }), held)).toBe("range");

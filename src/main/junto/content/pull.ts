@@ -29,6 +29,7 @@ import {
   contentPullPieceLength,
   contentPullRefusal,
   contentPullRefused,
+  type ContentPullFacts,
   type PullableOwnerKind,
   type ResourceReached,
 } from "@shared/content-pull";
@@ -64,8 +65,12 @@ export type ContentServeDeps = {
   readonly canvas: (canvasName: string, peer: InstallationId) => Effect.Effect<{ readonly edits: boolean; readonly peerLinked: boolean }, unknown>;
   /** The manifest's word that the object is here and verified, at that length. */
   readonly verified: (ref: Pick<ContentRef, "sha256" | "byteLength">) => Effect.Effect<boolean, unknown>;
-  /** Who holds a ref to the object. */
-  readonly owners: (sha256: string) => Effect.Effect<ReadonlyArray<{ readonly kind: string; readonly canvasName: string }>, unknown>;
+  /**
+   * Who holds a ref to the object, read from this machine's store, never from
+   * the request; an owner entitled by row says whether a row naming these
+   * bytes for it crossed to the asking machine, judged now.
+   */
+  readonly owners: (sha256: string, canvasName: string, peer: InstallationId) => Effect.Effect<ContentPullFacts["owners"], unknown>;
 };
 
 /** The editing machine's half: the link's `content` channel. */
@@ -82,7 +87,7 @@ export const makeContentChannel = (deps: ContentServeDeps): LinkChannelHandler =
     return Effect.gen(function* () {
       const canvas = yield* deps.canvas(request.canvasName, context.peer.installationId);
       const heldVerified = canvas.edits && canvas.peerLinked ? yield* deps.verified(request) : false;
-      const owners = heldVerified ? yield* deps.owners(request.sha256) : [];
+      const owners = heldVerified ? yield* deps.owners(request.sha256, request.canvasName, context.peer.installationId) : [];
       const reason = admitContentPull(request, { ...canvas, heldVerified, owners });
       if (reason !== undefined) return yield* Effect.fail(contentPullRefusal(reason));
       const length = contentPullPieceLength(request.byteLength, request.offset);

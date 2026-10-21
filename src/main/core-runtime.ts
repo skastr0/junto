@@ -47,7 +47,10 @@ import { setLogMachine, withMachineLogger } from "./junto/observability/logger";
 import { MachineLogsNotSetUp, makePeerLogAnswer, receivePeerLogRead } from "./junto/observability/log-link";
 import { readMachineLog } from "./junto/observability/log-file";
 import { MachineLogQuery, MachineLogRead } from "@shared/machine-log";
-import type { ModelService } from "./junto/model/service";
+import { ModelService } from "./junto/model/service";
+import { SqlClient } from "effect/unstable/sql";
+import { shotEntitled } from "./junto/content/shot-entitlement";
+import { OWNER_ENTITLEMENT, isPullableOwnerKind } from "@shared/content-pull";
 import type { ActorSeatOccupy } from "./junto/term/actor-seat-occupy";
 import { startSeat, stopSeat } from "./junto/term/seat-control";
 import { BoatPlane, boatPlaneLayer } from "./junto/boat/plane";
@@ -176,11 +179,24 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
   messageDelivery.followFiles(files.push);
   const store = yield* ContentService;
   const self = yield* machines.installationId;
+  const sql = yield* SqlClient.SqlClient;
+  const model = yield* ModelService;
   const content = makeContentChannel({
     root: store.root,
     canvas: (canvasName, peer) => exchange.placement(canvasName).pipe(Effect.map((placement) => ({ edits: placement?.editor === self, peerLinked: placement?.holds(peer) ?? false }))),
     verified: (ref) => store.heldVerified(ref),
-    owners: (sha256) => store.listRefs(sha256).pipe(Effect.map((rows) => rows.map((row) => ({ kind: row.owner.kind, canvasName: row.owner.canvasName })))),
+    owners: (sha256, canvasName, peer) =>
+      Effect.gen(function* () {
+        const rows = yield* store.listRefs(sha256);
+        const byRow = rows.filter(({ owner }) => isPullableOwnerKind(owner.kind) && OWNER_ENTITLEMENT[owner.kind] === "row" && owner.canvasName === canvasName);
+        const placement = byRow.length === 0 ? undefined : yield* exchange.placement(canvasName);
+        const seats = placement === undefined ? [] : [...(yield* model.canvas(canvasName)).nodes.values()].filter((node) => node.kind === "agent").map((node) => node.id);
+        return yield* Effect.forEach(rows, ({ owner }) =>
+          // An owner entitled by row is judged on its own record, with the placement as it is now.
+          byRow.some((row) => row.owner === owner) && placement !== undefined
+            ? Effect.map(shotEntitled(sql, { owner, sha256, machine: peer, placement, seats }), (rowEntitled) => ({ kind: owner.kind, canvasName: owner.canvasName, rowEntitled }))
+            : Effect.succeed({ kind: owner.kind, canvasName: owner.canvasName }));
+      }),
   });
   const pulls = makeContentPulls();
   const pullBody: MachineCoreRows["Service"]["pullBody"] = ({ ref, owner, reached }) => Effect.gen(function* () {

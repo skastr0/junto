@@ -26,9 +26,23 @@ export const CONTENT_PULL_PIECE_BYTES = 512 * 1024;
 /** Pulls one machine runs at once, well inside the link's 32 requests in flight. */
 export const CONTENT_PULL_MAX_CONCURRENT = 4;
 
-/** The owners whose bodies a peer may pull. Thread attachments add "message". */
-export const PULLABLE_OWNER_KINDS = ["artifact"] as const;
+/** The owners whose bodies a peer may pull: an artifact's body, a page comment's shot. */
+export const PULLABLE_OWNER_KINDS = ["artifact", "message"] as const;
 export type PullableOwnerKind = (typeof PULLABLE_OWNER_KINDS)[number];
+
+/**
+ * What entitles a linked machine to an owner's bytes, by kind. Total, so a
+ * kind made pullable fails tsc until its entitlement is named here.
+ * - `linked`: every machine linked for the canvas holds every resource fact of
+ *   it, digests included (02), so the link is the entitlement.
+ * - `row`: only a row that told the asker of these bytes, and crossed to it by
+ *   the exchange's own rule, entitles it: a comment's shot is served to a
+ *   machine the comment, or a notice of it, reached.
+ */
+export const OWNER_ENTITLEMENT: { readonly [K in PullableOwnerKind]: "linked" | "row" } = {
+  artifact: "linked",
+  message: "row",
+};
 export const isPullableOwnerKind = (kind: string): kind is PullableOwnerKind =>
   (PULLABLE_OWNER_KINDS as ReadonlyArray<string>).includes(kind);
 
@@ -102,14 +116,21 @@ export type ContentPullFacts = {
   readonly peerLinked: boolean;
   /** The object is in this machine's store, verified, at that length. */
   readonly heldVerified: boolean;
-  /** Who holds a ref to the object, by owner kind and canvas. */
-  readonly owners: ReadonlyArray<{ readonly kind: string; readonly canvasName: string }>;
+  /**
+   * Who holds a ref to the object, by owner kind and canvas, as the store
+   * holds them. `rowEntitled` is set for a kind entitled by row: whether a row
+   * naming these bytes for that owner crossed to the asking machine.
+   */
+  readonly owners: ReadonlyArray<{ readonly kind: string; readonly canvasName: string; readonly rowEntitled?: boolean }>;
 };
 
 /** Serve the piece, or the one reason not to. Pure. */
 export const admitContentPull = (request: ContentPullRequest, facts: ContentPullFacts): ContentPullReason | undefined => {
   if (!facts.edits) return "not-editor";
-  const shared = facts.owners.some((owner) => isPullableOwnerKind(owner.kind) && owner.canvasName === request.canvasName);
+  const shared = facts.owners.some((owner) =>
+    isPullableOwnerKind(owner.kind) &&
+    owner.canvasName === request.canvasName &&
+    (OWNER_ENTITLEMENT[owner.kind] === "linked" || owner.rowEntitled === true));
   if (!facts.peerLinked || !facts.heldVerified || !shared) return "not-held";
   const inside = request.byteLength === 0 ? request.offset === 0 : request.offset < request.byteLength;
   return inside ? undefined : "range";

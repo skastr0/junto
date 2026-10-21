@@ -4046,6 +4046,48 @@ const exchangeFactOf = (
   return Result.isSuccess(decoded) ? decoded.success : undefined;
 };
 
+/**
+ * One mail row this machine holds, by its key, as the fact that may cross
+ * machines (for `entitledTo`), with the metadata it was written with and the
+ * machine that wrote it. A primary-key read of `work_messages`.
+ */
+export const heldMailRow = Effect.fn("work.heldMailRow")(function* (
+  reader: SqlClient.SqlClient,
+  key: { readonly canvasName: string; readonly nodeId: string; readonly messageId: string },
+): Effect.fn.Return<
+  { readonly fact: ExchangeFact; readonly writer: string; readonly metadata: Readonly<Record<string, unknown>> | undefined } | undefined,
+  SqlError.SqlError | Schema.SchemaError
+> {
+  const rows = yield* SqlSchema.findAll({
+    Request: Schema.Array(Schema.String),
+    Result: Schema.Struct({ ...ExchangeFactRow.fields, metadata_json: Schema.NullOr(Schema.String) }),
+    execute: (bindings) =>
+      reader.unsafe(
+        `
+          SELECT event.event_home, event.seq, event.item_kind, event.item_id,
+            event.item_canvas_name, event.item_node_id, event.operation,
+            event.content_sha256, event.origin_at, fact.basis_kind,
+            fact.basis_canvas_name, fact.basis_canvas_seq, fact.result_json, mail.metadata_json
+          FROM work_messages AS mail
+          JOIN work_events AS event
+            ON event.event_home = mail.fact_event_home
+            AND event.entity_home = mail.fact_entity_home
+            AND event.seq = mail.fact_seq
+          JOIN work_facts AS fact USING (event_home, entity_home, seq)
+          WHERE mail.canvas_name = ? AND mail.node_id = ? AND mail.message_id = ?
+        `,
+        bindings,
+      ),
+  })([key.canvasName, key.nodeId, key.messageId]);
+  const row = rows[0];
+  if (row === undefined) return undefined;
+  const fact = exchangeFactOf(row);
+  if (fact === undefined) return undefined;
+  const metadata = row.metadata_json === null ? undefined : Option.getOrUndefined(decodeMailMetadata(row.metadata_json));
+  return { fact, writer: row.event_home, metadata };
+});
+const decodeMailMetadata = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)));
+
 /** The node that wrote the mail a receipt answers, when this machine holds that mail. */
 const exchangeMailAuthor = Effect.fn("work.exchangeMailAuthor")(function* (
   reader: SqlClient.SqlClient,
