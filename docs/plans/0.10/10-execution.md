@@ -232,3 +232,20 @@ Every plan, 01 to 09, checked against main cc5ee91c9 item by item. Open work:
 | Stale CLI help (automation, task, publish) | 07, 04 | cli-lead | started |
 | Seat portrait on every seat mention (operator law, AGENTS.md dfa17f23e) | 03 | product-feed, product-typography | started |
 | Canvas node card redesign (operator ask) | UI | product-typography leads; card owners; canvas-window | step 1 |
+
+## Release path (scope frozen 2026-10-21, operator)
+
+Only these land before 0.10: in-flight audit fixes, the operator's redesigns (node cards, seat portraits), release-blocking bugs, release work.
+Deferred to after 0.10: browser driver spike, seat tab open and close, box comments on file images, latest changes on the Artifacts card, page mentioned-in list, comments as ruled thread facts across machines, entity_home collapse and any new table drop.
+
+| Step | Owner | State |
+|---|---|---|
+| Browser hand-back bug (403 after takeover and release) | cli-overseer | fixing |
+| Main all green (run 11: 3 reds routed) | tech-lead, canvas, pty | fixing |
+| Node card redesign: operator pick, then build | product-typography, card owners, canvas-window | mockups |
+| Milestone real-app runs: artifacts (none yet), mentions, browser turn-on | product-verify, product-automation, product-attention | queued |
+| Two-machine run: notices written by recipients | remote-verify | queued |
+| Notes and release checklist | product-releases | drafting |
+| Ship profile switches for tasks, artifacts, browser | operator | asked |
+| Version bump | product-releases on product-lead's word | last |
+
