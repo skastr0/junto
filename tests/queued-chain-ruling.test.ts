@@ -22,6 +22,7 @@ import { RulingRecorder, RulingRecorderLive } from "../src/main/junto/work/rulin
 import { ActorSeatId } from "../src/shared/actor-seat";
 import type { ArtifactOp, ArtifactVersion } from "../src/shared/artifact";
 import type { QueuedCommand } from "../src/shared/command-row";
+import { ARTIFACTS_ENABLED } from "../src/shared/features";
 import { InstallationId } from "../src/shared/installation-id";
 import { asNodeId } from "../src/shared/physics/schema";
 import { mintItemId, mintOpId, type OpId, type ResourceActor, type ResourceCommand } from "../src/shared/resource-command";
@@ -86,7 +87,8 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-it("refuses a queued edit that builds on a refused one, and the operator's version stays the head", async () => {
+// An artifacts-off build refuses every artifact command not_available (da2d6a12b), so there is no chain to rule.
+it.runIf(ARTIFACTS_ENABLED)("refuses a queued edit that builds on a refused one, and the operator's version stays the head", async () => {
   // Before the seat is cut off: version 1, then 2.
   expect((await submitHere(command(operator, { op: "create", title: "Plan", body: { type: "document", markdown: "v1" } } as ArtifactOp))).kind).toBe("applied");
   expect((await submitHere(edit(operator, 1, "v2"))).kind).toBe("applied");
