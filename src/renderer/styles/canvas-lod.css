@@ -90,6 +90,13 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat > .junto-mark {
   transform: scale(var(--seat-s));
 }
+/* The scaled mark is already its own compositor layer, holding the ring and
+   its turning parts, so the card's own layer (styles.css, a card with a
+   turning ring) would only double it: far and overview drop it. The rings
+   keep every frame of their motion. */
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:has(.junto-mark[data-mark-visible] > .junto-mark__part) {
+  transform: none !important;
+}
 /* Wires are read from here, not made: the handles go. Each one sat over a
    turning ring and cost the pan a compositor layer of its own. */
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__handle {

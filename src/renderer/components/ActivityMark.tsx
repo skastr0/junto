@@ -377,11 +377,10 @@ export function ActivityMark({
       {/* The portrait paints under the parts: over them it would cost the
           pan a compositor layer of its own for every turning ring. */}
       {children !== undefined ? <span className="junto-mark__seat">{children}</span> : null}
-      {parts ? <RingPartsView key={tier} parts={parts} /> : null}
-      {/* The badge paints over the parts, so a turning ring gives it a layer
-          of its own: a badge's worth, where the canvas shows badges. */}
-      {over !== undefined ? <span className="junto-mark__over">{over}</span> : null}
-      {crest ? <SeatCrest /> : null}
+      {/* The signal button is a clear hit target (its glyph is in the
+          atlas), so it paints under the parts too: over a turning ring it
+          cost a compositor layer for every seat with a signal. The parts
+          take no pointer events, so a click still lands on it. */}
       {signal && onSignalOpen ? (
         <button
           type="button"
@@ -396,6 +395,11 @@ export function ActivityMark({
           }}
         />
       ) : null}
+      {parts ? <RingPartsView key={tier} parts={parts} /> : null}
+      {/* The badge paints over the parts, so a turning ring gives it a layer
+          of its own: a badge's worth, where the canvas shows badges. */}
+      {over !== undefined ? <span className="junto-mark__over">{over}</span> : null}
+      {crest ? <SeatCrest /> : null}
     </span>
   );
 }

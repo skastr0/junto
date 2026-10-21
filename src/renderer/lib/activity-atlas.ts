@@ -387,7 +387,10 @@ export const markAtlasCss = (): string =>
     `.junto-mark[data-mark-size="glance"]{--mark-u:32px}`,
     // Standalone marks carry a hub: the ring's centre in the state's tone.
     `.junto-mark[data-mark-hub]::before{content:"";position:absolute;inset:33%;border-radius:50%;background:var(--mark-hub)}`,
-    `.junto-mark[data-mark-band]::after{content:"";position:absolute;inset:0;pointer-events:none;background-image:inherit;background-repeat:no-repeat;background-size:inherit;background-position:calc(var(--mark-bcol) * var(--mark-u) * -1) calc(var(--mark-brow) * var(--mark-u) * -1)}`,
+    // The band lies outside the ring, so it paints under the turning parts:
+    // over them it cost every drawn ring a compositor layer. A hub mark has
+    // ::before for its hub, so its band stays ::after.
+    `.junto-mark[data-mark-band]:not([data-mark-hub])::before,.junto-mark[data-mark-band][data-mark-hub]::after{content:"";position:absolute;inset:0;pointer-events:none;background-image:inherit;background-repeat:no-repeat;background-size:inherit;background-position:calc(var(--mark-bcol) * var(--mark-u) * -1) calc(var(--mark-brow) * var(--mark-u) * -1)}`,
     // A portrait sits in the ring's hole, centred.
     `.junto-mark__seat{position:absolute;inset:0;display:grid;place-items:center}`,
     ...motionCss(),
@@ -397,7 +400,7 @@ export const markAtlasCss = (): string =>
     `.junto-mark__crest{position:absolute;left:50%;top:0;width:30%;height:21%;min-width:9px;min-height:6px;transform:translate(-50%,-4%);color:var(--color-indigo);pointer-events:none}`,
     `.junto-mark__crest path{fill:currentColor;stroke:var(--color-ground);stroke-width:1.6px;stroke-linejoin:round;paint-order:stroke}`,
     `.junto-mark__flag{position:absolute;top:0;right:0;width:36%;height:36%;min-width:10px;min-height:10px;padding:0;border:0;border-radius:999px;background:transparent;cursor:pointer}`,
-    `.junto-mark__flag:focus-visible{outline:1px solid var(--color-focus-ring);outline-offset:1px}`,
+    `.junto-mark__flag:focus-visible{outline:1px solid var(--color-focus-ring);outline-offset:1px;z-index:1}`,
   ].join("\n");
 
 const imageRules = (): string => {
