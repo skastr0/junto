@@ -141,7 +141,6 @@ import {
   QUIT_CONFIRM_ACCEPT_INDEX,
 } from "./junto/quit-live-work";
 import { mainAuthoringGate } from "./junto/main-authoring-gate";
-import { postSeatPageBox } from "./junto/work/page-box-comment";
 import {
   installTrustedRendererPermissionPolicy,
   installTrustedRendererProtocol,
@@ -1791,11 +1790,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             home: browserControlHome,
             edgeGrant,
             listCanvasModels,
-            // A seat's box comment, posted as the seat the grant names.
-            postPageBoxComment: (input) =>
-              mainAuthoringGate.run("control.browser.box-comment", () =>
-                AppRuntime.runPromise(postSeatPageBox(composition.sessions, input)),
-              ),
           });
           composition.bindControlShutdown(browserControl);
           registerBrowserIpcHandlers(composition.sessions);
