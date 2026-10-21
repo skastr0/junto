@@ -1,295 +1,261 @@
-// The 0.10 task state machine (plan 04). Pure: no I/O, no clock, no ids
-// minted here. The editing machine rules every write through it; the
-// repository persists what it returns and sends the notices it names.
-//
-// Stand-in: the types under "contract" are a local copy of the shape the
-// canvas task contract (`src/shared/task.ts`, `src/shared/work-model.ts`)
-// declares for 0.10. When the contract lands they are imported from it and
-// this section goes.
+import type { NodeId } from "./model/base";
+import type { DomainVerdict, Refusal, ResourceActor, ResourceCommand, ResourceDomain } from "./resource-command";
+import {
+  ASSIGNEE_ONLY,
+  formatTaskNumber,
+  isClosedTaskState,
+  isOpenTaskState,
+  reachExempt,
+  reviewerKey,
+  seatNodeId,
+  taskNumber,
+  taskRefusal,
+  type Reviewer,
+  type SeatNodeId,
+  type Stamp,
+  type StampPolicy,
+  type TaskActor,
+  type TaskCommand,
+  type TaskCore,
+  type TaskEffect,
+  type TaskId,
+  type TaskNodeId,
+  type TaskNumber,
+  type TaskRefusal,
+  type TaskRefusalDetail,
+  type TaskState,
+} from "./task-model";
 
-// ── contract (stand-in) ────────────────────────────────────────────────────
+// The 0.10 task state machine (plan 04) on the task contract
+// (`task-model.ts`). Pure: no I/O; the clock and the canvas come in through
+// `TaskDomainEnv`. The editing machine rules every write through
+// `taskDomain`; the repository persists the facts it returns and sends the
+// mail their effects name.
 
-declare const brand: unique symbol;
-type Branded<T, B extends string> = T & { readonly [brand]: B };
+// ── state ──────────────────────────────────────────────────────────────────
 
-/** A seat node on the canvas: the one kind of node that holds a task. */
-export type SeatNodeId = Branded<string, "SeatNodeId">;
-/** A task node (a list of tasks) on the canvas. */
-export type TaskNodeId = Branded<string, "TaskNodeId">;
+/** One task as the ruler holds it: its current layer plus what is not per layer. */
+export type TaskRecord = TaskCore & {
+  readonly id: TaskId;
+  readonly number: TaskNumber;
+  readonly title: string;
+  readonly body?: string;
+  readonly dependsOn: ReadonlyArray<TaskId>;
+};
 
-export const seatNodeId = (id: string): SeatNodeId => id as SeatNodeId;
-export const taskNodeId = (id: string): TaskNodeId => id as TaskNodeId;
+/** Every task of one canvas, and the next number the ruler mints. */
+export type TaskBoardState = {
+  readonly tasks: ReadonlyMap<TaskId, TaskRecord>;
+  readonly nextNumber: TaskNumber;
+};
 
-export const TASK_STATES = [
-  "backlog",
-  "assigned",
-  "working",
-  "input-required",
-  "in-review",
-  "done",
-  "canceled",
-  "archived",
-] as const;
-export type TaskState = (typeof TASK_STATES)[number];
+export const emptyTaskBoard = (): TaskBoardState => ({ tasks: new Map(), nextNumber: taskNumber(1)! });
 
-/** States a seat holds: at most one of these per seat across the canvas. */
-export type OpenTaskState = Extract<TaskState, "assigned" | "working" | "input-required" | "in-review">;
-
-/** How many current approvals finishing needs; 0 means none. */
-export type StampPolicy = { readonly required: number };
-
-export type StampVerdict = "approve" | "changes";
-
-export type Stamp = {
-  readonly reviewer: SeatNodeId;
-  readonly verdict: StampVerdict;
-  readonly epoch: number;
-  readonly subjectHash?: string;
-  readonly text?: string;
+/** What the ruler knows besides the tasks when it rules one write. */
+export type TaskDomainEnv = {
+  /** The ruling's time, stamped on stamps. */
   readonly at: number;
-};
-
-/** The part of a task the machine rules over, on its current layer. */
-export type TaskCore = {
-  readonly state: TaskState;
-  /** The task node this layer sits on. */
-  readonly node: TaskNodeId;
-  readonly assignee?: SeatNodeId;
-  readonly epoch: number;
-  readonly stampPolicy: StampPolicy;
-  readonly reviewers: ReadonlyArray<SeatNodeId>;
-  readonly stamps: ReadonlyArray<Stamp>;
-  /** Next node named at finish, held while the task is in review. */
-  readonly next?: TaskNodeId;
-};
-
-// ── states ─────────────────────────────────────────────────────────────────
-
-const OPEN: Readonly<Record<TaskState, boolean>> = {
-  backlog: false,
-  assigned: true,
-  working: true,
-  "input-required": true,
-  "in-review": true,
-  done: false,
-  canceled: false,
-  archived: false,
-};
-
-export const isOpenTaskState = (state: TaskState): state is OpenTaskState => OPEN[state];
-
-/** Done, canceled and archived: no transition but archive leaves them. */
-export const isClosedTaskState = (state: TaskState): boolean =>
-  state === "done" || state === "canceled" || state === "archived";
-
-// ── commands ───────────────────────────────────────────────────────────────
-
-/**
- * Who writes. The operator, and an overseer carrying its authority, needs no
- * reach. A seat carries whether it reaches the task node at the sequence the
- * write is ruled at (01 rule 3); the assignee's own transitions on its task
- * are admitted by the assignment instead (01 rule 6).
- */
-export type TaskActor =
-  | { readonly kind: "operator" }
-  | { readonly kind: "seat"; readonly seat: SeatNodeId; readonly inReach: boolean };
-
-export type TaskCommand =
-  | { readonly kind: "assign"; readonly seat: SeatNodeId }
-  | { readonly kind: "unassign" }
-  | { readonly kind: "start" }
-  | { readonly kind: "pause" }
-  | { readonly kind: "resume" }
-  | { readonly kind: "finish"; readonly next?: TaskNodeId }
-  | { readonly kind: "cancel" }
-  | { readonly kind: "archive" }
-  | { readonly kind: "reviewer-add"; readonly seat: SeatNodeId }
-  | { readonly kind: "reviewer-remove"; readonly seat: SeatNodeId }
-  | { readonly kind: "stamp-policy"; readonly required: number }
-  | {
-    readonly kind: "stamp";
-    readonly verdict: StampVerdict;
-    readonly subjectHash?: string;
-    readonly text?: string;
-  };
-
-export type TaskCommandKind = TaskCommand["kind"];
-
-/** Commands only the assignee writes (04 invariant 3). */
-const ASSIGNEE_ONLY: Readonly<Record<TaskCommandKind, boolean>> = {
-  assign: false,
-  unassign: false,
-  start: true,
-  pause: true,
-  resume: true,
-  finish: true,
-  cancel: false,
-  archive: false,
-  "reviewer-add": false,
-  "reviewer-remove": false,
-  "stamp-policy": false,
-  stamp: false,
-};
-
-/** What the ruler knows about the canvas when it rules one write. */
-export type TaskContext = {
-  readonly taskId: string;
-  readonly at: number;
-  /** The open task a seat holds anywhere on the canvas, if any (invariant 2). */
-  readonly openTaskOf: (seat: SeatNodeId) => string | undefined;
   /** Task nodes this node `flows` into, in wire order. */
-  readonly downstream: ReadonlyArray<TaskNodeId>;
-  /** The stamp default a task node sets for tasks that arrive on it. */
+  readonly downstream: (node: TaskNodeId) => ReadonlyArray<TaskNodeId>;
+  /** The stamp default a task node sets for tasks created on or arriving at it. */
   readonly stampDefaultOf: (node: TaskNodeId) => StampPolicy;
+  /** Region reach (01) of a seat to a task node: who may be a reviewer. */
+  readonly seatReaches: (seat: SeatNodeId, node: TaskNodeId) => boolean;
 };
 
-// ── outcome ────────────────────────────────────────────────────────────────
+/** One ruled write: the task as it stands after it, and what the ruling owes. */
+export type TaskFact = {
+  readonly kind: "task";
+  readonly task: TaskRecord;
+  readonly effects: ReadonlyArray<TaskEffect>;
+};
 
-/** Mail and records the ruling owes, for the repository and delivery to carry out. */
-export type TaskEffect =
-  | { readonly kind: "assignment-notice"; readonly seat: SeatNodeId }
-  | { readonly kind: "stamp-request"; readonly reviewer: SeatNodeId }
-  | { readonly kind: "defect"; readonly epoch: number; readonly by: SeatNodeId; readonly text?: string }
-  | {
-    readonly kind: "sent-on";
-    readonly from: TaskNodeId;
-    readonly to: TaskNodeId;
-    /** The layer that closed, as it stood when it closed. */
-    readonly layer: TaskCore;
-  };
-
-export type TaskRefusal =
-  | { readonly reason: "illegal-transition"; readonly from: TaskState; readonly command: TaskCommandKind }
-  | { readonly reason: "out-of-reach" }
-  | { readonly reason: "not-assignee"; readonly assignee?: SeatNodeId }
-  | { readonly reason: "already-assigned"; readonly assignee: SeatNodeId }
-  | { readonly reason: "seat-busy"; readonly seat: SeatNodeId; readonly taskId: string }
-  | { readonly reason: "not-reviewer"; readonly seat: SeatNodeId }
-  | { readonly reason: "own-task"; readonly seat: SeatNodeId }
-  | { readonly reason: "operator-cannot-stamp" }
-  | { readonly reason: "next-required"; readonly choices: ReadonlyArray<TaskNodeId> }
-  | { readonly reason: "next-not-downstream"; readonly next: TaskNodeId; readonly choices: ReadonlyArray<TaskNodeId> }
-  | { readonly reason: "invalid-policy"; readonly required: number };
-
-export type TaskRuling =
-  | { readonly ok: true; readonly task: TaskCore; readonly effects: ReadonlyArray<TaskEffect> }
+export type TaskRecordRuling =
+  | { readonly ok: true; readonly task: TaskRecord; readonly effects: ReadonlyArray<TaskEffect> }
   | { readonly ok: false; readonly refusal: TaskRefusal };
 
-const refuse = (refusal: TaskRefusal): TaskRuling => ({ ok: false, refusal });
-const rule = (task: TaskCore, effects: ReadonlyArray<TaskEffect> = []): TaskRuling => ({
-  ok: true,
-  task,
-  effects,
-});
-const illegal = (task: TaskCore, command: TaskCommand): TaskRuling =>
-  refuse({ reason: "illegal-transition", from: task.state, command: command.kind });
+const refuse = (detail: TaskRefusalDetail): TaskRecordRuling => ({ ok: false, refusal: taskRefusal(detail) });
 
 // ── stamps ─────────────────────────────────────────────────────────────────
 
 /** Each reviewer's latest stamp at the task's current epoch. */
 export const currentStamps = (task: Pick<TaskCore, "epoch" | "stamps">): ReadonlyArray<Stamp> => {
-  const latest = new Map<SeatNodeId, Stamp>();
+  const latest = new Map<string, Stamp>();
   for (const stamp of task.stamps) {
     if (stamp.epoch !== task.epoch) continue;
-    const held = latest.get(stamp.reviewer);
-    if (held === undefined || held.at <= stamp.at) latest.set(stamp.reviewer, stamp);
+    const key = reviewerKey(stamp.reviewer);
+    const held = latest.get(key);
+    if (held === undefined || held.at <= stamp.at) latest.set(key, stamp);
   }
   return [...latest.values()];
 };
 
-/** Current approvals, counted once per reviewer still on the list. */
+const listed = (reviewers: ReadonlyArray<Reviewer>, reviewer: Reviewer): boolean =>
+  reviewers.some((entry) => reviewerKey(entry) === reviewerKey(reviewer));
+
+/**
+ * Current approvals, once per reviewer: a seat's while it is on the list, the
+ * operator's always (the operator reviews through the feed, listed or not).
+ */
 export const currentApprovals = (task: Pick<TaskCore, "epoch" | "stamps" | "reviewers">): number =>
-  currentStamps(task).filter((stamp) => stamp.verdict === "approve" && task.reviewers.includes(stamp.reviewer))
-    .length;
+  currentStamps(task).filter((stamp) =>
+    stamp.verdict === "approve" && (stamp.reviewer.kind === "operator" || listed(task.reviewers, stamp.reviewer))
+  ).length;
 
 export const stampsMet = (task: Pick<TaskCore, "epoch" | "stamps" | "reviewers" | "stampPolicy">): boolean =>
   currentApprovals(task) >= task.stampPolicy.required;
 
-// ── the machine ────────────────────────────────────────────────────────────
+// ── dependencies ───────────────────────────────────────────────────────────
 
-/**
- * Where finishing leads: the one downstream node, the one the assignee named,
- * or nowhere (done). Several downstream nodes need a name.
- */
+/** The path `on` already depends back to `from` through, or undefined. */
+const dependencyPath = (
+  tasks: ReadonlyMap<TaskId, TaskRecord>,
+  on: TaskId,
+  from: TaskId,
+): ReadonlyArray<TaskId> | undefined => {
+  const seen = new Set<TaskId>();
+  const walk = (id: TaskId, path: ReadonlyArray<TaskId>): ReadonlyArray<TaskId> | undefined => {
+    if (id === from) return path;
+    if (seen.has(id)) return undefined;
+    seen.add(id);
+    for (const next of tasks.get(id)?.dependsOn ?? []) {
+      const found = walk(next, [...path, next]);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  };
+  return walk(on, [on]);
+};
+
+// ── the machine, on one layer ──────────────────────────────────────────────
+
+/** What the ruler knows about the canvas when it rules a write on one task. */
+export type TaskContext = {
+  readonly taskId: TaskId;
+  /** The ruling's time, stamped on stamps. */
+  readonly at: number;
+  /** The open task a seat holds anywhere on the canvas, if any (invariant 2). */
+  readonly openTaskOf: (seat: SeatNodeId) => TaskId | undefined;
+  /** Task nodes this task's node `flows` into, in wire order. */
+  readonly downstream: ReadonlyArray<TaskNodeId>;
+  /** The stamp default a task node sets for tasks that arrive on it. */
+  readonly stampDefaultOf: (node: TaskNodeId) => StampPolicy;
+  /** Region reach (01) of a seat to this task's node: who may be a reviewer. */
+  readonly seatReaches: (seat: SeatNodeId) => boolean;
+};
+
+/** A ruling on one task that keeps whatever else the task carries. */
+export type LayerRuling<T extends TaskCore> =
+  | { readonly ok: true; readonly task: T; readonly effects: ReadonlyArray<TaskEffect> }
+  | { readonly ok: false; readonly refusal: TaskRefusal };
+
 const resolveNext = (
   downstream: ReadonlyArray<TaskNodeId>,
   named: TaskNodeId | undefined,
-): { readonly ok: true; readonly next?: TaskNodeId } | { readonly ok: false; readonly refusal: TaskRefusal } => {
+): { readonly ok: true; readonly next?: TaskNodeId } | { readonly ok: false; readonly detail: TaskRefusalDetail } => {
   if (named !== undefined) {
     return downstream.includes(named)
       ? { ok: true, next: named }
-      : { ok: false, refusal: { reason: "next-not-downstream", next: named, choices: downstream } };
+      : { ok: false, detail: { kind: "next-not-downstream", next: named, choices: downstream } };
   }
   if (downstream.length === 0) return { ok: true };
   if (downstream.length === 1) return { ok: true, next: downstream[0]! };
-  return { ok: false, refusal: { reason: "next-required", choices: downstream } };
+  return { ok: false, detail: { kind: "next-required", choices: downstream } };
 };
 
-/** Close the layer: done here, or arrive in backlog on the next node. */
-const complete = (task: TaskCore, ctx: TaskContext, effects: ReadonlyArray<TaskEffect>): TaskRuling => {
-  const { next: _held, ...closed } = task;
-  if (task.next === undefined) return rule({ ...closed, state: "done" }, effects);
-  const layer: TaskCore = { ...closed, state: "done" };
-  const { assignee: _assignee, ...unassigned } = closed;
-  return rule(
-    {
-      ...unassigned,
-      state: "backlog",
-      node: task.next,
-      stampPolicy: ctx.stampDefaultOf(task.next),
-      reviewers: [],
-      stamps: [],
-    },
-    [...effects, { kind: "sent-on", from: task.node, to: task.next, layer }],
-  );
+/** The task without the keys named, still typed as the task: those keys are optional on it. */
+const without = <T extends TaskCore>(task: T, ...keys: ReadonlyArray<"assignee" | "next">): T => {
+  const rest: Partial<T> = { ...task };
+  for (const key of keys) delete rest[key];
+  return rest as T;
 };
 
-/** In review with the count met moves on; otherwise it waits. */
-const settle = (task: TaskCore, ctx: TaskContext, effects: ReadonlyArray<TaskEffect> = []): TaskRuling =>
-  task.state === "in-review" && stampsMet(task) ? complete(task, ctx, effects) : rule(task, effects);
+/** The layer alone, as a sent-on effect records it. */
+const layerOf = (task: TaskCore): TaskCore => ({
+  state: task.state,
+  node: task.node,
+  ...(task.assignee !== undefined ? { assignee: task.assignee } : {}),
+  epoch: task.epoch,
+  stampPolicy: task.stampPolicy,
+  reviewers: task.reviewers,
+  stamps: task.stamps,
+});
 
-const withoutAssignee = (task: TaskCore): TaskCore => {
-  const { assignee: _assignee, next: _next, ...rest } = task;
-  return rest;
+/**
+ * One task's ruling machinery: refusals, results and the moves every command
+ * shares, typed by whatever the task carries besides its layer.
+ */
+const layerRules = <T extends TaskCore>(ctx: TaskContext) => {
+  const refuse = (detail: TaskRefusalDetail): LayerRuling<T> => ({ ok: false, refusal: taskRefusal(detail) });
+  const rule = (task: T, effects: ReadonlyArray<TaskEffect> = []): LayerRuling<T> => ({ ok: true, task, effects });
+  const illegal = (task: T, command: TaskCommand): LayerRuling<T> =>
+    refuse({ kind: "illegal-transition", from: task.state, command: command.kind });
+  /** Close the layer: done here, or arrive in backlog, unassigned, on the next node. */
+  const complete = (task: T): LayerRuling<T> => {
+    const closed: T = { ...without(task, "next"), state: "done" };
+    if (task.next === undefined) return rule(closed);
+    return rule(
+      { ...without(closed, "assignee"), state: "backlog", node: task.next, stampPolicy: ctx.stampDefaultOf(task.next), reviewers: [], stamps: [] },
+      [{ kind: "sent-on", from: task.node, to: task.next, layer: layerOf(closed) }],
+    );
+  };
+  /** In review with the count met moves on; otherwise it waits. */
+  const settle = (task: T): LayerRuling<T> => task.state === "in-review" && stampsMet(task) ? complete(task) : rule(task);
+  return { refuse, rule, illegal, complete, settle };
+};
+
+const reviewerOf = (actor: TaskActor): Reviewer | undefined => {
+  switch (actor.kind) {
+    case "operator":
+      return { kind: "operator" };
+    case "seat":
+      return { kind: "seat", seat: actor.seat };
+    case "automation":
+      return undefined;
+  }
 };
 
 /**
- * Rule one command on one task. Admission first (reach, assignment), then the
- * transition and its invariants. A refusal changes nothing.
+ * Rule one command on one existing task, on its current layer. Reach is the
+ * ruler's, checked before this (`reachExempt` for 01 rule 6); here are the
+ * assignment, the transition rules and the stamps. A refusal changes nothing.
+ * What lives off the layer (a create, the title and body, dependencies) is
+ * the board's (`ruleTaskBoardCommand`): here those commands are only checked
+ * against the state.
  */
-export const ruleTaskCommand = (
-  task: TaskCore,
+export const ruleTaskCommand = <T extends TaskCore>(
+  task: T,
   actor: TaskActor,
   command: TaskCommand,
   ctx: TaskContext,
-): TaskRuling => {
-  const isAssignee = actor.kind === "seat" && task.assignee !== undefined && actor.seat === task.assignee &&
-    isOpenTaskState(task.state);
+): LayerRuling<T> => {
+  const { refuse, rule, illegal, complete, settle } = layerRules<T>(ctx);
+
   if (ASSIGNEE_ONLY[command.kind]) {
-    if (!isAssignee) return refuse({ reason: "not-assignee", ...(task.assignee ? { assignee: task.assignee } : {}) });
-  } else if (actor.kind === "seat" && !actor.inReach && !isAssignee) {
-    return refuse({ reason: "out-of-reach" });
+    const isAssignee = actor.kind === "seat" && actor.seat === task.assignee && isOpenTaskState(task.state);
+    if (!isAssignee) return refuse({ kind: "not-assignee", ...(task.assignee ? { assignee: task.assignee } : {}) });
   }
 
   switch (command.kind) {
+    case "create":
+      return refuse({ kind: "task-exists", taskId: command.taskId });
+    case "edit":
+      return task.state === "archived" ? illegal(task, command) : rule(task);
+    case "depend":
+    case "undepend":
+      return isClosedTaskState(task.state) ? illegal(task, command) : rule(task);
     case "assign": {
       if (task.state !== "backlog") {
         return task.assignee !== undefined && isOpenTaskState(task.state)
-          ? refuse({ reason: "already-assigned", assignee: task.assignee })
+          ? refuse({ kind: "already-assigned", assignee: task.assignee })
           : illegal(task, command);
       }
       const held = ctx.openTaskOf(command.seat);
-      if (held !== undefined && held !== ctx.taskId) {
-        return refuse({ reason: "seat-busy", seat: command.seat, taskId: held });
-      }
-      return rule({ ...task, state: "assigned", assignee: command.seat }, [
-        { kind: "assignment-notice", seat: command.seat },
-      ]);
+      if (held !== undefined && held !== ctx.taskId) return refuse({ kind: "seat-busy", seat: command.seat, taskId: held });
+      return rule({ ...task, state: "assigned", assignee: command.seat }, [{ kind: "assignment-notice", seat: command.seat }]);
     }
     case "unassign":
-      return isOpenTaskState(task.state)
-        ? rule({ ...withoutAssignee(task), state: "backlog" })
-        : illegal(task, command);
+      return isOpenTaskState(task.state) ? rule({ ...without(task, "assignee", "next"), state: "backlog" }) : illegal(task, command);
     case "start":
       return task.state === "assigned" ? rule({ ...task, state: "working" }) : illegal(task, command);
     case "pause":
@@ -299,83 +265,266 @@ export const ruleTaskCommand = (
     case "finish": {
       if (task.state !== "working") return illegal(task, command);
       const next = resolveNext(ctx.downstream, command.next);
-      if (!next.ok) return refuse(next.refusal);
-      const { next: _old, ...rest } = task;
-      const finished: TaskCore = { ...rest, ...(next.next ? { next: next.next } : {}), state: "in-review" };
-      if (stampsMet(finished)) return complete(finished, ctx, []);
-      const stamped = new Set(currentStamps(finished).map((stamp) => stamp.reviewer));
+      if (!next.ok) return refuse(next.detail);
+      const finished: T = { ...without(task, "next"), ...(next.next ? { next: next.next } : {}), state: "in-review" };
+      if (stampsMet(finished)) return complete(finished);
+      const stamped = new Set(currentStamps(finished).map((stamp) => reviewerKey(stamp.reviewer)));
       return rule(
         finished,
-        finished.reviewers.filter((reviewer) => !stamped.has(reviewer)).map((reviewer) => ({
+        finished.reviewers.filter((reviewer) => !stamped.has(reviewerKey(reviewer))).map((reviewer) => ({
           kind: "stamp-request" as const,
           reviewer,
         })),
       );
     }
     case "cancel":
-      return task.state === "canceled" || task.state === "archived"
-        ? illegal(task, command)
-        : rule({ ...task, state: "canceled" });
+      return task.state === "canceled" || task.state === "archived" ? illegal(task, command) : rule({ ...task, state: "canceled" });
     case "archive":
-      return task.state === "done" || task.state === "canceled"
-        ? rule({ ...task, state: "archived" })
-        : illegal(task, command);
-    case "reviewer-add":
+      return task.state === "done" || task.state === "canceled" ? rule({ ...task, state: "archived" }) : illegal(task, command);
+    case "reviewer-add": {
       if (isClosedTaskState(task.state)) return illegal(task, command);
-      if (command.seat === task.assignee) return refuse({ reason: "own-task", seat: command.seat });
-      if (task.reviewers.includes(command.seat)) return rule(task);
-      return rule({ ...task, reviewers: [...task.reviewers, command.seat] }, task.state === "in-review"
-        ? [{ kind: "stamp-request", reviewer: command.seat }]
-        : []);
+      const { reviewer } = command;
+      if (reviewer.kind === "seat") {
+        if (reviewer.seat === task.assignee) return refuse({ kind: "own-task", seat: reviewer.seat });
+        if (!ctx.seatReaches(reviewer.seat)) return refuse({ kind: "not-reviewer", reviewer });
+      }
+      if (listed(task.reviewers, reviewer)) return rule(task);
+      return rule(
+        { ...task, reviewers: [...task.reviewers, reviewer] },
+        task.state === "in-review" ? [{ kind: "stamp-request", reviewer }] : [],
+      );
+    }
     case "reviewer-remove":
       if (isClosedTaskState(task.state)) return illegal(task, command);
-      return settle({ ...task, reviewers: task.reviewers.filter((seat) => seat !== command.seat) }, ctx);
+      return settle({ ...task, reviewers: task.reviewers.filter((entry) => reviewerKey(entry) !== reviewerKey(command.reviewer)) });
     case "stamp-policy":
       if (!Number.isSafeInteger(command.required) || command.required < 0) {
-        return refuse({ reason: "invalid-policy", required: command.required });
+        return refuse({ kind: "invalid-policy", required: command.required });
       }
       if (isClosedTaskState(task.state)) return illegal(task, command);
-      return settle({ ...task, stampPolicy: { required: command.required } }, ctx);
+      return settle({ ...task, stampPolicy: { required: command.required } });
     case "stamp": {
-      if (actor.kind !== "seat") return refuse({ reason: "operator-cannot-stamp" });
-      if (task.state !== "in-review") return illegal(task, command);
-      if (actor.seat === task.assignee) return refuse({ reason: "own-task", seat: actor.seat });
-      if (!task.reviewers.includes(actor.seat)) return refuse({ reason: "not-reviewer", seat: actor.seat });
+      const reviewer = reviewerOf(actor);
+      if (reviewer === undefined || task.state !== "in-review") return illegal(task, command);
+      if (reviewer.kind === "seat") {
+        if (reviewer.seat === task.assignee) return refuse({ kind: "own-task", seat: reviewer.seat });
+        if (!listed(task.reviewers, reviewer)) return refuse({ kind: "not-reviewer", reviewer });
+      }
       const stamp: Stamp = {
-        reviewer: actor.seat,
+        reviewer,
         verdict: command.verdict,
         epoch: task.epoch,
         at: ctx.at,
         ...(command.subjectHash !== undefined ? { subjectHash: command.subjectHash } : {}),
         ...(command.text !== undefined ? { text: command.text } : {}),
       };
-      const stamped: TaskCore = { ...task, stamps: [...task.stamps, stamp] };
-      if (command.verdict === "approve") return settle(stamped, ctx);
+      const stamped: T = { ...task, stamps: [...task.stamps, stamp] };
+      if (command.verdict === "approve") return settle(stamped);
       // Changes asked: back to work on a new epoch; every earlier stamp stops counting.
-      const { next: _next, ...rest } = stamped;
       const epoch = task.epoch + 1;
-      return rule({ ...rest, state: "working", epoch }, [
-        { kind: "defect", epoch, by: actor.seat, ...(command.text !== undefined ? { text: command.text } : {}) },
+      return rule({ ...without(stamped, "next"), state: "working", epoch }, [
+        { kind: "defect", epoch, by: reviewer, ...(command.text !== undefined ? { text: command.text } : {}) },
       ]);
     }
   }
 };
 
+// ── the machine, on a canvas's tasks ───────────────────────────────────────
+
+const openTaskOf = (state: TaskBoardState, seat: SeatNodeId): TaskId | undefined => {
+  for (const task of state.tasks.values()) {
+    if (task.assignee === seat && isOpenTaskState(task.state)) return task.id;
+  }
+  return undefined;
+};
+
+/** The one-task context for a task on this board. */
+export const taskContextOf = (state: TaskBoardState, task: Pick<TaskRecord, "id" | "node">, env: TaskDomainEnv): TaskContext => ({
+  taskId: task.id,
+  at: env.at,
+  openTaskOf: (seat) => openTaskOf(state, seat),
+  downstream: env.downstream(task.node),
+  stampDefaultOf: env.stampDefaultOf,
+  seatReaches: (seat) => env.seatReaches(seat, task.node),
+});
+
+/**
+ * Rule one command against every task of a canvas: a create, the record's
+ * own fields, dependencies, then the layer through `ruleTaskCommand`.
+ */
+export const ruleTaskBoardCommand = (
+  state: TaskBoardState,
+  target: { readonly node: TaskNodeId; readonly taskId: TaskId },
+  actor: TaskActor,
+  command: TaskCommand,
+  env: TaskDomainEnv,
+): TaskRecordRuling => {
+  if (command.kind === "create") {
+    if (state.tasks.has(command.taskId)) return refuse({ kind: "task-exists", taskId: command.taskId });
+    const policy = command.stampPolicy ?? env.stampDefaultOf(target.node);
+    if (!Number.isSafeInteger(policy.required) || policy.required < 0) {
+      return refuse({ kind: "invalid-policy", required: policy.required });
+    }
+    return {
+      ok: true,
+      task: {
+        id: command.taskId,
+        number: state.nextNumber,
+        title: command.title,
+        ...(command.body !== undefined ? { body: command.body } : {}),
+        dependsOn: [],
+        state: "backlog",
+        node: target.node,
+        epoch: 0,
+        stampPolicy: { required: policy.required },
+        reviewers: [],
+        stamps: [],
+      },
+      effects: [{ kind: "number-minted", number: state.nextNumber }],
+    };
+  }
+  const task = state.tasks.get(target.taskId);
+  if (task === undefined || task.node !== target.node) return refuse({ kind: "unknown-task", taskId: target.taskId });
+  if (command.kind === "depend") {
+    if (!state.tasks.has(command.on)) return refuse({ kind: "unknown-task", taskId: command.on });
+    const cycle = task.dependsOn.includes(command.on) ? undefined : dependencyPath(state.tasks, command.on, task.id);
+    if (cycle !== undefined) return refuse({ kind: "dependency-cycle", through: cycle });
+  }
+  const ruled = ruleTaskCommand(task, actor, command, taskContextOf(state, task, env));
+  if (!ruled.ok) return ruled;
+  switch (command.kind) {
+    case "edit":
+      return {
+        ...ruled,
+        task: {
+          ...ruled.task,
+          ...(command.title !== undefined ? { title: command.title } : {}),
+          ...(command.body !== undefined ? { body: command.body } : {}),
+        },
+      };
+    case "depend":
+      return task.dependsOn.includes(command.on) ? ruled : { ...ruled, task: { ...ruled.task, dependsOn: [...task.dependsOn, command.on] } };
+    case "undepend":
+      return { ...ruled, task: { ...ruled.task, dependsOn: task.dependsOn.filter((id) => id !== command.on) } };
+    default:
+      return ruled;
+  }
+};
+
+// ── refusal text ───────────────────────────────────────────────────────────
+
+const choicesText = (choices: ReadonlyArray<NodeId>): string => choices.join(", ");
+
+/** What a refused task command says to whoever sent it. */
+export const taskRefusalMessage = (detail: TaskRefusalDetail): string => {
+  switch (detail.kind) {
+    case "illegal-transition":
+      return `A ${detail.from} task cannot ${detail.command}`;
+    case "not-assignee":
+      return detail.assignee === undefined
+        ? "Only the assignee moves this task, and it has none"
+        : `Only the assignee, ${detail.assignee}, moves this task`;
+    case "already-assigned":
+      return `The task is assigned to ${detail.assignee}; unassign it first`;
+    case "seat-busy":
+      return `${detail.seat} already holds open task ${detail.taskId}`;
+    case "not-reviewer":
+      return detail.reviewer.kind === "operator"
+        ? "The operator is not a reviewer of this task"
+        : `${detail.reviewer.seat} is not a reviewer of this task, or is not in its reach`;
+    case "own-task":
+      return `${detail.seat} is the assignee and cannot review its own task`;
+    case "stale-epoch":
+      return `The task moved on; its epoch is now ${detail.expected}`;
+    case "next-required":
+      return `Name the next task node: ${choicesText(detail.choices)}`;
+    case "next-not-downstream":
+      return `${detail.next} is not downstream of this task node; choose one of: ${choicesText(detail.choices) || "none"}`;
+    case "invalid-policy":
+      return `A stamp count is a whole number from 0, not ${detail.required}`;
+    case "dependency-cycle":
+      return `That dependency closes a cycle through ${detail.through.join(", ")}`;
+    case "unknown-task":
+      return `No task ${detail.taskId} on this task node`;
+    case "task-exists":
+      return `Task ${detail.taskId} already exists`;
+  }
+};
+
+const toRefusal = ({ reason, detail }: TaskRefusal): Refusal => ({
+  reason,
+  message: taskRefusalMessage(detail),
+  expected: detail,
+});
+
+// ── the resource domain ────────────────────────────────────────────────────
+
+/** The task actor a command's resource actor is. */
+export const taskActorOf = (actor: ResourceActor): TaskActor => {
+  switch (actor.kind) {
+    case "operator":
+      return { kind: "operator" };
+    case "seat":
+      return { kind: "seat", seat: seatNodeId(actor.nodeId) };
+    case "automation":
+      return { kind: "automation", automation: actor.nodeId };
+  }
+};
+
+const targetOf = (command: ResourceCommand<TaskCommand>): { readonly node: TaskNodeId; readonly taskId: TaskId } | undefined => {
+  const taskId = command.op.kind === "create" ? command.op.taskId : command.target.itemId;
+  return taskId === undefined ? undefined : { node: command.target.nodeId as TaskNodeId, taskId };
+};
+
+/**
+ * The task domain for `resource-command.ts`'s ruler. Built per ruling with
+ * the canvas and clock it is ruled against; the writing machine builds the
+ * same one for its overlay.
+ */
+export const taskDomain = (env: TaskDomainEnv): ResourceDomain<TaskBoardState, TaskCommand, TaskFact> => ({
+  kind: "task",
+  rule: (state, command): DomainVerdict<TaskFact> => {
+    const target = targetOf(command);
+    if (target === undefined) {
+      return { kind: "refuse", refusal: { reason: "unknown_target", message: "Name the task this command acts on" } };
+    }
+    const ruled = ruleTaskBoardCommand(state, target, taskActorOf(command.actor), command.op, env);
+    return ruled.ok
+      ? { kind: "apply", facts: [{ kind: "task", task: ruled.task, effects: ruled.effects }] }
+      : { kind: "refuse", refusal: toRefusal(ruled.refusal) };
+  },
+  apply: (state, fact) => {
+    const minted = fact.effects.some((effect) => effect.kind === "number-minted");
+    return {
+      tasks: new Map(state.tasks).set(fact.task.id, fact.task),
+      nextNumber: minted ? taskNumber(fact.task.number + 1)! : state.nextNumber,
+    };
+  },
+  reachExempt: (state, command) => {
+    const target = targetOf(command);
+    const task = target === undefined ? undefined : state.tasks.get(target.taskId);
+    return task !== undefined && reachExempt(task, taskActorOf(command.actor), command.op);
+  },
+});
+
+/** How a task reads in a message: its number when it has one. */
+export const taskLabel = (task: Pick<TaskRecord, "number">): string => formatTaskNumber(task.number);
+
 // ── canvas invariants ──────────────────────────────────────────────────────
 
 export type OneOpenTaskViolation = {
   readonly seat: SeatNodeId;
-  readonly taskIds: ReadonlyArray<string>;
+  readonly taskIds: ReadonlyArray<TaskId>;
 };
 
 /**
  * Seats holding more than one open task across the canvas (invariant 2).
- * Reviews do not count. Empty when the canvas holds.
+ * Reviews do not count. Empty when the canvas holds; the v28 remap checks it.
  */
 export const oneOpenTaskViolations = (
-  tasks: Iterable<{ readonly id: string; readonly state: TaskState; readonly assignee?: SeatNodeId }>,
+  tasks: Iterable<{ readonly id: TaskId; readonly state: TaskState; readonly assignee?: SeatNodeId }>,
 ): ReadonlyArray<OneOpenTaskViolation> => {
-  const held = new Map<SeatNodeId, string[]>();
+  const held = new Map<SeatNodeId, TaskId[]>();
   for (const task of tasks) {
     if (task.assignee === undefined || !isOpenTaskState(task.state)) continue;
     const ids = held.get(task.assignee);
@@ -383,44 +532,4 @@ export const oneOpenTaskViolations = (
     else ids.push(task.id);
   }
   return [...held].filter(([, ids]) => ids.length > 1).map(([seat, taskIds]) => ({ seat, taskIds }));
-};
-
-// ── migration remap (v28) ──────────────────────────────────────────────────
-
-/** The task states before 0.10, as stored rows hold them. */
-export type LegacyTaskState =
-  | "submitted"
-  | "working"
-  | "input-required"
-  | "completed"
-  | "canceled"
-  | "failed"
-  | "rejected"
-  | "auth-required"
-  | "archived";
-
-/**
- * The 0.10 state of a stored row (04 Questions): submitted is backlog, or
- * assigned when it names an actor; completed is done; rejected and failed are
- * canceled. auth-required had no producer and waits on someone, so it reads as
- * input-required.
- */
-export const remapLegacyTaskState = (state: LegacyTaskState, hasAssignee: boolean): TaskState => {
-  switch (state) {
-    case "submitted":
-      return hasAssignee ? "assigned" : "backlog";
-    case "working":
-      return "working";
-    case "input-required":
-    case "auth-required":
-      return "input-required";
-    case "completed":
-      return "done";
-    case "canceled":
-    case "failed":
-    case "rejected":
-      return "canceled";
-    case "archived":
-      return "archived";
-  }
 };
