@@ -26,6 +26,12 @@ new law.
 | `tests/git-review.test.ts:194` | "never outsiders": a seat outside every region is not a candidate | Decided (canvas-lead): candidates are `seatsInReach(anchor)`, one availability rule (03). A loose seat reaches everything (rule 2), so it is a candidate; a sibling region's seat is not. | flipped, 1c7d6483b |
 | `tests/work-task-policy-store.test.ts:36` | dependency scope by edge topology and innermost region | `task-dep-scope` uses reach (01 Reshaped). Add region cases: an ancestor's and a descendant's tasks in scope, a sibling's not. | flipped, 67e063f19 (`tests/task-dep-scope.test.ts`) |
 
+## Open regression
+
+| Lock | Gap | Closes with | State |
+|---|---|---|---|
+| finish checks the node's rules | c1c13cc62 deleted the old complete path; d518e086b adds `rules-unmet` and the evidence field, but nothing produces it, so a finish with rules in force is not checked | canvas-writers' `finishRulesUnmet` env port (taskCanvasEnv: rulesInForce, evaluateRules, finish criteria), tested for an unanswered rule, an answered one, and requires-review left to stamps | open |
+
 ## Doctrine text that must change with the C1 doc rewrite
 
 Not tests, but the text the tests and reviewers read. All rewritten in
