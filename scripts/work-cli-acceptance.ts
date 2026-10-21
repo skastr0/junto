@@ -15,7 +15,7 @@ import { ModelService } from "../src/main/junto/model/service";
  *
  *   bun run cli:build
  *   bun build scripts/work-cli-acceptance.ts --target=node --format=cjs --packages=external --outfile=node_modules/.cache/work-cli-acceptance.cjs
- *   node -e 'require("./node_modules/.cache/work-cli-acceptance.cjs").runWorkCliAcceptance().catch(error => { console.error(error); process.exitCode = 1; })'
+ *   JUNTO_TASKS=1 JUNTO_ARTIFACTS=1 node -e 'require("./node_modules/.cache/work-cli-acceptance.cjs").runWorkCliAcceptance().catch(error => { console.error(error); process.exitCode = 1; })'
  */
 import { existsSync, mkdirSync } from "node:fs";
 import { createConnection } from "node:net";
@@ -59,6 +59,14 @@ import {
 } from "../src/main/junto/settings/service";
 import { WORK_MAX_FRAME_BYTES, WORK_TOKEN_ENV } from "../src/shared/work-control";
 import { IntentFactBasis } from "../src/shared/work-protocol";
+import { ARTIFACTS_ENABLED, TASKS_ENABLED } from "../src/shared/features";
+import { ArtifactRepositoryLive } from "../src/main/junto/work/artifact-repository";
+import { makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
+import { OpRepositoryLive } from "../src/main/junto/work/op-repository";
+import { makeResourceSubmitLayer } from "../src/main/junto/work/resource-submit";
+import { ResourceRulerLive } from "../src/main/junto/work/resource-ruler";
+import { RulingRecorderLive } from "../src/main/junto/work/ruling-recorder";
+import { TaskRepositoryLive } from "../src/main/junto/work/task-repository";
 import type { AcceptanceContext, AcceptanceSeat, CaseVerdict } from "./work-cli-acceptance/area";
 import { AREAS } from "./work-cli-acceptance/index";
 
@@ -70,6 +78,8 @@ const TASKS = "tasks";
 const REQS = "req";
 const ARTS = "art";
 const CLI_TIMEOUT_MS = 10_000;
+/** The feature flags the CLI and the core run with: the resource verbs under test. */
+const CLI_FEATURES = { JUNTO_TASKS: "1", JUNTO_ARTIFACTS: "1" } as const;
 const CLI_OUTPUT_LIMIT_BYTES = 256 * 1024;
 const CLI_TERM_GRACE_MS = 250;
 const CLI_KILL_CLOSE_GRACE_MS = 1_500;
@@ -384,6 +394,10 @@ export const runWorkCliAcceptance = async () => {
   if (!existsSync(CLI)) {
     throw new Error("missing dist/junto — run bun run cli:build");
   }
+  // The core reads its flags when it loads, so they come from the run's env.
+  if (!TASKS_ENABLED || !ARTIFACTS_ENABLED) {
+    throw new Error("run the acceptance core with JUNTO_TASKS=1 JUNTO_ARTIFACTS=1 (see the header)");
+  }
 
   const root = await mkdtemp(join(tmpdir(), "junto-work-acc-"));
   const workHome = join(root, "work");
@@ -398,6 +412,13 @@ export const runWorkCliAcceptance = async () => {
     termGraceMs: CLI_TERM_GRACE_MS,
     killGraceMs: CLI_KILL_CLOSE_GRACE_MS,
   });
+  const contentLive = makeContentServiceLive({
+    root: join(root, "content"),
+    skipInlineMediaMigration: true,
+  });
+  // The 0.10 stores the resource verbs write through, each ruling recorded
+  // through the work store, as the running core composes them (core-product.ts).
+  const recorded = Layer.provide(RulingRecorderLive, WorkRepositoryLive);
   const repositoriesLive = Layer.provideMerge(
     Layer.mergeAll(
       WorkRepositoryLive,
@@ -405,17 +426,23 @@ export const runWorkCliAcceptance = async () => {
       AgentSignalRepositoryLive,
       MachineRepositoryLive,
       SettingsLive,
-      makeContentServiceLive({
-        root: join(root, "content"),
-        skipInlineMediaMigration: true,
-      }),
+      contentLive,
+      OpRepositoryLive,
+      makeAutomationRepositoryLive(),
+      Layer.provide(TaskRepositoryLive, recorded),
+      Layer.provide(ArtifactRepositoryLive, Layer.merge(recorded, contentLive)),
     ),
     Layer.mergeAll(
       makeStateEngineLive(join(root, "state", "junto.db")),
       makeInstallOpsLive(join(root, "state", "install-ops.db")),
     ),
   );
-  const canvasesLive = Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), repositoriesLive);
+  // This machine edits the acceptance canvas and links no peer: every write is ruled here.
+  const ruledLive = Layer.provideMerge(
+    Layer.mergeAll(makeResourceSubmitLayer(() => false), ResourceRulerLive),
+    repositoriesLive,
+  );
+  const canvasesLive = Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), ruledLive);
   const workLive = Layer.provideMerge(
     WorkLive,
     canvasesLive,
@@ -493,6 +520,8 @@ export const runWorkCliAcceptance = async () => {
 
     const env: NodeJS.ProcessEnv = {
       ...process.env,
+      // dist/junto reads these at run time: the 0.10 verbs the net drives.
+      ...CLI_FEATURES,
       JUNTO_WORK_HOME: workHome,
       [WORK_TOKEN_ENV]: mint.credential,
     };
@@ -506,8 +535,13 @@ export const runWorkCliAcceptance = async () => {
       }),
     );
 
-    const cliAs = (args: ReadonlyArray<string>, as?: AcceptanceSeat) =>
-      runCli(processPlane, [...args], as === undefined ? env : { ...env, [WORK_TOKEN_ENV]: seatTokens.get(as.agentKey) }, outside);
+    const cliAs = (args: ReadonlyArray<string>, as?: AcceptanceSeat, extra?: NodeJS.ProcessEnv) =>
+      runCli(
+        processPlane,
+        [...args],
+        { ...env, ...extra, ...(as === undefined ? {} : { [WORK_TOKEN_ENV]: seatTokens.get(as.agentKey) }) },
+        outside,
+      );
     const seatTokens = new Map<string, string>([["local:default", mint.credential]]);
     const addSeat = async (nodeId: string, at: { readonly x: number; readonly y: number }): Promise<AcceptanceSeat> => {
       const agentKey = `local:${nodeId}`;

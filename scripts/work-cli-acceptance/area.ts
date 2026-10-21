@@ -23,8 +23,11 @@ export type AcceptanceContext = {
   readonly canvas: string;
   /** The seeded nodes every area may use. */
   readonly nodes: { readonly agent: string; readonly tasks: string; readonly requests: string; readonly artifacts: string; readonly region: string };
-  /** The compiled CLI from a cwd outside the repo, as the seeded agent or `as`. */
-  readonly cli: (args: ReadonlyArray<string>, as?: AcceptanceSeat) => Promise<WorkCliCommandResult>;
+  /**
+   * The compiled CLI from a cwd outside the repo, as the seeded agent or
+   * `as`, with `env` merged over the net's own for this one call.
+   */
+  readonly cli: (args: ReadonlyArray<string>, as?: AcceptanceSeat, env?: NodeJS.ProcessEnv) => Promise<WorkCliCommandResult>;
   /**
    * A new agent seat on the canvas at (x, y), inside the region unless placed
    * outside it, with a credential the CLI can run as.
