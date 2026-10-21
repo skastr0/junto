@@ -129,7 +129,8 @@ describe("seat-state source: the service is the pure fold with its timer", () =>
       expect(byKey(emitted), `seed ${seed}`).toEqual(byKey(fold(run)));
       emitted.forEach((firing, i) => i > 0 && expect(firing.at, `seed ${seed}`).toBeGreaterThanOrEqual(emitted[i - 1]!.at));
     }
-  }, 60_000);
+    // About 3.5 CPU-s, but 66 s wall at load 195.
+  }, 300_000);
 
   it("drops a re-published state and still emits what the fold of every event emits", async () => {
     // Attention re-published every 800 ms, idle and working repeated, across a new epoch.
