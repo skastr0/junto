@@ -153,6 +153,8 @@ describe("Tasks node gallery seed", () => {
     expect(build.map((v) => v.current.state).sort()).toEqual(["backlog", "backlog", "in-review", "working"]);
     const review = build.find((v) => v.current.state === "in-review");
     expect(review?.current.stamps).toHaveLength(1);
+    const queued = await tasksSource().pending(GALLERY_CANVAS, GALLERY_BUILD);
+    expect(queued.map((write) => write.command.kind)).toEqual(["create", "pause"]);
     const qa = await tasksSource().list(GALLERY_CANVAS, GALLERY_QA);
     expect(qa).toHaveLength(1);
     expect(qa[0]?.layers).toHaveLength(1);

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { asNodeId } from "@shared/model";
-import { mintItemId } from "@shared/resource-command";
+import { mintItemId, mintOpId } from "@shared/resource-command";
 import { seatNodeId, taskNodeId, type TaskId } from "@shared/task-model";
 import { makeLocalTasksSource, setTasksSource } from "../../lib/tasks-source";
 import type { SeatChoice } from "../../lib/task-ui";
@@ -62,7 +62,21 @@ export const seed = async (): Promise<void> => {
   await asSeat(bo).apply(CANVAS, BUILD, review, { kind: "stamp", verdict: "approve" });
   await make("Wire the board to the real source");
   await make("Move task numbers into mentions");
-  setTasksSource(source);
+  // This machine's queued writes, as main would report them: a create that has no
+  // ruling yet, and a pause waiting on the working task.
+  const queuedTitle = "Draft the release notes";
+  const queuedId = mintItemId() as TaskId;
+  setTasksSource({
+    ...source,
+    pending: async () => [
+      {
+        opId: mintOpId(),
+        taskId: queuedId,
+        command: { kind: "create", taskId: queuedId, title: queuedTitle },
+      },
+      { opId: mintOpId(), taskId: working, command: { kind: "pause" } },
+    ],
+  });
 };
 
 export function TasksNodeGallery() {
