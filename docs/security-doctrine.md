@@ -81,12 +81,24 @@ to the owner socket and exercise the account's authority. Neither the absence
 of the variable nor access to that socket proves a human is calling. The link
 socket has the same account boundary and additionally requires its pinned hello.
 
+A seat uses a resource node (a Tasks or Artifacts node) by region reach: the
+node is in the seat's own region, a region inside it or a region around it,
+never a sibling's (`src/shared/region-reach.ts`). Reach needs no edge and is
+worked out from the rectangles on every admission. It skips the machine
+comparison below, because a resource write travels to the editing machine,
+which rules it. Region is still geography, not a security domain: reach scopes
+what a seat uses by default and isolates nobody.
+
 Ordinary edge-scoped calls compare the caller's and target's machine names.
 On the same machine, the existing edge, role and port checks apply. Across
 machines, only `msg.send` may pass those checks; every other port is refused
-with `other_machine`. Mail still requires a granting edge. The editing machine
-and the end that opened the link have no special reach under this rule.
-A copied `peer` row can be a mail target, never an admitted caller.
+with `other_machine`. A seat's own mail to another seat requires a `messages`
+edge. Mail that Junto sends on a seat's behalf because of reach (a mention, a
+stamp request, an assignment or automation notice) needs none, so two seats
+always reach each other through a shared ancestor resource, the canvas root at
+least. The editing machine and the end that opened the link have no special
+reach under this rule. A copied `peer` row can be a mail target, never an
+admitted caller.
 
 Ordinary agents never write the canonical canvas through their work API.
 Own-seat onboarding, references, session notes and signals are narrow local
