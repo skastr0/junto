@@ -38,7 +38,12 @@ import type {
  * the domain: reach, a full queue). `queued` is a success: durable, not ruled yet.
  */
 export type TaskRuling =
-  | { readonly ok: true; readonly queued?: true }
+  | {
+    readonly ok: true;
+    readonly queued?: true;
+    /** The write stands but the mail it owes did not go. Say so; never resend. */
+    readonly deliveryError?: string;
+  }
   | { readonly ok: false; readonly message: string; readonly refusal?: TaskRefusal };
 
 /** What the ruler consults besides the tasks: flows, stamp defaults, reach (04, 01). */
@@ -152,7 +157,7 @@ export const makeIpcTasksSource = (api: TaskResourceApi): TasksSource => ({
     const outcome = await api.apply(canvasName, node, taskId, mintOpId(), command);
     switch (outcome.kind) {
       case "applied":
-        return { ok: true };
+        return outcome.deliveryError === undefined ? { ok: true } : { ok: true, deliveryError: outcome.deliveryError.message };
       case "queued":
         return { ok: true, queued: true };
       case "refused": {

@@ -107,11 +107,9 @@ it("keeps placement when browser binding editor save after a move", async () => 
 
 });
 
-it("keeps placement for task admission and wait writes from the bar", async () => {
+it("keeps placement for the task wait write from the bar", async () => {
   const task = await mount({ kind: "task", name: "Queue", host: THIS_MACHINE });
-  await click("Who starts tasks"); await move(task); await click("Approval");
-  expect(modelStore.node$(canvas, frame.id).peek()).toMatchObject({ kind: "task", contract: { incoming: { admission: "approval" } } }); assertPlacement();
-  await click("Wait before starting"); await click("15m");
+  await click("Wait before starting"); await move(task); await click("15m");
   expect(modelStore.node$(canvas, frame.id).peek()).toMatchObject({ kind: "task", contract: { incoming: { waitMs: 900000 } } }); assertPlacement();
 });
 

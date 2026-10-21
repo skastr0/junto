@@ -78,6 +78,7 @@ export function TasksNode({
   const [creating, setCreating] = useState(false);
   const [settings, setSettings] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const now = useClock();
 
   const visible = useMemo(() => visibleTasks(tasks, { state: filter, query }), [tasks, filter, query]);
@@ -89,6 +90,7 @@ export function TasksNode({
     const ruling = await tasksSource().apply(canvasName, node, taskId, command);
     const line = ruling.ok ? undefined : ruling.message;
     setError(line ?? null);
+    setNotice(ruling.ok && ruling.deliveryError !== undefined ? ruling.deliveryError : null);
     return line;
   };
 
@@ -203,6 +205,7 @@ export function TasksNode({
             seatName={seatName}
             now={now}
             error={error}
+            notice={notice}
             apply={(command) => apply(selected.taskId, command)}
           />
         </TwoPane>
@@ -221,6 +224,7 @@ export function SelectedTask({
   seatName,
   now,
   error,
+  notice = null,
   apply,
 }: {
   readonly view: TaskView;
@@ -231,6 +235,8 @@ export function SelectedTask({
   readonly seatName: (id: string) => string;
   readonly now: number;
   readonly error: string | null;
+  /** A write that stands but whose mail did not go. */
+  readonly notice?: string | null;
   readonly apply: (command: TaskCommand) => Promise<string | undefined>;
 }) {
   const { current } = view;
@@ -280,6 +286,11 @@ export function SelectedTask({
       {error ? (
         <p className="task-error" role="alert">
           {error}
+        </p>
+      ) : null}
+      {notice ? (
+        <p className="task-notice" role="status" data-testid="task-notice">
+          It was done, but its mail did not go: {notice}. Do not do it again.
         </p>
       ) : null}
       <TaskVerbBar

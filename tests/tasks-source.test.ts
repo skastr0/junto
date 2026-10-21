@@ -199,6 +199,16 @@ describe("tasks over the resource IPC", () => {
     expect(new Set(seen).size).toBe(3);
   });
 
+  it("reports an applied write whose mail did not go, and does not call it a refusal", async () => {
+    const { api } = fake(async (_c, _n, _t, opId) => ({
+      kind: "applied",
+      opId,
+      deliveryError: { type: "RuntimeDown", message: "the seat is not running" },
+    }));
+    const ruled = await makeIpcTasksSource(api).apply(CANVAS, build, id, { kind: "assign", seat: ada });
+    expect(ruled).toEqual({ ok: true, deliveryError: "the seat is not running" });
+  });
+
   it("says the wire's own words for a refusal before the domain, with no refusal detail", async () => {
     const { api } = fake(async (_c, _n, _t, opId) => ({
       kind: "refused",

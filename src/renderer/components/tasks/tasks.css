@@ -129,6 +129,15 @@
   line-height: var(--leading-body);
 }
 
+.task-notice {
+  margin: 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--color-amber);
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}
+
 .task-body {
   margin: 0;
   color: var(--color-ink);

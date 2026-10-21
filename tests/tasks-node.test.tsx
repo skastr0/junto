@@ -73,6 +73,25 @@ describe("SelectedTask", () => {
     expect(html).not.toContain("task-verb-start");
   });
 
+  it("says a write stands when its mail did not go, and tells the operator not to repeat it", () => {
+    const html = renderToStaticMarkup(
+      <SelectedTask
+        view={view()}
+        all={[view()]}
+        seats={seats}
+        facts={facts}
+        nodeName={() => "Build board"}
+        seatName={() => "Ada"}
+        now={10_000}
+        error={null}
+        notice="the seat is not running"
+        apply={async () => undefined}
+      />,
+    );
+    expect(html).toContain("its mail did not go: the seat is not running");
+    expect(html).toContain("Do not do it again");
+  });
+
   it("says queued while a create waits for its number", () => {
     const html = draw(view({ number: undefined, pending: { opId: "op" } }));
     expect(html).toContain("queued");
