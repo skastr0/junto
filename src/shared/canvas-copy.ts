@@ -200,6 +200,7 @@ const resourceOf = (node: Node, editorMachineName: HostId): CopiedResource | und
       return { kind: "artifacts", ...placed(node), ...(node.label === undefined ? {} : { label: node.label }) };
     case "label":
       return { kind: "label", ...placed(node), text: node.text };
+    // No label: a file or link has none the operator wrote, and its title is its path or address.
     case "file":
     case "link":
       return { kind: "stub", of: node.kind, ...placed(node) };
