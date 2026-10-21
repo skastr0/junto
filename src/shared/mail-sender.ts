@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { ActorSeatId } from "./actor-seat";
-import { mailAuthorOf, type MailAuthorKind } from "./mail-author";
+import type { MailSenderStamp } from "./crew";
+import { AUTOMATION_SEAT_ID, NOTICE_SEAT_ID, mailAuthorOf, type AutomationNodeId, type MailAuthorKind } from "./mail-author";
 
 /**
  * Who a stored mail is from, as delivery names it, and whether it takes a
@@ -73,3 +74,26 @@ export const mailHeaderSender = (kind: MailAuthorKind, label: string, replyTarge
       return { kind, label };
   }
 };
+
+/**
+ * The stamp a resource's notice carries, as `mailExtensionMetadata` takes it:
+ * written under NOTICE_SEAT_ID from the resource's node. Admission stamps
+ * `fromSeat` and `senderNodeId` again from the writer; these let the row
+ * read as mail before it is admitted.
+ */
+export const noticeSenderStamp = (nodeId: string, name: string): MailSenderStamp => ({
+  fromSeat: NOTICE_SEAT_ID,
+  senderNodeId: nodeId,
+  senderName: name,
+  senderGeneration: "notice",
+  senderHarness: "unknown",
+});
+
+/** The stamp an automation's mail carries: written under AUTOMATION_SEAT_ID from its own node. */
+export const automationSenderStamp = (nodeId: AutomationNodeId, name: string): MailSenderStamp => ({
+  fromSeat: AUTOMATION_SEAT_ID,
+  senderNodeId: nodeId,
+  senderName: name,
+  senderGeneration: "automation",
+  senderHarness: "unknown",
+});

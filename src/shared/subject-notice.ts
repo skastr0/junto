@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { mailExtensionMetadata, type MailMessageId, type MailSenderStamp } from "./crew";
 import type { NodeId } from "./physics/schema";
 import { threadSubjectMetadata, type ResourceSubject } from "./thread-subject";
+import { noticeSenderStamp } from "./mail-sender";
 import type { WorkErrorBody } from "./work-control";
 import type { ItemId, OpId } from "./work-ids";
 
@@ -135,7 +136,7 @@ export type SubjectNoticeRow = {
 export const subjectNoticeRow = (input: SubjectNoticeInput): SubjectNoticeRow => {
   const messageId = subjectNoticeId(input);
   const sender = input.kind === "refusal"
-    ? { senderNodeId: input.from.nodeId, senderName: input.from.name, mailKind: "notice" }
+    ? mailExtensionMetadata({ ...noticeSenderStamp(input.from.nodeId, input.from.name), mailKind: "notice" })
     : mailExtensionMetadata({ ...input.sender, mailKind: "notice" });
   return {
     messageId,

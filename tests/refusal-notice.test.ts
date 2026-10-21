@@ -1,4 +1,6 @@
 import { Schema } from "effect";
+import { NOTICE_SEAT_ID } from "../src/shared/mail-author";
+import { readMailExtension } from "../src/shared/crew";
 import { describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import type { QueuedCommand, RulingRefusedResult } from "../src/shared/command-row";
@@ -78,7 +80,9 @@ describe("the refusal notice", () => {
   it("is from the refused resource's node, never a seat or the operator, and takes no reply", () => {
     const { metadata } = notice()!.row;
     expect(metadata).toMatchObject({ senderNodeId: "board", senderName: "Tasks", mailKind: "notice", subjectNotice: "refusal" });
-    expect(metadata.fromSeat).toBeUndefined();
+    // Stamped as a resource's notice, so it reads as mail before admission.
+    expect(metadata).toMatchObject({ fromSeat: NOTICE_SEAT_ID });
+    expect(readMailExtension(metadata)?.fromSeat).toBe(NOTICE_SEAT_ID);
     expect(subjectNoticeKindOf(notice()!.row)).toBe("refusal");
   });
 

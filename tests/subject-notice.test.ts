@@ -3,9 +3,10 @@
  * written, a bad one reads as mailbox mail, and a notice's id is derived from
  * its cause so a second write is the same row.
  */
+import { NOTICE_SEAT_ID } from "../src/shared/mail-author";
 import { Schema } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { isMailMessageId, mailThreadOf, type MailMessageId, type MailSenderStamp } from "../src/shared/crew";
+import { isMailMessageId, mailThreadOf, readMailExtension, type MailMessageId, type MailSenderStamp } from "../src/shared/crew";
 import { asNodeId, type NodeId } from "../src/shared/physics/schema";
 import {
   noticeTakesReply,
@@ -183,7 +184,9 @@ describe("subject notice row", () => {
       from: { nodeId: BOARD, name: "Tasks" },
     });
     expect(row.metadata).toMatchObject({ senderNodeId: BOARD, senderName: "Tasks", subjectNotice: "refusal" });
-    expect(row.metadata.fromSeat).toBeUndefined();
+    // Stamped as a resource's notice, so it reads as mail before admission.
+    expect(row.metadata).toMatchObject({ fromSeat: NOTICE_SEAT_ID });
+    expect(readMailExtension(row.metadata)?.fromSeat).toBe(NOTICE_SEAT_ID);
     expect(noticeTakesReply("refusal")).toBe(false);
     expect(noticeTakesReply("mention")).toBe(true);
   });

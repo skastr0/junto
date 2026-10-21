@@ -9,7 +9,8 @@
  *
  * Pure: no I/O, no clock.
  */
-import type { MailMessageId } from "./crew";
+import { mailExtensionMetadata, type MailMessageId } from "./crew";
+import { noticeSenderStamp } from "./mail-sender";
 import { refusalErrorOf, type QueuedCommand, type RulingRefusedResult } from "./command-row";
 import type { NodeId } from "./physics/schema";
 import type { ResourceRef } from "./resource-command";
@@ -118,9 +119,7 @@ export const refusalNoticeOf = (input: RefusalNoticeInput): RefusalNotice | unde
         text,
         metadata: {
           factoryMail: true,
-          senderNodeId: from.nodeId,
-          senderName: from.name,
-          mailKind: "notice",
+          ...mailExtensionMetadata({ ...noticeSenderStamp(from.nodeId, from.name), mailKind: "notice" }),
           [SUBJECT_NOTICE_KEY]: "refusal",
         },
       }
