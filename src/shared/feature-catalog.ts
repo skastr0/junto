@@ -170,15 +170,15 @@ export const featureTierWord = (tier: FeatureTier): "on" | "experimental" | "off
   tier === true ? "on" : tier === false ? "off" : "experimental";
 
 /**
- * Public release baseline. Work-sink extras and the host-local Browser stay
- * off; Fleet UI and remote/host management stay off. Each gate remains the
- * way back on for a build that needs the surface. Seat awareness ships
- * experimental: compiled in, toggled off by default.
+ * Public release baseline. Tasks, Artifacts and the host-local Browser ship
+ * on; the other gates stay as they are. Each gate remains the way back off or
+ * on for a build that needs it. Seat awareness ships experimental: compiled in,
+ * toggled off by default.
  */
 export const SHIP_FEATURES: FeatureSet = {
-  browser: false,
-  artifacts: false,
-  tasks: false,
+  browser: true,
+  artifacts: true,
+  tasks: true,
   // Machines: the window, the owner commands and seats on other machines.
   fleetUi: true,
   usage: false,

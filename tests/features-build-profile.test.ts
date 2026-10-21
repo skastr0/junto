@@ -19,9 +19,10 @@ describe("compile-time feature profiles", () => {
     expect(resolved.profile).toBe("ship");
     expect(resolved.features).toEqual(SHIP_FEATURES);
     expect(resolved.features).toEqual({
-      browser: false,
-      artifacts: false,
-      tasks: false,
+      // Browser, Artifacts and Tasks ship on in 0.10.
+      browser: true,
+      artifacts: true,
+      tasks: true,
       // Machines ships on.
       fleetUi: true,
       usage: false,

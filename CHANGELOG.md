@@ -4,6 +4,8 @@
 
 Draft for 0.10, written from landed commits and kept current by product-releases.
 
+- Tasks, Artifacts and the Browser ship on in 0.10. Earlier builds kept them
+  off.
 - Plan work on Tasks. A task has a number, a state, an assignee and reviewers,
   and reviewers stamp it. A task can depend on tasks on any board in reach.
   The operator can stamp too. A task cannot finish until what it depends on
