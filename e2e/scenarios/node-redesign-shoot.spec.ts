@@ -57,14 +57,14 @@ const seedWork = async (sandbox: Sandbox): Promise<void> => {
     await runtime.runPromise(
       Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
-        const insert = (taskId: string, node: string, title: string, state: string, reviewers: string, stamps: number) =>
+        const insert = (taskId: string, number: number, node: string, title: string, state: string, reviewers: string, stamps: number) =>
           sql.unsafe(
             `INSERT INTO task_heads (canvas_name, task_id, number, node_id, title, state, assignee_node_id, epoch, stamps_required, reviewers_json, depends_on_json, checks_json, created_at, updated_at, state_since)
              VALUES (?, ?, 1, ?, ?, ?, ?, 0, ?, ?, '[]', '[]', ?, ?, ?)`,
             [CANVAS, taskId, node, title, state, "planner", stamps, reviewers, at, at, at],
           );
-        yield* insert("01JZ00000000000000000000G1", "gate", "Cut the 0.10 build", "input-required", "[]", 0);
-        yield* insert("01JZ00000000000000000000I1", "intake", "Pick the icon set", "in-review", '[{"kind":"operator"}]', 1);
+        yield* insert("01JZ00000000000000000000G1", 11, "gate", "Cut the 0.10 build", "input-required", "[]", 0);
+        yield* insert("01JZ00000000000000000000I1", 12, "intake", "Pick the icon set", "in-review", '[{"kind":"operator"}]', 1);
       }),
     );
   } finally {
