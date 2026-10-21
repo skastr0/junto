@@ -78,7 +78,6 @@ describe("main authoring architecture", () => {
       // mail to that seat's mailbox.
       "ipc.work.collaboration-ask",
       "ipc.work.message-append",
-      "ipc.work.pad-patch",
       "ipc.work.request-resolve",
       "ipc.work.task-comment",
       "ipc.work.task-create",
