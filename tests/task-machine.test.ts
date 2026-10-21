@@ -726,6 +726,7 @@ describe("the task domain under the ruler", () => {
     expect(none.ruling.kind === "refused" && none.ruling.error.details?.next_step).toContain("junto task assign");
     const held = rule(domain, emptyRuled(board(record({ state: "working", assignee: bo }))), writer, command(adaActor, { kind: "pause" }, T1), context);
     expect(held.ruling.kind === "refused" && held.ruling.error.details?.next_step).toContain(bo);
+    expect(held.ruling.kind === "refused" && held.ruling.error.details?.next_step).toContain("junto task unassign");
   });
 
   it("refuses a create whose target names another task", () => {

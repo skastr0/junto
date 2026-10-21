@@ -208,7 +208,8 @@ describe("linkMentionsAt: tasks, artifacts and pages in mail, in the writer's re
   });
 
   it("keeps a task, an artifact or a page out of reach as plain text, with the numbers or names nearest it", () => {
-    expect(linked(nested, "caller", "#9", MAIL, stores)).toEqual(Result.succeed({ text: "#9", unlinked: [{ token: "#9", nearest: ["#7", "#42", "#43"] }] }));
+    expect(linked(nested, "caller", "#9", MAIL, stores)).toEqual(Result.succeed({ text: "#9", unlinked: [{ token: "#9", nearest: [] }] }));
+    expect(linked(nested, "caller", "#44", MAIL, stores)).toEqual(Result.succeed({ text: "#44", unlinked: [{ token: "#44", nearest: ["#42", "#43"] }] }));
     expect(unlinked(linked(nested, "caller", "#far and @far.dev", MAIL, stores))).toEqual(["#far", "@far.dev"]);
   });
 

@@ -929,10 +929,15 @@ export type LinkedText = { readonly text: string; readonly unlinked: ReadonlyArr
 
 const NEAREST = 3;
 
-/** Up to three of `names` within a typo of `typed`, nearest first. */
-const nearestOf = (typed: string, names: ReadonlyArray<string>): ReadonlyArray<string> => {
+/**
+ * Up to three of `names` within a typo of `typed`, nearest first. A number
+ * is a typo one digit away, and one digit alone has none: every other
+ * one-digit task is as near.
+ */
+const nearestOf = (typed: string, names: ReadonlyArray<string>, numbers = false): ReadonlyArray<string> => {
   const wanted = fold(typed);
-  const within = Math.max(2, Math.floor(wanted.length / 2));
+  if (numbers && wanted.length < 2) return [];
+  const within = numbers ? 1 : Math.max(2, Math.floor(wanted.length / 2));
   return [...new Set(names)]
     .map((name) => ({ name, far: distance(wanted, fold(name)) }))
     .filter(({ far }) => far <= within)
@@ -980,7 +985,7 @@ export const linkMentions = (
     const item = (found: TargetCandidate | undefined): Result.Result<ResolvedName | undefined, WorkErrorBody> => {
       if (found?.itemId === undefined) {
         return kept(token.kind === "number"
-          ? nearestOf(String(token.number), tasks.flatMap((task) => (task.number === undefined ? [] : [String(task.number)]))).map((number) => `#${number}`)
+          ? nearestOf(String(token.number), tasks.flatMap((task) => (task.number === undefined ? [] : [String(task.number)])), true).map((number) => `#${number}`)
           : nearestOf(token.kind === "hash" ? token.name : typed, candidates.items.map((candidate) => candidate.name)).map((name) => `#${name}`));
       }
       const number = found.number === undefined ? "" : `${found.number} `;

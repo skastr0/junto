@@ -670,12 +670,12 @@ export const taskRefusalWordsOf = (reason: string, token: string | undefined, co
 /** What to do next, where a refusal's own words do not say it. */
 const taskRefusalNextStep = (detail: TaskRefusalDetail): string | undefined => {
   if (detail.kind === "seat-busy") {
-    return `a seat holds one open task: finish ${detail.taskId} first, or release it with junto task unassign ${detail.taskId}`;
+    return `a seat holds one open task: ${detail.seat} finishes ${detail.taskId} first, or it is released with junto task unassign ${detail.taskId}`;
   }
   if (detail.kind !== "not-assignee") return undefined;
   return detail.assignee === undefined
     ? "assign it first: junto task assign <task> takes it for this seat; any seat in reach of the task node, or the operator, may assign it"
-    : `ask ${detail.assignee}, the assignee, to move it, or the operator to unassign it`;
+    : `ask ${detail.assignee}, the assignee, to move it, or unassign it with junto task unassign <task>; any seat in reach of the task node may`;
 };
 
 const toRefusal = ({ reason, detail }: TaskRefusal): Refusal => {
