@@ -64,7 +64,6 @@ import { claimFocus } from "../../lib/focus-ownership";
 import { AccentColorSwatches } from "./AccentColorPicker";
 import "./RtsBottomBar.css";
 import { modelStore } from "../../lib/use-model";
-import { workAttentionStore } from "../../lib/use-work-sink";
 import { useRtsNodes, useRtsValue, useSelectedNodeIds } from "../../lib/rts-selection";
 
 /** Compact square RTS key — fixed size, never stretches. */
@@ -322,7 +321,6 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   const canvasName = use$(state$.canvasName);
   const node = useRtsNodes(canvasName, [nodeId])[0];
   const modelKind = use$(() => modelStore.node$(canvasName, nodeId).kind.get());
-  useEffect(() => canvasName ? workAttentionStore.retain(canvasName) : undefined, [canvasName]);
   const [connectOpen, setConnectOpen] = useState(false);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [copyDetail, setCopyDetail] = useState("");

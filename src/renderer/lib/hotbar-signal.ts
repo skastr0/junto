@@ -4,8 +4,7 @@
  */
 
 import type { AgentSeatState } from "@shared/agent-seat-state";
-import type { WorkSinkGlance } from "@shared/work-attention";
-import type { Task } from "@shared/work-model";
+import { blocksAssignee, type TaskState } from "@shared/task-model";
 import { MemberSeverity, worseSeverity } from "@shared/region-rollup";
 
 /** Worse operational tier wins, on the rollup's ladder (attention > blocked > ready > working > idle). */
@@ -46,8 +45,8 @@ export function hotbarNodeSeverity(
     readonly regionSeverity?: MemberSeverity;
     readonly memberSeverity?: MemberSeverity;
     readonly liveSeverity?: MemberSeverity;
-    readonly work?: WorkSinkGlance;
-    readonly items?: ReadonlyArray<Task>;
+    /** The states of the open tasks the node carries, or of the task a seat holds. */
+    readonly taskStates?: ReadonlyArray<TaskState>;
   } = {},
 ): MemberSeverity {
   if (isRegion) {
@@ -57,8 +56,8 @@ export function hotbarNodeSeverity(
   let severity: MemberSeverity | undefined = options.memberSeverity;
 
   if (severity === undefined) {
-    if (options.work?.needsHuman) severity = MemberSeverity.group.attention;
-    else if (options.items?.some((item) => item.state === "working")) severity = MemberSeverity.group.working;
+    if (options.taskStates?.some(blocksAssignee)) severity = MemberSeverity.group.attention;
+    else if (options.taskStates?.includes("working")) severity = MemberSeverity.group.working;
   }
 
   if (options.liveSeverity !== undefined) {

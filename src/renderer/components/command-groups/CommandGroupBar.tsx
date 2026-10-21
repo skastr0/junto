@@ -1,4 +1,4 @@
-import { useCanvasWorkAttention } from "../../lib/use-work-sink";
+import { canvasTasks$, seatTasks$ } from "../../lib/seat-tasks";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { Plus } from "lucide-react";
@@ -46,7 +46,6 @@ import "./command-group-bar.css";
  */
 function useBarTones(nodeIds: ReadonlyArray<string>): ReadonlyMap<string, SeatRollup> {
   const canvasName = use$(state$.canvasName);
-  const work = useCanvasWorkAttention(canvasName);
   const now = useHealthClock();
   const encoded = use$(() => {
     // The stores a tone is read from. Each is followed here and nowhere else.
@@ -56,6 +55,8 @@ function useBarTones(nodeIds: ReadonlyArray<string>): ReadonlyMap<string, SeatRo
     const signals = seatSignalRollups$.get();
     const execution = kernel$.execution.get();
     const regionSeverity = state$.regionSeverityByNodeId.get();
+    const tasksByNode = canvasTasks$.byNode.get();
+    const heldBy = seatTasks$.bySeat.get();
     modelStore.canvas$(canvasName).nodes.get();
     const canvas = modelStore.canvasOf(canvasName);
 
@@ -79,7 +80,7 @@ function useBarTones(nodeIds: ReadonlyArray<string>): ReadonlyMap<string, SeatRo
       const isRegion = node.kind === "region";
       const bindingId = isRegion ? undefined : seatBindingOf(node);
       const severity = hotbarNodeSeverity(isRegion, {
-        work: work.glances[id], items: work.items[id],
+        taskStates: tasksByNode[id]?.map((task) => task.current.state) ?? (heldBy[id] ? [heldBy[id].state] : undefined),
         regionSeverity: regionSeverity[id] as MemberSeverity | undefined,
         liveSeverity: isRegion
           ? undefined

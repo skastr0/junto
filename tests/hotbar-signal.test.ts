@@ -39,6 +39,12 @@ describe("hotbarNodeSeverity", () => {
     ).toBe("blocked");
   });
 
+  it("reads a node's open tasks: one waiting for input is attention, one working is working", () => {
+    expect(hotbarNodeSeverity(false, { taskStates: ["assigned", "input-required"] })).toBe("attention");
+    expect(hotbarNodeSeverity(false, { taskStates: ["in-review", "working"] })).toBe("working");
+    expect(hotbarNodeSeverity(false, { taskStates: ["assigned", "in-review"] })).toBe("idle");
+  });
+
   it("reads live severity alone for freestanding agents", () => {
     expect(hotbarNodeSeverity(false, { liveSeverity: S.attention })).toBe("attention");
   });
