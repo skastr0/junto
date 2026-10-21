@@ -74,13 +74,20 @@ its tests and its CLI surface are gone and `bun run verify` passes.
 - Kinds, tables, `reads` and `edits` verbs. Domains and editors are kept and
   move under artifacts.
 
-## Migration (v26)
+## Migrations (v26 to v29)
 
-One migration, using the `removesTables` precedent
+One step per phase, each landing with its code; canvas owns the chain and
+reviews every step (canvas-lead): v26 phase 0 deletions; v27 phase 1
+(collapse `entity_home`, ruling table, fact families); v28 task state remap;
+v29 automations. Collapsing `entity_home` belongs to v27, not v26. Wires with
+removed verbs go by a filtered copy forward (the guard allows row deletes
+only in replaced or removed tables, `src/main/junto/state/migrations.ts:1089-1105`);
+the live canvas has 420 wires, all `messages`. Pad and sheet: 0 exist, so
+dropped. Steps use the `removesTables` precedent
 (`src/main/junto/state/migrations.ts:394-401,515-518`):
 
 1. Delete nodes and wires of removed kinds and verbs; rebuild the
-   `wires.verb` CHECK.
+   `wires.verb` CHECK (`src/main/junto/model/state-schema.ts:186`).
 2. Drop the removed tables.
 3. Rebuild the host registry without Hermes columns.
 4. Collapse `entity_home` lanes on tasks and artifacts (02).
@@ -104,7 +111,7 @@ changes with it.
 
 ## Questions
 
-- **canvas**: Owning the v26 migration: one migration or one per phase?
+- ~~**canvas**: migrations~~ Answered above.
 - ~~**pty**: chat delete lease~~ pty-lead owns it. Every seat deletion takes
   it today, from `src/main/junto/overseer/native.ts:1353-1365` and
   `src/renderer/lib/chat-state.ts:614-660`. After the cut, seat deletion goes

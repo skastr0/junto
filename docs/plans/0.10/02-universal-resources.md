@@ -137,8 +137,15 @@ the set grows by one (cli-lead):
 - Entitlement: every machine linked for a canvas receives every resource
   fact for it. The mail entitlement rule (sink seat lives on the machine,
   `work-exchange.ts:273-284`) is unchanged.
-- Canvas copy carries every non-host node in full to every machine. Region
-  outlines become full regions. Pages are not carried (06).
+- Canvas copy carries every non-host node to every machine as geometry and
+  label only; bodies (note text, briefings) travel as facts or content refs,
+  because the whole copy is one `CopyFrame` on `rows`
+  (`src/shared/work-exchange.ts:113`) under the 1 MiB frame bound (canvas-lead).
+  Region outlines gain only geometry and label: briefing, references, folder
+  maps and environment sources still go only where a local seat is in the
+  region (`docs/security-doctrine.md:119-121`). Pages travel as stubs (06).
+- Seat occupancy facts start on the seat's own machine (it is their writer);
+  the editing machine reads them for automations (07).
 - Content (artifact files, attachments): facts carry content refs; bytes
   move on demand through the existing content transfer
   (`src/main/junto/content/machine-files.ts`). Signal attachments become refs

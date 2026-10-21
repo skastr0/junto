@@ -137,11 +137,17 @@ task's thread. That replaces the factory claim prompt.
 
 ## Questions
 
-- **canvas**: The one open task per seat invariant across the canvas: any
-  reason it must be per region instead?
-- **canvas**: Pipelines across regions: a `flows` edge between task nodes in
-  different regions. Allow only when the downstream node is in reach of the
-  upstream one?
+- ~~**canvas**: one open task~~ Answered: canvas-wide; physics already says
+  one actor has at most one active task (`architecture-canvas-physics.md:193`).
+  Holds at migration (12 submitted unassigned, 1 working).
+- ~~**canvas**: flows across regions~~ Answered: allow every `flows` edge
+  the operator draws; sending on gives the sender nothing downstream, and
+  requiring reach would forbid handoff between sibling regions.
+- State remap in the migration (canvas-lead): `submitted` becomes `backlog`,
+  or `assigned` with an actor; `completed` becomes `done`; `rejected` (59 rows
+  here) and `failed` (1) become `canceled`. 363 task rows sit on 18 task
+  nodes no longer on the canvas; entitlement follows live nodes, so they stay
+  local and are not replicated.
 - ~~**pty**: assignment mail~~ Answered: like any mail, kind `notice`.
   Delivery already starts a seat that is not running when mail waits for it
   (`src/main/junto/work/message-delivery.ts:560-563,784`) and holds mail while

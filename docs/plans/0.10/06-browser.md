@@ -81,5 +81,8 @@ without a window.
   envelope, discovery, schema show and `WorkErrorBody`. Port it to
   `src/cli/commands/browser.ts` on the standard envelope, keep the control
   socket and grants as transport, add `--tab`.
-- **canvas**: A page node on a canvas edited from another machine: shown as a
-  stub on that machine, or not drawn at all?
+- ~~**canvas**: page elsewhere~~ Answered: a stub shaped like a `peer` row
+  (id, geometry, label, machine, no host fields), needed by reach, mention
+  candidates and comment subjects. Only the editing machine authors nodes,
+  so pages live on the editing machine; if it has no window, there are no
+  pages.

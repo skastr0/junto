@@ -97,6 +97,10 @@ what a mention does is universal.
 | The needs-you feed reply | seats connected to the signalling seat | in that seat's reach |
 | An automation definition | seats in its region and below (07) | same |
 
+Backlinks: a projection table written in the same transaction as the fact
+that carries the text, rebuildable from facts, never read for authority
+(canvas-lead).
+
 Machine does not matter (02). Whether the seat's process runs does not
 matter; delivery holds mail until it can type it.
 
@@ -170,5 +174,9 @@ hook (section 2).
 
 - ~~**pty**: delivery~~ Answered above (section 4).
 - ~~**cli**: where resolution lives~~ Answered: main, same resolver as 01.
-- **canvas**: Backlinks (where a task was mentioned): computed on read, or a
-  table?
+- ~~**canvas**: backlinks~~ Answered: projection table (section 3).
+- **cli + canvas**: the link form embeds the canvas name, but `canvas_name`
+  is a mutable key (`ON UPDATE CASCADE`, `src/main/junto/model/state-schema.ts:3`),
+  so a rename breaks every stored link (canvas-lead). Node ids are unique per
+  canvas; the encoding should carry the node id and item and take the canvas
+  from context. cli to settle the ref shape with the `item` parameter.

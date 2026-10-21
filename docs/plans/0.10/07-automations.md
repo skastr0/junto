@@ -63,7 +63,11 @@ type Action =
   | { readonly kind: "comment"; readonly on: ThreadSubject; readonly text: string };
 ```
 
-Targets are `MentionRef`s (03), picked with `MentionCombobox`, limited to the
+Targets are `MentionRef`s (03), picked with `MentionCombobox`, limited by
+`automationTargets` (01): below the node and within the author's reach,
+rechecked at fire time; an automation the operator wrote gets everything
+below. Without the intersection a seat could create an automation in an
+ancestor node that targets its siblings (canvas-lead). Formerly limited to the
 automation's region and below (`targetsBelow`, 01).
 
 ## Runner
@@ -118,8 +122,13 @@ connection it opens. Shape reserved now so nothing in 0.10 blocks it:
 
 ## Questions
 
-- **canvas**: Runner on the editing machine only: any case where an
-  automation must run where a seat lives?
+- ~~**canvas**: runner~~ Answered: the runner stays single; seat occupancy
+  facts start on each seat's own machine. Cost: with the editing machine's
+  lid closed, schedules stop for every machine; missed slots are recorded as
+  skipped with the reason on wake, never fired in a burst. The automation
+  node is the mail and ruling principal. Loop safety catches direct facts
+  only; a loop through a seat (mail, the seat acts, its fact fires the
+  automation) is caught only by `limits`.
 - ~~**pty**: seat state triggers~~ Answered: runner rules above.
 - ~~**remote**: webhooks~~ Answered: the relay is not a machine (no
   installation id, no link, no build check), or Rule 8 forces a relay

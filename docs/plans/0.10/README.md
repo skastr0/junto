@@ -47,7 +47,9 @@ still carries the factory. 0.10 finishes the move:
 ## Doctrine this plan changes
 
 These are written law today. 0.10 rewrites them; the rewrite lands with the
-code, not before.
+code, not before. `docs/security-doctrine.md:6` requires it and
+`docs/architecture-canvas-physics.md` to change together; canvas and remote
+share the cross-machine half.
 
 | Law today | Where | 0.10 |
 |---|---|---|
@@ -55,6 +57,8 @@ code, not before.
 | Synced rows are immutable with one writer and no conflict handling | `docs/machines.md:64-75` | Kept. Universal resources are built on it: seats propose, the editing machine rules (02) |
 | Tasks, artifacts and other sinks are not carried to other machines | `docs/machines.md:368-372` | Carried everywhere (02) |
 | Edges are capabilities for every sink | `src/shared/physics/verbs.ts`, `laws.ts:69-78` | Edges remain only for seat to seat mail, seat to page automation, and task to task flow (01) |
+| Mail needs a granting edge; across machines only `msg.send`; closed exchange operations; region briefing only where a local seat is | `docs/security-doctrine.md:84-89,119-127,236-241`; `docs/machines.md:85-87` (rule 6); `AGENTS.md:463` | Reach mints mail (01); exchange opens (02); briefing rule kept |
+| The PR test and impact cone | `docs/architecture-canvas-physics.md:242,264-266` | Rewritten for reach (01); locks in `tests/physics/physics.test.ts:107`, `tests/work-control-protocol.test.ts:149-225` change with it |
 | Notes, labels, files and links stay on the editing machine | `docs/machines.md:51-52` | Carried everywhere (02) |
 | The exchange is a closed list; a row stands alone | `docs/machines.md:71-72`; `src/shared/work-exchange.ts:54,72` | Opens to resource fact families that chain on predecessors (02) |
 | Rule 5 entitlement | `docs/machines.md:76-81` | Every machine linked for a canvas is entitled to every resource fact (02) |
@@ -121,13 +125,14 @@ Recorded here so no lead reopens them.
 Collected from the documents; each has a recommendation. These go to the
 operator as one signal after the leads have weighed in.
 
-1. Regions that partially overlap: refuse them on the canvas (recommended)
-   or define reach for overlaps. (01)
+1. Regions that partially overlap: refuse them (recommended). `factory` has
+   45 sliver overlaps to fix once, by hand or with a one-time `separate`
+   command. (01)
 2. Nodes outside every region: in reach of every seat on the canvas
-   (recommended). (01)
+   (recommended). The flip side: a seat dropped outside every region reaches
+   every resource. (01)
 3. (Settled 2026-10-21, see below.)
-4. Existing pad and sheet content: drop it (recommended, the kinds never
-   shipped) or migrate it into artifacts. (05)
+4. (Settled: 0 pads and 0 sheets exist; dropped.)
 5. Oldest supported database: raise the migration floor to v13 so the
    legacy row reader can go (recommended). (09)
 6. Harness gates that exist only as a way back off: delete them
@@ -136,3 +141,13 @@ operator as one signal after the leads have weighed in.
    down: refuse with a retryable error (recommended) or queue. Cost of
    refusing: while the desktop sleeps, remote seats cannot write resources
    and no automation fires. (02)
+8. Region is a scope, not a wall: mentions, stamp requests, assignments and
+   automations mail seats without a `messages` edge, so siblings can always
+   reach each other through a shared ancestor resource. Accept (recommended).
+   (01)
+9. An overseer moving or resizing its own seat (which would change its
+   reach): refuse, as deleting it is (recommended). (01)
+10. Notes in 0.10: seats in reach read them, only the operator writes them
+   (recommended). (01)
+11. Flags this plan does not cover: `usage`, `helpMap`, `liveOverseer`,
+   `seatAwareness`. Keep, ship or delete? (09)
