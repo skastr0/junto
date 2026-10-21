@@ -40,7 +40,7 @@ import { reaches } from "@shared/region-reach";
 import type { ResourceActor, ResourceCommand } from "@shared/resource-command";
 import type { WorkErrorBody } from "@shared/work-control";
 import { isItemId, type ItemId, type OpId } from "@shared/work-ids";
-import { type AutomationApplyServices, applyAutomationCommand } from "../automation/apply";
+import { type AutomationApplyServices, applyAutomationCommand, offEditorRefusal } from "../automation/apply";
 import { AutomationRepository } from "../automation/repository";
 import { automationTargetResolver } from "./automation-targets";
 
@@ -99,6 +99,16 @@ const inApp = <A>(what: string, effect: Effect.Effect<A, unknown, AutomationAppl
     return yield* effect.pipe(Effect.provideContext(services), Effect.mapError(persistence));
   });
 
+/**
+ * A copy's store is empty, since nothing fills it, so a read off the editing
+ * machine refuses and names that machine rather than answering nothing.
+ */
+const onEditor = (canvasName: string): Effect.Effect<void, WorkErrorBody> =>
+  Effect.flatMap(inApp("the automation store", offEditorRefusal(canvasName, "kept")), Option.match({
+    onNone: () => Effect.void,
+    onSome: (refusal) => Effect.fail(refusal),
+  }));
+
 const newestFirst = (a: Firing, b: Firing) => (a.firingId < b.firingId ? 1 : a.firingId > b.firingId ? -1 : 0);
 
 /**
@@ -109,9 +119,9 @@ const newestFirst = (a: Firing, b: Firing) => (a.firingId < b.firingId ? 1 : a.f
 export const liveAutomationPorts: AutomationPorts = {
   nodes: (canvas) => [...canvas.nodes.values()].filter((node) => node.kind === "automations"),
   automations: (canvasName, nodeId) =>
-    inApp("the automation store", Effect.gen(function* () {
+    Effect.andThen(onEditor(canvasName), inApp("the automation store", Effect.gen(function* () {
       return yield* (yield* AutomationRepository).list(canvasName, nodeId);
-    })),
+    }))),
   firings: (canvasName, nodeId, query) =>
     Effect.gen(function* () {
       const before = query.before === undefined ? undefined : decodeFiringId(query.before);
@@ -123,6 +133,7 @@ export const liveAutomationPorts: AutomationPorts = {
         });
       }
       const page = { limit: Math.min(query.limit, FIRINGS_PAGE_MAX), ...(before === undefined ? {} : { before: before.value }) };
+      yield* onEditor(canvasName);
       return yield* inApp("automation history", Effect.gen(function* () {
         const store = yield* AutomationRepository;
         // One automation's page, or every automation on the node merged newest first.

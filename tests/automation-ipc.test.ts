@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { Cause, Effect, Exit, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, it } from "vitest";
 import { automationIpcHandlers } from "../src/main/junto/automation/ipc";
@@ -525,6 +525,42 @@ describe("the CLI's live automation ports", () => {
       // Node-wide history: every automation on the node, newest first.
       const firings = await inApp(liveAutomationPorts.firings("factory", asNodeId(NODE), { limit: 10 }));
       expect(firings.map((f) => f.cause)).toEqual([{ kind: "run" }]);
+    }));
+
+  it("refuse reads and writes on a copy, naming the editing machine, and record nothing", () =>
+    run(async (handlers, changed, sql, inApp) => {
+      await handlers.apply("factory", { nodeId: NODE, automationId: ID, op: { kind: "create", automationId: ID, enabled: false, definition } });
+      await sql("INSERT INTO known_installations(installation_id,registered_at) VALUES ('inst-atlas','2026-10-21T00:00:00Z')");
+      await sql(`INSERT INTO machine_peers(machine_name,installation_id,bound_at) VALUES ('${OTHER_MACHINE}','inst-atlas','2026-10-21T00:00:00Z')`);
+      await sql("UPDATE canvases SET editor_installation_id = 'inst-atlas' WHERE canvas_name = 'factory'");
+      changed.length = 0;
+      const refusal = (exit: Exit.Exit<unknown, unknown>) => (Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined);
+      const nextStep = `Open "factory" on ${OTHER_MACHINE} to read or change its automations`;
+
+      // The copy's store is not the record, so its reads refuse rather than answer nothing.
+      const reads = [
+        await inApp(Effect.exit(liveAutomationPorts.automations("factory", asNodeId(NODE)))),
+        await inApp(Effect.exit(liveAutomationPorts.firings("factory", asNodeId(NODE), { limit: 10 }))),
+      ];
+      for (const read of reads) {
+        expect(refusal(read)).toMatchObject({ type: "InputError", details: { reason: "not_available", next_step: nextStep } });
+      }
+
+      const ran = refusal(await inApp(Effect.exit(liveAutomationPorts.submit({
+        opId: OVERSEER_RUN,
+        canvasName: "factory",
+        actor: { kind: "operator" },
+        target: { kind: "automation", nodeId: asNodeId(NODE), itemId: ID as never },
+        basis: null,
+        after: [],
+        op: { kind: "run" },
+      }))));
+      expect(ran).toMatchObject({
+        type: "InputError",
+        details: { reason: "not_available", next_step: `Open "factory" on ${OTHER_MACHINE} to change its automations` },
+      });
+      expect(changed).toEqual([]);
+      expect((await handlers.firings("factory", { automationId: ID })).firings).toEqual([]);
     }));
 
   it("refuse as not built where the automation store is not", async () => {

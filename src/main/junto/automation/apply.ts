@@ -57,39 +57,49 @@ const editorName = (canvasName: string) =>
     return Option.map(row, (found) => found.machine_name);
   });
 
+const notAvailableBody = (message: string, next_step?: string): WorkErrorBody => ({
+  type: "InputError",
+  message,
+  details: { reason: "not_available", retryable: false, ...(next_step === undefined ? {} : { next_step }) },
+});
+
 const notAvailable = (command: ResourceCommand<AutomationOp>, message: string, next_step?: string): AutomationSubmitOutcome => ({
   kind: "refused",
   opId: command.opId,
   root: command.opId,
-  error: {
-    type: "InputError",
-    message,
-    details: { reason: "not_available", retryable: false, ...(next_step === undefined ? {} : { next_step }) },
-  } satisfies WorkErrorBody,
+  error: notAvailableBody(message, next_step),
 });
+
+/**
+ * Why this machine cannot serve a canvas's automations, none when it edits
+ * the canvas: automations and their store live on the editing machine (07,
+ * rule 2), so a copy is written and read there, and names where to go.
+ */
+export const offEditorRefusal = (canvasName: string, verb: "written" | "kept") =>
+  Effect.gen(function* () {
+    if (yield* (yield* ModelRecords).editsCanvas(canvasName)) return Option.none<WorkErrorBody>();
+    const action = verb === "written" ? "change" : "read or change";
+    const editor = yield* editorName(canvasName);
+    return Option.some(Option.match(editor, {
+      onSome: (machine) =>
+        notAvailableBody(
+          `automations on "${canvasName}" are ${verb} on ${machine}, the machine that edits it`,
+          `Open "${canvasName}" on ${machine} to ${action} its automations`,
+        ),
+      onNone: () =>
+        notAvailableBody(
+          `automations on "${canvasName}" are ${verb} on the machine that edits it, and that machine is not paired here`,
+          `Open "${canvasName}" on its editing machine to ${action} its automations`,
+        ),
+    }));
+  });
 
 export const applyAutomationCommand = (command: ResourceCommand<AutomationOp>) =>
   Effect.gen(function* () {
     const name = command.canvasName;
-    // Automations and their store live on the editing machine (07, rule 2):
-    // a copy has nothing to write against, so it refuses and names where to go.
-    if (!(yield* (yield* ModelRecords).editsCanvas(name))) {
-      const editor = yield* editorName(name);
-      return Option.match(editor, {
-        onSome: (machine) =>
-          notAvailable(
-            command,
-            `automations on "${name}" are written on ${machine}, the machine that edits it`,
-            `Open "${name}" on ${machine} to change its automations`,
-          ),
-        onNone: () =>
-          notAvailable(
-            command,
-            `automations on "${name}" are written on the machine that edits it, and that machine is not paired here`,
-            `Open "${name}" on its editing machine to change its automations`,
-          ),
-      });
-    }
+    // A copy has nothing to write against.
+    const refusal = yield* offEditorRefusal(name, "written");
+    if (Option.isSome(refusal)) return { kind: "refused", opId: command.opId, root: command.opId, error: refusal.value } satisfies AutomationSubmitOutcome;
     const writer = yield* localWriter;
     if (Option.isNone(writer)) return notAvailable(command, "this machine has no installation id yet");
     const canvas = yield* (yield* ModelService).canvas(name);
