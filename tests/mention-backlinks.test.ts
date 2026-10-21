@@ -24,13 +24,14 @@ import { operatorActorRef } from "../src/shared/work-reference";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import {
   CURRENT_STATE_SCHEMA_IDENTITY,
+  MENTIONABLE_TABLES_V46,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V45_IDENTITY,
   STATE_SCHEMA_V46_IDENTITY,
 } from "../src/main/junto/state/migrations";
 import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import { expectedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { readMentions, rebuildMentions } from "../src/main/junto/work/mention-backlinks";
+import { MENTIONABLE, readMentions, rebuildMentions } from "../src/main/junto/work/mention-backlinks";
 import { listMentions, type MentionIpcPorts } from "../src/main/junto/work/mention-ipc";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { STATE_SCHEMA_V45_SQL, STATE_SCHEMA_V46_SQL } from "./fixtures/state-v13/schema";
@@ -134,6 +135,10 @@ describe("state step 45 to 46: the backlinks table", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V46_SQL)).toEqual(STATE_SCHEMA_V46_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V46_IDENTITY);
     expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V46_IDENTITY);
+  });
+
+  it("backfills from its own frozen kind tables, which are today's at 46", () => {
+    expect(MENTIONABLE_TABLES_V46).toEqual(MENTIONABLE);
   });
 
   it("adds work_mentions and nothing else", () => {

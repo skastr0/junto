@@ -5,6 +5,8 @@
  * rebuilt from those rows (`mention-backlinks.ts`); never read for authority.
  * `at_ms` is the message id's time, the order a thread reads in. A mail row
  * that goes takes its backlinks with it. Added by state migration 45 -> 46.
+ * A step that rebuilds work_messages copies and drops the old table: an
+ * ALTER TABLE RENAME would carry this foreign key onto the old one.
  */
 export const WORK_MENTIONS_SQL = `
   CREATE TABLE IF NOT EXISTS work_mentions (

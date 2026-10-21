@@ -579,6 +579,14 @@ export const STATE_SCHEMA_V45_IDENTITY = {
     "e7838f1d5ab8bb96734fb94a4008f2b6c564788d5c116ac9514c662606291e76",
 } as const satisfies VerifiedStateSchemaIdentity;
 
+/** The mentionable kinds' tables as version 46 names them, for its backfill. Frozen. */
+export const MENTIONABLE_TABLES_V46 = [
+  ["agent", "seats"],
+  ["task", "task_boards"],
+  ["artifacts", "artifact_boards"],
+  ["page", "pages"],
+] as const;
+
 /**
  * Version 46 keeps where each seat, task, artifact and page is mentioned
  * (plan 03 section 3): `work_mentions`, a projection of mail rows, built
@@ -947,7 +955,7 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V45_IDENTITY,
     migrate: (database) => {
       database.exec(WORK_MENTIONS_SQL);
-      rebuildMentions(database);
+      rebuildMentions(database, MENTIONABLE_TABLES_V46);
     },
   },
 ];
