@@ -66,6 +66,29 @@ describe("ThreadPosts", () => {
     expect(html).toContain("No comments yet.");
   });
 
+  it("says You for the operator whatever name main gives it, and main's name for anyone else", () => {
+    const html = renderToStaticMarkup(
+      <ThreadPosts
+        threads={[
+          {
+            threadId: "t",
+            posts: [
+              { messageId: "m1", author: { kind: "operator" }, name: "operator", text: "mine", at: 1 },
+              { messageId: "m2", author: { kind: "seat", nodeId: ada }, name: "Ada", text: "hers", at: 2 },
+            ],
+          },
+        ]}
+        now={3}
+        seatName={() => undefined}
+        nodeKindOf={kinds}
+        onOpen={() => undefined}
+      />,
+    );
+    expect(html).toContain(">You<");
+    expect(html).not.toContain(">operator<");
+    expect(html).toContain(">Ada<");
+  });
+
   it("lists posts oldest first with who and when, and draws a mention as a chip that opens", () => {
     const link = mentionLink({ kind: "seat", nodeId: ada }, "@Ada", "factory");
     const html = renderToStaticMarkup(

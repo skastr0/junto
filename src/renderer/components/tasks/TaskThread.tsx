@@ -94,7 +94,7 @@ export function ThreadPosts({
       {posts.map((post) => (
         <li key={post.messageId} className="task-thread__post" data-testid="task-thread-post">
           <div className="task-thread__meta">
-            <strong>{post.name ?? actorLabel(post.author, seatName)}</strong>
+            <strong>{post.author.kind === "operator" ? "You" : (post.name ?? actorLabel(post.author, seatName))}</strong>
             <span>{agoLabel(post.at, now)}</span>
           </div>
           <PostText text={post.text} nodeKindOf={nodeKindOf} onOpen={onOpen} />

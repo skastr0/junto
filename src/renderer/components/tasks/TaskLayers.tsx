@@ -4,6 +4,7 @@ import { StampTally } from "../ui";
 import { reviewTally } from "../../lib/task-ui";
 import { agoLabel } from "./tasks-pane-model";
 import type { SeatChoice } from "../../lib/task-ui";
+import { TaskEvidence } from "./TaskEvidence";
 
 /**
  * The onion timeline (plan 04 "Pipelines and layers"): one row per node the
@@ -11,12 +12,14 @@ import type { SeatChoice } from "../../lib/task-ui";
  * when it was sent on. The layer the task is on now is the main pane itself.
  */
 export function TaskLayers({
+  canvasName,
   layers,
   nodeName,
   seats,
   nameOf,
   now,
 }: {
+  readonly canvasName: string;
   readonly layers: ReadonlyArray<ClosedTaskLayer>;
   readonly nodeName: (node: string) => string;
   readonly seats: ReadonlyArray<SeatChoice>;
@@ -39,6 +42,9 @@ export function TaskLayers({
             <span>{seatName(layer.assignee)}</span>
             {layer.stampPolicy.required > 0 ? <StampTally tally={reviewTally(layer)} /> : null}
             <span className="task-layers__age">sent {agoLabel(layer.closedAt, now)}</span>
+            <div className="task-layers__evidence">
+              <TaskEvidence canvasName={canvasName} evidence={layer.evidence} handoff={layer.handoff} label={`Left on ${nodeName(layer.node)}`} />
+            </div>
           </li>
         ))}
       </ol>

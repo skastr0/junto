@@ -13,15 +13,9 @@ describe("normalizeBoardSettings keeps the stamp default", () => {
 });
 
 describe("normalizeBoardSettings and the admission setting", () => {
-  it("passes a stored admission through unchanged, so a write that is not about it keeps a Me or approval board", () => {
+  it("writes no admission: main no longer enforces one, so a node saved with one comes back without it", () => {
     const stored = { incoming: { handling: "Triage first", admission: "approval" } } as never;
-    expect(normalizeBoardSettings(stored)).toEqual({ incoming: { handling: "Triage first", admission: "approval" } });
-    expect(normalizeBoardSettings({ incoming: { admission: "operator", waitMs: 900_000 } } as never)).toEqual({
-      incoming: { admission: "operator", waitMs: 900_000 },
-    });
-  });
-
-  it("writes none for the default, auto", () => {
-    expect(normalizeBoardSettings({ incoming: { admission: "auto" } } as never)).toBeUndefined();
+    expect(normalizeBoardSettings(stored)).toEqual({ incoming: { handling: "Triage first" } });
+    expect(normalizeBoardSettings({ incoming: { admission: "operator" } } as never)).toBeUndefined();
   });
 });

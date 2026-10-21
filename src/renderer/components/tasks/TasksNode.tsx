@@ -23,6 +23,7 @@ import {
 import { TaskReviewers } from "../work/TaskReviewers";
 import { TaskVerbBar } from "../work/TaskVerbBar";
 import { TaskDependencies } from "./TaskDependencies";
+import { TaskEvidence } from "./TaskEvidence";
 import { TaskThread } from "./TaskThread";
 import { TaskLayers } from "./TaskLayers";
 import {
@@ -349,8 +350,9 @@ export function SelectedTask({
       {view.body ? <p className="task-body">{view.body}</p> : null}
       <TaskDependencies view={view} all={all} closed={isClosed} onCommand={apply} />
       <TaskReviewers task={current} actor={OPERATOR} ctx={ctx} seats={seats} nameOf={seatName} onCommand={apply} />
+      <TaskEvidence canvasName={canvasName} evidence={current.evidence} handoff={current.handoff} />
       <TaskThread canvasName={canvasName} node={current.node} taskId={view.taskId} all={all} now={now} seatName={(id) => seatName(id)} />
-      <TaskLayers layers={view.layers} nodeName={nodeName} seats={seats} nameOf={seatName} now={now} />
+      <TaskLayers canvasName={canvasName} layers={view.layers} nodeName={nodeName} seats={seats} nameOf={seatName} now={now} />
     </div>
   );
 }
