@@ -153,7 +153,7 @@ everyone else reports by mail and on the needs-you feed.
 | Machine build define `__JUNTO_MACHINE_BUILD__` | cli owns, remote-core asserts the bundle | requested |
 | Automation domain, tables, runner plan | canvas-automation 9acfdfb16, e8955635b, 20328f683, f929f8afc, 740d7d686; history keeps newest 1,000 (4c771668a); open defects: edit widening reach, edit re-enabling, reassigned reviewer's old approval | landed, defects under fix |
 | Automations are operator and overseer only | operator ruling; 01 and 07 (f1a30d748) | decided |
-| Automations UI | product-settings 9503999c1, 84c9ed808, 25f16ff54; not mounted until the node kind and IPC land | landed, unmounted |
+| Automations UI | product-settings 9503999c1..b7aab2ac8, mount bc258da20, 6eb99ce2c, IPC ea440c715; real-app run product-accessibility | live |
 | Seat-state trigger rules (P5) | pty, f913ccad3, 37 tests | done |
 | Mention contract | product-feed, `mention.ts` fb267e17a | landed |
 | Thread subject and anchor contract | pty-mail, `thread-subject.ts` 74b442b98; tests by product-feed 1e4c91e0b | landed |
@@ -165,7 +165,7 @@ everyone else reports by mail and on the needs-you feed.
 | Migration slots | canvas-model keeps the list; numbers go out as steps land | running |
 | Artifact contract | product-shell, 3d9c5facc, 28 tests; shared edit reducer `ruleArtifactEdit` for ruler and pending view | landed |
 | Task model contract | canvas, `task-model.ts` d540d3f61, 84897c9aa; reach review fixes 4fd64a703 | landed, ruler migrating |
-| Tasks UI | product-modals ebbd76ae2, 470b887f4, Tasks node c0830492a; old board stays until main serves tasks | landed, unswapped |
+| Tasks UI | product-modals; on main's IPC 8d94f7606, 4c49e4f60; old board deleted fc7a66131 (28 files, -8.7k); real-app run product-verify | live |
 | Task op wire, TaskView, machine on contract | canvas cd37581ef, 0b55944dd, 50e5d51ea, fa799aec3; numbers #42 293b8e7aa | landed |
 | Blocked mark on seat ring; C1 reach in admitPure; C2 factory cuts | canvas ba0efac29; 73bf05d6d, 50a67cd60, dab3240b8, c0eecdae4; 3f359eb4b, 0b0ffe50d, 5f82c5de5 | landed |
 | Deletions step | waits on canvas-nodes' pad and sheet batch and the scheduler cut; operator: drop the 4 orphan pads | slipping |
@@ -178,7 +178,9 @@ everyone else reports by mail and on the needs-you feed.
 | Main typecheck | clean at 5489312a0 (tsrs, clean archive, 0 errors); shared index cleared of 40 stale paths; physics ship-profile cases with canvas-edges, remote-core, product-attention | green |
 | remote R5 Hermes host identity | b3543a409; stand-in removal rides the deletions step | done |
 | remote R2 ruler | RulingRecorder 75db329b0; task submit and replica fold 7fb8d1e9b; seat queue QueueFull 87d3406c8; reach for rulings 73779cf34; resource notice author 8a7e93ce4. Live once task tables are in the state engine and TaskRepositoryLive is wired (canvas order) | landed, not live |
-| remote R4 browser out | 255613ef8, 2614f3578, 658827b65; commit 3 page host readers next, deletions step waits on it | started |
+| remote R4 browser out | 255613ef8, 2614f3578, 658827b65, c12fe5cf7, 29bb0747a, 8a1d5e3ce, 4947ce9f3, 8f20c2f0c | done |
+| remote R3 canvas copy | 77f7a7134, f65727f16, fe9d7f375, a139bde94, 101f36c40, 1e632c2ec, e997e0706; stubs for file, link, git, page | done |
+| remote R2 ruler live | 49d0fed36, 1085f6dca; tasks c97b66587; artifacts and pane refresh remote-send; at_risk overlay remote-seats | live for tasks |
 | Pinning deletion | product-shell b7aaeeb54, 34dd02699, 3b5841794 (flag out) | done |
 | Anchor lock, target resolution tests | product-verify f30bdc9cd, bcd7a9e40 | landed |
 | Long mail text over 64 KiB | product-feed 5a299a18e, bound in `mail-text-bound.ts` (48 KiB text); thread composer with product-keyboard; envelope bound confirming with remote-send | landed, confirming |
