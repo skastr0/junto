@@ -73,6 +73,7 @@ const env = (over: Partial<TaskDomainEnv> = {}): TaskDomainEnv => ({
   downstream: () => [],
   stampDefaultOf: () => ({ required: 0 }),
   seatReaches: () => true,
+  automationReaches: () => true,
   ...over,
 });
 
@@ -271,6 +272,17 @@ describe("dependency reach", () => {
       nodeId: ship,
     });
     expect(ok(one(record(), operator, { kind: "depend", on: T2 }, reach, [far])).task.dependsOn).toEqual([T2]);
+  });
+
+  it("depends an automation only on a task whose node is among its targets", () => {
+    const nightly: TaskActor = { kind: "automation", automation: asNodeId("nightly") };
+    const targets = env({ automationReaches: (_, node) => node === build });
+    expect(refused(one(record(), nightly, { kind: "depend", on: T2 }, targets, [far]))).toEqual({
+      kind: "not-in-reach",
+      nodeId: ship,
+    });
+    const near = record({ id: T2, number: taskNumber(2)! });
+    expect(ok(one(record(), nightly, { kind: "depend", on: T2 }, targets, [near])).task.dependsOn).toEqual([T2]);
   });
 });
 
