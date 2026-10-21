@@ -23,8 +23,6 @@ describe("compile-time feature profiles", () => {
       relay: false,
       browser: false,
       board: false,
-      pad: false,
-      sheet: false,
       requests: false,
       artifacts: false,
       tasks: false,

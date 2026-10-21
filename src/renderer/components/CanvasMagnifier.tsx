@@ -160,10 +160,8 @@ const drawEdges = (
     const fromY = LENS_RADIUS + (from.centerY - center.y) * INSPECTION_SCALE;
     const toX = LENS_RADIUS + (to.centerX - center.x) * INSPECTION_SCALE;
     const toY = LENS_RADIUS + (to.centerY - center.y) * INSPECTION_SCALE;
-    context.strokeStyle = edge.data?.phase === "blocks"
-      ? withAlpha(t.crimson!, 0.72)
-      : withAlpha(t.steel!, 0.6);
-    context.lineWidth = edge.data?.phase === "blocks" ? 1.8 : 1;
+    context.strokeStyle = withAlpha(t.steel!, 0.6);
+    context.lineWidth = 1;
     context.beginPath();
     context.moveTo(fromX, fromY);
     context.lineTo(toX, toY);
