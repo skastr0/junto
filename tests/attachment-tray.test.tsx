@@ -214,6 +214,7 @@ describe("the signal answer box", () => {
         <SignalReply
           signalId="sig-1"
           canvasName="factory"
+          seatNodeId="agent-1"
           respond={respond}
           dismiss={async () => ({ ok: true as const })}
           onDone={onDone}

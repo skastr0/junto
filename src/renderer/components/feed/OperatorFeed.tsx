@@ -414,6 +414,7 @@ function FeedDetail({
           <SignalReply
             signalId={item.signalId}
             canvasName={item.canvasName}
+            seatNodeId={item.seat.nodeId}
             suggested={item.suggestions}
             respond={respondToAgentSignal}
             dismiss={dismissAgentSignal}

@@ -1,13 +1,15 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { AgentSignalAnswerOptions } from "@shared/ipc";
+import type { NodeId } from "@shared/physics/schema";
 import type { SignalActionResult } from "../../lib/agent-signals-view";
 import { claimFocus } from "../../lib/focus-ownership";
 import { modKeyGlyph } from "../../lib/platform";
 import { useAttachments } from "../../lib/operator-attachments";
+import { useConnectedSeats, useResourcesInReach } from "../../lib/mention-sources";
 import { answerLabel, useQuickReplies, useQuietNotes } from "../../lib/quick-replies";
 import { AttachButton, AttachmentTray } from "../attachments/AttachmentTray";
 import { Button } from "../ui";
-import { Textarea } from "../ui/Field";
+import { MentionCombobox } from "../ui/MentionCombobox";
 import { QuickReplies } from "./QuickReplies";
 import { keyAria, keyIs } from "../../lib/key-match";
 
@@ -57,6 +59,7 @@ export const useSignalAction = (onDone: () => void) => {
 export function SignalReply({
   signalId,
   canvasName,
+  seatNodeId,
   suggested,
   respond,
   dismiss,
@@ -66,6 +69,12 @@ export function SignalReply({
   readonly signalId: string;
   /** The signal's canvas: attached files are uploaded for a mail on it. */
   readonly canvasName: string;
+  /**
+   * The signalling seat. Its wired seats are who an @ may name (each is
+   * copied on the answer, main's side effect); what is in its reach is what
+   * an @ page or a # may name.
+   */
+  readonly seatNodeId: string;
   /** Replies the seat pre-baked for this signal; they lead the pill row. */
   readonly suggested?: ReadonlyArray<string>;
   readonly respond: (
@@ -82,6 +91,10 @@ export function SignalReply({
   const quickReplies = useQuickReplies();
   const quietNotes = useQuietNotes();
   const attachments = useAttachments(canvasName);
+  const seat = useMemo(() => ({ canvasName, seatId: seatNodeId }), [canvasName, seatNodeId]);
+  const wired = useConnectedSeats(seat);
+  const inReach = useResourcesInReach(canvasName, seatNodeId as NodeId);
+  const candidates = useMemo(() => [...wired, ...inReach], [wired, inReach]);
   const { pending, error, act } = useSignalAction(() => {
     attachments.clear();
     onDone();
@@ -123,9 +136,12 @@ export function SignalReply({
         onPick={(text) => answer(answerLabel({ kind: "quiet", text }), text, true)}
       />
       <AttachmentTray attachments={attachments} />
-      <Textarea
+      <MentionCombobox
         value={reply}
-        onChange={(event) => setReply(event.target.value)}
+        onValueChange={(next) => setReply(next)}
+        canvasName={canvasName}
+        candidates={candidates}
+        listLabel={(trigger) => (trigger === "@" ? "Seats wired to this seat, copied on the answer" : "Tasks, artifacts and pages in reach")}
         onKeyDown={(event) => {
           if (keyIs(event, "message.sendQuietly")) {
             event.preventDefault();
