@@ -56,7 +56,9 @@ const FOLDS: { readonly [K in ResourceKind]: Fold } = {
       : projectArtifactFacts(sql, canvasName, ruling.opId, facts.success, () => undefined);
   },
   thread: notYetRuled("thread"),
-  automation: notYetRuled("automation"),
+  // Automations stay on the editing machine (machines.md Rule 2): a copy keeps the
+  // ruling itself, which op show reads, and has no automation tables to fold into.
+  automation: () => Effect.void,
 };
 
 /** Fold one applied ruling from the editing machine into this machine's resource tables. */

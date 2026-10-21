@@ -349,3 +349,20 @@ describe("a machine that does not edit the canvas folds the editing machine's ar
     expect(await versions()).toEqual([{ pending: 1 }]);
   });
 });
+
+describe("a machine that does not edit the canvas takes the editing machine's automation rulings", () => {
+  const foldOp = Schema.decodeUnknownSync(OpId)("01M5F3A000000000000000000F");
+  it("keeps the ruling and folds nothing, since automations stay on the editing machine", async () => {
+    const before = await facts(mini);
+    const ruling = row(EDITOR, "5", { kind: "ruling", itemId: foldOp, sink: { canvasName: "factory", nodeId: "board-1" } }, {
+      operation: "ruling.applied",
+      writer: EDITOR,
+      opId: foldOp,
+      actor: { kind: "operator" },
+      kind: "automation",
+      facts: [{ fact: "automation.archived", automationId: "01M5F3A000000000000000000A" }],
+    });
+    expect(Exit.isSuccess(await apply(mini, EDITOR, frame(EDITOR, [ruling], "5")))).toBe(true);
+    expect(await facts(mini)).toBe(before + 1);
+  });
+});

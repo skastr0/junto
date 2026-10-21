@@ -295,6 +295,32 @@ describe("mail between machines", () => {
     expect(mini.commanded).toEqual([]);
   });
 
+  it("keeps the link up when an automation ruling the editing machine made arrives, and keeps the ruling", async () => {
+    const opId = "01M5F3B0000000000000000001";
+    await editor.runtime.runPromise(
+      Effect.flatMap(SqlClient.SqlClient, (sql) =>
+        sql.withTransaction(
+          editor.repository.recordRuling({
+            canvasName: "factory",
+            writer: EDITOR,
+            command: { opId, actor: { kind: "operator" }, target: { kind: "automation", nodeId: "board" } } as never,
+            kind: "automation",
+            record: { kind: "applied", automationId: "01M5F3B000000000000000000A" },
+            ruling: { kind: "applied", opId, facts: [{ fact: "automation.archived", automationId: "01M5F3B000000000000000000A" }] } as never,
+          }),
+        )),
+    );
+    await editor.runtime.runPromise(editor.exchange.committed("factory"));
+    await settle();
+    expect(mini.exchange.linked(EDITOR)).toBe(true);
+    expect(editor.exchange.linked(MINI)).toBe(true);
+    const kept = await mini.runtime.runPromise(
+      Effect.flatMap(SqlClient.SqlClient, (sql) =>
+        sql.unsafe<{ n: number }>("SELECT count(*) AS n FROM work_events WHERE item_kind = 'ruling' AND item_id = ?", [opId])),
+    );
+    expect(kept[0]!.n).toBe(1);
+  });
+
   it("gives a machine only the mail of its own seats, and the editing machine everything", async () => {
     // Mail between two seats on the mini is local there and still reaches the editing machine.
     await send(mini, "peer", "peer-two", "inside-the-mini");
