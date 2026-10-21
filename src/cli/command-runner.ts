@@ -11,6 +11,7 @@ const commands: readonly Entry[] = [
   { name: "doctor", load: async () => (await import("./commands/seat-discovery")).doctorCommand },
   { name: "capabilities", load: async () => (await import("./commands/seat-discovery")).capabilitiesCommand },
   { name: "onboard", load: async () => (await import("./commands/seat-discovery")).onboardCommand },
+  { name: "since", load: async () => (await import("./commands/seat-discovery")).sinceCommand },
   { name: "offboard", load: async () => (await import("./commands/seat-discovery")).offboardCommand },
   { name: "schema", load: async () => (await import("./commands/discovery")).schemaCommand },
   { name: "examples", load: async () => (await import("./commands/discovery")).examplesCommand },

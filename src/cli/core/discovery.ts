@@ -28,6 +28,7 @@ import {
   PreambleArgs,
   OffboardArgs,
   OnboardArgs,
+  SinceArgs,
   SignalClearArgs,
   SignalListArgs,
   RulingsArgs,
@@ -311,6 +312,15 @@ export const onboardSchema: CommandSchemaContract = {
   schema: OnboardArgs,
 };
 
+export const sinceSchema: CommandSchemaContract = {
+  command_id: "since",
+  command: "since",
+  schema_id: "since.input/v1",
+  description:
+    "Since your last session: replies owed and awaited, open signals, silent answers, unread mail. all: every line, uncapped. Usually run with no input.",
+  schema: SinceArgs,
+};
+
 export const offboardSchema: CommandSchemaContract = {
   command_id: "offboard",
   command: "offboard",
@@ -462,6 +472,7 @@ export const boardTagsSchema: CommandSchemaContract = {
 
 const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   onboardSchema,
+  sinceSchema,
   offboardSchema,
   taskListSchema,
   taskCreateSchema,
@@ -1182,6 +1193,14 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     description:
       "The one loader: short guidance, your seat (name, harness, soul, standing instructions), region briefing, connections with the commands each allows, co-members, and this seat's past sessions.",
     schemas: [onboardSchema],
+  },
+  {
+    command_id: "since",
+    command: "since",
+    category: "discovery",
+    description:
+      "What changed while this seat was away: replies it owes and waits on, its open signals, answers given without mail, and unread mail. Onboard carries it capped; --all lists every line.",
+    schemas: [sinceSchema],
   },
   {
     command_id: "offboard",

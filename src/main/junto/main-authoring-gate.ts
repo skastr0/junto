@@ -81,6 +81,7 @@ const WORK_OPERATION_CLASSIFICATION = {
   doctor: "read",
   capabilities: "read",
   onboard: "read",
+  since: "read",
   // Offboard writes the seat's own notes file and seat_sessions row.
   offboard: "authorial",
   // Preamble only emits an ephemeral renderer event; it does not author the

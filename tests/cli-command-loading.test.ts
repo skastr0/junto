@@ -8,7 +8,7 @@ import { loadRootCommand } from "../src/cli/command-runner";
 
 describe("agent CLI command loading", () => {
   it("constructs common agent commands without initializing unrelated families", async () => {
-    for (const name of ["ping", "doctor", "onboard", "capabilities", "offboard", "msg", "seat", "feedback", "signal"]) {
+    for (const name of ["ping", "doctor", "onboard", "since", "capabilities", "offboard", "msg", "seat", "feedback", "signal"]) {
       await expect(loadRootCommand([name])).resolves.toBeDefined();
     }
   });

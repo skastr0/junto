@@ -18,6 +18,7 @@
 import { productPortEnabled, TASKS_ENABLED } from "./features";
 import type { Port } from "./physics/schema";
 import { RESOURCE_KINDS, SEAT_KINDS, type ResourceKind } from "./region-reach";
+import { SINCE_SECTIONS, type Since, type SinceRef, type SinceSectionKey } from "./seat-since";
 
 /** A connected node and the ports the seat holds on it. */
 export type ConnectedTarget = {
@@ -323,6 +324,59 @@ export const toolsBeyondGuidance = <T extends { readonly command: string }>(
   tools: ReadonlyArray<T>,
   guidance: ReadonlyArray<string>,
 ): ReadonlyArray<T> => tools.filter((tool) => !guidance.some((line) => line.includes(`\`${tool.command}`)));
+
+// ── Since your last session ────────────────────────────────────────────────
+
+/** The id a since line points at, said after its sentence. */
+const sinceRefWords = (ref: SinceRef): string => {
+  switch (ref.kind) {
+    case "mail":
+      return `[mail ${ref.messageId}]`;
+    case "signal":
+      return `[signal ${ref.signalId}]`;
+    default:
+      return ref satisfies never;
+  }
+};
+
+/** Section keys as onboard and `junto since` print them. */
+const SINCE_KEYS = {
+  owedReplies: "owed_replies",
+  awaitingReplies: "awaiting_replies",
+  openSignals: "open_signals",
+  answersSince: "answers_since",
+} as const satisfies Readonly<Record<SinceSectionKey, string>>;
+
+/** One printed section: a sentence and an id per line, and how to list the rest. */
+export type SinceSectionView = {
+  readonly lines: ReadonlyArray<string>;
+  readonly more?: number;
+  readonly list?: string;
+};
+
+/** Since your last session as onboard and `junto since` print it. */
+export type SinceView = {
+  readonly as_of: string;
+  readonly unread: number;
+} & { readonly [K in SinceSectionKey as (typeof SINCE_KEYS)[K]]?: SinceSectionView };
+
+/**
+ * Print a since projection: the time it is as of, the unread count, and each
+ * section that has anything, as `"<sentence> [mail <id>]"` lines. A section
+ * with nothing in it is left out.
+ */
+export const renderSince = (since: Since): SinceView => {
+  const sections: { -readonly [K in keyof SinceView]?: SinceView[K] } = {};
+  for (const key of SINCE_SECTIONS) {
+    const section = since[key];
+    if (section.lines.length === 0 && section.more === 0) continue;
+    sections[SINCE_KEYS[key]] = {
+      lines: section.lines.map((line) => `${line.text} ${sinceRefWords(line.ref)}`),
+      ...(section.more > 0 ? { more: section.more, list: section.command } : {}),
+    };
+  }
+  return { as_of: new Date(since.asOf).toISOString(), unread: since.unread, ...sections };
+};
 
 // ── Guidance ───────────────────────────────────────────────────────────────
 

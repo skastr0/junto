@@ -159,6 +159,26 @@ export const onboardCommand = Command.make(
   ),
 );
 
+export const sinceCommand = Command.make(
+  "since",
+  {
+    all: Flag.boolean("all").pipe(Flag.withDescription("Every line of every section, uncapped")),
+    timeout: timeoutOption,
+  },
+  ({ all, timeout }) =>
+    executeJsonCommand(
+      "since",
+      Effect.gen(function* () {
+        const socket = yield* WorkSocket;
+        return yield* socket.call("since", all ? { all: true } : {}, toUndefined(timeout));
+      }),
+    ),
+).pipe(
+  Command.withDescription(
+    "Since your last session: replies you owe and wait on, open signals, answers the operator gave without mail, unread mail. Onboard carries it capped; --all lists every line",
+  ),
+);
+
 export const offboardCommand = Command.make(
   "offboard",
   {

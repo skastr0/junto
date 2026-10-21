@@ -81,6 +81,8 @@ const SEAT_LOCAL_COMMANDS = new Set([
   "doctor",
   "capabilities",
   "onboard",
+  // A seat reads only its own since.
+  "since",
   // Offboard writes only the caller's own session notes.
   "offboard",
   "preamble",

@@ -107,6 +107,7 @@ import {
   SignalRaiseArgs,
   OffboardArgs,
   OnboardArgs,
+  SinceArgs,
   RulingsArgs,
   TasksCheckArgs,
   TasksClaimArgs,
@@ -197,8 +198,10 @@ import {
   compileReach,
   coMembersByRegion,
   onboardGuidanceFor,
+  renderSince,
   toolsBeyondGuidance,
 } from "@shared/seat-onboarding";
+import { SINCE_PER_SECTION } from "@shared/seat-since";
 import { isResourceKind, resourcesInReach } from "@shared/region-reach";
 
 /** Ops that act on the factory — refused for paused seats. Reads stay open. */
@@ -1410,6 +1413,7 @@ const dispatchOp = (
         // silent answers since the previous session started, unread mail.
         // A failed read says so instead of dropping the section.
         since: yield* readSeatSince(board, caller.canvasName, caller.nodeId, history?.previousStartedAt).pipe(
+          Effect.map(renderSince),
           Effect.orElseSucceed(() => ({ unreadable: "since your last session could not be read" })),
         ),
         // This seat's earlier sessions: history for continuity, with the
@@ -1424,6 +1428,24 @@ const dispatchOp = (
           ? { previous_session_without_notes: history.previousWithoutNotes }
           : {}),
       };
+    }
+
+    // The same projection as onboard's since, capped the same way, or
+    // uncapped with all.
+    if (op === "since") {
+      const decodedSince = decodeArgs(SinceArgs, args ?? {});
+      if (Result.isFailure(decodedSince)) return yield* Effect.fail(decodedSince.failure);
+      const history = yield* pastSessionsOf(findNode(board, caller.nodeId)!, 0);
+      const perSection = decodedSince.success.all === true ? Number.POSITIVE_INFINITY : SINCE_PER_SECTION;
+      return renderSince(
+        yield* readSeatSince(board, caller.canvasName, caller.nodeId, history?.previousStartedAt, perSection).pipe(
+          Effect.mapError((): WorkErrorBody => ({
+            type: "RuntimeDown",
+            message: "since your last session could not be read",
+            details: { retryable: true },
+          })),
+        ),
+      );
     }
 
     if (op === "offboard") {
@@ -3714,7 +3736,7 @@ export const startWorkControlServer = async (
             }
             return result;
           }
-          if (nativeController && !["ping", "doctor", "capabilities", "onboard"].includes(req.op)) {
+          if (nativeController && !["ping", "doctor", "capabilities", "onboard", "since"].includes(req.op)) {
             return Result.fail<WorkErrorBody>({
               type: "AuthError", message: "native Overseer mutations must use correlated overseer tools",
             });

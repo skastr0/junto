@@ -336,6 +336,8 @@ export const requiresConnection = (op: WorkOpName | "overseer"): boolean => {
     case "doctor":
     case "capabilities":
     case "onboard":
+    // A seat reads only its own since, the projection onboard carries.
+    case "since":
     // Offboard writes only the caller's own session notes.
     case "offboard":
     case "preamble":

@@ -84,6 +84,8 @@ export const WORK_MAX_ERROR_BYTES = 4_096;
 export const WorkOpName = Schema.Literals(["ping", "doctor",
 "capabilities",
 "onboard",
+/** Universal seat-local: since this seat's last session, uncapped with `all`. */
+"since",
 /** Universal seat-local: write this session's handoff notes (no edge, no port). */
 "offboard",
 "preamble",
@@ -849,6 +851,14 @@ export const OnboardArgs = Schema.Struct({
   parseOptions: { onExcessProperty: "error" },
 });
 export type OnboardArgs = typeof OnboardArgs.Type;
+
+/** `junto since`: what this seat owes, waits on and missed, capped as onboard shows it unless `all`. */
+export const SinceArgs = Schema.Struct({
+  all: Schema.optionalKey(Schema.Boolean),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type SinceArgs = typeof SinceArgs.Type;
 
 /**
  * `junto offboard`: the calling seat's notes on its current session, as

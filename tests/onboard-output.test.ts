@@ -240,6 +240,20 @@ describe("junto onboard output", () => {
     expect(data.co_members).toEqual([{ region: "PTY", seats: [...PEERS] }]);
   });
 
+  it("carries since your last session, and junto since gives the same projection, uncapped with all", async () => {
+    await write(PEERS);
+    const { since } = await onboard();
+    expect(since).toEqual({ as_of: expect.any(String), unread: 0 });
+    for (const args of [{}, { all: true }]) {
+      const response = await call({ token: token(), op: "since", args });
+      expect(response.ok).toBe(true);
+      expect({ ...response.data, as_of: since.as_of }).toEqual(since);
+    }
+    const refused = await call({ token: token(), op: "since", args: { every: true } });
+    expect(refused.ok).toBe(false);
+    expect(refused.error.type).toBe("InputError");
+  });
+
   it("carries the operator's soul and standing instructions, read live", async () => {
     await write(["peer-a"]);
     expect((await onboard()).seat).not.toHaveProperty("instructions");

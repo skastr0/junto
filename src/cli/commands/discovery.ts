@@ -5,7 +5,7 @@ import { CLI_NAME, CLI_VERSION } from "../core/constants";
 import { allExamples, allSchemas, commandCapabilities, renderSchemaContract } from "../core/discovery";
 import { InputError } from "../core/errors";
 import { executeJsonCommand } from "../core/output";
-export { pingCommand, doctorCommand, capabilitiesCommand, onboardCommand, offboardCommand } from "./seat-discovery";
+export { pingCommand, doctorCommand, capabilitiesCommand, onboardCommand, sinceCommand, offboardCommand } from "./seat-discovery";
 
 const targetArg = Argument.string("target").pipe(
   Argument.withDescription("Schema id, command id, or command name"),

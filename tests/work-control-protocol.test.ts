@@ -101,6 +101,7 @@ describe("work-control wire schemas", () => {
       "doctor",
       "capabilities",
       "onboard",
+      "since",
       "offboard",
       "preamble",
       "msg.list",

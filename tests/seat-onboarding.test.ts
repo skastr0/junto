@@ -12,7 +12,10 @@ import {
   commandGroupsFor,
   compileConnectionInstructions,
   compileReach,
+  coMembersByRegion,
   onboardGuidanceFor,
+  renderSince,
+  toolsBeyondGuidance,
   type CommandFamily,
 } from "../src/shared/seat-onboarding";
 import {
@@ -193,6 +196,58 @@ describe("onboard reach", () => {
     expect(first).toContain("`commands`");
     expect(first).not.toContain("`instructions`");
     expect(first).not.toContain("Edges are your permissions");
+  });
+});
+
+describe("onboard co-members, tools and since", () => {
+  it("names seat co-members under the region they share, and leaves other nodes out", () => {
+    const member = (kind: string, name: string, region: string) => ({ kind, name, shared_region: { id: region, name: region } });
+    expect(
+      coMembersByRegion([
+        member("agent", "pty-lead", "PTY"),
+        member("task", "Backlog", "CLI"),
+        member("agent", "cli-lead", "CLI"),
+        member("peer", "remote-seat", "CLI"),
+      ]),
+    ).toEqual([
+      { region: "CLI", seats: ["cli-lead", "remote-seat"] },
+      { region: "PTY", seats: ["pty-lead"] },
+    ]);
+  });
+
+  it("lists only the tools the guidance does not already teach", () => {
+    const tools = [{ id: "preamble", command: "junto preamble" }, { id: "feedback", command: "junto feedback" }];
+    expect(toolsBeyondGuidance(tools, ONBOARD_GUIDANCE).map((tool) => tool.id)).toEqual(["preamble"]);
+  });
+
+  it("prints since as one sentence and an id per line, with the rest counted, and leaves empty sections out", () => {
+    const empty = { lines: [], more: 0, command: "junto since --all" };
+    const view = renderSince({
+      asOf: Date.UTC(2026, 9, 21, 9),
+      unread: 2,
+      owedReplies: {
+        lines: [{ text: 'cli-lead wrote last, you have not replied: "ship it"', ref: { kind: "mail", messageId: "01M5EV6J9E2E2YAKCRAHF58RXX" } }],
+        more: 3,
+        command: "junto since --all",
+      },
+      awaitingReplies: empty,
+      openSignals: {
+        lines: [{ text: 'Open blocked: "need the key"', ref: { kind: "signal", signalId: "01M5EV95374HEKE681KWKGA9ES" } }],
+        more: 0,
+        command: "junto signal list",
+      },
+      answersSince: empty,
+    });
+    expect(view).toEqual({
+      as_of: "2026-10-21T09:00:00.000Z",
+      unread: 2,
+      owed_replies: {
+        lines: ['cli-lead wrote last, you have not replied: "ship it" [mail 01M5EV6J9E2E2YAKCRAHF58RXX]'],
+        more: 3,
+        list: "junto since --all",
+      },
+      open_signals: { lines: ['Open blocked: "need the key" [signal 01M5EV95374HEKE681KWKGA9ES]'] },
+    });
   });
 });
 
