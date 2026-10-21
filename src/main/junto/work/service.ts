@@ -100,6 +100,7 @@ import { flowDestinations } from "@shared/flow-graph";
 import { regionStack } from "@shared/model/canvas";
 import { taskCommentRecipient } from "@shared/task-owner";
 import { taskCommentNotice } from "@shared/task-notices";
+import { isCommentableKind } from "@shared/region-reach";
 import { readMailExtension } from "@shared/crew";
 import { makeUserMessage, isTerminalTaskState } from "@shared/task";
 import type { Ruling } from "@shared/work-model";
@@ -577,11 +578,12 @@ export interface WorkServiceShape {
       sentBy: ActorRef,
     ) => Effect.Effect<WorkOpResult<{ readonly messageId: string; readonly written: boolean }>>;
     /**
-     * Command Center system mailbox notify (no process-bound sender).
-     * Used when factory topology newly enables actor↔actor msg.send.
-     * Appends as foreign user mail so message-delivery can inject the PTY.
+     * A comment's own row in its subject's thread (03), held at the subject's
+     * node (a task, artifacts or page node), stamped as `sentBy`'s and typed
+     * to no one. Reach admitted it before this is called. A row already
+     * written is no error: `written` is false.
      */
-    readonly workSystemMailboxNotify: (
+    readonly workSubjectRow: (
       canvas: string,
       nodeId: string,
       message: Message,
@@ -2450,6 +2452,45 @@ export const WorkLive = Layer.effect(
               }).pipe(Effect.catch(() => Effect.succeed(undefined)));
             }
             return yield* complete(outcome);
+          }),
+        ),
+
+      workSubjectRow: (canvas, nodeId, message, sentBy) =>
+        asResult(
+          Effect.gen(function* () {
+            const read = yield* readTopology(canvas);
+            const targetNode = yield* requireNode(read.topology, nodeId);
+            if (!isCommentableKind(targetNode.kind) || message.taskId != null) {
+              return yield* new WorkServiceError({
+                code: "illegal_kind",
+                message: `a comment's row is held at a task, artifacts or page node; got kind ${targetNode.kind}`,
+              });
+            }
+            const materializedMessage = yield* externalizeMessage(message, {
+              kind: "message",
+              canvasName: canvas,
+              nodeId,
+              recordId: message.messageId,
+            });
+            const outcome = yield* local(
+              repository
+                .appendMessage({
+                  sink: sinkRef(canvas, nodeId),
+                  basis: intentBasis(read.intentWitness),
+                  message: materializedMessage,
+                  sentBy,
+                  destination: { kind: "mailbox" },
+                })
+                .pipe(
+                  Effect.map(() => ({ value: true })),
+                  Effect.catchIf(
+                    (error): error is WorkAuthorityError =>
+                      error instanceof WorkAuthorityError && error.reason === "identity-conflict",
+                    () => Effect.succeed({ value: false }),
+                  ),
+                ),
+            );
+            return yield* complete({ ...outcome, value: { messageId: message.messageId, written: outcome.value } });
           }),
         ),
 

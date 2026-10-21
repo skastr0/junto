@@ -7,6 +7,7 @@ import {
   type Reviewer,
   type SeatNodeId,
   type TaskCommandKind,
+  type TaskCore,
   type TaskEffect,
   type TaskId,
   type TaskNodeId,
@@ -38,6 +39,12 @@ export type NoticedTask = {
   /** The assignee, who hears a reviewer's defect. */
   readonly assignee?: SeatNodeId;
 };
+
+/** A task's people, told of each comment on it: its assignee and its seat reviewers. */
+export const taskPeopleOf = (core: Pick<TaskCore, "assignee" | "reviewers">): ReadonlyArray<NodeId> => [
+  ...(core.assignee === undefined ? [] : [core.assignee]),
+  ...core.reviewers.flatMap((reviewer) => (reviewer.kind === "seat" ? [reviewer.seat] : [])),
+];
 
 export const taskSubjectOf = (task: Pick<NoticedTask, "node" | "taskId">): ResourceSubject => ({
   kind: "task",

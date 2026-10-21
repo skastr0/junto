@@ -23,6 +23,8 @@ import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
 import { canvasOf, region, seat as seatNode, taskBoard, wire } from "./support/model-nodes";
 import { deliverTaskEffects } from "../src/main/junto/work/task-delivery";
+import { postSubjectComment } from "../src/main/junto/work/subject-comment";
+import { mentionLink } from "../src/shared/mention";
 import { seatNodeId, taskNodeId } from "../src/shared/task-model";
 import type { ActorSeatId } from "../src/shared/actor-seat";
 import { startWorkControlServer, type WorkControlServer } from "../src/main/junto/work/control";
@@ -67,6 +69,8 @@ const NODES = [
   seat("agent", 0),
   seat("peer", 160),
   taskBoard(BOARD, { x: 400, y: 40, width: 200, height: 100 }),
+  region("other", { x: -40, y: 600, width: 400, height: 300 }),
+  seatNode("outsider", { x: 0, y: 640, width: 120, height: 48, bindingId: "bind-outsider" as never, launch: { kind: "harness", argv: ["claude"] } }),
 ];
 const WIRES = [wire("agent-peer", "agent", "peer", "messages"), wire("peer-agent", "peer", "agent", "messages")];
 
@@ -89,7 +93,7 @@ beforeEach(async () => {
     run: (effect) => runtime.runPromise(effect),
     authoringGate: createMainAuthoringGate(),
   });
-  for (const id of ["agent", "peer"]) {
+  for (const id of ["agent", "peer", "outsider"]) {
     tokens[id] = publishSeatCredential(server.credentials, { agentKey: `local:${id}` });
   }
   await runtime.runPromise(seedCanvas(CANVAS, NODES, WIRES));
@@ -233,5 +237,46 @@ describe("subject threads", () => {
     expect(told).toHaveLength(1);
     expect(told[0]?.metadata).toMatchObject({ fromSeat: agentSeat, senderNodeId: "agent", subjectNotice: "assignment", threadId: taskId });
     expect((await mailbox("agent")).filter((message) => threadSubjectOf(message) !== undefined)).toEqual([]);
+  });
+
+  it("a comment's own row is held at the task node, and earlier posters are told of the next", async () => {
+    const taskId = await createTask();
+    const first = await call("agent", "msg.send", { target: BOARD, taskId, text: "starting" });
+    expect(first.ok, JSON.stringify(first)).toBe(true);
+    const second = await call("peer", "msg.send", { target: BOARD, taskId, text: "I can pair" });
+    expect(second.ok, JSON.stringify(second)).toBe(true);
+    expect(second.data.notified).toEqual(["agent"]);
+    const held = (await mailbox(BOARD)).filter((message) => message.metadata?.threadId === taskId);
+    expect(held.map((message) => message.parts[0]?.kind === "text" ? message.parts[0].text : "")).toEqual(["starting", "I can pair"]);
+    const told = (await mailbox("agent")).find((message) => message.metadata?.subjectNotice === "comment");
+    expect(told?.metadata).toMatchObject({ threadId: taskId, senderNodeId: "peer" });
+  });
+
+  it("a mentioned seat gets a mention; a seat out of reach cannot be mentioned or comment", async () => {
+    const taskId = await createTask();
+    const peerLink = mentionLink({ kind: "seat", nodeId: asNodeId("peer") }, "peer", CANVAS);
+    const sent = await call("agent", "msg.send", { target: BOARD, taskId, text: `${peerLink} can you look?` });
+    expect(sent.ok, JSON.stringify(sent)).toBe(true);
+    expect((await mailbox("peer")).find((message) => message.metadata?.subjectNotice === "mention")).toBeDefined();
+    const outsiderLink = mentionLink({ kind: "seat", nodeId: asNodeId("outsider") }, "outsider", CANVAS);
+    const far = await call("agent", "msg.send", { target: BOARD, taskId, text: `${outsiderLink} too?` });
+    expect(far.ok).toBe(false);
+    expect(far.error.details.reason).toBe("not_in_reach");
+  });
+
+  it("a retried comment with the same opId posts once", async () => {
+    const taskId = ItemId.make("01M5ESKX20QX0HA3Y6SHEPXBCY");
+    const input = {
+      subject: { kind: "task", nodeId: asNodeId(BOARD), taskId },
+      text: "once",
+      actor: { kind: "seat", seatId: `seat_${"b".repeat(64)}` as ActorSeatId, nodeId: asNodeId("peer") },
+      opId: OpId.make("01M5ESMJV6GNZ0891YFFWS0S3Q"),
+    } as const;
+    const context = { canvas: canvasOf(NODES, WIRES, CANVAS), canvasName: CANVAS, people: [asNodeId("agent")] };
+    const a = await runtime.runPromise(postSubjectComment(input, context));
+    const b = await runtime.runPromise(postSubjectComment(input, context));
+    expect(b.messageId).toBe(a.messageId);
+    expect((await mailbox(BOARD)).filter((message) => message.messageId === a.messageId)).toHaveLength(1);
+    expect((await mailbox("agent")).filter((message) => message.metadata?.subjectNotice === "comment")).toHaveLength(1);
   });
 });
