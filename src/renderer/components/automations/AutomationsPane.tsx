@@ -144,7 +144,8 @@ export function AutomationsPane({
   const [asking, setAsking] = useState<() => void>();
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<Refusal>();
-  const [queued, setQueued] = useState<ReadonlySet<AutomationId>>(new Set());
+  // A queued write, with the head it was sent against (none for a create); the mark clears once the head moves.
+  const [queued, setQueued] = useState<ReadonlyMap<AutomationId, Automation | undefined>>(new Map());
   const [archiving, setArchiving] = useState(false);
   const firings = useFirings(canvasName, editing?.base === undefined ? undefined : editing.draft.automationId);
 
@@ -161,8 +162,8 @@ export function AutomationsPane({
 
   const markQueued = (automationId: AutomationId, on: boolean): void =>
     setQueued((now) => {
-      const next = new Set(now);
-      if (on) next.add(automationId);
+      const next = new Map(now);
+      if (on) next.set(automationId, headOf(automationId));
       else next.delete(automationId);
       return next;
     });
@@ -229,6 +230,22 @@ export function AutomationsPane({
     const result = await send(editing.draft.automationId, { kind: "archive" });
     if (result.kind === "applied") open(undefined);
   };
+
+  // The editing machine ruled a queued write once its head moved: created, edited, toggled or archived.
+  useEffect(() => {
+    setQueued((now) => {
+      const settled = [...now].filter(([automationId, before]) => {
+        const head = headOf(automationId);
+        return before === undefined
+          ? head !== undefined
+          : head === undefined || head.version !== before.version || head.enabled !== before.enabled;
+      });
+      if (settled.length === 0) return now;
+      const next = new Map(now);
+      for (const [automationId] of settled) next.delete(automationId);
+      return next;
+    });
+  }, [automations]);
 
   // A draft with no unsent change follows its head: an edit, a toggle or an archive made elsewhere.
   useEffect(() => {

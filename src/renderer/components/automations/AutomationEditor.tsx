@@ -6,7 +6,7 @@
  * until `finishDraft` passes it, and a save carries the version it was
  * edited from.
  */
-import { useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Plus, X } from "lucide-react";
 import { mentionKey, mentionLink, type MentionRef } from "@shared/mention";
 import { titleOf } from "@shared/model/title";
@@ -121,9 +121,20 @@ const options = <T extends string>(values: ReadonlyArray<T>, words: (value: T) =
 const problemAt = (problems: ReadonlyArray<DraftProblem>, match: (problem: DraftProblem) => boolean): string | undefined =>
   problems.find(match)?.message;
 
-function Section({ title, children, actions }: { readonly title: string; readonly children: ReactNode; readonly actions?: ReactNode }) {
+function Section({
+  title,
+  children,
+  actions,
+  describedBy,
+}: {
+  readonly title: string;
+  readonly children: ReactNode;
+  readonly actions?: ReactNode;
+  /** The id of this section's problem, when it has one. */
+  readonly describedBy?: string;
+}) {
   return (
-    <section className="automation-editor__section" aria-label={title}>
+    <section className="automation-editor__section" aria-label={title} aria-describedby={describedBy}>
       <header className="automation-editor__section-head">
         <h3 className="automation-editor__section-title">{title}</h3>
         {actions}
@@ -133,10 +144,14 @@ function Section({ title, children, actions }: { readonly title: string; readonl
   );
 }
 
-/** A field's problem, shown once a save was tried. Quiet: the footer's status says how many there are. */
-function Problem({ message }: { readonly message: string | undefined }) {
+/**
+ * A field's problem, shown once a save was tried. Quiet: the footer's status
+ * says how many there are, and the field or group it belongs to names it as
+ * its description, so a screen reader hears it where it is.
+ */
+function Problem({ id, message }: { readonly id: string; readonly message: string | undefined }) {
   return message ? (
-    <p className="automation-editor__problem">
+    <p id={id} className="automation-editor__problem">
       {message}
     </p>
   ) : null;
@@ -438,6 +453,16 @@ export function AutomationEditor({
   const tried = triedOn === draft.automationId;
   const problems = tried ? draftProblems(draft) : [];
   const edit = (change: DraftEdit): void => onDraft(editDraft(draft, change));
+  const baseId = useId();
+  /** The problem's id where there is one, for aria-describedby. */
+  const problemId = (part: string, match: (problem: DraftProblem) => boolean): string | undefined =>
+    problems.some(match) ? `${baseId}-${part}` : undefined;
+  const isName = (problem: DraftProblem): boolean => problem.at === "name";
+  const isTrigger = (problem: DraftProblem): boolean => problem.at === "trigger";
+  const isActions = (problem: DraftProblem): boolean => problem.at === "actions";
+  const isLimits = (problem: DraftProblem): boolean => problem.at === "limits";
+  const isCondition = (index: number) => (problem: DraftProblem): boolean => problem.at === "condition" && problem.index === index;
+  const isAction = (index: number) => (problem: DraftProblem): boolean => problem.at === "action" && problem.index === index;
   const trySave = (): void => {
     if (draftProblems(draft).length > 0) setTriedOn(draft.automationId);
     else onSave();
@@ -449,6 +474,7 @@ export function AutomationEditor({
         <Input
           value={draft.name}
           aria-label="Automation name"
+          aria-describedby={problemId("name", isName)}
           onChange={(event) => edit({ type: "name", name: event.target.value })}
         />
         <label className="automation-editor__enabled">
@@ -460,9 +486,9 @@ export function AutomationEditor({
           />
         </label>
       </div>
-      <Problem message={problemAt(problems, (problem) => problem.at === "name")} />
+      <Problem id={`${baseId}-name`} message={problemAt(problems, isName)} />
 
-      <Section title="Trigger">
+      <Section title="Trigger" describedBy={problemId("trigger", isTrigger)}>
         <Select
           aria-label="Trigger"
           // A loaded webhook matches no option, so the field reads as unpicked until another is chosen.
@@ -472,7 +498,7 @@ export function AutomationEditor({
           onChange={(kind) => edit({ type: "trigger-kind", kind: kind as EditableTriggerKind })}
         />
         <TriggerFields trigger={draft.trigger} pickers={pickers} onChange={(trigger) => edit({ type: "trigger", trigger })} />
-        <Problem message={problemAt(problems, (problem) => problem.at === "trigger")} />
+        <Problem id={`${baseId}-trigger`} message={problemAt(problems, isTrigger)} />
       </Section>
 
       <Section
@@ -487,7 +513,13 @@ export function AutomationEditor({
         {draft.when.length === 0 ? <p className="automation-editor__note">No conditions: it fires whenever the trigger does.</p> : null}
         <ol className="automation-editor__list">
           {draft.when.map((condition, index) => (
-            <li key={draft.whenKeys[index] ?? index} className="automation-editor__item">
+            <li
+              key={draft.whenKeys[index] ?? index}
+              className="automation-editor__item"
+              role="group"
+              aria-label={`Condition ${index + 1}`}
+              aria-describedby={problemId(`condition-${index}`, isCondition(index))}
+            >
               <WatchFields
                 conditionOnly
                 watch={condition}
@@ -497,7 +529,7 @@ export function AutomationEditor({
               <IconButton size="sm" tone="danger" aria-label={`Remove condition ${index + 1}`} onClick={() => edit({ type: "remove-condition", index })}>
                 <X size={13} />
               </IconButton>
-              <Problem message={problemAt(problems, (problem) => problem.at === "condition" && problem.index === index)} />
+              <Problem id={`${baseId}-condition-${index}`} message={problemAt(problems, isCondition(index))} />
             </li>
           ))}
         </ol>
@@ -505,6 +537,7 @@ export function AutomationEditor({
 
       <Section
         title="Then"
+        describedBy={problemId("actions", isActions)}
         actions={
           <Button size="xs" variant="subtle" onClick={() => edit({ type: "add-action", kind: "mail" })}>
             <Plus size={12} aria-hidden />
@@ -512,10 +545,16 @@ export function AutomationEditor({
           </Button>
         }
       >
-        <Problem message={problemAt(problems, (problem) => problem.at === "actions")} />
+        <Problem id={`${baseId}-actions`} message={problemAt(problems, isActions)} />
         <ol className="automation-editor__list">
           {draft.then.map((action, index) => (
-            <li key={draft.thenKeys[index] ?? index} className="automation-editor__item">
+            <li
+              key={draft.thenKeys[index] ?? index}
+              className="automation-editor__item"
+              role="group"
+              aria-label={`Action ${index + 1}`}
+              aria-describedby={problemId(`action-${index}`, isAction(index))}
+            >
               <div className="automation-editor__row">
                 <Select
                   aria-label={`Action ${index + 1}`}
@@ -541,13 +580,13 @@ export function AutomationEditor({
                   <X size={13} />
                 </IconButton>
               </span>
-              <Problem message={problemAt(problems, (problem) => problem.at === "action" && problem.index === index)} />
+              <Problem id={`${baseId}-action-${index}`} message={problemAt(problems, isAction(index))} />
             </li>
           ))}
         </ol>
       </Section>
 
-      <Section title="Limits">
+      <Section title="Limits" describedBy={problemId("limits", isLimits)}>
         <div className="automation-editor__row">
           <FieldLabel>
             Quiet time between firings, minutes
@@ -571,11 +610,14 @@ export function AutomationEditor({
           </FieldLabel>
         </div>
         <p className="automation-editor__note">A limit reached skips the firing and records why. It never turns the automation off.</p>
-        {problems
-          .filter((problem) => problem.at === "limits")
-          .map((problem) => (
-            <Problem key={problem.message} message={problem.message} />
-          ))}
+        {problems.some(isLimits) ? (
+          <p id={`${baseId}-limits`} className="automation-editor__problem">
+            {problems
+              .filter(isLimits)
+              .map((problem) => problem.message)
+              .join(" ")}
+          </p>
+        ) : null}
       </Section>
 
       <footer className="automation-editor__foot">

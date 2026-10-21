@@ -168,4 +168,31 @@ describe("automations pane", () => {
     expect(host.querySelector('[data-testid="automation-editor"]')).toBeNull();
     expect((await source.list(canvas, node)).automations).toEqual([]);
   });
+
+  it("a queued save marks its row until the editing machine rules, then clears", async () => {
+    await opened();
+    const apply = source.apply;
+    setAutomationsSource({ ...source, apply: async (...args) => (args[3].kind === "edit" ? { kind: "queued" } : apply(...args)) });
+    await typeName("Queued name");
+    await act(async () => button("Save").click());
+    expect(host.textContent).toContain("Queued: the editing machine has not ruled on it yet.");
+    expect(host.textContent).toContain(", queued");
+    setAutomationsSource(source);
+    // The ruling lands: the head moves.
+    await act(async () => {
+      await source.apply(canvas, node, automationId, { kind: "edit", baseVersion: (await stored()).version, definition: { ...definition, name: "Queued name" } });
+    });
+    expect(host.textContent).not.toContain("Queued: the editing machine");
+    expect(host.textContent).not.toContain(", queued");
+  });
+
+  it("a field's problem is its description", async () => {
+    await opened();
+    await typeName("  ");
+    await act(async () => button("Save").click());
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Automation name"]')!;
+    const described = input.getAttribute("aria-describedby");
+    expect(described).not.toBeNull();
+    expect(document.getElementById(described!)?.textContent).toBe("Write the name.");
+  });
 });
