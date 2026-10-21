@@ -134,6 +134,23 @@ describe("mentioned in", () => {
     expect(host.querySelector('[data-testid="mentioned-in-more"]')).not.toBeNull();
   });
 
+  it("an earlier page asked for twice before it lands is appended once", async () => {
+    const answers: Array<(page: MentionPage) => void> = [];
+    const list = vi.fn(() => new Promise<MentionPage>((resolve) => answers.push(resolve)));
+    (window as { junto?: unknown }).junto = { mentions: { list, onChanged: () => () => undefined } };
+    act(() => root.render(<MentionedIn canvasName={CANVAS} target={target} now={0} />));
+    act(() => answers[0]!({ entries: [entry("m2", {})], next: "c1" }));
+    await flush();
+    const more = host.querySelector('[data-testid="mentioned-in-more"]') as HTMLButtonElement;
+    act(() => more.click());
+    act(() => more.click());
+    expect(list).toHaveBeenCalledTimes(3);
+    act(() => answers[1]!({ entries: [entry("m1", {})] }));
+    act(() => answers[2]!({ entries: [entry("m1", {})] }));
+    await flush();
+    expect(rows().map((row) => row.getAttribute("data-message"))).toEqual(["m2", "m1"]);
+  });
+
   it("reads the first page again when a mention is added on its canvas", async () => {
     const list = install([{ entries: [entry("m1", {})] }]);
     act(() => root.render(<MentionedIn canvasName={CANVAS} target={target} now={0} />));

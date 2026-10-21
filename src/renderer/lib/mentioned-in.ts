@@ -71,11 +71,13 @@ export const useMentionedIn = (canvasName: string, target: MentionRef): Mentione
     const api = mentionsApi();
     if (api === undefined || next === undefined) return;
     const read = generation.current;
-    void api.list(canvasName, targetRef.current, { before: next, limit: MENTIONED_IN_PAGE }).then(
+    const cursor = next;
+    void api.list(canvasName, targetRef.current, { before: cursor, limit: MENTIONED_IN_PAGE }).then(
       (page) => {
         if (read !== generation.current) return;
+        // A page is appended once, where its cursor still ends the list: a second ask for it lands as nothing.
         setHeld((was) =>
-          was.key !== key
+          was.key !== key || !("next" in was) || was.next !== cursor
             ? was
             : { key, entries: [...was.entries, ...page.entries], loaded: true, ...(page.next === undefined ? {} : { next: page.next }) },
         );
