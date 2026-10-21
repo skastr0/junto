@@ -63,7 +63,10 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    the kinds 0.10 deletes and every kind that is off stay on the editing
    machine. The editing machine keeps everything. Whatever a machine
    once received it may still hold; removal does not take it back. There is
-   no merging of concurrent edits.
+   no merging of concurrent edits. Nothing changes a canvas's editing machine
+   yet; a handover, when one is built, is remote's, and in the same step the
+   new editor runs `ruler.sweep(canvas)` so the commands queued for the old
+   editor are ruled at once.
    Nothing may assume a second editor can never exist: ids stay global, and a
    canvas travels as rows. A changed or removed wire takes effect on a machine
    when that machine has the new copy; mail written before then still arrives.
