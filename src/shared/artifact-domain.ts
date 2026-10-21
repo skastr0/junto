@@ -251,7 +251,7 @@ const BARRIER: ArtifactBody = { type: "document", markdown: "" };
  * replace carries its body, a patch re-applies to the known body (it was
  * ruled, so it applies). Anything else leaves the body to load by ref.
  */
-const bodyAfter = (body: ArtifactBody | null, edit: ArtifactEdit | undefined): ArtifactBody | null => {
+export const bodyAfter = (body: ArtifactBody | null, edit: ArtifactEdit | undefined): ArtifactBody | null => {
   if (edit === undefined) return null;
   if (edit.kind === "replace") return edit.body;
   if (body === null) return null;
