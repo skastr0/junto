@@ -4,7 +4,6 @@ import {
   offeredVerbs,
   refusalText,
   reviewerChoices,
-  stampTally,
   stateLabel,
   taskNumberLabel,
   verbLabel,
@@ -119,24 +118,6 @@ describe("assign and reviewer choices", () => {
   it("offers every seat but the assignee and current reviewers as reviewers", () => {
     const task = core({ state: "working", assignee: ada, reviewers: [bo] });
     expect(reviewerChoices(task, operator, ctx(), seats).map((s) => s.name)).toEqual(["Cy"]);
-  });
-});
-
-describe("stamp tally", () => {
-  it("counts approvals at the current epoch once per listed reviewer", () => {
-    const task = core({
-      state: "in-review",
-      assignee: ada,
-      epoch: 1,
-      reviewers: [bo, cy],
-      stampPolicy: { required: 2 },
-      stamps: [approve(bo, 0), approve(cy, 1)],
-    });
-    expect(stampTally(task)).toEqual({ approvals: 1, changes: 0, required: 2, met: false });
-  });
-
-  it("is met at once when none are required", () => {
-    expect(stampTally(core()).met).toBe(true);
   });
 });
 

@@ -8,7 +8,6 @@
  * finish are the assignee's, and stamps are a reviewing seat's.
  */
 import {
-  currentApprovals,
   currentStamps,
   ruleTaskCommand,
   seatNodeId,
@@ -103,25 +102,6 @@ export const reviewerChoices = (
       !task.reviewers.includes(seat.node) &&
       ruleTaskCommand(task, actor, { kind: "reviewer-add", seat: seat.node }, ctx).ok,
   );
-
-export type StampTally = {
-  readonly approvals: number;
-  readonly changes: number;
-  readonly required: number;
-  readonly met: boolean;
-};
-
-export const stampTally = (task: TaskCore): StampTally => {
-  const approvals = currentApprovals(task);
-  return {
-    approvals,
-    changes: currentStamps(task).filter(
-      (stamp) => stamp.verdict === "changes" && task.reviewers.includes(stamp.reviewer),
-    ).length,
-    required: task.stampPolicy.required,
-    met: approvals >= task.stampPolicy.required,
-  };
-};
 
 /** A reviewer's stamp at the current epoch, if any. */
 export const stampOf = (task: TaskCore, reviewer: SeatNodeId): Stamp | undefined =>

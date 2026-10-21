@@ -1,12 +1,8 @@
 import { useState } from "react";
 import { Minus, Plus, ShieldCheck, X } from "lucide-react";
-import { Button, Chip, Dropdown, IconButton, type ChipTone } from "../ui";
-import {
-  reviewerChoices,
-  stampOf,
-  stampTally,
-  type SeatChoice,
-} from "../../lib/task-ui";
+import { Button, Chip, Dropdown, IconButton, StampTally, type ChipTone } from "../ui";
+import { reviewerChoices, stampOf, type SeatChoice } from "../../lib/task-ui";
+import { stampTally } from "../../lib/resource-visuals";
 import type {
   SeatNodeId,
   Stamp,
@@ -53,7 +49,7 @@ export function TaskReviewers({
   readonly onCommand: (command: TaskCommand) => void;
 }) {
   const [adding, setAdding] = useState("");
-  const tally = stampTally(task);
+  const tally = stampTally(task.stampPolicy.required, task.stamps, task.epoch);
   const closed =
     task.state === "done" || task.state === "canceled" || task.state === "archived";
   const nameOf = (seat: SeatNodeId): string =>
@@ -102,12 +98,9 @@ export function TaskReviewers({
         </div>
       </header>
 
-      {required > 0 && (inReview || tally.approvals + tally.changes > 0) ? (
+      {required > 0 && (inReview || tally.approved + tally.changes > 0) ? (
         <div className="task-reviewers__tally">
-          <Chip tone={tally.met ? "green" : "amber"}>
-            {tally.approvals} of {tally.required} approved
-          </Chip>
-          {tally.changes > 0 ? <Chip tone="crimson">{tally.changes} asked for changes</Chip> : null}
+          <StampTally tally={tally} />
         </div>
       ) : null}
 
