@@ -34,12 +34,10 @@ import { StateEngine } from "../src/main/junto/state/service";
 import { BrowserProfileGate } from "../src/main/junto/browser/profile-gate";
 import {
   BROWSER_STEP_START_MS,
-  BrowserOwnerSessionTeardownFailure,
   BrowserSessionService,
   type BrowserViewAdapter,
   type BrowserViewEvents,
   type BrowserViewHandle,
-  type BrowserViewOptions,
 } from "../src/main/junto/browser/sessions";
 import { localBrowserTestMachineName } from "./browser-test-machine";
 
@@ -82,7 +80,6 @@ describe("warmPoolEvictions (pure)", () => {
 interface SpyView {
   readonly partition: string;
   readonly events: BrowserViewEvents;
-  readonly options: BrowserViewOptions | undefined;
   readonly calls: string[];
   readonly destroyedPromise: Promise<void>;
   readonly resolveDestroyed: () => void;
@@ -92,7 +89,7 @@ interface SpyView {
 
 const makeSpyAdapter = (acknowledgeDestroy = true, throwAfterDestroy = false) => {
   const views: SpyView[] = [];
-  const adapter: BrowserViewAdapter = (partition, events, options) => {
+  const adapter: BrowserViewAdapter = (partition, events) => {
     let resolveDestroyed!: () => void;
     const destroyedPromise = new Promise<void>((resolve) => {
       resolveDestroyed = resolve;
@@ -100,7 +97,6 @@ const makeSpyAdapter = (acknowledgeDestroy = true, throwAfterDestroy = false) =>
     const spy: SpyView = {
       partition,
       events,
-      options,
       calls: [],
       destroyedPromise,
       resolveDestroyed,
@@ -112,7 +108,6 @@ const makeSpyAdapter = (acknowledgeDestroy = true, throwAfterDestroy = false) =>
       loadUrl: async (url) => {
         spy.calls.push(`load:${url}`);
       },
-      setTopLevelOriginGuard: (origin) => spy.calls.push(`guard:${origin}`),
       attach: () => spy.calls.push("attach"),
       setBounds: () => spy.calls.push("bounds"),
       detach: () => spy.calls.push("detach"),
@@ -720,7 +715,7 @@ describe("BrowserSessionService", () => {
     });
   });
 
-  it("keys warm reuse and pending coalescing by owner plus canonical ref", async () => {
+  it("opens one shared view per page: seats join the operator's view as guests", async () => {
     const { service, views } = makeDefaultService();
     const page = target("n1");
     const [jobAFirst, jobASecond, jobB, ui] = await Promise.all([
@@ -730,42 +725,115 @@ describe("BrowserSessionService", () => {
       service.open(page),
     ]);
     if (!jobAFirst.ok || !jobASecond.ok || !jobB.ok || !ui.ok) {
-      throw new Error("owner-isolated opens failed");
+      throw new Error("shared opens failed");
     }
 
-    expect(jobASecond.data.sessionId).toBe(jobAFirst.data.sessionId);
     expect(new Set([
       jobAFirst.data.sessionId,
+      jobASecond.data.sessionId,
       jobB.data.sessionId,
       ui.data.sessionId,
-    ]).size).toBe(3);
-    expect(views).toHaveLength(3);
-    expect(views.filter((view) => view.options?.exactTopLevelOrigin !== undefined))
-      .toHaveLength(2);
-    expect(views.find((view) => view.options === undefined)).toBeDefined();
+    ]).size).toBe(1);
+    expect(views).toHaveLength(1);
     expect(service.listForOwner("job-a")).toMatchObject({
-      ok: true,
-      data: [{ sessionId: jobAFirst.data.sessionId }],
-    });
-    expect(service.list()).toMatchObject({
       ok: true,
       data: [{ sessionId: ui.data.sessionId }],
     });
-    expect(service.sessionIdForRefForOwner("job-b", page.ref)).toBe(jobB.data.sessionId);
-    expect(service.sessionIdForRef(page.ref)).toBe(ui.data.sessionId);
+    expect(service.list()).toMatchObject({ ok: true, data: [{ sessionId: ui.data.sessionId }] });
+    expect(service.sessionIdForRefForOwner("job-b", page.ref)).toBe(ui.data.sessionId);
+    expect(service.sessionIdForRefForOwner("job-c", page.ref)).toBeUndefined();
+    expect(service.stateForOwner("job-c", ui.data.sessionId)).toMatchObject({ ok: false, code: "not_found" });
   });
 
-  it("keeps automation metadata out of the renderer sink", async () => {
+  it("ends only a guest's hold when it is revoked, closes or stops", async () => {
+    const { service, views } = makeDefaultService();
+    const page = target("guest-hold");
+    const ui = await service.open(page);
+    if (!ui.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(ui.data.sessionId);
+    service.setBounds(ui.data.sessionId, bounds);
+    for (const job of ["job-a", "job-b", "job-c"]) {
+      const joined = await service.openForOwner(job, page);
+      expect(joined).toMatchObject({ ok: true, data: { sessionId: ui.data.sessionId } });
+    }
+
+    expect(service.closeForOwner("job-a", ui.data.sessionId)).toMatchObject({ ok: true, data: { attached: true } });
+    expect(views[0]?.calls).not.toContain("detach");
+
+    expect(service.destroyOwnerSessions("job-a")).toBe(1);
+    expect(service.stateForOwner("job-a", ui.data.sessionId)).toMatchObject({ ok: false, code: "not_found" });
+    expect(service.destroyOwnerTargetSessions("job-b", page.ref)).toBe(1);
+    expect(service.stateForOwner("job-b", ui.data.sessionId)).toMatchObject({ ok: false, code: "not_found" });
+
+    const stopped = await service.stopForOwner("job-c", ui.data.sessionId);
+    expect(stopped).toMatchObject({ ok: true, data: { sessionId: ui.data.sessionId, stopped: true, alreadyStopped: false } });
+    expect(await service.stopForOwner("job-c", ui.data.sessionId)).toMatchObject({ ok: true, data: { alreadyStopped: true } });
+    expect(service.stoppedAuthorizationSnapshotForOwner("job-c", ui.data.sessionId)).toMatchObject({
+      ok: true,
+      data: { ref: page.ref, owner: "job-c" },
+    });
+    // Rejoining is a new hold, and stopping it ends it again.
+    expect(await service.openForOwner("job-c", page)).toMatchObject({ ok: true });
+    expect(await service.stopForOwner("job-c", ui.data.sessionId)).toMatchObject({ ok: true, data: { alreadyStopped: false } });
+    expect(service.stateForOwner("job-c", ui.data.sessionId)).toMatchObject({ ok: false, code: "not_found" });
+
+    expect(views[0]?.destroyed).toBe(false);
+    expect(service.state(ui.data.sessionId)).toMatchObject({ ok: true, data: { attached: true } });
+    // The operator's own stop still ends the view.
+    expect(await service.stop(ui.data.sessionId)).toMatchObject({ ok: true, data: { alreadyStopped: false } });
+    expect(views[0]?.destroyed).toBe(true);
+  });
+
+  it("fails a guest's own cancelled eval and leaves the operator's view running", async () => {
+    const { adapter: spyAdapter, views } = makeSpyAdapter();
+    const never = new Promise<unknown>(() => undefined);
+    const adapter: BrowserViewAdapter = (partition, events) => {
+      const handle = spyAdapter(partition, events);
+      if (handle instanceof Promise) throw new Error("expected synchronous test adapter");
+      return { ...handle, executeJavaScript: () => never };
+    };
+    const { service } = makeService(adapter);
+    const page = target("guest-cancel");
+    const ui = await service.open(page);
+    if (!ui.ok) throw new Error("open failed");
+    views[0]?.events.onLoadOk(ui.data.sessionId);
+    await service.openForOwner("job-a", page);
+
+    const controller = new AbortController();
+    const running = service.evalForOwner("job-a", ui.data.sessionId, "1", controller.signal);
+    await Promise.resolve();
+    controller.abort();
+    expect(await running).toMatchObject({ ok: false, code: "cancelled" });
+    expect(views[0]?.destroyed).toBe(false);
+    expect(service.state(ui.data.sessionId)).toMatchObject({ ok: true });
+    // The slot is free again for the next caller.
+    const second = service.evalForOwner("job-a", ui.data.sessionId, "2", AbortSignal.abort());
+    expect(await second).toMatchObject({ ok: false, code: "cancelled" });
+    expect(views[0]?.destroyed).toBe(false);
+  });
+
+  it("gives a guest nothing when it is revoked while the page opens", async () => {
+    const { service, views } = makeDefaultService();
+    const page = target("guest-revoked");
+    const joining = service.openForOwner("job-a", page);
+    service.destroyOwnerSessions("job-a");
+    expect(await joining).toMatchObject({ ok: false, code: "cancelled" });
+    expect(views).toHaveLength(1);
+    expect(views[0]?.destroyed).toBe(false);
+    const sessionId = service.sessionIdForRef(page.ref);
+    expect(sessionId).toBeDefined();
+    expect(service.stateForOwner("job-a", sessionId!)).toMatchObject({ ok: false, code: "not_found" });
+  });
+
+  it("shows the operator a page a seat opened, since it is the operator's view", async () => {
     const { service, views } = makeDefaultService();
     const emitted: string[] = [];
     service.setSink((session) => emitted.push(session.sessionId));
     const automated = await service.openForOwner("job-a", target("automation"));
-    const ui = await service.open(target("ui"));
-    if (!automated.ok || !ui.ok) throw new Error("open failed");
+    if (!automated.ok) throw new Error("open failed");
     views[0]?.events.onLoadOk(automated.data.sessionId);
-    views[1]?.events.onLoadOk(ui.data.sessionId);
-    expect(emitted).not.toContain(automated.data.sessionId);
-    expect(emitted).toContain(ui.data.sessionId);
+    expect(emitted).toContain(automated.data.sessionId);
+    expect(service.sessionIdForRef(target("automation").ref)).toBe(automated.data.sessionId);
   });
 
   it("rejects URL or profile drift for a warm canonical ref", async () => {
@@ -1364,7 +1432,7 @@ describe("BrowserSessionService", () => {
       "https://next.example.com/path",
     );
     if (!navigated.ok) throw new Error("goto failed");
-    expect(views[0]?.calls).toContain("guard:https://next.example.com");
+    expect(views[0]?.calls.some((call) => call.startsWith("guard:"))).toBe(false);
     expect(service.stateForOwner("job-a", opened.data.sessionId))
       .toMatchObject({ ok: false, code: "not_found" });
     expect(service.authorizationSnapshotForOwner("job-a", navigated.data.sessionId))
@@ -1452,7 +1520,9 @@ describe("BrowserSessionService", () => {
       .toMatchObject({ ok: false, code: "not_found" });
     expect(service.stateForOwner("job-b", sibling.data.sessionId)).toMatchObject({ ok: true });
     expect(service.state(ui.data.sessionId)).toMatchObject({ ok: true });
-    expect(views[0]?.destroyed).toBe(true);
+    // The page job-a opened is the operator's and keeps loading.
+    expect(service.state(owned.data.sessionId)).toMatchObject({ ok: true, data: { state: "loading" } });
+    expect(views[0]?.destroyed).toBe(false);
     expect(views[1]?.destroyed).toBe(false);
     expect(views[2]?.destroyed).toBe(false);
 
@@ -1463,8 +1533,8 @@ describe("BrowserSessionService", () => {
   it("uses the physical destroy witness when an adapter throws after closing", async () => {
     const { adapter: spyAdapter, views } = makeSpyAdapter();
     let viewIndex = 0;
-    const adapter: BrowserViewAdapter = (partition, events, options) => {
-      const handle = spyAdapter(partition, events, options);
+    const adapter: BrowserViewAdapter = (partition, events) => {
+      const handle = spyAdapter(partition, events);
       if (handle instanceof Promise) throw new Error("expected synchronous test adapter");
       const currentIndex = viewIndex;
       viewIndex += 1;
@@ -1478,30 +1548,16 @@ describe("BrowserSessionService", () => {
       };
     };
     const { service } = makeService(adapter);
-    const firstOwned = await service.openForOwner("job-a", target("owned-a"));
-    const laterOwned = await service.openForOwner("job-a", target("owned-b"));
+    const throwing = await service.open(target("owned-a"));
     const sibling = await service.openForOwner("job-b", target("sibling"));
-    if (!firstOwned.ok || !laterOwned.ok || !sibling.ok) throw new Error("open failed");
+    if (!throwing.ok || !sibling.ok) throw new Error("open failed");
 
-    let teardownFailure: unknown;
-    try {
-      service.destroyOwnerSessions("job-a", "reason with raw authority context");
-    } catch (error) {
-      teardownFailure = error;
-    }
-
-    expect(teardownFailure).toBeUndefined();
-
-    expect(service.stateForOwner("job-a", firstOwned.data.sessionId))
-      .toMatchObject({ ok: false, code: "not_found" });
-    expect(service.stateForOwner("job-a", laterOwned.data.sessionId))
-      .toMatchObject({ ok: false, code: "not_found" });
-    expect(service.listForOwner("job-a")).toEqual({ ok: true, data: [] });
+    await expect(service.stop(throwing.data.sessionId)).resolves.toMatchObject({ ok: true });
+    expect(service.state(throwing.data.sessionId)).toMatchObject({ ok: false, code: "not_found" });
     expect(views[0]?.destroyed).toBe(true);
-    expect(views[1]?.destroyed).toBe(true);
-    expect(views[2]?.destroyed).toBe(false);
+    expect(views[1]?.destroyed).toBe(false);
 
-    views[2]?.events.onLoadOk(sibling.data.sessionId, "sibling ready");
+    views[1]?.events.onLoadOk(sibling.data.sessionId, "sibling ready");
     expect(await service.evalForOwner("job-b", sibling.data.sessionId, "document.title"))
       .toMatchObject({ ok: true });
     expect(service.destroyOwnerSessions("job-a", "repeat is safe")).toBe(0);
@@ -1598,8 +1654,8 @@ describe("BrowserSessionService", () => {
   it("leaves attachment unclaimed when the adapter rejects the attach", async () => {
     const { adapter: spyAdapter } = makeSpyAdapter();
     let failAttach = true;
-    const adapter: BrowserViewAdapter = async (partition, events, options) => {
-      const handle = await spyAdapter(partition, events, options);
+    const adapter: BrowserViewAdapter = async (partition, events) => {
+      const handle = await spyAdapter(partition, events);
       return {
         ...handle,
         attach: () => {
@@ -1625,8 +1681,8 @@ describe("BrowserSessionService", () => {
   it("keeps a session attached when the adapter refuses detach", async () => {
     const { adapter: spyAdapter } = makeSpyAdapter();
     let refuseDetach = true;
-    const adapter: BrowserViewAdapter = async (partition, events, options) => {
-      const handle = await spyAdapter(partition, events, options);
+    const adapter: BrowserViewAdapter = async (partition, events) => {
+      const handle = await spyAdapter(partition, events);
       return {
         ...handle,
         detach: () => {
@@ -1850,10 +1906,10 @@ describe("BrowserSessionService", () => {
     const gate = new BrowserProfileGate();
     const spies = makeSpyAdapter();
     let viewIndex = 0;
-    const adapter: BrowserViewAdapter = (partition, events, options) => {
+    const adapter: BrowserViewAdapter = (partition, events) => {
       const index = viewIndex;
       viewIndex += 1;
-      const handle = spies.adapter(partition, events, options);
+      const handle = spies.adapter(partition, events);
       if (handle instanceof Promise) throw new Error("expected synchronous test adapter");
       if (index !== 0) return handle;
       return {
@@ -2376,11 +2432,10 @@ describe("BrowserSessionService", () => {
       destroy: () => {},
     });
     const { service } = makeService(adapter);
-    const opened = await service.openForOwner("job-a", target("missing-destroy-witness"));
+    const opened = await service.open(target("missing-destroy-witness"));
     if (!opened.ok) throw new Error("open failed");
 
-    expect(() => service.destroyOwnerSessions("job-a", "capability revoked"))
-      .toThrowError(BrowserOwnerSessionTeardownFailure);
+    await expect(service.stop(opened.data.sessionId)).resolves.toMatchObject({ ok: false, code: "failed" });
     await expect(service.drainUiOnQuit("later shutdown")).resolves.toMatchObject({
       clean: false,
       timedOut: false,
@@ -2735,16 +2790,13 @@ describe("BrowserSessionService", () => {
     const jobB = await service.openForOwner("job-b", page);
     if (!ui.ok || !jobA.ok || !jobB.ok) throw new Error("open failed");
     expect(ui.data.sessionId).not.toBe("shared");
-    expect(jobA.data.sessionId).not.toBe(ui.data.sessionId);
-    expect(jobB.data.sessionId).not.toBe(jobA.data.sessionId);
+    expect(jobA.data.sessionId).toBe(ui.data.sessionId);
+    expect(jobB.data.sessionId).toBe(ui.data.sessionId);
 
-    const live = service.overseerSessionsForRef(page.ref);
-    expect(live).toEqual(expect.arrayContaining([
+    // One view, listed once under its owner: stopping it ends every guest too.
+    expect(service.overseerSessionsForRef(page.ref)).toEqual([
       { owner: "junto-ui", sessionId: ui.data.sessionId },
-      { owner: "job-a", sessionId: jobA.data.sessionId },
-      { owner: "job-b", sessionId: jobB.data.sessionId },
-    ]));
-    expect(live).toHaveLength(3);
+    ]);
     expect(service.overseerSessionForRef(page.ref)?.sessionId).not.toBe("shared");
 
     await expect(service.stopForOwner("job-a", jobA.data.sessionId))
@@ -2814,16 +2866,16 @@ describe("BrowserSessionService", () => {
       () => `session-${++idCounter}`,
     );
     const page = target("unacked");
-    const opened = await service.openForOwner("job-a", page);
+    const opened = await service.open(page);
     if (!opened.ok) throw new Error("open failed");
 
-    const first = service.stopForOwner("job-a", opened.data.sessionId);
+    const first = service.stop(opened.data.sessionId);
     await vi.waitFor(() => expect(service.overseerSessionsForRef(page.ref)).toEqual([]));
     expect(service.overseerDeleteSessionsForRef(page.ref)).toEqual([
-      { owner: "job-a", sessionId: opened.data.sessionId },
+      { owner: "junto-ui", sessionId: opened.data.sessionId },
     ]);
 
-    const concurrent = service.stopForOwner("job-a", opened.data.sessionId);
+    const concurrent = service.stop(opened.data.sessionId);
     let firstSettled = false;
     let concurrentSettled = false;
     void first.then(() => {
@@ -2856,19 +2908,19 @@ describe("BrowserSessionService", () => {
       5,
     );
     const page = target("timeout-delete");
-    const opened = await service.openForOwner("job-a", page);
+    const opened = await service.open(page);
     if (!opened.ok) throw new Error("open failed");
 
-    expect(await service.stopForOwner("job-a", opened.data.sessionId)).toMatchObject({
+    expect(await service.stop(opened.data.sessionId)).toMatchObject({
       ok: false,
       code: "timeout",
     });
     expect(service.overseerSessionsForRef(page.ref)).toEqual([]);
     expect(service.overseerDeleteSessionsForRef(page.ref)).toEqual([
-      { owner: "job-a", sessionId: opened.data.sessionId },
+      { owner: "junto-ui", sessionId: opened.data.sessionId },
     ]);
 
-    const retry = service.stopForOwner("job-a", opened.data.sessionId);
+    const retry = service.stop(opened.data.sessionId);
     let retrySettled = false;
     void retry.then(() => {
       retrySettled = true;
@@ -2896,40 +2948,40 @@ describe("BrowserSessionService", () => {
     service.setPoolLimitsProvider(async () => ({ maxVisibleSurfaces: 8, maxWarmSessions: 8 }));
 
     const timedPage = target("timeout-survivor");
-    const timed = await service.openForOwner("job-a", timedPage);
+    const timed = await service.open(timedPage);
     if (!timed.ok) throw new Error("open failed");
-    expect(await service.stopForOwner("job-a", timed.data.sessionId)).toMatchObject({
+    expect(await service.stop(timed.data.sessionId)).toMatchObject({
       ok: false,
       code: "timeout",
     });
     expect(service.overseerDeleteSessionsForRef(timedPage.ref)).toEqual([
-      { owner: "job-a", sessionId: timed.data.sessionId },
+      { owner: "junto-ui", sessionId: timed.data.sessionId },
     ]);
 
     const acknowledgedIds: string[] = [];
     // Exceed the real 1,024-receipt bound without adding a production test API.
     for (let i = 0; i < 1_025; i += 1) {
-      const opened = await service.openForOwner("job-b", target(`ack-${i}`));
+      const opened = await service.open(target(`ack-${i}`));
       if (!opened.ok) throw new Error("open failed");
       acknowledgedIds.push(opened.data.sessionId);
-      const stop = service.stopForOwner("job-b", opened.data.sessionId);
+      const stop = service.stop(opened.data.sessionId);
       await vi.waitFor(() => expect(views.at(-1)?.destroyed).toBe(true));
       views.at(-1)?.resolveDestroyed();
       await expect(stop).resolves.toMatchObject({ ok: true });
     }
-    await expect(service.stopForOwner("job-b", acknowledgedIds[0]!)).resolves.toMatchObject({
+    await expect(service.stop(acknowledgedIds[0]!)).resolves.toMatchObject({
       ok: false, code: "not_found",
     });
-    await expect(service.stopForOwner("job-b", acknowledgedIds.at(-1)!)).resolves.toMatchObject({
+    await expect(service.stop(acknowledgedIds.at(-1)!)).resolves.toMatchObject({
       ok: true, data: { alreadyStopped: true },
     });
 
     expect(service.overseerSessionsForRef(timedPage.ref)).toEqual([]);
     expect(service.overseerDeleteSessionsForRef(timedPage.ref)).toEqual([
-      { owner: "job-a", sessionId: timed.data.sessionId },
+      { owner: "junto-ui", sessionId: timed.data.sessionId },
     ]);
 
-    const retry = service.stopForOwner("job-a", timed.data.sessionId);
+    const retry = service.stop(timed.data.sessionId);
     let retrySettled = false;
     void retry.then(() => {
       retrySettled = true;

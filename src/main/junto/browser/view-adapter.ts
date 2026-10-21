@@ -21,10 +21,8 @@ import {
   releaseManagedBrowserPartitionNetwork,
 } from "./partition-network";
 import {
-  canonicalBrowserOrigin,
   hardenBrowserPartition,
   installBrowserWebPolicy,
-  isAllowedByBrowserExactOrigin,
   isAllowedByBrowserTestOnlyExactOriginGrant,
   makeBrowserTestOnlyExactOriginGrant,
   type BrowserTestOnlyExactOriginGrant,
@@ -378,7 +376,7 @@ const makeElectronViewAdapter = (
   },
   testOnlyGrant?: BrowserTestOnlyExactOriginGrant,
   testOnlyDownloadPath?: string,
-): BrowserViewAdapter => async (partition, events, options) => {
+): BrowserViewAdapter => async (partition, events) => {
   const WebContentsView = requireWebContentsView();
   const browserPartition = session.fromPartition(partition);
   // Downloads land in app-owned state, never ~/Downloads: a managed page
@@ -424,10 +422,6 @@ const makeElectronViewAdapter = (
   let expectedNavigation: { readonly url: string; readonly sessionId: string } | undefined;
   let activeNavigation: { readonly url: string; readonly sessionId: string } | undefined;
   let currentSessionId: string | undefined;
-  let exactTopLevelOrigin =
-    options?.exactTopLevelOrigin === undefined
-      ? undefined
-      : canonicalBrowserOrigin(options.exactTopLevelOrigin);
   let releaseWebPolicy: (() => void) | undefined;
   let initializationFailure: Error | undefined;
   try {
@@ -444,11 +438,6 @@ const makeElectronViewAdapter = (
         },
       },
       testOnlyGrant,
-      exactTopLevelOrigin === undefined
-        ? undefined
-        : (url) =>
-            exactTopLevelOrigin !== undefined &&
-            isAllowedByBrowserExactOrigin(url, exactTopLevelOrigin),
     );
   } catch (error) {
     // Return a teardown-capable failed handle instead of throwing after the
@@ -466,16 +455,6 @@ const makeElectronViewAdapter = (
   view.webContents.on("did-start-navigation", (details) => {
     if (!details.isMainFrame) return;
     const normalizedUrl = normalizeUrl(details.url);
-    // History steps and reloads never pass will-frame-navigate, so a pinned
-    // view refuses an off-origin start here, before it can commit.
-    if (
-      !details.isSameDocument &&
-      exactTopLevelOrigin !== undefined &&
-      !isAllowedByBrowserExactOrigin(normalizedUrl, exactTopLevelOrigin)
-    ) {
-      view.webContents.stop();
-      return;
-    }
     const previousNavigation = activeNavigation;
     const expected = expectedNavigation;
     expectedNavigation = undefined;
@@ -630,12 +609,6 @@ const makeElectronViewAdapter = (
         handleRejection(error);
         return Promise.resolve();
       }
-    },
-    setTopLevelOriginGuard: (origin) => {
-      if (exactTopLevelOrigin === undefined) {
-        throw new Error("UI browser views cannot acquire an automation origin guard");
-      }
-      exactTopLevelOrigin = canonicalBrowserOrigin(origin);
     },
     attach: (bounds) => {
       logicallyAttached = true;

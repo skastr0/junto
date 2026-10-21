@@ -498,7 +498,7 @@ describe("control route handlers", () => {
     );
   });
 
-  it("isolates sibling capability namespaces within one principal", async () => {
+  it("shares one view across sibling capabilities and revokes only the one revoked", async () => {
     const { call, sessions, capabilities, principal, grant } = makeStack();
     const sibling = capabilities.issue(principal, {
       actions: BROWSER_CAPABILITY_ACTIONS,
@@ -528,7 +528,7 @@ describe("control route handlers", () => {
     if (!first.envelope.ok || !second.envelope.ok) throw new Error("open failed");
     const firstSessionId = (first.envelope.data as { sessionId: string }).sessionId;
     const secondSessionId = (second.envelope.data as { sessionId: string }).sessionId;
-    expect(secondSessionId).not.toBe(firstSessionId);
+    expect(secondSessionId).toBe(firstSessionId);
     expect(sessions.listForOwner(grant.auditId)).toMatchObject({
       ok: true,
       data: [{ sessionId: firstSessionId }],
@@ -560,7 +560,7 @@ describe("control route handlers", () => {
     });
   });
 
-  it("lists only bound owner generations and rebinds a closed warm session", async () => {
+  it("lists only bound owner generations and rebinds after a seat's close", async () => {
     const { call, sessions, capabilities, grant } = makeStack();
     const opened = await call("POST", "/open", { ref: REF });
     if (!opened.envelope.ok) throw new Error("open failed");
@@ -614,10 +614,9 @@ describe("control route handlers", () => {
       status: 200,
       envelope: { ok: true },
     });
-    expect(sessions.stateForOwner(grant.auditId, sessionId)).toMatchObject({
-      ok: true,
-      data: { state: "detached" },
-    });
+    // A seat's close leaves the operator's view as it is; the seat's bind ends.
+    expect(sessions.stateForOwner(grant.auditId, sessionId)).toMatchObject({ ok: true });
+    expect(sessions.stateForOwner(grant.auditId, sessionId)).not.toMatchObject({ data: { state: "detached" } });
     expect(await call("GET", "/sessions")).toMatchObject({
       status: 200,
       envelope: { ok: true, data: [] },
@@ -645,7 +644,7 @@ describe("control route handlers", () => {
     });
   });
 
-  it("stops a capability-scoped page, removes it from discovery, and remains idempotent", async () => {
+  it("ends a seat's hold on stop, removes it from its discovery, and stays idempotent", async () => {
     const spy = makeSpyAdapter();
     const { call, sessions, grant } = makeStack(spy.adapter);
     const opened = await call("POST", "/open", { ref: REF });
@@ -659,7 +658,9 @@ describe("control route handlers", () => {
         data: { sessionId, stopped: true, alreadyStopped: false },
       },
     });
-    expect(spy.destroyCalls).toEqual(["destroy"]);
+    // The view is the operator's: it runs on.
+    expect(spy.destroyCalls).toEqual([]);
+    expect(sessions.state(sessionId)).toMatchObject({ ok: true });
     expect(sessions.listForOwner(grant.auditId)).toMatchObject({ ok: true, data: [] });
     expect(await call("GET", "/sessions")).toMatchObject({
       status: 200,
@@ -674,10 +675,10 @@ describe("control route handlers", () => {
       status: 200,
       envelope: { ok: true, data: { alreadyStopped: true } },
     });
-    expect(spy.destroyCalls).toEqual(["destroy"]);
+    expect(spy.destroyCalls).toEqual([]);
   });
 
-  it("unbinds the stopped generation after a late acknowledgement retry so the page can reopen", async () => {
+  it("unbinds the stopped generation without waiting on a view teardown, so the page can reopen", async () => {
     const spy = makeSpyAdapter({ acknowledgeDestroy: false });
     const { call } = makeStack(spy.adapter, resolverFor(), undefined, 5);
     const opened = await call("POST", "/open", { ref: REF });
@@ -685,19 +686,18 @@ describe("control route handlers", () => {
     const sessionId = (opened.envelope.data as { sessionId: string }).sessionId;
 
     expect(await call("POST", "/stop", { sessionId })).toMatchObject({
-      status: 504,
-      envelope: { ok: false, error: { _tag: "timeout" } },
+      status: 200,
+      envelope: { ok: true, data: { alreadyStopped: false } },
     });
-    spy.resolveDestroyed();
     expect(await call("POST", "/stop", { sessionId })).toMatchObject({
       status: 200,
       envelope: { ok: true, data: { alreadyStopped: true } },
     });
-    expect(await call("POST", "/open", { ref: REF })).toMatchObject({
-      status: 200,
-      envelope: { ok: true },
-    });
-    expect(spy.destroyCalls).toEqual(["destroy"]);
+    const reopened = await call("POST", "/open", { ref: REF });
+    expect(reopened).toMatchObject({ status: 200, envelope: { ok: true } });
+    if (!reopened.envelope.ok) throw new Error("reopen failed");
+    expect((reopened.envelope.data as { sessionId: string }).sessionId).toBe(sessionId);
+    expect(spy.destroyCalls).toEqual([]);
   });
 
   it("destroys owner sessions when the canonical target changes during open", async () => {
@@ -756,7 +756,7 @@ describe("control route handlers", () => {
     }
     expect(await call("POST", "/close", { sessionId: currentId })).toMatchObject({
       status: 200,
-      envelope: { ok: true, data: { state: "detached" } },
+      envelope: { ok: true, data: { sessionId: currentId } },
     });
   });
 

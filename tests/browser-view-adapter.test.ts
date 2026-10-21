@@ -268,7 +268,7 @@ describe("electron browser view generation seam", () => {
     electron.sessions.clear();
   });
 
-  const setup = async (exactTopLevelOrigin?: string) => {
+  const setup = async () => {
     const starts: Array<Parameters<BrowserViewEvents["onNavigationStart"]>[0]> = [];
     const urls: Array<readonly [string, string]> = [];
     const completed: Array<readonly [string, string | undefined]> = [];
@@ -291,7 +291,6 @@ describe("electron browser view generation seam", () => {
         onTitle: (sessionId, title) => titles.push([sessionId, title]),
         onUnexpectedTermination: () => unexpectedTerminations.push(1),
       },
-      exactTopLevelOrigin === undefined ? undefined : { exactTopLevelOrigin },
     );
     const webContents = electron.views.at(-1)?.webContents;
     if (webContents === undefined) throw new Error("view was not created");
@@ -605,42 +604,19 @@ describe("electron browser view generation seam", () => {
     ]);
   });
 
-  it("pins automation views to an exact origin and retargets only deliberately", async () => {
-    const { handle, webContents, failed } = await setup("https://example.com");
+  it("follows a public cross-origin step: a shared view is never pinned to one origin", async () => {
+    const { handle, webContents, starts } = await setup();
     handle.loadUrl("https://example.com/start", "session-1");
     webContents.emit("did-start-navigation", navigation("https://example.com/start"));
-
-    const sameOrigin = {
-      ...navigation("https://example.com/next"),
-      preventDefault: vi.fn(),
-    };
-    webContents.emit("will-redirect", sameOrigin);
-    expect(sameOrigin.preventDefault).not.toHaveBeenCalled();
-
     const crossOrigin = {
-      ...navigation("https://public.example.net/escape"),
+      ...navigation("https://public.example.net/next"),
       preventDefault: vi.fn(),
     };
     webContents.emit("will-redirect", crossOrigin);
-    expect(crossOrigin.preventDefault).toHaveBeenCalledOnce();
-    expect(failed).toEqual([
-      ["session-1", "navigation blocked by browser policy (origin_mismatch)"],
-    ]);
-
-    handle.setTopLevelOriginGuard?.("https://next.example.com");
-    const deliberate = {
-      ...navigation("https://next.example.com/path"),
-      preventDefault: vi.fn(),
-    };
-    webContents.emit("will-frame-navigate", deliberate);
-    expect(deliberate.preventDefault).not.toHaveBeenCalled();
-
-    const staleOrigin = {
-      ...navigation("https://example.com/again"),
-      preventDefault: vi.fn(),
-    };
-    webContents.emit("will-frame-navigate", staleOrigin);
-    expect(staleOrigin.preventDefault).toHaveBeenCalledOnce();
+    expect(crossOrigin.preventDefault).not.toHaveBeenCalled();
+    webContents.emit("did-start-navigation", navigation("https://public.example.net/back"));
+    expect(webContents.stopCalls).toBe(0);
+    expect(starts.map((start) => start.url)).toContain("https://public.example.net/back");
   });
 
   it("fails closed when main-frame navigations overlap without a correlation id", async () => {
@@ -741,16 +717,6 @@ describe("electron browser view generation seam", () => {
     webContents.emit("did-start-navigation", navigation("https://example.com/"));
     webContents.emit("page-title-updated", {}, "Inbox (3)", true);
     expect(titles).toEqual([["page-1", "Inbox (3)"]]);
-  });
-
-  it("stops an off-origin start on a pinned view, which a history step would not otherwise meet", async () => {
-    const { webContents, starts } = await setup("https://example.com");
-    webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/"));
-    expect(webContents.stopCalls).toBe(1);
-    expect(starts).toEqual([]);
-    webContents.emit("did-start-navigation", navigation("https://example.com/back"));
-    expect(webContents.stopCalls).toBe(1);
-    expect(starts).toHaveLength(1);
   });
 
   it("captures a box in CSS pixels and reads the viewport in the automation world", async () => {

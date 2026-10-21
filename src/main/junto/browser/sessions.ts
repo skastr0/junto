@@ -55,7 +55,6 @@ import {
 export interface BrowserViewHandle {
   /** Resolves only when Electron's load request itself settles. */
   loadUrl(url: string, expectedSessionId: string): Promise<void>;
-  setTopLevelOriginGuard?(origin: string): void;
   attach(bounds: BrowserSurfaceBounds): void;
   setBounds(bounds: BrowserSurfaceBounds): void;
   detach(): void;
@@ -97,18 +96,14 @@ export interface BrowserViewEvents {
   readonly onUnexpectedTermination: () => void;
 }
 
-export interface BrowserViewOptions {
-  /**
-   * Main-frame navigation is pinned to this exact origin. UI-owned views omit
-   * the option and retain the ordinary public-target browser policy.
-   */
-  readonly exactTopLevelOrigin?: string;
-}
-
+/**
+ * Every page view is the one shared live view of its page, under the ordinary
+ * public-target browser policy. A seat acting on it is held to its grant per
+ * action, by the page's current origin and generation, not by pinning the view.
+ */
 export type BrowserViewAdapter = (
   partition: string,
   events: BrowserViewEvents,
-  options?: BrowserViewOptions,
 ) => BrowserViewHandle | Promise<BrowserViewHandle>;
 
 export type BrowserTargetAdmission = (url: string) => boolean;
@@ -137,7 +132,13 @@ export interface BrowserResultErr {
 export type BrowserResult<T> = BrowserResultOk<T> | BrowserResultErr;
 
 export const BROWSER_PROFILE_VIEW_DESTROY_TIMEOUT_MS = 5_000;
-/** How long a history step may take to start its navigation before the page is free again. */
+/**
+ * How long a history step may take to start its navigation before the page is
+ * free again. A guess about the renderer: a page whose main thread stays busy
+ * past it starts the step late, and a goto taken in that gap overlaps it and
+ * ends the session. Narrow, and the cost of a longer mark is a page held busy
+ * that long after a step that starts nothing.
+ */
 export const BROWSER_STEP_START_MS = 2_000;
 export const BROWSER_UI_SHUTDOWN_DRAIN_TIMEOUT_MS = 50_000;
 
@@ -204,22 +205,10 @@ class BrowserOperationFailure extends Error {
   }
 }
 
-/**
- * Fixed, aggregate failure surfaced only after every owned session has been
- * logically invalidated and physical teardown has been attempted. Adapter
- * errors are intentionally not retained as a cause or copied into the message.
- */
-export class BrowserOwnerSessionTeardownFailure extends Error {
-  readonly code = "browser_owner_session_teardown_failed";
-
-  constructor(readonly failureCount: number) {
-    super("browser owner session teardown did not complete cleanly");
-    this.name = "BrowserOwnerSessionTeardownFailure";
-  }
-}
-
 interface ActiveOperation {
   readonly kind: PowerfulOperationKind;
+  /** Who asked for it: the page's owner, or a guest acting on the shared view. */
+  readonly owner: string;
   sessionId: string;
   readonly timeoutMs: number;
   timer: ReturnType<typeof setTimeout> | undefined;
@@ -229,7 +218,13 @@ interface ActiveOperation {
 }
 
 interface SessionEntry {
+  /** The operator's UI: every page view is one shared live view. */
   readonly owner: string;
+  /**
+   * Seats and overseers acting on this view. A guest acts only within its own
+   * grant, checked per action; ending a guest's hold never ends the view.
+   */
+  readonly guests: Set<string>;
   sessionId: string;
   readonly ref: string;
   readonly nodeId: string;
@@ -264,6 +259,8 @@ interface PendingOpen {
 
 interface NavigationWaiter {
   readonly sessionId: string;
+  /** Whose wait this is: a guest's ends with its hold. */
+  readonly owner: string;
   readonly signal?: AbortSignal;
   abortListener: (() => void) | undefined;
   readonly resolve: (result: BrowserResult<BrowserSessionInfo>) => void;
@@ -581,6 +578,8 @@ export class BrowserSessionService {
   private readonly refDeleteLeases = new Map<string, Set<string>>();
   private readonly pendingStops = new Map<string, BrowserStopRecord>();
   private readonly stoppedSessions = new Map<string, BrowserStopRecord>();
+  /** A guest's stop ends only its hold; keyed by guest and session id. */
+  private readonly guestStops = new Map<string, BrowserStopRecord>();
   private readonly activeUiOperations = new Map<number, BrowserUiOperation>();
   private readonly closedUiAdmissions = new Map<number, BrowserUiOperation>();
   private readonly uiDetachFailures = new Set<string>();
@@ -890,15 +889,19 @@ export class BrowserSessionService {
     timeoutMs: number,
     signal?: AbortSignal,
     reject?: (failure: BrowserOperationFailure) => void,
+    owner: string = entry.owner,
   ): BrowserResult<ActiveOperation> {
     if (!this.isCurrent(entry) || entry.sessionId !== sessionId) {
       return err("not_found", `no session for ${sessionId}`);
     }
     if (signal?.aborted === true) {
-      this.destroySession(
-        entry.sessionId,
-        new BrowserOperationFailure("cancelled", `${kind} cancelled`),
-      );
+      // A guest's cancel never ends the operator's view.
+      if (owner === entry.owner) {
+        this.destroySession(
+          entry.sessionId,
+          new BrowserOperationFailure("cancelled", `${kind} cancelled`),
+        );
+      }
       return err("cancelled", `${kind} cancelled`);
     }
     if (entry.activeOperation !== undefined) {
@@ -916,6 +919,7 @@ export class BrowserSessionService {
 
     const operation: ActiveOperation = {
       kind,
+      owner,
       sessionId,
       timeoutMs,
       timer: undefined,
@@ -929,10 +933,7 @@ export class BrowserSessionService {
     if (signal !== undefined) {
       operation.abortListener = () => {
         if (entry.activeOperation !== operation || !this.isCurrent(entry)) return;
-        this.destroySession(
-          entry.sessionId,
-          new BrowserOperationFailure("cancelled", `${kind} cancelled`),
-        );
+        this.cancelOperation(entry, operation, `${kind} cancelled`);
       };
       signal.addEventListener("abort", operation.abortListener, { once: true });
     }
@@ -968,6 +969,7 @@ export class BrowserSessionService {
       input.timeoutMs,
       input.signal,
       rejectFailure,
+      input.owner,
     );
     if (!admitted.ok) return admitted;
     const operation = admitted.data;
@@ -981,8 +983,7 @@ export class BrowserSessionService {
     try {
       const value = await Promise.race([running, failed]);
       if (
-        !this.isCurrent(input.entry) ||
-        input.entry.owner !== input.owner ||
+        !this.holds(input.entry, input.owner) ||
         input.entry.sessionId !== input.sessionId ||
         input.entry.activeOperation !== operation
       ) {
@@ -995,8 +996,7 @@ export class BrowserSessionService {
         return err(error.code, error.message);
       }
       if (
-        !this.isCurrent(input.entry) ||
-        input.entry.owner !== input.owner ||
+        !this.holds(input.entry, input.owner) ||
         input.entry.sessionId !== input.sessionId
       ) {
         return err("not_found", `no session for ${input.sessionId}`);
@@ -1024,9 +1024,13 @@ export class BrowserSessionService {
     };
   }
 
-  private authorizationSnapshot(entry: SessionEntry): BrowserSessionAuthorizationSnapshot {
+  /** Named for the holder asking: the view's owner or one of its guests. */
+  private authorizationSnapshot(
+    entry: SessionEntry,
+    owner: string = entry.owner,
+  ): BrowserSessionAuthorizationSnapshot {
     return {
-      owner: entry.owner,
+      owner,
       sessionId: entry.sessionId,
       generation: entry.sessionId,
       ref: entry.ref,
@@ -1038,9 +1042,38 @@ export class BrowserSessionService {
 
   private entryForOwner(owner: string, sessionId: string): SessionEntry | undefined {
     const entry = this.sessions.get(sessionId);
-    return entry !== undefined && entry.owner === owner && this.isCurrent(entry)
-      ? entry
-      : undefined;
+    return entry !== undefined && this.holds(entry, owner) ? entry : undefined;
+  }
+
+  /** The entry is current and this owner is its owner or one of its guests. */
+  private holds(entry: SessionEntry, owner: string): boolean {
+    return (entry.owner === owner || entry.guests.has(owner)) && this.isCurrent(entry);
+  }
+
+  /**
+   * A cancelled operation. The owner's cancel ends the view, as an Electron
+   * call cannot be recalled. A guest's cancel fails only its own eval or
+   * capture, whose late result is then dropped; a navigation it started runs
+   * on as the page's own, since the operator is looking at it.
+   */
+  private cancelOperation(entry: SessionEntry, operation: ActiveOperation, message: string): void {
+    const failure = new BrowserOperationFailure("cancelled", message);
+    if (operation.owner === entry.owner) {
+      this.destroySession(entry.sessionId, failure);
+      return;
+    }
+    if (operation.kind !== "navigation") this.releaseOperation(entry, operation, failure);
+  }
+
+  /** End one guest's hold on a view: its own eval or capture fails, the view stays. */
+  private releaseGuest(entry: SessionEntry, guest: string, message: string): boolean {
+    if (!entry.guests.delete(guest)) return false;
+    const operation = entry.activeOperation;
+    if (operation !== undefined && operation.owner === guest && operation.kind !== "navigation") {
+      this.releaseOperation(entry, operation, new BrowserOperationFailure("cancelled", message));
+    }
+    this.settleNavigationWaiters(entry, (waiter) => waiter.owner === guest, err("cancelled", message));
+    return true;
   }
 
   private isCurrent(entry: SessionEntry): boolean {
@@ -1406,7 +1439,11 @@ export class BrowserSessionService {
     );
   }
 
-  /** Same owner+ref callers share one creation attempt; owners never share a view. */
+  /**
+   * One live view per page, shared: the operator's UI owns it, and a seat or
+   * overseer opening the page joins it as a guest, creating it when the page
+   * has none. Same-ref callers share one creation attempt.
+   */
   openForOwner(
     owner: string,
     target: ResolvedPageTarget,
@@ -1426,11 +1463,8 @@ export class BrowserSessionService {
   ): Promise<BrowserResult<BrowserSessionInfo>> {
     const invalid = validateTarget(target, this.targetAdmission);
     if (invalid !== undefined) return invalid;
-    if (
-      owner !== BROWSER_UI_SESSION_OWNER &&
-      exactBrowserOrigin(target.url) === undefined
-    ) {
-      return err("forbidden", "automation target has no exact browser origin");
+    if (owner !== BROWSER_UI_SESSION_OWNER) {
+      return this.joinAsGuest(owner, target, signal, revalidateTarget);
     }
     if (isAborted(signal) || this.refDeleteActive(target.ref)) {
       return err("cancelled", "navigation cancelled");
@@ -1479,6 +1513,38 @@ export class BrowserSessionService {
         }
       }
     }
+  }
+
+  private async joinAsGuest(
+    guest: string,
+    target: ResolvedPageTarget,
+    signal?: AbortSignal,
+    revalidateTarget?: BrowserTargetRevalidator,
+  ): Promise<BrowserResult<BrowserSessionInfo>> {
+    if (exactBrowserOrigin(target.url) === undefined) {
+      return err("forbidden", "automation target has no exact browser origin");
+    }
+    const guestEpoch = this.ownerEpoch(guest);
+    const refEpoch = this.refEpoch(target.ref);
+    const opened = await this.openForOwnerAdmitted(BROWSER_UI_SESSION_OWNER, target, signal, revalidateTarget);
+    if (!opened.ok) return opened;
+    // Revoked, fenced or cancelled while the page opened: the view stays the
+    // operator's, the guest gets nothing.
+    if (
+      this.ownerEpoch(guest) !== guestEpoch ||
+      this.refEpoch(target.ref) !== refEpoch ||
+      this.refDeleteActive(target.ref) ||
+      isAborted(signal)
+    ) {
+      return err("cancelled", "navigation cancelled");
+    }
+    const entry = this.entryForOwner(BROWSER_UI_SESSION_OWNER, opened.data.sessionId);
+    if (entry === undefined) return err("not_found", `no session for ${opened.data.sessionId}`);
+    entry.guests.add(guest);
+    // A new hold: an earlier stop's receipt no longer speaks for it.
+    this.guestStops.delete(`${guest}\0${entry.sessionId}`);
+    entry.lastActiveAt = this.now();
+    return { ok: true, data: this.info(entry) };
   }
 
   private async openResolved(
@@ -1578,6 +1644,7 @@ export class BrowserSessionService {
       url: clampUtf8Bytes(target.url, BROWSER_MAX_METADATA_BYTES),
       machine: initialBrowserSession(),
       attached: false,
+      guests: new Set(),
       navigationInFlight: undefined,
       stepPending: undefined,
       activeOperation: undefined,
@@ -1604,9 +1671,6 @@ export class BrowserSessionService {
           onTitle: (sessionId, title) => this.titleChanged(entry, sessionId, title),
           onUnexpectedTermination: () => this.viewTerminatedUnexpectedly(entry),
         },
-        owner === BROWSER_UI_SESSION_OWNER || entry.currentOrigin === undefined
-          ? undefined
-          : { exactTopLevelOrigin: entry.currentOrigin },
       );
       if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, target.ref, refEpoch, signal)) {
         this.requestViewDestruction(entry);
@@ -1724,6 +1788,8 @@ export class BrowserSessionService {
       sessionId,
       BROWSER_NAVIGATION_TIMEOUT_MS,
       signal,
+      undefined,
+      owner,
     );
     if (!admitted.ok) return admitted;
     const operation = admitted.data;
@@ -1750,9 +1816,6 @@ export class BrowserSessionService {
     this.retargetNavigation(entry, operation, rotated.data);
     entry.navigationInFlight = rotated.data;
     try {
-      if (owner !== BROWSER_UI_SESSION_OWNER) {
-        entry.view.setTopLevelOriginGuard?.(nextOrigin);
-      }
       this.reduceCurrent(entry, { type: "reload" });
       const loading = entry.view.loadUrl(url, entry.sessionId);
       this.trackViewLoad("goto", loading);
@@ -1864,6 +1927,8 @@ export class BrowserSessionService {
   closeForOwner(owner: string, sessionId: string): BrowserResult<BrowserSessionInfo> {
     const entry = this.entryForOwner(owner, sessionId);
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
+    // The surface is the operator's; a guest closing leaves it where it is.
+    if (owner !== entry.owner) return { ok: true, data: this.info(entry) };
     try {
       if (entry.attached) {
         entry.view.detach();
@@ -1901,6 +1966,11 @@ export class BrowserSessionService {
     owner: string,
     sessionId: string,
   ): Promise<BrowserResult<BrowserStopReceipt>> {
+    const guestKey = `${owner}\0${sessionId}`;
+    const guestStopped = this.guestStops.get(guestKey);
+    if (guestStopped?.lastResult !== undefined) return this.repeatStopResult(guestStopped.lastResult);
+    const held = this.entryForOwner(owner, sessionId);
+    if (held !== undefined && owner !== held.owner) return { ok: true, data: this.stopGuest(held, owner, guestKey) };
     const pending = this.pendingStops.get(sessionId);
     if (pending !== undefined) {
       if (pending.owner !== owner) return err("not_found", `no session for ${sessionId}`);
@@ -1943,6 +2013,35 @@ export class BrowserSessionService {
       lastResult: undefined,
     };
     return this.runStopAttempt(record, false, entry);
+  }
+
+  /** A guest stopping a shared page ends its own hold; the operator's view runs on. */
+  private stopGuest(entry: SessionEntry, guest: string, key: string): BrowserStopReceipt {
+    const receipt: BrowserStopReceipt = Object.freeze({
+      sessionId: entry.sessionId,
+      ref: entry.ref,
+      profile: entry.profile,
+      stopped: true,
+      alreadyStopped: false,
+    });
+    const record: BrowserStopRecord = {
+      owner: guest,
+      snapshot: this.authorizationSnapshot(entry, guest),
+      receipt,
+      acknowledgement: undefined,
+      completion: undefined,
+      lastResult: { ok: true, data: receipt },
+    };
+    this.releaseGuest(entry, guest, "browser session stopped");
+    this.guestStops.delete(key);
+    this.guestStops.set(key, record);
+    for (const stale of [...this.guestStops.keys()].slice(
+      0,
+      Math.max(0, this.guestStops.size - BrowserSessionService.MAX_STOP_RECEIPTS),
+    )) {
+      this.guestStops.delete(stale);
+    }
+    return receipt;
   }
 
   private async runStopAttempt(
@@ -2138,7 +2237,7 @@ export class BrowserSessionService {
     return {
       ok: true,
       data: [...this.sessions.values()]
-        .filter((entry) => entry.owner === owner && this.isCurrent(entry))
+        .filter((entry) => this.holds(entry, owner))
         .map((entry) => this.info(entry)),
     };
   }
@@ -2148,7 +2247,9 @@ export class BrowserSessionService {
   }
 
   sessionIdForRefForOwner(owner: string, ref: string): string | undefined {
-    const sessionId = this.ownerRefSessions(owner)?.get(ref);
+    const sessionId =
+      this.ownerRefSessions(owner)?.get(ref) ??
+      this.ownerRefSessions(BROWSER_UI_SESSION_OWNER)?.get(ref);
     return sessionId !== undefined && this.entryForOwner(owner, sessionId) !== undefined
       ? sessionId
       : undefined;
@@ -2258,14 +2359,17 @@ export class BrowserSessionService {
   ): BrowserResult<BrowserSessionAuthorizationSnapshot> {
     const entry = this.entryForOwner(owner, sessionId);
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
-    return { ok: true, data: this.authorizationSnapshot(entry) };
+    return { ok: true, data: this.authorizationSnapshot(entry, owner) };
   }
 
   stoppedAuthorizationSnapshotForOwner(
     owner: string,
     sessionId: string,
   ): BrowserResult<BrowserSessionAuthorizationSnapshot> {
-    const record = this.pendingStops.get(sessionId) ?? this.stoppedSessions.get(sessionId);
+    const record =
+      this.guestStops.get(`${owner}\0${sessionId}`) ??
+      this.pendingStops.get(sessionId) ??
+      this.stoppedSessions.get(sessionId);
     return record !== undefined && record.owner === owner
       ? { ok: true, data: record.snapshot }
       : err("not_found", `no stopped session for ${sessionId}`);
@@ -2296,6 +2400,7 @@ export class BrowserSessionService {
     return new Promise((resolve) => {
       const waiter: NavigationWaiter = {
         sessionId,
+        owner,
         ...(signal !== undefined ? { signal } : {}),
         abortListener: undefined,
         resolve,
@@ -2304,7 +2409,8 @@ export class BrowserSessionService {
         waiter.abortListener = () => {
           if (!entry.navigationWaiters.has(waiter)) return;
           const current = this.entryForOwner(owner, sessionId);
-          if (current === entry && entry.navigationInFlight === sessionId) {
+          // Only the page's owner ends the load by walking away from it.
+          if (current === entry && entry.navigationInFlight === sessionId && owner === entry.owner) {
             this.destroySession(
               sessionId,
               new BrowserOperationFailure("cancelled", "navigation cancelled"),
@@ -2474,14 +2580,29 @@ export class BrowserSessionService {
     return { ok: true, data: summary };
   }
 
-  /** Revoke one owner namespace without touching UI or sibling-job views. */
+  /**
+   * Revoke one seat or overseer: it leaves every shared view it held, its
+   * own eval, capture and navigation waits fail, and the views run on. The
+   * count is the holds ended.
+   */
   destroyOwnerSessions(owner: string, reason = "browser authority revoked"): number {
     this.ownerEpochs.set(owner, this.ownerEpoch(owner) + 1);
     this.pendingOpenByOwnerRef.delete(owner);
-    const ownedSessionIds = [...this.sessions.values()]
-      .filter((entry) => entry.owner === owner)
-      .map((entry) => entry.sessionId);
-    return this.destroyOwnerSessionIds(ownedSessionIds, reason);
+    return this.releaseGuestHolds(owner, () => true, reason);
+  }
+
+  private releaseGuestHolds(
+    guest: string,
+    matches: (entry: SessionEntry) => boolean,
+    reason: string,
+  ): number {
+    let released = 0;
+    const message = clampUtf8Bytes(reason, BROWSER_MAX_ERROR_BYTES);
+    for (const entry of this.sessions.values()) {
+      if (entry.owner === guest || !matches(entry)) continue;
+      if (this.releaseGuest(entry, guest, message)) released += 1;
+    }
+    return released;
   }
 
   /**
@@ -2499,37 +2620,7 @@ export class BrowserSessionService {
       pending.delete(ref);
       if (pending.size === 0) this.pendingOpenByOwnerRef.delete(owner);
     }
-    const ownedSessionIds = [...this.sessions.values()]
-      .filter((entry) => entry.owner === owner && entry.ref === ref)
-      .map((entry) => entry.sessionId);
-    return this.destroyOwnerSessionIds(ownedSessionIds, reason);
-  }
-
-  private destroyOwnerSessionIds(
-    ownedSessionIds: ReadonlyArray<string>,
-    reason: string,
-  ): number {
-    const failure = new BrowserOperationFailure(
-      "cancelled",
-      clampUtf8Bytes(reason, BROWSER_MAX_ERROR_BYTES),
-    );
-    let teardownFailures = 0;
-    for (const sessionId of ownedSessionIds) {
-      const entry = this.sessions.get(sessionId);
-      if (entry === undefined || this.retainViewDestroyWitness(entry) === undefined) {
-        teardownFailures += 1;
-      }
-      try {
-        this.destroySession(sessionId, failure);
-      } catch {
-        // Continue through the exact owner snapshot. The physical witness is
-        // authoritative: an adapter may close successfully and then throw.
-      }
-    }
-    if (teardownFailures > 0) {
-      throw new BrowserOwnerSessionTeardownFailure(teardownFailures);
-    }
-    return ownedSessionIds.length;
+    return this.releaseGuestHolds(owner, (entry) => entry.ref === ref, reason);
   }
 
   private retainViewDestroyWitness(entry: SessionEntry): Promise<void> | undefined {

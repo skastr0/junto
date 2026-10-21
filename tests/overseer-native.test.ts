@@ -1086,8 +1086,9 @@ describe("overseer deletion fences share TermPlane identity", () => {
         { kind: "page", canvasName: "factory", nodeId: "p1" },
       ]);
       await vi.waitFor(() => expect(pages.overseerSessionsForRef(opened.ref)).toEqual([]));
+      // The page job-a opened is the operator's shared view, listed under its owner.
       expect(pages.overseerDeleteSessionsForRef(opened.ref)).toEqual([
-        { owner: "job-a", sessionId: opened.sessionId },
+        { owner: "junto-ui", sessionId: opened.sessionId },
       ]);
       const concurrent = native.prepareOverseerNodeDelete([
         { kind: "page", canvasName: "factory", nodeId: "p1" },
@@ -1124,8 +1125,9 @@ describe("overseer deletion fences share TermPlane identity", () => {
       expect(timed.pageStops[0]?.stopped).toBe(false);
       expect(timed.pageStops[0]?.error).toMatch(/did not terminate/u);
       expect(pages.overseerSessionsForRef(opened.ref)).toEqual([]);
+      // The page job-a opened is the operator's shared view, listed under its owner.
       expect(pages.overseerDeleteSessionsForRef(opened.ref)).toEqual([
-        { owner: "job-a", sessionId: opened.sessionId },
+        { owner: "junto-ui", sessionId: opened.sessionId },
       ]);
       expect(destroyCalls()).toBe(1);
       native.finishOverseerNodeDelete(timed.leaseId, "aborted");
