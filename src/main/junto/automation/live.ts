@@ -43,6 +43,7 @@ import { checkTaskCommand, type TaskCommandWire } from "@shared/task-model";
 import { noteResourceChanged, onResourceChanged } from "../work/resource-changes";
 import { onAgentSignalChanged } from "../signals/changes";
 import type { AgentSignal } from "@shared/wire/agent-signals";
+import { threadSubjectOf } from "@shared/thread-subject";
 import { taskCanvasEnv } from "../work/task-control";
 import { deliverTaskEffects, type TaskDelivery } from "../work/task-delivery";
 import { TaskRepository } from "../work/task-repository";
@@ -85,6 +86,17 @@ export type ConditionView = {
   readonly seats: ReadonlyArray<string>;
   /** Each artifact's head version, for the edits between two passes. */
   readonly artifacts?: ReadonlyArray<ArtifactVersionRow>;
+  /** Every comment on an artifact, for the comments between two passes. */
+  readonly comments?: ReadonlyArray<ArtifactCommentRow>;
+};
+
+/** A comment on an artifact, as its Artifacts node holds it. */
+export type ArtifactCommentRow = {
+  readonly messageId: string;
+  readonly artifactId: string;
+  readonly node: string;
+  /** Posted by an automation (its sender stamp): it never triggers an automation. */
+  readonly byAutomation: boolean;
 };
 
 /** An artifact as a change trigger reads it. */
@@ -133,6 +145,19 @@ export const changesBetween = (
       byAutomation: false,
     });
   }
+  // A comment the pass before did not hold. The first pass knows every comment, so old ones fire nothing.
+  const heard = new Set((before.comments ?? []).map((comment) => comment.messageId));
+  for (const comment of after.comments ?? []) {
+    if (heard.has(comment.messageId)) continue;
+    events.push({
+      kind: "artifact",
+      key: `artifact:${comment.artifactId}:commented:${comment.messageId}`,
+      nodeId: comment.node as NodeId,
+      artifactId: comment.artifactId as ItemId,
+      event: "commented",
+      byAutomation: comment.byAutomation,
+    });
+  }
   for (const seat of new Set([...before.seats, ...after.seats])) {
     const from = seatStateOf(before, seat);
     const to = seatStateOf(after, seat);
@@ -147,6 +172,11 @@ export const changesBetween = (
  * A seat's state as its tasks tell it: gone when it left the canvas,
  * attention when its open task waits on someone else, working while it holds
  * an open task, idle when it holds none.
+ *
+ * Gap (07, pty's runner rules): this is not the runtime seat state, so its
+ * holds are not applied (idle and working for 30 s, attention once per
+ * episode, gone only after 60 s with no new generation, unknown never fires).
+ * It stands until pty gives a runtime seat-state source on the editing machine.
  */
 export const seatStateOf = (view: ConditionView, seat: string): SeatBecomes => {
   if (!view.seatOnCanvas(seat)) return "gone";
@@ -364,6 +394,28 @@ export const AutomationRunnerLive = Layer.effect(
     const machines = yield* Effect.serviceOption(MachineRepository);
     const taskStore = yield* Effect.serviceOption(TaskRepository);
     const artifactStore = yield* Effect.serviceOption(ArtifactRepository);
+    // The comments each Artifacts node holds: rows whose thread subject is one of its artifacts.
+    const readComments = (canvasName: string, canvas: Canvas): Effect.Effect<ReadonlyArray<ArtifactCommentRow>> => {
+      const nodes = [...canvas.nodes.values()].filter((node) => node.kind === "artifacts");
+      if (Option.isNone(work) || nodes.length === 0) return Effect.succeed([]);
+      return Effect.forEach(nodes, (node) =>
+        work.value.readMailbox(canvasName, node.id).pipe(
+          Effect.map((rows) =>
+            rows.flatMap((row): ReadonlyArray<ArtifactCommentRow> => {
+              const subject = threadSubjectOf(row);
+              if (subject?.kind !== "artifact") return [];
+              return [{
+                messageId: row.messageId,
+                artifactId: subject.artifactId,
+                node: node.id,
+                byAutomation: row.metadata?.senderGeneration === "automation",
+              }];
+            }),
+          ),
+          Effect.orElseSucceed(() => [] as ReadonlyArray<ArtifactCommentRow>),
+        ),
+      ).pipe(Effect.map((all) => all.flat()));
+    };
     const readArtifacts = (canvasName: string, canvas: Canvas): Effect.Effect<ReadonlyArray<ArtifactVersionRow>> => {
       const nodeIds = [...canvas.nodes.values()].filter((node) => node.kind === "artifacts").map((node) => node.id);
       if (Option.isNone(artifactStore) || nodeIds.length === 0) return Effect.succeed([]);
@@ -437,8 +489,12 @@ export const AutomationRunnerLive = Layer.effect(
     const load = (canvasName: string) =>
       model.canvas(canvasName).pipe(
         Effect.flatMap((canvas) =>
-          Effect.map(Effect.zip(readConditionView(canvasName, canvas), readArtifacts(canvasName, canvas)), ([read, artifacts]) => {
-            const view: ConditionView = { ...read, artifacts };
+          Effect.map(Effect.all([
+            readConditionView(canvasName, canvas),
+            readArtifacts(canvasName, canvas),
+            readComments(canvasName, canvas),
+          ]), ([read, artifacts, comments]) => {
+            const view: ConditionView = { ...read, artifacts, comments };
             const before = views.get(canvasName);
             const changes = changesBetween(before, view, automationWrote);
             // Keep the tasks and artifacts this read left out, as they were, for the next diff.
@@ -447,7 +503,7 @@ export const AutomationRunnerLive = Layer.effect(
             const seenArtifacts = new Set(artifacts.map((artifact) => artifact.artifactId));
             const keptArtifacts = (before?.artifacts ?? []).filter((artifact) => !seenArtifacts.has(artifact.artifactId));
             canvases.set(canvasName, canvas);
-            views.set(canvasName, { ...view, tasks: [...view.tasks, ...kept], artifacts: [...artifacts, ...keptArtifacts] });
+            views.set(canvasName, { ...view, tasks: [...view.tasks, ...kept], artifacts: [...artifacts, ...keptArtifacts], comments });
             return changes;
           }),
         ),

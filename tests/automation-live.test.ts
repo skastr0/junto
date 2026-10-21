@@ -160,3 +160,21 @@ describe("signalChange", () => {
     expect(signalChange({ ...raised, state: "withdrawn" })).toBeUndefined();
   });
 });
+
+describe("changesBetween, comments", () => {
+  const view = (comments: ConditionView["comments"]): ConditionView => ({ tasks: [], seatTasks: {}, seatOnCanvas: () => false, seats: [], comments });
+  const A = "01M5ESKJFC1A88R1MH1NEZWJ70";
+  const old = { messageId: "01M5ESKJFC1A88R1MH1NEZWJ80", artifactId: A, node: "artifacts-1", byAutomation: false };
+  const fresh = { ...old, messageId: "01M5ESKJFC1A88R1MH1NEZWJ81" };
+
+  it("says a comment the pass before did not hold, once, and none of the old ones", () => {
+    expect(changesBetween(view([old]), view([old, fresh]), () => false)).toEqual([
+      { kind: "artifact", key: `artifact:${A}:commented:${fresh.messageId}`, nodeId: "artifacts-1", artifactId: A, event: "commented", byAutomation: false },
+    ]);
+    expect(changesBetween(view([old, fresh]), view([old, fresh]), () => false)).toEqual([]);
+  });
+
+  it("marks a comment an automation posted, so no automation fires on it", () => {
+    expect(changesBetween(view([]), view([{ ...fresh, byAutomation: true }]), () => false)).toMatchObject([{ byAutomation: true }]);
+  });
+});

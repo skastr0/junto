@@ -36,6 +36,7 @@ import type { WorkErrorBody } from "@shared/work-control";
 import { mailExtensionMetadata, mailThreadOf } from "@shared/crew";
 import { MachineRepository } from "../machines/repository";
 import { actorMailOf } from "./actor-mail";
+import { noteResourceChanged } from "./resource-changes";
 import { WorkService } from "./service";
 
 /** What the caller knows of the resource beside the comment. */
@@ -154,6 +155,8 @@ export const postSubjectComment = (
       mail.sentBy,
     );
     if (!row.ok) return yield* Effect.fail(runtimeDown(row.message));
+    // The comment stands: on a task or an artifact it is a change of it, so panes read again and change triggers wake.
+    if (input.subject.kind !== "page") noteResourceChanged(input.subject.kind, canvasName);
 
     const mentionedSet = new Set<string>(mentioned);
     const recipients = subjectNoticeRecipients([...mentioned, ...context.people, ...earlier], poster);
