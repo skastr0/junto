@@ -125,7 +125,6 @@ const ALLOWED: readonly Allowed[] = [
   { file: "src/renderer/lib/sound/director.ts", name: "SIGNAL_CUE", rule: "names", reason: KIND_MAP },
   { file: "src/renderer/lib/sound/index.ts", name: "NOTIFICATION_CUE", rule: "names", reason: KIND_MAP },
   { file: "src/renderer/lib/sound/index.ts", name: "DEMO_CUE", rule: "names", reason: KIND_MAP },
-  { file: "src/renderer/lib/occupancy-feed.ts", name: "TONE_HARNESS", rule: "names", reason: KIND_MAP },
 
   // Vocabularies.
   { file: "src/shared/wire/companion-protocol.ts", name: "COMPANION_SEAT_STATES", rule: "names", reason: VOCAB },
