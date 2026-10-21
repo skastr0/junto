@@ -489,6 +489,133 @@ describe("control route handlers", () => {
     }
   });
 
+  it("re-admits a seat on open after the operator takes over, reloads and hands back", async () => {
+    // The operator's reload is a new document: the page's generation moves
+    // on while the seat's grant still holds the one it was opened on.
+    const spy = makeSpyAdapter();
+    let events: Parameters<BrowserViewAdapter>[1] | undefined;
+    const adapter: BrowserViewAdapter = (partition, nextEvents) => {
+      events = nextEvents;
+      return spy.adapter(partition, nextEvents);
+    };
+    const { call, sessions } = makeStack(adapter);
+    const opened = await call("POST", "/open", { ref: REF });
+    if (!opened.envelope.ok) throw new Error(`open failed: ${JSON.stringify(opened.envelope)}`);
+    const first = (opened.envelope.data as { sessionId: string }).sessionId;
+    expect(sessions.takeOver(first).ok).toBe(true);
+    expect(await call("POST", "/eval", { sessionId: first, code: "1" })).toMatchObject({ envelope: { ok: false, error: { _tag: "operator_holds" } } });
+
+    const reloaded = events!.onNavigationStart({ url: new URL(DEFAULT_TARGET.url).href, isSameDocument: false });
+    if (reloaded === undefined) throw new Error("the reload did not start");
+    events!.onNavigationUrl(reloaded, new URL(DEFAULT_TARGET.url).href);
+    events!.onLoadOk(reloaded, "loaded");
+    expect(reloaded).not.toBe(first);
+    expect(sessions.release(reloaded).ok).toBe(true);
+
+    const rejoined = await call("POST", "/open", { ref: REF });
+    expect(rejoined, JSON.stringify(rejoined.envelope)).toMatchObject({ status: 200, envelope: { ok: true } });
+    const live = (rejoined.envelope as { data: { sessionId: string } }).data.sessionId;
+    expect(live).toBe(reloaded);
+    expect(await call("POST", "/eval", { sessionId: live, code: "document.title" })).toMatchObject({ status: 200, envelope: { ok: true } });
+    // The old generation stays dead: it names nothing now.
+    expect(await call("POST", "/eval", { sessionId: first, code: "1" })).toMatchObject({ envelope: { ok: false } });
+  });
+
+  /** A stack whose view's events the test drives, as the operator and the page do. */
+  const drivenStack = (resolvePageTarget?: PageTargetResolver) => {
+    const spy = makeSpyAdapter();
+    const views: Array<Parameters<BrowserViewAdapter>[1]> = [];
+    const adapter: BrowserViewAdapter = (partition, nextEvents) => {
+      views.push(nextEvents);
+      return spy.adapter(partition, nextEvents);
+    };
+    const stack = makeStack(adapter, resolvePageTarget);
+    /** A new document loads in the page's first tab, as a reload or the page's own navigation does. */
+    const load = (url: string): string => {
+      const events = views[0]!;
+      const generation = events.onNavigationStart({ url, isSameDocument: false });
+      if (generation === undefined) throw new Error("the load did not start");
+      events.onNavigationUrl(generation, url);
+      events.onLoadOk(generation, "loaded");
+      return generation;
+    };
+    /** How many times the seat's grant moved a bound generation. */
+    const rolls = (): number =>
+      stack.capabilities.auditSnapshot().filter((event) => event.outcome === "generation_rolled").length;
+    const open = async (body: Record<string, unknown> = { ref: REF }) => {
+      const opened = await stack.call("POST", "/open", body);
+      if (!opened.envelope.ok) throw new Error(`open failed: ${JSON.stringify(opened.envelope)}`);
+      return (opened.envelope.data as { sessionId: string }).sessionId;
+    };
+    const evals = (sessionId: string) => stack.call("POST", "/eval", { sessionId, code: "1" });
+    return { ...stack, load, open, evals, rolls };
+  };
+
+  it("re-admits a seat on open after the operator navigates the shared page within its grant", async () => {
+    const { sessions, open, evals, rolls } = drivenStack();
+    const first = await open();
+    const moved = sessions.goto(first, "https://example.com/next");
+    if (!moved.ok) throw new Error(`goto failed: ${JSON.stringify(moved)}`);
+    await Promise.resolve();
+    const next = moved.data.sessionId;
+    expect(next).not.toBe(first);
+    expect(sessions.drivingFor(next)?.control.kind).not.toBe("operator-held");
+    expect(await evals(next)).toMatchObject({ status: 403 });
+    expect(await open()).toBe(next);
+    expect(rolls()).toBe(1);
+    expect(await evals(next)).toMatchObject({ status: 200, envelope: { ok: true } });
+    expect(await evals(first)).toMatchObject({ envelope: { ok: false } });
+  });
+
+  it("refuses an open while the operator holds the page, and leaves the binding where it was", async () => {
+    const { call, sessions, load, open, evals, rolls } = drivenStack();
+    const first = await open();
+    expect(sessions.takeOver(first).ok).toBe(true);
+    const reloaded = load(DEFAULT_TARGET.url);
+    expect(await call("POST", "/open", { ref: REF })).toMatchObject({
+      envelope: { ok: false, error: { _tag: "operator_holds" } },
+    });
+    // Held first, then generation: the refused open moved nothing.
+    expect(rolls()).toBe(0);
+    expect(sessions.release(reloaded).ok).toBe(true);
+    expect(await evals(reloaded)).toMatchObject({ envelope: { ok: false } });
+    expect(await open()).toBe(reloaded);
+    expect(rolls()).toBe(1);
+    expect(await evals(reloaded)).toMatchObject({ status: 200, envelope: { ok: true } });
+  });
+
+  it("refuses to move a stale binding to a document on another origin, tab or ref, or out of reach", async () => {
+    let profile = DEFAULT_TARGET.profile;
+    const resolver: PageTargetResolver = async (ref) => {
+      const resolved = await resolverFor()(ref);
+      return resolved.ok ? { ok: true, data: { ...resolved.data, profile } } : resolved;
+    };
+    const { call, sessions, load, open, evals, rolls } = drivenStack(resolver);
+    const first = await open();
+    // Another tab binds on its own and moves nothing of the first tab's.
+    const second = await sessions.openTab(first, "https://example.com/two", false);
+    if (!second.ok) throw new Error("open tab failed");
+    const reloaded = load(DEFAULT_TARGET.url);
+    expect(await open({ ref: REF, tab: "t2" })).toBe(second.data.sessionId);
+    expect(await evals(reloaded)).toMatchObject({ status: 403 });
+    // Another ref, out of the grant.
+    expect(await call("POST", "/open", { ref: "junto://canvas/work?node=other" })).toMatchObject({
+      status: 403,
+      envelope: { ok: false, error: { _tag: "forbidden" } },
+    });
+    expect(await evals(reloaded)).toMatchObject({ status: 403 });
+    // The page's profile out of the seat's reach.
+    profile = "work";
+    expect(await call("POST", "/open", { ref: REF })).toMatchObject({ envelope: { ok: false } });
+    profile = DEFAULT_TARGET.profile;
+    expect(await evals(reloaded)).toMatchObject({ envelope: { ok: false } });
+    // A document on another origin.
+    const away = load("https://elsewhere.example.org/");
+    expect(await call("POST", "/open", { ref: REF })).toMatchObject({ envelope: { ok: false } });
+    expect(await evals(away)).toMatchObject({ envelope: { ok: false } });
+    expect(rolls()).toBe(0);
+  });
+
   it("reuses an already bound warm owner session", async () => {
     const { call } = makeStack();
     const first = await call("POST", "/open", { ref: REF });

@@ -817,7 +817,12 @@ export const makeControlHandlers = (deps: ControlDeps): ControlHandlers => {
         if (currentGeneration === undefined) {
           lease.bindGeneration(resolved.data.ref, current.data.generation, tab);
         } else if (currentGeneration !== current.data.generation) {
-          return failOpen(capabilityDenied("forbidden"));
+          // The page moved on without this seat: the operator reloaded or
+          // navigated it, as when they take it over and hand it back. An open
+          // is a fresh admission of the document now loaded, checked above
+          // like a first open, so the grant moves to it; the old generation
+          // names nothing any more.
+          lease.rollGeneration(resolved.data.ref, currentGeneration, current.data.generation, tab);
         }
         const finalState = deps.sessions.authorizationSnapshotForOwner(
           lease.auditId,
