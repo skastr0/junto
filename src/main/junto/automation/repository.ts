@@ -68,7 +68,7 @@ export class AutomationRepository extends Context.Service<AutomationRepository,
       firing: FiringType,
       outcome: FiringOutcome,
     ) => Effect.Effect<void, AutomationPersistenceError>;
-    /** When an automation fired at or after `sinceEpochMs`; skips are not listed. */
+    /** When an automation fired at or after `sinceEpochMs`, claimed firings included; skips are not listed. */
     readonly firedSince: (
       canvasName: string,
       automationId: AutomationId,
@@ -96,6 +96,9 @@ export const claimKeyOf = (firing: FiringType): string => {
       return cause satisfies never;
   }
 };
+
+/** A claimed firing may have run its actions (at most once), so the limits count it. */
+const countsAsFired = (outcome: FiringOutcome): boolean => outcome.kind !== "skipped";
 
 const encodeAutomation = Schema.encodeSync(Automation);
 const decodeAutomation = Schema.decodeUnknownSync(Automation);
@@ -199,7 +202,7 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
             INSERT INTO automation_firings(
               canvas_name, automation_id, cause_kind, claim_key, firing_id, at_epoch_ms, fired, firing_json
             ) VALUES (${canvasName}, ${firing.automationId}, ${firing.cause.kind}, ${claimKeyOf(firing)}, ${firing.firingId},
-              ${firing.at}, ${firing.outcome.kind === "fired" ? 1 : 0}, ${JSON.stringify(encodeFiring(firing))})
+              ${firing.at}, ${countsAsFired(firing.outcome) ? 1 : 0}, ${JSON.stringify(encodeFiring(firing))})
             ON CONFLICT (canvas_name, automation_id, cause_kind, claim_key) DO NOTHING
             RETURNING firing_id
           `;
@@ -233,7 +236,7 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
         const settled: FiringType = { ...firing, outcome };
         yield* sql`
           UPDATE automation_firings
-          SET fired = ${outcome.kind === "fired" ? 1 : 0}, firing_json = ${JSON.stringify(encodeFiring(settled))}
+          SET fired = ${countsAsFired(outcome) ? 1 : 0}, firing_json = ${JSON.stringify(encodeFiring(settled))}
           WHERE canvas_name = ${canvasName} AND firing_id = ${firing.firingId}
         `.pipe(Effect.mapError(failure("settle-firing")));
       });

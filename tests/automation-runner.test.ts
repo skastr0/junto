@@ -210,6 +210,27 @@ describe("onChange", () => {
   });
 });
 
+describe("an interrupted firing", () => {
+  it("stays claimed when an action dies before settle, and counts against the limits", async () => {
+    const h = await harness(automation({ limits: { minIntervalMs: 0, maxPerHour: 1 } }));
+    try {
+      const dying = makeAutomationRunner({
+        canvas: () => canvas,
+        holds: () => true,
+        perform: () => Effect.die("crash"),
+        mintFiringId: () => FiringId.make("01M5ESKJFC1A88R1MH1NEZ9999"),
+        now: () => h.clock.now,
+      });
+      await expect(h.go(dying.onRun(CANVAS, AUTO))).rejects.toBeDefined();
+      expect((await h.history()).map((f) => f.outcome)).toEqual([{ kind: "claimed" }]);
+      const next = await h.go(h.runner.onRun(CANVAS, AUTO));
+      expect(next?.outcome).toEqual({ kind: "skipped", reason: "max_per_hour" });
+    } finally {
+      await h.close();
+    }
+  });
+});
+
 describe("onRun", () => {
   it("fires a disabled automation by hand, recorded as run", async () => {
     const h = await harness(automation({ enabled: false }));

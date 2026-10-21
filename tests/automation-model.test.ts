@@ -101,6 +101,7 @@ describe("Automation schema", () => {
     expect(Result.isFailure(decode({ ...firing, outcome: { kind: "fired" } }))).toBe(true);
     expect(Result.isFailure(decode({ ...firing, outcome: { kind: "skipped", reason: "tired" } }))).toBe(true);
     expect(Result.isSuccess(decode({ ...firing, outcome: { kind: "skipped", reason: "max_per_hour" } }))).toBe(true);
+    expect(Result.isSuccess(decode({ ...firing, outcome: { kind: "claimed" } }))).toBe(true);
     const missed = { ...firing, cause: { kind: "schedule", slot: 60_000, missed: 3 } };
     expect(Result.isSuccess(decode({ ...missed, outcome: { kind: "fired", actions: [{ index: 0, ruling: "queued" }] } }))).toBe(
       true,

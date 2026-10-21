@@ -86,8 +86,11 @@ describe("AutomationRepository", () => {
     yield* repository.claimFiring("factory", fired);
     yield* repository.claimFiring("factory", firing("01M5ESKJFC1A88R1MH1NEZWJ31", 200, { kind: "change", key: "a:2" }, false));
     expect(yield* repository.firedSince("factory", AUTO, 0)).toEqual([100]);
+    // A claimed firing may have run its actions, so it counts too.
+    yield* repository.claimFiring("factory", { ...firing("01M5ESKJFC1A88R1MH1NEZWJ32", 300, { kind: "change", key: "a:3" }), outcome: { kind: "claimed" } });
+    expect([...(yield* repository.firedSince("factory", AUTO, 0))].sort()).toEqual([100, 300]);
     yield* repository.settleFiring("factory", fired, { kind: "fired", actions: [{ index: 0, ruling: "applied" }] });
-    const [, settled] = yield* repository.firings("factory", { automationId: AUTO });
+    const [, , settled] = yield* repository.firings("factory", { automationId: AUTO });
     expect(settled?.outcome).toEqual({ kind: "fired", actions: [{ index: 0, ruling: "applied" }] });
   })));
 

@@ -112,7 +112,7 @@ export const makeAutomationRunner = (ports: RunnerPorts): AutomationRunner => {
       automationId: automation.automationId,
       at: now,
       cause,
-      outcome: decision.kind === "fire" ? { kind: "fired", actions: [] } : { kind: "skipped", reason: decision.reason },
+      outcome: decision.kind === "fire" ? { kind: "claimed" } : { kind: "skipped", reason: decision.reason },
     };
     const claim = yield* repository.claimFiring(canvasName, firing);
     if (claim._tag === "Duplicate") return undefined;

@@ -358,7 +358,15 @@ export const ActionRuling = Schema.Union([
 ]);
 export type ActionRuling = typeof ActionRuling.Type;
 
+/**
+ * `claimed`: the runner holds the firing and is performing its actions. It
+ * becomes `fired` once they are ruled. A claimed firing that is no longer in
+ * flight was interrupted (a crash between claim and settle): its actions may
+ * have run, so it counts as fired for the limits, and history shows it as
+ * interrupted.
+ */
 export const FiringOutcome = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("claimed") }),
   Schema.Struct({ kind: Schema.Literal("fired"), actions: Schema.Array(ActionRuling) }),
   Schema.Struct({ kind: Schema.Literal("skipped"), reason: SkipReason }),
 ]);
@@ -377,7 +385,7 @@ const HOUR_MS = 60 * 60_000;
 
 /**
  * The limit a firing at `now` would break, given when this automation last
- * fired (skips do not count). Undefined when both limits allow it. A firing
+ * fired, claimed firings included (skips do not count). Undefined when both limits allow it. A firing
  * later than `now` (the clock stepped back) skips `min_interval` until the
  * clock catches up: intended, so a clock change never bursts.
  */
