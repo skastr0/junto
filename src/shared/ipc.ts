@@ -35,6 +35,7 @@ export type {
   BrowserStopReceipt,
 } from "./browser";
 import type { DoctorReport } from "./contracts";
+import type { ExecutionGraphSnapshot } from "./execution-graph";
 import type { RemoteHost } from "./remote-hosts";
 import type { OperatorRequestEnvelope, OperatorResponseEnvelope } from "./operator-control";
 import type { MachineCommandProgress } from "./machine-progress";
@@ -521,36 +522,8 @@ export interface WatcherRuntimeState {
   readonly lastFiredAt?: number;
 }
 
-/** Live edge phase + blocked closure projected from the kernel cycle. */
-export interface ExecutionSnapshot {
-  readonly phaseByEdgeId: Readonly<Record<string, "blocks" | "relates">>;
-  readonly detailByEdgeId: Readonly<Record<string, string>>;
-  readonly blocked: ReadonlyArray<string>;
-  readonly blockedEdgeIds: ReadonlyArray<string>;
-  readonly reasonsByNodeId: Readonly<
-    Record<
-      string,
-      ReadonlyArray<
-        | {
-            readonly kind: "edge";
-            readonly edgeId: string;
-            readonly fromNodeId: string;
-            readonly detail: string;
-            /** Epoch ms the stop began; see BlockedReason in execution-graph. */
-            readonly since?: number;
-          }
-        | {
-            readonly kind: "work";
-            readonly requestId: string;
-            readonly targetNodeId: string;
-            readonly detail: string;
-            /** Epoch ms the request was raised. */
-            readonly since: number;
-          }
-      >
-    >
-  >;
-}
+/** Blocked seats and why, projected from the kernel cycle. */
+export type ExecutionSnapshot = ExecutionGraphSnapshot;
 
 export interface KernelSnapshot {
   readonly canvases: Readonly<

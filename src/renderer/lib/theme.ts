@@ -1,4 +1,3 @@
-import type { WirePhase } from "@shared/model";
 import { canvasSwatchFor } from "@shared/canvas-colors";
 import { themeRuntime, type ThemeMode } from "@shared/theme";
 
@@ -81,11 +80,6 @@ export const borderColor = (color?: string, emphasized = false): string => {
   if (color?.startsWith("#") && !canvasSwatchFor(color)) return color;
   if (!color) return emphasized ? "var(--color-stroke-hi)" : "var(--color-stroke)";
   return withAlpha(accentColor(color), emphasized ? 0.5 : 0.32);
-};
-
-export const EDGE_COLOR: Record<WirePhase, string> = {
-  blocks: "var(--color-crimson)",
-  relates: "var(--color-steel)",
 };
 
 export function withAlpha(color: string, alpha: number): string {

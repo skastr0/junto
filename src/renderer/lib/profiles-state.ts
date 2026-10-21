@@ -153,7 +153,6 @@ export const placeProfileInSlot = async (
     return "failed";
   }
   commitCommands((canvas) => added(canvas, [placed.node]));
-  state$.edgeFilter.set("");
   selectNode(placed.node.id);
   state$.focusNodeId.set(placed.node.id);
   const problems: string[] = [];

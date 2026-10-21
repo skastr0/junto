@@ -135,10 +135,9 @@ function sideOfHandle(handle: string | null | undefined): WireDirection | null {
   return HANDLE_SIDES[handle.slice(2)] ?? null;
 }
 
-/** Topology, stoppage, and the side each end leaves from. */
+/** Topology and the side each end leaves from. */
 type EdgeSpec = {
   readonly id: string;
-  readonly blocked: boolean;
   readonly sourceNodeId: string;
   readonly sourceSide: WireDirection;
   readonly targetNodeId: string;
@@ -168,12 +167,8 @@ function specsOf(
     const sides = from && to ? wireSides(from, to) : undefined;
     const sourceSide = sides?.source ?? heldSource;
     const targetSide = sides?.target ?? heldTarget;
-    const data = edge.data;
-    // Same expression WireEdge paints from; read only, never written back.
-    const phase = data?.phase ?? "relates";
     out.push({
       id: edge.id,
-      blocked: phase === "blocks" || (data?.rippling ?? false),
       sourceNodeId: edge.source,
       sourceSide,
       targetNodeId: edge.target,
@@ -184,7 +179,7 @@ function specsOf(
 }
 
 function specKeyOf(spec: EdgeSpec): string {
-  return `${spec.id}|${spec.sourceNodeId}|${spec.sourceSide}|${spec.targetNodeId}|${spec.targetSide}|${spec.blocked ? 1 : 0}`;
+  return `${spec.id}|${spec.sourceNodeId}|${spec.sourceSide}|${spec.targetNodeId}|${spec.targetSide}`;
 }
 
 function specsKeyOf(specs: ReadonlyArray<EdgeSpec>): string {
@@ -367,7 +362,6 @@ function buildInputs(
     if (!from || !to) continue;
     centred.push({
       id: spec.id,
-      blocked: spec.blocked,
       sourceNodeId: spec.sourceNodeId,
       sourceSide: spec.sourceSide,
       sourceAnchor: anchorOn(from, spec.sourceSide),
@@ -480,7 +474,6 @@ const TRIGGER_OF = { moved: "geometry", changed: "edge-change", dragged: "drag" 
 function publishStandaloneRoutes(
   inputs: ReadonlyArray<LoomEdgeInput>,
   obstacles: ReadonlyArray<LoomObstacle>,
-  corridors: ReadonlyArray<WireRect>,
   strandIds: ReadonlySet<string>,
   /** The wires to route, each with why; every wire, as a first plan, when absent. */
   scope?: ReadonlyMap<string, RouteCause>,
@@ -490,7 +483,6 @@ function publishStandaloneRoutes(
     dragging: NOT_DRAGGING,
     edges: inputs,
     obstacles,
-    corridors,
     strandIds,
     ...(scopeIds ? { scope: scopeIds } : {}),
     routeWire,
@@ -544,9 +536,7 @@ const sameWires = (
       x.source !== y.source ||
       x.target !== y.target ||
       x.sourceHandle !== y.sourceHandle ||
-      x.targetHandle !== y.targetHandle ||
-      (x.data?.phase ?? "relates") !== (y.data?.phase ?? "relates") ||
-      (x.data?.rippling ?? false) !== (y.data?.rippling ?? false)
+      x.targetHandle !== y.targetHandle
     ) {
       return false;
     }
@@ -622,7 +612,6 @@ function CanvasLoomBody({ edges }: { readonly edges: ReadonlyArray<FlowEdge> }) 
         dragging: moving,
         edges: inputs,
         obstacles,
-        corridors: loomCorridors$.peek(),
         strandIds: NOT_DRAGGING,
       });
       const heldRoutes = loomRoutes$.peek();
@@ -652,7 +641,6 @@ function CanvasLoomBody({ edges }: { readonly edges: ReadonlyArray<FlowEdge> }) 
     );
 
     const wasStrand = new Set(Object.keys(loomStrands$.peek()));
-    const corridorsChanged = shouldPublishCorridors(loomCorridors$.peek(), plan.corridors);
     publishStrands(plan.strands);
     publishCorridors(plan.corridors);
 
@@ -672,11 +660,10 @@ function CanvasLoomBody({ edges }: { readonly edges: ReadonlyArray<FlowEdge> }) 
         dropped: freshlyDropped.current,
         strandsBefore: wasStrand,
         strandsNow: strandIds,
-        corridorsChanged,
       });
-      publishStandaloneRoutes(inputs, obstacles, plan.corridors, strandIds, scope);
+      publishStandaloneRoutes(inputs, obstacles, strandIds, scope);
     } else {
-      publishStandaloneRoutes(inputs, obstacles, plan.corridors, strandIds);
+      publishStandaloneRoutes(inputs, obstacles, strandIds);
     }
     freshlyDropped.current = new Set();
     routedRef.current = { geometry, obstacles, specs: specsById };

@@ -46,7 +46,7 @@ export const feedCanvasModelNeeds = (input: {
   for (const [nodeId, reasons] of graph.reasonsByNodeId) {
     for (const reason of reasons) {
       stoppedSince.set(nodeId, earlier(stoppedSince.get(nodeId), reason.since));
-      if (reason.kind === "edge") causeSince.set(reason.fromNodeId, earlier(causeSince.get(reason.fromNodeId), reason.since));
+      causeSince.set(reason.taskNodeId, earlier(causeSince.get(reason.taskNodeId), reason.since));
     }
   }
 

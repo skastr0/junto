@@ -931,14 +931,6 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .field-density-warning button { display: inline-flex; align-items: center; gap: 5px; border: 1px solid color-mix(in oklab, var(--color-second) 24%, transparent); border-radius: 4px; color: var(--color-cyan); padding: 5px 7px; transition: background .18s ease, border-color .18s ease; }
 .field-density-warning button:hover { border-color: color-mix(in oklab, var(--color-second) 60%, transparent); background: color-mix(in oklab, var(--color-second) 7%, transparent); }
 
-.field-filter-tray { display: inline-flex; align-items: center; gap: 5px; border: 1px solid color-mix(in oklab, var(--color-second) 28%, transparent); border-radius: 7px; background: color-mix(in oklab, var(--color-ground) 86%, transparent); padding: 5px 6px 5px 8px; box-shadow: 0 12px 28px var(--color-shadow-2); backdrop-filter: blur(12px); }
-.field-filter-tray__label { color: var(--color-faint); font-size: 8px; letter-spacing: .14em; text-transform: uppercase; }
-.field-filter-tray__chip { border-radius: 4px; padding: 3px 5px; font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
-.field-filter-tray__chip--source { color: var(--color-cyan); background: color-mix(in oklab, var(--color-second) 9%, transparent); }
-.field-filter-tray__chip--edge { color: var(--color-amber); background: color-mix(in oklab, var(--color-main) 9%, transparent); }
-.field-filter-tray button { border: 1px solid var(--color-stroke); border-radius: 4px; color: var(--color-dim); padding: 3px 5px; font-size: 8px; letter-spacing: .1em; text-transform: uppercase; }
-.field-filter-tray button:hover { border-color: color-mix(in oklab, var(--color-ink) 42%, transparent); color: var(--color-ink); }
-
 .inspector-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 13px 14px 14px; }
 .inspector-detail { color: var(--color-dim); font-size: var(--text-label); line-height: var(--leading-open); overflow-wrap: anywhere; }
 
@@ -1728,21 +1720,10 @@ html[data-surface-motion="paused"] *::after {
 @media (prefers-reduced-motion: reduce) {
   .junto-blocker::after,
   .junto-status-dot-pulse,
-  .junto-edge-ripple .react-flow__edge-path,
-  path.junto-edge-ripple,
   .junto-node[data-seat-attention="true"]::after,
   .junto-node[data-attention="fire"]::after {
     animation: none;
   }
-}
-
-/* --- Blocked ripple: static dash pattern ---------------------------------
-   stroke-dashoffset and opacity animations both keep the compositor live.
-   Dashes stay for “interrupted flow” direction; no continuous paint. */
-.junto-edge-ripple .react-flow__edge-path,
-path.junto-edge-ripple {
-  stroke-dasharray: 5 6;
-  opacity: 0.78;
 }
 
 /* --- Fire / ice attention (glance language) ---------------------------

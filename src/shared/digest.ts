@@ -264,22 +264,11 @@ export const digestCanvas = (
     sections.push(entityLines);
   }
 
-  // edges — live phase (derived). A blocking edge always shows its phase and
-  // reason; an idle one shows the operator's free-text label when there is one.
+  // edges — each wire says its verb; stoppage lives on seats, not wires.
   if (edges.length > 0) {
     const edgeLines = ["edges"];
     for (const edge of edges) {
-      const phase = graph.phaseByEdgeId.get(edge.id) ?? "relates";
-      const detail = graph.detailByEdgeId.get(edge.id);
-      let token: string;
-      if (phase !== "relates" && detail) {
-        token = `${phase}(${detail})`;
-      } else if (phase === "relates") {
-        token = edge.verb;
-      } else {
-        token = phase;
-      }
-      edgeLines.push(`${titleForId(edge.from)} --${token}--> ${titleForId(edge.to)}`);
+      edgeLines.push(`${titleForId(edge.from)} --${edge.verb}--> ${titleForId(edge.to)}`);
     }
     sections.push(edgeLines);
   }
@@ -292,7 +281,7 @@ export const digestCanvas = (
       if (graph.blocked.has(node.id)) {
         const reasons = graph.reasonsByNodeId.get(node.id) ?? [];
         const first = reasons[0];
-        const suffix = first?.kind === "edge" ? ` - ${first.detail}` : "";
+        const suffix = first ? ` - ${first.detail}` : "";
         blockerLines.push(`${titleOf(node)}${suffix}`);
       }
     }

@@ -7,7 +7,6 @@ import { inPaintOrder, regionMembers as membersOf, regionName } from "./model/ca
 import {
   deriveExecutionGraph,
   type LiveTrustViews,
-  type WorkBlockedSeat,
 } from "./execution-graph";
 import { resolveSpec } from "./physics";
 import type { WorkSurfaceActivity } from "./terminal";
@@ -100,7 +99,6 @@ export interface RegionRollupInput extends LiveTrustViews {
   /** Canvas scope and compiled actor identity are mandatory graph inputs. */
   readonly canvasName: string;
   readonly resolveActorRef: ActorRefResolver;
-  readonly workBlockedSeats?: ReadonlyMap<string, WorkBlockedSeat>;
   readonly agentActivity?: ReadonlyMap<string, AgentActivity>;
   // Backend-neutral harness activity by canvas node id. Session liveness alone
   // never means work: only an explicit harness state contributes severity.
@@ -139,9 +137,6 @@ const surfaceTier = (activity: WorkSurfaceActivity | undefined): SeatNeedTier | 
   return { severity: MemberSeverity.group.working, cause: "activity:working" };
 };
 
-// Rank for mapped execution-graph reasons: edge before seed (no relay cascade).
-const GRAPH_REASON_RANK = { work: 0, edge: 1 } as const;
-
 // mirrors digest.titleOf — duplicated on purpose: shared modules stay
 // decoupled, and the label convention must not drift with the projection.
 const deriveMember = (
@@ -163,10 +158,8 @@ const deriveMember = (
   if (activity?.permissionPending === true) matches.push([MemberSeverity.group.attention, "permission:pending"]);
   // Idle is where a member lands with no match; it carries no reason.
   if (seat && seat.severity !== MemberSeverity.group.idle) matches.push([seat.severity, seat.cause]);
-  // Execution-graph closure: edge before seed (no relay cascade).
-  const graphReasons = [...(graph.reasonsByNodeId.get(node.id) ?? [])].sort(
-    (a, b) => GRAPH_REASON_RANK[a.kind] - GRAPH_REASON_RANK[b.kind],
-  );
+  // Execution graph: the waiting tasks this seat is the assignee of.
+  const graphReasons = graph.reasonsByNodeId.get(node.id) ?? [];
   for (const reason of graphReasons) matches.push([MemberSeverity.group.blocked, `${reason.kind}:${reason.detail}`]);
   // A graph block with no reason still blocks; it just adds no reason string.
   if (graph.blocked.has(node.id) && graphReasons.length === 0) matches.push([MemberSeverity.group.blocked, ""]);
@@ -231,7 +224,6 @@ export const deriveRegionRollups = (input: RegionRollupInput): ReadonlyArray<Reg
     itemsOf,
     canvasName,
     resolveActorRef,
-    workBlockedSeats,
     stamps,
     approvals,
     agentActivity,
@@ -242,7 +234,6 @@ export const deriveRegionRollups = (input: RegionRollupInput): ReadonlyArray<Reg
     canvasName,
     resolveActorRef,
     itemsOf,
-    ...(workBlockedSeats ? { workBlockedSeats } : {}),
     ...(stamps ? { stamps } : {}),
     ...(approvals ? { approvals } : {}),
   });

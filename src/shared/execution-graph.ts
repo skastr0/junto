@@ -1,6 +1,4 @@
-import type { WirePhase } from "./model/wire";
 import type { Task } from "./work-model";
-import type { ActorSeatId } from "./actor-seat";
 import { claimedByOf, taskBrief } from "./task";
 import {
   resolveActorRefAt,
@@ -17,19 +15,11 @@ import {
 // Live execution graph: pure function of (canvas + live views).
 // Derived state is never stored on the canvas.
 //
-// Stoppage model (derived, never authored — the edge states a relationship,
-// not a gate):
-//   - an edge with either end task|requests → evaluate tasks stoppage:
-//     a CLAIMED attention item (input-required; residual auth-required)
-//     generates blocks on the claimant actor only. Tasks are claimed by the
-//     pulling actor; requests are claimed by their raiser at creation.
-//     An unresolved actor identity never substitutes its canvas node ID.
-//   - every other pair → soft "relates" (capability only; never stoppage)
-//
-// Evaluation:
-//   - phase "blocks" + generates → mark actor blocked (actors only)
-//   - work-plane seat blocks mark their actor only
-//   - stoppage never cascades via edge property — use a relay node + wires
+// Stoppage model (derived, never authored): a seat is blocked when it is the
+// assignee of a task in `input-required`, on any task node of the canvas.
+// The mark lives on the seat's ring. Wires carry no stoppage: a wire states a
+// relationship, never a gate, and nothing cascades along one. A task in
+// review does not block its assignee.
 
 /** Optional live trust views (legacy stamp/approval surfaces; not product gates). */
 export type LiveTrustViews = {
@@ -42,53 +32,26 @@ export type ExecutionGraphContext = LiveTrustViews & {
   readonly canvasName: string;
   readonly resolveActorRef: ActorRefResolver;
   /**
-   * The items on a task or requests node. A canvas holds no work, so the
-   * caller supplies it. It must return at least every item that needs input
-   * or authorization, with its claimant and the time it began waiting.
+   * The tasks on a task node. A canvas holds no work, so the caller supplies
+   * it. It must return at least every task that needs input, with its
+   * assignee and the time it began waiting.
    */
   readonly itemsOf: WorkItemsOf;
-  /** Live work-plane stoppage keyed by the blocked actor node. */
-  readonly workBlockedSeats?: ReadonlyMap<string, WorkBlockedSeat>;
 };
 
 export type WorkItemsOf = (nodeId: string) => ReadonlyArray<Task>;
 
-export type WorkBlockedSeat = {
-  readonly requestId: string;
-  readonly targetNodeId: string;
+/** Why a seat is blocked: one task it holds is waiting for input. */
+export type BlockedReason = {
+  readonly kind: "task";
+  /** The task node the task sits on. */
+  readonly taskNodeId: string;
+  readonly taskId: string;
   readonly detail: string;
-  /** Epoch ms the request was raised. */
-  readonly since: number;
-};
-
-export type BlockedReason =
-  | {
-      readonly kind: "edge";
-      readonly edgeId: string;
-      readonly fromNodeId: string;
-      readonly detail: string;
-      /**
-       * Epoch ms the stop began: when the earliest item holding this actor
-       * entered its waiting state (`Task.stateSince`). Absent only when the
-       * document's items are not the work projection (an authored fixture).
-       */
-      readonly since?: number;
-    }
-  | {
-      readonly kind: "work";
-      readonly requestId: string;
-      readonly targetNodeId: string;
-      readonly detail: string;
-      /** Epoch ms the request was raised. */
-      readonly since: number;
-    };
-
-export type EdgeEval = {
-  readonly phase: WirePhase;
-  readonly detail: string;
-  /** True when this edge generates a block on toNode (phase === blocks). */
-  readonly generates: boolean;
-  /** For a generating edge: epoch ms its earliest held item began waiting. */
+  /**
+   * Epoch ms the task began waiting (`Task.stateSince`). Absent only when the
+   * task carries no readable time (an authored fixture).
+   */
   readonly since?: number;
 };
 
@@ -103,236 +66,69 @@ export const earliestStateSince = (items: ReadonlyArray<Pick<Task, "stateSince">
 };
 
 export type ExecutionGraph = {
-  readonly phaseByEdgeId: ReadonlyMap<string, WirePhase>;
-  readonly detailByEdgeId: ReadonlyMap<string, string>;
-  readonly edgeEvalById: ReadonlyMap<string, EdgeEval>;
   readonly blocked: ReadonlySet<string>;
-  readonly blockedEdgeIds: ReadonlySet<string>;
   readonly reasonsByNodeId: ReadonlyMap<string, ReadonlyArray<BlockedReason>>;
 };
 
-const mayBeBlocked = (node: Node | undefined): boolean =>
-  node !== undefined &&
+const mayBeBlocked = (node: Node): boolean =>
   seatMayBeBlocked({ isGroup: node.kind === "region", kind: node.kind });
 
-const isWorkSink = (node: Node | undefined): boolean =>
-  node?.kind === "task" || node?.kind === "requests";
-
-/** Attention states only — open queue (submitted/working) does not stop actors. */
-const isAttentionTaskItem = (item: Task): boolean =>
-  item.state === "input-required" || item.state === "auth-required";
-
-const softRelates = (detail = "relates"): EdgeEval => ({
-  phase: "relates",
-  detail,
-  generates: false,
-});
-
-const evalTasksStoppage = (
-  sink: Node | undefined,
-  scoped: ReadonlyArray<Task>,
-  toActorSeatId: ActorSeatId | undefined,
-): EdgeEval => {
-  const fromKind = sink?.kind;
-  if (scoped.length === 0) {
-    return softRelates(fromKind === "requests" ? "no pending requests" : "no open tasks");
-  }
-  const open = scoped.filter((item) => isAttentionTaskItem(item));
-  // Blocking is actor-state for tasks AND requests: only an attention item
-  // claimed by this wire's compiled actor seat stops it.
-  const held =
-    toActorSeatId === undefined
-      ? []
-      : open.filter((item) => claimedByOf(item) === toActorSeatId);
-  const noun = fromKind === "requests" ? "pending" : "need input";
-  if (held.length === 0) {
-    if (open.length > 0) {
-      return softRelates(
-        toActorSeatId === undefined
-          ? `${open.length} ${noun} - actor identity unresolved`
-          : `${open.length} ${noun} - not this actor's wait`,
-      );
-    }
-    return softRelates(
-      fromKind === "requests"
-        ? `${scoped.length}/${scoped.length} requests resolved`
-        : `${scoped.length}/${scoped.length} tasks clear (no attention)`,
-    );
-  }
-  const sample = held
-    .slice(0, 3)
-    .map((item) => taskBrief(item))
-    .join(", ");
-  const since = earliestStateSince(held);
-  return {
-    phase: "blocks",
-    detail: `${held.length} ${noun} - ${sample}`,
-    generates: true,
-    ...(since === undefined ? {} : { since }),
-  };
-};
-
-/** The end of a wire that holds work, when either does. */
-const workSinkOf = (from: Node | undefined, to: Node | undefined): Node | undefined => {
-  if (isWorkSink(from)) return from;
-  if (isWorkSink(to)) return to;
-  return from;
-};
-
-/** Actor seat endpoint for stoppage — either end may be the seat. */
-export const stoppageActorOf = (
-  from: Node | undefined,
-  to: Node | undefined,
-): Node | undefined => {
-  if (mayBeBlocked(to)) return to;
-  if (mayBeBlocked(from)) return from;
-  return to;
-};
-
-export const evaluateEdge = (
-  from: Node | undefined,
-  to: Node | undefined,
-  context: ExecutionGraphContext,
-): EdgeEval => {
-  // Work-lane stoppage is derived from the ends (task|requests) and live work
-  // state. The wire itself carries nothing to read.
-  if (!isWorkSink(from) && !isWorkSink(to)) {
-    return softRelates();
-  }
-  const sink = workSinkOf(from, to);
-  const actor = stoppageActorOf(from, to);
-  return evalTasksStoppage(
-    sink,
-    sink === undefined ? [] : context.itemsOf(sink.id),
-    actor === undefined || !mayBeBlocked(actor)
-      ? undefined
-      : resolveActorRefAt(context.resolveActorRef, context.canvasName, actor.id)?.seatId,
-  );
-};
+/** The one task state that blocks its assignee. */
+export const blocksAssignee = (task: Pick<Task, "state">): boolean =>
+  task.state === "input-required";
 
 export const deriveExecutionGraph = (
   canvas: Canvas,
   context: ExecutionGraphContext,
 ): ExecutionGraph => {
-  const byId = canvas.nodes;
-
-  const phaseByEdgeId = new Map<string, WirePhase>();
-  const detailByEdgeId = new Map<string, string>();
-  const edgeEvalById = new Map<string, EdgeEval>();
-
-  for (const wire of canvas.wires.values()) {
-    const evaluation = evaluateEdge(byId.get(wire.from), byId.get(wire.to), context);
-    edgeEvalById.set(wire.id, evaluation);
-    phaseByEdgeId.set(wire.id, evaluation.phase);
-    detailByEdgeId.set(wire.id, evaluation.detail);
+  // Seat node by compiled seat id: a task names its assignee by seat id, and
+  // an unresolved seat never stands in for its canvas node id.
+  const nodeIdBySeat = new Map<string, string>();
+  for (const node of canvas.nodes.values()) {
+    if (!mayBeBlocked(node)) continue;
+    const seatId = resolveActorRefAt(context.resolveActorRef, context.canvasName, node.id)?.seatId;
+    if (seatId !== undefined) nodeIdBySeat.set(seatId, node.id);
   }
 
   const blocked = new Set<string>();
   const reasonsByNodeId = new Map<string, BlockedReason[]>();
-  const blockedEdgeIds = new Set<string>();
-
-  const addReason = (nodeId: string, reason: BlockedReason): void => {
-    const list = reasonsByNodeId.get(nodeId) ?? [];
-    list.push(reason);
-    reasonsByNodeId.set(nodeId, list);
-  };
-
-  const markBlocked = (nodeId: string, reason: BlockedReason, viaEdgeId?: string): void => {
-    if (!mayBeBlocked(byId.get(nodeId as Node["id"]))) return;
-    blocked.add(nodeId);
-    addReason(nodeId, reason);
-    if (viaEdgeId) blockedEdgeIds.add(viaEdgeId);
-  };
-
-  // Escalation is runtime stoppage on its exact raiser. The actor→requests
-  // wire grants the operation; visual stoppage does not synthesize a reverse
-  // authorial wire.
-  for (const [nodeId, block] of context.workBlockedSeats ?? []) {
-    markBlocked(nodeId, {
-      kind: "work",
-      requestId: block.requestId,
-      targetNodeId: block.targetNodeId,
-      detail: block.detail,
-      since: block.since,
-    });
+  for (const node of canvas.nodes.values()) {
+    if (node.kind !== "task") continue;
+    for (const task of context.itemsOf(node.id)) {
+      if (!blocksAssignee(task)) continue;
+      const assignee = claimedByOf(task);
+      const seatNodeId = assignee === undefined ? undefined : nodeIdBySeat.get(assignee);
+      if (seatNodeId === undefined) continue;
+      const since = earliestStateSince([task]);
+      blocked.add(seatNodeId);
+      const list = reasonsByNodeId.get(seatNodeId) ?? [];
+      list.push({
+        kind: "task",
+        taskNodeId: node.id,
+        taskId: task.id,
+        detail: `needs input - ${taskBrief(task)}`,
+        ...(since === undefined ? {} : { since }),
+      });
+      reasonsByNodeId.set(seatNodeId, list);
+    }
   }
-
-  // Generating wires only — no automatic relay through other wires.
-  // Stoppage lands on the actor seat (either end), not always the `to` end.
-  for (const wire of canvas.wires.values()) {
-    const evaluation = edgeEvalById.get(wire.id)!;
-    if (!evaluation.generates) continue;
-    const from = byId.get(wire.from);
-    const to = byId.get(wire.to);
-    const actor = stoppageActorOf(from, to);
-    const actorId = actor?.id ?? wire.to;
-    markBlocked(
-      actorId,
-      {
-        kind: "edge",
-        edgeId: wire.id,
-        // The generator is the work sink, whichever end holds it: a wire runs
-        // in its verb's own order (agent-first for agent→sink access), so
-        // `from` is not the cause.
-        fromNodeId: workSinkOf(from, to)?.id ?? wire.from,
-        detail: evaluation.detail,
-        ...(evaluation.since === undefined ? {} : { since: evaluation.since }),
-      },
-      wire.id,
-    );
-  }
-
-  // Wires law: no hidden stoppage cascades. Propagation requires an explicit
-  // relay node + does wires.
-
-  return {
-    phaseByEdgeId,
-    detailByEdgeId,
-    edgeEvalById,
-    blocked,
-    blockedEdgeIds,
-    reasonsByNodeId,
-  };
+  return { blocked, reasonsByNodeId };
 };
 
 /** The kernel's live projection of a canvas's execution graph, as it travels. */
 export type ExecutionGraphSnapshot = {
-  readonly phaseByEdgeId: Readonly<Record<string, WirePhase>>;
-  readonly detailByEdgeId: Readonly<Record<string, string>>;
   readonly blocked: ReadonlyArray<string>;
-  readonly blockedEdgeIds: ReadonlyArray<string>;
   readonly reasonsByNodeId: Readonly<Record<string, ReadonlyArray<BlockedReason>>>;
 };
 
 /**
  * The execution graph the kernel already derived, rebuilt from its snapshot
- * without a second derivation: edge evaluations come back from the phases, so
- * impact cones and canvas needs can read it in the renderer and in main.
+ * without a second derivation, so stoppage cones and canvas needs can read it
+ * in the renderer and in main.
  */
 export const executionGraphFromSnapshot = (
-  canvas: Pick<Canvas, "wires">,
   execution: ExecutionGraphSnapshot,
-): ExecutionGraph => {
-  const phaseByEdgeId = new Map<string, WirePhase>();
-  const detailByEdgeId = new Map<string, string>();
-  const edgeEvalById = new Map<string, EdgeEval>();
-  for (const edge of canvas.wires.values()) {
-    const phase = execution.phaseByEdgeId[edge.id] ?? "relates";
-    const detail = execution.detailByEdgeId[edge.id] ?? "";
-    phaseByEdgeId.set(edge.id, phase);
-    detailByEdgeId.set(edge.id, detail);
-    edgeEvalById.set(edge.id, {
-      phase: phase === "blocks" ? "blocks" : "relates",
-      detail,
-      generates: phase === "blocks",
-    });
-  }
-  return {
-    phaseByEdgeId,
-    detailByEdgeId,
-    edgeEvalById,
-    blocked: new Set(execution.blocked),
-    blockedEdgeIds: new Set(execution.blockedEdgeIds),
-    reasonsByNodeId: new Map(Object.entries(execution.reasonsByNodeId ?? {})),
-  };
-};
+): ExecutionGraph => ({
+  blocked: new Set(execution.blocked),
+  reasonsByNodeId: new Map(Object.entries(execution.reasonsByNodeId ?? {})),
+});

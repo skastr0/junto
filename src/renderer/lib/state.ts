@@ -1,5 +1,4 @@
 import { batch, observable } from "@legendapp/state";
-import type { WirePhase } from "@shared/model/wire";
 import type { CanvasSummary, DigestResult } from "@shared/ipc";
 import type { RegionRollup } from "@shared/region-rollup";
 import type { RemoteHost } from "@shared/remote-hosts";
@@ -26,7 +25,6 @@ export const state$ = observable({
   fitViewRequest: 0,
   /** One-shot request: canvas name to open (App consumes + clears). */
   canvasOpenRequest: "",
-  edgeFilter: "" as WirePhase | "",
   editNodeId: "",
   // One-shot: open region folder-paths modal for this group id (cleared on consume).
   regionPathsNodeId: "",
@@ -114,7 +112,6 @@ export const state$ = observable({
 
 export const clearGraphFilters = (): void => {
   batch(() => {
-    state$.edgeFilter.set("");
     state$.selectedNodeId.set("");
     state$.selectedNodeIds.set([]);
     state$.selectedEdgeId.set("");

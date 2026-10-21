@@ -186,7 +186,7 @@ const canvasNeedsFor = (canvasName: string, view: CanvasView): ReadonlyArray<Fee
     canvasName,
     canvas: view.canvas,
     itemsOf: view.itemsOf,
-    graph: executionGraphFromSnapshot(view.canvas, execution),
+    graph: executionGraphFromSnapshot(execution),
     nameOf: nodeTitle,
   });
 };

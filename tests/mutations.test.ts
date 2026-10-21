@@ -261,14 +261,12 @@ describe("renderer graph mutations", () => {
     expect(state$.error.peek()).toBe("That relation already exists.");
   });
 
-  it("clears the edge filter without touching the document", () => {
+  it("clears the selection without touching the document", () => {
     load(base());
     const before = docNow();
 
-    state$.edgeFilter.set("blocks");
     clearGraphFilters();
 
-    expect(state$.edgeFilter.peek()).toBe("");
     expect(docNow()).toEqual(before);
     expect(state$.selectedNodeId.peek()).toBe("");
     expect(state$.selectedEdgeId.peek()).toBe("");

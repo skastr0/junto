@@ -1,6 +1,6 @@
 // Selection impact mode: project pure stoppage cones onto the canvas UI.
-// Prefers the live kernel ExecutionSnapshot (phase/blocked/reasons); reconstructs
-// edgeEval so impactCone can run without a second graph pass.
+// Prefers the live kernel ExecutionSnapshot (blocked seats and reasons), so
+// impactCone runs without a second graph pass.
 
 import { observable } from "@legendapp/state";
 import { wiresAt, type Canvas } from "@shared/model/canvas";
@@ -46,12 +46,9 @@ export const executionGraphForImpact = (
   execution: ExecutionSnapshot | null | undefined,
   context: ExecutionGraphContext,
 ): ExecutionGraph =>
-  execution ? executionGraphFromSnapshot(canvas, execution) : deriveExecutionGraph(canvas, context);
+  execution ? executionGraphFromSnapshot(execution) : deriveExecutionGraph(canvas, context);
 
-const reasonBrief = (reason: BlockedReason): string => {
-  if (reason.kind === "edge") return reason.detail || "generating edge";
-  return reason.detail || "waiting for operator";
-};
+const reasonBrief = (reason: BlockedReason): string => reason.detail || "waiting on a task";
 
 /** Derive the stoppage cone for the selected node (empty when outside cone). */
 export const selectionImpact = (

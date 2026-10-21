@@ -345,8 +345,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     const context = executionGraphContextFromActorRefs(canvasName, actorRefs, itemsOf);
     const graph = executionGraphForImpact(canvas, execution, context);
     if (!graph.blocked.has(nodeId)) return null;
-    const blockedActorSeatId = context.resolveActorRef({ canvasName, nodeId })?.seatId;
-    return resolveBlockerCause(canvas, graph, nodeId, { blockedActorSeatId, itemsOf });
+    return resolveBlockerCause(canvas, graph, nodeId, itemsOf);
   });
 
   if (!node || !modelKind) {

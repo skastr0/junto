@@ -1,4 +1,3 @@
-import type { WirePhase } from "@shared/model/wire";
 import {
   deriveExecutionGraph,
   type ExecutionGraphContext,
@@ -28,13 +27,10 @@ export type EdgeData = ModelEdgeData;
 export type FlowNode = ModelFlowNode;
 export type FlowEdge = ModelFlowEdge;
 
-// Live overlay from the kernel cycle (derived phases + blocked closure).
-// When absent, the projection falls back to deriveExecutionGraph(canvas,
-// context), resolving task ownership only through compiled actor refs.
-export type ExecutionOverlay = Pick<
-  ExecutionSnapshot,
-  "phaseByEdgeId" | "detailByEdgeId" | "blocked" | "blockedEdgeIds"
->;
+// Live overlay from the kernel cycle (the blocked seats). When absent, the
+// projection falls back to deriveExecutionGraph(canvas, context), resolving
+// task assignees only through compiled actor refs.
+export type ExecutionOverlay = Pick<ExecutionSnapshot, "blocked">;
 
 /** Reuses flow nodes and edges across projections while what they show is unchanged. */
 export type FlowIdentityCache = {
@@ -53,8 +49,8 @@ const inPaintOrder = (canvas: Canvas) =>
 
 /**
  * Project a canvas for React Flow. The kernel's execution overlay, when there
- * is one, says which nodes are blocked and what each wire is doing; without
- * it the same is worked out here, and only when something asks.
+ * is one, says which seats are blocked; without it the same is worked out
+ * here. Wires carry no stoppage: each paints its verb.
  */
 export const toFlowOfCanvas = (
   canvas: Canvas,
@@ -62,29 +58,9 @@ export const toFlowOfCanvas = (
   execution?: ExecutionOverlay | null,
   cache?: FlowIdentityCache,
 ): { nodes: FlowNode[]; edges: FlowEdge[] } => {
-  // Lazy: a kernel tick that already supplies phases never walks the graph.
-  let fallback: ReturnType<typeof deriveExecutionGraph> | null = null;
-  const getFallback = () => {
-    if (!fallback) fallback = deriveExecutionGraph(canvas, context);
-    return fallback;
-  };
-  const hasLive = Boolean(execution);
-  const blocked = new Set(execution?.blocked ?? (hasLive ? [] : getFallback().blocked));
-  const blockedEdgeIds = new Set(execution?.blockedEdgeIds ?? (hasLive ? [] : getFallback().blockedEdgeIds));
+  const blocked = new Set(execution ? execution.blocked : deriveExecutionGraph(canvas, context).blocked);
   return {
     nodes: flowNodesFromModel(canvas, inPaintOrder(canvas), blocked, cache?.nodes),
-    edges: flowEdgesFromModel(
-      canvas,
-      {
-        phaseOf: (id) =>
-          (execution?.phaseByEdgeId[id] as WirePhase | undefined) ??
-          getFallback().phaseByEdgeId.get(id) ??
-          "relates",
-        detailOf: (id) => execution?.detailByEdgeId[id] ?? getFallback().detailByEdgeId.get(id) ?? "",
-        rippling: (id) => blockedEdgeIds.has(id),
-      },
-      cache?.edges,
-    ),
+    edges: flowEdgesFromModel(canvas, cache?.edges),
   };
 };
-

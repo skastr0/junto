@@ -50,7 +50,7 @@ const wires = (held: ReadonlyArray<LoomObstacle>): LoomEdgeInput[] => {
       const below = at.get(idOf(col, row + 1));
       if (right) {
         out.push({
-          id: `${from.nodeId}>right`, blocked: false,
+          id: `${from.nodeId}>right`,
           sourceNodeId: from.nodeId, sourceSide: "right",
           sourceAnchor: { x: from.x + from.width, y: from.y + from.height / 2 },
           targetNodeId: right.nodeId, targetSide: "left",
@@ -59,7 +59,7 @@ const wires = (held: ReadonlyArray<LoomObstacle>): LoomEdgeInput[] => {
       }
       if (below) {
         out.push({
-          id: `${from.nodeId}>below`, blocked: false,
+          id: `${from.nodeId}>below`,
           sourceNodeId: from.nodeId, sourceSide: "bottom",
           sourceAnchor: { x: from.x + from.width / 2, y: from.y + from.height },
           targetNodeId: below.nodeId, targetSide: "top",
@@ -90,7 +90,6 @@ describe("a drag of 4 cards over 90 moves on a canvas of 80 cards", () => {
         dragging,
         edges: wires(obstacles),
         obstacles,
-        corridors: [],
         strandIds: NO_STRANDS,
         routeWire: (input) => {
           calls++;
@@ -116,7 +115,6 @@ describe("a drag of 4 cards over 90 moves on a canvas of 80 cards", () => {
       dragging: new Set(),
       edges,
       obstacles: after,
-      corridors: [],
       strandIds: NO_STRANDS,
       scope,
       routeWire: (input) => {
@@ -137,7 +135,7 @@ describe("a drag of 4 cards over 90 moves on a canvas of 80 cards", () => {
     const after = cards(dragOffsets(MOVES));
     const scope = edgesTouchedByMove(wires(after), movedObstacles(before, after));
     const route = (held: LoomObstacle[]) =>
-      planStandaloneRoutes({ edges: wires(held), obstacles: held, corridors: [], strandIds: NO_STRANDS });
+      planStandaloneRoutes({ edges: wires(held), obstacles: held, strandIds: NO_STRANDS });
     const was = route(before);
     const now = route(after);
     let kept = 0;
@@ -169,7 +167,6 @@ describe("a drag of 4 cards over 90 moves on a canvas of 80 cards", () => {
       dropped: moved,
       strandsBefore: NO_STRANDS,
       strandsNow: NO_STRANDS,
-      corridorsChanged: false,
     });
     expect(owed).toEqual(edgesTouchedByMove(edges, movedObstacles(before, after)));
     expect(owed.size).toBeLessThan(edges.length / 3);
@@ -189,7 +186,6 @@ describe("a drag of 4 cards over 90 moves on a canvas of 80 cards", () => {
       dropped: new Set<string>(),
       strandsBefore: NO_STRANDS,
       strandsNow: NO_STRANDS,
-      corridorsChanged: false,
     };
     const [first, second, third] = edges;
     expect(routesOwed(base).size).toBe(0);
@@ -219,10 +215,6 @@ describe("a drag of 4 cards over 90 moves on a canvas of 80 cards", () => {
         [third!.id, "dragged"],
       ]),
     );
-    // Corridors only matter to a blocked wire.
-    expect(routesOwed({ ...base, corridorsChanged: true }).size).toBe(0);
-    expect(routesOwed({ ...base, corridorsChanged: true, edges: [{ ...first!, blocked: true }] }))
-      .toEqual(new Set([first!.id]));
   });
 
   it("a card that did not move touches nothing", () => {

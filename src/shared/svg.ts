@@ -3,7 +3,7 @@ import {
   type ExecutionGraphContext,
 } from "./execution-graph";
 import { canvasSwatchFor, normalizeHexColor } from "./canvas-colors";
-import { inPaintOrder, type Canvas, type Node, type WirePhase } from "./model";
+import { inPaintOrder, type Canvas, type Node } from "./model";
 import { titleOf } from "./model/title";
 import { themeRuntime, type ThemeMode } from "./theme";
 import { hexAtAlpha } from "./theme/oklch";
@@ -31,7 +31,6 @@ const svgPalette = (mode: ThemeMode) => {
       const swatch = canvasSwatchFor(color);
       return swatch ? t[swatch.token] : undefined;
     },
-    edgeColor: { blocks: t.crimson!, relates: t.steel! } as Record<WirePhase, string>,
   };
 };
 type SvgPalette = ReturnType<typeof svgPalette>;
@@ -63,7 +62,6 @@ export const renderCanvasSvg = (
   const nodes = inPaintOrder(canvas);
   const graph = deriveExecutionGraph(canvas, context);
   const blocked = graph.blocked;
-  const activeEdges = graph.blockedEdgeIds;
 
   const PAD = 80;
   const xs = nodes.flatMap((n) => [n.x, n.x + n.width]);
@@ -102,32 +100,28 @@ export const renderCanvasSvg = (
     if (!from || !to) continue;
     const a = center(from);
     const b = center(to);
-    const kind = graph.phaseByEdgeId.get(edge.id);
     const agentMsg =
-      kind !== "blocks" &&
       from.kind === "agent" &&
       to.kind === "agent" &&
       // The only verb an agent pair can hold, and it opens the mailbox.
       edge.verb === "messages";
-    const color = kind === "blocks" ? pal.crimson : agentMsg ? pal.amber : kind ? pal.edgeColor[kind] : pal.steel;
-    const active = activeEdges.has(edge.id);
-    const strokeW = active ? 2 : agentMsg ? 1.6 : 1;
-    const opacity = active ? 0.9 : agentMsg ? 0.88 : 0.5;
+    const color = agentMsg ? pal.amber : pal.steel;
+    const strokeW = agentMsg ? 1.6 : 1;
+    const opacity = agentMsg ? 0.88 : 0.5;
     parts.push(
-      `<line x1="${Math.round(a.x)}" y1="${Math.round(a.y)}" x2="${Math.round(b.x)}" y2="${Math.round(b.y)}" stroke="${color}" stroke-width="${strokeW}" opacity="${opacity}"${kind === "blocks" ? ' stroke-dasharray="6 4"' : ""}/>`,
+      `<line x1="${Math.round(a.x)}" y1="${Math.round(a.y)}" x2="${Math.round(b.x)}" y2="${Math.round(b.y)}" stroke="${color}" stroke-width="${strokeW}" opacity="${opacity}"/>`,
     );
-    if (kind) {
-      parts.push(
-        `<text x="${Math.round((a.x + b.x) / 2)}" y="${Math.round((a.y + b.y) / 2)}" fill="${pal.dim}" font-size="10" text-anchor="middle">${esc(kind)}</text>`,
-      );
-    }
+    parts.push(
+      `<text x="${Math.round((a.x + b.x) / 2)}" y="${Math.round((a.y + b.y) / 2)}" fill="${pal.dim}" font-size="10" text-anchor="middle">${esc(edge.verb)}</text>`,
+    );
   }
 
   // Cards.
   for (const node of nodes) {
     if (node.kind === "region") continue;
-    const stroke = nodeStroke(node, pal);
+    // A blocked seat carries the stoppage mark: crimson, as its ring is.
     const dim = blocked.has(node.id);
+    const stroke = dim ? pal.crimson : nodeStroke(node, pal);
     parts.push(
       `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="8" fill="${pal.cardFill}" stroke="${stroke}" stroke-width="1" opacity="${dim ? 0.85 : 1}"/>`,
     );

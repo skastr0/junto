@@ -4,7 +4,7 @@ import { modelStore } from "./use-model";
  * the selection, rename, delete, and place on the canvas. Main owns the
  * `squads` table; every change comes back as the full list.
  */
-import { batch, observable } from "@legendapp/state";
+import { observable } from "@legendapp/state";
 import { ulid } from "ulid";
 import type { Squad } from "@shared/squads";
 import { raiseSquadFailure } from "./desktop-notify";
@@ -123,10 +123,7 @@ export const placeSquadAt = async (
     return "failed";
   }
   const ids = placed.nodes.map((node) => node.id);
-  batch(() => {
-    state$.edgeFilter.set("");
-    selectNodes(ids);
-  });
+  selectNodes(ids);
   commitCommands((canvas) => added(canvas, placed.nodes, placed.edges));
   state$.focusNodeIds.set(ids);
   playCue("squad", { count: ids.length });

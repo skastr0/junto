@@ -7,7 +7,6 @@
  */
 import { batch, observable } from "@legendapp/state";
 import {
-  corridorsClearOf,
   type LoomEdgeInput,
   type LoomObstacle,
   type LoomStrand,
@@ -60,8 +59,8 @@ export const loomRoutes$ = observable<Record<string, LoomRoute>>({});
 export const loomObstacles$ = observable<LoomObstacle[]>([]);
 
 /**
- * Trunk and comb bounds (stoppage clearance furniture). Planning-only; edges
- * must not subscribe — blocked routes bake corridor clearance into loomRoutes$.
+ * Trunk and comb bounds of the cables. Planning-only; edges must not
+ * subscribe.
  */
 export const loomCorridors$ = observable<WireRect[]>([]);
 
@@ -183,12 +182,10 @@ export type RouteWireFn = (input: {
 
 /**
  * Route every non-strand edge once. Strand members are skipped (stitched live).
- * Blocked edges receive corridor furniture cleared of their own endpoints.
  */
 export function planStandaloneRoutes(input: {
   readonly edges: ReadonlyArray<LoomEdgeInput>;
   readonly obstacles: ReadonlyArray<LoomObstacle>;
-  readonly corridors: ReadonlyArray<WireRect>;
   readonly strandIds: ReadonlySet<string>;
   readonly routeWire?: RouteWireFn;
   /** Invoked once per edge that actually enters routeWire (injectable counters). */
@@ -201,19 +198,11 @@ export function planStandaloneRoutes(input: {
     const base = input.obstacles.filter(
       (rect) => rect.nodeId !== edge.sourceNodeId && rect.nodeId !== edge.targetNodeId,
     );
-    let obstacles: ReadonlyArray<WireRect> = base;
-    if (edge.blocked && input.corridors.length > 0) {
-      const clear = corridorsClearOf(input.corridors, [
-        edge.sourceAnchor,
-        edge.targetAnchor,
-      ]);
-      if (clear.length > 0) obstacles = [...base, ...clear];
-    }
     input.onRouteWire?.(edge.id);
     const routed = route({
       source: edge.sourceAnchor,
       target: edge.targetAnchor,
-      obstacles,
+      obstacles: base,
       padding: 14,
       borderRadius: 8,
       sourceDirection: edge.sourceSide,
@@ -314,9 +303,8 @@ export function edgesTouchedByMove(
 /**
  * The wires a settled plan has to route, given the plan before it. A wire is
  * owed a route when a moved card can have changed it, when the wire itself is
- * not what it was (new, or other ends, sides or stoppage), when a drag took
- * its route away, when it joined or left a cable, or when it is blocked and
- * the cables' corridors moved. Wires are compared one at a time on purpose: a
+ * not what it was (new, or other ends or sides), when a drag took its route
+ * away, or when it joined or left a cable. Wires are compared one at a time on purpose: a
  * wire's sides follow where its cards sit, so dropping a card changes the
  * sides of the wires it carries and must not send every other wire back
  * through the router.
@@ -325,7 +313,7 @@ export function edgesTouchedByMove(
 export type RouteCause =
   /** A card moved: one of the wire's ends, or a card in or out of its way. */
   | "moved"
-  /** The wire itself is new or not what it was, or it joined or left a cable, or the corridors it avoids changed. */
+  /** The wire itself is new or not what it was, or it joined or left a cable. */
   | "changed"
   /** Nothing about it changed, but a drag had taken its planned route away. */
   | "dragged";
@@ -343,7 +331,6 @@ export function routesOwedWithCause(input: {
   readonly dropped: ReadonlySet<string>;
   readonly strandsBefore: ReadonlySet<string>;
   readonly strandsNow: ReadonlySet<string>;
-  readonly corridorsChanged: boolean;
 }): Map<string, RouteCause> {
   const owed = new Map<string, RouteCause>();
   const note = (id: string, cause: RouteCause): void => {
@@ -359,7 +346,6 @@ export function routesOwedWithCause(input: {
   for (const edge of input.edges) {
     if (input.specsBefore.get(edge.id) !== input.specsNow.get(edge.id)) note(edge.id, "changed");
     if (input.strandsNow.has(edge.id) !== input.strandsBefore.has(edge.id)) note(edge.id, "changed");
-    if (input.corridorsChanged && edge.blocked) note(edge.id, "changed");
   }
   for (const id of input.dropped) note(id, "dragged");
   return owed;
@@ -382,7 +368,6 @@ export function routesForTick(input: {
   readonly dragging: ReadonlySet<string>;
   readonly edges: ReadonlyArray<LoomEdgeInput>;
   readonly obstacles: ReadonlyArray<LoomObstacle>;
-  readonly corridors: ReadonlyArray<WireRect>;
   readonly strandIds: ReadonlySet<string>;
   /** Only these wires are routed; every wire when absent. */
   readonly scope?: ReadonlySet<string>;
@@ -397,7 +382,6 @@ export function routesForTick(input: {
     routes: planStandaloneRoutes({
       edges: scope ? input.edges.filter((edge) => scope.has(edge.id)) : input.edges,
       obstacles: input.obstacles,
-      corridors: input.corridors,
       strandIds: input.strandIds,
       ...(input.routeWire ? { routeWire: input.routeWire } : {}),
       ...(input.onRouteWire ? { onRouteWire: input.onRouteWire } : {}),

@@ -29,8 +29,6 @@ import type { WireDirection, WirePoint, WireRect } from "@shared/wire-route";
 
 export type LoomEdgeInput = {
   readonly id: string;
-  /** Stoppage paint (phase blocks / rippling). Ejected, but holds its lane. */
-  readonly blocked: boolean;
   readonly sourceNodeId: string;
   readonly sourceSide: WireDirection;
   /** Node-derived and approximate; stitching uses the live endpoints. */
@@ -457,8 +455,8 @@ function planFan(
   // so resolving it into the hub frame is a single sign flip.
   const bias = biasAbsolute * (frame.v.x + frame.v.y);
 
-  // Lanes are assigned over every candidate, blocked included: a wire entering
-  // stoppage leaves its hole rather than reshuffling the cable.
+  // Lanes are assigned over every candidate: a member that drops out leaves
+  // its hole rather than reshuffling the cable.
   const laneCount = placed.length;
   const laneGap = Math.min(LANE_GAP, LANE_SPAN_MAX / Math.max(1, laneCount - 1));
   const lanes: Lane[] = placed.map((p, laneIndex) => ({
@@ -469,7 +467,6 @@ function planFan(
 
   const candidates = lanes.filter(
     (lane) =>
-      !lane.candidate.edge.blocked &&
       entersCleanly(lane.candidate.farSide, frame) &&
       lane.along > LOOM_LEAD + SPLIT_BACKOFF,
   );
@@ -803,7 +800,7 @@ function planFan(
   // fit. It leaves instead: members are dropped nearest-first until a cable
   // stands, and the one that carries the most wires wins. Dropping cannot
   // reshuffle anything — lanes are assigned over the full candidate set, so a
-  // dropped member leaves the same reserved hole a blocked one does.
+  // dropped member leaves its reserved hole.
   const byAlong = [...candidates].sort((a, b) => {
     const delta = a.along - b.along;
     if (Math.abs(delta) > 1e-6) return delta;
@@ -875,7 +872,7 @@ function laneBias(
 
 /**
  * Lane every fan that reads as a cable, and report the corridors it occupies.
- * Membership depends only on handle keys, unblocked counts, and doc topology,
+ * Membership depends only on handle keys, candidate counts, and doc topology,
  * so a drag can never change it; identical geometry gives identical output.
  */
 export function planLoom(input: {
@@ -895,10 +892,7 @@ export function planLoom(input: {
   }
 
   // Candidate counts are fixed before membership resolves, so the tie-break
-  // never depends on the order edges happen to be visited in. They count every
-  // candidate, blocked included: stoppage is transient paint, and letting it
-  // decide which fan WINS would relocate a trunk and swap members on a ripple.
-  // A blocked member still never emits — it only holds its lane hole.
+  // never depends on the order edges happen to be visited in.
   const sizes = new Map<string, number>();
   for (const [key, bucket] of candidates) sizes.set(key, bucket.length);
 
@@ -935,34 +929,6 @@ export function planLoom(input: {
     corridors.push(...planned.corridors);
   }
   return { strands, corridors };
-}
-
-/**
- * The corridors an ejected (stoppage) wire may treat as furniture.
- *
- * A blocked member keeps its reserved lane hole, so it leaves the very handle
- * its fan's trunk starts at — and that trunk corridor therefore contains the
- * wire's own endpoint. Handing it back as an obstacle makes every candidate
- * leaving along the port axis a collision: the router relaxes to zero moat and
- * the crimson wire kinks at the port or loops around the whole cable. Any rect
- * within `pad` of an endpoint is dropped, so what is left is only the cables
- * the wire genuinely crosses.
- */
-export function corridorsClearOf(
-  corridors: ReadonlyArray<WireRect>,
-  ends: ReadonlyArray<WirePoint>,
-  pad: number = LOOM_CLEARANCE,
-): WireRect[] {
-  return corridors.filter(
-    (rect) =>
-      !ends.some(
-        (point) =>
-          point.x >= rect.x - pad &&
-          point.x <= rect.x + rect.width + pad &&
-          point.y >= rect.y - pad &&
-          point.y <= rect.y + rect.height + pad,
-      ),
-  );
 }
 
 export type LoomStitch = {

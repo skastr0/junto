@@ -1,5 +1,5 @@
 import { use$ } from "@legendapp/state/react";
-import { clearGraphFilters, state$ } from "../lib/state";
+import { state$ } from "../lib/state";
 import { modelStore } from "../lib/use-model";
 
 // EdgeLegend + CanvasHint removed per docs/rts-bottom-bar.md.
@@ -17,12 +17,6 @@ function CanvasEmpty({ hasNodes }: { readonly hasNodes: boolean }) {
   );
 }
 
-function FilterTray() {
-  const edgeFilter = use$(state$.edgeFilter);
-  if (!edgeFilter) return null;
-  return <div className="field-filter-tray absolute left-1/2 top-5 z-20 -translate-x-1/2"><span className="field-filter-tray__label">filters</span>{edgeFilter ? <span className="field-filter-tray__chip field-filter-tray__chip--edge">edge / {edgeFilter}</span> : null}<button type="button" aria-label="Clear all filters" onClick={clearGraphFilters}>clear</button></div>;
-}
-
 export function CanvasChrome() {
   // Whether anything but a region is on the canvas. A node's kind never
   // changes, so only the list of ids is followed.
@@ -33,7 +27,6 @@ export function CanvasChrome() {
 
   return (
     <>
-      <FilterTray />
       <CanvasEmpty hasNodes={hasNodes} />
     </>
   );

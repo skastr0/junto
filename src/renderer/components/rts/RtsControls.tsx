@@ -15,8 +15,6 @@ import {
   Package,
   Pencil,
   UserRoundPen,
-  PenLine,
-  Table,
   Plus,
   Radio,
   ScrollText,
@@ -45,7 +43,6 @@ import {
 } from "../../lib/admission-labels";
 import { HUE } from "../../lib/theme";
 import { state$ } from "../../lib/state";
-import { kernel$ } from "../../lib/kernel-view";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { terminalBindingOf } from "@shared/terminal";
@@ -165,21 +162,16 @@ const swapEdgeVerb = (edgeId: string, verb: Verb): void => {
 };
 
 /**
- * Left command card for a selected relation: the two ends, the live phase (or
- * the verb sentence when the kernel is quiet), and delete.
+ * Left command card for a selected relation: the two ends, the verb
+ * sentence, and delete.
  */
 export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
   const canvasName = use$(state$.canvasName);
   const edge = useRtsWire(canvasName, edgeId);
   const view = useRtsValue(() => edge ? edgeVerbView(canvasName, edge) : null);
-  const livePhase = use$(() => kernel$.execution.phaseByEdgeId[edgeId].get());
-  const liveDetail = use$(() => kernel$.execution.detailByEdgeId[edgeId].get());
   if (!edge || !view) return null;
-  // The sentence is the card; only a live block (a task waiting on the
-  // operator) replaces it, in crimson.
-  const blocking = livePhase === "blocks";
-  const line = blocking ? (liveDetail || "Waiting on you") : view.sentence;
-  const phaseHue = blocking ? HUE.crimson : undefined;
+  // The sentence is the card: a wire carries no stoppage of its own.
+  const line = view.sentence;
   return (
     <div className="rts-panel rts-panel--cmd">
       <div className="rts-panel__body rts-cmd-shell">
@@ -188,7 +180,7 @@ export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
             <div className="rts-cmd__title">
               {view.fromLabel} → {view.toLabel}
             </div>
-            <div className="rts-cmd__live" style={{ color: phaseHue }} title={line}>
+            <div className="rts-cmd__live" title={line}>
               {line}
             </div>
           </div>
@@ -546,44 +538,6 @@ export function KindActions({ nodeId }: { readonly nodeId: string }) {
             onClick={() => openWorkDetail(node.id)}
           >
             <MessageSquareText size={ICON} />
-          </KindKey>
-          <KindKey
-            label="Rename"
-            title="Rename"
-            onClick={() => state$.editNodeId.set(node.id)}
-          >
-            <Pencil size={ICON} />
-          </KindKey>
-        </>
-      );
-    case "sheet":
-      return (
-        <>
-          <KindKey
-            label="Open sheet"
-            title="Open the sheet"
-            onClick={() => openWorkDetail(node.id)}
-          >
-            <Table size={ICON} />
-          </KindKey>
-          <KindKey
-            label="Rename"
-            title="Rename"
-            onClick={() => state$.editNodeId.set(node.id)}
-          >
-            <Pencil size={ICON} />
-          </KindKey>
-        </>
-      );
-    case "pad":
-      return (
-        <>
-          <KindKey
-            label="Open pad"
-            title="Open the pad"
-            onClick={() => openWorkDetail(node.id)}
-          >
-            <PenLine size={ICON} />
           </KindKey>
           <KindKey
             label="Rename"

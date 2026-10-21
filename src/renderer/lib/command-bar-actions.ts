@@ -1,5 +1,4 @@
 import { batch } from "@legendapp/state";
-import type { WirePhase } from "@shared/model";
 import { formatNodeRef } from "@shared/node-ref";
 import {
   CircleSlash,
@@ -108,18 +107,10 @@ const copySelectedNodeRef = async (): Promise<void> => {
   }
 };
 
-const cycleEdgeFilter = (): void => {
-  const current = state$.edgeFilter.peek();
-  const next: WirePhase | "" =
-    current === "" ? "blocks" : current === "blocks" ? "relates" : "";
-  state$.edgeFilter.set(next);
-};
-
 export const buildCommandBarActions = (): ReadonlyArray<CommandBarAction> => {
   const canvasName = state$.canvasName.peek();
   const pauseState = factoryPause$.state.peek();
   const playing = Boolean(pauseState?.playing);
-  const edgeFilter = state$.edgeFilter.peek();
   const selectedNodeId = state$.selectedNodeId.peek();
   const actions: CommandBarAction[] = [];
 
@@ -198,19 +189,6 @@ export const buildCommandBarActions = (): ReadonlyArray<CommandBarAction> => {
       run: () => state$.canvasOpenRequest.set(summary.name),
     });
   }
-
-  actions.push({
-    id: "edge-filter",
-    label:
-      edgeFilter === ""
-        ? "Edge filter / show blocks"
-        : edgeFilter === "blocks"
-          ? "Edge filter / show relates"
-          : "Edge filter / clear",
-    detail: "Cycle edge filter: off, blocks, relates",
-    icon: Layers,
-    run: cycleEdgeFilter,
-  });
 
   actions.push({
     id: "fit-view",

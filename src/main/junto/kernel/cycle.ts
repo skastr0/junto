@@ -1,17 +1,17 @@
 // The kernel evaluation cycle. Gauge/relay status, cron claim/nextFire,
 // scheduler edge effects and execution graph live here.
 // Region pulse inject is retired — effects are compiled from the edge's verb
-// (enqueues / wakes), never geometry fan-out. Edge phase is derived on
-// every read and never mirrored back into the document, so the cycle has no
-// phase to write.
+// (enqueues / wakes), never geometry fan-out. Stoppage (the blocked seats
+// and why, from task assignees) is derived each cycle and never mirrored
+// back into the document.
 
-import type { WirePhase } from "@shared/model";
 import { isThisMachine } from "@shared/machine-identity";
 import type { NodeId } from "@shared/model/base";
 import { nodesOf } from "@shared/model/canvas";
 import {
   deriveExecutionGraph,
   type BlockedReason,
+  type ExecutionGraphSnapshot,
 } from "@shared/execution-graph";
 import type { ActorRefResolver } from "@shared/attention";
 import {
@@ -51,13 +51,7 @@ export interface WatcherRuntimeState {
 }
 
 /** Serializable per-canvas execution graph for renderer projection. */
-export interface ExecutionSnapshot {
-  readonly phaseByEdgeId: Record<string, WirePhase>;
-  readonly detailByEdgeId: Record<string, string>;
-  readonly blocked: ReadonlyArray<string>;
-  readonly blockedEdgeIds: ReadonlyArray<string>;
-  readonly reasonsByNodeId: Record<string, ReadonlyArray<BlockedReason>>;
-}
+export type ExecutionSnapshot = ExecutionGraphSnapshot;
 
 /** Local kernel hot-read shape (service owns the wire KernelSnapshot). */
 export interface KernelSnapshot {
@@ -212,19 +206,9 @@ const snapshotFromGraph = (
     resolveActorRef,
     itemsOf: workOf(world).itemsOf,
   });
-  const phaseByEdgeId: Record<string, WirePhase> = {};
-  const detailByEdgeId: Record<string, string> = {};
-  for (const [id, phase] of graph.phaseByEdgeId) phaseByEdgeId[id] = phase;
-  for (const [id, detail] of graph.detailByEdgeId) detailByEdgeId[id] = detail;
   const reasonsByNodeId: Record<string, ReadonlyArray<BlockedReason>> = {};
   for (const [id, reasons] of graph.reasonsByNodeId) reasonsByNodeId[id] = reasons;
-  return {
-    phaseByEdgeId,
-    detailByEdgeId,
-    blocked: Array.from(graph.blocked),
-    blockedEdgeIds: Array.from(graph.blockedEdgeIds),
-    reasonsByNodeId,
-  };
+  return { blocked: Array.from(graph.blocked), reasonsByNodeId };
 };
 
 // --- evaluation cycle (multi-canvas with per-canvas isolation) ---------------

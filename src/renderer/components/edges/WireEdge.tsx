@@ -5,7 +5,6 @@ import type { FlowEdge } from "../../lib/convert";
 import { loomLanes$, loomRoutes$, loomStrands$ } from "../../lib/loom-view";
 import { LANE_GAP, stitchStrand } from "../../lib/wire-loom";
 import { selectEdge } from "../../lib/state";
-import { EDGE_COLOR } from "../../lib/theme";
 import { WIRE_PULSE_TOKEN, wirePulses$, wirePulseScheduler } from "../../lib/wire-pulse";
 import "./wire-pulse.css";
 
@@ -16,8 +15,8 @@ import "./wire-pulse.css";
  * family, worded config, live traffic — and stacked into a picture that had to
  * be decoded rather than read. A verb already says what the relationship is, so
  * the paint carries exactly one fact: which verb, in the verb's own colour.
- * State (stoppage) and selection stay structural — crimson and opacity — and
- * never mint a second stroke.
+ * Stoppage is not a wire's to show: it lives on the blocked seat's ring.
+ * Selection stays structural (opacity) and never mints a second stroke.
  *
  * Traffic is the one transient exception: while a delivered message crosses
  * the wire, a short dash of light runs from sender to receiver and then the
@@ -51,11 +50,6 @@ export function WireEdge({
   data,
   markerEnd,
 }: EdgeProps<FlowEdge>) {
-  const phase = data?.phase ?? "relates";
-  const detail = data?.detail ?? "";
-  const rippling = data?.rippling ?? false;
-  const blocked = phase === "blocks" || rippling;
-
   // PERF-P2: edge-local keys only — never full obstacle/corridor arrays.
   const strand = use$(loomStrands$[id]);
   const plannedRoute = use$(loomRoutes$[id]);
@@ -63,14 +57,9 @@ export function WireEdge({
   // Traffic: set only while a message is crossing this wire (wire-pulse).
   const pulse = use$(wirePulses$[id]);
 
-  // Verb hue, stamped at convert. Stoppage is the one fact allowed to take a
-  // wire off its verb colour, because on this canvas crimson means blocked.
+  // Verb hue, stamped at convert.
   const token = data?.colorToken;
-  const color = blocked
-    ? EDGE_COLOR.blocks
-    : token
-      ? `var(${token})`
-      : UNSET_COLOR;
+  const color = token ? `var(${token})` : UNSET_COLOR;
 
   // Selection impact mode — only "in" is stamped (CSS dims the rest).
   const impactIn = data?.impact === "in";
@@ -101,7 +90,6 @@ export function WireEdge({
   const className = [
     "junto-edge",
     selected ? "junto-edge--selected" : "",
-    rippling ? "junto-edge-ripple" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -146,11 +134,7 @@ export function WireEdge({
             readers. */}
         <button
           type="button"
-          aria-label={
-            phase === "blocks"
-              ? `Select edge - waiting on you${detail ? ` - ${detail}` : ""}`
-              : `Select edge - ${data?.verb ?? "connection"}`
-          }
+          aria-label={`Select edge - ${data?.verb ?? "connection"}`}
           className="nodrag nopan junto-edge-label junto-edge-label--silent"
           style={{
             top: labelY,

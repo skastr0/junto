@@ -1,58 +1,47 @@
 import type { Task } from "../work-model";
 import { claimedByOf, taskBrief } from "../task";
-import { needsHuman } from "../attention";
-import type { ExecutionGraph, WorkItemsOf } from "../execution-graph";
+import { blocksAssignee, type ExecutionGraph, type WorkItemsOf } from "../execution-graph";
 import type { Canvas } from "../model/canvas";
 import type { Node } from "../model/kinds";
 import { titleOf } from "../model/title";
 import type { OccupancySpectrumName } from "../occupancy";
-import { impactCone, stoppageEnds, type ImpactCone } from "./cone";
+import { holdingTaskNodeIds, impactCone, type ImpactCone } from "./cone";
 
-// Rank stoppage seeds (apex generators + manual blockers) by blast-radius
-// cone size. Pure: canvas + ExecutionGraph + work items (+ optional occupancy for lead
-// staffing). UI / digest format the RankedStoppage rows.
+// Rank stoppage seeds (task nodes whose waiting tasks hold seats) by
+// blast-radius cone size. Pure: canvas + ExecutionGraph + work items (+
+// optional occupancy for lead staffing). UI / digest format the
+// RankedStoppage rows.
 
 export type LeadStaffing = "staffed" | "unstaffed" | "unknown";
 
 export type RankedStoppage = {
   readonly seedNodeId: string;
-  /** Glance seed phrase: "1 request", "2 tasks", "blocker", or node title. */
+  /** Glance seed phrase: "1 task", "2 tasks", or node title. */
   readonly seedBrief: string;
   /** Cone size (nodeIds) — primary rank key. */
   readonly stops: number;
   /** Actor seats with capability/soft edges into the cone. */
   readonly attentionLeadIds: ReadonlyArray<string>;
-  /** Short clear-action hint (open request/task sample, seed detail, …). */
+  /** Short clear-action hint (waiting task sample, seed detail, …). */
   readonly clearAction: string;
   readonly cone: ImpactCone;
 };
 
-/** Seed candidates: nodes that emit generating wires, in canvas order. */
+/** Seed candidates: task nodes holding seats, in canvas order. */
 export const collectStoppageSeedIds = (
   canvas: Canvas,
   graph: ExecutionGraph,
 ): ReadonlyArray<string> => {
-  const ids = new Set<string>();
-  for (const wire of canvas.wires.values()) {
-    const evaluation = graph.edgeEvalById.get(wire.id);
-    if (evaluation?.generates) ids.add(stoppageEnds(canvas.nodes, wire).causeId);
-  }
+  const ids = holdingTaskNodeIds(graph);
   return [...canvas.nodes.keys()].filter((id) => ids.has(id));
 };
 
-/** Items on a task seed that actually generate stoppage: claimed attention. */
+/** Tasks on a seed that actually hold a seat: waiting for input, assigned. */
 const stallingItems = (items: ReadonlyArray<Task>): ReadonlyArray<Task> =>
-  items.filter((item) => needsHuman(item) && claimedByOf(item) !== undefined);
-
-const pendingRequests = (items: ReadonlyArray<Task>): ReadonlyArray<Task> =>
-  items.filter((item) => item.state === "input-required");
+  items.filter((item) => blocksAssignee(item) && claimedByOf(item) !== undefined);
 
 const seedBriefOf = (node: Node | undefined, items: ReadonlyArray<Task>): string => {
   if (!node) return "stoppage";
-  if (node.kind === "requests") {
-    const n = pendingRequests(items).length;
-    return n === 1 ? "1 request" : `${n} requests`;
-  }
   if (node.kind === "task") {
     const n = stallingItems(items).length;
     return n === 1 ? "1 task" : `${n} tasks`;
@@ -65,16 +54,12 @@ const clearActionOf = (
   items: ReadonlyArray<Task>,
   cone: ImpactCone,
 ): string => {
-  if (node?.kind === "requests") {
-    const pending = pendingRequests(items);
-    if (pending[0]) return `resolve: ${taskBrief(pending[0])}`;
-  }
   if (node?.kind === "task") {
     const stalling = stallingItems(items);
     if (stalling[0]) return `settle: ${taskBrief(stalling[0])}`;
   }
   const first = cone.seedReasons[0];
-  if (first?.kind === "edge" && first.detail) return `clear: ${first.detail}`;
+  if (first?.detail) return `clear: ${first.detail}`;
   return "clear: stoppage";
 };
 

@@ -26,10 +26,9 @@ const edge = (
   id: string,
   from: { x: number; y: number },
   to: { x: number; y: number },
-  opts?: { blocked?: boolean; source?: string; target?: string },
+  opts?: { source?: string; target?: string },
 ): LoomEdgeInput => ({
   id,
-  blocked: opts?.blocked ?? false,
   sourceNodeId: opts?.source ?? "a",
   sourceSide: "right",
   sourceAnchor: from,
@@ -139,7 +138,6 @@ describe("planStandaloneRoutes", () => {
     const routes = planStandaloneRoutes({
       edges,
       obstacles: [rect("mid", 40, -10, 20, 80)],
-      corridors: [],
       strandIds: new Set(["fan-member"]),
       routeWire: spy,
       onRouteWire: onRoute,
@@ -157,13 +155,11 @@ describe("planStandaloneRoutes", () => {
     const a = planStandaloneRoutes({
       edges,
       obstacles,
-      corridors: [],
       strandIds: new Set(),
     });
     const b = planStandaloneRoutes({
       edges,
       obstacles,
-      corridors: [],
       strandIds: new Set(),
     });
     expect(a.get("e1")).toEqual(b.get("e1"));
@@ -178,47 +174,10 @@ describe("planStandaloneRoutes", () => {
     planStandaloneRoutes({
       edges: [edge("e1", { x: 0, y: 0 }, { x: 10, y: 0 })],
       obstacles: [],
-      corridors: [],
       strandIds: new Set(["e1"]),
       routeWire: spy,
     });
     expect(spy).not.toHaveBeenCalled();
-  });
-
-  it("blocked edges pass corridor furniture into routeWire obstacles", () => {
-    const spy = vi.fn(() => ({
-      path: "M0 0 L100 0",
-      labelX: 50,
-      labelY: 0,
-      detoured: true,
-      points: [{ x: 0, y: 0 }, { x: 100, y: 0 }],
-    }));
-    const corridors: WireRect[] = [{ x: 10, y: -4, width: 80, height: 8 }];
-    planStandaloneRoutes({
-      edges: [
-        edge("blocked", { x: 0, y: 100 }, { x: 100, y: 100 }, {
-          blocked: true,
-          source: "s",
-          target: "t",
-        }),
-      ],
-      obstacles: [rect("s", -50, 70), rect("t", 100, 70)],
-      corridors,
-      strandIds: new Set(),
-      routeWire: spy,
-    });
-    expect(spy).toHaveBeenCalledTimes(1);
-    const calls = spy.mock.calls as unknown as Array<
-      [{ obstacles: ReadonlyArray<WireRect> }]
-    >;
-    const args = calls[0]![0];
-    // Endpoints excluded; corridor far from y=100 is included as furniture.
-    expect(args.obstacles.some((r) => r.y === -4)).toBe(true);
-    expect(
-      args.obstacles.every(
-        (r) => !("nodeId" in r && (r as LoomObstacle).nodeId === "s"),
-      ),
-    ).toBe(true);
   });
 });
 

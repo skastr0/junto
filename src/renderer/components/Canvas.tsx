@@ -15,7 +15,6 @@ import {
 } from "@xyflow/react";
 import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, OnBeforeDelete, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
-import type { WirePhase } from "@shared/model/wire";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import type { Task } from "@shared/work-model";
 import { Activity, BookmarkPlus, Boxes, Expand, LayoutGrid, Link2, MessageSquare, OctagonX, Pencil, Plus, ScanLine, ScrollText, SquareDashed, Trash2, Unlink, UserRoundPen, Users, X } from "lucide-react";
@@ -71,7 +70,7 @@ import "../styles/factory-grammar.css";
 import "../styles/canvas-lod.css";
 import "../styles/canvas-lod-regions.css";
 import {
-  newArtifacts, newBoard, newCron, newPad, newSheet, newRegion, newImage,
+  newArtifacts, newBoard, newCron, newRegion, newImage,
   newLabel, newSeat, newPage, newRelay, newRequests, newTaskBoard, newNote,
 } from "../lib/model-factories";
 import { topZ } from "../lib/model-edits";
@@ -82,9 +81,7 @@ import {
   BOARD_ENABLED,
   BROWSER_ENABLED,
   FLEET_UI_ENABLED,
-  PAD_ENABLED,
   REQUESTS_ENABLED,
-  SHEET_ENABLED,
   TASKS_ENABLED,
 } from "@shared/features";
 import { HUE, themeFor, withAlpha } from "../lib/theme";
@@ -273,7 +270,6 @@ function applyStructuralRebuild(
   setNodes: ReturnType<typeof useNodesState<FlowNode>>[1],
   setEdges: ReturnType<typeof useEdgesState<FlowEdge>>[1],
   flowCache: ReturnType<typeof createFlowIdentityCache>,
-  edgeFilter: WirePhase | "",
 ): void {
   const built = toFlowOfCanvas(
     modelStore.canvasOf(state$.canvasName.peek()),
@@ -284,11 +280,8 @@ function applyStructuralRebuild(
   const nodeId = state$.selectedNodeId.peek();
   const nodeIds = state$.selectedNodeIds.peek();
   const edgeId = state$.selectedEdgeId.peek();
-  const filteredEdges = built.edges.filter(
-    (edge) => !edgeFilter || (edge.data?.phase ?? "relates") === edgeFilter,
-  );
   // Selection + impact cone classes live on the RF shell (not Flow data).
-  const stamped = stampImpactShell(built.nodes, filteredEdges, nodeId, nodeIds, edgeId);
+  const stamped = stampImpactShell(built.nodes, built.edges, nodeId, nodeIds, edgeId);
   // The command bar filters a LIST, never the graph: canvas search thinning
   // was retired with the station search field.
   const nextNodes = stamped.nodes;
@@ -307,7 +300,6 @@ function applyStructuralRebuild(
 }
 
 function useCanvasDocument(
-  edgeFilter: WirePhase | "",
   setNodes: ReturnType<typeof useNodesState<FlowNode>>[1],
   setEdges: ReturnType<typeof useEdgesState<FlowEdge>>[1],
   dragInProgressRef: React.MutableRefObject<boolean>,
@@ -326,10 +318,8 @@ function useCanvasDocument(
       setNodes,
       setEdges,
       flowCacheRef.current,
-      edgeFilter,
     );
   }, [
-    edgeFilter,
     setNodes,
     setEdges,
     dragInProgressRef,
@@ -337,7 +327,7 @@ function useCanvasDocument(
     flowCacheRef,
   ]);
 
-  // Filter / search / post-drag flush — React-driven.
+  // Post-drag flush — React-driven.
   useEffect(() => {
     rebuild();
   }, [rebuild, rebuildTick]);
@@ -445,17 +435,6 @@ function useCanvasDocument(
       for (const off of offs) off();
     };
   }, [setNodes, setEdges]);
-}
-
-function useCanvasFilterViewport(viewKey: string, rf: CanvasFlow) {
-  const previousViewKey = useRef("");
-  useEffect(() => {
-    const filterChanged = previousViewKey.current !== viewKey;
-    previousViewKey.current = viewKey;
-    if (!filterChanged) return;
-    const frame = requestAnimationFrame(() => fitReadableField(rf, 260));
-    return () => cancelAnimationFrame(frame);
-  }, [viewKey, rf]);
 }
 
 function useCanvasFocus(rf: CanvasFlow) {
@@ -799,22 +778,6 @@ const makeAddActions = (
     if (!BOARD_ENABLED) return;
     const position = positionFor({ width: 240, height: 120 });
     const node = newBoard(onTop(position));
-    addNode(node, { edit: false });
-    state$.focusNodeId.set(node.id);
-    dismiss();
-  },
-  addPad: () => {
-    if (!PAD_ENABLED) return;
-    const position = positionFor({ width: 240, height: 120 });
-    const node = newPad(onTop(position));
-    addNode(node, { edit: false });
-    state$.focusNodeId.set(node.id);
-    dismiss();
-  },
-  addSheet: () => {
-    if (!SHEET_ENABLED) return;
-    const position = positionFor({ width: 260, height: 120 });
-    const node = newSheet(onTop(position));
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
@@ -1422,10 +1385,9 @@ function RtsMinimapStack() {
 }
 
 function useCanvasGraph() {
-  // Narrow React subscriptions: filters only. Doc/execution/selection
-  // drive RF via onChange → setNodes so CanvasGraph does not re-render on
-  // every kernel cycle.
-  const edgeFilter = use$(state$.edgeFilter);
+  // No React subscriptions here: doc/execution/selection drive RF via
+  // onChange → setNodes so CanvasGraph does not re-render on every kernel
+  // cycle.
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<FlowEdge>([]);
   const rf = useReactFlow<FlowNode, FlowEdge>();
@@ -1436,7 +1398,6 @@ function useCanvasGraph() {
   const [rebuildTick, setRebuildTick] = useState(0);
   const flushRebuild = useCallback(() => setRebuildTick((n) => n + 1), []);
   useCanvasDocument(
-    edgeFilter,
     setNodes,
     setEdges,
     dragInProgressRef,
@@ -1444,7 +1405,6 @@ function useCanvasGraph() {
     flowCacheRef,
     rebuildTick,
   );
-  useCanvasFilterViewport(edgeFilter, rf);
   useCanvasFocus(rf);
   useCanvasGroupFocus(rf);
   // One-shot fit request from the command bar "Fit view" action.

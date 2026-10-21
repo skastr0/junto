@@ -298,7 +298,6 @@ export const addNode = (
   },
 ): void => {
   batch(() => {
-    state$.edgeFilter.set("");
     // Keep the single/multi selection pair coherent so the RTS command card
     // targets this node only (stale selectedNodeIds would open the multi card).
     selectNode(node.id);

@@ -44,7 +44,7 @@ describe("stop reasons carry when the stop began", () => {
   beforeEach(() => __resetKernelMemoryForTest());
   afterEach(() => __resetKernelMemoryForTest());
 
-  it("the kernel cycle projects the earliest waiting item's time onto the blocked seat", async () => {
+  it("the kernel cycle projects each waiting task's time onto the blocked seat", async () => {
     const items = [waiting("t-later", LATER), waiting("t-first", FIRST)];
     setActorRefResolver(context(items).resolveActorRef);
     __setWorldsForTest(new Map([[CANVAS, worldOf(canvas, { tasks: new Map([["board", items]]) })]]));
@@ -52,14 +52,15 @@ describe("stop reasons carry when the stop began", () => {
     const execution = getExecutionByCanvas().get(CANVAS);
     expect(execution?.blocked).toEqual(["atlas"]);
     expect(execution?.reasonsByNodeId.atlas).toEqual([
-      expect.objectContaining({ kind: "edge", edgeId: "e1", fromNodeId: "board", since: Date.parse(FIRST) }),
+      expect.objectContaining({ kind: "task", taskNodeId: "board", taskId: "t-later", since: Date.parse(LATER) }),
+      expect.objectContaining({ kind: "task", taskNodeId: "board", taskId: "t-first", since: Date.parse(FIRST) }),
     ]);
   });
 
   it("a waiting item with no recorded time yields a reason with no time", () => {
     const graph = deriveExecutionGraph(canvas, context([waiting("t-unstamped")]));
     const [reason] = graph.reasonsByNodeId.get("atlas") ?? [];
-    expect(reason).toMatchObject({ kind: "edge", edgeId: "e1" });
+    expect(reason).toMatchObject({ kind: "task", taskNodeId: "board", taskId: "t-unstamped" });
     expect(reason && "since" in reason).toBe(false);
   });
 

@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  corridorsClearOf,
   LANE_GAP,
   LOOM_LEAD,
   planLoom,
@@ -13,10 +12,9 @@ import {
 } from "../src/renderer/lib/wire-loom";
 import {
   polylineHitsObstacles,
-  routeWire,
   segmentHitsRect,
 } from "../src/shared/wire-route";
-import type { WireDirection, WirePoint, WireRect } from "../src/shared/wire-route";
+import type { WireDirection, WirePoint } from "../src/shared/wire-route";
 
 const HUB: WirePoint = { x: 0, y: 0 };
 
@@ -25,11 +23,9 @@ function fanEdge(
   id: string,
   farNodeId: string,
   far: WirePoint,
-  blocked = false,
 ): LoomEdgeInput {
   return {
     id,
-    blocked,
     sourceNodeId: "hub",
     sourceSide: "right",
     sourceAnchor: HUB,
@@ -176,7 +172,6 @@ function fanAt(
 ): LoomEdgeInput[] {
   return targets.map((target, index) => ({
     id: `${nodeId}${index}`,
-    blocked: false,
     sourceNodeId: nodeId,
     sourceSide: "right",
     sourceAnchor: { x: 0, y: hubY },
@@ -227,7 +222,6 @@ function oppositeDetourCanvas(): {
 function fanFrom(nodeId: string, hub: WirePoint): LoomEdgeInput[] {
   return [-100, 0, 100].map((offset, index) => ({
     id: `${nodeId}${index}`,
-    blocked: false,
     sourceNodeId: nodeId,
     sourceSide: "right",
     sourceAnchor: hub,
@@ -238,7 +232,7 @@ function fanFrom(nodeId: string, hub: WirePoint): LoomEdgeInput[] {
 }
 
 describe("wire-loom planning", () => {
-  it("needs three unblocked members before a fan becomes a cable", () => {
+  it("needs three members before a fan becomes a cable", () => {
     const two = planLoom({ edges: fanOf([-100, 100]), obstacles: [] });
     expect(two.strands.size).toBe(0);
 
@@ -250,7 +244,6 @@ describe("wire-loom planning", () => {
     const right = fanOf([-100, 0, 100]);
     const bottom = [-100, 0, 100].map((x, index): LoomEdgeInput => ({
       id: `b${index}`,
-      blocked: false,
       sourceNodeId: "hub",
       sourceSide: "bottom",
       sourceAnchor: HUB,
@@ -308,32 +301,6 @@ describe("wire-loom planning", () => {
     expect(second.corridors).toEqual(first.corridors);
   });
 
-  it("ejects a blocked wire into a reserved lane hole", () => {
-    const clear = planLoom({ edges: fanOf([-150, -50, 50, 150]), obstacles: [] });
-    expect(clear.strands.size).toBe(4);
-
-    const blocked = planLoom({
-      edges: fanOf([-150, -50, 50, 150]).map((e) => (e.id === "e1" ? { ...e, blocked: true } : e)),
-      obstacles: [],
-    });
-    expect(blocked.strands.size).toBe(3);
-    expect(blocked.strands.has("e1")).toBe(false);
-    // The survivors keep their exact offsets: stoppage does not reshuffle.
-    for (const id of ["e0", "e2", "e3"]) {
-      expect(blocked.strands.get(id)!.laneOffset).toBe(clear.strands.get(id)!.laneOffset);
-      expect(blocked.strands.get(id)!.laneCount).toBe(4);
-    }
-  });
-
-  it("plans nothing for an all-blocked fan", () => {
-    const plan = planLoom({
-      edges: fanOf([-150, -50, 50, 150]).map((e) => ({ ...e, blocked: true })),
-      obstacles: [],
-    });
-    expect(plan.strands.size).toBe(0);
-    expect(plan.corridors).toEqual([]);
-  });
-
   it("reports corridors that cover the trunk", () => {
     const plan = planLoom({ edges: fanOf([...FIVE_FAN_YS]), obstacles: [] });
     const trunkEnd = Math.max(...[...plan.strands.values()].map((s) => s.stationAt));
@@ -349,12 +316,12 @@ describe("wire-loom planning", () => {
   it("gives a dual-membership edge exactly one fan", () => {
     // Four out of A on the right, three into D on the left: the larger wins.
     const larger: LoomEdgeInput[] = [
-      { id: "A-D", blocked: false, sourceNodeId: "A", sourceSide: "right", sourceAnchor: HUB, targetNodeId: "D", targetSide: "left", targetAnchor: { x: 400, y: 0 } },
-      { id: "A-E", blocked: false, sourceNodeId: "A", sourceSide: "right", sourceAnchor: HUB, targetNodeId: "E", targetSide: "left", targetAnchor: { x: 400, y: 100 } },
-      { id: "A-F", blocked: false, sourceNodeId: "A", sourceSide: "right", sourceAnchor: HUB, targetNodeId: "F", targetSide: "left", targetAnchor: { x: 400, y: 200 } },
-      { id: "A-G", blocked: false, sourceNodeId: "A", sourceSide: "right", sourceAnchor: HUB, targetNodeId: "G", targetSide: "left", targetAnchor: { x: 400, y: -100 } },
-      { id: "B-D", blocked: false, sourceNodeId: "B", sourceSide: "right", sourceAnchor: { x: 0, y: 200 }, targetNodeId: "D", targetSide: "left", targetAnchor: { x: 400, y: 0 } },
-      { id: "C-D", blocked: false, sourceNodeId: "C", sourceSide: "right", sourceAnchor: { x: 0, y: -200 }, targetNodeId: "D", targetSide: "left", targetAnchor: { x: 400, y: 0 } },
+      { id: "A-D", sourceNodeId: "A", sourceSide: "right", sourceAnchor: HUB, targetNodeId: "D", targetSide: "left", targetAnchor: { x: 400, y: 0 } },
+      { id: "A-E", sourceNodeId: "A", sourceSide: "right", sourceAnchor: HUB, targetNodeId: "E", targetSide: "left", targetAnchor: { x: 400, y: 100 } },
+      { id: "A-F", sourceNodeId: "A", sourceSide: "right", sourceAnchor: HUB, targetNodeId: "F", targetSide: "left", targetAnchor: { x: 400, y: 200 } },
+      { id: "A-G", sourceNodeId: "A", sourceSide: "right", sourceAnchor: HUB, targetNodeId: "G", targetSide: "left", targetAnchor: { x: 400, y: -100 } },
+      { id: "B-D", sourceNodeId: "B", sourceSide: "right", sourceAnchor: { x: 0, y: 200 }, targetNodeId: "D", targetSide: "left", targetAnchor: { x: 400, y: 0 } },
+      { id: "C-D", sourceNodeId: "C", sourceSide: "right", sourceAnchor: { x: 0, y: -200 }, targetNodeId: "D", targetSide: "left", targetAnchor: { x: 400, y: 0 } },
     ];
     const bySize = planLoom({ edges: larger, obstacles: [] });
     expect(bySize.strands.get("A-D")!.bundleKey).toBe("A|right|s");
@@ -363,11 +330,11 @@ describe("wire-loom planning", () => {
 
     // Three out of Z, three into M: the tie breaks on the smaller bundle key.
     const tied: LoomEdgeInput[] = [
-      { id: "Z-M", blocked: false, sourceNodeId: "Z", sourceSide: "right", sourceAnchor: { x: 0, y: -100 }, targetNodeId: "M", targetSide: "left", targetAnchor: { x: 500, y: 0 } },
-      { id: "Z-N", blocked: false, sourceNodeId: "Z", sourceSide: "right", sourceAnchor: { x: 0, y: -100 }, targetNodeId: "N", targetSide: "left", targetAnchor: { x: 500, y: -300 } },
-      { id: "Z-P", blocked: false, sourceNodeId: "Z", sourceSide: "right", sourceAnchor: { x: 0, y: -100 }, targetNodeId: "P", targetSide: "left", targetAnchor: { x: 500, y: -500 } },
-      { id: "Q-M", blocked: false, sourceNodeId: "Q", sourceSide: "right", sourceAnchor: { x: 0, y: 0 }, targetNodeId: "M", targetSide: "left", targetAnchor: { x: 500, y: 0 } },
-      { id: "R-M", blocked: false, sourceNodeId: "R", sourceSide: "right", sourceAnchor: { x: 0, y: 100 }, targetNodeId: "M", targetSide: "left", targetAnchor: { x: 500, y: 0 } },
+      { id: "Z-M", sourceNodeId: "Z", sourceSide: "right", sourceAnchor: { x: 0, y: -100 }, targetNodeId: "M", targetSide: "left", targetAnchor: { x: 500, y: 0 } },
+      { id: "Z-N", sourceNodeId: "Z", sourceSide: "right", sourceAnchor: { x: 0, y: -100 }, targetNodeId: "N", targetSide: "left", targetAnchor: { x: 500, y: -300 } },
+      { id: "Z-P", sourceNodeId: "Z", sourceSide: "right", sourceAnchor: { x: 0, y: -100 }, targetNodeId: "P", targetSide: "left", targetAnchor: { x: 500, y: -500 } },
+      { id: "Q-M", sourceNodeId: "Q", sourceSide: "right", sourceAnchor: { x: 0, y: 0 }, targetNodeId: "M", targetSide: "left", targetAnchor: { x: 500, y: 0 } },
+      { id: "R-M", sourceNodeId: "R", sourceSide: "right", sourceAnchor: { x: 0, y: 100 }, targetNodeId: "M", targetSide: "left", targetAnchor: { x: 500, y: 0 } },
     ];
     const byKey = planLoom({ edges: tied, obstacles: [] });
     expect(byKey.strands.get("Z-M")!.bundleKey).toBe("M|left|t");
@@ -428,36 +395,6 @@ describe("wire-loom planning", () => {
     expect(crossingCount(fanSegments(twelve))).toBe(0);
   });
 
-  it("resolves fan membership from topology alone, never from stoppage", () => {
-    // A-right and M-left both hold four candidates, so A wins on the key. e4
-    // going into stoppage must not hand e1 and e2 to a trunk 600px away.
-    const edges: LoomEdgeInput[] = [
-      { id: "e1", blocked: false, sourceNodeId: "A", sourceSide: "right", sourceAnchor: HUB, targetNodeId: "M", targetSide: "left", targetAnchor: { x: 600, y: 0 } },
-      { id: "e2", blocked: false, sourceNodeId: "A", sourceSide: "right", sourceAnchor: HUB, targetNodeId: "M", targetSide: "left", targetAnchor: { x: 600, y: 0 } },
-      { id: "e3", blocked: false, sourceNodeId: "A", sourceSide: "right", sourceAnchor: HUB, targetNodeId: "X", targetSide: "left", targetAnchor: { x: 600, y: 300 } },
-      { id: "e4", blocked: false, sourceNodeId: "A", sourceSide: "right", sourceAnchor: HUB, targetNodeId: "Y", targetSide: "left", targetAnchor: { x: 600, y: -300 } },
-      { id: "e5", blocked: false, sourceNodeId: "B", sourceSide: "right", sourceAnchor: { x: 0, y: 300 }, targetNodeId: "M", targetSide: "left", targetAnchor: { x: 600, y: 0 } },
-      { id: "e6", blocked: false, sourceNodeId: "C", sourceSide: "right", sourceAnchor: { x: 0, y: -300 }, targetNodeId: "M", targetSide: "left", targetAnchor: { x: 600, y: 0 } },
-    ];
-    const clear = planLoom({ edges, obstacles: [] });
-    expect(clear.strands.size).toBe(4);
-
-    const stopped = planLoom({
-      edges: edges.map((e) => (e.id === "e4" ? { ...e, blocked: true } : e)),
-      obstacles: [],
-    });
-    expect(stopped.strands.size).toBe(3);
-    for (const id of ["e1", "e2", "e3"]) {
-      const before = clear.strands.get(id)!;
-      const after = stopped.strands.get(id)!;
-      // Same cable, same lane, same trunk: the ejected wire leaves a hole and
-      // nothing else in the document moves.
-      expect(after.bundleKey).toBe(before.bundleKey);
-      expect(after.laneOffset).toBe(before.laneOffset);
-      expect(after.stationAt).toBe(before.stationAt);
-    }
-  });
-
   it("keeps unrelated fans in one corridor on parallel lanes", () => {
     // Two hubs 6px apart on the same axis — an s-handle and a t-handle share a
     // node side this closely. Proximity must never merge them into one cable.
@@ -488,7 +425,6 @@ describe("wire-loom planning", () => {
     const edges: LoomEdgeInput[] = [
       ...[0, 1, 2].map((index): LoomEdgeInput => ({
         id: `f${index}`,
-        blocked: false,
         sourceNodeId: "hub",
         sourceSide: "right",
         sourceAnchor: HUB,
@@ -496,7 +432,8 @@ describe("wire-loom planning", () => {
         targetSide: "left",
         targetAnchor: { x: 500, y: (index - 1) * 60 },
       })),
-      { id: "fD", blocked: true, sourceNodeId: "hub", sourceSide: "right", sourceAnchor: HUB, targetNodeId: "D", targetSide: "left", targetAnchor: { x: 120, y: 100 } },
+      // A wire to D from the hub's other side: D is the hub's far endpoint, not a member.
+      { id: "fD", sourceNodeId: "hub", sourceSide: "bottom", sourceAnchor: HUB, targetNodeId: "D", targetSide: "left", targetAnchor: { x: 120, y: 100 } },
     ];
     const onTrunk: LoomObstacle = { nodeId: "D", x: 120, y: -10, width: 200, height: 220 };
     const around = planLoom({ edges, obstacles: [onTrunk] });
@@ -648,7 +585,6 @@ function factoryInput(): {
     const targetSide = (edge.toSide ?? "left") as WireDirection;
     edges.push({
       id: edge.id ?? `${edge.fromNode}->${edge.toNode}`,
-      blocked: false,
       sourceNodeId: edge.fromNode,
       sourceSide,
       sourceAnchor: anchorOn(from, sourceSide),
@@ -759,41 +695,6 @@ describe("wire-loom on the real factory canvas", () => {
   });
 });
 
-describe("stoppage clearance", () => {
-  const trunk: WireRect = { x: 0, y: -6, width: 352, height: 12 };
-  const crossing: WireRect = { x: 352, y: -206, width: 48, height: 412 };
-
-  it("hands an ejected wire only the cables it does not start inside", () => {
-    // A blocked member holds its lane hole, so it leaves the same handle its
-    // fan's trunk starts at: that corridor holds its own endpoint.
-    const kept = corridorsClearOf([trunk, crossing], [HUB, { x: 400, y: 320 }]);
-    expect(kept).toEqual([crossing]);
-    // A wire with no stake in either corridor still treats both as furniture.
-    expect(corridorsClearOf([trunk, crossing], [{ x: 0, y: 400 }, { x: 400, y: 500 }])).toEqual([
-      trunk,
-      crossing,
-    ]);
-  });
-
-  it("lets an ejected wire leave along its own port", () => {
-    const routed = routeWire({
-      source: HUB,
-      target: { x: 400, y: 320 },
-      obstacles: corridorsClearOf([trunk, crossing], [HUB, { x: 400, y: 320 }]),
-      padding: 14,
-      borderRadius: 8,
-      sourceDirection: "right",
-      targetDirection: "left",
-    });
-    const lead = routed!.path.match(/^M (-?[\d.]+),(-?[\d.]+) L (-?[\d.]+),(-?[\d.]+)/);
-    expect(lead).not.toBeNull();
-    const [, x0, y0, x1, y1] = lead!.map(Number);
-    // The first move runs out of the right-side handle, not down its border.
-    expect(y1).toBe(y0);
-    expect(x1!).toBeGreaterThan(x0!);
-  });
-});
-
 describe("stitchStrand", () => {
   it("pins both ends to the live endpoints from either hub", () => {
     const fromSource = planLoom({ edges: fanOf([...FIVE_FAN_YS]), obstacles: [] }).strands.get("e0")!;
@@ -808,9 +709,9 @@ describe("stitchStrand", () => {
     });
 
     const tied: LoomEdgeInput[] = [
-      { id: "Z-M", blocked: false, sourceNodeId: "Z", sourceSide: "right", sourceAnchor: { x: 0, y: -100 }, targetNodeId: "M", targetSide: "left", targetAnchor: { x: 500, y: 0 } },
-      { id: "Q-M", blocked: false, sourceNodeId: "Q", sourceSide: "right", sourceAnchor: { x: 0, y: 0 }, targetNodeId: "M", targetSide: "left", targetAnchor: { x: 500, y: 0 } },
-      { id: "R-M", blocked: false, sourceNodeId: "R", sourceSide: "right", sourceAnchor: { x: 0, y: 100 }, targetNodeId: "M", targetSide: "left", targetAnchor: { x: 500, y: 0 } },
+      { id: "Z-M", sourceNodeId: "Z", sourceSide: "right", sourceAnchor: { x: 0, y: -100 }, targetNodeId: "M", targetSide: "left", targetAnchor: { x: 500, y: 0 } },
+      { id: "Q-M", sourceNodeId: "Q", sourceSide: "right", sourceAnchor: { x: 0, y: 0 }, targetNodeId: "M", targetSide: "left", targetAnchor: { x: 500, y: 0 } },
+      { id: "R-M", sourceNodeId: "R", sourceSide: "right", sourceAnchor: { x: 0, y: 100 }, targetNodeId: "M", targetSide: "left", targetAnchor: { x: 500, y: 0 } },
     ];
     const fromTarget = planLoom({ edges: tied, obstacles: [] }).strands.get("Z-M")!;
     expect(fromTarget.hubEnd).toBe("target");

@@ -173,7 +173,8 @@ it("reads explicit Work waits and authored verbs from model rows", async () => {
   expect(text).toContain("edges :: 1");
   expect(text).toContain("Queue :: task");
   expect(text).toContain("blockers");
-  expect(text).toContain("Worker --blocks(");
+  expect(text).toContain("Worker --contributes--> Queue");
+  expect(text).toContain("Worker - needs input - waiting");
   const idle = digestCanvasWithActorRefs(canvas, { ...live, itemsOf: () => [] });
   expect(idle).toContain("Worker --contributes--> Queue");
   expect(idle).not.toContain("blockers");

@@ -1,20 +1,19 @@
 import type { Canvas } from "../model/canvas";
 import type { Node } from "../model/kinds";
-import type { Wire } from "../model/wire";
 import type { BlockedReason, ExecutionGraph } from "../execution-graph";
-import { stoppageActorOf } from "../execution-graph";
 import { seatMayBeBlocked } from "../physics/phase-membership";
 
 // Pure stoppage impact cone: derived from (canvas + ExecutionGraph).
-// Phase membership (who may be blocked) is physics: actors only today.
+// A stop is a task waiting for input that holds its assignee. Its cone is
+// the task node and every seat it holds; nothing travels along a wire.
 
 export type ImpactCone = {
   readonly rootId: string;
-  /** Root-cause reasons (edge|seed) that generate this cone’s stoppage. */
+  /** The waiting tasks that make this cone, one per held seat and task. */
   readonly seedReasons: ReadonlyArray<BlockedReason>;
-  /** Nodes in the cone: apex seeds/generators + blocked closure they reach. */
+  /** Nodes in the cone: the task nodes that hold seats, and those seats. */
   readonly nodeIds: ReadonlySet<string>;
-  /** Edges that carry stoppage inside the cone (blockedEdgeIds subset). */
+  /** Wires lit with the cone. Stoppage lights none; a connection focus does. */
   readonly edgeIds: ReadonlySet<string>;
   /**
    * Soft attention leads: phase-member seats (actors under current law) with an
@@ -22,13 +21,11 @@ export type ImpactCone = {
    */
   readonly attentionLeadIds: ReadonlySet<string>;
   /**
-   * Path from `nodeId` toward a stoppage apex (seed or generator), inclusive.
+   * Path from `nodeId` to the task node holding it, inclusive.
    * Empty when `nodeId` is outside the cone.
    */
   readonly pathToSeed: (nodeId: string) => ReadonlyArray<string>;
 };
-
-type Hop = { readonly edgeId: string; readonly nodeId: string };
 
 const emptyCone = (rootId: string): ImpactCone => ({
   rootId,
@@ -45,56 +42,27 @@ const isPhaseMemberSeat = (node: Node | undefined): boolean => {
   return seatMayBeBlocked({ isGroup: node.kind === "region", kind: node.kind });
 };
 
-const reasonRank = (reason: BlockedReason): number => {
-  if (reason.kind === "work") return 0;
-  if (reason.kind === "edge") return 1;
-  return 2;
-};
+const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 const sortReasons = (reasons: ReadonlyArray<BlockedReason>): BlockedReason[] =>
-  [...reasons].sort((a, b) => {
-    const rank = reasonRank(a) - reasonRank(b);
-    if (rank !== 0) return rank;
-    if (a.kind === "edge" && b.kind === "edge") {
-      return a.edgeId < b.edgeId ? -1 : a.edgeId > b.edgeId ? 1 : 0;
-    }
-    if (a.kind === "work" && b.kind === "work") {
-      return a.requestId < b.requestId ? -1 : a.requestId > b.requestId ? 1 : 0;
-    }
-    return 0;
-  });
+  [...reasons].sort((a, b) => byText(a.taskNodeId, b.taskNodeId) || byText(a.taskId, b.taskId));
 
-/**
- * Causal ends of a wire for stoppage: which node generates the stop and which
- * seat takes it. A wire runs in its verb's own order — agent-first for
- * agent→sink access — so raw `from`/`to` is not the causal direction.
- * This mirrors how `deriveExecutionGraph` attributes a block.
- */
-export const stoppageEnds = (
-  byId: Canvas["nodes"],
-  wire: Pick<Wire, "from" | "to">,
-): { readonly causeId: string; readonly actorId: string } => {
-  const actor = stoppageActorOf(byId.get(wire.from), byId.get(wire.to));
-  const actorId = actor?.id ?? wire.to;
-  return {
-    causeId: actorId === wire.to ? wire.from : wire.to,
-    actorId,
-  };
-};
-
-const reasonKey = (reason: BlockedReason): string => {
-  if (reason.kind === "work") return `work:${reason.requestId}`;
-  return `edge:${reason.edgeId}`;
+/** Task nodes that hold at least one seat, as the graph says. */
+export const holdingTaskNodeIds = (graph: ExecutionGraph): ReadonlySet<string> => {
+  const ids = new Set<string>();
+  for (const reasons of graph.reasonsByNodeId.values()) {
+    for (const reason of reasons) ids.add(reason.taskNodeId);
+  }
+  return ids;
 };
 
 /**
  * Derive the stoppage impact cone for `rootNodeId`.
  *
- * - Root is a **generator** (outbound generating
- *   edge), or **blocked** → cone is the apex set that seeds root’s stoppage
- *   plus the forward blocked-edge closure from those apexes.
+ * - Root is a task node holding seats → the cone is that node and its seats.
+ * - Root is a blocked seat → the cone is every task node holding it, and
+ *   every seat those nodes hold.
  * - Otherwise the cone is empty.
- * - Attention leads are optional soft overlays (actor seats on undirected edges).
  */
 export const impactCone = (
   canvas: Canvas,
@@ -104,190 +72,26 @@ export const impactCone = (
   const byId = canvas.nodes;
   if (!byId.has(rootNodeId as Node["id"])) return emptyCone(rootNodeId);
 
-  const forward = new Map<string, Hop[]>();
-  const reverse = new Map<string, Hop[]>();
-  const generatesFrom = new Map<string, Hop[]>();
-
-  for (const edge of canvas.wires.values()) {
-    const evaluation = graph.edgeEvalById.get(edge.id);
-    const { causeId, actorId } = stoppageEnds(byId, edge);
-    if (evaluation?.generates) {
-      const list = generatesFrom.get(causeId) ?? [];
-      list.push({ edgeId: edge.id, nodeId: actorId });
-      generatesFrom.set(causeId, list);
-    }
-    if (!graph.blockedEdgeIds.has(edge.id)) continue;
-    const out = forward.get(causeId) ?? [];
-    out.push({ edgeId: edge.id, nodeId: actorId });
-    forward.set(causeId, out);
-    const inn = reverse.get(actorId) ?? [];
-    inn.push({ edgeId: edge.id, nodeId: causeId });
-    reverse.set(actorId, inn);
-  }
-
-  const rootIsBlocked = graph.blocked.has(rootNodeId);
-  const rootIsGenerator = (generatesFrom.get(rootNodeId)?.length ?? 0) > 0;
-
-  if (!rootIsBlocked && !rootIsGenerator) {
-    return emptyCone(rootNodeId);
-  }
-
-  // Apex set: generators that causally root this cone.
   const apexes = new Set<string>();
-
-  if (rootIsGenerator) {
-    apexes.add(rootNodeId);
-  }
-
-  if (rootIsBlocked) {
-    const seen = new Set<string>();
-    const queue: string[] = [rootNodeId];
-    while (queue.length > 0) {
-      const current = queue.pop()!;
-      if (seen.has(current)) continue;
-      seen.add(current);
-
-      const parents = reverse.get(current) ?? [];
-      if (parents.length === 0) {
-        // Direct generating edge(s) into current — generators are apexes.
-        for (const reason of graph.reasonsByNodeId.get(current) ?? []) {
-          if (reason.kind === "edge") apexes.add(reason.fromNodeId);
-        }
-        // Fallback: treat the blocked node itself as apex if nothing else found.
-        if (apexes.size === 0) apexes.add(current);
-        continue;
-      }
-
-      for (const hop of parents) {
-        if (!seen.has(hop.nodeId)) queue.push(hop.nodeId);
-      }
-    }
-  }
-
+  if (holdingTaskNodeIds(graph).has(rootNodeId)) apexes.add(rootNodeId);
+  for (const reason of graph.reasonsByNodeId.get(rootNodeId) ?? []) apexes.add(reason.taskNodeId);
   if (apexes.size === 0) return emptyCone(rootNodeId);
 
-  // Forward blast radius along blocked edges from every apex.
   const nodeIds = new Set<string>(apexes);
-  const edgeIds = new Set<string>();
-  const forwardQueue = [...apexes];
-  const seenForward = new Set<string>();
-
-  while (forwardQueue.length > 0) {
-    const current = forwardQueue.pop()!;
-    if (seenForward.has(current)) continue;
-    seenForward.add(current);
-
-    for (const hop of forward.get(current) ?? []) {
-      edgeIds.add(hop.edgeId);
-      if (!nodeIds.has(hop.nodeId)) {
-        nodeIds.add(hop.nodeId);
-        forwardQueue.push(hop.nodeId);
-      }
-    }
-
-    // Generators may emit generating edges that land in blockedEdgeIds already
-    // covered above; also include direct generates targets that are blocked.
-    for (const hop of generatesFrom.get(current) ?? []) {
-      if (!graph.blocked.has(hop.nodeId) && !nodeIds.has(hop.nodeId)) continue;
-      edgeIds.add(hop.edgeId);
-      if (!nodeIds.has(hop.nodeId)) {
-        nodeIds.add(hop.nodeId);
-        forwardQueue.push(hop.nodeId);
-      }
-    }
+  const seeds: BlockedReason[] = [];
+  const heldBy = new Map<string, string>();
+  for (const [seatId, reasons] of graph.reasonsByNodeId) {
+    const inCone = sortReasons(reasons.filter((reason) => apexes.has(reason.taskNodeId)));
+    if (inCone.length === 0) continue;
+    nodeIds.add(seatId);
+    heldBy.set(seatId, inCone[0]!.taskNodeId);
+    seeds.push(...inCone);
   }
-
-  // Seed reasons: direct edge causes whose apex is in the apex set.
-  const seedReasonMap = new Map<string, BlockedReason>();
-  for (const nodeId of nodeIds) {
-    if (!graph.blocked.has(nodeId)) continue;
-    for (const reason of graph.reasonsByNodeId.get(nodeId) ?? []) {
-      if (reason.kind === "edge" && apexes.has(reason.fromNodeId)) {
-        seedReasonMap.set(reasonKey(reason), reason);
-      }
-    }
-  }
-  const seedReasons = sortReasons([...seedReasonMap.values()]);
-
-  // pathToSeed: reverse BFS toward nearest apex (stable edge-id order).
-  // cameFrom[upstream] = downstream node from which upstream was discovered.
-  const pathCache = new Map<string, ReadonlyArray<string>>();
-
-  const upstreamCandidates = (current: string): string[] => {
-    const fromEdges = [...(reverse.get(current) ?? [])]
-      .sort((a, b) => (a.edgeId < b.edgeId ? -1 : a.edgeId > b.edgeId ? 1 : 0))
-      .map((hop) => hop.nodeId);
-
-    if (fromEdges.length > 0) return fromEdges;
-
-    const jumps: string[] = [];
-    for (const reason of sortReasons(graph.reasonsByNodeId.get(current) ?? [])) {
-      if (reason.kind === "edge" && apexes.has(reason.fromNodeId)) {
-        jumps.push(reason.fromNodeId);
-      }
-    }
-    return jumps;
-  };
 
   const pathToSeed = (nodeId: string): ReadonlyArray<string> => {
-    const cached = pathCache.get(nodeId);
-    if (cached) return cached;
-    if (!nodeIds.has(nodeId)) {
-      pathCache.set(nodeId, []);
-      return [];
-    }
-    if (apexes.has(nodeId)) {
-      const path = [nodeId];
-      pathCache.set(nodeId, path);
-      return path;
-    }
-
-    const cameFrom = new Map<string, string>();
-    const q: string[] = [nodeId];
-    const visited = new Set<string>([nodeId]);
-    let foundApex: string | undefined;
-
-    while (q.length > 0 && foundApex === undefined) {
-      const current = q.shift()!;
-      if (apexes.has(current) && current !== nodeId) {
-        foundApex = current;
-        break;
-      }
-      for (const upstream of upstreamCandidates(current)) {
-        if (visited.has(upstream)) continue;
-        visited.add(upstream);
-        cameFrom.set(upstream, current);
-        if (apexes.has(upstream)) {
-          foundApex = upstream;
-          break;
-        }
-        q.push(upstream);
-      }
-    }
-
-    if (foundApex === undefined) {
-      const path = [nodeId];
-      pathCache.set(nodeId, path);
-      return path;
-    }
-
-    // Walk apex → … → nodeId via cameFrom, then reverse to nodeId → … → apex.
-    const reversePath: string[] = [];
-    let cur: string | undefined = foundApex;
-    const guard = new Set<string>();
-    while (cur !== undefined && !guard.has(cur)) {
-      reversePath.push(cur);
-      guard.add(cur);
-      if (cur === nodeId) break;
-      cur = cameFrom.get(cur);
-    }
-    const path = reversePath.reverse();
-    if (path[0] !== nodeId) {
-      // Defensive: ensure path starts at the query node.
-      path.unshift(nodeId);
-    }
-    pathCache.set(nodeId, path);
-    return path;
+    if (apexes.has(nodeId)) return [nodeId];
+    const apex = heldBy.get(nodeId);
+    return apex === undefined ? [] : [nodeId, apex];
   };
 
   // Soft attention leads: undirected edge from actor seat into cone node.
@@ -297,17 +101,14 @@ export const impactCone = (
     const bIn = nodeIds.has(edge.to);
     if (aIn === bIn) continue;
     const outsiderId = aIn ? edge.to : edge.from;
-    if (nodeIds.has(outsiderId)) continue;
-    if (isPhaseMemberSeat(byId.get(outsiderId))) {
-      attentionLeadIds.add(outsiderId);
-    }
+    if (isPhaseMemberSeat(byId.get(outsiderId))) attentionLeadIds.add(outsiderId);
   }
 
   return {
     rootId: rootNodeId,
-    seedReasons,
+    seedReasons: sortReasons(seeds),
     nodeIds,
-    edgeIds,
+    edgeIds: new Set(),
     attentionLeadIds,
     pathToSeed,
   };

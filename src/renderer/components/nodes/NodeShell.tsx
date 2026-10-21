@@ -218,8 +218,7 @@ function NodeActions({
     const model = canvasOfState(canvas, modelStore.canvas$(canvas).get());
     const context = executionGraphContextFromActorRefs(canvas, actorRefs, itemsOf);
     const graph = executionGraphForImpact(model, execution, context);
-    const blockedActorSeatId = actorRefs.find((ref) => ref.nodeId === id)?.seatId;
-    return resolveBlockerCause(model, graph, id, { blockedActorSeatId, itemsOf });
+    return resolveBlockerCause(model, graph, id, itemsOf);
   });
 
   if (!selected || multiSelect) return null;

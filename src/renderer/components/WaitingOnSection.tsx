@@ -10,8 +10,8 @@ import { useCanvas } from "../lib/use-model";
 import { useCanvasWorkItems } from "../lib/use-work-sink";
 
 /**
- * Inspector "Waiting on…" — reverse-walks reasonsByNodeId from the selected
- * blocked node to the stoppage seed, listing each relay hop.
+ * Inspector "Waiting on…" — walks from the selected blocked seat to the task
+ * node holding it, or names a task node's own stop.
  */
 export function WaitingOnSection({ nodeId }: { readonly nodeId: string }) {
   const execution = use$(kernel$.execution);
@@ -28,14 +28,7 @@ export function WaitingOnSection({ nodeId }: { readonly nodeId: string }) {
       itemsOf,
     );
     const graph = executionGraphForImpact(canvas, execution, context);
-    // Only show for blocked nodes or nodes inside a stoppage cone.
-    if (!graph.blocked.has(nodeId)) {
-      // Generators still surface a short path (themselves).
-      const evalHasGenerate = [...canvas.wires.values()].some(
-        (wire) => wire.from === nodeId && graph.edgeEvalById.get(wire.id)?.generates,
-      );
-      if (!evalHasGenerate) return null;
-    }
+    // Blocked seats and the task nodes holding them; empty for the rest.
     return waitingOnPath(canvas, graph, nodeId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actorRefs, canvasName, canvas, execution, executionRev, nodeId, itemsOf]);
