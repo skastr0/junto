@@ -10,9 +10,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MailThreadMessage, MailThreadSummary } from "../src/shared/wire/mail-threads";
-import { MAIL_MENTIONS_MAX, OPERATOR_MAIL_MAX_TEXT } from "../src/shared/mail-threads";
+import { OPERATOR_MAIL_MAX_TEXT } from "../src/shared/mail-threads";
 import {
-  THREAD_MENTIONS_MAX,
   THREAD_TEXT_MAX,
   betweenLine,
   groupSeatThreads,
@@ -61,10 +60,10 @@ const fake = () => {
     threads: [notes, banner, reader] as SeatThreadSummary[],
     messages: {
       notes: [
-        { messageId: "m1", author: "you", mine: true, text: "Move them into junto.db.", mentions: [], at: at(1, 2) },
-        { messageId: "m2", author: "pty-lead", mine: false, text: "On it.", mentions: [], at: at(1, 4) },
+        { messageId: "m1", author: "you", mine: true, text: "Move them into junto.db.", at: at(1, 2) },
+        { messageId: "m2", author: "pty-lead", mine: false, text: "On it.", at: at(1, 4) },
       ],
-      reader: [{ messageId: "r1", author: "cli-lead", mine: false, text: "Switch the reader.", mentions: [], at: at(0, 31) }],
+      reader: [{ messageId: "r1", author: "cli-lead", mine: false, text: "Switch the reader.", at: at(0, 31) }],
     } as Record<string, SeatThreadMessage[]>,
     lists: 0,
   };
@@ -124,9 +123,8 @@ describe("the seat's threads, in words", () => {
     expect(groups.betweenSeats.map((item) => item.threadId)).toEqual(["reader"]);
   });
 
-  it("holds main's bounds on operator mail", () => {
+  it("holds main's bound on operator mail", () => {
     expect(THREAD_TEXT_MAX).toBe(OPERATOR_MAIL_MAX_TEXT);
-    expect(THREAD_MENTIONS_MAX).toBe(MAIL_MENTIONS_MAX);
   });
 
   it("names who is in a thread", () => {
@@ -158,8 +156,8 @@ describe("main's threads IPC as the source", () => {
     const operator = { kind: "operator" } as const;
     const ptyLead = { kind: "seat", nodeId: "seat-1", name: "pty-lead" } as const;
     const first: MailThreadMessage = {
-      messageId: "m1", threadId: "t1", from: operator, to: [ptyLead], mine: true, text: "Move them, @cli-lead.", at: at(1, 2),
-      mentions: [{ kind: "seat", nodeId: "seat-cli", name: "cli-lead" }],
+      messageId: "m1", threadId: "t1", from: operator, to: [ptyLead], mine: true,
+      text: "Move them, [@cli-lead](junto://canvas/factory?node=seat-cli).", at: at(1, 2),
     };
     const summary: MailThreadSummary = {
       threadId: "t1", title: "Move them.", participants: [operator, ptyLead], startedAt: at(1, 2), lastAt: at(1, 2),
@@ -252,7 +250,7 @@ describe("the Threads popup", () => {
     const { state, change } = await open();
     state.messages.notes = [
       ...state.messages.notes!,
-      { messageId: "m3", author: "pty-lead", mine: false, text: "Landed.", mentions: [], at: at(1, 12) },
+      { messageId: "m3", author: "pty-lead", mine: false, text: "Landed.", at: at(1, 12) },
     ];
     change("seat-1");
     await flush();
@@ -275,7 +273,7 @@ describe("files on a message", () => {
     const image = { sha256: "d".repeat(64), byteLength: 2048, mediaType: "image/png", displayName: "shot.png" } as never;
     const doc = { sha256: "e".repeat(64), byteLength: 3 * 1024 * 1024, mediaType: "application/pdf", displayName: "plan.pdf" } as never;
     fixture.state.messages.notes = [
-      { messageId: "m1", author: "you", mine: true, text: "", mentions: [], at: at(1, 2), attachments: [image, doc] },
+      { messageId: "m1", author: "you", mine: true, text: "", at: at(1, 2), attachments: [image, doc] },
     ];
     setSeatThreadsSource(fixture.source);
     await render();
@@ -421,7 +419,7 @@ describe("the thread composer", () => {
     });
   });
 
-  it("opens the wired seats on @, puts the chosen one in the draft and in mentions, never in To", async () => {
+  it("opens the wired seats on @ and puts the chosen one in the draft as a link, never in To", async () => {
     await open();
     await type("Thanks. @c");
     expect(
@@ -434,14 +432,13 @@ describe("the thread composer", () => {
     expect(document.querySelector('[role="listbox"]')).toBeNull();
     expect(sends).toEqual([]);
     await key("Enter");
-    // The text carries the mention as its link; the seat goes in mentions, never in To.
+    // The text carries the mention as its link, and the seat is never in To.
     expect(sends).toEqual([
       {
         canvasName: "factory",
         nodeId: "seat-1",
         text: "Thanks. [@canvas-lead](junto://canvas/factory?node=seat-canvas)",
         inReplyTo: "m2",
-        mentions: ["seat-canvas"],
       },
     ]);
   });
@@ -481,14 +478,14 @@ describe("the thread composer", () => {
       text: "The loader's start phase reads starting session.",
     });
     state.threads = [thread({ threadId: "fresh", title: "The loader's start phase", lastAt: at(2, 0) }), ...state.threads];
-    state.messages.fresh = [{ messageId: "fresh", author: "you", mine: true, text: "The loader's start phase.", mentions: [], at: at(2, 0) }];
+    state.messages.fresh = [{ messageId: "fresh", author: "you", mine: true, text: "The loader's start phase.", at: at(2, 0) }];
     change();
     await flush();
     expect(document.querySelector('[data-thread-id="fresh"]')?.getAttribute("data-selected")).toBe("true");
     expect(q("thread-composer")?.getAttribute("data-mode")).toBe("reply");
   });
 
-  it("shows an @name in a message as a reference, not a participant", async () => {
+  it("shows a plain @name as words: only a mention link is a reference", async () => {
     const { state, change } = await open();
     state.messages.notes = [
       {
@@ -496,13 +493,12 @@ describe("the thread composer", () => {
         author: "you",
         mine: true,
         text: "Thanks. @cli-lead check it, and @pty-lead or @nobody.",
-        mentions: ["cli-lead"],
         at: at(1, 2),
       },
     ];
     change();
     await flush();
-    expect(all("seat-threads-mention").map((mention) => mention.textContent)).toEqual(["@cli-lead"]);
+    expect(all("seat-threads-mention")).toEqual([]);
     expect(all("seat-threads-message")[0]?.querySelector(".seat-threads__bubble")?.textContent).toBe(
       "Thanks. @cli-lead check it, and @pty-lead or @nobody.",
     );
@@ -517,7 +513,6 @@ describe("the thread composer", () => {
         author: "you",
         mine: true,
         text: "Ask [@cli-lead](junto://canvas/factory?node=seat-cli) first.",
-        mentions: ["cli-lead"],
         at: at(1, 2),
       },
     ];
@@ -701,7 +696,6 @@ describe("paging in the popup", () => {
       author: "pty-lead",
       mine: false,
       text: `line ${n}`,
-      mentions: [],
       at: at(0, 0) + n * 1000,
     }));
     const asked: Array<string | undefined> = [];

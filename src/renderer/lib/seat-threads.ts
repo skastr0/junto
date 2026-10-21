@@ -48,8 +48,6 @@ export type SeatThreadMessage = {
   /** The operator wrote it. */
   readonly mine: boolean;
   readonly text: string;
-  /** Seats the text names with an @, by name: references, never recipients. */
-  readonly mentions: ReadonlyArray<string>;
   /** Epoch ms. */
   readonly at: number;
   /** Files the mail carries, by reference into the content store. */
@@ -124,7 +122,6 @@ export const juntoSeatThreadsSource = (): SeatThreadsSource | undefined => {
           author: partyName(message.from),
           mine: message.mine,
           text: message.text,
-          mentions: (message.mentions ?? []).map((seat) => seat.name),
           at: message.at,
           ...(message.attachments === undefined || message.attachments.length === 0 ? {} : { attachments: message.attachments }),
         })),
@@ -486,12 +483,11 @@ export const threadTime = (at: number): string => {
 // ---- Writing ----
 
 /**
- * Main's bounds on operator mail (MAIL_MENTIONS_MAX and OPERATOR_MAIL_MAX_TEXT
- * in src/shared/mail-threads.ts), said here because that module carries the
+ * Main's bound on operator mail text (OPERATOR_MAIL_MAX_TEXT in
+ * src/shared/mail-threads.ts), said here because that module carries the
  * Effect runtime; tests/seat-threads.test.tsx holds them equal.
  */
 export const THREAD_TEXT_MAX = 8_000;
-export const THREAD_MENTIONS_MAX = 32;
 
 export type { MentionableSeat };
 
@@ -536,37 +532,16 @@ export const sendSeatThread = async (
   }
 };
 
-/**
- * A message's text cut at its mentions: each mention link reads as its label,
- * and each @ that names one of the seats the mail mentions (mail written
- * before mentions were links) is a reference too; the rest is plain text.
- */
-export const mentionParts = (
-  text: string,
-  names: ReadonlyArray<string>,
-): ReadonlyArray<{ readonly text: string; readonly mention?: true }> => {
-  const known = new Set(names);
+/** A message's text cut at its mention links: each reads as its label; the rest is plain text. */
+export const mentionParts = (text: string): ReadonlyArray<{ readonly text: string; readonly mention?: true }> => {
   const parts: Array<{ text: string; mention?: true }> = [];
-  let plain = "";
-  const words = (run: string): void => {
-    for (const piece of run.split(/(@[\w.-]*[\w-])/u)) {
-      if (piece.startsWith("@") && known.has(piece.slice(1))) {
-        if (plain) parts.push({ text: plain });
-        plain = "";
-        parts.push({ text: piece, mention: true });
-      } else plain += piece;
-    }
-  };
   let at = 0;
   for (const link of mentionLinksOf(text)) {
-    words(text.slice(at, link.start));
-    if (plain) parts.push({ text: plain });
-    plain = "";
+    if (link.start > at) parts.push({ text: text.slice(at, link.start) });
     parts.push({ text: link.label, mention: true });
     at = link.end;
   }
-  words(text.slice(at));
-  if (plain) parts.push({ text: plain });
+  if (at < text.length) parts.push({ text: text.slice(at) });
   return parts;
 };
 

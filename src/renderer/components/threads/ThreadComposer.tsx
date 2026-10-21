@@ -1,11 +1,10 @@
 import { useCallback, useState, type KeyboardEvent } from "react";
 import { MAIL_TEXT_INLINE_MAX_BYTES, type TextBound } from "@shared/mail-text-bound";
-import type { MentionRef } from "@shared/mention";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
 import { carryText, useLongText } from "../../lib/long-text";
 import { useConnectedSeats } from "../../lib/mention-sources";
 import { useAttachments } from "../../lib/operator-attachments";
-import { sendSeatThread, THREAD_MENTIONS_MAX, THREAD_TEXT_MAX, type SeatAddress } from "../../lib/seat-threads";
+import { sendSeatThread, THREAD_TEXT_MAX, type SeatAddress } from "../../lib/seat-threads";
 import { AttachButton, AttachmentTray } from "../attachments/AttachmentTray";
 import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
@@ -47,7 +46,6 @@ export function ThreadComposer({
   const connected = useConnectedSeats(seat);
   const attachments = useAttachments(seat.canvasName);
   const [draft, setDraft] = useState("");
-  const [mentioned, setMentioned] = useState<ReadonlyArray<MentionRef>>([]);
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string>();
   // The field takes the keyboard once, when it mounts.
@@ -55,8 +53,6 @@ export function ThreadComposer({
     claimFocusOnMount(element);
   }, []);
 
-  const mentions = mentioned.flatMap((ref) => (ref.kind === "seat" ? [ref.nodeId] : []));
-  const mentionsFull = mentions.length >= THREAD_MENTIONS_MAX;
 
   // Files ride along: a mail may be only files, and waits for every one to be in.
   const hasFiles = attachments.items.length > 0;
@@ -78,14 +74,11 @@ export function ThreadComposer({
       setFailure(error instanceof Error ? error.message : String(error));
       return;
     }
-    // Past the bound the text is a file, and its mentions are words in it.
-    const named = carried.text === "" ? [] : mentions;
     const result = await sendSeatThread({
       ...seat,
       text: carried.text,
       ...(mode === "reply" && inReplyTo !== undefined ? { inReplyTo } : {}),
       ...(mode === "reply" && inReplyTo === undefined && threadId !== undefined ? { threadId } : {}),
-      ...(named.length > 0 ? { mentions: named } : {}),
       ...(carried.files.length > 0 ? { attachments: carried.files } : {}),
     });
     setSending(false);
@@ -95,7 +88,6 @@ export function ThreadComposer({
     }
     setDraft("");
     attachments.clear();
-    setMentioned([]);
     onSent?.(result.threadId);
   };
 
@@ -123,16 +115,14 @@ export function ThreadComposer({
           dense
           placement="above"
           value={draft}
-          onValueChange={(next, refs) => {
+          onValueChange={(next) => {
             setDraft(next);
-            setMentioned(refs);
             setFailure(undefined);
           }}
           canvasName={seat.canvasName}
           candidates={connected}
           listLabel={() => `Seats connected to ${name}`}
           noun={{ one: "seat", other: "seats" }}
-          maxMentions={THREAD_MENTIONS_MAX}
           aria-label={mode === "new" ? `New thread to ${name}` : "Reply"}
           data-testid="thread-composer-input"
           onKeyDown={onKeyDown}
@@ -151,10 +141,6 @@ export function ThreadComposer({
             data-testid="thread-composer-long-text"
           >
             {long.notice}
-          </span>
-        ) : mentionsFull ? (
-          <span className="thread-composer__hint" data-testid="thread-composer-mentions-full">
-            {`A mail names at most ${THREAD_MENTIONS_MAX} seats.`}
           </span>
         ) : uploading ? (
           <span className="thread-composer__hint" data-testid="thread-composer-uploading">

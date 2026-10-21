@@ -274,7 +274,7 @@ function ThreadChat({
             </div>
             {message.text !== "" || message.attachments === undefined ? (
               <div className="seat-threads__bubble">
-                {mentionParts(message.text, message.mentions).map((part, index) =>
+                {mentionParts(message.text).map((part, index) =>
                   part.mention ? (
                     <span key={index} className="seat-threads__mention" data-testid="seat-threads-mention">
                       {part.text}
