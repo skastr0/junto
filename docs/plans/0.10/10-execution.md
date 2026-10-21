@@ -171,7 +171,7 @@ everyone else reports by mail and on the needs-you feed.
 | Deletions step | migration 32 be53079c9 | landed |
 | Artifacts node UI | product-shell 7687e6b27, ed478fd5e, dc920f3b0, 88638ec11; domain e17595829, e1f8be7e5 | landed on stand-in source |
 | Requests and board UI; chat toolbar; PromptComposer | product-attention 6ae0b773e, a11ae0f19, a1ee80d50 | deleted |
-| Browser contracts: tabs, driver, box | product-attention 6af40a961, 5b35a2a9f; box crop claim with remote-security | landed |
+| Browser | product-attention: tabs, driver, shared view B3a, chrome B4, --tab B5, takeover B6 (in-app run passed, guard approved), box comments B7 (operator shots; composer preview 533cb12db; url 2 KiB 7034390ae; seat route fc5068f0a and CLI f9599e56d held until the operator purge, remote-work plus product-attention); turn-on waits on the operator answer to 01M5EY4765B700PENESKE0YC1X | off in ship |
 | Mention swaps | product-keyboard f918f4aa0, 31ef5e60f; PadPinThread dies with the pad | done |
 | Typecheck toolchain | tsrs swap landed (tech-lead fdc1bd867, 1693ef5b4, 9adfc92de): cold 7 s, 1.0 GiB vs tsc 5.9 160 s, 3.0 GiB; typecheck needs no slot | landed |
 | Sweep repair | fdc1bd867 carried six stale staged paths; restored at ca81a0033, stale copies unstaged | done |
@@ -181,7 +181,7 @@ everyone else reports by mail and on the needs-you feed.
 | Migrations 33 to 40 | 33 reviewer kind, 34 Automations archives, 37 task check, 39 board, requests and reviews dropped with verdict.post (a4e0e22b4), 40 touched-origin limit (8755a7622); live-copy chain v25 to v40 green (444 wires, 127 seats, 80 regions, 358 tasks kept) | landed, verified |
 | Deleted seat releases its open tasks | canvas-window | started |
 | 0.10 CLI acceptance net | pty-mail, pty-contract: scripts/work-cli-acceptance.ts; 64 pass, 0 fail, 0 pending at 54fe72710 (clean export, real core); found and fixed f4971dd3e, 2b927b7f8; verdict post gone eb11a3e12 | green |
-| Main health | tech-lead (tech-checks): full verify on a clean archive hourly; run 4 at 38e2d3879 ALL GREEN, 16 of 16 lanes (unit 7,219 shared and 4,138 isolated, ship 44, tsrs and TS 7, build, overlay, lints) | green |
+| Main health | tech-lead (tech-checks): full verify on a clean archive hourly; run 8 at 8c6894a59 ALL GREEN, 16 of 16 lanes (unit 7,242 shared and 4,231 isolated, ship 44) | green |
 | remote R2 ruler | RulingRecorder 75db329b0; task submit and replica fold 7fb8d1e9b; seat queue QueueFull 87d3406c8; reach for rulings 73779cf34; resource notice author 8a7e93ce4. Live once task tables are in the state engine and TaskRepositoryLive is wired (canvas order) | landed, not live |
 | remote R4 browser out | 255613ef8, 2614f3578, 658827b65, c12fe5cf7, 29bb0747a, 8a1d5e3ce, 4947ce9f3, 8f20c2f0c | done |
 | remote R3 canvas copy | 77f7a7134, f65727f16, fe9d7f375, a139bde94, 101f36c40, 1e632c2ec, e997e0706; stubs for file, link, git, page | done |
