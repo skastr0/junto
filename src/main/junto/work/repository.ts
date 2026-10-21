@@ -61,11 +61,9 @@ import {
   FinishCriteria,
   Message,
   Task,
-  resolveTaskAdmission,
   type Artifact as ArtifactValue,
   type Message as MessageValue,
   type Task as TaskValue,
-  type TaskAdmission,
   type TaskState,
 } from "@shared/work-model";
 import {
@@ -128,7 +126,6 @@ import {
 import {
   normalizeRuleEvidence,
   TASK_APPROVED_METADATA_KEY,
-  taskAdmissionState,
 } from "@shared/rules";
 import { StateTransactionOperation } from "../state/service";
 import { ContentManifest, ContentManifestError } from "../content/manifest";
@@ -441,7 +438,6 @@ type TaskDependencyScopeCapabilityData = {
   /** Hash of the exact raw canvas body containing the authoring sink. */
   readonly canvasBodySha256: string;
   readonly allowedTaskSinkNodeIds: ReadonlyArray<string>;
-  readonly sinkAdmissionFloor: TaskAdmission;
   readonly sinkHostId: string;
   readonly actorGrants: ReadonlyArray<TaskActorGrant>;
 };
@@ -507,7 +503,6 @@ const canonicalTaskTopologyIndex = (canvas: Canvas, authoringSink: SinkRefValue)
   }
   return {
     allowedTaskSinkNodeIds: Object.freeze(allowedTaskSinkNodeIds),
-    sinkAdmissionFloor: resolveTaskAdmission(sink.contract),
     sinkHostId: "local",
     actorGrants: Object.freeze([...grants].sort(([a], [b]) => compareCodeUnits(a, b)).map(([actorNodeId, held]) => Object.freeze({ actorNodeId, grants: Object.freeze([...held].sort(compareCodeUnits)) }))),
   };
@@ -1278,40 +1273,6 @@ const assertCanonicalWaitUntil = (
       "invalid-transition",
       `task ${JSON.stringify(task.id)} has a noncanonical waitUntil`,
     );
-  }
-};
-
-/** Recheck admission and wait against the exact capability topology. */
-const assertTaskAdmissionReady = (
-  task: TaskValue,
-  sink: SinkRefValue,
-  capability: TaskDependencyScopeCapability,
-): void => {
-  assertCanonicalWaitUntil(task);
-  const inspected = requireDependencyCapability(sink, capability);
-  const contract =
-    inspected.sinkAdmissionFloor === "auto"
-      ? undefined
-      : { incoming: { admission: inspected.sinkAdmissionFloor } };
-  const admission = taskAdmissionState(task, contract, Date.now());
-  switch (admission) {
-    case "claimable":
-      return;
-    case "operator":
-      throw authorityError(
-        "claim-contention",
-        `board ${JSON.stringify(sink.nodeId)} is set to Me; no agent may claim its Tasks`,
-      );
-    case "approval":
-      throw authorityError(
-        "invalid-transition",
-        `task ${JSON.stringify(task.id)} awaits operator approval at sink ${JSON.stringify(sink.nodeId)}`,
-      );
-    case "waiting":
-      throw authorityError(
-        "invalid-transition",
-        `task ${JSON.stringify(task.id)} is not claimable before ${task.waitUntil ?? "its durable wait expires"}`,
-      );
   }
 };
 
@@ -5123,14 +5084,6 @@ export const WorkRepositoryLive = Layer.effect(
                 ),
               );
             }
-            yield* Effect.try(
-              assertTaskAdmissionReady.bind(
-                undefined,
-                current.task,
-                input.sink,
-                input.dependencyScope,
-              ),
-            );
             yield* assertTaskClaimReady(
               writer,
               current.task,
