@@ -6,6 +6,7 @@ import { OperatorAttachments } from "./operator-attachments";
 import { ContentRef } from "./wire/content-ref";
 import { messageIdTimeMs } from "./message-delivery";
 import { LinesAnchor, subjectLabel, threadSubjectOf, type ResourceSubject } from "./thread-subject";
+import { mentionLinksOf } from "./mention";
 import type { Message } from "./work-model";
 import { OPERATOR_SEAT_ID } from "./work-reference";
 import { NOTICE_SEAT_ID } from "./mail-author";
@@ -160,6 +161,17 @@ const entriesOf = (input: MailThreadsInput): ReadonlyArray<Entry> => {
 const involves = (entry: Entry, nodeId: string): boolean =>
   [entry.from, ...entry.to].some((party) => party.kind === "seat" && party.nodeId === nodeId);
 
+/** A thread's title reads a mention as its label, never as the link it is written as. */
+const titleText = (text: string): string => {
+  let out = "";
+  let at = 0;
+  for (const link of mentionLinksOf(text)) {
+    out += text.slice(at, link.start) + link.label;
+    at = link.end;
+  }
+  return out + text.slice(at);
+};
+
 const summaryOf = (input: MailThreadsInput, threadId: string, entries: ReadonlyArray<Entry>): MailThreadSummary => {
   const first = entries[0]!;
   const last = entries[entries.length - 1]!;
@@ -176,7 +188,7 @@ const summaryOf = (input: MailThreadsInput, threadId: string, entries: ReadonlyA
     // A subject thread is listed as its resource: a task thread as the task.
     title: subject !== undefined
       ? (input.subjectNameOf?.(subject) ?? subjectLabel(subject))
-      : root.text.split(/\r?\n/, 1)[0]?.trim() || (root.attachments?.[0]?.displayName ?? ""),
+      : titleText(root.text.split(/\r?\n/, 1)[0] ?? "").trim() || (root.attachments?.[0]?.displayName ?? ""),
     participants: [...participants.values()],
     startedAt: first.at,
     lastAt: last.at,

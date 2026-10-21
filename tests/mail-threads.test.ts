@@ -453,6 +453,8 @@ describe("operator threads", () => {
     expect(message).not.toHaveProperty("mentions");
     const [thread] = await threadsOf("agent");
     expect(thread!.participants).toEqual([{ kind: "operator" }, { kind: "seat", nodeId: "agent", name: "agent" }]);
+    // The title reads the mention as its label, not as its link.
+    expect(thread!.title).toBe("peer has the numbers");
     expect(await threadsOf("peer")).toEqual([]);
   });
 
