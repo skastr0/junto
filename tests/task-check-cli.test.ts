@@ -38,16 +38,17 @@ describe("task check results", () => {
     expect(failedAt(await results(["tests=0"], [], "[]"))).toBe("results");
   });
 
-  it("reads --results from a file, keeping each output's last bytes", async () => {
+  it("reads --results from a file, keeping each output's last characters, not bytes", async () => {
     const dir = mkdtempSync(join(tmpdir(), "junto-task-check-"));
     try {
       const file = join(dir, "checks.json");
-      const output = `${"x".repeat(CHECK_OUTPUT_TAIL_MAX)}end`;
+      // Each é is one character and two UTF-8 bytes: a byte cut would keep half as many.
+      const output = `${"é".repeat(CHECK_OUTPUT_TAIL_MAX)}end`;
       writeFileSync(file, JSON.stringify([{ checkId: "e2e", side: "incoming", exitCode: 1, outputTail: output }]));
       const exit = await results([], [], `@${file}`);
       if (Exit.isFailure(exit)) throw new Error("expected results");
       expect(exit.value[0]!.outputTail).toHaveLength(CHECK_OUTPUT_TAIL_MAX);
-      expect(exit.value[0]!.outputTail.endsWith("xend")).toBe(true);
+      expect(exit.value[0]!.outputTail.endsWith("éend")).toBe(true);
       expect(failedAt(await results([], [], '[{"checkId":"e2e","side":"sideways","exitCode":1,"outputTail":""}]'))).not.toBe("succeeded");
     } finally {
       rmSync(dir, { recursive: true, force: true });

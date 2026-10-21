@@ -218,7 +218,7 @@ const flaggedResult = (side: CheckSide, value: string) =>
       ? Effect.succeed({ checkId, side, exitCode: Number(code), outputTail: "" })
       : Effect.fail(new InputError({ message: `--${side} takes <checkId>=<exitCode>, got ${JSON.stringify(value)}`, path: side })));
 
-/** The results the flags name, or the JSON --results carries; one way or the other. Each tail keeps its last bytes. */
+/** The results the flags name, or the JSON --results carries; one way or the other. Each tail keeps its last CHECK_OUTPUT_TAIL_MAX characters (UTF-16 code units), as main counts them. */
 export const checkResultsOf = (flags: {
   readonly outgoing: ReadonlyArray<string>;
   readonly incoming: ReadonlyArray<string>;
@@ -244,7 +244,7 @@ const checkCommand = Command.make(
     incoming: repeated("incoming", "A check of the next node you ran: <checkId>=<exitCode>; repeat for several"),
     results: Flag.string("results").pipe(
       Flag.optional,
-      Flag.withDescription("Instead of the flags: [{checkId, side, exitCode, outputTail}] as JSON, @file or -"),
+      Flag.withDescription(`Instead of the flags: [{checkId, side, exitCode, outputTail}] as JSON, @file or -; each tail keeps its last ${CHECK_OUTPUT_TAIL_MAX} characters`),
     ),
     next: Flag.string("next").pipe(Flag.optional, Flag.withDescription("The node whose incoming checks these answer, when there are several")),
     opId: opIdFlag,
