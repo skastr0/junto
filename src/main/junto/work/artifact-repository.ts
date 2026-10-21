@@ -142,11 +142,14 @@ export class ArtifactRepository extends Context.Service<ArtifactRepository,
      * This machine's own unruled artifact commands over the ruled state it
      * holds, in queue order (read-your-writes, 02). A command whose artifact's
      * head body is not held here waits: its base is behind an edit not pulled.
+     * Reach is judged as the ruler judges it, so a command out of its actor's
+     * reach changes nothing another seat reads.
      */
     readonly overlay: (
       canvasName: string,
       writer: InstallationId,
       queued: ReadonlyArray<ResourceCommand<ArtifactOp>>,
+      context: RulingContext,
     ) => Effect.Effect<ReadonlyArray<PendingEntry>, ArtifactPersistenceError>;
     /** Rule one command here and write what it makes. */
     readonly submit: (
@@ -637,6 +640,7 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
       canvasName: string,
       writer: InstallationId,
       queued: ReadonlyArray<ResourceCommand<ArtifactOp>>,
+      context: RulingContext,
     ) {
       const entries = new Map<ItemId, ArtifactEntry>();
       for (const id of new Set(queued.flatMap(({ target }) => (target.itemId === undefined ? [] : [target.itemId])))) {
@@ -645,8 +649,7 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
       }
       const domain = artifactDomain({ now: Date.now, bodyRef: artifactBodyRef });
       return overlay(domain, emptyRuled<ArtifactState, ArtifactFact>(entries), writer, queued, {
-        // Reach was checked when the command was queued; the ruler checks it again.
-        inReach: () => true,
+        ...context,
         // The same verdict a head read gives: a body resolveBody cannot load yet is null.
         baseComplete: (target) => target.itemId === undefined || entries.get(target.itemId)?.body !== null,
       }).pending;

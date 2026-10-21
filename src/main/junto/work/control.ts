@@ -2226,7 +2226,7 @@ const dispatchOp = (
     }
 
     if (isOpOp(op)) {
-      return yield* handleOpOp(op, args, { canvasName: caller.canvasName, nodeId: asNodeId(caller.nodeId) });
+      return yield* handleOpOp(op, args, { canvasName: caller.canvasName, nodeId: asNodeId(caller.nodeId), canvas: board });
     }
 
     if (op === "content.stage") {

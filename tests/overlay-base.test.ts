@@ -126,6 +126,33 @@ describe("the overlay over an incomplete base", () => {
     expect(overlay(holdDomain, ruled, mini, [onStale], { inReach: () => true }).pending).toEqual([{ opId: onStale.opId, status: "pending" }]);
   });
 
+  it("judges a reach exemption on the ruled state, never on the preview", () => {
+    // The holder of an item may move it from out of reach; seat b gives it to a, unruled.
+    type GiveOp = { readonly kind: "give"; readonly to: string } | { readonly kind: "move" };
+    const giveDomain: ResourceDomain<State, GiveOp, Fact> = {
+      kind: "artifact",
+      rule: (_state, { target, op, actor }) => ({
+        kind: "apply",
+        facts: [{ item: target.itemId!, by: op.kind === "give" ? op.to : actor.kind === "seat" ? actor.nodeId : actor.kind }],
+      }),
+      apply: (state, fact) => new Map(state).set(fact.item, fact.by),
+      reachExempt: (state, { target, actor }) => actor.kind === "seat" && state.get(target.itemId!) === actor.nodeId,
+    };
+    const b = { ...seat, nodeId: asNodeId("b") };
+    const give: ResourceCommand<GiveOp> = { ...hold(FRESH), actor: b, op: { kind: "give", to: "a" } };
+    const move: ResourceCommand<GiveOp> = { ...hold(FRESH), op: { kind: "move" } };
+    // Only b reaches the shelf: a holds the item only in the preview.
+    const onlyB = { inReach: (actor: { readonly kind: string; readonly nodeId?: string }) => actor.nodeId === "b" };
+    const view = overlay(giveDomain, emptyRuled<State, Fact>(new Map()), mini, [give, move], onlyB);
+    expect(view.pending).toEqual([
+      { opId: give.opId, status: "pending" },
+      { opId: move.opId, status: "at_risk", refusal: { reason: "not_in_reach", message: "The resource is not in this actor's reach" } },
+    ]);
+    // The same exemption on state that is ruled admits it.
+    const ruledGive = rule(giveDomain, emptyRuled<State, Fact>(new Map()), laptop, give, onlyB).ruled;
+    expect(overlay(giveDomain, ruledGive, mini, [move], onlyB).pending).toEqual([{ opId: move.opId, status: "pending" }]);
+  });
+
   it("waiting is no ruling: base_not_pulled is not a refusal reason", () => {
     expect(Schema.is(RefusalReason)("base_not_pulled")).toBe(false);
   });

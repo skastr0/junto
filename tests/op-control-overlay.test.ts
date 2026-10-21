@@ -26,6 +26,7 @@ const ruled = { state: "refused", opId: mintOpId(), error: { type: "Stale", mess
 
 /** What the artifact overlay saw, and what it answered. */
 let replayed: ReadonlyArray<string> = [];
+let reachOnTheCanvas: boolean | undefined;
 const answer: PendingEntry = { opId: edit.opId, status: "at_risk", waiting: "base_not_pulled", root: edit.opId };
 
 const services = Layer.mergeAll(
@@ -35,15 +36,21 @@ const services = Layer.mergeAll(
     unruled: () => Effect.succeed({ writer: mini, commands: [edit, task] }),
   })),
   Layer.succeed(ArtifactRepository, {
-    overlay: (_canvas: string, _writer: InstallationId, queued: ReadonlyArray<{ readonly opId: string }>) => {
+    overlay: (
+      _canvas: string,
+      _writer: InstallationId,
+      queued: ReadonlyArray<{ readonly opId: string }>,
+      context: { readonly inReach: (actor: unknown, target: unknown) => boolean },
+    ) => {
       replayed = queued.map(({ opId }) => opId);
+      reachOnTheCanvas = context.inReach({ kind: "operator" }, { kind: "artifact", nodeId: "gone" });
       return Effect.succeed([answer]);
     },
   } as never),
 );
 
 const run = (op: "op.show" | "op.list", args: unknown) =>
-  Effect.runPromise(handleOpOp(op, args, { canvasName: "factory", nodeId: asNodeId("a") }).pipe(Effect.provide(services)));
+  Effect.runPromise(handleOpOp(op, args, { canvasName: "factory", nodeId: asNodeId("a"), canvas: { nodes: new Map(), wires: new Map() } as never }).pipe(Effect.provide(services)));
 
 describe("op show and op list over the overlay", () => {
   it("op show gives a queued artifact write its overlay entry, replaying only artifact commands", async () => {
@@ -51,6 +58,8 @@ describe("op show and op list over the overlay", () => {
       op: { state: "queued", opId: edit.opId, overlay: { status: "at_risk", waiting: "base_not_pulled", root: edit.opId } },
     });
     expect(replayed).toEqual([edit.opId]);
+    // The replay judges reach on the caller's canvas, as the ruler does: a node it does not hold is out of reach.
+    expect(reachOnTheCanvas).toBe(false);
   });
 
   it("op list gives the overlay to the queued artifact write only", async () => {

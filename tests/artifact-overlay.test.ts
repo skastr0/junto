@@ -74,7 +74,7 @@ const edit = (id: ItemId, base: number, after: ReadonlyArray<OpId> = []) =>
 
 const overlayOf = (queued: ReadonlyArray<ResourceCommand<ArtifactOp>>) =>
   runtime.runPromise(Effect.gen(function* () {
-    return yield* (yield* ArtifactRepository).overlay(canvas, mini, queued);
+    return yield* (yield* ArtifactRepository).overlay(canvas, mini, queued, { inReach: () => true });
   }));
 
 /** An artifact as the editing machine ruled it: created, then edited to `version` with a body that rides by ref. */

@@ -208,6 +208,21 @@ export const rule = <State, Op, Fact>(
   writer: InstallationId,
   command: ResourceCommand<Op>,
   context: RulingContext,
+): { readonly ruled: Ruled<State, Fact>; readonly ruling: ResourceRuling<Fact> } =>
+  ruleWithReachOn(domain, ruled, writer, command, context, ruled.state);
+
+/**
+ * `rule`, with reach exemptions judged on `reachState`. The ruler passes the
+ * state it rules on; the overlay passes the ruled state, never its preview,
+ * so another seat's unruled command can never bring a target into reach.
+ */
+const ruleWithReachOn = <State, Op, Fact>(
+  domain: ResourceDomain<State, Op, Fact>,
+  ruled: Ruled<State, Fact>,
+  writer: InstallationId,
+  command: ResourceCommand<Op>,
+  context: RulingContext,
+  reachState: State,
 ): { readonly ruled: Ruled<State, Fact>; readonly ruling: ResourceRuling<Fact> } => {
   const key = commandKey(writer, command.opId);
   const prior = ruled.rulings.get(key);
@@ -227,7 +242,7 @@ export const rule = <State, Op, Fact>(
       return record({ kind: "refused", opId: command.opId, error: refusalError(refusal, dependency.root), root: dependency.root }, ruled.state);
     }
   }
-  const admitted = context.inReach(command.actor, command.target) || domain.reachExempt?.(ruled.state, command) === true;
+  const admitted = context.inReach(command.actor, command.target) || domain.reachExempt?.(reachState, command) === true;
   const verdict: DomainVerdict<Fact> = admitted
     ? domain.rule(ruled.state, command)
     : { kind: "refuse", refusal: { reason: "not_in_reach", message: "The resource is not in this actor's reach" } };
@@ -299,7 +314,7 @@ export const overlay = <State, Op, Fact>(
       pending.push({ opId: command.opId, status: "at_risk", waiting: "base_not_pulled", root });
       continue;
     }
-    const next = rule(domain, view, writer, command, context);
+    const next = ruleWithReachOn(domain, view, writer, command, context, ruled.state);
     view = next.ruled;
     if (next.ruling.kind === "applied") {
       pending.push({ opId: command.opId, status: "pending" });

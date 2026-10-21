@@ -7,6 +7,8 @@ import { Effect, Option, Result, Schema } from "effect";
 import { ArtifactOp } from "@shared/artifact";
 import { OP_LIST_MAX, OpListArgs, OpShowArgs, unknownOpError, type OpListResult, type OpOverlay, type OpView } from "@shared/op-control";
 import type { ResourceCommand } from "@shared/resource-command";
+import type { ReachCanvas } from "@shared/region-reach";
+import { rulingContextOf } from "@shared/ruling-context";
 import type { NodeId } from "@shared/physics/schema";
 import type { WorkErrorBody } from "@shared/work-control";
 import { ArtifactRepository } from "./artifact-repository";
@@ -46,6 +48,7 @@ const decodeArtifactOp = Schema.decodeUnknownResult(ArtifactOp);
  */
 const withOverlay = (
   canvasName: string,
+  canvas: ReachCanvas,
   views: ReadonlyArray<OpView>,
 ): Effect.Effect<ReadonlyArray<OpView>, WorkErrorBody, OpRepository> =>
   Effect.gen(function* () {
@@ -59,7 +62,10 @@ const withOverlay = (
       const op = decodeArtifactOp(command.op);
       return Result.isSuccess(op) ? [{ ...command, op: op.success }] : [];
     });
-    const entries = yield* artifacts.value.overlay(canvasName, queue.writer, commands).pipe(Effect.mapError((error) => unreadable(error.message)));
+    // Reach as the ruler judges it: a command out of its actor's reach is
+    // refused in the replay, so it changes nothing the caller reads.
+    const context = rulingContextOf(canvas, () => undefined);
+    const entries = yield* artifacts.value.overlay(canvasName, queue.writer, commands, context).pipe(Effect.mapError((error) => unreadable(error.message)));
     const overlays = new Map(entries.map(({ opId, ...overlay }) => [opId, overlay as OpOverlay]));
     return views.map((view) => {
       const overlay = view.state === "queued" ? overlays.get(view.opId) : undefined;
@@ -70,7 +76,7 @@ const withOverlay = (
 export const handleOpOp = (
   op: OpOp,
   args: unknown,
-  caller: { readonly canvasName: string; readonly nodeId: NodeId },
+  caller: { readonly canvasName: string; readonly nodeId: NodeId; readonly canvas: ReachCanvas },
 ): Effect.Effect<{ readonly op: OpView } | OpListResult, WorkErrorBody> =>
   Effect.gen(function* () {
     const repository = yield* Effect.serviceOption(OpRepository);
@@ -87,7 +93,7 @@ export const handleOpOp = (
         const { opId } = yield* decode(OpShowArgs, args);
         const view = yield* repository.value.show(scope, opId).pipe(Effect.mapError((error) => unreadable(error.message)));
         if (view === undefined) return yield* Effect.fail(unknownOpError(opId));
-        const [shown] = yield* withOverlay(caller.canvasName, [view]).pipe(Effect.provideService(OpRepository, repository.value));
+        const [shown] = yield* withOverlay(caller.canvasName, caller.canvas, [view]).pipe(Effect.provideService(OpRepository, repository.value));
         return { op: shown ?? view };
       }
       case "op.list": {
@@ -99,7 +105,7 @@ export const handleOpOp = (
             limit: Math.min(input.limit ?? OP_LIST_DEFAULT, OP_LIST_MAX),
           })
           .pipe(Effect.mapError((error) => unreadable(error.message)));
-        const ops = yield* withOverlay(caller.canvasName, listed.ops).pipe(Effect.provideService(OpRepository, repository.value));
+        const ops = yield* withOverlay(caller.canvasName, caller.canvas, listed.ops).pipe(Effect.provideService(OpRepository, repository.value));
         return { ...listed, ops };
       }
     }
