@@ -367,12 +367,12 @@ export const canClaimFocusAfterAsyncWork = (
 /**
  * First control to receive keyboard when a focus modal opens.
  * Terminals first (xterm helper textarea), then explicit autofocus, then
- * chat/composer drafts and ordinary text fields. Chrome buttons stay out.
+ * composer drafts and ordinary text fields. Chrome buttons stay out.
  */
 export const PRIMARY_FOCUS_SELECTORS = [
   ".xterm-helper-textarea",
   "[data-autofocus]",
-  "textarea.chat-composer__input",
+  "textarea.prompt-composer__input",
   "textarea:not([disabled])",
   'input:not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"]):not([disabled])',
 ] as const;

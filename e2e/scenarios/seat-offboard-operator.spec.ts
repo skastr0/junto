@@ -427,7 +427,7 @@ const clearSelection = async (page: Page): Promise<void> => {
 const expectSelection = async (page: Page, nodeIds: ReadonlyArray<string>, agents: number = nodeIds.length): Promise<void> => {
   await expect.poll(() => selectedIds(page), { message: "the selected cards", timeout: 10_000 }).toEqual([...nodeIds].sort());
   if (agents >= 2) {
-    await expect(page.getByTestId("rts-multi-prompt").locator(".chat-composer__eyebrow"), "the bar's count of agents").toHaveText(
+    await expect(page.getByTestId("rts-multi-prompt").locator(".prompt-composer__eyebrow"), "the bar's count of agents").toHaveText(
       `multi-prompt — ${String(agents)} agents`,
       { timeout: 10_000 },
     );

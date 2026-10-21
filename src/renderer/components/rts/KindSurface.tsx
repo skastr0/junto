@@ -54,8 +54,7 @@ import { OverseerMark } from "../OverseerMark";
 import { WaitingOnSection } from "../WaitingOnSection";
 import { RegionPathsModal } from "../RegionPathsModal";
 import { RegionEnvironmentModal } from "../region-environment/RegionEnvironmentModal";
-import { ChatComposer } from "../chat/ChatComposer";
-import "../chat/chat.css";
+import { PromptComposer } from "./PromptComposer";
 import {
   NodeCapabilityInventory,
   NodeFieldEditors,
@@ -329,7 +328,7 @@ function RegionKindSurface({ node }: { readonly node: Region }) {
 
 /**
  * Multi-select kind surface: generic cue for mixed; kind actions when homogeneous.
- * Agents get multi-prompt (same text → every selected managed seat) via ChatComposer.
+ * Agents get multi-prompt (same text → every selected managed seat) via PromptComposer.
  * Send / label / status float over the textarea so the mid panel never clips them.
  */
 const canonicalSelection = (nodes: ReadonlyArray<Node>): ReadonlyArray<Node> =>
@@ -369,8 +368,8 @@ const MultiPromptComposer = memo(
         data-focus-owner="interactive"
         data-testid="rts-multi-prompt"
       >
-        <ChatComposer
-          className="chat-composer--rts chat-composer--overlay"
+        <PromptComposer
+          className="prompt-composer--rts prompt-composer--overlay"
           ariaLabel="Prompt all selected agents"
           placeholder="Message all selected agents…"
           hint="⌘↵ send to all"

@@ -81,7 +81,7 @@ describe("focus modal open", () => {
     const composer = { focus() {} } as HTMLElement;
     const picked = pickPrimaryFocusControl({
       querySelector: (selector) =>
-        selector === "textarea.chat-composer__input" ? composer : null,
+        selector === "textarea.prompt-composer__input" ? composer : null,
     });
     expect(picked).toBe(composer);
   });

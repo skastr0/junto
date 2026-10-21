@@ -19,7 +19,7 @@ import { state$ } from "../../lib/state";
 import { FocusSurface } from "../FocusSurface";
 import { Button, Kbd } from "../ui";
 import { DemoSeat, DemoWire, PULSE_BEAT_MS, TourStage, seatPort, useTourBeat } from "./tour-demo";
-import { ChatComposer } from "../chat/ChatComposer";
+import { PromptComposer } from "../rts/PromptComposer";
 import { FeedCard } from "../feed/OperatorFeed";
 import { feedItemRank, type FeedItem } from "@shared/operator-feed";
 import { DEFAULT_QUICK_REPLIES } from "@shared/settings";
@@ -256,8 +256,8 @@ function TalkDemo() {
       </TourStage>
       {/* The real multi-prompt composer, as it opens for a selection of agents. */}
       <div className="tour-composer" inert aria-hidden>
-        <ChatComposer
-          className="chat-composer--rts"
+        <PromptComposer
+          className="prompt-composer--rts"
           onSend={() => false}
           ariaLabel="Message all selected agents"
           placeholder="Message all selected agents…"
