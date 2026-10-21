@@ -40,6 +40,16 @@ const TIERS: ReadonlyArray<readonly [Tier, number]> = [
  * paints and 30 to 100 raster tasks in 2 s, the overview (every seat on
  * screen) highest. The budget holds that to the clock's cadence: no more
  * than a few tiles per tick, and nothing else repainting.
+ *
+ * The 40 is headroom over those 12 to 16 static layers (df7eec87e): it
+ * guards against overlap blowups like the 809. Motion is not headroom. The
+ * motion law keeps every ring and ping moving on the compositor, and each
+ * moving thing is a layer the board cannot give back: one per minimap ping,
+ * one per turning ring part, one per drawn ring holding its parts (the card,
+ * or the scaled mark at far and overview), one per cluster body over its
+ * ring. So the budget is 40 others on top of those, counted from the DOM in
+ * the same phase. The layers of those kinds may not outnumber what the DOM
+ * draws, so a ring that grows a further layer still fails.
  */
 const LAYER_BUDGET = 40;
 const CLOCK_TICKS_AT_REST = Math.ceil(2_000 / 90);
@@ -48,6 +58,7 @@ const REST_RASTER_BUDGET = CLOCK_TICKS_AT_REST * 8;
 
 type TraceEvent = { readonly name?: string; readonly ph?: string; readonly args?: Record<string, unknown> };
 type SnapshotLayer = {
+  readonly layer_name?: string;
   readonly draws_content?: number | boolean;
   readonly ideal_contents_scale?: number;
   readonly raster_scales?: { readonly contents_scale?: readonly number[] };
@@ -62,8 +73,37 @@ type PhaseReading = {
   readonly starved: number;
   readonly missingTiles: number;
   readonly layers: number;
+  /** Layers of the kinds the motion law requires, as the compositor holds them, and as the DOM draws them. */
+  readonly motionLayers: number;
+  readonly motionDrawn: number;
   readonly pinned: number;
 };
+
+/** A layer for a moving thing: a ping, a ring part, a ring's holder, a cluster body. */
+const MOTION_LAYER = /class='(junto-minimap-ping|junto-mark__part|junto-mark|junto-node|junto-seat-cluster__body)[' ]/;
+
+/** What the DOM draws moving right now, in layers the motion law requires. */
+const motionDrawn = (page: Page): Promise<number> =>
+  page.evaluate(() => {
+    const shown = (el: Element): boolean => {
+      const style = getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden") return false;
+      const box = el.getBoundingClientRect();
+      return box.width > 0 && box.height > 0 && box.right > 0 && box.bottom > 0 &&
+        box.left < innerWidth && box.top < innerHeight;
+    };
+    const moving = (el: Element): boolean => shown(el) && getComputedStyle(el).animationName !== "none";
+    const pings = [...document.querySelectorAll(".junto-minimap-ping")].filter(moving).length;
+    let parts = 0;
+    let rings = 0;
+    for (const mark of document.querySelectorAll(".junto-mark[data-mark-visible]")) {
+      const turning = [...mark.querySelectorAll(":scope > .junto-mark__part")].filter(moving).length;
+      parts += turning;
+      if (turning > 0) rings += 1;
+    }
+    const clusters = [...document.querySelectorAll(".junto-seat-cluster__body")].filter(shown).length;
+    return pings + parts + rings + clusters;
+  });
 
 const scale = (page: Page): Promise<number> =>
   page.evaluate(() => new DOMMatrix(getComputedStyle(document.querySelector(".react-flow__viewport")!).transform).a);
@@ -142,6 +182,7 @@ const traced = async (
   await run();
   const seconds = (Date.now() - started) / 1000;
   const taskAfter = await taskSeconds();
+  const drawn = await motionDrawn(page);
   const frames = await page.evaluate(() => {
     const w = window as unknown as { __tierFrames: number; __tierStop: boolean };
     w.__tierStop = true;
@@ -175,6 +216,8 @@ const traced = async (
       .filter((e) => e.name === "TileBasedLayerImpl::AppendQuads checkerboard")
       .reduce((sum, e) => sum + Number(e.args?.["missing_tile_count"] ?? 0), 0),
     layers: layers.length,
+    motionLayers: layers.filter((l) => MOTION_LAYER.test(l.layer_name ?? "")).length,
+    motionDrawn: drawn,
     pinned: layers.filter((l) => {
       const ideal = l.ideal_contents_scale ?? 1;
       const raster = l.raster_scales?.contents_scale?.[0] ?? ideal;
@@ -219,8 +262,13 @@ for (const preset of ["nested", "deep"] as const satisfies readonly NestedCanvas
           expect(phase.starved, `${label}: tile assigns without memory for tiles needed now`).toBe(0);
           expect(phase.missingTiles, `${label}: checkerboarded tiles`).toBe(0);
           expect(phase.pinned, `${label}: layers rastered far above their zoom`).toBe(0);
-          // The board is a handful of layers, not one per card or wire.
-          expect(phase.layers, `${label}: compositor layers`).toBeLessThanOrEqual(LAYER_BUDGET);
+          // The board is a handful of layers, not one per card or wire, on
+          // top of the layers its motion requires; and that motion costs no
+          // more layers than the DOM draws moving.
+          expect(phase.motionLayers, `${label}: motion layers against what the DOM draws moving`)
+            .toBeLessThanOrEqual(phase.motionDrawn);
+          expect(phase.layers - phase.motionLayers, `${label}: compositor layers beside the motion`)
+            .toBeLessThanOrEqual(LAYER_BUDGET);
         }
         // At rest only the clock repaints: the rings in view, a few tiles a tick.
         expect(row.rest.paints, `${label}: paints at rest`).toBeLessThanOrEqual(REST_PAINT_BUDGET);
