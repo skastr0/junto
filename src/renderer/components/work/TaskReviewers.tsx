@@ -141,9 +141,11 @@ export function TaskReviewers({
 
       {task.reviewers.length === 0 ? (
         <p className="task-reviewers__empty">
-          {required === 0
-            ? "No reviewers. Finishing completes the task."
-            : "No reviewers yet. Add a seat to ask for its stamp."}
+          {closed
+            ? "No reviewers."
+            : required === 0
+              ? "No reviewers. Finishing completes the task."
+              : "No reviewers yet. Add a seat to ask for its stamp."}
         </p>
       ) : (
         <ul className="task-reviewers__list">
