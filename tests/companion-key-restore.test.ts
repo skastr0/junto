@@ -116,8 +116,19 @@ describe("a phone whose line is gone", () => {
     expect((await keyOf(service, A))?.key).toBeUndefined();
 
     // The operator deletes the line by hand; the watcher sees it and only marks.
-    writeFileSync(keysPath, `${OPERATOR_LINE}\n`, { mode: 0o600 });
-    await until(async () => (await keyOf(service, A))?.key === "missing");
+    // On macOS the watch goes live a moment after watch() returns, and a write in
+    // that window is never reported (lost about 1 in 15 under load), so the same
+    // deletion is written again until the watcher has marked it, a second apart:
+    // each event restarts the watcher's settle wait, so a faster rewrite never settles.
+    let wroteAt = 0;
+    await until(async () => {
+      if ((await keyOf(service, A))?.key === "missing") return true;
+      if (Date.now() - wroteAt >= 1_000) {
+        writeFileSync(keysPath, `${OPERATOR_LINE}\n`, { mode: 0o600 });
+        wroteAt = Date.now();
+      }
+      return false;
+    });
     expect(readFileSync(keysPath, "utf8")).toBe(`${OPERATOR_LINE}\n`);
 
     // A reconcile (a restart) changes nothing either: no line, record and state kept.
