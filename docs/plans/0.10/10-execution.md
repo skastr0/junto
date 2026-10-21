@@ -197,6 +197,6 @@ everyone else reports by mail and on the needs-you feed.
 | Flag removal | product-releases, after each deletion's last consumer | waiting on first deletion |
 | pty P1 delete lease | 478ad7409 | done |
 | pty P2 Hermes integration | cc98a66b8, 174e80998, c6b87b36c, 8f01e3e0a, 773e5b015; renderer product-attention e430f78ab; no reference left on main | done |
-| pty P3 seat since and onboard | 2420e2e80 to ec25735dd; L6 format with cli; onboard mailbox read cost unmeasured | done |
-| pty P4 subject threads | 74b442b98, dd4bdf621, d5c91f844, 0d14ddde6; mail-threads and control.ts drops next | started |
+| pty P3 seat since and onboard | 2420e2e80 to ec25735dd; L6 format with cli; since read cut from 2.8 to 7.9 s to 115 ms median on the live db (b3508bb52); onboard stands when the since read dies (ddc9ae495) | done |
+| pty P4 subject threads | 74b442b98 to bb3b2c3b3 (postSubjectComment c80d34747, metadata.mentions gone bb3b2c3b3, operator threads list subjects 14f39705c); non-seat sender 146c2f5b5, f405ba2ba, b908c0fbe, c0cd6b9e1; automation actors ff6ce9c9a; seat mail thread mention stays a reference | done |
 | product, all seats | product | started |
