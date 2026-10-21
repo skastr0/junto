@@ -33,6 +33,9 @@ Draft for 0.10, written from landed commits and kept current by product-releases
 - Lose a command to another machine cleanly. A write that loses to a newer one
   is refused as stale and names the winner, and a seat on another machine
   queues its commands and sees their state.
+- Upgrade a canvas with tasks without losing any. Open tasks whose task board
+  no longer exists are canceled but stay readable with their history, and
+  tasks sent on fold into their heads. Wires, seats and regions are unchanged.
 - Remove pinning. The pinned dock and every pin control are gone.
 - Remove the Requests node and the bulletin board. Escalate from a seat with
   `junto escalate` as before.
