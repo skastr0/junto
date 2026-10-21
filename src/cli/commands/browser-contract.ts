@@ -94,7 +94,7 @@ export const BROWSER_COMMANDS = {
   comment: {
     usage: "comment <sessionId> --box <x,y,w,h> --text <text> [--tab <tab>]",
     category: "workflow",
-    description: `Ask to comment on a box of the page. Control refuses it as unsupported_capability until seat-made shots are allowed; then it answers the message and thread ids.${TAB}`,
+    description: `Comment on a box of the page as this seat, with a shot of the box, and return the message and thread ids.${TAB}`,
     schema: CommentRequest,
   },
   close: {

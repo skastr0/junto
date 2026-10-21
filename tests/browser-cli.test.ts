@@ -271,11 +271,14 @@ describe("junto browser on the standard envelope", { timeout: 30_000 }, () => {
   });
 
   it("passes a comment's refusals through in control's words", async () => {
+    // The route's own words: page-box-comment.ts and the screenshot route's sessions.
     const refusals = [
-      { status: 501, error: { _tag: "unsupported_capability", message: "seat-made shots are held until the operator purge lands" }, type: "InputError" },
-      { status: 403, error: { _tag: "forbidden", message: "this lease names no seat; a comment needs one" }, type: "AuthError" },
-      { status: 404, error: { _tag: "not_found", message: "no session session-1 held by this seat" }, type: "UnknownTarget" },
-      { status: 400, error: { _tag: "invalid", message: "the box lies outside the page" }, type: "InputError" },
+      { status: 403, error: { _tag: "forbidden", message: "This canvas is paused: a seat comments when the operator plays it." }, type: "AuthError", retryable: false },
+      { status: 403, error: { _tag: "forbidden", message: "This grant's seat is not on the canvas." }, type: "AuthError", retryable: false },
+      { status: 403, error: { _tag: "forbidden", message: '"page-1" is outside the reach of "agent-1"' }, type: "AuthError", retryable: false },
+      { status: 409, error: { _tag: "operator_holds", message: "the operator has taken this page over" }, type: "Paused", retryable: true },
+      { status: 400, error: { _tag: "invalid", message: "This page's address cannot be named on a comment." }, type: "InputError", retryable: false },
+      { status: 404, error: { _tag: "not_found", message: "no session session-1 held by this seat" }, type: "UnknownTarget", retryable: false },
     ] as const;
     for (const refusal of refusals) {
       const root = await newRoot();
@@ -287,7 +290,7 @@ describe("junto browser on the standard envelope", { timeout: 30_000 }, () => {
       expect(envelope(result.stderr)).toMatchObject({
         ok: false,
         command: "browser comment",
-        error: { type: refusal.type, message: refusal.error.message, details: { reason: refusal.error._tag, retryable: false } },
+        error: { type: refusal.type, message: refusal.error.message, details: { reason: refusal.error._tag, retryable: refusal.retryable } },
       });
       expect(seen).toHaveLength(1);
     }
