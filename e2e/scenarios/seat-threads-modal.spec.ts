@@ -142,6 +142,14 @@ test("seat Threads modal: sizing, markdown, clamps, bubble width and faces", asy
     expect(html).toMatch(/<strong[^>]*>bold words<\/strong>/);
     expect(html).toMatch(/<code[^>]*>inline_code<\/code>/);
     expect(html).toMatch(/<li[^>]*>[\s\S]*first item/);
+    const bullets = await prose.locator("li").first().evaluate((li) => {
+      const cs = getComputedStyle(li);
+      const ul = li.parentElement!;
+      return { display: cs.display, listStyleType: cs.listStyleType, parentListStyle: getComputedStyle(ul).listStyleType, padLeft: getComputedStyle(ul).paddingLeft };
+    });
+    report.push(`(2) list item style: ${JSON.stringify(bullets)}`);
+    expect(bullets.display, "list items are list items").toBe("list-item");
+    expect(bullets.listStyleType === "none" && bullets.parentListStyle === "none", "markdown lists show bullets").toBe(false);
     expect(text, "no raw asterisks").not.toContain("**");
     expect(text, "no raw backticks").not.toContain("`");
     const chip = page.getByTestId("seat-threads-mention").first();
@@ -220,6 +228,51 @@ test("seat Threads modal: sizing, markdown, clamps, bubble width and faces", asy
         };
       });
       const ratio = m.bubbleWidth / m.streamWidth;
+      const lines = await page.evaluate(() => {
+        const prose = document.querySelector(".seat-threads__prose") as HTMLElement;
+        const range = document.createRange();
+        range.selectNodeContents(prose);
+        // Characters per visual line, counted by walking the text and noting where the top changes.
+        const walker = document.createTreeWalker(prose, NodeFilter.SHOW_TEXT);
+        const perLineList: number[] = [];
+        let currentTop = -1;
+        let count = 0;
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const text = node.textContent ?? "";
+          for (let i = 0; i < text.length; i += 1) {
+            range.setStart(node, i);
+            range.setEnd(node, i + 1);
+            const rect = range.getClientRects()[0];
+            if (!rect) continue;
+            const top = Math.round(rect.top);
+            if (currentTop !== -1 && top > currentTop + 4) {
+              perLineList.push(count);
+              count = 0;
+            }
+            currentTop = top;
+            count += 1;
+          }
+        }
+        perLineList.push(count);
+        const tops = new Set(perLineList.map((_, i) => i));
+        const chars = (prose.textContent ?? "").length;
+        const proseBox = prose.getBoundingClientRect();
+        const bubbleCs = getComputedStyle(prose.closest(".seat-threads__bubble")!);
+        const textWidth = proseBox.width;
+        void bubbleCs;
+        const font = getComputedStyle(prose).fontSize;
+        const title = getComputedStyle(document.querySelector(".seat-threads__chat-title")!).fontFamily;
+        const probe = document.createElement("span");
+        probe.style.fontFamily = "var(--font-body)";
+        document.body.appendChild(probe);
+        const body = getComputedStyle(probe).fontFamily;
+        probe.remove();
+        return { lines: tops.size, chars, perLine: Math.max(...perLineList), perLineList, textWidth: Math.round(textWidth), font, title, body };
+      });
+      report.push(`(4) ${label}: ${lines.lines} lines, ${lines.chars} characters, lines of ${JSON.stringify(lines.perLineList)} characters (longest ${lines.perLine}), text column ${lines.textWidth}px at ${lines.font}; chat title face ${lines.title === lines.body ? "body (proportional)" : "NOT body"} (${lines.title.slice(0, 40)})`);
+      expect(lines.title, "the chat title is in the body face").toBe(lines.body);
+      // The 80ch cap is in the ch unit (the width of a zero), so prose of narrower average glyphs runs longer; the numbers are the report.
+      expect(lines.textWidth, "the text column holds the 80ch cap").toBeLessThanOrEqual(600);
       report.push(`(4) ${label}: bubble ${Math.round(m.bubbleWidth)} of chat ${m.streamWidth} = ${ratio.toFixed(3)}; prose face ${m.prose === m.body ? "body" : "NOT body"} (${m.prose.slice(0, 40)}); head face ${m.head === m.mono ? "mono" : "NOT mono"} (${m.head.slice(0, 40)}); parts ${JSON.stringify(m.nameParts)}`);
       expect(ratio, "bubble reaches up to 92% of the chat").toBeLessThanOrEqual(0.93);
       expect(m.prose, "prose is in the body face").toBe(m.body);
