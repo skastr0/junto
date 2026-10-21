@@ -98,7 +98,7 @@ export const TaskFinishArgs = Schema.Struct({
   task: TaskRefText,
   /** The downstream node to send it on to, when there are several. */
   next: Schema.optionalKey(TaskNodeText),
-  /** What answers the rules in force on the task's node: cited artifacts and commits, claims, waivers. */
+  /** What answers the rules in force on the task's node: cited artifacts and commits, and a claim per rule. */
   evidence: Schema.optionalKey(CompletionEvidence),
 }).annotate(strict);
 export type TaskFinishArgs = typeof TaskFinishArgs.Type;
