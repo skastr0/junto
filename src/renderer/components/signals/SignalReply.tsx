@@ -9,6 +9,7 @@ import { claimFocus } from "../../lib/focus-ownership";
 import { modKeyGlyph } from "../../lib/platform";
 import { useAttachments } from "../../lib/operator-attachments";
 import { carryText, useLongText } from "../../lib/long-text";
+import { useMentionItems } from "../../lib/mention-items";
 import { useConnectedSeats, useResourcesInReach } from "../../lib/mention-sources";
 import { answerLabel, useQuickReplies, useQuietNotes } from "../../lib/quick-replies";
 import { AttachButton, AttachmentTray } from "../attachments/AttachmentTray";
@@ -100,7 +101,7 @@ export function SignalReply({
   const attachments = useAttachments(canvasName);
   const seat = useMemo(() => ({ canvasName, seatId: seatNodeId }), [canvasName, seatNodeId]);
   const wired = useConnectedSeats(seat);
-  const inReach = useResourcesInReach(canvasName, seatNodeId as NodeId);
+  const inReach = useResourcesInReach(canvasName, seatNodeId as NodeId, useMentionItems(canvasName));
   const candidates = useMemo(() => [...wired, ...inReach], [wired, inReach]);
   const { pending, error, act } = useSignalAction(() => {
     attachments.clear();

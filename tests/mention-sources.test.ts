@@ -59,6 +59,15 @@ describe("mention sources", () => {
     expect(ids).not.toContain("PB");
   });
 
+  it("from a page, the tasks, artifacts and other pages in its reach, not itself and not a sibling region's", () => {
+    const ids = resourceNodesInReach(canvas, asNodeId("P")).map((entry) => entry.id);
+    expect(ids).toContain("T");
+    expect(ids).toContain("R");
+    expect(ids).not.toContain("P");
+    expect(ids).not.toContain("PB");
+    expect(ids).not.toContain("S");
+  });
+
   it("two candidates with one label read apart by region path", () => {
     const twins = [
       { ref: { kind: "seat" as const, nodeId: asNodeId("S") }, label: "@x" },

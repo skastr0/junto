@@ -1,11 +1,12 @@
-import { useCallback, useState, type KeyboardEvent } from "react";
+import { useCallback, useMemo, useState, type KeyboardEvent } from "react";
 import type { BrowserBoxDraft } from "@shared/browser-chrome";
 import { asNodeId } from "@shared/model";
 import { pngDataUrl } from "../../lib/png-data-url";
 import { Button } from "../ui";
 import { MentionCombobox } from "../ui/MentionCombobox";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
-import { useSeatsInReach } from "../../lib/mention-sources";
+import { useMentionItems } from "../../lib/mention-items";
+import { useResourcesInReach, useSeatsInReach } from "../../lib/mention-sources";
 
 const hostOf = (url: string): string => {
   try {
@@ -30,7 +31,7 @@ export function BoxCommentComposer({
   onDiscard,
 }: {
   readonly draft: BrowserBoxDraft;
-  /** The canvas and the page node: `@` names a seat in the page's reach, the only seats a comment on it may mention. */
+  /** The canvas and the page node: `@` names a seat or page in the page's reach, `#` a task or artifact there, the only things a comment on it may mention. */
   readonly canvasName: string;
   readonly nodeId: string;
   readonly pending?: boolean;
@@ -38,7 +39,10 @@ export function BoxCommentComposer({
   readonly onDiscard: () => void;
 }) {
   const [text, setText] = useState("");
-  const seats = useSeatsInReach(canvasName, asNodeId(nodeId));
+  const page = asNodeId(nodeId);
+  const seats = useSeatsInReach(canvasName, page);
+  const inReach = useResourcesInReach(canvasName, page, useMentionItems(canvasName));
+  const candidates = useMemo(() => [...seats, ...inReach], [seats, inReach]);
   const setField = useCallback((element: HTMLTextAreaElement | null) => {
     claimFocusOnMount(element);
   }, []);
@@ -65,10 +69,9 @@ export function BoxCommentComposer({
         value={text}
         onValueChange={(next) => setText(next)}
         canvasName={canvasName}
-        candidates={seats}
-        listLabel={() => "Seats in reach of this page"}
-        noun={{ one: "seat", other: "seats" }}
-        placeholder="What about this area? @ names a seat in reach"
+        candidates={candidates}
+        listLabel={(trigger) => (trigger === "@" ? "Seats and pages in reach of this page" : "Tasks and artifacts in reach of this page")}
+        placeholder="What about this area? @ names a seat or page in reach, # a task or artifact"
         aria-label="Comment"
         rows={3}
         onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {

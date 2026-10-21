@@ -425,7 +425,7 @@ describe("the thread composer", () => {
     expect(
       [...document.querySelectorAll('[data-testid="mention-option"] .mention-combobox__label')].map((label) => label.textContent),
     ).toEqual(["@cli-lead", "@canvas-lead"]);
-    expect(document.querySelector('[role="listbox"]')?.getAttribute("aria-label")).toBe("Seats connected to pty-lead");
+    expect(document.querySelector('[role="listbox"]')?.getAttribute("aria-label")).toBe("Seats connected to pty-lead, and pages in reach");
     await key("ArrowDown");
     await key("Enter");
     expect(field().value).toBe("Thanks. @canvas-lead ");

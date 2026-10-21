@@ -104,12 +104,18 @@ export const withRegionDetail = (
     return path.length === 0 ? candidate : { ...candidate, detail: path.join(" / ") };
   });
 
-/** Resources a seat or resource reaches, pages included: what a # or a page @ may name from there. */
+/**
+ * Resources a seat or resource reaches, pages included: what a # or a page @
+ * may name from there. `resourcesInReach` answers for a seat alone, so a
+ * resource's comments read reach itself, by the same `reaches`.
+ */
 export const resourceNodesInReach = (
   canvas: Pick<Canvas, "nodes">,
   from: NodeId,
 ): ReadonlyArray<ReachNode> => {
-  const found = [...resourcesInReach(canvas, from)];
+  const found = canvas.nodes.get(from)?.kind === "agent"
+    ? [...resourcesInReach(canvas, from)]
+    : [...canvas.nodes.values()].filter((node) => (node.kind === "task" || node.kind === "artifacts") && node.id !== from && reaches(canvas, from, node.id));
   for (const node of canvas.nodes.values()) {
     if (node.kind === "page" && node.id !== from && reaches(canvas, from, node.id)) found.push(node);
   }

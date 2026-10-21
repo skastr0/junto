@@ -1,8 +1,10 @@
-import { useCallback, useState, type KeyboardEvent } from "react";
+import { useCallback, useMemo, useState, type KeyboardEvent } from "react";
 import { MAIL_TEXT_INLINE_MAX_BYTES, type TextBound } from "@shared/mail-text-bound";
+import type { NodeId } from "@shared/physics/schema";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
 import { carryText, useLongText } from "../../lib/long-text";
-import { useConnectedSeats } from "../../lib/mention-sources";
+import { useMentionItems } from "../../lib/mention-items";
+import { useConnectedSeats, useResourcesInReach } from "../../lib/mention-sources";
 import { useAttachments } from "../../lib/operator-attachments";
 import { sendSeatThread, THREAD_TEXT_MAX, type SeatAddress } from "../../lib/seat-threads";
 import { AttachButton, AttachmentTray } from "../attachments/AttachmentTray";
@@ -15,9 +17,10 @@ const THREAD_BOUND: TextBound = { bytes: MAIL_TEXT_INLINE_MAX_BYTES, characters:
 
 /**
  * The operator writes in a seat's threads: a reply in a thread they are in,
- * or a new thread to the seat. Enter sends, Shift+Enter is a new line, and @
- * opens the seats wired to this one. The mail goes to this seat alone: an @
- * is a reference, its seat gets no copy and does not join the thread. Past
+ * or a new thread to the seat. Enter sends, Shift+Enter is a new line, @
+ * opens the seats wired to this one and the pages in its reach, and # the
+ * tasks and artifacts in its reach. The mail goes to this seat alone: a
+ * mention is a reference, its seat gets no copy and does not join the thread. Past
  * main's bound the text goes as a file, attached. A refused send says
  * main's message as is and keeps the draft.
  */
@@ -44,6 +47,8 @@ export function ThreadComposer({
   readonly onCancel?: () => void;
 }) {
   const connected = useConnectedSeats(seat);
+  const inReach = useResourcesInReach(seat.canvasName, seat.seatId as NodeId, useMentionItems(seat.canvasName));
+  const candidates = useMemo(() => [...connected, ...inReach], [connected, inReach]);
   const attachments = useAttachments(seat.canvasName);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -120,9 +125,8 @@ export function ThreadComposer({
             setFailure(undefined);
           }}
           canvasName={seat.canvasName}
-          candidates={connected}
-          listLabel={() => `Seats connected to ${name}`}
-          noun={{ one: "seat", other: "seats" }}
+          candidates={candidates}
+          listLabel={(trigger) => (trigger === "@" ? `Seats connected to ${name}, and pages in reach` : `Tasks and artifacts in reach of ${name}`)}
           aria-label={mode === "new" ? `New thread to ${name}` : "Reply"}
           data-testid="thread-composer-input"
           onKeyDown={onKeyDown}
