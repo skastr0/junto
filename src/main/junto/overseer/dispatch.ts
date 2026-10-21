@@ -86,7 +86,7 @@ const errorType = (type: WorkErrorBody["type"]): OverseerErrorType => {
     case "ScopeError": case "AuthError": case "ReviewerIsAuthor": return "Forbidden";
     case "UnknownTarget": case "StaleNodeRef": return "NotFound";
     case "InputError": case "ProtocolError": return "InvalidArguments";
-    case "ClaimConflict": case "InvalidTransition": return "Conflict";
+    case "ClaimConflict": case "InvalidTransition": case "Stale": return "Conflict";
     case "RuntimeDown": case "Timeout": return "RuntimeDown";
     case "Paused": return "Conflict";
     case "InternalError": return "InternalError";
