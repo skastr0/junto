@@ -417,6 +417,12 @@
   gap: 6px;
 }
 
+.artifact-comments__refusal {
+  margin: 0;
+  color: var(--color-crimson-fg);
+  font-size: var(--text-label);
+}
+
 .artifact-comments__empty {
   padding: 12px;
   color: var(--color-dim);
@@ -473,11 +479,6 @@
 .artifact-thread__anchor:focus-visible {
   outline: 2px solid var(--color-cyan);
   outline-offset: 1px;
-}
-
-.artifact-thread__version {
-  color: var(--color-faint);
-  font-variant-numeric: tabular-nums;
 }
 
 .artifact-thread__posts {

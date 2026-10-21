@@ -1,9 +1,14 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import type { MentionRef } from "@shared/mention";
+import type { NodeKind } from "@shared/model/kinds";
+import type { NodeId } from "@shared/physics/schema";
 import { MessageSquare } from "lucide-react";
 import type { Anchor } from "@shared/thread-subject";
-import type { ArtifactThread } from "../../lib/artifacts-source";
+import type { SubjectThread } from "../../lib/subject-threads-source";
 import type { MentionCandidate } from "../../lib/mention-draft";
-import { Button, Eyebrow, PaneHeader } from "../ui";
+import { Button, Eyebrow, PaneHeader, ResourceChip } from "../ui";
+import { mentionLabelKind } from "../tasks/mention-chip";
+import { textPieces } from "../tasks/mention-text";
 import { MentionCombobox } from "../ui/MentionCombobox";
 import { actorLabel, ageLabel, anchorLabel } from "./artifacts-pane-model";
 
@@ -25,27 +30,35 @@ export function ArtifactComments({
   seatName,
   canvasName,
   mentionable,
+  nodeKindOf,
+  onOpenMention,
 }: {
   readonly canvasName: string;
   /** Seats in reach of the Artifacts node: the only ones a comment may name. */
   readonly mentionable: ReadonlyArray<MentionCandidate>;
-  readonly threads: ReadonlyArray<ArtifactThread>;
+  readonly threads: ReadonlyArray<SubjectThread>;
   /** A seat's name by its node id, for post authors. */
   readonly seatName?: (nodeId: string) => string | undefined;
   readonly draftAnchor: Anchor | undefined;
   readonly now: number;
-  readonly onStart: (text: string, anchor: Anchor | undefined) => void;
-  readonly onReply: (threadId: string, text: string) => void;
+  /** Post; resolves to the refusal in words, or null when posted. A refused text stays in its composer. */
+  readonly onStart: (text: string, anchor: Anchor | undefined) => Promise<string | null>;
+  readonly onReply: (threadId: string, text: string) => Promise<string | null>;
+  /** Reads a mention link's node, to draw it as a chip. */
+  readonly nodeKindOf: (nodeId: NodeId) => NodeKind | undefined;
+  readonly onOpenMention: (ref: MentionRef) => void;
   readonly onClearAnchor: () => void;
   readonly onFocusAnchor?: (anchor: Anchor | undefined) => void;
 }) {
   const [draft, setDraft] = useState("");
+  const [refusal, setRefusal] = useState<string | null>(null);
 
-  const start = (): void => {
+  const start = async (): Promise<void> => {
     const text = draft.trim();
     if (text.length === 0) return;
-    onStart(text, draftAnchor);
-    setDraft("");
+    const refused = await onStart(text, draftAnchor);
+    setRefusal(refused);
+    if (refused === null) setDraft("");
   };
 
   return (
@@ -77,11 +90,16 @@ export function ArtifactComments({
           onKeyDown={(event) => {
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
               event.preventDefault();
-              start();
+              void start();
             }
           }}
         />
-        <Button size="sm" variant="primary" disabled={draft.trim().length === 0} onClick={start}>
+        {refusal ? (
+          <p className="artifact-comments__refusal" role="alert">
+            {refusal}
+          </p>
+        ) : null}
+        <Button size="sm" variant="primary" disabled={draft.trim().length === 0} onClick={() => void start()}>
           Comment
         </Button>
       </div>
@@ -99,6 +117,8 @@ export function ArtifactComments({
               seatName={seatName}
               canvasName={canvasName}
               mentionable={mentionable}
+              nodeKindOf={nodeKindOf}
+              onOpenMention={onOpenMention}
               onReply={(text) => onReply(thread.threadId, text)}
               onFocus={onFocusAnchor ? () => onFocusAnchor(thread.anchor) : undefined}
             />
@@ -117,21 +137,27 @@ function ThreadView({
   seatName,
   canvasName,
   mentionable,
+  nodeKindOf,
+  onOpenMention,
 }: {
   readonly canvasName: string;
   readonly mentionable: ReadonlyArray<MentionCandidate>;
-  readonly thread: ArtifactThread;
+  readonly nodeKindOf: (nodeId: NodeId) => NodeKind | undefined;
+  readonly onOpenMention: (ref: MentionRef) => void;
+  readonly thread: SubjectThread;
   readonly now: number;
   readonly seatName?: (nodeId: string) => string | undefined;
-  readonly onReply: (text: string) => void;
+  readonly onReply: (text: string) => Promise<string | null>;
   readonly onFocus?: () => void;
 }) {
   const [reply, setReply] = useState("");
-  const send = (): void => {
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const send = async (): Promise<void> => {
     const text = reply.trim();
     if (text.length === 0) return;
-    onReply(text);
-    setReply("");
+    const refused = await onReply(text);
+    setRefusal(refused);
+    if (refused === null) setReply("");
   };
   return (
     <li className="artifact-thread">
@@ -139,15 +165,14 @@ function ThreadView({
         <button type="button" className="artifact-thread__anchor" onClick={onFocus} disabled={onFocus === undefined}>
           <MessageSquare size={12} aria-hidden />
           <span>{anchorLabel(thread.anchor)}</span>
-          <span className="artifact-thread__version">v{thread.version}</span>
         </button>
       </div>
       <ol className="artifact-thread__posts">
         {thread.posts.map((post) => (
-          <li key={post.postId} className="artifact-thread__post">
+          <li key={post.messageId} className="artifact-thread__post">
             <span className="artifact-thread__author">{actorLabel(post.author, seatName)}</span>
             <span className="artifact-thread__age">{ageLabel(post.at, now)}</span>
-            <p className="artifact-thread__text">{post.text}</p>
+            <PostText text={post.text} nodeKindOf={nodeKindOf} onOpen={onOpenMention} />
           </li>
         ))}
       </ol>
@@ -167,16 +192,57 @@ function ThreadView({
             onKeyDown={(event) => {
               if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                 event.preventDefault();
-                send();
+                void send();
               }
             }}
           />
+          {refusal ? (
+            <p className="artifact-comments__refusal" role="alert">
+              {refusal}
+            </p>
+          ) : null}
           {reply.trim().length > 0 ? (
-            <Button size="xs" variant="chrome" onClick={send}>
+            <Button size="xs" variant="chrome" onClick={() => void send()}>
               Reply
             </Button>
           ) : null}
         </div>
     </li>
+  );
+}
+
+/** A post's text, its mentions drawn as chips that open what they name. */
+function PostText({
+  text,
+  nodeKindOf,
+  onOpen,
+}: {
+  readonly text: string;
+  readonly nodeKindOf: (nodeId: NodeId) => NodeKind | undefined;
+  readonly onOpen: (ref: MentionRef) => void;
+}) {
+  return (
+    <p className="artifact-thread__text">
+      {textPieces(text, nodeKindOf).map((piece, index): ReactNode => {
+        switch (piece.kind) {
+          case "text":
+            return <span key={index}>{piece.text}</span>;
+          case "gone":
+            return <ResourceChip key={index} kind="seat" label={piece.label.replace(/^[@#]/u, "")} missing />;
+          case "mention": {
+            const chip = mentionLabelKind(piece.ref, piece.label);
+            return (
+              <ResourceChip
+                key={index}
+                kind={chip.kind}
+                label={chip.label}
+                {...(chip.number === undefined ? {} : { number: chip.number })}
+                onOpen={() => onOpen(piece.ref)}
+              />
+            );
+          }
+        }
+      })}
+    </p>
   );
 }

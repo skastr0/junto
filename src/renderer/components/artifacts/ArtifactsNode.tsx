@@ -25,7 +25,6 @@ import {
   useNodePendingWrites,
   type ArtifactPendingWrite,
   useArtifactHistory,
-  useArtifactThreads,
   useNodeArtifacts,
 } from "../../lib/artifacts-source";
 import { FocusSurface } from "../FocusSurface";
@@ -37,6 +36,8 @@ import { ArtifactPendingWrites } from "./ArtifactPendingWrites";
 import { useCanvasTasks } from "../../lib/tasks-source";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { useSeatsInReach } from "../../lib/mention-sources";
+import { newPostOpId, subjectThreadsSource, useSubjectThreads } from "../../lib/subject-threads-source";
+import { openMention } from "../tasks/TaskThread";
 import { ArtifactPadEditor } from "./ArtifactPadEditor";
 import { FilePreview, LinkPreview } from "./ArtifactPreview";
 import { ArtifactSheetEditor } from "./ArtifactSheetEditor";
@@ -261,7 +262,11 @@ function SelectedArtifact({
   const [draftAnchor, setDraftAnchor] = useState<Anchor | undefined>(undefined);
   const [title, setTitle] = useState(artifact.title);
   const history = useArtifactHistory(canvasName, mode === "history" ? artifact.artifactId : null);
-  const threads = useArtifactThreads(canvasName, artifact.artifactId);
+  const subject = useMemo(
+    () => ({ kind: "artifact" as const, nodeId: artifact.nodeId, artifactId: artifact.artifactId }),
+    [artifact.nodeId, artifact.artifactId],
+  );
+  const threads = useSubjectThreads(canvasName, subject);
   const mentionable = useSeatsInReach(canvasName, artifact.nodeId);
   const tasks = useCanvasTasks(canvasName);
   const readOnly = artifact.archived;
@@ -284,14 +289,17 @@ function SelectedArtifact({
     }
     return refusalLine(ruling);
   };
-  const comment = (text: string, anchor: Anchor | undefined, threadId?: string): void => {
-    void artifactsSource().comment(canvasName, artifact.artifactId, {
+  /** Post through the one comment path (03); the refusal in words, or null. */
+  const comment = async (text: string, anchor: Anchor | undefined, threadId?: string): Promise<string | null> => {
+    const outcome = await subjectThreadsSource().post(canvasName, subject, {
       text,
-      version: artifact.version,
+      opId: newPostOpId(),
       ...(anchor === undefined ? {} : { anchor }),
       ...(threadId === undefined ? {} : { threadId }),
     });
-    setDraftAnchor(undefined);
+    if (!outcome.ok) return outcome.message;
+    if (threadId === undefined) setDraftAnchor(undefined);
+    return null;
   };
 
   const retitle = (): void => {
@@ -347,6 +355,11 @@ function SelectedArtifact({
       canvasName={canvasName}
       mentionable={mentionable}
       threads={threads}
+      nodeKindOf={(id) => nodeAt(canvasName, id)?.kind}
+      onOpenMention={(ref) => {
+        onClose();
+        openMention(ref);
+      }}
       seatName={(id) => {
         const node = nodeAt(canvasName, id);
         return node === undefined ? undefined : titleOf(node);

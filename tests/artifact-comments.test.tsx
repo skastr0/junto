@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mintItemId } from "../src/shared/resource-command";
-import type { ArtifactThread } from "../src/renderer/lib/artifacts-source";
+import type { SubjectThread } from "../src/renderer/lib/subject-threads-source";
 import { ArtifactComments } from "../src/renderer/components/artifacts/ArtifactComments";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -23,14 +23,12 @@ afterEach(() => {
   host.remove();
 });
 
-const thread = (text: string, at: number): ArtifactThread => ({
+const thread = (text: string, at: number): SubjectThread => ({
   threadId: mintItemId(),
-  artifactId: mintItemId(),
-  version: 1 as never,
-  posts: [{ postId: mintItemId(), author: { kind: "operator" }, text, at }],
+  posts: [{ messageId: mintItemId(), author: { kind: "operator" }, text, at }],
 });
 
-const render = (threads: ReadonlyArray<ArtifactThread>, onStart = vi.fn()) =>
+const render = (threads: ReadonlyArray<SubjectThread>, onStart: (text: string, anchor: unknown) => Promise<string | null> = vi.fn(async () => null)) =>
   act(() =>
     root.render(
       <ArtifactComments
@@ -40,7 +38,9 @@ const render = (threads: ReadonlyArray<ArtifactThread>, onStart = vi.fn()) =>
         draftAnchor={undefined}
         now={10_000}
         onStart={onStart}
-        onReply={() => {}}
+        onReply={async () => null}
+        nodeKindOf={() => undefined}
+        onOpenMention={() => {}}
         onClearAnchor={() => {}}
       />,
     ),
@@ -54,8 +54,8 @@ describe("artifact comments rail", () => {
     expect(host.textContent).toContain("Comments, 2");
   });
 
-  it("composes in the mention combobox and starts a thread on the whole artifact", () => {
-    const onStart = vi.fn();
+  it("composes in the mention combobox and starts a thread on the whole artifact", async () => {
+    const onStart = vi.fn(async () => null);
     render([], onStart);
     const field = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="New comment"]')!;
     expect(field.getAttribute("role")).toBe("combobox");
@@ -64,7 +64,21 @@ describe("artifact comments rail", () => {
       set.call(field, "looks good");
       field.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    act(() => [...host.querySelectorAll("button")].find((b) => b.textContent === "Comment")?.click());
+    await act(async () => [...host.querySelectorAll("button")].find((b) => b.textContent === "Comment")?.click());
     expect(onStart).toHaveBeenCalledWith("looks good", undefined);
+    expect(field.value).toBe("");
+  });
+
+  it("keeps a refused comment in its composer and says why", async () => {
+    render([], async () => "Ghost cannot be mentioned here");
+    const field = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="New comment"]')!;
+    act(() => {
+      const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+      set.call(field, "hi @ghost");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => [...host.querySelectorAll("button")].find((b) => b.textContent === "Comment")?.click());
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe("Ghost cannot be mentioned here");
+    expect(field.value).toBe("hi @ghost");
   });
 });
