@@ -41,7 +41,7 @@ afterEach(() => { vi.useRealTimers(); });
 it("redials a dropped link to a machine with a seat on a held canvas within one pass, with no status read", async () => {
   vi.useFakeTimers();
   const { deps, dials, open } = rig();
-  const stop = startLinkKeeper({ ...deps, now: Date.now });
+  const { stop } = startLinkKeeper({ ...deps, now: Date.now });
   await vi.advanceTimersByTimeAsync(10_000);
   expect(dials.sort()).toEqual(["m2", "m3"]);
   expect(open.has(M2) && open.has(M3)).toBe(true);

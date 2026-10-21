@@ -88,8 +88,8 @@ export const makeLinkKeeper = (deps: LinkKeeperDeps): LinkKeeper => {
   };
 };
 
-/** Runs the keeper while this machine runs; answers how to stop it. */
-export const startLinkKeeper = (deps: LinkKeeperDeps): (() => void) => {
+/** Runs the keeper while this machine runs; answers it, with how to stop it. */
+export const startLinkKeeper = (deps: LinkKeeperDeps): LinkKeeper & { readonly stop: () => void } => {
   const keeper = makeLinkKeeper(deps);
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -103,5 +103,5 @@ export const startLinkKeeper = (deps: LinkKeeperDeps): (() => void) => {
     timer.unref?.();
   };
   schedule();
-  return () => { stopped = true; if (timer !== undefined) clearTimeout(timer); };
+  return { pass: keeper.pass, stop: () => { stopped = true; if (timer !== undefined) clearTimeout(timer); } };
 };

@@ -59,6 +59,8 @@ import { pullSignalFile as pullSignalFileHere } from "./junto/signals/file-pull"
 import type { ActorSeatOccupy } from "./junto/term/actor-seat-occupy";
 import { startSeat, stopSeat } from "./junto/term/seat-control";
 import { BoatPlane, boatPlaneLayer } from "./junto/boat/plane";
+import { readBoatRecords } from "./junto/boat/files";
+import { startLinkKeeper, type LinkKeeper } from "./junto/link/keeper";
 import { boatOwnerDispatch, makeBoatOwner } from "./junto/boat/owner";
 
 export interface MachineCoreOptions {
@@ -304,6 +306,42 @@ export const machineCoreStatusLayer = (options: MachineCoreOptions) => Layer.eff
   return { own, harnesses, handler };
 }));
 
+/**
+ * The link keeper, started with the machine services: the window and the
+ * windowless core both build them, so both redial a dropped link.
+ */
+export class MachineLinkKeeper extends Context.Service<MachineLinkKeeper, LinkKeeper>()("@junto/MachineLinkKeeper") {}
+
+const machineLinkKeeperLayer = (home: string) => Layer.effect(MachineLinkKeeper, Effect.gen(function* () {
+  const hosts = yield* HostsService;
+  const link = yield* MachineLink;
+  const machines = yield* MachineRepository;
+  const model = yield* ModelService;
+  const rows = yield* MachineCoreRows;
+  const context = yield* Effect.context<never>();
+  const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> => Effect.runPromiseWith(context)(effect);
+  const keeper = startLinkKeeper({
+    self: yield* machines.machineName.pipe(Effect.orElseSucceed(() => "this-machine")),
+    peers: () => run(machines.peers),
+    linked: (peer) => rows.exchange.linked(peer),
+    wanted: (peer) => run(Effect.gen(function* () {
+      for (const name of yield* model.listCanvases()) {
+        if ((yield* rows.exchange.placement(name))?.holds(peer.installationId) === true) return true;
+      }
+      return false;
+    })),
+    boatMachines: async () => new Set((await readBoatRecords(home)).machines.map((row) => row.name)),
+    getHost: (name) => run(hosts.get(name)),
+    connect: async (host) => { await run(link.connect(host)); },
+    log: (level, message, fields) => {
+      const write = level === "Info" ? Effect.logInfo : Effect.logWarning;
+      Effect.runForkWith(context)(write(message).pipe(Effect.annotateLogs({ area: "link", ...fields })));
+    },
+  });
+  yield* Effect.addFinalizer(() => Effect.sync(keeper.stop));
+  return MachineLinkKeeper.of({ pass: keeper.pass });
+}));
+
 /** Both entries add these services to their one owning runtime. */
 export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
   const links = machineLinkLayer(options.build);
@@ -323,7 +361,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
   );
   const seats = Layer.provideMerge(machineCoreSeatsLayer, submit);
   const mail = Layer.provideMerge(machineCoreMailLayer, seats);
-  const boat = Layer.provideMerge(boatPlaneLayer(options.home), mail);
+  const boat = Layer.provideMerge(machineLinkKeeperLayer(options.home), Layer.provideMerge(boatPlaneLayer(options.home), mail));
   const owner = Layer.effect(MachineOwnerControl, Effect.gen(function* () {
     const link = yield* MachineLink;
     const machineStatus = yield* MachineCoreStatus;
