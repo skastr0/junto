@@ -278,7 +278,7 @@ board notify, and the managed-terminal seat UI.
 | Edge exists, port denies op | Refuse op (no ambient escalate) |
 | Edge + port ok, credential missing or not live | Refuse |
 | Client claims `nodeRef` | Ignored. Ordinary work identity is the generation credential main injected, not a caller-chosen node id |
-| Region membership alone | Not a grant to a seat or a page; a resource node is admitted by reach, never by membership of the same region alone |
+| Region membership alone | Not a grant to a seat or a page. For a resource node, the region line is reach (01) |
 | Soft relates edge | Reach/relate only; no invented block phase |
 
 ---

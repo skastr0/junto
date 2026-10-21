@@ -158,7 +158,7 @@ to an exported document or the database:
 | CLI | `dist/junto` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `request`, `artifact`, board ops; overseer seats also `overseer` |
 | Socket | `~/.junto/work/control.sock` (mode 0600). The seat presents `JUNTO_WORK_TOKEN`. |
 | Identity | **generation credential** — main mints one value per occupant generation, injects it at spawn, and admits by registry lookup of the frame token. No token file, no token on argv, no client-supplied nodeRef / `JUNTO_NODE_REF`. `overseer.live` is admitted by the same credential. No process ancestry, no peer PID, and no fallback when the credential is missing. Browser-protected routes are refused in this build. |
-| Authz | **edges** — ordinary agents only act on connected nodes (kernel-enforced ScopeError otherwise); board ports are distinct (`board.create_topic` vs `board.post`). An overseer bypasses edge scope for closed `overseer` ops after live grant admission; pause/blocked do not deny those ops. |
+| Authz | **reach and edges** — ordinary agents use the resource nodes (tasks, artifacts) in their own region, the regions inside it and the regions around it, with no edge (`out_of_reach` ScopeError otherwise), and act on seats and pages only through connected edges (ScopeError otherwise); board ports are distinct (`board.create_topic` vs `board.post`). An overseer bypasses edge scope for closed `overseer` ops after live grant admission; pause/blocked do not deny those ops. |
 
 **How to use:** open the agent chat in Junto so the seat is spawned with `JUNTO_WORK_TOKEN`, then run `dist/junto` from that agent tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
 
@@ -440,7 +440,7 @@ phase, and attention/occupancy are separate planes.
   must not appear as a kind. Geography holds no seat, no ports, no inbox, and no
   work claim — but it *may* display agent state, because display is not a canvas
   power. A seat's machine is data: it never gates a port.
-- **PR test:** no ordinary work capability without a connected edge, a matching port, and a live generation credential.
+- **PR test:** no ordinary work capability without reach (resource nodes) or a connected edge (seats, pages), a matching port, and a live generation credential.
 - **Full doctrine:** [`docs/architecture-canvas-physics.md`](docs/architecture-canvas-physics.md).
 
 ## Discipline
@@ -460,7 +460,7 @@ phase, and attention/occupancy are separate planes.
 - Board/source IDs and tokens never leak into committed source.
 - `bun run typecheck && bun run test` gate every change.
 - Host-touching code follows Machine safety (above) — fail closed, capability-first.
-- Agent reach follows Canvas physics (above): edges, ports, and a live generation credential. No ambient region grants.
+- Agent reach follows Canvas physics (above): region reach for resource nodes, edges for seats and pages, ports, and a live generation credential. Region is geography, not a security domain.
 
 ## Testing
 
