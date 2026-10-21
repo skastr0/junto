@@ -67,7 +67,6 @@ export interface ArtifactThread {
   /** The version the thread was started on; an anchor points into that version. */
   readonly version: ArtifactVersion;
   readonly posts: ReadonlyArray<ArtifactPost>;
-  readonly resolved: boolean;
 }
 
 export type ArtifactRuling = ArtifactApplyOutcome;
@@ -82,7 +81,6 @@ export interface ArtifactsSource extends ArtifactResourceApi {
     artifactId: ItemId,
     post: { readonly text: string; readonly threadId?: string; readonly anchor?: Anchor; readonly version: ArtifactVersion },
   ) => Promise<ArtifactThread | null>;
-  readonly resolve: (canvasName: string, threadId: string, resolved: boolean) => Promise<void>;
 }
 
 /** Rule one op under a fresh op id. `artifactId` is the artifact; on `create` the caller mints it. */
@@ -232,19 +230,11 @@ export const makeLocalArtifactsSource = (
               ...(post.anchor === undefined || post.anchor.kind === "whole" ? {} : { anchor: post.anchor }),
               version: post.version,
               posts: [entry],
-              resolved: false,
             }
           : { ...existing, posts: [...existing.posts, entry] };
       threads.set(`${canvasName}\u0000${thread.threadId}`, thread);
       changed(canvasName);
       return thread;
-    },
-    resolve: async (canvasName, threadId, resolved) => {
-      const key = `${canvasName}\u0000${threadId}`;
-      const thread = threads.get(key);
-      if (thread === undefined) return;
-      threads.set(key, { ...thread, resolved });
-      changed(canvasName);
     },
     onChanged: (listener) => {
       listeners.add(listener);
@@ -266,7 +256,6 @@ export const withLocalThreads = (main: ArtifactResourceApi, local: ArtifactsSour
   pending: main.pending,
   threads: local.threads,
   comment: local.comment,
-  resolve: local.resolve,
   onChanged: (listener) => {
     const offMain = main.onChanged(listener);
     const offLocal = local.onChanged(listener);

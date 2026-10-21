@@ -1,14 +1,18 @@
 import { useState } from "react";
-import { Check, MessageSquare, Undo2 } from "lucide-react";
+import { MessageSquare } from "lucide-react";
 import type { Anchor } from "@shared/thread-subject";
 import type { ArtifactThread } from "../../lib/artifacts-source";
-import { Button, Eyebrow, PaneHeader, Textarea } from "../ui";
+import type { MentionCandidate } from "../../lib/mention-draft";
+import { Button, Eyebrow, PaneHeader } from "../ui";
+import { MentionCombobox } from "../ui/MentionCombobox";
 import { actorLabel, ageLabel, anchorLabel } from "./artifacts-pane-model";
 
 /**
- * The comments rail: the artifact's threads, each hung on a place in it. A
+ * The comments rail: the artifact's threads in time order, each hung on a
+ * place in it (0.10 has no resolved state for a thread). A
  * draft anchor (a selection, cells or an area picked in the editor) opens a
  * new thread there; without one a new thread is on the whole artifact.
+ * Composers take mentions of the seats in reach of the node (03).
  */
 export function ArtifactComments({
   threads,
@@ -16,11 +20,15 @@ export function ArtifactComments({
   now,
   onStart,
   onReply,
-  onResolve,
   onClearAnchor,
   onFocusAnchor,
   seatName,
+  canvasName,
+  mentionable,
 }: {
+  readonly canvasName: string;
+  /** Seats in reach of the Artifacts node: the only ones a comment may name. */
+  readonly mentionable: ReadonlyArray<MentionCandidate>;
   readonly threads: ReadonlyArray<ArtifactThread>;
   /** A seat's name by its node id, for post authors. */
   readonly seatName?: (nodeId: string) => string | undefined;
@@ -28,15 +36,10 @@ export function ArtifactComments({
   readonly now: number;
   readonly onStart: (text: string, anchor: Anchor | undefined) => void;
   readonly onReply: (threadId: string, text: string) => void;
-  readonly onResolve: (threadId: string, resolved: boolean) => void;
   readonly onClearAnchor: () => void;
   readonly onFocusAnchor?: (anchor: Anchor | undefined) => void;
 }) {
   const [draft, setDraft] = useState("");
-  const [showResolved, setShowResolved] = useState(false);
-  const open = threads.filter((thread) => !thread.resolved);
-  const resolved = threads.filter((thread) => thread.resolved);
-  const listed = showResolved ? threads : open;
 
   const start = (): void => {
     const text = draft.trim();
@@ -47,16 +50,7 @@ export function ArtifactComments({
 
   return (
     <div className="artifact-comments">
-      <PaneHeader
-        eyebrow={`Comments, ${open.length} open`}
-        actions={
-          resolved.length > 0 ? (
-            <Button size="xs" variant="subtle" aria-pressed={showResolved} onClick={() => setShowResolved(!showResolved)}>
-              {showResolved ? "Hide resolved" : `Resolved ${resolved.length}`}
-            </Button>
-          ) : null
-        }
-      />
+      <PaneHeader eyebrow={`Comments, ${threads.length}`} />
       <div className="artifact-comments__new">
         <div className="artifact-comments__anchor">
           <Eyebrow tone={draftAnchor ? "cyan" : "faint"} size="xs">
@@ -68,12 +62,18 @@ export function ArtifactComments({
             </Button>
           ) : null}
         </div>
-        <Textarea
+        <MentionCombobox
           dense
+          rows={3}
           aria-label="New comment"
-          placeholder={draftAnchor ? "Comment on this place" : "Comment on the artifact"}
+          placeholder={draftAnchor ? "Comment on this place, @ names a seat" : "Comment on the artifact, @ names a seat"}
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          onValueChange={(next) => setDraft(next)}
+          canvasName={canvasName}
+          candidates={mentionable}
+          listLabel={() => "Seats in reach of these artifacts"}
+          noun={{ one: "seat", other: "seats" }}
+          aria-keyshortcuts="Meta+Enter Control+Enter"
           onKeyDown={(event) => {
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
               event.preventDefault();
@@ -85,20 +85,21 @@ export function ArtifactComments({
           Comment
         </Button>
       </div>
-      {listed.length === 0 ? (
+      {threads.length === 0 ? (
         <p className="artifact-comments__empty">
           No comments yet. Select a place in the artifact to comment on it.
         </p>
       ) : (
         <ol className="artifact-comments__threads" aria-label="Threads">
-          {listed.map((thread) => (
+          {threads.map((thread) => (
             <ThreadView
               key={thread.threadId}
               thread={thread}
               now={now}
               seatName={seatName}
+              canvasName={canvasName}
+              mentionable={mentionable}
               onReply={(text) => onReply(thread.threadId, text)}
-              onResolve={() => onResolve(thread.threadId, !thread.resolved)}
               onFocus={onFocusAnchor ? () => onFocusAnchor(thread.anchor) : undefined}
             />
           ))}
@@ -112,15 +113,17 @@ function ThreadView({
   thread,
   now,
   onReply,
-  onResolve,
   onFocus,
   seatName,
+  canvasName,
+  mentionable,
 }: {
+  readonly canvasName: string;
+  readonly mentionable: ReadonlyArray<MentionCandidate>;
   readonly thread: ArtifactThread;
   readonly now: number;
   readonly seatName?: (nodeId: string) => string | undefined;
   readonly onReply: (text: string) => void;
-  readonly onResolve: () => void;
   readonly onFocus?: () => void;
 }) {
   const [reply, setReply] = useState("");
@@ -131,17 +134,13 @@ function ThreadView({
     setReply("");
   };
   return (
-    <li className="artifact-thread" data-resolved={thread.resolved ? "true" : undefined}>
+    <li className="artifact-thread">
       <div className="artifact-thread__head">
         <button type="button" className="artifact-thread__anchor" onClick={onFocus} disabled={onFocus === undefined}>
           <MessageSquare size={12} aria-hidden />
           <span>{anchorLabel(thread.anchor)}</span>
           <span className="artifact-thread__version">v{thread.version}</span>
         </button>
-        <Button size="xs" variant="subtle" onClick={onResolve}>
-          {thread.resolved ? <Undo2 size={12} aria-hidden /> : <Check size={12} aria-hidden />}
-          {thread.resolved ? "Reopen" : "Resolve"}
-        </Button>
       </div>
       <ol className="artifact-thread__posts">
         {thread.posts.map((post) => (
@@ -152,14 +151,19 @@ function ThreadView({
           </li>
         ))}
       </ol>
-      {thread.resolved ? null : (
-        <div className="artifact-thread__reply">
-          <Textarea
+      <div className="artifact-thread__reply">
+          <MentionCombobox
             dense
+            rows={2}
             aria-label="Reply"
             placeholder="Reply"
             value={reply}
-            onChange={(event) => setReply(event.target.value)}
+            onValueChange={(next) => setReply(next)}
+            canvasName={canvasName}
+            candidates={mentionable}
+            listLabel={() => "Seats in reach of these artifacts"}
+            noun={{ one: "seat", other: "seats" }}
+            aria-keyshortcuts="Meta+Enter Control+Enter"
             onKeyDown={(event) => {
               if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                 event.preventDefault();
@@ -173,7 +177,6 @@ function ThreadView({
             </Button>
           ) : null}
         </div>
-      )}
     </li>
   );
 }

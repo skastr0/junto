@@ -104,7 +104,7 @@ describe("local artifacts source", () => {
     expect(await source.body("c", doc, 9 as never)).toBeNull();
   });
 
-  it("threads: a whole anchor is stored as no anchor, replies join, resolve toggles", async () => {
+  it("threads: a whole anchor is stored as no anchor, replies join", async () => {
     const source = makeLocalArtifactsSource();
     const doc = mintItemId();
     let changes = 0;
@@ -112,11 +112,9 @@ describe("local artifacts source", () => {
     const started = (await source.comment("c", doc, { text: "first", anchor: { kind: "whole" }, version: 1 as never }))!;
     expect(started.anchor).toBeUndefined();
     await source.comment("c", doc, { text: "second", threadId: started.threadId, version: 1 as never });
-    await source.resolve("c", started.threadId, true);
     const [thread] = await source.threads("c", doc);
     expect(thread?.posts.map((post) => post.text)).toEqual(["first", "second"]);
-    expect(thread?.resolved).toBe(true);
-    expect(changes).toBe(3);
+    expect(changes).toBe(2);
     expect(await source.comment("c", doc, { text: "lost", threadId: "nope", version: 1 as never })).toBeNull();
   });
 

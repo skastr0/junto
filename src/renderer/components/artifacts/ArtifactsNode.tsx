@@ -36,6 +36,7 @@ import { ArtifactTasks } from "./ArtifactTasks";
 import { ArtifactPendingWrites } from "./ArtifactPendingWrites";
 import { useCanvasTasks } from "../../lib/tasks-source";
 import { openWorkDetail } from "../../lib/work-detail-open";
+import { useSeatsInReach } from "../../lib/mention-sources";
 import { ArtifactPadEditor } from "./ArtifactPadEditor";
 import { FilePreview, LinkPreview } from "./ArtifactPreview";
 import { ArtifactSheetEditor } from "./ArtifactSheetEditor";
@@ -261,6 +262,7 @@ function SelectedArtifact({
   const [title, setTitle] = useState(artifact.title);
   const history = useArtifactHistory(canvasName, mode === "history" ? artifact.artifactId : null);
   const threads = useArtifactThreads(canvasName, artifact.artifactId);
+  const mentionable = useSeatsInReach(canvasName, artifact.nodeId);
   const tasks = useCanvasTasks(canvasName);
   const readOnly = artifact.archived;
 
@@ -342,6 +344,8 @@ function SelectedArtifact({
 
   const rail = (
     <ArtifactComments
+      canvasName={canvasName}
+      mentionable={mentionable}
       threads={threads}
       seatName={(id) => {
         const node = nodeAt(canvasName, id);
@@ -351,7 +355,6 @@ function SelectedArtifact({
       now={now}
       onStart={(text, anchor) => comment(text, anchor)}
       onReply={(threadId, text) => comment(text, undefined, threadId)}
-      onResolve={(threadId, resolved) => void artifactsSource().resolve(canvasName, threadId, resolved)}
       onClearAnchor={() => setDraftAnchor(undefined)}
     />
   );
