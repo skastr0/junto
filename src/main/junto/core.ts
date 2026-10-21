@@ -28,6 +28,10 @@ import { startBoatLease } from "./boat/lease";
 import { BoatPlane } from "./boat/plane";
 import { HostsService } from "./hosts/service";
 import { terminalObserverPlane } from "./term/observer";
+import { readBoatRecords } from "./boat/files";
+import { startLinkKeeper } from "./link/keeper";
+import { MachineRepository } from "./machines/repository";
+import { ModelService } from "./model/service";
 
 export type CoreOptions = Omit<MachineCoreOptions, "ready">;
 
@@ -70,6 +74,28 @@ const startBoat = async (runtime: CoreRuntime): Promise<() => void> => {
   return () => { stopKeeper(); stopLease(); };
 };
 
+/** The link keeper in this core: a dropped link to a machine that shares a canvas with this one is dialed again. */
+const startLinks = async (runtime: CoreRuntime, home: string): Promise<() => void> => {
+  const [hosts, link, machines, model, rows] = await runtime.runPromise(Effect.all([HostsService, MachineLink, MachineRepository, ModelService, MachineCoreRows]));
+  return startLinkKeeper({
+    peers: () => runtime.runPromise(machines.peers),
+    linked: (peer) => rows.exchange.linked(peer),
+    wanted: (peer) => runtime.runPromise(Effect.gen(function* () {
+      for (const name of yield* model.listCanvases()) {
+        if ((yield* rows.exchange.placement(name))?.holds(peer.installationId) === true) return true;
+      }
+      return false;
+    })),
+    boatMachines: async () => new Set((await readBoatRecords(home)).machines.map((row) => row.name)),
+    getHost: (name) => runtime.runPromise(hosts.get(name)),
+    connect: async (host) => { await runtime.runPromise(link.connect(host)); },
+    log: (level, message, fields) => {
+      const write = level === "Info" ? Effect.logInfo : Effect.logWarning;
+      runtime.runFork(write(message).pipe(Effect.annotateLogs({ area: "link", ...fields })));
+    },
+  });
+};
+
 /** Both shells use this owner/link lifecycle; it creates no canvas. */
 export const startCore = async (options: CoreOptions) => {
   const schema = evaluateSchemaCompatibility(probeInstalledStateSchema(join(options.home, ".junto", "state", "junto.db")));
@@ -91,6 +117,7 @@ export const startCore = async (options: CoreOptions) => {
   let stopSeatReports: (() => void) | undefined;
   let releaseRunner: (() => void) | undefined;
   let stopBoat: (() => void) | undefined;
+  let stopLinks: (() => void) | undefined;
   const runtime = makeCoreRuntime({ ...options, ready: () => admitted && !stopping && owner?.ready() === true && listener?.ready() === true });
   let closeFlight: Promise<void> | undefined;
   /** `cause` says why this core stops; each linked machine reads it in the close frame. */
@@ -105,6 +132,7 @@ export const startCore = async (options: CoreOptions) => {
     sessions?.stop();
     stopSeatReports?.();
     stopBoat?.();
+    stopLinks?.();
     seatProcesses?.beginShutdown();
     closeFlight = (async () => {
       if (owner !== undefined) {
@@ -166,6 +194,7 @@ export const startCore = async (options: CoreOptions) => {
         runtime.runPromise(Effect.flatMap(AgentSignalRepository, (signals) => signals.listSeat({ canvasName, nodeId }))),
     });
     stopBoat = await startBoat(runtime);
+    stopLinks = await startLinks(runtime, options.home);
     admitted = true;
     return { runtime, close, ready: () => admitted && !stopping && owner!.ready() && listener!.ready() };
   } catch (cause) {
