@@ -31,6 +31,8 @@ import { INTERRUPT_BYTE } from "../term/drive";
 import type { ControlLease } from "../term/local-host";
 import { asNodeId, inPaintOrder, seatIdentity, type Canvas, type Node, type NodeOf } from "@shared/model";
 import { modelError } from "../model/records";
+import { encodeError } from "../failure-encode";
+import { LinkBuildMismatch } from "../link/types";
 import type { ModelNodeReader } from "../node-ref-resolver";
 import type { TermPlane } from "../term/plane";
 import { terminalObserverPlane } from "../term/observer";
@@ -311,6 +313,23 @@ const sessionSummary = async (
   hostId: string,
 ) => ctx.termPlane.router.get(bindingId, hostId);
 
+/**
+ * One seat's row in a list: a seat whose machine runs another build reads as
+ * needing an update, and any other link failure as an unknown session, so one
+ * machine never fails the whole list.
+ */
+const listedSession = async (ctx: NativeContext, bindingId: string, hostId: string) => {
+  try {
+    const session = await sessionSummary(ctx, bindingId, hostId);
+    return { live: session?.status === "running" || session?.status === "starting", session };
+  } catch (error) {
+    if (error instanceof LinkBuildMismatch) {
+      return { live: false, session: undefined, machine: { name: hostId, needsUpdate: true } };
+    }
+    return { live: false, session: undefined, sessionUnknown: true, sessionFailure: encodeError(error, { machine: hostId }) };
+  }
+};
+
 const inspectOutput = async (
   ctx: NativeContext,
   bindingId: string,
@@ -484,15 +503,13 @@ const handleAgent = async (
     const agents = [];
     for (const node of inPaintOrder(canvas)) {
       if (!isAgentNode(node)) continue;
-      const session = await sessionSummary(ctx, node.bindingId, node.host);
       agents.push({
         ...seatIdentity(canvas, node),
         agentKey: node.agentKey,
         bindingId: node.bindingId,
         hostId: node.host,
         harness: node.harness,
-        live: session?.status === "running" || session?.status === "starting",
-        session,
+        ...(await listedSession(ctx, node.bindingId, node.host)),
       });
     }
     return ok({ canvas: canvasName, agents });

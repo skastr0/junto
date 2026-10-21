@@ -25,6 +25,7 @@ import {
   type OverseerNativeLiveOptions,
 } from "../src/main/junto/overseer/native";
 import type { TermPlane } from "../src/main/junto/term/plane";
+import { LinkBuildMismatch } from "../src/main/junto/link/types";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
@@ -202,6 +203,50 @@ describe("overseer native adapters", () => {
     expect(pages.ok).toBe(true);
     if (!pages.ok) return;
     expect((pages.data as { pages: ReadonlyArray<{ nodeId: string }> }).pages.map((row) => row.nodeId)).toEqual(["p1"]);
+  });
+
+  it("lists a seat on a machine with another build as needing an update, never failing the list", async () => {
+    const remote = { ...agent("a2"), host: OTHER_MACHINE };
+    const native = live([{ name: "factory", doc: doc([agent("a1"), remote]) }], {
+      termPlane: makeTermPlane({
+        get: async (bindingId, hostId) => {
+          if (hostId === OTHER_MACHINE) {
+            throw LinkBuildMismatch.of({ build: "old", installationId: "inst-other" as never, machineName: OTHER_MACHINE }, "new");
+          }
+          return { bindingId, hostId, status: "running", epoch: "e1", detached: false, createdAt: 1 };
+        },
+      }),
+    });
+    const listed = await run(native, "agent.list", {});
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    const rows = (listed.data as { agents: ReadonlyArray<Record<string, unknown>> }).agents;
+    expect(rows.map((row) => [row.nodeId, row.live, row.machine])).toEqual([
+      ["a1", true, undefined],
+      ["a2", false, { name: OTHER_MACHINE, needsUpdate: true }],
+    ]);
+    expect(rows[0]?.session).toMatchObject({ status: "running" });
+    expect(rows[1]?.session).toBeUndefined();
+  });
+
+  it("lists a seat whose machine fails otherwise with its session unknown, scrubbed", async () => {
+    const remote = { ...agent("a2"), host: OTHER_MACHINE };
+    const native = live([{ name: "factory", doc: doc([agent("a1"), remote]) }], {
+      termPlane: makeTermPlane({
+        get: async (bindingId, hostId) => {
+          if (hostId === OTHER_MACHINE) throw new Error("link dropped, Authorization: Bearer ghp_seatsecret123");
+          return { bindingId, hostId, status: "running", epoch: "e1", detached: false, createdAt: 1 };
+        },
+      }),
+    });
+    const listed = await run(native, "agent.list", {});
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    const [local, other] = (listed.data as { agents: ReadonlyArray<Record<string, unknown>> }).agents;
+    expect(local).toMatchObject({ nodeId: "a1", live: true });
+    expect(local?.sessionUnknown).toBeUndefined();
+    expect(other).toMatchObject({ nodeId: "a2", live: false, sessionUnknown: true, sessionFailure: { tag: "Error", machine: OTHER_MACHINE } });
+    expect(JSON.stringify(other?.sessionFailure)).not.toContain("ghp_seatsecret123");
   });
 
   it("answers a seat with its name and the regions around it, outermost first", async () => {
