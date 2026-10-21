@@ -209,8 +209,16 @@ export function AddressBar({
       <IconButton aria-label="Forward" title="Forward" size="sm" disabled={pending || !tab.canGoForward} onClick={() => onCommand({ kind: "traverse", step: "forward" })}>
         <ArrowRight size={14} />
       </IconButton>
-      <IconButton aria-label="Reload" title="Reload" size="sm" disabled={pending} onClick={() => onCommand({ kind: "traverse", step: "reload" })}>
-        <RotateCw size={14} />
+      {/* One slot for Reload and Stop: the same element, so focus stays put while the tab loads. */}
+      <IconButton
+        aria-label={tab.loading ? "Stop" : "Reload"}
+        title={tab.loading ? "Stop loading" : "Reload"}
+        size="sm"
+        disabled={pending}
+        data-testid="browser-reload-stop"
+        onClick={() => onCommand({ kind: "traverse", step: tab.loading ? "stop" : "reload" })}
+      >
+        {tab.loading ? <X size={14} /> : <RotateCw size={14} />}
       </IconButton>
       <Input
         dense

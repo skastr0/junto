@@ -177,3 +177,20 @@ describe("the page's keys (Cmd+L, Cmd+R) while the chrome shows", () => {
     expect(runPageChromeKey("reload")).toBe(false);
   });
 });
+
+describe("the Reload and Stop slot", () => {
+  it("sends stop while loading and reload otherwise, from the same button", async () => {
+    const commands: ChromeCommand[] = [];
+    await mount(initialPageTabs("https://example.com/"), commands);
+    const slot = () => host.querySelector<HTMLButtonElement>('[data-testid="browser-reload-stop"]')!;
+    const first = slot();
+    await act(async () => first.click());
+    expect(commands).toEqual([{ kind: "traverse", step: "stop" }]);
+    const done = reducePageTabs(initialPageTabs("https://example.com/"), { kind: "loading", tab: "t1" as never, loading: false });
+    if (!done.ok) throw new Error("loading");
+    await mount(done.state, commands);
+    expect(slot()).toBe(first);
+    await act(async () => slot().click());
+    expect(commands.at(-1)).toEqual({ kind: "traverse", step: "reload" });
+  });
+});

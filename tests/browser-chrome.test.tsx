@@ -39,6 +39,17 @@ describe("BrowserChrome", () => {
     expect(html.indexOf('aria-label="New tab"')).toBeGreaterThan(html.indexOf("</div></div>", html.indexOf('role="tablist"')) - 1);
   });
 
+  it("draws Stop in the Reload slot while the active tab loads, and Reload once it has", () => {
+    const loading = draw({ tabs: initialPageTabs("https://example.com/"), driving: initialPageDriving });
+    expect(loading).toContain('aria-label="Stop"');
+    expect(loading).not.toContain('aria-label="Reload"');
+    const done = reducePageTabs(initialPageTabs("https://example.com/"), { kind: "loading", tab: "t1" as never, loading: false });
+    if (!done.ok) throw new Error("loading");
+    const settled = draw({ tabs: done.state, driving: initialPageDriving });
+    expect(settled).toContain('aria-label="Reload"');
+    expect(settled).not.toContain('aria-label="Stop"');
+  });
+
   it("hides close on the only tab", () => {
     const html = draw({ tabs: initialPageTabs("https://example.com/"), driving: initialPageDriving });
     expect(html).not.toContain("Close example.com");
