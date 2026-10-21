@@ -1,0 +1,205 @@
+/**
+ * `junto artifact` wire contract (plan 05, cli track L3): the input each verb
+ * takes on the work socket and the result it returns. The CLI mints the
+ * opId, and on a create the artifact id, so a retry with `--op-id` is the
+ * same command; main builds the `ResourceCommand<ArtifactOp>` and rules it.
+ *
+ * A seat names the Artifacts node by id, name or `junto://` ref, and may
+ * leave it out when one Artifacts node is in its reach. An artifact is named
+ * by its id alone: ids are ULIDs, so main finds its node.
+ *
+ * Pure: effect only.
+ */
+import { Schema } from "effect";
+import {
+  ARTIFACT_MAX_TITLE_LENGTH,
+  type Artifact,
+  ArtifactType,
+  ArtifactVersion,
+  type ArtifactActor,
+} from "./artifact";
+import { Anchor } from "./thread-subject";
+import { ItemId, OpId } from "./work-ids";
+
+export { ItemId, OpId };
+
+const strict = { parseOptions: { onExcessProperty: "error" as const } };
+
+/** The Artifacts node: its id, its name, or a `junto://` ref. */
+export const ArtifactsNodeText = Schema.String.pipe(
+  Schema.check(Schema.isMinLength(1), Schema.isMaxLength(4_096)),
+).annotate({ description: "The Artifacts node: its id, its name, or a junto:// ref" });
+
+const Title = Schema.String.pipe(
+  Schema.check(Schema.isMinLength(1), Schema.isMaxLength(ARTIFACT_MAX_TITLE_LENGTH)),
+);
+
+/**
+ * A body as the seat wrote it. `markdown` is a document's text, `url` a
+ * link's address, `body` any type's body as JSON (its `type` may be left
+ * out). Main checks it against the artifact's type, so a seat never has to
+ * spell the type twice.
+ */
+export const BodyInput = Schema.Union([
+  Schema.Struct({ markdown: Schema.String }),
+  Schema.Struct({ url: Schema.String }),
+  Schema.Struct({ body: Schema.Unknown }),
+]);
+export type BodyInput = typeof BodyInput.Type;
+
+/** Patches as JSON; main decodes them for the artifact's type. */
+export const PatchesInput = Schema.Array(Schema.Unknown).pipe(Schema.check(Schema.isMinLength(1)));
+
+export const ARTIFACT_LIST_LIMIT_MAX = 200;
+export const ARTIFACT_HISTORY_LIMIT_MAX = 200;
+
+// ---------------------------------------------------------------------------
+// Verb inputs (wire)
+
+export const ArtifactListArgs = Schema.Struct({
+  node: Schema.optionalKey(ArtifactsNodeText),
+  type: Schema.optionalKey(ArtifactType),
+  /** Archived artifacts are left out unless asked for. */
+  archived: Schema.optionalKey(Schema.Boolean),
+  limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: ARTIFACT_LIST_LIMIT_MAX }))),
+}).annotate(strict);
+export type ArtifactListArgs = typeof ArtifactListArgs.Type;
+
+export const ArtifactShowArgs = Schema.Struct({
+  artifact: ItemId,
+  /** A past version; the head when left out. */
+  version: Schema.optionalKey(ArtifactVersion),
+}).annotate(strict);
+export type ArtifactShowArgs = typeof ArtifactShowArgs.Type;
+
+export const ArtifactHistoryArgs = Schema.Struct({
+  artifact: ItemId,
+  limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: ARTIFACT_HISTORY_LIMIT_MAX }))),
+  /** Lists versions older than this one, for the next page. */
+  before: Schema.optionalKey(ArtifactVersion),
+}).annotate(strict);
+export type ArtifactHistoryArgs = typeof ArtifactHistoryArgs.Type;
+
+export const ArtifactCreateArgs = Schema.Struct({
+  opId: OpId,
+  artifactId: ItemId,
+  node: Schema.optionalKey(ArtifactsNodeText),
+  type: ArtifactType,
+  title: Title,
+  /** Documents, pads and sheets start empty when left out; links and files need one. */
+  body: Schema.optionalKey(BodyInput),
+  taskIds: Schema.optionalKey(Schema.Array(ItemId)),
+}).annotate(strict);
+export type ArtifactCreateArgs = typeof ArtifactCreateArgs.Type;
+
+/** `body` replaces the whole body; `patches` patch a pad, sheet or document. */
+export const ArtifactEditArgs = Schema.Struct({
+  opId: OpId,
+  artifact: ItemId,
+  baseVersion: ArtifactVersion.annotate({
+    description: "The version this edit was written against, from show; a stale one is refused with the head",
+  }),
+  body: Schema.optionalKey(BodyInput),
+  patches: Schema.optionalKey(PatchesInput),
+}).annotate(strict);
+export type ArtifactEditArgs = typeof ArtifactEditArgs.Type;
+
+export const ArtifactCommentArgs = Schema.Struct({
+  opId: OpId,
+  artifact: ItemId,
+  text: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(64_000))),
+  /** Left out, the comment is on the whole artifact. */
+  anchor: Schema.optionalKey(Anchor),
+}).annotate(strict);
+export type ArtifactCommentArgs = typeof ArtifactCommentArgs.Type;
+
+/** archive and restore name one artifact. */
+export const ArtifactOneArgs = Schema.Struct({ opId: OpId, artifact: ItemId }).annotate(strict);
+export type ArtifactOneArgs = typeof ArtifactOneArgs.Type;
+
+// ---------------------------------------------------------------------------
+// Ops
+
+export const ARTIFACT_READ_OPS = ["artifact.list", "artifact.show", "artifact.history"] as const;
+export const ARTIFACT_WRITE_OPS = [
+  "artifact.create",
+  "artifact.edit",
+  "artifact.comment",
+  "artifact.archive",
+  "artifact.restore",
+] as const;
+export const ARTIFACT_OPS = [...ARTIFACT_READ_OPS, ...ARTIFACT_WRITE_OPS] as const;
+export type ArtifactReadOp = (typeof ARTIFACT_READ_OPS)[number];
+export type ArtifactWriteOp = (typeof ARTIFACT_WRITE_OPS)[number];
+export type ArtifactControlOp = (typeof ARTIFACT_OPS)[number];
+
+/** The wire args of each op, so a dispatcher cannot pair an op with another's input. */
+export const ARTIFACT_ARGS = {
+  "artifact.list": ArtifactListArgs,
+  "artifact.show": ArtifactShowArgs,
+  "artifact.history": ArtifactHistoryArgs,
+  "artifact.create": ArtifactCreateArgs,
+  "artifact.edit": ArtifactEditArgs,
+  "artifact.comment": ArtifactCommentArgs,
+  "artifact.archive": ArtifactOneArgs,
+  "artifact.restore": ArtifactOneArgs,
+} as const satisfies { readonly [Op in ArtifactControlOp]: Schema.Top };
+
+export const isArtifactWriteOp = (op: string): op is ArtifactWriteOp =>
+  (ARTIFACT_WRITE_OPS as ReadonlyArray<string>).includes(op);
+
+// ---------------------------------------------------------------------------
+// Results
+
+/** A list row: the head without its body. */
+export type ArtifactListItem = Pick<
+  Artifact,
+  "artifactId" | "nodeId" | "type" | "title" | "version" | "updatedAt" | "archived"
+>;
+
+export type ArtifactListResult = {
+  readonly artifacts: ReadonlyArray<ArtifactListItem>;
+  /** True when more matched than `limit`. */
+  readonly more: boolean;
+};
+
+export type ArtifactShowResult = {
+  readonly artifact: Artifact;
+  /** The version shown: the head, or the one asked for. */
+  readonly version: ArtifactVersion;
+  /** The body as text: markdown, pad digest, sheet table, link or file line (`artifactText`). */
+  readonly text: string;
+  /** The body itself, for edits that address ids. */
+  readonly body: unknown;
+};
+
+export type ArtifactHistoryEntry = {
+  readonly version: ArtifactVersion;
+  readonly author: ArtifactActor;
+  readonly at: number;
+  /** `create` for version 1, else the edit's kind. */
+  readonly change: "create" | "replace" | "patch";
+};
+
+export type ArtifactHistoryResult = {
+  readonly artifactId: ItemId;
+  readonly versions: ReadonlyArray<ArtifactHistoryEntry>;
+  readonly more: boolean;
+};
+
+/**
+ * How a write ended. `applied`: ruled here and readable now, with the head
+ * it made. `queued`: the editing machine is away; `junto op show <opId>`
+ * reads its ruling later. A refusal is never a result: it is the typed error,
+ * with the opId in its details.
+ */
+export type ArtifactWriteResult =
+  | {
+      readonly disposition: "applied";
+      readonly opId: OpId;
+      readonly artifactId: ItemId;
+      readonly version: ArtifactVersion;
+    }
+  | { readonly disposition: "queued"; readonly opId: OpId; readonly artifactId: ItemId };
+
+export type ArtifactDisposition = ArtifactWriteResult["disposition"];
