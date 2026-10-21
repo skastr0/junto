@@ -57,8 +57,10 @@ describe("focus modal chrome: maximize and sidebar collapse", () => {
   const render = (node: React.ReactNode): void => {
     act(() => reactRoot.render(node));
   };
+  /** The first control of that name that is showing: a collapsed sidebar keeps its own, hidden. */
   const button = (name: string): HTMLButtonElement | null =>
-    host.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`);
+    [...host.querySelectorAll<HTMLButtonElement>(`button[aria-label="${name}"]`)].find((b) => b.closest("[hidden]") === null) ??
+    null;
 
   beforeEach(() => {
     toggles = 0;
@@ -85,13 +87,14 @@ describe("focus modal chrome: maximize and sidebar collapse", () => {
     expect(toggles).toBe(1);
   });
 
-  it("a maximized modal offers Restore size", () => {
+  it("a maximized modal keeps the name Maximize and says pressed; the tooltip offers Restore", () => {
     render(
       <FocusWindowContext.Provider value={growable(true)}>
         <OverlayHeader title="Grid" />
       </FocusWindowContext.Provider>,
     );
-    expect(button("Restore size")?.getAttribute("aria-pressed")).toBe("true");
+    expect(button("Maximize")?.getAttribute("aria-pressed")).toBe("true");
+    expect(button("Maximize")?.title).toBe("Restore size");
   });
 
   it("outside a modal that can grow, a header has no Maximize", () => {
@@ -119,15 +122,16 @@ describe("focus modal chrome: maximize and sidebar collapse", () => {
     expect(pane.dataset.sidebar).toBeUndefined();
     const field = host.querySelector("input")!;
 
-    act(() => button("Collapse sidebar")!.click());
+    act(() => button("Sidebar")!.click());
     expect(pane.dataset.sidebar).toBe("collapsed");
     expect(host.querySelector(".two-pane__sidebar-body")!.hasAttribute("hidden")).toBe(true);
     expect(host.querySelector("input")).toBe(field);
-    expect(button("Expand sidebar")?.getAttribute("aria-expanded")).toBe("false");
+    expect(button("Sidebar")?.getAttribute("aria-expanded")).toBe("false");
+    expect(button("Sidebar")?.title).toBe("Expand sidebar");
 
-    act(() => button("Expand sidebar")!.click());
+    act(() => button("Sidebar")!.click());
     expect(pane.dataset.sidebar).toBeUndefined();
-    expect(button("Collapse sidebar")).not.toBeNull();
+    expect(button("Sidebar")?.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("a collapsed sidebar stays collapsed when the pane remounts", () => {
@@ -137,7 +141,7 @@ describe("focus modal chrome: maximize and sidebar collapse", () => {
       </TwoPane>
     );
     render(pane("a"));
-    act(() => button("Collapse sidebar")!.click());
+    act(() => button("Sidebar")!.click());
     render(pane("b"));
     expect(host.querySelector<HTMLElement>(".two-pane")!.dataset.sidebar).toBe("collapsed");
   });
@@ -151,9 +155,24 @@ describe("focus modal chrome: maximize and sidebar collapse", () => {
       </FocusWindowContext.Provider>,
     );
     expect(button("Maximize")).not.toBeNull();
-    act(() => button("Collapse sidebar")!.click());
-    expect(button("Maximize")).not.toBeNull();
-    expect(button("Expand sidebar")).not.toBeNull();
+    act(() => button("Sidebar")!.click());
+    const strip = [...host.querySelectorAll(".two-pane__strip button")].map((b) => b.getAttribute("aria-label"));
+    expect(strip).toEqual(["Maximize", "Sidebar"]);
+  });
+
+  it("the sidebar toggle's twin takes the keyboard after each switch", () => {
+    render(
+      <TwoPane sidebarLabel="Focus handoff sidebar" mainLabel="Main" sidebar={<PaneHeader eyebrow="Things" />}>
+        <p>main</p>
+      </TwoPane>,
+    );
+    const press = (): void => act(() => button("Sidebar")!.click());
+    press();
+    expect(document.activeElement).toBe(button("Sidebar"));
+    expect(document.activeElement?.closest(".two-pane__strip")).not.toBeNull();
+    press();
+    expect(document.activeElement).toBe(button("Sidebar"));
+    expect(document.activeElement?.closest(".two-pane__strip")).toBeNull();
   });
 
   it("the maximized panel is sized by flex basis, so a remembered inline width cannot hold it", () => {

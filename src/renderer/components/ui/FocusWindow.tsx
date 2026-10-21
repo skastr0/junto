@@ -26,9 +26,15 @@ export function FocusMaximizeButton() {
   const focusWindow = useFocusWindow();
   if (focusWindow === null) return null;
   const { maximized, toggleMaximized } = focusWindow;
-  const label = maximized ? "Restore size" : "Maximize";
+  // One fixed name and a pressed state; the tooltip says what a press does.
   return (
-    <IconButton aria-label={label} title={label} size="sm" aria-pressed={maximized} onClick={toggleMaximized}>
+    <IconButton
+      aria-label="Maximize"
+      title={maximized ? "Restore size" : "Maximize"}
+      size="sm"
+      aria-pressed={maximized}
+      onClick={toggleMaximized}
+    >
       {maximized ? <Minimize2 size={14} aria-hidden /> : <Maximize2 size={14} aria-hidden />}
     </IconButton>
   );

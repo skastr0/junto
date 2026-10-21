@@ -1,4 +1,5 @@
-import { createContext, useContext, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { claimFocus } from "../../lib/focus-ownership";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Eyebrow } from "./Eyebrow";
 import { FocusMaximizeButton } from "./FocusWindow";
@@ -33,15 +34,22 @@ const useSidebarCollapsed = (label: string): boolean =>
 /** What the header of a TwoPane sidebar needs to offer its own collapse. */
 const SidebarContext = createContext<{ readonly label: string } | null>(null);
 
+/** The sidebar whose toggle was just pressed: the toggle that shows next takes the keyboard. */
+let toggled: string | null = null;
+
 function SidebarToggle({ label, collapsed }: { readonly label: string; readonly collapsed: boolean }) {
-  const name = collapsed ? "Expand sidebar" : "Collapse sidebar";
+  // One fixed name and a state, not a name that changes with the state.
   return (
     <IconButton
-      aria-label={name}
-      title={name}
+      data-sidebar-toggle=""
+      aria-label="Sidebar"
+      title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
       size="sm"
       aria-expanded={!collapsed}
-      onClick={() => setSidebarCollapsed(label, !collapsed)}
+      onClick={() => {
+        toggled = label;
+        setSidebarCollapsed(label, !collapsed);
+      }}
     >
       {collapsed ? <PanelLeftOpen size={14} aria-hidden /> : <PanelLeftClose size={14} aria-hidden />}
     </IconButton>
@@ -86,6 +94,16 @@ export function TwoPane({
   readonly children: ReactNode;
 }) {
   const collapsed = useSidebarCollapsed(sidebarLabel);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const stripRef = useRef<HTMLDivElement>(null);
+  // The press hid the toggle it was made on; the keyboard follows to the one
+  // that is showing now, so it does not fall to the page.
+  useEffect(() => {
+    if (toggled !== sidebarLabel) return;
+    toggled = null;
+    const next = (collapsed ? stripRef.current : bodyRef.current)?.querySelector<HTMLElement>("[data-sidebar-toggle]");
+    claimFocus(next, "gesture", { preventScroll: true });
+  }, [collapsed, sidebarLabel]);
   return (
     <div
       className="two-pane"
@@ -94,14 +112,14 @@ export function TwoPane({
     >
       <aside className="two-pane__sidebar" aria-label={sidebarLabel}>
         <SidebarContext.Provider value={{ label: sidebarLabel }}>
-          <div className="two-pane__sidebar-body" hidden={collapsed}>
+          <div ref={bodyRef} className="two-pane__sidebar-body" hidden={collapsed}>
             {sidebar}
           </div>
         </SidebarContext.Provider>
         {collapsed ? (
-          <div className="two-pane__strip">
-            <SidebarToggle label={sidebarLabel} collapsed />
+          <div ref={stripRef} className="two-pane__strip">
             <FocusMaximizeButton />
+            <SidebarToggle label={sidebarLabel} collapsed />
           </div>
         ) : null}
       </aside>
