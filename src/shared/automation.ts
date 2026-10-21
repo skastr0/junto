@@ -147,6 +147,11 @@ export const automationShape = <Ref extends Schema.Top, Commentable extends Sche
     Schema.Struct(seatWatch),
     Schema.Struct(taskWatch),
     Schema.Struct({ kind: Schema.Literal("artifact"), artifact: ref, event: ArtifactEvent }),
+    /**
+     * Without `from`, any seat's signal: the runner matches it only from seats
+     * among `automationTargets(canvas, node, author)` at fire time, never a
+     * sibling region's.
+     */
     Schema.Struct({ kind: Schema.Literal("signal"), from: Schema.optionalKey(ref), signal: WatchedSignal }),
   ]);
 
@@ -294,7 +299,9 @@ const actionNodes = (action: Action): ReadonlyArray<NodeId> => {
 };
 
 /**
- * Every node the automation names, once, for the fire-time reach recheck:
+ * Every node the automation names, once, for the fire-time reach recheck. A
+ * signal watch without `from` names none: the runner checks the signalling
+ * seat itself against the same targets.
  * each must be among `automationTargets(canvas, automation.nodeId, automation.author)`.
  */
 export const targetNodeIds = (automation: Automation): ReadonlyArray<NodeId> => {
@@ -360,7 +367,9 @@ const HOUR_MS = 60 * 60_000;
 
 /**
  * The limit a firing at `now` would break, given when this automation last
- * fired (skips do not count). Undefined when both limits allow it.
+ * fired (skips do not count). Undefined when both limits allow it. A firing
+ * later than `now` (the clock stepped back) skips `min_interval` until the
+ * clock catches up: intended, so a clock change never bursts.
  */
 export const limitSkip = (
   limits: AutomationLimits,

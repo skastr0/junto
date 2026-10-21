@@ -198,6 +198,10 @@ describe("limitSkip", () => {
     expect(limitSkip(limits, [now - 60_000], now)).toBeUndefined();
   });
 
+  it("skips while the clock has stepped back behind the last firing", () => {
+    expect(limitSkip({ minIntervalMs: 0, maxPerHour: 60 }, [now + 5 * 60_000], now)).toBe("min_interval");
+  });
+
   it("skips at the hourly cap and counts only the last hour", () => {
     expect(limitSkip(limits, [now - 50 * 60_000, now - 30 * 60_000, now - 10 * 60_000], now)).toBe("max_per_hour");
     expect(limitSkip(limits, [now - 61 * 60_000, now - 30 * 60_000, now - 10 * 60_000], now)).toBeUndefined();

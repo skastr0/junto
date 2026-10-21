@@ -34,6 +34,13 @@ describe("nextCronOccurrenceIn", () => {
     );
   });
 
+  it("fires a spring-forward gap at the shifted instant", () => {
+    // 02:30 does not exist in New York on 2027-03-14; it fires at 03:30 EDT.
+    expect(nextCronOccurrenceIn("30 2 * * *", at("2027-03-14T00:00:00Z"), "America/New_York")).toBe(
+      at("2027-03-14T07:30:00Z"),
+    );
+  });
+
   it("fires a fall-back hour once", () => {
     // 01:30 New York happens twice on 2026-11-01; the first is 05:30 UTC.
     const first = nextCronOccurrenceIn("30 1 * * *", at("2026-11-01T00:00:00Z"), "America/New_York");

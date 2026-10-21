@@ -9,12 +9,15 @@
  * - `decide`: given a considered firing, does it fire or skip, and why? A
  *   limit reached skips and records; nothing here disables an automation.
  *
- * The cursor is the last slot the runner considered, fired or skipped; the
+ * The cursor is the last slot the runner considered, fired or skipped, and
+ * the next slot is always computed from it, never from now: from now, a
+ * fall-back hour would fire twice. The
  * claim on (automation, slot) in `automation_firings` makes a restart unable
  * to fire one slot twice. A new automation's cursor starts at the moment the
  * runner first sees it, so creating one never fires its past slots.
  */
 import { nextCronOccurrenceIn } from "@shared/cron-expression";
+import type { NodeId } from "@shared/physics/schema";
 import {
   type Automation,
   type FiringCause,
@@ -22,6 +25,8 @@ import {
   type SkipReason,
   type Trigger,
   triggerRefusal,
+  type Watch,
+  type WatchedSignal,
 } from "@shared/automation";
 
 /** How many missed slots a catch-up counts before it stops counting. */
@@ -112,4 +117,18 @@ export const decide = (considered: Considered): Decision => {
   if (!considered.conditionsHold) return skip("condition_unmet");
   const limited = limitSkip(automation.limits, considered.firedAt, considered.now);
   return limited === undefined ? { kind: "fire" } : skip(limited);
+};
+
+/**
+ * Whether a raised signal fires a signal watch. With `from`, only that seat's;
+ * without, only a seat among `targets` (the automation's `automationTargets`
+ * at fire time), so a seat author's automation never hears a sibling region.
+ */
+export const signalWatchMatches = (
+  watch: Extract<Watch, { readonly kind: "signal" }>,
+  raised: { readonly signal: WatchedSignal; readonly seat: NodeId },
+  targets: ReadonlySet<NodeId>,
+): boolean => {
+  if (watch.signal !== raised.signal) return false;
+  return watch.from === undefined ? targets.has(raised.seat) : watch.from.nodeId === raised.seat;
 };

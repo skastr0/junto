@@ -1,6 +1,14 @@
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
-import { decide, dueSlot, MISSED_SLOTS_COUNTED, nextSlot, type Considered } from "../src/main/junto/automation/plan";
+import {
+  decide,
+  dueSlot,
+  MISSED_SLOTS_COUNTED,
+  nextSlot,
+  signalWatchMatches,
+  type Considered,
+} from "../src/main/junto/automation/plan";
+import { asNodeId } from "../src/shared/physics/schema";
 import { type Automation, type AutomationWire, decodeAutomation } from "../src/shared/automation";
 
 const at = (iso: string) => Date.parse(iso);
@@ -52,6 +60,17 @@ describe("dueSlot, schedules", () => {
   it("bounds a long catch-up and still lands on the latest slot", () => {
     const due = dueSlot(everyMinute, at("2026-10-01T00:00:00Z"), at("2026-10-21T10:30:20Z"));
     expect(due).toEqual({ cause: { kind: "schedule", slot: at("2026-10-21T10:30:00Z"), missed: MISSED_SLOTS_COUNTED } });
+  });
+});
+
+describe("dueSlot, across a fall-back hour", () => {
+  it("computes from the last slot, so 01:45 fires once", () => {
+    const fallBack = { kind: "schedule", cron: "45 1 * * *", timezone: "America/New_York" } as const;
+    const first = dueSlot(fallBack, at("2026-11-01T04:00:00Z"), at("2026-11-01T06:10:00Z"));
+    expect(first?.cause.slot).toBe(at("2026-11-01T05:45:00Z"));
+    // The cursor moves to that slot; the second 01:45 (06:45Z) is never due.
+    expect(dueSlot(fallBack, first!.cause.slot, at("2026-11-01T07:00:00Z"))).toBeUndefined();
+    expect(nextSlot(fallBack, first!.cause.slot)).toBe(at("2026-11-02T06:45:00Z"));
   });
 });
 
@@ -111,5 +130,25 @@ describe("decide", () => {
     const result = decide(considered({ now, firedAt: three }));
     expect(result).toEqual({ kind: "skip", reason: "max_per_hour" });
     expect(decide(considered({ now: now + 31 * MIN, firedAt: three }))).toEqual({ kind: "fire" });
+  });
+});
+
+describe("signalWatchMatches", () => {
+  const a = asNodeId("agent-a");
+  const b = asNodeId("agent-b");
+  const targets = new Set([a]);
+
+  it("matches a named seat only", () => {
+    const watch = { kind: "signal", from: { kind: "seat", nodeId: a }, signal: "blocked" } as const;
+    expect(signalWatchMatches(watch, { signal: "blocked", seat: a }, new Set())).toBe(true);
+    expect(signalWatchMatches(watch, { signal: "blocked", seat: b }, new Set([a, b]))).toBe(false);
+    expect(signalWatchMatches(watch, { signal: "feedback", seat: a }, targets)).toBe(false);
+  });
+
+  it("matches a from-less watch only from seats in the targets", () => {
+    const watch = { kind: "signal", signal: "blocked" } as const;
+    expect(signalWatchMatches(watch, { signal: "blocked", seat: a }, targets)).toBe(true);
+    // A seat in a sibling region is not among the targets.
+    expect(signalWatchMatches(watch, { signal: "blocked", seat: b }, targets)).toBe(false);
   });
 });
