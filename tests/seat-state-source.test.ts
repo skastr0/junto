@@ -13,7 +13,20 @@ import {
   type SeatTriggerInput,
   type SeatTriggers,
 } from "../src/shared/seat-state-trigger";
-import { localSeatStateFeeds, makeSeatStateSource, type SeatStateFeed } from "../src/main/junto/automation/seat-state-source";
+import {
+  localSeatStateFeeds,
+  makeSeatStateSource,
+  remoteSeatStateFeedsOf,
+  type SeatStateFeed,
+} from "../src/main/junto/automation/seat-state-source";
+import {
+  onRemoteSeatFeed,
+  publishRemoteSeatState,
+  remoteSeatLinkLost,
+  remoteSeatStateFeeds,
+  resetRemoteSeatState,
+  type RemoteSeatFeed,
+} from "../src/main/junto/term/remote-seat-state";
 
 const MACHINE = InstallationId.make("inst-test");
 
@@ -72,6 +85,9 @@ const fold = (script: Script): SeatStateFiring[] => {
   }
   return out;
 };
+
+const show = (feed: SeatStateFeed): string =>
+  feed.kind === "lost" ? `${feed.machine} lost` : `${feed.machine} ${feed.kind} ${feed.event.bindingId} ${feed.event.state}`;
 
 const byKey = (firings: readonly SeatStateFiring[]) => [...firings].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 
@@ -176,11 +192,123 @@ describe("seat-state source: this machine's feed", () => {
       listener!(ev("seat-a", "e1", "working", 5));
       return yield* Fiber.join(fiber);
     }).pipe(Effect.runPromise);
-    expect(feeds.map((f) => `${f.machine} ${f.kind} ${f.event.bindingId} ${f.event.state}`)).toEqual([
+    expect(feeds.map(show)).toEqual([
       "inst-test seed seat-a idle",
       "inst-test seed seat-b working",
       "inst-test live seat-a working",
     ]);
     expect(unsubscribed).toBe(true);
+  });
+});
+
+const REMOTE = InstallationId.make("inst-remote");
+
+/** What the service emits for timed feeds, run on the test clock. */
+const runFeeds = (timed: ReadonlyArray<readonly [number, SeatStateFeed]>, end: number) =>
+  Effect.gen(function* () {
+    const feeds = yield* Queue.unbounded<SeatStateFeed>();
+    const source = yield* makeSeatStateSource(Stream.fromQueue(feeds));
+    const out: SeatStateFiring[] = [];
+    yield* source.firings.pipe(Stream.runForEach((f) => Effect.sync(() => out.push(f))), Effect.forkScoped);
+    yield* settle;
+    for (const [at, feed] of timed) {
+      yield* advanceTo(at);
+      yield* Queue.offer(feeds, feed);
+      yield* settle;
+    }
+    yield* advanceTo(end);
+    return out.map((f) => `${f.seat} ${f.becomes}@${f.at}`);
+  }).pipe(Effect.scoped, Effect.provide(TestClock.layer()), Effect.runPromise);
+
+const live = (event: AgentSeatStateEvent, machine = REMOTE) => [event.at, { machine, kind: "live", event }] as const;
+const lost = (at: number, machine = REMOTE) => [at, { machine, kind: "lost" }] as const;
+
+describe("seat-state source: a lost link is not gone", () => {
+  it("a seat reported gone while its link is up fires after the grace", async () => {
+    expect(await runFeeds([live(ev("seat-r", "e1", "gone", 1_000))], 1_000 + GRACE * 2)).toEqual([`seat-r gone@${1_000 + GRACE}`]);
+  });
+
+  it("a link drop longer than the grace fires no gone, before or after it comes back", async () => {
+    const timed = [
+      live(ev("seat-r", "e1", "working", 0)),
+      lost(HOLD * 2),
+      live(ev("seat-r", "e1", "working", HOLD * 2 + GRACE + 30_000)),
+    ];
+    expect(await runFeeds(timed, HOLD * 2 + GRACE * 4)).toEqual([`seat-r working@${HOLD}`]);
+  });
+
+  it("a gone grace running when the link drops ends unfired", async () => {
+    const timed = [live(ev("seat-r", "e1", "gone", 1_000)), lost(20_000)];
+    expect(await runFeeds(timed, GRACE * 4)).toEqual([]);
+  });
+
+  it("a hold running when the link drops ends unfired; the seat's next event after it comes back is its seed", async () => {
+    const timed = [
+      live(ev("seat-r", "e1", "idle", 0)),
+      lost(10_000),
+      live(ev("seat-r", "e1", "idle", 100_000)),
+      live(ev("seat-r", "e1", "working", 110_000)),
+    ];
+    expect(await runFeeds(timed, 110_000 + HOLD * 2)).toEqual([`seat-r working@${110_000 + HOLD}`]);
+  });
+
+  it("a gone the machine reports after it comes back fires after the grace from then", async () => {
+    const timed = [
+      live(ev("seat-r", "e1", "working", 0)),
+      lost(HOLD * 2),
+      live(ev("seat-r", "e1", "working", 200_000)),
+      live(ev("seat-r", "e1", "gone", 210_000)),
+    ];
+    expect(await runFeeds(timed, 210_000 + GRACE * 2)).toEqual([`seat-r working@${HOLD}`, `seat-r gone@${210_000 + GRACE}`]);
+  });
+
+  it("a lost link touches only the seats of that machine", async () => {
+    const timed = [
+      live(ev("seat-l", "e1", "gone", 1_000), MACHINE),
+      live(ev("seat-r", "e1", "gone", 1_000)),
+      lost(2_000),
+    ];
+    expect(await runFeeds(timed, GRACE * 3)).toEqual([`seat-l gone@${1_000 + GRACE}`]);
+  });
+});
+
+describe("seat-state source: the seats link's feed", () => {
+  it("seeds each remote seat's last state, then streams states and lost links, and unsubscribes when closed", async () => {
+    let listener: ((feed: RemoteSeatFeed) => void) | undefined;
+    let unsubscribed = false;
+    const remote = {
+      current: () => [{ machine: REMOTE, event: ev("seat-r", "e1", "idle", 0) }],
+      subscribe: (next: (feed: RemoteSeatFeed) => void) => {
+        listener = next;
+        return () => {
+          unsubscribed = true;
+        };
+      },
+    };
+    const feeds = await Effect.gen(function* () {
+      const fiber = yield* remoteSeatStateFeedsOf(remote).pipe(Stream.take(3), Stream.runCollect, Effect.forkChild);
+      yield* settle;
+      listener!({ _tag: "State", machine: REMOTE, event: ev("seat-r", "e1", "working", 5) });
+      listener!({ _tag: "Lost", machine: REMOTE });
+      return yield* Fiber.join(fiber);
+    }).pipe(Effect.runPromise);
+    expect(feeds.map(show)).toEqual(["inst-remote seed seat-r idle", "inst-remote live seat-r working", "inst-remote lost"]);
+    expect(unsubscribed).toBe(true);
+  });
+
+  it("a remote state names its machine only when the link says which", () => {
+    resetRemoteSeatState();
+    const heard: RemoteSeatFeed[] = [];
+    const stop = onRemoteSeatFeed((feed) => heard.push(feed));
+    publishRemoteSeatState(ev("seat-r", "e1", "idle", 1), REMOTE);
+    publishRemoteSeatState(ev("seat-x", "e1", "idle", 2));
+    remoteSeatLinkLost(REMOTE);
+    stop();
+    expect(heard.map((f) => (f._tag === "Lost" ? `lost ${f.machine}` : `${f.machine} ${f.event.bindingId}`))).toEqual([
+      "inst-remote seat-r",
+      "lost inst-remote",
+    ]);
+    expect(remoteSeatStateFeeds().map(({ machine, event }) => `${machine} ${event.bindingId}`)).toEqual(["inst-remote seat-r"]);
+    resetRemoteSeatState();
   });
 });

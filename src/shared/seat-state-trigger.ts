@@ -143,6 +143,24 @@ export const seedSeatTriggers = (
   return { seats, clock: Math.max(base.clock, now) };
 };
 
+/**
+ * Seats this machine can no longer hear, because the link to the machine
+ * that runs them is down: silence is not gone. Each one's hold or gone grace
+ * ends unfired, as an unknown it cannot leave by itself; the runner reseeds
+ * it from the next event its machine sends.
+ */
+export const loseSeatTriggers = (state: SeatTriggers, bindingIds: Iterable<string>): SeatTriggers => {
+  const seats = new Map(state.seats);
+  for (const bindingId of bindingIds) {
+    const seat = seatKeyOf(bindingId);
+    const track = Option.isSome(seat) ? seats.get(seat.value) : undefined;
+    if (Option.isNone(seat) || track === undefined) continue;
+    const { pending: _, ...rest } = track;
+    seats.set(seat.value, { ...rest, inAttention: false });
+  }
+  return { seats, clock: state.clock };
+};
+
 /** Settle every hold and grace due by `now`, oldest first. */
 const settle = (seats: Map<SeatKey, SeatTrack>, now: number): SeatStateFiring[] => {
   const firings: SeatStateFiring[] = [];

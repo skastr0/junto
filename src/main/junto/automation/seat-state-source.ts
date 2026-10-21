@@ -15,14 +15,18 @@
  * settled, so a restart fires nothing.
  *
  * The input is one stream of feeds, each tagged with the machine its seat
- * runs on: today this machine's own term/agent-state; seats on other
- * machines merge into the same stream when they cross the seats link.
+ * runs on: this machine's own term/agent-state, merged with the seats on
+ * other machines as they cross the seats link. While the link to a machine is
+ * down its seats are not heard, and silence is not gone: each one's hold or
+ * gone grace ends unfired, and its next event reseeds it. So the gone grace
+ * counts only time the link is up, and a network blip fires nothing.
  */
 import { Clock, Context, Effect, Fiber, Layer, PubSub, Queue, Stream } from "effect";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import type { InstallationId } from "@shared/installation-id";
 import {
   emptySeatTriggers,
+  loseSeatTriggers,
   nextSeatTriggerDue,
   seedSeatTriggers,
   stepSeatTriggers,
@@ -31,6 +35,7 @@ import {
 } from "@shared/seat-state-trigger";
 import { MachineRepository } from "../machines/repository";
 import { seatStateRuntime } from "../term/agent-state/runtime";
+import { onRemoteSeatFeed, remoteSeatStateFeeds } from "../term/remote-seat-state";
 
 export class SeatStateSource extends Context.Service<
   SeatStateSource,
@@ -41,14 +46,13 @@ export class SeatStateSource extends Context.Service<
 >()("@junto/SeatStateSource") {}
 
 /**
- * One seat-state event from one machine. A `seed` is the machine's current
- * state of the seat, settled and silent; a `live` event is folded by the rules.
+ * What one machine says of its seats. A `seed` is the machine's current
+ * state of a seat, settled and silent; a `live` event is folded by the rules;
+ * `lost` is the link to the machine going down.
  */
-export type SeatStateFeed = {
-  readonly machine: InstallationId;
-  readonly kind: "seed" | "live";
-  readonly event: AgentSeatStateEvent;
-};
+export type SeatStateFeed =
+  | { readonly machine: InstallationId; readonly kind: "seed" | "live"; readonly event: AgentSeatStateEvent }
+  | { readonly machine: InstallationId; readonly kind: "lost" };
 
 /** A firing goes to every subscriber; one that falls this far behind loses the oldest. */
 const FIRINGS_BUFFER = 1024;
@@ -65,6 +69,10 @@ export const makeSeatStateSource = (feeds: Stream.Stream<SeatStateFeed>) =>
     const firings = yield* PubSub.sliding<SeatStateFiring>(FIRINGS_BUFFER);
     const steps = yield* Queue.unbounded<Step>();
     let state = emptySeatTriggers;
+    /** The machine each seat was last heard from. */
+    const machineOf = new Map<string, InstallationId>();
+    /** Seats whose machine's link was lost; the next event of each is its seed. */
+    const unheard = new Set<string>();
     let armed: { readonly due: number; readonly fiber: Fiber.Fiber<unknown> } | undefined;
 
     const arm = Effect.gen(function* () {
@@ -84,16 +92,32 @@ export const makeSeatStateSource = (feeds: Stream.Stream<SeatStateFeed>) =>
       armed = { due, fiber };
     });
 
+    const fold = (input: SeatTriggerInput) =>
+      Effect.gen(function* () {
+        const next = stepSeatTriggers(state, input);
+        state = next.state;
+        if (next.firings.length > 0) yield* PubSub.publishAll(firings, next.firings);
+      });
+
+    const take = (feed: SeatStateFeed) =>
+      Effect.gen(function* () {
+        if (feed.kind === "lost") {
+          const lost = [...machineOf].flatMap(([bindingId, machine]) => (machine === feed.machine ? [bindingId] : []));
+          for (const bindingId of lost) unheard.add(bindingId);
+          state = loseSeatTriggers(state, lost);
+          return;
+        }
+        const { bindingId } = feed.event;
+        machineOf.set(bindingId, feed.machine);
+        if (feed.kind === "live" && !unheard.has(bindingId)) return yield* fold({ _tag: "Event", event: feed.event });
+        unheard.delete(bindingId);
+        state = seedSeatTriggers([feed.event], feed.event.at, state);
+      });
+
     const apply = (step: Step) =>
       Effect.gen(function* () {
-        if (step._tag === "Feed" && step.feed.kind === "seed") {
-          state = seedSeatTriggers([step.feed.event], step.feed.event.at, state);
-        } else {
-          const input: SeatTriggerInput = step._tag === "Feed" ? { _tag: "Event", event: step.feed.event } : step;
-          const next = stepSeatTriggers(state, input);
-          state = next.state;
-          if (next.firings.length > 0) yield* PubSub.publishAll(firings, next.firings);
-        }
+        if (step._tag === "Feed") yield* take(step.feed);
+        else yield* fold(step);
         yield* arm;
       });
 
@@ -125,11 +149,36 @@ export const localSeatStateFeeds = (
     ),
   );
 
+/**
+ * The seats on other machines, as the seats link brings them to this one:
+ * each one's last state as a seed, then every state and every lost link.
+ */
+export const remoteSeatStateFeedsOf = (
+  remote: { readonly current: typeof remoteSeatStateFeeds; readonly subscribe: typeof onRemoteSeatFeed } = {
+    current: remoteSeatStateFeeds,
+    subscribe: onRemoteSeatFeed,
+  },
+): Stream.Stream<SeatStateFeed> =>
+  Stream.callback<SeatStateFeed>((queue) =>
+    Effect.acquireRelease(
+      Effect.sync(() => {
+        for (const { machine, event } of remote.current()) Queue.offerUnsafe(queue, { machine, kind: "seed", event });
+        return remote.subscribe((feed) => {
+          Queue.offerUnsafe(
+            queue,
+            feed._tag === "Lost" ? { machine: feed.machine, kind: "lost" } : { machine: feed.machine, kind: "live", event: feed.event },
+          );
+        });
+      }),
+      (unsubscribe) => Effect.sync(unsubscribe),
+    ),
+  );
+
 export const SeatStateSourceLive = Layer.effect(
   SeatStateSource,
   Effect.gen(function* () {
     const machines = yield* MachineRepository;
     const machine = yield* machines.installationId.pipe(Effect.orDie);
-    return yield* makeSeatStateSource(localSeatStateFeeds(machine));
+    return yield* makeSeatStateSource(Stream.merge(localSeatStateFeeds(machine), remoteSeatStateFeedsOf()));
   }),
 );

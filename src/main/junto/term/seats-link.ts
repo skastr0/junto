@@ -43,7 +43,8 @@ import { SeatSessionRepository } from "../seat-sessions/repository";
 import { decodeSeatsStatus, fromSeatsStatus, statusIssueAt, toSeatsStatus } from "./seats-status";
 import { forgetRemoteSeatLaunches, openedRemoteSeatLaunches, rememberRemoteSeatLaunch } from "./remote-seat-launch";
 import { seatStateRuntime } from "./agent-state/runtime";
-import { publishRemoteSeatState } from "./remote-seat-state";
+import { publishRemoteSeatState, remoteSeatLinkLost } from "./remote-seat-state";
+import type { InstallationId } from "@shared/installation-id";
 import type { LocalSessionHost } from "./local-host";
 
 const Generation = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(256)));
@@ -143,7 +144,9 @@ export type SeatsChannelOptions = {
     readonly viewed?: (bindingId: string) => unknown;
   };
   /** Where a remote seat's state goes on arrival; the window by default. */
-  readonly publishState?: (event: AgentSeatStateEvent) => void;
+  readonly publishState?: (event: AgentSeatStateEvent, machine: InstallationId) => void;
+  /** The link to a machine closed: its seats' states stop until it opens again. */
+  readonly linkLost?: (machine: InstallationId) => void;
   /** Where what peers hold on this machine's seats is added; the live operator holds by default. */
   readonly addHoldSource?: (source: OperatorHoldSource) => () => void;
   /** The clock a peer's typing is received on. */
@@ -175,6 +178,7 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
   const pin = options.pin ?? ensureSeatSessionId;
   const seatStates = options.seatStates ?? seatStateRuntime;
   const publishState = options.publishState ?? publishRemoteSeatState;
+  const linkLost = options.linkLost ?? remoteSeatLinkLost;
   // Read in this runtime, never through the window's: the core bundle must not reach Electron.
   const sessions = yield* Effect.serviceOption(SeatSessionRepository);
   const launchState = options.launchState ?? (Option.isNone(sessions) ? async () => undefined
@@ -519,6 +523,7 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
       stateSubscriptions.get(context.signal)?.();
       stateSubscriptions.delete(context.signal);
       forgetRemoteSeatLaunches(context.peer.machineName);
+      linkLost(context.peer.installationId);
     }, { once: true });
     // A window that just opened its link reads every seat's state at once.
     for (const event of seatStates.currentEvents()) send(event);
@@ -571,7 +576,8 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
     rememberRemoteSeatLaunch({ bindingId: seat.bindingId, machine: event.machine, epoch: event.epoch,
       gone: event.state === "gone", ...(launch === undefined ? {} : { launch }) });
     publishState({ bindingId: seat.bindingId, epoch: event.epoch, state: event.state, reason: event.reason,
-      confidence: event.confidence, at: event.at, harness: seat.harness, ...(status === undefined ? {} : { status }) });
+      confidence: event.confidence, at: event.at, harness: seat.harness, ...(status === undefined ? {} : { status }) },
+      context.peer.installationId);
     yield* Effect.logInfo("seat state received").pipe(Effect.annotateLogs({
       area: "seats", canvas: event.canvas, seat: event.seatId, peer: context.peer.machineName,
       epoch: event.epoch, state: event.state }));
