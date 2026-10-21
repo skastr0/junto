@@ -72,6 +72,7 @@ import {
   connectedCapabilities,
   findNode,
   nodeKind,
+  resolveWorkTarget,
 } from "./authz";
 
 /** The caller identity control.ts already resolved (process-bind). */
@@ -288,13 +289,32 @@ const seatTargetOf = (node: Seat): SeatTarget => ({
  * connected actor node whose edge holds the port. The caller is never a
  * candidate for `any` — a seat waiting on itself would always succeed.
  */
+/**
+ * A typed seat target as a node id: the seat's name, node id or ref, resolved
+ * as mail resolves it, so a name the caller is wired to admits where its id
+ * does. Admission itself is the op's own.
+ */
+const seatNodeIdOf = (
+  doc: Canvas,
+  callerId: string,
+  typed: string,
+  op: "seat.wait" | "seat.read",
+): Result.Result<string, WorkErrorBody> => {
+  const named = resolveWorkTarget(doc, callerId, typed, op);
+  if (Result.isFailure(named)) return Result.fail(named.failure);
+  if (named.success.itemId !== undefined) return Result.fail(notASeat(typed, "item"));
+  return Result.succeed(named.success.nodeId);
+};
+
 const resolveSeatTargets = (
   doc: Canvas,
   callerId: string,
   args: Pick<SeatWaitArgs, "target" | "any">,
 ): Result.Result<ReadonlyArray<SeatTarget>, WorkErrorBody> => {
   if (args.target !== undefined) {
-    const admitted = admitWorkTarget(doc, callerId, args.target, "seat.wait");
+    const nodeId = seatNodeIdOf(doc, callerId, args.target, "seat.wait");
+    if (Result.isFailure(nodeId)) return Result.fail(nodeId.failure);
+    const admitted = admitWorkTarget(doc, callerId, nodeId.success, "seat.wait");
     if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
     const node = admitted.success.node;
     if (node.kind !== "agent") {
@@ -322,7 +342,9 @@ const resolveReadTarget = (
   callerId: string,
   targetId: string,
 ): Result.Result<ReadTarget, WorkErrorBody> => {
-  const admitted = admitWorkTarget(doc, callerId, targetId, "seat.read");
+  const nodeId = seatNodeIdOf(doc, callerId, targetId, "seat.read");
+  if (Result.isFailure(nodeId)) return Result.fail(nodeId.failure);
+  const admitted = admitWorkTarget(doc, callerId, nodeId.success, "seat.read");
   if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
   const node = admitted.success.node;
   if (node.kind !== "agent") {

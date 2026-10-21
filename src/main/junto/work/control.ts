@@ -1673,12 +1673,15 @@ const dispatchOp = (
         };
       }
 
-      const gate = requireTarget(board, caller.nodeId, targetId, op);
+      // Another seat's thread is named as mail names it: a name, id or ref.
+      const named = resolveMailTarget(board, caller.nodeId, targetId, op);
+      if (Result.isFailure(named)) return yield* Effect.fail(named.failure);
+      const gate = requireTarget(board, caller.nodeId, named.success, op);
       if ("type" in gate) return yield* Effect.fail(gate);
       return {
-        target: targetId,
+        target: named.success,
         ...threadField,
-        items: sortMessagesNewestFirst(filtered(yield* mailboxOf(targetId))).map(withThread),
+        items: sortMessagesNewestFirst(filtered(yield* mailboxOf(named.success))).map(withThread),
       };
     }
 

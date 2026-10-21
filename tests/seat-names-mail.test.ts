@@ -206,6 +206,32 @@ describe("a mail target is a seat's name or its node id", () => {
   });
 });
 
+describe("reading another seat takes its name as mail does", () => {
+  it("msg list on a wired seat's name reads its thread, as its id does", async () => {
+    await call("agent", "msg.send", { target: "cli-lead", text: "one" });
+    const byId = await call("agent", "msg.list", { target: "lead", peek: true });
+    const byName = await call("agent", "msg.list", { target: "cli-lead", peek: true });
+    expect(byId.ok).toBe(true);
+    expect(byName).toEqual(byId);
+  });
+
+  it("seat read and seat wait on a wired seat's name answer as its id does", async () => {
+    const byId = await call("agent", "seat.read", { target: "lead", lines: 1 });
+    const byName = await call("agent", "seat.read", { target: "cli-lead", lines: 1 });
+    expect(byName.ok).toBe(byId.ok);
+    if (!byId.ok) expect(byName.error.type).toBe(byId.error.type);
+    const waited = await call("agent", "seat.wait", { target: "cli-lead", until: "idle", timeoutMs: 1 });
+    expect(waited.error?.type).not.toBe("ScopeError");
+  });
+
+  it("a name it is not wired to is refused naming the seats it can reach, not sent to the operator", async () => {
+    const refused = await call("agent", "msg.list", { target: "solo", peek: true });
+    expect(refused.ok).toBe(false);
+    expect(refused.error.type).toBe("UnknownTarget");
+    expect(refused.error.details.candidates.map((candidate: { nodeId: string }) => candidate.nodeId)).toContain("lead");
+  });
+});
+
 describe("mail says who sent it and where", () => {
   it("is stamped with the sender's regions, and msg read and msg list carry them", async () => {
     const sent = await call("agent", "msg.send", { target: "cli-lead", text: "from where?" });
