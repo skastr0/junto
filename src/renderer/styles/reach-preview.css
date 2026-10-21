@@ -30,9 +30,10 @@
 .react-flow__node[data-reach-summary]::after {
   content: attr(data-reach-summary);
   position: absolute;
-  left: 50%;
-  bottom: calc(100% + 14px);
-  transform: translateX(-50%);
+  /* Beside the card: above it sits the selection toolbar, below it the hover card. */
+  left: calc(100% + 14px);
+  top: 50%;
+  transform: translateY(-50%);
   padding: 3px 8px;
   border-radius: var(--radius-pill);
   background: var(--color-raise-2);
@@ -52,7 +53,7 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
   outline-width: 8px;
 }
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node[data-reach-summary]::after {
-  bottom: calc(100% + 40px);
+  left: calc(100% + 40px);
   padding: 10px 24px;
   font-size: calc(var(--text-label) * 3);
 }
