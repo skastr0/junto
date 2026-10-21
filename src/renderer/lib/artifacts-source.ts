@@ -182,16 +182,20 @@ export const setArtifactsSource = (next: ArtifactsSource): void => {
   source = next;
 };
 
-/** Re-read whenever the source changes or `key` does. */
+/**
+ * Re-read whenever the source changes or `key` does. A value read for an
+ * earlier key is never shown for the new one: until its first read lands,
+ * the new key reads `initial`.
+ */
 const useSourced = <T>(read: () => Promise<T>, initial: T, key: string): T => {
-  const [value, setValue] = useState<T>(initial);
+  const [held, setHeld] = useState<{ readonly key: string; readonly value: T }>({ key, value: initial });
   const readRef = useRef(read);
   readRef.current = read;
   useEffect(() => {
     let live = true;
     const refresh = (): void => {
-      void readRef.current().then((next) => {
-        if (live) setValue(next);
+      void readRef.current().then((value) => {
+        if (live) setHeld({ key, value });
       });
     };
     refresh();
@@ -201,7 +205,7 @@ const useSourced = <T>(read: () => Promise<T>, initial: T, key: string): T => {
       unsubscribe();
     };
   }, [key]);
-  return value;
+  return held.key === key ? held.value : initial;
 };
 
 const NONE: ReadonlyArray<never> = [];
