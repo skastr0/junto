@@ -134,7 +134,8 @@ describe("message-delivery pure helpers", () => {
       metadata: { factoryMail: true, fromSeat: NOTICE_SEAT_ID, senderNodeId: "task-board", senderName: "Tasks", subjectNotice: "refusal" },
       parts: [{ kind: "text", text: "Refused: the task moved on." }],
     });
-    expect(composeMessageDeliveryPayload(refusal).split("\n")[0]).toBe("mail from Tasks, id 01KZSM4A84ASFRTZ77YAQ09CVM");
+    // Off the canvas, a notice is never named by the words its writer stamped.
+    expect(composeMessageDeliveryPayload(refusal).split("\n")[0]).toBe("mail from a removed resource, id 01KZSM4A84ASFRTZ77YAQ09CVM");
     const automation = userMsg({
       messageId: "01KZSM4A84ASFRTZ77YAQ09CVN",
       metadata: { factoryMail: true, fromSeat: AUTOMATION_SEAT_ID, senderNodeId: "nightly", senderName: "nightly" },

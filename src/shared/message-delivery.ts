@@ -9,6 +9,7 @@ import type { Message } from "./work-model";
 import type { SurfaceDeliveryTarget } from "./actor-surface";
 import { readMailExtension } from "./crew";
 import { mailHeaderSender, storedMailAuthorKindOf, type MailHeaderSender } from "./mail-sender";
+import { NOTICE_SEAT_ID } from "./mail-author";
 import { noticeTakesReply, subjectNoticeKindOf } from "./subject-notice";
 import { subjectLabel, subjectNodeOf, threadSubjectOf } from "./thread-subject";
 
@@ -160,11 +161,16 @@ const typedBody = (message: Message): string => {
 /** A prompt: the sender asked for its full text, typed as is. */
 const isPromptMail = (message: Message): boolean => readMailExtension(message.metadata)?.mailKind === "prompt";
 
+/** What a notice is from when its resource is no longer on the canvas. */
+export const REMOVED_RESOURCE = "a removed resource";
+
 /** The sender as the mail was stamped, when the canvas has not named it. */
 const stampedSender = (message: Message): MailSender => {
   const node = message.metadata?.senderNodeId;
   const target = typeof node === "string" ? sanitizeDeliveryLine(node) : "";
-  return mailHeaderSender(storedMailAuthorKindOf(message), factoryMailFromSeat(message) ?? "seat", target === "" ? undefined : target);
+  // A notice's node is named only by the canvas: its stamps are the writing machine's words.
+  const label = message.metadata?.fromSeat === NOTICE_SEAT_ID ? REMOVED_RESOURCE : factoryMailFromSeat(message) ?? "seat";
+  return mailHeaderSender(storedMailAuthorKindOf(message), label, target === "" ? undefined : target);
 };
 
 /** The thread a notice is a reply in; undefined for a thread's own root. */

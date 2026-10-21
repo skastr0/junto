@@ -8,6 +8,8 @@ import { messageIdTimeMs } from "./message-delivery";
 import { threadSubjectOf } from "./thread-subject";
 import type { Message } from "./work-model";
 import { OPERATOR_SEAT_ID } from "./work-reference";
+import { NOTICE_SEAT_ID } from "./mail-author";
+import { REMOVED_RESOURCE } from "./message-delivery";
 import type {
   MailParty,
   MailThreadMessage,
@@ -92,7 +94,12 @@ const mentionsOf = (row: Message, seat: (nodeId: string) => SeatParty): Readonly
  * with no subject. A row in a subject thread, a task comment or a notice on
  * a resource, is thread mail and carries its subject.
  */
-const entryOf = (row: Message, mailbox: string, seat: (nodeId: string) => SeatParty): Entry | undefined => {
+const entryOf = (
+  row: Message,
+  mailbox: string,
+  seat: (nodeId: string) => SeatParty,
+  nameOf: MailThreadsInput["nameOf"],
+): Entry | undefined => {
   if (row.metadata?.factoryMail !== true) return undefined;
   const subject = threadSubjectOf(row);
   // A task comment from before subjects names its task and no subject: not thread mail.
@@ -104,9 +111,13 @@ const entryOf = (row: Message, mailbox: string, seat: (nodeId: string) => SeatPa
   if (fromSeat === OPERATOR_SEAT_ID) {
     if (senderName !== "operator") return undefined;
     from = OPERATOR;
+  } else if (fromSeat === NOTICE_SEAT_ID) {
+    // A resource's notice: the thread names the refused node as the canvas
+    // does, never by the id or name the writing machine stamped.
+    const node = stringField(row, "senderNodeId");
+    if (node === undefined || node === "operator") return undefined;
+    from = { kind: "seat", nodeId: node, name: nameOf(node) ?? REMOVED_RESOURCE };
   } else {
-    // A refusal notice has no seat stamp: it is written from the refused
-    // resource's node, and the thread names that node as its writer.
     const sender = stringField(row, "senderNodeId") ?? fromSeat;
     if (sender === undefined) return undefined;
     from = seat(sender);
@@ -147,7 +158,7 @@ const byAge = (a: Pick<Entry, "at" | "messageId">, b: Pick<Entry, "at" | "messag
 const entriesOf = (input: MailThreadsInput): ReadonlyArray<Entry> => {
   const seat = (nodeId: string): SeatParty => ({ kind: "seat", nodeId, name: input.nameOf(nodeId) ?? nodeId });
   return input.mailboxes
-    .flatMap((mailbox) => mailbox.messages.flatMap((row) => entryOf(row, mailbox.nodeId, seat) ?? []))
+    .flatMap((mailbox) => mailbox.messages.flatMap((row) => entryOf(row, mailbox.nodeId, seat, input.nameOf) ?? []))
     .sort(byAge);
 };
 
