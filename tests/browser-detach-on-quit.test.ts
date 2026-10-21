@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -50,6 +50,28 @@ describe("browser detach-on-quit product lock", () => {
     expect(adapterSrc).toMatch(
       /clearServiceWorkers: \(origin\) =>\s*browserPartition\.clearStorageData\(\{ origin, storages: \["serviceworkers"\] \}\)/,
     );
+  });
+
+  it("clears profile storage only at the listed sites", () => {
+    // A source-text review guard, not a boundary: an aliased call passes it.
+    const dir = join(root, "src/main/junto/browser");
+    const found: string[] = [];
+    for (const name of readdirSync(dir).filter((file) => file.endsWith(".ts")).sort()) {
+      const source = readFileSync(join(dir, name), "utf8");
+      for (const call of source.match(/\b(?:clearStorageData|clearData|clearCache|clearAuthCache|clearCodeCaches|clearHostResolverCache)\([^)]*\)/g) ?? []) {
+        found.push(`${name}: ${call}`);
+      }
+    }
+    expect(found).toEqual([
+      // The start step: every profile's service workers, before any view opens.
+      'profile-storage-electron.ts: clearStorageData({ storages: ["serviceworkers"] })',
+      // The profile wipe, the operator's own act.
+      "profile-storage.ts: clearData()",
+      "profile-storage.ts: clearAuthCache()",
+      "profile-storage.ts: clearCache()",
+      // A seat-touched origin's service workers, during the run.
+      'view-adapter.ts: clearStorageData({ origin, storages: ["serviceworkers"] })',
+    ]);
   });
 
   it("views are partitioned and parented under the window contentView", () => {
