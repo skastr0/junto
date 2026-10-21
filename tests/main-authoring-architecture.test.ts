@@ -115,6 +115,9 @@ describe("main authoring architecture", () => {
       .filter((path) => path !== "src/main/junto/work/service.ts")
       .sort();
     expect(importers).toEqual([
+      // The automation runner's actions write as the automation's own node
+      // (automationActorRef), only on the machine that edits the canvas.
+      "src/main/junto/automation/live.ts",
       // The phone companion reads a seat's recent-ops Activity through WorkService.
       "src/main/junto/companion/backend.ts",
       // A paired phone's mail and signal answers are operator mail, written only
