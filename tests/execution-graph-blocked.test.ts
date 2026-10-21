@@ -1,7 +1,8 @@
 /**
  * The blocked mark is a seat's: a seat is blocked when it is the assignee of a
  * task waiting for input, on any task node of the canvas. Wires carry none of
- * it, and a task in review or still working blocks no one.
+ * it, and a task in review or still working blocks no one. Stored rows are
+ * read in the task contract's terms (task-model.ts) until the stores carry it.
  */
 import { describe, expect, it } from "vitest";
 import type { Task, TaskState } from "../src/shared/work-model";
@@ -47,6 +48,10 @@ describe("a seat is blocked by the task it is the assignee of", () => {
 
   it.each<TaskState>(["submitted", "working", "completed", "canceled"])("a task in %s blocks no one", (state) => {
     expect(graphOf({ board: [task("t1", state, atlas)] }).blocked.size).toBe(0);
+  });
+
+  it("reads a stored row in the 0.10 terms: auth-required is input-required, and blocks", () => {
+    expect([...graphOf({ board: [task("t1", "auth-required", atlas)] }).blocked]).toEqual(["atlas"]);
   });
 
   it("an unassigned task, or one whose assignee is not a seat here, blocks no one", () => {

@@ -1,6 +1,6 @@
 import type { Task } from "../work-model";
-import { claimedByOf, taskBrief } from "../task";
-import { blocksAssignee, type ExecutionGraph, type WorkItemsOf } from "../execution-graph";
+import { taskBrief } from "../task";
+import { holdsAssignee, type ExecutionGraph, type WorkItemsOf } from "../execution-graph";
 import type { Canvas } from "../model/canvas";
 import type { Node } from "../model/kinds";
 import { titleOf } from "../model/title";
@@ -37,8 +37,7 @@ export const collectStoppageSeedIds = (
 };
 
 /** Tasks on a seed that actually hold a seat: waiting for input, assigned. */
-const stallingItems = (items: ReadonlyArray<Task>): ReadonlyArray<Task> =>
-  items.filter((item) => blocksAssignee(item) && claimedByOf(item) !== undefined);
+const stallingItems = (items: ReadonlyArray<Task>): ReadonlyArray<Task> => items.filter(holdsAssignee);
 
 const seedBriefOf = (node: Node | undefined, items: ReadonlyArray<Task>): string => {
   if (!node) return "stoppage";

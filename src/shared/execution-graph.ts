@@ -1,5 +1,15 @@
 import type { Task } from "./work-model";
+import type { ActorSeatId } from "./actor-seat";
 import { claimedByOf, taskBrief } from "./task";
+import {
+  blocksAssignee,
+  remapLegacyTaskState,
+  seatNodeId,
+  taskNodeId,
+  type SeatNodeId,
+  type TaskCore,
+  type TaskNodeId,
+} from "./task-model";
 import {
   resolveActorRefAt,
   type ActorRefResolver,
@@ -16,7 +26,8 @@ import {
 // Derived state is never stored on the canvas.
 //
 // Stoppage model (derived, never authored): a seat is blocked when it is the
-// assignee of a task in `input-required`, on any task node of the canvas.
+// assignee of a task in `input-required` (`blocksAssignee`, task-model.ts),
+// on any task node of the canvas.
 // The mark lives on the seat's ring. Wires carry no stoppage: a wire states a
 // relationship, never a gate, and nothing cascades along one. A task in
 // review does not block its assignee.
@@ -45,7 +56,7 @@ export type WorkItemsOf = (nodeId: string) => ReadonlyArray<Task>;
 export type BlockedReason = {
   readonly kind: "task";
   /** The task node the task sits on. */
-  readonly taskNodeId: string;
+  readonly taskNodeId: TaskNodeId;
   readonly taskId: string;
   readonly detail: string;
   /**
@@ -73,43 +84,62 @@ export type ExecutionGraph = {
 const mayBeBlocked = (node: Node): boolean =>
   seatMayBeBlocked({ isGroup: node.kind === "region", kind: node.kind });
 
-/** The one task state that blocks its assignee. */
-export const blocksAssignee = (task: Pick<Task, "state">): boolean =>
-  task.state === "input-required";
+/** A task in the contract's terms (task-model.ts): its state and its assignee. */
+export type HeldTask = Pick<TaskCore, "state" | "assignee">;
+
+/**
+ * A stored work row in the contract's terms, until the task stores read
+ * `TaskView`: its 0.10 state (`remapLegacyTaskState`) and its assignee as the
+ * seat node its claim resolves to.
+ */
+export const heldTaskOf = (
+  task: Task,
+  seatOf: (seat: ActorSeatId) => SeatNodeId | undefined,
+): HeldTask => {
+  const claim = claimedByOf(task);
+  const assignee = claim === undefined ? undefined : seatOf(claim);
+  return {
+    state: remapLegacyTaskState(task.state, assignee !== undefined),
+    ...(assignee === undefined ? {} : { assignee }),
+  };
+};
+
+/** Whether a stored row holds its assignee, whoever that is. */
+export const holdsAssignee = (task: Task): boolean =>
+  blocksAssignee(remapLegacyTaskState(task.state, claimedByOf(task) !== undefined));
 
 export const deriveExecutionGraph = (
   canvas: Canvas,
   context: ExecutionGraphContext,
 ): ExecutionGraph => {
-  // Seat node by compiled seat id: a task names its assignee by seat id, and
-  // an unresolved seat never stands in for its canvas node id.
-  const nodeIdBySeat = new Map<string, string>();
+  // Seat node by compiled seat id: a stored row names its claim by seat id,
+  // and an unresolved seat never stands in for its canvas node id.
+  const nodeIdBySeat = new Map<string, SeatNodeId>();
   for (const node of canvas.nodes.values()) {
     if (!mayBeBlocked(node)) continue;
     const seatId = resolveActorRefAt(context.resolveActorRef, context.canvasName, node.id)?.seatId;
-    if (seatId !== undefined) nodeIdBySeat.set(seatId, node.id);
+    if (seatId !== undefined) nodeIdBySeat.set(seatId, seatNodeId(node.id));
   }
+  const seatOf = (seat: ActorSeatId): SeatNodeId | undefined => nodeIdBySeat.get(seat);
 
   const blocked = new Set<string>();
   const reasonsByNodeId = new Map<string, BlockedReason[]>();
   for (const node of canvas.nodes.values()) {
     if (node.kind !== "task") continue;
     for (const task of context.itemsOf(node.id)) {
-      if (!blocksAssignee(task)) continue;
-      const assignee = claimedByOf(task);
-      const seatNodeId = assignee === undefined ? undefined : nodeIdBySeat.get(assignee);
-      if (seatNodeId === undefined) continue;
+      const { state, assignee } = heldTaskOf(task, seatOf);
+      if (assignee === undefined || !blocksAssignee(state)) continue;
       const since = earliestStateSince([task]);
-      blocked.add(seatNodeId);
-      const list = reasonsByNodeId.get(seatNodeId) ?? [];
+      blocked.add(assignee);
+      const list = reasonsByNodeId.get(assignee) ?? [];
       list.push({
         kind: "task",
-        taskNodeId: node.id,
+        taskNodeId: taskNodeId(node.id),
         taskId: task.id,
         detail: `needs input - ${taskBrief(task)}`,
         ...(since === undefined ? {} : { since }),
       });
-      reasonsByNodeId.set(seatNodeId, list);
+      reasonsByNodeId.set(assignee, list);
     }
   }
   return { blocked, reasonsByNodeId };
