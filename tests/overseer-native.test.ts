@@ -337,15 +337,13 @@ describe("overseer native adapters", () => {
     expect(opened.error.type).toBe("RuntimeDown");
   });
 
-  it("controls an existing UI-owned page without impersonating the UI sender", async () => {
+  it("acts on the operator's page only as its own guest, never as the operator", async () => {
     const gotoForOwner = vi.fn(() => ({
       ok: true as const,
       data: { sessionId: "ui-sess", url: "https://example.com/next" },
     }));
     const pages = {
       overseerSessionsForRef: () => [{ owner: "junto-ui", sessionId: "ui-sess" }],
-      overseerSessionOwner: (sessionId: string) =>
-        sessionId === "ui-sess" ? "junto-ui" : undefined,
       sessionIdForRefForOwner: () => undefined,
       sessionIdForRef: () => "ui-sess",
       stateForOwner: (owner: string, sessionId: string) => ({
@@ -363,7 +361,7 @@ describe("overseer native adapters", () => {
     });
     expect(moved.ok).toBe(true);
     expect(gotoForOwner).toHaveBeenCalledWith(
-      "junto-ui",
+      "overseer",
       "ui-sess",
       "https://example.com/next",
     );
@@ -699,17 +697,16 @@ describe("overseer native adapters", () => {
       return { ok: true as const, data: { png: PNG } };
     });
     const pages = {
-      overseerSessionOwner: () => "job-a",
       evalForOwner,
       screenshotForOwner,
     } as unknown as BrowserSessionService;
     const native = live([{ name: "factory", doc: board }], { pages });
     const evaluated = await run(native, "page.eval", { sessionId: "sess-1", code: "1" });
     expect(evaluated.ok).toBe(true);
-    expect(evalForOwner).toHaveBeenCalledWith("job-a", "sess-1", "1", expect.any(AbortSignal));
+    expect(evalForOwner).toHaveBeenCalledWith("overseer", "sess-1", "1", expect.any(AbortSignal));
     const shot = await run(native, "page.screenshot", { sessionId: "sess-1" });
     expect(shot.ok).toBe(true);
-    expect(screenshotForOwner).toHaveBeenCalledWith("job-a", "sess-1", expect.any(AbortSignal));
+    expect(screenshotForOwner).toHaveBeenCalledWith("overseer", "sess-1", expect.any(AbortSignal));
   });
 
   it("interrupts an in-flight eval through the session AbortSignal", async () => {
@@ -730,7 +727,6 @@ describe("overseer native adapters", () => {
       return { ok: true as const, data: { result: "late" } };
     });
     const pages = {
-      overseerSessionOwner: () => "job-a",
       evalForOwner,
     } as unknown as BrowserSessionService;
     const native = live([{ name: "factory", doc: board }], { pages });

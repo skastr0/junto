@@ -2879,12 +2879,6 @@ export class BrowserSessionService {
     if (holders.size === 0) this.refDeleteLeases.delete(ref);
   }
 
-  overseerSessionOwner(sessionId: string): string | undefined {
-    const entry = this.sessions.get(sessionId);
-    if (entry === undefined || !this.isCurrent(entry)) return undefined;
-    return entry.owner;
-  }
-
   authorizationSnapshotForOwner(
     owner: string,
     sessionId: string,

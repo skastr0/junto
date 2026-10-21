@@ -902,7 +902,7 @@ const handlePage = async (
     if (pages !== undefined) {
       const live = resolveLivePageSession(pages, targeted.canvasName, targeted.node.id);
       if (live !== undefined) {
-        const state = pages.stateForOwner(live.owner, live.sessionId);
+        const state = pages.stateForOwner(pageOwner(), live.sessionId);
         session = state.ok ? state.data : undefined;
       }
     }
@@ -962,11 +962,9 @@ const handlePage = async (
   const pages = pagesOrDown(ctx);
   if ("error" in pages) return pages;
   const sessionId = String((args as { sessionId: string }).sessionId);
-  const liveOwner =
-    typeof pages.overseerSessionOwner === "function"
-      ? pages.overseerSessionOwner(sessionId)
-      : undefined;
-  const owner = liveOwner ?? pageOwner();
+  // The overseer acts on a page only as its own guest, never as the operator
+  // whose view it is: its grant, takeover and the touched mark all hold.
+  const owner = pageOwner();
 
   switch (operation) {
     case "page.goto": {
