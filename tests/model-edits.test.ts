@@ -121,6 +121,23 @@ describe("renaming", () => {
     expect(titled(notes, "north", "North")).toEqual([]);
   });
 
+  it("names a page, a file or a link in an edit the contract accepts, and clears it when emptied", () => {
+    const pointers = canvasOf([
+      node("page", "site", { url: "https://docs.example", profile: "work", onRemove: "detach", host: "local" }),
+      node("file", "plan", { path: "/tmp/plan.md", label: "Plan" }),
+      node("link", "docs", { url: "https://example.test" }),
+    ]);
+    expect(sent(titled(pointers, "site", "Docs"))).toEqual([
+      { _tag: "Edit", canvas: name, id: "site", change: { kind: "page", label: "Docs" } },
+    ]);
+    expect(sent(titled(pointers, "plan", ""))).toEqual([
+      { _tag: "Edit", canvas: name, id: "plan", change: { kind: "file", label: null } },
+    ]);
+    expect(sent(titled(pointers, "docs", "Handbook"))).toEqual([
+      { _tag: "Edit", canvas: name, id: "docs", change: { kind: "link", label: "Handbook" } },
+    ]);
+  });
+
   it("names every other kind as renamed does", () => {
     expect(titled(canvas, "lead", "captain")).toEqual(renamed(canvas, "lead", "captain"));
     expect(titled(canvas, "term", "")).toEqual(renamed(canvas, "term", ""));

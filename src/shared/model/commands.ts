@@ -63,6 +63,7 @@ export const NodeEdit = Schema.Union([
     profile: set(Page.fields.profile),
     host: set(HostId),
     onRemove: set(PageOnRemove),
+    label,
   }),
   edit("task", {
     name: setOrClear(OneLine),
@@ -75,8 +76,9 @@ export const NodeEdit = Schema.Union([
   edit("file", {
     path: set(FileCard.fields.path),
     subpath: setOrClear(Schema.String),
+    label,
   }),
-  edit("link", { url: set(Schema.String) }),
+  edit("link", { url: set(Schema.String), label }),
   edit("git", { label, cwd: set(GitCard.fields.cwd) }),
   edit("region", {
     label,
