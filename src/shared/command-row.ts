@@ -88,8 +88,8 @@ export const RulingRefusedResult = Schema.Struct({
   operation: Schema.Literal("ruling.refused"),
   ...rulingKeyFields,
   reason: RefusalReason,
-  /** The version, epoch or head the command lost to. */
-  expected: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(128)))),
+  /** The version, epoch or head the command lost to: a token, never words. */
+  expected: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9._:-]{1,128}$/)))),
   /** The command this refusal goes back to: itself, or the refused command its `after` reaches. */
   root: OpId,
 });

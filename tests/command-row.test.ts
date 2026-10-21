@@ -152,6 +152,7 @@ describe("a refusal on the wire", () => {
       crosses({ ...refused, body: { ...refused.body, error: { type: "InputError", message: "the op body, leaked" } } }),
     ).toBe(false);
     expect(crosses({ ...refused, body: { ...refused.body, expected: "x".repeat(129) } })).toBe(false);
+    expect(crosses({ ...refused, body: { ...refused.body, expected: "lost to the op text" } })).toBe(false);
     expect(crosses({ ...refused, body: { ...refused.body, reason: "stale", expected: "v7" } })).toBe(true);
   });
 
