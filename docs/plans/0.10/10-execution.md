@@ -139,6 +139,8 @@ everyone else reports by mail and on the needs-you feed.
 | 02 queued writes, final pass | remote, c56245482 | done |
 | remote R2 to R6 | remote-work, remote-send, remote-seats (R2); remote-cut (R3); remote-core (R4); remote-window (R5); remote-security (R6); doctrine remote-design 659e44833, 52717c3a1 | started |
 | Machine build define `__JUNTO_MACHINE_BUILD__` | cli owns, remote-core asserts the bundle | requested |
+| Mention contract | product-feed, `mention.ts` fb267e17a | landed |
+| Thread subject and anchor contract | pty-mail, `thread-subject.ts` 74b442b98; tests by product-feed 1e4c91e0b | landed |
 | Visual language v1 | product-typography: ResourceChip, TaskStateMark, StampTally, TwoPane, pending rows; 8888746da to e167586b4; on the feed | landed |
 | Ids: `work-ids.ts` owns `ItemId` and `OpId`; others import | cli-protocol | decided, landing |
 | Listbox ARIA model | product-accessibility, a07e90e17 | landed |
