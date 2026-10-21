@@ -158,7 +158,7 @@ export const artifactHistory = (ports: ResourceIpcPorts, canvasName: string, art
       Effect.map(ports.artifacts.body(canvasName, artifactId, version.version), (body) =>
         Option.isNone(body)
           ? []
-          : [{ artifactId, version: version.version, author: version.author, at: version.at, body: body.value }],
+          : [{ artifactId, version: version.version, author: version.author, at: version.at, body: body.value.body }],
       ),
     );
     return records.flat() as ReadonlyArray<ArtifactVersionRecord>;
@@ -170,7 +170,7 @@ export const artifactBody = (
   artifactId: ItemId,
   version: ArtifactVersion,
 ): Effect.Effect<ArtifactBody | null, WorkErrorBody> =>
-  Effect.map(ports.artifacts.body(canvasName, artifactId, version), Option.getOrNull);
+  Effect.map(ports.artifacts.body(canvasName, artifactId, version), (read) => (Option.isNone(read) ? null : read.value.body));
 
 export const applyArtifact = (
   ports: ResourceIpcPorts,

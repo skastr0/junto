@@ -77,7 +77,8 @@ const portsOf = (over: {
         } as never),
       head: (_canvas, id) =>
         Effect.succeed(Option.some({ artifact: { artifactId: id }, body: null, bodyRef: { sha256: id } } as never)),
-      body: (_canvas, _id, version) => Effect.succeed(version === 2 ? Option.none() : Option.some(body(`v${version}`))),
+      body: (_canvas, _id, version) =>
+        Effect.succeed(version === 2 ? Option.none() : Option.some({ body: body(`v${version}`), bodyRef: { sha256: `v${version}` } } as never)),
       history: () =>
         Effect.succeed({
           versions: [3, 2, 1].map((version) => ({ version, author: { kind: "operator" }, at: version })),
