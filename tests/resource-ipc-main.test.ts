@@ -46,6 +46,7 @@ const view = (taskId: string, createdAt: number) => ({ taskId, createdAt }) as u
 const body = (text: string) => ({ text }) as unknown as ArtifactBody;
 
 type Calls = {
+  pulled: Array<unknown>;
   submitted: Array<ResourceCommand<unknown>>;
   delivered: number;
   listed: Array<unknown>;
@@ -55,7 +56,7 @@ const portsOf = (over: {
   readonly taskSubmit?: ResourceIpcPorts["tasks"]["submit"];
   readonly artifactSubmit?: ResourceIpcPorts["artifacts"]["submit"];
 } = {}) => {
-  const calls: Calls = { submitted: [], delivered: 0, listed: [] };
+  const calls: Calls = { pulled: [], submitted: [], delivered: 0, listed: [] };
   const ports: ResourceIpcPorts = {
     topology: () => Effect.succeed(board),
     tasks: {
@@ -85,6 +86,7 @@ const portsOf = (over: {
         Effect.succeed(Option.some({ artifact: { artifactId: id }, body: null, bodyRef: { sha256: id } } as never)),
       body: (_canvas, _id, version) =>
         Effect.succeed(version === 2 ? Option.none() : Option.some({ body: body(`v${version}`), bodyRef: { sha256: `v${version}` } } as never)),
+      pull: (input) => Effect.sync(() => void calls.pulled.push(input)),
       history: () =>
         Effect.succeed({
           versions: [3, 2, 1].map((version) => ({ version, author: { kind: "operator" }, at: version })),
@@ -187,9 +189,14 @@ describe("what a write may name", () => {
 });
 
 describe("artifacts over IPC", () => {
-  it("lists live and archived heads, newest change first", async () => {
-    const { ports } = portsOf();
+  it("lists live and archived heads, newest change first, and pulls a pending body on the operator's reach", async () => {
+    const { ports, calls } = portsOf();
     expect((await run(listArtifacts(ports, "factory", asNodeId("A")))).map((head) => head.artifact.artifactId)).toEqual([ART, OLD]);
+    expect(calls.pulled).toEqual([ART, OLD].map((id) => expect.objectContaining({
+      ref: { sha256: id },
+      reached: { canvasName: "factory", resourceId: "A" },
+      owner: expect.objectContaining({ kind: "artifact", canvasName: "factory", nodeId: "A" }),
+    })));
   });
 
   it("reads each version's body, leaving out one the store lacks", async () => {

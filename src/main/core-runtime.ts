@@ -28,6 +28,7 @@ import { ContentService } from "./junto/content/service";
 import { ContentPullFailed, makeContentChannel, makeContentPulls, pullContent, type PulledOwner } from "./junto/content/pull";
 import type { ContentPullRefused, ResourceReached } from "@shared/content-pull";
 import type { ContentRef } from "@shared/wire/content-ref";
+import { BodyPuller } from "./junto/content/body-puller";
 import { makeMachineFiles, pushFileToMachine } from "./junto/content/machine-files";
 import { SshTransport } from "./junto/ssh";
 import { makeMachineExchangeQuery } from "./junto/work/exchange/queries";
@@ -260,10 +261,11 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
   const links = machineLinkLayer(options.build);
   const status = Layer.provideMerge(machineCoreStatusLayer(options), links);
   const rows = Layer.provideMerge(machineCoreRowsLayer, status);
+  const pulls = Layer.provideMerge(Layer.effect(BodyPuller, Effect.map(MachineCoreRows, (held) => ({ pull: held.pullBody }))), rows);
   // A seat's write on a canvas another machine edits is queued there, and waits for its ruling only while linked to it.
   const submit = Layer.provideMerge(
     Layer.unwrap(Effect.map(MachineCoreRows, (held) => makeResourceSubmitLayer((peer) => held.exchange.linked(peer)))),
-    rows,
+    pulls,
   );
   const seats = Layer.provideMerge(machineCoreSeatsLayer, submit);
   const mail = Layer.provideMerge(machineCoreMailLayer, seats);

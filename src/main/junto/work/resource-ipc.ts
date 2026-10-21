@@ -8,6 +8,8 @@ import type { IpcMain } from "electron";
 import { Effect, Option, Schema } from "effect";
 import type { ArtifactBody, ArtifactOp, ArtifactVersion, ArtifactVersionRecord } from "@shared/artifact";
 import type { Canvas } from "@shared/model";
+import type { ContentRef } from "@shared/content";
+import { operatorReachesResource } from "@shared/content-pull";
 import type { NodeId } from "@shared/physics/schema";
 import { refusalError, type ResourceCommand } from "@shared/resource-command";
 import { rulingContextOf } from "@shared/ruling-context";
@@ -49,7 +51,7 @@ import { liveTaskPorts, taskCanvasEnv, taskRulingContext, type TaskPorts } from 
 export type ResourceIpcPorts = {
   readonly topology: (canvasName: string) => Effect.Effect<Canvas, WorkErrorBody>;
   readonly tasks: Pick<TaskPorts, "list" | "submit" | "deliver">;
-  readonly artifacts: Pick<ArtifactPorts, "list" | "head" | "body" | "history" | "submit">;
+  readonly artifacts: Pick<ArtifactPorts, "list" | "head" | "body" | "history" | "submit" | "pull">;
 };
 
 const SCAN_LIMIT = 10_000;
@@ -158,6 +160,25 @@ export const applyTask = (
 // ── artifacts ──────────────────────────────────────────────────────────────
 
 /** The artifacts on one node, archived ones too, newest change first, each with its head body. */
+/**
+ * A body the window found pending: start pulling it from the machine that
+ * edits the canvas. Every resource is in the operator's reach; the next read
+ * finds it in the store.
+ */
+const pullForOperator = (
+  ports: ResourceIpcPorts,
+  canvasName: string,
+  nodeId: NodeId,
+  artifactId: ItemId,
+  version: ArtifactVersion,
+  ref: ContentRef,
+) =>
+  ports.artifacts.pull({
+    ref,
+    reached: operatorReachesResource(canvasName, nodeId),
+    owner: { kind: "artifact", canvasName, nodeId, recordId: `${artifactId}@${version}` },
+  });
+
 export const listArtifacts = (ports: ResourceIpcPorts, canvasName: string, nodeId: NodeId) =>
   Effect.gen(function* () {
     const lists = yield* Effect.forEach([false, true], (archived) =>
@@ -165,6 +186,12 @@ export const listArtifacts = (ports: ResourceIpcPorts, canvasName: string, nodeI
     );
     const items = lists.flatMap((list) => list.artifacts).sort((a, b) => b.updatedAt - a.updatedAt);
     const heads = yield* Effect.forEach(items, (item) => ports.artifacts.head(canvasName, item.artifactId));
+    for (const head of heads) {
+      if (Option.isSome(head) && head.value.body === null) {
+        const { artifact } = head.value;
+        yield* pullForOperator(ports, canvasName, nodeId, artifact.artifactId, artifact.version, head.value.bodyRef);
+      }
+    }
     return heads.flatMap((head): ReadonlyArray<ArtifactHead> =>
       Option.isNone(head) ? [] : [{ artifact: head.value.artifact, body: head.value.body, bodyRef: head.value.bodyRef }],
     );
@@ -190,7 +217,15 @@ export const artifactBody = (
   artifactId: ItemId,
   version: ArtifactVersion,
 ): Effect.Effect<ArtifactBody | null, WorkErrorBody> =>
-  Effect.map(ports.artifacts.body(canvasName, artifactId, version), (read) => (Option.isNone(read) ? null : read.value.body));
+  Effect.gen(function* () {
+    const read = yield* ports.artifacts.body(canvasName, artifactId, version);
+    if (Option.isNone(read)) return null;
+    if (read.value.body === null) {
+      const head = yield* ports.artifacts.head(canvasName, artifactId);
+      if (Option.isSome(head)) yield* pullForOperator(ports, canvasName, head.value.artifact.nodeId, artifactId, version, read.value.bodyRef);
+    }
+    return read.value.body;
+  });
 
 export const applyArtifact = (
   ports: ResourceIpcPorts,

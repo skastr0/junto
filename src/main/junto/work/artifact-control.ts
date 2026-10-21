@@ -52,7 +52,7 @@ import type {
   ArtifactSubmitOutcome,
   ArtifactVersionRead,
 } from "./artifact-repository";
-import { MachineCoreRows } from "../../core-runtime";
+import { BodyPuller } from "../content/body-puller";
 import type { PulledOwner } from "../content/pull";
 import { ArtifactRepository, type ArtifactBodyRead } from "./artifact-repository";
 import { TaskRepository } from "./task-repository";
@@ -135,9 +135,9 @@ export const liveArtifactPorts: ArtifactPorts = (() => {
       ),
     comment: postSubjectComment,
     pull: (input) =>
-      Effect.serviceOption(MachineCoreRows).pipe(
-        Effect.flatMap((rows) =>
-          Option.isNone(rows) ? Effect.void : rows.value.pullBody(input).pipe(Effect.ignore, Effect.forkDetach, Effect.asVoid),
+      Effect.serviceOption(BodyPuller).pipe(
+        Effect.flatMap((puller) =>
+          Option.isNone(puller) ? Effect.void : puller.value.pull(input).pipe(Effect.ignore, Effect.forkDetach, Effect.asVoid),
         ),
       ),
     taskNode: (canvasName, taskId) =>
