@@ -278,7 +278,8 @@ export const ruleTaskCommand = <T extends TaskCore>(
       );
     }
     case "cancel":
-      return task.state === "canceled" || task.state === "archived" ? illegal(task, command) : rule({ ...task, state: "canceled" });
+      // Closed states stay closed: a done layer may already have been sent on.
+      return isClosedTaskState(task.state) ? illegal(task, command) : rule({ ...task, state: "canceled" });
     case "archive":
       return task.state === "done" || task.state === "canceled" ? rule({ ...task, state: "archived" }) : illegal(task, command);
     case "reviewer-add": {

@@ -19,6 +19,7 @@ import {
 } from "../src/shared/task-machine";
 import {
   TASK_STATES,
+  isOpenTaskState,
   seatNodeId,
   taskNodeId,
   taskNumber,
@@ -208,9 +209,9 @@ describe("only the assignee transitions its task", () => {
 });
 
 describe("cancel, archive and edit", () => {
-  it("cancels from every state but canceled and archived", () => {
+  it("cancels only from backlog and the open states, never from done", () => {
     for (const state of TASK_STATES) {
-      expect(one(record({ state }), operator, { kind: "cancel" }).ok).toBe(state !== "canceled" && state !== "archived");
+      expect(one(record({ state }), operator, { kind: "cancel" }).ok).toBe(state === "backlog" || isOpenTaskState(state));
     }
   });
 
