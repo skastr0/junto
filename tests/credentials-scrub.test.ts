@@ -89,15 +89,37 @@ it("step 5 keeps the last 40 lines and 4 KiB, scrubbing the whole window before 
  * machine. The fastest of five runs at n and 4n; linear is about 4x,
  * quadratic about 16x. A generous ceiling backs it up.
  */
-const expectLinear = (scrub: (size: number) => void) => {
-  const fastest = (size: number) => Math.min(...Array.from({ length: 5 }, () => {
-    const started = performance.now(); scrub(size); return performance.now() - started;
-  }));
-  scrub(16 * 1024);
-  const small = fastest(16 * 1024), large = fastest(64 * 1024);
-  expect(large).toBeLessThan(500);
-  expect(large / Math.max(small, 0.5)).toBeLessThan(9);
+/**
+ * Linear is a claim about the ratio of two sizes, not about the clock: eight
+ * times the input costs about eight times as long, and a quadratic about 64.
+ * The rounds alternate sizes, so a pause of a loaded runner falls on both,
+ * and the best of nine of each is its cost.
+ */
+const SMALL = 16 * 1024, LARGE = 128 * 1024;
+const LINEAR_BOUND = 24;
+const linearRatio = (scrub: (size: number) => void): { readonly ratio: number; readonly large: number } => {
+  const time = (size: number) => { const started = performance.now(); scrub(size); return performance.now() - started; };
+  time(SMALL); time(LARGE);
+  const small: number[] = [], large: number[] = [];
+  for (let round = 0; round < 9; round += 1) { small.push(time(SMALL)); large.push(time(LARGE)); }
+  const best = { small: Math.min(...small), large: Math.min(...large) };
+  return { ratio: best.large / Math.max(best.small, 0.5), large: best.large };
 };
+const expectLinear = (scrub: (size: number) => void) => {
+  const { ratio, large } = linearRatio(scrub);
+  expect(large).toBeLessThan(2000);
+  expect(ratio).toBeLessThan(LINEAR_BOUND);
+};
+
+it("the linear bound fails a quadratic", () => {
+  let sink = 0;
+  const quadratic = (size: number) => {
+    const n = size / 16;
+    for (let i = 0; i < n; i += 1) for (let j = 0; j < n; j += 1) sink += i ^ j;
+  };
+  expect(linearRatio(quadratic).ratio).toBeGreaterThanOrEqual(LINEAR_BOUND);
+  expect(sink).toBeGreaterThan(0);
+}, 20_000);
 
 it("a long run costs linear time, so a peer's message cannot stall the main thread", () => {
   expectLinear(size => scrubMessage("x".repeat(size), []));
