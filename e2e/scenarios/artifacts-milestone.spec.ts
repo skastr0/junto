@@ -11,8 +11,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { Schema } from "effect";
-import { Node } from "../../src/shared/model";
+import { ArtifactVersion } from "../../src/shared/artifact";
+import { asNodeId, Node } from "../../src/shared/model";
 import { mintOpId } from "../../src/shared/resource-command";
+import { ItemId } from "../../src/shared/work-ids";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness, type CrewCliResult } from "../harness/crew-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
 import { modelFixture, modelRegion, modelSeat } from "../harness/model";
@@ -117,17 +119,17 @@ test("artifacts: each type, a new version, history, a stale edit refused, commen
     // The document's id, as the seat lists it.
     const listed = await cli(["list", "--type", "document"]);
     expect(listed.ok, JSON.stringify(listed)).toBe(true);
-    const docId = findId(listed.data, "Untitled document");
+    const docId = Schema.decodeUnknownSync(ItemId)(findId(listed.data, "Untitled document"));
 
     // A stale edit is refused: the operator types while another write lands on the head.
     await markdown.fill("# Release notes\n\nFirst draft of the 0.10 notes.\n\nOperator line typed on version 2.");
     const landed = await page.evaluate(
-      ({ canvas, artifactId, opId }) =>
-        window.junto!.resource!.artifact!.apply(canvas, "shelf", artifactId, opId, {
+      ({ canvas, node, artifactId, baseVersion, opId }) =>
+        window.junto!.resource!.artifact!.apply(canvas, node, artifactId, opId, {
           op: "edit",
-          edit: { kind: "replace", baseVersion: 2, body: { type: "document", markdown: "# Release notes\n\nSeat rewrote this on version 2." } },
+          edit: { kind: "replace", baseVersion, body: { type: "document", markdown: "# Release notes\n\nSeat rewrote this on version 2." } },
         }),
-      { canvas: CANVAS, artifactId: docId, opId: mintOpId() },
+      { canvas: CANVAS, node: asNodeId("shelf"), artifactId: docId, baseVersion: ArtifactVersion.make(2), opId: mintOpId() },
     );
     console.log("OTHER WRITE:", JSON.stringify(landed).slice(0, 300));
     const refusal = page.locator(".artifact-document__refusal");
