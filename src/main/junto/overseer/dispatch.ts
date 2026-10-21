@@ -102,7 +102,7 @@ const errorType = (type: WorkErrorBody["type"]): OverseerErrorType => {
  * so its message and a hint are scrubbed once, whatever route built them;
  * typed detail keys such as holder, expected, candidates and opId stay data.
  */
-const scrubbedError = (error: OverseerErrorBody): OverseerErrorBody => {
+export const scrubbedError = (error: OverseerErrorBody): OverseerErrorBody => {
   const { details } = error;
   const scrubbedDetails = typeof details === "string"
     ? scrubMessage(details)

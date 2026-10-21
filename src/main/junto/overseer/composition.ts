@@ -23,7 +23,7 @@ import {
   mainAuthoringGate,
   mainAuthoringLabelForWorkOperation,
 } from "../main-authoring-gate";
-import { executeOverseer, type OverseerRuntime } from "./dispatch";
+import { executeOverseer, scrubbedError, type OverseerRuntime } from "./dispatch";
 import { admitOverseer } from "./admission";
 import {
   commitAgentReseat,
@@ -321,10 +321,8 @@ export const composeOverseer = async (input: {
         return {
           ok: false,
           operation: request.operation,
-          error: {
-            type: "InternalError",
-            message: asWorkError(error).message,
-          },
+          // A defect skips the dispatcher's own exit, so it is scrubbed the same way here.
+          error: scrubbedError({ type: "InternalError", message: asWorkError(error).message }),
         };
       }),
     );
