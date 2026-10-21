@@ -37,6 +37,16 @@
   line-height: var(--leading-body);
 }
 
+/* The line takes the row; Reload stays right and whole on a narrow chrome. */
+.browser-chrome__notice > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.browser-chrome__notice > button {
+  flex: none;
+}
+
 .tab-strip {
   display: flex;
   align-items: center;
