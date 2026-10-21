@@ -1,0 +1,78 @@
+/* ResourceChip: a mention, drawn. A quiet filled chip in running text: the
+   glyph carries the kind's hue through --mark, the words stay ink. */
+
+.resource-chip {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  height: 20px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px 0 5px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--color-overlay-3);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  line-height: var(--leading-compact);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.resource-chip__glyph {
+  flex: none;
+  color: var(--mark);
+}
+
+.resource-chip__number {
+  flex: none;
+  color: var(--color-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.resource-chip__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Openable: one button. */
+button.resource-chip {
+  cursor: pointer;
+  transition: background-color 140ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+button.resource-chip:hover {
+  background: var(--color-overlay-4);
+}
+
+button.resource-chip:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 1px;
+}
+
+/* Queued, not yet ruled (02): the same chip with its fill taken out and a
+   dashed edge. Text keeps full contrast. */
+.resource-chip[data-pending="true"] {
+  border-style: dashed;
+  border-color: var(--color-stroke-hi);
+  background: transparent;
+}
+
+/* Out of reach or gone: struck, dim, inert. */
+.resource-chip[data-missing="true"] {
+  background: transparent;
+  color: var(--color-dim);
+  text-decoration: line-through;
+}
+
+.resource-chip[data-missing="true"] .resource-chip__glyph {
+  color: var(--color-faint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button.resource-chip {
+    transition: none;
+  }
+}
