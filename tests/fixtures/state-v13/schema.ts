@@ -228,3 +228,9 @@ export const STATE_SCHEMA_V39_SQL = stepped(
   STATE_SCHEMA_V38_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 39)!.migrate,
 );
+
+// Version 40 let a full touched-origin record admit an origin it holds (39 -> 40).
+export const STATE_SCHEMA_V40_SQL = stepped(
+  STATE_SCHEMA_V39_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 40)!.migrate,
+);

@@ -90,7 +90,8 @@ export const BROWSER_PROFILES_STATE_SCHEMA_SQL = `
 /**
  * Origins a seat ran code in, by profile: a write-ahead record, committed
  * before a seat's eval is dispatched, so a service worker the seat could have
- * left there is cleared at the next start even after a crash. This
+ * left there is cleared at the next start even after a crash. A full record
+ * refuses a new origin and still admits one it already holds (40). This
  * machine's own state: never exchanged, never in a copy.
  */
 export const BROWSER_TOUCHED_ORIGINS_STATE_SCHEMA_SQL = `
@@ -112,6 +113,9 @@ export const BROWSER_TOUCHED_ORIGINS_STATE_SCHEMA_SQL = `
   CREATE TRIGGER IF NOT EXISTS browser_touched_origins_limit
   BEFORE INSERT ON browser_touched_origins
   WHEN (SELECT count(*) FROM browser_touched_origins) >= 4096
+    AND NOT EXISTS (
+      SELECT 1 FROM browser_touched_origins WHERE profile = NEW.profile AND origin = NEW.origin
+    )
   BEGIN
     SELECT RAISE(ABORT, 'browser touched-origin limit reached');
   END;

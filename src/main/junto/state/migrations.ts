@@ -11,7 +11,6 @@ import {
   STUBS_STATE_SCHEMA_SQL,
 } from "../model/state-schema";
 import { AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_STATE_SCHEMA_SQL } from "../automation/state-schema";
-import { BROWSER_TOUCHED_ORIGINS_STATE_SCHEMA_SQL } from "../browser/state-schema";
 import {
   CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL,
   WORK_EXCHANGE_CURSORS_V16_STATE_SCHEMA_SQL,
@@ -67,6 +66,44 @@ export type StateSchemaMigrationDatabase = Pick<
   DatabaseSync,
   "exec" | "prepare"
 >;
+
+/** The touched-origin record as 37 -> 38 created it, before 39 -> 40 eased its limit. Frozen. */
+const BROWSER_TOUCHED_ORIGINS_V38_SQL = `
+  CREATE TABLE IF NOT EXISTS browser_touched_origins (
+    profile TEXT NOT NULL
+      CHECK (
+        length(profile) BETWEEN 1 AND 63
+        AND substr(profile, 1, 1) GLOB '[a-z0-9]'
+        AND profile NOT GLOB '*[^a-z0-9-]*'
+      ),
+    origin TEXT NOT NULL
+      CHECK (
+        length(CAST(origin AS BLOB)) BETWEEN 1 AND 2048
+        AND (origin GLOB 'https://?*' OR origin GLOB 'http://?*')
+      ),
+    PRIMARY KEY (profile, origin)
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE TRIGGER IF NOT EXISTS browser_touched_origins_limit
+  BEFORE INSERT ON browser_touched_origins
+  WHEN (SELECT count(*) FROM browser_touched_origins) >= 4096
+  BEGIN
+    SELECT RAISE(ABORT, 'browser touched-origin limit reached');
+  END;
+`;
+
+/** The touched-origin limit as 39 -> 40 leaves it: a held origin passes a full record. Frozen. */
+const BROWSER_TOUCHED_ORIGINS_LIMIT_V40_SQL = `
+  CREATE TRIGGER IF NOT EXISTS browser_touched_origins_limit
+  BEFORE INSERT ON browser_touched_origins
+  WHEN (SELECT count(*) FROM browser_touched_origins) >= 4096
+    AND NOT EXISTS (
+      SELECT 1 FROM browser_touched_origins WHERE profile = NEW.profile AND origin = NEW.origin
+    )
+  BEGIN
+    SELECT RAISE(ABORT, 'browser touched-origin limit reached');
+  END;
+`;
 
 /** Artifacts as 25 -> 26 created them, before body refs (28 -> 29). Frozen. */
 const ARTIFACTS_V26_SQL = `
@@ -475,7 +512,16 @@ export const STATE_SCHEMA_V39_IDENTITY = {
     "2abb7480b4f58d93bc0d6731bab5d98090679109a74e709472cd63461e9a9f5c",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 39;
+/**
+ * Version 40 lets a full touched-origin record admit an origin it already
+ * holds, so a seat's eval in a recorded origin is not refused. Expand-only.
+ */
+export const STATE_SCHEMA_V40_IDENTITY = {
+  actualSchemaSha256:
+    "34426648fe48c97b2ccae370493fa405c7bb82e156942b64a6315c26cb93fe43",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 40;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -483,7 +529,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 39;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V39_IDENTITY;
+  STATE_SCHEMA_V40_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -751,7 +797,7 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V37_IDENTITY,
     migrate: (database) => {
-      database.exec(BROWSER_TOUCHED_ORIGINS_STATE_SCHEMA_SQL);
+      database.exec(BROWSER_TOUCHED_ORIGINS_V38_SQL);
     },
   },
   {
@@ -763,6 +809,19 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     removesTables: [...BOARD_REQUESTS_REMOVED_TABLES],
     replacesTables: [...BOARD_REQUESTS_REPLACED_TABLES],
     migrate: migrateBoardRequests,
+  },
+  {
+    fromVersion: 39,
+    toVersion: 40,
+    name: "let a full touched-origin record admit an origin it holds",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V39_IDENTITY,
+    // No row changes: the trigger only refused inserts; its replacement refuses fewer.
+    replacesObjects: ["trigger:browser_touched_origins_limit"],
+    migrate: (database) => {
+      database.exec("DROP TRIGGER browser_touched_origins_limit");
+      database.exec(BROWSER_TOUCHED_ORIGINS_LIMIT_V40_SQL);
+    },
   },
 ];
 
