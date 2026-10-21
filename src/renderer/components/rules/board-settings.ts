@@ -14,6 +14,8 @@ const incoming = (value: TasksIncoming | undefined): TasksIncoming | undefined =
   const next = {
     ...(trimmed(value.handling) ? { handling: trimmed(value.handling) } : {}),
     ...(trimmed(value.description) ? { description: trimmed(value.description) } : {}),
+    // Read-only: a stored admission passes through unchanged (main still enforces it until the 0.10 deletion lands), with no UI to set one.
+    ...(value.admission && value.admission !== "auto" ? { admission: value.admission } : {}),
     ...(value.waitMs && value.waitMs > 0 ? { waitMs: Math.round(value.waitMs) } : {}),
     ...(checks(value.checks) ? { checks: checks(value.checks) } : {}),
   };
