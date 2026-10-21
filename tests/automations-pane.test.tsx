@@ -110,6 +110,21 @@ describe("automations pane", () => {
     expect((await stored()).version).toBe(2);
   });
 
+  it("New, from the empty state or the sidebar, puts focus on the new automation's name", async () => {
+    await render();
+    button("New automation").focus();
+    await act(async () => button("New automation").click());
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Automation name");
+
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await opened();
+    const sidebarNew = document.body.querySelector<HTMLButtonElement>('button[aria-label="New automation"]')!;
+    sidebarNew.focus();
+    await act(async () => sidebarNew.click());
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Automation name");
+  });
+
   it("keeps keyboard focus where the press was: Save and Run now stay focused, Archive hands it to New", async () => {
     await opened();
     await typeName("Evening standup");

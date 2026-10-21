@@ -259,6 +259,8 @@ export function AutomationsPane({
         author,
       );
       open({ draft, base: undefined, loaded: draft });
+      // The name is what you type next, and the empty state's New unmounts.
+      setRefocus("name");
     });
 
   /** Sends the draft, over `base` when given (a rebase onto the head), else the version it was loaded from. */
@@ -332,14 +334,20 @@ export function AutomationsPane({
 
   // A press whose control then leaves the pane (Archive, the stale choices)
   // would drop focus to the body: once it renders, focus goes to Save, or to
-  // New with no automation open. Only after such a press, never on a live update.
+  // New with no automation open. A new automation focuses its name. Only
+  // after such a press, never on a live update.
   const newButton = useRef<HTMLButtonElement>(null);
   const saveButton = useRef<HTMLButtonElement>(null);
-  const [refocus, setRefocus] = useState(false);
-  const settleFocus = (): void => setRefocus(true);
+  const nameField = useRef<HTMLInputElement>(null);
+  const [refocus, setRefocus] = useState<"lost" | "name">();
+  const settleFocus = (): void => setRefocus("lost");
   useEffect(() => {
-    if (!refocus) return;
-    setRefocus(false);
+    if (refocus === undefined) return;
+    setRefocus(undefined);
+    if (refocus === "name") {
+      claimFocus(nameField.current, "gesture");
+      return;
+    }
     const lost =
       document.activeElement === null ||
       document.activeElement === document.body;
@@ -479,6 +487,7 @@ export function AutomationsPane({
                 canvasName={canvasName}
                 saving={busy}
                 saveRef={saveButton}
+                nameRef={nameField}
                 dirty={dirty}
                 refusal={
                   refusal

@@ -421,6 +421,7 @@ export function AutomationEditor({
   canvasName,
   saving,
   saveRef,
+  nameRef,
   dirty,
   onSave,
   onRevert,
@@ -434,6 +435,8 @@ export function AutomationEditor({
   readonly saving: boolean;
   /** The Save button, for the pane to return focus to when the control that held it goes away. */
   readonly saveRef?: Ref<HTMLButtonElement>;
+  /** The name field, where focus goes when a new automation opens. */
+  readonly nameRef?: Ref<HTMLInputElement>;
   readonly dirty: boolean;
   readonly onSave: () => void;
   readonly onRevert: () => void;
@@ -475,6 +478,7 @@ export function AutomationEditor({
     <div className="automation-editor" data-testid="automation-editor">
       <div className="automation-editor__title">
         <Input
+          ref={nameRef}
           value={draft.name}
           aria-label="Automation name"
           aria-describedby={problemId("name", isName)}
