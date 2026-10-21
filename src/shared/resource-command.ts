@@ -241,11 +241,31 @@ export const afterOf = <Op>(pending: ReadonlyArray<ResourceCommand<Op>>, target:
       earlier.kind === target.kind && earlier.nodeId === target.nodeId && (target.itemId === undefined || earlier.itemId === undefined || earlier.itemId === target.itemId))
     .map(({ opId }) => opId);
 
-export type PendingEntry = {
-  readonly opId: OpId;
-  /** `pending`: applies on the ruled state as it stands now. `at_risk`: would be refused now; the ruling decides. */
-  readonly status: "pending" | "at_risk";
-  readonly refusal?: Refusal;
+/**
+ * Why a writer cannot preview a command yet: the ruled state it would apply to
+ * is behind a ruling whose body this machine has not pulled (an artifact edit
+ * rides by content reference). The editing machine rules it on real state.
+ */
+export type OverlayWait = "base_not_pulled";
+
+/**
+ * One of the writer's unruled commands as the overlay reads it. `pending`:
+ * applies on the ruled state as it stands now. `at_risk` with a refusal: would
+ * be refused now; the ruling decides. `at_risk` waiting: its base is not
+ * complete here, so no preview is computed; `root` is the command whose base
+ * it waits on, itself or one its `after` chain reaches.
+ */
+export type PendingEntry =
+  | { readonly opId: OpId; readonly status: "pending"; readonly refusal?: never; readonly waiting?: never }
+  | { readonly opId: OpId; readonly status: "at_risk"; readonly refusal: Refusal; readonly waiting?: never }
+  | { readonly opId: OpId; readonly status: "at_risk"; readonly waiting: OverlayWait; readonly root: OpId; readonly refusal?: never };
+
+/**
+ * What the overlay asks besides reach: whether the ruled state a command's
+ * target sits in is complete on this machine. Left out, every base is.
+ */
+export type OverlayContext = RulingContext & {
+  readonly baseComplete?: (target: ResourceRef) => boolean;
 };
 
 /**
@@ -253,19 +273,29 @@ export type PendingEntry = {
  * have no ruling yet, in seq order, through the same `rule`. Computed at read
  * time; never a row, never state. A command the ruled state would now refuse
  * stays listed as `at_risk` and is left out of the state, as are the commands
- * that build on it.
+ * that build on it. A command whose base is not complete here is listed
+ * `at_risk` waiting, with no preview on the stale state, and so is every
+ * command whose `after` chain reaches it.
  */
 export const overlay = <State, Op, Fact>(
   domain: ResourceDomain<State, Op, Fact>,
   ruled: Ruled<State, Fact>,
   writer: InstallationId,
   queued: ReadonlyArray<ResourceCommand<Op>>,
-  context: RulingContext,
+  context: OverlayContext,
 ): { readonly state: State; readonly pending: ReadonlyArray<PendingEntry> } => {
   let view: Ruled<State, Fact> = ruled;
   const pending: PendingEntry[] = [];
+  const waiting = new Map<OpId, OpId>();
   for (const command of queued) {
     if (ruled.rulings.has(commandKey(writer, command.opId))) continue;
+    const behind = command.after.find((earlier) => waiting.has(earlier));
+    const root = behind !== undefined ? waiting.get(behind)! : context.baseComplete?.(command.target) === false ? command.opId : undefined;
+    if (root !== undefined) {
+      waiting.set(command.opId, root);
+      pending.push({ opId: command.opId, status: "at_risk", waiting: "base_not_pulled", root });
+      continue;
+    }
     const next = rule(domain, view, writer, command, context);
     view = next.ruled;
     if (next.ruling.kind === "applied") {

@@ -218,8 +218,8 @@ describe("overlay properties", () => {
       const view = overlay(domain, ruled, writer, writerRun(run, writer), everywhere);
       if (ruled.rulings.size !== 0 || ruled.state.size !== 0) out.push("overlay mutated ruled");
       for (const entry of view.pending) {
+        // A pending entry carrying a refusal no longer compiles (PendingEntry); with every base complete nothing waits.
         if (entry.status === "at_risk" && (entry.refusal === undefined || !Schema.is(RefusalReason)(entry.refusal.reason))) out.push(`${entry.opId} at risk without a closed reason`);
-        if (entry.status === "pending" && entry.refusal !== undefined) out.push(`${entry.opId} pending but carries a refusal`);
       }
     }
     return out;
