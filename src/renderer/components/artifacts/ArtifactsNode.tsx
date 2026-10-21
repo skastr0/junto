@@ -9,16 +9,18 @@ import {
   type ArtifactType,
   type ArtifactVersion,
 } from "@shared/artifact";
-import type { ArtifactEntry } from "@shared/artifact-domain";
+import type { ArtifactHead } from "@shared/resource-ipc";
 import type { NodeId } from "@shared/physics/schema";
 import { type ItemId, mintItemId } from "@shared/resource-command";
 import { textAnchorOf, type Anchor } from "@shared/thread-subject";
 import { titleOf } from "@shared/model/title";
 import { nodeAt } from "../../lib/use-model";
 import {
+  applyArtifactOp,
   type ArtifactRuling,
   artifactsSource,
   refusalLine,
+  useHeadBody,
   useArtifactHistory,
   useArtifactThreads,
   useNodeArtifacts,
@@ -67,6 +69,9 @@ export function ArtifactsNode({
   const [archived, setArchived] = useState(false);
   const [creating, setCreating] = useState<"menu" | "link" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** A write is queued until the editing machine rules it; the next listing says it has. */
+  const [queued, setQueued] = useState(false);
+  useEffect(() => setQueued(false), [entries]);
   const now = useClock();
 
   const visible = useMemo(
@@ -78,8 +83,9 @@ export function ArtifactsNode({
 
   /** Rule one op. An edit's refusal is the editor's to show; any other op's shows on the node. */
   const apply = async (itemId: ItemId, op: ArtifactOp): Promise<ArtifactRuling> => {
-    const ruling = await artifactsSource().apply(canvasName, nodeId, itemId, op);
+    const ruling = await applyArtifactOp(canvasName, nodeId, itemId, op);
     if (op.op !== "edit") setError(refusalLine(ruling));
+    if (ruling.kind === "queued") setQueued(true);
     return ruling;
   };
 
@@ -195,6 +201,7 @@ export function ArtifactsNode({
           sidebar={sidebar}
           now={now}
           error={error}
+          queued={queued}
           apply={(op) => apply(selected.artifact.artifactId, op)}
           onClose={onClose}
         />
@@ -209,18 +216,21 @@ function SelectedArtifact({
   sidebar,
   now,
   error,
+  queued,
   apply,
   onClose,
 }: {
   readonly onClose: () => void;
   readonly canvasName: string;
-  readonly entry: ArtifactEntry;
+  readonly entry: ArtifactHead;
+  readonly queued: boolean;
   readonly sidebar: React.ReactNode;
   readonly now: number;
   readonly error: string | null;
   readonly apply: (op: ArtifactOp) => Promise<ArtifactRuling>;
 }) {
-  const { artifact, body } = entry;
+  const { artifact } = entry;
+  const body = useHeadBody(canvasName, entry);
   const [mode, setMode] = useState<"edit" | "history">("edit");
   const [draftAnchor, setDraftAnchor] = useState<Anchor | undefined>(undefined);
   const [title, setTitle] = useState(artifact.title);
@@ -373,6 +383,11 @@ function SelectedArtifact({
       {error ? (
         <p className="artifact-error" role="alert">
           {error}
+        </p>
+      ) : null}
+      {queued ? (
+        <p className="artifact-archived" role="status">
+          Queued. It applies when the editing machine rules it.
         </p>
       ) : null}
       {artifact.archived ? <p className="artifact-archived">Archived. Restore it to change it.</p> : null}

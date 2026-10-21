@@ -3,7 +3,7 @@
  * patch a document edit becomes, and how an anchor and an author read.
  */
 import type { ArtifactType, TextPatch } from "@shared/artifact";
-import type { ArtifactEntry } from "@shared/artifact-domain";
+import type { ArtifactHead } from "@shared/resource-ipc";
 import type { ResourceActor } from "@shared/resource-command";
 import type { Anchor } from "@shared/thread-subject";
 
@@ -17,9 +17,9 @@ export interface SidebarFilter {
 
 /** The rows the sidebar lists: by type, by a case-blind title match, live or archived. */
 export const visibleArtifacts = (
-  entries: ReadonlyArray<ArtifactEntry>,
+  entries: ReadonlyArray<ArtifactHead>,
   filter: SidebarFilter,
-): ReadonlyArray<ArtifactEntry> => {
+): ReadonlyArray<ArtifactHead> => {
   const query = filter.query.trim().toLowerCase();
   return entries.filter(
     ({ artifact }) =>

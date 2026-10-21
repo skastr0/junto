@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { emptyBody } from "../src/shared/artifact";
 import { asNodeId } from "../src/shared/physics/schema";
-import { mintItemId } from "../src/shared/resource-command";
 import { makeLocalArtifactsSource } from "../src/renderer/lib/artifacts-source";
+import { mintItemId, mintOpId } from "../src/shared/resource-command";
 import {
   ageLabel,
   anchorLabel,
@@ -60,9 +60,9 @@ describe("local artifacts source", () => {
     const source = makeLocalArtifactsSource({ kind: "operator" }, () => 10);
     const doc = mintItemId();
     const sheet = mintItemId();
-    expect((await source.apply("c", node, doc, { op: "create", title: "Plan", body: emptyBody("document") })).kind).toBe("applied");
-    await source.apply("c", node, sheet, { op: "create", title: "Budget", body: emptyBody("sheet") });
-    const edited = await source.apply("c", node, doc, {
+    expect((await source.apply("c", node, doc, mintOpId(), { op: "create", title: "Plan", body: emptyBody("document") })).kind).toBe("applied");
+    await source.apply("c", node, sheet, mintOpId(), { op: "create", title: "Budget", body: emptyBody("sheet") });
+    const edited = await source.apply("c", node, doc, mintOpId(), {
       op: "edit",
       edit: { kind: "patch", type: "document", baseVersion: 1 as never, patches: [{ op: "splice", at: 0, remove: 0, insert: "# Plan" }] },
     });
@@ -77,9 +77,9 @@ describe("local artifacts source", () => {
   it("refuses a stale replace with the head and changes nothing", async () => {
     const source = makeLocalArtifactsSource();
     const doc = mintItemId();
-    await source.apply("c", node, doc, { op: "create", title: "Plan", body: emptyBody("document") });
+    await source.apply("c", node, doc, mintOpId(), { op: "create", title: "Plan", body: emptyBody("document") });
     const replace = (markdown: string) =>
-      source.apply("c", node, doc, { op: "edit", edit: { kind: "replace", baseVersion: 1 as never, body: { type: "document", markdown } } });
+      source.apply("c", node, doc, mintOpId(), { op: "edit", edit: { kind: "replace", baseVersion: 1 as never, body: { type: "document", markdown } } });
     expect((await replace("first")).kind).toBe("applied");
     const late = await replace("second");
     expect(late.kind === "refused" && late.error.details).toMatchObject({ reason: "stale", expected: 2 });
@@ -91,22 +91,24 @@ describe("local artifacts source", () => {
     const source = makeLocalArtifactsSource();
     const doc = mintItemId();
     const big = "x".repeat(60 * 1024);
-    await source.apply("c", node, doc, { op: "create", title: "Big", body: { type: "document", markdown: big } });
+    await source.apply("c", node, doc, mintOpId(), { op: "create", title: "Big", body: { type: "document", markdown: big } });
     const [entry] = await source.list("c", node);
     expect(entry?.body).toEqual({ type: "document", markdown: big });
-    const edited = await source.apply("c", node, doc, {
+    const edited = await source.apply("c", node, doc, mintOpId(), {
       op: "edit",
       edit: { kind: "patch", type: "document", baseVersion: 1 as never, patches: [{ op: "splice", at: 0, remove: 1, insert: "y" }] },
     });
     expect(edited.kind).toBe("applied");
     expect((await source.history("c", doc)).map((record) => record.version)).toEqual([2, 1]);
+    expect(await source.body("c", doc, 1 as never)).toEqual({ type: "document", markdown: big });
+    expect(await source.body("c", doc, 9 as never)).toBeNull();
   });
 
   it("threads: a whole anchor is stored as no anchor, replies join, resolve toggles", async () => {
     const source = makeLocalArtifactsSource();
     const doc = mintItemId();
     let changes = 0;
-    source.subscribe(() => (changes += 1));
+    source.onChanged(() => (changes += 1));
     const started = (await source.comment("c", doc, { text: "first", anchor: { kind: "whole" }, version: 1 as never }))!;
     expect(started.anchor).toBeUndefined();
     await source.comment("c", doc, { text: "second", threadId: started.threadId, version: 1 as never });

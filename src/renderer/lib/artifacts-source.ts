@@ -8,9 +8,12 @@
  * so a refusal here reads exactly as the editing machine's: `stale` and
  * `rebase_conflict` carry the head in `details.expected`.
  *
- * Stand-in: until cli-identity serves artifacts from main and product-feed's
- * subject threads carry artifact comments (03), `makeLocalArtifactsSource`
- * holds them in this window's memory, ruled by the same domain.
+ * The artifact half is main's `ArtifactResourceApi` (src/shared/resource-ipc.ts)
+ * as is; threads are added beside it until product-feed's subject threads
+ * carry artifact comments (03).
+ *
+ * Stand-in: until main's handlers land, `makeLocalArtifactsSource` holds
+ * everything in this window's memory, ruled by the same domain.
  */
 import { useEffect, useRef, useState } from "react";
 import type { Anchor } from "@shared/thread-subject";
@@ -28,12 +31,18 @@ import {
 } from "@shared/artifact-domain";
 import type { NodeId } from "@shared/physics/schema";
 import {
+  ARTIFACT_HISTORY_PAGE,
+  type ArtifactApplyOutcome,
+  type ArtifactHead,
+  type ArtifactResourceApi,
+  type ResourceChanged,
+} from "@shared/resource-ipc";
+import {
   emptyRuled,
   type ItemId,
   mintItemId,
   mintOpId,
   type ResourceActor,
-  type ResourceRuling,
   rule,
   type Ruled,
 } from "@shared/resource-command";
@@ -58,14 +67,9 @@ export interface ArtifactThread {
   readonly resolved: boolean;
 }
 
-export type ArtifactRuling = ResourceRuling<ArtifactFact>;
+export type ArtifactRuling = ArtifactApplyOutcome;
 
-export interface ArtifactsSource {
-  readonly list: (canvasName: string, nodeId: NodeId) => Promise<ReadonlyArray<ArtifactEntry>>;
-  /** Every version, newest first. */
-  readonly history: (canvasName: string, artifactId: ItemId) => Promise<ReadonlyArray<ArtifactVersionRecord>>;
-  /** Rule one op. `itemId` is the artifact; on `create` the caller mints it. */
-  readonly apply: (canvasName: string, nodeId: NodeId, itemId: ItemId, op: ArtifactOp) => Promise<ArtifactRuling>;
+export interface ArtifactsSource extends ArtifactResourceApi {
   readonly threads: (canvasName: string, artifactId: ItemId) => Promise<ReadonlyArray<ArtifactThread>>;
   /** Start a thread (no `threadId`) or reply in one. A reply to a thread that is not there is refused: null. */
   readonly comment: (
@@ -74,9 +78,15 @@ export interface ArtifactsSource {
     post: { readonly text: string; readonly threadId?: string; readonly anchor?: Anchor; readonly version: ArtifactVersion },
   ) => Promise<ArtifactThread | null>;
   readonly resolve: (canvasName: string, threadId: string, resolved: boolean) => Promise<void>;
-  /** Called after any change; returns the unsubscribe. */
-  readonly subscribe: (listener: () => void) => () => void;
 }
+
+/** Rule one op under a fresh op id. `artifactId` is the artifact; on `create` the caller mints it. */
+export const applyArtifactOp = (
+  canvasName: string,
+  nodeId: NodeId,
+  artifactId: ItemId,
+  op: ArtifactOp,
+): Promise<ArtifactRuling> => artifactsSource().apply(canvasName, nodeId, artifactId, mintOpId(), op);
 
 const LOCAL_WRITER = "local" as InstallationId;
 
@@ -108,9 +118,9 @@ export const makeLocalArtifactsSource = (
   const ruled = new Map<string, Ruled<ArtifactState, ArtifactFact>>();
   const versions = new Map<ItemId, ReadonlyArray<ArtifactVersionRecord>>();
   const threads = new Map<string, ArtifactThread>();
-  const listeners = new Set<() => void>();
-  const changed = (): void => {
-    for (const listener of listeners) listener();
+  const listeners = new Set<(changed: ResourceChanged) => void>();
+  const changed = (canvasName: string): void => {
+    for (const listener of listeners) listener({ canvasName });
   };
   const ruledOf = (canvasName: string) => ruled.get(canvasName) ?? emptyRuled<ArtifactState, ArtifactFact>(emptyArtifactState());
 
@@ -161,16 +171,19 @@ export const makeLocalArtifactsSource = (
   };
 
   return {
-    list: async (canvasName, nodeId) => artifactsOnNode(ruledOf(canvasName).state, nodeId),
-    history: async (_canvasName, artifactId) => versions.get(artifactId) ?? [],
-    apply: async (canvasName, nodeId, itemId, op) => {
+    list: async (canvasName, nodeId) =>
+      artifactsOnNode(ruledOf(canvasName).state, nodeId).map(({ artifact, body, bodyRef }) => ({ artifact, body, bodyRef })),
+    history: async (_canvasName, artifactId) => (versions.get(artifactId) ?? []).slice(0, ARTIFACT_HISTORY_PAGE),
+    body: async (_canvasName, artifactId, version) =>
+      versions.get(artifactId)?.find((record) => record.version === version)?.body ?? null,
+    apply: async (canvasName, nodeId, itemId, opId, op) => {
       const before = ruledOf(canvasName).state.get(itemId);
       const result = rule(
         domain,
         ruledOf(canvasName),
         LOCAL_WRITER,
         {
-          opId: mintOpId(),
+          opId,
           canvasName,
           actor,
           target: { kind: "artifact", nodeId, itemId },
@@ -184,9 +197,11 @@ export const makeLocalArtifactsSource = (
       ruled.set(canvasName, { ...result.ruled, state });
       if (result.ruling.kind === "applied") {
         for (const fact of result.ruling.facts) record(fact, state);
-        changed();
+        changed(canvasName);
       }
-      return result.ruling;
+      return result.ruling.kind === "applied"
+        ? { kind: "applied", opId: result.ruling.opId, facts: result.ruling.facts }
+        : { kind: "refused", opId: result.ruling.opId, error: result.ruling.error };
     },
     threads: async (canvasName, artifactId) =>
       [...threads.entries()]
@@ -209,7 +224,7 @@ export const makeLocalArtifactsSource = (
             }
           : { ...existing, posts: [...existing.posts, entry] };
       threads.set(`${canvasName}\u0000${thread.threadId}`, thread);
-      changed();
+      changed(canvasName);
       return thread;
     },
     resolve: async (canvasName, threadId, resolved) => {
@@ -217,9 +232,9 @@ export const makeLocalArtifactsSource = (
       const thread = threads.get(key);
       if (thread === undefined) return;
       threads.set(key, { ...thread, resolved });
-      changed();
+      changed(canvasName);
     },
-    subscribe: (listener) => {
+    onChanged: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
@@ -241,7 +256,7 @@ export const setArtifactsSource = (next: ArtifactsSource): void => {
  * earlier key is never shown for the new one: until its first read lands,
  * the new key reads `initial`.
  */
-const useSourced = <T>(read: () => Promise<T>, initial: T, key: string): T => {
+const useSourced = <T>(read: () => Promise<T>, initial: T, canvasName: string, key: string): T => {
   const [held, setHeld] = useState<{ readonly key: string; readonly value: T }>({ key, value: initial });
   const readRef = useRef(read);
   readRef.current = read;
@@ -253,34 +268,53 @@ const useSourced = <T>(read: () => Promise<T>, initial: T, key: string): T => {
       });
     };
     refresh();
-    const unsubscribe = artifactsSource().subscribe(refresh);
+    const unsubscribe = artifactsSource().onChanged((changed) => {
+      if (changed.canvasName === canvasName) refresh();
+    });
     return () => {
       live = false;
       unsubscribe();
     };
-  }, [key]);
+  }, [canvasName, key]);
   return held.key === key ? held.value : initial;
 };
 
 const NONE: ReadonlyArray<never> = [];
 
-export const useNodeArtifacts = (canvasName: string, nodeId: NodeId): ReadonlyArray<ArtifactEntry> =>
-  useSourced(() => artifactsSource().list(canvasName, nodeId), NONE, `${canvasName}\u0000${nodeId}`);
+export const useNodeArtifacts = (canvasName: string, nodeId: NodeId): ReadonlyArray<ArtifactHead> =>
+  useSourced(() => artifactsSource().list(canvasName, nodeId), NONE, canvasName, nodeId);
+
+/**
+ * The head's body: the listed one, or, when main lists it as not loaded,
+ * read by version. Null until it arrives.
+ */
+export const useHeadBody = (canvasName: string, head: ArtifactHead): ArtifactBody | null => {
+  const { artifactId, version } = head.artifact;
+  const read = useSourced(
+    () => (head.body === null ? artifactsSource().body(canvasName, artifactId, version) : Promise.resolve(null)),
+    null,
+    canvasName,
+    `${artifactId}\u0000${version}\u0000${head.body === null ? "load" : "held"}`,
+  );
+  return head.body ?? read;
+};
 
 export const useArtifactHistory = (canvasName: string, artifactId: ItemId | null): ReadonlyArray<ArtifactVersionRecord> =>
   useSourced(
     () => (artifactId === null ? Promise.resolve(NONE) : artifactsSource().history(canvasName, artifactId)),
     NONE,
-    `${canvasName}\u0000${artifactId}`,
+    canvasName,
+    `${artifactId}`,
   );
 
 export const useArtifactThreads = (canvasName: string, artifactId: ItemId | null): ReadonlyArray<ArtifactThread> =>
   useSourced(
     () => (artifactId === null ? Promise.resolve(NONE) : artifactsSource().threads(canvasName, artifactId)),
     NONE,
-    `${canvasName}\u0000${artifactId}`,
+    canvasName,
+    `${artifactId}`,
   );
 
 /** A refusal said in one line for the pane. */
 export const refusalLine = (ruling: ArtifactRuling): string | null =>
-  ruling.kind === "applied" ? null : ruling.error.message;
+  ruling.kind === "refused" ? ruling.error.message : null;
