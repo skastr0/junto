@@ -332,6 +332,16 @@ describe("subject threads", () => {
     });
   }
 
+  it("a reply whose inReplyTo is not this seat's mail is refused UnknownTarget, to a wired seat and to a task node", async () => {
+    const missing = ulid();
+    const toSeat = await call("peer", "msg.reply", { target: "agent", inReplyTo: missing, text: "?" });
+    expect(toSeat.ok, JSON.stringify(toSeat)).toBe(false);
+    expect(toSeat.error).toMatchObject({ type: "UnknownTarget", details: { path: "inReplyTo", target: missing } });
+    const toTask = await call("peer", "msg.reply", { target: BOARD, inReplyTo: missing, text: "?" });
+    expect(toTask.ok, JSON.stringify(toTask)).toBe(false);
+    expect(toTask.error.details.next_step).toContain("junto task comment");
+  });
+
   it("a reply to plain mail at an artifacts node is still refused by its kind", async () => {
     const plain = await call("agent", "msg.send", { target: "peer", text: "hello" });
     expect(plain.ok, JSON.stringify(plain)).toBe(true);
