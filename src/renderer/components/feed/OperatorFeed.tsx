@@ -92,6 +92,7 @@ import { KindMark } from "../NodeKindMark";
 import { SeatRingView, useSeatGlanceOf } from "../SeatRing";
 import { QuickReplies } from "../signals/QuickReplies";
 import { SignalReply } from "../signals/SignalReply";
+import { SignalResourceChips } from "../signals/SignalResourceChips";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { PreviewedMarkdown } from "../preview/PreviewedMarkdown";
 import { Button, Dropdown, Kbd, StatusDot } from "../ui";
@@ -406,6 +407,7 @@ function FeedDetail({
             textClassName="operator-feed__detail"
           />
         ) : null}
+        <SignalResourceChips canvasName={item.canvasName} attachments={item.attachments} beforeOpen={closeOperatorFeed} />
       </div>
       <div className="operator-feed__answer">
         {replying && item.signalId ? (

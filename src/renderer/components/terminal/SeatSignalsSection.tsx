@@ -20,6 +20,7 @@ import { ArtifactMarkdown } from "../work/ArtifactMarkdown";
 import { Chip, IconButton, Popover } from "../ui";
 import { DetailsGroup } from "./DetailsGroup";
 import { SignalReply } from "../signals/SignalReply";
+import { SignalResourceChips } from "../signals/SignalResourceChips";
 
 function SignalPopover({
   signal,
@@ -55,6 +56,7 @@ function SignalPopover({
           <ArtifactMarkdown source={signal.detail} />
         </div>
       ) : null}
+      <SignalResourceChips canvasName={signal.canvasName} attachments={signal.attachments} beforeOpen={onClose} />
       {signal.response ? (
         <div className="seat-signal-popover__response">
           <span className="seat-signal-popover__response-label">your reply</span>
