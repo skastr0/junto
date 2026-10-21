@@ -23,6 +23,7 @@ import {
 import { TaskReviewers } from "../work/TaskReviewers";
 import { TaskVerbBar } from "../work/TaskVerbBar";
 import { TaskDependencies } from "./TaskDependencies";
+import { TaskThread } from "./TaskThread";
 import { TaskLayers } from "./TaskLayers";
 import {
   agoLabel,
@@ -219,6 +220,7 @@ export function TasksNode({
         <TwoPane sidebar={sidebar} sidebarLabel="Tasks" mainLabel={selected.title}>
           <SelectedTask
             key={selected.taskId}
+            canvasName={canvasName}
             view={selected}
             all={all}
             seats={seats}
@@ -239,6 +241,7 @@ export function TasksNode({
 
 /** The selected task: its head, verbs, reviewers and layers. */
 export function SelectedTask({
+  canvasName = "",
   view,
   all,
   seats,
@@ -251,6 +254,7 @@ export function SelectedTask({
   queued = [],
   apply,
 }: {
+  readonly canvasName?: string;
   readonly view: TaskView;
   readonly all: ReadonlyArray<TaskView>;
   readonly seats: ReadonlyArray<SeatChoice>;
@@ -341,6 +345,7 @@ export function SelectedTask({
       {view.body ? <p className="task-body">{view.body}</p> : null}
       <TaskDependencies view={view} all={all} closed={isClosed} onCommand={apply} />
       <TaskReviewers task={current} actor={OPERATOR} ctx={ctx} seats={seats} nameOf={seatName} onCommand={apply} />
+      <TaskThread canvasName={canvasName} node={current.node} taskId={view.taskId} all={all} now={now} seatName={(id) => seatName(id)} />
       <TaskLayers layers={view.layers} nodeName={nodeName} seats={seats} nameOf={seatName} now={now} />
     </div>
   );

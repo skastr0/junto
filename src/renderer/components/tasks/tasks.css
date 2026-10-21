@@ -285,3 +285,74 @@
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
+
+/* A task's comment thread */
+
+.task-thread {
+  display: grid;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  background: var(--color-raise);
+}
+
+.task-thread__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-faint);
+}
+
+.task-thread__posts {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-thread__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+}
+
+.task-thread__meta strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.task-thread__text {
+  margin: 2px 0 0;
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.task-thread__empty {
+  margin: 0;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+}
+
+.task-thread__foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.task-thread__failure {
+  flex: 1;
+  margin: 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--color-crimson);
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}
