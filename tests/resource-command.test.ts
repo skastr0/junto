@@ -104,6 +104,21 @@ describe("rule", () => {
     expect(ruled.ruling.kind === "refused" && ruled.ruling.error).toMatchObject({ type: "ScopeError", details: { reason: "not_in_reach" } });
   });
 
+  it("admits out of reach what the domain exempts, and still refuses the rest", () => {
+    const item = mintItemId();
+    const held = rule(holdDomain, emptyRuled<State, Fact>(new Map()), mini, command(seat("a"), item, { kind: "hold" }), everywhere).ruled;
+    // Like a task's assignee moving its own open task after leaving its region (01 rule 6).
+    const holderMayRelease: ResourceDomain<State, Op, Fact> = {
+      ...holdDomain,
+      reachExempt: (state, { op, actor, target }) => op.kind === "release" && actor.kind === "seat" && state.get(target.itemId!) === actor.nodeId,
+    };
+    const nowhere: RulingContext = { inReach: () => false };
+    const release = rule(holderMayRelease, held, mini, command(seat("a"), item, { kind: "release" }), nowhere);
+    expect(release.ruling.kind).toBe("applied");
+    const other = rule(holderMayRelease, held, mini, command(seat("b"), item, { kind: "release" }), nowhere);
+    expect(other.ruling.kind === "refused" && other.ruling.error.details?.reason).toBe("not_in_reach");
+  });
+
   it("refuses the dependents of a refused command, naming the root", () => {
     const item = mintItemId();
     const taken = rule(holdDomain, emptyRuled<State, Fact>(new Map()), laptop, command(seat("b"), item, { kind: "hold" }), everywhere).ruled;

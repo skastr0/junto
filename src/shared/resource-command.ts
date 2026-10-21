@@ -165,12 +165,15 @@ export type DomainVerdict<Fact> =
  * What a resource domain supplies. `rule` is the only place its invariants
  * live; it runs on the editing machine to rule and on the writing machine to
  * check and to build the overlay. `apply` folds a ruled fact into state.
- * Reach (01) is checked here, before `rule`, through the context.
+ * Reach (01) is checked here, before `rule`, through the context, unless
+ * `reachExempt` says something else admits the command: a task's assignee
+ * keeps moving its own open task after it leaves the task's region (01 rule 6).
  */
 export type ResourceDomain<State, Op, Fact> = {
   readonly kind: ResourceKind;
   readonly rule: (state: State, command: ResourceCommand<Op>) => DomainVerdict<Fact>;
   readonly apply: (state: State, fact: Fact) => State;
+  readonly reachExempt?: (state: State, command: ResourceCommand<Op>) => boolean;
 };
 
 export type RulingContext = {
@@ -222,7 +225,8 @@ export const rule = <State, Op, Fact>(
       return record({ kind: "refused", opId: command.opId, error: refusalError(refusal, dependency.root), root: dependency.root }, ruled.state);
     }
   }
-  const verdict: DomainVerdict<Fact> = context.inReach(command.actor, command.target)
+  const admitted = context.inReach(command.actor, command.target) || domain.reachExempt?.(ruled.state, command) === true;
+  const verdict: DomainVerdict<Fact> = admitted
     ? domain.rule(ruled.state, command)
     : { kind: "refuse", refusal: { reason: "not_in_reach", message: "The resource is not in this actor's reach" } };
   if (verdict.kind === "refuse") {
