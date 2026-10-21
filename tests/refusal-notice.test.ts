@@ -7,7 +7,7 @@ import type { QueuedCommand, RulingRefusedResult } from "../src/shared/command-r
 import { InstallationId } from "../src/shared/installation-id";
 import { commandWords, lostToWords, refusalNoticeOf, refusedWith, refusalSubjectOf, type QueuedLink } from "../src/shared/refusal-notice";
 import { taskRefusalToken, taskRefusalWordsOf } from "../src/shared/task-machine";
-import { TASK_STATES } from "../src/shared/task-model";
+import { ASSIGNEE_ONLY, TASK_STATES } from "../src/shared/task-model";
 import { subjectNoticeId, subjectNoticeKindOf } from "../src/shared/subject-notice";
 import { threadSubjectOf } from "../src/shared/thread-subject";
 import { ItemId, OpId } from "../src/shared/work-ids";
@@ -62,7 +62,7 @@ describe("a task's refused transition", () => {
       command: command({ op: { kind: "start" } } as Partial<QueuedCommand>),
       queue: [],
     });
-    expect(notice?.row.text).toContain("task start was refused: This task is canceled, so it cannot start");
+    expect(notice?.row.text).toContain("task start was refused: This task is canceled, so it cannot be started");
     expect(notice?.row.text).not.toContain("not in a state that allows this");
     expect(notice?.row.text).not.toContain("lost to");
   });
@@ -74,7 +74,7 @@ describe("a task's refused transition", () => {
     expect(textOf("invalid_transition", "from:canceled-ish")).toContain("The resource is not in a state that allows this");
     expect(textOf("invalid_transition", "epoch:7")).toContain("The resource is not in a state that allows this");
     expect(textOf("stale", "epoch:7")).toContain("The task moved on; its epoch is now 7");
-    // A command kind outside the closed set keeps the generic words: never "This task is canceled, so it cannot zap".
+    // A command kind outside the closed set keeps the generic words: never a sentence for "zap".
     expect(taskRefusalWordsOf("invalid_transition", "from:canceled", "zap")).toBeUndefined();
     const zap = refusalNoticeOf({ installationId: MINI, ruling: refused({ reason: "invalid_transition", expected: "from:canceled" }), command: command({ op: { kind: "zap" } } as Partial<QueuedCommand>), queue: [] })?.row.text;
     expect(zap).toContain("The resource is not in a state that allows this");
@@ -84,14 +84,34 @@ describe("a task's refused transition", () => {
   it("words every token the task store writes", () => {
     const spoken = TASK_STATES.map((state) => taskRefusalWordsOf("invalid_transition", taskRefusalToken({ kind: "illegal-transition", from: state, command: "start" }), "start"));
     expect(spoken).toEqual([
-      "This task is in the backlog, so it cannot start",
-      "This task is assigned, so it cannot start",
-      "This task is in progress, so it cannot start",
-      "This task is waiting for input, so it cannot start",
-      "This task is in review, so it cannot start",
-      "This task is done, so it cannot start",
-      "This task is canceled, so it cannot start",
-      "This task is archived, so it cannot start",
+      "This task is in the backlog, so it cannot be started",
+      "This task is assigned, so it cannot be started",
+      "This task is in progress, so it cannot be started",
+      "This task is waiting for input, so it cannot be started",
+      "This task is in review, so it cannot be started",
+      "This task is done, so it cannot be started",
+      "This task is canceled, so it cannot be started",
+      "This task is archived, so it cannot be started",
+    ]);
+    const commands = (Object.keys(ASSIGNEE_ONLY) as Array<keyof typeof ASSIGNEE_ONLY>).map((kind) => taskRefusalWordsOf("invalid_transition", "from:archived", kind));
+    expect(commands).toEqual([
+      "This task is archived, so it cannot be created again",
+      "This task is archived, so it cannot be edited",
+      "This task is archived, so it cannot be assigned",
+      "This task is archived, so it cannot be unassigned",
+      "This task is archived, so it cannot be started",
+      "This task is archived, so it cannot be paused",
+      "This task is archived, so it cannot be resumed",
+      "This task is archived, so it cannot be finished",
+      "This task is archived, so its checks cannot be reported",
+      "This task is archived, so it cannot be canceled",
+      "This task is archived, so it cannot be archived",
+      "This task is archived, so a dependency cannot be added",
+      "This task is archived, so a dependency cannot be removed",
+      "This task is archived, so a reviewer cannot be added",
+      "This task is archived, so a reviewer cannot be removed",
+      "This task is archived, so its stamp policy cannot change",
+      "This task is archived, so it cannot be stamped",
     ]);
     expect(taskRefusalWordsOf("stale", taskRefusalToken({ kind: "stale-epoch", expected: 12 }), "start")).toContain("12");
     expect(taskRefusalToken({ kind: "not-assignee" })).toBeUndefined();

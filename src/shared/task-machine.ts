@@ -519,10 +519,31 @@ const TASK_STATE_SPOKEN: Record<TaskState, string> = {
   archived: "archived",
 };
 
+/** What a command could not do, after "so", as a sentence says it. Total, so a new kind fails the typecheck until it is worded. */
+const TASK_COMMAND_SPOKEN: Record<TaskCommandKind, string> = {
+  create: "it cannot be created again",
+  edit: "it cannot be edited",
+  assign: "it cannot be assigned",
+  unassign: "it cannot be unassigned",
+  start: "it cannot be started",
+  pause: "it cannot be paused",
+  resume: "it cannot be resumed",
+  finish: "it cannot be finished",
+  check: "its checks cannot be reported",
+  cancel: "it cannot be canceled",
+  archive: "it cannot be archived",
+  depend: "a dependency cannot be added",
+  undepend: "a dependency cannot be removed",
+  "reviewer-add": "a reviewer cannot be added",
+  "reviewer-remove": "a reviewer cannot be removed",
+  "stamp-policy": "its stamp policy cannot change",
+  stamp: "it cannot be stamped",
+};
+
 export const taskRefusalMessage = (detail: TaskRefusalDetail): string => {
   switch (detail.kind) {
     case "illegal-transition":
-      return `This task is ${TASK_STATE_SPOKEN[detail.from]}, so it cannot ${detail.command}`;
+      return `This task is ${TASK_STATE_SPOKEN[detail.from]}, so ${TASK_COMMAND_SPOKEN[detail.command]}`;
     case "not-assignee":
       return detail.assignee === undefined
         ? "Only the assignee moves this task, and it has none"
