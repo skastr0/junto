@@ -31,6 +31,7 @@ import {
   emptyArtifactState,
 } from "@shared/artifact-domain";
 import type { NodeId } from "@shared/physics/schema";
+import type { OpOverlay } from "@shared/op-control";
 import {
   ARTIFACT_HISTORY_PAGE,
   type ArtifactApplyOutcome,
@@ -44,6 +45,7 @@ import {
   type ItemId,
   mintItemId,
   mintOpId,
+  type OpId,
   type ResourceActor,
   rule,
   type Ruled,
@@ -71,7 +73,23 @@ export interface ArtifactThread {
 
 export type ArtifactRuling = ArtifactApplyOutcome;
 
+/**
+ * One of this machine's artifact writes the editing machine has not ruled
+ * yet, with the overlay's read of it (02 read-your-writes, `OpOverlay`):
+ * pending applies on the ruled state as it stands; at_risk would be refused,
+ * or waits for the artifact's base to be pulled here. Never another
+ * machine's. Overlay absent: the build has no overlay reader for it.
+ */
+export interface ArtifactPendingWrite {
+  readonly opId: OpId;
+  readonly artifactId: ItemId;
+  readonly op: ArtifactOp;
+  readonly overlay?: OpOverlay;
+}
+
 export interface ArtifactsSource extends ArtifactResourceApi {
+  /** This machine's unruled writes to the node's artifacts, in queue order. */
+  readonly pending: (canvasName: string, nodeId: NodeId) => Promise<ReadonlyArray<ArtifactPendingWrite>>;
   readonly threads: (canvasName: string, artifactId: ItemId) => Promise<ReadonlyArray<ArtifactThread>>;
   /** Start a thread (no `threadId`) or reply in one. A reply to a thread that is not there is refused: null. */
   readonly comment: (
@@ -178,6 +196,8 @@ export const makeLocalArtifactsSource = (
   };
 
   return {
+    // The stand-in rules every write at once: nothing waits.
+    pending: async () => [],
     list: async (canvasName, nodeId) =>
       artifactsOnNode(ruledOf(canvasName).state, nodeId).map(({ artifact, body, bodyRef }) => ({ artifact, body, bodyRef })),
     history: async (_canvasName, artifactId) => (versions.get(artifactId) ?? []).slice(0, ARTIFACT_HISTORY_PAGE),
@@ -258,6 +278,8 @@ export const withLocalThreads = (main: ArtifactResourceApi, local: ArtifactsSour
   history: main.history,
   body: main.body,
   apply: main.apply,
+  // Main's queue read joins the API when remote serves it to the window; until then the local one.
+  pending: (main as Partial<Pick<ArtifactsSource, "pending">>).pending ?? local.pending,
   threads: local.threads,
   comment: local.comment,
   resolve: local.resolve,
@@ -342,6 +364,9 @@ export const useArtifactHistory = (canvasName: string, artifactId: ItemId | null
     canvasName,
     `${artifactId}`,
   );
+
+export const useNodePendingWrites = (canvasName: string, nodeId: NodeId): ReadonlyArray<ArtifactPendingWrite> =>
+  useSourced(() => artifactsSource().pending(canvasName, nodeId), NONE, canvasName, `pending\u0000${nodeId}`);
 
 export const useArtifactThreads = (canvasName: string, artifactId: ItemId | null): ReadonlyArray<ArtifactThread> =>
   useSourced(

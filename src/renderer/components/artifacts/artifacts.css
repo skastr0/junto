@@ -151,6 +151,46 @@
   font-size: var(--text-label);
 }
 
+.artifact-pending {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--color-stroke);
+  list-style: none;
+}
+
+.artifact-pending__write {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 8px;
+  border: 1px dashed var(--color-stroke-hi);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-label);
+}
+
+.artifact-pending__op {
+  color: var(--color-ink-2);
+  font-weight: 600;
+}
+
+.artifact-pending__state {
+  min-width: 0;
+  color: var(--color-dim);
+}
+
+.artifact-pending__write[data-tone="risk"] {
+  border-color: var(--color-amber);
+}
+
+.artifact-pending__write[data-tone="risk"] .artifact-pending__state {
+  color: var(--color-amber-fg);
+}
+
 .artifact-error,
 .artifact-archived {
   margin: 0;

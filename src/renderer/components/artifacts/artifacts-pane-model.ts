@@ -2,7 +2,8 @@
  * The Artifacts node's pure parts: which rows the sidebar shows, the text
  * patch a document edit becomes, and how an anchor and an author read.
  */
-import type { ArtifactType, TextPatch } from "@shared/artifact";
+import type { ArtifactOp, ArtifactType, TextPatch } from "@shared/artifact";
+import type { ArtifactPendingWrite } from "../../lib/artifacts-source";
 import type { ArtifactHead } from "@shared/resource-ipc";
 import type { ResourceActor } from "@shared/resource-command";
 import type { Anchor } from "@shared/thread-subject";
@@ -114,4 +115,39 @@ export const isLinkUrl = (value: string): boolean => {
   } catch {
     return false;
   }
+};
+
+/** What a write does, as a row names it. */
+export const opLabel = (op: ArtifactOp): string => {
+  switch (op.op) {
+    case "create":
+      return `Create ${op.title}`;
+    case "edit":
+      return op.edit.kind === "replace" ? "Replace the content" : "Edit";
+    case "retitle":
+      return `Rename to ${op.title}`;
+    case "archive":
+      return "Archive";
+    case "restore":
+      return "Restore";
+    case "tasks":
+      return "Change its tasks";
+  }
+};
+
+/**
+ * How one unruled write reads: `pending` draws dashed and quiet, `at_risk`
+ * says why it may not land. Without an overlay it is queued and no more is known.
+ */
+export const pendingWriteLine = (
+  write: ArtifactPendingWrite,
+): { readonly tone: "pending" | "risk"; readonly text: string } => {
+  const overlay = write.overlay;
+  if (overlay === undefined || overlay.status === "pending") {
+    return { tone: "pending", text: "Waiting for the editing machine" };
+  }
+  if (overlay.waiting !== undefined) {
+    return { tone: "risk", text: "Waiting for this artifact's latest version to arrive here" };
+  }
+  return { tone: "risk", text: `Would be refused now: ${overlay.refusal.message}` };
 };

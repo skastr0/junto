@@ -22,6 +22,8 @@ import {
   artifactsSource,
   refusalLine,
   useHeadBody,
+  useNodePendingWrites,
+  type ArtifactPendingWrite,
   useArtifactHistory,
   useArtifactThreads,
   useNodeArtifacts,
@@ -31,12 +33,13 @@ import { Button, IconButton, Input, ListRow, PaneEmpty, PaneHeader, ResourceGlyp
 import { ArtifactComments } from "./ArtifactComments";
 import { ArtifactHistory } from "./ArtifactHistory";
 import { ArtifactTasks } from "./ArtifactTasks";
+import { ArtifactPendingWrites } from "./ArtifactPendingWrites";
 import { useCanvasTasks } from "../../lib/tasks-source";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { ArtifactPadEditor } from "./ArtifactPadEditor";
 import { FilePreview, LinkPreview } from "./ArtifactPreview";
 import { ArtifactSheetEditor } from "./ArtifactSheetEditor";
-import { ageLabel, isLinkUrl, TYPE_NOUN, type TypeFilter, visibleArtifacts } from "./artifacts-pane-model";
+import { ageLabel, isLinkUrl, pendingWriteLine, TYPE_NOUN, type TypeFilter, visibleArtifacts } from "./artifacts-pane-model";
 import { DocumentEditor } from "./DocumentEditor";
 import "./artifacts.css";
 import { claimFocusOnMount, releaseFocus } from "../../lib/focus-ownership";
@@ -65,6 +68,11 @@ export function ArtifactsNode({
   readonly onClose: () => void;
 }) {
   const entries = useNodeArtifacts(canvasName, nodeId);
+  const pending = useNodePendingWrites(canvasName, nodeId);
+  /** Creates still queued: the artifact has no head here yet. */
+  const pendingCreates = pending.filter(
+    (write) => write.op.op === "create" && !entries.some((entry) => entry.artifact.artifactId === write.artifactId),
+  );
   const [selectedId, setSelectedId] = useState<string | null>(initialArtifactId ?? null);
   const [type, setType] = useState<TypeFilter>("all");
   const [query, setQuery] = useState("");
@@ -155,6 +163,17 @@ export function ArtifactsNode({
         </div>
       </div>
       <div className="artifacts-list" role="list" aria-label="Artifacts">
+        {archived
+          ? null
+          : pendingCreates.map((write) => (
+              <ListRow
+                key={write.opId}
+                leading={write.op.op === "create" ? <ResourceGlyphMark kind="artifact" artifactType={write.op.body.type} size={12} /> : null}
+                title={write.op.op === "create" ? write.op.title : write.artifactId}
+                meta={pendingWriteLine(write).tone === "risk" ? "At risk" : undefined}
+                pending
+              />
+            ))}
         {visible.map(({ artifact }) => (
           <ListRow
             key={artifact.artifactId}
@@ -162,6 +181,7 @@ export function ArtifactsNode({
             title={artifact.title}
             meta={ageLabel(artifact.updatedAt, now)}
             selected={artifact.artifactId === selected?.artifact.artifactId}
+            pending={pending.some((write) => write.artifactId === artifact.artifactId)}
             onClick={() => {
               setSelectedId(artifact.artifactId);
               setError(null);
@@ -204,6 +224,7 @@ export function ArtifactsNode({
           now={now}
           error={error}
           queued={queued}
+          pending={pending.filter((write) => write.artifactId === selected.artifact.artifactId)}
           apply={(op) => apply(selected.artifact.artifactId, op)}
           onClose={onClose}
         />
@@ -219,6 +240,7 @@ function SelectedArtifact({
   now,
   error,
   queued,
+  pending,
   apply,
   onClose,
 }: {
@@ -226,6 +248,7 @@ function SelectedArtifact({
   readonly canvasName: string;
   readonly entry: ArtifactHead;
   readonly queued: boolean;
+  readonly pending: ReadonlyArray<ArtifactPendingWrite>;
   readonly sidebar: React.ReactNode;
   readonly now: number;
   readonly error: string | null;
@@ -387,7 +410,8 @@ function SelectedArtifact({
           {error}
         </p>
       ) : null}
-      {queued ? (
+      <ArtifactPendingWrites writes={pending} />
+      {queued && pending.length === 0 ? (
         <p className="artifact-archived" role="status">
           Queued. It applies when the editing machine rules it.
         </p>
