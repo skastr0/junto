@@ -10,6 +10,7 @@
  * told it is on its way. Held, it is judged again and copied into the seat's
  * workspace. Removed by the operator, it reads removed and is never pulled.
  */
+import { lstatSync, unlinkSync } from "node:fs";
 import { Effect, Option } from "effect";
 import { seatReachesResource } from "@shared/content-pull";
 import { mailThreadOf } from "@shared/crew";
@@ -80,7 +81,16 @@ export const seatPageShot = (
           name: "page-box.png",
         }),
       ).pipe(Effect.orElseSucceed(() => undefined));
-      return placed === undefined ? { state: "pending" } : { state: "ready", path: placed.path };
+      if (placed === undefined) return { state: "pending" };
+      // A purge that committed while the copy was made has swept already: this copy goes too.
+      const purgedSince = Option.isNone(work) ? true : yield* work.value.shotPurged(owner).pipe(Effect.orElseSucceed(() => true));
+      if (purgedSince) {
+        yield* Effect.try(() => {
+          if (lstatSync(placed.path).isFile()) unlinkSync(placed.path);
+        }).pipe(Effect.ignore);
+        return { state: "removed" };
+      }
+      return { state: "ready", path: placed.path };
     }
     // The pull runs once per object and is never attempted for a purged comment (core-runtime).
     const puller = yield* Effect.serviceOption(BodyPuller);

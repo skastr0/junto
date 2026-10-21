@@ -7,13 +7,14 @@
  * after, leaves the mini's store no claim on the shot.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { access, readFile, rm } from "node:fs/promises";
+import { access, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BodyPuller } from "../src/main/junto/content/body-puller";
+import { contentMaterializationPath } from "../src/main/junto/content/agent-access";
 import { ContentService, makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
@@ -119,13 +120,13 @@ const append = (nodeId: string, messageId: string, metadata: Record<string, unkn
     receivedAt: at,
   }));
 
-const notice = async (recipient: string) => {
+const notice = async (recipient: string, comment = C1) => {
   const row = subjectNoticeRow({
     kind: "comment",
     installationId: EDITOR,
-    sourceId: C1 as MailMessageId,
+    sourceId: comment as MailMessageId,
     subject,
-    threadId: C1 as MailMessageId,
+    threadId: comment as MailMessageId,
     recipient: recipient as NodeId,
     text: "a box",
     sender: { senderNodeId: "lead", senderName: "lead" } as never,
@@ -153,12 +154,12 @@ const puller: Context.Service.Shape<typeof BodyPuller> = {
     }).pipe(Effect.asVoid, Effect.orDie),
 };
 
-const read = (seatNodeId: string, messageId: string) =>
+const read = (seatNodeId: string, messageId: string, content?: Context.Service.Shape<typeof ContentService>) =>
   mini.runtime.runPromise(Effect.gen(function* () {
     const message = yield* mini.work.mailMessage("factory", seatNodeId, messageId);
     if (message === undefined) throw new Error(`no ${messageId} at ${seatNodeId}`);
     return yield* seatPageShot({ canvasName: "factory", canvas: CANVAS, seatNodeId }, message);
-  }).pipe(Effect.provideService(BodyPuller, puller)));
+  }).pipe(Effect.provideService(BodyPuller, puller), content === undefined ? (effect) => effect : Effect.provideService(ContentService, content)));
 
 const miniClaims = () =>
   mini.runtime.runPromise(Effect.flatMap(ContentService, (content) => content.listRefs(SHOT.sha256)));
@@ -222,6 +223,35 @@ describe("a page box shot a seat on another machine reads", () => {
     expect(await miniClaims()).toEqual([]);
     expect(await read("peer", noticeId)).toEqual({ state: "removed" });
     expect(pulls).toHaveLength(1);
+  });
+
+  it("takes away a copy made while a purge committed: the purge lands between the check and the copy", async () => {
+    const C2 = "01M5F8P0000000000000000002";
+    await append("page-1", C2, { factoryMail: true, ...threadSubjectMetadata(subject), threadId: C2 });
+    await editor.runtime.runPromise(editor.sql`INSERT INTO content_refs(ref_id, sha256, byte_length, media_type, owner_kind, owner_canvas, owner_node, owner_record_id, created_at)
+      VALUES (${randomUUID()}, ${SHOT.sha256}, ${SHOT.byteLength}, 'image/png', 'message', 'factory', 'page-1', ${C2}, ${at})`);
+    const second = await notice("peer", C2);
+    await crossToMini();
+    expect(await read("peer", second)).toEqual({ state: "pending" });
+    await settled(async () => (await miniClaims()).some(({ owner }) => owner.recordId === C2));
+    // The read has passed its purge check when it opens the store's copy: the purge commits and sweeps right then.
+    let purgedDuringRead = false;
+    const racing = {
+      ...miniContent,
+      openForRead: (ref: ContentRef) =>
+        Effect.promise(async () => {
+          if (!purgedDuringRead) {
+            purgedDuringRead = true;
+            await editor.runtime.runPromise(editor.work.purgeShot({ canvasName: "factory", nodeId: "page-1", messageId: C2 }));
+            await crossToMini();
+          }
+        }).pipe(Effect.andThen(miniContent.openForRead(ref))),
+    } as Context.Service.Shape<typeof ContentService>;
+    expect(await read("peer", second, racing)).toEqual({ state: "removed" });
+    expect(purgedDuringRead).toBe(true);
+    const copy = contentMaterializationPath({ workHome, canvasName: "factory", targetNodeId: "peer", taskId: `mail-${C2}`, ref: SHOT, name: "page-box.png" });
+    // The copy was made, inside the window, and taken away.
+    expect(await readdir(join(copy, ".."))).toEqual([]);
   });
 
   it("takes the seat's workspace copy away once the purge commits there, and the comment still reads", async () => {
