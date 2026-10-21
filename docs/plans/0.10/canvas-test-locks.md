@@ -7,6 +7,11 @@ of the new law. A lock is never deleted bare, skipped, or weakened to an
 assertion that holds under both laws. Review refuses any canvas commit that
 leaves one of these red, skipped, or asserting nothing.
 
+Review gate (operator, 2026-10-21): `bun run typecheck`, the unit tests the
+commit touches, and the diff. Full verify and real-app runs are batched per
+milestone. The reach law is also locked in types: `region-reach.ts` carries a
+type-level test where misuse of a ref or a path fails `tsc` (an expect-error).
+
 ## Locks that must flip with C1 (reach)
 
 | Lock | Old law it asserts | New assertion |
