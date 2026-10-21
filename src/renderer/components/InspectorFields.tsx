@@ -224,7 +224,6 @@ export function PageBindingControl({ nodeId }: { readonly nodeId: string }) {
           <MachineSelect
             ariaLabel="Page browser machine"
             value={host}
-            capability="browser"
             onChange={(next) => {
               setHost(next);
               commit(profile, next);
@@ -384,7 +383,6 @@ export function RegionPageDefaultsControl({ nodeId: regionId }: { readonly nodeI
           <MachineSelect
             ariaLabel="Region page browser machine default"
             value={pageHost}
-            capability="browser"
             onChange={(next) => {
               setPageHost(next);
               writePage(pageUrl, pageProfile, next);

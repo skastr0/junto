@@ -16,15 +16,13 @@ import {
 
 const MAX_HOSTS = 32;
 
-/** Bit 8 was the retired Hermes capability; reads ignore it until v26 clears it. */
+/** Bits 2 and 8 were the retired browser and Hermes capabilities; reads ignore them until the deletions step clears them. */
 const CAPABILITY_BITS = {
   terminal: 1,
-  browser: 2,
 } as const satisfies Record<HostCapability, number>;
 
 const CAPABILITIES_IN_STORAGE_ORDER = [
   "terminal",
-  "browser",
 ] as const satisfies ReadonlyArray<HostCapability>;
 
 type HostRow = {

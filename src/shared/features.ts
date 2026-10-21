@@ -389,11 +389,3 @@ export const HARNESS_FEATURE_GATES = {
 } as const satisfies Partial<Record<FeatureKey, boolean>>;
 
 export type HarnessFeatureGate = keyof typeof HARNESS_FEATURE_GATES;
-
-/** Strip product-hidden capabilities from a host capability list for UI. */
-export const productHostCapabilities = <T extends string>(
-  capabilities: ReadonlyArray<T>,
-): ReadonlyArray<T> => capabilities.filter((capability) => {
-  if (!BROWSER_ENABLED && capability === "browser") return false;
-  return true;
-});

@@ -1,10 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import {
-  BROWSER_ENABLED,
-  productHostCapabilities,
-} from "../src/shared/features";
+import { BROWSER_ENABLED } from "../src/shared/features";
 import { THIS_MACHINE_CAPABILITIES } from "../src/shared/remote-hosts";
 import { DEFAULT_NODE_CATALOG_ENTRIES } from "../src/renderer/components/node-palette/NodeCatalogGrid";
 
@@ -16,10 +13,6 @@ describe("browser hard product gate", () => {
     "removes authoring, capability advertising, live composition, preload IPC, and CLI dispatch",
     () => {
       expect(catalogIds()).not.toContain("page");
-      expect(THIS_MACHINE_CAPABILITIES).toContain("browser");
-      expect(productHostCapabilities(["terminal", "browser"])).toEqual([
-        "terminal",
-      ]);
 
       const preload = readFileSync("src/preload/index.ts", "utf8");
       const main = readFileSync("src/main/index.ts", "utf8");
@@ -65,10 +58,9 @@ describe("browser hard product gate", () => {
 
   it.runIf(BROWSER_ENABLED)("restores the browser product in all-on builds", () => {
     expect(catalogIds()).toContain("page");
-    expect(THIS_MACHINE_CAPABILITIES).toContain("browser");
-    expect(productHostCapabilities(["terminal", "browser"])).toEqual([
-      "terminal",
-      "browser",
-    ]);
+  });
+
+  it("is never a machine capability: the browser is local to the desktop app", () => {
+    expect(THIS_MACHINE_CAPABILITIES).toEqual(["terminal"]);
   });
 });

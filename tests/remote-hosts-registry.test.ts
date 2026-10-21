@@ -98,9 +98,7 @@ describe("remote hosts registry", () => {
 
     const hosts = await registry.list();
     expect(hosts.map((host) => host.id)).toEqual(["macbook"]);
-    expect(hosts[0]?.capabilities).toEqual(
-      expect.arrayContaining(["terminal", "browser"]),
-    );
+    expect(hosts[0]?.capabilities).toEqual(["terminal"]);
   });
 
   it("persists enrollment transactions and keeps local capabilities synthesized", async () => {
@@ -141,7 +139,7 @@ describe("remote hosts registry", () => {
     });
     const local = await cold.get("macbook");
     expect(local?.label).toBe("This machine");
-    expect(local?.capabilities).toHaveLength(2);
+    expect(local?.capabilities).toEqual(["terminal"]);
     await expect(
       cold.upsert({
         id: "macbook",
@@ -327,6 +325,32 @@ describe("remote hosts registry", () => {
         { id: "fleet-1", capability_mask: 1, hermes_id: null, effective_hermes_id: null },
         { id: "hermes-only", capability_mask: 8, hermes_id: null, effective_hermes_id: "hermes-only" },
       ]);
+    } finally {
+      after.close();
+    }
+  });
+
+  it("reads a remote stored with the retired browser bit as terminal and writes the bit off", async () => {
+    const root = await mkdtemp(join(tmpdir(), "junto-hosts-browser-retired-"));
+    dirs.push(root);
+    const databasePath = join(root, "junto.db");
+    const { registry } = await testRegistry(databasePath);
+    await registry.list();
+    const database = new DatabaseSync(databasePath);
+    try {
+      database.exec(`INSERT INTO host_registry(id, label, is_this_machine, ssh_endpoint, capability_mask, sort_order)
+        VALUES ('both', 'Both', 0, 'both', 3, 1), ('browser-only', 'Browser only', 0, 'browser-only', 2, 2)`);
+    } finally {
+      database.close();
+    }
+    const both = await registry.get("both");
+    expect(both?.capabilities).toEqual(["terminal"]);
+    expect((await registry.get("browser-only"))?.capabilities).toEqual(["terminal"]);
+
+    await registry.upsert({ ...both!, label: "Both again" });
+    const after = new DatabaseSync(databasePath);
+    try {
+      expect(after.prepare("SELECT capability_mask FROM host_registry WHERE id = 'both'").get()).toEqual({ capability_mask: 1 });
     } finally {
       after.close();
     }
@@ -565,7 +589,7 @@ describe("remote hosts registry", () => {
         label: "Studio",
         isThisMachine: false,
         sshEndpoint: "studio",
-        capabilities: ["browser", "browser"],
+        capabilities: ["terminal", "terminal"],
       }),
     ).rejects.toMatchObject({
       code: "validation",

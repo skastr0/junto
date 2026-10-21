@@ -3,7 +3,6 @@
  */
 import { useEffect, useState } from "react";
 import type { BrowserProfileInfo, JuntoApi, JuntoBrowserApi, JuntoTerminalApi } from "@shared/ipc";
-import { hostHasCapability, type HostCapability, type RemoteHost } from "@shared/remote-hosts";
 import { Select } from "./ui";
 import { getJuntoApi } from "../lib/junto-api";
 import { loadSetUpMachines, machineLabel } from "../lib/machines";
@@ -13,24 +12,19 @@ type HostOpt = { readonly value: string; readonly label: string };
 type BrowserApi = (JuntoApi & Partial<JuntoTerminalApi> & Partial<JuntoBrowserApi>) | undefined;
 
 /** Why the machine a row already names is not among the ones offered. */
-const whyNotOffered = (name: string, setUp: ReadonlyArray<RemoteHost>): string => {
-  if (!state$.machines.peek().some((machine) => machine.id === name)) return "not in your machines";
-  return setUp.some((machine) => machine.id === name) ? "cannot do this" : "not set up";
-};
+const whyNotOffered = (name: string): string =>
+  state$.machines.peek().some((machine) => machine.id === name) ? "not set up" : "not in your machines";
 
 export function MachineSelect({
   value,
   onChange,
   ariaLabel,
-  /** When set, only machines that say they can do this (for example, run a browser). */
-  capability,
   dense = true,
   placeholder = "Choose a machine",
 }: {
   readonly value: string;
   readonly onChange: (hostId: string) => void;
   readonly ariaLabel: string;
-  readonly capability?: HostCapability;
   readonly dense?: boolean;
   readonly placeholder?: string;
 }) {
@@ -42,18 +36,17 @@ export function MachineSelect({
     void loadSetUpMachines().then((machines) => {
       if (!current) return;
       const offered = machines
-        .filter((machine) => !capability || hostHasCapability(machine, capability))
         .map((machine) => ({ value: machine.id, label: machine.label.trim() || machine.id }));
       setOptions(
         value && !offered.some((option) => option.value === value)
-          ? [{ value, label: `${machineLabel(value)} (${whyNotOffered(value, machines)})` }, ...offered]
+          ? [{ value, label: `${machineLabel(value)} (${whyNotOffered(value)})` }, ...offered]
           : offered,
       );
     });
     return () => {
       current = false;
     };
-  }, [value, capability]);
+  }, [value]);
 
   // A machine is always a real name when set. Empty means not chosen yet
   // (the placeholder), never a "none" option.

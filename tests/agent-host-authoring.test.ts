@@ -22,12 +22,6 @@ describe("agent host authoring", () => {
           capabilities: ["terminal"],
         },
         {
-          id: "browser-only",
-          label: "Browser only",
-          isThisMachine: false,
-          capabilities: ["browser"],
-        },
-        {
           id: "studio",
           label: "Studio",
           isThisMachine: true,

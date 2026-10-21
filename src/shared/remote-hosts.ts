@@ -6,8 +6,7 @@ import type { EncodedFailure } from "./failure";
 export const REMOTE_HOSTS_VERSION = 1;
 
 export const TERMINAL_HOST_CAPABILITY = "terminal" as const;
-export const BROWSER_HOST_CAPABILITY = "browser" as const;
-export const HostCapability = Schema.Literals([BROWSER_HOST_CAPABILITY, TERMINAL_HOST_CAPABILITY]);
+export const HostCapability = Schema.Literals([TERMINAL_HOST_CAPABILITY]);
 export type HostCapability = typeof HostCapability.Type;
 
 /** Product host id: stable, option-safe, not a leading dash. */
@@ -67,7 +66,7 @@ export const RemoteHost = Schema.Struct({
   sshHostKeyPolicy: Schema.optionalKey(HostSshHostKeyPolicy),
   capabilities: Schema.Array(HostCapability).pipe(
     Schema.check(Schema.isMinLength(1)),
-    Schema.check(Schema.isMaxLength(2)),
+    Schema.check(Schema.isMaxLength(1)),
   ),
   /** Machine presentation. */
   appearance: Schema.optionalKey(Schema.Struct({
@@ -85,7 +84,7 @@ export type RemoteHostsDocument = typeof RemoteHostsDocument.Type;
 
 /** Surfaces available on the running machine, never a stored claim. */
 export const THIS_MACHINE_CAPABILITIES: ReadonlyArray<HostCapability> = [
-  TERMINAL_HOST_CAPABILITY, BROWSER_HOST_CAPABILITY,
+  TERMINAL_HOST_CAPABILITY,
 ];
 export type MachinePresentation = {
   readonly label?: string;
