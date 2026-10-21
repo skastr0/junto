@@ -264,3 +264,9 @@ export const STATE_SCHEMA_V45_SQL = stepped(
   STATE_SCHEMA_V44_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 45)!.migrate,
 );
+
+// Version 46 kept where each seat, task, artifact and page is mentioned (45 -> 46).
+export const STATE_SCHEMA_V46_SQL = stepped(
+  STATE_SCHEMA_V45_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 46)!.migrate,
+);

@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtemp, rm } from "node:fs/promises";
 import { PassThrough } from "node:stream";
@@ -12,6 +12,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import {
   runBoundedWorkCliCommand,
+  SANDBOXED_HOMES,
   sandboxedCliEnv,
   WorkCliCommandFailure,
 } from "../scripts/work-cli-acceptance";
@@ -272,22 +273,51 @@ describe("work CLI acceptance process safety", () => {
       expect(sandboxedCliEnv(sandbox, { JUNTO_WORK_HOME: work, JUNTO_BROWSER_HOME: join(sandbox, "outside", "b") }).JUNTO_BROWSER_HOME).toBe(join(sandbox, "outside", "b"));
     });
 
-    it("refuses a home outside the sandbox: the operator's, an escape, a sibling, or none", () => {
-      for (const home of [join(homedir(), ".junto"), join(sandbox, "..", "x"), `${sandbox}-sibling`]) {
-        expect(() => sandboxedCliEnv(sandbox, { JUNTO_WORK_HOME: work, JUNTO_BROWSER_HOME: home })).toThrow(/outside the sandbox/);
-        expect(() => sandboxedCliEnv(sandbox, { JUNTO_WORK_HOME: home })).toThrow(/outside the sandbox/);
+    it("puts every other home in the sandbox when none is named, the Junto home among them", () => {
+      const held = sandboxedCliEnv(sandbox, { JUNTO_WORK_HOME: work });
+      for (const key of SANDBOXED_HOMES) expect({ key, inside: held[key]?.startsWith(sandbox + sep) }).toEqual({ key, inside: true });
+      expect(held.JUNTO_HOME).toBe(join(sandbox, "junto-home"));
+    });
+
+    it("refuses any home outside the sandbox: the operator's, an escape, a sibling, a relative one, or none", () => {
+      const outside = [homedir(), join(homedir(), ".junto"), join(sandbox, "..", "x"), `${sandbox}-sibling`, "junto-work-acc-lock/x", `${sandbox}/x\u0007`];
+      for (const key of SANDBOXED_HOMES) {
+        for (const home of outside) {
+          expect(() => sandboxedCliEnv(sandbox, { JUNTO_WORK_HOME: work, [key]: home })).toThrow(new RegExp(`refuses ${key}=.*outside the sandbox`));
+        }
       }
       expect(() => sandboxedCliEnv(sandbox, {})).toThrow(/JUNTO_WORK_HOME/);
     });
 
+    it("guards every JUNTO_*HOME the source reads, so a new one cannot slip by", () => {
+      const read = new Set<string>();
+      const walk = (dir: string): void => {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          const path = join(dir, entry.name);
+          if (entry.isDirectory()) walk(path);
+          else if (/\.tsx?$/.test(entry.name)) for (const name of readFileSync(path, "utf8").match(/\bJUNTO_[A-Z_]*HOME\b/g) ?? []) read.add(name);
+        }
+      };
+      walk(join(__dirname, "..", "src"));
+      expect(read.has("JUNTO_HOME")).toBe(true);
+      expect([...read].sort()).toEqual([...SANDBOXED_HOMES].sort());
+    });
+
     it("is the env a spawned CLI reads", async () => {
+      const unset = Object.fromEntries(SANDBOXED_HOMES.map((key) => [key, undefined]));
       const result = await runBoundedWorkCliCommand(makePlane(), {
         command: process.execPath,
-        args: ["-e", "process.stdout.write(process.env.JUNTO_BROWSER_HOME ?? 'unset')"],
+        args: ["-e", "process.stdout.write([process.env.JUNTO_BROWSER_HOME, process.env.JUNTO_HOME].join(' '))"],
         cwd: process.cwd(),
-        env: sandboxedCliEnv(sandbox, { ...process.env, JUNTO_BROWSER_HOME: undefined, JUNTO_WORK_HOME: work }),
+        env: sandboxedCliEnv(sandbox, { ...process.env, ...unset, JUNTO_WORK_HOME: work }),
       });
-      expect(result.stdout).toBe(join(sandbox, "browser-home"));
+      expect(result.stdout).toBe(`${join(sandbox, "browser-home")} ${join(sandbox, "junto-home")}`);
+    });
+
+    it("refuses the home the shell had, so the net names every one itself", () => {
+      expect(() => sandboxedCliEnv(sandbox, { JUNTO_WORK_HOME: work, JUNTO_HOME: join(homedir(), ".junto-dev") })).toThrow(/refuses JUNTO_HOME=/);
+      const source = readFileSync(join(__dirname, "..", "scripts", "work-cli-acceptance.ts"), "utf8");
+      for (const key of SANDBOXED_HOMES) expect({ key, named: new RegExp(`\\b${key}: (?:workHome|join\\(root, )`).test(source) }).toEqual({ key, named: true });
     });
 
     it("is the only way the net spawns one", () => {

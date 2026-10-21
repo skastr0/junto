@@ -79,6 +79,8 @@ export const WORK_PLANE_TABLE_ROLES: ReadonlyMap<string, WorkPlaneTableRole> =
     ["work_task_dependencies", "projection"],
     ["work_task_finish", "projection"],
     ["work_messages", "projection"],
+    // a mail row's backlinks, written with it (mention-backlinks.ts)
+    ["work_mentions", "projection"],
     ["work_artifacts", "projection"],
     ["work_delivery_receipts", "projection"],
     // Crew review stores: durable Command Center-local operational state

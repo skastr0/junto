@@ -41,6 +41,7 @@ import { rulingNoticesHere, type RulingNoticeWrite } from "@shared/ruling-notice
 import type { OpId } from "@shared/work-ids";
 import { RulingFoldRefused, foldRuling } from "./ruling-projection";
 import { KIND_TABLES } from "../model/state-schema";
+import { writeMentions } from "./mention-backlinks";
 import { assertWorkRowBound, pageExchangeRows } from "@shared/exchange-bounds";
 import { createHash } from "node:crypto";
 import { Cause, Context, Effect, Option, Result, Layer, Schema } from "effect";
@@ -3577,6 +3578,12 @@ const writeInboxMessage = Effect.fn("work.writeInboxMessage")(function* (
       receivedAt,
     ],
   );
+  // Where the row's words name a seat, a task, an artifact or a page: the backlinks go with the row.
+  yield* writeMentions(writer, sink.canvasName, sink.nodeId, message.messageId, {
+    actorSeatId: sentBy.seatId,
+    parts: message.parts,
+    metadata: message.metadata,
+  });
   yield* afterSqlCommit(writer, () => workProjectionChanges(writer).notify(sink, "mail"));
 });
 

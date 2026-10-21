@@ -16,6 +16,7 @@ import {
   CONTENT_STATE_SCHEMA_SQL,
 } from "../content/state-schema";
 import { WORK_STATE_SCHEMA_SQL } from "../work/state-schema";
+import { WORK_MENTIONS_SQL } from "../work/mention-state-schema";
 import { ARTIFACTS_STATE_SCHEMA_SQL } from "../work/artifact-state-schema";
 import { TASK_SEAT_RELEASES_SQL, TASKS_STATE_SCHEMA_SQL } from "../work/task-state-schema";
 import { SHOT_PURGES_SQL } from "../work/shot-purge-schema";
@@ -95,6 +96,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   STATION_STATUS_STATE_SCHEMA_SQL,
   USAGE_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_SQL,
+  WORK_MENTIONS_SQL,
   RESOURCE_RULINGS_STATE_SCHEMA_SQL,
   ARTIFACTS_STATE_SCHEMA_SQL,
   TASKS_STATE_SCHEMA_SQL,

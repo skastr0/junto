@@ -1,4 +1,6 @@
 import { RESOURCE_IPC_CHANNELS } from "@shared/resource-ipc-channels";
+import { MENTION_IPC_CHANNELS } from "@shared/mention-ipc-channels";
+import type { MentionIpcApi, MentionsChanged } from "@shared/mention-ipc";
 import { PAGE_BOX_DRAW_MS } from "@shared/page-shot";
 import type { ResourceChanged, ResourceIpcApi, ThreadChanged } from "@shared/resource-ipc";
 import type { WorkSinkChanged } from "@shared/work-sinks";
@@ -398,8 +400,15 @@ type WorkFeatureApiKey =
   | "workArtifactArchive"
   | "workArtifactDelete";
 
+const mentionsApi: MentionIpcApi = {
+  list: (canvasName, target, page) =>
+    invoke(MENTION_IPC_CHANNELS.list, IPC_TIMEOUT_MS, { canvasName, target, ...(page === undefined ? {} : { page }) }),
+  onChanged: (listener) => subscribe<MentionsChanged>(MENTION_IPC_CHANNELS.changed, listener),
+};
+
 const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   platform: process.platform,
+  mentions: mentionsApi,
   updateGetState: () =>
     invoke(IPC_CHANNELS.updateGetState, IPC_TIMEOUT_MS),
   updateCheck: () =>

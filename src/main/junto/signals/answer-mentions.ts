@@ -2,6 +2,7 @@ import { Effect, Option } from "effect";
 import type { AgentSignal } from "@shared/agent-signals";
 import { mailExtensionMetadata, type MailMessageId } from "@shared/crew";
 import { mentionLinksOf, mentionedOnce, mentionsOf } from "@shared/mention";
+import { MENTION_COPY_OF_KEY } from "@shared/mention-backlinks";
 import type { NodeKind } from "@shared/model/kinds";
 import { titleOf } from "@shared/model/title";
 import type { NodeId } from "@shared/physics/schema";
@@ -117,6 +118,8 @@ export const sendAnswerCopies = (
             agentSignalId: signal.signalId,
             threadId: answerMessageId,
             inReplyTo: answerMessageId,
+            // A copy of the answer's words: its mentions are the answer's, counted there (mention-backlinks.ts).
+            [MENTION_COPY_OF_KEY]: answerMessageId,
             ...mailExtensionMetadata({
               mailKind: "prompt",
               fromSeat: sender.seatId,

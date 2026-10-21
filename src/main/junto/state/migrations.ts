@@ -40,6 +40,8 @@ import { migrateTaskStateSince } from "./migrate-task-state-since";
 import { migrateTaskChecks } from "./migrate-task-checks";
 import { migrateTaskArchivedFrom } from "./migrate-task-archived-from";
 import { migrateTaskFinishNotes } from "./migrate-task-finish-notes";
+import { WORK_MENTIONS_SQL } from "../work/mention-state-schema";
+import { rebuildMentions } from "../work/mention-backlinks";
 import {
   CANVAS_DELETIONS_CORRECTED_TABLES,
   CANVAS_DELETIONS_REMOVED_TABLES,
@@ -577,7 +579,17 @@ export const STATE_SCHEMA_V45_IDENTITY = {
     "e7838f1d5ab8bb96734fb94a4008f2b6c564788d5c116ac9514c662606291e76",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 45;
+/**
+ * Version 46 keeps where each seat, task, artifact and page is mentioned
+ * (plan 03 section 3): `work_mentions`, a projection of mail rows, built
+ * from every row already held (`work/mention-backlinks.ts`). Expand-only.
+ */
+export const STATE_SCHEMA_V46_IDENTITY = {
+  actualSchemaSha256:
+    "b71de53b744f1c5ca8b7c90ac3c600b58a66c6184f04648a299b96503ba41af4",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 46;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -585,7 +597,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 45;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V45_IDENTITY;
+  STATE_SCHEMA_V46_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -926,6 +938,17 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V44_IDENTITY,
     replacesTables: ["task_heads"],
     migrate: (database) => migrateTaskFinishNotes(database),
+  },
+  {
+    fromVersion: 45,
+    toVersion: 46,
+    name: "keep where each seat, task, artifact and page is mentioned",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V45_IDENTITY,
+    migrate: (database) => {
+      database.exec(WORK_MENTIONS_SQL);
+      rebuildMentions(database);
+    },
   },
 ];
 

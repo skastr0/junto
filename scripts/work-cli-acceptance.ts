@@ -62,6 +62,7 @@ import { IntentFactBasis } from "../src/shared/work-protocol";
 import { composeOverseer, type OverseerComposition } from "../src/main/junto/overseer/composition";
 import { ActorSeatOccupyLive } from "../src/main/junto/term/actor-seat-occupy-live";
 import { ARTIFACTS_ENABLED, TASKS_ENABLED } from "../src/shared/features";
+import { usableJuntoHome } from "../src/shared/junto-home";
 import { ArtifactRepositoryLive } from "../src/main/junto/work/artifact-repository";
 import { makeAutomationRepositoryLive } from "../src/main/junto/automation/repository";
 import { OpRepositoryLive } from "../src/main/junto/work/op-repository";
@@ -335,21 +336,41 @@ const seed = () => Schema.decodeUnknownSync(Command)({
   wires: [],
 });
 
-/** The homes a CLI the net spawns reads; each must lie inside the run's sandbox. */
-export const SANDBOXED_HOMES = ["JUNTO_WORK_HOME", "JUNTO_BROWSER_HOME"] as const;
+/**
+ * Every JUNTO_*HOME the source reads (the process test greps src for them);
+ * each must lie inside the run's sandbox. The work home has no default: the
+ * net names it. The rest default into the sandbox.
+ */
+export const SANDBOXED_HOMES = [
+  "JUNTO_WORK_HOME",
+  "JUNTO_HOME",
+  "JUNTO_BROWSER_HOME",
+  "JUNTO_PREVIEW_HOME",
+  "JUNTO_CANVAS_CONTROL_HOME",
+] as const;
+
+const DEFAULT_HOMES: Readonly<Record<Exclude<(typeof SANDBOXED_HOMES)[number], "JUNTO_WORK_HOME">, string>> = {
+  JUNTO_HOME: "junto-home",
+  JUNTO_BROWSER_HOME: "browser-home",
+  JUNTO_PREVIEW_HOME: "preview-home",
+  JUNTO_CANVAS_CONTROL_HOME: "canvas-control-home",
+};
 
 /**
- * The env a CLI the net spawns runs with: the browser home in the sandbox
- * unless one inside it is named, and every home checked inside it. A home
- * outside the sandbox, the operator's real app at ~/ among them, is refused
- * before anything is spawned.
+ * The env a CLI the net spawns runs with: each home in the sandbox unless one
+ * inside it is named, and every home checked inside it. A home is read as the
+ * CLI reads JUNTO_HOME (junto-home.ts usableJuntoHome), so a relative or
+ * control-laden value, which the CLI would drop for ~/.junto, is refused too.
+ * A home outside the sandbox, the operator's real app at ~/ among them, is
+ * refused before anything is spawned.
  */
 export const sandboxedCliEnv = (sandbox: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
-  const held: NodeJS.ProcessEnv = { ...env, JUNTO_BROWSER_HOME: env.JUNTO_BROWSER_HOME ?? join(sandbox, "browser-home") };
+  const held: NodeJS.ProcessEnv = { ...env };
+  for (const [key, dir] of Object.entries(DEFAULT_HOMES)) held[key] ??= join(sandbox, dir);
   const inside = resolve(sandbox) + sep;
   for (const key of SANDBOXED_HOMES) {
     const home = held[key];
-    if (home === undefined || !resolve(home).startsWith(inside)) {
+    if (!usableJuntoHome(home)?.startsWith(inside)) {
       throw new Error(`work CLI acceptance refuses ${key}=${String(home)}: it is outside the sandbox ${sandbox}`);
     }
   }
@@ -558,8 +579,11 @@ export const runWorkCliAcceptance = async () => {
       // dist/junto reads these at run time: the 0.10 verbs the net drives.
       ...CLI_FEATURES,
       JUNTO_WORK_HOME: workHome,
-      // Over whatever the shell had: no call reaches the operator's app.
+      // Over whatever the shell had: no call reaches the operator's app or ~/.junto.
+      JUNTO_HOME: join(root, "junto-home"),
       JUNTO_BROWSER_HOME: join(root, "browser-home"),
+      JUNTO_PREVIEW_HOME: join(root, "preview-home"),
+      JUNTO_CANVAS_CONTROL_HOME: join(root, "canvas-control-home"),
       [WORK_TOKEN_ENV]: mint.credential,
     };
 

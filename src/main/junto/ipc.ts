@@ -57,6 +57,9 @@ import { registerShellEnvironmentIpc } from "./shell-environment/ipc";
 import { registerReferencesIpc } from "./references/ipc";
 import { liveResourceIpcPorts, registerResourceIpc } from "./work/resource-ipc";
 import { registerAutomationIpc } from "./automation/ipc";
+import { registerMentionIpc } from "./work/mention-ipc";
+import { SqlClient } from "effect/unstable/sql";
+import { readMentions } from "./work/mention-backlinks";
 import { SettingsService } from "./settings/service";
 import { registerObservabilityIpc } from "./observability";
 import { registerUpdateIpc } from "./update/ipc";
@@ -350,6 +353,27 @@ export const registerJuntoIpc = (): void => {
   registerAutomationIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
   registerObservabilityIpc(privilegedIpc, broadcast);
   if (FLEET_UI_ENABLED) {
+  // Where each seat, task, artifact and page is mentioned (work/mention-ipc.ts).
+  registerMentionIpc(privilegedIpc, (effect) => AppRuntime.runPromise(effect), {
+    topology: (canvasName) =>
+      Effect.tryPromise({
+        try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readTopology(canvasName))),
+        catch: () => ({
+          type: "InternalError" as const,
+          message: `canvas ${canvasName} could not be read`,
+          details: { retryable: true },
+        }),
+      }).pipe(Effect.map((read) => read.canvas)),
+    read: (canvasName, key, limit, after) =>
+      Effect.tryPromise({
+        try: () => AppRuntime.runPromise(Effect.flatMap(SqlClient.SqlClient, (sql) => readMentions(sql, canvasName, key, limit, after))),
+        catch: () => ({
+          type: "InternalError" as const,
+          message: `the mentions on canvas ${canvasName} could not be read`,
+          details: { retryable: true },
+        }),
+      }),
+  }, broadcast);
     registerHostsIpc(privilegedIpc);
   }
   registerUpdateIpc(
