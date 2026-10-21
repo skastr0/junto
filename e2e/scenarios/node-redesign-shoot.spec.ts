@@ -64,7 +64,7 @@ const seedWork = async (sandbox: Sandbox): Promise<void> => {
           );
         yield* insert("01JZ00000000000000000000B1", 10, "board", "Ship the wire spec", "backlog", "[]", 0, null);
         yield* insert("01JZ00000000000000000000G1", 11, "gate", "Cut the 0.10 build", "input-required", "[]", 0);
-        yield* insert("01JZ00000000000000000000I1", 12, "intake", "Pick the icon set", "in-review", '[{"kind":"operator"}]', 1);
+        yield* insert("01JZ00000000000000000000I1", 12, "intake", "Pick the icon set", "in-review", '[{"kind":"operator"}]', 1, "builder");
       }),
     );
   } finally {
