@@ -482,8 +482,15 @@ const makeElectronViewAdapter = (
     const normalizedUrl = normalizeUrl(details.url);
     // History steps and reloads never pass will-frame-navigate, so a page
     // the seats hold refuses a start outside their grants here, before commit.
-    if (!details.isSameDocument && !events.admitsTopLevel(normalizedUrl, details.initiator !== null)) {
-      view.webContents.stop();
+    // The page started it only when it names an initiator frame: a start the
+    // browser made (address bar, back, reload) has none, and Electron leaves
+    // the field undefined rather than null. The stop waits for this callback
+    // to return: stopping a navigation inside its own start aborts main.
+    const byPage = details.initiator !== null && details.initiator !== undefined;
+    if (!details.isSameDocument && !events.admitsTopLevel(normalizedUrl, byPage)) {
+      setImmediate(() => {
+        if (!view.webContents.isDestroyed()) view.webContents.stop();
+      });
       return;
     }
     const previousNavigation = activeNavigation;

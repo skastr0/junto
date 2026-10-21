@@ -696,17 +696,24 @@ describe("electron browser view generation seam", () => {
     const redirect = { ...navigation("https://elsewhere.example.net/"), preventDefault: vi.fn() };
     webContents.emit("will-redirect", redirect);
     expect(redirect.preventDefault).toHaveBeenCalled();
-    // A history step never passes will-frame-navigate: did-start stops it.
+    // A history step never passes will-frame-navigate: did-start stops it,
+    // once its own start has returned (a stop inside it aborts main).
     webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/back"));
+    expect(webContents.stopCalls).toBe(0);
+    await new Promise((resolve) => setImmediate(resolve));
     expect(webContents.stopCalls).toBe(1);
     expect(starts.map((start) => start.url)).not.toContain("https://elsewhere.example.net/back");
-    // A start with no initiator frame is the browser's own: the guard hears that.
+    // Only a start that names an initiator frame is the page's. Electron
+    // leaves the field undefined for the browser's own (address bar, back,
+    // reload): seen in the app, 2026-10-21.
     byPage.length = 0;
     webContents.emit("did-start-navigation", { ...navigation("https://example.com/again"), initiator: null });
-    webContents.emit("did-start-navigation", navigation("https://example.com/page-started"));
-    expect(byPage).toEqual([false, true]);
+    webContents.emit("did-start-navigation", navigation("https://example.com/browser-started"));
+    webContents.emit("did-start-navigation", { ...navigation("https://example.com/page-started"), initiator: {} });
+    expect(byPage).toEqual([false, false, true]);
     // A same-document step is not a new top-level document.
     webContents.emit("did-start-navigation", navigation("https://elsewhere.example.net/#x", { isSameDocument: true }));
+    await new Promise((resolve) => setImmediate(resolve));
     expect(webContents.stopCalls).toBe(1);
   });
 
