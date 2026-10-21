@@ -110,28 +110,6 @@
 .junto-node[data-node-kind="board"] { border-radius: 5px; }
 
 .factory-glance__header { min-height: 12px; }
-.factory-glance__enqueue {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  padding: 0;
-  border: 1px solid var(--color-stroke);
-  border-radius: 4px;
-  background: var(--color-overlay-2);
-  color: var(--color-amber);
-  cursor: pointer;
-}
-.factory-glance__enqueue:hover,
-.factory-glance__enqueue:focus-visible {
-  border-color: color-mix(in oklab, var(--color-main) 45%, transparent);
-  background: color-mix(in oklab, var(--color-main) 12%, transparent);
-  color: var(--color-ink);
-  outline: none;
-}
 .factory-glance__list { position: relative; }
 .factory-glance__row {
   position: relative;

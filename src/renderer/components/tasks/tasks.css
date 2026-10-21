@@ -424,3 +424,42 @@
 .task-layers__evidence:empty {
   display: none;
 }
+
+/* The one on-card instrument: add a task, a ghost at rest inside the chip's pill. */
+
+.tasks-enqueue {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  /* The plus is a mark: its hue comes in as --mark, as a ResourceChip glyph does. */
+  color: var(--mark);
+  cursor: pointer;
+}
+
+/* A 24px hit area without growing the look. */
+.tasks-enqueue::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+}
+
+.tasks-enqueue:hover {
+  background: var(--color-overlay-2);
+  color: var(--color-ink);
+}
+
+/* The keyboard ring, in screen pixels, as every node's (docs/node-card-language.md). */
+.tasks-enqueue:focus-visible {
+  opacity: 1;
+  outline: calc(2px * var(--node-s, 1)) solid var(--color-cyan);
+  outline-offset: calc(3px * var(--node-s, 1));
+}

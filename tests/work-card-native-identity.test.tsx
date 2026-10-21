@@ -66,7 +66,10 @@ it("reads work card identities from native rows, and enqueue reads the current b
   await act(async () => { root.render(<><TasksCard nodeId="task" /><ArtifactsCard nodeId="artifacts" /></>); await flush(); });
   for (const label of ["Backlog", "artifacts"]) expect(host.textContent).toContain(label);
   await act(async () => { modelStore.node$(canvas, "task").set(taskBoard("task", { ...place, name: "Current board" })); await flush(); });
-  await act(async () => { host.querySelector<HTMLButtonElement>('[data-testid="tasks-card-enqueue"]')!.click(); await flush(); });
+  const enqueue = host.querySelector<HTMLButtonElement>('[data-testid="tasks-card-enqueue"]')!;
+  expect(enqueue.getAttribute("aria-label")).toBe("Add a task to Current board");
+  expect(enqueue.getAttribute("title")).toBe("Add a task to Current board");
+  await act(async () => { enqueue.click(); await flush(); });
   expect(dock$.taskCreateById[taskCreateSurfaceId("task")].peek()).toMatchObject({ nodeId: "task", title: "Current board" });
   expect(command).not.toHaveBeenCalled();
 });

@@ -1,7 +1,7 @@
 import { useNodeArtifacts } from "../../lib/artifacts-source";
 import { useAutomations } from "../../lib/automations-source";
 import { useWorkMail } from "../../lib/use-work-mail";
-import { type ReactNode } from "react";
+import { type CSSProperties, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { ListChecks, Package, Plus, Workflow } from "lucide-react";
 import type { Part } from "@shared/work-model";
@@ -19,6 +19,7 @@ import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { TasksNode } from "../tasks/TasksNode";
 import { tasksCardBody } from "../tasks/tasks-pane-model";
 import { useNodeUrgency } from "../../lib/use-node-urgency";
+import { markColor } from "../../lib/resource-visuals";
 import { RegionUrgency } from "@shared/wire/urgency";
 import { ResourceGlyphMark, TaskStateMark } from "../ui";
 import { SpineCard, type SpineStatus } from "../nodes/SpineCard";
@@ -145,10 +146,11 @@ export function TasksCard({
           TASKS_ENABLED ? (
             <button
               type="button"
-              className="nodrag nowheel factory-glance__enqueue"
+              className="nodrag nowheel tasks-enqueue"
+              style={{ "--mark": markColor("amber") } as CSSProperties}
               data-testid="tasks-card-enqueue"
-              title="Add task"
-              aria-label="Add task"
+              title={`Add a task to ${name}`}
+              aria-label={`Add a task to ${name}`}
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -170,6 +172,7 @@ export function TasksCard({
           rows: body.rows.map((row) => ({
             key: row.taskId,
             mark: <TaskStateMark state={row.state} />,
+            ...(row.flag === undefined ? {} : { tone: row.flag === "blocked" ? ("crimson" as const) : ("amber" as const) }),
             text: (
               <>
                 <span className="tabular-nums">{row.number}</span> {row.title}
