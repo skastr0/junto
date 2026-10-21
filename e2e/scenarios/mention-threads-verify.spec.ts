@@ -141,15 +141,19 @@ test("# and @ offer what is in reach, a sent mention is a chip that opens, a tas
       }
     };
     const openAtlasThread = async (): Promise<void> => {
-      // A chip that opened Bravo leaves its surface up beside Atlas's: close what is open, then open Atlas.
+      // A chip that opened Bravo leaves its surface up beside Atlas's, and Escape does not close a surface:
+      // open Threads from whichever surface shows Atlas's, found by the popup's own name.
       const buttons = page.getByTestId("seat-threads-button");
-      for (let attempt = 0; attempt < 4 && (await buttons.count()) > 0; attempt += 1) {
-        await page.keyboard.press("Escape");
-        await page.waitForTimeout(400);
+      if ((await buttons.count()) === 0) {
+        await card("atlas").dblclick();
+        await expect(buttons.first()).toBeVisible({ timeout: 30_000 });
       }
-      await card("atlas").dblclick();
-      await expect(buttons).toHaveCount(1, { timeout: 30_000 });
-      await buttons.click();
+      const total = await buttons.count();
+      for (let index = 0; index < total; index += 1) {
+        await buttons.nth(index).click();
+        if (await page.getByTestId("seat-threads").filter({ hasText: "Atlas" }).isVisible()) break;
+        await page.keyboard.press("Escape");
+      }
       await expect(page.getByTestId("seat-threads")).toContainText("Atlas");
       await page.getByTestId("seat-threads-row").first().click();
     };
