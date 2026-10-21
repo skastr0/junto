@@ -37,16 +37,12 @@ import { ModelActorRefs } from "./model/actor-refs";
 import { ModelNotFound } from "./model/records";
 import { Command, CanvasName, NodeId, asNodeId } from "@shared/model";
 
-import { registerChatIpc } from "./chat/ipc";
-import { ChatServiceContext } from "./chat/service";
-import { HermesPlane } from "./hermes/plane";
 import {
   ARTIFACTS_ENABLED,
   BOARD_ENABLED,
   BROWSER_ENABLED,
   CRON_ENABLED,
   FLEET_UI_ENABLED,
-  HERMES_INTEGRATION_ENABLED,
   PAD_ENABLED,
   RELAY_ENABLED,
   REQUESTS_ENABLED,
@@ -383,23 +379,6 @@ export const registerJuntoIpc = (): void => {
       AppRuntime.runPromise(Effect.flatMap(UsageService, (usage) => usage.refresh())),
     );
   }
-
-  if (HERMES_INTEGRATION_ENABLED) {
-    privilegedIpc.handle(IPC_CHANNELS.agentMessage, (_event, key: string, text: string) =>
-      AppRuntime.runPromise(HermesPlane).then((plane) => plane.fetchAgentMessage(key, text)),
-    );
-  }
-
-  // The attached-chat plane (hermes ACP sessions per agent node). Shares its
-  // ChatService instance with KernelService below — a pulse-driven turn and
-  // a human reuse the same live ACP session per agent.
-  void registerChatIpc(
-    privilegedIpc,
-    () => BrowserWindow.getAllWindows()
-      .map((window) => window.webContents)
-      .filter(isTrustedMainWebContents),
-    AppRuntime.runPromise(ChatServiceContext),
-  );
 
   // The kernel plane: watcher/timer evaluation over every hydrated canvas,
   // running continuously in main regardless of window state.

@@ -4,7 +4,6 @@ import {
   parseSshEndpoint,
   parseSshRoute,
   parseRemoteUnixSocketPath,
-  remoteHermesCli,
   remoteUname,
   type OneShotProgram,
   type ScopedStreamProgram,
@@ -55,14 +54,11 @@ describe("SSH domain", () => {
   });
 
   it("makes free-form destructive sh -c unrepresentable from the product API", async () => {
-    // Product surface: fixed hermes executable only — never /bin/sh.
+    // Product surface: fixed executables only — never /bin/sh.
     type ProductApi = typeof import("../src/main/junto/ssh");
     type HasGenericMint = "makeRemoteCommand" extends keyof ProductApi ? true : false;
     expectTypeOf<HasGenericMint>().toEqualTypeOf<false>();
 
-    // remoteHermesCli cannot redirect the executable to a shell.
-    const hermes = await Effect.runPromise(remoteHermesCli(["version"]));
-    expect(hermes).toBeDefined();
     const uname = await Effect.runPromise(remoteUname());
     expect(uname).toBeDefined();
   });

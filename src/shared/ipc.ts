@@ -190,7 +190,6 @@ export const IPC_CHANNELS = {
   modelStop: "junto:model-stop",
   getUsage: "junto:get-usage",
   refreshUsage: "junto:refresh-usage",
-  agentMessage: "junto:agent-message",
   /** Main → renderer: one ephemeral agent preamble. */
   preamble: "junto:preamble",
   /** Main → renderer: one message typed into a seat (wire pulse, preambles). */
@@ -579,14 +578,6 @@ export type WorkOpResult<T> =
       readonly details?: WorkErrorDetails;
     };
 
-// --- hermes agent messaging -------------------------------------------------
-
-export interface AgentReply {
-  readonly ok: boolean;
-  readonly reply?: string;
-  readonly error?: string;
-}
-
 // --- hermes attached chat (ACP) ---------------------------------------------
 // One live ACP session per agent node ("<host>:<profile>"). The main process
 // owns the `hermes acp` child (local or over ssh) and relays the protocol;
@@ -710,10 +701,6 @@ export interface JuntoSchedulerApi {
       }
     | { readonly ok: false; readonly error: string }
   >;
-}
-
-export interface JuntoHermesIntegrationApi {
-  readonly agentMessage: (key: string, text: string) => Promise<AgentReply>;
 }
 
 export type RegionEnvSaveSecretInput = {

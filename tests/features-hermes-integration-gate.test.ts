@@ -92,18 +92,7 @@ describe("Hermes integration product gate", () => {
         agentHost: "station-a",
       });
 
-      const preload = readFileSync("src/preload/index.ts", "utf8");
-      const ipc = readFileSync("src/main/junto/ipc.ts", "utf8");
       const terminalIpc = readFileSync("src/main/junto/term/seat-control.ts", "utf8");
-      expect(preload).toContain(
-        "...(HERMES_INTEGRATION_ENABLED ? hermesIntegrationApi : {})",
-      );
-      expect(preload).toContain("...chatApi,");
-      expect(ipc).toContain(
-        "if (HERMES_INTEGRATION_ENABLED) {\n    privilegedIpc.handle(IPC_CHANNELS.agentMessage",
-      );
-      expect(ipc).toContain("void registerChatIpc(");
-      expect(ipc).toContain("AppRuntime.runPromise(ChatServiceContext),");
       expect(terminalIpc).toMatch(
         /if \(!managedHarnessEnabled\(node\.harness\)\)\s+return yield\* new HarnessDisabled\(/u,
       );

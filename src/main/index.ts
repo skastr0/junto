@@ -77,13 +77,10 @@ import { hostsSnapshot, subscribeHostsSnapshot } from "./junto/hosts/snapshot";
 import { applyInterfaceScale, followInterfaceScale, refitInterfaceScale } from "./junto/interface-scale";
 import {
   BROWSER_ENABLED,
-  HERMES_INTEGRATION_ENABLED,
   LIVE_OVERSEER_ENABLED,
 } from "@shared/features";
-import { HermesPlane } from "./junto/hermes/plane";
 import { termPlane, termPlaneBlocksAppExit } from "./junto/term/plane";
 import { configureTerminalRouterLayeredRunner } from "./junto/term/router";
-import { ChatServiceContext } from "./junto/chat/service";
 import { resolveBrowserPageTarget } from "./junto/browser/ipc";
 import { startBrowserControlServer, type BrowserControlServer } from "./junto/browser/control";
 import {
@@ -417,8 +414,6 @@ let unregisterOverseerLiveIpc: (() => void) | undefined;
 let canvasControl: CanvasControlServer | undefined;
 let operatorControl: OperatorControlServer | undefined;
 let machineLinkListener: MachineLinkListener | undefined;
-type HermesPlaneService = Context.Service.Shape<typeof HermesPlane>;
-let hermesPlaneService: HermesPlaneService | undefined;
 type KernelServiceShape = Context.Service.Shape<typeof KernelService>;
 let kernelService: KernelServiceShape | undefined;
 let rendererWindowAdmissionReady = false;
@@ -438,9 +433,6 @@ let hostOperationsDrain:
   | Promise<Awaited<ReturnType<typeof hostOperationsShutdown.drainOnQuit>>>
   | undefined;
 let termPlaneShutdown: Promise<Awaited<ReturnType<typeof termPlane.drainOnQuit>>> | undefined;
-let hermesShutdown:
-  | Promise<Awaited<ReturnType<HermesPlaneService["shutdown"]["drainOnQuit"]>>>
-  | undefined;
 let adapterShutdown:
   | Promise<Awaited<ReturnType<typeof terminateAdapterChildrenOnQuit>>>
   | undefined;
@@ -1680,18 +1672,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       return;
     }
 
-    const [chat, hermes] = await Promise.all([
-      AppRuntime.runPromise(ChatServiceContext),
-      AppRuntime.runPromise(HermesPlane),
-    ]);
-    void chat;
-    hermesPlaneService = HERMES_INTEGRATION_ENABLED ? hermes : undefined;
-    if (shutdownAdmissionClosed) {
-      if (HERMES_INTEGRATION_ENABLED) {
-        hermesShutdown ??= hermes.shutdown.drainOnQuit();
-      }
-      return;
-    }
+    if (shutdownAdmissionClosed) return;
     try {
       canvasControl = await startCanvasControlServer({
         home: termControlHome,
@@ -1927,7 +1908,6 @@ const beginShutdownAdmission = (reason: string): void => {
   // Browser product lock: quit detaches owned browser views and closes
   // automation/control admission only through the aggregate composition drain.
   browserShutdown ??= browserComposition?.drainOnQuit(reason);
-  hermesShutdown ??= hermesPlaneService?.shutdown.drainOnQuit();
   adapterShutdown ??= terminateAdapterChildrenOnQuit();
 
   // A phone's idle long poll must not hold operator control open over quit.
@@ -2126,18 +2106,6 @@ const requireCleanTermPlaneShutdown = async (reason: string): Promise<void> => {
   throw new Error(`terminal plane shutdown retained ${detail}`);
 };
 
-const requireCleanHermesShutdown = async (): Promise<void> => {
-  if (hermesPlaneService === undefined && hermesShutdown === undefined) return;
-  const receipt = await (hermesShutdown ??= hermesPlaneService?.shutdown.drainOnQuit());
-  if (receipt === undefined) return;
-  if (!receipt.clean) {
-    hermesShutdown = undefined;
-    throw new Error(
-      `hermes shutdown retained ${receipt.teardowns.length} teardown receipt(s)`,
-    );
-  }
-};
-
 const requireCleanAdapterShutdown = async (): Promise<void> => {
   const receipt = await (adapterShutdown ??= terminateAdapterChildrenOnQuit());
   if (!receipt.settled) {
@@ -2181,8 +2149,6 @@ const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
   lap("dispose: host operations");
   await requireCleanBrowserShutdown(reason);
   lap("dispose: browser");
-  await requireCleanHermesShutdown();
-  lap("dispose: hermes");
   await requireCleanAdapterShutdown();
   lap("dispose: adapters");
   await requireCleanAppProcessShutdown();

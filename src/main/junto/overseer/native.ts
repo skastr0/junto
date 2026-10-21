@@ -33,7 +33,6 @@ import { asNodeId, inPaintOrder, seatIdentity, type Canvas, type Node, type Node
 import { modelError } from "../model/records";
 import type { ModelNodeReader } from "../node-ref-resolver";
 import type { TermPlane } from "../term/plane";
-import type { ChatService } from "../chat/service";
 import { terminalObserverPlane } from "../term/observer";
 import {
   BROWSER_UI_SESSION_OWNER,
@@ -159,7 +158,6 @@ export type OverseerSeatStart = {
 
 export type OverseerNativeLiveOptions = {
   readonly termPlane: TermPlane;
-  readonly chats: ChatService;
   readonly pages?: BrowserSessionService;
   readonly captureApplicationPage: () => Promise<ApplicationCaptureResult>;
   readonly liveOverseerGrant: (caller: OverseerCaller) => Promise<boolean>;
@@ -1402,7 +1400,7 @@ export type OverseerNative = OverseerNativeDeleteHooks & {
 
 /**
  * Live constructor. Parent / composition worker constructs this after
- * TermPlane, ChatService, BrowserSessionService, and ManagedTerminalDrive exist.
+ * TermPlane, BrowserSessionService, and ManagedTerminalDrive exist.
  *
  * Fence identity: `termPlane.nodeDelete` is the same instance renderer IPC
  * uses. Do not construct a second TerminalNodeDeleteService.

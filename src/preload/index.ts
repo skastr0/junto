@@ -22,7 +22,6 @@ import {
   type JuntoChatApi,
   type JuntoDemoApi,
   type JuntoGitApi,
-  type JuntoHermesIntegrationApi,
   type JuntoHostsApi,
   type JuntoSchedulerApi,
   type JuntoTerminalApi,
@@ -43,7 +42,6 @@ import {
   BROWSER_ENABLED,
   CRON_ENABLED,
   FLEET_UI_ENABLED,
-  HERMES_INTEGRATION_ENABLED,
   LIVE_OVERSEER_ENABLED,
   PAD_ENABLED,
   RELAY_ENABLED,
@@ -100,8 +98,8 @@ const HOST_ACTIVATION_IPC_TIMEOUT_MS = 360_000;
 // in-memory state.
 const USAGE_REFRESH_TIMEOUT_MS = 120_000;
 
-// agentMessage fires a real (up to 180s) hermes turn; give it headroom above
-// that instead of sharing the default 45s ceiling every other channel uses.
+// A seat ask (onboard, offboard, region env report, managed prompt) waits on
+// a real agent turn; give it headroom above the default 45s ceiling.
 const AGENT_MESSAGE_TIMEOUT_MS = 200_000;
 
 // A chat turn can run tools for many minutes; streaming events keep the UI
@@ -811,11 +809,6 @@ const padWorkApi: Pick<JuntoApi, "workPadRead" | "workPadPatch"> = {
     ),
 };
 
-const hermesIntegrationApi: JuntoHermesIntegrationApi = {
-  agentMessage: (key, text) =>
-    invoke(IPC_CHANNELS.agentMessage, AGENT_MESSAGE_TIMEOUT_MS, key, text),
-};
-
 const schedulerApi: JuntoSchedulerApi = {
   schedulerFire: (canvas, sourceNodeId) =>
     invoke(IPC_CHANNELS.schedulerFire, IPC_TIMEOUT_MS, canvas, sourceNodeId),
@@ -1001,7 +994,6 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
     ...chatApi,
     ...(USAGE_ENABLED ? usageApi : {}),
     ...(CRON_ENABLED || RELAY_ENABLED ? schedulerApi : {}),
-    ...(HERMES_INTEGRATION_ENABLED ? hermesIntegrationApi : {}),
     ...(FLEET_UI_ENABLED ? hostsApi : {}),
     ...terminalApi,
     ...gitApi,

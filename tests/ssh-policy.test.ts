@@ -5,12 +5,6 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { parseHermesProfileName } from "../src/main/junto/hermes/domain";
-import {
-  HermesTransport,
-  HermesTransportLive,
-  resolveHermesRemoteHost,
-} from "../src/main/junto/hermes/transport";
 import { setHostsSnapshot } from "../src/main/junto/hosts/snapshot";
 import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
 import {
@@ -274,62 +268,6 @@ describe("SSH policy surface", () => {
       expect(args).toContain("ForwardAgent=no");
       expect(args).not.toContain("StrictHostKeyChecking=accept-new");
     }
-  });
-
-  it("renders Hermes operations through shared one-shots and isolated ACP streams", async () => {
-    setHostsSnapshot([
-      ...defaultRemoteHostsDocument("macbook").hosts,
-      {
-        id: "studio",
-        label: "studio",
-        isThisMachine: false,
-        sshEndpoint: "studio",
-        capabilities: ["terminal"],
-      },
-    ]);
-    const calls: Command.StandardCommand[] = [];
-    const sshLayer = await recordingLayer(calls);
-    const layer = Layer.provideMerge(HermesTransportLive, sshLayer);
-    const profile = parseHermesProfileName("profile-13")!;
-
-    await runPromise(
-      Effect.scoped(
-        Effect.gen(function* () {
-          const hermes = yield* HermesTransport;
-          yield* hermes.profiles("studio");
-          yield* hermes.version("studio");
-          yield* hermes.connectAcp("studio", profile, (_lease, confirm) =>
-            Effect.succeed(confirm("ready")),
-          );
-        }),
-      ).pipe(Effect.provide(layer)),
-    );
-
-    const remoteCalls = calls.map(sshArgs).filter((args) => !args.includes("-O"));
-    const profiles = remoteCalls.find((args) => args.at(-1)?.includes("'profile' 'list'"));
-    const version = remoteCalls.find((args) => args.at(-1)?.includes("'version'"));
-    const acp = remoteCalls.find((args) => args.at(-1)?.includes("'acp'"));
-
-    expect(profiles).toContain("ControlMaster=auto");
-    expect(version).toContain("ControlMaster=auto");
-    expect(acp).toContain("ControlMaster=no");
-    expect(acp).toContain("ControlPath=none");
-  });
-
-  it("resolves a Hermes agent key's machine by host id only", () => {
-    setHostsSnapshot([
-      ...defaultRemoteHostsDocument("macbook").hosts,
-      {
-        id: "studio",
-        label: "studio",
-        isThisMachine: false,
-        sshEndpoint: "studio",
-        capabilities: ["terminal"],
-      },
-    ]);
-
-    expect(resolveHermesRemoteHost("studio")?.id).toBe("studio");
-    expect(resolveHermesRemoteHost("fleet-a")).toBeUndefined();
   });
 
   it("creates Unix forwarding through a dedicated owned mux generation", async () => {

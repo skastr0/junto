@@ -45,4 +45,4 @@ export {
   makeScopedPromiseRunner,
   type ScopedPromiseRunner,
 } from "./scoped-runner";
-export { remoteCat, remoteHermesCli, remoteUname } from "./read-commands";
+export { remoteCat, remoteUname } from "./read-commands";

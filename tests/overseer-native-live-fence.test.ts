@@ -4,7 +4,6 @@ import { canvasOf, seat } from "./support/model-nodes";
 import { makeOverseerNativeLive } from "../src/main/junto/overseer/native";
 import { ManagedTerminalDrive } from "../src/main/junto/term/drive";
 import type { TermPlane } from "../src/main/junto/term/plane";
-import type { ChatService } from "../src/main/junto/chat/service";
 
 const factory = canvasOf([
   seat("worker", { label: "Worker", width: 240, height: 120, harness: "codex", bindingId: "worker-binding" as never }),
@@ -26,7 +25,6 @@ describe("Live native mutation fences", () => {
     });
     const native = makeOverseerNativeLive({
       termPlane: { router: { isLocalHostId: () => true } } as unknown as TermPlane,
-      chats: {} as ChatService,
       captureApplicationPage: async () => ({ ok: false, unavailable: true, reason: "not used" }),
       liveOverseerGrant: async () => true,
       listCanvases: async () => new Map([["factory", factory]]),

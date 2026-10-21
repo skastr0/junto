@@ -14,7 +14,6 @@ import type { InstallationId } from "@shared/installation-id";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { ModelActorRefs } from "../model/actor-refs";
 import type { ModelService } from "../model/service";
-import { ChatServiceContext } from "../chat/service";
 import { ActorSeatOccupy } from "../term/actor-seat-occupy";
 import { startSeat } from "../term/seat-control";
 import { termPlane } from "../term/plane";
@@ -47,7 +46,6 @@ import type { WorkService } from "../work/service";
 
 type OverseerServices =
   | OverseerStores
-  | ChatServiceContext
   | ActorSeatOccupy
   | MachineRepository
   | ContentService
@@ -215,9 +213,6 @@ export const composeOverseer = async (input: {
   readonly pages?: BrowserSessionService;
   readonly sourceInstallationId?: InstallationId;
 }): Promise<OverseerComposition> => {
-  const chats = await input.run(Effect.gen(function* () {
-    return yield* ChatServiceContext;
-  }));
   const pagesHolder: { current: BrowserSessionService | undefined } = {
     current: input.pages,
   };
@@ -251,7 +246,6 @@ export const composeOverseer = async (input: {
 
   const native: OverseerNative = makeOverseerNativeLive({
     termPlane,
-    chats,
     get pages() {
       return pagesHolder.current;
     },
@@ -307,7 +301,6 @@ export const composeOverseer = async (input: {
           native: (nativeCaller, nativeRequest) =>
             makeOverseerNativeLive({
               termPlane,
-              chats,
               get pages() {
                 return pagesHolder.current;
               },

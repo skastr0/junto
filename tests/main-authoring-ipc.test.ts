@@ -36,7 +36,6 @@ vi.mock("electron", () => ({
 
 vi.mock("../src/main/runtime", () => ({ AppRuntime: runtime }));
 vi.mock("../src/main/junto/browser/ipc", () => ({ registerBrowserIpc: vi.fn() }));
-vi.mock("../src/main/junto/chat/ipc", () => ({ registerChatIpc: vi.fn() }));
 vi.mock("../src/main/junto/hosts/ipc", () => ({ registerHostsIpc: vi.fn() }));
 vi.mock("../src/main/junto/settings/ipc", () => ({ registerSettingsIpc: vi.fn() }));
 vi.mock("../src/main/junto/term/ipc", () => ({ registerTerminalIpc: vi.fn() }));

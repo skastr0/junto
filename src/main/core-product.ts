@@ -1,8 +1,6 @@
 import { join } from "node:path";
 import { Layer } from "effect";
 import { CanvasControlQueries } from "./junto/canvas-control/queries";
-import { ChatServiceFromHermesLive, HermesPlaneLive } from "./junto/hermes/plane";
-import { HermesTransportLive } from "./junto/hermes/transport";
 import { ActorSeatOccupyLive } from "./junto/term/actor-seat-occupy-live";
 import { KernelLive } from "./junto/kernel/service";
 import { PausePlaneLaunchPlayingLive } from "./junto/pause-plane";
@@ -64,10 +62,7 @@ export const makeCoreProductLayer = (home: string) => {
   const hosts = Layer.provideMerge(HostsServiceLive, Layer.mergeAll(
     SshTransportLive, Layer.provideMerge(HostRegistryRows.layer, repositories),
   ));
-  const transport = Layer.provideMerge(HermesTransportLive, hosts);
-  const planes = Layer.provideMerge(HermesPlaneLive, transport);
-  const chat = Layer.provideMerge(ChatServiceFromHermesLive, planes);
-  const pause = Layer.provideMerge(PausePlaneLaunchPlayingLive, chat);
+  const pause = Layer.provideMerge(PausePlaneLaunchPlayingLive, hosts);
   const occupants = Layer.provideMerge(ActorSeatOccupyLive, pause);
   return Layer.provideMerge(
     Layer.mergeAll(Layer.provideMerge(KernelLive, WorkLive), CanvasControlQueries.layer, Layer.provideMerge(NativeConfigLive, HarnessInventoryLive)),

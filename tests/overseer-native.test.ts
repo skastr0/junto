@@ -13,7 +13,6 @@ import {
   ManagedTerminalDrive,
 } from "../src/main/junto/term/drive";
 import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
-import { NodeDeleteService } from "../src/main/junto/chat/node-delete";
 import {
   admitOverseerPage,
   overseerPageNodeIds,
@@ -25,7 +24,6 @@ import {
   type OverseerNativeLiveOptions,
 } from "../src/main/junto/overseer/native";
 import type { TermPlane } from "../src/main/junto/term/plane";
-import type { ChatService } from "../src/main/junto/chat/service";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
@@ -138,18 +136,6 @@ const makeTermPlane = (overrides: {
   return plane as unknown as TermPlane;
 };
 
-const makeChats = (): ChatService => {
-  const chats = {
-    isLive: vi.fn(() => false),
-    chatClose: vi.fn(async () => ({ ok: true, clean: true })),
-    admitDeleteTombstone: vi.fn(() => ({ ok: true as const })),
-    releaseDeleteTombstone: vi.fn(),
-    nodeDelete: undefined as unknown as NodeDeleteService,
-  };
-  chats.nodeDelete = new NodeDeleteService(chats as never);
-  return chats as unknown as ChatService;
-};
-
 const occupySeatDefault = async (
   _spec: unknown,
   signal: AbortSignal,
@@ -160,10 +146,8 @@ const live = (
   extra: Partial<OverseerNativeLiveOptions> = {},
 ) => {
   const termPlane = extra.termPlane ?? makeTermPlane();
-  const chats = extra.chats ?? makeChats();
   return makeOverseerNativeLive({
     termPlane,
-    chats,
     captureApplicationPage: extra.captureApplicationPage ?? (async () => ({
       ok: true,
       png: PNG,
@@ -767,13 +751,12 @@ describe("overseer native adapters", () => {
   });
 });
 
-describe("overseer deletion fences share TermPlane/ChatService identity", () => {
+describe("overseer deletion fences share TermPlane identity", () => {
   it("locks the same TerminalNodeDeleteService renderer IPC would use", async () => {
     const termPlane = makeTermPlane({
       deleteBinding: vi.fn(async () => true),
     });
-    const chats = makeChats();
-    const native = live([{ name: "factory", doc: doc([agent("a1")]) }], { termPlane, chats });
+    const native = live([{ name: "factory", doc: doc([agent("a1")]) }], { termPlane });
     const admitted = termPlane.nodeDelete.admitCreate("bind-a1", THIS_MACHINE);
     const prepared = await native.prepareOverseerNodeDelete([
       { kind: "terminal", bindingId: "bind-a1", hostId: THIS_MACHINE },
@@ -793,7 +776,6 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     let pages: BrowserSessionService | undefined;
     const options: OverseerNativeLiveOptions = {
       termPlane: makeTermPlane(),
-      chats: makeChats(),
       get pages() { return pages; },
       captureApplicationPage: async () => ({ ok: true, png: PNG }),
       liveOverseerGrant: async () => true,

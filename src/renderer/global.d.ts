@@ -4,7 +4,6 @@ import type {
   JuntoBrowserApi,
   JuntoChatApi,
   JuntoDemoApi,
-  JuntoHermesIntegrationApi,
   JuntoHostsApi,
   JuntoSchedulerApi,
   JuntoGitApi,
@@ -27,7 +26,6 @@ declare global {
           JuntoBrowserApi &
           JuntoUsageApi &
           JuntoSchedulerApi &
-          JuntoHermesIntegrationApi &
           JuntoHostsApi
       >;
   }
