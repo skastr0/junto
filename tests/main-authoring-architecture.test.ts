@@ -69,6 +69,8 @@ describe("main authoring architecture", () => {
       // The renderer's tasks and artifacts, written through the ruler (resource-ipc.ts).
       "ipc.resource.artifact-apply",
       "ipc.resource.task-apply",
+      // The operator's comment on a task or an artifact, on the CLI's comment path.
+      "ipc.resource.thread-post",
       // Seat collaboration: the operator asks a peer for help, which appends
       // mail to that seat's mailbox.
       "ipc.work.collaboration-ask",
@@ -142,7 +144,8 @@ describe("main authoring architecture", () => {
       // Since your last session, for onboard and junto since; it only reads.
       "src/main/junto/work/seat-since-read.ts",
       // The one resource comment write, reached only from the classified
-      // msg.send, msg.reply, task comment and operator thread send paths.
+      // msg.send, msg.reply, task comment and operator thread send paths,
+      // and the window's resource thread post.
       "src/main/junto/work/subject-comment.ts",
       // A ruling's notices go out as the actor's mail, only from the ruled task command.
       "src/main/junto/work/task-delivery.ts",

@@ -20,6 +20,12 @@ export const RESOURCE_IPC_CHANNELS = {
     pending: "junto:resource-artifact-pending",
     changed: "junto:resource-artifact-changed",
   },
+  thread: {
+    list: "junto:resource-thread-list",
+    post: "junto:resource-thread-post",
+    changed: "junto:resource-thread-changed",
+  },
 } as const;
 
-export type ResourceIpcDomain = keyof typeof RESOURCE_IPC_CHANNELS;
+/** The resource kinds that change: a thread changes with its task or artifact. */
+export type ResourceIpcDomain = Exclude<keyof typeof RESOURCE_IPC_CHANNELS, "thread">;

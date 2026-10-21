@@ -18,6 +18,7 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.work.artifact-delete",
   "ipc.resource.task-apply",
   "ipc.resource.artifact-apply",
+  "ipc.resource.thread-post",
   "control.work.tasks-create",
   "control.work.tasks-update",
   "control.work.msg-send",

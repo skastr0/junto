@@ -77,6 +77,8 @@ const portsOf = (over: {
         Effect.sync(() => {
           calls.delivered += 1;
         }),
+      find: () => Effect.succeed(undefined),
+      comment: () => Effect.die("no comment in this suite"),
     },
     artifacts: {
       list: (_canvas, query) =>
@@ -101,7 +103,9 @@ const portsOf = (over: {
         return over.artifactSubmit?.(command, context) ??
           Effect.succeed({ kind: "applied", opId: command.opId, artifactId: ART, version: 1, facts: [{ fact: "x" }] } as never);
       },
+      comment: () => Effect.die("no comment in this suite"),
     },
+    mailbox: () => Effect.succeed([]),
     queue: over.queue ?? (() => Effect.succeed(undefined)),
   };
   return { ports, calls };
@@ -330,7 +334,7 @@ describe("change notices", () => {
       portsOf().ports,
       () => undefined,
       { task: true, artifact: true },
-      { task: (operation) => operation(), artifact: (operation) => operation() },
+      { task: (operation) => operation(), artifact: (operation) => operation(), thread: (operation) => operation() },
     );
     stop();
     expect([...handlers.keys()]).toEqual([]);
@@ -347,14 +351,21 @@ describe("change notices", () => {
       ports,
       (channel, payload) => sent.push([channel, payload]),
       { task: true, artifact: false },
-      { task: (operation) => (authored.push("task"), operation()), artifact: (operation) => operation() },
+      { task: (operation) => (authored.push("task"), operation()), artifact: (operation) => operation(), thread: (operation) => operation() },
     );
-    expect([...handlers.keys()].sort()).toEqual(Object.values(RESOURCE_IPC_CHANNELS.task).filter((channel) => !channel.endsWith("changed")).sort());
+    expect([...handlers.keys()].sort()).toEqual(
+      [...Object.values(RESOURCE_IPC_CHANNELS.task), RESOURCE_IPC_CHANNELS.thread.list, RESOURCE_IPC_CHANNELS.thread.post]
+        .filter((channel) => !channel.endsWith("changed"))
+        .sort(),
+    );
     noteResourceChanged("task", "factory");
     noteResourceChanged("artifact", "factory");
     stop();
     noteResourceChanged("task", "factory");
-    expect(sent).toEqual([[RESOURCE_IPC_CHANNELS.task.changed, { canvasName: "factory" }]]);
+    expect(sent).toEqual([
+      [RESOURCE_IPC_CHANNELS.task.changed, { canvasName: "factory" }],
+      [RESOURCE_IPC_CHANNELS.thread.changed, { canvasName: "factory", kind: "task" }],
+    ]);
     const apply = handlers.get(RESOURCE_IPC_CHANNELS.task.apply)!;
     expect(await apply(undefined, { canvasName: "factory", nodeId: "T", taskId: TASK, opId: OP, command: { kind: "start" } })).toEqual({
       kind: "applied",

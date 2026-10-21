@@ -328,12 +328,23 @@ export const registerJuntoIpc = (): void => {
           message: `canvas ${canvasName} could not be read`,
           details: { retryable: true },
         }),
-      }).pipe(Effect.map((read) => read.canvas))),
+      }).pipe(Effect.map((read) => read.canvas)),
+      // A task's or an artifact's comments, held at its node: read only.
+      (canvasName, nodeId) =>
+        Effect.tryPromise({
+          try: () => AppRuntime.runPromise(Effect.flatMap(WorkService, (work) => work.readMailbox(canvasName, nodeId))),
+          catch: () => ({
+            type: "InternalError" as const,
+            message: `the comments on ${nodeId} could not be read`,
+            details: { retryable: true },
+          }),
+        })),
     broadcast,
     { task: TASKS_ENABLED, artifact: ARTIFACTS_ENABLED },
     {
       task: (operation) => runMainAuthoring("ipc.resource.task-apply", operation),
       artifact: (operation) => runMainAuthoring("ipc.resource.artifact-apply", operation),
+      thread: (operation) => runMainAuthoring("ipc.resource.thread-post", operation),
     },
   );
   registerAutomationIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));

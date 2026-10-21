@@ -34,6 +34,7 @@ import {
   type ArtifactWriteResult,
   type BodyInput,
 } from "@shared/artifact-control";
+import type { MailMessageId } from "@shared/crew";
 import { parseMentionHref } from "@shared/mention";
 import type { Canvas, Node } from "@shared/model";
 import { titleOf } from "@shared/model/title";
@@ -41,11 +42,12 @@ import type { NodeId } from "@shared/physics/schema";
 import { reaches } from "@shared/region-reach";
 import type { ResourceActor, ResourceCommand, RulingContext } from "@shared/resource-command";
 import type { ContentRef } from "@shared/content";
-import { type ResourceReached, seatReachesResource } from "@shared/content-pull";
+import { type ResourceReached, operatorReachesResource, seatReachesResource } from "@shared/content-pull";
 import type { SubjectCommentInput, SubjectCommented } from "@shared/subject-comment";
 import { subjectAnchorOf } from "@shared/thread-subject";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { ItemId, OpId } from "@shared/work-ids";
+import { operatorActorRef } from "@shared/work-reference";
 import { ArtifactFact } from "@shared/artifact-domain";
 import type { QueuedCommand } from "@shared/command-row";
 import { ResourceSubmit } from "./resource-submit";
@@ -93,6 +95,11 @@ export type ArtifactCaller = {
   readonly canvas: Canvas;
   readonly canvasName: string;
   readonly actor: Extract<ResourceActor, { readonly kind: "seat" }>;
+};
+
+/** Who comments: a seat the work socket admitted, or the operator from a window, who reaches every artifact. */
+export type ArtifactCommenter = Omit<ArtifactCaller, "actor"> & {
+  readonly actor: Extract<ResourceActor, { readonly kind: "seat" | "operator" }>;
 };
 
 const LIST_DEFAULT_LIMIT = 50;
@@ -227,8 +234,8 @@ const inputError = (message: string, path: string, hint?: string): WorkErrorBody
 
 const namesOf = (names: ReadonlyArray<string>): string => names.slice(0, 12).join(", ");
 
-const inReach = (caller: ArtifactCaller, nodeId: NodeId): boolean =>
-  reaches(caller.canvas, caller.actor.nodeId, nodeId);
+const inReach = (caller: ArtifactCommenter, nodeId: NodeId): boolean =>
+  caller.actor.kind === "operator" || reaches(caller.canvas, caller.actor.nodeId, nodeId);
 
 /**
  * The Artifacts node a list or create names, or the one in reach when it
@@ -272,15 +279,17 @@ const findNode = (
  * next read resolves from the content store once they arrive.
  */
 const awaitPull = (
-  caller: ArtifactCaller,
-  ports: ArtifactPorts,
+  caller: ArtifactCommenter,
+  ports: Pick<ArtifactPorts, "pull">,
   nodeId: NodeId,
   artifactId: ItemId,
   version: ArtifactVersion,
   ref: ContentRef,
 ): Effect.Effect<never, WorkErrorBody> =>
   Effect.gen(function* () {
-    const reached = seatReachesResource(caller.canvasName, caller.canvas, caller.actor.nodeId, nodeId);
+    const reached = caller.actor.kind === "operator"
+      ? operatorReachesResource(caller.canvasName, nodeId)
+      : seatReachesResource(caller.canvasName, caller.canvas, caller.actor.nodeId, nodeId);
     if (reached !== undefined) {
       yield* ports.pull({ ref, reached, owner: { kind: "artifact", canvasName: caller.canvasName, nodeId, recordId: `${artifactId}@${version}` } });
     }
@@ -296,8 +305,8 @@ const awaitPull = (
  * seat learns nothing of artifacts it cannot reach.
  */
 const findArtifact = (
-  caller: ArtifactCaller,
-  ports: ArtifactPorts,
+  caller: ArtifactCommenter,
+  ports: Pick<ArtifactPorts, "head">,
   artifactId: ItemId,
 ): Effect.Effect<ArtifactHeadRead, WorkErrorBody> =>
   Effect.flatMap(ports.head(caller.canvasName, artifactId), (head) =>
@@ -542,50 +551,74 @@ export const handleArtifactOp = (
           op: op === "artifact.archive" ? "archive" : "restore",
         }));
       }
-      case "artifact.comment": {
-        const input = yield* decode(ArtifactCommentArgs, args);
-        const head = yield* findArtifact(caller, ports, input.artifact);
-        if (input.anchor !== undefined && head.body === null) {
-          return yield* awaitPull(caller, ports, head.artifact.nodeId, input.artifact, head.artifact.version, head.bodyRef);
-        }
-        if (input.anchor !== undefined && head.body !== null && !admitsAnchor(head.body, input.anchor)) {
-          return yield* Effect.fail(
-            inputError(
-              `a ${head.artifact.type} does not take a ${input.anchor.kind} anchor here`,
-              "anchor",
-              head.artifact.type === "sheet" ? "a cells anchor is an A1 range, like B2 or A1:C4" : undefined,
-            ),
-          );
-        }
-        // `whole` is no anchor. The wire Anchor still spells lines, which no
-        // artifact takes, so the check narrows it to an artifact's place.
-        const anchor = input.anchor === undefined ? undefined : subjectAnchorOf(input.anchor);
-        if (anchor?.kind === "lines") {
-          return yield* Effect.fail(inputError(`a ${head.artifact.type} does not take a lines anchor`, "anchor"));
-        }
-        // Each @name becomes its mention link: a seat in reach of the artifact (03).
-        const text = linkSeatMentions(caller.canvas, caller.canvasName, caller.actor.nodeId, input.text, resourceMentionCandidates(caller.canvas, head.artifact.nodeId));
-        if (Result.isFailure(text)) return yield* Effect.fail({ ...text.failure, details: { ...text.failure.details, opId: input.opId } });
-        const author = head.artifact.createdBy;
-        const posted = yield* ports
-          .comment(
-            {
-              subject: { kind: "artifact", nodeId: head.artifact.nodeId, artifactId: input.artifact },
-              ...(anchor === undefined ? {} : { anchor }),
-              text: text.success,
-              actor: caller.actor,
-              opId: input.opId,
-            },
-            { canvas: caller.canvas, canvasName: caller.canvasName, people: author.kind === "seat" ? [author.nodeId] : [] },
-          )
-          .pipe(Effect.mapError((error) => ({ ...error, details: { ...error.details, opId: input.opId } })));
-        return {
-          disposition: "applied",
-          opId: input.opId,
-          threadId: posted.threadId,
-          messageId: posted.messageId,
-          notified: posted.notified,
-        } satisfies ArtifactCommentResult;
-      }
+      case "artifact.comment":
+        return yield* commentOnArtifact(caller, ports, yield* decode(ArtifactCommentArgs, args));
     }
+  });
+
+/**
+ * A comment on an artifact, by a seat (`junto artifact comment`) or by the
+ * operator (the window's thread rail): one path, so the two never disagree.
+ * The anchor is checked against the artifact's type, a pending body is pulled
+ * first, each @name becomes its mention link, and the artifact's author is
+ * told. `threadId` replies in a thread on the artifact.
+ */
+export const commentOnArtifact = (
+  caller: ArtifactCommenter,
+  ports: Pick<ArtifactPorts, "head" | "pull" | "comment">,
+  input: ArtifactCommentArgs & { readonly threadId?: MailMessageId; readonly node?: NodeId },
+): Effect.Effect<ArtifactCommentResult, WorkErrorBody> =>
+  Effect.gen(function* () {
+    const head = yield* findArtifact(caller, ports, input.artifact);
+    // A window names the Artifacts node it shows: an artifact on another is not there.
+    if (input.node !== undefined && head.artifact.nodeId !== input.node) {
+      return yield* Effect.fail<WorkErrorBody>({
+        type: "UnknownTarget",
+        message: `no artifact ${input.artifact} on node ${input.node}`,
+        details: { path: "artifact", received: input.artifact, retryable: false },
+      });
+    }
+    if (input.anchor !== undefined && head.body === null) {
+      return yield* awaitPull(caller, ports, head.artifact.nodeId, input.artifact, head.artifact.version, head.bodyRef);
+    }
+    if (input.anchor !== undefined && head.body !== null && !admitsAnchor(head.body, input.anchor)) {
+      return yield* Effect.fail(
+        inputError(
+          `a ${head.artifact.type} does not take a ${input.anchor.kind} anchor here`,
+          "anchor",
+          head.artifact.type === "sheet" ? "a cells anchor is an A1 range, like B2 or A1:C4" : undefined,
+        ),
+      );
+    }
+    // `whole` is no anchor. The wire Anchor still spells lines, which no
+    // artifact takes, so the check narrows it to an artifact's place.
+    const anchor = input.anchor === undefined ? undefined : subjectAnchorOf(input.anchor);
+    if (anchor?.kind === "lines") {
+      return yield* Effect.fail(inputError(`a ${head.artifact.type} does not take a lines anchor`, "anchor"));
+    }
+    // Each @name becomes its mention link: a seat in reach of the artifact (03).
+    const callerId = caller.actor.kind === "seat" ? caller.actor.nodeId : operatorActorRef(caller.canvasName).nodeId;
+    const text = linkSeatMentions(caller.canvas, caller.canvasName, callerId, input.text, resourceMentionCandidates(caller.canvas, head.artifact.nodeId));
+    if (Result.isFailure(text)) return yield* Effect.fail({ ...text.failure, details: { ...text.failure.details, opId: input.opId } });
+    const author = head.artifact.createdBy;
+    const posted = yield* ports
+      .comment(
+        {
+          subject: { kind: "artifact", nodeId: head.artifact.nodeId, artifactId: input.artifact },
+          ...(anchor === undefined ? {} : { anchor }),
+          text: text.success,
+          actor: caller.actor,
+          opId: input.opId,
+          ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
+        },
+        { canvas: caller.canvas, canvasName: caller.canvasName, people: author.kind === "seat" ? [author.nodeId] : [] },
+      )
+      .pipe(Effect.mapError((error) => ({ ...error, details: { ...error.details, opId: input.opId } })));
+    return {
+      disposition: "applied",
+      opId: input.opId,
+      threadId: posted.threadId,
+      messageId: posted.messageId,
+      notified: posted.notified,
+    } satisfies ArtifactCommentResult;
   });

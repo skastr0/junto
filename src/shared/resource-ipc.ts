@@ -15,7 +15,9 @@
  * canvas, as the ruler does for every writer.
  */
 import { Schema } from "effect";
+import type { ActorSeatId } from "./actor-seat";
 import { ArtifactOp, ArtifactVersion, type ArtifactBody, type ArtifactVersionRecord } from "./artifact";
+import { MailMessageId } from "./crew";
 import type { ArtifactEntry, ArtifactFact } from "./artifact-domain";
 import type { OpOverlay } from "./op-control";
 import { NodeId } from "./physics/schema";
@@ -35,6 +37,8 @@ import {
 } from "./task-model";
 import type { WorkErrorBody } from "./work-control";
 import { ItemId, OpId } from "./work-ids";
+import { Anchor, type ArtifactPlaceAnchor } from "./wire/thread-subject";
+import type { ContentRef } from "./wire/content-ref";
 
 // ── channels ───────────────────────────────────────────────────────────────
 
@@ -179,6 +183,81 @@ export type ArtifactHead = Pick<ArtifactEntry, "artifact" | "body" | "bodyRef">;
 /** At most this many versions in one history read, newest first. */
 export const ARTIFACT_HISTORY_PAGE = 50;
 
+// ── threads ────────────────────────────────────────────────────────────────
+
+/**
+ * The resource a thread hangs on: a task or an artifact. Threads are read
+ * from the subject node's mailbox and posted through the CLI's own
+ * `task.comment` and `artifact.comment` paths, as the operator.
+ */
+export const ThreadResourceSubject = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("task"), nodeId: NodeId, taskId: ItemId }).annotate(strict),
+  Schema.Struct({ kind: Schema.Literal("artifact"), nodeId: NodeId, artifactId: ItemId }).annotate(strict),
+]);
+export type ThreadResourceSubject = typeof ThreadResourceSubject.Type;
+
+export const ThreadListInput = Schema.Struct({ canvasName: CanvasNameInput, subject: ThreadResourceSubject }).annotate(strict);
+
+/** One post as the window writes it. `threadId` replies in a thread; an anchor is an artifact's only. */
+export const ThreadPostDraft = Schema.Struct({
+  opId: OpId,
+  text: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(64_000))),
+  threadId: Schema.optionalKey(MailMessageId),
+  anchor: Schema.optionalKey(Anchor),
+}).annotate(strict);
+export type ThreadPostDraft = typeof ThreadPostDraft.Type;
+
+export const ThreadPostInput = Schema.Struct({
+  canvasName: CanvasNameInput,
+  subject: ThreadResourceSubject,
+  post: ThreadPostDraft,
+}).annotate(strict);
+
+/**
+ * Who wrote a post, with the name to show. A seat and the operator are the
+ * `ResourceActor` they wrote as; an automation's row names its node only.
+ */
+export type ThreadPostAuthor =
+  | { readonly kind: "seat"; readonly seatId: ActorSeatId; readonly nodeId: NodeId; readonly name: string }
+  | { readonly kind: "operator"; readonly name: string }
+  | { readonly kind: "automation"; readonly nodeId: NodeId; readonly name: string };
+
+export type ThreadPost = {
+  /** The post's message id. */
+  readonly postId: MailMessageId;
+  readonly author: ThreadPostAuthor;
+  readonly text: string;
+  /** Epoch ms the post was written. */
+  readonly at: number;
+  /** Files the operator sent with it; a comment carries none today. */
+  readonly attachments?: ReadonlyArray<ContentRef>;
+};
+
+/** One thread on a resource, oldest post first. `anchor` is its root's place on an artifact. */
+export type SubjectThreadView = {
+  readonly threadId: MailMessageId;
+  readonly anchor?: ArtifactPlaceAnchor;
+  readonly posts: ReadonlyArray<ThreadPost>;
+};
+
+/**
+ * A post is written at once on this machine or refused: a comment is never
+ * queued. A replayed opId answers as its first post did.
+ */
+export type ThreadPostOutcome =
+  | {
+      readonly kind: "applied";
+      readonly opId: OpId;
+      readonly threadId: MailMessageId;
+      readonly postId: MailMessageId;
+      /** The seats told of it. */
+      readonly notified: ReadonlyArray<NodeId>;
+    }
+  | { readonly kind: "refused"; readonly opId: OpId; readonly error: WorkErrorBody };
+
+/** Said to every window when a canvas's tasks or artifacts change, a comment on them included. */
+export type ThreadChanged = ResourceChanged & { readonly kind: ThreadResourceSubject["kind"] };
+
 // ── the renderer's API ─────────────────────────────────────────────────────
 
 export type TaskResourceApi = {
@@ -220,7 +299,17 @@ export type ArtifactResourceApi = {
   readonly onChanged: (listener: (changed: ResourceChanged) => void) => () => void;
 };
 
+export type ThreadResourceApi = {
+  /** The threads on a task or an artifact, each oldest post first, threads by their first post. */
+  readonly list: (canvasName: string, subject: ThreadResourceSubject) => Promise<ReadonlyArray<SubjectThreadView>>;
+  /** Post as the operator; the window mints `opId`, so a resend is the same post. */
+  readonly post: (canvasName: string, subject: ThreadResourceSubject, post: ThreadPostDraft) => Promise<ThreadPostOutcome>;
+  readonly onChanged: (listener: (changed: ThreadChanged) => void) => () => void;
+};
+
 export type ResourceIpcApi = {
   readonly task: TaskResourceApi;
   readonly artifact: ArtifactResourceApi;
+  /** Threads on tasks and artifacts; a kind whose product this build leaves out is refused. */
+  readonly thread: ThreadResourceApi;
 };

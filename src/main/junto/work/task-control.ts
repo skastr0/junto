@@ -51,6 +51,7 @@ import { taskPeopleOf } from "@shared/task-notices";
 import type { WorkErrorBody } from "@shared/work-control";
 import { stampDefaultOfContract, type CompletionEvidence } from "@shared/work-model";
 import type { OpId } from "@shared/work-ids";
+import { operatorActorRef } from "@shared/work-reference";
 import type { QueuedCommand } from "@shared/command-row";
 import { decodeTaskFacts } from "@shared/task-fact-wire";
 import { ResourceSubmit } from "./resource-submit";
@@ -97,6 +98,11 @@ export type TaskCaller = {
   readonly canvas: Canvas;
   readonly canvasName: string;
   readonly actor: Extract<ResourceActor, { readonly kind: "seat" }>;
+};
+
+/** Who comments: a seat the work socket admitted, or the operator from a window, who reaches every task. */
+export type TaskCommenter = Omit<TaskCaller, "actor"> & {
+  readonly actor: Extract<ResourceActor, { readonly kind: "seat" | "operator" }>;
 };
 
 const LIST_DEFAULT_LIMIT = 50;
@@ -323,8 +329,8 @@ export const taskLookupOf = (text: string): TaskLookup | undefined => {
  * missing, so a probe never learns what lies outside.
  */
 const findTask = (
-  caller: TaskCaller,
-  ports: TaskPorts,
+  caller: TaskCommenter,
+  ports: Pick<TaskPorts, "find">,
   text: string,
   path = "task",
   assigneeExempt = true,
@@ -339,8 +345,9 @@ const findTask = (
       });
     }
     const task = yield* ports.find(caller.canvas, caller.canvasName, lookup);
-    const visible = task !== undefined &&
-      (seatReachesTaskNode(caller.canvas, caller.actor.nodeId, task.current.node) || (assigneeExempt && task.current.assignee === caller.actor.nodeId));
+    const actor = caller.actor;
+    const visible = task !== undefined && (actor.kind === "operator" ||
+      seatReachesTaskNode(caller.canvas, actor.nodeId, task.current.node) || (assigneeExempt && task.current.assignee === actor.nodeId));
     if (!visible) {
       return yield* Effect.fail(unknown(path, text, `no task ${lookup.kind === "number" ? formatTaskNumber(lookup.number) : lookup.taskId} in this seat's reach`));
     }
@@ -535,7 +542,10 @@ const commandOf = (
       return Effect.succeed({ kind });
     case "finish": {
       const next = input.next as string | undefined;
-      const evidence = input.evidence === undefined ? {} : { evidence: input.evidence as CompletionEvidence };
+      const evidence = {
+        ...(input.evidence === undefined ? {} : { evidence: input.evidence as CompletionEvidence }),
+        ...(input.handoff === undefined ? {} : { handoff: input.handoff as string }),
+      };
       return next === undefined
         ? Effect.succeed({ kind, ...evidence })
         // One of the nodes this one flows into; it need not be in reach, since sending on hands the task over (04).
@@ -657,21 +667,8 @@ export const handleTaskOp = (
         return yield* waitTask(caller, ports, input);
       }
       case "task.comment": {
-        const input = yield* decode(TASK_ARGS[op], args);
-        // A comment admits by reach alone (03): the assignee exemption is for moves.
-        const task = yield* findTask(caller, ports, input.task, "task", false);
-        // Each @name becomes its mention link: a seat in reach of the task (03).
-        const text = linkSeatMentions(caller.canvas, caller.canvasName, caller.actor.nodeId, input.text, resourceMentionCandidates(caller.canvas, task.current.node));
-        if (Result.isFailure(text)) return yield* Effect.fail({ ...text.failure, details: { ...text.failure.details, opId: input.opId } });
-        const sent = yield* ports.comment({
-          subject: { kind: "task", nodeId: task.current.node, taskId: task.taskId },
-          text: text.success,
-          actor: caller.actor,
-          opId: input.opId,
-        }, { canvas: caller.canvas, canvasName: caller.canvasName, people: taskPeopleOf(task.current) }).pipe(
-          Effect.mapError((error): WorkErrorBody => ({ ...error, details: { ...error.details, opId: input.opId } })),
-        );
-        return { disposition: "applied", opId: input.opId, taskId: task.taskId, threadId: sent.threadId, messageId: sent.messageId };
+        const { disposition, opId, taskId, threadId, messageId } = yield* commentOnTask(caller, ports, yield* decode(TASK_ARGS[op], args));
+        return { disposition, opId, taskId, threadId, messageId };
       }
       case "task.create": {
         const input = yield* decode(TASK_ARGS[op], args);
@@ -692,4 +689,45 @@ export const handleTaskOp = (
         return yield* submitted(caller, ports, command(caller, input.opId, task.current.node, task.taskId, made));
       }
     }
+  });
+
+/**
+ * A comment in a task's thread, by a seat (`junto task comment`) or by the
+ * operator (the window's thread): one path, so the two never disagree. A
+ * comment admits by reach alone (03), each @name becomes its mention link,
+ * and the task's people are told. Returns the task it found with the post.
+ */
+export const commentOnTask = (
+  caller: TaskCommenter,
+  ports: Pick<TaskPorts, "find" | "comment">,
+  input: { readonly opId: OpId; readonly task: string; readonly text: string; readonly node?: NodeId },
+) =>
+  Effect.gen(function* () {
+    // The assignee exemption is for moves, not comments.
+    const task = yield* findTask(caller, ports, input.task, "task", false);
+    // A window names the task node it shows: a task on another is not there.
+    if (input.node !== undefined && task.current.node !== input.node) {
+      return yield* Effect.fail(unknown("task", input.task, `no task ${input.task} on node ${input.node}`));
+    }
+    // Each @name becomes its mention link: a seat in reach of the task (03).
+    const callerId = caller.actor.kind === "seat" ? caller.actor.nodeId : operatorActorRef(caller.canvasName).nodeId;
+    const text = linkSeatMentions(caller.canvas, caller.canvasName, callerId, input.text, resourceMentionCandidates(caller.canvas, task.current.node));
+    if (Result.isFailure(text)) return yield* Effect.fail({ ...text.failure, details: { ...text.failure.details, opId: input.opId } });
+    const sent = yield* ports.comment({
+      subject: { kind: "task", nodeId: task.current.node, taskId: task.taskId },
+      text: text.success,
+      actor: caller.actor,
+      opId: input.opId,
+    }, { canvas: caller.canvas, canvasName: caller.canvasName, people: taskPeopleOf(task.current) }).pipe(
+      Effect.mapError((error): WorkErrorBody => ({ ...error, details: { ...error.details, opId: input.opId } })),
+    );
+    return {
+      disposition: "applied" as const,
+      opId: input.opId,
+      taskId: task.taskId,
+      nodeId: task.current.node,
+      threadId: sent.threadId,
+      messageId: sent.messageId,
+      notified: sent.notified,
+    };
   });

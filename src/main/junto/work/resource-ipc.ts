@@ -5,6 +5,13 @@
 // builds the command and turns what the ruler made into an outcome.
 
 import type { IpcMain } from "electron";
+import { mailThreadOf, type MailMessageId } from "@shared/crew";
+import { mailAuthorOf } from "@shared/mail-author";
+import { operatorFilesOf } from "@shared/mail-threads";
+import { messageIdTimeMs } from "@shared/message-delivery";
+import { titleOf } from "@shared/model/title";
+import { threadSubjectOf } from "@shared/thread-subject";
+import type { Message } from "@shared/work-model";
 import { productResourceKindEnabled } from "@shared/features";
 import { Effect, Option, Result, Schema } from "effect";
 import { decodeArtifactOp, type ArtifactBody, type ArtifactOp, type ArtifactVersion, type ArtifactVersionRecord } from "@shared/artifact";
@@ -28,8 +35,17 @@ import {
   TaskContextInput,
   TaskListInput,
   TaskPendingInput,
+  ThreadListInput,
+  ThreadPostInput,
   taskCanvasFactsOf,
   type ResourceChanged,
+  type SubjectThreadView,
+  type ThreadChanged,
+  type ThreadPost,
+  type ThreadPostAuthor,
+  type ThreadPostDraft,
+  type ThreadPostOutcome,
+  type ThreadResourceSubject,
   type ArtifactApplyOutcome,
   type ArtifactHead,
   type ArtifactPendingWrite,
@@ -49,17 +65,19 @@ import {
 } from "@shared/task-model";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { ItemId, OpId } from "@shared/work-ids";
-import { liveArtifactPorts, type ArtifactPorts } from "./artifact-control";
+import { commentOnArtifact, liveArtifactPorts, type ArtifactPorts } from "./artifact-control";
 import { queuedOverlays, type QueuedOverlays } from "./op-control";
 import { OpRepository } from "./op-repository";
 import { onResourceChanged } from "./resource-changes";
-import { liveTaskPorts, taskCanvasEnv, taskRulingContext, type TaskPorts } from "./task-control";
+import { commentOnTask, liveTaskPorts, taskCanvasEnv, taskRulingContext, type TaskPorts } from "./task-control";
 
 /** What the handlers read and write through. Live: the CLI's own ports and the work topology. */
 export type ResourceIpcPorts = {
   readonly topology: (canvasName: string) => Effect.Effect<Canvas, WorkErrorBody>;
-  readonly tasks: Pick<TaskPorts, "list" | "submit" | "deliver">;
-  readonly artifacts: Pick<ArtifactPorts, "list" | "head" | "body" | "history" | "submit" | "pull">;
+  readonly tasks: Pick<TaskPorts, "list" | "submit" | "deliver" | "find" | "comment">;
+  readonly artifacts: Pick<ArtifactPorts, "list" | "head" | "body" | "history" | "submit" | "pull" | "comment">;
+  /** The rows a node's mailbox holds: a task's or an artifact's comments are held at its node. */
+  readonly mailbox: (canvasName: string, nodeId: NodeId) => Effect.Effect<ReadonlyArray<Message>, WorkErrorBody>;
   /** This machine's unruled queue with its overlays: `op list`'s own read (`queuedOverlays`). */
   readonly queue: (canvasName: string, canvas: Canvas) => Effect.Effect<QueuedOverlays | undefined, WorkErrorBody>;
 };
@@ -259,6 +277,140 @@ export const applyArtifact = (
     return { kind: "applied" as const, opId, facts: outcome.facts };
   }).pipe(Effect.catch((error: WorkErrorBody) => Effect.succeed({ kind: "refused" as const, opId, error })));
 
+// ── threads ────────────────────────────────────────────────────────────────
+
+const onSubject = (subject: ThreadResourceSubject) => (row: Message): boolean => {
+  const on = threadSubjectOf(row);
+  if (on === undefined || on.nodeId !== subject.nodeId) return false;
+  return subject.kind === "task"
+    ? on.kind === "task" && on.taskId === subject.taskId
+    : on.kind === "artifact" && on.artifactId === subject.artifactId;
+};
+
+const stamp = (row: Message, key: string): string | undefined => {
+  const value = row.metadata?.[key];
+  return typeof value === "string" && value !== "" ? value : undefined;
+};
+
+/** Who wrote a comment row, by its stamp, named as the canvas names them now; a notice or a malformed stamp is no post. */
+const authorOf = (canvas: Canvas, row: Message): ThreadPostAuthor | undefined => {
+  const seatId = stamp(row, "fromSeat");
+  const nodeId = stamp(row, "senderNodeId");
+  if (seatId === undefined || nodeId === undefined) return undefined;
+  const author = mailAuthorOf({ seatId: seatId as never, nodeId });
+  const name = (id: string) => {
+    const node = canvas.nodes.get(id as NodeId);
+    return node === undefined ? (stamp(row, "senderName") ?? id) : titleOf(node);
+  };
+  switch (author.kind) {
+    case "operator":
+      return { kind: "operator", name: "operator" };
+    case "seat":
+      return { kind: "seat", seatId: author.seatId, nodeId: author.nodeId as NodeId, name: name(author.nodeId) };
+    case "automation":
+      return { kind: "automation", nodeId: author.nodeId as unknown as NodeId, name: name(author.nodeId) };
+    default:
+      return undefined;
+  }
+};
+
+const postOf = (canvas: Canvas, row: Message): ThreadPost | undefined => {
+  const author = authorOf(canvas, row);
+  if (author === undefined) return undefined;
+  const files = operatorFilesOf(row);
+  return {
+    postId: row.messageId as MailMessageId,
+    author,
+    text: row.parts.flatMap((part) => (part.kind === "text" ? [part.text] : [])).join("\n").trim(),
+    at: messageIdTimeMs(row.messageId) ?? 0,
+    ...(files.length === 0 ? {} : { attachments: files }),
+  };
+};
+
+const byAge = (a: ThreadPost, b: ThreadPost): number => a.at - b.at || (a.postId < b.postId ? -1 : a.postId > b.postId ? 1 : 0);
+
+const productOff = (kind: ThreadResourceSubject["kind"]): WorkErrorBody => ({
+  type: "InputError",
+  message: `${kind === "task" ? "tasks are" : "artifacts are"} not in this Junto build`,
+  details: { reason: "not_available", retryable: false },
+});
+
+/**
+ * The threads on a task or an artifact, from its node's mailbox: rows on
+ * this subject, grouped by thread, each oldest post first, threads by their
+ * first post. The operator reads every resource.
+ */
+export const listThreads = (
+  ports: ResourceIpcPorts,
+  canvasName: string,
+  subject: ThreadResourceSubject,
+): Effect.Effect<ReadonlyArray<SubjectThreadView>, WorkErrorBody> =>
+  Effect.gen(function* () {
+    const canvas = yield* ports.topology(canvasName);
+    const rows = (yield* ports.mailbox(canvasName, subject.nodeId)).filter(onSubject(subject));
+    const threads = new Map<string, { anchor?: SubjectThreadView["anchor"]; posts: ThreadPost[] }>();
+    for (const row of rows) {
+      const post = postOf(canvas, row);
+      if (post === undefined) continue;
+      const threadId = mailThreadOf(row);
+      const thread = threads.get(threadId) ?? { posts: [] };
+      // The root names the thread's place; a reply copies it.
+      const on = threadSubjectOf(row);
+      if (on?.kind === "artifact" && on.anchor !== undefined && (thread.anchor === undefined || row.messageId === threadId)) {
+        thread.anchor = on.anchor;
+      }
+      thread.posts.push(post);
+      threads.set(threadId, thread);
+    }
+    return [...threads]
+      .map(([threadId, thread]): SubjectThreadView => ({
+        threadId: threadId as MailMessageId,
+        ...(thread.anchor === undefined ? {} : { anchor: thread.anchor }),
+        posts: [...thread.posts].sort(byAge),
+      }))
+      .sort((a, b) => byAge(a.posts[0]!, b.posts[0]!));
+  });
+
+/**
+ * The operator's post on a task or an artifact, through the CLI's own comment
+ * path for its kind: mentions become links or are refused in words, and the
+ * resource's people are told. A comment is written here at once, never
+ * queued; a replayed opId is the same row, answered as it first was.
+ */
+export const postThread = (
+  ports: ResourceIpcPorts,
+  canvasName: string,
+  subject: ThreadResourceSubject,
+  post: ThreadPostDraft,
+): Effect.Effect<ThreadPostOutcome> =>
+  Effect.gen(function* () {
+    const commenter = { canvas: yield* ports.topology(canvasName), canvasName, actor: operator };
+    if (subject.kind === "task") {
+      if (post.anchor !== undefined) {
+        return yield* Effect.fail<WorkErrorBody>({ type: "InputError", message: "a task comment takes no anchor", details: { path: "anchor", retryable: false } });
+      }
+      // A task has one thread, its own.
+      if (post.threadId !== undefined && post.threadId !== (subject.taskId as string)) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: `a task's thread is the task: ${subject.taskId}`,
+          details: { path: "threadId", retryable: false },
+        });
+      }
+      const sent = yield* commentOnTask(commenter, ports.tasks, { opId: post.opId, task: subject.taskId, text: post.text, node: subject.nodeId });
+      return { kind: "applied" as const, opId: post.opId, threadId: sent.threadId as MailMessageId, postId: sent.messageId as MailMessageId, notified: sent.notified as ReadonlyArray<NodeId> };
+    }
+    const sent = yield* commentOnArtifact(commenter, ports.artifacts, {
+      opId: post.opId,
+      artifact: subject.artifactId,
+      text: post.text,
+      node: subject.nodeId,
+      ...(post.anchor === undefined ? {} : { anchor: post.anchor }),
+      ...(post.threadId === undefined ? {} : { threadId: post.threadId }),
+    });
+    return { kind: "applied" as const, opId: post.opId, threadId: sent.threadId as MailMessageId, postId: sent.messageId as MailMessageId, notified: sent.notified as ReadonlyArray<NodeId> };
+  }).pipe(Effect.catch((error: WorkErrorBody) => Effect.succeed({ kind: "refused" as const, opId: post.opId, error })));
+
 // ── registration ───────────────────────────────────────────────────────────
 
 /** Runs a handler in the app runtime, which holds the stores. */
@@ -299,11 +451,16 @@ export const pendingTasks = (ports: ResourceIpcPorts, canvasName: string, nodeId
   });
 
 /**
- * The running core's ports: the CLI verbs' own, and the canvas as ipc.ts
- * reads it from the work plane (this file reaches no WorkService).
+ * The running core's ports: the CLI verbs' own, and the canvas and a node's
+ * mailbox as ipc.ts reads them from the work plane (this file reaches no
+ * WorkService).
  */
-export const liveResourceIpcPorts = (topology: ResourceIpcPorts["topology"]): ResourceIpcPorts => ({
+export const liveResourceIpcPorts = (
+  topology: ResourceIpcPorts["topology"],
+  mailbox: ResourceIpcPorts["mailbox"],
+): ResourceIpcPorts => ({
   topology,
+  mailbox,
   tasks: liveTaskPorts,
   artifacts: liveArtifactPorts,
   // A build without the record of resource writes queues nothing: no write waits.
@@ -334,9 +491,9 @@ export const registerResourceIpc = (
   ipc: Pick<IpcMain, "handle">,
   run: ResourceIpcRun,
   ports: ResourceIpcPorts,
-  broadcast: (channel: string, payload: ResourceChanged) => void,
+  broadcast: (channel: string, payload: ResourceChanged | ThreadChanged) => void,
   enabled: { readonly task: boolean; readonly artifact: boolean },
-  authoring: { readonly task: ResourceAuthoring; readonly artifact: ResourceAuthoring },
+  authoring: { readonly task: ResourceAuthoring; readonly artifact: ResourceAuthoring; readonly thread: ResourceAuthoring },
 ): (() => void) => {
   const on = <S extends Schema.Top, A>(
     channel: string,
@@ -368,7 +525,19 @@ export const registerResourceIpc = (
       applyArtifact(ports, input.canvasName, input.nodeId, input.artifactId, input.opId, input.op), authoring.artifact);
     on(artifact.pending, ArtifactPendingInput, (input) => pendingArtifacts(ports, input.canvasName, input.nodeId));
   }
+  // Threads on either kind, each kind behind its own product.
+  const thread = RESOURCE_IPC_CHANNELS.thread;
+  if (live.task || live.artifact) {
+    on(thread.list, ThreadListInput, (input) =>
+      live[input.subject.kind] ? listThreads(ports, input.canvasName, input.subject) : Effect.fail(productOff(input.subject.kind)));
+    on(thread.post, ThreadPostInput, (input) =>
+      live[input.subject.kind]
+        ? postThread(ports, input.canvasName, input.subject, input.post)
+        : Effect.succeed({ kind: "refused" as const, opId: input.post.opId, error: productOff(input.subject.kind) }), authoring.thread);
+  }
   return onResourceChanged((domain, canvasName) => {
-    if (live[domain]) broadcast(RESOURCE_IPC_CHANNELS[domain].changed, { canvasName });
+    if (!live[domain]) return;
+    broadcast(RESOURCE_IPC_CHANNELS[domain].changed, { canvasName });
+    broadcast(thread.changed, { canvasName, kind: domain } satisfies ThreadChanged);
   });
 };

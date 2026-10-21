@@ -1,6 +1,6 @@
 import { RESOURCE_IPC_CHANNELS } from "@shared/resource-ipc-channels";
 import { PAGE_BOX_DRAW_MS } from "@shared/page-shot";
-import type { ResourceChanged, ResourceIpcApi } from "@shared/resource-ipc";
+import type { ResourceChanged, ResourceIpcApi, ThreadChanged } from "@shared/resource-ipc";
 import type { WorkSinkChanged } from "@shared/work-sinks";
 import type { WorkMailChanged } from "@shared/work-mail";
 import type { CanvasesChanged, Changed } from "@shared/model";
@@ -621,6 +621,12 @@ const artifactResourceApi: ResourceIpcApi["artifact"] = {
   onChanged: (listener) => subscribe<ResourceChanged>(RESOURCE_IPC_CHANNELS.artifact.changed, listener),
 };
 
+const threadResourceApi: ResourceIpcApi["thread"] = {
+  list: (canvasName, subject) => invoke(RESOURCE_IPC_CHANNELS.thread.list, IPC_TIMEOUT_MS, { canvasName, subject }),
+  post: (canvasName, subject, post) => invoke(RESOURCE_IPC_CHANNELS.thread.post, IPC_TIMEOUT_MS, { canvasName, subject, post }),
+  onChanged: (listener) => subscribe<ThreadChanged>(RESOURCE_IPC_CHANNELS.thread.changed, listener),
+};
+
 const artifactsWorkApi: Pick<
   JuntoApi,
   "workArtifactArchive" | "workArtifactDelete"
@@ -823,6 +829,7 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
           resource: {
             ...(TASKS_ENABLED ? { task: taskResourceApi } : {}),
             ...(ARTIFACTS_ENABLED ? { artifact: artifactResourceApi } : {}),
+            thread: threadResourceApi,
           },
         }
       : {}),
