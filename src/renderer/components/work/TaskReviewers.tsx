@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Check, Minus, Plus, ShieldCheck, X } from "lucide-react";
 import { Button, Chip, Dropdown, IconButton, StampTally, type ChipTone } from "../ui";
 import {
+  earlierStampOf,
   offeredStamps,
   operatorMayReview,
   reviewTally,
@@ -12,6 +13,7 @@ import {
 } from "../../lib/task-ui";
 import type { TaskContext } from "@shared/task-machine";
 import {
+  STAMPS_REQUIRED_MAX,
   reviewerKey,
   type Reviewer,
   type SeatNodeId,
@@ -22,17 +24,16 @@ import {
 } from "@shared/task-model";
 import "./task-reviewers.css";
 
-const stampTone = (stamp: Stamp | undefined): ChipTone =>
-  stamp === undefined ? "steel" : stamp.verdict === "approve" ? "green" : "crimson";
+const verdictWord = (stamp: Stamp): string =>
+  stamp.verdict === "approve" ? "approved" : "asked for changes";
 
-const stampWord = (stamp: Stamp | undefined, waiting: boolean): string =>
-  stamp === undefined
-    ? waiting
-      ? "waiting"
-      : "no stamp yet"
-    : stamp.verdict === "approve"
-      ? "approved"
-      : "asked for changes";
+/** Now: approved, or waiting. Asking for changes starts a new round, so the ask reads as the earlier round. */
+const stampChip = (current: Stamp | undefined, earlier: Stamp | undefined, waiting: boolean): { tone: ChipTone; word: string } =>
+  current !== undefined
+    ? { tone: "green", word: verdictWord(current) }
+    : earlier !== undefined
+      ? { tone: "steel", word: `${verdictWord(earlier)}, earlier round` }
+      : { tone: "steel", word: waiting ? "waiting" : "no stamp yet" };
 
 const OPERATOR_ADD = "operator";
 
@@ -122,7 +123,7 @@ export function TaskReviewers({
               <IconButton
                 aria-label="Require one more approval"
                 title="Require one more approval"
-                disabled={pending}
+                disabled={pending || required >= STAMPS_REQUIRED_MAX}
                 onClick={() => void send({ kind: "stamp-policy", required: required + 1 })}
               >
                 <Plus size={12} />
@@ -151,15 +152,18 @@ export function TaskReviewers({
         <ul className="task-reviewers__list">
           {task.reviewers.map((reviewer) => {
             const stamp = stampOf(task, reviewer);
+            const earlier = earlierStampOf(task, reviewer);
+            const chip = stampChip(stamp, earlier, inReview);
             return (
               <li
                 key={reviewerKey(reviewer)}
                 data-testid="task-reviewer"
                 data-reviewer={reviewerKey(reviewer)}
-                data-verdict={stamp?.verdict}
+                data-verdict={(stamp ?? earlier)?.verdict}
+                data-round={stamp === undefined && earlier !== undefined ? "earlier" : undefined}
               >
                 <strong>{nameOf(reviewer)}</strong>
-                <Chip tone={stampTone(stamp)}>{stampWord(stamp, inReview)}</Chip>
+                <Chip tone={chip.tone}>{chip.word}</Chip>
                 {closed ? null : (
                   <IconButton
                     aria-label={`Remove ${nameOf(reviewer)} as reviewer`}
@@ -170,7 +174,7 @@ export function TaskReviewers({
                     <X size={12} />
                   </IconButton>
                 )}
-                {stamp?.text ? <p>{stamp.text}</p> : null}
+                {(stamp ?? earlier)?.text ? <p>{(stamp ?? earlier)?.text}</p> : null}
               </li>
             );
           })}

@@ -20,6 +20,7 @@ import {
   operatorMayReview,
   reviewTally,
   reviewerChoices,
+  earlierStampOf,
   stampOf,
   stateLabel,
   verbLabel,
@@ -194,6 +195,27 @@ describe("stamps", () => {
     const task = core({ ...inReview, epoch: 1, stamps: [approve(asSeat(bo), 0)] });
     expect(stampOf(task, asSeat(bo))).toBeUndefined();
     expect(stampOf({ ...task, epoch: 0 }, asSeat(bo))?.verdict).toBe("approve");
+  });
+});
+
+describe("rounds", () => {
+  it("shows a reviewer's ask for changes as the earlier round once the task is working again", () => {
+    const task = core({
+      state: "working",
+      assignee: ada,
+      epoch: 1,
+      reviewers: [asSeat(bo)],
+      stamps: [{ reviewer: asSeat(bo), verdict: "changes", epoch: 0, at: 1 }],
+    });
+    expect(stampOf(task, asSeat(bo))).toBeUndefined();
+    expect(earlierStampOf(task, asSeat(bo))?.verdict).toBe("changes");
+    expect(reviewTally(task).slots).toEqual(["stale"]);
+  });
+
+  it("has no earlier stamp for a reviewer who stamped this round or never did", () => {
+    const task = core({ state: "in-review", assignee: ada, reviewers: [asSeat(bo), asSeat(cy)], stamps: [approve(asSeat(bo))] });
+    expect(earlierStampOf(task, asSeat(bo))).toBeUndefined();
+    expect(earlierStampOf(task, asSeat(cy))).toBeUndefined();
   });
 });
 

@@ -130,9 +130,21 @@ export const operatorMayReview = (task: TaskCore, ctx: TaskContext): boolean =>
     ctx,
   ).ok;
 
-/** A reviewer's stamp at the current epoch, if any. */
+/** A reviewer's stamp at the current epoch, if any. Always an approval: asking for changes starts a new epoch. */
 export const stampOf = (task: TaskCore, reviewer: Reviewer): Stamp | undefined =>
   currentStamps(task).find((stamp) => reviewerKey(stamp.reviewer) === reviewerKey(reviewer));
+
+/** A reviewer's latest stamp from an earlier round, if it has none now. */
+export const earlierStampOf = (task: TaskCore, reviewer: Reviewer): Stamp | undefined => {
+  if (stampOf(task, reviewer) !== undefined) return undefined;
+  const earlier = task.stamps.filter(
+    (stamp) => stamp.epoch !== task.epoch && reviewerKey(stamp.reviewer) === reviewerKey(reviewer),
+  );
+  return earlier.reduce<Stamp | undefined>(
+    (latest, stamp) => (latest === undefined || stamp.at >= latest.at ? stamp : latest),
+    undefined,
+  );
+};
 
 /**
  * The tally the ruler counts (`currentApprovals`): once per reviewer at the
@@ -142,16 +154,15 @@ export const stampOf = (task: TaskCore, reviewer: Reviewer): Stamp | undefined =
 export const reviewTally = (task: TaskCore): StampTallyData => {
   const required = task.stampPolicy.required;
   const approved = currentApprovals(task);
-  const changes = currentStamps(task).filter((stamp) => stamp.verdict === "changes").length;
   const stale = task.stamps.filter((stamp) => stamp.epoch !== task.epoch).length;
   const waiting = Math.max(0, required - approved);
   const slots: StampSlot[] = [
     ...Array<StampSlot>(approved).fill("approved"),
-    ...Array<StampSlot>(changes).fill("changes"),
     ...Array<StampSlot>(waiting).fill("waiting"),
     ...Array<StampSlot>(stale).fill("stale"),
   ];
-  return { required, slots, approved, pending: 0, changes, stale, met: approved >= required };
+  // A "changes" stamp starts a new epoch, so none is ever current: `changes` stays 0.
+  return { required, slots, approved, pending: 0, changes: 0, stale, met: approved >= required };
 };
 
 export const stateLabel = (state: TaskState): string => {

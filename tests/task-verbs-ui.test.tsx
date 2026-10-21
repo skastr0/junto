@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { asNodeId } from "../src/shared/model";
 import type { TaskContext } from "../src/shared/task-machine";
-import { seatNodeId, taskNodeId, type Reviewer, type TaskActor, type TaskCore } from "../src/shared/task-model";
+import { STAMPS_REQUIRED_MAX, seatNodeId, taskNodeId, type Reviewer, type TaskActor, type TaskCore } from "../src/shared/task-model";
 import { ItemId } from "../src/shared/work-ids";
 import { TaskVerbBar } from "../src/renderer/components/work/TaskVerbBar";
 import { TaskReviewers } from "../src/renderer/components/work/TaskReviewers";
@@ -119,6 +119,27 @@ describe("TaskReviewers", () => {
     expect(html).toContain("You");
     expect(html).toContain("1 of 1 approved");
     expect(html).toContain('data-verdict="approve"');
+  });
+
+  it("stops the approval count at the wire maximum", () => {
+    const full = panel(core({ state: "working", assignee: ada, stampPolicy: { required: STAMPS_REQUIRED_MAX } }));
+    const plus = /<button[^>]*aria-label="Require one more approval"[^>]*>/.exec(full)?.[0] ?? "";
+    expect(plus).toContain("disabled");
+  });
+
+  it("reads an ask for changes as the earlier round once the task works again", () => {
+    const html = panel(
+      core({
+        state: "working",
+        assignee: ada,
+        epoch: 1,
+        reviewers: [asSeat(bo)],
+        stampPolicy: { required: 1 },
+        stamps: [{ reviewer: asSeat(bo), verdict: "changes", epoch: 0, at: 1 }],
+      }),
+    );
+    expect(html).toContain("asked for changes, earlier round");
+    expect(html).not.toContain("no stamp yet");
   });
 
   it("says plainly when nothing is required, and freezes a closed task", () => {

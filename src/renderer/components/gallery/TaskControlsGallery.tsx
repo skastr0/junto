@@ -2,8 +2,10 @@ import { useState } from "react";
 import { asNodeId } from "@shared/model";
 import { ruleTaskCommand, taskRefusalMessage, type TaskContext } from "@shared/task-machine";
 import {
+  formatTaskNumber,
   seatNodeId,
   taskNodeId,
+  taskNumber,
   type Reviewer,
   type TaskActor,
   type TaskCommand,
@@ -111,6 +113,19 @@ const CASES: ReadonlyArray<Case> = [
       assignee: ada,
       reviewers: [{ kind: "operator" }, asSeat(bo)],
       stampPolicy: { required: 2 },
+      stamps: [{ reviewer: asSeat(bo), verdict: "approve", epoch: 0, at: 1 }],
+    }),
+  },
+  {
+    label: "Working again after changes were asked (new round)",
+    actor: OPERATOR,
+    downstream: [],
+    task: core({
+      state: "working",
+      assignee: ada,
+      epoch: 1,
+      reviewers: [asSeat(bo)],
+      stampPolicy: { required: 1 },
       stamps: [
         { reviewer: asSeat(bo), verdict: "changes", epoch: 0, at: 1, text: "The empty state still says Queue." },
       ],
@@ -149,7 +164,7 @@ function Frame({ entry }: { readonly entry: Case }) {
           actor={entry.actor}
           ctx={ctx}
           seats={SEATS}
-          numberOf={(id) => (id === HELD ? "T-12" : undefined)}
+          numberOf={(id) => (id === HELD ? formatTaskNumber(taskNumber(12)!) : undefined)}
           nodeName={(node) => NODE_NAMES.get(node) ?? node}
           onCommand={onCommand}
         />
