@@ -61,6 +61,7 @@ export function LinkNode({ id, data, selected }: NodeProps<FlowNode>) {
         id={id}
         selected={selected}
         blocked={data.blocked}
+        look="spine"
         toolbarExtras={node ? <PageToolbarActions node={node} /> : undefined}
       >
         <div

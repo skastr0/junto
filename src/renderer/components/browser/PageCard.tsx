@@ -2,26 +2,25 @@ import { useEffect, useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { NodeOf } from "@shared/model";
 import { formatNodeRef } from "@shared/node-ref";
+import { RegionUrgency } from "@shared/wire/urgency";
 import { Globe } from "lucide-react";
-import { browserActivity } from "../../lib/activity";
-import {
-  refreshBrowserSession,
-  subscribeBrowserSessionEvents,
-  browser$,
-} from "../../lib/browser-state";
+import { refreshBrowserSession, subscribeBrowserSessionEvents, browser$ } from "../../lib/browser-state";
 import { dock$ } from "../../lib/dock-state";
+import { pageDriving$, refreshPageDriving, subscribePageDriving } from "../../lib/page-driving";
 import { hostOf } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
-import { HUE, INK } from "../../lib/theme";
-import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
+import { useNodeUrgency } from "../../lib/use-node-urgency";
+import { SpineCard } from "../nodes/SpineCard";
 
 /**
- * Page card — identity + session ActivityMark only.
- * Open via double-click / RTS. No action buttons. No agent-seat “automating”
- * proxy (that lied when the seat was busy for other reasons).
+ * Page, in the Spines language (docs/node-card-language.md): a leaf chip, the
+ * host as its name and the full address as its hover title, then "browser
+ * page, <profile>". Working while a seat drives it; Failed, with the error as
+ * the line, when the page or the operator's action on it failed. Nothing
+ * while it loads or while the operator holds it. Open by double-click or RTS;
+ * no action buttons.
  */
 export function PageCard({ node }: { readonly node: NodeOf<"page"> }) {
-  const browser = useMemo(() => ({ profile: node.profile, onDelete: node.onRemove }), [node.profile, node.onRemove]);
   const url = node.url;
   const canvasName = use$(state$.canvasName);
   const pageRef = useMemo(() => {
@@ -33,72 +32,37 @@ export function PageCard({ node }: { readonly node: NodeOf<"page"> }) {
   }, [canvasName, node.id]);
   const session = use$(browser$.sessionByRef[pageRef ?? ""]);
   const opError = use$(dock$.opErrorByRef[pageRef ?? ""]);
-  const docked = use$(() => {
-    if (!pageRef) return false;
-    return dock$.registry.surfaces.get().some((s) => s.kind === "browser" && s.id === pageRef);
-  });
-  const sessionState = session?.state;
-  // A wave means real attach work is possible: terminal session states and a
-  // reported operator failure beat the in-flight attach indicator.
-  const attaching =
-    docked &&
-    !session?.attached &&
-    sessionState !== "destroyed" &&
-    sessionState !== "failed" &&
-    !opError;
+  const working = use$(pageDriving$.workingByRef[pageRef ?? ""]) ?? false;
+  // Operator action failures outrank a session's own last error: the
+  // operator can act on the first, the second is context.
+  const err = opError?.message ?? (session?.state === "failed" ? session.lastError : undefined);
+  // A failed page leans its region frame to it at overview (Failed counts as blocked).
+  useNodeUrgency(node.id, err !== undefined ? RegionUrgency.group.blocked : undefined);
 
   useEffect(() => {
     subscribeBrowserSessionEvents();
+    subscribePageDriving();
   }, []);
 
   useEffect(() => {
-    if (!browser || !pageRef) return;
-    void refreshBrowserSession(pageRef);
-  }, [browser, pageRef]);
+    if (!pageRef) return;
+    void refreshBrowserSession(pageRef).then(() => refreshPageDriving(pageRef));
+  }, [pageRef]);
 
-  if (!browser || !pageRef) {
+  if (!pageRef) {
     return <div className="text-xs text-faint">page unbound</div>;
   }
 
-  const state = sessionState ?? "idle";
-  const warm =
-    state === "loading" ||
-    state === "ready" ||
-    state === "failed" ||
-    state === "detached";
-  const pageTitle = session?.title;
   const host = hostOf(url);
-  const activity = browserActivity({ state, attaching, opFailed: Boolean(opError) });
-  const displayTitle = warm && pageTitle ? pageTitle : host;
-  // Operator action failures outrank a session's own last error — the
-  // operator can act on the first, the second is context.
-  const err = opError?.message ?? (state === "failed" ? session?.lastError : undefined);
 
   return (
-    <div className="flex h-full w-full flex-col justify-between overflow-hidden">
-      <ExecutionCardHeader
-        decal={
-          <div className="grid size-7 shrink-0 place-items-center rounded-md border border-amber/25 bg-amber/[0.07] text-amber">
-            <Globe size={15} />
-          </div>
-        }
-        title={
-          <div
-            className="truncate font-mono text-[14px] font-semibold leading-snug"
-            style={{ color: INK }}
-            title={url || displayTitle}
-          >
-            {displayTitle}
-          </div>
-        }
-        subtitle={
-          err ? (
-            <span className="truncate" style={{ color: HUE.crimson }} title={err}>
-              {err}
-            </span>
-          ) : undefined
-        }
-        activity={activity}
+    <div className="h-full w-full" title={url || host}>
+      <SpineCard
+        glyph={<Globe size={15} />}
+        hue="indigo"
+        name={host}
+        {...(err !== undefined ? { status: "failed" as const } : working ? { status: "working" as const } : {})}
+        body={{ kind: "leaf", line: err ?? `browser page, ${node.profile}` }}
       />
     </div>
   );
