@@ -92,15 +92,16 @@ export const positionsOf = (canvas: ReachCanvas, nodeId: NodeId): Positions | un
   return node === undefined ? undefined : positionsIn(regionsOf(canvas), node);
 };
 
-const frameOf = (canvas: ReachCanvas, id: RegionId): ReachNode => {
-  const region = canvas.nodes.get(id);
-  if (region === undefined) throw new Error(`region "${id}" is not on this canvas`);
-  return region;
+/**
+ * `upper` is `lower` or wholly contains it. Positions held across a write can
+ * name a region that is gone; a missing region is on no line (fail closed).
+ */
+const atOrAbove = (canvas: ReachCanvas, upper: RegionId, lower: RegionId): boolean => {
+  const outer = canvas.nodes.get(upper);
+  const inner = canvas.nodes.get(lower);
+  if (outer?.kind !== "region" || inner?.kind !== "region") return false;
+  return upper === lower || frameContains(outer, inner);
 };
-
-/** `upper` is `lower` or wholly contains it. */
-const atOrAbove = (canvas: ReachCanvas, upper: RegionId, lower: RegionId): boolean =>
-  upper === lower || frameContains(frameOf(canvas, upper), frameOf(canvas, lower));
 
 /**
  * Some position of `a` and some position of `b` are on one line: the same
@@ -148,9 +149,12 @@ const inReachOf = (
   return found.sort(byId);
 };
 
-/** Resource nodes a seat reaches, sorted by id. */
+/**
+ * Resource nodes a seat reaches, sorted by id. Only a seat (agent) acts; a
+ * peer row never acts through a copy (01 rule 4), and nothing else reaches.
+ */
 export const resourcesInReach = (canvas: ReachCanvas, seatId: NodeId): ReadonlyArray<ReachNode> =>
-  inReachOf(canvas, seatId, isResourceKind);
+  canvas.nodes.get(seatId)?.kind === "agent" ? inReachOf(canvas, seatId, isResourceKind) : [];
 
 /** Seats that reach a node: reviewers, mention candidates, recipients. Sorted by id. */
 export const seatsInReach = (canvas: ReachCanvas, nodeId: NodeId): ReadonlyArray<ReachNode> =>

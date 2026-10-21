@@ -45,28 +45,36 @@ edge rule only ever meant direct mail; this side effect is intended.
 - Blocked detection is computed per actor to task wire
   (`src/shared/execution-graph.ts:183-203`).
 
-## Contract: `src/shared/region-reach.ts` (new, pure)
+## Contract: `src/shared/region-reach.ts` (landed, pure)
 
 ```ts
-/** Root first, innermost last. The canvas root is the empty path. */
-type RegionPath = ReadonlyArray<RegionId>;
+/** Made only by positionsOf: Root, or the innermost regions wholly containing the node. */
+type Positions = { _tag: "Root" } | { _tag: "Regions"; innermost: [RegionId, ...RegionId[]] };
 
-/** One path per innermost region fully containing the node (rule 5). */
-regionPathsOf(canvas: Canvas, nodeId: NodeId): ReadonlyArray<RegionPath>;
+positionsOf(canvas: ReachCanvas, nodeId: NodeId): Positions | undefined;
 
-/** Some seat path and some resource path: same, or one a prefix of the other. */
-inReach(seat: ReadonlyArray<RegionPath>, resource: ReadonlyArray<RegionPath>): boolean;
+/** Some position of each is the same region or one wholly inside the other; Root is on every line. */
+onOneLine(canvas, a: Positions, b: Positions): boolean;
+/** Some position of `lower` is at or below some position of `upper`. Not transitive across two positions, by design. */
+atOrBelow(canvas, upper: Positions, lower: Positions): boolean;
 
-/** Resource nodes a seat reaches, by kind. */
-resourcesInReach(canvas: Canvas, seatId: NodeId): ReadonlyArray<NodeRef>;
+reaches(canvas, from: NodeId, to: NodeId): boolean;
+/** Only an agent seat acts; a peer row, a region or a task node gets []. */
+resourcesInReach(canvas, seatId: NodeId): ReadonlyArray<ReachNode>;
+/** Agent and peer rows: reviewers, mention candidates, recipients. */
+seatsInReach(canvas, nodeId: NodeId): ReadonlyArray<ReachNode>;
+/** At or below the automation, and inside a seat author's reach; call at fire time (07). */
+automationTargets(canvas, automationId: NodeId, author: AutomationAuthor): ReadonlyArray<ReachNode>;
 
-/** Seats that reach a resource. Reviewers, mention candidates, recipients. */
-seatsInReach(canvas: Canvas, resourceId: NodeId): ReadonlyArray<NodeRef>;
-
-/** Downward only, and within the author's reach unless the author is the
- *  operator; rechecked at fire time against the author's current position (07). */
-automationTargets(canvas: Canvas, automationId: NodeId, author: Actor): ReadonlyArray<NodeRef>;
+RESOURCE_KINDS = ["task", "artifacts"]   // "automations" joins with its kind (C5)
+COMMENTABLE_KINDS = [...RESOURCE_KINDS, "page"]
+SEAT_KINDS = ["agent", "peer"]
 ```
+
+`ReachCanvas` is any `{ nodes }` map of framed nodes, which a `Canvas` already is.
+Nothing is cached. A region that is gone fails closed: it is on no line.
+The assignee exemption (rule 6) is the task domain's `reachExempt`
+(`src/shared/task-model.ts`), which the ruler asks before it refuses for reach.
 
 Rules:
 

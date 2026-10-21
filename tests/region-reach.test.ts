@@ -46,6 +46,8 @@ const canvas = canvasOf(
   node("AU", "note", 300, 800),
   node("S1", "agent", 20, 20),
   node("T1", "task", 100, 20),
+  node("A1a", "region", 20, 200, 150, 150),
+  node("T1a", "task", 30, 210),
   node("S2", "agent", 520, 20),
   node("T2", "artifacts", 600, 20),
   node("B", "region", 2000, 0, 500, 500),
@@ -64,15 +66,37 @@ const id = asNodeId;
 
 describe("region reach", () => {
   it("reaches its own region, regions above and regions below, never a sibling or a cousin", () => {
-    expect(ids(resourcesInReach(canvas, id("S1")))).toEqual(["T0", "T1", "TA"]);
-    expect(ids(resourcesInReach(canvas, id("SA")))).toEqual(["T0", "T1", "T2", "TA"]);
+    expect(ids(resourcesInReach(canvas, id("S1")))).toEqual(["T0", "T1", "T1a", "TA"]);
+    expect(ids(resourcesInReach(canvas, id("SA")))).toEqual(["T0", "T1", "T1a", "T2", "TA"]);
     expect(reaches(canvas, id("S1"), id("T2"))).toBe(false);
     expect(reaches(canvas, id("S1"), id("TB"))).toBe(false);
   });
 
+  it("never reaches a cousin: a region inside a sibling", () => {
+    expect(reaches(canvas, id("S1"), id("T1a"))).toBe(true);
+    expect(reaches(canvas, id("S2"), id("T1a"))).toBe(false);
+    expect(reaches(canvas, id("SB"), id("T1a"))).toBe(false);
+  });
+
+  it("lets only a seat reach resources: not a region, a task node or a peer row", () => {
+    const withPeer = canvasOf(...canvas.nodes.values(), node("P1", "peer", 30, 30));
+    expect(resourcesInReach(withPeer, id("A1"))).toEqual([]);
+    expect(resourcesInReach(withPeer, id("T1"))).toEqual([]);
+    expect(resourcesInReach(withPeer, id("P1"))).toEqual([]);
+    expect(ids(seatsInReach(withPeer, id("T1")))).toContain("P1");
+  });
+
+  it("fails closed when held positions name a region that is gone", () => {
+    const seat = positionsOf(canvas, id("S1"))!;
+    const task = positionsOf(canvas, id("TA"))!;
+    const without = canvasOf(...[...canvas.nodes.values()].filter((n) => n.id !== "A1"));
+    expect(() => onOneLine(without, seat, task)).not.toThrow();
+    expect(onOneLine(without, seat, task)).toBe(false);
+  });
+
   it("puts a loose node at the root, on one line with everything", () => {
     expect(positionsOf(canvas, id("L"))?._tag).toBe("Root");
-    expect(ids(resourcesInReach(canvas, id("L")))).toEqual(["T0", "T1", "T2", "TA", "TB", "TX", "TY"]);
+    expect(ids(resourcesInReach(canvas, id("L")))).toEqual(["T0", "T1", "T1a", "T2", "TA", "TB", "TX", "TY"]);
     expect(ids(seatsInReach(canvas, id("T0")))).toEqual(["L", "S1", "S2", "SA", "SB", "SX", "SXY"]);
   });
 
@@ -120,13 +144,13 @@ describe("region reach", () => {
 describe("automation targets", () => {
   it("are everything at or below the automation when the operator wrote it", () => {
     expect(ids(automationTargets(canvas, id("AU"), { kind: "operator" }))).toEqual([
-      "S1", "S2", "SA", "T1", "T2", "TA",
+      "S1", "S2", "SA", "T1", "T1a", "T2", "TA",
     ]);
   });
 
   it("stay inside the author's reach, so a seat cannot act on its siblings through a parent's automation", () => {
     expect(ids(automationTargets(canvas, id("AU"), { kind: "seat", seat: id("S1") }))).toEqual([
-      "S1", "SA", "T1", "TA",
+      "S1", "SA", "T1", "T1a", "TA",
     ]);
   });
 
