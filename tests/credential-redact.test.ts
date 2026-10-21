@@ -28,11 +28,10 @@ describe("retainUnmigratedProviderSecrets", () => {
   it("honors migrated slots and preserves non-section scalars", () => {
     const merged = retainUnmigratedProviderSecrets(
       { openrouter: { apiKey: "sk-stored" } },
-      { enabledSources: [], hermesHostSnapshots: true, openrouter: {} },
+      { enabledSources: [], openrouter: {} },
       new Set(["openrouter/apiKey"]),
     );
     expect(merged.enabledSources).toEqual([]);
-    expect(merged.hermesHostSnapshots).toBe(true);
     expect(merged.openrouter).toEqual({});
   });
 });

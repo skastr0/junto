@@ -14,7 +14,6 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   defaultRemoteHostsDocument,
-  hermesKeyFor,
 } from "../src/shared/remote-hosts";
 import {
   HostsService,
@@ -28,10 +27,8 @@ import {
   type HostsRegistry,
 } from "../src/main/junto/hosts/registry";
 import {
-  findHostByHermesId,
   findHostById,
   hostsSnapshot,
-  hostsWithCapability,
   setHostsSnapshot,
   subscribeHostsSnapshot,
 } from "../src/main/junto/hosts/snapshot";
@@ -43,7 +40,6 @@ import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
 import { MACHINE_REGISTRY_STATE_SCHEMA_SQL } from "../src/main/junto/hosts/state-schema";
 import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { MACHINE_STATE_SCHEMA_SQL } from "../src/main/junto/machines/state-schema";
-import { acpVerboseLogging } from "../src/main/junto/chat/acp-client";
 
 const dirs: string[] = [];
 const originalHome = process.env.HOME;
@@ -89,7 +85,6 @@ afterEach(async () => {
   );
   resetDefaultHostsRegistryForTests();
   setHostsSnapshot(defaultRemoteHostsDocument("macbook").hosts);
-  delete process.env.JUNTO_ACP_VERBOSE;
   delete process.env.JUNTO_DEBUG;
   if (originalHome === undefined) delete process.env.HOME;
   else process.env.HOME = originalHome;
@@ -104,7 +99,7 @@ describe("remote hosts registry", () => {
     const hosts = await registry.list();
     expect(hosts.map((host) => host.id)).toEqual(["macbook"]);
     expect(hosts[0]?.capabilities).toEqual(
-      expect.arrayContaining(["terminal", "browser", "hermes"]),
+      expect.arrayContaining(["terminal", "browser"]),
     );
   });
 
@@ -120,11 +115,11 @@ describe("remote hosts registry", () => {
       sshEndpoint: "studio",
       sshIdentityFile: "/Users/operator/.ssh/studio_ed25519",
       sshHostKeyPolicy: "accept-new",
-      capabilities: ["hermes"],
+      capabilities: ["terminal"],
       appearance: { color: "amber", glyph: "S" },
     });
     expect(written.find((host) => host.id === "studio")).toMatchObject({
-      capabilities: ["hermes"],
+      capabilities: ["terminal"],
       sshIdentityFile: "/Users/operator/.ssh/studio_ed25519",
       sshHostKeyPolicy: "accept-new",
       appearance: { color: "amber", glyph: "S" },
@@ -146,14 +141,14 @@ describe("remote hosts registry", () => {
     });
     const local = await cold.get("macbook");
     expect(local?.label).toBe("This machine");
-    expect(local?.capabilities).toHaveLength(3);
+    expect(local?.capabilities).toHaveLength(2);
     await expect(
       cold.upsert({
         id: "macbook",
         label: "Forged remote",
         isThisMachine: false,
         sshEndpoint: "forged",
-        capabilities: ["hermes"],
+        capabilities: ["terminal"],
       }),
     ).rejects.toMatchObject({ code: "validation" });
 
@@ -199,7 +194,7 @@ describe("remote hosts registry", () => {
         label: "Studio",
         isThisMachine: false,
         sshEndpoint: "studio",
-        capabilities: ["hermes"],
+        capabilities: ["terminal"],
       });
     } finally {
       await firstRuntime.dispose();
@@ -216,7 +211,7 @@ describe("remote hosts registry", () => {
     }
   });
 
-  it("rejects duplicate endpoint and effective Hermes identities before commit", async () => {
+  it("rejects a duplicate endpoint before commit", async () => {
     const root = await mkdtemp(join(tmpdir(), "junto-hosts-unique-"));
     dirs.push(root);
     const { registry } = await testRegistry(join(root, "junto.db"));
@@ -225,8 +220,7 @@ describe("remote hosts registry", () => {
       label: "Studio",
       isThisMachine: false,
       sshEndpoint: "shared",
-      capabilities: ["hermes"],
-      hermesId: "compute",
+      capabilities: ["terminal"],
     });
 
     await expect(
@@ -240,19 +234,6 @@ describe("remote hosts registry", () => {
     ).rejects.toMatchObject({
       code: "validation",
       message: expect.stringContaining("duplicate remote sshEndpoint"),
-    });
-    await expect(
-      registry.upsert({
-        id: "render",
-        label: "Render",
-        isThisMachine: false,
-        sshEndpoint: "render",
-        capabilities: ["hermes"],
-        hermesId: "compute",
-      }),
-    ).rejects.toMatchObject({
-      code: "validation",
-      message: expect.stringContaining("duplicate hermes id"),
     });
     expect((await registry.list()).map((host) => host.id)).toEqual([
       "macbook",
@@ -301,7 +282,7 @@ describe("remote hosts registry", () => {
           label: "Studio",
           isThisMachine: false,
           sshEndpoint: "studio",
-          capabilities: ["hermes"],
+          capabilities: ["terminal"],
           legacyToken: "retired-host-credential",
         }),
       ),
@@ -316,25 +297,35 @@ describe("remote hosts registry", () => {
     expect((await registry.list()).map((host) => host.id)).toEqual(["macbook"]);
   });
 
-  it("resolves optional hermesId aliases without product-specific defaults", () => {
-    setHostsSnapshot([
-      ...defaultRemoteHostsDocument("macbook").hosts,
-      {
-        id: "fleet-1",
-        label: "Fleet One",
-        isThisMachine: false,
-        sshEndpoint: "fleet-1",
-        capabilities: ["hermes"],
-        hermesId: "f1",
-      },
-    ]);
-    const host = findHostByHermesId("f1");
-    expect(host?.id).toBe("fleet-1");
-    expect(hermesKeyFor(host!)).toBe("f1");
-    expect(hostsWithCapability("hermes").map((row) => row.id)).toEqual([
-      "macbook",
-      "fleet-1",
-    ]);
+  it("reads rows that still carry a Hermes identity as plain hosts and writes none back", async () => {
+    const root = await mkdtemp(join(tmpdir(), "junto-hosts-hermes-retired-"));
+    dirs.push(root);
+    const databasePath = join(root, "junto.db");
+    const { registry } = await testRegistry(databasePath);
+    await registry.list();
+    const database = new DatabaseSync(databasePath);
+    try {
+      database.exec("UPDATE host_registry SET hermes_id = 'fleet-own', effective_hermes_id = 'fleet-own' WHERE is_this_machine = 1");
+      database.exec(`INSERT INTO host_registry(id, label, is_this_machine, ssh_endpoint, capability_mask, hermes_id, effective_hermes_id, sort_order)
+        VALUES ('fleet-1', 'Fleet One', 0, 'fleet-1', 9, 'f1', 'f1', 1)`);
+    } finally {
+      database.close();
+    }
+    const fleet = await registry.get("fleet-1");
+    expect(fleet).toEqual({ id: "fleet-1", label: "Fleet One", isThisMachine: false, sshEndpoint: "fleet-1", capabilities: ["terminal"] });
+    expect(await registry.get("macbook")).not.toHaveProperty("hermesId");
+
+    await registry.upsert({ ...fleet!, label: "Fleet" });
+    await registry.upsert({ id: "macbook", label: "This Mac", isThisMachine: true, capabilities: ["terminal"] });
+    const after = new DatabaseSync(databasePath);
+    try {
+      expect(after.prepare("SELECT id, capability_mask, hermes_id, effective_hermes_id FROM host_registry ORDER BY sort_order").all()).toEqual([
+        { id: "macbook", capability_mask: null, hermes_id: null, effective_hermes_id: "macbook" },
+        { id: "fleet-1", capability_mask: 1, hermes_id: null, effective_hermes_id: null },
+      ]);
+    } finally {
+      after.close();
+    }
   });
 
   it("hydrates persisted hosts before the first normal-boot route", async () => {
@@ -350,7 +341,7 @@ describe("remote hosts registry", () => {
         label: "Studio",
         isThisMachine: false,
         sshEndpoint: "studio-ssh",
-        capabilities: ["hermes"],
+        capabilities: ["terminal"],
       });
     } finally {
       await setupRuntime.dispose();
@@ -533,7 +524,7 @@ describe("remote hosts registry", () => {
         label: "Bracketed IPv6",
         isThisMachine: false,
         sshEndpoint: "ops@[2001:db8::10]",
-        capabilities: ["hermes"],
+        capabilities: ["terminal"],
       }),
     ).rejects.toMatchObject({ code: "validation" });
 
@@ -542,7 +533,7 @@ describe("remote hosts registry", () => {
       label: "IPv6",
       isThisMachine: false,
       sshEndpoint: "ops@2001:db8::10",
-      capabilities: ["hermes"],
+      capabilities: ["terminal"],
     });
     expect(ipv6.find((host) => host.id === "ipv6")?.sshEndpoint).toBe(
       "ops@2001:db8::10",
@@ -576,16 +567,5 @@ describe("remote hosts registry", () => {
       code: "validation",
       message: expect.stringContaining("duplicate capability"),
     });
-  });
-});
-
-describe("acp verbose logging gate", () => {
-  it("defaults off", () => {
-    expect(acpVerboseLogging()).toBe(false);
-  });
-
-  it("enables via JUNTO_ACP_VERBOSE", () => {
-    process.env.JUNTO_ACP_VERBOSE = "1";
-    expect(acpVerboseLogging()).toBe(true);
   });
 });

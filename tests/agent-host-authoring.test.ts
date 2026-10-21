@@ -12,15 +12,14 @@ const configured: AgentHostChoice = {
 };
 
 describe("agent host authoring", () => {
-  it("offers only machines that run terminals, this machine first, and carries the Hermes routing key", () => {
+  it("offers only machines that run terminals, this machine first, and keys each by host id", () => {
     const choices = actorHostChoicesFromEnrollment(
       [
         {
           id: "box-1",
           label: "Build box",
           isThisMachine: false,
-          capabilities: ["terminal", "hermes"],
-          hermesId: "hermes-box",
+          capabilities: ["terminal"],
         },
         {
           id: "browser-only",
@@ -40,7 +39,7 @@ describe("agent host authoring", () => {
 
     expect(choices).toEqual([
       { id: "studio", agentHost: "studio", label: "Studio" },
-      { id: "box-1", agentHost: "hermes-box", label: "Build box" },
+      { id: "box-1", agentHost: "box-1", label: "Build box" },
     ]);
   });
 

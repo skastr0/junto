@@ -790,10 +790,9 @@ export const ProvidersSettings = Schema.Struct({
    * session history, process state, or the network until explicitly enabled.
    */
   enabledSources: Schema.optionalKey(Schema.Array(NativeUsageProvider)),
-  /**
-   * Separate from usage-source `hermes`: local and enrolled-host SSH Hermes
-   * profile listing for the snapshot plane. Absent ≡ off.
-   */
+  // Retired Hermes host snapshot switch. Optional so installed preference rows
+  // that still carry the key decode under onExcessProperty:error; product
+  // ignores the value and the next write drops it. Not on ProvidersPatch.
   hermesHostSnapshots: Schema.optionalKey(Schema.Boolean),
   openai: Schema.optionalKey(OpenAIProviderCredentials),
   openrouter: Schema.optionalKey(OpenRouterProviderCredentials),
@@ -861,9 +860,6 @@ export const redactProvidersForIpc = (settings: Settings): Settings => {
     ...settings,
     providers: {
       enabledSources: [...(providers.enabledSources ?? [])],
-      ...(providers.hermesHostSnapshots === true
-        ? { hermesHostSnapshots: true }
-        : {}),
       ...Object.fromEntries(entries),
     } as ProvidersSettings,
   };
@@ -1014,7 +1010,6 @@ export const ProvidersPatch = Schema.Struct({
   enabledSources: Schema.optionalKey(Schema.Array(NativeUsageProvider)),
   /** One source, applied atomically against the current durable allowlist. */
   sourceAccess: Schema.optionalKey(ProviderSourceAccessPatch),
-  hermesHostSnapshots: Schema.optionalKey(Schema.Boolean),
   openai: Schema.optionalKey(OpenAIProviderCredentialsPatch),
   openrouter: Schema.optionalKey(OpenRouterProviderCredentials),
   synthetic: Schema.optionalKey(SyntheticProviderCredentials),
@@ -1603,14 +1598,6 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
     }
     if (patch.providers.sourceAccess !== undefined) {
       providers = applySourceAccess(providers, patch.providers.sourceAccess);
-    }
-    if (patch.providers.hermesHostSnapshots !== undefined) {
-      providers = patch.providers.hermesHostSnapshots
-        ? { ...providers, hermesHostSnapshots: true }
-        : (() => {
-            const { hermesHostSnapshots: _retired, ...rest } = providers;
-            return rest;
-          })();
     }
     for (const key of PROVIDER_SECTION_KEYS) {
       const sectionPatch: Record<string, string | undefined> | undefined =

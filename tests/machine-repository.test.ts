@@ -135,13 +135,13 @@ describe("machine repository", () => {
     } finally { await f.close(); }
   });
 
-  it("keeps an explicit Hermes alias when a fresh machine is named", async () => {
+  it("clears a retired Hermes alias when a fresh machine is named", async () => {
     const f = fixture();
     try {
       const repository = await f.runtime.runPromise(MachineRepository);
       f.database.exec("UPDATE host_registry SET hermes_id = 'profiles', effective_hermes_id = 'profiles'");
       await f.runtime.runPromise(repository.configureName("studio"));
-      expect(f.database.prepare("SELECT id,hermes_id,effective_hermes_id FROM host_registry").get()).toEqual({ id: "studio", hermes_id: "profiles", effective_hermes_id: "profiles" });
+      expect(f.database.prepare("SELECT id,hermes_id,effective_hermes_id FROM host_registry").get()).toEqual({ id: "studio", hermes_id: null, effective_hermes_id: "studio" });
     } finally { await f.close(); }
   });
 

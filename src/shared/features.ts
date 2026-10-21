@@ -426,6 +426,5 @@ export const productHostCapabilities = <T extends string>(
   capabilities: ReadonlyArray<T>,
 ): ReadonlyArray<T> => capabilities.filter((capability) => {
   if (!BROWSER_ENABLED && capability === "browser") return false;
-  if (!HERMES_INTEGRATION_ENABLED && capability === "hermes") return false;
   return true;
 });

@@ -91,8 +91,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         yield* hosts.upsert({
           id: input.name, label: input.label ?? previous?.label ?? input.name, isThisMachine: false,
           ...(previous?.appearance === undefined ? {} : { appearance: previous.appearance }),
-          ...(previous?.hermesId === undefined ? {} : { hermesId: previous.hermesId }),
-          sshEndpoint: input.sshTarget, capabilities: ["terminal", "hermes"],
+          sshEndpoint: input.sshTarget, capabilities: ["terminal"],
           ...(input.sshPort === undefined ? {} : { sshPort: input.sshPort }),
           ...(input.sshIdentityFile === undefined ? {} : { sshIdentityFile: input.sshIdentityFile }),
           ...(input.sshKnownHostsFile === undefined ? {} : { sshKnownHostsFile: input.sshKnownHostsFile }),

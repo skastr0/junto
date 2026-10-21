@@ -124,7 +124,8 @@ export const makeMachineRepository = (options: MachineRepositoryOptions = {}) =>
       const configuredAt = yield* Schema.decodeUnknownEffect(Timestamp)(now());
       const configuration = { ...stored.configuration, name };
       yield* configurations.write(configuration, configuredAt);
-      yield* sql`UPDATE host_registry SET id = ${name}, effective_hermes_id = coalesce(hermes_id, ${name})
+      // effective_hermes_id is a stand-in for the old CHECK until v26 drops it.
+      yield* sql`UPDATE host_registry SET id = ${name}, hermes_id = NULL, effective_hermes_id = ${name}
         WHERE is_this_machine = 1 AND id = ${previous}`;
       return { configuration, configuredAt };
     })).pipe(Effect.provideService(StateTransactionOperation, "machine.configure-name"),

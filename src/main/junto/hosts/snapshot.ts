@@ -1,6 +1,5 @@
 import {
   defaultRemoteHostsDocument,
-  hermesKeyFor,
   hostHasCapability,
   projectMachines,
   type HostCapability,
@@ -8,7 +7,7 @@ import {
 } from "@shared/remote-hosts";
 import { getDefaultHostsRegistry } from "./registry";
 
-/** Process-local snapshot so hermes hot paths stay sync. */
+/** Process-local snapshot so host lookups on hot paths stay sync. */
 let snapshot: ReadonlyArray<RemoteHost> = defaultRemoteHostsDocument().hosts;
 const listeners = new Set<(
   hosts: ReadonlyArray<RemoteHost>,
@@ -57,20 +56,8 @@ export const hostsWithCapability = (
 export const findHostById = (id: string): RemoteHost | undefined =>
   snapshot.find((host) => host.id === id);
 
-export const findHostByHermesId = (hermesId: string): RemoteHost | undefined =>
-  snapshot.find(
-    (host) =>
-      hostHasCapability(host, "hermes") && hermesKeyFor(host) === hermesId,
-  );
-
 export const sshEndpointForHostId = (id: string): string | undefined => {
   const host = findHostById(id);
-  if (!host || host.isThisMachine) return undefined;
-  return host.sshEndpoint;
-};
-
-export const sshEndpointForHermesId = (hermesId: string): string | undefined => {
-  const host = findHostByHermesId(hermesId);
   if (!host || host.isThisMachine) return undefined;
   return host.sshEndpoint;
 };

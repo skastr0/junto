@@ -31,7 +31,6 @@ export const ProvidersRead = Schema.TaggedStruct("ProvidersRead", { canvas: Canv
 export const ProvidersWrite = Schema.TaggedStruct("ProvidersWrite", {
   canvas: CanvasName,
   enabledSources: Schema.optionalKey(Sources),
-  hermesHostSnapshots: Schema.optionalKey(Schema.Boolean),
 });
 export const RecordRead = Schema.TaggedStruct("RecordRead", { canvas: CanvasName });
 export const StartupWrite = Schema.TaggedStruct("StartupWrite", {
@@ -65,8 +64,8 @@ const decodeRequest = Schema.decodeUnknownSync(LinkSettingsRequest, { onExcessPr
 /** Decode a request closed; a providers write must set something. */
 export const decodeLinkSettingsRequest = (raw: unknown): LinkSettingsRequest => {
   const request = decodeRequest(raw);
-  if (request._tag === "ProvidersWrite" && request.enabledSources === undefined && request.hermesHostSnapshots === undefined) {
-    throw new Error("a providers write sets enabledSources or hermesHostSnapshots");
+  if (request._tag === "ProvidersWrite" && request.enabledSources === undefined) {
+    throw new Error("a providers write sets enabledSources");
   }
   if (request._tag === "ProvidersWrite" && request.enabledSources !== undefined
     && new Set(request.enabledSources).size !== request.enabledSources.length) {
@@ -88,7 +87,6 @@ const Credentials = Schema.Struct(Object.fromEntries(PROVIDER_SECTION_KEYS.map((
 export const LinkProviders = Schema.Struct({
   machine: MachineName,
   enabledSources: Sources,
-  hermesHostSnapshots: Schema.Boolean,
   credentials: Credentials,
 });
 export type LinkProviders = typeof LinkProviders.Type;
@@ -164,7 +162,6 @@ export const wireProviders = (providers: MachineProviders): LinkProviders => {
   return {
     machine: providers.machine,
     enabledSources: providers.enabledSources.filter((source) => !seen.has(source) && seen.add(source)),
-    hermesHostSnapshots: providers.hermesHostSnapshots === true,
     credentials: credentials as LinkProviders["credentials"],
   };
 };
@@ -194,7 +191,6 @@ export const decodeLinkRecord = Schema.decodeUnknownSync(LinkRecord, { onExcessP
 export const providersOfWire = (wire: LinkProviders): MachineProviders => ({
   machine: wire.machine,
   enabledSources: [...wire.enabledSources],
-  hermesHostSnapshots: wire.hermesHostSnapshots,
   credentials: Object.fromEntries(Object.entries(wire.credentials).map(([section, fields]) => [section, { ...fields }])),
 });
 

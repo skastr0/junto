@@ -42,7 +42,6 @@ const stored = () => ({
   machine: { name: THIS_MACHINE, supervisedPreferred: false },
   providers: {
     enabledSources: ["claude"],
-    hermesHostSnapshots: false,
     openai: { apiKey: "sk-secret-value", baseUrl: "https://example.test" },
     openrouter: { apiKeyConfigured: true },
   },
@@ -121,7 +120,6 @@ describe("settings channel wire", () => {
     const wire = wireProviders({
       machine: "mini",
       enabledSources: ["claude", "claude"],
-      hermesHostSnapshots: true,
       credentials: { openai: { apiKey: true, baseUrl: true }, extra: { token: true } } as never,
     });
     expect(Object.keys(wire.credentials)).toEqual([...PROVIDER_SECTION_KEYS]);
@@ -133,7 +131,7 @@ describe("settings channel wire", () => {
   });
 
   it("decodes closed: a value, an excess key or an undeclared section is refused", () => {
-    const good = JSON.parse(JSON.stringify(wireProviders({ machine: "mini", enabledSources: [], hermesHostSnapshots: false, credentials: {} })));
+    const good = JSON.parse(JSON.stringify(wireProviders({ machine: "mini", enabledSources: [], credentials: {} })));
     expect(decodeLinkProviders(good).credentials.openai).toEqual({ apiKey: false });
     expect(() => decodeLinkProviders({ ...good, credentials: { ...good.credentials, openai: { apiKey: "sk-1" } } })).toThrow();
     expect(() => decodeLinkProviders({ ...good, credentials: { ...good.credentials, extra: {} } })).toThrow();
@@ -192,9 +190,9 @@ describe("settings channel answer", () => {
     const f = await runtimeWith([here], "editor");
     const channel = await f.runtime.runPromise(makeSettingsChannel());
     const providers = decodeLinkProviders(await f.runtime.runPromise(
-      channel.handleRequest!(context, { _tag: "ProvidersWrite", canvas, hermesHostSnapshots: true })));
-    expect(f.patch).toHaveBeenCalledWith({ providers: { hermesHostSnapshots: true } });
-    expect(providers.hermesHostSnapshots).toBe(true);
+      channel.handleRequest!(context, { _tag: "ProvidersWrite", canvas, enabledSources: ["codex"] })));
+    expect(f.patch).toHaveBeenCalledWith({ providers: { enabledSources: ["codex"] } });
+    expect(providers.machine).toBe(THIS_MACHINE);
     const record = await f.runtime.runPromise(
       channel.handleRequest!(context, { _tag: "StartupWrite", canvas, supervisedPreferred: true }));
     expect(f.setMachinePreferences).toHaveBeenCalledWith({ supervisedPreferred: true });

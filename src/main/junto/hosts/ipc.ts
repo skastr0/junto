@@ -44,14 +44,13 @@ const stripDnsDots = (value: string): string => value.replace(/\.+$/, "");
 const firstDnsLabelOf = (value: string): string =>
   stripDnsDots(value.trim().toLowerCase()).split(".")[0] ?? "";
 
-/** Lowercase tokens that identify an enrolled host (id, hermesId, endpoint). */
+/** Lowercase tokens that identify an enrolled host (id, endpoint). */
 const enrolledTokens = (
   hosts: ReadonlyArray<RemoteHost>,
 ): ReadonlySet<string> => {
   const tokens = new Set<string>();
   for (const host of hosts) {
     tokens.add(host.id.toLowerCase());
-    if (host.hermesId) tokens.add(host.hermesId.toLowerCase());
     const endpointToken = endpointHostToken(host.sshEndpoint);
     if (endpointToken) {
       tokens.add(endpointToken.toLowerCase());

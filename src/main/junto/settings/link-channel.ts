@@ -61,7 +61,6 @@ export const makeSettingsChannel = Effect.fn("SettingsLink.make")(function* () {
       case "ProvidersWrite": {
         const providers = {
           ...(request.enabledSources === undefined ? {} : { enabledSources: [...request.enabledSources] }),
-          ...(request.hermesHostSnapshots === undefined ? {} : { hermesHostSnapshots: request.hermesHostSnapshots }),
         };
         yield* settings.patch({ providers });
         return wireProviders(machineProvidersOf(yield* settings.get, machine));

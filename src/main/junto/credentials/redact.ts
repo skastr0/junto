@@ -46,9 +46,6 @@ export const stripProviderSecretsFromPreferences = (
       ...(Array.isArray(providers.enabledSources)
         ? { enabledSources: providers.enabledSources }
         : {}),
-      ...(providers.hermesHostSnapshots === true
-        ? { hermesHostSnapshots: true }
-        : {}),
       ...nextProviders,
     },
   };
@@ -92,7 +89,7 @@ export const retainUnmigratedProviderSecrets = (
   const merged: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(next)) {
     // Only provider sections merge field-by-field. Non-section keys
-    // (enabledSources, hermesHostSnapshots) pass through verbatim: spreading
+    // (enabledSources) pass through verbatim: spreading
     // the enabledSources array into a plain object wrote an invalid row that
     // failed closed on the next decode.
     if (!PROVIDER_SECTION_KEYS.includes(key as ProviderSectionKey)) {

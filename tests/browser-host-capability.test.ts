@@ -27,7 +27,7 @@ const authority = (
 
 describe("browser HostCapability admission", () => {
   it("admits a declared browser capability only on this machine", () => {
-    const studio = host("studio", ["terminal", "browser", "hermes"], true);
+    const studio = host("studio", ["terminal", "browser"], true);
     expect(admitBrowserHostCapability("studio", authority([studio]))).toEqual({
       ok: true,
       host: studio,

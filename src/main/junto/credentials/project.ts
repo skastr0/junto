@@ -23,9 +23,6 @@ export const projectProvidersForRead = (
   }
   const next: Record<string, unknown> = {
     enabledSources: [...(persisted.enabledSources ?? [])],
-    ...(persisted.hermesHostSnapshots === true
-      ? { hermesHostSnapshots: true }
-      : {}),
   };
   for (const key of PROVIDER_SECTION_KEYS) {
     if (key === "openai") {

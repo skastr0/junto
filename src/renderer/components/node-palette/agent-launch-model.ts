@@ -1,6 +1,5 @@
 import type { HostsOpResult } from "@shared/ipc";
 import { TERMINAL_HOST_CAPABILITY } from "@shared/remote-hosts";
-import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import { paramSpec } from "@shared/harness-domain";
 import { HARNESS_RECORDS } from "@shared/harness-records";
@@ -75,9 +74,7 @@ export const actorHostChoicesFromEnrollment = (
     })
     .map((host) => ({
       id: host.id,
-      agentHost: HERMES_INTEGRATION_ENABLED
-        ? host.hermesId ?? host.id
-        : host.id,
+      agentHost: host.id,
       label: labelOf(host),
     }));
   return enrolled.some((host) => host.id === configured.id)

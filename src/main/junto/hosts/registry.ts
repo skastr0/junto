@@ -6,7 +6,6 @@ import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import {
   REMOTE_HOSTS_VERSION,
   RemoteHostsError,
-  hermesKeyFor,
   hostHasCapability,
   makeThisMachine,
   projectMachines,
@@ -15,19 +14,17 @@ import {
   type RemoteHostsDocument,
 } from "@shared/remote-hosts";
 
-const HERMES_CAPABILITY_BIT = 8;
 const MAX_HOSTS = 32;
 
+/** Bit 8 was the retired Hermes capability; reads ignore it until v26 clears it. */
 const CAPABILITY_BITS = {
   terminal: 1,
   browser: 2,
-  hermes: HERMES_CAPABILITY_BIT,
 } as const satisfies Record<HostCapability, number>;
 
 const CAPABILITIES_IN_STORAGE_ORDER = [
   "terminal",
   "browser",
-  "hermes",
 ] as const satisfies ReadonlyArray<HostCapability>;
 
 type HostRow = {
@@ -43,7 +40,6 @@ type HostRow = {
   readonly ssh_identity_file: string | null;
   readonly ssh_host_key_policy: "system" | "accept-new" | null;
   readonly capability_mask: number | null;
-  readonly hermes_id: string | null;
   readonly appearance_color: string | null;
   readonly appearance_glyph: string | null;
   readonly sort_order: number;
@@ -83,7 +79,6 @@ const validateHosts = (hosts: ReadonlyArray<RemoteHost>): void => {
   if (hosts.filter(host => host.isThisMachine).length !== 1) throw new RemoteHostsError("validation", "registry requires exactly one own machine");
   const ids = new Set<string>();
   const endpoints = new Set<string>();
-  const hermesKeys = new Set<string>();
 
   for (const host of hosts) {
     if (!isValidMachineName(host.id)) throw new RemoteHostsError("validation", "machine needs a real short name");
@@ -136,16 +131,6 @@ const validateHosts = (hosts: ReadonlyArray<RemoteHost>): void => {
     if (host.sshKnownHostsFile !== undefined && host.sshHostKeyPolicy === "accept-new") {
       throw new RemoteHostsError("validation", "a pinned known-hosts file requires strict checking");
     }
-    if (hostHasCapability(host, "hermes")) {
-      const key = hermesKeyFor(host);
-      if (hermesKeys.has(key)) {
-        throw new RemoteHostsError(
-          "validation",
-          `duplicate hermes id: ${key}`,
-        );
-      }
-      hermesKeys.add(key);
-    }
   }
 };
 
@@ -174,7 +159,6 @@ const rowToHost = (row: HostRow): RemoteHost => {
   if (row.is_this_machine === 1) {
     return makeThisMachine(row.id, {
       label: row.label,
-      ...(row.hermes_id === null ? {} : { hermesId: row.hermes_id }),
       ...(row.appearance_color === null && row.appearance_glyph === null
         ? {}
         : {
@@ -207,7 +191,6 @@ const rowToHost = (row: HostRow): RemoteHost => {
       ? {}
       : { sshHostKeyPolicy: row.ssh_host_key_policy }),
     capabilities: [...capabilitiesFromMask(row.capability_mask)],
-    ...(row.hermes_id === null ? {} : { hermesId: row.hermes_id }),
     ...(row.appearance_color === null && row.appearance_glyph === null
       ? {}
       : {
@@ -236,7 +219,6 @@ const HostRowSchema = Schema.Struct({
   ssh_identity_file: Schema.NullOr(Schema.String),
   ssh_host_key_policy: Schema.NullOr(Schema.Literals(["system", "accept-new"])),
   capability_mask: Schema.NullOr(Schema.Number),
-  hermes_id: Schema.NullOr(Schema.String),
   appearance_color: Schema.NullOr(Schema.String),
   appearance_glyph: Schema.NullOr(Schema.String),
   sort_order: Schema.Number,
@@ -278,7 +260,7 @@ export class HostRegistryRows extends Context.Service<HostRegistryRows, {
       Request: Schema.Void,
       Result: HostRowSchema,
       execute: () => sql`SELECT id, label, is_this_machine, ssh_endpoint, ssh_identity_file, ssh_port, ssh_known_hosts_file, ssh_host_key_alias, junto_home, install_root,
-        ssh_host_key_policy, capability_mask, hermes_id, appearance_color, appearance_glyph,
+        ssh_host_key_policy, capability_mask, appearance_color, appearance_glyph,
         sort_order FROM host_registry ORDER BY sort_order`,
     });
     const read = Effect.gen(function* () {
@@ -289,7 +271,8 @@ export class HostRegistryRows extends Context.Service<HostRegistryRows, {
     }).pipe(Effect.mapError((cause) => hostRowsError("read", cause)));
     const write = Effect.fn("HostRegistryRows.write")(function* (host: RemoteHost, sortOrder: number) {
       const mask = capabilityMask(host);
-      const effectiveHermesId = hostHasCapability(host, "hermes") ? hermesKeyFor(host) : null;
+      // Stand-in until v26 drops hermes_id and effective_hermes_id: the old CHECK wants the own row's id there.
+      const effectiveHermesId = host.isThisMachine ? host.id : null;
       yield* sql`INSERT INTO host_registry(
         id, label, is_this_machine, ssh_endpoint, ssh_identity_file, ssh_host_key_policy, ssh_port, ssh_known_hosts_file, ssh_host_key_alias, junto_home, install_root,
         capability_mask, hermes_id, effective_hermes_id, appearance_color, appearance_glyph, sort_order
@@ -302,7 +285,7 @@ export class HostRegistryRows extends Context.Service<HostRegistryRows, {
         ${!host.isThisMachine ? host.sshHostKeyAlias ?? null : null},
         ${!host.isThisMachine ? host.juntoHome ?? null : null},
         ${!host.isThisMachine ? host.installRoot ?? null : null},
-        ${mask}, ${host.hermesId ?? null}, ${effectiveHermesId},
+        ${mask}, NULL, ${effectiveHermesId},
         ${host.appearance?.color ?? null}, ${host.appearance?.glyph ?? null}, ${sortOrder})
       ON CONFLICT(id) DO UPDATE SET
         label = excluded.label, ssh_port = excluded.ssh_port, ssh_known_hosts_file = excluded.ssh_known_hosts_file, ssh_host_key_alias = excluded.ssh_host_key_alias, junto_home = excluded.junto_home, install_root = excluded.install_root, ssh_endpoint = excluded.ssh_endpoint,
@@ -393,7 +376,6 @@ const makeRunRegistryEffect = (
 export interface HostsRegistry {
   readonly list: () => Promise<ReadonlyArray<RemoteHost>>;
   readonly get: (id: string) => Promise<RemoteHost | undefined>;
-  readonly findByHermesId: (hermesId: string) => Promise<RemoteHost | undefined>;
   readonly withCapability: (
     capability: HostCapability,
   ) => Promise<ReadonlyArray<RemoteHost>>;
@@ -430,11 +412,6 @@ export const makeHostsRegistry = (
   return {
     list: async () => (await load()).hosts,
     get: async (id) => (await load()).hosts.find((host) => host.id === id),
-    findByHermesId: async (hermesId) =>
-      (await load()).hosts.find(
-        (host) =>
-          hostHasCapability(host, "hermes") && hermesKeyFor(host) === hermesId,
-      ),
     withCapability: async (capability) =>
       (await load()).hosts.filter((host) =>
         hostHasCapability(host, capability)

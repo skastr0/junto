@@ -183,16 +183,12 @@ export const registerSettingsIpc = (
   const refused = <A>(machine: string, message: string) =>
     Effect.succeed<MachineSettingsResult<A>>({ ok: false, error: { _tag: "MachineSettingsUnavailableError", machine, reason: "failed", message } });
   const providersChange = (patch: Record<string, unknown>): ProvidersChange | string => {
-    const extra = Object.keys(patch).filter((key) => key !== "enabledSources" && key !== "hermesHostSnapshots");
+    const extra = Object.keys(patch).filter((key) => key !== "enabledSources");
     if (extra.length > 0) return "A credential is set on its own machine; open Junto there to change it.";
-    const { enabledSources, hermesHostSnapshots } = patch;
-    if (enabledSources !== undefined && !Array.isArray(enabledSources)) return "enabledSources must be a list";
-    if (hermesHostSnapshots !== undefined && typeof hermesHostSnapshots !== "boolean") return "hermesHostSnapshots must be true or false";
-    if (enabledSources === undefined && hermesHostSnapshots === undefined) return "a providers change sets something";
-    return {
-      ...(enabledSources === undefined ? {} : { enabledSources: enabledSources as ReadonlyArray<NativeUsageProvider> }),
-      ...(hermesHostSnapshots === undefined ? {} : { hermesHostSnapshots }),
-    };
+    const { enabledSources } = patch;
+    if (enabledSources === undefined) return "a providers change sets something";
+    if (!Array.isArray(enabledSources)) return "enabledSources must be a list";
+    return { enabledSources: enabledSources as ReadonlyArray<NativeUsageProvider> };
   };
 
   ipcMain.handle(IPC_CHANNELS.machineProviders, (_event, machine: unknown) =>

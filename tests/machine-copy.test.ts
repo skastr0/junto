@@ -72,7 +72,7 @@ const fixture = async (options: { platform?: string; helloFailure?: boolean; bun
       return yield* repository.pinPeer({ machineName: host.id, installationId });
     }),
   }));
-  const host = Schema.decodeUnknownSync(RemoteHost)({ id: "mini", label: "Mini", isThisMachine: false, sshEndpoint: "mac-mini", capabilities: ["terminal", "hermes"] });
+  const host = Schema.decodeUnknownSync(RemoteHost)({ id: "mini", label: "Mini", isThisMachine: false, sshEndpoint: "mac-mini", capabilities: ["terminal"] });
   return { root, calls, receipt, repository, runtime, copy: (mode: "send" | "update") => runtime.runPromise(copy(host, { name: "mini" }, mode)), error: (mode: "send" | "update", bundle?: string) => runtime.runPromise(copy(host, { name: "mini", ...(bundle === undefined ? {} : { bundle }) }, mode).pipe(Effect.flip)) };
 };
 

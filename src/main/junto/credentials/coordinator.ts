@@ -36,9 +36,6 @@ export const resolveProviderSecrets = Effect.fn("credentials.resolve")(function*
 ) {
   const resolved: Record<string, unknown> = {
     enabledSources: [...(settings.providers?.enabledSources ?? [])],
-    ...(settings.providers?.hermesHostSnapshots === true
-      ? { hermesHostSnapshots: true }
-      : {}),
   };
   const put = (provider: string, field: string, value: string): void => {
     const section = (resolved[provider] as Record<string, string> | undefined) ?? {};

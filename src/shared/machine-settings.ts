@@ -22,7 +22,6 @@ import {
 export const MachineProviders = Schema.Struct({
   machine: Schema.String,
   enabledSources: Schema.Array(NativeUsageProvider),
-  hermesHostSnapshots: Schema.Boolean,
   /** Per provider section, per secret field: whether a value is stored there. */
   credentials: Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.Boolean)),
 });
@@ -86,7 +85,6 @@ export const machineProvidersOf = (settings: Settings, machine: string): Machine
   return {
     machine,
     enabledSources: [...(providers?.enabledSources ?? [])],
-    hermesHostSnapshots: providers?.hermesHostSnapshots === true,
     credentials,
   };
 };

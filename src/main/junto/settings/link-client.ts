@@ -53,7 +53,6 @@ class NoPathToMachine extends Schema.TaggedError<NoPathToMachine>()("NoPathToMac
 
 export type ProvidersChange = {
   readonly enabledSources?: ReadonlyArray<NativeUsageProvider>;
-  readonly hermesHostSnapshots?: boolean;
 };
 
 export const makePeerSettingsClient = () => {
@@ -142,7 +141,6 @@ export const makePeerSettingsClient = () => {
       _tag: "ProvidersWrite",
       canvas,
       ...(change.enabledSources === undefined ? {} : { enabledSources: [...change.enabledSources] }),
-      ...(change.hermesHostSnapshots === undefined ? {} : { hermesHostSnapshots: change.hermesHostSnapshots }),
     }), decodeLinkProviders).pipe(
       Effect.map(providersOfWire),
       (effect) => answered(machine, operationId, effect),
