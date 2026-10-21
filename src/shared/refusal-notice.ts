@@ -21,6 +21,7 @@ import {
   subjectNoticeRow,
   type SubjectNoticeRow,
 } from "./subject-notice";
+import { taskRefusalWordsOf } from "./task-machine";
 import type { ResourceSubject } from "./thread-subject";
 import type { OpId } from "./work-ids";
 
@@ -70,11 +71,25 @@ const KIND_NAMES: { readonly [K in ResourceRef["kind"]]: string } = {
   automation: "Automations",
 };
 
-/** The command as a seat would name it: its resource kind and its op's own kind. */
-export const commandWords = (command: QueuedCommand): string => {
+/** The op's own kind, when it names a plain one. */
+const opKindOf = (command: QueuedCommand): string | undefined => {
   const { op } = command;
   const kind = typeof op === "object" && op !== null && !Array.isArray(op) ? (op as { readonly kind?: unknown }).kind : undefined;
-  return typeof kind === "string" && /^[a-z][a-z_-]{0,31}$/.test(kind) ? `${command.target.kind} ${kind}` : command.target.kind;
+  return typeof kind === "string" && /^[a-z][a-z_-]{0,31}$/.test(kind) ? kind : undefined;
+};
+
+/** The command as a seat would name it: its resource kind and its op's own kind. */
+export const commandWords = (command: QueuedCommand): string => {
+  const kind = opKindOf(command);
+  return kind === undefined ? command.target.kind : `${command.target.kind} ${kind}`;
+};
+
+/** A task's own words for a transition it refused (`A canceled task cannot start`), rebuilt from the row's token. */
+const domainWordsOf = (ruling: RulingRefusedResult, command: QueuedCommand): string | undefined => {
+  const kind = opKindOf(command);
+  return command.target.kind === "task" && ruling.reason === "invalid_transition" && kind !== undefined
+    ? taskRefusalWordsOf(ruling.expected, kind)
+    : undefined;
 };
 
 /** What the command lost to, as a bounded token, such as `epoch:7`; anything else is left out of the text. */
@@ -106,10 +121,13 @@ export const refusalNoticeOf = (input: RefusalNoticeInput): RefusalNotice | unde
   if (ruling.root !== ruling.opId || ruling.actor.kind !== "seat") return undefined;
   const recipient = ruling.actor.nodeId;
   const dependents = refusedWith(ruling.opId, input.queue);
-  const lostTo = lostToWords(ruling.expected);
+  const words = domainWordsOf(ruling, command);
+  // The domain's words already say what the token says.
+  const lostTo = words === undefined ? lostToWords(ruling.expected) : undefined;
+  const error = refusalErrorOf(ruling);
   const text = refusalText({
     command: commandWords(command),
-    error: refusalErrorOf(ruling),
+    error: words === undefined ? error : { ...error, message: words },
     ...(lostTo === undefined ? {} : { lostTo }),
     ...(dependents.length === 0 ? {} : { dependents }),
   });

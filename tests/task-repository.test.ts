@@ -19,6 +19,8 @@ import { TASKS_STATE_SCHEMA_SQL } from "../src/main/junto/work/task-state-schema
 import { REVIEW_VERDICTS_SCHEMA_SQL } from "../src/main/junto/state/migrate-review-stamps";
 import { RESOURCE_RULINGS_STATE_SCHEMA_SQL } from "../src/main/junto/work/resource-rulings-schema";
 import { writeRuling } from "../src/main/junto/work/resource-rulings";
+import type { RecordRulingInput } from "../src/main/junto/work/repository";
+import { rulingRowOf } from "../src/shared/command-row";
 import { RulingRecorder } from "../src/main/junto/work/ruling-recorder";
 import {
   TaskRepository,
@@ -30,6 +32,8 @@ import {
 
 let database: DatabaseSync;
 let runtime: ManagedRuntime.ManagedRuntime<TaskRepository, unknown>;
+/** Every ruling the repository handed the recorder. */
+const recorded: Array<RecordRulingInput> = [];
 
 beforeEach(() => {
   database = new DatabaseSync(":memory:");
@@ -46,11 +50,13 @@ beforeEach(() => {
     RulingRecorder,
     Effect.map(SqlClient.SqlClient, (sql) =>
       RulingRecorder.of({
-        record: (input) =>
-          writeRuling(sql, { canvas: input.canvasName, writer: input.writer, command: input.command, record: input.record }).pipe(
+        record: (input) => {
+          recorded.push(input);
+          return writeRuling(sql, { canvas: input.canvasName, writer: input.writer, command: input.command, record: input.record }).pipe(
             Effect.asVoid,
             Effect.orDie,
-          ),
+          );
+        },
       })),
   );
   runtime = ManagedRuntime.make(TaskRepositoryLive.pipe(Layer.provide(recorder), Layer.provide(client)));
@@ -144,6 +150,17 @@ describe("task repository", () => {
     const refused = await submit(command({ kind: "assign", seat: ada }, two.taskId));
     expect(refused.kind).toBe("refused");
     if (refused.kind === "refused") expect(refused.error.details).toMatchObject({ reason: "already_held" });
+  });
+
+  it("records a refused transition's detail on its ruling row as a token the seat's machine words", async () => {
+    const { taskId } = await create("one");
+    // The seat is assigned and queues its start; the operator cancels first.
+    expect((await submit(command({ kind: "assign", seat: ada }, taskId))).kind).toBe("applied");
+    expect((await submit(command({ kind: "cancel" }, taskId))).kind).toBe("applied");
+    const start = command({ kind: "start" }, taskId, { actor: adaActor });
+    expect((await submit(start)).kind).toBe("refused");
+    const input = recorded.at(-1)!;
+    expect(rulingRowOf(input.writer, start, "task", input.ruling as never)).toMatchObject({ reason: "invalid_transition", expected: "from:canceled" });
   });
 
   it("refuses a command built on a refused one", async () => {

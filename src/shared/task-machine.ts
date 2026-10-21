@@ -26,6 +26,8 @@ import {
   type TaskRefusal,
   type TaskRefusalDetail,
   type TaskState,
+  TASK_STATES,
+  type TaskCommandKind,
 } from "./task-model";
 
 // The 0.10 task state machine (plan 04) on the task contract
@@ -283,6 +285,8 @@ export const ruleTaskCommand = <T extends TaskCore>(
   const { refuse, rule, illegal, complete, settle } = layerRules<T>(ctx);
 
   if (ASSIGNEE_ONLY[command.kind]) {
+    // A closed task is closed for everyone: say so, not that its assignee is someone else.
+    if (isClosedTaskState(task.state)) return illegal(task, command);
     const isAssignee = actor.kind === "seat" && actor.seat === task.assignee && isOpenTaskState(task.state);
     if (!isAssignee) return refuse({ kind: "not-assignee", ...(task.assignee ? { assignee: task.assignee } : {}) });
   }
@@ -552,6 +556,26 @@ export const taskRefusalMessage = (detail: TaskRefusalDetail): string => {
       return `Required checks are not green at this epoch (${parts.join("; ")}). Run them and report each with task check`;
     }
   }
+};
+
+/**
+ * A refusal as the bounded token a ruling row may carry (`from:canceled`,
+ * `epoch:7`): the row holds no domain text, so the seat's machine words it
+ * again from this and its own command (`taskRefusalWordsOf`).
+ */
+export const taskRefusalToken = (detail: unknown): string | undefined => {
+  if (typeof detail !== "object" || detail === null) return undefined;
+  const refusal = detail as TaskRefusalDetail;
+  if (refusal.kind === "illegal-transition") return `from:${refusal.from}`;
+  if (refusal.kind === "stale-epoch") return `epoch:${refusal.expected}`;
+  return undefined;
+};
+
+/** The task's own words for a refused command, from its row's token and the command's kind; none for any other token. */
+export const taskRefusalWordsOf = (token: string | undefined, command: string): string | undefined => {
+  const from = token?.startsWith("from:") ? token.slice("from:".length) : undefined;
+  if (from === undefined || !(TASK_STATES as ReadonlyArray<string>).includes(from) || !/^[a-z][a-z-]{0,31}$/.test(command)) return undefined;
+  return taskRefusalMessage({ kind: "illegal-transition", from: from as TaskState, command: command as TaskCommandKind });
 };
 
 const toRefusal = ({ reason, detail }: TaskRefusal): Refusal => ({

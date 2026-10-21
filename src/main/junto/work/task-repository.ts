@@ -31,6 +31,7 @@ import {
   type TaskFact,
   type TaskRecord,
   taskDomain,
+  taskRefusalToken,
 } from "@shared/task-machine";
 import {
   TASK_STATES,
@@ -508,7 +509,10 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
         command,
         kind: "task",
         record,
-        ruling,
+        // The row carries a refusal's detail only as a bounded token, so the seat's machine can word it.
+        ruling: ruling.kind === "applied"
+          ? ruling
+          : { ...ruling, error: { ...ruling.error, details: { ...ruling.error.details, expected: taskRefusalToken(ruling.error.details?.expected) } } },
         at: new Date(at).toISOString(),
       });
       return outcome;

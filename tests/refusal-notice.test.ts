@@ -52,6 +52,20 @@ const queue: ReadonlyArray<QueuedLink> = [
   { opId: UNRELATED, after: [] },
 ];
 
+describe("a task's refused transition", () => {
+  it("is worded as the task refused it, from the row's token, not in the generic words", () => {
+    const notice = refusalNoticeOf({
+      installationId: MINI,
+      ruling: refused({ reason: "invalid_transition", expected: "from:canceled" }),
+      command: command({ op: { kind: "start" } } as Partial<QueuedCommand>),
+      queue: [],
+    });
+    expect(notice?.row.text).toContain("task start was refused: A canceled task cannot start");
+    expect(notice?.row.text).not.toContain("not in a state that allows this");
+    expect(notice?.row.text).not.toContain("lost to");
+  });
+});
+
 describe("the commands refused with a root", () => {
   it("are every command whose after chain reaches it, oldest first, without the root", () => {
     expect(refusedWith(ROOT, queue)).toEqual([CHILD, GRANDCHILD]);
