@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { InstallationId } from "../src/shared/installation-id";
 import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
-import { migrateTaskModel, titleAndBody } from "../src/main/junto/state/migrate-task-model";
+import { migrateTaskModel, taskIdOf, titleAndBody } from "../src/main/junto/state/migrate-task-model";
 
 // The old tables, cut to the columns the step reads.
 const OLD_SCHEMA = `
@@ -151,6 +151,19 @@ describe("task model migration", () => {
       ["working", "seat-ada"],
       ["canceled", null],
     ]);
+  });
+
+  it("gives a task id from before ULIDs a ULID from its time and old id, and moves dependencies with it", () => {
+    db.prepare("INSERT INTO work_tasks VALUES ('factory', 'tasks-1', 'task-old', NULL, 'submitted', 'b', ?, ?)").run(iso(1), iso(2));
+    task(2, "submitted", null, "b", 2);
+    db.prepare("INSERT INTO work_task_dependencies VALUES ('factory', 'tasks-1', ?, 'task-old', 0)").run(id(2));
+    migrateTaskModel(db);
+    const derived = taskIdOf("factory", "task-old", Date.parse(iso(1)));
+    expect(derived).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+    expect(derived).toBe(taskIdOf("factory", "task-old", Date.parse(iso(1))));
+    expect(heads().map((row) => row.task_id)).toEqual([derived, id(2)]);
+    expect(JSON.parse(String(heads()[1]!.depends_on_json))).toEqual([derived]);
+    expect(taskIdOf("factory", id(2), 0)).toBe(id(2));
   });
 
   it("titles an empty brief with the task id and cuts long titles at 200", () => {

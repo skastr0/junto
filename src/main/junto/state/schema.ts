@@ -19,6 +19,7 @@ import {
 } from "../content/state-schema";
 import { WORK_STATE_SCHEMA_SQL } from "../work/state-schema";
 import { ARTIFACTS_STATE_SCHEMA_SQL } from "../work/artifact-state-schema";
+import { TASKS_STATE_SCHEMA_SQL } from "../work/task-state-schema";
 import { RESOURCE_RULINGS_STATE_SCHEMA_SQL } from "../work/resource-rulings-schema";
 import {
   CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL,
@@ -97,6 +98,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   WORK_STATE_SCHEMA_SQL,
   RESOURCE_RULINGS_STATE_SCHEMA_SQL,
   ARTIFACTS_STATE_SCHEMA_SQL,
+  TASKS_STATE_SCHEMA_SQL,
   AUTOMATION_STATE_SCHEMA_SQL,
   LICENSE_STATE_V1_SCHEMA_SQL,
   LICENSE_STATE_V2_SCHEMA_SQL,

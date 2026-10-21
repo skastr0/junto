@@ -1,7 +1,7 @@
+import { createHash } from "node:crypto";
 import type { InstallationId } from "@shared/installation-id";
 import { LEGACY_TASK_STATES, isClosedTaskState, isOpenTaskState, remapLegacyTaskState, type LegacyTaskState } from "@shared/task-model";
 import { deriveActorSeatId } from "../actor-seat-id";
-import { TASKS_STATE_SCHEMA_SQL } from "../work/task-state-schema";
 import type { StateSchemaMigrationDatabase } from "./migrations";
 
 /**
@@ -23,9 +23,64 @@ import type { StateSchemaMigrationDatabase } from "./migrations";
  * - Numbers run per canvas in order of each task's first row, from 1.
  * - The title is the brief's first line, at most 200 characters; the body is
  *   the brief when it says more than the title.
+ * - A task id from before ids were ULIDs becomes a ULID made from the task's
+ *   creation time and a hash of its canvas and old id, the same on every
+ *   machine; dependencies on it follow.
  * - Epochs start at 0 with no reviewers or stamps: nothing in the old rows is
  *   a stamp.
  */
+
+/** The task tables as version 31 created them. Frozen. */
+export const TASK_TABLES_V31_SQL = `
+  CREATE TABLE IF NOT EXISTS task_heads (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    task_id TEXT NOT NULL CHECK (length(task_id) = 26),
+    number INTEGER NOT NULL CHECK (number >= 1),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    title TEXT NOT NULL CHECK (length(title) >= 1),
+    body TEXT,
+    state TEXT NOT NULL
+      CHECK (state IN ('backlog', 'assigned', 'working', 'input-required', 'in-review', 'done', 'canceled', 'archived')),
+    assignee_node_id TEXT CHECK (assignee_node_id IS NULL OR length(assignee_node_id) BETWEEN 1 AND 256),
+    epoch INTEGER NOT NULL CHECK (epoch >= 0),
+    stamps_required INTEGER NOT NULL CHECK (stamps_required >= 0),
+    reviewers_json TEXT NOT NULL CHECK (json_valid(reviewers_json)),
+    depends_on_json TEXT NOT NULL CHECK (json_valid(depends_on_json)),
+    next_node_id TEXT CHECK (next_node_id IS NULL OR length(next_node_id) BETWEEN 1 AND 256),
+    created_at INTEGER NOT NULL CHECK (created_at >= 0),
+    updated_at INTEGER NOT NULL CHECK (updated_at >= created_at),
+    PRIMARY KEY (canvas_name, task_id),
+    UNIQUE (canvas_name, number),
+    CHECK ((state IN ('assigned', 'working', 'input-required', 'in-review')) = (assignee_node_id IS NOT NULL)
+      OR state IN ('done', 'canceled', 'archived')),
+    CHECK (next_node_id IS NULL OR state = 'in-review')
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE INDEX IF NOT EXISTS task_heads_by_node
+    ON task_heads (canvas_name, node_id, updated_at DESC);
+
+  CREATE INDEX IF NOT EXISTS task_heads_by_assignee
+    ON task_heads (canvas_name, assignee_node_id)
+    WHERE assignee_node_id IS NOT NULL;
+
+  CREATE TABLE IF NOT EXISTS task_layers (
+    canvas_name TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    layer_json TEXT NOT NULL CHECK (json_valid(layer_json)),
+    closed_at INTEGER NOT NULL CHECK (closed_at >= 0),
+    PRIMARY KEY (canvas_name, task_id, ordinal),
+    FOREIGN KEY (canvas_name, task_id)
+      REFERENCES task_heads (canvas_name, task_id)
+      ON DELETE CASCADE
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE TABLE IF NOT EXISTS task_numbers (
+    canvas_name TEXT NOT NULL PRIMARY KEY CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    next_number INTEGER NOT NULL CHECK (next_number >= 1)
+  ) STRICT, WITHOUT ROWID;
+`;
 
 const TITLE_MAX = 200;
 
@@ -59,13 +114,29 @@ export const titleAndBody = (brief: string, taskId: string): { readonly title: s
   return brief.length > 0 && brief !== title ? { title, body: brief } : { title };
 };
 
+const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/u;
+const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/** A stored task id as a ULID: kept when it is one, else derived from its time and old id. */
+export const taskIdOf = (canvas: string, stored: string, createdAt: number): string => {
+  if (ULID.test(stored)) return stored;
+  let time = "";
+  for (let rest = Math.min(Math.max(createdAt, 0), 2 ** 48 - 1), i = 0; i < 10; i++, rest = Math.floor(rest / 32)) {
+    time = CROCKFORD[rest % 32]! + time;
+  }
+  const digest = createHash("sha256").update(JSON.stringify(["junto/task-id/v1", canvas, stored]), "utf8").digest();
+  let random = "";
+  for (let i = 0; i < 16; i++) random += CROCKFORD[digest[i]! % 32]!;
+  return time + random;
+};
+
 const millis = (iso: unknown): number => {
   const at = Date.parse(text(iso));
   return Number.isFinite(at) && at >= 0 ? at : 0;
 };
 
 export const migrateTaskModel = (database: StateSchemaMigrationDatabase): void => {
-  database.exec(TASKS_STATE_SCHEMA_SQL);
+  database.exec(TASK_TABLES_V31_SQL);
 
   const installation = database.prepare("SELECT installation_id FROM installation WHERE singleton = 1").get();
   const installationId = text(installation?.installation_id);
@@ -113,6 +184,11 @@ export const migrateTaskModel = (database: StateSchemaMigrationDatabase): void =
     else held.push(row);
   }
 
+  const newIds = new Map<string, string>();
+  for (const [key, taskRows] of byTask) {
+    newIds.set(key, taskIdOf(text(taskRows[0]!.canvas_name), text(taskRows[0]!.task_id), millis(taskRows[0]!.created_at)));
+  }
+
   const insertHead = database.prepare(`
     INSERT INTO task_heads (canvas_name, task_id, number, node_id, title, body, state, assignee_node_id, epoch,
       stamps_required, reviewers_json, depends_on_json, next_node_id, created_at, updated_at)
@@ -125,7 +201,8 @@ export const migrateTaskModel = (database: StateSchemaMigrationDatabase): void =
   const holding = new Set<string>();
   for (const taskRows of byTask.values()) {
     const canvas = text(taskRows[0]!.canvas_name);
-    const taskId = text(taskRows[0]!.task_id);
+    const storedId = text(taskRows[0]!.task_id);
+    const taskId = newIds.get(`${canvas}\u0000${storedId}`)!;
     const seatOf = (row: Row) =>
       row.actor_seat_id === null ? undefined : seatNodes.get(`${canvas}\u0000${text(row.actor_seat_id)}`);
     const stateOf = (row: Row) => {
@@ -147,9 +224,10 @@ export const migrateTaskModel = (database: StateSchemaMigrationDatabase): void =
     const number = (numbers.get(canvas) ?? 0) + 1;
     numbers.set(canvas, number);
     const { title, body } = titleAndBody(briefText(taskRows[0]!.parts_json), taskId);
-    const dependsOn = (dependencies.get(`${canvas}\u0000${node}\u0000${taskId}`) ?? []).filter((id) =>
-      byTask.has(`${canvas}\u0000${id}`) && id !== taskId
-    );
+    const dependsOn = (dependencies.get(`${canvas}\u0000${node}\u0000${storedId}`) ?? []).flatMap((id) => {
+      const on = newIds.get(`${canvas}\u0000${id}`);
+      return on === undefined || on === taskId ? [] : [on];
+    });
     const createdAt = millis(taskRows[0]!.created_at);
     insertHead.run(
       canvas,

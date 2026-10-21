@@ -174,3 +174,9 @@ export const STATE_SCHEMA_V30_SQL = stepped(
   STATE_SCHEMA_V29_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 30)!.migrate,
 );
+
+// Version 31 added the 0.10 task tables and copied every task in (30 -> 31).
+export const STATE_SCHEMA_V31_SQL = stepped(
+  STATE_SCHEMA_V30_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 31)!.migrate,
+);

@@ -32,6 +32,7 @@ import { migrateSeatRows } from "./migrate-seat-rows";
 import { migrateRetireOnRemove } from "./migrate-retire-on-remove";
 import { migrateRulingActor } from "./migrate-ruling-actor";
 import { migrateArtifactBodyRefs } from "./migrate-artifact-body-refs";
+import { migrateTaskModel } from "./migrate-task-model";
 import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-models-state-schema";
 import {
   actualStateSchemaSha256,
@@ -355,7 +356,17 @@ export const STATE_SCHEMA_V30_IDENTITY = {
     "4ae32757b439425bcda3df39f07a8edcffca5af44b152ee6b40d24d60c17bc27",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 30;
+/**
+ * Version 31 adds the 0.10 tasks (plan 04): `task_heads`, `task_layers` and
+ * `task_numbers`, with every stored task copied in through the contract's
+ * state remap (`migrate-task-model.ts`). Expand only.
+ */
+export const STATE_SCHEMA_V31_IDENTITY = {
+  actualSchemaSha256:
+    "b4f31a7c29db5bee02d6d2b851eae5aac95f3a9f061c839d52de60b984e92b3d",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 31;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -363,7 +374,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 30;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V30_IDENTITY;
+  STATE_SCHEMA_V31_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -556,6 +567,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     migrate: (database) => {
       database.exec(STUBS_STATE_SCHEMA_SQL);
     },
+  },
+  {
+    fromVersion: 30,
+    toVersion: 31,
+    name: "add the task tables and copy every task into them",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V30_IDENTITY,
+    migrate: (database) => migrateTaskModel(database),
   },
 ];
 
