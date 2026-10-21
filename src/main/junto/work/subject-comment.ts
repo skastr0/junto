@@ -89,17 +89,21 @@ const posterNode = (actor: ResourceActor): NodeId | undefined => (actor.kind ===
 const isBoxRect = Schema.is(BoxAnchor);
 
 /**
- * The page's address as a comment keeps it: no query and no fragment, which
- * can hold a session token, since the comment crosses machines with its thread.
+ * The page's address as a comment keeps it: no name, password, query or
+ * fragment, any of which can hold a token, since the comment crosses
+ * machines with its thread. An address that does not parse is kept as
+ * nothing, and the comment is refused.
  */
-const withoutQuery = (url: string): string => {
+const withoutQuery = (url: string): string | undefined => {
   try {
     const parsed = new URL(url);
+    parsed.username = "";
+    parsed.password = "";
     parsed.search = "";
     parsed.hash = "";
     return parsed.href;
   } catch {
-    return url;
+    return undefined;
   }
 };
 
@@ -250,8 +254,9 @@ export const postSubjectComment = (
           : { canvasName, nodeId: input.actor.nodeId as string };
         shotOwner = { kind: "message", canvasName, nodeId, recordId: messageId };
         const ref = yield* holdShot(shot, stager, shotOwner);
-        const anchor = { ...box, url: withoutQuery(shot.url), scroll: shot.scroll, shot: ref };
-        if (!isPageBox(anchor)) {
+        const url = withoutQuery(shot.url);
+        const anchor = { ...box, url, scroll: shot.scroll, shot: ref };
+        if (url === undefined || !isPageBox(anchor)) {
           yield* releaseShot(shotOwner);
           return yield* Effect.fail<WorkErrorBody>({
             type: "InputError",

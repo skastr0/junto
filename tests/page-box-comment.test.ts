@@ -158,6 +158,19 @@ describe("a page box comment", () => {
     expect(await rows()).toEqual([]);
   });
 
+  it("keeps no name or password from the page's address", async () => {
+    const posted = await post(comment("01M5ESMJV6GNZ0891YFFWS0S43"), context(capture("https://user:t0ken@example.com/a?q=1")));
+    if (posted._tag === "Failure") throw new Error(posted.failure.message);
+    const row = (await rows()).find((message) => message.messageId === posted.success.messageId)!;
+    expect(threadSubjectOf(row)).toMatchObject({ anchor: { url: "https://example.com/a" } });
+    expect(JSON.stringify(row.metadata)).not.toContain("t0ken");
+  });
+
+  it("refuses an address that does not parse, keeping nothing of it", async () => {
+    expect(failure(await post(comment("01M5ESMJV6GNZ0891YFFWS0S44"), context(capture("not a url"))))).toMatchObject({ type: "InputError" });
+    expect(await rows()).toEqual([]);
+  });
+
   it("lets the claim go when the page's address cannot be named", async () => {
     const refused = await post(comment("01M5ESMJV6GNZ0891YFFWS0S3Y"), context(capture("file:///etc/hosts")));
     expect(failure(refused)).toMatchObject({ type: "InputError" });
