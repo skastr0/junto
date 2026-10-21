@@ -14,7 +14,13 @@ local mechanisms outside Junto. Owner-only sockets and files exclude other
 users; they do not isolate processes belonging to their owner. Seat credentials
 attribute Junto calls, and edges limit those calls. The CLI refuses owner and
 machine commands from a seat environment to prevent confused use. These checks
-are not a sandbox or proof that a human made a request.
+are not a sandbox or proof that a human made a request. A seat's credential
+is in its environment, and any process of the same account can read another
+process's environment through the process table (`ps eww`, or the
+`KERN_PROCARGS2` sysctl). So any seat can take another seat's credential and
+act as that seat on every socket, an overseer's canvas writes included, just
+as it can edit `~/.junto` directly. Seat identity is attribution between
+cooperating agents on one account, not a boundary between them.
 
 The operator, chosen accounts and attached agents are trusted participants.
 Agents are fallible: hostile pages, repositories, messages and tool output can
