@@ -11,10 +11,12 @@
  * commit and its wake-up, or a change of editor, loses no command.
  *
  * A ruling is final, so only what can never apply is refused here: a target
- * that names no node of its kind, a kind this build turns off or rules no
- * domain for (refused not_available, so the writer's machine hears of it), an
- * op its domain cannot decode, or a command built on a refused one. A command
- * whose `after` names a command not ruled yet stays queued.
+ * that names no node of its kind, a kind this build turns off or never rules
+ * (refused not_available, so the writer's machine hears of it), an op its
+ * domain cannot decode, or a command built on a refused one. A command whose
+ * `after` names a command not ruled yet stays queued, and so does one of a
+ * ruled kind whose store this runtime did not start: a wiring fault, logged,
+ * never a ruling.
  */
 import { Context, Effect, Layer, Option, Result, Schema, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
@@ -76,6 +78,9 @@ export class ResourceRuler extends Context.Service<
   }
 >()("@junto/ResourceRuler") {}
 
+/** The kinds this build has a ruler for (`ResourceRulerLive`); any other is never ruled here. */
+const RULED_KINDS: ReadonlySet<ResourceKind> = new Set(["task", "artifact"]);
+
 const refused = (
   canvasName: string,
   writer: InstallationId,
@@ -119,6 +124,8 @@ export const makeResourceRuler = (ports: RulerPorts) =>
       Effect.gen(function* () {
         const canvas = yield* ports.editedCanvas(canvasName);
         if (canvas === undefined) return;
+        // Ruled kinds whose domain this runtime lacks, logged once per sweep.
+        const unwired = new Set<ResourceKind>();
         for (const { writer, command } of yield* ports.unruled(canvasName)) {
           const node = canvas.nodes.get(command.target.nodeId as never);
           if (node === undefined || !TARGET_NODE_KINDS[command.target.kind].includes(node.kind)) {
@@ -132,14 +139,18 @@ export const makeResourceRuler = (ports: RulerPorts) =>
           }
           // Before the after chain, so what builds on it is refused depends_on_refused in this sweep.
           const kind = command.target.kind;
-          const domain = productResourceKindEnabled(kind) ? ports.domains[kind] : undefined;
-          if (domain === undefined) {
+          if (!productResourceKindEnabled(kind) || !RULED_KINDS.has(kind)) {
             yield* ports.record(
               refused(canvasName, writer, command, {
                 reason: "not_available",
                 message: productResourceKindEnabled(kind) ? `This Junto build rules no ${kind} commands` : `${kind} is turned off in this Junto build`,
               }, command.opId),
             );
+            continue;
+          }
+          const domain = ports.domains[kind];
+          if (domain === undefined) {
+            unwired.add(kind);
             continue;
           }
           const after = yield* afterOf(ports, canvasName, writer, command);
@@ -156,6 +167,9 @@ export const makeResourceRuler = (ports: RulerPorts) =>
           }
           const verdict = yield* domain(writer, command, canvas);
           if (verdict.kind === "refuse") yield* ports.record(refused(canvasName, writer, command, verdict.refusal, command.opId));
+        }
+        for (const kind of unwired) {
+          yield* Effect.logError(`the ${kind} store is not running, so ${kind} commands stay queued`, { canvasName, kind });
         }
       });
 

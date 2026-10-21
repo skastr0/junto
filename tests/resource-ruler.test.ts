@@ -62,7 +62,7 @@ const setEditor = (editor: InstallationId) =>
 const stateOf = (opId: OpId) => runtime.runPromise(work.commandState("factory", SELF, opId));
 
 /** A ruler over the real store; the task domain applies anything but an op named `bad`, in the order it is asked. */
-const rulerOver = (ruled: Array<OpId>, held = canvas) =>
+const rulerOver = (ruled: Array<OpId>, held = canvas, withTasks = true) =>
   runtime.runPromise(
     makeResourceRuler({
       canvases: Effect.succeed(["factory"]),
@@ -74,7 +74,7 @@ const rulerOver = (ruled: Array<OpId>, held = canvas) =>
       unruled: (name) => work.unruledCommands(name).pipe(Effect.orDie),
       state: (name, writer, opId) => work.commandState(name, writer, opId).pipe(Effect.orDie),
       record: (input) => recorder.record(input).pipe(Effect.mapError((cause) => new ResourceRulerError({ message: cause.message, cause }))),
-      domains: {
+      domains: withTasks ? {
         task: (writer, queued) =>
           (queued.op as { kind: string }).kind === "bad"
             ? Effect.succeed({ kind: "refuse", refusal: { reason: "invalid_input", message: "The task op does not decode" } } as const)
@@ -85,7 +85,7 @@ const rulerOver = (ruled: Array<OpId>, held = canvas) =>
                 Effect.as({ kind: "ruled" } as const),
                 Effect.mapError((cause) => new ResourceRulerError({ message: cause.message, cause })),
               ),
-      },
+      } : {},
     } satisfies RulerPorts),
   );
 
@@ -156,6 +156,18 @@ describe("the editing machine's ruler", () => {
     expect(refused.kind === "refused" && refused.ruling.reason).toBe("not_available");
     const after = await stateOf(built);
     expect(after.kind === "refused" && { reason: after.ruling.reason, root: after.ruling.root }).toEqual({ reason: "depends_on_refused", root: thread });
+  });
+
+  it.runIf(TASKS_ENABLED)("keeps a task command queued while the task store is not running, and rules it once it is", async () => {
+    const held = op();
+    await queue(command(held));
+    const ruled: Array<OpId> = [];
+    // A wiring fault, not a ruling: the kind is on and ruled, only its store is missing.
+    await runtime.runPromise((await rulerOver(ruled, canvas, false)).sweep("factory"));
+    expect(await stateOf(held)).toEqual({ kind: "queued" });
+    await runtime.runPromise((await rulerOver(ruled)).sweep("factory"));
+    expect(ruled).toEqual([held]);
+    expect((await stateOf(held)).kind).toBe("applied");
   });
 
   it.runIf(!TASKS_ENABLED)("refuses not_available a peer's task command in a tasks-off build, never leaving it queued", async () => {
