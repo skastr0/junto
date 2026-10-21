@@ -13,6 +13,6 @@ export const makeElectronBrowserProfileStoragePlatform =
       sessionForPartition: (partition: string) => session.fromPartition(partition),
     });
 
-/** Unregisters every service worker in one profile partition, all origins. */
-export const clearElectronPartitionServiceWorkers = (partition: string): Promise<void> =>
-  session.fromPartition(partition).clearStorageData({ storages: ["serviceworkers"] });
+/** Unregisters one origin's service workers in one profile partition. */
+export const clearElectronOriginServiceWorkers = (partition: string, origin: string): Promise<void> =>
+  session.fromPartition(partition).clearStorageData({ origin, storages: ["serviceworkers"] });

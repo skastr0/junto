@@ -63,8 +63,8 @@ describe("browser detach-on-quit product lock", () => {
       }
     }
     expect(found).toEqual([
-      // The start step: every profile's service workers, before any view opens.
-      'profile-storage-electron.ts: clearStorageData({ storages: ["serviceworkers"] })',
+      // The start step: each seat-touched origin's service workers, before any view opens.
+      'profile-storage-electron.ts: clearStorageData({ origin, storages: ["serviceworkers"] })',
       // The profile wipe, the operator's own act.
       "profile-storage.ts: clearData()",
       "profile-storage.ts: clearAuthCache()",

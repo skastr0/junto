@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import { isAllowedBrowserUrl, partitionNameForProfile } from "@shared/browser";
 import { runClosedBrowserEffect } from "./run-closed";
+import { makeBrowserTouchedOriginStore, type BrowserTouchedOriginStore } from "./touched-origins";
 import {
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,
@@ -446,20 +447,27 @@ export interface BrowserCompositionRuntime {
   readonly makeStorageLifecycle?: (
     dependencies: BrowserProfileStorageDependencies,
   ) => BrowserProfileStorageLifecycle;
-  /** Unregisters every service worker in one profile partition. */
-  readonly clearServiceWorkers?: (partition: string) => Promise<void>;
+  /** Unregisters one origin's service workers in one profile partition. */
+  readonly clearServiceWorkers?: (partition: string, origin: string) => Promise<void>;
+  readonly touchedOrigins?: BrowserTouchedOriginStore;
 }
 
 /**
- * Every profile starts each run with no service worker, so one a seat left in
- * a touched origin never outlives the run, crash or not. Runs before the first
- * view can open; a profile that cannot be cleared stops the browser starting.
+ * Every origin a seat ran code in, recorded before its code ran, starts the
+ * run with no service worker, so one a seat left never outlives a crash.
+ * Runs before the first view can open, when no seat code is alive; a row goes
+ * only after its own clear. If any clear fails, every row stays and the
+ * browser does not start. Origins no seat touched keep their workers.
  */
-export const clearServiceWorkersAtStart = async (
-  profileIds: ReadonlyArray<string>,
-  clear: (partition: string) => Promise<void>,
+export const clearTouchedServiceWorkersAtStart = async (
+  store: BrowserTouchedOriginStore,
+  clear: (partition: string, origin: string) => Promise<void>,
 ): Promise<void> => {
-  await Promise.all(profileIds.map((id) => clear(partitionNameForProfile(id))));
+  const touched = await store.list();
+  await Promise.all(
+    touched.map(({ profile, origin }) => clear(partitionNameForProfile(profile), origin)),
+  );
+  await store.remove(touched);
 };
 
 /** The one row the machine list marks as its own, read on every admission. */
@@ -569,9 +577,10 @@ export const startBrowserComposition = async (
     await runClosedBrowserEffect(profiles.recoverPendingWipe);
     const clearServiceWorkers =
       runtime.clearServiceWorkers ??
-      (await import("./profile-storage-electron")).clearElectronPartitionServiceWorkers;
-    const known = await runClosedBrowserEffect(profiles.listProfiles);
-    await clearServiceWorkersAtStart(known.map((profile) => profile.id), clearServiceWorkers);
+      (await import("./profile-storage-electron")).clearElectronOriginServiceWorkers;
+    const touchedOrigins = runtime.touchedOrigins ?? makeBrowserTouchedOriginStore(runtime.sql);
+    await clearTouchedServiceWorkersAtStart(touchedOrigins, clearServiceWorkers);
+    sessions.setTouchedOriginStore(touchedOrigins);
     await activate(composition);
     return composition;
   } catch (error) {

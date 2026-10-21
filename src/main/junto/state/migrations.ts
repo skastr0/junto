@@ -11,6 +11,7 @@ import {
   STUBS_STATE_SCHEMA_SQL,
 } from "../model/state-schema";
 import { AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_STATE_SCHEMA_SQL } from "../automation/state-schema";
+import { BROWSER_TOUCHED_ORIGINS_STATE_SCHEMA_SQL } from "../browser/state-schema";
 import {
   CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL,
   WORK_EXCHANGE_CURSORS_V16_STATE_SCHEMA_SQL,
@@ -447,7 +448,17 @@ export const STATE_SCHEMA_V37_IDENTITY = {
     "b260ce08f7be0bba01c816fa737358da770a7e939bc26aa30ab85d5726c0a491",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 37;
+/**
+ * Version 38 keeps the origins a seat ran code in, by browser profile
+ * (`browser_touched_origins`), so their service workers are cleared at the
+ * next start even after a crash. This machine's own state.
+ */
+export const STATE_SCHEMA_V38_IDENTITY = {
+  actualSchemaSha256:
+    "6312197ca401a3d11f1a679fabe46c1ca5081360679106e70384c8b4d7e310b8",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 38;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -715,6 +726,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V36_IDENTITY,
     replacesTables: ["task_heads"],
     migrate: (database) => migrateTaskChecks(database),
+  },
+  {
+    fromVersion: 37,
+    toVersion: 38,
+    name: "keep the origins a seat ran code in",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V37_IDENTITY,
+    migrate: (database) => {
+      database.exec(BROWSER_TOUCHED_ORIGINS_STATE_SCHEMA_SQL);
+    },
   },
 ];
 

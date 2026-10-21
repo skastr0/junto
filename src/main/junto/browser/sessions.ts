@@ -18,6 +18,7 @@ import type { Rect } from "@shared/page-box";
 import { admitSeat, initialPageDriving, reducePageDriving, type PageDriving } from "@shared/page-driver";
 import type { BrowserNavigationBlock } from "@shared/browser-chrome";
 import type { BrowserTopLevelNavigationRejection } from "./web-policy";
+import type { BrowserTouchedOriginStore } from "./touched-origins";
 import type { NodeId } from "@shared/model/base";
 import type { BrowserTabId } from "@shared/browser-tab";
 import {
@@ -679,6 +680,8 @@ export class BrowserSessionService {
    * seat evaluated in times the holds that did, each one small guard.
    */
   private readonly touchedOrigins = new Map<string, Set<BrowserGuestTopLevelGuard>>();
+  /** Where a seat's eval origin is committed before the eval runs; absent, nothing is written. */
+  private touchedOriginStore: BrowserTouchedOriginStore | undefined;
   private readonly pageListeners = new Set<(ref: string) => void>();
   private readonly pendingOpenByOwnerRef = new Map<string, Map<string, PendingOpen>>();
   private readonly ownerEpochs = new Map<string, number>();
@@ -836,6 +839,11 @@ export class BrowserSessionService {
   }
 
   /** Install Settings (or test fake) as the pool-limits authority. */
+  /** The write-ahead record of seat-touched origins, bound before the browser activates. */
+  setTouchedOriginStore(store: BrowserTouchedOriginStore): void {
+    this.touchedOriginStore = store;
+  }
+
   setPoolLimitsProvider(provider: () => Promise<BrowserPoolLimits>): void {
     this.poolLimits = provider;
   }
@@ -1090,6 +1098,34 @@ export class BrowserSessionService {
     else touched.add(guard);
     const origin = entry.documentOrigin ?? entry.currentOrigin;
     if (origin !== undefined) this.clearServiceWorkers(entry, origin);
+  }
+
+  /**
+   * A seat's eval origin is committed before its code is dispatched, so a
+   * crash cannot outrun the record (remote-security). A failed write refuses
+   * the eval; it never runs first. An opaque document cannot register a
+   * worker, so only the in-memory mark binds it.
+   */
+  private async writeAheadTouched(entry: SessionEntry, owner: string, sessionId: string): Promise<void> {
+    const store = this.touchedOriginStore;
+    const origin = entry.documentOrigin ?? entry.currentOrigin;
+    if (store === undefined || origin === undefined) return;
+    try {
+      await store.record({ profile: entry.profile, origin });
+    } catch {
+      throw new Error("eval refused: its origin could not be recorded");
+    }
+    // The page may have moved or the operation ended while the write ran.
+    // A plain Error: the operation's runner releases it and answers failed.
+    if (
+      !this.holds(entry, owner) ||
+      entry.sessionId !== sessionId ||
+      entry.activeOperation?.owner !== owner ||
+      this.navigationBusy(entry) ||
+      (entry.documentOrigin ?? entry.currentOrigin) !== origin
+    ) {
+      throw new Error("eval refused: the page changed while its origin was recorded");
+    }
   }
 
   private serviceWorkerRegistered(entry: SessionEntry, scope: string): void {
@@ -2020,7 +2056,10 @@ export class BrowserSessionService {
       }
       const receipt = outcome.success;
       // A wiped profile keeps no worker or cache a seat could have left.
-      if (receipt.status === "complete") this.clearTouched(profileId);
+      if (receipt.status === "complete") {
+        this.clearTouched(profileId);
+        void this.touchedOriginStore?.removeProfile(profileId).catch(() => undefined);
+      }
       return receipt.status === "complete"
         ? {
             ok: true,
@@ -2929,8 +2968,11 @@ export class BrowserSessionService {
       kind: "eval",
       timeoutMs: BROWSER_EVAL_TIMEOUT_MS,
       ...(signal !== undefined ? { signal } : {}),
-      run: () => {
-        if (owner !== entry.owner) this.markTouched(entry, owner);
+      run: async () => {
+        if (owner !== entry.owner) {
+          await this.writeAheadTouched(entry, owner, sessionId);
+          this.markTouched(entry, owner);
+        }
         return entry.view.executeJavaScript!(code);
       },
     });

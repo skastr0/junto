@@ -86,3 +86,33 @@ export const BROWSER_PROFILES_STATE_SCHEMA_SQL = `
     SELECT RAISE(ABORT, 'browser canvas-default limit reached');
   END;
 `;
+
+/**
+ * Origins a seat ran code in, by profile: a write-ahead record, committed
+ * before a seat's eval is dispatched, so a service worker the seat could have
+ * left there is cleared at the next start even after a crash. This
+ * machine's own state: never exchanged, never in a copy.
+ */
+export const BROWSER_TOUCHED_ORIGINS_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS browser_touched_origins (
+    profile TEXT NOT NULL
+      CHECK (
+        length(profile) BETWEEN 1 AND 63
+        AND substr(profile, 1, 1) GLOB '[a-z0-9]'
+        AND profile NOT GLOB '*[^a-z0-9-]*'
+      ),
+    origin TEXT NOT NULL
+      CHECK (
+        length(CAST(origin AS BLOB)) BETWEEN 1 AND 2048
+        AND (origin GLOB 'https://?*' OR origin GLOB 'http://?*')
+      ),
+    PRIMARY KEY (profile, origin)
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE TRIGGER IF NOT EXISTS browser_touched_origins_limit
+  BEFORE INSERT ON browser_touched_origins
+  WHEN (SELECT count(*) FROM browser_touched_origins) >= 4096
+  BEGIN
+    SELECT RAISE(ABORT, 'browser touched-origin limit reached');
+  END;
+`;

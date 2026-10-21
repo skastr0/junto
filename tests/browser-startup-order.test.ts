@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { clearServiceWorkersAtStart } from "../src/main/junto/browser/composition";
+import { clearTouchedServiceWorkersAtStart } from "../src/main/junto/browser/composition";
+import type { BrowserTouchedOrigin } from "../src/main/junto/browser/touched-origins";
 import { partitionNameForProfile } from "../src/shared/browser";
 
 describe("browser startup recovery gate", () => {
@@ -31,24 +32,44 @@ describe("browser startup recovery gate", () => {
     expect(ready.slice(composition, window)).not.toContain("session.fromPartition");
   });
 
-  it("clears every profile's service workers before the browser activates", async () => {
+  it("clears the touched origins' service workers before the browser activates", async () => {
     const compositionSrc = readFileSync(join(root, "src/main/junto/browser/composition.ts"), "utf8");
     const start = compositionSrc.slice(compositionSrc.indexOf("export const startBrowserComposition"));
-    const clear = start.indexOf("await clearServiceWorkersAtStart(");
+    const clear = start.indexOf("await clearTouchedServiceWorkersAtStart(");
     expect(clear).toBeGreaterThan(start.indexOf("await runClosedBrowserEffect(profiles.recoverPendingWipe)"));
+    const bound = start.indexOf("sessions.setTouchedOriginStore(touchedOrigins)");
+    expect(bound).toBeGreaterThan(clear);
     // Activation opens IPC and control, the only ways a view opens.
-    expect(start.indexOf("await activate(composition)")).toBeGreaterThan(clear);
+    expect(start.indexOf("await activate(composition)")).toBeGreaterThan(bound);
 
+    let rows: ReadonlyArray<BrowserTouchedOrigin> = [
+      { profile: "default", origin: "https://a.example.com" },
+      { profile: "work", origin: "https://b.example.com" },
+    ];
+    const store = {
+      record: async () => undefined,
+      list: async () => rows,
+      remove: async (gone: ReadonlyArray<BrowserTouchedOrigin>) => {
+        rows = rows.filter((row) => !gone.includes(row));
+      },
+      removeProfile: async () => undefined,
+    };
     const cleared: string[] = [];
-    await clearServiceWorkersAtStart(["default", "work"], async (partition) => {
-      cleared.push(partition);
-    });
-    expect(cleared).toEqual([partitionNameForProfile("default"), partitionNameForProfile("work")]);
     await expect(
-      clearServiceWorkersAtStart(["default"], async () => {
+      clearTouchedServiceWorkersAtStart(store, async () => {
         throw new Error("disk");
       }),
     ).rejects.toThrow("disk");
+    // A failed clear keeps every row.
+    expect(rows).toHaveLength(2);
+    await clearTouchedServiceWorkersAtStart(store, async (partition, origin) => {
+      cleared.push(`${partition} ${origin}`);
+    });
+    expect(cleared).toEqual([
+      `${partitionNameForProfile("default")} https://a.example.com`,
+      `${partitionNameForProfile("work")} https://b.example.com`,
+    ]);
+    expect(rows).toEqual([]);
   });
 
   it("passes this machine's name into the production edge grant", () => {
