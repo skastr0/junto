@@ -111,6 +111,20 @@ describe("task refusal notice", () => {
     ].join("\n"));
   });
 
+  it("reads a reason above reach as a sentence", () => {
+    const notice = taskRefusalNotice({
+      installationId: "inst-1",
+      opId: OP,
+      task: { node: NODE, taskId: TASK, number: TaskNumber.make(42), title: "fix tabs" },
+      command: "assign",
+      refusal: { reason: "not_permitted", detail: { kind: "not-assignee" } },
+      actor: LEAD,
+      nodeName: "Tasks",
+      nameOf,
+    });
+    expect(notice.text.split("\n")[0]).toBe(`task assign on ${T42} fix tabs was refused: a rule above reach withholds it (ScopeError)`);
+  });
+
   it("says something for every refusal detail", () => {
     expect(taskRefusalLostTo({ kind: "stale-epoch", expected: 4 }, nameOf)).toBe("the task moved on to epoch 4");
     expectTypeOf(taskRefusalLostTo).returns.toEqualTypeOf<string | undefined>();

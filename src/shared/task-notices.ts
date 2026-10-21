@@ -153,6 +153,7 @@ export const taskRefusalLostTo = (detail: TaskRefusalDetail, nameOf: (seat: Seat
 /** Each refusal reason as the seat reads it. Exhaustive: a new reason fails tsc here. */
 const REFUSAL_SENTENCE: { readonly [R in RefusalReason]: string } = {
   not_in_reach: "the task is out of this seat's reach",
+  not_permitted: "a rule above reach withholds it",
   unknown_target: "it names something that is not there",
   invalid_input: "the command does not fit the task",
   invalid_transition: "the task is not in a state that takes it",
