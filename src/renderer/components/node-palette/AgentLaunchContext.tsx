@@ -279,7 +279,7 @@ export function AgentLaunchContext({
               onClick={() => onFolderOpenChange(!folderOpen)}
             >
               <span
-                className={["min-w-0 truncate font-mono text-[11px]", launchCwd ? "" : "text-amber"].join(" ")}
+                className={["min-w-0 truncate font-mono text-[11px]", launchCwd ? "" : "text-amber-fg"].join(" ")}
                 data-testid="launch-folder"
               >
                 {launchCwd || "choose folder"}
@@ -288,7 +288,7 @@ export function AgentLaunchContext({
             </Button>
           </div>
           {atHome ? (
-            <span className="normal-case tracking-normal text-amber" role="status" data-testid="launch-folder-home">
+            <span className="normal-case tracking-normal text-amber-fg" role="status" data-testid="launch-folder-home">
               Home is not a working folder: choose a project folder in it
             </span>
           ) : null}
