@@ -161,7 +161,26 @@ export type TaskCore = {
   readonly checks?: ReadonlyArray<CheckResult>;
   /** The node named at finish, held while the task is in review. */
   readonly next?: TaskNodeId;
+  /**
+   * The closed state an archive closed, kept on the archived task: a task
+   * that depends on it is met only when it was done. Absent on a task
+   * archived before this was kept, which therefore meets no dependency.
+   */
+  readonly archivedFrom?: ArchivedFrom;
 };
+
+/** The states archive closes from. */
+export type ArchivedFrom = "done" | "canceled";
+
+/**
+ * Whether a task meets a dependency on it: done, or archived when it was
+ * done. Canceled and every open state do not.
+ */
+export const meetsDependency = (task: Pick<TaskCore, "state" | "archivedFrom">): boolean =>
+  task.state === "done" || (task.state === "archived" && task.archivedFrom === "done");
+
+/** A dependency a finish found unmet, as `deps-unmet` reports it. */
+export type UnfinishedDependency = { readonly taskId: TaskId; readonly number: TaskNumber; readonly state: TaskState };
 
 /** A layer that closed when the task was sent on: it keeps its assignee, reviewers and stamps. */
 export type ClosedTaskLayer = TaskCore & { readonly closedAt: number };
@@ -313,7 +332,9 @@ export type TaskRefusalDetail =
       readonly ruleId?: string;
     }
   /** A finish with a required check red, or with no run, at the current epoch. */
-  | { readonly kind: "checks-unmet"; readonly red: ReadonlyArray<string>; readonly missing: ReadonlyArray<string> };
+  | { readonly kind: "checks-unmet"; readonly red: ReadonlyArray<string>; readonly missing: ReadonlyArray<string> }
+  /** A finish while a task it depends on is not done, in dependency order. */
+  | { readonly kind: "deps-unmet"; readonly unfinished: ReadonlyArray<UnfinishedDependency> };
 
 export type TaskRefusalKind = TaskRefusalDetail["kind"];
 
@@ -342,6 +363,7 @@ export const TASK_REFUSAL_REASON = {
   "not-in-reach": "not_in_reach",
   "rules-unmet": "invalid_input",
   "checks-unmet": "invalid_input",
+  "deps-unmet": "invalid_transition",
 } as const satisfies Readonly<Record<TaskRefusalKind, RefusalReason>>;
 
 export type TaskRefusal = { readonly reason: RefusalReason; readonly detail: TaskRefusalDetail };

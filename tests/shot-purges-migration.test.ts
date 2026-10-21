@@ -9,21 +9,17 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V41_IDENTITY,
   STATE_SCHEMA_V42_IDENTITY,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import { STATE_SCHEMA_V41_SQL, STATE_SCHEMA_V42_SQL } from "./fixtures/state-v13/schema";
 
 describe("state step 41 to 42: the purged page comment shots", () => {
-  it("starts from the version-41 witness and ends at the version-42 one, which is the head", () => {
+  it("starts from the version-41 witness and ends at the version-42 one", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V41_SQL)).toEqual(STATE_SCHEMA_V41_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V42_SQL)).toEqual(STATE_SCHEMA_V42_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V42_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V42_IDENTITY);
   });
 
   it("adds the purge table, keyed by canvas, page node and comment, and nothing else", () => {

@@ -38,6 +38,7 @@ import { migrateTaskModel } from "./migrate-task-model";
 import { migrateReviewStamps } from "./migrate-review-stamps";
 import { migrateTaskStateSince } from "./migrate-task-state-since";
 import { migrateTaskChecks } from "./migrate-task-checks";
+import { migrateTaskArchivedFrom } from "./migrate-task-archived-from";
 import {
   CANVAS_DELETIONS_CORRECTED_TABLES,
   CANVAS_DELETIONS_REMOVED_TABLES,
@@ -544,7 +545,18 @@ export const STATE_SCHEMA_V42_IDENTITY = {
     "c6176345e0494e39022b76c11a0ebc7dd5ad98f7b7d92b12b989621272dd78ea",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 42;
+/**
+ * Version 43 keeps the closed state each archived task was archived from
+ * (plan 04, finish waits on dependencies): `task_heads` rebuilt with
+ * `archived_from`, each task starting with none
+ * (`migrate-task-archived-from.ts`). Consolidate.
+ */
+export const STATE_SCHEMA_V43_IDENTITY = {
+  actualSchemaSha256:
+    "5a62ee9a0a701a0e8f9cf38d1dd95e3c5becc65e98e1e06f6f42d2c2141c439b",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 43;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -552,7 +564,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 42;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V42_IDENTITY;
+  STATE_SCHEMA_V43_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -865,6 +877,15 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     migrate: (database) => {
       database.exec(SHOT_PURGES_SQL);
     },
+  },
+  {
+    fromVersion: 42,
+    toVersion: 43,
+    name: "keep what each archived task was archived from",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V42_IDENTITY,
+    replacesTables: ["task_heads"],
+    migrate: (database) => migrateTaskArchivedFrom(database),
   },
 ];
 

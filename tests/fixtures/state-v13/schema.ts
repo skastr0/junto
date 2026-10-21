@@ -246,3 +246,9 @@ export const STATE_SCHEMA_V42_SQL = stepped(
   STATE_SCHEMA_V41_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 42)!.migrate,
 );
+
+// Version 43 kept what each archived task was archived from (42 -> 43).
+export const STATE_SCHEMA_V43_SQL = stepped(
+  STATE_SCHEMA_V42_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 43)!.migrate,
+);

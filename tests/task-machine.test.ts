@@ -264,6 +264,62 @@ describe("dependencies", () => {
   });
 });
 
+describe("finish waits on dependencies", () => {
+  const working = record({ state: "working", assignee: ada, dependsOn: [T2] });
+  const on = (over: Partial<TaskRecord>) => record({ id: T2, number: taskNumber(2)!, ...over });
+  const finish = (task: TaskRecord, dep: TaskRecord) => one(task, seat(ada), { kind: "finish" }, env(), [dep]);
+
+  it("finishes when each dependency is done, or archived after it was done", () => {
+    expect(ok(finish(working, on({ state: "done" }))).task.state).toBe("done");
+    const archived = ok(one(on({ state: "done" }), operator, { kind: "archive" })).task;
+    expect(archived).toMatchObject({ state: "archived", archivedFrom: "done" });
+    expect(ok(finish(working, archived)).task.state).toBe("done");
+  });
+
+  it("refuses while a dependency is open, naming it by number and state", () => {
+    const ruled = finish(working, on({ state: "working", assignee: bo }));
+    expect(refused(ruled)).toEqual({ kind: "deps-unmet", unfinished: [{ taskId: T2, number: 2, state: "working" }] });
+    expect(ruled.ok ? undefined : ruled.refusal.reason).toBe("invalid_transition");
+    expect(taskRefusalMessage(refused(ruled))).toBe(
+      "This task depends on work not done yet: #2 is in progress. Finish it once each is done, or remove the dependency",
+    );
+  });
+
+  it("refuses while a dependency is canceled, or archived after it was canceled", () => {
+    expect(refused(finish(working, on({ state: "canceled" })))).toEqual({
+      kind: "deps-unmet",
+      unfinished: [{ taskId: T2, number: 2, state: "canceled" }],
+    });
+    const archived = ok(one(on({ state: "canceled" }), operator, { kind: "archive" })).task;
+    expect(archived.archivedFrom).toBe("canceled");
+    expect(refused(finish(working, archived)).kind).toBe("deps-unmet");
+    // Archived before what it closed from was kept: nothing says it was done.
+    expect(refused(finish(working, on({ state: "archived" }))).kind).toBe("deps-unmet");
+  });
+
+  it("names every unfinished dependency, in dependency order, and skips the met ones", () => {
+    const t3 = record({ id: T3, number: taskNumber(3)!, state: "backlog" });
+    const task = { ...working, dependsOn: [T3, T2] };
+    const ruled = ruleTaskBoardCommand(
+      board(task, on({ state: "done" }), t3),
+      { node: build, taskId: T1 },
+      seat(ada),
+      { kind: "finish" },
+      env(),
+    );
+    expect(refused(ruled)).toEqual({ kind: "deps-unmet", unfinished: [{ taskId: T3, number: 3, state: "backlog" }] });
+    expect(taskRefusalMessage(refused(ruled))).toContain("#3 is in the backlog");
+  });
+
+  it("finishes once the unmet dependency is removed", () => {
+    const dep = on({ state: "input-required", assignee: bo });
+    expect(refused(finish(working, dep)).kind).toBe("deps-unmet");
+    const undepended = ok(one(working, seat(bo), { kind: "undepend", on: T2 }, env(), [dep])).task;
+    expect(undepended.dependsOn).toEqual([]);
+    expect(ok(finish(undepended, dep)).task.state).toBe("done");
+  });
+});
+
 describe("dependency reach", () => {
   const far = record({ id: T2, number: taskNumber(2)!, node: ship });
   const reach = env({ seatReaches: (_, node) => node !== ship });

@@ -50,6 +50,7 @@ const coreFields = {
   stamps: Schema.Array(Stamp),
   checks: Schema.optionalKey(Schema.Array(CheckResult)),
   next: Schema.optionalKey(NodeId),
+  archivedFrom: Schema.optionalKey(Schema.Literals(["done", "canceled"])),
 };
 
 const TaskEffect = Schema.Union([

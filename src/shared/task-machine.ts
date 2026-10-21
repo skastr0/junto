@@ -7,6 +7,7 @@ import {
   formatTaskNumber,
   isClosedTaskState,
   isOpenTaskState,
+  meetsDependency,
   reachExempt,
   reviewerKey,
   seatNodeId,
@@ -28,6 +29,7 @@ import {
   type TaskRefusalDetail,
   type TaskState,
   TASK_STATES,
+  type UnfinishedDependency,
   type TaskCommandKind,
 } from "./task-model";
 
@@ -184,6 +186,8 @@ export type TaskContext = {
   readonly rulesUnmet?: (evidence: CompletionEvidence | undefined) => RulesUnmet | undefined;
   /** The checks toward `next` still red or not run at the current epoch; absent, none is checked. */
   readonly checksUnmet?: (next: TaskNodeId | undefined, results: ReadonlyArray<CheckResult>) => ChecksUnmet | undefined;
+  /** The tasks this task depends on that are not done; absent, none is checked, as in a preview. */
+  readonly unfinishedDependencies?: ReadonlyArray<UnfinishedDependency>;
 };
 
 /** A ruling on one task that keeps whatever else the task carries. */
@@ -322,6 +326,9 @@ export const ruleTaskCommand = <T extends TaskCore>(
       return task.state === "input-required" ? rule({ ...task, state: "working" }) : illegal(task, command);
     case "finish": {
       if (task.state !== "working") return illegal(task, command);
+      // Dependencies first: no rule or check makes up for work not yet done upstream.
+      const unfinished = ctx.unfinishedDependencies ?? [];
+      if (unfinished.length > 0) return refuse({ kind: "deps-unmet", unfinished });
       const next = resolveNext(ctx.downstream, command.next);
       if (!next.ok) return refuse(next.detail);
       // Statement rules need claims; a requires-review rule is left to the stamps.
@@ -363,7 +370,9 @@ export const ruleTaskCommand = <T extends TaskCore>(
       // Closed states stay closed: a done layer may already have been sent on.
       return isClosedTaskState(task.state) ? illegal(task, command) : rule({ ...task, state: "canceled" });
     case "archive":
-      return task.state === "done" || task.state === "canceled" ? rule({ ...task, state: "archived" }) : illegal(task, command);
+      return task.state === "done" || task.state === "canceled"
+        ? rule({ ...task, state: "archived", archivedFrom: task.state })
+        : illegal(task, command);
     case "reviewer-add": {
       if (isClosedTaskState(task.state)) return illegal(task, command);
       const { reviewer } = command;
@@ -422,9 +431,22 @@ const openTaskOf = (state: TaskBoardState, seat: SeatNodeId): TaskId | undefined
   return undefined;
 };
 
+/** The tasks `task` depends on that do not meet it (`meetsDependency`), in dependency order. */
+const unfinishedDependencies = (state: TaskBoardState, task: Pick<TaskRecord, "dependsOn">): ReadonlyArray<UnfinishedDependency> =>
+  task.dependsOn.flatMap((id) => {
+    const on = state.tasks.get(id);
+    // A dependency no longer on the board has no state to wait on; depend refuses an unknown task.
+    return on === undefined || meetsDependency(on) ? [] : [{ taskId: on.id, number: on.number, state: on.state }];
+  });
+
 /** The one-task context for a task on this board. */
-export const taskContextOf = (state: TaskBoardState, task: Pick<TaskRecord, "id" | "node">, env: TaskDomainEnv): TaskContext => ({
+export const taskContextOf = (
+  state: TaskBoardState,
+  task: Pick<TaskRecord, "id" | "node" | "dependsOn">,
+  env: TaskDomainEnv,
+): TaskContext => ({
   taskId: task.id,
+  unfinishedDependencies: unfinishedDependencies(state, task),
   at: env.at,
   openTaskOf: (seat) => openTaskOf(state, seat),
   downstream: env.downstream(task.node),
@@ -588,6 +610,10 @@ export const taskRefusalMessage = (detail: TaskRefusalDetail): string => {
         ...(detail.missing.length === 0 ? [] : [`not run: ${detail.missing.join(", ")}`]),
       ];
       return `Required checks are not green at this epoch (${parts.join("; ")}). Run them and report each with task check`;
+    }
+    case "deps-unmet": {
+      const each = detail.unfinished.map((dep) => `${formatTaskNumber(dep.number)} is ${TASK_STATE_SPOKEN[dep.state]}`);
+      return `This task depends on work not done yet: ${each.join(", ")}. Finish it once each is done, or remove the dependency`;
     }
   }
 };

@@ -303,5 +303,27 @@ describe("task repository", () => {
     expect((await withRepo((repo) => repo.list(canvas, { nodeIds: [build], limit: 10 }))).tasks).toEqual([]);
     const archived = await withRepo((repo) => repo.list(canvas, { nodeIds: [build], states: ["archived"], limit: 10 }));
     expect(archived.tasks.map((task) => task.taskId)).toEqual([taskId]);
+    expect(archived.tasks[0]!.current.archivedFrom).toBe("canceled");
+  });
+
+  it("refuses a finish while a dependency is unfinished, and admits it once that is done", async () => {
+    const bo = seatNodeId(asNodeId("seat-bo"));
+    const boActor: ResourceActor = { kind: "seat", seatId: `seat_${"b".repeat(64)}` as never, nodeId: bo };
+    const { taskId: dep } = await create("upstream");
+    const { taskId } = await create("downstream");
+    applied(await submit(command({ kind: "depend", on: dep }, taskId)));
+    applied(await submit(command({ kind: "assign", seat: ada }, taskId)));
+    applied(await submit(command({ kind: "start" }, taskId, { actor: adaActor })));
+    const outcome = await submit(command({ kind: "finish" }, taskId, { actor: adaActor }));
+    expect(outcome.kind).toBe("refused");
+    expect(outcome.kind === "refused" ? outcome.error.message : "").toBe(
+      "This task depends on work not done yet: #1 is in the backlog. Finish it once each is done, or remove the dependency",
+    );
+    applied(await submit(command({ kind: "assign", seat: bo }, dep)));
+    applied(await submit(command({ kind: "start" }, dep, { actor: boActor })));
+    applied(await submit(command({ kind: "finish" }, dep, { actor: boActor })));
+    applied(await submit(command({ kind: "archive" }, dep)));
+    expect(Option.getOrThrow(await withRepo((repo) => repo.get(canvas, dep))).current.archivedFrom).toBe("done");
+    expect(applied(await submit(command({ kind: "finish" }, taskId, { actor: adaActor }))).task.state).toBe("done");
   });
 });

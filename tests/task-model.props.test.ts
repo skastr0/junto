@@ -155,6 +155,10 @@ describe("task refusals", () => {
     "not-in-reach": { kind: "not-in-reach", nodeId: asNodeId("n") },
     "rules-unmet": { kind: "rules-unmet", missing: "claim", message: "Rule r1 needs a claim", nextStep: "Finish with a claim for r1", ruleId: "r1" },
     "checks-unmet": { kind: "checks-unmet", red: ["tests"], missing: [] },
+    "deps-unmet": {
+      kind: "deps-unmet",
+      unfinished: [{ taskId: "01M5ETKKW2KX682NBXQZYA69MY" as never, number: 2 as never, state: "working" }],
+    },
   };
 
   it("sends every detail under a closed wire reason and keeps the detail whole", () => {
