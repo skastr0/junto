@@ -11,7 +11,9 @@
  */
 import { Effect } from "effect";
 import { SeatSessionRepository, type OwedContinuation } from "./repository";
-import type { SeatSessionRun } from "./run";
+
+/** A runner over the seat sessions store alone: the app's SeatSessionRun is one. */
+export type SeatSessionStoreRun = <A, E>(effect: Effect.Effect<A, E, SeatSessionRepository>) => Promise<A>;
 
 /** The supervisor, as this ledger needs it. */
 export type ContinuationTarget = {
@@ -29,7 +31,7 @@ export type ContinuationStore = {
 };
 
 /** The ledger's store: the seat sessions store, in the runtime this process owns. */
-export const continuationStoreIn = (run: SeatSessionRun): ContinuationStore => ({
+export const continuationStoreIn = (run: SeatSessionStoreRun): ContinuationStore => ({
   keep: (owed) => run(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.oweContinuation(owed))),
   owed: () => run(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.owedContinuations())),
   settle: (bindingId) => run(Effect.flatMap(SeatSessionRepository, (sessions) => sessions.settleContinuation(bindingId))),

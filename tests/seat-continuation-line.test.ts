@@ -21,7 +21,7 @@ import {
   SeatSessionRepository,
   type OwedContinuation,
 } from "../src/main/junto/seat-sessions/repository";
-import type { SeatSessionRun } from "../src/main/junto/seat-sessions/run";
+import type { SeatSessionStoreRun } from "../src/main/junto/seat-sessions/continuation-pending";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import {
   SeatOffboardCloser,
@@ -506,7 +506,7 @@ describe("a continuation owed across a restart", () => {
       makeSeatSessionRepositoryLive().pipe(Layer.provide(makeStateEngineLive(join(root, "junto.db")))),
     );
     runtimes.push(runtime);
-    const runIn = ((effect) => runtime.runPromise(effect as never)) as SeatSessionRun;
+    const runIn: SeatSessionStoreRun = (effect) => runtime.runPromise(effect);
     const supervisor = new InjectionSupervisor();
     const typed: string[] = [];
     supervisor.setContinuationWriter((_b, text) => {

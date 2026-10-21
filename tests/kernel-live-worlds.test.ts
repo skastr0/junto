@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { expect, it } from "vitest";
 import { Command } from "../src/shared/model";
@@ -71,11 +71,10 @@ it("holds the model's canvases and follows their work", async () => {
       Layer.mergeAll(Layer.provideMerge(workLive, storesLive), stubsLive),
     ),
   );
-  const run = <A, E>(effect: Effect.Effect<A, E, never>) =>
-    runtime.runPromise(effect as never) as Promise<A>;
+  const run = runtime.runPromise;
   let kernel: { readonly suspend: () => void } | undefined;
   try {
-    const sql = await run(SqlClient.SqlClient as never as Effect.Effect<SqlClient.SqlClient>);
+    const sql = await run(serviceOf(SqlClient.SqlClient));
     await run(
       sql.withTransaction(
         Effect.gen(function* () {
@@ -85,7 +84,7 @@ it("holds the model's canvases and follows their work", async () => {
         }),
       ),
     );
-    const model = await run(ModelService as never as Effect.Effect<Context>);
+    const model = await run(serviceOf(ModelService));
     const command = Schema.decodeUnknownSync(Command);
     const send = (input: unknown) => run(model.command(command(input), "operator"));
     await send({ _tag: "CreateCanvas", canvas: "factory" });
@@ -98,12 +97,12 @@ it("holds the model's canvases and follows their work", async () => {
       wires: [],
     });
 
-    const live = await run(KernelService as never as Effect.Effect<Kernel>);
+    const live = await run(serviceOf(KernelService));
     kernel = live;
     live.start({
-      runPromise: (effect) => runtime.runPromise(effect as never) as never,
+      runPromise: (effect) => runtime.runPromise(effect),
       runFork: (effect) => {
-        runtime.runFork(effect as never);
+        runtime.runFork(effect);
       },
     });
 
@@ -121,7 +120,7 @@ it("holds the model's canvases and follows their work", async () => {
     // A task row is work, not canvas: the kernel reads it again once work says
     // it changed.
     const readsBefore = workReads.filter((name) => name === "factory").length;
-    const repository = await run(WorkRepository as never as Effect.Effect<Repository>);
+    const repository = await run(serviceOf(WorkRepository));
     const canvas = await run(model.canvas("factory"));
     const sink = { canvasName: "factory", nodeId: "tasks" };
     const at = "2026-10-07T00:01:00.000Z";
@@ -158,6 +157,7 @@ it("holds the model's canvases and follows their work", async () => {
   }
 });
 
-type Context = import("effect").Context.Service.Shape<typeof ModelService>;
-type Kernel = import("effect").Context.Service.Shape<typeof KernelService>;
-type Repository = import("effect").Context.Service.Shape<typeof WorkRepository>;
+/** A service from the runtime, as an effect the runtime can run. */
+const serviceOf = <I, S>(tag: Context.Service<I, S>): Effect.Effect<S, never, I> => Effect.gen(function* () {
+  return yield* tag;
+});
