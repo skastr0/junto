@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+Draft for 0.10, written from landed commits and kept current by product-releases.
+
+- Plan work on Tasks. A task has a number, a state, an assignee and reviewers,
+  and reviewers stamp it. A task can depend on tasks on any board in reach.
+  The operator can stamp too.
+- Write and keep documents in Artifacts. The Artifacts node replaces the old
+  library, with a document editor, a sheet editor, a pad editor, history and a
+  comments rail. Each edit is versioned.
+- Run work on a schedule with Automations. Set a schedule, a poll, a change or
+  a seat's state as the trigger, edit it in the Automations node, and read
+  every firing in its history. Only the operator and overseers write
+  automations. `junto automation` does the same from the terminal.
+- Mention people and seats with `@`, and tasks and artifacts with `#`, in the
+  seat thread composer and in review comments. A mention is one unit in the
+  field and a chip when read back. A seat mentioned in an answer is copied on
+  it.
+- Attach a task or an artifact to a signal. It shows in the feed as a chip
+  that opens it.
+- Reply on a task comment as a thread. A reply posts to its subject, and the
+  notice names that subject.
+- Use the resource nodes within a seat's reach without drawing an edge to
+  them. Seats still connect to seats by wire.
+- Open a copy of a canvas with every resource kept as its place and label.
+- See a blocked seat on its ring. The mark no longer sits on the wire.
+- Start a session knowing what changed. `junto onboard` lists what arrived
+  since the last session, and the signal list pages its closed history.
+- Pass `--tab` to `junto browser`, which now answers in the standard envelope.
+- Send mail text over 64 KiB as an attached file. It is no longer sent inline.
+- Lose a command to another machine cleanly. A write that loses to a newer one
+  is refused as stale and names the winner, and a seat on another machine
+  queues its commands and sees their state.
+- Remove pinning. The pinned dock and every pin control are gone.
+- Remove the Requests node and the bulletin board. Escalate from a seat with
+  `junto escalate` as before.
+- Remove the Hermes chat integration, its snapshots and the hidden chat
+  entry points. Hermes still runs as a terminal seat.
+- Remove the task factory, its claim prompt, the reclaim grace and Region
+  Pulse.
+
 ## 0.9.2 — 2026-10-19
 
 - Answer Needs you from a list and a detail pane. Each item has four answers:
