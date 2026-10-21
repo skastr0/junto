@@ -69,7 +69,7 @@ instead of a wash. Measure it; if it costs raster at hundreds of nodes, use
 |---|---|---|---|
 | Tasks | list glyph (green), name, count | meta "1 backlog, 0 open, 0 done"; rows `#n title` with a state glyph (backlog dashed circle, blocked, needs you), needs-you and blocked first | Blocked when a seat waits on input; Needs you when the operator owes a stamp (a task in review that lists the operator as a reviewer with no current operator stamp) |
 | Artifacts | package glyph (violet), name, count | meta "N artifacts"; rows type glyph and title | none |
-| Automations | workflow glyph (amber), name, count | meta "N on, N off"; rows on dot or off hollow, name, trigger in words (weekdays 09:00 UTC) | Failed when the last firing failed (blocked tone), Off when all are off |
+| Automations | workflow glyph (amber), name, count | meta "N on, N off"; rows on dot or off hollow, name, trigger in words (weekdays 09:00 UTC) | Failed (triangle, blocked tone) when any automation's last firing failed, read from the one list read the card already makes (the list carries each automation's last outcome; no per-automation read, so it holds at far); else Off when all are off. Failed wins over Off |
 | Page | globe (indigo), the host (stable while seats navigate; the full URL is the hover title) | line "browser page, <profile>"; on a failed load or a refused operator action, the error replaces the line | Working while a seat drives it; Failed (blocked tone) on a failed load or refusal; no tag while the operator holds the page or while it loads |
 | Terminal | prompt glyph, name | line: the command | Working while live |
 | Git | branch glyph (orange), name | line: `HEAD <subject>` | none |
