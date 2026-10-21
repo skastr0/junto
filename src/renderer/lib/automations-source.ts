@@ -150,10 +150,14 @@ const useRead = <A>(read: () => Promise<A>, empty: A, deps: ReadonlyArray<unknow
     let live = true;
     // New inputs show nothing until their own answer, never the last inputs' answer.
     setValue(empty);
+    // A read that fails keeps what was shown; the next change reads again.
     const load = (): void => {
-      void read().then((next) => {
-        if (live) setValue(next);
-      });
+      read().then(
+        (next) => {
+          if (live) setValue(next);
+        },
+        () => undefined,
+      );
     };
     load();
     const stop = automationsSource().subscribe(load);

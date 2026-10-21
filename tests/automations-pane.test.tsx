@@ -195,4 +195,14 @@ describe("automations pane", () => {
     expect(described).not.toBeNull();
     expect(document.getElementById(described!)?.textContent).toBe("Write the name.");
   });
+
+  it("a write that fails to reach main reads as a refusal, and the pane stays usable", async () => {
+    await opened();
+    setAutomationsSource({ ...source, apply: async () => Promise.reject(new Error("main is gone")) });
+    await typeName("Lost");
+    await act(async () => button("Save").click());
+    expect(document.body.textContent).toContain("Not available: main is gone");
+    expect(button("Save").disabled).toBe(false);
+    setAutomationsSource(source);
+  });
 });

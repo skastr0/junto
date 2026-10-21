@@ -86,7 +86,7 @@ const refusalWords = (refusal: Refusal): string => {
     case "not_in_reach":
       return "A target is outside what this automation may reach.";
     case "not_available":
-      return "That is not available yet.";
+      return `Not available: ${refusal.message}`;
     case "queue_full":
       return "Not sent: the queue for the editing machine is full. Try again shortly.";
     default:
@@ -227,12 +227,18 @@ export function AutomationsPane({
   ): Promise<ApplyResult> => {
     setBusy(true);
     setRefusal(undefined);
-    const result = await automationsSource().apply(
-      canvasName,
-      nodeId,
-      automationId,
-      op,
-    );
+    // A write that fails to reach its ruler reads as a refusal, never a pane stuck busy.
+    const result = await automationsSource()
+      .apply(canvasName, nodeId, automationId, op)
+      .catch(
+        (cause: unknown): ApplyResult => ({
+          kind: "refused",
+          refusal: {
+            reason: "not_available",
+            message: cause instanceof Error ? cause.message : String(cause),
+          },
+        }),
+      );
     setBusy(false);
     markQueued(automationId, result.kind === "queued");
     if (result.kind === "refused") setRefusal(result.refusal);
