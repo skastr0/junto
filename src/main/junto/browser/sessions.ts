@@ -194,6 +194,8 @@ export type BrowserUiOperationKind =
   | "view-destroy"
   | "page-resolve"
   | "profile-wipe-confirmation"
+  /** Letting go of a page's staged box shots when its session ends. */
+  | "box-release"
   | "profiles-read"
   | "surface-config";
 
@@ -830,7 +832,7 @@ export class BrowserSessionService {
   retainUiIngress<A>(
     kind: Extract<
       BrowserUiOperationKind,
-      "page-resolve" | "profile-wipe-confirmation"
+      "page-resolve" | "profile-wipe-confirmation" | "box-release"
     >,
     operation: Promise<A>,
   ): Promise<A> {

@@ -24,7 +24,7 @@ import { AppRuntime } from "../../runtime";
 import { ModelService } from "../model/service";
 import { SettingsService } from "../settings/service";
 import { makePageTargetResolver, type PageTargetResolver } from "./page-target";
-import { discardOperatorPageBox, postOperatorPageBox, startOperatorPageBox } from "../work/page-box-comment";
+import { discardOperatorPageBox, postOperatorPageBox, releaseStagedShots, startOperatorPageBox } from "../work/page-box-comment";
 import { mainAuthoringGate } from "../main-authoring-gate";
 
 /** The most of a box comment's text the chrome may send; the writer bounds it again. */
@@ -152,6 +152,15 @@ export const registerBrowserIpc = (
     for (const contents of webContentsGetter()) {
       contents.send(IPC_CHANNELS.browserPageChanged, sessionId);
     }
+  });
+
+  // A session that ends lets go of its staged box shots; on quit the drain
+  // waits for that, since the release is retained as UI work.
+  browserSessions.subscribeSessionChanges((session) => {
+    if (session.state !== "destroyed") return;
+    void browserSessions
+      .retainUiIngress("box-release", AppRuntime.runPromise(releaseStagedShots(session.sessionId)))
+      .catch(() => undefined);
   });
 
   /** One session id, then exactly the arguments `rest` reads. */

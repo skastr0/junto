@@ -26,7 +26,7 @@ import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import { postSubjectComment, type StagedPageShot, type SubjectCommentContext } from "../src/main/junto/work/subject-comment";
-import { discardOperatorPageBox, postOperatorPageBox, startOperatorPageBox } from "../src/main/junto/work/page-box-comment";
+import { discardOperatorPageBox, postOperatorPageBox, releaseStagedShots, startOperatorPageBox } from "../src/main/junto/work/page-box-comment";
 import { contentStageOwner } from "../src/main/junto/content/stage";
 import { ulid } from "ulid";
 import { readPageShot } from "../src/main/junto/work/page-shot-read";
@@ -251,6 +251,20 @@ describe("the operator's box comment", () => {
     expect(await postDraft(started.data.draft.shotId)).toMatchObject({ ok: false, code: "invalid" });
     expect(await runtime.runPromise(startOperatorPageBox(sessions("https://example.com/", null), "s1"))).toEqual({ ok: true, data: { kind: "ended" } });
     expect(await rows()).toEqual([]);
+  });
+
+  it("lets go of every staged shot of a session that ended, and only that session's", async () => {
+    const first = await start();
+    const second = await start();
+    if (!first.ok || first.data.kind !== "drawn" || !second.ok || second.data.kind !== "drawn") throw new Error("not drawn");
+    const { createHash } = await import("node:crypto");
+    const sha = createHash("sha256").update(PNG).digest("hex");
+    expect(await owners(sha)).toHaveLength(2);
+    await runtime.runPromise(releaseStagedShots("s2"));
+    expect(await owners(sha)).toHaveLength(2);
+    await runtime.runPromise(releaseStagedShots("s1"));
+    expect(await owners(sha)).toEqual([]);
+    expect(await postDraft(first.data.draft.shotId)).toMatchObject({ ok: false, message: expect.stringMatching(/already posted/) });
   });
 
   it("refuses a page that is not open, and an address that cannot be named", async () => {

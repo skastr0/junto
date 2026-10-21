@@ -195,6 +195,18 @@ export const postOperatorPageBox = (
       : { ok: true, data: { messageId: posted.success.messageId, threadId: posted.success.threadId } };
   });
 
+/**
+ * Drop every staged shot of a session that ended (closed, navigated away, or
+ * the app quitting), so a crop of a page does not sit on disk longer than
+ * the composer could use it.
+ */
+export const releaseStagedShots = (sessionId: string): Effect.Effect<void> =>
+  Effect.suspend(() => {
+    const ended = [...staged.entries()].filter(([, shot]) => shot.sessionId === sessionId);
+    for (const [shotId] of ended) staged.delete(shotId);
+    return Effect.forEach(ended, ([, shot]) => release(shot.owner), { discard: true });
+  });
+
 /** Drop a staged shot the operator did not post. */
 export const discardOperatorPageBox = (sessionId: string, shotId: string): Effect.Effect<void> =>
   Effect.suspend(() => {
