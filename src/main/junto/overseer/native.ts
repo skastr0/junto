@@ -552,7 +552,6 @@ const handleAgent = async (
         hostId: binding.hostId,
         harness: node.harness,
         session,
-        chatLive: agentKey !== undefined ? ctx.chats.isLive(agentKey) : false,
       });
     }
     case "agent.start":
