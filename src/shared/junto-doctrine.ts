@@ -64,9 +64,8 @@ You are running inside **Junto** — a collaborative workspace where coding agen
 
 
 /** The two task sections of since, in the words their lines read. */
-const SINCE_TASKS_LINE = TASKS_ENABLED
-  ? ` Two sections are about tasks. \`your_tasks\` is your open task and any you held that changed: \`Your task #N "Title" is <state> [task #N]\`, \`... is now <state>, changed since your last session\` when its state changed, and \`... was sent on to <node> since your last session, and is <state> there\` when it left your board; \`junto task list --assignee me\` lists them. \`reviews_owed\` is each task in review that waits on your stamp: \`<assignee>'s task #N "Title" is in review and waits on your stamp [task #N]\`, answered with \`junto task stamp <task> approve\` or \`changes\`; \`junto since --all\` lists them.`
-  : "";
+export const SINCE_TASKS_TEACHING = ` Two sections are about tasks. \`your_tasks\` is your open task and any you held that changed: \`Your task #N "Title" is <state> [task #N]\`, \`... is now <state>, changed since your last session\` when its state changed, and \`... was sent on to <node> since your last session, and is <state> there\` when it left your board; \`junto task list --assignee me\` lists them. \`reviews_owed\` is each task in review that waits on your stamp: \`<assignee>'s task #N "Title" is in review and waits on your stamp [task #N]\`, answered with \`junto task stamp <task> approve\` or \`changes\`; \`junto task list --reviewer me\` lists them.`;
+const SINCE_TASKS_LINE = TASKS_ENABLED ? SINCE_TASKS_TEACHING : "";
 
 /** Seats — durable per-agent identity on the canvas, where grants accrue. */
 export const SEAT_DOCTRINE = `## Seats

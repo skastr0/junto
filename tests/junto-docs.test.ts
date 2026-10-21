@@ -8,6 +8,7 @@ import {
   DOC_TOPICS,
 } from "../src/shared/junto-docs";
 import { productNodeKindEnabled, TASKS_ENABLED } from "../src/shared/features";
+import { SINCE_TASKS_TEACHING } from "../src/shared/junto-doctrine";
 import { SINCE_COMMANDS } from "../src/shared/seat-since";
 
 describe("junto docs catalog", () => {
@@ -72,8 +73,7 @@ describe("junto docs catalog", () => {
   });
 
   it("doctrine teaches since's task sections in the words their lines read, with the command that lists each", () => {
-    const doc = buildDoctrineDoc();
-    const taught = [
+    const sentence = [
       "`your_tasks`",
       '`Your task #N "Title" is <state> [task #N]`',
       "`... is now <state>, changed since your last session`",
@@ -81,13 +81,18 @@ describe("junto docs catalog", () => {
       `\`${SINCE_COMMANDS.yourTasks}\` lists them. \`reviews_owed\``,
       "`<assignee>'s task #N \"Title\" is in review and waits on your stamp [task #N]`",
       `\`${SINCE_COMMANDS.reviewsOwed}\` lists them.`,
-      "your tasks, the reviews you owe, unread mail",
     ];
-    for (const text of taught) {
+    const row = "your tasks, the reviews you owe, unread mail";
+    // TASKS_ENABLED is compiled in from the run's feature profile, and a
+    // single-file run takes the ship profile with tasks off. The sentence is
+    // checked on its own so every profile holds it to the lines and commands.
+    for (const text of sentence) expect(SINCE_TASKS_TEACHING).toContain(text);
+    expect(SINCE_TASKS_TEACHING).not.toContain("·");
+    const doc = buildDoctrineDoc();
+    for (const text of [...sentence, row]) {
       if (TASKS_ENABLED) expect(doc).toContain(text);
       else expect(doc).not.toContain(text);
     }
-    expect(doc).not.toContain("·");
   });
 
   it("the automations kind page says seats read and do not write", () => {
