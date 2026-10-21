@@ -13,7 +13,7 @@ import { SqlClient } from "effect/unstable/sql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
-import { ResourceRulerError, makeResourceRuler, type RulerPorts } from "../src/main/junto/work/resource-ruler";
+import { RULED_KINDS, ResourceRulerError, makeResourceRuler, type RulerPorts } from "../src/main/junto/work/resource-ruler";
 import { RulingRecorder, RulingRecorderLive } from "../src/main/junto/work/ruling-recorder";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import type { QueuedCommand } from "../src/shared/command-row";
@@ -116,6 +116,15 @@ afterAll(async () => {
 });
 
 describe("the editing machine's ruler", () => {
+  it("takes domains only of the kinds it rules", () => {
+    const domains: RulerPorts["domains"] = {
+      // @ts-expect-error a domain outside RULED_KINDS would see its commands refused for good
+      thread: () => Effect.succeed({ kind: "ruled" } as const),
+    };
+    expect(RULED_KINDS).toEqual(["task", "artifact"]);
+    expect(domains).toBeDefined();
+  });
+
   it.runIf(TASKS_ENABLED)("rules a backlog held before this machine edited the canvas, once it does, each writer's in order", async () => {
     await setEditor(OTHER);
     const first = op();

@@ -44,6 +44,14 @@ export class ResourceRulerError extends Schema.TaggedError<ResourceRulerError>()
   cause: Schema.Unknown,
 }) {}
 
+/**
+ * The kinds this build has a ruler for; any other is never ruled here. The
+ * domains a ruler takes are typed by this list, so a domain outside it fails tsc.
+ */
+export const RULED_KINDS = ["task", "artifact"] as const;
+export type RuledKind = (typeof RULED_KINDS)[number];
+const isRuledKind = (kind: ResourceKind): kind is RuledKind => (RULED_KINDS as ReadonlyArray<ResourceKind>).includes(kind);
+
 /** What a domain made of one command: ruled (and recorded by the domain), or refused before it could rule. */
 export type DomainVerdict = { readonly kind: "ruled" } | { readonly kind: "refuse"; readonly refusal: Refusal };
 
@@ -64,8 +72,12 @@ export type RulerPorts = {
   readonly state: (canvasName: string, writer: InstallationId, opId: OpId) => Effect.Effect<OpState, ResourceRulerError>;
   /** Record a refusal made before any domain ruled. */
   readonly record: (input: RecordRulingInput) => Effect.Effect<void, ResourceRulerError>;
-  /** The domains this build rules. A kind left out stays queued. */
-  readonly domains: { readonly [K in ResourceKind]?: DomainRuler };
+  /**
+   * The domains this runtime rules, only of RULED_KINDS: a kind outside them
+   * is refused not_available, and a ruled kind left out (its store is not
+   * running) stays queued.
+   */
+  readonly domains: { readonly [K in RuledKind]?: DomainRuler };
 };
 
 export class ResourceRuler extends Context.Service<
@@ -78,8 +90,6 @@ export class ResourceRuler extends Context.Service<
   }
 >()("@junto/ResourceRuler") {}
 
-/** The kinds this build has a ruler for (`ResourceRulerLive`); any other is never ruled here. */
-const RULED_KINDS: ReadonlySet<ResourceKind> = new Set(["task", "artifact"]);
 
 const refused = (
   canvasName: string,
@@ -125,7 +135,7 @@ export const makeResourceRuler = (ports: RulerPorts) =>
         const canvas = yield* ports.editedCanvas(canvasName);
         if (canvas === undefined) return;
         // Ruled kinds whose domain this runtime lacks, logged once per sweep.
-        const unwired = new Set<ResourceKind>();
+        const unwired = new Set<RuledKind>();
         for (const { writer, command } of yield* ports.unruled(canvasName)) {
           const node = canvas.nodes.get(command.target.nodeId as never);
           if (node === undefined || !TARGET_NODE_KINDS[command.target.kind].includes(node.kind)) {
@@ -139,7 +149,7 @@ export const makeResourceRuler = (ports: RulerPorts) =>
           }
           // Before the after chain, so what builds on it is refused depends_on_refused in this sweep.
           const kind = command.target.kind;
-          if (!productResourceKindEnabled(kind) || !RULED_KINDS.has(kind)) {
+          if (!productResourceKindEnabled(kind) || !isRuledKind(kind)) {
             yield* ports.record(
               refused(canvasName, writer, command, {
                 reason: "not_available",
