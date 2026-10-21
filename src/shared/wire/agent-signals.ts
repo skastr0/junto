@@ -1,4 +1,6 @@
 import { Schema } from "effect";
+import { NodeId } from "../physics/schema";
+import { ItemId } from "../work-ids";
 import { ContentRef } from "./content-ref";
 
 /**
@@ -104,18 +106,48 @@ export const AgentSignalLinkAttachment = Schema.Struct({
 });
 export type AgentSignalLinkAttachment = typeof AgentSignalLinkAttachment.Type;
 
+/**
+ * A task the signal is about, on its board: a stamp request carries its task
+ * this way (0.10 plan 03 section 6). Main admitted it in the seat's reach.
+ */
+export const AgentSignalTaskAttachment = Schema.Struct({
+  kind: Schema.Literal("task"),
+  nodeId: NodeId,
+  taskId: ItemId,
+  caption,
+});
+export type AgentSignalTaskAttachment = typeof AgentSignalTaskAttachment.Type;
+
+/** An artifact the signal is about, in its Artifacts node. Main admitted it in the seat's reach. */
+export const AgentSignalArtifactAttachment = Schema.Struct({
+  kind: Schema.Literal("artifact"),
+  nodeId: NodeId,
+  artifactId: ItemId,
+  caption,
+});
+export type AgentSignalArtifactAttachment = typeof AgentSignalArtifactAttachment.Type;
+
 export const AgentSignalAttachment = Schema.Union([
   AgentSignalFileAttachment,
   AgentSignalCompareAttachment,
   AgentSignalCommitAttachment,
   AgentSignalLinkAttachment,
+  AgentSignalTaskAttachment,
+  AgentSignalArtifactAttachment,
 ]);
 export type AgentSignalAttachment = typeof AgentSignalAttachment.Type;
 
+export type AgentSignalAttachmentKind = "file" | Extract<AgentSignalAttachment, { readonly kind: string }>["kind"];
+
 /** What kind of attachment this is; a file has no `kind` of its own. */
-export const agentSignalAttachmentKind = (
-  attachment: AgentSignalAttachment,
-): "file" | "compare" | "commit" | "link" => ("kind" in attachment ? attachment.kind : "file");
+export const agentSignalAttachmentKind = (attachment: AgentSignalAttachment): AgentSignalAttachmentKind =>
+  "kind" in attachment ? attachment.kind : "file";
+
+/** A task or an artifact: named on the canvas, never bytes, never previewed. */
+export type AgentSignalResourceAttachment = AgentSignalTaskAttachment | AgentSignalArtifactAttachment;
+
+export const isResourceAttachment = (attachment: AgentSignalAttachment): attachment is AgentSignalResourceAttachment =>
+  "kind" in attachment && (attachment.kind === "task" || attachment.kind === "artifact");
 
 /**
  * The web address a link attachment may carry, normalized, or why not: http
@@ -167,6 +199,17 @@ export const AgentSignalAttachmentInput = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("link"),
     url: Schema.String,
+    caption: Schema.optionalKey(Schema.String),
+  }).annotate({ parseOptions: { onExcessProperty: "error" } }),
+  // A task or an artifact by its ref: `junto://canvas/<canvas>?node=<id>&item=<ItemId>` (mention.ts).
+  Schema.Struct({
+    kind: Schema.Literal("task"),
+    ref: Schema.String,
+    caption: Schema.optionalKey(Schema.String),
+  }).annotate({ parseOptions: { onExcessProperty: "error" } }),
+  Schema.Struct({
+    kind: Schema.Literal("artifact"),
+    ref: Schema.String,
     caption: Schema.optionalKey(Schema.String),
   }).annotate({ parseOptions: { onExcessProperty: "error" } }),
 ]);

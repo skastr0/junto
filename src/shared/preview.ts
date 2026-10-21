@@ -253,9 +253,13 @@ export const previewRefsOfAttachments = (
     | { readonly kind: "compare"; readonly name?: string; readonly caption?: string }
     | { readonly kind: "commit"; readonly sha: string; readonly caption?: string }
     | { readonly kind: "link"; readonly url: string; readonly caption?: string }
+    | { readonly kind: "task"; readonly caption?: string }
+    | { readonly kind: "artifact"; readonly caption?: string }
   >,
 ): ReadonlyArray<PreviewRef> =>
-  attachments.map((attachment, index) => {
+  attachments.flatMap((attachment, index): ReadonlyArray<PreviewRef> => {
+    // A task or an artifact is a chip on the card, never a preview; the others keep their place in the list.
+    if ("kind" in attachment && (attachment.kind === "task" || attachment.kind === "artifact")) return [];
     const base = {
       path: `attachment:${index}`,
       attachment: index,
@@ -263,17 +267,17 @@ export const previewRefsOfAttachments = (
     };
     if (!("kind" in attachment)) {
       const { mediaType } = attachment.ref;
-      return {
+      return [{
         ...base,
         name: attachment.ref.displayName ?? "file",
         kind: mediaType.startsWith("image/") ? "image" : mediaType.startsWith("video/") ? "video" : "text",
-      };
+      }];
     }
-    if (attachment.kind === "compare") return { ...base, name: attachment.name ?? "changes", kind: "compare" };
+    if (attachment.kind === "compare") return [{ ...base, name: attachment.name ?? "changes", kind: "compare" }];
     if (attachment.kind === "commit") {
-      return { ...base, name: attachment.sha.slice(0, 7), kind: "commit", commit: attachment.sha };
+      return [{ ...base, name: attachment.sha.slice(0, 7), kind: "commit", commit: attachment.sha }];
     }
-    return { ...base, name: previewLinkName(attachment.url), kind: "link", url: attachment.url };
+    return [{ ...base, name: previewLinkName(attachment.url), kind: "link", url: attachment.url }];
   });
 
 /** What main is asked for to preview a ref. */

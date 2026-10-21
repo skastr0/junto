@@ -689,6 +689,8 @@ export const registerJuntoIpc = (): void => {
         if (attachment.kind === "link") {
           return { ok: true, kind: "link", name: previewLinkName(attachment.url), url: attachment.url };
         }
+        // A task or an artifact is a chip that opens it on the canvas, never a preview.
+        if (attachment.kind === "task" || attachment.kind === "artifact") return { ok: false, reason: "not-named" };
         const [before, after] = await Promise.all([open(attachment.before), open(attachment.after)]);
         if (before?.state !== "verified" || after?.state !== "verified") return { ok: false, reason: "missing" };
         return readComparePreview({
