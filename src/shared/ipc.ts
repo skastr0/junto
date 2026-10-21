@@ -498,6 +498,7 @@ export interface DigestResult {
 
 // --- kernel state types (wire) -----------------------------------------------
 
+/** Gone from the wire; kept until the kernel stops composing it (canvas-services). */
 export interface WatcherRuntimeState {
   readonly status: "satisfied" | "pending" | "unknown";
   readonly detail: string;
@@ -512,8 +513,6 @@ export interface KernelSnapshot {
     Record<
       string,
       {
-        readonly watchers: Record<string, WatcherRuntimeState>;
-        readonly nextFire: Record<string, number>;
         readonly execution?: ExecutionSnapshot;
       }
     >
