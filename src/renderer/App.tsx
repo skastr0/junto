@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect } from "react";
 import { startSeatTaskStore } from "./lib/seat-tasks";
-import { installIpcSubjectThreads } from "./lib/subject-threads-source";
+import { installIpcSubjectThreads, threadApiOf } from "./lib/subject-threads-source";
 import { ReactFlowProvider } from "@xyflow/react";
 import { batch } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
@@ -485,7 +485,7 @@ export function App() {
   useEffect(() => startSeatTaskStore(), []);
   // Comments on tasks and artifacts reach main, or are not offered.
   useEffect(() => {
-    installIpcSubjectThreads(window.junto?.resource?.thread);
+    installIpcSubjectThreads(threadApiOf(window.junto?.resource));
   }, []);
 
   // What is selected follows the node store; the actor references follow

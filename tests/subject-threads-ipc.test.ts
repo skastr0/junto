@@ -1,20 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 import { asNodeId } from "../src/shared/model";
 import { mintItemId } from "../src/shared/resource-command";
-import type { ThreadResourceApi } from "../src/shared/resource-ipc";
 import {
   installIpcSubjectThreads,
   makeIpcSubjectThreads,
   subjectThreadsLive,
+  threadApiOf,
+  type ThreadApiLike,
 } from "../src/renderer/lib/subject-threads-source";
 
 const board = asNodeId("tasks-build");
 const task = mintItemId();
 const subject = { kind: "task", nodeId: board, taskId: task } as const;
 
-const fakeApi = (over: Partial<ThreadResourceApi> = {}): ThreadResourceApi => ({
+const fakeApi = (over: Partial<ThreadApiLike> = {}): ThreadApiLike => ({
   list: async () => [],
-  post: async (_c, _s, post) => ({ kind: "applied", opId: post.opId, threadId: "t1" as never, postId: "p1" as never, notified: [] }),
+  post: async () => ({ kind: "applied", threadId: "t1", postId: "p1" }),
   onChanged: () => () => undefined,
   ...over,
 });
@@ -30,11 +31,11 @@ describe("subject threads over the resource IPC", () => {
     const api = fakeApi({
       list: async () => [
         {
-          threadId: "t1" as never,
+          threadId: "t1",
           posts: [
-            { postId: "p1" as never, author: { kind: "operator", name: "You" }, text: "hello", at: 1 },
-            { postId: "p2" as never, author: { kind: "seat", seatId: "agent-s" as never, nodeId: asNodeId("seat-ada"), name: "Ada" }, text: "hi", at: 2 },
-            { postId: "p3" as never, author: { kind: "automation", nodeId: asNodeId("auto-1"), name: "Nightly" }, text: "ran", at: 3 },
+            { postId: "p1", author: { kind: "operator", name: "You" }, text: "hello", at: 1 },
+            { postId: "p2", author: { kind: "seat", nodeId: "seat-ada", name: "Ada" }, text: "hi", at: 2 },
+            { postId: "p3", author: { kind: "automation", nodeId: "auto-1", name: "Nightly" }, text: "ran", at: 3 },
           ],
         },
       ],
@@ -56,11 +57,7 @@ describe("subject threads over the resource IPC", () => {
     expect(post).toHaveBeenCalledWith("c", subject, { opId: "op-1", text: "ok" });
     const refused = makeIpcSubjectThreads(
       fakeApi({
-        post: async (_c, _s, draft) => ({
-          kind: "refused",
-          opId: draft.opId,
-          error: { type: "ScopeError", message: "seat-bob is not in reach of this task." },
-        }),
+        post: async () => ({ kind: "refused", error: { message: "seat-bob is not in reach of this task." } }),
       }),
     );
     expect(await refused.post("c", subject, { text: "hi @bob", opId: "op-2" })).toEqual({
@@ -87,6 +84,13 @@ describe("subject threads over the resource IPC", () => {
     source.subscribe(heard);
     fire();
     expect(heard).toHaveBeenCalledOnce();
+  });
+
+  it("reads the thread channel off the bridge at the edge, and finds none when the bridge lacks it", () => {
+    const api = fakeApi();
+    expect(threadApiOf({ thread: api })).toBe(api);
+    expect(threadApiOf({ task: {}, artifact: {} })).toBeUndefined();
+    expect(threadApiOf(undefined)).toBeUndefined();
   });
 
   it("goes live once a bridge with threads installs, and only installs once", () => {
