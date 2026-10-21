@@ -67,8 +67,14 @@ const SPOKEN_KIND: { readonly [K in NodeKind]: string | undefined } = {
 };
 
 /** A node's spoken name: its name, its kind, and the status its tag shows (else blocked when it is). */
-export const spokenNodeName = (name: string, kind: NodeKind, blocked: boolean, status?: NodeStatus): string => {
-  const noun = SPOKEN_KIND[kind];
+export const spokenNodeName = (
+  name: string,
+  kind: NodeKind,
+  blocked: boolean,
+  status?: NodeStatus,
+  spokenKind?: string,
+): string => {
+  const noun = SPOKEN_KIND[kind] === undefined ? undefined : (spokenKind ?? SPOKEN_KIND[kind]);
   if (noun === undefined) return name;
   const said = status !== undefined ? NODE_STATUS_WORD[status].toLowerCase() : blocked ? "blocked" : undefined;
   return said === undefined ? `${name}, ${noun}` : `${name}, ${noun}, ${said}`;

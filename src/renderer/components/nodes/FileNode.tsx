@@ -20,7 +20,7 @@ import { SpineCard } from "./SpineCard";
 /** The folders a path sits in, the nearest last: what the leaf line names. */
 const pathTail = (path: string): string => {
   const parts = path.split("/").filter(Boolean);
-  return parts.length > 1 ? parts.slice(-3, -1).join("/") : "retired, delete to remove";
+  return parts.length > 1 ? parts.slice(-3, -1).join("/") : path;
 };
 
 export function FileNode({ id, data, selected }: NodeProps<FlowNode>) {

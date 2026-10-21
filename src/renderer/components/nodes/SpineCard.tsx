@@ -9,7 +9,15 @@
  * node's size never changes with zoom.
  */
 import { useContext, useEffect, type ReactNode } from "react";
-import { NODE_STATUS_WORD, NodeIdContext, publishNodeStatus, type NodeStatus } from "../../lib/node-status";
+import {
+  NODE_STATUS_WORD,
+  NodeBlockedContext,
+  NodeIdContext,
+  publishNodeSpokenKind,
+  publishNodeStatus,
+  shownStatus,
+  type NodeStatus,
+} from "../../lib/node-status";
 import "./spine-card.css";
 
 /** A glyph hue: a theme token, worn by the mark only, never by a word. */
@@ -79,6 +87,8 @@ export type SpineCardProps = {
   readonly dashed?: boolean;
   /** Stands in for the glyph: a peer's portrait disc. */
   readonly portrait?: ReactNode;
+  /** What a screen reader calls the node in place of its kind word: "seat on studio". */
+  readonly spokenKind?: string;
   /** Stands in for the name while it is being renamed (a FirstLineRenameInput). */
   readonly nameEditor?: ReactNode;
 };
@@ -93,9 +103,10 @@ export function SpineStatusTag({ status }: { readonly status: SpineStatus }) {
   );
 }
 
-export function SpineCard({ glyph, hue, name, count, status, trailing, body, dashed = false, portrait, nameEditor }: SpineCardProps) {
+export function SpineCard({ glyph, hue, name, count, status: reported, trailing, body, dashed = false, portrait, nameEditor, spokenKind }: SpineCardProps) {
   const rows = body?.kind === "spine" ? body.rows.slice(0, SPINE_ROWS_MAX) : [];
   const more = body?.kind === "spine" ? (body.more ?? 0) + Math.max(0, body.rows.length - SPINE_ROWS_MAX) : 0;
+  const status = shownStatus(reported, useContext(NodeBlockedContext));
   const look = status === undefined ? undefined : SPINE_STATUS[status];
   // The node's spoken name says the tag too (Canvas flowNodeLabel).
   const nodeId = useContext(NodeIdContext);
@@ -103,7 +114,18 @@ export function SpineCard({ glyph, hue, name, count, status, trailing, body, das
     if (nodeId === "") return;
     publishNodeStatus(nodeId, status);
   }, [nodeId, status]);
-  useEffect(() => () => (nodeId === "" ? undefined : publishNodeStatus(nodeId, undefined)), [nodeId]);
+  useEffect(() => {
+    if (nodeId === "") return;
+    publishNodeSpokenKind(nodeId, spokenKind);
+  }, [nodeId, spokenKind]);
+  useEffect(
+    () => () => {
+      if (nodeId === "") return;
+      publishNodeStatus(nodeId, undefined);
+      publishNodeSpokenKind(nodeId, undefined);
+    },
+    [nodeId],
+  );
   return (
     <div className="spine-card" data-status={status} data-tone={look?.tone}>
       <div className="spine-head">

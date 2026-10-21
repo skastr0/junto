@@ -10,7 +10,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SPINE_STATUS, SpineCard, type SpineStatus } from "../src/renderer/components/nodes/SpineCard";
 import { nodeScale } from "../src/renderer/lib/canvas-tier";
 import { spokenNodeName } from "../src/renderer/lib/flow-nodes";
-import { NodeIdContext, nodeStatus$ } from "../src/renderer/lib/node-status";
+import { NodeBlockedContext, NodeIdContext, nodeSpokenKind$, nodeStatus$, shownStatus } from "../src/renderer/lib/node-status";
+import { PeerCard, StubCard } from "../src/renderer/components/nodes/RemoteNodeCards";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -111,5 +112,53 @@ describe("spoken name", () => {
     expect(nodeStatus$.n1.peek()).toBe("failed");
     render(<NodeIdContext.Provider value="n1"><SpineCard glyph={glyph} hue="green" name="Board" /></NodeIdContext.Provider>);
     expect(nodeStatus$.n1.peek()).toBeUndefined();
+  });
+});
+
+describe("graph blocked", () => {
+  it("outranks a calmer status, never failed or needs you", () => {
+    expect(shownStatus(undefined, true)).toBe("blocked");
+    expect(shownStatus("off", true)).toBe("blocked");
+    expect(shownStatus("working", true)).toBe("blocked");
+    expect(shownStatus("failed", true)).toBe("failed");
+    expect(shownStatus("needs-you", true)).toBe("needs-you");
+    expect(shownStatus("off", false)).toBe("off");
+  });
+
+  it("is what the card shows and says", () => {
+    render(
+      <NodeIdContext.Provider value="n2">
+        <NodeBlockedContext.Provider value>
+          <SpineCard glyph={glyph} hue="amber" name="Jobs" status="off" />
+        </NodeBlockedContext.Provider>
+      </NodeIdContext.Provider>,
+    );
+    expect(host.querySelector(".spine-tag")?.textContent).toBe("Blocked");
+    expect(nodeStatus$.n2.peek()).toBe("blocked");
+  });
+});
+
+describe("peer and stub", () => {
+  const place = { x: 0, y: 0, width: 200, height: 40 };
+  it("a peer is a dashed portrait chip, a seat on its machine", () => {
+    render(
+      <NodeIdContext.Provider value="p1">
+        <PeerCard node={{ kind: "peer", id: "p1", ...place, label: "lead", host: "studio", seatId: "s1" } as never} />
+      </NodeIdContext.Provider>,
+    );
+    expect(host.querySelector(".spine-portrait")?.textContent).toBe("L");
+    expect(host.querySelector(".spine-leaf")?.textContent).toBe("seat on studio");
+    expect(nodeSpokenKind$.p1.peek()).toBe("seat on studio");
+  });
+
+  it("a stub is its kind's chip, dashed, a copy on its machine", () => {
+    render(
+      <NodeIdContext.Provider value="s1">
+        <StubCard node={{ kind: "stub", id: "s1", ...place, of: "page", host: "studio" } as never} />
+      </NodeIdContext.Provider>,
+    );
+    expect(host.querySelector(".spine-chip")?.getAttribute("data-dashed")).toBe("true");
+    expect(host.querySelector(".spine-leaf")?.textContent).toBe("page on studio");
+    expect(nodeSpokenKind$.s1.peek()).toBe("page copy on studio");
   });
 });

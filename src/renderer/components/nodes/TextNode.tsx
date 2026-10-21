@@ -40,6 +40,7 @@ import { StartParamsToolbarAction } from "../customize/ParamsSection";
 import { claimFocus } from "../../lib/focus-ownership";
 import { nodeAt, useNodeValue, useNodeOf } from "../../lib/use-model";
 import { SeatCard } from "./SeatCard";
+import { PeerCard, StubCard } from "./RemoteNodeCards";
 import { AutomationsCard } from "../automations/AutomationsCard";
 import {
   ArtifactsCard,
@@ -63,7 +64,17 @@ import { keyIs } from "../../lib/key-match";
  * Kinds drawn in the Spines language (docs/node-card-language.md): the shell
  * paints nothing and the body is a SpineCard. A kind joins when its body moves.
  */
-const SPINE_KINDS: ReadonlySet<NodeKind> = new Set<NodeKind>(["artifacts", "task", "terminal", "git", "automations"]);
+const SPINE_KINDS: ReadonlySet<NodeKind> = new Set<NodeKind>([
+  "artifacts",
+  "task",
+  "terminal",
+  "git",
+  "automations",
+  "peer",
+  "stub",
+  "note",
+  "label",
+]);
 
 /** A body follows its own model row, so a card does not subscribe to it. */
 function WithNode<K extends NodeKind>({
@@ -314,7 +325,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
             data-focus-owner="canvas-draft"
             aria-label="Edit label"
             className="label-edit-inline nodrag nowheel h-full w-full resize-none bg-transparent font-display outline-none"
-            style={{ color: labelHue, fontSize: "15px", fontWeight: 650, letterSpacing: "0.02em", lineHeight: 1.25 }}
+            style={{ color: labelHue }}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commit}
@@ -334,7 +345,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
             role="button"
             tabIndex={0}
             className="label-surface nopan flex h-full w-full cursor-text items-center overflow-hidden border-0 bg-transparent p-0 text-left font-display"
-            style={{ color: labelHue, fontSize: "15px", fontWeight: 650, letterSpacing: "0.02em", lineHeight: 1.25 }}
+            style={{ color: labelHue }}
             onClick={(event) => {
               if (event.shiftKey) return;
               if (!selected) return;
@@ -433,6 +444,14 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
             <ArtifactsCard nodeId={id} />
           ) : entityKind === "automations" ? (
             <AutomationsCard nodeId={id} renaming={renaming} onRenameDone={() => setRenaming(false)} />
+          ) : entityKind === "peer" ? (
+            <WithNode canvas={canvasName} id={id} kind="peer">
+              {(node) => <PeerCard node={node} />}
+            </WithNode>
+          ) : entityKind === "stub" ? (
+            <WithNode canvas={canvasName} id={id} kind="stub">
+              {(node) => <StubCard node={node} />}
+            </WithNode>
           ) : entityKind === "git" ? (
             <WithNode canvas={canvasName} id={id} kind="git">
               {(node) => <GitCard node={node} renaming={renaming} onRenameDone={() => setRenaming(false)} />}

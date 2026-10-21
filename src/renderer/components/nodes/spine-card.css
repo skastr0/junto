@@ -354,3 +354,80 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[dat
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[data-tone="amber"] .spine-pip { background: var(--color-amber); }
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[data-tone="cyan"] .spine-pip { border-color: var(--color-cyan); border-width: calc(2px * var(--node-s, 1)); }
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .spine-card[data-tone="faint"] .spine-pip { border-color: var(--color-faint); border-width: calc(2px * var(--node-s, 1)); }
+
+/* Peer and stub: where a node lives elsewhere. */
+
+.spine-portrait {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  margin-left: -4px;
+  place-items: center;
+  border: 1px dashed var(--color-dim);
+  border-radius: var(--radius-pill);
+  color: var(--color-ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  font-weight: 700;
+}
+
+.spine-stub {
+  opacity: 0.72;
+}
+
+/* Note and label have no chip. A note is typeset text on an amber rule; a
+   label is bare display type. Their focus ring goes round the text block. */
+
+.junto-node[data-look="spine"][data-node-kind="text"] .junto-node__body {
+  padding-left: 12px;
+  border-left: 3px solid var(--color-amber);
+}
+
+.junto-node[data-look="spine"][data-node-kind="text"] :is(.note-surface, .note-edit-inline) {
+  color: var(--color-ink-2);
+  font-size: var(--text-body);
+  line-height: var(--leading-open);
+  text-shadow: 0 0 5px var(--color-ground), 0 0 5px var(--color-ground);
+}
+
+.junto-node[data-look="spine"][data-node-kind="text"] .note-surface :is(h1, h2, h3):first-child {
+  color: var(--color-ink);
+  font-size: var(--text-title);
+  font-weight: 600;
+}
+
+.junto-node[data-look="spine"][data-node-kind="label"] :is(.label-surface, .label-edit-inline) {
+  font-family: var(--font-display);
+  font-size: var(--text-hero);
+  font-weight: 700;
+  line-height: var(--leading-compact);
+  text-shadow: 0 0 5px var(--color-ground), 0 0 5px var(--color-ground);
+}
+
+.react-flow__node:focus-visible .junto-node[data-look="spine"]:is([data-node-kind="text"], [data-node-kind="label"]) {
+  outline: calc(2px * var(--node-s, 1)) solid var(--color-cyan);
+  outline-offset: calc(3px * var(--node-s, 1));
+  border-radius: var(--radius-sm);
+}
+
+/* Far: a note keeps a 10 by 26 screen-px amber tick; a label floors at 13
+   screen px. */
+
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .junto-node[data-look="spine"][data-node-kind="text"] .junto-node__body {
+  visibility: hidden;
+}
+
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .junto-node[data-look="spine"][data-node-kind="text"]::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: min(100cqw, calc(10px * var(--node-s, 1)));
+  height: min(100cqh, calc(26px * var(--node-s, 1)));
+  background: var(--color-amber);
+  content: "";
+}
+
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .junto-node[data-look="spine"][data-node-kind="label"] .label-surface {
+  --spine-label-floor: calc(13px * var(--node-s, 1));
+  font-size: max(var(--text-hero), var(--spine-label-floor));
+}

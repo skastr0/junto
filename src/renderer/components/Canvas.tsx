@@ -62,7 +62,7 @@ import { observe } from "@legendapp/state";
 import { heldBy } from "../lib/model-edits";
 import { modelStore, nodeAt, titleAt, useCanvas } from "../lib/use-model";
 import { spokenNodeName } from "../lib/flow-nodes";
-import { nodeStatus$ } from "../lib/node-status";
+import { nodeSpokenKind$, nodeStatus$ } from "../lib/node-status";
 import { seatTasks$ } from "../lib/seat-tasks";
 import { endReachPreview, startReachPreview, updateReachPreview } from "../lib/reach-preview";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
@@ -138,6 +138,7 @@ const flowNodeLabel = (node: FlowNode, selected: boolean): string => {
     node.data.kind,
     node.data.blocked,
     nodeStatus$[node.id].peek(),
+    nodeSpokenKind$[node.id].peek(),
   );
   return selected ? `${spoken}, selected` : spoken;
 };
@@ -421,13 +422,49 @@ function useCanvasDocument(
       state$.selectedNodeIds.onChange(syncSelection),
       state$.selectedEdgeId.onChange(syncSelection),
       state$.connectionFocusNodeId.onChange(syncSelection),
-      // A card's status tag changes its spoken name.
-      nodeStatus$.onChange(syncSelection),
     ];
     return () => {
       for (const off of offs) off();
     };
   }, [setNodes, setEdges]);
+
+  // A card's status tag changes its spoken name, and only its own: the ids
+  // that changed are gathered and relabelled once per microtask, so hundreds
+  // of cards publishing at mount cost one pass, and selection, impact and
+  // classes are not recomputed.
+  useEffect(() => {
+    const changed = new Set<string>();
+    let queued = false;
+    const flush = () => {
+      queued = false;
+      const ids = new Set(changed);
+      changed.clear();
+      setNodes((nodes) => {
+        let dirty = false;
+        const next = nodes.map((node) => {
+          if (!ids.has(node.id)) return node;
+          const ariaLabel = flowNodeLabel(node, node.selected === true);
+          if (node.ariaLabel === ariaLabel) return node;
+          dirty = true;
+          return { ...node, ariaLabel };
+        });
+        return dirty ? next : nodes;
+      });
+    };
+    const mark = ({ changes }: { readonly changes: ReadonlyArray<{ readonly path: ReadonlyArray<string | number> }> }) => {
+      for (const change of changes) {
+        const id = change.path[0];
+        if (typeof id === "string") changed.add(id);
+      }
+      if (queued || changed.size === 0) return;
+      queued = true;
+      queueMicrotask(flush);
+    };
+    const offs = [nodeStatus$.onChange(mark), nodeSpokenKind$.onChange(mark)];
+    return () => {
+      for (const off of offs) off();
+    };
+  }, [setNodes]);
 }
 
 function useCanvasFocus(rf: CanvasFlow) {
