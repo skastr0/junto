@@ -47,7 +47,6 @@ import {
   scopeError,
   type OverseerWorkAdmin,
 } from "../work/authz";
-import { deliverBoardWake } from "../work/board-delivery";
 import {
   WorkService,
   WorkServiceError,
@@ -86,12 +85,6 @@ const WORK_OPERATIONS = new Set<string>([
   "msg.read",
   "msg.reply",
   "msg.react",
-  "board.list",
-  "board.create-topic",
-  "board.post",
-  "board.mark-read",
-  "board.tags",
-  "board.notify",
   "content.ingest",
   "content.path",
   "content.stat",
@@ -717,97 +710,6 @@ export const executeOverseerWork = (
         admin,
       );
       return exposeMutation(yield* fromWorkResult(result));
-    }
-    if (op === "board.list") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "board.list");
-      const result = yield* work.workBoardList(canvas, target, args.topicId);
-      const mapped = yield* fromWorkResult(result);
-      return { topics: mapped.value.topics };
-    }
-    if (op === "board.create-topic") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "board.create_topic");
-      const result = yield* work.workBoardCreateTopic(
-        canvas,
-        target,
-        args.title,
-        args.body,
-        author,
-        args.notify === true,
-      );
-      const mapped = yield* fromWorkResult(result);
-      if (mapped.disposition === "applied" && args.notify === true) {
-        yield* deliverBoardWake({
-          canvas,
-          boardNodeId: target,
-          kind: "operator.topic.notify",
-          topicId: mapped.value.topic.topicId,
-          topicTitle: mapped.value.topic.title,
-          excerptSource: args.title,
-        }).pipe(Effect.catch(() => Effect.succeed(0)));
-      }
-      return exposeMutation(mapped);
-    }
-    if (op === "board.post") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "board.post");
-      const result = yield* work.workBoardPost(
-        canvas,
-        target,
-        args.topicId,
-        args.text,
-        author,
-        args.tags,
-      );
-      return exposeMutation(yield* fromWorkResult(result));
-    }
-    if (op === "board.mark-read") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "board.mark_read");
-      const result = yield* work.workBoardMarkRead(
-        canvas,
-        target,
-        args.topicId,
-        `seat:${actor.seatId}`,
-        args.upToPosition,
-      );
-      return exposeMutation(yield* fromWorkResult(result));
-    }
-    if (op === "board.tags") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "board.tags");
-      const result = yield* work.workBoardList(canvas, target, args.topicId);
-      const mapped = yield* fromWorkResult(result);
-      const me = actor.nodeId;
-      const posts = mapped.value.topics.flatMap((topic) =>
-        (topic.posts ?? [])
-          .filter((post) => Array.isArray(post.tags) && post.tags.includes(me))
-          .map((post) => ({
-            topicId: topic.topicId,
-            topicTitle: topic.title,
-            post,
-          })),
-      );
-      return { actorNodeId: me, posts };
-    }
-    if (op === "board.notify") {
-      const args = yield* decodeArgs(op, raw);
-      const target = targetOf(caller, args.target);
-      yield* requireTarget(read.canvas, target, "board.list");
-      const wakeCount = yield* deliverBoardWake({
-        canvas,
-        boardNodeId: target,
-        kind: "operator.notify.all",
-        topicId: args.topicId,
-        excerptSource: args.topicId ? `notify topic ${args.topicId}` : "notify all",
-      });
-      return { wakeCount, disposition: "applied" as const };
     }
     if (op === "content.ingest") {
       const args = yield* decodeArgs(op, raw);

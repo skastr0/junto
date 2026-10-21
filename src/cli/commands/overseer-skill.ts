@@ -1,5 +1,4 @@
 /** Product-embedded overseer skill text. Not a global Amp skill install. */
-import { BOARD_ENABLED } from "@shared/features";
 import { SEAT_FIELDS_MAIN_WORKS_OUT } from "@shared/model/drafts";
 import { OVERSEER_CATALOG } from "@shared/overseer-control";
 
@@ -15,10 +14,6 @@ const ENABLED_FAMILIES: ReadonlyArray<string> = [
       .filter((family) => family !== "overseer"),
   ),
 ];
-
-const FAMILY_VERB_NOTES = [
-  BOARD_ENABLED ? "Board uses `create-topic` and `mark-read`." : "",
-].filter((note) => note.length > 0).join(" ");
 
 export const OVERSEER_SKILL_MARKDOWN = `---
 name: overseer
@@ -92,7 +87,7 @@ Wire: \`{op:"overseer", args:{operation, args}}\`. Outer work errors are auth, p
 
 ${ENABLED_FAMILIES.join(", ")}
 
-Verbs match \`OVERSEER_OPERATION_NAMES\` (dots become family + verb). ${FAMILY_VERB_NOTES} \`overseer status\` is live grant/surface, not git.
+Verbs match \`OVERSEER_OPERATION_NAMES\` (dots become family + verb). \`overseer status\` is live grant/surface, not git.
 
 Remote seats are supported on the same CLI. Station transport is not this command.
 

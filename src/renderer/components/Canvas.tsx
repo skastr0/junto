@@ -69,7 +69,7 @@ import "../styles/factory-grammar.css";
 import "../styles/canvas-lod.css";
 import "../styles/canvas-lod-regions.css";
 import {
-  newArtifacts, newAutomations, newBoard, newRegion, newImage,
+  newArtifacts, newAutomations, newRegion, newImage,
   newLabel, newSeat, newPage, newRequests, newTaskBoard, newNote,
 } from "../lib/model-factories";
 import { topZ } from "../lib/model-edits";
@@ -77,7 +77,6 @@ import { putImagesFromDataTransfer } from "../lib/image-content";
 import { contentObjectUrl } from "@shared/content-url";
 import {
   ARTIFACTS_ENABLED,
-  BOARD_ENABLED,
   BROWSER_ENABLED,
   FLEET_UI_ENABLED,
   REQUESTS_ENABLED,
@@ -762,14 +761,6 @@ const makeAddActions = (
   addAutomations: () => {
     const position = positionFor({ width: 240, height: 120 });
     const node = newAutomations(onTop(position));
-    addNode(node, { edit: false });
-    state$.focusNodeId.set(node.id);
-    dismiss();
-  },
-  addBoard: () => {
-    if (!BOARD_ENABLED) return;
-    const position = positionFor({ width: 240, height: 120 });
-    const node = newBoard(onTop(position));
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();

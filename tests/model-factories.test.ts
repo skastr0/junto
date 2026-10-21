@@ -6,7 +6,6 @@ import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   ARTIFACTS_ENABLED,
-  BOARD_ENABLED,
   REQUESTS_ENABLED,
   TASKS_ENABLED,
 } from "../src/shared/features";
@@ -15,7 +14,6 @@ import { canvasFromOpened, type Canvas } from "../src/shared/model/canvas";
 import { added, topZ } from "../src/renderer/lib/model-edits";
 import {
   newArtifacts,
-  newBoard,
   newGit,
   newImage,
   newLabel,
@@ -50,7 +48,6 @@ describe("new nodes", () => {
     ...on(TASKS_ENABLED, "task board", () => newTaskBoard(spot)),
     ...on(REQUESTS_ENABLED, "requests", () => newRequests(spot)),
     ...on(ARTIFACTS_ENABLED, "artifacts", () => newArtifacts(spot)),
-    ...on(BOARD_ENABLED, "board", () => newBoard(spot)),
   ];
 
   it.each(made)("a new %s is one the contract accepts, at whole numbers and the z it was given", (_label, make) => {

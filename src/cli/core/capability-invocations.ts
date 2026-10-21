@@ -1,4 +1,4 @@
-import { ARTIFACTS_ENABLED, BOARD_ENABLED, BROWSER_ENABLED, REQUESTS_ENABLED, TASKS_ENABLED } from "../../shared/features";
+import { ARTIFACTS_ENABLED, BROWSER_ENABLED, REQUESTS_ENABLED, TASKS_ENABLED } from "../../shared/features";
 
 export interface CapabilityInvocation {
   readonly port: string;
@@ -19,7 +19,6 @@ export const commandSurfaceEnabled = (commandId: string): boolean => {
   if (commandId.startsWith("content.")) return TASKS_ENABLED;
   // Region rulings are part of the region contract, which rides the Tasks gate.
   if (commandId === "rulings") return TASKS_ENABLED;
-  if (commandId.startsWith("board.")) return BOARD_ENABLED;
   if (commandId.startsWith("request.")) return REQUESTS_ENABLED;
   if (commandId.startsWith("artifact.")) return ARTIFACTS_ENABLED;
   if (commandId.startsWith("browser.")) return BROWSER_ENABLED;

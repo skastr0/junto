@@ -413,11 +413,6 @@ export const requiresConnection = (op: WorkOpName | OldTaskStoreOp | "overseer")
     case "msg.read":
     case "msg.reply":
     case "msg.react":
-    case "board.list":
-    case "board.tags":
-    case "board.create_topic":
-    case "board.post":
-    case "board.mark_read":
       return true;
   }
 };

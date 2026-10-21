@@ -93,12 +93,6 @@ export const OVERSEER_OPERATION_NAMES = [
   "msg.read",
   "msg.reply",
   "msg.react",
-  "board.list",
-  "board.create-topic",
-  "board.post",
-  "board.mark-read",
-  "board.tags",
-  "board.notify",
   "content.ingest",
   "content.path",
   "content.stat",
@@ -468,35 +462,6 @@ const MessageReact = Schema.Struct({
   messageId: Id,
   reaction: Schema.optionalKey(Schema.Literal("ack")),
 });
-const BoardList = Schema.Struct({
-  ...SinkTarget,
-  topicId: Schema.optionalKey(Id),
-});
-const BoardCreateTopic = Schema.Struct({
-  ...SinkTarget,
-  title: NonEmpty,
-  body: Schema.optionalKey(Schema.String),
-  notify: Schema.optionalKey(Schema.Boolean),
-});
-const BoardPost = Schema.Struct({
-  ...SinkTarget,
-  topicId: Id,
-  text: NonEmpty,
-  tags: Schema.optionalKey(Schema.Array(Id)),
-});
-const BoardTopic = Schema.Struct({
-  ...SinkTarget,
-  topicId: Id,
-  upToPosition: Schema.optionalKey(NonNegativeInt),
-});
-const BoardTags = Schema.Struct({
-  ...SinkTarget,
-  topicId: Schema.optionalKey(Id),
-});
-const BoardNotify = Schema.Struct({
-  ...SinkTarget,
-  topicId: Schema.optionalKey(Id),
-});
 const ContentAccess = Schema.Struct({
   ...SinkTarget,
   task: Id,
@@ -748,12 +713,6 @@ export const OverseerArgsSchemas = {
   "msg.read": MessageRead,
   "msg.reply": MessageReply,
   "msg.react": MessageReact,
-  "board.list": BoardList,
-  "board.create-topic": BoardCreateTopic,
-  "board.post": BoardPost,
-  "board.mark-read": BoardTopic,
-  "board.tags": BoardTags,
-  "board.notify": BoardNotify,
   "content.ingest": ContentIngest,
   "content.path": ContentAccess,
   "content.stat": ContentAccess,
@@ -882,8 +841,6 @@ export const OVERSEER_READ_ONLY_OPERATIONS = [
   "request.get",
   "artifact.list",
   "artifact.get",
-  "board.list",
-  "board.tags",
   "content.path",
   "content.stat",
   "agent.list",

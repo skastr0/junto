@@ -1,7 +1,6 @@
 import { ulid } from "ulid";
 import {
   ARTIFACTS_ENABLED,
-  BOARD_ENABLED,
   REQUESTS_ENABLED,
   TASKS_ENABLED,
 } from "@shared/features";
@@ -138,7 +137,3 @@ export const newAutomations = (spot: Spot): NodeOf<"automations"> => ({
   ...placed("automations", spot, SINK_SIZE),
 });
 
-export const newBoard = (spot: Spot): NodeOf<"board"> => {
-  requireFeature(BOARD_ENABLED, "board sink");
-  return { kind: "board", ...placed("board", spot, SINK_SIZE) };
-};

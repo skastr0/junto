@@ -37,7 +37,6 @@ import type { Task } from "@shared/work-model";
 import type { AutomationsChanged } from "@shared/automation";
 import {
   ARTIFACTS_ENABLED,
-  BOARD_ENABLED,
   BROWSER_ENABLED,
   FLEET_UI_ENABLED,
   LIVE_OVERSEER_ENABLED,
@@ -406,12 +405,7 @@ type WorkFeatureApiKey =
   | "workTaskRespond"
   | "workRequestResolve"
   | "workArtifactArchive"
-  | "workArtifactDelete"
-  | "workBoardList"
-  | "workBoardCreateTopic"
-  | "workBoardPost"
-  | "workBoardMarkRead"
-  | "workBoardNotify";
+  | "workArtifactDelete";
 
 const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   platform: process.platform,
@@ -739,60 +733,6 @@ const artifactsWorkApi: Pick<
     ),
 };
 
-const boardWorkApi: Pick<
-  JuntoApi,
-  | "workBoardList"
-  | "workBoardCreateTopic"
-  | "workBoardPost"
-  | "workBoardMarkRead"
-  | "workBoardNotify"
-> = {
-  workBoardList: (canvas, nodeId, topicId) =>
-    invoke(
-      IPC_CHANNELS.workBoardList,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      topicId,
-    ),
-  workBoardCreateTopic: (canvas, nodeId, title, body, notify) =>
-    invoke(
-      IPC_CHANNELS.workBoardCreateTopic,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      title,
-      body,
-      notify,
-    ),
-  workBoardPost: (canvas, nodeId, topicId, text) =>
-    invoke(
-      IPC_CHANNELS.workBoardPost,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      topicId,
-      text,
-    ),
-  workBoardMarkRead: (canvas, nodeId, topicId, upToPosition?: number) =>
-    invoke(
-      IPC_CHANNELS.workBoardMarkRead,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      topicId,
-      upToPosition,
-    ),
-  workBoardNotify: (canvas, nodeId, topicId) =>
-    invoke(
-      IPC_CHANNELS.workBoardNotify,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      topicId,
-    ),
-};
-
 const usageApi: JuntoUsageApi = {
   getUsage: () => invoke(IPC_CHANNELS.getUsage, IPC_TIMEOUT_MS),
   refreshUsage: () => invoke(IPC_CHANNELS.refreshUsage, USAGE_REFRESH_TIMEOUT_MS),
@@ -956,7 +896,6 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
           },
         }
       : {}),
-    ...(BOARD_ENABLED ? boardWorkApi : {}),
     ...(LIVE_OVERSEER_ENABLED ? liveApi : {}),
     ...(USAGE_ENABLED ? usageApi : {}),
     ...(FLEET_UI_ENABLED ? hostsApi : {}),

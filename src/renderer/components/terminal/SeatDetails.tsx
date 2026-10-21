@@ -1,4 +1,4 @@
-import { useActorPage, useAttentionRows, usePeerBoards } from "../../lib/use-actor-work";
+import { useActorPage, useAttentionRows } from "../../lib/use-actor-work";
 import { WorkPageControls } from "../work/WorkPageControls";
 import { useCanvas } from "../../lib/use-model";
 import { useWorkMail } from "../../lib/use-work-mail";
@@ -6,7 +6,7 @@ import { useWorkMail } from "../../lib/use-work-mail";
  * Seat details: everything about one agent seat that is worth a look now and
  * then, kept out of the way behind one button in the agent modal's header.
  * The seat's AI reading and onboarding status, its signals, its standing with
- * the work kernel (task, escalations, raised tasks, artifacts, board) and its
+ * the work kernel (task, escalations, raised tasks, artifacts) and its
  * mail. Work rows project from the canvas (no IPC reads; operator actions
  * go through the work IPC mutations).
  *
@@ -20,7 +20,7 @@ import { Ellipsis } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import type { WorkOpResult } from "@shared/ipc";
 import type { TaskState } from "@shared/work-model";
-import { asNodeId, inPaintOrder, type Node } from "@shared/model";
+import { asNodeId, type Node } from "@shared/model";
 import { resolveSpec, roleOf } from "@shared/physics";
 import {
   mailAgeLabel,
@@ -33,7 +33,6 @@ import { mailEvidenceLabel } from "../../lib/crew-mail-view";
 import "./actor-ledger-mail.css";
 import {
   artifactRowsForSeat,
-  boardRowsForActor,
   raisedTaskRowsForSeat,
   requestRowsForSeat,
   seatIdForActorNode,
@@ -329,7 +328,7 @@ const contractOf = (node: Node | undefined) => (node?.kind === "task" ? node.con
 function SeatDetails({ node, session }: { readonly node: SeatFace; readonly session: SeatSession }) {
   const actorRefs = use$(state$.actorRefs);
   const canvas = use$(state$.canvasName);
-  // The canvas the store holds: the seat's wires, its boards and who its mail is from.
+  // The canvas the store holds: the seat's task boards and who its mail is from.
   const held = useCanvas(canvas);
   const boundCanvas = use$(terminal$.canvasByNodeId[node.id]);
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -355,13 +354,6 @@ function SeatDetails({ node, session }: { readonly node: SeatFace; readonly sess
   const requestPage = useActorPage("requests", live ? canvas : "", seatId);
   const taskPage = useActorPage("task", live ? canvas : "", seatId);
   const artifactPage = useActorPage("artifacts", live ? canvas : "", seatId);
-  const peerBoardIds = useMemo(() => {
-    if (!live) return [];
-    const peerIds = new Set<string>([...held.wires.values()].flatMap((wire) =>
-      wire.from === node.id ? [wire.to] : wire.to === node.id ? [wire.from] : []));
-    return inPaintOrder(held).filter((entry) => peerIds.has(entry.id) && entry.kind === "board").map((entry) => entry.id as string);
-  }, [held, node.id, live]);
-  const boardPages = usePeerBoards(live ? canvas : "", peerBoardIds);
   const seatTask = use$(() => seatTasks$.bySeat[node.id].get()) as SeatTask | undefined;
   const claim = live ? seatTask : undefined;
   const requests = useMemo(
@@ -377,18 +369,6 @@ function SeatDetails({ node, session }: { readonly node: SeatFace; readonly sess
     () => live && seatId !== undefined && artifactPage.page.kind === "artifacts"
       ? artifactRowsForSeat(artifactPage.page.items, seatId) : [],
     [artifactPage.page, seatId, live],
-  );
-  const boards = useMemo(
-    () => live ? boardRowsForActor(boardPages.boards) : [],
-    [boardPages.boards, live],
-  );
-  const boardTopics = useMemo(
-    () => boards.flatMap((board) => board.topics),
-    [boards],
-  );
-  const boardUnread = boards.reduce(
-    (sum, board) => sum + (board.unread ?? 0),
-    0,
   );
   const mail = useWorkMail(canvas, node.id, live);
   const rows = useMemo(
@@ -467,8 +447,6 @@ function SeatDetails({ node, session }: { readonly node: SeatFace; readonly sess
       <WorkPageControls {...requestPage} />
       <WorkPageControls {...taskPage} />
       <WorkPageControls {...artifactPage} />
-      {boardPages.error ? <p role="status">{boardPages.error}</p> : null}
-      {boardPages.hasMore ? <Button size="xs" variant="subtle" disabled={boardPages.loading} onClick={() => void boardPages.loadMore()}>Load older board topics</Button> : null}
       {claim ? (
         <DetailsGroup
           title="task"
@@ -592,42 +570,6 @@ function SeatDetails({ node, session }: { readonly node: SeatFace; readonly sess
                 </li>
               );
             })}
-          </ul>
-        </DetailsGroup>
-      ) : null}
-      {boardTopics.length > 0 ? (
-        <DetailsGroup
-          title="board"
-          count={boardTopics.length}
-          meta={boardUnread > 0 ? `${boardUnread} unread` : undefined}
-        >
-          <ul className="actor-ledger__list">
-            {boardTopics.map((topic) => (
-              <li
-                key={`board:${topic.sinkNodeId}:${topic.topicId}`}
-                className="actor-ledger__item"
-                data-testid="actor-ledger-board-row"
-                data-topic-id={topic.topicId}
-              >
-                <div
-                  className="actor-ledger__item-row actor-ledger__item-row--static"
-                  title={`${topic.title} - ${topic.postCount} post${topic.postCount === 1 ? "" : "s"} on ${topic.sinkNodeId}${topic.authorLabel ? ` - opened by ${topic.authorLabel}` : ""}`}
-                >
-                  <span className="actor-ledger__item-head">
-                    {!topic.open ? <Chip tone="steel">archived</Chip> : null}
-                    <span className="actor-ledger__item-title">
-                      {topic.title}
-                    </span>
-                  </span>
-                  <span className="actor-ledger__item-detail">
-                    {topic.postCount} post{topic.postCount === 1 ? "" : "s"}
-                    {mailAgeLabel(nowMs, topic.lastActivityAtMs)
-                      ? ` - ${mailAgeLabel(nowMs, topic.lastActivityAtMs)}`
-                      : ""}
-                  </span>
-                </div>
-              </li>
-            ))}
           </ul>
         </DetailsGroup>
       ) : null}

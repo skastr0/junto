@@ -17,7 +17,6 @@ import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import type { Seat } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import { actorRailExpanded, actorRailPeers, setActorRailExpanded } from "../../lib/actor-rail";
-import type { ActorEdgeRow } from "../../lib/actor-edges";
 import { openActorMirror } from "../../lib/actor-mirrors";
 import { openOperatorModal } from "../../lib/operator-modal";
 import { preambleByNodeId$ } from "../../lib/preamble-state";
@@ -138,9 +137,6 @@ function RailBubble({
   );
 }
 
-const boardMeta = (row: ActorEdgeRow): string | undefined =>
-  row.boardNotify === "on" ? "wakes" : row.boardNotify === "off" ? "quiet" : undefined;
-
 export function ActorRail({ node }: { readonly node: { readonly id: string } }) {
   const canvas = useCanvas(use$(state$.canvasName));
   const expanded = actorRailExpanded(use$(sidebarSections$.open));
@@ -203,7 +199,7 @@ export function ActorRail({ node }: { readonly node: { readonly id: string } }) 
           <ul className="actor-rail__others" data-testid="actor-rail-others">
             {others.map((row) => (
               <li key={row.peerId} data-peer-node-id={row.peerId} data-peer-kind={row.peerKind}>
-                <ListRow title={row.peerTitle} meta={boardMeta(row) ?? row.peerKind} />
+                <ListRow title={row.peerTitle} meta={row.peerKind} />
               </li>
             ))}
           </ul>

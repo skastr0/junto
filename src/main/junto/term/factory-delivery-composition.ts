@@ -1,9 +1,8 @@
 /**
  * Shared factory-delivery composition.
  *
- * The product delivery paths — the injection supervisor and board wakes —
- * all reach a managed seat PTY
- * through one destination drive. Command Center and the packaged Node
+ * The product delivery path, the injection supervisor, reaches a managed seat
+ * PTY through one destination drive. Command Center and the packaged Node
  * Remote both compose them here; mailbox mail is Command Center-only (actor
  * mailboxes are CC-homed) and is wired beside this in `ipc.ts` through the
  * drive's `writeMail`. Both callsites supply their own evidence sources
@@ -20,13 +19,11 @@
 
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import {
-  isPromptSubmitted,
   outcomeWrotePhysical,
   type ManagedPromptOutcome,
 } from "@shared/managed-prompt";
 import type { WritePromptOptions } from "./drive";
 import type { ObserverGridSnapshot } from "./observer/types";
-import type { BoardDeliveryTransport } from "../work/board-delivery";
 
 /** Minimal drive surface every delivery path needs. */
 export type FactoryDeliveryDrive = {
@@ -51,14 +48,6 @@ export type FactoryWritePrompt = (
   options?: FactoryWritePromptOptions,
 ) => Promise<ManagedPromptOutcome>;
 
-/** Kernel seat starter for lazy managed seats (both runtimes). */
-export type FactoryDeliveryKernel = {
-  readonly wakeManagedSeat: (
-    canvas: string,
-    nodeId: string,
-  ) => boolean | Promise<boolean>;
-};
-
 export type FactoryDeliveryEvents = {
   readonly subscribeSeatState: (
     listener: (event: AgentSeatStateEvent) => void,
@@ -80,10 +69,6 @@ export type FactoryDeliverySupervisor = {
   readonly onSnapshot: (snap: ObserverGridSnapshot) => void;
 };
 
-export type FactoryDeliveryBoard = {
-  readonly configure: (transport: BoardDeliveryTransport) => void;
-};
-
 /**
  * Managed-prompt writer with a readiness default: explicit `ready` wins,
  * otherwise the callsite's drive-ready predicate decides. Mirrors the
@@ -98,17 +83,6 @@ export const makeFactoryWriteManagedPrompt = (
       ready: options?.ready ?? driveReady(bindingId),
       ...(options ?? {}),
     });
-
-/** Board megaphone transport through the destination drive. */
-export const factoryBoardTransport = (input: {
-  readonly kernel: FactoryDeliveryKernel;
-  readonly write: FactoryWritePrompt;
-}): BoardDeliveryTransport => ({
-  wakeManagedSeat: (canvas, nodeId) =>
-    input.kernel.wakeManagedSeat(canvas, nodeId),
-  sendManagedTerminalPrompt: (bindingId, text, options) =>
-    input.write(bindingId, text, options).then(isPromptSubmitted),
-});
 
 /**
  * The supervisor's onboarding nudge through the destination drive. It is an
@@ -152,13 +126,11 @@ export const wireFactorySupervisor = (input: {
 export type ComposeFactoryDeliveryInput = {
   readonly drive: FactoryDeliveryDrive;
   readonly driveReady: (bindingId: string) => boolean;
-  readonly kernel: FactoryDeliveryKernel;
   readonly events: FactoryDeliveryEvents;
   readonly supervisor: FactoryDeliverySupervisor;
   /** Types the supervisor's nudge mid-turn; see wireFactorySupervisor. */
   readonly interject: (bindingId: string, text: string) => Promise<boolean>;
   readonly composerVerdict: (bindingId: string) => "empty" | "draft" | null;
-  readonly board: FactoryDeliveryBoard;
 };
 
 export type ComposedFactoryDelivery = {
@@ -167,18 +139,13 @@ export type ComposedFactoryDelivery = {
 };
 
 /**
- * Compose supervisor and board delivery through one destination
- * drive. Returns the writer and a dispose closing every subscription this
+ * Compose supervisor delivery through one destination drive. Returns the writer and a dispose closing every subscription this
  * call opened.
  */
 export const composeFactoryDelivery = (
   input: ComposeFactoryDeliveryInput,
 ): ComposedFactoryDelivery => {
   const write = makeFactoryWriteManagedPrompt(input.drive, input.driveReady);
-
-  input.board.configure(
-    factoryBoardTransport({ kernel: input.kernel, write }),
-  );
   const unsubs: Array<() => void> = [];
   unsubs.push(
     wireFactorySupervisor({

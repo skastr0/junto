@@ -143,11 +143,6 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "references.read",
 /** Universal seat-local: the seat puts a file of its own into the content store, in pieces. */
 "content.stage",
-"board.list",
-"board.create_topic",
-"board.post",
-"board.mark_read",
-"board.tags",
 /** Automations in reach (plan 07): no edge, no port; region reach admits. Seats only read. */
 "automation.list",
 "automation.show",
@@ -702,54 +697,6 @@ export type OffboardArgs = typeof OffboardArgs.Type;
 
 export const EmptyArgs = Schema.Struct({});
 export type EmptyArgs = typeof EmptyArgs.Type;
-
-export const BoardListArgs = Schema.Struct({
-  target: Schema.String,
-  topicId: Schema.optionalKey(Schema.String),
-});
-export type BoardListArgs = typeof BoardListArgs.Type;
-
-export const BoardCreateTopicArgs = Schema.Struct({
-  target: Schema.String,
-  title: Schema.String,
-  body: Schema.optionalKey(Schema.String),
-  /** Operator IPC only — agents' true is ignored (no auto wake). */
-  notify: Schema.optionalKey(Schema.Boolean),
-});
-export type BoardCreateTopicArgs = typeof BoardCreateTopicArgs.Type;
-
-export const BoardPostArgs = Schema.Struct({
-  target: Schema.String,
-  topicId: Schema.String,
-  text: Schema.String,
-  /**
-   * Canvas actor node ids to tag (soft notify via board edge wake).
-   * Unknown / non-connected ids are dropped server-side.
-   */
-  tags: Schema.optionalKey(Schema.Array(Schema.String)),
-});
-export type BoardPostArgs = typeof BoardPostArgs.Type;
-
-/** List posts on a board that tag this process-bound seat (own tags). */
-export const BoardTagsListArgs = Schema.Struct({
-  target: Schema.String,
-  /** Optional topic filter. */
-  topicId: Schema.optionalKey(Schema.String),
-});
-export type BoardTagsListArgs = typeof BoardTagsListArgs.Type;
-
-export const BoardMarkReadArgs = Schema.Struct({
-  target: Schema.String,
-  topicId: Schema.String,
-  /** Inclusive last post position read; omit = mark all current posts. */
-  upToPosition: Schema.optionalKey(
-    Schema.Number.pipe(
-      Schema.check(Schema.isInt()),
-      Schema.check(Schema.isGreaterThanOrEqualTo(0)),
-    ),
-  ),
-});
-export type BoardMarkReadArgs = typeof BoardMarkReadArgs.Type;
 
 // ---------------------------------------------------------------------------
 // Helpers

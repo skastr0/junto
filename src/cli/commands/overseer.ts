@@ -230,7 +230,6 @@ const FAMILY_HELP: Readonly<Record<string, string>> = {
   request: "Request list, get, create, resolve, comment",
   artifact: "Artifact list, get, publish, archive, delete",
   msg: "Mailbox list, send, read, reply, react",
-  board: "Board list, create-topic, post, mark-read, tags, notify",
   content: "Content ingest, path, stat, materialize",
   agent: "Agent list, get, reseat, start, wake, prompt, output, interrupt, stop, offboard, offboard-status, offboard-rules, offboard-configure",
   terminal: "Terminal list, get, start, input, output, resize, interrupt, stop",

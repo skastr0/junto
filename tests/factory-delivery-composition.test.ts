@@ -166,7 +166,6 @@ describe("composeFactoryDelivery", () => {
     const composed = composeFactoryDelivery({
       drive,
       driveReady: () => true,
-      kernel: { wakeManagedSeat: () => true },
       events: {
         subscribeSeatState: (listener) => {
           seatListeners.push(listener as (event: never) => void);
@@ -189,7 +188,6 @@ describe("composeFactoryDelivery", () => {
       },
       interject: () => Promise.resolve(true),
       composerVerdict: () => "empty",
-      board: { configure: () => {} },
     });
     return { drive, composed, seatListeners, noted, unsubs };
   };

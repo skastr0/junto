@@ -38,7 +38,6 @@ import { Command, CanvasName, asNodeId } from "@shared/model";
 
 import {
   ARTIFACTS_ENABLED,
-  BOARD_ENABLED,
   BROWSER_ENABLED,
   FLEET_UI_ENABLED,
   REQUESTS_ENABLED,
@@ -157,10 +156,7 @@ import {
 } from "./seat-sessions/operator-offboard-ipc";
 import { onSeatViewQuestions } from "./term/seat-views";
 import { regionEnvReport, regionEnvStaleSeats } from "./region-env/report-ipc";
-import {
-  factoryBoardTransport,
-  wireFactorySupervisor,
-} from "./term/factory-delivery-composition";
+import { wireFactorySupervisor } from "./term/factory-delivery-composition";
 import { terminalObserverPlane } from "./term/observer";
 import { termPlane } from "./term/plane";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
@@ -174,34 +170,12 @@ import {
   type SeatCollaborationAskResult,
 } from "@shared/seat-collaboration";
 import { ulid } from "ulid";
-import type { BoardPost } from "@shared/work-model";
 import type { ActorRef } from "@shared/work-protocol";
 import {
   MainAuthoringRefused,
   mainAuthoringGate,
   type MainAuthoringLabel,
 } from "./main-authoring-gate";
-
-/**
- * Wake excerpt for a notify-all on one topic: the latest post's text, else the
- * opening body, else the title itself. Agents never receive raw topic ids.
- */
-const latestBoardPostExcerpt = (topic: {
-  readonly title: string;
-  readonly parts?: ReadonlyArray<Part>;
-  readonly posts?: ReadonlyArray<BoardPost>;
-}): string => {
-  const latest = [...(topic.posts ?? [])].sort(
-    (a, b) => b.position - a.position,
-  )[0];
-  const textOf = (parts: ReadonlyArray<Part> | undefined): string =>
-    (parts ?? [])
-      .filter((part): part is Extract<Part, { kind: "text" }> => part.kind === "text")
-      .map((part) => part.text)
-      .join("\n")
-      .trim();
-  return textOf(latest?.parts) || textOf(topic.parts) || topic.title;
-};
 
 /** Closes a seat's session once its agent offboarded and went idle. */
 let offboardCloser: SeatOffboardCloser | undefined;
@@ -1267,162 +1241,6 @@ export const registerJuntoIpc = (): void => {
       ),
   );
 
-  if (BOARD_ENABLED) privilegedIpc.handle(
-    IPC_CHANNELS.workBoardList,
-    (
-      _event,
-      canvas: string,
-      nodeId: string,
-      topicId?: string,
-    ) =>
-      AppRuntime.runPromise(
-        Effect.gen(function* () {
-          const work = yield* WorkService;
-          return yield* work.workBoardList(canvas, nodeId, topicId);
-        }),
-      ),
-  );
-
-  if (BOARD_ENABLED) privilegedIpc.handle(
-    IPC_CHANNELS.workBoardCreateTopic,
-    (
-      _event,
-      canvas: string,
-      nodeId: string,
-      title: string,
-      body: string | undefined,
-      notify: boolean,
-    ) =>
-      runRendererWorkAuthoring(
-        "ipc.work.board-topic-create",
-        () =>
-          AppRuntime.runPromise(
-            Effect.gen(function* () {
-              const work = yield* WorkService;
-              const result = yield* work.workBoardCreateTopic(
-                canvas,
-                nodeId,
-                title,
-                body,
-                { kind: "operator", label: "operator" },
-                notify === true,
-              );
-              if (
-                result.ok &&
-                result.data.notify &&
-                result.disposition === "applied"
-              ) {
-                const { deliverBoardWake } = yield* Effect.promise(
-                  () => import("./work/board-delivery"),
-                );
-                yield* deliverBoardWake({
-                  canvas,
-                  boardNodeId: nodeId,
-                  kind: "operator.topic.notify",
-                  topicId: result.data.topic.topicId,
-                  topicTitle: result.data.topic.title,
-                  excerptSource: title,
-                }).pipe(Effect.catch(() => Effect.void));
-              }
-              return result;
-            }),
-          ),
-      ),
-  );
-
-  if (BOARD_ENABLED) privilegedIpc.handle(
-    IPC_CHANNELS.workBoardPost,
-    (
-      _event,
-      canvas: string,
-      nodeId: string,
-      topicId: string,
-      text: string,
-    ) =>
-      runRendererWorkAuthoring(
-        "ipc.work.board-post",
-        () =>
-          AppRuntime.runPromise(
-            Effect.gen(function* () {
-              const work = yield* WorkService;
-              return yield* work.workBoardPost(
-                canvas,
-                nodeId,
-                topicId,
-                text,
-                { kind: "operator", label: "operator" },
-              );
-            }),
-          ),
-      ),
-  );
-
-  if (BOARD_ENABLED) privilegedIpc.handle(
-    IPC_CHANNELS.workBoardMarkRead,
-    (_event, canvas: string, nodeId: string, topicId: string, upToPosition?: number) =>
-      runRendererWorkAuthoring(
-        "ipc.work.board-mark-read",
-        () =>
-          AppRuntime.runPromise(
-            Effect.gen(function* () {
-              const work = yield* WorkService;
-              return yield* work.workBoardMarkRead(
-                canvas,
-                nodeId,
-                topicId,
-                "operator",
-                upToPosition,
-              );
-            }),
-          ),
-      ),
-  );
-
-  if (BOARD_ENABLED) privilegedIpc.handle(
-    IPC_CHANNELS.workBoardNotify,
-    (_event, canvas: string, nodeId: string, topicId?: string) =>
-      runRendererWorkAuthoring(
-        "ipc.work.board-notify",
-        () =>
-          AppRuntime.runPromise(
-            Effect.gen(function* () {
-              const work = yield* WorkService;
-              // Validate the board/topic before waking so a bad request never
-              // reaches a transport, and compose the wake from canonical data.
-              const listed = yield* work.workBoardList(canvas, nodeId);
-              if (!listed.ok) return listed;
-              const topic = topicId
-                ? listed.data.topics.find((t) => t.topicId === topicId)
-                : undefined;
-              if (topicId && topic === undefined) {
-                return {
-                  ok: false as const,
-                  code: "task_not_found",
-                  message: `topic "${topicId}" not found`,
-                };
-              }
-              const { deliverBoardWake } = yield* Effect.promise(
-                () => import("./work/board-delivery"),
-              );
-              const wakeCount = yield* deliverBoardWake({
-                canvas,
-                boardNodeId: nodeId,
-                kind: "operator.notify.all",
-                ...(topic ? { topicId: topic.topicId, topicTitle: topic.title } : {}),
-                excerptSource: topic
-                  ? latestBoardPostExcerpt(topic)
-                  : `${listed.data.topics.length} topics on the board`,
-              });
-              return {
-                ok: true as const,
-                data: { wakeCount },
-                disposition: "applied" as const,
-              };
-            }),
-          ),
-      ),
-  );
-
   AppRuntime.runFork(Effect.flatMap(ModelService, (model) => model.changes.pipe(
     Stream.runForEach((event) => Effect.sync(() => broadcast(IPC_CHANNELS.modelChanged, event))),
   )));
@@ -1706,13 +1524,6 @@ export const registerJuntoIpc = (): void => {
           }
         }
       });
-      // Bulletin board operator megaphone reuses managed-prompt transport.
-      const { configureBoardDelivery } = yield* Effect.promise(
-        () => import("./work/board-delivery"),
-      );
-      configureBoardDelivery(
-        factoryBoardTransport({ kernel, write: writeManagedPrompt }),
-      );
 
       const crew = yield* CrewRepository;
       // A continuation line held by the seat's input box is said on the seat

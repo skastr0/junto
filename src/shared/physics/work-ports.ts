@@ -57,12 +57,6 @@ export const PortForWorkOp = {
   "msg.read": "msg.list",
   "msg.reply": "msg.send",
   "msg.react": "msg.list",
-  "board.list": "board.list",
-  "board.create_topic": "board.create_topic",
-  "board.post": "board.post",
-  "board.mark_read": "board.mark_read",
-  // Own tags is a board read — reuses list grant (no new capability surface).
-  "board.tags": "board.list",
 } as const satisfies Record<TargetWorkOpName | OldTaskStoreOp, Port>;
 
 export type PortForWorkOp = typeof PortForWorkOp;
@@ -89,11 +83,6 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
   "msg.read",
   "msg.reply",
   "msg.react",
-  "board.list",
-  "board.create_topic",
-  "board.post",
-  "board.mark_read",
-  "board.tags",
 ];
 
 // ---------------------------------------------------------------------------
@@ -132,13 +121,7 @@ export const OPS_BY_SINK = {
   // Artifacts admit by reach (plan 05); no work op checks a port.
   artifacts: [],
   automations: [],
-  board: [
-    "board.list",
-    "board.create_topic",
-    "board.post",
-    "board.mark_read",
-    "board.tags",
-  ],
+  board: [],
   page: [],
   terminal: [],
 } as const satisfies Record<SinkKind, ReadonlyArray<TargetWorkOpName>>;

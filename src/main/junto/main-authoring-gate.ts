@@ -31,20 +31,12 @@ export const MAIN_AUTHORING_LABELS = [
   "control.work.msg-send",
   "control.work.signal",
   "control.work.offboard",
-  "control.work.board-create-topic",
-  "control.work.board-post",
-  "control.work.board-mark-read",
-  "ipc.work.board-topic-create",
-  "ipc.work.board-post",
-  "ipc.work.board-mark-read",
-  "ipc.work.board-notify",
   "ipc.work.collaboration-ask",
   "ipc.work.thread-send",
   "companion.signal-answer",
   "companion.signal-dismiss",
   "companion.mail-send",
   "delivery.message-stamp",
-  "delivery.board-wake",
   "review.checkout",
   "kernel.flag-mirror",
   "kernel.phase-mirror",
@@ -138,11 +130,6 @@ const WORK_OPERATION_CLASSIFICATION = {
   "references.read": "read",
   // Staging writes the content store and its manifest.
   "content.stage": "authorial",
-  "board.list": "read",
-  "board.tags": "read",
-  "board.create_topic": "authorial",
-  "board.post": "authorial",
-  "board.mark_read": "authorial",
   "automation.list": "read",
   "automation.show": "read",
   "automation.history": "read",
@@ -194,9 +181,6 @@ const WORK_AUTHORING_LABELS = {
   // authorial family, so it carries the same label.
   "content.stage": "control.work.signal",
   offboard: "control.work.offboard",
-  "board.create_topic": "control.work.board-create-topic",
-  "board.post": "control.work.board-post",
-  "board.mark_read": "control.work.board-mark-read",
 } as const satisfies Record<
   Extract<
     WorkOpName,
@@ -228,9 +212,6 @@ const WORK_AUTHORING_LABELS = {
     | "signal.clear"
     | "content.stage"
     | "offboard"
-    | "board.create_topic"
-    | "board.post"
-    | "board.mark_read"
   >,
   MainAuthoringLabel
 >;

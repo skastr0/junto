@@ -6,7 +6,7 @@
  * Live stoppage on a work lane is kernel-derived (actor blocked by task
  * attention) — never an authorable edge mode.
  */
-import { asNodeId, wireGrant, wireKinds, type Canvas } from "@shared/model";
+import { asNodeId, type Canvas } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import { kindWord } from "./model-kind";
 
@@ -18,8 +18,6 @@ export type ActorEdgeRow = {
   readonly peerKind: string;
   /** The seat is the wire's from end → out; its to end → in. */
   readonly direction: "out" | "in";
-  /** Board megaphone: `participates` = ON, the quiet board verb = OFF. */
-  readonly boardNotify: "on" | "off" | null;
   /**
    * Live kernel phase only. `blocks` = seat is stopped on this wire right
    * now (derived). Absent = no stoppage paint — not "soft relationship".
@@ -39,7 +37,6 @@ export const actorEdgeRows = (
 ): ReadonlyArray<ActorEdgeRow> => {
   if (canvas.nodes.get(asNodeId(actorNodeId))?.kind !== "agent") return [];
 
-  const kinds = wireKinds(canvas.nodes.values());
   const rows: ActorEdgeRow[] = [];
   for (const wire of canvas.wires.values()) {
     const out = wire.from === actorNodeId;
@@ -54,9 +51,6 @@ export const actorEdgeRows = (
       peerTitle: peer ? titleOf(peer) : peerId,
       peerKind: peer ? kindWord(peer.kind) : "missing",
       direction: out ? "out" : "in",
-      // The megaphone exists only on a wire that touches a board:
-      // `participates` wakes the seat; the quiet board verb does not.
-      boardNotify: peer?.kind === "board" ? (wireGrant(wire, kinds)?.wake === true ? "on" : "off") : null,
       livePhase: phaseByWireId?.get(wire.id) ?? null,
     });
   }

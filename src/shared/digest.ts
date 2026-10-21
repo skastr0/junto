@@ -1,6 +1,5 @@
 import { asNodeId, inPaintOrder, regionMembers, regionName, type Canvas, type Node } from "./model";
 import { titleOf as modelTitleOf } from "./model/title";
-import type { BoardGlanceTopic } from "./work-model";
 import type { ActorRefResolver } from "./attention";
 import {
   deriveExecutionGraph,
@@ -43,7 +42,6 @@ export type DigestLiveViews = LiveTrustViews & {
   /** Exact current Work rows supplied separately from the spatial model. */
   readonly itemsOf: WorkItemsOf;
   readonly artifactCounts?: ReadonlyMap<string, number>;
-  readonly boardGlances?: ReadonlyMap<string, { readonly topics: ReadonlyArray<BoardGlanceTopic>; readonly unread: number }>;
   /** Exact resolver compiled from execution references. */
   readonly resolveActorRef: ActorRefResolver;
   /** nodeId → occupancy spectrum. Absent/empty seats surface under design only (I13). */
@@ -219,25 +217,6 @@ export const digestCanvas = (
       if (node.kind === "artifacts") {
         const count = live.artifactCounts?.get(node.id);
         if (count !== undefined) entityLines.push(`  artifacts: ${count}`);
-      }
-      if (node.kind === "board") {
-        const board = live.boardGlances?.get(node.id);
-        const topics = board?.topics ?? [];
-        const recent = topics
-          .slice()
-          .sort(
-            (a, b) =>
-              // ISO timestamps sort lexicographically (compareTasksByLatestActivityDesc pattern).
-              b.lastActivityAt.localeCompare(a.lastActivityAt) ||
-              (a.topicId < b.topicId ? -1 : 1),
-          )
-          .slice(0, 3);
-        if (board) entityLines.push(
-          `  board: topics=${topics.length} unread=${board?.unread ?? 0}`,
-        );
-        for (const topic of recent) {
-          entityLines.push(`  topic: ${topic.title.replace(/\s+/g, " ").trim()}`);
-        }
       }
       if (node.kind === "git") {
         const cwd = node.cwd.trim();

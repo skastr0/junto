@@ -1,5 +1,5 @@
 import type { WorkLaneRow } from "@shared/work-sinks";
-import type { Artifact, BoardGlanceTopic } from "@shared/work-model";
+import type { Artifact } from "@shared/work-model";
 import type { TasksContract } from "@shared/work-model";
 import type { ActorSeatId } from "@shared/actor-seat";
 import type {
@@ -48,23 +48,6 @@ export type RequestRow = {
   readonly response?: string;
   /** Full request text — the decision contract shown before resolve/reject. */
   readonly details?: string;
-};
-
-export type BoardTopicRow = {
-  readonly sinkNodeId: string;
-  readonly topicId: string;
-  readonly title: string;
-  readonly open: boolean;
-  readonly postCount: number;
-  readonly lastActivityAtMs: number | undefined;
-  readonly authorLabel?: string;
-};
-
-export type BoardRow = {
-  readonly sinkNodeId: string;
-  /** Operator-local unread topic count when the projection knows it. */
-  readonly unread: number | undefined;
-  readonly topics: ReadonlyArray<BoardTopicRow>;
 };
 
 export type ArtifactRow = {
@@ -190,43 +173,6 @@ export const requestRowsForSeat = (
       });
   }
   return rows.sort(compareRequestRows);
-};
-
-const isoMs = (value: string): number | undefined => {
-  const ms = Date.parse(value);
-  return Number.isFinite(ms) ? ms : undefined;
-};
-
-/**
- * Boards the actor is wired to (either edge direction), as glance rows from
- * the board's Work projection. Open topics first, then latest activity first.
- * Per-seat unread is not in the glance projection; `unread` is the
- * operator-local count when known.
- */
-export const boardRowsForActor = (
-  entries: ReadonlyArray<{ readonly nodeId: string; readonly board: { readonly topics: ReadonlyArray<BoardGlanceTopic>; readonly unread?: number } }>,
-): ReadonlyArray<BoardRow> => {
-  const rows: BoardRow[] = [];
-  for (const { nodeId, board } of entries) {
-    const topics = [...board.topics]
-      .map((topic) => ({
-        sinkNodeId: nodeId,
-        topicId: topic.topicId,
-        title: topic.title,
-        open: topic.state === "open",
-        postCount: topic.postCount,
-        lastActivityAtMs: isoMs(topic.lastActivityAt),
-        ...(topic.authorLabel !== undefined
-          ? { authorLabel: topic.authorLabel }
-          : {}),
-      }))
-      .sort((a, b) => {
-        if (a.open !== b.open) return a.open ? -1 : 1;
-        return (b.lastActivityAtMs ?? 0) - (a.lastActivityAtMs ?? 0);
-      });
-    rows.push({ sinkNodeId: nodeId, unread: board.unread, topics });
-  }
-  return rows;
 };
 
 const firstTextPart = (parts: ReadonlyArray<Part>): string | undefined => {

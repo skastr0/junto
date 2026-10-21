@@ -1,7 +1,6 @@
 import { Schema } from "effect";
 import {
   ARTIFACTS_ENABLED,
-  BOARD_ENABLED,
   BROWSER_ENABLED,
   REQUESTS_ENABLED,
   TASKS_ENABLED,
@@ -9,9 +8,6 @@ import {
 import { SeatReadArgs, SeatWaitArgs, TaskWaitArgs } from "../../shared/seat-control";
 import { browserCapabilities, browserExamples, browserSchemas } from "../commands/browser-contract";
 import {
-  BoardListArgs,
-  BoardPostArgs,
-  BoardTagsListArgs,
   ContentMaterializeArgs,
   ContentPathArgs,
   ContentStatArgs,
@@ -372,37 +368,6 @@ export const contentMaterializeSchema: CommandSchemaContract = {
   input_modes: inputModes,
 };
 
-export const boardListSchema: CommandSchemaContract = {
-  command_id: "board.list",
-  command: "board list",
-  schema_id: "board.list.input/v1",
-  description:
-    "List topics/posts on a connected board plus metadata of connected actors.",
-  schema: BoardListArgs,
-  input_modes: inputModes,
-};
-
-export const boardPostSchema: CommandSchemaContract = {
-  command_id: "board.post",
-  command: "board post",
-  schema_id: "board.post.input/v1",
-  description:
-    "Post under a topic; optional tags (actor node ids) soft-notify tagged seats.",
-  schema: BoardPostArgs,
-  accepts_batch: true,
-  input_modes: inputModes,
-};
-
-export const boardTagsSchema: CommandSchemaContract = {
-  command_id: "board.tags",
-  command: "board tags",
-  schema_id: "board.tags.input/v1",
-  description:
-    "List posts on a connected board that tag this process-bound seat.",
-  schema: BoardTagsListArgs,
-  input_modes: inputModes,
-};
-
 const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   onboardSchema,
   sinceSchema,
@@ -430,9 +395,6 @@ const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   contentPathSchema,
   contentStatSchema,
   contentMaterializeSchema,
-  boardListSchema,
-  boardPostSchema,
-  boardTagsSchema,
   envReportSchema,
   logsReadSchema,
   ...referencesSchemas,

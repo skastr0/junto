@@ -69,11 +69,6 @@ describe("main authoring architecture", () => {
       // The renderer's tasks and artifacts, written through the ruler (resource-ipc.ts).
       "ipc.resource.artifact-apply",
       "ipc.resource.task-apply",
-      // Board sink: operator/renderer authoring over the work plane.
-      "ipc.work.board-mark-read",
-      "ipc.work.board-notify",
-      "ipc.work.board-post",
-      "ipc.work.board-topic-create",
       // Seat collaboration: the operator asks a peer for help, which appends
       // mail to that seat's mailbox.
       "ipc.work.collaboration-ask",

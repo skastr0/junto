@@ -1,6 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { resolveBoardConnectedActors } from "../src/shared/board-actors";
-import { edgeNotifyOn, resolveBoardWakeSet } from "../src/shared/board-wake";
 import { flowDestinations, flowSources, reachableBoards, validateFlowDag } from "../src/shared/flow-graph";
 import { asCanvasName, asNodeId, asWireId, type Node, type Wire } from "../src/shared/model";
 import type { Canvas } from "../src/shared/model/canvas";
@@ -13,7 +11,7 @@ const seat = (id: string): Node =>
     overseer: false, bindingId: `bind-${id}`, harness: "claude",
   }) as Node;
 
-const thing = (kind: "board" | "task", id: string): Node =>
+const thing = (kind: "task", id: string): Node =>
   ({ kind, id: asNodeId(id), ...at }) as Node;
 
 const wire = (verb: Wire["verb"], from: string, to: string, mask?: Wire["mask"]): Wire => ({
@@ -29,36 +27,6 @@ const canvas = (nodes: ReadonlyArray<Node>, wires: ReadonlyArray<Wire>): Canvas 
   seq: 0,
   nodes: new Map(nodes.map((node) => [node.id, node])),
   wires: new Map(wires.map((entry) => [entry.id, entry])),
-});
-
-describe("board wake set", () => {
-  const room = canvas(
-    [seat("ana"), seat("bo"), thing("board", "hall")],
-    [
-      wire("participates", "ana", "hall"),
-      wire("messages", "bo", "hall"),
-    ],
-  );
-
-  it("wakes a seat that participates and not one that only messages", () => {
-    expect(resolveBoardWakeSet(room, "hall")).toEqual([
-      { nodeId: "ana", target: { bindingId: "bind-ana" } },
-    ]);
-    expect(edgeNotifyOn(room, "hall", "ana")).toBe(true);
-    expect(edgeNotifyOn(room, "ana", "hall")).toBe(true);
-    expect(edgeNotifyOn(room, "hall", "bo")).toBe(false);
-  });
-
-  it("wakes no one on a board the canvas does not hold", () => {
-    expect(resolveBoardWakeSet(room, "gone")).toEqual([]);
-  });
-
-  it("lists every seat wired to the board, with whether it can be woken", () => {
-    expect(resolveBoardConnectedActors(room, "hall")).toEqual([
-      { nodeId: "ana", agentKey: "local:ana", label: "ana", wake: true },
-      { nodeId: "bo", agentKey: "local:bo", label: "bo", wake: false },
-    ]);
-  });
 });
 
 describe("task paths", () => {

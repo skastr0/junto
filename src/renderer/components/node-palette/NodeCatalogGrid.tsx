@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import {
   Archive,
   Blocks,
-  Braces,
   FileText,
   GitBranch,
   Globe2,
@@ -16,7 +15,6 @@ import {
 } from "lucide-react";
 import {
   ARTIFACTS_ENABLED,
-  BOARD_ENABLED,
   BROWSER_ENABLED,
   REQUESTS_ENABLED,
   TASKS_ENABLED,
@@ -75,11 +73,6 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     icon: Workflow,
     purpose: "Schedules and triggers that mail seats in this region.",
   },
-  ...(BOARD_ENABLED ? [{
-    id: "board", category: "sinks", label: "Board",
-    icon: Braces,
-    purpose: "A shared board for topics, updates, and decisions.",
-  } satisfies NodeCatalogEntry] : []),
   {
     id: "git", category: "sinks", label: "Git",
     icon: GitBranch,

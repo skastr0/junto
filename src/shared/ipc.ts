@@ -320,11 +320,6 @@ export const IPC_CHANNELS = {
   automationApply: "junto:automation-apply",
   automationsChanged: "junto:automations-changed",
   workMailChanged: "junto:work-mail-changed",
-  workBoardList: "junto:work-board-list",
-  workBoardCreateTopic: "junto:work-board-create-topic",
-  workBoardPost: "junto:work-board-post",
-  workBoardMarkRead: "junto:work-board-mark-read",
-  workBoardNotify: "junto:work-board-notify",
   // browser work surface (partitioned WebContentsView sessions)
   browserProfiles: "junto:browser-profiles",
   browserOpen: "junto:browser-open",
@@ -923,50 +918,6 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
     nodeId: string,
     limit?: number,
   ) => Promise<WorkOpResult<WorkSeatRecentOpsFeed>>;
-  /** Full topics+posts from SQLite (operator detail). Glance stays titles-only. */
-  readonly workBoardList: (
-    canvas: string,
-    nodeId: string,
-    topicId?: string,
-  ) => Promise<
-    WorkOpResult<{
-      readonly topics: ReadonlyArray<
-        import("./work-model").BoardTopicView
-      >;
-    }>
-  >;
-  readonly workBoardCreateTopic: (
-    canvas: string,
-    nodeId: string,
-    title: string,
-    body: string | undefined,
-    notify: boolean,
-  ) => Promise<
-    WorkOpResult<{
-      readonly topic: import("./work-model").BoardTopic;
-      readonly notify: boolean;
-    }>
-  >;
-  readonly workBoardPost: (
-    canvas: string,
-    nodeId: string,
-    topicId: string,
-    text: string,
-  ) => Promise<
-    WorkOpResult<{ readonly post: import("./work-model").BoardPost }>
-  >;
-  readonly workBoardMarkRead: (
-    canvas: string,
-    nodeId: string,
-    topicId: string,
-    upToPosition?: number,
-  ) => Promise<WorkOpResult<{ readonly topicId: string }>>;
-  /** Operator megaphone: wake Notify-ON seats for a board/topic. */
-  readonly workBoardNotify: (
-    canvas: string,
-    nodeId: string,
-    topicId?: string,
-  ) => Promise<WorkOpResult<{ readonly wakeCount: number }>>;
   readonly onNodeRefOpened: (
     listener: (event: NodeRefOpenedEvent) => void | Promise<void>,
   ) => () => void;
