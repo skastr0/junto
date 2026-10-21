@@ -96,13 +96,17 @@ const listed = (reviewers: ReadonlyArray<Reviewer>, reviewer: Reviewer): boolean
 /**
  * Current approvals, once per reviewer: a seat's while it is on the list, the
  * operator's always (the operator reviews through the feed, listed or not).
+ * No seat's approval counts toward work it is assigned, checked here at count
+ * time: a reviewer later reassigned the task brings no approval with it.
  */
-export const currentApprovals = (task: Pick<TaskCore, "epoch" | "stamps" | "reviewers">): number =>
+export const currentApprovals = (task: Pick<TaskCore, "epoch" | "stamps" | "reviewers" | "assignee">): number =>
   currentStamps(task).filter((stamp) =>
-    stamp.verdict === "approve" && (stamp.reviewer.kind === "operator" || listed(task.reviewers, stamp.reviewer))
+    stamp.verdict === "approve" &&
+    (stamp.reviewer.kind === "operator" ||
+      (listed(task.reviewers, stamp.reviewer) && stamp.reviewer.seat !== task.assignee))
   ).length;
 
-export const stampsMet = (task: Pick<TaskCore, "epoch" | "stamps" | "reviewers" | "stampPolicy">): boolean =>
+export const stampsMet = (task: Pick<TaskCore, "epoch" | "stamps" | "reviewers" | "stampPolicy" | "assignee">): boolean =>
   currentApprovals(task) >= task.stampPolicy.required;
 
 // ── dependencies ───────────────────────────────────────────────────────────

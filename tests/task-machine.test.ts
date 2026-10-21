@@ -327,6 +327,24 @@ describe("review stamps", () => {
     }))).toBe(1);
   });
 
+  it("never counts a seat's approval toward work it is assigned", () => {
+    // bo approves ada's work, then the task is unassigned and handed to bo.
+    const approved = run(reviewing({ stampPolicy: { required: 2 } }), [
+      [seat(ada), { kind: "finish" }],
+      [seat(bo), { kind: "stamp", verdict: "approve" }],
+    ]);
+    const handed = run(approved, [
+      [operator, { kind: "unassign" }],
+      [operator, { kind: "reviewer-remove", reviewer: asSeat(bo) }],
+      [operator, { kind: "reviewer-add", reviewer: asSeat(bo) }],
+      [operator, { kind: "stamp-policy", required: 1 }],
+      [operator, { kind: "assign", seat: bo }],
+    ]);
+    expect(currentApprovals(handed)).toBe(0);
+    const finished = run(handed, [[seat(bo), { kind: "start" }], [seat(bo), { kind: "finish" }]]);
+    expect(finished.state).toBe("in-review");
+  });
+
   it("adds reviewers in reach, asking a late one in review, and never the assignee", () => {
     const inReview = run(reviewing({ reviewers: [] }), [[seat(ada), { kind: "finish" }]]);
     const added = ok(one(inReview, seat(bo), { kind: "reviewer-add", reviewer: asSeat(bo) }));
