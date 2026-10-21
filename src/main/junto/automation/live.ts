@@ -6,8 +6,9 @@
  * Actions run as the automation, never as the operator. Mail goes from the
  * automation's own node (`automationActorRef`) into the seat's mailbox, with
  * no reply command; its id is derived from the firing, so a firing retried
- * after a crash writes the same row once. An action whose port has not
- * landed yet is ruled refused `not_available` in the firing's history, so a
+ * after a crash writes the same row once. A comment posts on the whole
+ * resource as the automation, through the one comment write path. An action
+ * whose port has not landed yet is ruled refused `not_available` in the firing's history, so a
  * firing never reads as done when it did nothing. A `when` condition holds
  * only once the seat-state and task-state ports land; until then it never
  * holds and the firing is skipped `condition_unmet`.
@@ -25,6 +26,11 @@ import { makeUserMessage } from "@shared/task";
 import { ModelRecords } from "../model/records";
 import { ModelService } from "../model/service";
 import { WorkService, type WorkServiceShape } from "../work/service";
+import { postSubjectComment } from "../work/subject-comment";
+import type { SubjectCommentInput } from "@shared/subject-comment";
+import { RefusalReason as RefusalReasonSchema, type RefusalReason } from "@shared/resource-command";
+import type { WorkErrorBody } from "@shared/work-control";
+import type { OpId } from "@shared/work-ids";
 import { type AutomationPersistenceError, AutomationRepository } from "./repository";
 import { makeAutomationRunner, type RunnerPorts } from "./runner";
 
@@ -45,9 +51,29 @@ const decodeAutomationNode = Schema.decodeUnknownOption(AutomationNodeId);
 
 const notAvailable = (index: number): ActionRuling => ({ index, ruling: "refused", reason: "not_available" });
 
+/** The thread subject a comment action names: the whole task, artifact or page. */
+const subjectOf = (on: Extract<Action, { readonly kind: "comment" }>["on"]) => {
+  switch (on.kind) {
+    case "task":
+      return { kind: "task", nodeId: on.nodeId, taskId: on.taskId };
+    case "artifact":
+      return { kind: "artifact", nodeId: on.nodeId, artifactId: on.artifactId };
+    case "page":
+      return { kind: "page", nodeId: on.nodeId };
+  }
+};
+
+/** The refusal a failed write names, or invalid input when it names none. */
+const refusalReasonOf = (error: WorkErrorBody): RefusalReason => {
+  const reason = (error.details as { readonly reason?: unknown } | undefined)?.reason;
+  if (Schema.is(RefusalReasonSchema)(reason)) return reason;
+  return error.type === "UnknownTarget" ? "unknown_target" : "invalid_input";
+};
+
 /** One action, performed as the automation. Never fails: a refusal is a ruling. */
 export const performAction = (
   work: Option.Option<WorkServiceShape>,
+  canvas: Canvas | undefined,
   canvasName: string,
   automation: Automation,
   action: Action,
@@ -75,9 +101,27 @@ export const performAction = (
         );
         return written.ok ? ({ index, ruling: "applied" } as const) : ({ index, ruling: "refused", reason: "invalid_input" } as const);
       }
+      case "comment": {
+        // A comment on the whole resource; a place on it waits for the plan 03 anchors.
+        if (canvas === undefined || (action.anchor !== undefined && action.anchor.kind !== "whole")) return notAvailable(index);
+        const posted = yield* Effect.result(
+          postSubjectComment(
+            {
+              subject: subjectOf(action.on),
+              text: action.text,
+              actor: { kind: "automation", nodeId: automation.nodeId, automationId: automation.automationId },
+              // Derived from the firing, so a retried firing posts the comment once.
+              opId: automationMailId(firingId, index) as OpId,
+            } as SubjectCommentInput,
+            { canvas, canvasName, people: [] },
+          ),
+        );
+        return posted._tag === "Success"
+          ? ({ index, ruling: "applied" } as const)
+          : ({ index, ruling: "refused", reason: refusalReasonOf(posted.failure) } as const);
+      }
       case "create-task":
       case "assign-task":
-      case "comment":
         return notAvailable(index);
     }
   });
@@ -105,7 +149,7 @@ export const AutomationRunnerLive = Layer.effect(
       canvas: (canvasName) => canvases.get(canvasName),
       holds: () => false,
       perform: (canvasName, automation, action, index, firingId) =>
-        performAction(work, canvasName, automation, action, index, firingId).pipe(
+        performAction(work, canvases.get(canvasName), canvasName, automation, action, index, firingId).pipe(
           Effect.catchCause(() => Effect.succeed(notAvailable(index))),
         ),
       mintFiringId: () => FiringId.make(ulid()),
