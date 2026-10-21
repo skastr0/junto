@@ -54,6 +54,7 @@ import { canonicalJson } from "@shared/work-canonical-json";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { ItemId, OpId } from "@shared/work-ids";
 import { StateTransactionOperation } from "../state/service";
+import { writeRuling, type RulingRecord } from "./resource-rulings";
 
 export class ArtifactPersistenceError extends Schema.TaggedError<ArtifactPersistenceError>()(
   "ArtifactPersistenceError",
@@ -520,14 +521,12 @@ export const ArtifactRepositoryLive: Layer.Layer<ArtifactRepository, never, SqlC
         );
       }
       const outcome = outcomeOf(ruling, ruled.ruled.state, artifactId as ItemId);
-      const stored =
+      const record: RulingRecord =
         outcome.kind === "applied"
           ? { kind: "applied", artifactId: outcome.artifactId, version: outcome.version }
           : { kind: "refused", error: outcome.error, root: outcome.root };
       // The ruling and its facts commit together, or neither does.
-      yield* sql`
-        INSERT INTO resource_rulings (canvas_name, writer, op_id, kind, ruling_json)
-        VALUES (${canvas}, ${writer}, ${command.opId}, ${outcome.kind}, ${JSON.stringify(stored)})`;
+      yield* writeRuling(sql, { canvas, writer, command, record });
       return outcome;
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "artifacts.submit"), Effect.mapError(persistence("submit")));
 

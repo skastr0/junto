@@ -7,6 +7,11 @@
  *
  * `ruling_json` is the domain's record of what the ruling made (applied) or
  * the error it refused with (refused). Shared with remote's R2 path.
+ *
+ * `actor_kind` and `actor_node_id` say whose command it was, from the
+ * command's actor: a seat gives its node id, the operator and an automation
+ * give none. `junto op show` and `junto op list` read a seat's own rulings by
+ * them.
  */
 export const RESOURCE_RULINGS_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS resource_rulings (
@@ -15,6 +20,13 @@ export const RESOURCE_RULINGS_STATE_SCHEMA_SQL = `
     op_id TEXT NOT NULL CHECK (length(op_id) = 26),
     kind TEXT NOT NULL CHECK (kind IN ('applied', 'refused')),
     ruling_json TEXT NOT NULL CHECK (json_valid(ruling_json)),
+    actor_kind TEXT NOT NULL CHECK (actor_kind IN ('seat', 'operator', 'automation')),
+    actor_node_id TEXT CHECK (
+      (actor_kind = 'seat') = (actor_node_id IS NOT NULL)
+      AND (actor_node_id IS NULL OR length(actor_node_id) BETWEEN 1 AND 256)
+    ),
     PRIMARY KEY (canvas_name, writer, op_id)
   ) STRICT, WITHOUT ROWID;
+  CREATE INDEX IF NOT EXISTS resource_rulings_actor
+    ON resource_rulings(canvas_name, writer, actor_node_id, op_id);
 `;

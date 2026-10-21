@@ -16,6 +16,7 @@ import {
 import { seatNodeId, taskNodeId, type TaskCommand, type TaskId } from "../src/shared/task-model";
 import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
 import { TASKS_STATE_SCHEMA_SQL } from "../src/main/junto/work/task-state-schema";
+import { RESOURCE_RULINGS_STATE_SCHEMA_SQL } from "../src/main/junto/work/resource-rulings-schema";
 import {
   TaskRepository,
   TaskRepositoryLive,
@@ -30,12 +31,7 @@ beforeEach(() => {
   database = new DatabaseSync(":memory:");
   database.exec("PRAGMA foreign_keys = ON");
   database.exec(TASKS_STATE_SCHEMA_SQL);
-  // The shared ruling store (02); its schema lands with cli-identity's step.
-  database.exec(`CREATE TABLE resource_rulings (
-    canvas_name TEXT NOT NULL, writer TEXT NOT NULL, op_id TEXT NOT NULL,
-    kind TEXT NOT NULL CHECK (kind IN ('applied', 'refused')), ruling_json TEXT NOT NULL CHECK (json_valid(ruling_json)),
-    PRIMARY KEY (canvas_name, writer, op_id)
-  ) STRICT, WITHOUT ROWID`);
+  database.exec(RESOURCE_RULINGS_STATE_SCHEMA_SQL);
   const client = Layer.effect(SqlClient.SqlClient, makeSqliteClient(database)).pipe(Layer.provide(Reactivity.layer));
   runtime = ManagedRuntime.make(TaskRepositoryLive.pipe(Layer.provide(client)));
 });

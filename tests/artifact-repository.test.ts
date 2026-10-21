@@ -210,8 +210,8 @@ describe("ArtifactRepository", () => {
     const id = await createSheet();
     const opId = mintOpId();
     await sql((client) => client`
-      INSERT INTO resource_rulings (canvas_name, writer, op_id, kind, ruling_json)
-      VALUES (${canvas}, ${mini}, ${opId}, 'applied', '{}')`);
+      INSERT INTO resource_rulings (canvas_name, writer, op_id, kind, ruling_json, actor_kind)
+      VALUES (${canvas}, ${mini}, ${opId}, 'applied', '{}', 'operator')`);
     const again = await failure((repo) =>
       repo.submit(mini, command({ op: "edit", edit: sheetCell(1, "c1", "a") }, id, { opId }), everywhere),
     );

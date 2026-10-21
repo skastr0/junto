@@ -24,9 +24,9 @@ import { migrateSeatPins } from "./migrate-seat-pins";
 import { migrateSeatSessionData } from "./migrate-seat-session-data";
 import { migrateSeatRows } from "./migrate-seat-rows";
 import { migrateRetireOnRemove } from "./migrate-retire-on-remove";
+import { migrateRulingActor } from "./migrate-ruling-actor";
 import { HARNESS_MODEL_CACHE_STATE_SCHEMA_SQL } from "../term/templates/harness-models-state-schema";
 import { ARTIFACTS_STATE_SCHEMA_SQL } from "../work/artifact-state-schema";
-import { RESOURCE_RULINGS_STATE_SCHEMA_SQL } from "../work/resource-rulings-schema";
 import {
   actualStateSchemaSha256,
   normalizeSchemaSql,
@@ -43,6 +43,18 @@ export type StateSchemaMigrationDatabase = Pick<
   DatabaseSync,
   "exec" | "prepare"
 >;
+
+/** Resource rulings as 25 -> 26 created them, before the actor (26 -> 27). Frozen. */
+const RESOURCE_RULINGS_V26_SQL = `
+  CREATE TABLE IF NOT EXISTS resource_rulings (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    writer TEXT NOT NULL CHECK (length(writer) BETWEEN 1 AND 256),
+    op_id TEXT NOT NULL CHECK (length(op_id) = 26),
+    kind TEXT NOT NULL CHECK (kind IN ('applied', 'refused')),
+    ruling_json TEXT NOT NULL CHECK (json_valid(ruling_json)),
+    PRIMARY KEY (canvas_name, writer, op_id)
+  ) STRICT, WITHOUT ROWID;
+`;
 
 export const STATE_SCHEMA_MIGRATION_SAFETY = "expand-only" as const;
 /**
@@ -261,7 +273,16 @@ export const STATE_SCHEMA_V26_IDENTITY = {
     "440ace1f1a5f36092904e5604066fec7b01fa31f39816f820e766a6c0bf2d57e",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 26;
+/**
+ * Version 27 puts the actor on every resource ruling, so a seat reads its own
+ * writes with `junto op show` and `junto op list`.
+ */
+export const STATE_SCHEMA_V27_IDENTITY = {
+  actualSchemaSha256:
+    "46b6f38f44f029f1ce2ddc386e1c02231153cc25ef84f38b270a0fe73d371add",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 27;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -269,7 +290,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 26;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V26_IDENTITY;
+  STATE_SCHEMA_V27_IDENTITY;
 
 /**
  * Version 13 is the oldest database Junto opens: steps below it, and the
@@ -419,9 +440,18 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V25_IDENTITY,
     migrate: (database) => {
-      database.exec(RESOURCE_RULINGS_STATE_SCHEMA_SQL);
+      database.exec(RESOURCE_RULINGS_V26_SQL);
       database.exec(ARTIFACTS_STATE_SCHEMA_SQL);
     },
+  },
+  {
+    fromVersion: 26,
+    toVersion: 27,
+    name: "put the actor on resource rulings",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V26_IDENTITY,
+    replacesTables: ["resource_rulings"],
+    migrate: (database) => migrateRulingActor(database),
   },
 ];
 

@@ -150,3 +150,9 @@ export const STATE_SCHEMA_V26_SQL = stepped(
   STATE_SCHEMA_V25_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 26)!.migrate,
 );
+
+// Version 27 put the actor on resource rulings (26 -> 27).
+export const STATE_SCHEMA_V27_SQL = stepped(
+  STATE_SCHEMA_V26_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 27)!.migrate,
+);

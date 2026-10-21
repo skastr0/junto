@@ -50,6 +50,7 @@ import {
 import type { WorkErrorBody } from "@shared/work-control";
 import { ItemId, type OpId } from "@shared/work-ids";
 import { StateTransactionOperation } from "../state/service";
+import { writeRuling, type RulingRecord } from "./resource-rulings";
 
 export class TaskPersistenceError extends Schema.TaggedError<TaskPersistenceError>()(
   "TaskPersistenceError",
@@ -420,12 +421,10 @@ export const TaskRepositoryLive: Layer.Layer<TaskRepository, never, SqlClient.Sq
       } else {
         outcome = { kind: "refused", opId: command.opId, error: ruling.error, root: ruling.root };
       }
-      const stored = outcome.kind === "applied"
+      const record: RulingRecord = outcome.kind === "applied"
         ? { kind: "applied", taskId: outcome.task.id }
         : { kind: "refused", error: outcome.error, root: outcome.root };
-      yield* sql`
-        INSERT INTO resource_rulings (canvas_name, writer, op_id, kind, ruling_json)
-        VALUES (${canvas}, ${writer}, ${command.opId}, ${stored.kind}, ${JSON.stringify(stored)})`;
+      yield* writeRuling(sql, { canvas, writer, command, record });
       return outcome;
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "tasks.submit"), Effect.mapError(persistence("submit")));
 
