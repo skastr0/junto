@@ -169,7 +169,6 @@ export {
   MessageRole,
   Part,
   RawPart,
-  resolveTaskAdmission,
   Rule,
   Ruling,
   Task,

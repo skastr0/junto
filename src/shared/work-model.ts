@@ -197,6 +197,11 @@ export const TasksIncoming = Schema.Struct({
   handling: Schema.optionalKey(Schema.String),
   /** Prose self-description for earlier boards choosing a path. */
   description: Schema.optionalKey(Schema.String),
+  /**
+   * Decode only: nodes stored before 0.10 may hold who started tasks here.
+   * Nothing reads or enforces it, and no writer sets it; strict node
+   * decoding would refuse those nodes without it.
+   */
   admission: Schema.optionalKey(TaskAdmission),
   /** Board default delay before a task can be claimed. */
   waitMs: Schema.optionalKey(
@@ -235,11 +240,6 @@ export type TasksContract = typeof TasksContract.Type;
 export const stampDefaultOfContract = (contract: TasksContract | undefined): { readonly required: number } => ({
   required: contract?.stampDefault?.required ?? 0,
 });
-
-/** Resolve admission with product default `auto` when omitted. */
-export const resolveTaskAdmission = (
-  contract: TasksContract | undefined,
-): TaskAdmission => contract?.incoming?.admission ?? "auto";
 
 /** An agent's answer to one rule, recorded at completion. */
 export const Claim = Schema.Struct({
@@ -398,11 +398,7 @@ export const Task = Schema.Struct({
   checkResults: Schema.optionalKey(Schema.Array(CheckResult)),
   metadata: TaskAuthoringFields.metadata,
   reason: TaskAuthoringFields.reason,
-  /**
-   * Requester admission overlay. Omitted = inherit the sink floor
-   * (`resolveTaskAdmission`, default auto). Agents persist an explicit
-   * `approval` stamp when omitted on the wire. Never loosens the board floor.
-   */
+  /** Requester admission overlay, kept only as old rows hold it: nothing enforces it. */
   admission: Schema.optionalKey(TaskAdmission),
   /** Who raised this task. Optional; historical rows omit it. */
   raisedBy: Schema.optionalKey(ActorRef),

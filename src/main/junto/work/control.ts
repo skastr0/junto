@@ -219,7 +219,6 @@ import {
   summarizeNode,
 } from "./authz";
 import { linkMentionsAt } from "./mention-links";
-import { resolveTaskAdmission } from "@shared/work-model";
 import {
   boardContractOf,
   regionContractOf,
@@ -718,7 +717,7 @@ const boardGuidance = (
   };
 };
 
-/** Rules in force per reachable board, with the board's admission posture. */
+/** Rules in force per reachable board. */
 const boardRulesMap = (doc: Canvas, fromNodeId: string) =>
   [...reachableBoards(doc, fromNodeId)].map((board) => {
     const node = doc.nodes.get(asNodeId(board));
@@ -733,7 +732,6 @@ const boardRulesMap = (doc: Canvas, fromNodeId: string) =>
         text: entry.rule.text,
         provenance: entry.provenance,
       })),
-      admission: resolveTaskAdmission(contract),
       ...(incoming?.description !== undefined
         ? { description: incoming.description }
         : {}),
@@ -761,7 +759,6 @@ const boardBriefing = (doc: Canvas, nodeId: string) => {
       ...(incoming?.description !== undefined
         ? { description: incoming.description }
         : {}),
-      admission: resolveTaskAdmission(boardContractOf(doc, destination)),
     };
   });
   if (contract === undefined && next.length === 0) return undefined;
@@ -773,7 +770,6 @@ const boardBriefing = (doc: Canvas, nodeId: string) => {
     contract: {
       ...boardGuidance(doc, nodeId),
       rules: rulesInForce(doc, nodeId).length,
-      admission: resolveTaskAdmission(contract),
     },
     next,
   };

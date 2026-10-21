@@ -5,16 +5,14 @@ import type {
   CompletionEvidence,
   Rule,
   Task,
-  TaskAdmission,
   TasksContract,
 } from "./work-model";
-import { resolveTaskAdmission } from "./work-model";
 import type { Placed } from "./model/canvas";
 import { asNodeId } from "./model/base";
 import { nodeOf, regionName, regionStack, UNNAMED_REGION } from "./model/canvas";
 import type { Region, RegionContract } from "./model/region";
 
-// Pure structural enforcement for task rules, claims, checks, and admission.
+// Pure structural enforcement for task rules, claims and checks.
 // The work service validates presence and shape. It never judges whether an
 // agent's claim about the work is true.
 
@@ -177,44 +175,6 @@ export const requiredChecks = (
   ];
 };
 
-type TaskAdmissionState =
-  | "claimable"
-  | "waiting"
-  | "approval"
-  | "operator";
-
 /** Epoch-scoped operator approval marker. */
 export const TASK_APPROVED_METADATA_KEY = "junto.tasks.approvedEpoch";
-
-const taskApproved = (task: Task): boolean =>
-  task.metadata?.[TASK_APPROVED_METADATA_KEY] === taskEpoch(task);
-
-const ADMISSION_RANK: Readonly<Record<TaskAdmission, 0 | 1 | 2>> = {
-  auto: 0,
-  approval: 1,
-  operator: 2,
-};
-
-const effectiveTaskAdmission = (
-  task: Pick<Task, "admission">,
-  contract: TasksContract | undefined,
-): TaskAdmission => {
-  const floor = resolveTaskAdmission(contract);
-  const requested = task.admission;
-  if (requested === undefined) return floor;
-  return ADMISSION_RANK[requested] >= ADMISSION_RANK[floor] ? requested : floor;
-};
-
-export const taskAdmissionState = (
-  task: Task,
-  contract: TasksContract | undefined,
-  nowMs: number,
-): TaskAdmissionState => {
-  const admission = effectiveTaskAdmission(task, contract);
-  if (admission === "operator") return "operator";
-  if (admission === "approval" && !taskApproved(task)) return "approval";
-  const waitUntil = task.waitUntil === undefined ? NaN : Date.parse(task.waitUntil);
-  if (Number.isFinite(waitUntil) && waitUntil > nowMs) return "waiting";
-  return "claimable";
-};
 
