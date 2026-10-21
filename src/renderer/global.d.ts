@@ -4,7 +4,6 @@ import type {
   JuntoBrowserApi,
   JuntoDemoApi,
   JuntoHostsApi,
-  JuntoSchedulerApi,
   JuntoGitApi,
   JuntoTerminalApi,
   JuntoUsageApi,
@@ -23,7 +22,6 @@ declare global {
       Partial<
           JuntoBrowserApi &
           JuntoUsageApi &
-          JuntoSchedulerApi &
           JuntoHostsApi
       >;
   }

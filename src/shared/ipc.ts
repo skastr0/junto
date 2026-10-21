@@ -573,23 +573,6 @@ export interface NodeRefOpenedDelivery extends NodeRefOpenedEvent {
   readonly deliveryId: string;
 }
 
-export interface JuntoSchedulerApi {
-  /** Fire one selected scheduler's outbound does edges only. */
-  readonly schedulerFire: (
-    canvas: string,
-    sourceNodeId: string,
-  ) => Promise<
-    | {
-        readonly ok: true;
-        readonly sourceNodeId: string;
-        readonly kind: "relay" | "cron" | "gauge";
-        readonly applied: number;
-        readonly message: string;
-      }
-    | { readonly ok: false; readonly error: string }
-  >;
-}
-
 export type RegionEnvSaveSecretInput = {
   /** The region the source lives in. Context only; not stored. */
   readonly regionId: string;

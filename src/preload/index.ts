@@ -20,7 +20,6 @@ import {
   type JuntoDemoApi,
   type JuntoGitApi,
   type JuntoHostsApi,
-  type JuntoSchedulerApi,
   type JuntoTerminalApi,
   type JuntoUsageApi,
   type KernelSnapshot,
@@ -37,10 +36,8 @@ import {
   ARTIFACTS_ENABLED,
   BOARD_ENABLED,
   BROWSER_ENABLED,
-  CRON_ENABLED,
   FLEET_UI_ENABLED,
   LIVE_OVERSEER_ENABLED,
-  RELAY_ENABLED,
   REQUESTS_ENABLED,
   TASKS_ENABLED,
   USAGE_ENABLED,
@@ -768,11 +765,6 @@ const boardWorkApi: Pick<
     ),
 };
 
-const schedulerApi: JuntoSchedulerApi = {
-  schedulerFire: (canvas, sourceNodeId) =>
-    invoke(IPC_CHANNELS.schedulerFire, IPC_TIMEOUT_MS, canvas, sourceNodeId),
-};
-
 const usageApi: JuntoUsageApi = {
   getUsage: () => invoke(IPC_CHANNELS.getUsage, IPC_TIMEOUT_MS),
   refreshUsage: () => invoke(IPC_CHANNELS.refreshUsage, USAGE_REFRESH_TIMEOUT_MS),
@@ -931,7 +923,6 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
     ...(BOARD_ENABLED ? boardWorkApi : {}),
     ...(LIVE_OVERSEER_ENABLED ? liveApi : {}),
     ...(USAGE_ENABLED ? usageApi : {}),
-    ...(CRON_ENABLED || RELAY_ENABLED ? schedulerApi : {}),
     ...(FLEET_UI_ENABLED ? hostsApi : {}),
     ...terminalApi,
     ...gitApi,
