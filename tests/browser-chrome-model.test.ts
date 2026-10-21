@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { initialPageDriving, reducePageDriving, type PageDriving } from "../src/shared/page-driver";
 import { asNodeId } from "../src/shared/model";
 import {
+  addressParts,
   addressTarget,
   driverView,
   refusalLine,
@@ -75,5 +76,19 @@ describe("refusalLine", () => {
     expect(lines.every((line) => line.length > 0 && line.endsWith("."))).toBe(true);
     expect(lines[2]).toContain("12");
     expect(lines[5]).toBe("The view is busy.");
+  });
+});
+
+describe("addressParts", () => {
+  it("sets the host apart from the scheme and the path, as typed", () => {
+    expect(addressParts("https://docs.example.com/guide/start")).toEqual({ before: "https://", host: "docs.example.com", after: "/guide/start" });
+    expect(addressParts("http://localhost:3000/")).toEqual({ before: "http://", host: "localhost:3000", after: "/" });
+    expect(addressParts("https://Example.COM/A")).toEqual({ before: "https://", host: "Example.COM", after: "/A" });
+  });
+
+  it("has nothing to set apart on a blank or hostless address", () => {
+    expect(addressParts("")).toBeUndefined();
+    expect(addressParts("about:blank")).toBeUndefined();
+    expect(addressParts("not an address")).toBeUndefined();
   });
 });

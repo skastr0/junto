@@ -69,6 +69,26 @@ export const takeoverOffer = (driving: PageDriving): TakeoverOffer =>
     ? { action: "release", label: "Hand back" }
     : { action: "take-over", label: "Take over" };
 
+export type AddressParts = { readonly before: string; readonly host: string; readonly after: string };
+
+/**
+ * The shown address in three parts, so the bar can set the host apart from
+ * the scheme and path: the host is who the page is. Undefined when the
+ * address has no host to set apart (blank, or not a web address).
+ */
+export const addressParts = (url: string): AddressParts | undefined => {
+  let host: string;
+  try {
+    host = new URL(url).host;
+  } catch {
+    return undefined;
+  }
+  if (host === "") return undefined;
+  const at = url.toLowerCase().indexOf(host.toLowerCase());
+  if (at < 0) return undefined;
+  return { before: url.slice(0, at), host: url.slice(at, at + host.length), after: url.slice(at + host.length) };
+};
+
 /** A tab's label: its title, else its host, else a blank page. */
 export const tabLabel = (tab: { readonly title: string; readonly url: string }): string => {
   if (tab.title.trim() !== "") return tab.title.trim();

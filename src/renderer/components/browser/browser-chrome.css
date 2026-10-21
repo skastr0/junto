@@ -3,11 +3,49 @@
 /* Two bands: the strip of tabs with the surface's own actions on a recessed
    band, and the shown tab's row, which the active tab joins. */
 .browser-chrome {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   border-bottom: 1px solid var(--color-stroke);
   background: var(--color-raise-2);
+  transition: border-color 160ms ease-out;
+}
+
+/* The line where the page begins carries who drives it: a seat at work, or you holding it. */
+.browser-chrome[data-driver="seat-live"] {
+  border-bottom-color: color-mix(in oklab, var(--color-cyan) 70%, transparent);
+}
+
+.browser-chrome[data-driver="operator-held"] {
+  border-bottom-color: var(--color-amber);
+}
+
+/* The shown tab loading: a short bright run along that line, on the compositor. */
+.browser-chrome__progress {
+  position: absolute;
+  inset: auto 0 -1px;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.browser-chrome__progress::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 30%;
+  background: linear-gradient(to right, transparent, var(--color-cyan), transparent);
+  animation: browser-chrome-load 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes browser-chrome-load {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
 }
 
 .browser-chrome__top {
@@ -101,6 +139,7 @@
   align-items: flex-end;
   gap: 2px;
   min-width: 0;
+  margin-right: 4px;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -130,9 +169,11 @@
 }
 
 /* The shown tab joins the row below it: same ground, no seam, an amber cap. */
+/* The tab you are on keeps a readable floor while the others shrink past it. */
 .tab-strip__tab[data-active="true"] {
   position: relative;
   z-index: 1;
+  min-width: 120px;
   border-color: var(--color-stroke);
   background: var(--color-raise-2);
   box-shadow: inset 0 2px 0 var(--color-amber);
@@ -199,9 +240,32 @@
   min-width: 0;
 }
 
-.address-bar > :last-child {
+.address-bar__field {
+  position: relative;
+  display: flex;
   flex: 1;
   min-width: 0;
+}
+
+.address-bar__field[data-shown="true"] input {
+  color: transparent;
+}
+
+/* Sits exactly on the field's text: the field's border and padding, the same mono type. */
+.address-bar__shown {
+  position: absolute;
+  inset: 0 9px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  white-space: pre;
+  pointer-events: none;
+}
+
+.address-bar__quiet {
+  color: var(--color-dim);
 }
 
 /* Who drives, and the one control over it, in one piece. */

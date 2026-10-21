@@ -4,7 +4,7 @@ import type { BrowserBoxApi, BrowserBoxDraft, BrowserChromeState } from "@shared
 import type { BrowserTabId } from "@shared/browser-tab";
 import { activeTab } from "@shared/page-tabs";
 import type { ChromeCommand } from "../../lib/browser-chrome-source";
-import { addressTarget, boxShotSpent, driverView, refusalLine, tabLabel, takeoverOffer } from "../../lib/browser-chrome-model";
+import { addressParts, addressTarget, boxShotSpent, driverView, refusalLine, tabLabel, takeoverOffer } from "../../lib/browser-chrome-model";
 import type { BrowserChromeOutcome } from "@shared/browser-chrome";
 import { claimFocus } from "../../lib/focus-ownership";
 import { registerPageChromeKeys } from "../../lib/page-chrome-keys";
@@ -250,6 +250,8 @@ export function AddressBar({
   const tab = activeTab(state.tabs);
   const [typed, setTyped] = useState(tab.url);
   useEffect(() => setTyped(tab.url), [tab.id, tab.url]);
+  const [editing, setEditing] = useState(false);
+  const shown = editing || typed !== tab.url ? undefined : addressParts(tab.url);
   return (
     <form
       className="address-bar"
@@ -280,24 +282,36 @@ export function AddressBar({
       >
         {tab.loading ? <X size={14} /> : <RotateCw size={14} />}
       </IconButton>
-      <Input
-        dense
-        ref={inputRef}
-        aria-label="Address"
-        placeholder="Search or type an address"
-        spellCheck={false}
-        value={typed}
-        onChange={(event) => setTyped(event.target.value)}
-        onKeyDown={(event) => {
-          // First Escape: the address goes back to the page's own and focus returns to the page.
-          // The surface's own Escape is the second one.
-          if (event.key !== "Escape") return;
-          event.preventDefault();
-          event.stopPropagation();
-          setTyped(tab.url);
-          onFocusPage();
-        }}
-      />
+      {/* At rest the page's own address shows its host in ink, scheme and path quiet; editing shows it plain. */}
+      <span className="address-bar__field" data-shown={shown === undefined ? undefined : "true"}>
+        <Input
+          dense
+          ref={inputRef}
+          aria-label="Address"
+          placeholder="Search or type an address"
+          spellCheck={false}
+          value={typed}
+          onChange={(event) => setTyped(event.target.value)}
+          onFocus={() => setEditing(true)}
+          onBlur={() => setEditing(false)}
+          onKeyDown={(event) => {
+            // First Escape: the address goes back to the page's own and focus returns to the page.
+            // The surface's own Escape is the second one.
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            event.stopPropagation();
+            setTyped(tab.url);
+            onFocusPage();
+          }}
+        />
+        {shown === undefined ? null : (
+          <span className="address-bar__shown" aria-hidden>
+            <span className="address-bar__quiet">{shown.before}</span>
+            {shown.host}
+            <span className="address-bar__quiet">{shown.after}</span>
+          </span>
+        )}
+      </span>
     </form>
   );
 }
@@ -428,6 +442,8 @@ export function BrowserChrome({
   // While this chrome shows it is the page in front for Cmd+L and Cmd+R (the
   // menu hands them back as keydowns, so they work while the page has focus).
   const addressRef = useRef<HTMLInputElement>(null);
+  // Who drives colours the chrome's lower edge, the line where the page begins.
+  const driver = driverView(state.driving, now, seatName);
   const runRef = useRef(run);
   runRef.current = run;
   useEffect(
@@ -441,7 +457,7 @@ export function BrowserChrome({
     [],
   );
   return (
-    <div className="browser-chrome" data-testid="browser-chrome">
+    <div className="browser-chrome" data-testid="browser-chrome" data-driver={driver.live ? `${driver.kind}-live` : driver.kind}>
       <div className="browser-chrome__top">
         <TabStrip state={state} pending={pending} onCommand={run} controls={controls} />
         {trailing === undefined ? null : <div className="browser-chrome__window">{trailing}</div>}
@@ -474,6 +490,8 @@ export function BrowserChrome({
           {refused}
         </p>
       )}
+      {/* The shown tab loading: a sweep along the chrome's lower edge, where the page begins. */}
+      {activeTab(state.tabs).loading ? <span className="browser-chrome__progress" aria-hidden /> : null}
     </div>
   );
 }

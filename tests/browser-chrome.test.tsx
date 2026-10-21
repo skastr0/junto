@@ -89,6 +89,16 @@ describe("BrowserChrome", () => {
     expect(seatRuns).toContain('data-kind="seat" data-live="true"');
   });
 
+  it("shows the page's host apart at rest, and colours the page's edge by who drives", () => {
+    const idle = draw({ tabs: tabsTwo, driving: initialPageDriving });
+    expect(idle).toContain('<span class="address-bar__shown" aria-hidden="true"><span class="address-bar__quiet">https://</span>docs.example.com<span class="address-bar__quiet">/</span></span>');
+    expect(idle).toContain('data-driver="idle"');
+    const seatRuns = draw({ tabs: tabsTwo, driving: reducePageDriving(initialPageDriving, { kind: "seat-start", nodeId: seat, at: 4_500 }) });
+    expect(seatRuns).toContain('data-driver="seat-live"');
+    const held = draw({ tabs: tabsTwo, driving: reducePageDriving(initialPageDriving, { kind: "take-over", at: 1 }) });
+    expect(held).toContain('data-driver="operator-held"');
+  });
+
   it("puts the surface's own actions in the tab band, apart from the page's row", () => {
     const html = renderToStaticMarkup(
       <BrowserChrome
