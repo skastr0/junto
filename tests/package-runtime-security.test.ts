@@ -1,7 +1,7 @@
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import ts from "typescript";
+import ts from "typescript-api";
 import { describe, expect, it } from "vitest";
 import rawRuntimePolicy from "../scripts/macos-runtime-policy.json";
 import {

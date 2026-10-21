@@ -29,7 +29,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Schema } from "effect";
-import ts from "typescript";
+import ts from "typescript-api";
 import { describe, expect, it } from "vitest";
 import { AGENT_SEAT_STATES } from "../src/shared/agent-seat-state";
 import { NEED_CAUSES, type NeedCause } from "../src/shared/harness-domain/need";

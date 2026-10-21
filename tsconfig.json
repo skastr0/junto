@@ -15,17 +15,14 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "incremental": true,
-    "tsBuildInfoFile": ".tsbuildinfo",
     "jsx": "react-jsx",
     "types": ["node", "bun", "vite/client", "vitest/globals"],
-    "baseUrl": ".",
     "paths": {
-      "@shared/*": ["src/shared/*"],
-      "@main/*": ["src/main/*"],
-      "@renderer/*": ["src/renderer/*"],
-      "@junto/overlay": ["src/overlay-oss/index.ts"],
-      "@junto/overlay/*": ["src/overlay-oss/*"]
+      "@shared/*": ["./src/shared/*"],
+      "@main/*": ["./src/main/*"],
+      "@renderer/*": ["./src/renderer/*"],
+      "@junto/overlay": ["./src/overlay-oss/index.ts"],
+      "@junto/overlay/*": ["./src/overlay-oss/*"]
     }
   },
   "include": [

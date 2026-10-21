@@ -86,9 +86,9 @@ const shipProfileTests = (): string[] =>
 await allMustPass([
   {
     name: "typecheck",
-    cmd: ["tsc", "--noEmit"],
-    // Node's default heap is too small for this program on a 7 GB runner.
-    env: { NODE_OPTIONS: "--max-old-space-size=4096" },
+    // The full check owns the one incremental cache; seat-made scoped
+    // configs that extend tsconfig.json write none.
+    cmd: ["tsc", "--noEmit", "--incremental", "--tsBuildInfoFile", ".tsbuildinfo"],
   },
   {
     name: "test",
